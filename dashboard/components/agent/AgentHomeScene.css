@@ -17,79 +17,117 @@
   object-fit: cover;
 }
 
+/* Sky: was a 3-stop gradient between near-black tones (read as flat black
+   on screen). Now a wider value range with a warm glow seeded from the
+   moon's corner, plus a soft haze band, so there's visible depth without
+   needing a photographic asset yet. */
 .agent-scene__preset--moonlit-sea {
-  background: linear-gradient(
-    180deg,
-    var(--agent-bg-deep) 0%,
-    var(--agent-bg-mid) 45%,
-    var(--agent-teal) 100%
-  );
+  background:
+    radial-gradient(
+      ellipse 70% 55% at 88% 6%,
+      rgba(167, 219, 230, 0.16) 0%,
+      rgba(167, 219, 230, 0.05) 35%,
+      transparent 65%
+    ),
+    linear-gradient(
+      180deg,
+      #0a1c2c 0%,
+      #0e2c3c 38%,
+      #123848 62%,
+      #0a2530 80%,
+      #050d14 100%
+    );
+}
+
+.agent-scene__haze {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 120% 30% at 50% 28%, rgba(200, 235, 240, 0.05) 0%, transparent 70%),
+    radial-gradient(ellipse 90% 20% at 30% 55%, rgba(200, 235, 240, 0.035) 0%, transparent 70%);
+  mix-blend-mode: screen;
 }
 
 .agent-scene__moon {
   position: absolute;
-  top: 8%;
-  right: 9%;
+  top: 7%;
+  right: 8%;
   width: 9vw;
   height: 9vw;
-  max-width: 130px;
-  max-height: 130px;
-  min-width: 64px;
-  min-height: 64px;
+  max-width: 140px;
+  max-height: 140px;
+  min-width: 72px;
+  min-height: 72px;
   border-radius: 50%;
   background: radial-gradient(
-    circle at 35% 32%,
-    var(--agent-moon-light) 0%,
-    var(--agent-moon-halo) 55%,
-    transparent 100%
+    circle at 33% 30%,
+    #ffffff 0%,
+    #eaf6f9 22%,
+    #cfe9ee 48%,
+    #9cc8d2 75%,
+    #6fa6b3 100%
   );
+  box-shadow:
+    0 0 30px 6px rgba(207, 238, 244, 0.35),
+    0 0 80px 24px rgba(167, 219, 230, 0.18);
 }
 
 .agent-scene__moon-halo {
   position: absolute;
-  top: 0;
-  right: 0;
-  width: 70%;
-  height: 75%;
+  top: -10%;
+  right: -10%;
+  width: 85%;
+  height: 90%;
   background: radial-gradient(
-    circle at 78% 12%,
-    var(--agent-accent-faint) 0%,
-    transparent 60%
+    circle at 72% 18%,
+    rgba(167, 219, 230, 0.32) 0%,
+    rgba(167, 219, 230, 0.12) 40%,
+    transparent 70%
   );
-  filter: blur(8px);
+  filter: blur(18px);
 }
 
+/* Water: was two near-invisible alpha-0.05/0.18 layers. Now a visible
+   moon-path column (the literal reflection a viewer expects under a moon
+   over water) plus brighter ripple lines. */
 .agent-scene__water {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 38%;
+  height: 42%;
   background:
+    linear-gradient(
+      180deg,
+      rgba(167, 219, 230, 0.22) 0%,
+      rgba(167, 219, 230, 0.06) 100%
+    ),
     radial-gradient(
-      ellipse 60% 100% at 78% 0%,
-      var(--agent-accent-faint) 0%,
+      ellipse 22% 100% at 80% 0%,
+      rgba(220, 242, 246, 0.5) 0%,
+      rgba(167, 219, 230, 0.16) 35%,
       transparent 70%
     ),
     repeating-linear-gradient(
-      100deg,
+      94deg,
       transparent 0px,
-      rgba(var(--moon-glow), 0.05) 1px,
-      transparent 3px,
-      transparent 14px
+      rgba(210, 240, 245, 0.1) 2px,
+      transparent 5px,
+      transparent 18px
     );
+  background-blend-mode: screen, screen, normal;
 }
 
 .agent-scene__water--animated {
-  animation: agent-water-shimmer 14s linear infinite;
+  animation: agent-water-shimmer 16s linear infinite;
 }
 
 @keyframes agent-water-shimmer {
   0% {
-    background-position: 0 0, 0 0;
+    background-position: 0 0, 0 0, 0 0;
   }
   100% {
-    background-position: 0 0, 60px 0;
+    background-position: 0 0, 0 0, 80px 0;
   }
 }
 
@@ -101,13 +139,16 @@
   background: var(--agent-bg-deep);
 }
 
+/* Vignette pulled back — was darkening an already-dark scene further.
+   Now it frames the edges only; the center stays at full brightness so
+   the new gradient/water values actually read. */
 .agent-scene__vignette {
   position: absolute;
   inset: 0;
   background: radial-gradient(
-    ellipse 90% 80% at 50% 45%,
-    transparent 40%,
-    rgba(0, 0, 0, 0.55) 100%
+    ellipse 100% 90% at 50% 40%,
+    transparent 55%,
+    rgba(0, 0, 0, 0.45) 100%
   );
   pointer-events: none;
 }
