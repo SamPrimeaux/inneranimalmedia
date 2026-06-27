@@ -1,19 +1,24 @@
 # CMS workers
 
-## In-monorepo (recommended)
+**Product repo:** [inneranimalmedia-cms](https://github.com/SamPrimeaux/inneranimalmedia-cms) — studio, sections, Python pipeline, manifests, integration contracts.
 
-**`services/cms-pipeline-service/`** — Python Worker (`iam-cms-pipeline`) for agentic HTML/D1/R2 prototyping.
+This monolith keeps a **thin host layer** only:
 
-- Setup: `./scripts/setup_cms_python_worker.sh`
-- Docs: [docs/cms/PYTHON_CMS_AGENTIC.md](../docs/cms/PYTHON_CMS_AGENTIC.md)
-- Deploy: `cd services/cms-pipeline-service && uv run pywrangler deploy`
+- `src/api/cms.js`, `src/core/cms-*.js` — auth, dispatch, promotion gates
+- `CMS_PIPELINE` / `CMS_BUCKET` bindings in `wrangler.production.toml`
+- Agent tools registered in D1 (`714_cms_pipeline_agent_tools.sql`)
 
-## Separate repo (legacy editor shell)
+## Deploy pipeline (from product repo)
 
-The **agentsam-cms-editor** Worker is not vendored in this monorepo. Clone and deploy from its own repository:
+```bash
+git clone git@github.com:SamPrimeaux/inneranimalmedia-cms.git
+cd inneranimalmedia-cms/services/cms-pipeline-service
+uv sync && uv run pywrangler deploy
+```
+
+Or use the copy vendored under `services/cms-pipeline-service/` until submodule/subtree is wired.
+
+## Legacy editor shell
 
 - **Git:** `git@github.com:SamPrimeaux/agentsam-cms-editor.git`
 - **Live:** https://agentsam-cms-editor.meauxbility.workers.dev/
-- **Deploy:** `pywrangler deploy` / repo `README.md` (not `npm run deploy:full` on inneranimalmedia)
-
-A local checkout may exist at `cms/agentsam-cms-editor/` for convenience; it is gitignored here and tracks `origin/main` independently.
