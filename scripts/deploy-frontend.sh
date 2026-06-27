@@ -476,3 +476,6 @@ if [[ "${DEPLOY_EMBEDDINGS_RAN:-0}" == "1" ]]; then
 else
   echo "✓ Done (worker + R2 + notification; Supabase embeddings backfill skipped — set RUN_SUPABASE_EMBEDDINGS_BACKFILL=1 to run)"
 fi
+
+echo "→ GCP iam-tunnel sync (repo + env + ExecOS)…"
+bash "$REPO_ROOT/scripts/sync-gcp-vm-after-deploy.sh" || echo "⚠️  GCP VM sync had warnings (non-fatal)" >&2
