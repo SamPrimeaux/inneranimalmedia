@@ -98,6 +98,7 @@ function PresetLayer({ id, animated }: { id: string; animated: boolean }) {
   if (id === 'moonlit-sea') {
     return (
       <div className="agent-scene__preset agent-scene__preset--moonlit-sea">
+        <div className="agent-scene__haze" />
         <div className="agent-scene__moon" />
         <div className="agent-scene__moon-halo" />
         <div
