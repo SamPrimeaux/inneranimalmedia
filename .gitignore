@@ -42,6 +42,8 @@ inneranimalmedia-agentsam-dashboard/
 inneranimalmedia-main-repo/
 gorilla-mode/
 cms/agentsam-cms-editor/
+# Local mirror of R2 CMS HTML (not source — use R2 / publish pipeline)
+cms/ws_*/
 
 # local migration helper
 promote-deploy-root-from-child.sh
