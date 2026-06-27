@@ -1,0 +1,93 @@
+apiVersion: inneranimalmedia.com/v1
+kind: Prototype
+metadata:
+  id: proto_cms_studio_v1
+  product: inneranimalmedia-cms
+  project_slug: example-client
+  workspace_id: ws_example
+  tenant_id: tn_example
+
+surfaces:
+  studio:
+    route: studio.example.com
+    fallback_path: /studio/editor
+  preview:
+    query: "?preview=draft&cms=1&page_id={page_id}"
+  live:
+    route: www.example.com
+  api:
+    prefix: /api/cms
+
+planes:
+  d1:
+    binding: DB
+    tables:
+      - cms_pages
+      - cms_page_sections
+      - cms_page_overrides
+  r2:
+    bucket: cms
+    binding: CMS_BUCKET
+    public_origin: https://cms.example.com
+    key_prefix: cms/
+  kv:
+    binding: SESSION_CACHE
+    prefixes:
+      - "cms:bootstrap:"
+      - "cms:draft:"
+  do:
+    binding: IAM_COLLAB
+    use: live_edit
+  worker:
+    service: iam-cms-pipeline
+    binding: CMS_PIPELINE
+    origin: https://cms-pipeline.example.com
+  github:
+    repo: org/example-site
+    branch: main
+    paths:
+      - sections/
+      - studio/
+  local:
+    pty_root: "/workspace/{tenant}/{user}"
+    tools:
+      - terminal_execute
+      - fs_read
+
+agent:
+  route_key: cms_edit
+  tools:
+    - agentsam_cms_read
+    - agentsam_cms_write
+    - agentsam_cms_publish
+    - cms_pipeline_prototype
+    - cms_pipeline_extract
+    - cms_pipeline_inject
+    - cms_pipeline_bootstrap
+  runtime_profile:
+    max_tools: 14
+    write_policy:
+      can_d1_write: true
+      can_deploy: false
+
+artifacts:
+  - type: html_shell
+    path: studio/public/cms-studio-shell.html
+    r2_key: static/dashboard/app/cms/cms-studio-shell.html
+  - type: editor_core
+    path: studio/public/cms-editor-core.js
+    r2_key: static/dashboard/app/cms/cms-editor-core.js
+  - type: worker
+    path: services/cms-pipeline-service/
+
+gates:
+  - id: d1_page_exists
+    check: cms_pages.id present for page_id
+  - id: r2_draft_present
+    check: draft.html or section keys in CMS_BUCKET
+  - id: preview_renders
+    check: GET preview_url returns 200
+  - id: studio_embed_loads
+    check: iframe loads editor chrome (not blank canvas)
+  - id: agent_extract_smoke
+    check: cms_pipeline_extract on sample HTML

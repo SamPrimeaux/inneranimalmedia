@@ -1,0 +1,18 @@
+# Host Worker — CMS product bindings (snippet)
+# Merge into your platform wrangler.production.toml
+
+[[r2_buckets]]
+binding = "CMS_BUCKET"
+bucket_name = "cms"
+
+[[services]]
+binding = "CMS_PIPELINE"
+service = "iam-cms-pipeline"
+
+[vars]
+CMS_R2_PUBLIC_ORIGIN = "https://cms.inneranimalmedia.com"
+
+# Optional route — studio lane
+# [[routes]]
+# pattern = "studio.inneranimalmedia.com/*"
+# zone_name = "inneranimalmedia.com"

@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PrimeTech CMS Lite</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --app-bg: #f1f1f1;
+    --panel: #ffffff;
+    --panel-soft: #f7f7f7;
+    --panel-wash: #fafafa;
+    --text: #202124;
+    --muted: #666b72;
+    --faint: #8b9097;
+    --line: #d9dde3;
+    --line-soft: #eceff2;
+    --black: #101214;
+    --blue: #0a7cff;
+    --green: #9ff3b8;
+    --green-text: #14733c;
+    --orange: #c88443;
+    --orange-hot: #f27932;
+    --red: #b4232c;
+    --shadow: 0 1px 0 rgba(0,0,0,.05), 0 10px 32px rgba(0,0,0,.06);
+    --radius: 14px;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--app-bg); color: var(--text); }
+  body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; font-size: 14px; }
+  button, input, textarea, select { font: inherit; }
+  button { cursor: pointer; }
+
+  .cms-editor-prototype { height: 100vh; display: flex; flex-direction: column; background: var(--app-bg); color: var(--text); }
+
+  .mode[data-mode-target="pages"],
+  .mode[data-mode-target="pageEditor"],
+  .mode[data-mode-target="themeEditor"] { display: none; }
+  .cms-editor-prototype[data-mode="pages"] .mode[data-mode-target="pages"],
+  .cms-editor-prototype[data-mode="pageEditor"] .mode[data-mode-target="pageEditor"],
+  .cms-editor-prototype[data-mode="themeEditor"] .mode[data-mode-target="themeEditor"] { display: flex; }
+
+  .global-topbar {
+    height: 46px;
+    flex: 0 0 46px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px;
+    background: rgba(255,255,255,.82);
+    border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(18px);
+    z-index: 20;
+  }
+
+  .icon-btn, .toolbar-btn {
+    border: 1px solid transparent;
+    background: transparent;
+    color: #444950;
+    border-radius: 9px;
+    height: 32px;
+    min-width: 32px;
+    display: inline-grid;
+    place-items: center;
+    padding: 0 9px;
+  }
+  .icon-btn:hover, .toolbar-btn:hover { background: #ececec; border-color: #dedede; }
+  .icon-btn.active, .toolbar-btn.active { background: #e8f1ff; color: #075bcb; border-color: #d4e4ff; }
+  .toolbar-btn { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; font-weight: 680; min-width: 0; }
+
+  .crumb { display: inline-flex; align-items: center; gap: 8px; color: #34383d; font-weight: 700; min-width: 0; }
+  .crumb .muted { color: var(--muted); font-weight: 560; }
+  .status-badge { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; background: #dcedff; color: #0b61bd; font-size: 12px; font-weight: 750; }
+  .spacer { flex: 1; }
+  .primary-btn, .secondary-btn, .dark-btn {
+    height: 34px;
+    border-radius: 9px;
+    padding: 0 15px;
+    font-size: 13px;
+    font-weight: 780;
+    border: 1px solid #cfd3d8;
+    background: #fff;
+    color: #202124;
+  }
+  .dark-btn, .primary-btn { background: #101214; color: white; border-color: #101214; }
+  .primary-btn:hover, .dark-btn:hover { background: #000; }
+  .secondary-btn:hover { background: #f7f7f7; }
+  .secondary-btn.disabled, .primary-btn.disabled { opacity: .45; cursor: not-allowed; }
+
+  .dot-live { width: 8px; height: 8px; border-radius: 999px; background: #20b36b; box-shadow: 0 0 0 4px rgba(32,179,107,.12); }
+  .tiny-icon { width: 16px; height: 16px; display: inline-block; }
+  .divider { width: 1px; align-self: stretch; background: var(--line); margin: 7px 2px; }
+
+  .pages-view { flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
+  .pages-head { height: 60px; flex: 0 0 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 22px; }
+  .page-heading { display: flex; align-items: center; gap: 10px; font-size: 23px; font-weight: 850; letter-spacing: -.04em; }
+  .pages-filters { height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line); }
+  .filter-left { display: flex; align-items: center; gap: 8px; }
+  .tab-pill { height: 32px; border: 0; border-radius: 10px; padding: 0 16px; background: transparent; font-weight: 720; color: #4d5258; }
+  .tab-pill.active { background: #e6e6e6; color: #24272b; }
+  .table-tools { display: flex; gap: 8px; align-items: center; }
+  .tool-box { height: 32px; border: 1px solid #d0d4da; border-radius: 9px; padding: 0 10px; display: inline-flex; align-items: center; gap: 7px; background: #fff; color: #454a50; }
+
+  .pages-table-card { margin: 0 12px; border: 1px solid var(--line); border-radius: 0 0 12px 12px; overflow: hidden; background: var(--panel); box-shadow: var(--shadow); }
+  .pages-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .pages-table th { height: 43px; text-align: left; padding: 0 15px; border-bottom: 1px solid var(--line-soft); color: #545a61; font-size: 13px; font-weight: 760; }
+  .pages-table td { height: 40px; padding: 0 15px; border-bottom: 1px solid var(--line-soft); color: #2f3338; vertical-align: middle; }
+  .pages-table tr:last-child td { border-bottom: 0; }
+  .pages-table tbody tr { cursor: pointer; }
+  .pages-table tbody tr:hover { background: #f7f9fb; }
+  .checkbox { width: 19px; height: 19px; border: 1px solid #c1c7ce; border-radius: 4px; background: #fff; display: inline-block; }
+  .visible-pill { display: inline-flex; align-items: center; height: 24px; border-radius: 999px; padding: 0 12px; background: #b8f3c8; color: #064f2a; font-weight: 800; font-size: 13px; }
+  .content-truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #5f656c; }
+  .table-footer-note { text-align: center; padding: 24px; color: #383d42; }
+  .table-footer-note a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+
+  .page-editor-view { flex-direction: column; height: 100%; min-height: 0; overflow: auto; }
+  .page-editor-bar { min-height: 54px; padding: 0 28px; display: flex; align-items: center; gap: 10px; }
+  .page-editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 18px; padding: 0 30px 58px; max-width: 1280px; width: 100%; align-self: center; }
+  .field-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 18px; }
+  .stack { display: grid; gap: 18px; }
+  .field { display: grid; gap: 8px; margin-bottom: 18px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label { font-weight: 690; color: #383d42; }
+  .text-input, .select-input, .textarea-input { width: 100%; border: 1px solid #bfc5cc; border-radius: 8px; background: #fff; color: #22262b; min-height: 40px; padding: 9px 12px; outline: none; }
+  .text-input:focus, .select-input:focus, .textarea-input:focus { border-color: #8d98a5; box-shadow: 0 0 0 3px rgba(10,124,255,.08); }
+  .rich-editor { border: 1px solid #bfc5cc; border-radius: 9px; overflow: hidden; background: #fff; }
+  .rich-toolbar { height: 39px; border-bottom: 1px solid #d9dde3; display: flex; align-items: center; gap: 4px; padding: 0 9px; background: #fbfbfb; color: #474d54; }
+  .rich-btn { height: 28px; min-width: 28px; border-radius: 6px; border: 0; background: transparent; color: inherit; display: grid; place-items: center; font-weight: 790; }
+  .rich-btn:hover { background: #eceff2; }
+  .editor-area { min-height: 190px; padding: 16px; color: #3d434a; outline: none; }
+  .seo-title { color: #1a0dab; font-size: 19px; margin-top: 13px; }
+  .seo-url { color: #636a72; margin: 3px 0 9px; }
+  .side-stack { display: grid; gap: 18px; align-content: start; }
+  .side-title { font-weight: 830; margin-bottom: 12px; font-size: 17px; }
+  .radio-row { display: flex; gap: 11px; align-items: flex-start; margin: 13px 0; color: #4c5258; }
+  .radio { width: 18px; height: 18px; border: 1px solid #b7bdc4; border-radius: 50%; margin-top: 1px; display: grid; place-items: center; }
+  .radio.active::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #202124; }
+  .subtext { color: var(--muted); font-size: 14px; margin-top: 4px; }
+  .floating-save { position: fixed; right: 28px; bottom: 24px; z-index: 30; opacity: .42; }
+
+  .theme-view { flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
+  .theme-workbench { flex: 1; min-height: 0; display: grid; grid-template-columns: 286px minmax(0, 1fr); overflow: hidden; }
+  .theme-left { background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .left-top { height: 45px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; border-bottom: 1px solid var(--line-soft); font-weight: 760; }
+  .left-scroll { overflow: auto; flex: 1; padding: 0 0 24px; }
+  .section-group { padding: 12px 12px 8px; border-bottom: 1px solid var(--line-soft); }
+  .section-label { font-size: 14px; font-weight: 820; margin-bottom: 8px; }
+  .section-row { height: 32px; display: flex; align-items: center; gap: 9px; padding: 0 8px; border-radius: 7px; color: #3d434a; font-size: 13px; }
+  .section-row:hover { background: #f4f4f4; }
+  .section-row.active { background: #0b73e8; color: #fff; }
+  .section-row .code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; opacity: .8; }
+  .section-row .eye { margin-left: auto; opacity: .65; }
+  .add-section { color: #0b73e8; font-weight: 690; }
+
+  .inspector { border-top: 1px solid var(--line); padding: 13px 12px 20px; background: #fff; }
+  .inspector-head { display: flex; align-items: center; gap: 8px; font-weight: 830; margin-bottom: 14px; }
+  .code-box { border: 1px solid #d0d4da; border-radius: 8px; background: #fbfbfb; height: 146px; overflow: auto; padding: 11px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: #3d434a; white-space: pre; }
+  .scheme-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; margin-top: 7px; }
+  .scheme { height: 34px; border-radius: 7px; border: 1px solid #d0d4da; background: #fff; display: grid; place-items: center; font-weight: 820; }
+  .scheme.dark { background: #111; color: #fff; }
+  .scheme.active { outline: 2px solid #0b73e8; outline-offset: 1px; }
+  .range-row { display: grid; grid-template-columns: 1fr 60px; gap: 10px; align-items: center; margin-top: 10px; color: #5e646b; font-size: 13px; }
+  .range-row input[type="range"] { width: 100%; accent-color: #202124; }
+  .num-input { height: 30px; border: 1px solid #cfd4da; border-radius: 8px; text-align: center; color: #4e545b; }
+  .remove-link { color: #b4232c; font-weight: 790; margin-top: 14px; display: inline-flex; gap: 7px; align-items: center; }
+
+  .canvas-shell { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #e8e8e8; }
+  .canvas-stage { flex: 1; min-height: 0; overflow: auto; padding: 0; background: #0b0b0b; position: relative; }
+  .canvas-stage.light { background: #f3f5f8; }
+  .site-preview { min-height: 1180px; background: #080808; color: #fff; position: relative; border: 2px solid transparent; transform-origin: top center; transition: background .2s ease, color .2s ease; }
+  .site-preview.light { background: #f4f6f9; color: #1f242a; }
+  .site-preview.selected { border-color: #0b73e8; }
+  .selected-tab { position: absolute; top: -2px; left: -2px; background: #0b73e8; color: white; height: 26px; display: inline-flex; align-items: center; padding: 0 9px; border-radius: 0 0 6px 0; font-size: 12px; font-weight: 740; z-index: 5; }
+  .preview-header { height: 72px; display: flex; align-items: center; padding: 0 54px; gap: 40px; background: rgba(0,0,0,.38); }
+  .site-preview.light .preview-header { background: #f4f6f9; }
+  .preview-logo-img { width: 43px; height: 30px; border: 1px solid rgba(201,132,67,.6); color: #c88443; display: grid; place-items: center; font-weight: 850; letter-spacing: -.06em; font-size: 16px; transform: skew(-8deg); }
+  .preview-nav { margin-left: auto; display: flex; align-items: center; gap: 42px; font-weight: 840; letter-spacing: .12em; font-size: 14px; }
+  .preview-nav a { color: inherit; text-decoration: none; opacity: .86; }
+  .preview-nav a.active { text-decoration: underline; text-decoration-color: #c88443; text-decoration-thickness: 2px; text-underline-offset: 10px; opacity: 1; }
+  .hero-section { min-height: 610px; display: grid; grid-template-columns: 1fr 1fr; align-items: center; padding: 76px 76px 96px; background: radial-gradient(circle at 50% 10%, rgba(242,121,50,.14), transparent 30%), linear-gradient(90deg, #111, #161313 56%, #17100c); }
+  .site-preview.light .hero-section { background: #f4f6f9; }
+  .hero-copy { max-width: 450px; text-align: center; justify-self: center; }
+  .light .hero-copy { text-align: left; justify-self: start; }
+  .kicker { letter-spacing: .34em; color: rgba(255,255,255,.58); font-size: 18px; }
+  .light .kicker { color: #9a9fa7; }
+  .hero-title { margin: 10px 0 18px; font-size: 48px; line-height: 1.03; letter-spacing: .05em; font-weight: 900; color: var(--orange-hot); text-transform: uppercase; }
+  .light .hero-title { color: #1e2228; text-transform: none; letter-spacing: -.04em; font-size: 52px; }
+  .light .hero-title span { display: block; color: #c88443; }
+  .hero-text { color: rgba(255,255,255,.68); line-height: 1.65; font-size: 18px; }
+  .light .hero-text { color: #707780; font-size: 17px; }
+  .hero-cta { margin-top: 28px; height: 52px; border-radius: 999px; border: 0; background: #d08a38; color: white; padding: 0 32px; font-weight: 850; letter-spacing: .12em; box-shadow: 0 14px 36px rgba(208,138,56,.22); }
+  .badge-art { width: 410px; height: 230px; justify-self: center; border-radius: 28px; background: radial-gradient(circle at 50% 28%, rgba(255,255,255,.72), transparent 24%), linear-gradient(135deg, rgba(201,132,67,.26), rgba(0,0,0,.05)); display: grid; place-items: center; color: rgba(201,132,67,.35); font-size: 64px; font-weight: 900; text-shadow: 0 2px 10px rgba(255,255,255,.4); }
+  .dark-art { display: none; }
+  .site-preview:not(.light) .badge-art { display: none; }
+  .site-preview:not(.light) .dark-art { display: block; height: 300px; }
+  .lower-section { min-height: 520px; padding: 90px 76px; background: #080808; border-top: 1px solid rgba(255,255,255,.04); text-align: center; }
+  .light .lower-section { background: #fff; color: #1f242a; }
+  .lower-section small { color: #f27932; letter-spacing: .32em; font-weight: 850; }
+  .lower-section h2 { margin: 16px auto; max-width: 680px; font-size: 52px; line-height: .97; letter-spacing: .03em; }
+  .light .lower-section h2 { letter-spacing: -.04em; }
+  .section-hover-tools { position: sticky; bottom: 36px; margin: -70px auto 30px; height: 42px; width: fit-content; display: flex; align-items: center; gap: 0; background: white; color: #30343a; border: 1px solid #dfe3e8; border-radius: 10px; box-shadow: 0 12px 30px rgba(0,0,0,.18); z-index: 4; overflow: hidden; }
+  .section-hover-tools button { height: 42px; border: 0; border-right: 1px solid #e6e8eb; background: white; padding: 0 14px; font-weight: 720; color: #33383e; }
+  .section-hover-tools button:last-child { border-right: 0; color: #b4232c; }
+
+  .mobile-frame { width: 350px; height: 700px; border: 10px solid #111; border-radius: 34px; overflow: hidden; margin: 34px auto; background: #f4f6f9; box-shadow: 0 20px 60px rgba(0,0,0,.22); display: none; }
+  .canvas-stage.mobile .site-preview { display: none; }
+  .canvas-stage.mobile .mobile-frame { display: block; }
+  .mobile-frame .preview-header { height: 70px; padding: 0 22px; background: #111; }
+  .mobile-frame .preview-nav { display: none; }
+  .mobile-menu { margin-left: auto; width: 24px; height: 16px; border-top: 2px solid #f27932; border-bottom: 2px solid #f27932; position: relative; }
+  .mobile-menu::after { content: ''; position: absolute; left: 0; right: 0; top: 6px; border-top: 2px solid #f27932; }
+  .mobile-hero { min-height: 620px; padding: 96px 32px; text-align: center; color: #fff; background: linear-gradient(160deg, #141414, #21120c); }
+  .mobile-hero h1 { font-size: 32px; color: #f27932; line-height: 1; margin: 10px 0 18px; letter-spacing: .06em; }
+  .mobile-hero p { color: rgba(255,255,255,.7); line-height: 1.55; }
+
+  .toast { position: fixed; right: 18px; bottom: 18px; background: #111; color: white; border-radius: 12px; padding: 12px 14px; box-shadow: 0 18px 40px rgba(0,0,0,.2); opacity: 0; transform: translateY(12px); pointer-events: none; transition: opacity .18s ease, transform .18s ease; z-index: 50; }
+  .toast.show { opacity: 1; transform: translateY(0); }
+
+  @media (max-width: 980px) {
+    .theme-workbench { grid-template-columns: 1fr; }
+    .theme-left { display: none; }
+    .page-editor-grid { grid-template-columns: 1fr; padding-inline: 16px; }
+    .hero-section { grid-template-columns: 1fr; padding: 46px 28px; }
+    .badge-art { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="cms-editor-prototype" id="app" data-mode="themeEditor">
+  <div class="mode pages-view" data-mode-target="pages">
+    <header class="pages-head">
+      <div class="page-heading">
+        <span>▣</span>
+        <span>Pages</span>
+      </div>
+      <button class="dark-btn" data-mode="pageEditor">Add page</button>
+    </header>
+    <div class="pages-filters">
+      <div class="filter-left">
+        <button class="tab-pill active">All</button>
+        <button class="tab-pill">Drafts</button>
+        <button class="icon-btn" data-mode="pageEditor">＋</button>
+      </div>
+      <div class="table-tools">
+        <button class="tool-box">⌕</button>
+        <button class="tool-box">Sort</button>
+      </div>
+    </div>
+    <section class="pages-table-card">
+      <table class="pages-table">
+        <colgroup><col style="width:42px"/><col/><col style="width:130px"/><col style="width:40%"/><col style="width:160px"/></colgroup>
+        <thead><tr><th><span class="checkbox"></span></th><th>Title ↕</th><th>Visibility</th><th>Content</th><th style="text-align:right">Updated</th></tr></thead>
+        <tbody>
+          <tr data-page="Your Privacy Choices"><td><span class="checkbox"></span></td><td><strong>Your Privacy Choices</strong></td><td><span class="visible-pill">Visible</span></td><td class="content-truncate">As described in our Privacy Policy, we collect personal information...</td><td style="text-align:right">Jan 28 at 11:25 am</td></tr>
+          <tr data-page="Community"><td><span class="checkbox"></span></td><td><strong>Community</strong></td><td><span class="visible-pill">Visible</span></td><td></td><td style="text-align:right">Aug 27 at 10:22 am</td></tr>
+          <tr data-page="COLLAB"><td><span class="checkbox"></span></td><td><strong>COLLAB</strong></td><td><span class="visible-pill">Visible</span></td><td></td><td style="text-align:right">Aug 18 at 7:09 pm</td></tr>
+          <tr data-page="ABOUT"><td><span class="checkbox"></span></td><td><strong>ABOUT</strong></td><td><span class="visible-pill">Visible</span></td><td></td><td style="text-align:right">Aug 18 at 7:08 pm</td></tr>
+          <tr data-page="SHOP"><td><span class="checkbox"></span></td><td><strong>SHOP</strong></td><td><span class="visible-pill">Visible</span></td><td></td><td style="text-align:right">Aug 18 at 7:08 pm</td></tr>
+          <tr data-page="Contact"><td><span class="checkbox"></span></td><td><strong>Contact</strong></td><td><span class="visible-pill">Visible</span></td><td></td><td style="text-align:right">Aug 13 at 11:14 am</td></tr>
+        </tbody>
+      </table>
+    </section>
+    <div class="table-footer-note">Learn more about <a>pages</a></div>
+  </div>
+
+  <div class="mode page-editor-view" data-mode-target="pageEditor">
+    <header class="page-editor-bar">
+      <button class="icon-btn" data-mode="pages">‹</button>
+      <div class="crumb"><span>▣</span><span>›</span><span id="editPageTitle">SHOP</span></div>
+      <div class="spacer"></div>
+      <button class="secondary-btn">Duplicate</button>
+      <button class="secondary-btn">View</button>
+      <button class="secondary-btn">More actions⌄</button>
+      <button class="icon-btn">⌃</button>
+      <button class="icon-btn">⌄</button>
+    </header>
+    <section class="page-editor-grid">
+      <div class="stack">
+        <article class="field-card">
+          <div class="field">
+            <label>Title</label>
+            <input class="text-input" id="pageTitleInput" value="SHOP" />
+          </div>
+          <div class="field">
+            <label>Content</label>
+            <div class="rich-editor">
+              <div class="rich-toolbar">
+                <button class="rich-btn">✦</button><div class="divider"></div><button class="rich-btn">Paragraph⌄</button><div class="divider"></div>
+                <button class="rich-btn">B</button><button class="rich-btn"><em>I</em></button><button class="rich-btn"><u>U</u></button><button class="rich-btn">A⌄</button><div class="divider"></div>
+                <button class="rich-btn">☰⌄</button><button class="rich-btn">↗</button><button class="rich-btn">▧</button><button class="rich-btn">▶</button><button class="rich-btn">▦</button><div class="spacer"></div><button class="rich-btn">⌘</button>
+              </div>
+              <div class="editor-area" contenteditable="true"></div>
+            </div>
+          </div>
+        </article>
+        <article class="field-card">
+          <div class="cms-row" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+            <div>
+              <div class="side-title">Search engine listing</div>
+              <div style="font-weight:720;margin-top:24px;">Fuel & Free Time</div>
+              <div class="subtext">https://hbbai-6m.myshopify.com › pages › shop</div>
+              <div class="seo-title">SHOP</div>
+            </div>
+            <button class="icon-btn">✎</button>
+          </div>
+        </article>
+      </div>
+      <aside class="side-stack">
+        <article class="field-card">
+          <div class="side-title">Visibility</div>
+          <label class="radio-row"><span class="radio active"></span><span><strong>Visible</strong><div class="subtext">As of August 18, 2025 at 7:04 PM CDT</div></span><span class="spacer"></span><span>✎</span></label>
+          <label class="radio-row"><span class="radio"></span><span>Hidden</span></label>
+        </article>
+        <article class="field-card">
+          <div class="side-title">Template <span style="float:right;color:var(--faint);">◉</span></div>
+          <select class="select-input"><option>shop</option><option>default</option><option>landing</option></select>
+        </article>
+      </aside>
+    </section>
+    <button class="primary-btn floating-save disabled" id="pageSaveBtn">Save</button>
+  </div>
+
+  <div class="mode theme-view" data-mode-target="themeEditor">
+    <div class="global-topbar">
+      <button class="icon-btn" data-mode="pages" title="Pages">↩</button>
+      <button class="icon-btn active" title="Sections">▤</button>
+      <button class="icon-btn" title="Settings">⚙</button>
+      <button class="icon-btn" title="Apps">▦</button>
+      <div class="divider"></div>
+      <div class="crumb"><span>▣</span><span>Copy of Dawn</span><span class="status-badge">Draft</span></div>
+      <div class="crumb"><span class="muted">⌂</span><span>Home page</span></div>
+      <div class="spacer"></div>
+      <button class="icon-btn" id="deviceDesktop">▭</button>
+      <button class="icon-btn active" id="selectTool">⌖</button>
+      <button class="icon-btn" id="deviceMobile">▯</button>
+      <button class="icon-btn disabled">↶</button>
+      <button class="icon-btn disabled">↷</button>
+      <button class="secondary-btn">Publish</button>
+      <button class="primary-btn" id="themeSaveBtn">Save</button>
+    </div>
+    <div class="theme-workbench">
+      <aside class="theme-left">
+        <div class="left-top"><span>Home page</span><button class="icon-btn">•••</button></div>
+        <div class="left-scroll">
+          <div class="section-group">
+            <div class="section-label">Header</div>
+            <div class="section-row"><span>›</span><span>▦</span><span>Header</span><span class="eye">◌</span></div>
+            <div class="section-row" data-section="light"><span class="code">‹/›</span><span>light</span><span class="eye">◌</span></div>
+            <div class="section-row active" data-section="dark-fiya"><span class="code">‹/›</span><span>dark-fiya</span><span class="eye">◌</span></div>
+            <div class="section-row add-section">⊕ Add section</div>
+          </div>
+          <div class="section-group">
+            <div class="section-label">Template</div>
+            <div class="section-row"><span class="code">‹/›</span><span>home?</span></div>
+            <div class="section-row"><span class="code">‹/›</span><span>test-findkbest</span></div>
+            <div class="section-row add-section">⊕ Add section</div>
+          </div>
+          <div class="section-group">
+            <div class="section-label">Footer</div>
+            <div class="section-row add-section">⊕ Add section</div>
+            <div class="section-row"><span class="code">‹/›</span><span>Custom Liquid</span></div>
+            <div class="section-row"><span>›</span><span>▦</span><span>Footer</span><span class="eye">◌</span></div>
+          </div>
+          <div class="inspector">
+            <div class="inspector-head"><span class="code">‹/›</span><span id="inspectorTitle">dark-fiya</span><span class="spacer"></span><button class="icon-btn">×</button></div>
+            <label class="field" style="margin-bottom:10px;"><span>Liquid code</span><div class="code-box">&lt;!-- FNF Header + Home Hero --&gt;
+&lt;div class="fn-shell" id="fnApp"&gt;
+  &lt;style&gt;
+    .fn-shell { --fnf-orange:#f4501f; }
+    .fn-hero { min-height: 610px; }
+    .fn-title { letter-spacing: .08em; }
+  &lt;/style&gt;
+&lt;/div&gt;</div></label>
+            <div class="subtext" style="font-size:12px;">Add app snippets or other code to create advanced customizations.</div>
+            <div class="section-label" style="margin-top:14px;">Color scheme</div>
+            <div class="scheme-grid">
+              <button class="scheme active" data-scheme="light">Aa</button><button class="scheme">Aa</button><button class="scheme dark">Aa</button><button class="scheme dark">Aa</button><button class="scheme dark active" data-scheme="dark">Aa</button>
+            </div>
+            <a class="add-section" style="display:block;margin-top:8px;">Edit scheme</a>
+            <div class="section-label" style="margin-top:18px;">Padding</div>
+            <div class="range-row"><span>Top</span><input class="num-input" value="0 px" /></div><input type="range" min="0" max="80" value="0" />
+            <div class="range-row"><span>Bottom</span><input class="num-input" value="0 px" /></div><input type="range" min="0" max="80" value="0" />
+            <div class="section-label" style="margin-top:18px;">Custom CSS⌄</div>
+            <span class="remove-link">▢ Remove section</span>
+          </div>
+        </div>
+      </aside>
+      <section class="canvas-shell">
+        <div class="canvas-stage" id="canvasStage">
+          <div class="site-preview selected" id="sitePreview">
+            <div class="selected-tab" id="selectedTab">‹/› dark-fiya</div>
+            <header class="preview-header">
+              <div class="preview-logo-img">F&amp;T</div>
+              <nav class="preview-nav"><a class="active">HOME</a><a>SHOP</a><a>ABOUT</a><a>COMMUNITY</a></nav>
+            </header>
+            <section class="hero-section">
+              <div class="hero-copy">
+                <div class="kicker" id="heroKicker">TIME IS THE</div>
+                <h1 class="hero-title" id="heroTitle">REAL<br/>HORSEPOWER</h1>
+                <p class="hero-text" id="heroText">For those who've earned their freedom — on two wheels, four wheels, water, or in the garage.</p>
+                <button class="hero-cta">EXPLORE MORE →</button>
+              </div>
+              <div class="badge-art">F&amp;T</div>
+              <div class="dark-art"></div>
+            </section>
+            <div class="section-hover-tools"><button>Ask for changes</button><button>⧉</button><button>◌</button><button>♲</button></div>
+            <section class="lower-section"><small>LAFAYETTE, LOUISIANA · EST. 2025</small><h2>TIME IS THE<br/>ULTIMATE LUXURY</h2></section>
+          </div>
+          <div class="mobile-frame">
+            <div class="preview-header"><div class="preview-logo-img">F&amp;T</div><div class="mobile-menu"></div></div>
+            <div class="mobile-hero"><div class="kicker">TIME IS THE</div><h1>REAL<br/>HORSEPOWER</h1><p>For those who've earned their freedom — on two wheels, four wheels, water, or in the garage.</p><button class="hero-cta">EXPLORE MORE →</button></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast">Saved draft changes</div>
+<script>
+(function(){
+  const root = document.getElementById('app');
+  const toast = document.getElementById('toast');
+  const pageTitleInput = document.getElementById('pageTitleInput');
+  const editPageTitle = document.getElementById('editPageTitle');
+  const sitePreview = document.getElementById('sitePreview');
+  const stage = document.getElementById('canvasStage');
+  const selectedTab = document.getElementById('selectedTab');
+  const inspectorTitle = document.getElementById('inspectorTitle');
+
+  function showToast(text){ toast.textContent = text; toast.classList.add('show'); setTimeout(()=>toast.classList.remove('show'), 1400); }
+  function setMode(mode){ root.dataset.mode = mode; }
+  document.querySelectorAll('[data-mode]').forEach(btn => btn.addEventListener('click', () => setMode(btn.dataset.mode)));
+  document.querySelectorAll('.pages-table tbody tr').forEach(row => row.addEventListener('click', () => {
+    const title = row.dataset.page || 'SHOP';
+    pageTitleInput.value = title;
+    editPageTitle.textContent = title;
+    setMode('pageEditor');
+  }));
+  pageTitleInput.addEventListener('input', () => {
+    editPageTitle.textContent = pageTitleInput.value || 'Untitled';
+    document.getElementById('pageSaveBtn').classList.remove('disabled');
+  });
+  document.getElementById('pageSaveBtn').addEventListener('click', () => showToast('Page draft saved'));
+  document.getElementById('themeSaveBtn').addEventListener('click', () => showToast('Theme draft saved'));
+
+  document.querySelectorAll('[data-section]').forEach(row => row.addEventListener('click', () => {
+    document.querySelectorAll('[data-section]').forEach(r => r.classList.remove('active'));
+    row.classList.add('active');
+    const name = row.dataset.section;
+    selectedTab.textContent = '‹/› ' + name;
+    inspectorTitle.textContent = name;
+    if(name === 'light') {
+      sitePreview.classList.add('light'); stage.classList.add('light');
+      document.getElementById('heroKicker').textContent = '';
+      document.getElementById('heroTitle').innerHTML = 'Fuel Your<span>Adventure</span>Live Free';
+      document.getElementById('heroText').textContent = 'Discover the gear and inspiration you need to make the most of your free time. Adventure awaits at every turn.';
+    } else {
+      sitePreview.classList.remove('light'); stage.classList.remove('light');
+      document.getElementById('heroKicker').textContent = 'TIME IS THE';
+      document.getElementById('heroTitle').innerHTML = 'REAL<br/>HORSEPOWER';
+      document.getElementById('heroText').textContent = "For those who've earned their freedom — on two wheels, four wheels, water, or in the garage.";
+    }
+  }));
+
+  document.querySelectorAll('[data-scheme]').forEach(btn => btn.addEventListener('click', () => {
+    const dark = btn.dataset.scheme === 'dark';
+    sitePreview.classList.toggle('light', !dark);
+    stage.classList.toggle('light', !dark);
+    showToast((dark ? 'Dark' : 'Light') + ' scheme applied');
+  }));
+  document.getElementById('deviceMobile').addEventListener('click', () => { stage.classList.add('mobile'); showToast('Mobile preview'); });
+  document.getElementById('deviceDesktop').addEventListener('click', () => { stage.classList.remove('mobile'); showToast('Desktop preview'); });
+
+  const params = new URLSearchParams(location.search);
+  if(params.get('view') === 'themeEditor' || params.get('panel') === 'themeEditor') setMode('themeEditor');
+  if(params.get('panel') === 'pages') setMode(params.get('page') ? 'themeEditor' : 'pages');
+  if(params.get('view') === 'pages') setMode('pages');
+  if(params.get('view') === 'page') setMode('pageEditor');
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+[project]
+name = "iam-cms-pipeline"
+version = "0.1.0"
+description = "Agentic CMS HTML/D1/R2 pipeline — Python Worker for Inner Animal Media"
+requires-python = ">=3.12"
+dependencies = [
+  "beautifulsoup4>=4.12",
+]
+
+[dependency-groups]
+dev = [
+  "workers-py",
+  "workers-runtime-sdk",
+]
+
+[tool.pywrangler]
+# Bundled automatically on deploy; see Cloudflare Python Workers packages docs.
