@@ -7,6 +7,11 @@
 #   ./scripts/sync-cloudflare-oauth-secrets.sh           # create if needed + sync secrets
 #   ./scripts/sync-cloudflare-oauth-secrets.sh --sync-only  # push existing .env.cloudflare creds only
 #   ./scripts/sync-cloudflare-oauth-secrets.sh --public     # DNS verify client_uri + promote to public
+#
+# Logo asset (required for public): upload once to R2 bucket inneranimalmedia
+#   curl -sSL 'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/8e323ffb-4338-41dc-1f71-9c7bdc57bb00/public' -o /tmp/iam-oauth-logo.png
+#   ./scripts/with-cloudflare-env.sh npx wrangler r2 object put inneranimalmedia/static/brand/oauth-client-logo.png \
+#     --file /tmp/iam-oauth-logo.png --content-type image/png -c wrangler.production.toml --remote
 
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,7 +43,7 @@ make_public = os.environ.get("MAKE_PUBLIC") == "1"
 redirect = "https://inneranimalmedia.com/api/oauth/cloudflare/callback"
 client_uri = "https://inneranimalmedia.com"
 client_name = "Inner Animal Media Platform"
-logo_uri = "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/8e323ffb-4338-41dc-1f71-9c7bdc57bb00/avatar"
+logo_uri = "https://inneranimalmedia.com/static/brand/oauth-client-logo.png"
 policy_uri = "https://inneranimalmedia.com/privacy"
 tos_uri = "https://inneranimalmedia.com/terms"
 zone_id = os.environ.get("CLOUDFLARE_ZONE_ID", "0bab48636c1bea4be4ea61c0c7787c3e")
