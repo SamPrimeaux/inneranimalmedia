@@ -93,12 +93,7 @@ if [[ -f /tmp/execos-runtime-sync/deploy/gcp/install-agentsam-ops.sh ]]; then
   sudo install -m 755 /tmp/execos-runtime-sync/deploy/gcp/install-agentsam-ops.sh "\${VM_EXECOS}/deploy/gcp/install-agentsam-ops.sh"
 fi
 sudo chown -R agentsam:agentsam "\${VM_EXECOS}/server.js" "\${VM_EXECOS}/shared" "\${VM_EXECOS}/deploy/gcp" 2>/dev/null || true
-if sudo -u agentsam pm2 describe execos >/dev/null 2>&1; then
-  sudo -u agentsam bash -lc "cd '\${VM_EXECOS}' && pm2 restart execos --update-env && pm2 save"
-  echo "execos_restarted: agentsam"
-else
-  echo "execos_not_running: skip pm2 restart"
-fi
+$(bash "${REPO_ROOT}/scripts/lib/gcp-vm-execos-pm2-remote.sh")
 rm -rf /tmp/execos-runtime-sync
 EOF
 )"
