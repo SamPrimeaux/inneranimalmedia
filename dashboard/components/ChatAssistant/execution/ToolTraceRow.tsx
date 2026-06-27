@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import type { AgentMode } from '../types';
 import type { AgentToolTraceRow } from './types';
 import { resolveToolTracePresence } from '../../../features/agent-run/toolTracePresence';
@@ -21,11 +21,17 @@ import { isCadToolName } from '../../../lib/cadToolTrace';
 import { ToolTraceCodeBlock } from './ToolTraceCodeBlock';
 import { ToolTraceSqlTable } from './ToolTraceSqlTable';
 import { ToolTraceCadLivePanel } from './ToolTraceCadLivePanel';
+import { AgentTerminalLivePanel } from './AgentTerminalLivePanel';
 import './toolTraceTimeline.css';
+
+function isTerminalTool(toolName?: string | null) {
+  return Boolean(toolName && toolName.startsWith('agentsam_terminal'));
+}
 
 export type ToolTraceRowProps = {
   row: AgentToolTraceRow;
   mode?: AgentMode;
+  workspaceId?: string | null;
   defaultExpanded?: boolean;
   compact?: boolean;
   onDismiss?: () => void;
@@ -36,6 +42,7 @@ export type ToolTraceRowProps = {
 export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
   row,
   mode = 'agent',
+  workspaceId = null,
   defaultExpanded = false,
   onDismiss,
   onOpenInEditor,
@@ -44,7 +51,8 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
   const failed = row.status === 'error';
   const running = row.status === 'running';
   const cadLive = Boolean(row.cadJobLive && row.cadJobId);
-  const [open, setOpen] = useState(defaultExpanded || cadLive);
+  const terminalTool = isTerminalTool(row.toolName);
+  const [open, setOpen] = useState(defaultExpanded || cadLive || (terminalTool && running));
   const [debugOpen, setDebugOpen] = useState(false);
 
   const tracePresence = useMemo(
@@ -73,7 +81,11 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
       : '';
 
   const hasExpandable =
-    running || cadLive || Boolean(request || sqlTable || result || failed);
+    running || cadLive || terminalTool || Boolean(request || sqlTable || result || failed);
+
+  useEffect(() => {
+    if (terminalTool && running) setOpen(true);
+  }, [terminalTool, running]);
 
   const toggle = useCallback(() => {
     if (hasExpandable) setOpen((v) => !v);
@@ -128,6 +140,12 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
               engineHint={isCadToolName(row.toolName) && /meshy/i.test(row.toolName) ? 'meshy' : undefined}
               onTerminal={() => onCadJobTerminal?.(row.id)}
             />
+          ) : null}
+
+          {terminalTool && workspaceId ? (
+            <div className="mb-2">
+              <AgentTerminalLivePanel workspaceId={workspaceId} compact />
+            </div>
           ) : null}
 
           {request ? (

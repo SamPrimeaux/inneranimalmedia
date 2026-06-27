@@ -615,6 +615,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                     <ExecutionTimeline
                       rows={toolTraceRows}
                       mode={mode}
+                      workspaceId={workspaceId}
                       compact={isNarrow}
                       showDoneFooter={!isLoading}
                       onOpenInEditor={

@@ -15,6 +15,7 @@ const RUNNER_DELAY_MS = 2800;
 export type ExecutionTimelineProps = {
   rows: AgentToolTraceRow[];
   mode?: AgentMode;
+  workspaceId?: string | null;
   compact?: boolean;
   onDismissRow?: (id: string) => void;
   onClear?: () => void;
@@ -26,6 +27,7 @@ export type ExecutionTimelineProps = {
 export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
   rows,
   mode = 'agent',
+  workspaceId = null,
   onDismissRow,
   onClear,
   onCadJobTerminal,
@@ -67,7 +69,8 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
             key={row.id}
             row={row}
             mode={mode}
-            defaultExpanded={Boolean(row.cadJobLive)}
+            workspaceId={workspaceId}
+            defaultExpanded={Boolean(row.cadJobLive) || Boolean(row.toolName?.startsWith('agentsam_terminal') && row.status === 'running')}
             onOpenInEditor={onOpenInEditor}
             onDismiss={onDismissRow ? () => onDismissRow(row.id) : undefined}
             onCadJobTerminal={onCadJobTerminal}
