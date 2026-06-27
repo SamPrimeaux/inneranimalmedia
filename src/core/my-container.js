@@ -72,6 +72,72 @@ export const probeMoviemodeRenderContainer = probeMyContainer;
 
 /**
  * @param {any} env
+ * @param {string} zoneSlug
+ * @param {{ ports?: number[] }} [opts]
+ */
+async function getZoneContainerStub(env, zoneSlug, opts = {}) {
+  const ns = containerNamespace(env);
+  const id = String(zoneSlug || 'default').trim().slice(0, 128) || 'default';
+  if (!ns?.getByName) return null;
+  const stub = ns.getByName(id);
+  await stub.startAndWaitForPorts({ ports: opts.ports || [CONTAINER_PORT] });
+  return stub;
+}
+
+/**
+ * Per-zone sandbox exec (zone_slug → Container DO instance id).
+ * @param {any} env
+ * @param {{ command: string, zone_slug?: string, cwd?: string, timeout_ms?: number }} opts
+ */
+export async function tryZoneContainerExec(env, opts) {
+  const command = String(opts?.command || '').trim();
+  const zoneSlug = String(opts?.zone_slug || 'default').trim() || 'default';
+  if (!command) {
+    return { ok: false, error: 'command_required', lane: 'container', zone_slug: zoneSlug };
+  }
+
+  const ns = containerNamespace(env);
+  if (!ns?.getByName) {
+    return { ok: false, error: 'container_unbound', lane: 'container', zone_slug: zoneSlug };
+  }
+
+  try {
+    const stub = await getZoneContainerStub(env, zoneSlug);
+    if (!stub) {
+      return { ok: false, error: 'container_unbound', lane: 'container', zone_slug: zoneSlug };
+    }
+
+    const res = await stub.fetch('http://container/exec', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        command,
+        cwd: opts.cwd ? String(opts.cwd) : '/tmp',
+        timeout_ms: opts.timeout_ms,
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    return {
+      lane: 'container',
+      zone_slug: zoneSlug,
+      image: CONTAINER_IMAGE_TAG,
+      http_status: res.status,
+      ...data,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      lane: 'container',
+      zone_slug: zoneSlug,
+      image: CONTAINER_IMAGE_TAG,
+      error: String(e?.message || e).slice(0, 400),
+    };
+  }
+}
+
+/**
+ * @param {any} env
  * @param {{ command: string, cwd?: string, timeout_ms?: number }} opts
  */
 export async function tryContainerExec(env, opts) {

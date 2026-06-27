@@ -1,6 +1,8 @@
 /**
- * Terminal exec routing — local (Mac) vs remote (GCP iam-tunnel).
- * agentsam_terminal_remote must never auto-pick conn_mac_local via health_mac_local.
+ * Terminal exec routing — three lanes (see docs/platform/terminal-three-lane-model.md):
+ *   local  → user_hosted_tunnel (caller's device)
+ *   remote → platform_vm GCP iam-tunnel (Sam operator cloud desk)
+ *   sandbox → container per zone_slug (all users, isolated dev)
  */
 
 import { isSamOperatorLaneUserId } from './platform-operator-policy.js';
@@ -15,6 +17,8 @@ const REMOTE_TOOL_NAMES = new Set([
 ]);
 
 const LOCAL_TOOL_NAMES = new Set(['agentsam_terminal_local']);
+
+const SANDBOX_TOOL_NAMES = new Set(['agentsam_terminal_sandbox']);
 
 /**
  * @param {{
@@ -46,6 +50,14 @@ export function resolveTerminalExecRouting(ctx = {}) {
       target_type: explicitType || 'user_hosted_tunnel',
       target_id: explicitTarget || null,
       lane: 'mac_local',
+    };
+  }
+
+  if (SANDBOX_TOOL_NAMES.has(toolName)) {
+    return {
+      target_type: explicitType || 'container',
+      target_id: explicitTarget || null,
+      lane: 'sandbox_container',
     };
   }
 
@@ -84,14 +96,12 @@ export function terminalToolPrefersGcpLane(toolName) {
 }
 
 /**
- * Sam operator au_* only for terminal.inneranimalmedia.com + ~/inneranimalmedia lanes.
- * @param {string|null|undefined} userId
- * @param {string|null|undefined} toolName
- * @returns {{ ok: true } | { ok: false, error: string, user_message: string }}
+ * Remote VM (terminal.inneranimalmedia.com) is platform-operator only.
+ * Local uses the caller's user_hosted_tunnel — see validateUserLocalTerminalAccess.
  */
 export function validateSamOperatorTerminalAccess(userId, toolName) {
   const tk = String(toolName || '').trim();
-  if (tk !== 'agentsam_terminal_local' && tk !== 'agentsam_terminal_remote') {
+  if (tk !== 'agentsam_terminal_remote') {
     return { ok: true };
   }
   if (isSamOperatorLaneUserId(userId)) {
@@ -101,6 +111,43 @@ export function validateSamOperatorTerminalAccess(userId, toolName) {
     ok: false,
     error: 'operator_lane_forbidden',
     user_message:
-      'Operator terminal lanes (Mac localpty and terminal.inneranimalmedia.com) are restricted to Sam platform-operator au_* identities. Use sandboxterminal for isolated /workspace access.',
+      'agentsam_terminal_remote (GCP cloud desk) is restricted to platform operators. Use agentsam_terminal_local for your own device tunnel or agentsam_terminal_sandbox for an isolated dev container zone.',
   };
+}
+
+/**
+ * Local terminal requires a provisioned user_hosted_tunnel for this user/workspace.
+ * @param {import('@cloudflare/workers-types').D1Database|null|undefined} db
+ * @param {string|null|undefined} userId
+ * @param {string|null|undefined} workspaceId
+ * @returns {Promise<{ ok: true } | { ok: false, error: string, user_message: string }>}
+ */
+export async function validateUserLocalTerminalAccess(db, userId, workspaceId) {
+  const uid = userId != null ? String(userId).trim() : '';
+  const wid = workspaceId != null ? String(workspaceId).trim() : '';
+  if (!uid || !wid) {
+    return {
+      ok: false,
+      error: 'auth_required',
+      user_message: 'Sign in and select a workspace to use agentsam_terminal_local.',
+    };
+  }
+  if (!db) {
+    return {
+      ok: false,
+      error: 'db_unavailable',
+      user_message: 'Terminal provisioning check unavailable.',
+    };
+  }
+  const { getUserHostedTunnelConnection } = await import('./terminal.js');
+  const conn = await getUserHostedTunnelConnection(db, uid, wid);
+  if (!conn?.ws_url) {
+    return {
+      ok: false,
+      error: 'user_hosted_tunnel_not_provisioned',
+      user_message:
+        'No device tunnel configured. Install cloudflared on your machine and complete terminal setup (Settings → Terminal) to use agentsam_terminal_local.',
+    };
+  }
+  return { ok: true };
 }

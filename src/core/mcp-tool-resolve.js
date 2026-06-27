@@ -20,7 +20,7 @@ async function resolveOAuthCatalogToolRow(db, publicKey) {
   return loadAgentsamToolRow({ DB: db }, k);
 }
 
-const OPERATOR_TERMINAL_TOOLS = new Set(['agentsam_terminal_local', 'agentsam_terminal_remote']);
+const OPERATOR_TERMINAL_TOOLS = new Set(['agentsam_terminal_remote']);
 
 /**
  * Build tools/list for OAuth sessions (ChatGPT). Uses agentsam_tools + canonical input schemas.

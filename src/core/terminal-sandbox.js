@@ -1,8 +1,10 @@
 /**
  * MCP zone sandbox execution for agentsam_terminal_sandbox.
- * Runs commands under {workspace_root}/.mcp-zones/{zone_slug}/ (caller workspace by default).
+ * Target: CF Container per zone_slug (see docs/platform/terminal-three-lane-model.md).
+ * Legacy fallback: PTY under .mcp-zones/{zone_slug} when container backend unavailable.
  */
 import { runTerminalCommand } from './terminal.js';
+import { tryZoneContainerExec } from './my-container.js';
 import { normalizeMcpZoneSlug, resolveMcpZoneWorkspaceId } from './mcp-zone-spine.js';
 import {
   buildTerminalToolResponseBody,
@@ -112,6 +114,45 @@ export async function runMcpZoneSandboxCommand(env, request, opts) {
     runCmd = `node -e ${shellQuote(command)}`;
   }
 
+  const useContainer =
+    String(config.target_type || '').trim() === 'container' ||
+    String(env?.IAM_SANDBOX_USE_CONTAINER || '1').trim() === '1';
+
+  if (useContainer) {
+    const containerCwd = innerPath
+      ? `/tmp/${zoneSlug}/${innerPath.replace(/^\//, '')}`
+      : `/tmp/${zoneSlug}`;
+    const containerOut = await tryZoneContainerExec(env, {
+      command: runCmd,
+      zone_slug: zoneSlug,
+      cwd: containerCwd,
+    });
+    const stdout = String(containerOut.stdout ?? '');
+    const stderr = String(containerOut.stderr ?? containerOut.error ?? '');
+    const exitCode = containerOut.exit_code ?? (containerOut.ok ? 0 : 1);
+    const body = buildTerminalToolResponseBody({
+      explicitPath: containerCwd,
+      executedCommand: runCmd,
+      stdout,
+      stderr,
+      exitCode,
+      status: containerOut.ok ? 'success' : 'error',
+    });
+    return {
+      ok: containerOut.ok !== false && !containerOut.error,
+      error: containerOut.error || null,
+      body: {
+        ...body,
+        zone_slug: zoneSlug,
+        sandbox_root: containerCwd,
+        cwd_source: 'container_zone',
+        lane: 'container',
+        image: containerOut.image ?? null,
+        recovery_hints: terminalRecoveryHints({ stdout, stderr, exitCode }),
+      },
+    };
+  }
+
   const wrapped = `mkdir -p ${shellQuote(absZoneDir)} && cd ${shellQuote(absZoneDir)} && ${runCmd}`;
 
   let stdout = '';
@@ -125,6 +166,7 @@ export async function runMcpZoneSandboxCommand(env, request, opts) {
       execution_mode: 'pty',
       workspace_id: execWorkspaceId,
       tool_name: 'agentsam_terminal_sandbox',
+      target_type: String(config.target_type || 'sandbox'),
       zone_slug: zoneSlug,
     });
     stdout = typeof r.output === 'string' ? r.output : '';

@@ -9,12 +9,12 @@ export const CANONICAL_AGENTSAM_TERMINAL_LOCAL_INPUT_SCHEMA = {
   properties: {
     command: {
       type: 'string',
-      description: 'Shell command to run on the platform VM.',
+      description: 'Shell command on the signed-in user\'s own device (user_hosted_tunnel — Mac zsh, Windows PowerShell, etc.).',
     },
     path: {
       type: 'string',
       description:
-        'Optional working directory (absolute under PTY workspace). Honored as cwd unless command already starts with cd.',
+        'Optional working directory on the user device. Honored as cwd unless command already starts with cd.',
     },
   },
   required: ['command'],
@@ -27,7 +27,7 @@ export const CANONICAL_AGENTSAM_TERMINAL_REMOTE_INPUT_SCHEMA = {
   properties: {
     command: {
       type: 'string',
-      description: 'Shell command on the configured remote terminal target.',
+      description: 'Shell command on the GCP cloud desk VM (terminal.inneranimalmedia.com). Use when Mac is asleep or working from phone/OAuth. Platform operators only.',
     },
     target_id: {
       type: 'string',

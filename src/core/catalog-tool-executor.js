@@ -1285,8 +1285,23 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
             error: 'platform_operator_required',
             body: {
               user_message:
-                'agentsam_terminal_local and agentsam_terminal_remote are restricted to platform operators.',
+                toolKey === 'agentsam_terminal_remote'
+                  ? 'agentsam_terminal_remote (GCP cloud desk) is restricted to platform operators. Use agentsam_terminal_local for your device or agentsam_terminal_sandbox for an isolated dev zone.'
+                  : 'agentsam_container_exec is restricted to platform operators (use agentsam_terminal_sandbox when container dev zones are enabled).',
             },
+          };
+          break;
+        }
+      }
+
+      if (toolKey === 'agentsam_terminal_local') {
+        const { validateUserLocalTerminalAccess } = await import('./terminal-routing-policy.js');
+        const localGate = await validateUserLocalTerminalAccess(env.DB, userId, workspaceId);
+        if (!localGate.ok) {
+          result = {
+            ok: false,
+            error: localGate.error,
+            body: { user_message: localGate.user_message },
           };
           break;
         }

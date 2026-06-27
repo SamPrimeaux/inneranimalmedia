@@ -15,6 +15,61 @@ This doc maps that release onto **inneranimalmedia today** — what we already h
 
 ---
 
+## Phone-resilient execution architecture (canonical)
+
+**Core problem:** execution today blocks inside the HTTP request (`rws-spawn-fanout.js`). No durable handle outlives the connection. Mac asleep / phone locked = work dies. This is routing + architecture, not hardware.
+
+```
+Phone (OAuth ChatGPT / Claude / dashboard)
+        │  one quick request
+        ▼
+runTurn({ mode: "submit" | "stream" })     ← single entry point (SDK Phase 2)
+        │
+        ▼
+Think DO (durable — survives eviction)
+        │  runAgentTool(Facet, { detached: { notify: true } })
+        ▼
+   ┌─────────────────────┬──────────────────────┬─────────────────────┐
+   │ TerminalRemoteFacet │ ContainerDevFacet    │ ContainerBatchFacet │
+   │ → GCP VM            │ → CF Container       │ → CF Container      │
+   │   persistent repo   │   per zone_slug      │   CAD / moviemode   │
+   └─────────────────────┴──────────────────────┴─────────────────────┘
+        │  reportProgress / milestone
+        ▼
+   reconnecting client (any device, Mac asleep OK)
+```
+
+**Only the Think DO must be durable.** Exec target (VM vs Container) is swappable without touching detachment.
+
+---
+
+## Tool → lane mapping (target state)
+
+| Tool | Exec target | Isolation | Use for |
+|------|-------------|-----------|---------|
+| `agentsam_terminal_local` | Mac `localpty` | None (host shell) | Desk work when iMac awake — **not** phone/OAuth primary |
+| `agentsam_terminal_remote` | GCP `terminal.inneranimalmedia.com` | Shared VM FS | Sam operator — full repo, git, wrangler, persistent state |
+| `agentsam_terminal_sandbox` | **CF Container** keyed by `zone_slug` | Per-zone compute | MCP zones (engineer/architect/cms/specialist), experiments, CAD batch |
+| `agentsam_container_exec` | CF Container (batch) | Pool / ad-hoc | **Merge into sandbox backend** once container dev image ships |
+
+### Two different "sandbox" concepts (do not conflate)
+
+| Name | What it is today | Target |
+|------|------------------|--------|
+| **`agentsam_terminal_sandbox`** tool | Path isolation only: `{workspace_root}/.mcp-zones/{zone_slug}/` then shells out via whatever terminal connection health picks (was often Mac localpty) | **Container instance per `zone_slug`** |
+| **`sandboxterminal` connection** | GCP PTY hostname `wss://sandboxterminal.inneranimalmedia.com` → `/workspace/{tenant}/{user}/` | Connor/tenant lane — keep for multi-tenant PTY until container tenant facets exist |
+
+Audit (2026-06-27): `src/core/terminal-sandbox.js` wraps `mkdir -p …/.mcp-zones/{zone}/ && cd … && cmd` and calls `runTerminalCommand` — **path-level isolation, not compute-level**. Two zones on the same host share CPU/RAM. Routing fix (pass `target_type: sandbox`) sends tool calls to `sandboxterminal` GCP PTY instead of Mac; **container backend is the real isolation finish line**.
+
+### Why dedicate `agentsam_terminal_sandbox` to Containers
+
+- Tool description already promises isolated `{zone_slug}` scope — matches `getContainer(env.MY_CONTAINER, zoneSlug)`.
+- `zone_slug` → Container DO id gives per-job isolation free (unlike one shared GCP VM).
+- `ContainerBatchFacet` and `ContainerDevFacet` both dispatch as sandbox with a zone — no new OAuth tools.
+- `agentsam_terminal_remote` stays GCP for **your** persistent `/home/samprimeaux/inneranimalmedia` clone.
+
+---
+
 ## Current state (audit 2026-06-27)
 
 | Layer | Today | SDK equivalent |
@@ -221,6 +276,7 @@ npm i agents@latest @cloudflare/think@latest @cloudflare/ai-chat@latest @cloudfl
 
 ## Related docs
 
+- [terminal-three-lane-model.md](./terminal-three-lane-model.md) — canonical local / remote / sandbox product split
 - [agentic-edge-sprint-2a-multi-agent-orchestration.md](./agentic-edge-sprint-2a-multi-agent-orchestration.md) — updated to reference SDK detached runs
 - [agentic-edge-sprint-1c-exec-fabric.md](./agentic-edge-sprint-1c-exec-fabric.md) — container target stretch
 - [REPAIR-REMOTE-TERMINAL.md](../ops/REPAIR-REMOTE-TERMINAL.md) — GCP cwd / routing fixes
