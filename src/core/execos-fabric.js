@@ -10,22 +10,15 @@
 
 import { execOnPtyHost, loadWorkspaceRootFromSettings, buildPtyUserWorkspaceRoot, PTY_REPO_DIRNAME } from './pty-workspace-paths.js';
 import { userIsPlatformOperator, PLATFORM_WORKSPACE_ID } from './platform-operator-policy.js';
+import {
+  IAM_GCP_OPERATOR_REPO,
+  translateHostRootForGcp,
+} from './host-workspace-paths.js';
+
+export { translateHostRootForGcp, IAM_GCP_OPERATOR_REPO };
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
-}
-
-/**
- * Map D1 workspace_root (often Mac) to Linux GCP home layout.
- * @param {string} root
- */
-export function translateHostRootForGcp(root) {
-  const p = trim(root).replace(/\/+$/, '');
-  if (!p) return '';
-  if (p.startsWith('/Users/')) {
-    return `/home/${p.slice('/Users/'.length)}`;
-  }
-  return p;
 }
 
 /**
@@ -52,13 +45,16 @@ export async function resolveCadExecRepoRoot(env, ctx = {}) {
   if (isOperator) {
     const hostRoot = await loadWorkspaceRootFromSettings(env, workspaceId);
     if (hostRoot) {
-      const repoRoot = target === 'gcp' ? translateHostRootForGcp(hostRoot) : hostRoot;
+      const repoRoot =
+        target === 'gcp'
+          ? translateHostRootForGcp(hostRoot) || IAM_GCP_OPERATOR_REPO
+          : hostRoot;
       return { repoRoot, source: 'workspace_settings', strategy: 'host_default' };
     }
     if (target === 'gcp') {
-      return { repoRoot: '/home/samprimeaux/inneranimalmedia', source: 'operator_fallback', strategy: 'host_default' };
+      return { repoRoot: IAM_GCP_OPERATOR_REPO, source: 'operator_fallback', strategy: 'host_default' };
     }
-    return { repoRoot: '/Users/samprimeaux/inneranimalmedia', source: 'operator_fallback', strategy: 'host_default' };
+    return { repoRoot: hostRoot || '/Users/samprimeaux/inneranimalmedia', source: 'operator_fallback', strategy: 'host_default' };
   }
 
   if (tenantId && userId) {
@@ -80,8 +76,8 @@ export function resolveCadExecCwd(env, hints = {}) {
   const fromHint = trim(hints.repoRoot);
   if (fromHint) return fromHint;
   const explicit = trim(env?.EXECOS_CAD_CWD) || trim(env?.OPERATOR_TERMINAL_CWD);
-  if (explicit) return translateHostRootForGcp(explicit);
-  return '/home/samprimeaux/inneranimalmedia';
+  if (explicit) return translateHostRootForGcp(explicit) || IAM_GCP_OPERATOR_REPO;
+  return IAM_GCP_OPERATOR_REPO;
 }
 
 /**

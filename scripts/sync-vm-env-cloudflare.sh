@@ -1,13 +1,13 @@
 #!/usr/bin/env zsh
-# Securely sync gitignored env from Mac repo SSOT → GCP iam-tunnel VM repo path(s).
+# Securely sync gitignored env from Mac repo SSOT → GCP iam-tunnel GitHub clone.
 # Never commits secrets. Remote files are chmod 600.
 #
 # Usage (repo root):
 #   ./scripts/sync-vm-env-cloudflare.sh
 #   ./scripts/sync-vm-env-cloudflare.sh --dry-run
 #
-# Optional in .env.cloudflare (comma-separated absolute paths on VM):
-#   IAM_VM_ENV_REPO_PATHS=/workspace/tenant_sam_primeaux/au_871d920d1233cbd1/inneranimalmedia
+# Target path (comma-separated on VM):
+#   IAM_VM_ENV_REPO_PATHS=/home/samprimeaux/inneranimalmedia
 
 emulate -R zsh
 set -euo pipefail
@@ -50,7 +50,7 @@ if [[ -z "$GCP_PROJECT" || -z "$GCP_ZONE_VAL" ]]; then
   exit 0
 fi
 
-DEFAULT_REPO="/workspace/tenant_sam_primeaux/au_871d920d1233cbd1/inneranimalmedia"
+DEFAULT_REPO="${IAM_GCP_REPO_PATH:-/home/samprimeaux/inneranimalmedia}"
 VM_PATHS="${IAM_VM_ENV_REPO_PATHS:-$DEFAULT_REPO}"
 
 if (( DRY_RUN )); then
@@ -89,6 +89,9 @@ IFS=',' read -ra REPOS <<< "$PATHS"
 for repo in "${REPOS[@]}"; do
   repo="${repo// /}"
   [[ -n "$repo" ]] || continue
+  if [[ ! -d "$repo/.git" ]]; then
+    echo "WARN: $repo is not a git clone — run ./scripts/bootstrap-gcp-vm-repo.sh from Mac first" >&2
+  fi
   mkdir -p "$repo"
   cp /tmp/iam-env-sync/.env.cloudflare "$repo/.env.cloudflare"
   chmod 600 "$repo/.env.cloudflare"
@@ -102,44 +105,35 @@ rm -rf /tmp/iam-env-sync
 
 MARK_BEGIN='# >>> IAM local env (inneranimalmedia) — managed by scripts/sync-vm-env-cloudflare.sh >>>'
 MARK_END='# <<< IAM local env (inneranimalmedia) <<<'
-ZSHRC="${HOME}/.zshrc"
-touch "$ZSHRC"
-if ! grep -Fq "$MARK_BEGIN" "$ZSHRC"; then
-  {
-    echo ''
-    echo "$MARK_BEGIN"
-    echo "export IAM_REPO=\"$DEFAULT_REPO\""
-    echo 'if [[ -f "$IAM_REPO/scripts/lib/load-iam-local-env.sh" ]]; then'
-    echo '  source "$IAM_REPO/scripts/lib/load-iam-local-env.sh"'
-    echo 'fi'
-    echo "$MARK_END"
-  } >> "$ZSHRC"
-  echo "OK: appended IAM env block to $ZSHRC"
-else
-  echo "OK: IAM env block already in $ZSHRC"
-fi
-
-BASHRC="${HOME}/.bashrc"
-touch "$BASHRC"
-if ! grep -Fq "$MARK_BEGIN" "$BASHRC"; then
-  {
-    echo ''
-    echo "$MARK_BEGIN"
-    echo "export IAM_REPO=\"$DEFAULT_REPO\""
-    echo 'if [[ -f "$IAM_REPO/.env.cloudflare" ]]; then'
-    echo '  set -a'
-    echo '  # shellcheck source=/dev/null'
-    echo '  source "$IAM_REPO/.env.cloudflare"'
-    echo '  [[ -f "$IAM_REPO/.mcp_exports.sh" ]] && source "$IAM_REPO/.mcp_exports.sh"'
-    echo '  set +a'
-    echo 'fi'
-    echo "$MARK_END"
-  } >> "$BASHRC"
-  echo "OK: appended IAM env block to $BASHRC"
-else
-  echo "OK: IAM env block already in $BASHRC"
-fi
+for rc in "${HOME}/.zshrc" "${HOME}/.bashrc"; do
+  touch "$rc"
+  if grep -Fq "$MARK_BEGIN" "$rc"; then
+    sed -i "s|^export IAM_REPO=.*|export IAM_REPO=\"$DEFAULT_REPO\"|" "$rc"
+    echo "OK: updated IAM_REPO in $rc"
+  else
+    {
+      echo ''
+      echo "$MARK_BEGIN"
+      echo "export IAM_REPO=\"$DEFAULT_REPO\""
+      if [[ "$rc" == *zshrc ]]; then
+        echo 'if [[ -f "$IAM_REPO/scripts/lib/load-iam-local-env.sh" ]]; then'
+        echo '  source "$IAM_REPO/scripts/lib/load-iam-local-env.sh"'
+        echo 'fi'
+      else
+        echo 'if [[ -f "$IAM_REPO/.env.cloudflare" ]]; then'
+        echo '  set -a'
+        echo '  # shellcheck source=/dev/null'
+        echo '  source "$IAM_REPO/.env.cloudflare"'
+        echo '  [[ -f "$IAM_REPO/.mcp_exports.sh" ]] && source "$IAM_REPO/.mcp_exports.sh"'
+        echo '  set +a'
+        echo 'fi'
+      fi
+      echo "$MARK_END"
+    } >> "$rc"
+    echo "OK: appended IAM env block to $rc"
+  fi
+done
 REMOTE
 
 echo "Done: VM env synced (chmod 600). On GCP PTY:"
-echo "  source ${DEFAULT_REPO}/scripts/lib/load-iam-local-env.sh"
+echo "  cd ${DEFAULT_REPO} && source scripts/lib/load-iam-local-env.sh"

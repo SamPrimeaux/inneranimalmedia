@@ -4,6 +4,11 @@
  */
 import { assertWorkspaceTokenForPty } from './workspace-tokens.js';
 import { runTerminalCommandViaHttpExec } from './terminal.js';
+import {
+  connectionUsesGcpRepoLayout,
+  resolveRepoRootForHost,
+  vmWorkspaceRootFromSettings,
+} from './host-workspace-paths.js';
 
 export const PTY_REPO_DIRNAME = 'inneranimalmedia';
 
@@ -110,6 +115,27 @@ export async function loadWorkspaceRootFromSettings(env, workspaceId) {
 }
 
 /**
+ * Load parsed workspace_settings.settings_json.
+ * @param {any} env
+ * @param {string} workspaceId
+ */
+export async function loadWorkspaceSettingsJson(env, workspaceId) {
+  const wid = String(workspaceId || '').trim();
+  if (!wid || !env?.DB) return null;
+  try {
+    const row = await env.DB.prepare(
+      'SELECT settings_json FROM workspace_settings WHERE workspace_id = ? LIMIT 1',
+    )
+      .bind(wid)
+      .first();
+    if (!row?.settings_json) return null;
+    return JSON.parse(String(row.settings_json));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolve PTY cwd from connection cwd_strategy (not target_type alone).
  * - host_default: workspace_settings.workspace_root for operators; null → host shell default
  * - platform_workspace: isolated /workspace/{tenant_id}/{user_id}/ for customers (Connor, BYOK)
@@ -127,8 +153,20 @@ export async function resolveTerminalCwd(env, { connection = null, tenantId, use
   if (strategy === 'host_default' || strategy === 'user_home') {
     const wid = String(workspaceId || connection?.workspace_id || '').trim();
     if (strategy === 'host_default' && wid) {
-      const root = await loadWorkspaceRootFromSettings(env, wid);
-      if (root) return { cwd: root, strategy: 'host_default' };
+      const settings = await loadWorkspaceSettingsJson(env, wid);
+      const macRoot =
+        settings && typeof settings.workspace_root === 'string'
+          ? settings.workspace_root.trim()
+          : '';
+      if (connectionUsesGcpRepoLayout(connection)) {
+        const gcpRoot = vmWorkspaceRootFromSettings(settings);
+        if (gcpRoot) return { cwd: gcpRoot, strategy: 'host_default' };
+      }
+      const root = macRoot || (await loadWorkspaceRootFromSettings(env, wid));
+      if (root) {
+        const cwd = resolveRepoRootForHost(root, { connection, settings });
+        return { cwd, strategy: 'host_default' };
+      }
     }
     return { cwd: null, strategy };
   }

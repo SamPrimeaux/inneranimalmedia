@@ -1,18 +1,29 @@
 #!/usr/bin/env bash
-# Bootstrap tenant sandbox clone under /workspace (sandboxterminal lane — NOT operator VM repo).
-# For Sam's operator GitHub clone on iam-tunnel use: ./scripts/bootstrap-gcp-vm-repo.sh
+# Bootstrap Sam's operator repo on GCP iam-tunnel — GitHub clone at ~/inneranimalmedia.
+# This is the path AgentSam uses when Mac localpty is asleep (terminal.inneranimalmedia.com).
 #
-# Usage:
-#   ./scripts/bootstrap-gcp-sandbox-repo.sh
-#   ./scripts/bootstrap-gcp-sandbox-repo.sh --dry-run
+# Usage (Mac repo root):
+#   ./scripts/bootstrap-gcp-vm-repo.sh
+#   ./scripts/bootstrap-gcp-vm-repo.sh --dry-run
+#   ./scripts/bootstrap-gcp-vm-repo.sh --sync-env
 #
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+SCRIPT_LIB="${REPO_ROOT}/scripts/lib/gcp-vm-paths.sh"
+# shellcheck source=scripts/lib/gcp-vm-paths.sh
+source "$SCRIPT_LIB"
+
 DRY_RUN=0
-[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=1
+SYNC_ENV=0
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=1 ;;
+    --sync-env) SYNC_ENV=1 ;;
+  esac
+done
 
 if [[ -f "${REPO_ROOT}/.env.cloudflare" ]]; then
   set -a
@@ -24,6 +35,9 @@ fi
 GCP_VM_NAME="${GCP_VM_NAME:-iam-tunnel}"
 GCP_PROJECT="${GCP_PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
 GCP_ZONE_VAL="${GCP_ZONE:-}"
+VM_REPO="${IAM_VM_ENV_REPO_PATHS:-${IAM_GCP_REPO_PATH:-/home/samprimeaux/inneranimalmedia}}"
+VM_REPO="${VM_REPO%%,*}"
+REPO_URL="${IAM_SANDBOX_REPO_URL:-git@github.com:SamPrimeaux/inneranimalmedia.git}"
 
 if [[ -z "$GCP_ZONE_VAL" && -n "$GCP_PROJECT" ]]; then
   GCP_ZONE_VAL="$(gcloud compute instances list \
@@ -31,12 +45,6 @@ if [[ -z "$GCP_ZONE_VAL" && -n "$GCP_PROJECT" ]]; then
     --filter="name=$GCP_VM_NAME" \
     --format='value(zone)' 2>/dev/null | head -1 || true)"
 fi
-
-SAM_TENANT="${IAM_SANDBOX_TENANT_ID:-tenant_sam_primeaux}"
-SAM_USER="${IAM_SANDBOX_USER_ID:-au_871d920d1233cbd1}"
-WORKSPACE_ROOT="${IAM_GCP_WORKSPACES_ROOT:-/workspace}"
-REPO_DIR="${WORKSPACE_ROOT}/${SAM_TENANT}/${SAM_USER}/inneranimalmedia"
-REPO_URL="${IAM_SANDBOX_REPO_URL:-git@github.com:SamPrimeaux/inneranimalmedia.git}"
 
 if ! command -v gcloud >/dev/null 2>&1; then
   echo "✗ gcloud not installed — install Google Cloud SDK" >&2
@@ -48,14 +56,12 @@ if [[ -z "$GCP_PROJECT" || -z "$GCP_ZONE_VAL" ]]; then
 fi
 
 echo "GCP VM: ${GCP_VM_NAME} (${GCP_PROJECT} / ${GCP_ZONE_VAL})"
-echo "Clone path: ${REPO_DIR}"
+echo "Operator repo (GitHub clone): ${VM_REPO}"
 
 REMOTE_CMD="$(cat <<EOF
 set -euo pipefail
-REPO_DIR='${REPO_DIR}'
+REPO_DIR='${VM_REPO}'
 REPO_URL='${REPO_URL}'
-PARENT="\$(dirname "\$REPO_DIR")"
-mkdir -p "\$PARENT"
 if [[ -d "\$REPO_DIR/.git" ]]; then
   echo "→ existing clone — fetching main"
   cd "\$REPO_DIR"
@@ -63,7 +69,8 @@ if [[ -d "\$REPO_DIR/.git" ]]; then
   git checkout main
   git merge --ff-only origin/main
 else
-  echo "→ cloning"
+  echo "→ cloning from GitHub"
+  mkdir -p "\$(dirname "\$REPO_DIR")"
   git clone "\$REPO_URL" "\$REPO_DIR"
   cd "\$REPO_DIR"
   git checkout main
@@ -73,7 +80,7 @@ EOF
 )"
 
 if (( DRY_RUN )); then
-  echo "[dry-run] would ssh and run bootstrap in ${REPO_DIR}"
+  echo "[dry-run] would ssh and bootstrap ${VM_REPO}"
   exit 0
 fi
 
@@ -82,10 +89,14 @@ gcloud compute ssh "$GCP_VM_NAME" \
   --zone="$GCP_ZONE_VAL" \
   --command="$REMOTE_CMD"
 
+if (( SYNC_ENV )) || [[ -x "${REPO_ROOT}/scripts/sync-vm-env-cloudflare.sh" ]]; then
+  echo ""
+  echo "→ Sync .env.cloudflare to VM"
+  IAM_VM_ENV_REPO_PATHS="$VM_REPO" "${REPO_ROOT}/scripts/sync-vm-env-cloudflare.sh"
+fi
+
 echo ""
-echo "→ Operator VM repo (GitHub @ ~/inneranimalmedia): ./scripts/bootstrap-gcp-vm-repo.sh"
-echo "→ Sync .env.cloudflare: ./scripts/sync-vm-env-cloudflare.sh"
-echo "  IAM_VM_ENV_REPO_PATHS=/home/samprimeaux/inneranimalmedia"
+echo "Remote PTY:"
+echo "  cd ${VM_REPO} && source scripts/lib/load-iam-local-env.sh"
 echo ""
-echo "Health:"
-curl -sS -m 12 -o /dev/null -w '  sandboxterminal %{http_code}\n' https://sandboxterminal.inneranimalmedia.com/health || true
+curl -sS -m 12 -o /dev/null -w '  terminal %{http_code}\n' https://terminal.inneranimalmedia.com/health || true

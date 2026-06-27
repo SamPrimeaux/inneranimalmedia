@@ -37,6 +37,11 @@ import {
   resolveCatalogDataPlaneOperation,
   resolveCatalogDataPlaneProvider,
 } from './catalog-data-plane-operation.js';
+import {
+  resolveRepoRootForHost,
+  vmWorkspaceCdCommandFromSettings,
+  vmWorkspaceRootFromSettings,
+} from './host-workspace-paths.js';
 
 function parseInput(input) {
   if (input == null) return {};
@@ -69,8 +74,9 @@ function resolveWorkspaceDeployCommand(settingsJson, commandSource) {
  * Prefix workspace deploy/build commands so PTY and tunnel exec run in the repo root.
  * @param {string|object|null} settingsJson
  * @param {string} command
+ * @param {{ gcpExec?: boolean }} [opts]
  */
-export function wrapWorkspaceShellCommand(settingsJson, command) {
+export function wrapWorkspaceShellCommand(settingsJson, command, opts = {}) {
   const cmd = String(command || '').trim();
   if (!cmd) return cmd;
 
@@ -86,16 +92,28 @@ export function wrapWorkspaceShellCommand(settingsJson, command) {
 
   if (/^\s*cd\s+/i.test(cmd)) return cmd;
 
-  const root = String(parsed.workspace_root || '').trim();
+  const gcpExec = opts.gcpExec === true;
+  const root = gcpExec
+    ? vmWorkspaceRootFromSettings(parsed)
+    : String(parsed.workspace_root || '').trim();
   if (root && cmd.includes(root)) return cmd;
 
-  const cdPrefix = String(parsed.workspace_cd_command || '').trim();
+  const cdPrefix = gcpExec
+    ? vmWorkspaceCdCommandFromSettings(parsed)
+    : String(parsed.workspace_cd_command || '').trim();
   if (cdPrefix) {
     if (/&&\s*$/.test(cdPrefix)) return `${cdPrefix} ${cmd}`;
     if (cdPrefix.includes('&&')) return `${cdPrefix} && ${cmd}`;
     return `${cdPrefix} && ${cmd}`;
   }
   if (root) return `cd ${root} && ${cmd}`;
+  if (gcpExec) {
+    const translated = resolveRepoRootForHost(String(parsed.workspace_root || ''), {
+      settings: parsed,
+      forceGcp: true,
+    });
+    if (translated) return `cd ${translated} && ${cmd}`;
+  }
   return cmd;
 }
 
@@ -1347,6 +1365,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       }
       let settingsJson = null;
       let workspaceRoot = null;
+      let parsedSettings = null;
       if (workspaceId && env?.DB) {
         const settingsRow = await env.DB.prepare(
           'SELECT settings_json FROM workspace_settings WHERE workspace_id = ? LIMIT 1',
@@ -1357,19 +1376,28 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         if (settingsRow?.settings_json) {
           settingsJson = settingsRow.settings_json;
           try {
-            const parsed =
+            parsedSettings =
               typeof settingsJson === 'string' ? JSON.parse(settingsJson) : settingsJson;
-            workspaceRoot = String(parsed?.workspace_root || '').trim() || null;
+            workspaceRoot = String(parsedSettings?.workspace_root || '').trim() || null;
           } catch (_) {
             workspaceRoot = null;
+            parsedSettings = null;
           }
-          cmd = wrapWorkspaceShellCommand(settingsJson, cmd);
         }
       }
       const remoteTargetId =
         toolKey === 'agentsam_terminal_remote' && params.target_id != null
           ? String(params.target_id).trim()
           : '';
+      const gcpExec =
+        toolKey === 'agentsam_terminal_remote' ||
+        (remoteTargetId && /gcp|iam_tunnel|platform_vm/i.test(remoteTargetId));
+      if (settingsJson) {
+        cmd = wrapWorkspaceShellCommand(settingsJson, cmd, { gcpExec });
+      }
+      const responseWorkspaceRoot = gcpExec
+        ? vmWorkspaceRootFromSettings(parsedSettings)
+        : workspaceRoot;
       const out = await termHandlers.run_command(
         {
           command: cmd,
@@ -1386,8 +1414,8 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           ok: false,
           error: errText,
           body: {
-            cwd: explicitPath || workspaceRoot || null,
-            cwd_source: explicitPath ? 'path' : workspaceRoot ? 'workspace_root' : 'pty_session_default',
+            cwd: explicitPath || responseWorkspaceRoot || null,
+            cwd_source: explicitPath ? 'path' : responseWorkspaceRoot ? 'workspace_root' : 'pty_session_default',
             exit_code: null,
             stdout: '',
             stderr: errText,
@@ -1405,7 +1433,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         ok: true,
         body: buildTerminalToolResponseBody({
           explicitPath: explicitPath || null,
-          workspaceRoot,
+          workspaceRoot: responseWorkspaceRoot,
           executedCommand: out.command || cmd,
           stdout,
           stderr,

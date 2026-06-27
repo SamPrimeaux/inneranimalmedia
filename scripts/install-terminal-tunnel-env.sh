@@ -179,7 +179,7 @@ sync_gcp() {
   local remote_script
   remote_script="$(cat <<'REMOTE'
 set -euo pipefail
-SSOT="/workspace/tenant_sam_primeaux/au_871d920d1233cbd1/inneranimalmedia/.env.cloudflare"
+SSOT="/home/samprimeaux/inneranimalmedia/.env.cloudflare"
 PTY_DIR="$HOME/ExecOS"
 [[ -d "$PTY_DIR" ]] || PTY_DIR="$HOME/iam-pty"
 mkdir -p "$PTY_DIR"
