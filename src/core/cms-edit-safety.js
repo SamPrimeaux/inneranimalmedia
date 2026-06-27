@@ -9,20 +9,13 @@ import {
   invalidateCmsBootstrapCache,
   putCmsDraftCache,
 } from './cms-kv-cache.js';
+import { CMS_DEFAULT_R2_BUCKET, getCmsR2Binding } from './cms-r2-binding.js';
 
 const CMS_EDIT_SKILL_ID = 'skill_iam_cms_edit';
-const CMS_DEFAULT_R2_BUCKET = 'inneranimalmedia';
 
 /** @param {string} workspaceId @param {string} projectId @param {string} slug @param {string} variant */
 export function cmsPageHtmlKey(workspaceId, projectId, slug, variant) {
   return `cms/${workspaceId}/${projectId}/${slug}/${variant}.html`;
-}
-
-/** @param {any} env @param {string} bucketName */
-function getCmsR2Binding(env, bucketName) {
-  const name = String(bucketName || CMS_DEFAULT_R2_BUCKET).trim();
-  if (name === 'inneranimalmedia' || name === 'dashboard') return env.ASSETS || env.R2;
-  return env.ASSETS || env.R2;
 }
 
 /** @param {string} raw */

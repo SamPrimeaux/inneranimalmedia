@@ -1,0 +1,23 @@
+lock-version = "1.0"
+created-by = "uv"
+requires-python = ">=3.13.2"
+
+[[packages]]
+name = "beautifulsoup4"
+version = "4.15.0"
+wheels = [{ url = "https://files.pythonhosted.org/packages/88/c6/92fcd42f1ba33e1184263f25bfabf3d27c383410470f169e4b8163bf9c17/beautifulsoup4-4.15.0-py3-none-any.whl", upload-time = 2026-06-07T16:44:21Z, size = 109924, hashes = { sha256 = "d6f88de62e1d4e38ecb1077eb9724cd0eff29d2a08ca16a401e9b9e93f117cf9" } }]
+
+[[packages]]
+name = "soupsieve"
+version = "2.8.4"
+wheels = [{ url = "https://files.pythonhosted.org/packages/5e/f5/0c41cb68dcae6b7de4fac4188a3a9589e21fb31df21ea3a2e888db95e6c9/soupsieve-2.8.4-py3-none-any.whl", upload-time = 2026-05-24T13:55:55Z, size = 37304, hashes = { sha256 = "e7e6b0769c8f51ed59acab6e994b00621096cfb1c640a7509295987388fbaf65" } }]
+
+[[packages]]
+name = "typing-extensions"
+version = "4.15.0"
+wheels = [{ url = "https://files.pythonhosted.org/packages/18/67/36e9267722cc04a6b9f15c7f3441c2363321a3ea07da7ae0c0707beb2a9c/typing_extensions-4.15.0-py3-none-any.whl", upload-time = 2025-08-25T13:49:24Z, size = 44614, hashes = { sha256 = "f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548" } }]
+
+[[packages]]
+name = "workers-runtime-sdk"
+version = "1.5.0"
+wheels = [{ url = "https://files.pythonhosted.org/packages/78/43/742066c1ab872d1720faef7a0903c853a92c3b985d3f08effe5dd38a2d6b/workers_runtime_sdk-1.5.0-py3-none-any.whl", upload-time = 2026-06-23T03:16:35Z, size = 22126, hashes = { sha256 = "4027687782ad593d68b5a7ca0e7768100dcb04482b32b59cab24bc84f5da4e4f" } }]

@@ -70,6 +70,10 @@ bucket_name = "inneranimalmedia-autorag"
 binding = "ARTIFACTS"
 bucket_name = "artifacts"
 
+[[r2_buckets]]
+binding = "CMS_BUCKET"
+bucket_name = "cms"
+
 # iam-platform (`R2`) and `tools` buckets removed from production bindings 2026-06-02.
 # Platform R2 CRUD uses registry + S3 credentials where needed (see src/api/r2-api.js).
 # Email templates/archive: inneranimalmedia/email/… on ASSETS (EMAIL binding dropped 2026-06-06).
@@ -124,6 +128,11 @@ id = "dc87920b0a9247979a213c09df9a0234"
 [[services]]
 binding = "MOVIEMODE_SERVICE"
 service = "moviemode-service"
+
+# Python CMS pipeline — HTML/agentic prototyping (iam-cms-pipeline)
+[[services]]
+binding = "CMS_PIPELINE"
+service = "iam-cms-pipeline"
 
 [[durable_objects.bindings]]
 name = "IAM_COLLAB"
@@ -234,6 +243,7 @@ GITHUB_CLIENT_ID = "Ov23li6BZYxjVtGUWibX"
 GOOGLE_CLIENT_ID = "427617292678-gf3u47lpf876q7miq31hel2ms6tcr2f8.apps.googleusercontent.com"
 WORKSPACE_ID = "ws_inneranimalmedia"
 ENVIRONMENT = "production"
+CMS_R2_PUBLIC_ORIGIN = "https://cms.inneranimalmedia.com"
 # Meet engine: legacy (Cloudflare Calls SFU) | realtimekit (RealtimeKit SDK path)
 MEET_ENGINE = "realtimekit"
 AI_SEARCH_ENDPOINT = "https://2da31515-2005-42e4-9efe-a4e6a425a627.search.ai.cloudflare.com"

@@ -73,6 +73,13 @@ export const WORKER_R2_BINDING_SPECS = [
     publicUrl: 'https://autorag.inneranimalmedia.com',
   },
   {
+    bindingKey: 'CMS_BUCKET',
+    bucketName: 'cms',
+    labels: ['CMS_BUCKET'],
+    aliases: ['cms'],
+    publicUrl: 'https://cms.inneranimalmedia.com',
+  },
+  {
     bindingKey: 'ARTIFACTS',
     bucketName: 'artifacts',
     labels: ['ARTIFACTS'],

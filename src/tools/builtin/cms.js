@@ -10,18 +10,9 @@ import {
   writeCmsDraftHtmlToR2,
 } from '../../core/cms-edit-safety.js';
 import { verifyCmsPublishContract, runCmsPromotionGate, cmsPublishGateErrorResponse } from '../../core/cms-promotion-gates.js';
-
-const CMS_DEFAULT_R2_BUCKET = 'inneranimalmedia';
-
-function cmsPageKey(workspaceId, projectId, slug, variant) {
-  return `cms/${workspaceId}/${projectId}/${slug}/${variant}.html`;
-}
-
-function getCmsR2Binding(env, bucketName) {
-  const name = String(bucketName || CMS_DEFAULT_R2_BUCKET).trim();
-  if (name === 'inneranimalmedia' || name === 'dashboard') return env.ASSETS || env.R2;
-  return env.ASSETS || env.R2;
-}
+import { pipelineHandlers } from './cms-pipeline.js';
+import { CMS_DEFAULT_R2_BUCKET, getCmsR2Binding } from '../../core/cms-r2-binding.js';
+import { cmsPageHtmlKey as cmsPageKey } from '../../core/cms-edit-safety.js';
 
 /**
  * @param {Record<string, unknown>} params
@@ -221,4 +212,5 @@ export const handlers = {
   agentsam_cms_write: cmsWrite,
   cms_publish: cmsPublish,
   agentsam_cms_publish: cmsPublish,
+  ...pipelineHandlers,
 };

@@ -8,13 +8,11 @@ import {
   findShopifyLiquidSections,
 } from '../../core/cms-theme-archive.js';
 
-const CMS_DEFAULT_R2_BUCKET = 'inneranimalmedia';
+import { CMS_DEFAULT_R2_BUCKET, getCmsR2Binding } from '../../core/cms-r2-binding.js';
 
 /** @param {any} env @param {string} bucketName */
 function getR2(env, bucketName) {
-  const name = String(bucketName || CMS_DEFAULT_R2_BUCKET).trim();
-  if (name === 'inneranimalmedia' || name === 'dashboard') return env.ASSETS || env.R2;
-  return env.ASSETS || env.R2;
+  return getCmsR2Binding(env, bucketName);
 }
 
 /**

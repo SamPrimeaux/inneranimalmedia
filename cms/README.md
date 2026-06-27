@@ -1,4 +1,14 @@
-# CMS workers (separate repos)
+# CMS workers
+
+## In-monorepo (recommended)
+
+**`services/cms-pipeline-service/`** — Python Worker (`iam-cms-pipeline`) for agentic HTML/D1/R2 prototyping.
+
+- Setup: `./scripts/setup_cms_python_worker.sh`
+- Docs: [docs/cms/PYTHON_CMS_AGENTIC.md](../docs/cms/PYTHON_CMS_AGENTIC.md)
+- Deploy: `cd services/cms-pipeline-service && uv run pywrangler deploy`
+
+## Separate repo (legacy editor shell)
 
 The **agentsam-cms-editor** Worker is not vendored in this monorepo. Clone and deploy from its own repository:
 

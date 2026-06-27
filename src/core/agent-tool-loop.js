@@ -1303,7 +1303,11 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
               call.name === 'cms_publish' ||
               call.name === 'agentsam_cms_read' ||
               call.name === 'agentsam_cms_write' ||
-              call.name === 'agentsam_cms_publish'
+              call.name === 'agentsam_cms_publish' ||
+              call.name === 'cms_pipeline_prototype' ||
+              call.name === 'cms_pipeline_extract' ||
+              call.name === 'cms_pipeline_inject' ||
+              call.name === 'cms_pipeline_bootstrap'
             ) {
               const slug =
                 (typeof input.project_slug === 'string' && input.project_slug.trim()) ||

@@ -62,6 +62,10 @@
 			"bucket_name": "inneranimalmedia-autorag"
 		},
 		{
+			"binding": "CMS_BUCKET",
+			"bucket_name": "cms"
+		},
+		{
 			"binding": "R2",
 			"bucket_name": "iam-platform"
 		},
@@ -87,6 +91,10 @@
 		{
 			"binding": "EXECOS",
 			"service": "execos"
+		},
+		{
+			"binding": "CMS_PIPELINE",
+			"service": "iam-cms-pipeline"
 		}
 	],
 	"vectorize": [

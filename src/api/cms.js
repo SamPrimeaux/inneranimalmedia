@@ -73,8 +73,13 @@ import { resolveCmsSiteConfig } from '../core/cms-site-config.js';
 import { mintCmsEmbedSession, proxyCmsBridgeRequest } from '../core/cms-client-bridge.js';
 import { renderCmsSectionTreeHtmlWithInjections } from '../core/cms-injected-sections.js';
 import { buildCmsPageUrls } from '../core/cms-preview-route.js';
+import {
+  CMS_DEFAULT_R2_BUCKET,
+  cmsR2PublicObjectUrl,
+  getCmsR2Binding,
+} from '../core/cms-r2-binding.js';
 
-export const CMS_DEFAULT_R2_BUCKET = 'inneranimalmedia';
+export { CMS_DEFAULT_R2_BUCKET };
 
 function cmsPageKey(workspaceId, projectId, slug, variant) {
   return `cms/${workspaceId}/${projectId}/${slug}/${variant}.html`;
@@ -112,7 +117,9 @@ function cmsSectionHtmlKey(pageSlug, sectionName, hash) {
   return `cms/sections/${cmsPathSegment(pageSlug, 'page')}/${cmsPathSegment(sectionName)}/${hash}.html`;
 }
 
-function cmsR2PublicObjectUrl(request, bucket, key) {
+function cmsR2PublicUrlFromRequest(request, bucket, key) {
+  const direct = cmsR2PublicObjectUrl(bucket, key);
+  if (direct) return direct;
   const origin = new URL(request.url).origin;
   return `${origin}/api/r2/buckets/${encodeURIComponent(bucket)}/object/${encodeURIComponent(key)}`;
 }
@@ -129,14 +136,6 @@ function cmsMutationMeta(authUser, request) {
     routeKey: String(routeKey || '').trim(),
     agentApplied: agentApplied || routeKey === 'cms_edit',
   };
-}
-
-function getCmsR2Binding(env, bucketName) {
-  const name = String(bucketName || CMS_DEFAULT_R2_BUCKET).trim();
-  if (name === 'inneranimalmedia' || name === 'dashboard') {
-    return env.ASSETS || env.R2;
-  }
-  return env.ASSETS || env.R2;
 }
 
 /**
@@ -2417,7 +2416,7 @@ export async function handleCmsApi(request, url, env, ctx) {
       });
       const publicUrl =
         (await presignR2GetObjectUrl(env, r2Bucket, r2Key)) ||
-        cmsR2PublicObjectUrl(request, r2Bucket, r2Key);
+        cmsR2PublicUrlFromRequest(request, r2Bucket, r2Key);
       const sectionData = {
         r2_key: r2Key,
         public_url: publicUrl,
@@ -2559,7 +2558,7 @@ export async function handleCmsApi(request, url, env, ctx) {
       });
       const publicUrl =
         (await presignR2GetObjectUrl(env, r2Bucket, r2Key)) ||
-        cmsR2PublicObjectUrl(request, r2Bucket, r2Key);
+        cmsR2PublicUrlFromRequest(request, r2Bucket, r2Key);
       const ps = projectSlug || page.project_slug || page.project_id || null;
       if (env.SESSION_CACHE && ps) {
         ctx.waitUntil(env.SESSION_CACHE.delete(cmsBootstrapKey(workspaceId, ps)).catch(() => {}));
