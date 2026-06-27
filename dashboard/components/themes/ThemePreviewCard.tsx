@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { MoreHorizontal } from 'lucide-react';
 import { ThemePreviewCanvas, type PreviewModel } from './ThemePreviewCanvas';
 import { ThemeSwatches } from './ThemeSwatches';
 
@@ -48,14 +49,25 @@ export function ThemePreviewCard({
     ? pm.swatches
     : ([pm.canvas, pm.primary, pm.monacoBg, pm.nav].filter(Boolean) as string[]);
 
-  const previewVisual =
-    theme.preview_image_url && !compact ? (
-      <div className="rounded-lg overflow-hidden border border-black/10 bg-black/5 aspect-[16/9] max-h-28">
-        <img src={theme.preview_image_url} alt="" className="w-full h-full object-cover" loading="lazy" />
-      </div>
-    ) : (
-      <ThemePreviewCanvas model={pm} height={compact ? 52 : 112} />
-    );
+  // Cover art can 404 (R2 package regen, deleted asset, etc). Fall back to
+  // the generated swatch canvas instead of leaving a broken <img> — this is
+  // why every card was rendering as a blank gray box.
+  const [coverFailed, setCoverFailed] = useState(false);
+  const showCover = Boolean(theme.preview_image_url) && !compact && !coverFailed;
+
+  const previewVisual = showCover ? (
+    <div className="rounded-lg overflow-hidden border border-black/10 bg-black/5 aspect-[16/9] max-h-28">
+      <img
+        src={theme.preview_image_url as string}
+        alt=""
+        className="w-full h-full object-cover"
+        loading="lazy"
+        onError={() => setCoverFailed(true)}
+      />
+    </div>
+  ) : (
+    <ThemePreviewCanvas model={pm} height={compact ? 52 : 112} />
+  );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -63,6 +75,8 @@ export function ThemePreviewCard({
       onOpen(theme);
     }
   };
+
+  const [moreOpen, setMoreOpen] = useState(false);
 
   return (
     <article
@@ -72,7 +86,7 @@ export function ThemePreviewCard({
       aria-label={`Open theme ${theme.name}`}
       onClick={() => onOpen(theme)}
       onKeyDown={handleKeyDown}
-      className={`rounded-xl border transition-all flex flex-col overflow-hidden cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--solar-cyan)] ${
+      className={`relative rounded-xl border transition-all flex flex-col overflow-hidden cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--solar-cyan)] ${
         selected
           ? 'border-[var(--solar-cyan)] ring-2 ring-[var(--solar-cyan)]/40 bg-[var(--bg-hover)] shadow-md'
           : active
@@ -128,7 +142,14 @@ export function ThemePreviewCard({
             </span>
           </div>
 
-          <div className="flex flex-wrap gap-1.5 mt-2" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+          {/* Primary actions only — Tweaks/Apply are the 95% case. Everything
+              else (preview/inspect/package/regenerate) was wrapping onto a
+              second row per card; it now lives behind one overflow menu. */}
+          <div
+            className="flex items-center gap-1.5 mt-2"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
             <button
               type="button"
               className="text-[11px] px-2 py-1 rounded-md bg-[var(--color-primary)] text-white font-medium"
@@ -143,34 +164,52 @@ export function ThemePreviewCard({
             >
               Apply
             </button>
-            <button
-              type="button"
-              className="text-[11px] px-2 py-1 rounded-md bg-[var(--bg-hover)] text-[var(--text-main)] border border-[var(--dashboard-border)]"
-              onClick={() => onPreviewLocal(theme)}
-            >
-              Preview locally
-            </button>
-            <button
-              type="button"
-              className="text-[11px] px-2 py-1 rounded-md bg-[var(--bg-hover)] text-[var(--text-main)] border border-[var(--dashboard-border)]"
-              onClick={() => onInspect(theme)}
-            >
-              Inspect JSON
-            </button>
-            <button
-              type="button"
-              className="text-[11px] px-2 py-1 rounded-md bg-[var(--bg-hover)] text-[var(--text-main)] border border-[var(--dashboard-border)]"
-              onClick={() => onOpenPackage(theme)}
-            >
-              Open R2 package
-            </button>
-            <button
-              type="button"
-              className="text-[11px] px-2 py-1 rounded-md bg-[var(--bg-hover)] text-[var(--text-main)] border border-[var(--dashboard-border)]"
-              onClick={() => onRegenerate(theme)}
-            >
-              Regenerate
-            </button>
+            <div className="relative ml-auto">
+              <button
+                type="button"
+                aria-label="More actions"
+                aria-haspopup="menu"
+                aria-expanded={moreOpen}
+                className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] border border-[var(--dashboard-border)]"
+                onClick={() => setMoreOpen((o) => !o)}
+              >
+                <MoreHorizontal size={14} />
+              </button>
+              {moreOpen ? (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Close menu"
+                    className="fixed inset-0 z-10 cursor-default"
+                    onClick={() => setMoreOpen(false)}
+                  />
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-full mt-1 z-20 min-w-[160px] rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] shadow-lg py-1 flex flex-col"
+                  >
+                    {[
+                      { label: 'Preview locally', onClick: onPreviewLocal },
+                      { label: 'Inspect JSON', onClick: onInspect },
+                      { label: 'Open R2 package', onClick: onOpenPackage },
+                      { label: 'Regenerate', onClick: onRegenerate },
+                    ].map((item) => (
+                      <button
+                        key={item.label}
+                        type="button"
+                        role="menuitem"
+                        className="text-left text-[11px] px-3 py-1.5 text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+                        onClick={() => {
+                          setMoreOpen(false);
+                          item.onClick(theme);
+                        }}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
