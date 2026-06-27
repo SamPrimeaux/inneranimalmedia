@@ -5,7 +5,11 @@
  */
 
 import { jsonResponse } from '../core/responses.js';
-import { authUserFromRequest, resolveRequestContext } from '../core/auth.js';
+import {
+  authUserFromRequest,
+  fallbackSystemTenantId,
+  resolveRequestContext,
+} from '../core/auth.js';
 import {
   DEFAULT_AGENT_HOME_CMS,
   mergeAgentHomeCms,
@@ -13,7 +17,6 @@ import {
   sanitizeAgentHomeCms,
 } from '../core/agent-home-scene-cms.js';
 import {
-  fallbackSystemTenantId,
   resolveActiveCmsThemeRow,
   resolveTenantIdForCmsThemeOps,
 } from '../core/cms-theme-resolve.js';
