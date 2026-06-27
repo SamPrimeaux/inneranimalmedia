@@ -1564,7 +1564,13 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     }
   }
 
-  // GET /api/agent/quickstart/templates — platform-global subagent gallery (D1-driven)
+  // GET/PUT /api/agent/scene — agent home background scene config
+  if (path === '/api/agent/scene') {
+    const { handleAgentHomeSceneApi } = await import('./agent-home-scene.js');
+    const sceneRes = await handleAgentHomeSceneApi(request, env, ra);
+    if (sceneRes) return sceneRes;
+  }
+
   // GET /api/agent/quickstart/templates — platform-global subagent gallery (D1-driven)
   if (path === '/api/agent/quickstart/templates' && method === 'GET') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);

@@ -1,0 +1,47 @@
+/* Agent Home — design tokens
+ * Signature element: the moon is the only light source. Every glow on the
+ * page (cyan borders, hero accent, button rings) derives from --moon-glow
+ * and --moon-angle, not from separately-set per-component colors. Move the
+ * moon, the whole UI's light shifts with it.
+ */
+
+:root {
+  /* base scene */
+  --agent-bg-deep: #050b12; /* near-black, base of the water */
+  --agent-bg-mid: #0a1826; /* midnight blue, upper water/sky blend */
+  --agent-teal: #0d2733; /* deep teal, dominant scene color */
+  --agent-moon-light: #eef5f7; /* moon body */
+  --agent-moon-halo: #bfe6ec; /* moon glow ring */
+
+  /* the one accent, derived everywhere from this */
+  --moon-glow: 191 230 236; /* rgb triplet, no leading # so we can alpha it */
+  --agent-accent: rgb(var(--moon-glow));
+  --agent-accent-soft: rgba(var(--moon-glow), 0.55);
+  --agent-accent-faint: rgba(var(--moon-glow), 0.18);
+
+  /* glass */
+  --glass-bg: rgba(180, 210, 220, 0.06);
+  --glass-bg-strong: rgba(180, 210, 220, 0.1);
+  --glass-border: rgba(var(--moon-glow), 0.28);
+  --glass-blur: 18px;
+
+  /* text */
+  --agent-text-primary: #dce6e9;
+  --agent-text-secondary: #8fa3ab;
+  --agent-text-faint: #5c6e75;
+
+  /* type */
+  --font-serif: 'Source Serif 4', 'Iowan Old Style', 'Palatino', Georgia, serif;
+  --font-sans:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* layout */
+  --agent-radius-bar: 28px;
+  --agent-radius-pill: 999px;
+  --agent-rail-width: 64px;
+}
+
+@media (prefers-color-scheme: light) {
+  /* Home is intentionally always-dark — it's a night scene, not a themeable
+     dashboard surface. No light variant; documented so nobody "fixes" this. */
+}

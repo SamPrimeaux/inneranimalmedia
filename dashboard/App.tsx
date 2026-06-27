@@ -12,16 +12,26 @@ import { WorkspaceDashboardV2 } from './components/WorkspaceDashboardV2';
 import { AgentQuickstartPage, type QuickstartTemplate } from './components/AgentQuickstartPage';
 import {
   AGENT_HOME_PATH,
-  AGENT_QUICKSTART_PATH,
+  AGENT_EDITOR_PATH,
+  AGENT_WORKSPACE_PATH,
+  AGENT_SYSTEMS_PATH,
   AGENT_EXAMPLES_PATH,
+  AGENT_TAB_QUERY,
+  AGENT_QUICKSTART_PATH,
   agentHomeWithTab,
   getAgentTabFromSearch,
+  isAgentAtmosphericHome,
+  isAgentEditorPath,
+  isAgentWorkspaceBrowserPath,
+  resolveAgentWorkspaceTab,
   isAgentHomePath,
   isAgentQuickstartPath,
   isAgentExamplesPath,
   isAgentShellPath,
   type AgentHomeTab,
 } from './lib/agentRoutes';
+import { AgentHome } from './components/agent/AgentHome';
+import type { AgentModeId } from './types/agentHomeScene';
 import { resolveDashboardRouteAgentContext } from './lib/dashboardRouteContext';
 import { resolveAgentSurfaceTarget } from './lib/resolveAgentSurfaceTarget';
 import { BREAKPOINTS, PHONE_MQ } from './lib/breakpoints';
@@ -448,6 +458,31 @@ const App: React.FC = () => {
   const agentHomeTab = useMemo(
     () => getAgentTabFromSearch(location.search),
     [location.search],
+  );
+  const agentWorkspaceTab = useMemo(
+    () => resolveAgentWorkspaceTab(location.pathname, location.search),
+    [location.pathname, location.search],
+  );
+  const isAgentWorkspaceBrowser = useMemo(
+    () => isAgentWorkspaceBrowserPath(location.pathname, location.search),
+    [location.pathname, location.search],
+  );
+  const agentHomeUserName = useMemo(() => {
+    const raw = String(workspaceDisplayName || '').trim();
+    if (!raw) return 'there';
+    return raw.split(/\s+/)[0] || raw;
+  }, [workspaceDisplayName]);
+  const agentHomeUserInitials = useMemo(() => {
+    const raw = String(workspaceDisplayName || '').trim();
+    const parts = raw.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    if (parts[0]?.length >= 2) return parts[0].slice(0, 2).toUpperCase();
+    if (parts[0]?.length === 1) return parts[0].toUpperCase();
+    return 'SP';
+  }, [workspaceDisplayName]);
+  const isAgentHomeAtmospheric = useMemo(
+    () => isAgentAtmosphericHome(location.pathname, location.search),
+    [location.pathname, location.search],
   );
   const isMovieModeRoute = location.pathname.startsWith('/dashboard/moviemode');
   const showStatusBar = showDashboardStatusBar(location.pathname);
@@ -2082,7 +2117,51 @@ const App: React.FC = () => {
 
   const handleAgentTabChange = useCallback(
     (tab: AgentHomeTab) => {
-      navigate(agentHomeWithTab(tab), { replace: true });
+      const pathByTab: Record<AgentHomeTab, string> = {
+        recent: AGENT_WORKSPACE_PATH,
+        workspaces: `${AGENT_WORKSPACE_PATH}?${AGENT_TAB_QUERY}=workspaces`,
+        systems: AGENT_SYSTEMS_PATH,
+        examples: AGENT_EXAMPLES_PATH,
+      };
+      navigate(pathByTab[tab], { replace: true });
+    },
+    [navigate],
+  );
+
+  const handleAgentHomeChatPrompt = useCallback(
+    (prompt: string, mode?: AgentModeId) => {
+      const MODE_PREFIX: Record<Exclude<AgentModeId, 'code'>, string> = {
+        write: 'Help me write: ',
+        create: 'Help me create: ',
+        learn: 'I want to learn about: ',
+        life: 'Life stuff — ',
+      };
+      if (mode && mode !== 'code') {
+        const prefix = MODE_PREFIX[mode];
+        if (!prompt.trim()) {
+          dispatchAgentChatCompose({ message: prefix, ensureAgentPanel: true });
+          if (agentPosition === 'off') setAgentPosition('right');
+          return;
+        }
+        startAgentNewThreadWithMessage(prompt.trim());
+        return;
+      }
+      if (prompt.trim()) startAgentNewThreadWithMessage(prompt.trim());
+    },
+    [agentPosition, dispatchAgentChatCompose, startAgentNewThreadWithMessage],
+  );
+
+  const handleAgentRailNavigate = useCallback(
+    (target: string) => {
+      if (target === '?search=1') {
+        setSearchOpen(true);
+        return;
+      }
+      if (target === '?notifications=1') {
+        setToastMsg('Notifications — coming soon');
+        return;
+      }
+      if (target.startsWith('/')) navigate(target);
     },
     [navigate],
   );
@@ -2244,6 +2323,11 @@ const App: React.FC = () => {
       setToastMsg('Code editor opened. Tap Chat to return to Agent Sam.');
     }
   }, [revealMainWorkspaceIfNarrow, isNarrowViewport, openTab]);
+
+  useEffect(() => {
+    if (!isAgentEditorPath(location.pathname)) return;
+    focusCodeEditorFromChat();
+  }, [location.pathname, focusCodeEditorFromChat]);
 
   const openInEditorFromExplorer = useCallback(
     (file: ActiveFile) => {
@@ -4133,7 +4217,7 @@ const App: React.FC = () => {
 
           {/* 4. MAIN EDITOR AREA */}
           <main 
-              className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[var(--dashboard-canvas)] relative max-phone:overflow-x-hidden ${narrowBlocksCenter && !isCmsFullscreen ? 'max-phone:hidden' : ''} ${isCmsFullscreen ? 'fixed inset-0 z-[120] w-full h-full max-w-none' : ''}`}
+              className={`flex-1 flex flex-col min-w-0 min-h-0 relative max-phone:overflow-x-hidden ${narrowBlocksCenter && !isCmsFullscreen ? 'max-phone:hidden' : ''} ${isCmsFullscreen ? 'fixed inset-0 z-[120] w-full h-full max-w-none' : ''} ${isAgentHomeAtmospheric ? 'bg-transparent' : 'bg-[var(--dashboard-canvas)]'}`}
               onDrop={handleMainFileDrop}
               onDragOver={handleMainDragOver}
           >
@@ -4285,7 +4369,8 @@ const App: React.FC = () => {
                 </div>
               ) : (
               <>
-              {/* Editor Tabs — lazy, closeable */}
+              {/* Editor Tabs — lazy, closeable (hidden on atmospheric /agent home) */}
+              {!isAgentHomeAtmospheric && (
               <div className="h-10 flex items-center shrink-0 pl-0 relative z-10 overflow-x-auto overflow-y-hidden no-scrollbar">
                   {openTabs.includes('Workspace') && (
                       <Tab
@@ -4402,6 +4487,7 @@ const App: React.FC = () => {
                   {/* Decorative line below tabs */}
                   <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-[var(--dashboard-border)] z-[-1]" />
               </div>
+              )}
 
               {/* Editor + optional aux bottom + terminal — flex column so drawer respects drag height */}
               <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
@@ -4415,11 +4501,19 @@ const App: React.FC = () => {
                       </div>
                   )}
 
-                  {isAgentExamplesPath(location.pathname) && (
-                      <Navigate to={agentHomeWithTab('examples')} replace />
+                  {isAgentHomeAtmospheric && activeTab === 'Workspace' && (
+                      <div className="absolute inset-0 z-10">
+                          <AgentHome
+                            userName={agentHomeUserName}
+                            userInitials={agentHomeUserInitials}
+                            workspaceId={authWorkspaceId ?? undefined}
+                            onChatPrompt={handleAgentHomeChatPrompt}
+                            onRailNavigate={handleAgentRailNavigate}
+                          />
+                      </div>
                   )}
 
-                  {isAgentHomePath(location.pathname) && activeTab === 'Workspace' && (
+                  {isAgentWorkspaceBrowser && activeTab === 'Workspace' && (
                       <div className="absolute inset-0 z-10">
                           <WorkspaceDashboardV2 
                             onOpenFolder={() => {
@@ -4441,7 +4535,7 @@ const App: React.FC = () => {
                             authWorkspaceId={authWorkspaceId}
                             onSwitchWorkspace={persistActiveWorkspace}
                             onQuickstart={openAgentQuickstart}
-                            activeAgentTab={agentHomeTab}
+                            activeAgentTab={agentWorkspaceTab}
                             onAgentTabChange={handleAgentTabChange}
                             onBeginTemplate={beginQuickstartTemplate}
                             onRunVerificationCommand={runVerificationInAgent}
