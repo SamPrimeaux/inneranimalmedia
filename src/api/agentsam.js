@@ -19,6 +19,10 @@ import {
 } from '../core/bootstrap.js';
 import { buildBootstrapApiPayload } from '../core/bootstrap-scoped-context.js';
 import { executeWorkflowAndStream, executeWorkflowResumeAndStream } from '../core/workflow-executor.js';
+import { resolveWorkflowExecutionEngine } from '../core/workflow-execution-mode.js';
+import { startDurableWorkflowRun, shouldUseDurableEngine } from '../core/workflow-durable-run.js';
+import { computeNextNodeAfterApproval } from '../core/workflow-node-execute.js';
+import { sendIamWorkflowEvent } from '../core/iam-workflows-service-proxy.js';
 import {
   loadWorkflowGraphBundle,
   requireWorkflowGraphContext,
@@ -718,7 +722,7 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
       }
     }
 
-    // POST /api/agentsam/workflows/:id/run — start a workflow run, stream SSE
+    // POST /api/agentsam/workflows/:id/run — SSE (fast) or CF Workflows (durable) via metadata
     const wfRunMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)\/run$/);
     if (wfRunMatch && method === 'POST') {
       if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
@@ -732,6 +736,39 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
         const body = await request.json().catch(() => ({}));
         const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
         const workspaceId = wsRes?.workspaceId ?? body.workspace_id ?? null;
+
+        const { loadWorkflowGraphBundle } = await import('../core/agentsam-workflow-graph.js');
+        const tenantId = authUser?.tenant_id ?? null;
+        const graphBundle = await loadWorkflowGraphBundle(env.DB, wfId, tenantId, workspaceId);
+        const nodeCount = graphBundle?.nodes?.length ?? 0;
+        const engineOverride = body.execution_engine ?? body.executionEngine ?? null;
+        const useDurable = shouldUseDurableEngine(env, workflow, {
+          override: engineOverride,
+          nodeCount,
+        });
+
+        if (useDurable) {
+          const durable = await startDurableWorkflowRun(env, {
+            workflow,
+            input: body.input ?? body.message ?? {},
+            authUser,
+            workspaceId,
+            executionEngineOverride: engineOverride,
+          });
+          if (!durable.ok) {
+            return jsonResponse({ error: durable.error, run_id: durable.run_id ?? null }, 502);
+          }
+          return jsonResponse({
+            ok: true,
+            mode: 'durable',
+            execution_engine: resolveWorkflowExecutionEngine(workflow, { override: engineOverride, nodeCount }),
+            run_id: durable.run_id,
+            instance_id: durable.instance_id,
+            status_url: durable.status_url,
+            poll_url: durable.poll_url,
+            steps_total: durable.steps_total,
+          });
+        }
 
         const { readable, writable } = new TransformStream();
         const controller = {
@@ -767,6 +804,7 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
             'Connection': 'keep-alive',
+            'X-Workflow-Execution-Engine': 'sse',
           },
         });
       } catch (e) {
@@ -867,11 +905,55 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
             `UPDATE agentsam_workflow_runs SET status = 'running', updated_at = datetime('now')
              WHERE id = ? AND status = 'awaiting_approval'`
           ).bind(runId).run().catch(() => null);
+
+          const runRow = await env.DB.prepare(
+            `SELECT metadata_json FROM agentsam_workflow_runs WHERE id = ? LIMIT 1`,
+          )
+            .bind(runId)
+            .first()
+            .catch(() => null);
+          let runMeta = {};
+          try {
+            runMeta = JSON.parse(String(runRow?.metadata_json || '{}')) || {};
+          } catch {
+            runMeta = {};
+          }
+          const instanceId = runMeta.cf_workflow_instance_id ?? null;
+          if (instanceId && env.IAM_WORKFLOWS) {
+            const next = await computeNextNodeAfterApproval(env, runId, 'approved');
+            await sendIamWorkflowEvent(env, instanceId, {
+              decision: 'approved',
+              run_id: runId,
+              approval_id: approvalId,
+              next_node_key: next.next_node_key ?? null,
+            }).catch((e) => console.warn('[workflow] durable approval event', e?.message ?? e));
+          }
         } else {
           await env.DB.prepare(
             `UPDATE agentsam_workflow_runs SET status = 'failed', kill_reason = 'approval_rejected', updated_at = datetime('now')
              WHERE id = ?`
           ).bind(runId).run().catch(() => null);
+
+          const runRow = await env.DB.prepare(
+            `SELECT metadata_json FROM agentsam_workflow_runs WHERE id = ? LIMIT 1`,
+          )
+            .bind(runId)
+            .first()
+            .catch(() => null);
+          let runMeta = {};
+          try {
+            runMeta = JSON.parse(String(runRow?.metadata_json || '{}')) || {};
+          } catch {
+            runMeta = {};
+          }
+          const instanceId = runMeta.cf_workflow_instance_id ?? null;
+          if (instanceId && env.IAM_WORKFLOWS) {
+            await sendIamWorkflowEvent(env, instanceId, {
+              decision: 'denied',
+              run_id: runId,
+              approval_id: approvalId,
+            }).catch((e) => console.warn('[workflow] durable deny event', e?.message ?? e));
+          }
         }
 
         return jsonResponse({ ok: true, decision, run_id: runId, rows_updated: changes });

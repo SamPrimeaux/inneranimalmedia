@@ -422,6 +422,12 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleGoogleTokenRefresh(env, request);
   }
 
+  if (pathLower.startsWith('/api/internal/workflow/')) {
+    const { handleInternalWorkflowRequest } = await import('../api/internal-workflow.js');
+    const wfResp = await handleInternalWorkflowRequest(request, env, url);
+    if (wfResp) return wfResp;
+  }
+
   if (pathLower.startsWith('/api/internal/designstudio/') || pathLower.startsWith('/api/designstudio/')) {
     return handleDesignStudioApi(request, url, env, ctx);
   }

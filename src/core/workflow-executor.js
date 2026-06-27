@@ -458,7 +458,7 @@ function buildWorkflowParamRoot(input, runContext) {
 }
 
 /** Promote primitive `result` to `output` so step chaining and branch edges see one shape. */
-function normalizeNodeOutput(nodeOutput) {
+export function normalizeNodeOutput(nodeOutput) {
   if (nodeOutput == null || typeof nodeOutput !== 'object') return nodeOutput;
   if (nodeOutput.output != null) return nodeOutput;
   if (nodeOutput.result == null) return nodeOutput;
@@ -476,7 +476,7 @@ function emptyHandlerConfig(config, handlerKey, executorKind) {
 }
 
 // ── resolveEntryNode ──────────────────────────────────────────────────────────
-function resolveEntryNode(workflow, nodes, edges) {
+export function resolveEntryNode(workflow, nodes, edges) {
   const meta = _safeJson(workflow?.metadata_json);
   // 1. Explicit entry in workflow metadata
   if (meta.entry_node_key) {
@@ -498,7 +498,7 @@ function _safeJson(str) {
   try { return JSON.parse(str || '{}'); } catch { return {}; }
 }
 
-async function dispatchNode(env, node, input, runContext) {
+export async function dispatchNode(env, node, input, runContext) {
   const nodeType   = node.node_type;
   const handlerKey = node.handler_key;
 
@@ -834,7 +834,7 @@ async function dispatchNode(env, node, input, runContext) {
 
 // ── Edge evaluation ──────────────────────────────────────────────────
 
-function evaluateEdge(edge, nodeOutput) {
+export function evaluateEdge(edge, nodeOutput) {
   let cond = {};
   try {
     cond = JSON.parse(edge.condition_json || '{}');

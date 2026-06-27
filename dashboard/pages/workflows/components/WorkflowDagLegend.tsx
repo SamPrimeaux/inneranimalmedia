@@ -1,24 +1,16 @@
 import React from 'react';
 
+// Minimal inline legend — tiny pill row, doesn't block canvas
 export function WorkflowDagLegend() {
   return (
-    <div className="wf-dag-legend" aria-label="DAG canvas legend">
-      <div className="wf-dag-legend-title">DAG semantics</div>
-      <div className="wf-dag-legend-row">
-        <span className="wf-legend-dot idle" /> Idle step
-      </div>
-      <div className="wf-dag-legend-row">
-        <span className="wf-legend-dot running" /> Running (live SSE)
-      </div>
-      <div className="wf-dag-legend-row">
-        <span className="wf-legend-dot done" /> Completed
-      </div>
-      <div className="wf-dag-legend-row">
-        <span className="wf-legend-dot failed" /> Failed / denied
-      </div>
-      <div className="wf-dag-legend-hint">
-        Edges define dependencies. Fan-out steps can run in parallel when they share no blocking edge.
-      </div>
+    <div className="wf-legend-bar" aria-label="Step status legend">
+      <span className="wf-legend-item"><span className="wf-ldot idle" />Idle</span>
+      <span className="wf-legend-sep" />
+      <span className="wf-legend-item"><span className="wf-ldot running" />Running</span>
+      <span className="wf-legend-sep" />
+      <span className="wf-legend-item"><span className="wf-ldot done" />Done</span>
+      <span className="wf-legend-sep" />
+      <span className="wf-legend-item"><span className="wf-ldot failed" />Failed</span>
     </div>
   );
 }

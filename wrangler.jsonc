@@ -95,6 +95,10 @@
 		{
 			"binding": "CMS_PIPELINE",
 			"service": "iam-cms-pipeline"
+		},
+		{
+			"binding": "IAM_WORKFLOWS",
+			"service": "iam-workflows"
 		}
 	],
 	"vectorize": [
@@ -239,7 +243,7 @@
 	"pipelines": [
 		{
 			"binding": "INNERANIMALPRO_STREAM",
-			"pipeline": "7907f409b0d444b9a09c901fbdf05f1f"
+			"stream": "7907f409b0d444b9a09c901fbdf05f1f"
 		}
 	],
 	"vars": {

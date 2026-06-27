@@ -60,6 +60,7 @@ export type WorkflowRunState = {
   steps: WorkflowStepState[];
   approvalId: string | null;
   errorMessage: string | null;
+  executionEngine?: 'sse' | 'durable' | null;
 };
 
 /** Compact workflow/multitask presence for chat thread + composer. */
@@ -436,6 +437,7 @@ const INITIAL_RUN_STATE: WorkflowRunState = {
   steps: [],
   approvalId: null,
   errorMessage: null,
+  executionEngine: null,
 };
 
 export function useWorkflowRunner(opts: {
@@ -449,6 +451,78 @@ export function useWorkflowRunner(opts: {
     abortRef.current?.abort();
     setRunState(INITIAL_RUN_STATE);
     setApprovalBusy(false);
+  }, []);
+
+  const pollDurableRun = useCallback(async (runId: string, signal: AbortSignal) => {
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    while (!signal.aborted) {
+      const res = await fetch(`/api/agentsam/workflow-runs/${encodeURIComponent(runId)}`, {
+        credentials: 'same-origin',
+        signal,
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        run?: {
+          status?: string;
+          steps_total?: number;
+          steps_completed?: number;
+          current_node_key?: string | null;
+          step_results_json?: string;
+        };
+        steps?: Array<{ node_key?: string; status?: string; ok?: boolean }>;
+        approvals?: Array<{ id?: string; status?: string }>;
+      };
+      if (!res.ok) {
+        setRunState((p) => ({
+          ...p,
+          status: 'error',
+          errorMessage: (json as { error?: string }).error ?? `Poll failed (${res.status})`,
+        }));
+        return;
+      }
+      const run = json.run ?? {};
+      const st = String(run.status ?? 'running').toLowerCase();
+      let steps: WorkflowStepState[] = [];
+      try {
+        const parsed = JSON.parse(String(run.step_results_json || '[]')) as Array<{
+          node_key?: string;
+          node_type?: string;
+          ok?: boolean;
+        }>;
+        steps = parsed.map((s) => ({
+          node_key: String(s.node_key ?? ''),
+          node_type: s.node_type,
+          status: s.ok === false ? 'failed' : 'success',
+          ok: s.ok !== false,
+        }));
+      } catch {
+        steps = (json.steps ?? []).map((s) => ({
+          node_key: String(s.node_key ?? ''),
+          status: s.ok === false ? 'failed' : 'success',
+          ok: s.ok !== false,
+        }));
+      }
+      const pendingApproval = (json.approvals ?? []).find((a) => a.status === 'pending');
+      setRunState((p) => ({
+        ...p,
+        runId,
+        executionEngine: 'durable',
+        stepsTotal: Number(run.steps_total ?? p.stepsTotal),
+        stepsCompleted: Number(run.steps_completed ?? steps.length),
+        currentNodeKey: run.current_node_key ?? p.currentNodeKey,
+        steps,
+        approvalId: pendingApproval?.id ?? (st === 'awaiting_approval' ? p.approvalId : null),
+        status:
+          st === 'awaiting_approval'
+            ? 'awaiting_approval'
+            : st === 'completed'
+              ? 'completed'
+              : st === 'failed'
+                ? 'failed'
+                : 'running',
+      }));
+      if (['completed', 'failed', 'cancelled', 'error'].includes(st)) return;
+      await sleep(2000);
+    }
   }, []);
 
   const consumeWorkflowSse = useCallback(
@@ -568,6 +642,36 @@ export function useWorkflowRunner(opts: {
         body: JSON.stringify({ input }),
         signal,
       });
+
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const json = (await res.json().catch(() => ({}))) as {
+          mode?: string;
+          run_id?: string;
+          steps_total?: number;
+          error?: string;
+        };
+        if (!res.ok) {
+          setRunState((p) => ({
+            ...p,
+            status: 'error',
+            errorMessage: json.error ?? `HTTP ${res.status}`,
+          }));
+          return;
+        }
+        if (json.mode === 'durable' && json.run_id) {
+          setRunState((p) => ({
+            ...p,
+            runId: json.run_id,
+            executionEngine: 'durable',
+            stepsTotal: Number(json.steps_total ?? p.stepsTotal),
+            status: 'running',
+          }));
+          await pollDurableRun(json.run_id, signal);
+          return;
+        }
+      }
+
       await consumeWorkflowSse(res, signal);
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return;
@@ -577,7 +681,7 @@ export function useWorkflowRunner(opts: {
         errorMessage: e instanceof Error ? e.message : String(e),
       }));
     }
-  }, [consumeWorkflowSse]);
+  }, [consumeWorkflowSse, pollDurableRun]);
 
   const handleApproval = useCallback(async (decision: 'approved' | 'denied') => {
     const { runId, approvalId } = runState;
@@ -608,6 +712,12 @@ export function useWorkflowRunner(opts: {
       abortRef.current?.abort();
       abortRef.current = new AbortController();
       const { signal } = abortRef.current;
+
+      if (runState.executionEngine === 'durable') {
+        await pollDurableRun(runId, signal);
+        return;
+      }
+
       const resumeRes = await fetch(`/api/agentsam/workflow-runs/${encodeURIComponent(runId)}/resume`, {
         method: 'POST',
         credentials: 'same-origin',
@@ -622,7 +732,7 @@ export function useWorkflowRunner(opts: {
     } finally {
       setApprovalBusy(false);
     }
-  }, [runState, consumeWorkflowSse]);
+  }, [runState, consumeWorkflowSse, pollDurableRun]);
 
   return { runState, approvalBusy, startWorkflow, resetRun, handleApproval };
 }

@@ -134,6 +134,11 @@ service = "moviemode-service"
 binding = "CMS_PIPELINE"
 service = "iam-cms-pipeline"
 
+# Durable Agent Sam workflows (iam-workflows Python Workflows)
+[[services]]
+binding = "IAM_WORKFLOWS"
+service = "iam-workflows"
+
 [[durable_objects.bindings]]
 name = "IAM_COLLAB"
 class_name = "IAMCollaborationSession"
@@ -228,7 +233,7 @@ dataset = "inneranimalmedia"
 
 [[pipelines]]
 binding = "INNERANIMALPRO_STREAM"
-pipeline = "7907f409b0d444b9a09c901fbdf05f1f"
+stream = "7907f409b0d444b9a09c901fbdf05f1f"
 
 # Plaintext vars — keep aligned with Cloudflare dashboard (see docs/platform/worker-env-production-2026-06.md).
 # Secrets are dashboard-only; never commit values.

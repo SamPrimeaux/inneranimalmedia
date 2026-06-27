@@ -1,0 +1,41 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "iam-workflows",
+  "main": "src/entry.py",
+  "compatibility_date": "2025-08-01",
+  "compatibility_flags": ["python_workers", "python_workflows"],
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "workflows.inneranimalmedia.com/*",
+      "zone_name": "inneranimalmedia.com"
+    }
+  ],
+  "vars": {
+    "ENVIRONMENT": "production",
+    "PLATFORM_ORIGIN": "https://inneranimalmedia.com"
+  },
+  "workflows": [
+    {
+      "name": "agentsam-dag-workflow",
+      "binding": "IAM_DAG_WORKFLOW",
+      "class_name": "AgentsamDagWorkflow",
+      "limits": {
+        "steps": 10000
+      }
+    }
+  ],
+  "services": [
+    {
+      "binding": "PLATFORM",
+      "service": "inneranimalmedia"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "inneranimalmedia-business",
+      "database_id": "cf87b717-d4e2-4cf8-bab0-a81268e32d49"
+    }
+  ]
+}
