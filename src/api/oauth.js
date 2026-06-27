@@ -626,13 +626,15 @@ async function exchangeCloudflare(env, code) {
   if (!env.CLOUDFLARE_OAUTH_CLIENT_ID || !env.CLOUDFLARE_OAUTH_CLIENT_SECRET) {
     throw new Error('Cloudflare OAuth not configured');
   }
+  const basic = btoa(`${env.CLOUDFLARE_OAUTH_CLIENT_ID}:${env.CLOUDFLARE_OAUTH_CLIENT_SECRET}`);
   const res = await fetch('https://dash.cloudflare.com/oauth2/token', {
     method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      Authorization: `Basic ${basic}`,
+    },
     body: new URLSearchParams({
       code,
-      client_id: env.CLOUDFLARE_OAUTH_CLIENT_ID,
-      client_secret: env.CLOUDFLARE_OAUTH_CLIENT_SECRET,
       redirect_uri: CLOUDFLARE_OAUTH_REDIRECT_URI,
       grant_type: 'authorization_code',
     }).toString(),
