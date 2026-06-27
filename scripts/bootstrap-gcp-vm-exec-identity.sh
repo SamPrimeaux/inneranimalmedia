@@ -69,9 +69,14 @@ if [[ ! -f "\${EXECOS_HOME}/deploy/gcp/install-agentsam-ops.sh" ]]; then
 fi
 
 if [[ -d "\${EXECOS_HOME}/.git" ]]; then
-  echo "→ git pull ExecOS runtime"
-  git -C "\${EXECOS_HOME}" fetch origin main
-  git -C "\${EXECOS_HOME}" merge --ff-only origin/main || true
+  echo "→ git pull ExecOS runtime (best-effort)"
+  sudo git config --global --add safe.directory "\${EXECOS_HOME}" 2>/dev/null || true
+  if sudo git -C "\${EXECOS_HOME}" fetch origin main 2>/dev/null; then
+    sudo git -C "\${EXECOS_HOME}" merge --ff-only origin/main || true
+  else
+    echo "  ⚠ git fetch skipped (deploy updated files from Mac if needed)"
+  fi
+  sudo chown -R "\${AGENTSAM_USER}:\${AGENTSAM_USER}" "\${EXECOS_HOME}"
 fi
 
 echo "→ install agentsam scoped ops (no Connor /workspace chown)"
