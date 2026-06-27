@@ -52,6 +52,12 @@ fi
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "→ GCP iam-tunnel sync (repo + env + ExecOS runtime)"
+# Mac must not run the production terminal.* tunnel token — it steals traffic from GCP.
+if [[ -x "${REPO_ROOT}/../ExecOS/deploy/mac/unload-prod-tunnel-replica.sh" ]]; then
+  "${REPO_ROOT}/../ExecOS/deploy/mac/unload-prod-tunnel-replica.sh" 2>/dev/null || true
+elif [[ -x "${HOME}/ExecOS/deploy/mac/unload-prod-tunnel-replica.sh" ]]; then
+  "${HOME}/ExecOS/deploy/mac/unload-prod-tunnel-replica.sh" 2>/dev/null || true
+fi
 "${REPO_ROOT}/scripts/fix-gcp-vm-watchdog-cron.sh" 2>/dev/null || true
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 

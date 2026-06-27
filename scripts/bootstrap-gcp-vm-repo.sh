@@ -74,6 +74,7 @@ git_as_bootstrap() {
 }
 if [[ -d "\$REPO_DIR/.git" ]]; then
   echo "→ existing clone — fetching main"
+  sudo chown -R samprimeaux:samprimeaux "\$REPO_DIR"
   git_as_bootstrap fetch origin main
   git_as_bootstrap checkout main
   git_as_bootstrap merge --ff-only origin/main

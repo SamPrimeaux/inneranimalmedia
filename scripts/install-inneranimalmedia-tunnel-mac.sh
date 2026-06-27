@@ -1,18 +1,26 @@
 #!/usr/bin/env bash
-# Run the inneranimalmedia Cloudflare Tunnel on this Mac WITHOUT replacing samsmac.
+# DEPRECATED for production: Mac must NOT run the inneranimalmedia (terminal.*) tunnel token.
+# That LaunchAgent load-balances terminal.inneranimalmedia.com to this Mac and breaks GCP agentsam exec.
 #
-# Mac layout (two tunnels, two cloudflared processes):
-#   LaunchDaemon  com.cloudflare.cloudflared          → samsmac (localpty.inneranimalmedia.com)
-#   LaunchAgent   com.cloudflare.cloudflared.inneranimalmedia → inneranimalmedia (terminal + iam-vpc)
+# Use instead:
+#   - localpty only: LaunchDaemon com.cloudflare.cloudflared (samsmac config.yml)
+#   - GCP terminal:  iam-tunnel VM cloudflared systemd (sole connector for terminal.*)
 #
-# Do NOT run: sudo cloudflared service install <inneranimalmedia-token>
-# That conflicts with the existing system daemon (samsmac).
+# To remove an existing Mac replica:
+#   ~/ExecOS/deploy/mac/unload-prod-tunnel-replica.sh
 #
-# Usage:
-#   ./scripts/install-inneranimalmedia-tunnel-mac.sh
-#   TUNNEL_TOKEN='eyJ...' ./scripts/install-inneranimalmedia-tunnel-mac.sh
-#
+# Usage (discouraged):
+#   ./scripts/install-inneranimalmedia-tunnel-mac.sh --i-know-this-breaks-gcp
 set -euo pipefail
+
+if [[ "${1:-}" != "--i-know-this-breaks-gcp" ]]; then
+  echo "✗ Refusing to install Mac terminal.* tunnel replica." >&2
+  echo "  It steals terminal.inneranimalmedia.com from GCP iam-tunnel (agentsam exec)." >&2
+  echo "  Unload: ~/ExecOS/deploy/mac/unload-prod-tunnel-replica.sh" >&2
+  echo "  Mac lane: localpty.inneranimalmedia.com only (LaunchDaemon samsmac)." >&2
+  exit 1
+fi
+shift || true
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LABEL="com.cloudflare.cloudflared.inneranimalmedia"
