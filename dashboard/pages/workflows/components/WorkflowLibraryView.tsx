@@ -19,6 +19,7 @@ type Props = {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onRefresh: () => void;
+  onCreate?: () => void;
 };
 
 export function WorkflowLibraryView({
@@ -28,6 +29,7 @@ export function WorkflowLibraryView({
   selectedId,
   onSelect,
   onRefresh,
+  onCreate,
 }: Props) {
   const [q, setQ] = useState('');
   const filtered = useMemo(() => {
@@ -138,14 +140,30 @@ export function WorkflowLibraryView({
         })
       )}
       {!loading && !workflows.length && (
-        <div className="wf-empty">No workflows yet</div>
+        <div className="wf-empty">
+          No workflows yet.
+          {onCreate ? (
+            <div style={{ marginTop: 12 }}>
+              <button type="button" className="wf-btn primary" onClick={onCreate}>
+                Create your first DAG
+              </button>
+            </div>
+          ) : null}
+        </div>
       )}
       {!loading && workflows.length > 0 && !filtered.length && (
         <div className="wf-empty">No workflows match your search.</div>
       )}
-      <button type="button" className="wf-btn" style={{ marginTop: 10, width: '100%' }} onClick={onRefresh}>
-        Refresh library
-      </button>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        {onCreate ? (
+          <button type="button" className="wf-btn primary" style={{ flex: 1 }} onClick={onCreate}>
+            New workflow
+          </button>
+        ) : null}
+        <button type="button" className="wf-btn" style={{ flex: 1 }} onClick={onRefresh}>
+          Refresh library
+        </button>
+      </div>
     </div>
   );
 }

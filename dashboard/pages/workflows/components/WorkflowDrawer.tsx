@@ -33,6 +33,7 @@ type Props = {
   onRun: () => void;
   canRun: boolean;
   isRunning: boolean;
+  onCreateWorkflow?: () => void;
 };
 
 export function WorkflowDrawer({
@@ -55,6 +56,7 @@ export function WorkflowDrawer({
   onRun,
   canRun,
   isRunning,
+  onCreateWorkflow,
 }: Props) {
   if (!mode) return null;
   const head = DRAWER_TITLES[mode];
@@ -112,6 +114,7 @@ export function WorkflowDrawer({
           selectedId={selectedRegistryId}
           onSelect={onSelectWorkflow}
           onRefresh={onRefreshList}
+          onCreate={onCreateWorkflow}
         />
       )}
 

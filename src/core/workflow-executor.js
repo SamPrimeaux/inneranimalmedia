@@ -1195,49 +1195,150 @@ export async function executeWorkflowGraph(env, opts) {
 
   const runWorkflowId = mcpRow?.id ?? dagWorkflowId ?? workflow.id;
 
-  const runId = `wrun_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-  const entryNode = resolveEntryNode(workflow, nodes, edges);
-  const firstKey = entryNode?.node_key || nodes[0]?.node_key || '';
-  await env.DB.prepare(
-    `INSERT INTO agentsam_workflow_runs (
-      id, workflow_id, workflow_key, tenant_id, workspace_id,
-      run_group_id,
-      user_id, user_email, trigger_type, status,
-      input_json, output_json, step_results_json, metadata_json,
-      steps_total, steps_completed, environment,
-      graph_mode, current_node_key,
-      started_at, created_at, updated_at
-    ) VALUES (
-      ?, ?, ?, ?, ?,
-      ?,
-      ?, ?, ?, 'running',
-      ?, '{}', '[]', '{}',
-      ?, 0, 'production',
-      1, ?,
-      unixepoch(), datetime('now'), datetime('now')
-    )`,
-  )
-    .bind(
-      runId,
-      runWorkflowId,
-      workflowKey,
-      tenantId,
-      workspaceId,
-      runGroupId,
-      userId ?? null,
-      userEmail ?? null,
-      triggerType,
-      JSON.stringify(input ?? {}),
-      nodes.length,
-      firstKey,
-    )
-    .run();
+  const nodeMap = Object.fromEntries(nodes.map((n) => [n.node_key, n]));
+  const edgeMap = {};
+  for (const e of edges || []) {
+    if (!edgeMap[e.from_node_key]) edgeMap[e.from_node_key] = [];
+    edgeMap[e.from_node_key].push(e);
+  }
 
-  const runStartedAt = Date.now();
-  try {
-    onRunCreated?.(runId, { steps_total: nodes.length });
-  } catch (_) {
-    /* non-fatal */
+  let runId;
+  let stepResults = [];
+  let currentNodeKey;
+  let stepsCompleted = 0;
+  let totalCostUsd = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let lastModelUsed = null;
+  let runOk = true;
+  let killReason = null;
+  let previousStepId = null;
+  let runStartedAt = Date.now();
+
+  const resumeRunId = opts.resumeRunId ? String(opts.resumeRunId).trim() : '';
+
+  if (resumeRunId) {
+    const existing = await env.DB.prepare(
+      `SELECT * FROM agentsam_workflow_runs WHERE id = ? LIMIT 1`,
+    )
+      .bind(resumeRunId)
+      .first();
+    if (!existing) return { ok: false, error: 'run_not_found', run_id: resumeRunId };
+    if (String(existing.workflow_key || '') !== String(workflowKey || '')) {
+      return { ok: false, error: 'workflow_key_mismatch', run_id: resumeRunId };
+    }
+    const st = String(existing.status || '').toLowerCase();
+    if (!['running', 'awaiting_approval'].includes(st)) {
+      return { ok: false, error: `run_not_resumable:${st}`, run_id: resumeRunId };
+    }
+    if (st === 'awaiting_approval') {
+      const pending = await env.DB.prepare(
+        `SELECT id FROM agentsam_approval_queue
+         WHERE workflow_run_id = ? AND status = 'pending' LIMIT 1`,
+      )
+        .bind(resumeRunId)
+        .first()
+        .catch(() => null);
+      if (pending?.id) {
+        return { ok: false, error: 'approval_pending', run_id: resumeRunId };
+      }
+    }
+
+    runId = resumeRunId;
+    try {
+      stepResults = JSON.parse(String(existing.step_results_json || '[]')) || [];
+    } catch {
+      stepResults = [];
+    }
+    stepsCompleted = Number(existing.steps_completed) || stepResults.length || 0;
+    totalInputTokens = Number(existing.input_tokens) || 0;
+    totalOutputTokens = Number(existing.output_tokens) || 0;
+    totalCostUsd = Number(existing.cost_usd) || 0;
+    lastModelUsed = existing.model_used || null;
+    runStartedAt = Number(existing.started_at) * 1000 || Date.now();
+
+    const lastStep = stepResults[stepResults.length - 1];
+    const gateKey = String(lastStep?.node_key || existing.current_node_key || '').trim();
+    if (!gateKey) return { ok: false, error: 'resume_missing_gate_node', run_id: resumeRunId };
+
+    const resumeOutput = {
+      ok: true,
+      output: {
+        ...(lastStep?.output && typeof lastStep.output === 'object' ? lastStep.output : {}),
+        status: 'approved',
+      },
+    };
+    const outEdges = (edgeMap[gateKey] || []).sort((a, b) => {
+      if (a.is_fallback !== b.is_fallback) return a.is_fallback ? 1 : -1;
+      return (a.priority || 0) - (b.priority || 0);
+    });
+    let nextNodeKey = null;
+    for (const edge of outEdges) {
+      if (evaluateEdge(edge, resumeOutput)) {
+        nextNodeKey = edge.to_node_key;
+        break;
+      }
+    }
+    if (!nextNodeKey) {
+      return { ok: false, error: 'resume_no_outgoing_edge', run_id: resumeRunId };
+    }
+    currentNodeKey = nextNodeKey;
+
+    await env.DB.prepare(
+      `UPDATE agentsam_workflow_runs SET status = 'running', current_node_key = ?, updated_at = datetime('now')
+       WHERE id = ?`,
+    )
+      .bind(currentNodeKey, runId)
+      .run()
+      .catch(() => null);
+
+    try {
+      onRunCreated?.(runId, { steps_total: nodes.length, resumed: true });
+    } catch (_) {}
+  } else {
+    runId = `wrun_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const entryNode = resolveEntryNode(workflow, nodes, edges);
+    const firstKey = entryNode?.node_key || nodes[0]?.node_key || '';
+    currentNodeKey = firstKey;
+    await env.DB.prepare(
+      `INSERT INTO agentsam_workflow_runs (
+        id, workflow_id, workflow_key, tenant_id, workspace_id,
+        run_group_id,
+        user_id, user_email, trigger_type, status,
+        input_json, output_json, step_results_json, metadata_json,
+        steps_total, steps_completed, environment,
+        graph_mode, current_node_key,
+        started_at, created_at, updated_at
+      ) VALUES (
+        ?, ?, ?, ?, ?,
+        ?,
+        ?, ?, ?, 'running',
+        ?, '{}', '[]', '{}',
+        ?, 0, 'production',
+        1, ?,
+        unixepoch(), datetime('now'), datetime('now')
+      )`,
+    )
+      .bind(
+        runId,
+        runWorkflowId,
+        workflowKey,
+        tenantId,
+        workspaceId,
+        runGroupId,
+        userId ?? null,
+        userEmail ?? null,
+        triggerType,
+        JSON.stringify(input ?? {}),
+        nodes.length,
+        firstKey,
+      )
+      .run();
+
+    runStartedAt = Date.now();
+    try {
+      onRunCreated?.(runId, { steps_total: nodes.length });
+    } catch (_) {}
   }
 
   const canonicalUserId = await resolveCanonicalUserId(userId, env);
@@ -1250,13 +1351,6 @@ export async function executeWorkflowGraph(env, opts) {
     runId,
     workflowKey,
   });
-
-  const nodeMap = Object.fromEntries(nodes.map((n) => [n.node_key, n]));
-  const edgeMap = {};
-  for (const e of edges || []) {
-    if (!edgeMap[e.from_node_key]) edgeMap[e.from_node_key] = [];
-    edgeMap[e.from_node_key].push(e);
-  }
 
   const runMeta = { tenantId, workspaceId, userId: canonicalUserId };
 
@@ -1292,16 +1386,6 @@ export async function executeWorkflowGraph(env, opts) {
       : toolBridge && typeof toolBridge.emitSse === 'function'
         ? toolBridge.emitSse
         : null;
-  const stepResults = [];
-  let currentNodeKey = firstKey;
-  let stepsCompleted = 0;
-  let totalCostUsd = 0;
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
-  let lastModelUsed = null;
-  let runOk = true;
-  let killReason = null;
-  let previousStepId = null;
 
   // 5. Walk the graph
   const visited = new Set();
@@ -1624,6 +1708,109 @@ export async function executeWorkflowAndStream(
       message: result.ok
         ? `Workflow ${workflowKey} completed (${result.steps_completed} steps).`
         : `Workflow failed: ${result.kill_reason || 'unknown error'}`,
+    });
+  }
+
+  send({ type: 'done' });
+  try {
+    controller.close();
+  } catch {
+    /* noop */
+  }
+}
+
+export async function executeWorkflowResumeAndStream(
+  env,
+  runId,
+  authUser,
+  workspaceId,
+  controller,
+  streamOpts = {},
+) {
+  const encoder = new TextEncoder();
+  const send = (data) => {
+    try {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+    } catch {
+      /* stream already closed */
+    }
+  };
+
+  if (!env?.DB) {
+    send({ type: 'workflow_error', message: 'DB unavailable' });
+    send({ type: 'done' });
+    try {
+      controller.close();
+    } catch (_) {}
+    return;
+  }
+
+  const run = await env.DB.prepare(`SELECT * FROM agentsam_workflow_runs WHERE id = ? LIMIT 1`)
+    .bind(runId)
+    .first();
+  if (!run) {
+    send({ type: 'workflow_error', message: 'run not found' });
+    send({ type: 'done' });
+    try {
+      controller.close();
+    } catch (_) {}
+    return;
+  }
+
+  let input = {};
+  try {
+    input = JSON.parse(String(run.input_json || '{}')) || {};
+  } catch {
+    input = {};
+  }
+
+  const { toolBridge: streamToolBridge } = streamOpts;
+  const mergedBridge =
+    streamToolBridge && typeof streamToolBridge === 'object'
+      ? { ...streamToolBridge, emitSse: send }
+      : { emitSse: send };
+
+  const result = await executeWorkflowGraph(env, {
+    workflowKey: run.workflow_key,
+    input,
+    tenantId: authUser?.tenant_id ?? run.tenant_id ?? null,
+    workspaceId: workspaceId ?? run.workspace_id ?? null,
+    userId: authUser?.id ?? run.user_id ?? null,
+    userEmail: authUser?.email ?? run.user_email ?? null,
+    resumeRunId: runId,
+    toolBridge: mergedBridge,
+    onRunCreated: (rid, meta) =>
+      send({
+        type: 'workflow_start',
+        workflow_key: run.workflow_key,
+        run_id: rid,
+        steps_total: meta?.steps_total ?? null,
+        resumed: true,
+      }),
+    onStep: (evt) => send({ type: 'workflow_step', ...evt }),
+  }).catch((e) => ({
+    ok: false,
+    status: 'error',
+    run_id: runId,
+    step_results: [],
+    kill_reason: e?.message || String(e),
+  }));
+
+  if (result.status === 'awaiting_approval') {
+    send({
+      type: 'workflow_approval_required',
+      run_id: result.run_id,
+      approval_id: result.approval_id,
+      message: 'Workflow paused again for approval.',
+    });
+  } else {
+    send({
+      type: result.ok ? 'workflow_complete' : 'workflow_error',
+      status: result.status,
+      run_id: result.run_id,
+      message: result.ok
+        ? `Workflow resumed and completed (${result.steps_completed} steps).`
+        : `Workflow resume failed: ${result.kill_reason || 'unknown error'}`,
     });
   }
 

@@ -2,7 +2,6 @@
  * Workflow Studio — /dashboard/workflows
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { Menu } from 'lucide-react';
 import './workflows.css';
 import type { DrawerMode, InspectorTab, McpWorkflowListItem, WorkflowGraph, WorkflowListItem } from './workflowTypes';
 import {
@@ -11,12 +10,15 @@ import {
   fetchWorkflowList,
   saveCanvasLayout,
   createNode,
+  createWorkflow,
 } from './lib/workflowApi';
 import { autoLayoutNodes } from './lib/workflowLayout';
 import { WorkflowCanvas, type NodeStatus } from './components/WorkflowCanvas';
 import { WorkflowRail } from './components/WorkflowRail';
 import { WorkflowDrawer } from './components/WorkflowDrawer';
 import { WorkflowInspector } from './components/WorkflowInspector';
+import { WorkflowStudioBanner } from './components/WorkflowStudioBanner';
+import { WorkflowDagLegend } from './components/WorkflowDagLegend';
 import {
   useWorkflowRunner,
   type WorkflowRow,
@@ -258,24 +260,34 @@ export const WorkflowsPage: React.FC = () => {
     [workflows, showToast],
   );
 
+  const handleCreateWorkflow = useCallback(async () => {
+    const name = window.prompt('Workflow name', 'My automation');
+    if (!name?.trim()) return;
+    try {
+      const created = await createWorkflow({ display_name: name.trim() });
+      await loadList();
+      setSelectedRegistryId(created.id);
+      setDrawerMode('library');
+      showToast(`Created ${created.workflow_key}`);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Create failed');
+    }
+  }, [loadList, showToast]);
+
   return (
     <div className={`wf-studio${inspectorOpen ? '' : ''}`}>
-      <header className="wf-topbar">
-        <div className="min-w-0 flex-1">
-          <div className="wf-topbar-title">{graph?.displayName ?? 'Workflow Studio'}</div>
-          {graph?.workflowKey && (
-            <div className="wf-topbar-sub">{graph.workflowKey}</div>
-          )}
-        </div>
-        <button
-          type="button"
-          className="wf-btn primary"
-          onClick={() => setDrawerMode(drawerMode ? null : 'blocks')}
-        >
-          <Menu size={14} />
-          Workflow actions
-        </button>
-      </header>
+      <WorkflowStudioBanner
+        workflowName={graph?.displayName ?? null}
+        workflowKey={graph?.workflowKey ?? null}
+        nodeCount={graph?.nodes.length ?? 0}
+        edgeCount={graph?.edges.length ?? 0}
+        runStatus={runState.status}
+        isRunning={isRunning}
+        onOpenLibrary={() => setDrawerMode('library')}
+        onCreateWorkflow={() => void handleCreateWorkflow()}
+        onRun={handleStart}
+        canRun={!!selectedWorkflowRow}
+      />
 
       <div className={`wf-main${inspectorOpen ? '' : ' inspector-collapsed'}`}>
         <div className="wf-workspace">
@@ -324,6 +336,7 @@ export const WorkflowsPage: React.FC = () => {
             onRun={handleStart}
             canRun={!!selectedWorkflowRow}
             isRunning={isRunning}
+            onCreateWorkflow={() => void handleCreateWorkflow()}
           />
 
           <WorkflowCanvas
@@ -347,6 +360,8 @@ export const WorkflowsPage: React.FC = () => {
             liveRunning={isRunning}
             traceMode={traceMode}
           />
+
+          <WorkflowDagLegend />
 
           <div className={`wf-toast${toast ? ' show' : ''}`} role="status">
             {toast}

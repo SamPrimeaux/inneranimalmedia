@@ -19,6 +19,18 @@ async function apiJson<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+export async function createWorkflow(body: {
+  display_name: string;
+  workflow_key?: string;
+  description?: string;
+}): Promise<{ ok: boolean; id: string; workflow_key: string; display_name: string }> {
+  return apiJson('/api/agentsam/workflows', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function fetchWorkflowList(): Promise<WorkflowListItem[]> {
   const data = await apiJson<WorkflowListItem[] | { workflows?: WorkflowListItem[] }>(
     '/api/agentsam/workflows',

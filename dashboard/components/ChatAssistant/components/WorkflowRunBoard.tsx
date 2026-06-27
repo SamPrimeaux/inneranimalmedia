@@ -451,26 +451,8 @@ export function useWorkflowRunner(opts: {
     setApprovalBusy(false);
   }, []);
 
-  const startWorkflow = useCallback(async (workflow: WorkflowRow, input: Record<string, unknown> = {}) => {
-    abortRef.current?.abort();
-    abortRef.current = new AbortController();
-    const { signal } = abortRef.current;
-
-    setRunState({
-      ...INITIAL_RUN_STATE,
-      workflowKey: workflow.workflow_key,
-      status: 'running',
-    });
-
-    try {
-      const res = await fetch(`/api/agentsam/workflows/${encodeURIComponent(workflow.id)}/run`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input }),
-        signal,
-      });
-
+  const consumeWorkflowSse = useCallback(
+    async (res: Response, signal: AbortSignal) => {
       if (!res.ok || !res.body) {
         const errText = await res.text().catch(() => '');
         setRunState((p) => ({ ...p, status: 'error', errorMessage: errText || `HTTP ${res.status}` }));
@@ -495,7 +477,11 @@ export function useWorkflowRunner(opts: {
             const raw = l.replace(/^data:\s*/i, '').trim();
             if (raw === '[DONE]') break sseLoop;
             let d: Record<string, unknown>;
-            try { d = JSON.parse(raw); } catch { continue; }
+            try {
+              d = JSON.parse(raw);
+            } catch {
+              continue;
+            }
 
             opts.onSseChunk?.(d);
             const t = String(d.type ?? '');
@@ -547,7 +533,6 @@ export function useWorkflowRunner(opts: {
                 approvalId: String(d.approval_id ?? ''),
                 status: 'awaiting_approval',
               }));
-              // don't break — wait for more events after approval
             } else if (t === 'workflow_error') {
               setRunState((p) => ({
                 ...p,
@@ -560,6 +545,30 @@ export function useWorkflowRunner(opts: {
           }
         }
       }
+    },
+    [opts],
+  );
+
+  const startWorkflow = useCallback(async (workflow: WorkflowRow, input: Record<string, unknown> = {}) => {
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    const { signal } = abortRef.current;
+
+    setRunState({
+      ...INITIAL_RUN_STATE,
+      workflowKey: workflow.workflow_key,
+      status: 'running',
+    });
+
+    try {
+      const res = await fetch(`/api/agentsam/workflows/${encodeURIComponent(workflow.id)}/run`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input }),
+        signal,
+      });
+      await consumeWorkflowSse(res, signal);
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return;
       setRunState((p) => ({
@@ -568,7 +577,7 @@ export function useWorkflowRunner(opts: {
         errorMessage: e instanceof Error ? e.message : String(e),
       }));
     }
-  }, [opts]);
+  }, [consumeWorkflowSse]);
 
   const handleApproval = useCallback(async (decision: 'approved' | 'denied') => {
     const { runId, approvalId } = runState;
@@ -592,15 +601,28 @@ export function useWorkflowRunner(opts: {
       }
       if (decision === 'denied') {
         setRunState((p) => ({ ...p, status: 'failed', errorMessage: 'Approval denied by user.' }));
-      } else {
-        setRunState((p) => ({ ...p, status: 'running', approvalId: null }));
+        return;
       }
+
+      setRunState((p) => ({ ...p, status: 'running', approvalId: null }));
+      abortRef.current?.abort();
+      abortRef.current = new AbortController();
+      const { signal } = abortRef.current;
+      const resumeRes = await fetch(`/api/agentsam/workflow-runs/${encodeURIComponent(runId)}/resume`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+        signal,
+      });
+      await consumeWorkflowSse(resumeRes, signal);
     } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return;
       setRunState((p) => ({ ...p, status: 'error', errorMessage: e instanceof Error ? e.message : String(e) }));
     } finally {
       setApprovalBusy(false);
     }
-  }, [runState]);
+  }, [runState, consumeWorkflowSse]);
 
   return { runState, approvalBusy, startWorkflow, resetRun, handleApproval };
 }

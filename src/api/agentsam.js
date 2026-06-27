@@ -18,7 +18,7 @@ import {
   WORKSPACE_CONTEXT_MISSING,
 } from '../core/bootstrap.js';
 import { buildBootstrapApiPayload } from '../core/bootstrap-scoped-context.js';
-import { executeWorkflowAndStream } from '../core/workflow-executor.js';
+import { executeWorkflowAndStream, executeWorkflowResumeAndStream } from '../core/workflow-executor.js';
 import {
   loadWorkflowGraphBundle,
   requireWorkflowGraphContext,
@@ -598,6 +598,70 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
       }
     }
 
+    // POST /api/agentsam/workflows — create registry row + starter trigger node
+    if (path === '/api/agentsam/workflows' && method === 'POST') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      try {
+        const body = await request.json().catch(() => ({}));
+        const wfScope = await resolveAgentDataScope(env, authUser, request, {});
+        const wsId = wfScope.workspaceId;
+        const tenantId =
+          authUser?.tenant_id ??
+          (await fetchAuthUserTenantId(env, authUser?.id).catch(() => null)) ??
+          (await fallbackSystemTenantId(env).catch(() => null));
+        const displayName = String(body.display_name || body.name || 'New workflow').trim();
+        const slugRaw = String(body.workflow_key || displayName)
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, '_')
+          .replace(/[^a-z0-9_]/g, '')
+          .slice(0, 48);
+        const workflowKey = slugRaw || `wf_${Date.now().toString(36)}`;
+        const id = `wf_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+        const dup = await env.DB.prepare(
+          `SELECT id FROM agentsam_workflows WHERE workflow_key = ? LIMIT 1`,
+        )
+          .bind(workflowKey)
+          .first();
+        if (dup?.id) {
+          return jsonResponse({ error: 'workflow_key_taken', workflow_key: workflowKey }, 409);
+        }
+        await env.DB.prepare(
+          `INSERT INTO agentsam_workflows (
+             id, tenant_id, workspace_id, workflow_key, display_name, description,
+             workflow_type, trigger_type, default_mode, default_task_type,
+             risk_level, requires_approval, is_active, is_platform_global, metadata_json,
+             created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, 'custom', 'manual', 'agent', 'agent_workflow', 'low', 0, 1, 0, ?, datetime('now'), datetime('now'))`,
+        )
+          .bind(
+            id,
+            tenantId != null ? String(tenantId) : null,
+            wsId != null ? String(wsId) : null,
+            workflowKey,
+            displayName,
+            String(body.description || 'Created in Workflow Studio').trim(),
+            JSON.stringify({ entry_node_key: 'start', source: 'workflow_studio_create' }),
+          )
+          .run();
+        const { createWorkflowNode } = await import('../core/agentsam-workflow-graph.js');
+        await createWorkflowNode(env.DB, {
+          registryId: id,
+          dagWorkflowId: id,
+          body: {
+            node_key: 'start',
+            title: 'Start',
+            node_type: 'trigger',
+            handler_key: 'manual_trigger',
+            sort_order: 0,
+          },
+        });
+        return jsonResponse({ ok: true, id, workflow_key: workflowKey, display_name: displayName });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
     // GET /api/agentsam/workflows — list active workflows with node/edge counts
     if (path === '/api/agentsam/workflows' && method === 'GET') {
       if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
@@ -811,6 +875,47 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
         }
 
         return jsonResponse({ ok: true, decision, run_id: runId, rows_updated: changes });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    // POST /api/agentsam/workflow-runs/:id/resume — continue DAG after approval (SSE)
+    const wfResumeMatch = path.match(/^\/api\/agentsam\/workflow-runs\/([^/]+)\/resume$/);
+    if (wfResumeMatch && method === 'POST') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const runId = wfResumeMatch[1];
+      try {
+        const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+        const workspaceId = wsRes?.workspaceId ?? null;
+        const { readable, writable } = new TransformStream();
+        const controller = {
+          _enc: new TextEncoder(),
+          _writer: writable.getWriter(),
+          enqueue(chunk) { void this._writer.write(chunk); },
+          close() { void this._writer.close().catch(() => {}); },
+        };
+        void executeWorkflowResumeAndStream(env, runId, authUser, workspaceId, controller).catch(
+          (e) => {
+            try {
+              const enc = new TextEncoder();
+              controller.enqueue(
+                enc.encode(
+                  `data: ${JSON.stringify({ type: 'workflow_error', message: e?.message ?? String(e) })}\n\n`,
+                ),
+              );
+              controller.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+              controller.close();
+            } catch (_) {}
+          },
+        );
+        return new Response(readable, {
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+          },
+        });
       } catch (e) {
         return jsonResponse({ error: e?.message ?? String(e) }, 500);
       }
