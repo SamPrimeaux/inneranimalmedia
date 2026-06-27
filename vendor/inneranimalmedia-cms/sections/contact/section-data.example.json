@@ -1,0 +1,30 @@
+{
+  "hero": {
+    "section_id": "sec_contact_hero",
+    "section_type": "hero",
+    "section_name": "contact_hero",
+    "section_data": {
+      "headline": "Get Connected",
+      "glb_asset_id": "ds_stock_meshy_jet",
+      "glb_url": "/assets/glb/Meshy_AI_Jet_in_Flight_0104205113_texture.glb",
+      "glb_alt": "Meshy jet in flight",
+      "glb_mode": "ambient",
+      "glb_enabled": true
+    }
+  },
+  "client_path": {
+    "section_id": "sec_contact_path_client",
+    "section_type": "contact_path",
+    "section_name": "client"
+  },
+  "join_path": {
+    "section_id": "sec_contact_path_join",
+    "section_type": "contact_path",
+    "section_name": "join"
+  },
+  "build_section": {
+    "section_id": "sec_contact_build",
+    "section_type": "collaborate",
+    "section_name": "build_with_us"
+  }
+}

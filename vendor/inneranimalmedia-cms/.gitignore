@@ -1,0 +1,13 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+node_modules/
+.venv/
+.venv-workers/
+.wrangler/
+dist/
+*.log
+__pycache__/
+*.pyc
+.python-version

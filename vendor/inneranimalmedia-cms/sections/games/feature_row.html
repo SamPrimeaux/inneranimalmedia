@@ -1,0 +1,23 @@
+<!-- CMS section: feature_row — reusable stagger row for /games (light or dark theme) -->
+<section
+  class="py-24 md:py-32"
+  data-cms-section="{{section_name}}"
+  data-cms-type="feature_row"
+  data-section-theme="{{theme}}"
+  id="{{section_dom_id}}"
+>
+  <div class="w-full max-w-screen-xl-tight px-6 mx-auto">
+    <div class="flex flex-col md:flex-row items-center gap-12 md:gap-16 group {{layout_class}}">
+      <div class="md:w-1/2 {{text_order_class}}">
+        <h2 class="text-3xl md:text-4xl font-bold mb-4 {{title_class}}" id="{{title_id}}">{{title}}</h2>
+        <p class="text-lg leading-relaxed mb-6 {{body_class}}" id="{{body_id}}">{{body}}</p>
+        <span class="text-xs font-bold px-3 py-1.5 rounded-lg tracking-wide uppercase {{badge_class}}" id="{{badge_id}}">{{badge_label}}</span>
+      </div>
+      <div class="md:w-1/2 {{visual_order_class}}">
+        <div class="{{card_class}}">
+          <img src="{{image_url}}" alt="{{image_alt}}" class="{{image_class}}" id="{{image_id}}">
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
