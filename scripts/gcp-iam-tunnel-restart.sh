@@ -34,13 +34,16 @@ if [[ -z "$GCP_PROJECT" || -z "$GCP_ZONE_VAL" ]]; then
 fi
 
 REMOTE='set -e
-if [[ -d "$HOME/iam-pty" ]]; then
-  cd "$HOME/iam-pty"
-  git pull --ff-only 2>/dev/null || true
+EXECOS_DIR="$HOME/ExecOS"
+[[ -d "$EXECOS_DIR" ]] || EXECOS_DIR="$HOME/iam-pty"
+if [[ -d "$EXECOS_DIR" ]]; then
+  sudo git config --global --add safe.directory "$EXECOS_DIR" 2>/dev/null || true
+  sudo -u samprimeaux git -C "$EXECOS_DIR" pull --ff-only 2>/dev/null || true
   npm install --omit=dev 2>/dev/null || npm install 2>/dev/null || true
-  if command -v pm2 >/dev/null 2>&1; then
-    pm2 restart iam-pty --update-env 2>/dev/null || pm2 start ecosystem.config.cjs
-    pm2 save 2>/dev/null || true
+  if [[ -x "$EXECOS_DIR/deploy/gcp/health-watchdog.sh" ]]; then
+    sudo bash "$EXECOS_DIR/deploy/gcp/health-watchdog.sh" || true
+  elif command -v pm2 >/dev/null 2>&1; then
+    sudo -u agentsam bash -lc "export PM2_HOME=/var/lib/agentsam/.pm2; cd \"$EXECOS_DIR\" && pm2 restart execos --update-env && pm2 save"
   fi
 fi
 if systemctl is-active cloudflared >/dev/null 2>&1; then

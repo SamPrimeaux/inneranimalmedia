@@ -52,6 +52,7 @@ fi
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "→ GCP iam-tunnel sync (repo + env + ExecOS runtime)"
+"${REPO_ROOT}/scripts/fix-gcp-vm-watchdog-cron.sh" 2>/dev/null || true
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 SYNC_ARGS=()
