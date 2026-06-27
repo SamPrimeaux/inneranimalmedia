@@ -2737,6 +2737,130 @@ export async function handleCmsApi(request, url, env, ctx) {
     }
   }
 
+  if (path === '/api/cms/liquid-imports/upload' && method === 'POST') {
+    const ct = String(request.headers.get('content-type') || '').toLowerCase();
+    if (!ct.includes('multipart/form-data')) {
+      return jsonResponse({ error: 'multipart/form-data required' }, 400);
+    }
+    let form;
+    try {
+      form = await request.formData();
+    } catch {
+      return jsonResponse({ error: 'invalid multipart body' }, 400);
+    }
+    const file = form.get('file');
+    if (!(file instanceof File) || file.size < 1) {
+      return jsonResponse({ error: 'file required (.zip or .tar.gz theme archive)' }, 400);
+    }
+    const importName = String(form.get('import_name') || file.name || 'Shopify theme import').trim();
+    const explicitImportProject =
+      String(form.get('project_slug') || form.get('project_id') || '').trim() ||
+      url.searchParams.get('project_slug') ||
+      url.searchParams.get('site') ||
+      null;
+    const importResolved = await resolveCmsBootstrapProjectSlug(
+      env,
+      request,
+      authUser,
+      workspaceId,
+      explicitImportProject,
+      requestCache,
+    );
+    if (importResolved.error) {
+      return jsonResponse(
+        { error: importResolved.error, message: importResolved.message, sites: importResolved.context?.sites || [] },
+        importResolved.error === 'CMS_PROJECT_UNRESOLVED' ? 404 : 400,
+      );
+    }
+    const projectSlug = importResolved.project_slug;
+    const lowerName = String(file.name || '').toLowerCase();
+    if (
+      !lowerName.endsWith('.zip') &&
+      !lowerName.endsWith('.tar.gz') &&
+      !lowerName.endsWith('.tgz') &&
+      !lowerName.endsWith('.tar')
+    ) {
+      return jsonResponse({ error: 'unsupported_file_type', allowed: ['.zip', '.tar.gz', '.tgz', '.tar'] }, 400);
+    }
+    const maxBytes = 80 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      return jsonResponse({ error: 'file_too_large', max_mb: 80 }, 413);
+    }
+    try {
+      const importId = `limp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+      const importKey = importName.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 64);
+      const safeFile = String(file.name || 'theme.zip').replace(/[^a-zA-Z0-9._-]+/g, '_');
+      const r2Key = `cms/liquid-imports/uploads/${importId}/${safeFile}`;
+      const r2Bucket = CMS_DEFAULT_R2_BUCKET;
+      const r2Binding = getCmsR2Binding(env, r2Bucket);
+      if (!r2Binding) return jsonResponse({ error: 'R2 storage unavailable' }, 503);
+      const buf = await file.arrayBuffer();
+      await r2Binding.put(r2Key, buf, {
+        httpMetadata: {
+          contentType: file.type || 'application/octet-stream',
+        },
+      });
+      const now = Math.floor(Date.now() / 1000);
+      await env.DB.prepare(
+        `INSERT INTO cms_liquid_imports
+         (id, tenant_id, workspace_id, project_id, import_key, import_name,
+          source_type, source_path, source_url, r2_bucket, r2_key,
+          status, sections_found, snippets_found, templates_found,
+          sections_mapped, pages_created, assets_registered,
+          metadata_json, result_json, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'upload', ?, '', ?, ?,
+                 'pending', 0, 0, 0, 0, 0, 0, ?, '{}', ?, ?, ?)`,
+      )
+        .bind(
+          importId,
+          tenantId,
+          workspaceId,
+          projectSlug,
+          importKey,
+          importName,
+          safeFile,
+          r2Bucket,
+          r2Key,
+          JSON.stringify({ original_filename: file.name, size_bytes: file.size }),
+          authUser.id,
+          now,
+          now,
+        )
+        .run();
+      const spawnMeta = await maybeSpawnCmsHeavyJob(env, ctx, {
+        userId: authUser.id,
+        workspaceId,
+        tenantId,
+        masterRunId: `cms_limp_${importId}`,
+        taskDescription: `CMS liquid import upload ${importName}`,
+        chunkCount: 1,
+      });
+      if (env.MY_QUEUE) {
+        ctx.waitUntil(
+          env.MY_QUEUE.send({
+            type: 'cms_liquid_import',
+            import_id: importId,
+            tenant_id: tenantId,
+            workspace_id: workspaceId,
+            r2_key: r2Key,
+            r2_bucket: r2Bucket,
+            import_name: importName,
+          }).catch(() => {}),
+        );
+      }
+      return jsonResponse({
+        success: true,
+        id: importId,
+        status: 'pending',
+        r2_key: r2Key,
+        r2_bucket: r2Bucket,
+        spawn: spawnMeta,
+      });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
   if (path === '/api/cms/liquid-imports' && method === 'GET') {
     try {
       const { results } = await env.DB.prepare(
@@ -2760,6 +2884,15 @@ export async function handleCmsApi(request, url, env, ctx) {
     const { import_name, source_type, r2_key, r2_bucket, source_url, project_id } = body;
     if (!import_name || !source_type) {
       return jsonResponse({ error: 'import_name and source_type required' }, 400);
+    }
+    if (source_type !== 'upload' && !r2_key && !source_url) {
+      return jsonResponse(
+        {
+          error: 'r2_key_or_source_url_required',
+          hint: 'Upload theme .zip via POST /api/cms/liquid-imports/upload (multipart file)',
+        },
+        400,
+      );
     }
     const explicitImportProject =
       project_id || url.searchParams.get('project_slug') || url.searchParams.get('site') || null;
@@ -2802,7 +2935,7 @@ export async function handleCmsApi(request, url, env, ctx) {
           source_type,
           r2_key || source_url || '',
           source_url || '',
-          r2_bucket || 'inneranimalmedia',
+          r2_bucket || CMS_DEFAULT_R2_BUCKET,
           r2_key || '',
           authUser.id,
           now,
@@ -2817,7 +2950,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         taskDescription: `CMS liquid import ${import_name} (${source_type})`,
         chunkCount: 1,
       });
-      if (env.MY_QUEUE) {
+      if (env.MY_QUEUE && (r2_key || source_url)) {
         ctx.waitUntil(
           env.MY_QUEUE.send({
             type: 'cms_liquid_import',

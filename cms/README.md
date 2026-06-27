@@ -1,24 +1,43 @@
-# CMS workers
+# CMS workers (host monolith)
 
-**Product repo:** [inneranimalmedia-cms](https://github.com/SamPrimeaux/inneranimalmedia-cms) — studio, sections, Python pipeline, manifests, integration contracts.
+**Product repo (subtree):** `vendor/inneranimalmedia-cms/`  
+**Upstream:** https://github.com/SamPrimeaux/inneranimalmedia-cms
 
 This monolith keeps a **thin host layer** only:
 
 - `src/api/cms.js`, `src/core/cms-*.js` — auth, dispatch, promotion gates
 - `CMS_PIPELINE` / `CMS_BUCKET` bindings in `wrangler.production.toml`
-- Agent tools registered in D1 (`714_cms_pipeline_agent_tools.sql`)
+- Agent tools in D1 (`714_cms_pipeline_agent_tools.sql`)
 
-## Deploy pipeline (from product repo)
+## Subtree sync
 
 ```bash
-git clone git@github.com:SamPrimeaux/inneranimalmedia-cms.git
-cd inneranimalmedia-cms/services/cms-pipeline-service
-uv sync && uv run pywrangler deploy
+# Pull latest product into monolith
+git subtree pull --prefix=vendor/inneranimalmedia-cms \
+  git@github.com:SamPrimeaux/inneranimalmedia-cms.git main --squash
+
+# Push monolith vendor changes back to product repo (when you edit under vendor/)
+git subtree push --prefix=vendor/inneranimalmedia-cms \
+  git@github.com:SamPrimeaux/inneranimalmedia-cms.git main
 ```
 
-Or use the copy vendored under `services/cms-pipeline-service/` until submodule/subtree is wired.
+Prefer editing CMS product files in **inneranimalmedia-cms** directly, then `subtree pull` here.
+
+## Pipeline deploy
+
+```bash
+./scripts/setup_cms_python_worker.sh
+cd vendor/inneranimalmedia-cms/services/cms-pipeline-service
+uv run pywrangler deploy
+```
+
+## Shopify theme import
+
+Dashboard → CMS → **Imports** → drop `.zip` / `.tar.gz`.  
+API: `POST /api/cms/liquid-imports/upload` (multipart `file`).
+
+Extracts Liquid sections to R2 + `cms_liquid_sections`. Map to pages via studio or Agent Sam.
 
 ## Legacy editor shell
 
-- **Git:** `git@github.com:SamPrimeaux/agentsam-cms-editor.git`
-- **Live:** https://agentsam-cms-editor.meauxbility.workers.dev/
+- https://github.com/SamPrimeaux/agentsam-cms-editor

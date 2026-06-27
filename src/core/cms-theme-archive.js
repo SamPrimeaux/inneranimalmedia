@@ -45,11 +45,11 @@ export function extractTarEntries(data) {
 }
 
 /**
- * Minimal ZIP store reader (Shopify theme .zip exports).
+ * Minimal ZIP reader (Shopify theme .zip exports — store + deflate).
  * @param {Uint8Array} data
- * @returns {Array<{ path: string, content: Uint8Array }>}
+ * @returns {Promise<Array<{ path: string, content: Uint8Array }>>}
  */
-export function extractZipEntries(data) {
+export async function extractZipEntries(data) {
   const entries = [];
   let i = 0;
   while (i + 30 < data.length) {
@@ -62,9 +62,27 @@ export function extractZipEntries(data) {
     const nameStart = i + 30;
     const name = textFromBytes(data.subarray(nameStart, nameStart + nameLen));
     const dataStart = nameStart + nameLen + extraLen;
-    if (method === 0) {
-      entries.push({ path: name, content: data.subarray(dataStart, dataStart + compSize) });
+    if (!name || name.endsWith('/')) {
+      i = dataStart + compSize;
+      continue;
     }
+    const compressed = data.subarray(dataStart, dataStart + compSize);
+    let content = compressed;
+    if (method === 0) {
+      content = compressed;
+    } else if (method === 8) {
+      try {
+        const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+        content = new Uint8Array(await new Response(stream).arrayBuffer());
+      } catch {
+        i = dataStart + compSize;
+        continue;
+      }
+    } else {
+      i = dataStart + compSize;
+      continue;
+    }
+    entries.push({ path: name, content });
     i = dataStart + compSize;
   }
   return entries;
