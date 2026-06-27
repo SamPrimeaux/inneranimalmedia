@@ -12,6 +12,7 @@ import { resolvePtyTenantIdForUser } from './pty-workspace-paths.js';
 import { loadAgentsamToolRow } from './agentsam-tools-catalog.js';
 import { loadAgentSamUserPolicy } from './agent-policy.js';
 import { runTerminalCommand } from './terminal.js';
+import { resolveTerminalExecRouting } from './terminal-routing-policy.js';
 import { scheduleRecordMcpToolExecution } from './mcp-tool-execution.js';
 import { scheduleToolCallLog } from './agentsam-ops-ledger.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
@@ -169,16 +170,17 @@ export async function executeScopedAgentTerminalRun(request, env, ctx, url, body
   let runCommand = command;
   let execErr = null;
   try {
-    const targetId =
-      body?.target_id != null && String(body.target_id).trim() !== ''
-        ? String(body.target_id).trim()
-        : body?.ssh_target_id != null && String(body.ssh_target_id).trim() !== ''
-          ? String(body.ssh_target_id).trim()
-          : null;
+    const routing = resolveTerminalExecRouting({
+      tool_name: body?.tool_name,
+      target_id: body?.target_id ?? body?.ssh_target_id,
+      target_type: body?.target_type,
+    });
     const r = await runTerminalCommand(env, request, command, sessionId, {
       execution_mode: 'pty',
       workspace_id: targetWorkspace,
-      ...(targetId ? { target_id: targetId } : {}),
+      tool_name: body?.tool_name ?? null,
+      ...(routing.target_id ? { target_id: routing.target_id } : {}),
+      ...(routing.target_type ? { target_type: routing.target_type } : {}),
     });
     output = r.output;
     runCommand = r.command;

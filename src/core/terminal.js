@@ -11,6 +11,7 @@ import {
   WORKSPACE_ROOT_CONTEXT_MISSING,
 } from './bootstrap.js';
 import { resolvePtyTenantIdForUser, buildPtySessionWorkingDir } from './pty-workspace-paths.js';
+import { resolveTerminalExecRouting } from './terminal-routing-policy.js';
 import { notifySam } from './notifications';
 import { resolveUserPtyToken, USER_PTY_TOKEN_SENTINEL } from './user-secrets.js';
 import { selectHealthyTerminalConnection } from './terminal-connection-health.js';
@@ -1162,8 +1163,12 @@ export async function runTerminalCommandViaControlPlane(env, request, command, e
     tid = tid != null ? String(tid).trim() : '';
     if (!tid) return { ok: false, error: 'TENANT_CONTEXT_REQUIRED' };
     doUrl.searchParams.set('tenant_id', tid);
-    const workingDir = buildPtySessionWorkingDir(env, { tenantId: tid, userId });
-    if (workingDir) doUrl.searchParams.set('cwd', workingDir);
+    const routing = resolveTerminalExecRouting({
+      tool_name: extra.tool_name,
+      target_id: extra.target_id || extra.ssh_target_id,
+      target_type: extra.target_type,
+    });
+    if (routing.target_type) doUrl.searchParams.set('target_type', routing.target_type);
     const puuid = authUser.person_uuid != null && String(authUser.person_uuid).trim() !== '' ? String(authUser.person_uuid).trim() : '';
     if (puuid) doUrl.searchParams.set('person_uuid', puuid);
     const resp = await stub.fetch(new Request(doUrl.toString(), {
@@ -1173,9 +1178,10 @@ export async function runTerminalCommandViaControlPlane(env, request, command, e
         command: cmd,
         execution_mode: mode,
         workspace_id: workspaceId,
-        target_id: extra.target_id || extra.ssh_target_id || null,
-        ssh_target_id: extra.ssh_target_id || null,
+        target_id: routing.target_id || extra.target_id || extra.ssh_target_id || null,
+        target_type: routing.target_type || extra.target_type || null,
         tool_name: extra.tool_name || null,
+        ssh_target_id: extra.ssh_target_id || null,
         params: extra.params || null,
       }),
     }));
@@ -1256,12 +1262,12 @@ async function writeTerminalHistory(env, request, sessionId, commandText, output
  */
 export async function resolveTerminalExecTargetId(env, request, executionCtx = null) {
   const ctx = executionCtx || {};
-  const explicit =
-    ctx.target_id != null && String(ctx.target_id).trim() !== ''
-      ? String(ctx.target_id).trim()
-      : ctx.ssh_target_id != null && String(ctx.ssh_target_id).trim() !== ''
-        ? String(ctx.ssh_target_id).trim()
-        : null;
+  const routing = resolveTerminalExecRouting({
+    tool_name: ctx.tool_name,
+    target_id: ctx.target_id ?? ctx.ssh_target_id,
+    target_type: ctx.target_type,
+  });
+  const explicit = routing.target_id || null;
   if (explicit) return explicit;
   if (!env?.DB || !request) return null;
   try {
@@ -1278,7 +1284,7 @@ export async function resolveTerminalExecTargetId(env, request, executionCtx = n
       workspaceId,
       tenantId: tenantId || null,
       connectionId: null,
-      targetType: ctx.target_type || null,
+      targetType: routing.target_type || ctx.target_type || null,
       healthAware: true,
     });
     return sel?.connection?.id ? String(sel.connection.id).trim() : null;

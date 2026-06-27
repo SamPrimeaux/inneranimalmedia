@@ -42,6 +42,10 @@ import {
   vmWorkspaceCdCommandFromSettings,
   vmWorkspaceRootFromSettings,
 } from './host-workspace-paths.js';
+import {
+  resolveTerminalExecRouting,
+  terminalToolPrefersGcpLane,
+} from './terminal-routing-policy.js';
 
 function parseInput(input) {
   if (input == null) return {};
@@ -1385,12 +1389,15 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           }
         }
       }
-      const remoteTargetId =
-        toolKey === 'agentsam_terminal_remote' && params.target_id != null
-          ? String(params.target_id).trim()
-          : '';
+      const routing = resolveTerminalExecRouting({
+        tool_key: toolKey,
+        target_id: params.target_id,
+        target_type: params.target_type,
+      });
+      const remoteTargetId = routing.target_id || '';
       const gcpExec =
-        toolKey === 'agentsam_terminal_remote' ||
+        terminalToolPrefersGcpLane(toolKey) ||
+        routing.lane === 'gcp_primary' ||
         (remoteTargetId && /gcp|iam_tunnel|platform_vm/i.test(remoteTargetId));
       if (settingsJson) {
         cmd = wrapWorkspaceShellCommand(settingsJson, cmd, { gcpExec });
@@ -1404,7 +1411,9 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           session_id: params.session_id,
           workspace_id: workspaceId,
           request: runContext?.request,
+          tool_name: toolKey,
           ...(remoteTargetId ? { target_id: remoteTargetId } : {}),
+          ...(routing.target_type ? { target_type: routing.target_type } : {}),
         },
         env,
       );

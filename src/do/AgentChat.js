@@ -18,6 +18,7 @@ import {
   buildPtySessionWorkingDir,
   resolveTerminalCwd,
 } from "../core/pty-workspace-paths.js";
+import { resolveTerminalExecRouting } from "../core/terminal-routing-policy.js";
 import {
   computeTerminalSessionAuthTokenHash,
   isShellHistorySeedLine,
@@ -744,8 +745,18 @@ export class AgentChatSqlV1 extends DurableObject {
     const pParam = String(url.searchParams.get("person_uuid") || body?.person_uuid || "").trim();
     if (pParam) this.ptPersonUuid = pParam;
     const targetId = String(body?.target_id || body?.ssh_target_id || "").trim() || null;
-    if (targetId) {
-      this.requestedConnectionId = targetId;
+    const routing = resolveTerminalExecRouting({
+      tool_name: body?.tool_name,
+      target_id: targetId,
+      target_type: body?.target_type || url.searchParams.get("target_type"),
+    });
+    if (routing.target_type) {
+      this.requestedTargetType = routing.target_type;
+      this.selectedTargetType = routing.target_type;
+    }
+    const pinnedConnectionId = routing.target_id || targetId;
+    if (pinnedConnectionId) {
+      this.requestedConnectionId = pinnedConnectionId;
       this.selectedTerminalConnection = null;
     }
     await this.ensureWorkspaceSettingsLoaded(workspaceId, { allowPlatformFallback: false });
@@ -763,14 +774,32 @@ export class AgentChatSqlV1 extends DurableObject {
           { status: 403 },
         );
       }
-      await this.applyPtyWorkingDir(tidEx, this.ptSessionUserId);
+      let connForCwd = this.selectedTerminalConnection;
+      if (!connForCwd) {
+        try {
+          const sel = await getSelectedTerminalConnection(this.env.DB, {
+            userId: String(this.ptSessionUserId || "").trim(),
+            workspaceId,
+            tenantId: tidEx,
+            connectionId: pinnedConnectionId,
+            targetType: this.requestedTargetType || routing.target_type || "platform_vm",
+            healthAware: true,
+          });
+          connForCwd = sel.connection;
+          this.selectedTerminalConnection = connForCwd;
+          if (connForCwd?.target_type) {
+            this.selectedTargetType = String(connForCwd.target_type).trim();
+          }
+        } catch (_) {}
+      }
+      await this.applyPtyWorkingDir(tidEx, this.ptSessionUserId, connForCwd);
     }
 
     const command = String(body?.command || "").trim();
 
     if (command) {
       let effectiveTargetId =
-        targetId ||
+        pinnedConnectionId ||
         String(this.requestedConnectionId || "").trim() ||
         String(this.selectedTerminalConnection?.id || "").trim() ||
         null;
@@ -780,10 +809,15 @@ export class AgentChatSqlV1 extends DurableObject {
             userId: String(this.ptSessionUserId || "").trim(),
             workspaceId,
             tenantId: String(this.ptSessionTenantId || "").trim() || null,
-            connectionId: targetId,
+            connectionId: pinnedConnectionId,
+            targetType: this.requestedTargetType || routing.target_type || "platform_vm",
             healthAware: true,
           });
           effectiveTargetId = sel?.connection?.id ? String(sel.connection.id).trim() : null;
+          if (sel.connection) {
+            this.selectedTerminalConnection = sel.connection;
+            this.selectedTargetType = String(sel.connection.target_type || this.selectedTargetType || "platform_vm").trim();
+          }
         } catch (_) {}
       }
       const lookupId = await resolvePrivilegedTargetLookupId(this.env?.DB, effectiveTargetId);
@@ -1228,8 +1262,15 @@ export class AgentChatSqlV1 extends DurableObject {
   async executePtyCommand(command) {
     const execUid = String(this.ptSessionUserId || "").trim();
     const execWid = String(this.workspaceId || "").trim();
-    const execTarget = String(this.selectedTargetType || this.requestedTargetType || '').trim() || null;
-    const pinnedId = String(this.requestedConnectionId || "").trim() || null;
+    const routing = resolveTerminalExecRouting({
+      target_id: this.requestedConnectionId,
+      target_type: this.requestedTargetType,
+    });
+    const execTarget =
+      String(this.selectedTargetType || this.requestedTargetType || routing.target_type || "").trim() ||
+      "platform_vm";
+    const pinnedId =
+      String(this.requestedConnectionId || routing.target_id || "").trim() || null;
     let conn = pinnedId ? null : this.selectedTerminalConnection;
     if (!conn && this.env?.DB) {
       try {
@@ -1242,6 +1283,10 @@ export class AgentChatSqlV1 extends DurableObject {
           healthAware: true,
         });
         conn = sel.connection;
+        if (conn) {
+          this.selectedTerminalConnection = conn;
+          this.selectedTargetType = String(conn.target_type || execTarget).trim();
+        }
       } catch (_) {}
     }
     const execIdentity = await resolveTerminalExecIdentity(this.env?.DB, conn);
@@ -1272,6 +1317,7 @@ export class AgentChatSqlV1 extends DurableObject {
           exit_code: data?.exit_code ?? 0,
           exec_identity: execIdentity.execUser,
           privileged_target_id: execIdentity.privilegedTargetId,
+          target_id: conn?.id ? String(conn.id) : pinnedId,
         };
       } catch (e) {
         return { error: e?.message || "PTY VPC exec failed" };
@@ -1336,6 +1382,7 @@ export class AgentChatSqlV1 extends DurableObject {
         exit_code: data?.exit_code ?? 0,
         exec_identity: execIdentity.execUser,
         privileged_target_id: execIdentity.privilegedTargetId,
+        target_id: conn?.id ? String(conn.id) : pinnedId,
       };
     }
 

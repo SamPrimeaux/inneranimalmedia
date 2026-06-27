@@ -283,7 +283,7 @@ export async function runBuiltinTool(env, toolName, params, runContext = {}) {
         case toolName === 'terminal_execute':
         case toolName === 'run_command':
         case toolName === 'bash':
-            return await termHandlers.run_command?.(params, env);
+            return await termHandlers.run_command?.({ ...params, tool_name: toolName }, env);
 
         case toolName === 'python_execute':
             return await python_execute(params, env);

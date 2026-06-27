@@ -4,13 +4,27 @@
  */
 
 import { wrapShellCommandWithPath } from '../core/mcp-terminal-contract.js';
+import { resolveTerminalExecRouting } from '../core/terminal-routing-policy.js';
 
 export const handlers = {
   /**
    * run_command: Execute a single shell command and return the output.
    */
   async run_command(
-    { command, request, session_id, sessionId, workspace_id, workspaceId, path, cwd, target_id },
+    {
+      command,
+      request,
+      session_id,
+      sessionId,
+      workspace_id,
+      workspaceId,
+      path,
+      cwd,
+      target_id,
+      target_type,
+      tool_name,
+      toolName,
+    },
     env,
   ) {
     try {
@@ -22,6 +36,11 @@ export const handlers = {
       const workDir = String(path || cwd || '').trim();
       let runCommand = typeof command === 'string' ? command.trim() : '';
       if (workDir) runCommand = wrapShellCommandWithPath(workDir, runCommand);
+      const routing = resolveTerminalExecRouting({
+        tool_name: tool_name || toolName,
+        target_id,
+        target_type,
+      });
       // CF Workers: forward session cookie so /api/agent/terminal/run resolves the same user/workspace.
       const wid =
         workspace_id ??
@@ -34,9 +53,9 @@ export const handlers = {
           command: runCommand,
           session_id: sid,
           ...(wid ? { workspace_id: String(wid).trim() } : {}),
-          ...(target_id != null && String(target_id).trim() !== ''
-            ? { target_id: String(target_id).trim() }
-            : {}),
+          ...(routing.target_id ? { target_id: routing.target_id } : {}),
+          ...(routing.target_type ? { target_type: routing.target_type } : {}),
+          ...(tool_name || toolName ? { tool_name: String(tool_name || toolName).trim() } : {}),
         }),
       });
 
