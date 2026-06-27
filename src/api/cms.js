@@ -42,7 +42,6 @@ import {
   leaveCmsLiveEditSession,
   touchCmsLiveEditSession,
 } from '../core/cms-live-edit-session.js';
-import { upsertCmsSiteProjectContext } from '../core/cms-project-context.js';
 import { provisionCmsProject } from '../core/cms-project-provision.js';
 import { emitInnerAnimalProEvent } from '../core/inneranimalpro-stream.js';
 import {
@@ -73,6 +72,12 @@ import {
   sortSitesForWorkspace,
 } from '../core/cms-workspace-resolve.js';
 import { resolveActiveCmsThemeRow } from '../core/cms-theme-resolve.js';
+import {
+  listSiteShellPartsMeta,
+  publishSiteShellPart,
+  readSiteShellPart,
+  writeSiteShellDraft,
+} from '../core/cms-site-shell.js';
 import { resolveCmsSiteConfig } from '../core/cms-site-config.js';
 import { resolveCmsPublicDomain } from '../core/cms-storefront-url.js';
 import { mintCmsEmbedSession, proxyCmsBridgeRequest } from '../core/cms-client-bridge.js';
@@ -1737,6 +1742,88 @@ export async function handleCmsApi(request, url, env, ctx) {
     }
   }
 
+  const siteShellPublishMatch = path.match(/^\/api\/cms\/site-shell\/([^/]+)\/publish$/);
+  if (siteShellPublishMatch && method === 'POST') {
+    const partId = siteShellPublishMatch[1];
+    const projectSlug =
+      url.searchParams.get('project_slug') ||
+      url.searchParams.get('site') ||
+      explicitProjectSlug ||
+      siteConfig.project_slug;
+    const slug = String(projectSlug || '').trim();
+    if (!slug || !cmsScope.allowedSlugs.has(slug)) {
+      return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: slug || null }, 403);
+    }
+    try {
+      const part = await publishSiteShellPart(env, slug, partId);
+      return jsonResponse({ ok: true, part });
+    } catch (e) {
+      const msg = e?.message || 'publish_failed';
+      const status = msg === 'no_shell_draft' ? 409 : msg === 'site_shell_part_not_found' ? 404 : 500;
+      return jsonResponse({ error: msg }, status);
+    }
+  }
+
+  const siteShellPartMatch = path.match(/^\/api\/cms\/site-shell\/([^/]+)$/);
+  if (siteShellPartMatch) {
+    const partId = siteShellPartMatch[1];
+    const projectSlug =
+      url.searchParams.get('project_slug') ||
+      url.searchParams.get('site') ||
+      explicitProjectSlug ||
+      siteConfig.project_slug;
+    const slug = String(projectSlug || '').trim();
+    if (!slug || !cmsScope.allowedSlugs.has(slug)) {
+      return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: slug || null }, 403);
+    }
+    if (method === 'GET') {
+      const useDraft =
+        url.searchParams.get('draft') === '1' || url.searchParams.get('preview') === 'draft';
+      try {
+        const part = await readSiteShellPart(env, slug, partId, { draft: useDraft });
+        if (!part) return jsonResponse({ error: 'site_shell_not_found' }, 404);
+        return jsonResponse({ part });
+      } catch (e) {
+        return jsonResponse({ error: e.message || 'read_failed' }, 500);
+      }
+    }
+    if (method === 'PUT') {
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: 'invalid JSON' }, 400);
+      }
+      try {
+        const part = await writeSiteShellDraft(env, slug, partId, String(body.html || ''));
+        return jsonResponse({ ok: true, part });
+      } catch (e) {
+        const msg = e?.message || 'write_failed';
+        const status =
+          msg === 'site_shell_not_configured' || msg === 'site_shell_part_not_found' ? 404 : 500;
+        return jsonResponse({ error: msg }, status);
+      }
+    }
+  }
+
+  if (path === '/api/cms/site-shell' && method === 'GET') {
+    const projectSlug =
+      url.searchParams.get('project_slug') ||
+      url.searchParams.get('site') ||
+      explicitProjectSlug ||
+      siteConfig.project_slug;
+    const slug = String(projectSlug || '').trim();
+    if (!slug || !cmsScope.allowedSlugs.has(slug)) {
+      return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: slug || null }, 403);
+    }
+    try {
+      const site_shell = await listSiteShellPartsMeta(env, slug);
+      return jsonResponse({ site_shell });
+    } catch (e) {
+      return jsonResponse({ error: e.message || 'list_failed' }, 500);
+    }
+  }
+
   if (path === '/api/cms/bootstrap' && method === 'GET') {
     const explicitSlug =
       url.searchParams.get('project_slug') || url.searchParams.get('site') || null;
@@ -2011,6 +2098,7 @@ export async function handleCmsApi(request, url, env, ctx) {
       }
 
       const siteConfig = await resolveCmsSiteConfig(env, workspaceId, projectSlug);
+      const site_shell = await listSiteShellPartsMeta(env, projectSlug);
 
       const payload = {
         project_slug: projectSlug,
@@ -2038,6 +2126,17 @@ export async function handleCmsApi(request, url, env, ctx) {
         component_templates: templatesRes.results || [],
         liquid_imports: importsRes.results || [],
         global_settings: globalSettingsRes || null,
+        site_shell,
+        home_page: homePage
+          ? {
+              id: homePage.id,
+              slug: homePage.slug,
+              title: homePage.title,
+              route_path: homePage.route_path,
+              status: homePage.status,
+              r2_key: homePage.r2_key,
+            }
+          : null,
         assets_3d: assets3dRes.results || [],
         active_draft: activeDraft,
         live_session: liveSession,

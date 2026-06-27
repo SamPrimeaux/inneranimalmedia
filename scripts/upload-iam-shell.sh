@@ -27,4 +27,8 @@ upload_one() {
 
 upload_one "src/components/iam-header.html" "static/src/components/iam-header.html"
 
-echo "✓ IAM header uploaded to R2 (injected on pages that use iam shell)"
+if [[ -f "static/src/components/iam-footer.html" ]]; then
+  upload_one "src/components/iam-footer.html" "static/src/components/iam-footer.html"
+else
+  echo "→ Skip iam-footer (no static/src/components/iam-footer.html in repo)"
+fi

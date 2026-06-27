@@ -32,6 +32,7 @@ import {
   hydrateCmsRoutePageHtml,
   normalizeCmsRoutePath,
 } from './core/cms-page-hydrate-dispatch.js';
+import { loadSiteShellInjectionHtml } from './core/cms-site-shell.js';
 import { hydrateWorkDetailPageHtml } from './core/cms-work-detail-hydrate.js';
 import { assetPassthroughCacheControl } from './core/asset-passthrough-cache.js';
 import { resolveIdentity } from './core/identity.js';
@@ -417,6 +418,7 @@ export default {
       if (!assetHtmlKey && /^\/work\/[a-z0-9-]+$/i.test(pathLower) && env.DB && env.ASSETS) {
         const detailRoute = pathLower;
         const isCmsEmbed = url.searchParams.get('cms') === '1';
+        const previewCtx = parseCmsUrlPreviewMode(url);
         const cmsBundle = await loadPublishedCmsSectionsByRoute(env.DB, detailRoute);
         if (cmsBundle.page?.page_type === 'case_study') {
           const shellKey = cmsBundle.page.r2_key || 'pages/work/detail.html';
@@ -428,12 +430,9 @@ export default {
             } catch (e) {
               console.warn('[work-detail] cms hydrate failed:', e?.message);
             }
-            const [headerObj, footerObj] = await Promise.all([
-              env.ASSETS.get('src/components/iam-header.html'),
-              env.ASSETS.get('src/components/iam-footer.html'),
-            ]);
-            const headerHtml = headerObj ? await headerObj.text() : '';
-            const footerHtml = footerObj ? await footerObj.text() : '';
+            const { headerHtml, footerHtml } = await loadSiteShellInjectionHtml(env, {
+              previewMode: previewCtx.previewMode,
+            });
             const pageTitle = cmsBundle.page.title || 'Portfolio Details';
             htmlText = htmlText.replace(/<title>[^<]*<\/title>/i, `<title>${pageTitle} | Inner Animal Media</title>`);
             return new HTMLRewriter()
@@ -585,13 +584,10 @@ export default {
             headers: { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=300' },
           });
         }
-        // Inject shared header/footer via HTMLRewriter
-        const [headerObj, footerObj] = await Promise.all([
-          env.ASSETS ? env.ASSETS.get('src/components/iam-header.html') : Promise.resolve(null),
-          env.ASSETS ? env.ASSETS.get('src/components/iam-footer.html') : Promise.resolve(null),
-        ]);
-        const headerHtml = headerObj ? await headerObj.text() : '';
-        const footerHtml = footerObj ? await footerObj.text() : '';
+        // Inject shared header/footer via HTMLRewriter (draft shell when ?preview=draft)
+        const { headerHtml, footerHtml } = await loadSiteShellInjectionHtml(env, {
+          previewMode: previewCtx.previewMode,
+        });
         // Auth shells ship their own nav; chess rooms are fullscreen — no marketing chrome.
         const skipShellInject =
           isCmsEmbed ||

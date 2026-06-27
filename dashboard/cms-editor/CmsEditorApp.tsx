@@ -1120,6 +1120,10 @@ function CmsEditor() {
 
   /* ── state ── */
   const [bootstrap, setBootstrap]   = useState(null);
+  const [siteShell, setSiteShell]   = useState(null);
+  const [activeShellPart, setActiveShellPart] = useState(null);
+  const [shellHtml, setShellHtml]   = useState('');
+  const [shellDirty, setShellDirty] = useState(false);
   const [booting, setBooting]       = useState(false);
   const [pages, setPages]           = useState([]);
   const [activePage, setActivePage] = useState(null);
@@ -1193,12 +1197,19 @@ function CmsEditor() {
     api(`/api/cms/bootstrap?project_slug=${encodeURIComponent(ctx.project)}`)
       .then(data => {
         setBootstrap(data);
+        setSiteShell(data.site_shell || null);
         const pg = data.pages || [];
         setPages(pg);
         const forceWizard = new URLSearchParams(location.search).get('wizard') === '1';
         const first = !forceWizard && ctx.pageId ? pg.find(p => p.id === ctx.pageId) : null;
         if (first) {
           loadPage(first, data, { syncParent: false });
+        } else if (!forceWizard && !ctx.pageId) {
+          const home =
+            (data.home_page?.id && pg.find((p) => p.id === data.home_page.id)) ||
+            pg.find((p) => p.is_homepage) ||
+            pg.find((p) => p.route_path === '/' || p.slug === 'home');
+          if (home) loadPage(home, data, { syncParent: false });
         } else if ((!ctx.pageId || forceWizard) && isThemeStudio) {
           const embedded =
             window.parent !== window ||
@@ -1391,6 +1402,9 @@ function CmsEditor() {
     const syncParent = opts.syncParent !== false;
     setActivePage(page);
     setActiveSection(null);
+    setActiveShellPart(null);
+    setShellHtml('');
+    setShellDirty(false);
     setDirty({});
     setPrev(false);
     setDraftPreview(false);
@@ -1477,6 +1491,71 @@ function CmsEditor() {
     window.addEventListener('message', onHostMessage);
     return () => window.removeEventListener('message', onHostMessage);
   }, [pages, bootstrap]);
+
+  async function selectShellPart(partId) {
+    const id = String(partId || '').trim();
+    if (!id) return;
+    setActiveSection(null);
+    setDirty({});
+    setActiveShellPart(id);
+    setRpTab(isThemeStudio ? 'advanced' : 'html');
+    try {
+      const res = await api(
+        `/api/cms/site-shell/${encodeURIComponent(id)}?draft=1&project_slug=${encodeURIComponent(ctx.project)}`,
+      );
+      setShellHtml(res.part?.html || '');
+      setShellDirty(false);
+    } catch (e) {
+      showToast('Failed to load chrome: ' + e.message, 'err');
+    }
+  }
+
+  async function saveShellPart() {
+    if (!activeShellPart) return;
+    setSaving(true);
+    try {
+      await api(
+        `/api/cms/site-shell/${encodeURIComponent(activeShellPart)}?project_slug=${encodeURIComponent(ctx.project)}`,
+        { method: 'PUT', body: { html: shellHtml } },
+      );
+      setShellDirty(false);
+      showToast('Site chrome draft saved');
+      const meta = await api(`/api/cms/site-shell?project_slug=${encodeURIComponent(ctx.project)}`);
+      setSiteShell(meta.site_shell || null);
+      await refreshDraftPreview();
+    } catch (e) {
+      showToast('Chrome save failed: ' + e.message, 'err');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function publishShellPart() {
+    if (!activeShellPart) return;
+    if (!confirm('Publish this header/footer to the live site?')) return;
+    setSaving(true);
+    try {
+      if (shellDirty) {
+        await api(
+          `/api/cms/site-shell/${encodeURIComponent(activeShellPart)}?project_slug=${encodeURIComponent(ctx.project)}`,
+          { method: 'PUT', body: { html: shellHtml } },
+        );
+        setShellDirty(false);
+      }
+      await api(
+        `/api/cms/site-shell/${encodeURIComponent(activeShellPart)}/publish?project_slug=${encodeURIComponent(ctx.project)}`,
+        { method: 'POST', body: {} },
+      );
+      showToast('Site chrome published', 'ok');
+      const meta = await api(`/api/cms/site-shell?project_slug=${encodeURIComponent(ctx.project)}`);
+      setSiteShell(meta.site_shell || null);
+      await refreshDraftPreview();
+    } catch (e) {
+      showToast('Chrome publish failed: ' + e.message, 'err');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function refreshDraftPreview(page = activePage) {
     if (!page) return;
@@ -2104,8 +2183,30 @@ function CmsEditor() {
                   </div>
                 )}
 
-                {/* ── HEADER group ── */}
-                {(() => {
+                {/* ── HEADER (global R2 chrome) ── */}
+                {siteShell?.enabled ? (
+                  <>
+                    <div className="ts-sec-group-label">Header</div>
+                    {(() => {
+                      const meta = (siteShell.parts || []).find((p) => p.id === 'header');
+                      const isActive = activeShellPart === 'header';
+                      return (
+                        <div
+                          className={`sec-row ${isActive ? 'active' : ''}`}
+                          onClick={() => selectShellPart('header')}
+                        >
+                          <div className="sec-icon" style={{ color: '#60a5fa', background: '#60a5fa18' }}>HD</div>
+                          <div className="sec-info">
+                            <div className="sec-name">iam-header.html</div>
+                            <div className="sec-type">
+                              {meta?.has_draft ? 'Draft · publish to go live' : 'Global site chrome (R2)'}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </>
+                ) : (() => {
                   const headerSecs = sections.filter(s => s.section_type === 'header' || s.section_name === 'header');
                   return headerSecs.length > 0 ? (
                     <>
@@ -2116,7 +2217,7 @@ function CmsEditor() {
                           <div
                             key={sec.id}
                             className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
-                            onClick={() => { setActiveSection(sec); setRpTab('edit'); setDirty({}); scrollPreviewToSection(iframeRef, sec.section_name); if (isMobile) { setMobilePanel('canvas'); setTimeout(() => setMobilePanel('inspector'), 120); } }}
+                            onClick={() => { setActiveShellPart(null); setActiveSection(sec); setRpTab('edit'); setDirty({}); scrollPreviewToSection(iframeRef, sec.section_name); if (isMobile) { setMobilePanel('canvas'); setTimeout(() => setMobilePanel('inspector'), 120); } }}
                           >
                             <div className="sec-icon" style={{ color: '#60a5fa', background: '#60a5fa18' }}>HD</div>
                             <div className="sec-info">
@@ -2149,6 +2250,7 @@ function CmsEditor() {
                             key={sec.id}
                             className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
                             onClick={() => {
+                              setActiveShellPart(null);
                               setActiveSection(sec);
                               setRpTab('edit');
                               setDirty({});
@@ -2181,8 +2283,30 @@ function CmsEditor() {
                   );
                 })()}
 
-                {/* ── FOOTER group ── */}
-                {(() => {
+                {/* ── FOOTER (global R2 chrome) ── */}
+                {siteShell?.enabled ? (
+                  <>
+                    <div className="ts-sec-group-label">Footer</div>
+                    {(() => {
+                      const meta = (siteShell.parts || []).find((p) => p.id === 'footer');
+                      const isActive = activeShellPart === 'footer';
+                      return (
+                        <div
+                          className={`sec-row ${isActive ? 'active' : ''}`}
+                          onClick={() => selectShellPart('footer')}
+                        >
+                          <div className="sec-icon" style={{ color: '#a78bfa', background: '#a78bfa18' }}>FT</div>
+                          <div className="sec-info">
+                            <div className="sec-name">iam-footer.html</div>
+                            <div className="sec-type">
+                              {meta?.has_draft ? 'Draft · publish to go live' : 'Global site chrome (R2)'}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </>
+                ) : (() => {
                   const footerSecs = sections.filter(s => s.section_type === 'footer' || s.section_name === 'footer');
                   return footerSecs.length > 0 ? (
                     <>
@@ -2193,7 +2317,7 @@ function CmsEditor() {
                           <div
                             key={sec.id}
                             className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
-                            onClick={() => { setActiveSection(sec); setRpTab('edit'); setDirty({}); scrollPreviewToSection(iframeRef, sec.section_name); if (isMobile) { setMobilePanel('canvas'); setTimeout(() => setMobilePanel('inspector'), 120); } }}
+                            onClick={() => { setActiveShellPart(null); setActiveSection(sec); setRpTab('edit'); setDirty({}); scrollPreviewToSection(iframeRef, sec.section_name); if (isMobile) { setMobilePanel('canvas'); setTimeout(() => setMobilePanel('inspector'), 120); } }}
                           >
                             <div className="sec-icon" style={{ color: '#a78bfa', background: '#a78bfa18' }}>FT</div>
                             <div className="sec-info">
@@ -2239,6 +2363,32 @@ function CmsEditor() {
 
           {railMode === 'sections' ? (
             <>
+              {siteShell?.enabled && (
+                <>
+                  <div className="sb-group">Site chrome</div>
+                  <div className="sec-list" style={{ marginBottom: 8 }}>
+                    {['header', 'footer'].map((partId) => {
+                      const meta = (siteShell.parts || []).find((p) => p.id === partId);
+                      const isActive = activeShellPart === partId;
+                      return (
+                        <div
+                          key={partId}
+                          className={`sec-row ${isActive ? 'active' : ''}`}
+                          onClick={() => selectShellPart(partId)}
+                        >
+                          <div className="sec-icon" style={{ color: partId === 'header' ? '#60a5fa' : '#a78bfa', background: partId === 'header' ? '#60a5fa18' : '#a78bfa18' }}>
+                            {partId === 'header' ? 'HD' : 'FT'}
+                          </div>
+                          <div className="sec-info">
+                            <div className="sec-name">{partId === 'header' ? 'iam-header.html' : 'iam-footer.html'}</div>
+                            <div className="sec-type">{meta?.has_draft ? 'Draft pending' : 'R2 chrome'}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
               {/* Header group */}
               {sections.length > 0 && <div className="sb-group">Template</div>}
 
@@ -2256,6 +2406,7 @@ function CmsEditor() {
                       key={sec.id}
                       className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
                       onClick={() => {
+                        setActiveShellPart(null);
                         setActiveSection(sec);
                         setRpTab('edit');
                         setDirty({});
@@ -2407,7 +2558,20 @@ function CmsEditor() {
           </div>
 
           <div className="rp-body">
-            {rpTab === 'edit' && (
+            {rpTab === 'edit' && activeShellPart ? (
+              <SiteShellPanel
+                partId={activeShellPart}
+                label={(siteShell?.parts || []).find((p) => p.id === activeShellPart)?.label || activeShellPart}
+                publishedKey={(siteShell?.parts || []).find((p) => p.id === activeShellPart)?.published_key}
+                hasDraft={(siteShell?.parts || []).find((p) => p.id === activeShellPart)?.has_draft}
+                code={shellHtml}
+                setCode={(v) => { setShellHtml(v); setShellDirty(true); }}
+                onSave={saveShellPart}
+                onPublish={publishShellPart}
+                saving={saving}
+                dirty={shellDirty}
+              />
+            ) : rpTab === 'edit' && (
               isThemeStudio ? (
                 <ThemeStudioContentPanel
                   section={activeSection}
@@ -2451,7 +2615,20 @@ function CmsEditor() {
                 <ThemePanel bootstrap={bootstrap} project={ctx.project} />
               </>
             )}
-            {isThemeStudio && rpTab === 'advanced' && (
+            {isThemeStudio && rpTab === 'advanced' && activeShellPart ? (
+              <SiteShellPanel
+                partId={activeShellPart}
+                label={(siteShell?.parts || []).find((p) => p.id === activeShellPart)?.label || activeShellPart}
+                publishedKey={(siteShell?.parts || []).find((p) => p.id === activeShellPart)?.published_key}
+                hasDraft={(siteShell?.parts || []).find((p) => p.id === activeShellPart)?.has_draft}
+                code={shellHtml}
+                setCode={(v) => { setShellHtml(v); setShellDirty(true); }}
+                onSave={saveShellPart}
+                onPublish={publishShellPart}
+                saving={saving}
+                dirty={shellDirty}
+              />
+            ) : isThemeStudio && rpTab === 'advanced' && (
               <>
                 <PagePanel
                   page={activePage}
@@ -2487,7 +2664,20 @@ function CmsEditor() {
                 ) : null}
               </>
             )}
-            {!isThemeStudio && rpTab === 'html' && (
+            {!isThemeStudio && rpTab === 'html' && activeShellPart ? (
+              <SiteShellPanel
+                partId={activeShellPart}
+                label={(siteShell?.parts || []).find((p) => p.id === activeShellPart)?.label || activeShellPart}
+                publishedKey={(siteShell?.parts || []).find((p) => p.id === activeShellPart)?.published_key}
+                hasDraft={(siteShell?.parts || []).find((p) => p.id === activeShellPart)?.has_draft}
+                code={shellHtml}
+                setCode={(v) => { setShellHtml(v); setShellDirty(true); }}
+                onSave={saveShellPart}
+                onPublish={publishShellPart}
+                saving={saving}
+                dirty={shellDirty}
+              />
+            ) : !isThemeStudio && rpTab === 'html' && (
               <HtmlPanel
                 code={htmlCode} setCode={setHtmlCode}
                 name={htmlName} setName={setHtmlName}
@@ -2991,6 +3181,52 @@ function BulletsEditor({ bullets, onChange }) {
         </div>
       ))}
       <button className="add-bullet" onClick={() => onChange([...bullets, ''])}>+ Add bullet</button>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SITE SHELL PANEL (iam-header / iam-footer R2 chrome)
+══════════════════════════════════════════════════════════════ */
+function SiteShellPanel({ partId, label, publishedKey, hasDraft, code, setCode, onSave, onPublish, saving, dirty }) {
+  return (
+    <div>
+      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{label || partId}</div>
+      <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, lineHeight: 1.45 }}>
+        Edits the shared R2 chrome injected on every marketing page.
+        {publishedKey ? (
+          <> Key: <code style={{ fontSize: 10 }}>{publishedKey}</code></>
+        ) : null}
+        {hasDraft ? (
+          <span style={{ color: '#0d9488', fontWeight: 600 }}> · draft pending publish</span>
+        ) : null}
+      </div>
+
+      <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 5 }}>HTML</label>
+      <div className="inject-code">
+        <textarea
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="<!-- iam-header.html or iam-footer.html -->"
+          spellCheck={false}
+        />
+        <div className="inject-footer">
+          <span>{code.length.toLocaleString()} chars</span>
+          <span>{code.split('\n').length} lines</span>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+        <button className="btn" style={{ flex: 1, justifyContent: 'center' }} disabled={saving || !dirty} onClick={onSave}>
+          {saving ? 'Saving…' : 'Save draft'}
+        </button>
+        <button className="btn pub" style={{ flex: 1, justifyContent: 'center' }} disabled={saving} onClick={onPublish}>
+          Publish chrome
+        </button>
+      </div>
+      <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 10, lineHeight: 1.45 }}>
+        Draft preview uses <code>?preview=draft</code> on the live route. Publish copies draft → published R2 key.
+      </p>
     </div>
   );
 }
