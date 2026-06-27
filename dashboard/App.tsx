@@ -467,19 +467,7 @@ const App: React.FC = () => {
     () => isAgentWorkspaceBrowserPath(location.pathname, location.search),
     [location.pathname, location.search],
   );
-  const agentHomeUserName = useMemo(() => {
-    const raw = String(workspaceDisplayName || '').trim();
-    if (!raw) return 'there';
-    return raw.split(/\s+/)[0] || raw;
-  }, [workspaceDisplayName]);
-  const agentHomeUserInitials = useMemo(() => {
-    const raw = String(workspaceDisplayName || '').trim();
-    const parts = raw.split(/\s+/).filter(Boolean);
-    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-    if (parts[0]?.length >= 2) return parts[0].slice(0, 2).toUpperCase();
-    if (parts[0]?.length === 1) return parts[0].toUpperCase();
-    return 'SP';
-  }, [workspaceDisplayName]);
+  const [agentHomeComposerHost, setAgentHomeComposerHost] = useState<HTMLDivElement | null>(null);
   const isAgentHomeAtmospheric = useMemo(
     () => isAgentAtmosphericHome(location.pathname, location.search),
     [location.pathname, location.search],
@@ -2111,6 +2099,11 @@ const App: React.FC = () => {
     dispatchAgentChatCompose(pending);
   }, [agentPosition, dispatchAgentChatCompose]);
 
+  useEffect(() => {
+    if (!isAgentHomeAtmospheric || isNarrowViewport) return;
+    if (agentPosition === 'off') setAgentPosition('right');
+  }, [isAgentHomeAtmospheric, isNarrowViewport, agentPosition]);
+
   const openAgentQuickstart = useCallback(() => {
     navigate(AGENT_QUICKSTART_PATH);
   }, [navigate]);
@@ -2128,42 +2121,20 @@ const App: React.FC = () => {
     [navigate],
   );
 
-  const handleAgentHomeChatPrompt = useCallback(
-    (prompt: string, mode?: AgentModeId) => {
+  const handleAgentHomeModeSelect = useCallback(
+    (mode: AgentModeId) => {
       const MODE_PREFIX: Record<Exclude<AgentModeId, 'code'>, string> = {
         write: 'Help me write: ',
         create: 'Help me create: ',
         learn: 'I want to learn about: ',
         life: 'Life stuff — ',
       };
-      if (mode && mode !== 'code') {
-        const prefix = MODE_PREFIX[mode];
-        if (!prompt.trim()) {
-          dispatchAgentChatCompose({ message: prefix, ensureAgentPanel: true });
-          if (agentPosition === 'off') setAgentPosition('right');
-          return;
-        }
-        startAgentNewThreadWithMessage(prompt.trim());
-        return;
-      }
-      if (prompt.trim()) startAgentNewThreadWithMessage(prompt.trim());
+      if (mode === 'code') return;
+      const prefix = MODE_PREFIX[mode];
+      dispatchAgentChatCompose({ message: prefix, ensureAgentPanel: true });
+      if (agentPosition === 'off') setAgentPosition('right');
     },
-    [agentPosition, dispatchAgentChatCompose, startAgentNewThreadWithMessage],
-  );
-
-  const handleAgentRailNavigate = useCallback(
-    (target: string) => {
-      if (target === '?search=1') {
-        setSearchOpen(true);
-        return;
-      }
-      if (target === '?notifications=1') {
-        setToastMsg('Notifications — coming soon');
-        return;
-      }
-      if (target.startsWith('/')) navigate(target);
-    },
-    [navigate],
+    [agentPosition, dispatchAgentChatCompose],
   );
 
   const beginExamplesPrompt = useCallback(
@@ -4069,7 +4040,9 @@ const App: React.FC = () => {
                         dashboardRouteKey={routeAgentMeta.route_key}
                         dashboardRouteLabel={routeAgentMeta.context_label}
                         routeQuickActions={routeAgentMeta.quickActions}
-                    />
+                        atmosphericHomeMode={isAgentHomeAtmospheric && !isNarrowViewport}
+                        composerPortalTarget={agentHomeComposerHost}
+                        />
                     </div>
                 </div>
                 {/* Grab Bar — wide hit target; stroke is 1px inside */}
@@ -4504,11 +4477,9 @@ const App: React.FC = () => {
                   {isAgentHomeAtmospheric && activeTab === 'Workspace' && (
                       <div className="absolute inset-0 z-10">
                           <AgentHome
-                            userName={agentHomeUserName}
-                            userInitials={agentHomeUserInitials}
-                            workspaceId={authWorkspaceId ?? undefined}
-                            onChatPrompt={handleAgentHomeChatPrompt}
-                            onRailNavigate={handleAgentRailNavigate}
+                            displayName={workspaceDisplayName}
+                            onComposerHost={setAgentHomeComposerHost}
+                            onModeSelect={handleAgentHomeModeSelect}
                           />
                       </div>
                   )}
@@ -4862,7 +4833,9 @@ const App: React.FC = () => {
                         dashboardRouteKey={routeAgentMeta.route_key}
                         dashboardRouteLabel={routeAgentMeta.context_label}
                         routeQuickActions={routeAgentMeta.quickActions}
-                         />
+                        atmosphericHomeMode={isAgentHomeAtmospheric && !isNarrowViewport}
+                        composerPortalTarget={agentHomeComposerHost}
+                        />
                     </div>
                 </div>
               </>

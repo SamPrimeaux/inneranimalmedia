@@ -139,9 +139,102 @@
   background: var(--agent-bg-deep);
 }
 
-/* Vignette pulled back — was darkening an already-dark scene further.
-   Now it frames the edges only; the center stays at full brightness so
-   the new gradient/water values actually read. */
+/* ── Time-of-day presets (auto-time → local hour) ── */
+
+.agent-scene__preset--dawn {
+  background: linear-gradient(
+    180deg,
+    #0a1420 0%,
+    #1a2840 38%,
+    #3d4a5c 62%,
+    #6a7d8f 100%
+  );
+}
+
+.agent-scene__preset--dawn .agent-scene__sun {
+  top: 22%;
+  right: 18%;
+  opacity: 0.75;
+  background: radial-gradient(circle at 35% 32%, #fff4e8 0%, #ffb88a 55%, transparent 100%);
+}
+
+.agent-scene__preset--day {
+  background: linear-gradient(
+    180deg,
+    #0c1a2e 0%,
+    #14304a 42%,
+    #1a4a62 72%,
+    #0d2733 100%
+  );
+}
+
+.agent-scene__preset--day .agent-scene__sun {
+  top: 10%;
+  right: 12%;
+  opacity: 0.95;
+  background: radial-gradient(circle at 35% 32%, #fffef5 0%, #d4eef5 55%, transparent 100%);
+}
+
+.agent-scene__preset--dusk {
+  background: linear-gradient(
+    180deg,
+    #120a18 0%,
+    #2a1830 40%,
+    #4a2840 68%,
+    #0a1826 100%
+  );
+}
+
+.agent-scene__preset--dusk .agent-scene__sun {
+  top: 28%;
+  right: 10%;
+  opacity: 0.65;
+  background: radial-gradient(circle at 35% 32%, #ffe8d0 0%, #e8a070 50%, transparent 100%);
+}
+
+.agent-scene__sun {
+  position: absolute;
+  width: 9vw;
+  height: 9vw;
+  max-width: 130px;
+  max-height: 130px;
+  min-width: 64px;
+  min-height: 64px;
+  border-radius: 50%;
+}
+
+.agent-scene__sun-halo {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 70%;
+  height: 75%;
+  filter: blur(8px);
+  background: radial-gradient(
+    circle at 78% 12%,
+    var(--agent-accent-faint) 0%,
+    transparent 60%
+  );
+}
+
+.agent-scene__preset--day .agent-scene__sun-halo {
+  background: radial-gradient(
+    circle at 72% 14%,
+    rgba(255, 240, 200, 0.22) 0%,
+    transparent 58%
+  );
+}
+
+.agent-scene__preset--dawn .agent-scene__sun-halo,
+.agent-scene__preset--dusk .agent-scene__sun-halo {
+  background: radial-gradient(
+    circle at 75% 18%,
+    rgba(255, 180, 120, 0.2) 0%,
+    transparent 60%
+  );
+}
+
+/* Vignette pulled back — frames edges only so gradient/water values read. */
 .agent-scene__vignette {
   position: absolute;
   inset: 0;

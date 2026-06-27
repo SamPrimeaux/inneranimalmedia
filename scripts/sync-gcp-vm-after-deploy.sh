@@ -61,6 +61,8 @@ fi
 "${REPO_ROOT}/scripts/fix-gcp-vm-watchdog-cron.sh" 2>/dev/null || true
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
+"${REPO_ROOT}/scripts/ensure-gcloud-iap-numpy.sh" 2>/dev/null || true
+
 SYNC_ARGS=()
 (( DRY_RUN )) && SYNC_ARGS=(--dry-run)
 

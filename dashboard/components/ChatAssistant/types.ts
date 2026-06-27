@@ -297,6 +297,9 @@ export interface ChatAssistantProps {
     route_key?: string;
     task_type?: string;
   }>;
+  /** Desktop /dashboard/agent home: portal frosted composer into center host. */
+  atmosphericHomeMode?: boolean;
+  composerPortalTarget?: HTMLElement | null;
 }
 
 export type StagedAttachment = {

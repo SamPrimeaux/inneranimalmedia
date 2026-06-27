@@ -8,12 +8,21 @@ import { authUserFromRequest, resolveRequestContext } from '../core/auth.js';
 
 const DEFAULT_SCENE = {
   version: 1,
-  layers: [{ type: 'preset', id: 'moonlit-sea' }],
+  layers: [{ type: 'preset', id: 'auto-time' }],
   atmosphere: { vignette: 0.35, grain: 0.04, glowAccent: 'var(--accent-cyan)' },
   ui: { greetingStyle: 'serif', glassOpacity: 0.18 },
 };
 
-const PRESET_IDS = new Set(['moonlit-sea', 'aurora', 'minimal-dark']);
+const PRESET_IDS = new Set([
+  'auto-time',
+  'moonlit-sea',
+  'dawn',
+  'day',
+  'dusk',
+  'night',
+  'aurora',
+  'minimal-dark',
+]);
 const GREETING_STYLES = new Set(['serif', 'sans']);
 
 function clamp01(n, fallback) {

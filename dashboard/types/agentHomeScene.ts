@@ -9,7 +9,15 @@ export type SceneLayer =
   | { type: 'preset'; id: ScenePresetId }
   | { type: 'webgl'; presetId: string; params: Record<string, number> };
 
-export type ScenePresetId = 'moonlit-sea' | 'aurora' | 'minimal-dark';
+export type ScenePresetId =
+  | 'auto-time'
+  | 'moonlit-sea'
+  | 'dawn'
+  | 'day'
+  | 'dusk'
+  | 'night'
+  | 'aurora'
+  | 'minimal-dark';
 
 export interface AgentHomeSceneConfig {
   version: 1;
@@ -29,7 +37,7 @@ export interface AgentHomeSceneConfig {
 // when the user has no row yet.
 export const DEFAULT_AGENT_HOME_SCENE: AgentHomeSceneConfig = {
   version: 1,
-  layers: [{ type: 'preset', id: 'moonlit-sea' }],
+  layers: [{ type: 'preset', id: 'auto-time' }],
   atmosphere: { vignette: 0.35, grain: 0.04, glowAccent: 'var(--accent-cyan)' },
   ui: { greetingStyle: 'serif', glassOpacity: 0.18 },
 };

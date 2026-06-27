@@ -230,6 +230,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   dashboardRouteKey = null,
   dashboardRouteLabel = null,
   routeQuickActions = [],
+  atmosphericHomeMode = false,
+  composerPortalTarget = null,
 }) => {
   const { sessionUserId, workspaceId: ctxWorkspaceId, workspaces, persistGithubRepo } = useWorkspace();
   const effectiveWsId = (workspaceId || ctxWorkspaceId || '').trim() || null;
@@ -2730,6 +2732,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const composerVisible =
     !isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat');
   const composerFlexOrder = mobileAgentHomeMode ? 'order-3' : 'order-5';
+  const composerPortaled = Boolean(atmosphericHomeMode && composerPortalTarget && !isNarrow);
+  const composerPlaceholder = composerPortaled
+    ? 'Tell Agent Sam what to do'
+    : mobileAgentHomeMode
+      ? 'What should we work on?'
+      : 'Message Agent Sam...';
 
   const modelPickerGroups = useMemo(() => {
     const order: string[] = [];
@@ -2837,6 +2845,19 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     ),
     [modelPickerGroups, defaultModelKey, selectedModelKey],
   );
+
+  const composerShellRef = useRef<HTMLDivElement>(null);
+  const composerSidebarAnchorRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const shell = composerShellRef.current;
+    if (!shell || !composerVisible) return;
+    const target =
+      composerPortaled && composerPortalTarget
+        ? composerPortalTarget
+        : composerSidebarAnchorRef.current;
+    if (target) target.appendChild(shell);
+  }, [composerVisible, composerPortaled, composerPortalTarget]);
 
   return (
     <>
@@ -3099,7 +3120,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         <AgentMessageList
             scrollRef={scrollRef}
             showEmptyThreadPlaceholder={showEmptyThreadPlaceholder}
-            suppressEmptyPlaceholder={mobileAgentHomeMode}
+            suppressEmptyPlaceholder={mobileAgentHomeMode || composerPortaled}
             displayMessages={displayMessages}
             isLoading={isLoading}
             mode={mode}
@@ -3259,7 +3280,17 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         ) : null}
 
         {composerVisible && (
+          <div
+            ref={composerSidebarAnchorRef}
+            className={composerFlexOrder}
+            style={{ display: composerPortaled ? 'none' : undefined }}
+            aria-hidden={composerPortaled}
+          />
+        )}
+
+        {composerVisible && (
         <div
+          ref={composerShellRef}
           className={`${composerFlexOrder} iam-chat-composer-shell flex-shrink-0 w-full min-w-0 max-w-full px-3 pt-2 space-y-2`}
           style={{
             paddingBottom: isNarrow && !mobileAgentHomeMode
@@ -3357,6 +3388,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
           <div
             className={`iam-chat-composer-glass flex flex-col rounded-xl transition-all overflow-visible ${
+              composerPortaled ? 'iam-chat-composer-glass--atmospheric' : ''
+            } ${
               composerDragging
                 ? 'border-[var(--solar-cyan)]/70 ring-1 ring-[var(--solar-cyan)]/35'
                 : 'focus-within:border-[var(--solar-cyan)]/80 focus-within:ring-2 focus-within:ring-[var(--solar-cyan)]/20'
@@ -3418,7 +3451,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 onKeyDown={onKeyDown}
                 onSelect={(ev) => syncPickers(ev.currentTarget.value, ev.currentTarget.selectionStart)}
                 onClick={(ev) => syncPickers(ev.currentTarget.value, ev.currentTarget.selectionStart)}
-                placeholder={mobileAgentHomeMode ? 'What should we work on?' : 'Message Agent Sam...'}
+                placeholder={composerPlaceholder}
                 rows={1}
                 className={`w-full min-w-0 bg-transparent px-3 pt-2.5 pb-1 focus:outline-none text-[var(--dashboard-text)] placeholder:text-[var(--text-placeholder-strong)] resize-none font-sans leading-relaxed ${
                   isNarrow ? 'text-base' : 'text-[0.8125rem]'

@@ -95,12 +95,43 @@ function SceneLayerView({
 
 /** Pure-CSS built-in scenes. No canvas, no WebGL — this is what 95% of users see. */
 function PresetLayer({ id, animated }: { id: string; animated: boolean }) {
-  if (id === 'moonlit-sea') {
+  if (id === 'moonlit-sea' || id === 'night') {
     return (
       <div className="agent-scene__preset agent-scene__preset--moonlit-sea">
         <div className="agent-scene__haze" />
         <div className="agent-scene__moon" />
         <div className="agent-scene__moon-halo" />
+        <div
+          className={
+            animated
+              ? 'agent-scene__water agent-scene__water--animated'
+              : 'agent-scene__water'
+          }
+        />
+      </div>
+    );
+  }
+  if (id === 'dawn') {
+    return (
+      <div className="agent-scene__preset agent-scene__preset--dawn">
+        <div className="agent-scene__sun-halo" />
+        <div className="agent-scene__sun" />
+      </div>
+    );
+  }
+  if (id === 'day') {
+    return (
+      <div className="agent-scene__preset agent-scene__preset--day">
+        <div className="agent-scene__sun-halo" />
+        <div className="agent-scene__sun" />
+      </div>
+    );
+  }
+  if (id === 'dusk') {
+    return (
+      <div className="agent-scene__preset agent-scene__preset--dusk">
+        <div className="agent-scene__sun-halo" />
+        <div className="agent-scene__sun" />
         <div
           className={
             animated

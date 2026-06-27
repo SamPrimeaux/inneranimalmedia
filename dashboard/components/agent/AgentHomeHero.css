@@ -32,117 +32,6 @@
   text-shadow: 0 0 24px rgba(0, 0, 0, 0.4);
 }
 
-.agent-hero__bar {
-  width: 100%;
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-  padding: 14px 16px 14px 18px;
-  border-radius: var(--agent-radius-bar);
-  background: rgba(180, 210, 220, var(--bar-glass-opacity, 0.18));
-  border: 1px solid var(--glass-border);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.2) inset,
-    0 18px 40px rgba(0, 0, 0, 0.35);
-}
-
-.agent-hero__bar:focus-within {
-  border-color: var(--agent-accent-soft);
-}
-
-.agent-hero__input {
-  flex: 1;
-  background: none;
-  border: none;
-  outline: none;
-  resize: none;
-  font-family: var(--font-sans);
-  font-size: 15px;
-  line-height: 1.4;
-  color: var(--agent-text-primary);
-  padding: 6px 4px;
-  max-height: 120px;
-}
-
-.agent-hero__input::placeholder {
-  color: var(--agent-text-secondary);
-}
-
-.agent-hero__icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: none;
-  background: transparent;
-  color: var(--agent-text-secondary);
-  cursor: pointer;
-  transition: color 0.15s ease, background 0.15s ease;
-}
-
-.agent-hero__icon-btn:hover {
-  color: var(--agent-text-primary);
-  background: var(--glass-bg);
-}
-
-.agent-hero__bar-controls {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.agent-hero__mode-toggle {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: none;
-  border: none;
-  color: var(--agent-text-secondary);
-  font-family: var(--font-sans);
-  font-size: 13px;
-  padding: 6px 8px;
-  border-radius: var(--agent-radius-pill);
-  cursor: pointer;
-}
-
-.agent-hero__mode-toggle:hover {
-  color: var(--agent-text-primary);
-}
-
-.agent-hero__divider {
-  width: 1px;
-  height: 18px;
-  background: var(--glass-border);
-  margin: 0 2px;
-}
-
-.agent-hero__send {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg-strong);
-  color: var(--agent-text-primary);
-  cursor: pointer;
-  transition: box-shadow 0.15s ease, opacity 0.15s ease;
-}
-
-.agent-hero__send:not(:disabled):hover {
-  box-shadow: 0 0 0 4px var(--agent-accent-faint);
-}
-
-.agent-hero__send:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
 .agent-hero__pills {
   display: flex;
   flex-wrap: wrap;
@@ -176,10 +65,7 @@
   transform: scale(0.97);
 }
 
-.agent-pill:focus-visible,
-.agent-hero__icon-btn:focus-visible,
-.agent-hero__send:focus-visible,
-.agent-hero__mode-toggle:focus-visible {
+.agent-pill:focus-visible {
   outline: 2px solid var(--agent-accent);
   outline-offset: 2px;
 }
@@ -187,8 +73,5 @@
 @media (max-width: 480px) {
   .agent-hero__greeting {
     font-size: 30px;
-  }
-  .agent-hero__bar {
-    border-radius: 22px;
   }
 }

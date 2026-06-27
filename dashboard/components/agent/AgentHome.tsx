@@ -1,40 +1,35 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AgentHomeScene } from './AgentHomeScene';
 import { AgentHomeHero } from './AgentHomeHero';
-import { AgentRail } from './AgentRail';
 import type { AgentHomeSceneConfig, AgentModeId } from '../../types/agentHomeScene';
 import { DEFAULT_AGENT_HOME_SCENE, AGENT_MODE_PILLS } from '../../types/agentHomeScene';
+import { applyDayPartToScene, greetingNameFromDisplay } from '../../lib/agentDayPart';
+import { useAgentDayPart } from '../../src/hooks/useAgentDayPart';
 import { warmAgentChunksForTab } from '../../src/pwa/warmAgentChunks';
 import '../../styles/agent-home-tokens.css';
 import './AgentHome.css';
 
 interface AgentHomeProps {
-  userName: string;
-  userInitials: string;
-  workspaceId?: string;
-  /** Called for non-route modes (write/create/learn/life) — hands off to chat. */
-  onChatPrompt: (prompt: string, mode?: AgentModeId) => void;
-  onRailNavigate?: (target: string) => void;
+  displayName?: string | null;
+  onComposerHost?: (el: HTMLDivElement | null) => void;
+  onModeSelect: (mode: AgentModeId) => void;
 }
 
 /**
- * Entire bundle for bare `/dashboard/agent`. Must not import Monaco, xterm,
- * file explorer, or BrowserView — those live behind /agent/editor.
+ * Bare `/dashboard/agent` — scene + greeting + mode pills + composer portal host.
+ * Composer UI is portaled from ChatAssistant (iam-chat-composer-glass).
  */
-export function AgentHome({
-  userName,
-  userInitials,
-  workspaceId,
-  onChatPrompt,
-  onRailNavigate,
-}: AgentHomeProps) {
+export function AgentHome({ displayName, onComposerHost, onModeSelect }: AgentHomeProps) {
   const navigate = useNavigate();
+  const dayPart = useAgentDayPart();
   const [scene, setScene] = useState<AgentHomeSceneConfig>(DEFAULT_AGENT_HOME_SCENE);
-  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [sceneSource, setSceneSource] = useState<'default' | 'user' | 'workspace'>('default');
   const [tabHidden, setTabHidden] = useState(
     typeof document !== 'undefined' ? document.hidden : false,
   );
+
+  const name = greetingNameFromDisplay(displayName);
 
   useEffect(() => {
     const handler = () => setTabHidden(document.hidden);
@@ -46,17 +41,28 @@ export function AgentHome({
     let active = true;
     fetch('/api/agent/scene', { credentials: 'same-origin' })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { scene?: AgentHomeSceneConfig } | null) => {
-        if (!active || !data?.scene || data.scene.version !== 1) return;
-        setScene(data.scene);
-      })
+      .then(
+        (data: {
+          scene?: AgentHomeSceneConfig;
+          source?: 'default' | 'user' | 'workspace';
+        } | null) => {
+          if (!active || !data?.scene || data.scene.version !== 1) return;
+          setScene(data.scene);
+          if (data.source) setSceneSource(data.source);
+        },
+      )
       .catch(() => {
-        /* keep DEFAULT_AGENT_HOME_SCENE */
+        /* keep default */
       });
     return () => {
       active = false;
     };
-  }, [workspaceId]);
+  }, []);
+
+  const displayScene = useMemo(
+    () => applyDayPartToScene(scene, dayPart, sceneSource),
+    [scene, dayPart, sceneSource],
+  );
 
   const handlePillSelect = useCallback(
     (mode: AgentModeId) => {
@@ -66,55 +72,30 @@ export function AgentHome({
         navigate(pill.route);
         return;
       }
-      onChatPrompt('', mode);
+      onModeSelect(mode);
     },
-    [navigate, onChatPrompt],
+    [navigate, onModeSelect],
   );
 
-  const handleModeHover = useCallback((mode: AgentModeId) => {
-    if (mode === 'code') {
-      warmAgentChunksForTab('code');
-      void import('../../routes/AgentEditorRoute').catch(() => {});
-    }
+  const handleModeHover = useCallback(() => {
+    warmAgentChunksForTab('code');
+    void import('../../routes/AgentEditorRoute').catch(() => {});
   }, []);
-
-  const handleRailNavigate = useCallback(
-    (target: string) => {
-      if (onRailNavigate) {
-        onRailNavigate(target);
-        return;
-      }
-      if (target.startsWith('/')) {
-        navigate(target);
-      }
-    },
-    [navigate, onRailNavigate],
-  );
 
   return (
     <div className="agent-home">
-      <AgentHomeScene config={scene} paused={tabHidden} />
+      <AgentHomeScene config={displayScene} paused={tabHidden} />
 
-      <div className="agent-home__layout">
-        <AgentRail
-          collapsed={railCollapsed}
-          onToggleCollapsed={() => setRailCollapsed((c) => !c)}
-          onNavigate={handleRailNavigate}
-          userInitials={userInitials}
-          hasUpdate
-        />
-
-        <main className="agent-home__center">
-          <div onPointerEnter={() => handleModeHover('code')}>
-            <AgentHomeHero
-              name={userName}
-              onSubmit={(prompt) => onChatPrompt(prompt)}
-              onModeSelect={handlePillSelect}
-              glassOpacity={scene.ui?.glassOpacity}
-            />
-          </div>
-        </main>
-      </div>
+      <main className="agent-home__center">
+        <div className="agent-home__stack" onPointerEnter={handleModeHover}>
+          <AgentHomeHero name={name} dayPart={dayPart} onModeSelect={handlePillSelect} />
+          <div
+            ref={onComposerHost}
+            className="agent-home__composer-host"
+            aria-label="Agent Sam command input"
+          />
+        </div>
+      </main>
     </div>
   );
 }
