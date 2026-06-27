@@ -24,7 +24,7 @@ updated: 2026-06-21
 | Binding-only smoke (`MCP_EXEC_SMOKE=1` + prod `MCP_BRIDGE_TOKEN`) | ⏳ run with prod bridge secret |
 | ExecOS PM2 restart | ✅ done |
 | Full bridge removal (7d green) | planned |
-| `target=container` routing | planned → Sprint 2C stretch |
+| `target=container` routing | planned → Sprint 2C stretch; see [agents-sdk-2026-06-adoption.md](./agents-sdk-2026-06-adoption.md) Phase 4 (ContainerDevFacet for detached sub-agents) |
 
 ## Problem
 

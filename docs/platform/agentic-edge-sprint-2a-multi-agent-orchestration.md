@@ -13,11 +13,14 @@ updated: 2026-06-21
 **Duration:** 3–4 days  
 **Parent:** [agentic-edge-sprint-plan.md](./agentic-edge-sprint-plan.md)  
 **Google analog:** Agentic intent → specialized agent fleet with preserved parent↔child linkage  
-**Week 2 priority:** **#1 — ship first** (live D1 data; no ingest cron dependency)
+**Week 2 priority:** **#1 — ship first** (live D1 data; no ingest cron dependency)  
+**SDK alignment:** [agents-sdk-2026-06-adoption.md](./agents-sdk-2026-06-adoption.md) — implement durable spawn via `runAgentTool({ detached })` (Jun 26, 2026 Agents SDK), not blocking HTTP fanout.
 
 ## Problem
 
-Subagent spawn exists (`subagent-spawn-d1.js`, `agentsam_spawn_job`, MCP `agentsam_spawn_profile`) but parent↔child runs are not consistently linked in D1, dashboard multitask UI cannot reliably reconstruct fanout trees, and MCP spawn handoffs do not inherit exec context from Sprint 1A.
+Subagent spawn exists (`subagent-spawn-d1.js`, `agentsam_spawn_job`, MCP `agentsam_spawn_profile`) but parent↔child runs are not consistently linked in D1, dashboard multitask UI cannot reliably reconstruct fanout trees, MCP spawn handoffs do not inherit exec context from Sprint 1A, and **child loops block the parent HTTP/SSE request** — work dies on phone disconnect or Mac sleep.
+
+**Target (Agents SDK Jun 2026):** Replace blocking `rws-spawn-fanout.js` loops with `runAgentTool(ChildAgent, { detached: { onFinish, notify, maxBudgetMs } })` so deploy/git/build runs on GCP terminal or CF Container survive client disconnect and DO eviction.
 
 ## Goal
 
