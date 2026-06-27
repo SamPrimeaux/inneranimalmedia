@@ -162,7 +162,51 @@ export async function handleTerminalRequest(path, method, body, env, request, ct
     return { ok: true };
   }
 
-  // 3. POST /api/terminal/assist
+  // 3. POST /api/agent/terminal/live-event — MCP terminal tool pushes live output for dashboard display
+  if (pathLower === '/api/agent/terminal/live-event' && method === 'POST') {
+    const internalSecret = (env?.INTERNAL_API_SECRET || '').trim();
+    const provided = (request?.headers?.get?.('X-Internal-Secret') || '').trim();
+    if (!internalSecret || internalSecret !== provided) {
+      return { error: 'Unauthorized', status: 401 };
+    }
+    const { workspace_id, event } = body || {};
+    if (!workspace_id || !event) return { ok: true }; // non-fatal
+    try {
+      // Fan-out to all terminal DO instances for this workspace.
+      // DO name: terminal:{userId}:{workspaceId}:{mode} — we broadcast to the
+      // global workspace sentinel which the frontend subscribes to.
+      if (env.AGENT_SESSION?.idFromName) {
+        const sentinelName = 'terminal_live:' + workspace_id;
+        const stub = env.AGENT_SESSION.get(env.AGENT_SESSION.idFromName(sentinelName));
+        await stub.fetch('https://internal/designstudio/stream-event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ envelope: { type: 'terminal_output', workspace_id, ...event, ts: event.ts || Date.now() } }),
+        }).catch(() => null);
+      }
+    } catch (_) {}
+    return { ok: true };
+  }
+
+  // 4. GET /api/agent/terminal/events — SSE stream of terminal_output events for the dashboard live view
+  if (pathLower === '/api/agent/terminal/events' && method === 'GET') {
+    if (!authUser) return { error: 'Unauthorized', status: 401 };
+    if (!env.AGENT_SESSION) return { error: 'AGENT_SESSION not configured', status: 503 };
+    const wsId = (url.searchParams.get('workspace_id') || '').trim();
+    if (!wsId) return { error: 'workspace_id required', status: 400 };
+    // Use the sentinel DO for this workspace — no DB lookup needed
+    const sentinelName = 'terminal_live:' + wsId;
+    const stub = env.AGENT_SESSION.get(env.AGENT_SESSION.idFromName(sentinelName));
+    const doUrl = new URL(request.url);
+    doUrl.pathname = '/designstudio/events';
+    doUrl.search = '';
+    doUrl.searchParams.set('run_id', sentinelName);
+    const lastId = url.searchParams.get('last_id');
+    if (lastId) doUrl.searchParams.set('last_id', lastId);
+    return stub.fetch(new Request(doUrl.toString(), { headers: request.headers }));
+  }
+
+  // 5. POST /api/terminal/assist
   if (pathLower === '/api/terminal/assist' && method === 'POST') {
     const { mode, command, context, output, exit_code } = body || {};
     // ... migration logic for assists handlers ...

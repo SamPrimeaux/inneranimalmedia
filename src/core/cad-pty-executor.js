@@ -111,9 +111,11 @@ export async function dispatchCadJobToPty(env, ctx, jobId, auth) {
 
   const cmd = [
     'set -euo pipefail',
+    // Unset FreeCAD Python env vars that poison Blender bundled Python.
+    'unset PYTHONHOME PYTHONPATH LD_LIBRARY_PATH PREFIX SSL_CERT_FILE GIT_SSL_CAINFO || true',
     './scripts/with-cloudflare-env.sh node scripts/designstudio/cad-job-runner.mjs --once',
     `--job-id=${JSON.stringify(id)}`,
-  ].join(' ');
+  ].join(' && ');
 
   const res = await runExecOsCommand(env, {
     command: cmd,

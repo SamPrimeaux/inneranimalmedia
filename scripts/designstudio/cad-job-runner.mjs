@@ -184,16 +184,25 @@ function runBlenderPipeline(tmpDir, scriptPath, glbPath) {
   let script = readFileSync(scriptPath, 'utf8');
   script = `OUTPUT_GLB = ${JSON.stringify(glbPath)}\n` + script;
   writeFileSync(scriptPath, script, 'utf8');
+  // Strip FreeCAD Python env vars that hijack Blender's bundled Python.
+  const blenderEnv = { ...process.env };
+  delete blenderEnv.PYTHONHOME;
+  delete blenderEnv.PYTHONPATH;
+  delete blenderEnv.LD_LIBRARY_PATH;
+  delete blenderEnv.PREFIX;
+  delete blenderEnv.SSL_CERT_FILE;
+  delete blenderEnv.GIT_SSL_CAINFO;
   const r = spawnSync(blender, ['--background', '--python', scriptPath], {
     encoding: 'utf8',
-    env: process.env,
+    env: blenderEnv,
     timeout: 600_000,
   });
   if (r.status !== 0) {
     throw new Error(r.stderr || r.stdout || 'blender_failed');
   }
   if (!existsSync(glbPath)) {
-    throw new Error('glb_missing_after_blender');
+    const detail = (r.stderr || r.stdout || '').slice(0, 1200).trim();
+    throw new Error(detail ? `glb_missing_after_blender: ${detail}` : 'glb_missing_after_blender');
   }
 }
 
@@ -274,7 +283,7 @@ async function processJob(job) {
       const pyPath = join(tmpDir, 'script.py');
       writeFileSync(pyPath, script, 'utf8');
       await patchProgress(job.id, 28);
-      runBlenderPipeline(tmpDir, pyPath, glbPath);
+      log('blender pipeline starting, blender bin:', process.env.BLENDER_BIN, 'tmpDir:', tmpDir, 'glbPath:', glbPath); runBlenderPipeline(tmpDir, pyPath, glbPath); log('blender pipeline done, glb exists:', existsSync(glbPath));
       await patchProgress(job.id, 58);
     } else if (engine === 'freecad') {
       const pyPath = join(tmpDir, 'script.py');
