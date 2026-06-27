@@ -6,6 +6,7 @@
 #   ./scripts/bootstrap-gcp-vm-repo.sh
 #   ./scripts/bootstrap-gcp-vm-repo.sh --dry-run
 #   ./scripts/bootstrap-gcp-vm-repo.sh --sync-env
+#   IAM_USER_ID=au_871d920d1233cbd1 ./scripts/bootstrap-gcp-vm-repo.sh --migrate-execos
 #
 set -euo pipefail
 
@@ -15,13 +16,17 @@ cd "$REPO_ROOT"
 SCRIPT_LIB="${REPO_ROOT}/scripts/lib/gcp-vm-paths.sh"
 # shellcheck source=scripts/lib/gcp-vm-paths.sh
 source "$SCRIPT_LIB"
+# shellcheck source=scripts/lib/sam-operator-lane.sh
+source "${REPO_ROOT}/scripts/lib/sam-operator-lane.sh"
 
 DRY_RUN=0
 SYNC_ENV=0
+MIGRATE_EXECOS=0
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
     --sync-env) SYNC_ENV=1 ;;
+    --migrate-execos) MIGRATE_EXECOS=1 ;;
   esac
 done
 
@@ -93,6 +98,12 @@ if (( SYNC_ENV )) || [[ -x "${REPO_ROOT}/scripts/sync-vm-env-cloudflare.sh" ]]; 
   echo ""
   echo "→ Sync .env.cloudflare to VM"
   IAM_VM_ENV_REPO_PATHS="$VM_REPO" "${REPO_ROOT}/scripts/sync-vm-env-cloudflare.sh"
+fi
+
+if (( MIGRATE_EXECOS )); then
+  require_sam_operator_lane_user_id
+  echo ""
+  "${REPO_ROOT}/scripts/bootstrap-gcp-vm-exec-identity.sh"
 fi
 
 echo ""
