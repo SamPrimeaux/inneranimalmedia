@@ -3,11 +3,14 @@ import { IntegrationCard, type CatalogRow, type ConnectionRow } from '../compone
 import { IntegrationIconTile } from '../components/IntegrationIconTile';
 import { catalogSlugForRegistry, isSlugConnected, registrySlugForCatalog } from '../../../lib/integrationSlugAliases';
 
+import '../../ui/AppIcon.css';
+
 type ConnectedItem = {
   catalog: CatalogRow | null;
   connection: ConnectionRow | null;
   legacy: { is_connected?: number; last_used?: string } | null;
   iam_hosted: boolean;
+  integration_status?: { connected?: boolean; error?: string };
 };
 
 export type IntegrationsSectionProps = {
@@ -16,6 +19,23 @@ export type IntegrationsSectionProps = {
 };
 
 type TabId = 'connected' | 'available' | 'custom';
+
+function integrationTileStatus(item: ConnectedItem): 'warning' | 'error' | null {
+  const st = String(item.connection?.status || '').toLowerCase();
+  if (st === 'auth_expired') return 'error';
+  if (st === 'degraded') return 'warning';
+  if (item.integration_status?.error === 'token_expired') return 'error';
+  if (item.integration_status?.error === 'tunnel_unreachable') return 'warning';
+  return null;
+}
+
+function integrationSubtitle(item: ConnectedItem): string {
+  const st = String(item.connection?.status || '').toLowerCase();
+  if (st === 'connected') return 'Connected';
+  if (st === 'auth_expired') return 'Reconnect';
+  if (st === 'degraded') return 'Issue';
+  return st || 'Setup';
+}
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { credentials: 'same-origin', ...init });
@@ -239,7 +259,7 @@ export function IntegrationsSection({
             </div>
           ) : null}
           {connected.length ? (
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
+            <div className="iam-app-icon-grid max-w-4xl">
               {connected.map((item, idx) => {
                 const slug = String(
                   item.connection?.provider_key || item.catalog?.slug || idx,
@@ -252,8 +272,8 @@ export function IntegrationsSection({
                     key={slug}
                     title={title}
                     iconSlug={item.catalog?.icon_slug || catalogSlug}
-                    connected={item.connection?.status === 'connected'}
-                    subtitle={item.connection?.status === 'connected' ? 'Connected' : String(item.connection?.status || '')}
+                    status={integrationTileStatus(item)}
+                    subtitle={integrationSubtitle(item)}
                     onClick={() => setSelectedSlug(isSelected ? null : slug)}
                   />
                 );
@@ -328,7 +348,7 @@ export function IntegrationsSection({
             </div>
           ) : (
             <div className="flex flex-col gap-4">
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
+              <div className="iam-app-icon-grid max-w-4xl">
                 {filteredCatalog.map((row) => {
                   const slug = String(row.slug || '').toLowerCase();
                   const isConn = isSlugConnected(slug, connectedSlugs);
@@ -340,7 +360,6 @@ export function IntegrationsSection({
                       key={slug || String(row.id)}
                       title={String(row.name || slug)}
                       iconSlug={row.icon_slug || slug}
-                      connected={isConn}
                       subtitle={isConn ? 'Connected' : isIam ? 'Hosted' : 'Connect'}
                       onClick={() => {
                         if (isIam) {

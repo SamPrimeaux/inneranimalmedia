@@ -12,7 +12,6 @@ import {
   Plus,
   ArrowRight,
   Pencil,
-  X,
   type LucideIcon,
 } from 'lucide-react';
 import { IAM_AGENT_CHAT_COMPOSE } from '../agentChatConstants';
@@ -22,7 +21,15 @@ import {
   saveDashboardHomeTiles,
   type DashboardHomeTile,
 } from '../api/home';
+import { AppIcon } from './ui/AppIcon';
+import {
+  HomeTileEditor,
+  loadHomeLayoutDraft,
+  saveHomeLayoutDraft,
+} from './home/HomeTileEditor';
 import { useWorkspace } from '../src/context/WorkspaceContext';
+import './ui/AppIcon.css';
+import './home/HomeTileEditor.css';
 import './DashboardHome.css';
 
 type HomeIconId =
@@ -61,8 +68,6 @@ const CONNECT_CARDS: ConnectCard[] = [
   { id: 'cloudflare', title: 'Cloudflare', connectSlug: 'cloudflare', iconSlug: 'cloudflare' },
   { id: 'supabase', title: 'Supabase', connectSlug: 'supabase', iconSlug: 'supabase' },
 ];
-
-const INTEGRATION_ASSET_BASE = `${import.meta.env.BASE_URL || '/'}`.replace(/\/*$/, '/');
 
 const HOME_ICONS: Record<HomeIconId, LucideIcon> = {
   agent: Bot,
@@ -187,22 +192,41 @@ export function DashboardHome() {
   const navigate = useNavigate();
   const { workspaceId } = useWorkspace();
   const [quickTiles, setQuickTiles] = useState<DashboardHomeTile[]>(FALLBACK_QUICK_TILES);
+  const [quickTilesBaseline, setQuickTilesBaseline] = useState<DashboardHomeTile[]>(FALLBACK_QUICK_TILES);
   const [recentProjects, setRecentProjects] = useState<OverviewProject[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
-  const [customizeOpen, setCustomizeOpen] = useState(false);
-  const [editTiles, setEditTiles] = useState<DashboardHomeTile[]>([]);
+  const [editMode, setEditMode] = useState(false);
+  const [editingTileKey, setEditingTileKey] = useState<string | null>(null);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [connectedSlugs, setConnectedSlugs] = useState<Set<string>>(new Set());
+  const [integrationIssues, setIntegrationIssues] = useState<Map<string, 'warning' | 'error'>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         const res = await fetch('/api/settings/integrations/connected', { credentials: 'same-origin' });
-        const data = (await res.json().catch(() => ({}))) as { connected_slugs?: string[] };
+        const data = (await res.json().catch(() => ({}))) as {
+          connected_slugs?: string[];
+          items?: Array<{
+            connection?: { provider_key?: string; status?: string };
+            integration_status?: { error?: string };
+          }>;
+        };
         if (cancelled || !res.ok) return;
         setConnectedSlugs(new Set((data.connected_slugs || []).map((s) => s.toLowerCase())));
+        const issues = new Map<string, 'warning' | 'error'>();
+        for (const item of data.items || []) {
+          const pk = String(item.connection?.provider_key || '').toLowerCase();
+          const st = String(item.connection?.status || '').toLowerCase();
+          if (st === 'auth_expired' || item.integration_status?.error === 'token_expired') {
+            issues.set(pk, 'error');
+          } else if (st === 'degraded' || item.integration_status?.error === 'tunnel_unreachable') {
+            issues.set(pk, 'warning');
+          }
+        }
+        setIntegrationIssues(issues);
       } catch {
         /* non-fatal on home */
       }
@@ -217,7 +241,13 @@ export function DashboardHome() {
     void (async () => {
       const res = await fetchDashboardHomeTiles(workspaceId);
       if (cancelled) return;
-      if (res.ok && res.tiles?.length) setQuickTiles(res.tiles);
+      if (res.ok && res.tiles?.length) {
+        setQuickTiles(res.tiles);
+        setQuickTilesBaseline(res.tiles);
+      } else if (workspaceId) {
+        const draft = loadHomeLayoutDraft(workspaceId);
+        if (draft?.length) setQuickTiles(draft);
+      }
     })();
     return () => {
       cancelled = true;
@@ -245,25 +275,54 @@ export function DashboardHome() {
     };
   }, [workspaceId]);
 
-  const openCustomize = useCallback(() => {
-    setEditTiles(quickTiles.map((t) => ({ ...t })));
+  const enterEditMode = useCallback(() => {
+    setQuickTilesBaseline(quickTiles.map((t) => ({ ...t })));
     setSaveError(null);
-    setCustomizeOpen(true);
+    setEditMode(true);
   }, [quickTiles]);
 
-  const saveCustomize = useCallback(async () => {
-    if (!workspaceId?.trim()) return;
-    setSaveBusy(true);
-    setSaveError(null);
-    const res = await saveDashboardHomeTiles(workspaceId, editTiles);
-    setSaveBusy(false);
-    if (!res.ok) {
-      setSaveError(res.error || 'Save failed');
+  const exitEditMode = useCallback(() => {
+    setEditMode(false);
+    setEditingTileKey(null);
+  }, []);
+
+  const saveLayout = useCallback(async () => {
+    if (!workspaceId?.trim()) {
+      saveHomeLayoutDraft('local', quickTiles);
+      exitEditMode();
       return;
     }
-    if (res.tiles?.length) setQuickTiles(res.tiles);
-    setCustomizeOpen(false);
-  }, [workspaceId, editTiles]);
+    setSaveBusy(true);
+    setSaveError(null);
+    saveHomeLayoutDraft(workspaceId, quickTiles);
+    const res = await saveDashboardHomeTiles(workspaceId, quickTiles);
+    setSaveBusy(false);
+    if (!res.ok) {
+      setSaveError(res.error || 'Save failed — kept local draft');
+      return;
+    }
+    if (res.tiles?.length) {
+      setQuickTiles(res.tiles);
+      setQuickTilesBaseline(res.tiles);
+    }
+    exitEditMode();
+  }, [workspaceId, quickTiles, exitEditMode]);
+
+  const resetLayout = useCallback(() => {
+    setQuickTiles(quickTilesBaseline.map((t) => ({ ...t })));
+    setEditingTileKey(null);
+  }, [quickTilesBaseline]);
+
+  const updateTile = useCallback((tileKey: string, patch: Partial<DashboardHomeTile>) => {
+    setQuickTiles((prev) =>
+      prev.map((t) => (t.tile_key === tileKey ? { ...t, ...patch } : t)),
+    );
+  }, []);
+
+  const editingTile = useMemo(
+    () => quickTiles.find((t) => t.tile_key === editingTileKey) || null,
+    [quickTiles, editingTileKey],
+  );
 
   const quickGrid = useMemo(
     () => quickTiles.filter((t) => t.is_enabled).sort((a, b) => a.sort_order - b.sort_order),
@@ -273,7 +332,12 @@ export function DashboardHome() {
   const openConnectCard = useCallback(
     (card: ConnectCard) => {
       const slug = card.connectSlug.toLowerCase();
-      if (connectedSlugs.has(slug) || connectedSlugs.has(`${slug}_oauth`)) {
+      const registrySlug = slug === 'cloudflare' ? 'cloudflare_oauth' : `${slug}_oauth`;
+      if (
+        connectedSlugs.has(slug) ||
+        connectedSlugs.has(registrySlug) ||
+        (slug === 'github' && connectedSlugs.has('github'))
+      ) {
         navigate('/dashboard/settings/integrations');
         return;
       }
@@ -283,7 +347,7 @@ export function DashboardHome() {
   );
 
   return (
-    <main className="iam-home" aria-label="Dashboard home">
+    <main className={`iam-home ${editMode ? 'iam-home-edit-mode' : ''}`} aria-label="Dashboard home">
       <section className="iam-home-shell">
         <section className="iam-home-hero" aria-labelledby="home-title">
           <p className="iam-home-eyebrow">Ready when you are.</p>
@@ -320,49 +384,57 @@ export function DashboardHome() {
           ))}
         </section>
 
-        <section className="iam-home-section" aria-labelledby="quick-starts-title">
+        <section className="iam-home-section iam-home-section--quick" aria-labelledby="quick-starts-title">
           <div className="iam-section-head">
             <div>
               <h2 id="quick-starts-title">Quick starts</h2>
-              <p>Full-card app tiles — workspace customizable.</p>
+              <p>iOS-style app icons — tap Customize to remaster.</p>
             </div>
             <div className="iam-section-actions">
-              <button type="button" className="iam-section-icon-btn" onClick={openCustomize} title="Customize tiles">
-                <Pencil size={14} strokeWidth={1.75} aria-hidden />
-                <span>Customize</span>
-              </button>
+              {!editMode ? (
+                <button type="button" className="iam-section-icon-btn" onClick={enterEditMode} title="Customize tiles">
+                  <Pencil size={14} strokeWidth={1.75} aria-hidden />
+                  <span>Customize</span>
+                </button>
+              ) : null}
               <button type="button" onClick={() => navigate('/dashboard/agent')}>See all</button>
             </div>
           </div>
-          <div className="iam-quick-image-grid">
-            {quickGrid.map((tile) => {
-              const img = cfImageVariants(tile.image_url);
-              return (
-                <article key={tile.id || tile.tile_key} className="iam-quick-image-card">
-                  <button
-                    type="button"
-                    className="iam-quick-image-hit"
-                    onClick={() => navigate(tile.path)}
-                    aria-label={`${tile.title} — ${tile.cta_label}`}
-                  >
-                    {img.src ? (
-                      <img
-                        className="iam-quick-image-art"
-                        src={img.src}
-                        srcSet={img.srcSet}
-                        alt=""
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    ) : (
-                      <div className="iam-quick-image-fallback" aria-hidden />
-                    )}
-                    <span className="iam-quick-image-cta">{tile.cta_label}</span>
-                  </button>
-                  <p className="iam-quick-image-label">{tile.title}</p>
-                </article>
-              );
-            })}
+          {editMode ? (
+            <div className="iam-home-edit-banner">
+              <span>
+                <strong>Edit mode</strong> — tap an icon to change artwork, title, and destination.
+              </span>
+              <div className="iam-home-edit-actions">
+                <button type="button" onClick={resetLayout}>Reset</button>
+                <button type="button" onClick={exitEditMode}>Cancel</button>
+                <button type="button" className="primary" disabled={saveBusy} onClick={() => void saveLayout()}>
+                  {saveBusy ? 'Saving…' : 'Save layout'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {saveError ? <p className="iam-home-customize-error">{saveError}</p> : null}
+          <div className="iam-app-icon-grid">
+            {quickGrid.map((tile) => (
+              <AppIcon
+                key={tile.id || tile.tile_key}
+                title={tile.title}
+                imageUrl={tile.image_url}
+                size="lg"
+                subtitle={tile.cta_label}
+                editable={editMode}
+                editActive={editMode && editingTileKey === tile.tile_key}
+                onPress={() => {
+                  if (editMode) {
+                    setEditingTileKey(tile.tile_key);
+                    return;
+                  }
+                  navigate(tile.path);
+                }}
+                onEdit={() => setEditingTileKey(tile.tile_key)}
+              />
+            ))}
           </div>
         </section>
 
@@ -374,33 +446,28 @@ export function DashboardHome() {
             </div>
             <button type="button" onClick={() => navigate('/dashboard/settings/integrations')}>See all</button>
           </div>
-          <div className="iam-connect-icon-grid">
+          <div className="iam-app-icon-grid">
             {CONNECT_CARDS.map((item) => {
               const slug = item.connectSlug.toLowerCase();
+              const registrySlug = slug === 'cloudflare' ? 'cloudflare_oauth' : `${slug}_oauth`;
               const connected =
                 connectedSlugs.has(slug) ||
-                connectedSlugs.has(`${slug}_oauth`) ||
-                (slug === 'cloudflare' && connectedSlugs.has('cloudflare_oauth'));
+                connectedSlugs.has(registrySlug) ||
+                (slug === 'github' && connectedSlugs.has('github'));
+              const issue =
+                integrationIssues.get(registrySlug) ||
+                integrationIssues.get(slug) ||
+                null;
               return (
-                <article key={item.id} className="iam-connect-icon-card">
-                  <button
-                    type="button"
-                    className="iam-connect-icon-hit"
-                    onClick={() => openConnectCard(item)}
-                    aria-label={`${item.title}${connected ? ' — connected' : ''}`}
-                  >
-                    {connected ? <span className="iam-connect-icon-dot" aria-hidden /> : null}
-                    <img
-                      className="iam-connect-icon-art"
-                      src={`${INTEGRATION_ASSET_BASE}assets/integrations/${encodeURIComponent(item.iconSlug)}.svg`}
-                      alt=""
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  </button>
-                  <p className="iam-connect-icon-label">{item.title}</p>
-                  <p className="iam-connect-icon-sub">{connected ? 'Connected' : 'Connect'}</p>
-                </article>
+                <AppIcon
+                  key={item.id}
+                  title={item.title}
+                  iconSlug={item.iconSlug}
+                  size="lg"
+                  status={issue}
+                  subtitle={issue ? (issue === 'error' ? 'Reconnect' : 'Issue') : connected ? 'Connected' : 'Connect'}
+                  onPress={() => openConnectCard(item)}
+                />
               );
             })}
           </div>
@@ -449,64 +516,17 @@ export function DashboardHome() {
         </section>
       </section>
 
-      {customizeOpen ? (
-        <div className="iam-home-customize-scrim" role="presentation" onClick={() => setCustomizeOpen(false)}>
-          <div
-            className="iam-home-customize-panel"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="customize-home-title"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <header className="iam-home-customize-head">
-              <h2 id="customize-home-title">Customize quick starts</h2>
-              <button type="button" className="iam-section-icon-btn" onClick={() => setCustomizeOpen(false)} aria-label="Close">
-                <X size={16} />
-              </button>
-            </header>
-            <p className="iam-home-customize-note">Image URLs are stored per workspace. Use Cloudflare Images / imagedelivery links.</p>
-            <div className="iam-home-customize-list">
-              {editTiles.map((tile, idx) => (
-                <div key={tile.tile_key} className="iam-home-customize-row">
-                  <label>
-                    <span>{tile.title}</span>
-                    <input
-                      type="url"
-                      value={tile.image_url || ''}
-                      placeholder="https://imagedelivery.net/…/public"
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setEditTiles((prev) =>
-                          prev.map((row, i) => (i === idx ? { ...row, image_url: v } : row)),
-                        );
-                      }}
-                    />
-                  </label>
-                  <label>
-                    <span>Link path</span>
-                    <input
-                      type="text"
-                      value={tile.path}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setEditTiles((prev) =>
-                          prev.map((row, i) => (i === idx ? { ...row, path: v } : row)),
-                        );
-                      }}
-                    />
-                  </label>
-                </div>
-              ))}
-            </div>
-            {saveError ? <p className="iam-home-customize-error">{saveError}</p> : null}
-            <footer className="iam-home-customize-foot">
-              <button type="button" onClick={() => setCustomizeOpen(false)}>Cancel</button>
-              <button type="button" className="iam-home-customize-save" disabled={saveBusy} onClick={() => void saveCustomize()}>
-                {saveBusy ? 'Saving…' : 'Save workspace tiles'}
-              </button>
-            </footer>
-          </div>
-        </div>
+      {editingTile ? (
+        <HomeTileEditor
+          tile={editingTile}
+          workspaceId={workspaceId}
+          onChange={(next) => updateTile(editingTile.tile_key, next)}
+          onClose={() => setEditingTileKey(null)}
+          onReset={() => {
+            const base = quickTilesBaseline.find((t) => t.tile_key === editingTile.tile_key);
+            if (base) updateTile(editingTile.tile_key, { ...base });
+          }}
+        />
       ) : null}
     </main>
   );
