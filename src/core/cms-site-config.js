@@ -5,6 +5,7 @@
 import { getAgentsamWorkspace, parseWorkspaceMetadata } from './agentsam-workspace.js';
 import { hasRegisteredCmsSiteContext } from './cms-workspace-resolve.js';
 import { resolvePlatformCmsStudioUrl } from './cms-studio-lane.js';
+import { resolveCmsPublicDomain } from './cms-storefront-url.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -28,6 +29,7 @@ const DEFAULT_STUDIO_PATH = {
 const API_PROFILE_BY_WORKER = {
   companionscpas: 'cpas_fragment',
   fuelnfreetime: 'fuel_admin',
+  meauxbility: 'cpas_fragment',
 };
 
 /**
@@ -116,6 +118,9 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
         .first();
       publicDomain = trim(tenant?.domain) || null;
     } catch (_) {}
+  }
+  if (!publicDomain && slug) {
+    publicDomain = resolveCmsPublicDomain(slug, null);
   }
   if (!publicDomain && trim(wsRow?.worker_name) === PLATFORM_WORKER_NAME) {
     publicDomain = 'inneranimalmedia.com';

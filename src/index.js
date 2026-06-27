@@ -21,6 +21,7 @@ import {
   publicOAuthRequestContext,
   isAutomationApiPath,
 } from './core/public-oauth-paths.js';
+import { isPublicCmsPreviewRequest } from './core/cms-preview-route.js';
 import { loadPublishedCmsSectionsByRoute } from './core/cms-public-page.js';
 import {
   parseCmsUrlPreviewMode,
@@ -172,10 +173,16 @@ export default {
 
       const isDashboardHtmlNav =
         (methodUpper === 'GET' || methodUpper === 'HEAD') && isDashboardSpaShellPath(pathLower);
+      const optionalAuthHtmlGet =
+        (methodUpper === 'GET' || methodUpper === 'HEAD') && !pathLower.startsWith('/api/');
       const requestContext =
-        isPublicOAuthPath(pathLower) || isAutomationApiPath(pathLower, methodUpper)
+        isPublicOAuthPath(pathLower) ||
+        isAutomationApiPath(pathLower, methodUpper) ||
+        isPublicCmsPreviewRequest(url, methodUpper)
           ? publicOAuthRequestContext()
-          : await resolveRequestContext(request, env, { required: !isDashboardHtmlNav });
+          : await resolveRequestContext(request, env, {
+              required: optionalAuthHtmlGet ? false : !isDashboardHtmlNav,
+            });
       // keep primeRequestAuth for cache compatibility during migration (never required)
       await primeRequestAuth(request, env);
       const identity = await resolveIdentity(env, request);
@@ -466,12 +473,21 @@ export default {
             pageId: previewCtx.pageId,
           });
           if (bundle.page?.r2_key) {
-            const r2Key =
-              previewCtx.previewMode === 'draft' && bundle.page.r2_key.includes('/published.html')
-                ? bundle.page.r2_key.replace('/published.html', '/draft.html')
-                : String(bundle.page.r2_key);
+            const pageR2Key = String(bundle.page.r2_key);
+            const draftKey = pageR2Key.includes('/published.html')
+              ? pageR2Key.replace('/published.html', '/draft.html')
+              : pageR2Key.includes('/draft.html')
+                ? pageR2Key
+                : pageR2Key.replace(/\.html$/, '.draft.html');
+            const preferDraft =
+              previewCtx.previewMode === 'draft' ||
+              (previewCtx.cmsEmbed && String(bundle.page.status || '').toLowerCase() === 'draft');
+            const r2Key = preferDraft ? draftKey : pageR2Key;
             const obj = await env.ASSETS.get(r2Key).catch(() => null);
-            const publishedObj = obj || (await env.ASSETS.get(String(bundle.page.r2_key)).catch(() => null));
+            const publishedObj =
+              obj ||
+              (await env.ASSETS.get(pageR2Key).catch(() => null)) ||
+              (preferDraft ? await env.ASSETS.get(draftKey).catch(() => null) : null);
             if (publishedObj) {
               let htmlText = await publishedObj.text();
               try {

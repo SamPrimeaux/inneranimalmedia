@@ -1,7 +1,12 @@
 /**
- * Agent Sam tools → iam-cms-pipeline Python Worker (HTML extract/inject, AI prototype).
+ * Agent Sam tools → iam-cms-pipeline Python Worker (HTML extract/inject, AI prototype, theme audit).
  */
 import { fetchCmsPipeline, fetchCmsPipelineJson, hasCmsPipelineBinding } from '../../core/cms-pipeline-service-proxy.js';
+import {
+  auditSitePackageById,
+  convertLiquidSectionsToHtml,
+  runThemePackagePythonAudit,
+} from '../../core/cms-theme-pipeline-audit.js';
 
 function missingBinding() {
   return { error: 'CMS_PIPELINE binding not configured — deploy iam-cms-pipeline and inneranimalmedia service binding' };
@@ -91,9 +96,62 @@ async function cmsPipelineBootstrap(params, env) {
   return { ok: true, ...data };
 }
 
+/**
+ * @param {Record<string, unknown>} params
+ * @param {any} env
+ */
+async function cmsPipelineThemeAudit(params, env) {
+  if (!hasCmsPipelineBinding(env)) return missingBinding();
+  const packageId = String(params.package_id ?? params.import_id ?? params.packageId ?? '').trim();
+  if (packageId) {
+    const tenantId = String(params.tenant_id ?? params.tenantId ?? '').trim() || undefined;
+    return auditSitePackageById(env, tenantId, packageId);
+  }
+  const manifest = params.manifest && typeof params.manifest === 'object' ? params.manifest : {};
+  const sections = Array.isArray(params.sections) ? params.sections : [];
+  const out = await runThemePackagePythonAudit(env, {
+    manifest,
+    liquidSections: sections,
+    projectSlug: String(params.project_slug ?? params.projectSlug ?? 'site'),
+    workspaceId: String(params.workspace_id ?? params.workspaceId ?? ''),
+  });
+  if (!out.ok) return out;
+  return { ok: true, ...out };
+}
+
+/**
+ * @param {Record<string, unknown>} params
+ * @param {any} env
+ */
+async function cmsPipelineLiquidToHtml(params, env) {
+  if (!hasCmsPipelineBinding(env)) return missingBinding();
+  const sectionKey = String(params.section_key ?? params.sectionKey ?? '').trim();
+  const liquid = String(params.liquid_source ?? params.liquid ?? '').trim();
+  if (!liquid && !params.import_id) {
+    return { error: 'liquid_source or import_id required' };
+  }
+  if (liquid) {
+    const out = await fetchCmsPipelineJson(env, '/pipeline/liquid-to-html', {
+      section_key: sectionKey || 'section',
+      liquid_source: liquid,
+      settings: params.settings,
+    });
+    if (out.error) return out;
+    return { ok: true, ...out };
+  }
+  return convertLiquidSectionsToHtml(env, {
+    import_id: String(params.import_id),
+    section_keys: Array.isArray(params.section_keys) ? params.section_keys : undefined,
+  });
+}
+
 export const pipelineHandlers = {
   cms_pipeline_prototype: cmsPipelinePrototype,
   cms_pipeline_extract: cmsPipelineExtract,
   cms_pipeline_inject: cmsPipelineInject,
   cms_pipeline_bootstrap: cmsPipelineBootstrap,
+  cms_pipeline_theme_audit: cmsPipelineThemeAudit,
+  agentsam_cms_pipeline_theme_audit: cmsPipelineThemeAudit,
+  cms_pipeline_liquid_to_html: cmsPipelineLiquidToHtml,
+  agentsam_cms_pipeline_liquid_to_html: cmsPipelineLiquidToHtml,
 };

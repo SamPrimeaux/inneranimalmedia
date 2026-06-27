@@ -120,7 +120,8 @@ async function serveStudioStaticAsset(env, assetPathLower, getMimeType) {
   return new Response(obj.body, {
     headers: {
       'Content-Type': obj.httpMetadata?.contentType || getMimeType(key),
-      'Cache-Control': assetPathLower.includes('cms-editor-core')
+      'Cache-Control': assetPathLower.includes('cms-editor-core') ||
+        assetPathLower.includes('cms-editor.js')
         ? 'private, no-store, max-age=0, must-revalidate'
         : 'public, max-age=3600',
     },

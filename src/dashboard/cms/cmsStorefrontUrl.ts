@@ -1,21 +1,19 @@
-/** Legacy project_key slugs → cms_tenants.slug */
-const CMS_TENANT_SLUG_ALIASES: Record<string, string> = {
-  nicoc: 'newiberiachurchofchrist',
-};
+/**
+ * Dashboard storefront URL helpers — delegates to core TypeScript module.
+ */
+import {
+  CMS_PRODUCTION_APEX_HOST,
+  CMS_TENANT_SLUG_ALIASES,
+  resolveCmsPublicDomain,
+  resolveCmsStorefrontUrl,
+} from '../../core/cms-storefront-url';
 
-/** Production apex hostnames keyed by cms project slug (D1 cms_tenants.slug). */
-const PRODUCTION_APEX_HOST: Record<string, string> = {
-  inneranimalmedia: 'inneranimalmedia.com',
-  fuelnfreetime: 'fuelnfreetime.com',
-  meauxbility: 'meauxbility.org',
-  newiberiachurchofchrist: 'newiberiachurchofchrist.com',
-  nicoc: 'newiberiachurchofchrist.com',
-};
+export { CMS_PRODUCTION_APEX_HOST, CMS_TENANT_SLUG_ALIASES, resolveCmsPublicDomain };
 
 export type StorefrontUrlInput = {
   projectSlug?: string | null;
   tenantDomain?: string | null;
-  /** Workspace-level public domain — only for the active/primary site, not every connected row. */
+  /** Workspace-level public domain — only for the active/primary site */
   publicDomain?: string | null;
   siteDomain?: string | null;
   path?: string;
@@ -26,31 +24,18 @@ function normalizePath(path?: string): string {
   return path.startsWith('/') ? path : `/${path}`;
 }
 
-function hostToHttps(raw: string, path: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed) return '';
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    return `${trimmed.replace(/\/$/, '')}${path}`;
-  }
-  return `https://${trimmed.replace(/^\/\//, '')}${path}`;
-}
-
-/** Resolve the live public storefront URL — never a fake placeholder. */
+/** Resolve the live public storefront URL — never a fake workers.dev placeholder for known tenants */
 export function resolveStorefrontUrl(input: StorefrontUrlInput): string {
   const path = normalizePath(input.path);
-  const slug = input.projectSlug?.trim() || '';
-
   for (const candidate of [input.publicDomain, input.tenantDomain, input.siteDomain]) {
-    const url = candidate ? hostToHttps(candidate, path) : '';
-    if (url) return url;
+    if (!candidate?.trim()) continue;
+    const trimmed = candidate.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return `${trimmed.replace(/\/$/, '')}${path}`;
+    }
+    return `https://${trimmed.replace(/^\/\//, '')}${path}`;
   }
-
-  const apexSlug = CMS_TENANT_SLUG_ALIASES[slug] || slug;
-  const apex = apexSlug ? PRODUCTION_APEX_HOST[apexSlug] || PRODUCTION_APEX_HOST[slug] : null;
-  if (apex) return `https://${apex}${path}`;
-
-  if (slug) return `https://${slug}.meauxbility.workers.dev${path}`;
-  return `https://inneranimalmedia.com${path}`;
+  return resolveCmsStorefrontUrl(input.projectSlug, null, path || '/');
 }
 
 export function storefrontDisplayHost(url: string): string {

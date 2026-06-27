@@ -5,13 +5,15 @@
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import ThemeEditorImportStrip from '../../../dashboard/pages/cms/ThemeEditorImportStrip';
+
 const ExcalidrawView = lazy(() =>
   import('../../../dashboard/components/ExcalidrawView').then((m) => ({
     default: m.ExcalidrawView,
   })),
 );
 
-const DEFAULT_STUDIO_ORIGIN = 'https://studio.inneranimalmedia.com';
+const DEFAULT_STUDIO_ORIGIN = 'https://inneranimalmedia.com';
 const LEGACY_STUDIO_SHELL = '/static/dashboard/app/cms/cms-studio-shell.html';
 
 const DASHBOARD_THEME_KEYS = [
@@ -42,8 +44,8 @@ function isLocalDevHost(hostname: string) {
 function resolveStudioBase(studioUrl?: string | null): { base: string; origin: string } {
   if (typeof window !== 'undefined') {
     const host = window.location.hostname.toLowerCase();
-    if (host === 'inneranimalmedia.com' || host === 'www.inneranimalmedia.com') {
-      return { base: `${window.location.origin}/studio/editor`, origin: window.location.origin };
+    if (host.endsWith('inneranimalmedia.com')) {
+      return { base: 'https://inneranimalmedia.com/studio/editor', origin: 'https://inneranimalmedia.com' };
     }
   }
   if (studioUrl) {
@@ -62,7 +64,7 @@ function resolveStudioBase(studioUrl?: string | null): { base: string; origin: s
   if (typeof window !== 'undefined' && isLocalDevHost(window.location.hostname)) {
     return { base: LEGACY_STUDIO_SHELL, origin: window.location.origin };
   }
-  return { base: `${DEFAULT_STUDIO_ORIGIN}/editor`, origin: DEFAULT_STUDIO_ORIGIN };
+  return { base: `${DEFAULT_STUDIO_ORIGIN}/studio/editor`, origin: DEFAULT_STUDIO_ORIGIN };
 }
 
 function isAllowedPostMessageOrigin(origin: string, studioOrigin: string) {
@@ -264,11 +266,16 @@ export function CmsStudioEditor({
     }
   }, [postThemeToIframe, pageId, studioOrigin]);
 
+  const isThemeEditorPanel = panel === 'theme-editor' || panel === 'themeEditor';
+
   return (
     <div
       className="iam-cms-studio-shell"
       style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
     >
+      {isThemeEditorPanel && projectSlug ? (
+        <ThemeEditorImportStrip projectSlug={projectSlug} onNavigatePath={navigatePath} />
+      ) : null}
       {src ? (
         <iframe
           ref={iframeRef}

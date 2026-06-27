@@ -3,6 +3,11 @@
  */
 import { normalizeWorkspaceContextPacket } from './workspace-studio-context.js';
 
+const CMS_PROTOCOL_LINES = [
+  'Loop: agentsam_cms_read → agentsam_cms_save_page_html|save_injected|cms_write → agentsam_cms_publish → agentsam_cms_verify_live',
+  'Always verify live_url after publish — reject Clean canvas / 404 as incomplete.',
+].join('\n');
+
 /**
  * @param {unknown} body
  * @param {unknown} browserContext
@@ -62,7 +67,8 @@ export function extractCmsAgentContext(body, browserContext) {
 export function formatCmsContextForAgent(cms) {
   if (!cms || typeof cms !== 'object') return '';
   const lines = [
-    '[CMS editor context — use for page/section edits, publish, and theme work. Do not invent page ids.]',
+    '[CMS editor context — PrimeTech protocol: read → save → publish → verify. Do not invent page ids.]',
+    CMS_PROTOCOL_LINES,
     `project_slug: ${cms.project_slug || '(none)'}`,
     `page_id: ${cms.page_id || '(none)'}`,
     `studio_panel: ${cms.studio_panel || '(none)'}`,

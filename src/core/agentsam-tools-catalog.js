@@ -241,12 +241,12 @@ async function loadCatalogRowsForMcpTemplate(db, runtimeCtx, serverKeys, limit =
 }
 
 export const LANE_TO_TOOL_CATEGORIES = {
-  develop: ['terminal', 'container', 'filesystem', 'd1', 'github', 'deploy', 'cloudflare', 'agent', 'storage'],
-  inspect: ['browser', 'ui'],
-  research: ['knowledge', 'context', 'memory', 'ai'],
-  think: ['ai', 'memory', 'context', 'agent', 'knowledge'],
-  design: ['ui', 'media'],
-  operate: ['deploy', 'workflow', 'cloudflare', 'agent'],
+  develop: ['terminal', 'container', 'filesystem', 'd1', 'github', 'deploy', 'cloudflare', 'agent', 'storage', 'cms'],
+  inspect: ['browser', 'ui', 'cms'],
+  research: ['knowledge', 'context', 'memory', 'ai', 'cms'],
+  think: ['ai', 'memory', 'context', 'agent', 'knowledge', 'cms'],
+  design: ['ui', 'media', 'cms'],
+  operate: ['deploy', 'workflow', 'cloudflare', 'agent', 'cms'],
   integrate: ['integrations', 'email', 'github'],
   admin: ['agent', 'cloudflare'],
   observe: ['cloudflare', 'network'],
@@ -280,6 +280,7 @@ const CATEGORY_LIKE_PREFIXES = /** @type {Record<string, string[]>} */ ({
   workflow: ['workflow.%'],
   network: ['network.%'],
   media: ['media.%'],
+  cms: ['cms.%', 'agent.cms%'],
 });
 
 /**

@@ -46,6 +46,10 @@ Copy `SESSION_CACHE` KV id from `wrangler.production.toml` into this service's `
 | POST | `/pipeline/r2-text` | Read R2 HTML by key |
 | POST | `/agent/prototype` | Workers AI section proposal JSON |
 | POST | `/pipeline/studio-bootstrap-html` | Inject `__CMS_BOOTSTRAP__` into shell HTML |
+| POST | `/pipeline/theme-audit` | Deep Shopify theme audit (`{% schema %}`, findings) |
+| POST | `/pipeline/theme-scaffold-plan` | IAM `cms_pages` + gallery scaffold proposal |
+| POST | `/pipeline/liquid-to-html` | Single Liquid section → `data-cms-section` HTML |
+| POST | `/pipeline/liquid-to-html-batch` | Batch section conversion |
 
 ## Integration with JS CMS (inneranimalmedia)
 

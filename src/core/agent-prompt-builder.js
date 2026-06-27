@@ -7,7 +7,8 @@ import {
   messageExplicitlyRequestsBrowserInspection,
 } from './code-implementation-intent.js';
 import { messageHasBrowserUrlNavigation } from '../api/agent/classify-intent.js';
-import { appendTriggeredRulesToSystemPrompt } from './agent-skills-rules.js';
+import { appendTriggeredRulesToSystemPrompt, appendSkillsAndRulesToSystemPrompt } from './agent-skills-rules.js';
+import { isFeatureEnabled } from './features.js';
 
 const AGENT_SAM_PYTHON_PARALLEL_BLOCK = `You are a Python professional. When a task involves data processing, scripting, automation, analysis, or any computation that Python handles well, use python_execute without being asked. You write clean, well-commented Python — proper imports at the top, error handling with try/except, f-strings for formatting, and type hints for function signatures. You know the standard library deeply (pathlib, json, csv, datetime, itertools, collections) and reach for pandas, requests, or other packages when they make the solution cleaner. You never apologize for using Python — you use it because it is the right tool.
 
@@ -415,9 +416,46 @@ export async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeC
     }
   };
 
+  const appendSkillsContextBlock = async (systemPrompt) => {
+    if (minimalAsk || !options?.workspaceId || !options?.userId) return systemPrompt;
+    try {
+      const enabled = await isFeatureEnabled(env, 'skill_context_injection', {
+        userId: options.userId,
+        tenantId,
+      });
+      if (!enabled) return systemPrompt;
+    } catch {
+      return systemPrompt;
+    }
+    const routeKey =
+      options?.routeKey != null
+        ? String(options.routeKey)
+        : String(promptRouteRow?.route_key || '').trim() || null;
+    const taskType = options?.taskType != null ? String(options.taskType).trim() : null;
+    if (!routeKey && !taskType) return systemPrompt;
+    try {
+      return await appendSkillsAndRulesToSystemPrompt(env, options?.ctx ?? null, systemPrompt, {
+        userId: options.userId,
+        tenantId,
+        workspaceId: options.workspaceId,
+        conversationId: options?.sessionId ?? options?.conversationId ?? null,
+        taskType,
+        routeKey,
+        taskTypes: options?.taskTypes ?? null,
+        tier1Budget: 800,
+        tier23Budget: 2400,
+        maxSkills: 6,
+      });
+    } catch (e) {
+      console.warn('[agent] skill_context inject', e?.message ?? e);
+      return systemPrompt;
+    }
+  };
+
   const finalizeSystemPrompt = async (systemPrompt) => {
     let out = await appendRulesContextBlock(systemPrompt);
     out = await appendProjectContextBlock(out);
+    out = await appendSkillsContextBlock(out);
     return out;
   };
 

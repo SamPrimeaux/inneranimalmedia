@@ -18,6 +18,46 @@ const CmsStudioEditor = lazy(() =>
 );
 
 function StudioShellFallback({ themeEditor = false }: { themeEditor?: boolean }) {
+  if (themeEditor) {
+    return (
+      <div className="flex flex-1 flex-col min-h-0 bg-[#F9F7F2]">
+        <div className="h-11 border-b border-[#e8e4dc] bg-white flex items-center px-4 gap-3 shrink-0">
+          <div className="h-3 w-20 rounded bg-stone-200 animate-pulse" />
+          <div className="h-3 w-28 rounded bg-stone-100 animate-pulse" />
+          <div className="flex-1" />
+          <div className="h-7 w-14 rounded bg-stone-100 animate-pulse" />
+          <div className="h-7 w-16 rounded bg-teal-700/20 animate-pulse" />
+        </div>
+        <div className="h-11 border-b border-[#e8e4dc] bg-white/90 flex items-center px-3 gap-2 shrink-0">
+          <div className="h-3 w-16 rounded bg-stone-200 animate-pulse" />
+          <div className="flex-1 h-8 rounded-lg border border-dashed border-stone-300 bg-stone-50 animate-pulse" />
+        </div>
+        <div className="flex flex-1 min-h-0">
+          <aside className="hidden md:flex w-60 border-r border-[#e8e4dc] bg-white flex-col gap-2 p-3 shrink-0">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="h-8 rounded-lg bg-stone-100 animate-pulse" style={{ opacity: 1 - i * 0.12 }} />
+            ))}
+          </aside>
+          <main className="flex-1 flex items-center justify-center p-6 min-w-0">
+            <div className="w-full max-w-3xl aspect-[16/10] rounded-xl border border-[#e8e4dc] bg-white shadow-sm p-4 flex flex-col gap-3">
+              <div className="h-[28%] rounded-lg bg-stone-100 animate-pulse" />
+              <div className="h-[12%] rounded-md bg-stone-100 animate-pulse" />
+              <div className="h-[12%] rounded-md bg-stone-100/80 animate-pulse w-[75%]" />
+            </div>
+          </main>
+          <aside className="hidden lg:flex w-72 border-l border-[#e8e4dc] bg-white flex-col gap-3 p-3 shrink-0">
+            <div className="h-3 w-12 rounded bg-stone-200 animate-pulse" />
+            <div className="h-9 rounded-lg bg-stone-100 animate-pulse" />
+            <div className="h-9 rounded-lg bg-stone-100/80 animate-pulse" />
+          </aside>
+        </div>
+        <div className="h-9 border-t border-[#e8e4dc] bg-white flex items-center px-4 gap-2 text-xs text-stone-500 shrink-0">
+          <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-stone-300 border-t-teal-700 animate-spin" />
+          Opening theme editor…
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={`flex flex-1 flex-col min-h-0 ${themeEditor ? 'bg-[#F9F7F2]' : 'bg-[#0d1117]'}`}>
       <div className={`h-11 border-b flex items-center px-4 gap-3 ${themeEditor ? 'border-[#e8e4dc] bg-white' : 'border-white/10 bg-[#161b22]'}`}>
@@ -220,7 +260,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
         />
       ) : null}
       {!needsSitePick && !isClientWorker && isStudioEditorRoute && studioProjectSlug ? (
-        <Suspense fallback={<StudioShellFallback themeEditor />}>
+        <Suspense fallback={<StudioShellFallback themeEditor={studioPanel === 'theme-editor'} />}>
           <CmsStudioEditor
             projectSlug={studioProjectSlug}
             pageId={parsed.pageId}

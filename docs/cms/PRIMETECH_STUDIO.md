@@ -30,9 +30,21 @@ Project slug is **never hardcoded**. Resolution order: explicit `?site=` / `proj
 
 | Tool | Role |
 |------|------|
-| `agentsam_cms_read` | List/read pages and sections |
-| `agentsam_cms_write` | Update section_data, stage KV draft, write R2 draft.html |
-| `agentsam_cms_publish` | Run promotion gates (complete publish via API Deploy) |
+| `agentsam_cms_read` | Page + sections + draft/published HTML excerpts + `preview_urls` |
+| `agentsam_cms_save_page_html` | Full-page HTML → R2 draft (remasters) |
+| `agentsam_cms_save_injected` | Section HTML fragment → R2 + D1 section row |
+| `agentsam_cms_write` | Update `section_data` JSON, stage KV draft |
+| `agentsam_cms_publish` | Complete publish: draft→published, D1 update, cache bust |
+| `agentsam_cms_verify_live` | Fetch official `live_url` — reject Clean canvas / 404 |
+| `cms_pipeline_*` | Python HTML intelligence (prototype, extract, inject preview) |
+
+### PrimeTech loop (agent protocol)
+
+```
+read → edit/save → publish → verify live URL (no query params)
+```
+
+Playbook: `docs/skills-playbooks/cms_edit/SKILL.md`
 
 Compose from studio posts `iam-agent-chat-new-thread` with `task_type: cms_edit`, `page_id`, `collab_room: cms:{pageId}`.
 

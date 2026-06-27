@@ -7,6 +7,12 @@ import {
   extractThemeArchive,
   findShopifyLiquidSections,
 } from '../../core/cms-theme-archive.js';
+import { buildThemePackageManifest } from '../../core/cms-theme-inventory.js';
+import { handleSitePackageApplyJob } from '../../core/cms-site-package-proceed.js';
+import {
+  persistThemePackageAudit,
+  runThemePackagePythonAudit,
+} from '../../core/cms-theme-pipeline-audit.js';
 
 import { CMS_DEFAULT_R2_BUCKET, getCmsR2Binding } from '../../core/cms-r2-binding.js';
 import { emitInnerAnimalProEvent } from '../../core/inneranimalpro-stream.js';
@@ -21,6 +27,11 @@ function getR2(env, bucketName) {
  * @param {Record<string, unknown>} body
  */
 export async function handleCmsLiquidImportQueueJob(env, body) {
+  const phase = String(body.phase || 'inventory').trim().toLowerCase();
+  if (phase === 'apply') {
+    return handleSitePackageApplyJob(env, body);
+  }
+
   const importId = String(body.import_id || '').trim();
   const conversionId = String(body.conversion_id || '').trim();
   const tenantId = String(body.tenant_id || '').trim();
@@ -99,7 +110,7 @@ export async function handleCmsLiquidImportQueueJob(env, body) {
         await env.DB.prepare(
           `INSERT INTO cms_liquid_sections
            (id, tenant_id, import_id, file_name, section_key, section_type, liquid_source, parse_status, created_at)
-           VALUES (?, ?, ?, ?, ?, 'shopify_section', ?, 'parsed', unixepoch())`,
+           VALUES (?, ?, ?, ?, ?, 'shopify_section', ?, 'inventory', unixepoch())`,
         )
           .bind(
             lsecId,
@@ -130,35 +141,62 @@ export async function handleCmsLiquidImportQueueJob(env, body) {
       }
     }
 
-    const resultJson = {
-      staging_prefix: stagingPrefix,
-      archive_r2_key: r2Key,
-      entries_total: entries.length,
-      liquid_sections: sectionRows,
-      staged_paths_sample: stagedPaths.slice(0, 20),
-      cdp_deferred: !(env.BROWSER_SESSION || env.AGENT_BROWSER),
-      scaffold_prompt: sectionRows.length
-        ? `Apply Shopify theme sections to CMS pages for project. ${sectionRows.length} liquid sections extracted at ${stagingPrefix}. Use agentsam_cms_write to map sections to cms_page_sections.`
-        : null,
-    };
+    let resultJson = buildThemePackageManifest({
+      importId,
+      stagingPrefix,
+      archiveR2Key: r2Key,
+      entries,
+      liquidSections,
+      sectionRows,
+    });
+
+    if (importId) {
+      const auditResult = await runThemePackagePythonAudit(env, {
+        manifest: resultJson,
+        liquidSections: liquidSections.map((sec, i) => ({
+          section_key: sec.section_key,
+          path: sec.path,
+          liquid_source: sec.liquid_source,
+          r2_key: sectionRows[i]?.r2_key,
+        })),
+        r2Bucket,
+        projectSlug: importRow?.project_id,
+        workspaceId: workspaceId || importRow?.workspace_id,
+      }).catch(() => ({ ok: false, skipped: true }));
+
+      if (auditResult?.ok) {
+        const persisted = await persistThemePackageAudit(env, {
+          importId,
+          manifest: resultJson,
+          auditResult,
+          r2Bucket,
+        }).catch(() => null);
+        if (persisted?.manifest) resultJson = persisted.manifest;
+      } else if (auditResult && !auditResult.skipped) {
+        resultJson = {
+          ...resultJson,
+          python_audit_error: auditResult.error || 'audit_failed',
+        };
+      }
+    }
 
     if (importId) {
       await env.DB.prepare(
         `UPDATE cms_liquid_imports
-         SET status = 'completed',
+         SET status = 'inventory_ready',
              sections_found = ?,
              sections_mapped = 0,
+             pages_created = 0,
              templates_found = ?,
              result_json = ?,
-             completed_at = ?,
+             completed_at = NULL,
              updated_at = ?
          WHERE id = ?`,
       )
         .bind(
           liquidSections.length,
-          entries.filter((e) => /templates\//i.test(e.path)).length,
+          resultJson.templates?.length || entries.filter((e) => /templates\//i.test(e.path)).length,
           JSON.stringify(resultJson),
-          Math.floor(Date.now() / 1000),
           Math.floor(Date.now() / 1000),
           importId,
         )
@@ -186,17 +224,21 @@ export async function handleCmsLiquidImportQueueJob(env, body) {
 
     emitInnerAnimalProEvent(env, {
       userId: importRow?.created_by || null,
-      eventName: `liquid_import_complete:${importId || conversionId}:sections=${liquidSections.length}`,
+      eventName: `liquid_import_inventory_ready:${importId || conversionId}:sections=${liquidSections.length}`,
     });
 
     return {
       ok: true,
       import_id: importId || null,
       conversion_id: conversionId || null,
+      phase: 'inventory',
+      status: 'inventory_ready',
       sections_found: liquidSections.length,
+      sections_mapped: 0,
+      pages_created: 0,
       staging_prefix: stagingPrefix,
       workspace_id: workspaceId || null,
-      result: resultJson,
+      manifest: resultJson,
     };
   } catch (e) {
     const err = String(e?.message || e);

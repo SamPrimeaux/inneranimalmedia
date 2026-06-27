@@ -97,6 +97,12 @@ const SKILL_PLAYBOOKS = [
     localRel: 'docs/skills-playbooks/meshy_3d_designstudio/SKILL.md',
     r2Key: 'skills/meshy_3d_designstudio/SKILL.md',
   },
+  {
+    skill_key: 'cms_edit',
+    skill_id: 'skill_iam_cms_edit',
+    localRel: 'docs/skills-playbooks/cms_edit/SKILL.md',
+    r2Key: 'skills/cms_edit/SKILL.md',
+  },
 ];
 
 function parseArgs(argv) {

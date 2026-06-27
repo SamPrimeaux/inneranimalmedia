@@ -5,6 +5,22 @@
 import { getCmsDraftCache } from './cms-kv-cache.js';
 import { mergeCmsDraftSections } from './cms-edit-safety.js';
 import { normalizeCmsRoutePath } from './cms-page-hydrate-dispatch.js';
+import { resolveCmsPublicDomain } from './cms-storefront-url.js';
+
+/**
+ * CMS editor embed / draft preview on the live storefront must bypass session gate
+ * (iframe loads apex without dashboard cookies on cross-subdomain embeds).
+ * @param {URL} url
+ * @param {string} [method='GET']
+ */
+export function isPublicCmsPreviewRequest(url, method = 'GET') {
+  const m = String(method || 'GET').toUpperCase();
+  if (m !== 'GET' && m !== 'HEAD') return false;
+  const sp = url.searchParams;
+  if (sp.get('cms') === '1') return true;
+  const preview = String(sp.get('preview') || '').trim().toLowerCase();
+  return preview === 'draft' || preview === 'published' || preview === 'live' || preview === '1' || preview === 'true';
+}
 
 function parseSectionData(raw) {
   if (!raw) return {};
@@ -117,10 +133,10 @@ export async function loadCmsSectionsForRoute(env, routePath, opts = {}) {
   const explicitPageId = String(opts.pageId || '').trim() || null;
   const cmsEmbed = opts.cmsEmbed === true;
   let effectivePreview = previewMode;
-  if (!effectivePreview && cmsEmbed && userId) {
-    effectivePreview = 'draft';
+  if (!effectivePreview && cmsEmbed) {
+    effectivePreview = userId ? 'draft' : 'published';
   }
-  const includeDraft = effectivePreview === 'draft';
+  const includeDraft = effectivePreview === 'draft' || explicitPageId;
 
   let bundle;
   if (explicitPageId && env?.DB) {
@@ -207,9 +223,9 @@ export function buildCmsPageUrls(page, opts = {}) {
     String(page.route_path || '').trim() ||
       (page.slug && String(page.slug) !== 'home' ? `/${page.slug}` : '/'),
   );
-  const domain = String(opts.domain || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
   const project = String(opts.projectSlug || page.project_slug || page.project_id || 'inneranimalmedia').trim();
-  const origin = domain ? `https://${domain}` : `https://${project}.meauxbility.workers.dev`;
+  const host = resolveCmsPublicDomain(project, opts.domain);
+  const origin = `https://${host}`;
   const base = `${origin}${route}`;
 
   const u = (params) => {
@@ -226,7 +242,7 @@ export function buildCmsPageUrls(page, opts = {}) {
   return {
     route_path: route,
     live_url: base,
-    embed_url: u({ cms: '1' }),
+    embed_url: u({ cms: '1', page_id: String(page.id || '') }),
     preview_draft_url: u({ preview: 'draft', cms: '1', page_id: String(page.id || '') }),
     preview_published_url: u({ preview: 'published', cms: '1' }),
     page_id: String(page.id || ''),

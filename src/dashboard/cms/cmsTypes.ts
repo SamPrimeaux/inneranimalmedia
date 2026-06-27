@@ -1,4 +1,48 @@
+/**
+ * Dashboard CMS types — re-export canonical contracts from src/types/cms.ts.
+ * Add dashboard-only prop types here; do not duplicate API shapes.
+ */
 import type { CmsWorkspaceSite } from '../../../dashboard/hooks/useCmsWorkspaceContext';
+
+export type {
+  CmsAgentLoopStep,
+  CmsAgentPublishResponse,
+  CmsAgentReadResponse,
+  CmsAgentSaveInjectedResponse,
+  CmsAgentSavePageHtmlResponse,
+  CmsAgentVerifyLiveChecks,
+  CmsAgentVerifyLiveResponse,
+  CmsApiProfile,
+  CmsBootstrapData,
+  CmsHostingMode,
+  CmsHtmlExcerpt,
+  CmsPage,
+  CmsPageDetailResponse,
+  CmsPageSection,
+  CmsPageStatus,
+  CmsPreviewMode,
+  CmsPreviewUrls,
+  CmsPublishPhase,
+  CmsPublishResponse,
+  CmsSaveDraftResponse,
+  CmsSection,
+  CmsSectionStatus,
+  CmsTenant,
+  CmsWorkspaceContext,
+} from '../../types/cms';
+
+export {
+  CMS_PRIMETECH_AGENT_LOOP,
+  CMS_PUBLISH_PHASE_LABEL,
+  inferCmsPublishPhase,
+  toCmsSection,
+} from '../../types/cms';
+
+/** @deprecated Use CmsPage from src/types/cms.ts */
+export type CmsBootstrapPage = import('../../types/cms').CmsPage;
+
+/** @deprecated Use CmsPageSection from src/types/cms.ts */
+export type CmsBootstrapSection = import('../../types/cms').CmsPageSection;
 
 export type CmsView =
   | 'sites'
@@ -9,43 +53,6 @@ export type CmsView =
   | 'theme-editor';
 
 export type CmsSiteRow = CmsWorkspaceSite & { id?: string };
-
-export type CmsBootstrapPage = {
-  id: string;
-  title?: string;
-  slug?: string;
-  route_path?: string;
-  status?: string;
-  is_homepage?: boolean | number;
-  updated_at?: string;
-  published_at?: string;
-  seo_title?: string;
-  meta_description?: string;
-  page_type?: string;
-  robots?: string;
-};
-
-export type CmsBootstrapSection = {
-  id: string;
-  page_id?: string;
-  section_type?: string;
-  section_name?: string;
-  section_data?: unknown;
-  is_visible?: boolean | number;
-};
-
-export type CmsBootstrapData = {
-  pages?: CmsBootstrapPage[];
-  sections_by_page?: Record<string, CmsBootstrapSection[]>;
-  sections?: CmsBootstrapSection[];
-  themes?: unknown[];
-  assets_3d?: unknown[];
-  assets?: unknown[];
-  imports?: unknown[];
-  active_theme?: { name?: string; slug?: string } | null;
-  tenant?: { domain?: string | null; name?: string | null } | null;
-  page?: CmsBootstrapPage | null;
-};
 
 export type HeroFields = {
   eyebrow: string;

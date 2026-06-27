@@ -133,7 +133,7 @@ function buildDeferredSteps(payload) {
   if (trim(payload.domain_mode) === 'custom') {
     steps.push({ step: 'dns_custom_domain', detail: trim(payload.custom_domain) });
   }
-  if (trim(payload.cms_template) === 'shopify') {
+  if (trim(payload.cms_template) === 'shopify' && trim(payload.import_mode) !== 'theme_zip') {
     steps.push({ step: 'shopify_import', detail: 'Upload theme zip via CMS Imports' });
   }
   if (payload.pipeline_binding === false) {
@@ -216,10 +216,10 @@ export async function provisionCmsProject(env, ctx, opts) {
     sections: Array.isArray(payload.sections) ? payload.sections : [],
     agentic_tools: payload.agentic_tools !== false,
     pipeline_binding: payload.pipeline_binding !== false,
+    import_mode: trim(payload.import_mode) || null,
+    skip_seed: payload.skip_seed === true || trim(payload.cms_template) === 'shopify',
     provisioned_at: new Date().toISOString(),
   };
-
-  const ctxId = cmsProjectContextRowId(projectSlug);
   const description = [
     `CMS site \`${projectSlug}\` (${projectName}) on workspace ${workspaceId}.`,
     publicDomain ? `Public domain: ${publicDomain}.` : 'Domain pending.',

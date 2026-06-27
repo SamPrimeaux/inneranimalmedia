@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# Copy React 18 + Babel standalone UMD into dashboard/public/cms/vendor for AgentSam CMS iframe.
+# Legacy: React 18 + Babel UMD for old cms-editor-core.js iframe path.
+# Studio shell now loads dist/cms/cms-editor.js (Vite bundle). Skip when SKIP_CMS_VENDOR_COPY=1.
 set -euo pipefail
+if [[ "${SKIP_CMS_VENDOR_COPY:-0}" == "1" ]]; then
+  echo "→ SKIP_CMS_VENDOR_COPY=1 — skipping legacy CMS Babel vendor copy"
+  exit 0
+fi
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DASH="$REPO_ROOT/dashboard"
 OUT="$DASH/public/cms/vendor"

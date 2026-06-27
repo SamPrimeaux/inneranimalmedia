@@ -2,7 +2,7 @@
  * SiteDeployWizard — 7-step site provisioning (Site → Infra → Repo → Domain → CMS → Review → Deploy).
  * POST /api/cms/projects/create + optional POST /api/cms/liquid-imports/upload for theme .zip.
  */
-import React, { useState, useCallback, useRef, useId } from 'react';
+import React, { useState, useCallback, useRef, useId, useEffect } from 'react';
 import {
   Check,
   Plus,
@@ -42,10 +42,35 @@ interface WState {
   repo: { mode: 'existing' | 'new' | 'skip'; org: string; repoName: string; branch: string; builds: boolean };
   domain: { mode: 'subdomain' | 'custom' | 'later'; sub: string; custom: string; cf: boolean };
   cms: { tpl: 'blank' | 'starter' | 'shopify'; secs: string[]; agentic: boolean; pipeline: boolean };
-  deploy: { status: 'idle' | 'running' | 'done' | 'error'; error?: string; importUploaded?: boolean };
+  deploy: { status: 'idle' | 'running' | 'done' | 'error'; error?: string; importUploaded?: boolean; importId?: string; sectionsMapped?: number };
+  pkg: {
+    phase: 'idle' | 'running' | 'ready' | 'error';
+    error?: string;
+    packageId?: string;
+    manifest?: Record<string, unknown> & {
+      categories?: Record<string, number>;
+      templates?: Array<{ name: string; section_order?: string[] }>;
+      default_template?: string;
+      default_section_keys?: string[];
+      entries_total?: number;
+    };
+    liquidSections?: Array<{ id: string; section_key: string }>;
+    proceedTargets?: {
+      db_targets?: Array<{ id: string; label: string; database_id?: string | null }>;
+      r2_targets?: Array<{ id: string; label: string; bucket?: string }>;
+      worker_targets?: Array<{ id: string; label: string; worker_name?: string }>;
+    };
+    selectedSections: string[];
+    selectedTemplate: string;
+    dbTarget: string;
+    databaseId: string;
+    r2Target: string;
+    workerTarget: string;
+  };
 }
 
 const STEPS = ['Site', 'Infra', 'Repo', 'Domain', 'CMS', 'Review', 'Deploy'];
+const EXPRESS_STEPS = ['Site', 'Inventory', 'Proceed'];
 const ALL_SECS = ['hero', 'nav', 'features', 'pricing', 'testimonials', 'cta', 'footer', 'gallery', 'faq'];
 const ZIP_ACCEPT = '.zip,.tar.gz,.tgz,.tar';
 const ZIP_MAX_MB = 80;
@@ -58,6 +83,15 @@ const INIT: WState = {
   domain: { mode: 'subdomain', sub: '', custom: '', cf: true },
   cms: { tpl: 'starter', secs: ['hero', 'nav', 'cta'], agentic: true, pipeline: true },
   deploy: { status: 'idle' },
+  pkg: {
+    phase: 'idle',
+    selectedSections: [],
+    selectedTemplate: 'index',
+    dbTarget: 'platform',
+    databaseId: '',
+    r2Target: 'shared',
+    workerTarget: 'shared',
+  },
 };
 
 function toSlug(s: string) {
@@ -80,6 +114,29 @@ function isAllowedZip(file: File) {
   );
 }
 
+function slugFromZipName(filename: string) {
+  return toSlug(
+    filename
+      .replace(/\.(zip|tar\.gz|tgz|tar)$/i, '')
+      .replace(/-shopify.*/i, '')
+      .replace(/-theme$/i, '')
+      .replace(/-version.*/i, ''),
+  );
+}
+
+function applyExpressDefaults(slug: string) {
+  return {
+    infra: { worker: 'existing' as const, workerName: '', bucket: 'cms' as const, kv: false },
+    repo: { mode: 'skip' as const, org: 'SamPrimeaux', repoName: '', branch: 'main', builds: false },
+    domain: { mode: 'subdomain' as const, sub: slug, custom: '', cf: true },
+    cms: { tpl: 'shopify' as const, secs: [] as string[], agentic: true, pipeline: true },
+  };
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function validateZipFile(file: File): string | null {
   if (!isAllowedZip(file)) return 'Use a .zip or .tar.gz theme archive';
   if (file.size > ZIP_MAX_MB * 1024 * 1024) return `File must be under ${ZIP_MAX_MB} MB`;
@@ -88,12 +145,12 @@ function validateZipFile(file: File): string | null {
 
 /* ── primitives ─────────────────────────────────────────────────────────── */
 
-function Prog({ cur }: { cur: number }) {
+function Prog({ cur, steps }: { cur: number; steps: string[] }) {
   return (
     <div className="flex items-center mb-8" role="list" aria-label="Setup steps">
-      {STEPS.map((label, i) => (
+      {steps.map((label, i) => (
         <div key={label} className="flex-1 flex flex-col items-center relative" role="listitem">
-          {i < STEPS.length - 1 && (
+          {i < steps.length - 1 && (
             <div
               className="absolute top-[14px] left-[50%] w-full h-[1.5px] z-0"
               style={{ background: i < cur ? 'var(--border-accent)' : 'var(--border)' }}
@@ -418,10 +475,14 @@ function S0({
   s,
   u,
   uZip,
+  onExpressZip,
+  express,
 }: {
   s: WState;
   u: (p: Partial<WState['site']>) => void;
   uZip: (p: Partial<ImportZipState>) => void;
+  onExpressZip: (file: File, slug: string) => void;
+  express?: boolean;
 }) {
   const setZip = useCallback(
     (file: File) => {
@@ -431,14 +492,25 @@ function S0({
         return;
       }
       uZip({ file, error: null });
-      u({ type: 'import' });
+      const zipSlug = slugFromZipName(file.name);
+      const nextName = s.site.name || zipSlug.replace(/-/g, ' ');
+      const nextSlug = s.site._se ? s.site.slug : zipSlug || toSlug(nextName);
+      u({ type: 'import', name: nextName, slug: nextSlug });
+      onExpressZip(file, nextSlug || zipSlug);
     },
-    [u, uZip],
+    [s.site._se, s.site.name, s.site.slug, u, uZip, onExpressZip],
   );
 
   return (
     <>
-      <Head title="What are you building?" desc="Give your project a name and choose how it fits into your setup." />
+      <Head
+        title="What are you building?"
+        desc={
+          express
+            ? 'Name your site and drop a Shopify theme .zip — we extract sections and publish v1 automatically.'
+            : 'Give your project a name, drop a theme zip for the fast path, or configure a site step-by-step.'
+        }
+      />
       <Fld label="Project name" hint="Used as the display name across the CMS and dashboard">
         <Inp
           value={s.site.name}
@@ -456,40 +528,30 @@ function S0({
       >
         <Inp value={s.site.slug} placeholder="fuel-and-free-time" onChange={(v) => u({ slug: v, _se: true })} />
       </Fld>
-      <Div label="project type" />
+      <ZipDropZone
+        file={s.importZip.file}
+        error={s.importZip.error}
+        onFile={setZip}
+        onError={(msg) => uZip({ file: null, error: msg })}
+        onClear={() => uZip({ file: null, error: null })}
+      />
+      <Div label="or start without a zip" />
       <Card
-        sel={s.site.type === 'new'}
-        onClick={() => u({ type: 'new' })}
+        sel={s.site.type === 'new' && !s.importZip.file}
+        onClick={() => {
+          uZip({ file: null, error: null });
+          u({ type: 'new' });
+        }}
         icon={Plus}
         title="New site from scratch"
-        sub="Start with a blank canvas or a starter template. Recommended if you're building something new."
+        sub="Starter template or blank canvas — full setup wizard for infra, domain, and CMS."
       />
       <Card
-        sel={s.site.type === 'import'}
-        onClick={() => u({ type: 'import' })}
-        icon={Upload}
-        title={
-          <>
-            Import existing site <Bdg v="cn">Shopify / HTML</Bdg>
-          </>
-        }
-        sub="Upload a Shopify theme zip or existing HTML — the pipeline parses and converts sections automatically."
-      />
-      {s.site.type === 'import' ? (
-        <div className="mb-3 pl-1">
-          <ZipDropZone
-            compact
-            file={s.importZip.file}
-            error={s.importZip.error}
-            onFile={setZip}
-            onError={(msg) => uZip({ file: null, error: msg })}
-            onClear={() => uZip({ file: null, error: null })}
-          />
-        </div>
-      ) : null}
-      <Card
-        sel={s.site.type === 'client'}
-        onClick={() => u({ type: 'client' })}
+        sel={s.site.type === 'client' && !s.importZip.file}
+        onClick={() => {
+          uZip({ file: null, error: null });
+          u({ type: 'client' });
+        }}
         icon={Users}
         title="Client site"
         sub="Tenant-scoped project for a client workspace. Isolated CMS, separate DNS, same infrastructure."
@@ -812,7 +874,7 @@ function S4({
   );
 }
 
-function S5({ s, goTo }: { s: WState; goTo: (i: number) => void }) {
+function S5({ s, goTo, express }: { s: WState; goTo: (i: number) => void; express?: boolean }) {
   const slug = s.site.slug || toSlug(s.site.name) || '—';
   const domain =
     s.domain.mode === 'subdomain'
@@ -820,24 +882,28 @@ function S5({ s, goTo }: { s: WState; goTo: (i: number) => void }) {
       : s.domain.mode === 'custom'
         ? s.domain.custom || '—'
         : 'workers.dev (set up later)';
-  const repo =
-    s.repo.mode === 'skip' ? 'manual deploy' : `${s.repo.org || 'org'}/${s.repo.repoName || 'repo'} (${s.repo.branch || 'main'})`;
-  const tpl =
-    s.cms.tpl === 'blank' ? 'blank canvas' : s.cms.tpl === 'starter' ? 'starter (hero + nav + CTA)' : 'Shopify import';
-  const rows: [string, string, number][] = [
-    ['Project', s.site.name || '—', 0],
-    ['Slug', slug, 0],
-    ['Type', s.site.type, 0],
-    ...(s.importZip.file ? [['Theme zip', s.importZip.file.name, 0] as [string, string, number]] : []),
-    ['Worker', s.infra.worker === 'existing' ? 'inneranimalmedia (shared)' : s.infra.workerName || 'new worker', 1],
-    ['R2 bucket', s.infra.bucket === 'cms' ? 'cms (shared)' : 'dedicated', 1],
-    ['Repository', repo, 2],
-    ['Domain', domain, 3],
-    ['CMS template', tpl, 4],
-    ['Sections', s.cms.secs.join(', ') || 'none', 4],
-    ['Agent Sam', s.cms.agentic ? 'enabled' : 'disabled', 4],
-    ['Python pipeline', s.cms.pipeline ? 'enabled' : 'disabled', 4],
-  ];
+  const rows: [string, string, number][] = express
+    ? [
+        ['Project', s.site.name || '—', 0],
+        ['Slug', slug, 0],
+        ['Theme zip', s.importZip.file?.name || '—', 0],
+        ['Domain', domain, 0],
+        ['Path', 'Extract theme → scaffold homepage → publish v1', -1],
+      ]
+    : [
+        ['Project', s.site.name || '—', 0],
+        ['Slug', slug, 0],
+        ['Type', s.site.type, 0],
+        ...(s.importZip.file ? [['Theme zip', s.importZip.file.name, 0] as [string, string, number]] : []),
+        ['Worker', s.infra.worker === 'existing' ? 'inneranimalmedia (shared)' : s.infra.workerName || 'new worker', 1],
+        ['R2 bucket', s.infra.bucket === 'cms' ? 'cms (shared)' : 'dedicated', 1],
+        ['Repository', s.repo.mode === 'skip' ? 'manual deploy' : `${s.repo.org || 'org'}/${s.repo.repoName || 'repo'} (${s.repo.branch || 'main'})`, 2],
+        ['Domain', domain, 3],
+        ['CMS template', s.cms.tpl === 'blank' ? 'blank canvas' : s.cms.tpl === 'starter' ? 'starter (hero + nav + CTA)' : 'Shopify import', 4],
+        ['Sections', s.cms.secs.join(', ') || 'none', 4],
+        ['Agent Sam', s.cms.agentic ? 'enabled' : 'disabled', 4],
+        ['Python pipeline', s.cms.pipeline ? 'enabled' : 'disabled', 4],
+      ];
   return (
     <>
       <Head title="Review your setup" desc="Everything looks good below. Tap any row to go back and edit." />
@@ -854,14 +920,20 @@ function S5({ s, goTo }: { s: WState; goTo: (i: number) => void }) {
             <span className="text-[13px] font-medium flex-1 break-all" style={{ color: 'var(--text-primary)' }}>
               {value}
             </span>
-            <button
-              type="button"
-              onClick={() => goTo(step)}
-              className="text-[12px] shrink-0 hover:underline"
-              style={{ color: 'var(--text-accent)' }}
-            >
-              Edit
-            </button>
+            {step >= 0 ? (
+              <button
+                type="button"
+                onClick={() => goTo(step)}
+                className="text-[12px] shrink-0 hover:underline"
+                style={{ color: 'var(--text-accent)' }}
+              >
+                Edit
+              </button>
+            ) : (
+              <span className="text-[12px] shrink-0" style={{ color: 'var(--text-muted)' }}>
+                auto
+              </span>
+            )}
           </div>
         ))}
       </div>
@@ -880,7 +952,7 @@ function DeployStepIcon({ icon: Icon }: { icon: LucideIcon }) {
   );
 }
 
-function S6({ s, onDeploy }: { s: WState; onDeploy: () => Promise<void> }) {
+function buildDeployItems(s: WState, express: boolean): { icon: LucideIcon; label: string; sub: string }[] {
   const slug = s.site.slug || toSlug(s.site.name) || 'my-site';
   const domain =
     s.domain.mode === 'subdomain'
@@ -888,7 +960,17 @@ function S6({ s, onDeploy }: { s: WState; onDeploy: () => Promise<void> }) {
       : s.domain.mode === 'custom'
         ? s.domain.custom
         : `${slug}.workers.dev`;
-  const items: { icon: LucideIcon; label: string; sub: string }[] = [
+
+  if (express) {
+    return [
+      { icon: Database, label: 'Register project', sub: `Workspace entry for ${slug}` },
+      { icon: Upload, label: 'Upload theme archive', sub: s.importZip.file?.name || 'theme.zip' },
+      { icon: Layout, label: 'Extract & map sections', sub: 'Parse templates/index.json + sections/*.liquid' },
+      { icon: Globe, label: 'Publish v1 homepage', sub: domain },
+    ];
+  }
+
+  return [
     { icon: Database, label: 'Register project in D1', sub: `cms_pages + workspace entry for ${slug}` },
     {
       icon: Zap,
@@ -909,11 +991,15 @@ function S6({ s, onDeploy }: { s: WState; onDeploy: () => Promise<void> }) {
         ]
       : []),
     ...(s.domain.mode === 'custom' ? [{ icon: Lock, label: 'Configure custom domain', sub: s.domain.custom }] : []),
-    {
-      icon: Layout,
-      label: 'Seed CMS pages',
-      sub: `Template: ${s.cms.tpl} · Sections: ${s.cms.secs.join(', ') || 'none'}`,
-    },
+    ...(s.cms.tpl !== 'shopify' && !s.importZip.file
+      ? [
+          {
+            icon: Layout,
+            label: 'Seed CMS pages',
+            sub: `Template: ${s.cms.tpl} · Sections: ${s.cms.secs.join(', ') || 'none'}`,
+          },
+        ]
+      : []),
     ...(s.importZip.file
       ? [{ icon: Upload, label: 'Upload theme archive', sub: s.importZip.file.name }]
       : []),
@@ -921,6 +1007,17 @@ function S6({ s, onDeploy }: { s: WState; onDeploy: () => Promise<void> }) {
       ? [{ icon: Bot, label: 'Register pipeline bindings', sub: 'CMS_PIPELINE service binding + agent tools' }]
       : []),
   ];
+}
+
+function S6({ s, onDeploy, express }: { s: WState; onDeploy: () => Promise<void>; express?: boolean }) {
+  const slug = s.site.slug || toSlug(s.site.name) || 'my-site';
+  const domain =
+    s.domain.mode === 'subdomain'
+      ? `${s.domain.sub || slug}.inneranimalmedia.com`
+      : s.domain.mode === 'custom'
+        ? s.domain.custom
+        : `${slug}.workers.dev`;
+  const items = buildDeployItems(s, !!express);
 
   if (s.deploy.status === 'done') {
     return (
@@ -937,7 +1034,8 @@ function S6({ s, onDeploy }: { s: WState; onDeploy: () => Promise<void> }) {
           </h3>
           <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
             Your site is live and registered in the CMS.
-            {s.deploy.importUploaded ? ' Theme import has been queued.' : ''}
+            {s.deploy.importUploaded ? ' Theme extracted and homepage published.' : ''}
+            {s.deploy.sectionsMapped ? ` ${s.deploy.sectionsMapped} sections mapped.` : ''}
           </p>
         </div>
         <div className="mb-4">
@@ -976,9 +1074,8 @@ function S6({ s, onDeploy }: { s: WState; onDeploy: () => Promise<void> }) {
             Next steps
           </div>
           {[
-            { icon: LayoutTemplate, text: 'Add sections in the studio' },
-            { icon: Upload, text: 'Import a Shopify theme' },
-            { icon: Sparkles, text: 'Generate a page with Agent Sam' },
+            { icon: LayoutTemplate, text: 'Refine sections in the studio' },
+            { icon: Sparkles, text: 'Run Python pipeline for richer HTML conversion' },
           ].map(({ icon: Icon, text }) => (
             <div
               key={text}
@@ -1000,8 +1097,10 @@ function S6({ s, onDeploy }: { s: WState; onDeploy: () => Promise<void> }) {
         title={s.deploy.status === 'running' ? 'Deploying…' : 'Deploy'}
         desc={
           s.deploy.status === 'running'
-            ? 'Hang tight — provisioning your site.'
-            : 'Tap "Deploy now" to provision your site end-to-end. This takes about 30–60 seconds.'
+            ? 'Extracting theme, mapping sections, and publishing your homepage.'
+            : express
+              ? 'Tap "Deploy now" — usually 30–90 seconds for a full theme zip.'
+              : 'Tap "Deploy now" to provision your site end-to-end. This takes about 30–60 seconds.'
         }
       />
       <div className="rounded-xl px-5 py-1 mb-4" style={{ background: 'var(--surface-2)', border: '0.5px solid var(--border)' }}>
@@ -1043,6 +1142,249 @@ function S6({ s, onDeploy }: { s: WState; onDeploy: () => Promise<void> }) {
   );
 }
 
+/* ── express: inventory + proceed ─────────────────────────────────────────── */
+
+function SInventory({
+  s,
+  upPkg,
+}: {
+  s: WState;
+  upPkg: (p: Partial<WState['pkg']>) => void;
+}) {
+  const m = s.pkg.manifest;
+  const cats = m?.categories || {};
+  const templates = m?.templates || [];
+  const toggleSection = (key: string) => {
+    const on = s.pkg.selectedSections.includes(key);
+    upPkg({
+      selectedSections: on
+        ? s.pkg.selectedSections.filter((x) => x !== key)
+        : [...s.pkg.selectedSections, key],
+    });
+  };
+
+  if (s.pkg.phase === 'running') {
+    return (
+      <>
+        <Head title="Unpacking theme…" desc="Extracting archive, indexing sections and templates. No live pages yet." />
+        <div className="rounded-xl px-5 py-8 text-center sw-panel" style={{ background: 'var(--surface-2)', border: '0.5px solid var(--border)' }}>
+          <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>Building site package inventory…</p>
+        </div>
+      </>
+    );
+  }
+
+  if (s.pkg.phase === 'error') {
+    return (
+      <>
+        <Head title="Inventory failed" desc="The archive could not be unpacked. Try a different zip or check the error below." />
+        <div className="rounded-lg p-3 text-[13px]" style={{ background: 'var(--bg-danger)', color: 'var(--text-danger)' }}>
+          {s.pkg.error || 'Unknown error'}
+        </div>
+      </>
+    );
+  }
+
+  if (s.pkg.phase !== 'ready') {
+    return (
+      <>
+        <Head title="Theme inventory" desc="Continue to upload and unpack your theme into a browsable site package." />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Head
+        title="What's in your theme"
+        desc={`${m?.entries_total || 0} files indexed — select sections to publish on the next step.`}
+      />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+        {Object.entries(cats).map(([k, v]) => (
+          <div key={k} className="rounded-lg px-3 py-2 sw-panel" style={{ background: 'var(--surface-1)', border: '0.5px solid var(--border)' }}>
+            <div className="text-[11px] uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>{k}</div>
+            <div className="text-[18px] font-semibold" style={{ color: 'var(--text-primary)' }}>{v}</div>
+          </div>
+        ))}
+      </div>
+      {templates.length ? (
+        <Fld label="Template">
+          <select
+            value={s.pkg.selectedTemplate}
+            onChange={(e) => {
+              const name = e.target.value;
+              const tpl = templates.find((t) => t.name === name);
+              upPkg({
+                selectedTemplate: name,
+                selectedSections: tpl?.section_order?.length ? [...tpl.section_order] : s.pkg.selectedSections,
+              });
+            }}
+            className="w-full px-3 py-2.5 text-[14px] rounded-[var(--radius)]"
+            style={{ border: '1px solid var(--border-strong)', background: 'var(--surface-1)', color: 'var(--text-primary)' }}
+          >
+            {templates.map((t) => (
+              <option key={t.name} value={t.name}>{t.name}</option>
+            ))}
+          </select>
+        </Fld>
+      ) : null}
+      <Div label="sections to publish" />
+      <div className="flex flex-wrap gap-1.5 mb-4 max-h-40 overflow-y-auto">
+        {(s.pkg.liquidSections || []).map((sec) => {
+          const on = s.pkg.selectedSections.includes(sec.section_key);
+          return (
+            <button
+              key={sec.id || sec.section_key}
+              type="button"
+              onClick={() => toggleSection(sec.section_key)}
+              className="text-[12px] px-2.5 py-1.5 rounded-full font-medium"
+              style={{
+                background: on ? 'var(--bg-accent)' : 'var(--surface-1)',
+                color: on ? 'var(--text-accent)' : 'var(--text-muted)',
+                border: `0.5px solid ${on ? 'var(--border-accent)' : 'var(--border)'}`,
+              }}
+            >
+              {sec.section_key}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
+        Package {s.pkg.packageId} · status inventory_ready · nothing is live until you Proceed.
+      </p>
+    </>
+  );
+}
+
+function TargetPicker({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ id: string; label: string }>;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <Fld label={label}>
+      <div className="flex flex-col gap-2">
+        {options.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => onChange(opt.id)}
+            className={`w-full text-left rounded-lg px-3 py-2.5 text-[13px] sw-card ${value === opt.id ? 'sw-card--selected' : ''}`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </Fld>
+  );
+}
+
+function SProceed({
+  s,
+  upPkg,
+  onProceed,
+}: {
+  s: WState;
+  upPkg: (p: Partial<WState['pkg']>) => void;
+  onProceed: () => Promise<void>;
+}) {
+  const slug = s.site.slug || toSlug(s.site.name) || 'my-site';
+  const domain =
+    s.domain.mode === 'subdomain'
+      ? `${s.domain.sub || slug}.inneranimalmedia.com`
+      : s.domain.mode === 'custom'
+        ? s.domain.custom
+        : `${slug}.workers.dev`;
+  const targets = s.pkg.proceedTargets;
+  const dbOptions = (targets?.db_targets || [{ id: 'platform', label: 'IAM shared D1' }]).map((t) => ({
+    id: t.id,
+    label: t.label || t.id,
+  }));
+  const r2Options = (targets?.r2_targets || [{ id: 'shared', label: 'Shared CMS bucket' }]).map((t) => ({
+    id: t.id,
+    label: t.label || t.id,
+  }));
+  const workerOptions = (targets?.worker_targets || [{ id: 'shared', label: 'inneranimalmedia' }]).map((t) => ({
+    id: t.id,
+    label: t.label || t.id,
+  }));
+
+  if (s.deploy.status === 'done') {
+    return (
+      <>
+        <div className="rounded-xl p-5 text-center mb-4" style={{ background: 'var(--bg-success)', border: '0.5px solid var(--border-success)' }}>
+          <div className="flex justify-center mb-2" style={{ color: 'var(--text-success)' }}>
+            <Check size={32} strokeWidth={2.5} aria-hidden />
+          </div>
+          <h3 className="text-[16px] font-medium mb-1" style={{ color: 'var(--text-success)' }}>Site published</h3>
+          <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+            {s.deploy.sectionsMapped || 0} sections mapped to {s.pkg.dbTarget === 'workspace' ? 'your D1' : 'IAM D1'}.
+          </p>
+        </div>
+        <a
+          href={`https://${domain}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 rounded-[var(--radius)] px-3 py-1.5 text-[13px] font-mono"
+          style={{ background: 'var(--surface-1)', border: '0.5px solid var(--border)', color: 'var(--text-primary)' }}
+        >
+          <ExternalLink size={14} aria-hidden />
+          https://{domain}
+        </a>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Head
+        title={s.deploy.status === 'running' ? 'Publishing…' : 'Proceed to live'}
+        desc="Choose where CMS data lives, then publish your selected sections."
+      />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        <TargetPicker label="Database" value={s.pkg.dbTarget} options={dbOptions} onChange={(id) => {
+          const pick = targets?.db_targets?.find((t) => t.id === id);
+          upPkg({ dbTarget: id, databaseId: pick?.database_id || '' });
+        }} />
+        <TargetPicker label="R2 storage" value={s.pkg.r2Target} options={r2Options} onChange={(id) => upPkg({ r2Target: id })} />
+        <TargetPicker label="Worker" value={s.pkg.workerTarget} options={workerOptions} onChange={(id) => upPkg({ workerTarget: id })} />
+      </div>
+      <div className="rounded-xl px-5 py-3 mb-4 sw-panel" style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}>
+        <div className="text-[13px] py-1" style={{ color: 'var(--text-secondary)' }}>
+          Template: <strong style={{ color: 'var(--text-primary)' }}>{s.pkg.selectedTemplate}</strong>
+        </div>
+        <div className="text-[13px] py-1" style={{ color: 'var(--text-secondary)' }}>
+          Sections: <strong style={{ color: 'var(--text-primary)' }}>{s.pkg.selectedSections.join(', ') || 'none'}</strong>
+        </div>
+        <div className="text-[13px] py-1" style={{ color: 'var(--text-secondary)' }}>
+          Domain: <strong style={{ color: 'var(--text-primary)' }}>{domain}</strong>
+        </div>
+      </div>
+      {s.deploy.status === 'error' ? (
+        <div className="rounded-lg p-3 mb-4 text-[13px]" style={{ background: 'var(--bg-danger)', color: 'var(--text-danger)' }}>
+          {s.deploy.error}
+        </div>
+      ) : null}
+      {s.deploy.status !== 'running' ? (
+        <button
+          type="button"
+          onClick={onProceed}
+          className="px-5 py-2 rounded-[var(--radius)] text-[14px] font-medium"
+          style={{ background: 'var(--fill-accent)', color: 'white', border: 'none' }}
+        >
+          Publish selection
+        </button>
+      ) : null}
+    </>
+  );
+}
+
 /* ── main export ─────────────────────────────────────────────────────────── */
 
 export interface SiteDeployWizardProps {
@@ -1054,12 +1396,22 @@ export interface SiteDeployWizardProps {
 export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeployWizardProps) {
   const [cur, setCur] = useState(0);
   const [s, setS] = useState<WState>(INIT);
+  const express = Boolean(s.importZip.file);
+  const steps = express ? EXPRESS_STEPS : STEPS;
 
   const upSite = useCallback((p: Partial<WState['site']>) => setS((prev) => ({ ...prev, site: { ...prev.site, ...p } })), []);
   const upZip = useCallback(
     (p: Partial<ImportZipState>) => setS((prev) => ({ ...prev, importZip: { ...prev.importZip, ...p } })),
     [],
   );
+  const onExpressZip = useCallback((_file: File, slug: string) => {
+    const defaults = applyExpressDefaults(slug);
+    setS((prev) => ({
+      ...prev,
+      ...defaults,
+      site: { ...prev.site, type: 'import' },
+    }));
+  }, []);
   const upInfra = useCallback(
     (p: Partial<WState['infra']>) => setS((prev) => ({ ...prev, infra: { ...prev.infra, ...p } })),
     [],
@@ -1074,13 +1426,13 @@ export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeplo
     (p: Partial<WState['deploy']>) => setS((prev) => ({ ...prev, deploy: { ...prev.deploy, ...p } })),
     [],
   );
+  const upPkg = useCallback(
+    (p: Partial<WState['pkg']>) => setS((prev) => ({ ...prev, pkg: { ...prev.pkg, ...p } })),
+    [],
+  );
 
-  const goTo = useCallback((i: number) => {
-    if (i >= 0 && i < STEPS.length) setCur(i);
-  }, []);
-
-  const handleDeploy = useCallback(async () => {
-    upDeploy({ status: 'running', error: undefined });
+  const handleRunInventory = useCallback(async () => {
+    upPkg({ phase: 'running', error: undefined });
     try {
       const slug = s.site.slug || toSlug(s.site.name);
       const publicDomain =
@@ -1089,7 +1441,6 @@ export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeplo
           : s.domain.mode === 'custom'
             ? s.domain.custom
             : null;
-      const cmsTemplate = s.importZip.file || s.site.type === 'import' ? 'shopify' : s.cms.tpl;
 
       const res = await fetch('/api/cms/projects/create', {
         method: 'POST',
@@ -1099,64 +1450,186 @@ export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeplo
           workspace_id: workspaceId,
           project_name: s.site.name,
           project_slug: slug,
-          project_type: s.site.type,
-          worker: s.infra.worker,
-          worker_name: s.infra.workerName || null,
-          bucket: s.infra.bucket,
-          kv_draft_cache: s.infra.kv,
-          repo_mode: s.repo.mode,
-          repo_org: s.repo.org || null,
-          repo_name: s.repo.repoName || null,
-          repo_branch: s.repo.branch || 'main',
-          cf_builds: s.repo.builds,
+          project_type: 'import',
+          worker: 'existing',
+          bucket: 'cms',
+          repo_mode: 'skip',
           domain_mode: s.domain.mode,
-          subdomain: s.domain.sub || null,
+          subdomain: s.domain.sub || slug,
           custom_domain: s.domain.custom || null,
-          cf_proxy: s.domain.cf,
-          cms_template: cmsTemplate,
-          sections: s.cms.secs,
-          agentic_tools: s.cms.agentic,
-          pipeline_binding: s.cms.pipeline,
+          cms_template: 'shopify',
+          sections: [],
+          import_mode: 'theme_zip',
+          skip_seed: true,
           public_domain: publicDomain,
         }),
       });
       if (!res.ok) {
         const e = (await res.json().catch(() => ({ error: `HTTP ${res.status}` }))) as { error?: string };
-        upDeploy({ status: 'error', error: e.error || `Deploy failed (${res.status})` });
+        upPkg({ phase: 'error', error: e.error || 'Project create failed' });
         return;
       }
 
-      let importUploaded = false;
-      if (s.importZip.file) {
-        const fd = new FormData();
-        fd.append('file', s.importZip.file);
-        fd.append('import_name', `${s.site.name || slug} theme`);
-        fd.append('project_slug', slug);
-        const up = await fetch('/api/cms/liquid-imports/upload', {
-          method: 'POST',
-          credentials: 'same-origin',
-          body: fd,
-        });
-        if (!up.ok) {
-          const ue = (await up.json().catch(() => ({ error: `HTTP ${up.status}` }))) as { error?: string };
-          upDeploy({
-            status: 'error',
-            error: ue.error || `Project created but theme upload failed (${up.status})`,
-          });
-          return;
-        }
-        importUploaded = true;
+      if (!s.importZip.file) {
+        upPkg({ phase: 'error', error: 'Theme zip required' });
+        return;
       }
 
-      upDeploy({ status: 'done', importUploaded });
-      onDeployed?.(slug);
-    } catch (e) {
-      upDeploy({ status: 'error', error: e instanceof Error ? e.message : 'Deploy failed' });
-    }
-  }, [s, workspaceId, upDeploy, onDeployed]);
+      const fd = new FormData();
+      fd.append('file', s.importZip.file);
+      fd.append('import_name', `${s.site.name || slug} theme`);
+      fd.append('project_slug', slug);
+      const up = await fetch('/api/cms/liquid-imports/upload', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: fd,
+      });
+      if (!up.ok) {
+        const ue = (await up.json().catch(() => ({ error: `HTTP ${up.status}` }))) as { error?: string; message?: string };
+        upPkg({ phase: 'error', error: ue.message || ue.error || 'Upload failed' });
+        return;
+      }
+      const uploadJson = (await up.json().catch(() => ({}))) as { id?: string };
+      const packageId = uploadJson.id;
+      if (!packageId) {
+        upPkg({ phase: 'error', error: 'No package id returned' });
+        return;
+      }
 
-  const isLast = cur === STEPS.length - 1;
+      for (let attempt = 0; attempt < 45; attempt++) {
+        await sleep(2000);
+        const poll = await fetch(`/api/cms/site-packages/${encodeURIComponent(packageId)}/inventory`, {
+          credentials: 'same-origin',
+        });
+        if (!poll.ok) continue;
+        const inv = (await poll.json().catch(() => ({}))) as {
+          ready?: boolean;
+          package?: { status?: string; error_log?: string };
+          manifest?: WState['pkg']['manifest'];
+          liquid_sections?: Array<{ id: string; section_key: string }>;
+          proceed_targets?: WState['pkg']['proceedTargets'];
+        };
+        if (inv.package?.status === 'failed') {
+          upPkg({ phase: 'error', error: inv.package.error_log || 'Inventory failed' });
+          return;
+        }
+        if (inv.ready) {
+          const defaultKeys = inv.manifest?.default_section_keys || inv.liquid_sections?.map((x) => x.section_key) || [];
+          upPkg({
+            phase: 'ready',
+            packageId,
+            manifest: inv.manifest,
+            liquidSections: inv.liquid_sections,
+            proceedTargets: inv.proceed_targets,
+            selectedSections: [...defaultKeys],
+            selectedTemplate: inv.manifest?.default_template || 'index',
+          });
+          upDeploy({ importId: packageId, importUploaded: true });
+          return;
+        }
+      }
+      upPkg({ phase: 'error', error: 'Inventory timed out — check CMS Imports' });
+    } catch (e) {
+      upPkg({ phase: 'error', error: e instanceof Error ? e.message : 'Inventory failed' });
+    }
+  }, [s, workspaceId, upDeploy, upPkg]);
+
+  const handleProceed = useCallback(async () => {
+    upDeploy({ status: 'running', error: undefined });
+    try {
+      const packageId = s.pkg.packageId;
+      if (!packageId) {
+        upDeploy({ status: 'error', error: 'No site package — run inventory first' });
+        return;
+      }
+      const res = await fetch(`/api/cms/site-packages/${encodeURIComponent(packageId)}/proceed`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          template: s.pkg.selectedTemplate,
+          sections: s.pkg.selectedSections,
+          db_target: s.pkg.dbTarget,
+          database_id: s.pkg.databaseId || null,
+          r2_target: s.pkg.r2Target,
+          worker_target: s.pkg.workerTarget,
+          project_slug: s.site.slug || toSlug(s.site.name),
+        }),
+      });
+      if (!res.ok) {
+        const e = (await res.json().catch(() => ({ error: `HTTP ${res.status}` }))) as { error?: string };
+        upDeploy({ status: 'error', error: e.error || 'Proceed failed' });
+        return;
+      }
+
+      for (let attempt = 0; attempt < 45; attempt++) {
+        await sleep(2000);
+        const poll = await fetch(`/api/cms/site-packages/${encodeURIComponent(packageId)}`, {
+          credentials: 'same-origin',
+        });
+        if (!poll.ok) continue;
+        const inv = (await poll.json().catch(() => ({}))) as {
+          package?: { status?: string; sections_mapped?: number; error_log?: string };
+        };
+        if (inv.package?.status === 'completed') {
+          upDeploy({
+            status: 'done',
+            sectionsMapped: inv.package.sections_mapped || s.pkg.selectedSections.length,
+          });
+          onDeployed?.(s.site.slug || toSlug(s.site.name));
+          return;
+        }
+        if (inv.package?.status === 'failed') {
+          upDeploy({ status: 'error', error: inv.package.error_log || 'Publish failed' });
+          return;
+        }
+      }
+      upDeploy({ status: 'error', error: 'Publish timed out' });
+    } catch (e) {
+      upDeploy({ status: 'error', error: e instanceof Error ? e.message : 'Proceed failed' });
+    }
+  }, [s, upDeploy, onDeployed]);
+
+  const goTo = useCallback(
+    (i: number) => {
+      if (i >= 0 && i < steps.length) setCur(i);
+    },
+    [steps.length],
+  );
+
+  useEffect(() => {
+    if (!express || cur !== 1) return;
+    if (s.pkg.phase === 'idle') handleRunInventory();
+  }, [express, cur, s.pkg.phase, handleRunInventory]);
+
+  const handleDeploy = useCallback(async () => {
+    await handleProceed();
+  }, [handleProceed]);
+
+  const isLast = cur === steps.length - 1;
   const isDone = s.deploy.status === 'done';
+
+  const renderStep = () => {
+    if (express) {
+      if (cur === 0) return <S0 s={s} u={upSite} uZip={upZip} onExpressZip={onExpressZip} express />;
+      if (cur === 1) return <SInventory s={s} upPkg={upPkg} />;
+      if (cur === 2) return <SProceed s={s} upPkg={upPkg} onProceed={handleProceed} />;
+      return null;
+    }
+    if (cur === 0) return <S0 s={s} u={upSite} uZip={upZip} onExpressZip={onExpressZip} />;
+    if (cur === 1) return <S1 s={s} u={upInfra} />;
+    if (cur === 2) return <S2 s={s} u={upRepo} />;
+    if (cur === 3) return <S3 s={s} u={upDomain} />;
+    if (cur === 4) return <S4 s={s} u={upCms} uZip={upZip} />;
+    if (cur === 5) return <S5 s={s} goTo={goTo} />;
+    if (cur === 6) return <S6 s={s} onDeploy={handleDeploy} />;
+    return null;
+  };
+
+  const canContinue =
+    !isLast &&
+    !(cur === 0 && express && (!s.importZip.file || !s.site.name.trim() || !s.site.slug.trim())) &&
+    !(cur === 1 && express && s.pkg.phase !== 'ready');
 
   return (
     <div className="flex flex-col h-full min-h-0 site-deploy-wizard" style={{ background: 'var(--surface-0)', fontFamily: 'var(--font-sans)' }}>
@@ -1180,16 +1653,10 @@ export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeplo
         ) : null}
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6">
-        <Prog cur={cur} />
-        {cur === 0 && <S0 s={s} u={upSite} uZip={upZip} />}
-        {cur === 1 && <S1 s={s} u={upInfra} />}
-        {cur === 2 && <S2 s={s} u={upRepo} />}
-        {cur === 3 && <S3 s={s} u={upDomain} />}
-        {cur === 4 && <S4 s={s} u={upCms} uZip={upZip} />}
-        {cur === 5 && <S5 s={s} goTo={goTo} />}
-        {cur === 6 && <S6 s={s} onDeploy={handleDeploy} />}
+        <Prog cur={cur} steps={steps} />
+        {renderStep()}
       </div>
-      {!isDone ? (
+      {!isDone && !(express && cur === 2) ? (
         <div
           className="flex items-center justify-between px-6 py-4 shrink-0"
           style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}
@@ -1230,10 +1697,17 @@ export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeplo
             <button
               type="button"
               onClick={() => goTo(cur + 1)}
+              disabled={!canContinue}
               className="px-5 py-2 rounded-[var(--radius)] text-[14px] font-medium"
-              style={{ background: 'var(--fill-accent)', color: 'white', border: 'none' }}
+              style={{
+                background: 'var(--fill-accent)',
+                color: 'white',
+                border: 'none',
+                opacity: canContinue ? 1 : 0.5,
+                cursor: canContinue ? 'pointer' : 'not-allowed',
+              }}
             >
-              {cur === STEPS.length - 2 ? 'Review' : 'Continue'}
+              {cur === steps.length - 2 ? 'Review' : 'Continue'}
             </button>
           )}
         </div>

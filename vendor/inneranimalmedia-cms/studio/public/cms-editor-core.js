@@ -14,11 +14,24 @@ async function api(path, opts = {}) {
     body: opts.body instanceof FormData ? opts.body
       : opts.body ? JSON.stringify(opts.body) : undefined,
   });
+  const raw = await res.text();
+  let data = {};
+  try { data = raw ? JSON.parse(raw) : {}; } catch { data = { error: raw || res.statusText }; }
   if (!res.ok) {
-    const e = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(e.error || res.statusText);
+    const errMsg = data.error || data.message || res.statusText;
+    const e = new Error(typeof data === 'object' ? JSON.stringify(data) : errMsg);
+    e.status = res.status;
+    e.payload = data;
+    throw e;
   }
-  return res.json();
+  return data;
+}
+
+function isFullHtmlDocument(html) {
+  const raw = String(html || '').trim();
+  if (!raw) return false;
+  if (/^<!doctype\s/i.test(raw)) return true;
+  return /<html[\s>]/i.test(raw);
 }
 
 function readCtx() {
@@ -58,24 +71,23 @@ function pagePath(page) {
   return `/${slug}`;
 }
 
+function resolvePreviewHost(boot = null, ctx = readCtx()) {
+  const project = ctx.project || boot?.project_slug || 'inneranimalmedia';
+  const tenantDomain = String(boot?.tenant?.domain || boot?.public_domain || ctx.publicDomain || '')
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '')
+    .trim();
+  if (tenantDomain) return tenantDomain;
+  return STOREFRONT_APEX[project] || `${project}.meauxbility.workers.dev`;
+}
+
 /** @param {'live'|'embed'|'preview-draft'|'preview-published'} mode */
 function pageToUrl(page, boot = null, mode = 'embed') {
   if (!page) return null;
   const ctx = readCtx();
   const path = pagePath(page);
-  const domain =
-    boot?.tenant?.domain ||
-    ctx.publicDomain ||
-    STOREFRONT_APEX[ctx.project] ||
-    STOREFRONT_APEX[boot?.project_slug];
-  let base;
-  if (domain) {
-    const host = String(domain).replace(/^https?:\/\//, '').replace(/\/$/, '');
-    base = `https://${host}${path}`;
-  } else {
-    const project = ctx.project || boot?.project_slug || 'inneranimalmedia';
-    base = `https://${project}.meauxbility.workers.dev${path}`;
-  }
+  const host = resolvePreviewHost(boot, ctx);
+  const base = `https://${host}${path}`;
   try {
     const url = new URL(base);
     const isDraft = String(page?.status || '').toLowerCase() === 'draft';
@@ -215,9 +227,13 @@ const WIZARD_STYLES = `
 .canvas-welcome h2{font-size:1.35rem;margin-bottom:8px;font-weight:700}
 .canvas-welcome p{color:#64748b;font-size:13px;max-width:360px;line-height:1.6;margin-bottom:20px}
 .canvas-welcome .btn.pub{background:#2563eb;border-color:#2563eb}
-.picker-footer{border-top:1px solid #e8e4dc;padding:8px;display:flex;flex-direction:column;gap:4px;background:#faf9f7}
+.picker-footer{border-top:1px solid #e8e4dc;padding:8px;display:flex;flex-direction:column;gap:4px;background:#faf9f7;flex-shrink:0}
 .picker-action{display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;border:none;background:none;cursor:pointer;border-radius:8px;font-size:12px;font-weight:600;color:#2563eb;text-align:left}
 .picker-action:hover{background:#eff6ff}
+.picker-action:disabled{opacity:.45;cursor:not-allowed}
+.picker-action:disabled:hover{background:none}
+.picker-action svg,.picker-action-icon svg{width:15px;height:15px;flex-shrink:0;display:block}
+.picker-action-icon{width:15px;height:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#2563eb}
 `;
 
 /* ── DRAG REORDER ─────────────────────────────────────────── */
@@ -503,15 +519,15 @@ html,body,#app{background:#F9F7F2;color:#1a1a1a;height:100dvh;height:-webkit-fil
 .ts-icon-btn svg{width:18px;height:18px}
 .ts-page-select{height:36px;min-width:180px;border:1px solid #e8e4dc;border-radius:10px;background:#fff;color:#111;padding:0 32px 0 12px;font-size:13px;font-weight:600;cursor:pointer;outline:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
 .ts-page-select:focus{border-color:#0d9488;box-shadow:0 0 0 3px rgba(13,148,136,.12)}
-.ts-page-picker{position:relative;min-width:0;width:100%;max-width:min(420px,100%)}
+.ts-page-picker{position:relative;min-width:0;width:100%;max-width:min(420px,100%);z-index:320}
 .ts-page-picker-btn{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;height:40px;border:1px solid #e8e4dc;border-radius:12px;background:#fff;color:#111;padding:0 14px;font-size:13px;font-weight:600;cursor:pointer;outline:none;box-shadow:0 1px 2px rgba(0,0,0,.04)}
 .ts-page-picker-btn:hover,.ts-page-picker-btn:active{border-color:#d6d0c4;background:#faf8f4}
 .ts-page-picker-btn svg{width:14px;height:14px;color:#64748b;flex-shrink:0}
 .ts-page-picker-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
-.ts-page-picker-menu{position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);width:min(360px,calc(100vw - 24px));max-height:min(420px,58dvh);background:#fff;border:1px solid #e8e4dc;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.12);z-index:300;display:flex;flex-direction:column;overflow:hidden}
-.ts-page-picker-search{height:42px;border:none;border-bottom:1px solid #f0ebe3;padding:0 14px;font-size:16px;outline:none;background:#faf8f4;border-radius:0}
+.ts-page-picker-menu{position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);width:min(360px,calc(100vw - 24px));max-height:min(420px,58dvh);background:#fff;border:1px solid #e8e4dc;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.12);z-index:400;display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.ts-page-picker-search{height:42px;border:none;border-bottom:1px solid #f0ebe3;padding:0 14px;font-size:16px;outline:none;background:#faf8f4;border-radius:0;flex-shrink:0}
 .ts-page-picker-search:focus{background:#fff}
-.ts-page-picker-list{overflow-y:auto;padding:6px;-webkit-overflow-scrolling:touch}
+.ts-page-picker-list{overflow-y:auto;padding:6px;-webkit-overflow-scrolling:touch;flex:1 1 auto;min-height:0;max-height:min(280px,42dvh)}
 .ts-page-picker-item{display:flex;align-items:flex-start;gap:8px;width:100%;border:none;background:transparent;text-align:left;padding:12px;border-radius:10px;cursor:pointer;color:#111;min-height:44px}
 .ts-page-picker-item:hover,.ts-page-picker-item:active{background:#faf8f4}
 .ts-page-picker-item.active{background:#eff6ff}
@@ -520,8 +536,13 @@ html,body,#app{background:#F9F7F2;color:#1a1a1a;height:100dvh;height:-webkit-fil
 .ts-page-picker-item-text{display:flex;flex-direction:column;gap:2px;min-width:0}
 .ts-page-picker-item-title{font-size:14px;font-weight:600;line-height:1.3}
 .ts-page-picker-item-path{font-size:11px;color:#64748b}
-.ts-page-picker-empty{padding:14px 12px;color:#94a3b8;font-size:12px}
-.ts-topbar-center{flex:1;display:flex;align-items:center;justify-content:center;min-width:0;padding:0 4px}
+.ts-page-picker-empty{padding:16px 12px;color:#64748b;font-size:12px;line-height:1.45;text-align:center}
+.ts-page-picker-empty-state{display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px 16px;text-align:center;color:#64748b}
+.ts-page-picker-empty-icon{width:36px;height:36px;border-radius:10px;background:#eff6ff;color:#2563eb;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.ts-page-picker-empty-icon svg{width:18px;height:18px;display:block}
+.ts-page-picker-empty-state strong{font-size:13px;color:#334155;font-weight:600}
+.ts-page-picker-empty-state span{font-size:11px;line-height:1.45}
+.ts-topbar-center{flex:1;display:flex;align-items:center;justify-content:center;min-width:0;padding:0 4px;overflow:visible;position:relative;z-index:350}
 .ts-topbar-right{display:flex;align-items:center;gap:6px;margin-left:auto;flex-shrink:0}
 .ts-topbar-actions-compact{display:none;align-items:center;gap:4px}
 .shell.theme-studio .vp-group{background:#f5f2eb;border:1px solid #e8e4dc;border-radius:10px;flex-shrink:0}
@@ -1027,7 +1048,13 @@ function PagePicker({ pages, activePage, onSelect, onOpenWizard }) {
             autoFocus
           />
           <div className="ts-page-picker-list">
-            {filteredPages.map(page => (
+            {!sortedPages.length ? (
+              <div className="ts-page-picker-empty-state">
+                <span className="ts-page-picker-empty-icon" aria-hidden="true">{I.page}</span>
+                <strong>No pages yet</strong>
+                <span>Create a page to start editing this site.</span>
+              </div>
+            ) : filteredPages.map(page => (
               <button
                 key={page.id}
                 type="button"
@@ -1053,13 +1080,19 @@ function PagePicker({ pages, activePage, onSelect, onOpenWizard }) {
                 </span>
               </button>
             ))}
-            {!filteredPages.length ? (
+            {sortedPages.length && !filteredPages.length ? (
               <div className="ts-page-picker-empty">No matching pages</div>
             ) : null}
           </div>
           <div className="picker-footer">
-            <button type="button" className="picker-action" onClick={() => { setOpen(false); onOpenWizard?.('page'); }}>{I.page} Add page</button>
-            <button type="button" className="picker-action" onClick={() => { setOpen(false); onOpenWizard?.('section'); }}>{I.plus} Add section</button>
+            <button type="button" className="picker-action" onClick={() => { setOpen(false); onOpenWizard?.('page'); }}>
+              <span className="picker-action-icon" aria-hidden="true">{I.page}</span>
+              Add page
+            </button>
+            <button type="button" className="picker-action" onClick={() => { setOpen(false); onOpenWizard?.('section'); }} disabled={!activePage && !sortedPages.length}>
+              <span className="picker-action-icon" aria-hidden="true">{I.plus}</span>
+              Add section
+            </button>
           </div>
         </div>
       ) : null}
@@ -1356,13 +1389,41 @@ function CmsEditor() {
       .catch(() => setPreviewUrls(null));
     const frame = iframeRef.current;
     if (frame) {
-      const url = pageToUrl(page, boot, 'embed');
-      if (url) {
-        frame.removeAttribute('srcdoc');
-        frame.src = url;
-      } else if (opts.fallbackHtml) {
-        frame.removeAttribute('src');
-        frame.srcdoc = opts.fallbackHtml;
+      const needsSrcdoc =
+        String(page?.status || '').toLowerCase() === 'draft' ||
+        !page?.r2_key ||
+        boot?.cms_hosting === 'client_worker';
+      if (needsSrcdoc) {
+        api(`/api/cms/pages/${encodeURIComponent(page.id)}?draft=1&project_slug=${encodeURIComponent(ctx.project)}`)
+          .then(data => {
+            if (data.preview_html && iframeRef.current) {
+              iframeRef.current.removeAttribute('src');
+              iframeRef.current.srcdoc = data.preview_html;
+              setDraftPreview(true);
+            } else {
+              const url = pageToUrl(page, boot, 'embed');
+              if (url) {
+                frame.removeAttribute('srcdoc');
+                frame.src = url;
+              }
+            }
+          })
+          .catch(() => {
+            const url = pageToUrl(page, boot, 'embed');
+            if (url) {
+              frame.removeAttribute('srcdoc');
+              frame.src = url;
+            }
+          });
+      } else {
+        const url = pageToUrl(page, boot, 'embed');
+        if (url) {
+          frame.removeAttribute('srcdoc');
+          frame.src = url;
+        } else if (opts.fallbackHtml) {
+          frame.removeAttribute('src');
+          frame.srcdoc = opts.fallbackHtml;
+        }
       }
     }
     const navCtx = readCtx();
@@ -1552,6 +1613,27 @@ function CmsEditor() {
   }
 
   /* ── publish ── */
+  async function saveFullPageHtmlDraft(html, { silent } = {}) {
+    if (!activePage || !html.trim()) return null;
+    const result = await api(`/api/cms/pages/${encodeURIComponent(activePage.id)}`, {
+      method: 'PUT',
+      body: { content: html, title: activePage.title || undefined },
+    });
+    if (!silent) showToast('Full page saved to draft R2', 'ok');
+    return result;
+  }
+
+  async function flushPendingHtmlBeforePublish() {
+    if (!htmlCode.trim() || !activePage) return;
+    const fullPage = isFullHtmlDocument(htmlCode);
+    if (!fullPage && !previewing) return;
+    if (!fullPage && sections.length > 0) return;
+    await saveFullPageHtmlDraft(htmlCode, { silent: true });
+    setPrev(false);
+    setHtmlCode('');
+    setHtmlName('');
+  }
+
   async function publishPage() {
     if (!activePage) return;
     if (Object.keys(dirty).length && activeSection) {
@@ -1559,6 +1641,7 @@ function CmsEditor() {
     }
     setPub(true);
     try {
+      await flushPendingHtmlBeforePublish();
       let snap = null;
       try {
         snap = await api(`/api/cms/pages/${encodeURIComponent(activePage.id)}/snapshot`, { method: 'POST' });
@@ -1567,15 +1650,37 @@ function CmsEditor() {
       if (snap?.id) {
         pushUndo({ kind: 'publish', rollback_id: snap.id, page_id: activePage.id });
       }
-      await api(`/api/cms/pages/${encodeURIComponent(activePage.id)}/publish`, { method: 'POST' });
-      showToast('Published · ' + activePage.title, 'ok');
-      showLiveSite(activePage);
+      const pub = await api(`/api/cms/pages/${encodeURIComponent(activePage.id)}/publish`, { method: 'POST' });
+      const urls = pub.preview_urls || null;
+      if (urls) setPreviewUrls(urls);
+      const live = urls?.live_url || pub.live_url || pageToUrl(activePage, bootstrap, 'embed');
+      showToast('Published · ' + (activePage.title || activePage.slug) + (live ? ' · live on ' + new URL(live).host : ''), 'ok');
+      setDraftPreview(false);
+      setPrev(false);
+      const frame = iframeRef.current;
+      if (frame && live) {
+        frame.removeAttribute('srcdoc');
+        frame.src = urls?.embed_url || live + (live.includes('?') ? '&' : '?') + 'cms=1';
+      }
       const data = await reloadBootstrap(activePage.id);
       const pg = (data.pages || []).find(p => p.id === activePage.id);
       if (pg) setActivePage(pg);
     } catch (e) {
-      const msg = String(e.message || 'Publish failed');
-      showToast(msg.includes('publish_gate') ? 'Publish blocked — check SEO fields in Advanced' : 'Publish failed: ' + msg, 'err');
+      let msg = String(e.message || 'Publish failed');
+      try {
+        const parsed = JSON.parse(msg);
+        if (parsed?.error === 'publish_gate_blocked') {
+          const blocked = (parsed.blocked || []).join(', ');
+          msg = blocked ? `Publish blocked: ${blocked}` : 'Publish blocked — check SEO/route in Advanced';
+        } else if (parsed?.error) {
+          msg = parsed.error;
+        }
+      } catch (_) {
+        if (msg.includes('publish_gate')) {
+          msg = 'Publish blocked — add SEO title/description in Advanced tab';
+        }
+      }
+      showToast(msg.startsWith('Publish') ? msg : 'Publish failed: ' + msg, 'err');
     }
     finally { setPub(false); }
   }
@@ -1613,10 +1718,35 @@ function CmsEditor() {
   }
 
   async function publishHtmlSection() {
-    if (!htmlCode.trim() || !htmlName.trim()) { showToast('Name + HTML required', 'err'); return; }
-    if (!activePage) { showToast('Select a page first', 'err'); return; }
+    if (!htmlCode.trim() || !activePage) { showToast('Paste HTML first', 'err'); return; }
     setSaving(true);
     try {
+      if (isFullHtmlDocument(htmlCode)) {
+        const sectionName = htmlName.trim() || activePage.slug || 'page';
+        await saveFullPageHtmlDraft(htmlCode, { silent: true });
+        try {
+          await api('/api/cms/sections/save-injected', {
+            method: 'POST',
+            body: {
+              page_id: activePage.id,
+              section_type: htmlType || 'custom',
+              section_name: sectionName,
+              html: htmlCode,
+              position: htmlPos,
+              sort_order: htmlPos === 'end' ? (sections.length + 1) * 10 : 5,
+              project_slug: ctx.project,
+            },
+          });
+        } catch (_) {}
+        setHtmlCode('');
+        setHtmlName('');
+        clearPreview();
+        showToast('Full page saved — click Publish to go live', 'ok');
+        await refreshDraftPreview();
+        return;
+      }
+
+      if (!htmlName.trim()) { showToast('Section name required for partial HTML', 'err'); return; }
       const existing = sections.find(s => String(s.section_name || '').trim() === htmlName.trim());
       const result = await api('/api/cms/sections/save-injected', {
         method: 'POST',
@@ -2793,16 +2923,16 @@ function HtmlPanel({ code, setCode, name, setName, type, setType, pos, setPos,
         className="btn pub"
         style={{ width: '100%', justifyContent: 'center' }}
         onClick={onPublish}
-        disabled={saving || !code.trim() || !name.trim()}
+        disabled={saving || !code.trim()}
       >
         {saving && <span className="spin">⟳</span>}
-        {saving ? 'Publishing…' : 'Publish → R2 + D1'}
+        {saving ? 'Publishing…' : 'Save HTML → R2 + D1'}
       </button>
 
       <div className="divider" />
       <div style={{ fontSize: 10, color: '#374151', lineHeight: 1.65 }}>
-        HTML is stored in R2 at <code style={{ color: '#67e8f9' }}>cms/sections/{'{page}'}/{'{name}'}/</code>.<br />
-        D1 stores only metadata — no HTML in the database.
+        Full-page HTML (<code style={{ color: '#67e8f9' }}>&lt;!DOCTYPE html&gt;</code>) saves to draft — use top <strong>Publish</strong> to go live.<br />
+        Partial HTML needs a section name and is stored at <code style={{ color: '#67e8f9' }}>cms/sections/{'{page}'}/{'{name}'}/</code>.
       </div>
     </div>
   );

@@ -3,6 +3,22 @@
  * Loads section artifacts from R2 (section_data.r2_key) and splices them into static shells.
  */
 
+/** @param {string} html */
+export function isFullHtmlDocument(html) {
+  const raw = String(html || '').trim();
+  if (!raw) return false;
+  if (/^<!doctype\s/i.test(raw)) return true;
+  return /<html[\s>]/i.test(raw);
+}
+
+/** @param {string} html */
+export function normalizeFullPageHtml(html) {
+  const raw = String(html || '').trim();
+  if (!raw) return '';
+  if (/^<!doctype\s/i.test(raw)) return raw;
+  return `<!DOCTYPE html>\n${raw}`;
+}
+
 function slugSegment(value, fallback = 'section') {
   return (
     String(value || '')

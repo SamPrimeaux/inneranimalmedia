@@ -9,6 +9,12 @@ import {
   invalidateCmsBootstrapCache,
   putCmsDraftCache,
 } from './cms-kv-cache.js';
+import {
+  fetchInjectedSectionHtml,
+  isFullHtmlDocument,
+  normalizeFullPageHtml,
+  renderCmsSectionTreeHtmlWithInjections,
+} from './cms-injected-sections.js';
 import { CMS_DEFAULT_R2_BUCKET, getCmsR2Binding } from './cms-r2-binding.js';
 
 const CMS_EDIT_SKILL_ID = 'skill_iam_cms_edit';
@@ -516,6 +522,35 @@ export async function loadCmsPagePreviewContext(env, pageId, userId, draftDataOv
  *   draftData?: Record<string, unknown>|null,
  * }} opts
  */
+/**
+ * @param {Array<Record<string, unknown>>} sections
+ * @param {unknown} r2Binding
+ */
+async function resolveFullPageHtmlFromSections(sections, r2Binding) {
+  const visible = (sections || []).filter((s) => s.is_visible === 1 || s.is_visible === true);
+  if (visible.length !== 1 || !r2Binding) return null;
+
+  const section = visible[0];
+  const data =
+    section.section_data && typeof section.section_data === 'object'
+      ? section.section_data
+      : (() => {
+          try {
+            return typeof section.section_data === 'string' ? JSON.parse(section.section_data) : {};
+          } catch {
+            return {};
+          }
+        })();
+  const r2Key = String(data.r2_key || data.r2Key || '').trim();
+  if (!r2Key) return null;
+
+  const obj = await r2Binding.get(r2Key).catch(() => null);
+  if (!obj) return null;
+  const raw = await obj.text();
+  if (!isFullHtmlDocument(raw)) return null;
+  return normalizeFullPageHtml(raw);
+}
+
 export async function writeCmsDraftHtmlToR2(env, opts) {
   const workspaceId = String(opts.workspaceId || '').trim();
   const userId = String(opts.userId || '').trim();
@@ -528,10 +563,27 @@ export async function writeCmsDraftHtmlToR2(env, opts) {
   const ctx = await loadCmsPagePreviewContext(env, pageId, userId, opts.draftData || null);
   if (!ctx) return { ok: false, error: 'page_not_found' };
 
-  const html = renderCmsSectionTreeHtml(ctx.sections, ctx.componentsBySection);
   const r2Bucket = String(page.r2_bucket || CMS_DEFAULT_R2_BUCKET).trim();
   const r2Binding = getCmsR2Binding(env, r2Bucket);
   if (!r2Binding) return { ok: false, error: 'r2_unavailable' };
+
+  const fullPageOverride =
+    typeof opts.fullPageHtml === 'string' && opts.fullPageHtml.trim()
+      ? normalizeFullPageHtml(opts.fullPageHtml)
+      : await resolveFullPageHtmlFromSections(ctx.sections, r2Binding);
+
+  let html;
+  if (fullPageOverride) {
+    html = fullPageOverride;
+  } else if (ctx.sections?.length) {
+    html = await renderCmsSectionTreeHtmlWithInjections(
+      ctx.sections,
+      ctx.componentsBySection,
+      r2Binding,
+    );
+  } else {
+    html = renderCmsSectionTreeHtml(ctx.sections, ctx.componentsBySection);
+  }
 
   const draftKey = cmsPageHtmlKey(
     workspaceId,
@@ -553,6 +605,7 @@ export async function writeCmsDraftHtmlToR2(env, opts) {
       r2_bucket: r2Bucket,
       byte_length: contentBuffer.byteLength,
       html_rendered_at: Math.floor(Date.now() / 1000),
+      full_page_document: Boolean(fullPageOverride),
     },
   });
 
@@ -573,13 +626,59 @@ export async function writeCmsDraftHtmlToR2(env, opts) {
 export async function ensureCmsDraftR2BeforePublish(env, opts) {
   const r2Binding = opts.r2Binding;
   const draftKey = String(opts.draftKey || '').trim();
+  const page = opts.page || {};
+  const userId = String(opts.userId || '').trim();
+  const pageId = String(page.id || '').trim();
+
+  if (pageId && env?.DB) {
+    const sectionRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM cms_page_sections WHERE page_id = ?`,
+    )
+      .bind(pageId)
+      .first()
+      .catch(() => null);
+    const sectionCount = Number(sectionRow?.n) || 0;
+    if (sectionCount > 0) {
+      return writeCmsDraftHtmlToR2(env, {
+        workspaceId: opts.workspaceId,
+        page,
+        userId,
+      });
+    }
+  }
+
   if (r2Binding && draftKey) {
     const head = await r2Binding.head(draftKey).catch(() => null);
     if (head) return { ok: true, existed: true, r2_key: draftKey };
   }
+
+  const publishedKey = String(page.r2_key || '').trim();
+  if (r2Binding && draftKey && publishedKey && pageId && userId) {
+    const pubObj = await r2Binding.get(publishedKey).catch(() => null);
+    if (pubObj) {
+      const content = await pubObj.arrayBuffer();
+      const r2Bucket = String(page.r2_bucket || CMS_DEFAULT_R2_BUCKET).trim();
+      await r2Binding.put(draftKey, content, {
+        httpMetadata: { contentType: String(page.content_type || 'text/html; charset=utf-8') },
+      });
+      await putCmsDraftCache(env, {
+        pageId,
+        userId,
+        payload: {
+          r2_key: draftKey,
+          r2_bucket: r2Bucket,
+          byte_length: content.byteLength,
+          copied_from_published: publishedKey,
+          html_rendered_at: Math.floor(Date.now() / 1000),
+        },
+      });
+      return { ok: true, copied_from_published: true, r2_key: draftKey };
+    }
+  }
+
   return writeCmsDraftHtmlToR2(env, {
     workspaceId: opts.workspaceId,
-    page: opts.page,
-    userId: opts.userId,
+    page,
+    userId,
   });
 }

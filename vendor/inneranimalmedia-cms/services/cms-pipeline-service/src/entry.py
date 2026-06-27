@@ -22,6 +22,13 @@ from pipeline.html_sections import (
     section_names_from_html,
 )
 from pipeline.preview import inject_bootstrap_script, studio_bootstrap_payload
+from pipeline.theme_audit import (
+    audit_theme_package,
+    build_proposed_scaffold,
+    convert_sections_batch,
+    liquid_to_cms_html,
+    parse_liquid_schema,
+)
 
 
 def _json_response(payload, status=200):
@@ -145,5 +152,61 @@ class Default(WorkerEntrypoint):
             )
             html = inject_bootstrap_script(shell, payload)
             return Response(html, headers={"Content-Type": "text/html; charset=utf-8"})
+
+        if path == "/pipeline/theme-audit" and method == "POST":
+            body = await request.json()
+            manifest = body.get("manifest") if isinstance(body.get("manifest"), dict) else {}
+            sections = body.get("sections") if isinstance(body.get("sections"), list) else []
+            templates = body.get("templates") if isinstance(body.get("templates"), list) else None
+            categories = body.get("categories") if isinstance(body.get("categories"), dict) else None
+            audit = audit_theme_package(
+                manifest=manifest,
+                sections=sections,
+                templates=templates,
+                categories=categories,
+            )
+            return _json_response(audit)
+
+        if path == "/pipeline/theme-scaffold-plan" and method == "POST":
+            body = await request.json()
+            manifest = body.get("manifest") if isinstance(body.get("manifest"), dict) else {}
+            audit = body.get("audit") if isinstance(body.get("audit"), dict) else None
+            if audit is None:
+                sections = body.get("sections") if isinstance(body.get("sections"), list) else []
+                audit = audit_theme_package(manifest=manifest, sections=sections)
+            scaffold = build_proposed_scaffold(
+                manifest=manifest,
+                audit=audit,
+                project_slug=str(body.get("project_slug") or body.get("project") or "site"),
+                workspace_id=str(body.get("workspace_id") or ""),
+            )
+            return _json_response({"audit": audit, "proposed_scaffold": scaffold})
+
+        if path == "/pipeline/liquid-to-html" and method == "POST":
+            body = await request.json()
+            section_key = str(body.get("section_key") or body.get("sectionKey") or "").strip()
+            liquid = str(body.get("liquid_source") or body.get("liquid") or "")
+            if not section_key and not liquid:
+                return _json_response({"error": "section_key or liquid_source required"}, status=400)
+            schema = body.get("schema")
+            if schema is None and liquid:
+                schema = parse_liquid_schema(liquid)
+            settings = body.get("settings") if isinstance(body.get("settings"), dict) else None
+            html = liquid_to_cms_html(section_key or "section", liquid, schema=schema, settings=settings)
+            return _json_response(
+                {
+                    "ok": True,
+                    "section_key": section_key,
+                    "html_fragment": html,
+                    "schema": schema,
+                }
+            )
+
+        if path == "/pipeline/liquid-to-html-batch" and method == "POST":
+            body = await request.json()
+            sections = body.get("sections") if isinstance(body.get("sections"), list) else []
+            keys = body.get("section_keys") if isinstance(body.get("section_keys"), list) else None
+            out = convert_sections_batch(sections, section_keys=keys)
+            return _json_response(out)
 
         return _json_response({"error": "not_found", "path": path}, status=404)

@@ -2,6 +2,8 @@
  * API Service: CMS (Content Management System)
  * Handles page metadata in D1 and content persistence in R2.
  *
+ * Typed contracts: src/types/cms.ts (TypeScript-first — dashboard + future Worker migration)
+ *
  * Rules:
  * 1. D1 row = metadata + routing.
  * 2. Actual content = R2 object (HTML/MD) on ASSETS (inneranimalmedia).
@@ -72,9 +74,18 @@ import {
 } from '../core/cms-workspace-resolve.js';
 import { resolveActiveCmsThemeRow } from '../core/cms-theme-resolve.js';
 import { resolveCmsSiteConfig } from '../core/cms-site-config.js';
+import { resolveCmsPublicDomain } from '../core/cms-storefront-url.js';
 import { mintCmsEmbedSession, proxyCmsBridgeRequest } from '../core/cms-client-bridge.js';
-import { renderCmsSectionTreeHtmlWithInjections } from '../core/cms-injected-sections.js';
+import {
+  isFullHtmlDocument,
+  normalizeFullPageHtml,
+  renderCmsSectionTreeHtmlWithInjections,
+} from '../core/cms-injected-sections.js';
 import { buildCmsPageUrls } from '../core/cms-preview-route.js';
+import { executeCmsPagePublish } from '../core/cms-agent-publish.ts';
+import { getSitePackageInventory, enqueueSitePackageProceed } from '../core/cms-site-package-api.js';
+import { auditSitePackageById } from '../core/cms-theme-pipeline-audit.js';
+import { listCmsProceedTargets } from '../core/resolve-cms-database.js';
 import {
   CMS_DEFAULT_R2_BUCKET,
   cmsR2PublicObjectUrl,
@@ -532,9 +543,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         domain: tenantRow?.domain || null,
         projectSlug: page.project_slug || page.project_id || null,
       });
-      const liveUrl = tenantRow?.domain
-        ? `https://${tenantRow.domain}${routePath.startsWith('/') ? routePath : `/${routePath}`}`
-        : previewUrls.live_url;
+      const liveUrl = previewUrls.live_url;
 
       return jsonResponse({
         page,
@@ -874,8 +883,14 @@ export async function handleCmsApi(request, url, env, ctx) {
         },
       });
 
-      // 2. Update D1 metadata
+      // 2. Update D1 metadata — never demote a published page to draft on content save;
+      // live URL keeps serving published.html until explicit Publish copies draft → published.
       const now = Math.floor(Date.now() / 1000);
+      const wasPublished = String(page.status || '').trim().toLowerCase() === 'published';
+      const publishedKey = cmsPageKey(workspaceId, page.project_id, page.slug, 'published');
+      const r2KeyForDb = wasPublished ? publishedKey : r2Key;
+      const nextStatus = wasPublished ? 'published' : 'draft';
+
       await env.DB.prepare(`
         UPDATE cms_pages 
         SET title = COALESCE(?, title),
@@ -883,10 +898,10 @@ export async function handleCmsApi(request, url, env, ctx) {
             updated_at = ?,
             r2_key = ?,
             content_size_bytes = ?,
-            status = 'draft'
+            status = ?
         WHERE id = ?
       `      ).bind(
-        title || null, authUser.id, now, r2Key, contentBuffer.byteLength, pageId
+        title || null, authUser.id, now, r2KeyForDb, contentBuffer.byteLength, nextStatus, pageId
       ).run();
 
       const projectSlug = String(page.project_slug || page.project_id || '').trim();
@@ -894,7 +909,15 @@ export async function handleCmsApi(request, url, env, ctx) {
         ctx.waitUntil(invalidateCmsBootstrapCache(env, workspaceId, projectSlug));
       }
 
-      return jsonResponse({ success: true, r2_key: r2Key, status: 'draft', kv_draft_key: `cms:draft:${pageId}:${authUser.id}` });
+      return jsonResponse({
+        success: true,
+        r2_key: r2Key,
+        draft_r2_key: r2Key,
+        live_r2_key: wasPublished ? publishedKey : r2Key,
+        status: nextStatus,
+        has_unpublished_draft: wasPublished,
+        kv_draft_key: `cms:draft:${pageId}:${authUser.id}`,
+      });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
@@ -909,197 +932,49 @@ export async function handleCmsApi(request, url, env, ctx) {
     let projectSlug = '';
     try {
       const page = await fetchCmsPageInScope(env, pageId, cmsScope);
-
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
       projectSlug = String(page.project_slug || page.project_id || '').trim();
-      if (!String(page.seo_title || '').trim() && String(page.title || '').trim()) {
-        await env.DB.prepare(`UPDATE cms_pages SET seo_title = ? WHERE id = ?`)
-          .bind(String(page.title).trim(), pageId)
-          .run();
-        page.seo_title = page.title;
-      }
-      if (!String(page.meta_description || '').trim()) {
-        const autoDesc = `${String(page.title || page.slug || 'Page').trim()} — ${projectSlug || 'site'}`;
-        await env.DB.prepare(`UPDATE cms_pages SET meta_description = ? WHERE id = ?`)
-          .bind(autoDesc, pageId)
-          .run();
-        page.meta_description = autoDesc;
-      }
 
-      const r2BucketPre = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
-      const draftKeyPre = cmsPageKey(workspaceId, page.project_id, page.slug, 'draft');
-      const r2BindingPre = getCmsR2Binding(env, r2BucketPre);
-
-      await ensureCmsDraftR2BeforePublish(env, {
+      const result = await executeCmsPagePublish(env, {
+        pageId,
+        page,
         workspaceId,
-        page: { ...page, id: pageId },
+        tenantId,
         userId: authUser.id,
-        r2Binding: r2BindingPre,
-        draftKey: draftKeyPre,
+        executionCtx: ctx,
+        agentApplied: false,
       });
 
-      let hasKvDraftPre = false;
-      const kvDraftPre = await getCmsDraftCache(env, pageId, authUser.id).catch(() => null);
-      hasKvDraftPre = !!(kvDraftPre?.draft_data || kvDraftPre?.r2_key);
-
-      const contract = await verifyCmsPublishContract(env, {
-        page,
-        workspaceId,
-        tenantId,
-        r2Binding: r2BindingPre,
-        draftKey: draftKeyPre,
-        hasKvDraft: hasKvDraftPre,
-      });
-      const promotion = await runCmsPromotionGate(env, {
-        page,
-        tenantId,
-        projectSlug,
-        r2Binding: r2BindingPre,
-        draftKey: draftKeyPre,
-        hasKvDraft: hasKvDraftPre,
-      });
-      if (!contract.passed || !promotion.passed) {
-        return jsonResponse(cmsPublishGateErrorResponse({ contract, promotion }), 422);
-      }
-
-      const lock = await acquireCmsPublishLock(env, workspaceId, projectSlug, authUser.id);
-      if (!lock.acquired) {
-        return jsonResponse({ error: 'publish_in_progress', holder: lock.holder || null }, 409);
-      }
-
-      const r2Bucket = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
-      const draftKey = cmsPageKey(workspaceId, page.project_id, page.slug, 'draft');
-      const publishedKey = cmsPageKey(workspaceId, page.project_id, page.slug, 'published');
-      const r2Binding = getCmsR2Binding(env, r2Bucket);
-
-      if (!r2Binding) {
-        await releaseCmsPublishLock(env, workspaceId, projectSlug, authUser.id);
-        return jsonResponse({ error: 'R2 storage unavailable' }, 503);
-      }
-
-      // 1. Copy draft to published in R2
-      // Note: Cloudflare R2 binding doesn't have a direct 'copy' yet, so we get and put.
-      let draftObj = await r2Binding.get(draftKey);
-      if (!draftObj) {
-        const kvDraft = await getCmsDraftCache(env, pageId, authUser.id);
-        if (kvDraft?.r2_key) draftObj = await r2Binding.get(String(kvDraft.r2_key)).catch(() => null);
-      }
-      if (!draftObj) {
-        await releaseCmsPublishLock(env, workspaceId, projectSlug, authUser.id);
-        return jsonResponse({ error: 'No draft found to publish' }, 400);
-      }
-
-      const draftRow = await env.DB.prepare(
-        `SELECT draft_data FROM cms_page_drafts WHERE page_id = ? AND user_id = ? LIMIT 1`,
-      )
-        .bind(pageId, authUser.id)
-        .first()
-        .catch(() => null);
-      let draftData = null;
-      if (draftRow?.draft_data) {
-        try {
-          draftData = JSON.parse(draftRow.draft_data);
-        } catch {
-          draftData = null;
+      if (!result.ok) {
+        if (result.error === 'publish_in_progress') {
+          return jsonResponse({ error: 'publish_in_progress', holder: result.holder || null }, 409);
         }
-      }
-      if (!draftData) {
-        const kvDraft = await getCmsDraftCache(env, pageId, authUser.id);
-        draftData = kvDraft?.draft_data || null;
-      }
-      let overrideChain = [];
-      if (draftData && typeof draftData === 'object') {
-        const sectionCount = cmsDraftSectionCount(draftData);
-        const payloadBytes = cmsDraftPayloadBytes(draftData);
-        const spawnHint = cmsExceedsSpawnThreshold({ sectionCount, payloadBytes });
-        if (spawnHint.spawn) {
-          ctx.waitUntil(
-            maybeSpawnCmsHeavyJob(env, ctx, {
-              userId: authUser.id,
-              workspaceId,
-              tenantId,
-              masterRunId: `cms_pub_${pageId}_${Date.now().toString(36)}`,
-              taskDescription: `CMS publish promote ${sectionCount} sections (${payloadBytes} bytes)`,
-              chunkCount: sectionCount,
-            }),
+        if (result.error === 'publish_gate_blocked') {
+          return jsonResponse(
+            {
+              error: result.error,
+              contract: result.contract,
+              promotion: result.promotion,
+              blocked: result.blocked,
+            },
+            422,
           );
         }
-        overrideChain = await promoteCmsDraftOverrides(env, {
-          page: { ...page, id: pageId },
-          draftData,
-          userId: authUser.id,
-        });
-        ctx.waitUntil(
-          logCmsActivity(env, {
-            tenantId,
-            userId: authUser.id,
-            action: 'draft_promote',
-            resourceType: 'page',
-            resourceId: pageId,
-            details: { overrides: overrideChain.length, spawn_hint: spawnHint },
-          }),
-        );
+        const status = result.error === 'R2 storage unavailable' ? 503 : 400;
+        return jsonResponse({ error: result.error }, status);
       }
-
-      const content = await draftObj.arrayBuffer();
-      await r2Binding.put(publishedKey, content, {
-        httpMetadata: { contentType: page.content_type || 'text/html' }
-      });
-
-      // 2. Update D1
-      const now = Math.floor(Date.now() / 1000);
-      await env.DB.prepare(`
-        UPDATE cms_pages 
-        SET status = 'published',
-            published_at = ?,
-            published_by = ?,
-            updated_at = ?,
-            r2_key = ?
-        WHERE id = ?
-      `      ).bind(
-        now, authUser.id, now, publishedKey, pageId
-      ).run();
-
-      ctx.waitUntil(releaseCmsPublishLock(env, workspaceId, projectSlug, authUser.id));
-      if (projectSlug) {
-        ctx.waitUntil(invalidateCmsBootstrapCache(env, workspaceId, projectSlug));
-      }
-
-      auditCmsMutation(env, ctx, {
-        workspaceId,
-        tenantId,
-        userId: authUser.id,
-        projectSlug,
-        pageId,
-        sectionId: 'publish',
-      });
-      ctx.waitUntil(
-        logCmsActivity(env, {
-          tenantId,
-          userId: authUser.id,
-          action: 'publish',
-          resourceType: 'page',
-          resourceId: pageId,
-        }),
-      );
-      emitInnerAnimalProEvent(
-        env,
-        {
-          userId: authUser.id,
-          eventName: `cms_publish:${pageId}:${projectSlug || page.slug || 'page'}`,
-        },
-        ctx,
-      );
-      await clearCmsDraftHotCache(env, pageId, authUser.id);
 
       return jsonResponse({
         success: true,
-        status: 'published',
-        r2_key: publishedKey,
-        r2_bucket: r2Bucket,
-        bootstrap_cache_key: cmsBootstrapKey(workspaceId, projectSlug),
-        override_chain: overrideChain,
+        status: result.status,
+        phase: result.phase,
+        r2_key: result.r2_key,
+        r2_bucket: result.r2_bucket,
+        bootstrap_cache_key: result.bootstrap_cache_key,
+        override_chain: result.override_chain,
+        preview_urls: result.preview_urls,
+        live_url: result.live_url,
       });
     } catch (e) {
       if (projectSlug) ctx.waitUntil(releaseCmsPublishLock(env, workspaceId, projectSlug, authUser.id));
@@ -1270,14 +1145,12 @@ export async function handleCmsApi(request, url, env, ctx) {
         }),
       );
       if (page) {
-        ctx.waitUntil(
-          writeCmsDraftHtmlToR2(env, {
-            workspaceId,
-            page,
-            userId: authUser.id,
-            draftData: draftPayload,
-          }),
-        );
+        await writeCmsDraftHtmlToR2(env, {
+          workspaceId,
+          page,
+          userId: authUser.id,
+          draftData: draftPayload,
+        });
       }
       ctx.waitUntil(
         logCmsActivity(env, {
@@ -2137,13 +2010,25 @@ export async function handleCmsApi(request, url, env, ctx) {
         }
       }
 
+      const siteConfig = await resolveCmsSiteConfig(env, workspaceId, projectSlug);
+
       const payload = {
         project_slug: projectSlug,
         workspace_id: workspaceId,
         workspace_name: resolved.context?.workspace_name || null,
         workspace_label: resolved.context?.ui_label || resolved.context?.workspace_name || null,
         resolved_from: resolved.context?.resolved_from || null,
-        tenant: tenantRow,
+        cms_hosting: siteConfig.cms_hosting || 'platform',
+        tenant: tenantRow
+          ? {
+              ...tenantRow,
+              domain: resolveCmsPublicDomain(projectSlug, tenantRow.domain),
+            }
+          : {
+              slug: projectSlug,
+              domain: resolveCmsPublicDomain(projectSlug, null),
+            },
+        public_domain: resolveCmsPublicDomain(projectSlug, tenantRow?.domain),
         pages,
         sections_by_page: sectionsByPage,
         components_by_section: componentsBySection,
@@ -2467,6 +2352,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         inject_position: position,
         content_sha256: hash,
         updated_at: Math.floor(Date.now() / 1000),
+        full_page_document: isFullHtmlDocument(html),
       };
       const payload = JSON.stringify(sectionData);
 
@@ -2553,6 +2439,12 @@ export async function handleCmsApi(request, url, env, ctx) {
         .first();
       const ps = projectSlug || page.project_slug || page.project_id || null;
       if (ps) invalidateCmsBootstrap(env, ctx, workspaceId, ps);
+      await writeCmsDraftHtmlToR2(env, {
+        workspaceId,
+        page,
+        userId: authUser.id,
+        fullPageHtml: isFullHtmlDocument(html) ? normalizeFullPageHtml(html) : undefined,
+      }).catch(() => null);
       return jsonResponse({
         success: true,
         section: {
@@ -2661,6 +2553,11 @@ export async function handleCmsApi(request, url, env, ctx) {
         url.searchParams.get('project_slug') || page.project_slug || page.project_id || '',
       ).trim();
       if (ps) invalidateCmsBootstrap(env, ctx, workspaceId, ps);
+      await writeCmsDraftHtmlToR2(env, {
+        workspaceId,
+        page,
+        userId: authUser.id,
+      }).catch(() => null);
       const section = await env.DB.prepare(
         `SELECT id, page_id, section_type, section_name, section_data, sort_order, is_visible, updated_at
          FROM cms_page_sections WHERE id = ? LIMIT 1`,
@@ -2882,6 +2779,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         ctx.waitUntil(
           env.MY_QUEUE.send({
             type: 'cms_liquid_import',
+            phase: 'inventory',
             import_id: importId,
             tenant_id: tenantId,
             workspace_id: workspaceId,
@@ -2912,11 +2810,103 @@ export async function handleCmsApi(request, url, env, ctx) {
     }
   }
 
+  if (path === '/api/cms/site-packages/proceed-targets' && method === 'GET') {
+    try {
+      const targets = await listCmsProceedTargets(env, workspaceId);
+      return jsonResponse({ ok: true, workspace_id: workspaceId, ...targets });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  const sitePackageInventoryMatch = path.match(/^\/api\/cms\/site-packages\/([^/]+)\/inventory$/);
+  if (sitePackageInventoryMatch && method === 'GET') {
+    try {
+      const inv = await getSitePackageInventory(env, tenantId, sitePackageInventoryMatch[1]);
+      if (!inv.ok) return jsonResponse({ error: inv.error }, inv.status || 404);
+      return jsonResponse(inv);
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  const sitePackageAuditMatch = path.match(/^\/api\/cms\/site-packages\/([^/]+)\/audit$/);
+  if (sitePackageAuditMatch && method === 'POST') {
+    try {
+      const audit = await auditSitePackageById(env, tenantId, sitePackageAuditMatch[1]);
+      if (!audit.ok) return jsonResponse({ error: audit.error, skipped: audit.skipped, hint: audit.hint }, audit.status || 503);
+      return jsonResponse(audit);
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  const sitePackageProceedMatch = path.match(/^\/api\/cms\/site-packages\/([^/]+)\/proceed$/);
+  if (sitePackageProceedMatch && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {}
+    try {
+      const packageId = sitePackageProceedMatch[1];
+      const inv = await getSitePackageInventory(env, tenantId, packageId);
+      if (!inv.ok) return jsonResponse({ error: inv.error }, inv.status || 404);
+      if (!inv.ready && inv.package?.status !== 'completed') {
+        return jsonResponse(
+          { error: 'package_not_ready', status: inv.package?.status, hint: 'Wait for inventory_ready' },
+          409,
+        );
+      }
+      const result = await enqueueSitePackageProceed(env, ctx, {
+        importId: packageId,
+        tenantId,
+        workspaceId,
+        userId: authUser.id,
+        apply: {
+          ...body,
+          project_slug: body.project_slug || inv.package?.project_id,
+        },
+      });
+      emitInnerAnimalProEvent(
+        env,
+        { userId: authUser.id, eventName: `site_package_proceed:${packageId}` },
+        ctx,
+      );
+      return jsonResponse(result);
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  const sitePackageMatch = path.match(/^\/api\/cms\/site-packages\/([^/]+)$/);
+  if (sitePackageMatch && method === 'GET') {
+    try {
+      const inv = await getSitePackageInventory(env, tenantId, sitePackageMatch[1]);
+      if (!inv.ok) return jsonResponse({ error: inv.error }, inv.status || 404);
+      return jsonResponse(inv);
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
   if (path === '/api/cms/liquid-imports' && method === 'GET') {
     try {
+      const importId = url.searchParams.get('import_id') || url.searchParams.get('id');
+      if (importId) {
+        const row = await env.DB.prepare(
+          `SELECT id, import_key, import_name, source_type, status, project_id,
+                  sections_found, sections_mapped, pages_created, templates_found,
+                  error_log, result_json, created_at, completed_at
+           FROM cms_liquid_imports WHERE tenant_id = ? AND id = ? LIMIT 1`,
+        )
+          .bind(tenantId, importId)
+          .first();
+        if (!row) return jsonResponse({ error: 'import_not_found' }, 404);
+        return jsonResponse({ import: row });
+      }
       const { results } = await env.DB.prepare(
-        `SELECT id, import_key, import_name, source_type, status,
-                sections_found, sections_mapped, templates_found, error_log, created_at, completed_at
+        `SELECT id, import_key, import_name, source_type, status, project_id,
+                sections_found, sections_mapped, pages_created, templates_found, error_log, created_at, completed_at
          FROM cms_liquid_imports WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 20`,
       )
         .bind(tenantId)
@@ -3005,6 +2995,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         ctx.waitUntil(
           env.MY_QUEUE.send({
             type: 'cms_liquid_import',
+            phase: 'inventory',
             import_id: importId,
             tenant_id: tenantId,
             workspace_id: workspaceId,

@@ -223,9 +223,12 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         taskId: body.taskId ?? body.task_id ?? null,
         message,
         taskType: profile.routing_task_type,
+        routeKey: promptRouteRow?.route_key ?? body.route_key ?? body.routeKey ?? null,
         workspaceId,
         userId,
         minimalAsk,
+        ctx: input.ctx ?? null,
+        conversationId: sessionId,
       },
     );
   } else {
