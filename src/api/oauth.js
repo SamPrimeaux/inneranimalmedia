@@ -392,17 +392,21 @@ function googleAuthUrl(env, state, oauthScopeString) {
   return u.toString();
 }
 
+const CLOUDFLARE_OAUTH_REDIRECT_URI = 'https://inneranimalmedia.com/api/oauth/cloudflare/callback';
+const CLOUDFLARE_OAUTH_SCOPES =
+  'account-settings.read zone.read workers-scripts.write d1.read workers-r2.read';
+
 function cloudflareAuthUrl(env, state, oauthScopeString) {
   if (!env.CLOUDFLARE_OAUTH_CLIENT_ID) return null;
   const u = new URL('https://dash.cloudflare.com/oauth2/auth');
   u.searchParams.set('response_type', 'code');
   u.searchParams.set('client_id', env.CLOUDFLARE_OAUTH_CLIENT_ID);
-  u.searchParams.set('redirect_uri', 'https://inneranimalmedia.com/api/oauth/cloudflare/callback');
+  u.searchParams.set('redirect_uri', CLOUDFLARE_OAUTH_REDIRECT_URI);
   u.searchParams.set(
     'scope',
     (oauthScopeString && String(oauthScopeString).trim())
       ? String(oauthScopeString).trim()
-      : 'account:read zone:read workers:write d1:read r2:read',
+      : CLOUDFLARE_OAUTH_SCOPES,
   );
   u.searchParams.set('state', state);
   return u.toString();
@@ -629,7 +633,7 @@ async function exchangeCloudflare(env, code) {
       code,
       client_id: env.CLOUDFLARE_OAUTH_CLIENT_ID,
       client_secret: env.CLOUDFLARE_OAUTH_CLIENT_SECRET,
-      redirect_uri: 'https://inneranimalmedia.com/api/oauth/cloudflare/callback',
+      redirect_uri: CLOUDFLARE_OAUTH_REDIRECT_URI,
       grant_type: 'authorization_code',
     }).toString(),
   });
