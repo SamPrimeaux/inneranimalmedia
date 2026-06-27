@@ -163,7 +163,7 @@ max_instances = 10
 
 [containers.ssh]
 enabled = true
-authorized_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHf4Xb75xQ80w255NBZ+Bn82qrMtd/iUGlqX1TcCAtff info@inneranimals.com"]
+public_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHf4Xb75xQ80w255NBZ+Bn82qrMtd/iUGlqX1TcCAtff info@inneranimals.com"]
 
 [[durable_objects.bindings]]
 name = "MY_CONTAINER"
