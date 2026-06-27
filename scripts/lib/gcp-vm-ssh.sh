@@ -9,7 +9,9 @@
 #
 set -euo pipefail
 
-_gcp_vm_ssh_mode="${GCP_VM_SSH_MODE:-auto}"
+# Default iap: direct port 22 to iam-tunnel often hangs from Mac (deploy/bootstrap would stall).
+# Override with GCP_VM_SSH_MODE=direct when port 22 is reliably open.
+_gcp_vm_ssh_mode="${GCP_VM_SSH_MODE:-iap}"
 
 gcp_vm_ssh() {
   local vm="${GCP_VM_NAME:-iam-tunnel}"

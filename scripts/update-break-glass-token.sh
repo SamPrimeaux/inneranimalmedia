@@ -10,15 +10,8 @@
 #      cd /Users/samprimeaux/inneranimalmedia
 #      ./scripts/update-break-glass-token.sh
 #
-# 3) Verify:
-#      ./scripts/with-cloudflare-env.sh python3 -c "
-#      import os, json, urllib.request
-#      t=os.environ['CLOUDFLARE_BREAK_GLASS_ADMIN_TOKEN']
-#      r=urllib.request.urlopen(urllib.request.Request(
-#        'https://api.cloudflare.com/client/v4/user/tokens/verify',
-#        headers={'Authorization': f'Bearer {t}'}))
-#      print('active' if json.load(r).get('success') else 'INVALID')
-#      "
+# 3) Verify (auto-runs after paste; or manually):
+#      ./scripts/verify-break-glass-token.sh
 
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -39,7 +32,9 @@ fi
 
 python3 - "$ENV_FILE" "$NEW_TOKEN" <<'PY'
 import sys
-path, token = sys.argv[1], sys.argv[2]
+path, token = sys.argv[1], sys.argv[2].strip()
+if not token:
+    raise SystemExit("Empty token after trim")
 lines = open(path).read().splitlines()
 key = "CLOUDFLARE_BREAK_GLASS_ADMIN_TOKEN"
 out, seen = [], False
@@ -54,3 +49,5 @@ if not seen:
 open(path, "w").write("\n".join(out) + "\n")
 print(f"Updated {key} in {path}")
 PY
+
+exec "${REPO_ROOT}/scripts/verify-break-glass-token.sh"
