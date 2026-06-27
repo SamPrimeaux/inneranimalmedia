@@ -15,7 +15,7 @@ export const CMS_PUBLISH_LOCK_TTL_SEC = 120;
 
 /** @param {string} workspaceId @param {string} projectSlug */
 export function cmsBootstrapKey(workspaceId, projectSlug) {
-  return `cms:bootstrap:${String(workspaceId || '').trim()}:${String(projectSlug || '').trim()}`;
+  return `cms:bootstrap:v2:${String(workspaceId || '').trim()}:${String(projectSlug || '').trim()}`;
 }
 
 /** @param {string} pageId @param {string} userId */

@@ -38,8 +38,8 @@ function isFullHtmlDocument(html) {
 function readCtx() {
   const p = new URLSearchParams(location.search);
   return {
-    project: p.get('project') || 'inneranimalmedia',
-    pageId: p.get('page') || '',
+    project: p.get('project') || p.get('site') || 'inneranimalmedia',
+    pageId: p.get('page') || p.get('page_id') || '',
     workspaceId: p.get('workspace_id') || '',
     publicDomain: p.get('public_domain') || '',
     view: p.get('view') || '',
@@ -865,7 +865,21 @@ function scrollPreviewToSection(iframeRef, sectionName) {
   } catch (_) {}
 }
 
-function CanvasWelcome({ onOpenWizard }) {
+function CanvasWelcome({ onOpenWizard, error, pagesCount, project }) {
+  if (error) {
+    return (
+      <div className="canvas-welcome">
+        <div style={{ fontSize: 40, marginBottom: 8, opacity: .5 }}>⚠</div>
+        <h2>CMS could not load this site</h2>
+        <p style={{ color: '#b45309' }}>{error}</p>
+        <p style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>
+          Site: <code>{project || 'inneranimalmedia'}</code>
+          {pagesCount != null ? ` · ${pagesCount} pages in bootstrap` : ''}
+        </p>
+        <button type="button" className="btn pub" style={{ marginTop: 12 }} onClick={() => location.reload()}>Retry</button>
+      </div>
+    );
+  }
   return (
     <div className="canvas-welcome">
       <div style={{ fontSize: 40, marginBottom: 8, opacity: .5 }}>◱</div>
@@ -1125,6 +1139,7 @@ function CmsEditor() {
   const [shellHtml, setShellHtml]   = useState('');
   const [shellDirty, setShellDirty] = useState(false);
   const [booting, setBooting]       = useState(false);
+  const [bootstrapError, setBootstrapError] = useState(null);
   const [pages, setPages]           = useState([]);
   const [activePage, setActivePage] = useState(null);
   const [sections, setSections]     = useState([]);
@@ -1194,8 +1209,15 @@ function CmsEditor() {
   useEffect(() => {
     if (!ctx.project) return;
     setBooting(true);
-    api(`/api/cms/bootstrap?project_slug=${encodeURIComponent(ctx.project)}`)
+    api(`/api/cms/bootstrap?project_slug=${encodeURIComponent(ctx.project)}&site=${encodeURIComponent(ctx.project)}`)
       .then(data => {
+        if (data.error && !data.pages?.length) {
+          setBootstrapError(data.message || data.error);
+          setPages([]);
+          setBootstrap(data);
+          return;
+        }
+        setBootstrapError(null);
         setBootstrap(data);
         setSiteShell(data.site_shell || null);
         const pg = data.pages || [];
@@ -1206,10 +1228,13 @@ function CmsEditor() {
           loadPage(first, data, { syncParent: false });
         } else if (!forceWizard && !ctx.pageId) {
           const home =
+            pg.find((p) => p.id === 'page_home') ||
             (data.home_page?.id && pg.find((p) => p.id === data.home_page.id)) ||
             pg.find((p) => p.is_homepage) ||
-            pg.find((p) => p.route_path === '/' || p.slug === 'home');
+            pg.find((p) => p.route_path === '/' || p.slug === 'home') ||
+            pg[0];
           if (home) loadPage(home, data, { syncParent: false });
+          else if (!pg.length) setBootstrapError('No CMS pages found for this site. Check workspace and site slug.');
         } else if ((!ctx.pageId || forceWizard) && isThemeStudio) {
           const embedded =
             window.parent !== window ||
@@ -1224,7 +1249,10 @@ function CmsEditor() {
           setRpTab('edit');
         }
       })
-      .catch(e => showToast('Failed to load: ' + e.message, 'err'))
+      .catch(e => {
+        setBootstrapError(e.message || 'Bootstrap failed');
+        showToast('Failed to load: ' + e.message, 'err');
+      })
       .finally(() => setBooting(false));
   }, [ctx.project, ctx.pageId]);
 
@@ -2526,7 +2554,12 @@ function CmsEditor() {
               </div>
             ) : (
               isThemeStudio ? (
-                <CanvasWelcome onOpenWizard={openWizard} />
+                <CanvasWelcome
+                  onOpenWizard={openWizard}
+                  error={bootstrapError}
+                  pagesCount={pages.length}
+                  project={ctx.project}
+                />
               ) : (
               <div className="canvas-empty-state">
                 <div className="ces-icon">◱</div>

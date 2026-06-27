@@ -73,6 +73,23 @@ export async function resolveCmsApiScope(env, authUser, workspaceId) {
   const allowedSlugs = new Set(sites.map((s) => trim(s.slug)).filter(Boolean));
   const registryMode = cmsScopeUsesWorkspaceRegistry(sites);
 
+  // Operator tenants may pass ?site=inneranimalmedia while active workspace differs — still allow tenant-owned projects.
+  try {
+    const { results: tenantProjectRows } = await env.DB.prepare(
+      `SELECT DISTINCT project_slug AS slug
+         FROM cms_pages
+        WHERE tenant_id = ?
+          AND status != 'archived'
+          AND trim(COALESCE(project_slug, '')) != ''`,
+    )
+      .bind(authTenantId)
+      .all();
+    for (const row of tenantProjectRows || []) {
+      const slug = trim(row.slug);
+      if (slug) allowedSlugs.add(slug);
+    }
+  } catch (_) {}
+
   return {
     ok: allowedSlugs.size > 0,
     error: allowedSlugs.size ? null : 'no_sites',

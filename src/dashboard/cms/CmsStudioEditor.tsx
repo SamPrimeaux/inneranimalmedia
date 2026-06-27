@@ -140,9 +140,15 @@ export function CmsStudioEditor({
     if (!projectSlug) return null;
     const q = new URLSearchParams();
     q.set('project', projectSlug);
+    q.set('site', projectSlug);
     if (isAgentSamCmsShell) {
       q.set('view', 'themeEditor');
-      if (panel && panel !== 'pages') q.set('panel', panel);
+      if (panel === 'online-store') {
+        q.set('page', 'page_home');
+        q.set('panel', 'pages');
+      } else if (panel && panel !== 'pages') {
+        q.set('panel', panel);
+      }
     } else if (panel && panel !== 'pages') {
       q.set('panel', panel);
     }

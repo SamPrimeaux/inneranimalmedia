@@ -1826,7 +1826,10 @@ export async function handleCmsApi(request, url, env, ctx) {
 
   if (path === '/api/cms/bootstrap' && method === 'GET') {
     const explicitSlug =
-      url.searchParams.get('project_slug') || url.searchParams.get('site') || null;
+      url.searchParams.get('project_slug') ||
+      url.searchParams.get('site') ||
+      url.searchParams.get('project') ||
+      null;
     const resolved = await resolveCmsBootstrapProjectSlug(
       env,
       request,
@@ -1874,10 +1877,13 @@ export async function handleCmsApi(request, url, env, ctx) {
             `SELECT id, project_slug, slug, route_path, title, status, page_type,
                     is_homepage, sort_order, seo_title, meta_description, robots,
                     r2_key, r2_bucket, published_at, updated_at
-             FROM cms_pages WHERE project_slug = ? AND status != 'archived'
+             FROM cms_pages
+             WHERE tenant_id = ?
+               AND (project_slug = ? OR project_id = ?)
+               AND status != 'archived'
              ORDER BY sort_order, route_path`,
           )
-            .bind(projectSlug)
+            .bind(tenantId, projectSlug, projectSlug)
             .all()
             .catch(() => ({ results: [] })),
           env.DB.prepare(
@@ -1885,9 +1891,11 @@ export async function handleCmsApi(request, url, env, ctx) {
                     s.section_data, s.sort_order, s.is_visible, s.updated_at
              FROM cms_page_sections s
              JOIN cms_pages p ON p.id = s.page_id
-             WHERE p.project_slug = ? ORDER BY s.sort_order`,
+             WHERE p.tenant_id = ?
+               AND (p.project_slug = ? OR p.project_id = ?)
+             ORDER BY s.sort_order`,
           )
-            .bind(projectSlug)
+            .bind(tenantId, projectSlug, projectSlug)
             .all()
             .catch(() => ({ results: [] })),
           env.DB.prepare(
@@ -1896,9 +1904,11 @@ export async function handleCmsApi(request, url, env, ctx) {
              FROM cms_section_components c
              JOIN cms_page_sections s ON s.id = c.section_id
              JOIN cms_pages p ON p.id = s.page_id
-             WHERE p.project_slug = ? ORDER BY c.sort_order`,
+             WHERE p.tenant_id = ?
+               AND (p.project_slug = ? OR p.project_id = ?)
+             ORDER BY c.sort_order`,
           )
-            .bind(projectSlug)
+            .bind(tenantId, projectSlug, projectSlug)
             .all()
             .catch(() => ({ results: [] })),
           env.DB.prepare(

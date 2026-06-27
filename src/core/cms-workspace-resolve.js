@@ -292,6 +292,28 @@ export async function resolveCmsProjectSlug(env, opts) {
   const explicit = pickIfAllowed(opts.explicitSlug, 'query.project_slug');
   if (explicit) return explicit;
 
+  const explicitKey = trim(opts.explicitSlug);
+  if (explicitKey && env?.DB && tenantId) {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT 1 AS ok FROM cms_pages
+          WHERE tenant_id = ?
+            AND project_slug = ?
+            AND status != 'archived'
+          LIMIT 1`,
+      )
+        .bind(tenantId, explicitKey)
+        .first();
+      if (row?.ok) {
+        return {
+          project_slug: explicitKey,
+          project_name: explicitKey,
+          resolved_from: 'explicit_tenant_pages',
+        };
+      }
+    } catch (_) {}
+  }
+
   const fromBootstrap = pickIfAllowed(
     readBootstrapCmsProjectSlug(opts.bootstrapRow),
     'agentsam_bootstrap.ui_preferences_json',
