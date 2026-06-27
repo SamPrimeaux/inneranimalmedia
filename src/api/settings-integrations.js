@@ -8,6 +8,7 @@ import {
   integrationSlugToByokProvider,
 } from '../core/integration-byok-sync.js';
 import { resolveIntegrationUserId } from '../core/integration-user-id.js';
+import { catalogSlugForRegistry, expandConnectedSlugs } from '../core/integration-slug-aliases.js';
 
 function resolveTenantId(env, authUser) {
   if (authUser?.tenant_id && String(authUser.tenant_id).trim()) {
@@ -83,7 +84,11 @@ async function getConnectedIntegrations(env, authUser) {
               c.sort_order AS catalog_sort_order,
               c.is_active AS catalog_is_active
        FROM integration_registry r
-       LEFT JOIN integration_catalog c ON c.slug = r.provider_key
+       LEFT JOIN integration_catalog c ON c.slug = CASE r.provider_key
+         WHEN 'cloudflare_oauth' THEN 'cloudflare'
+         WHEN 'supabase_oauth' THEN 'supabase'
+         ELSE r.provider_key
+       END
        WHERE r.tenant_id = ?
          AND COALESCE(r.is_enabled, 1) = 1
        ORDER BY COALESCE(r.sort_order, 50) ASC, r.display_name ASC`,
@@ -139,7 +144,7 @@ async function getConnectedIntegrations(env, authUser) {
         ? {
             id: row.catalog_row_id,
             name: row.catalog_name || row.display_name,
-            slug: row.catalog_slug || row.provider_key,
+            slug: row.catalog_slug || catalogSlugForRegistry(row.provider_key),
             category: row.catalog_category || row.category,
             auth_type: row.catalog_auth_type || row.auth_type,
             oauth_authorize_url: row.oauth_authorize_url,
@@ -249,10 +254,12 @@ async function getConnectedIntegrations(env, authUser) {
   return jsonResponse({
     tenant_id: tenantId,
     items,
-    connected_slugs: items
-      .filter((i) => i.integration_status?.connected)
-      .map((i) => String(i.connection?.provider_key || '').toLowerCase())
-      .filter(Boolean),
+    connected_slugs: expandConnectedSlugs(
+      items
+        .filter((i) => i.integration_status?.connected)
+        .map((i) => String(i.connection?.provider_key || '').toLowerCase())
+        .filter(Boolean),
+    ),
   });
 }
 

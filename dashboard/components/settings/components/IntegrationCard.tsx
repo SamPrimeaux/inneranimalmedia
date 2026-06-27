@@ -91,7 +91,13 @@ export type IntegrationCardProps = {
   onTest?: (slug: string) => Promise<{ status?: string; latency_ms?: number; error?: string }>;
   onOpenInMonaco?: (content: string, filename: string) => void;
   monacoSnippet?: { content: string; filename: string };
+  initialExpanded?: boolean;
 };
+
+function isOAuthAuthType(authType: string): boolean {
+  const t = authType.trim().toLowerCase();
+  return t === 'oauth' || t === 'oauth2';
+}
 
 export function IntegrationCard({
   mode,
@@ -106,6 +112,7 @@ export function IntegrationCard({
   onTest,
   onOpenInMonaco,
   monacoSnippet,
+  initialExpanded = false,
 }: IntegrationCardProps) {
   const slug =
     String(catalog?.slug || connection?.provider_key || '').trim() || 'unknown';
@@ -115,7 +122,7 @@ export function IntegrationCard({
   const category = String(catalog?.category || '').trim();
   const authType = String(catalog?.auth_type || '').trim();
 
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initialExpanded);
   const [apiKey, setApiKey] = useState('');
   const [busy, setBusy] = useState<'test' | 'key' | 'disc' | null>(null);
   const [testMsg, setTestMsg] = useState<string | null>(null);
@@ -214,7 +221,7 @@ export function IntegrationCard({
           {mode === 'available' ? (
             connected ? (
               <span className="text-[10px] text-[var(--accent-success)]">Connected</span>
-            ) : authType === 'oauth2' ? (
+            ) : isOAuthAuthType(authType) ? (
               <button
                 type="button"
                 className="text-[10px] px-2 py-1 rounded-lg bg-[var(--solar-blue)] text-[var(--toggle-knob)]"
@@ -367,7 +374,7 @@ export function IntegrationCard({
             ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
-            {authType === 'oauth2' || authType === 'oauth_or_key' ? (
+            {authType === 'oauth2' || authType === 'oauth' || authType === 'oauth_or_key' ? (
               <button
                 type="button"
                 onClick={() => onConnectOAuth?.(slug)}

@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { IntegrationCard, type CatalogRow, type ConnectionRow } from '../components/IntegrationCard';
+import { IntegrationIconTile } from '../components/IntegrationIconTile';
+import { catalogSlugForRegistry, isSlugConnected, registrySlugForCatalog } from '../../../lib/integrationSlugAliases';
 
 type ConnectedItem = {
   catalog: CatalogRow | null;
@@ -43,6 +45,7 @@ export function IntegrationsSection({
   const [customAuth, setCustomAuth] = useState<'none' | 'bearer' | 'oauth'>('none');
   const [customBearer, setCustomBearer] = useState('');
   const [customBusy, setCustomBusy] = useState(false);
+  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
 
   const loadConnected = useCallback(async () => {
     const data = await fetchJson<{
@@ -186,7 +189,7 @@ export function IntegrationsSection({
   }, [customAuth, customBearer, customName, customUrl, loadCustom, loadConnected]);
 
   return (
-    <div className="flex flex-col gap-4 max-w-3xl">
+    <div className="flex flex-col gap-4 max-w-5xl">
       <div>
         <h2 className="text-[13px] font-bold text-[var(--text-heading)] uppercase tracking-widest">
           Integrations
@@ -229,32 +232,64 @@ export function IntegrationsSection({
       ) : null}
 
       {tab === 'connected' ? (
-        <div className="grid gap-3">
+        <div className="flex flex-col gap-4">
           {connected.length === 0 && !loading ? (
             <div className="text-[11px] text-[var(--text-muted)]">
               No integration rows for this workspace yet. Use Available to connect.
             </div>
           ) : null}
-          {connected.map((item, idx) => {
-            const slug = String(
-              item.connection?.provider_key || item.catalog?.slug || idx,
-            );
-            return (
-              <IntegrationCard
-                key={slug}
-                mode="connected"
-                catalog={item.catalog}
-                connection={item.connection}
-                legacy={item.legacy}
-                iamHosted={item.iam_hosted}
-                onConnectOAuth={onConnectOAuth}
-                onConnectApiKey={onConnectApiKey}
-                onDisconnect={onDisconnect}
-                onTest={onTest}
-                onOpenInMonaco={onOpenInMonaco}
-              />
-            );
-          })}
+          {connected.length ? (
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
+              {connected.map((item, idx) => {
+                const slug = String(
+                  item.connection?.provider_key || item.catalog?.slug || idx,
+                );
+                const catalogSlug = catalogSlugForRegistry(slug);
+                const title = String(item.catalog?.name || item.connection?.display_name || slug);
+                const isSelected = selectedSlug === slug;
+                return (
+                  <IntegrationIconTile
+                    key={slug}
+                    title={title}
+                    iconSlug={item.catalog?.icon_slug || catalogSlug}
+                    connected={item.connection?.status === 'connected'}
+                    subtitle={item.connection?.status === 'connected' ? 'Connected' : String(item.connection?.status || '')}
+                    onClick={() => setSelectedSlug(isSelected ? null : slug)}
+                  />
+                );
+              })}
+            </div>
+          ) : null}
+          {selectedSlug ? (
+            connected
+              .filter((item) => {
+                const slug = String(item.connection?.provider_key || item.catalog?.slug || '');
+                return slug === selectedSlug;
+              })
+              .map((item) => {
+                const slug = String(item.connection?.provider_key || item.catalog?.slug || selectedSlug);
+                return (
+                  <IntegrationCard
+                    key={`detail-${slug}`}
+                    mode="connected"
+                    initialExpanded
+                    catalog={item.catalog}
+                    connection={item.connection}
+                    legacy={item.legacy}
+                    iamHosted={item.iam_hosted}
+                    onConnectOAuth={onConnectOAuth}
+                    onConnectApiKey={onConnectApiKey}
+                    onDisconnect={onDisconnect}
+                    onTest={onTest}
+                    onOpenInMonaco={onOpenInMonaco}
+                  />
+                );
+              })
+          ) : connected.length ? (
+            <p className="text-[10px] text-[var(--text-muted)]">
+              Tap an app icon to manage connection, test, or disconnect.
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -292,26 +327,64 @@ export function IntegrationsSection({
               No catalog entries returned. Ensure integration_catalog is populated in D1.
             </div>
           ) : (
-            <div className="grid gap-3">
-              {filteredCatalog.map((row) => {
-                const slug = String(row.slug || '').toLowerCase();
-                const isConn = connectedSlugs.has(slug);
-                const isIam =
-                  String(row.category || '').toLowerCase() === 'iam_hosted' ||
-                  ['agentsam', 'autodidact'].includes(slug);
-                return (
-                  <IntegrationCard
-                    key={slug || String(row.id)}
-                    mode="available"
-                    catalog={row}
-                    connection={null}
-                    connected={isConn}
-                    iamHosted={isIam}
-                    onConnectOAuth={isIam ? undefined : onConnectOAuth}
-                    onConnectApiKey={isIam ? undefined : onConnectApiKey}
-                  />
-                );
-              })}
+            <div className="flex flex-col gap-4">
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
+                {filteredCatalog.map((row) => {
+                  const slug = String(row.slug || '').toLowerCase();
+                  const isConn = isSlugConnected(slug, connectedSlugs);
+                  const isIam =
+                    String(row.category || '').toLowerCase() === 'iam_hosted' ||
+                    ['agentsam', 'autodidact'].includes(slug);
+                  return (
+                    <IntegrationIconTile
+                      key={slug || String(row.id)}
+                      title={String(row.name || slug)}
+                      iconSlug={row.icon_slug || slug}
+                      connected={isConn}
+                      subtitle={isConn ? 'Connected' : isIam ? 'Hosted' : 'Connect'}
+                      onClick={() => {
+                        if (isIam) {
+                          setSelectedSlug(slug);
+                          return;
+                        }
+                        if (isConn) {
+                          setTab('connected');
+                          setSelectedSlug(registrySlugForCatalog(slug));
+                          return;
+                        }
+                        onConnectOAuth(slug);
+                      }}
+                    />
+                  );
+                })}
+              </div>
+              {selectedSlug ? (
+                filteredCatalog
+                  .filter((row) => String(row.slug || '').toLowerCase() === selectedSlug)
+                  .map((row) => {
+                    const slug = String(row.slug || '').toLowerCase();
+                    const isConn = isSlugConnected(slug, connectedSlugs);
+                    const isIam =
+                      String(row.category || '').toLowerCase() === 'iam_hosted' ||
+                      ['agentsam', 'autodidact'].includes(slug);
+                    return (
+                      <IntegrationCard
+                        key={`available-detail-${slug}`}
+                        mode="available"
+                        catalog={row}
+                        connection={null}
+                        connected={isConn}
+                        iamHosted={isIam}
+                        onConnectOAuth={isIam ? undefined : onConnectOAuth}
+                        onConnectApiKey={isIam ? undefined : onConnectApiKey}
+                      />
+                    );
+                  })
+              ) : (
+                <p className="text-[10px] text-[var(--text-muted)]">
+                  Tap an icon to connect OAuth or view hosted MCP details.
+                </p>
+              )}
             </div>
           )}
         </div>

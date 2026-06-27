@@ -51,10 +51,18 @@ type HomeAction = {
 type ConnectCard = {
   id: string;
   title: string;
-  path: string;
-  tone: 'red' | 'dark' | 'blue' | 'green';
-  icon: HomeIconId;
+  connectSlug: string;
+  iconSlug: string;
 };
+
+const CONNECT_CARDS: ConnectCard[] = [
+  { id: 'drive', title: 'Google Drive', connectSlug: 'google_drive', iconSlug: 'google' },
+  { id: 'github', title: 'GitHub', connectSlug: 'github', iconSlug: 'github' },
+  { id: 'cloudflare', title: 'Cloudflare', connectSlug: 'cloudflare', iconSlug: 'cloudflare' },
+  { id: 'supabase', title: 'Supabase', connectSlug: 'supabase', iconSlug: 'supabase' },
+];
+
+const INTEGRATION_ASSET_BASE = `${import.meta.env.BASE_URL || '/'}`.replace(/\/*$/, '/');
 
 const HOME_ICONS: Record<HomeIconId, LucideIcon> = {
   agent: Bot,
@@ -143,13 +151,6 @@ const FEATURED_ACTIONS: HomeAction[] = [
   },
 ];
 
-const CONNECT_CARDS: ConnectCard[] = [
-  { id: 'drive', title: 'Google Drive', path: '/dashboard/settings/integrations', tone: 'red', icon: 'drive' },
-  { id: 'github', title: 'GitHub Repo', path: '/dashboard/settings/integrations', tone: 'dark', icon: 'github' },
-  { id: 'cloudflare', title: 'Cloudflare', path: '/dashboard/settings/integrations', tone: 'blue', icon: 'cloud' },
-  { id: 'supabase', title: 'Supabase', path: '/dashboard/settings/integrations', tone: 'green', icon: 'supabase' },
-];
-
 function HomeIcon({ id, size = 20 }: { id: HomeIconId; size?: number }) {
   const Icon = HOME_ICONS[id];
   return <Icon size={size} strokeWidth={1.75} aria-hidden />;
@@ -192,6 +193,24 @@ export function DashboardHome() {
   const [editTiles, setEditTiles] = useState<DashboardHomeTile[]>([]);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [connectedSlugs, setConnectedSlugs] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/settings/integrations/connected', { credentials: 'same-origin' });
+        const data = (await res.json().catch(() => ({}))) as { connected_slugs?: string[] };
+        if (cancelled || !res.ok) return;
+        setConnectedSlugs(new Set((data.connected_slugs || []).map((s) => s.toLowerCase())));
+      } catch {
+        /* non-fatal on home */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -249,6 +268,18 @@ export function DashboardHome() {
   const quickGrid = useMemo(
     () => quickTiles.filter((t) => t.is_enabled).sort((a, b) => a.sort_order - b.sort_order),
     [quickTiles],
+  );
+
+  const openConnectCard = useCallback(
+    (card: ConnectCard) => {
+      const slug = card.connectSlug.toLowerCase();
+      if (connectedSlugs.has(slug) || connectedSlugs.has(`${slug}_oauth`)) {
+        navigate('/dashboard/settings/integrations');
+        return;
+      }
+      window.location.href = `/api/integrations/${encodeURIComponent(slug)}/connect`;
+    },
+    [connectedSlugs, navigate],
   );
 
   return (
@@ -343,21 +374,35 @@ export function DashboardHome() {
             </div>
             <button type="button" onClick={() => navigate('/dashboard/settings/integrations')}>See all</button>
           </div>
-          <div className="iam-connect-grid">
-            {CONNECT_CARDS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`iam-connect-card iam-connect-card--${item.tone}`}
-                onClick={() => navigate(item.path)}
-              >
-                <span className="iam-connect-icon" aria-hidden>
-                  <HomeIcon id={item.icon} size={18} />
-                </span>
-                <strong>{item.title}</strong>
-                <span className="iam-connect-plus" aria-hidden><Plus size={18} strokeWidth={2} /></span>
-              </button>
-            ))}
+          <div className="iam-connect-icon-grid">
+            {CONNECT_CARDS.map((item) => {
+              const slug = item.connectSlug.toLowerCase();
+              const connected =
+                connectedSlugs.has(slug) ||
+                connectedSlugs.has(`${slug}_oauth`) ||
+                (slug === 'cloudflare' && connectedSlugs.has('cloudflare_oauth'));
+              return (
+                <article key={item.id} className="iam-connect-icon-card">
+                  <button
+                    type="button"
+                    className="iam-connect-icon-hit"
+                    onClick={() => openConnectCard(item)}
+                    aria-label={`${item.title}${connected ? ' — connected' : ''}`}
+                  >
+                    {connected ? <span className="iam-connect-icon-dot" aria-hidden /> : null}
+                    <img
+                      className="iam-connect-icon-art"
+                      src={`${INTEGRATION_ASSET_BASE}assets/integrations/${encodeURIComponent(item.iconSlug)}.svg`}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </button>
+                  <p className="iam-connect-icon-label">{item.title}</p>
+                  <p className="iam-connect-icon-sub">{connected ? 'Connected' : 'Connect'}</p>
+                </article>
+              );
+            })}
           </div>
         </section>
 
