@@ -511,7 +511,13 @@ html,body,#app{background:#F9F7F2;color:#1a1a1a;height:100dvh;height:-webkit-fil
   box-shadow:0 1px 0 rgba(255,255,255,.72) inset;
   flex-wrap:nowrap;
 }
-.ts-brand{display:flex;align-items:center;gap:8px;min-width:0;flex-shrink:0;max-width:38vw}
+.ts-brand{display:flex;align-items:center;gap:8px;min-width:0;flex-shrink:0;max-width:38vw;position:relative}
+.ts-brand-pencil{position:absolute;top:-4px;right:-4px;width:16px;height:16px;background:#0d9488;border-radius:50%;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;pointer-events:none}
+.ts-brand-pencil svg{width:9px;height:9px;stroke:#fff;stroke-width:2.5}
+.ts-brand:hover .ts-brand-pencil{opacity:1}
+.ts-logo-popover{position:absolute;top:calc(100% + 10px);left:0;width:240px;background:#fff;border:1px solid #e8e4dc;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.12);z-index:500;padding:14px;display:flex;flex-direction:column}
+.ts-logo-pop-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.ts-sec-group-label{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em;padding:10px 14px 4px;flex-shrink:0}
 .ts-logo{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#0d9488,#115e59);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;letter-spacing:-.04em;flex-shrink:0}
 .ts-brand-name{font-size:14px;font-weight:700;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ts-nav-icons{display:flex;align-items:center;gap:2px;margin-left:2px;flex-shrink:0}
@@ -767,6 +773,9 @@ function injectStyles(themeStudio) {
 ══════════════════════════════════════════════════════════════ */
 const I = {
   back: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>,
+  layoutList: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 4h7M14 9h7M14 15h7M14 20h7"/></svg>,
+  pencilSmall: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+  agentSam: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><path d="M15 8h.01M9 8h.01"/></svg>,
   sections: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>,
   theme: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>,
   desktop: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>,
@@ -1146,6 +1155,10 @@ function CmsEditor() {
   const [wizardBusy, setWizardBusy] = useState(false);
   const [undoStack, setUndoStack] = useState([]);
   const [lastRollback, setLastRollback] = useState(null);
+  const [logoPopoverOpen, setLogoPopoverOpen] = useState(false);
+  const [logoUrl, setLogoUrl] = useState('');
+  const [logoWidth, setLogoWidth] = useState(120);
+  const [savingLogo, setSavingLogo] = useState(false);
 
   const isMobile = useIsMobile();
   const iframeRef = useRef(null);
@@ -1844,17 +1857,78 @@ function CmsEditor() {
         {/* ═══ TOPBAR ═══ */}
         {isThemeStudio ? (
           <div className="topbar">
-            <div className="ts-brand">
-              <div className="ts-logo">{brandInitials}</div>
+            <div className="ts-brand" style={{ position: 'relative' }}>
+              {/* Logo area with pencil edit trigger */}
+              <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}
+                onClick={() => setLogoPopoverOpen(v => !v)}
+                title="Edit logo"
+              >
+                {logoUrl
+                  ? <img src={logoUrl} alt={brandName} style={{ height: 28, width: logoWidth, objectFit: 'contain', borderRadius: 6 }} />
+                  : <div className="ts-logo">{brandInitials}</div>
+                }
+                <span className="ts-brand-pencil" aria-hidden="true">{I.pencilSmall}</span>
+              </div>
               <span className="ts-brand-name">{brandName}</span>
+
+              {/* Logo edit popover */}
+              {logoPopoverOpen && (
+                <div className="ts-logo-popover" onClick={e => e.stopPropagation()}>
+                  <div className="ts-logo-pop-head">
+                    <span style={{ fontWeight: 700, fontSize: 13 }}>Site logo</span>
+                    <button type="button" className="ts-icon-btn" style={{ width: 28, height: 28 }} onClick={() => setLogoPopoverOpen(false)}>×</button>
+                  </div>
+                  <div className="field" style={{ marginBottom: 10 }}>
+                    <label className="field-label">Logo URL</label>
+                    <input type="text" value={logoUrl} placeholder="https://… or R2 URL" onChange={e => setLogoUrl(e.target.value)} />
+                  </div>
+                  <div className="field" style={{ marginBottom: 10 }}>
+                    <label className="field-label">Width (px)</label>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input type="range" min={40} max={280} value={logoWidth} onChange={e => setLogoWidth(Number(e.target.value))} style={{ flex: 1 }} />
+                      <span style={{ fontSize: 11, color: '#64748b', minWidth: 32 }}>{logoWidth}px</span>
+                    </div>
+                  </div>
+                  {logoUrl && (
+                    <div style={{ marginBottom: 10, padding: 8, background: '#f5f2eb', borderRadius: 8, display: 'flex', justifyContent: 'center' }}>
+                      <img src={logoUrl} alt="preview" style={{ height: 32, maxWidth: logoWidth, objectFit: 'contain' }} />
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-sm pub"
+                    style={{ width: '100%', justifyContent: 'center' }}
+                    disabled={savingLogo}
+                    onClick={async () => {
+                      setSavingLogo(true);
+                      try {
+                        await api(`/api/cms/bootstrap/logo`, {
+                          method: 'POST',
+                          body: { project_slug: ctx.project, logo_url: logoUrl, logo_width: logoWidth },
+                        });
+                        showToast('Logo saved', 'ok');
+                        setLogoPopoverOpen(false);
+                      } catch (e) {
+                        showToast('Save failed: ' + e.message, 'err');
+                      } finally {
+                        setSavingLogo(false);
+                      }
+                    }}
+                  >
+                    {savingLogo ? 'Saving…' : 'Save logo'}
+                  </button>
+                </div>
+              )}
+
+              {/* 3 nav icons: back, sections, settings */}
               <div className="ts-nav-icons">
                 <button type="button" className="ts-icon-btn" title="Exit editor" onClick={() => postParent('iam-cms-exit', {})}>
                   {I.back}
                 </button>
-                <button type="button" className="ts-icon-btn" title="CMS sites" onClick={() => postParent('iam-cms-navigate', { path: `/dashboard/cms?site=${encodeURIComponent(ctx.project)}` })}>
-                  {I.grid}
+                <button type="button" className="ts-icon-btn" title="Sections" onClick={() => setMobilePanel(p => p === 'sections' ? 'canvas' : 'sections')}>
+                  {I.layoutList}
                 </button>
-                <button type="button" className="ts-icon-btn" title="Theme settings" onClick={() => setRpTab('design')}>
+                <button type="button" className="ts-icon-btn" title="Design settings" onClick={() => setRpTab('design')}>
                   {I.settings}
                 </button>
               </div>
@@ -1870,6 +1944,9 @@ function CmsEditor() {
             </div>
 
             <div className="ts-topbar-right ts-topbar-actions-full">
+              <button type="button" className="btn btn-sm ts-icon-btn" title="Ask Agent Sam" onClick={() => postParent('iam-cms-open-agent', { page_id: activePage?.id, section_id: activeSection?.id, surface: 'cms_editor', project_slug: ctx.project })}>
+                {I.agentSam}
+              </button>
               <button type="button" className="btn btn-sm ts-icon-btn" title="Add" onClick={() => openWizard('menu')}>{I.plus}</button>
               <button type="button" className="btn btn-sm ts-icon-btn" title="Undo" disabled={!undoStack.length} onClick={undoLast}>{I.undo}</button>
               <div className="vp-group">
@@ -2017,18 +2094,8 @@ function CmsEditor() {
               <div className="ts-sections-head">
                 <span className="ts-sections-title">Sections</span>
                 <div className="ts-sections-actions">
-                  <button type="button" className="ts-icon-btn" title="Search sections">{I.search}</button>
                   <button type="button" className="ts-icon-btn" title="Add section" onClick={() => openWizard('section')}>{I.plus}</button>
                 </div>
-              </div>
-              <div className="ts-search-wrap">
-                <input
-                  type="search"
-                  className="ts-search"
-                  placeholder="Search sections…"
-                  value={sectionQuery}
-                  onChange={e => setSectionQuery(e.target.value)}
-                />
               </div>
               <div className="sec-list">
                 {booting && (
@@ -2036,52 +2103,118 @@ function CmsEditor() {
                     <span className="spin">⟳</span> Loading…
                   </div>
                 )}
-                {visibleSections.map((sec, idx) => {
-                  const realIdx = sections.findIndex(s => s.id === sec.id);
-                  const color = SECTION_TYPE_COLORS[sec.section_type] || SECTION_TYPE_COLORS.default;
-                  const isActive = activeSection?.id === sec.id;
-                  const blurb = SECTION_BLURBS[sec.section_type] || sec.section_type || 'Section';
+
+                {/* ── HEADER group ── */}
+                {(() => {
+                  const headerSecs = sections.filter(s => s.section_type === 'header' || s.section_name === 'header');
+                  return headerSecs.length > 0 ? (
+                    <>
+                      <div className="ts-sec-group-label">Header</div>
+                      {headerSecs.map(sec => {
+                        const isActive = activeSection?.id === sec.id;
+                        return (
+                          <div
+                            key={sec.id}
+                            className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
+                            onClick={() => { setActiveSection(sec); setRpTab('edit'); setDirty({}); scrollPreviewToSection(iframeRef, sec.section_name); if (isMobile) { setMobilePanel('canvas'); setTimeout(() => setMobilePanel('inspector'), 120); } }}
+                          >
+                            <div className="sec-icon" style={{ color: '#60a5fa', background: '#60a5fa18' }}>HD</div>
+                            <div className="sec-info">
+                              <div className="sec-name">{sec.section_name}</div>
+                              <div className="sec-type">Global header</div>
+                            </div>
+                            <button type="button" className="eye-btn" title={sec.is_visible ? 'Hide' : 'Show'} onClick={e => { e.stopPropagation(); toggleVis(sec); }}>
+                              {sec.is_visible ? I.eye : I.eyeOff}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </>
+                  ) : null;
+                })()}
+
+                {/* ── TEMPLATE group (draggable) ── */}
+                {(() => {
+                  const templateSecs = sections.filter(s => s.section_type !== 'header' && s.section_name !== 'header' && s.section_type !== 'footer' && s.section_name !== 'footer');
                   return (
-                    <div
-                      key={sec.id}
-                      className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
-                      onClick={() => {
-                        setActiveSection(sec);
-                        setRpTab('edit');
-                        setDirty({});
-                        scrollPreviewToSection(iframeRef, sec.section_name);
-                        if (isMobile) {
-                          setMobilePanel('canvas');
-                          if (isThemeStudio) setTimeout(() => setMobilePanel('inspector'), 120);
-                        }
-                      }}
-                      {...dragH(realIdx >= 0 ? realIdx : idx)}
-                    >
-                      <span className="drag-grip">⋮⋮</span>
-                      <div className="sec-icon" style={{ color, background: color + '18' }}>
-                        {(sec.section_type || 'S').slice(0, 2).toUpperCase()}
-                      </div>
-                      <div className="sec-info">
-                        <div className="sec-name">{sec.section_name}</div>
-                        <div className="sec-type">{blurb}</div>
-                      </div>
-                      <button type="button" className="eye-btn" title="More" onClick={e => e.stopPropagation()}>
-                        {I.more}
-                      </button>
-                    </div>
+                    <>
+                      <div className="ts-sec-group-label">Template</div>
+                      {templateSecs.map((sec) => {
+                        const realIdx = sections.findIndex(s => s.id === sec.id);
+                        const color = SECTION_TYPE_COLORS[sec.section_type] || SECTION_TYPE_COLORS.default;
+                        const isActive = activeSection?.id === sec.id;
+                        const blurb = SECTION_BLURBS[sec.section_type] || sec.section_type || 'Section';
+                        return (
+                          <div
+                            key={sec.id}
+                            className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
+                            onClick={() => {
+                              setActiveSection(sec);
+                              setRpTab('edit');
+                              setDirty({});
+                              scrollPreviewToSection(iframeRef, sec.section_name);
+                              if (isMobile) {
+                                setMobilePanel('canvas');
+                                if (isThemeStudio) setTimeout(() => setMobilePanel('inspector'), 120);
+                              }
+                            }}
+                            {...dragH(realIdx >= 0 ? realIdx : 0)}
+                          >
+                            <span className="drag-grip">⋮⋮</span>
+                            <div className="sec-icon" style={{ color, background: color + '18' }}>
+                              {(sec.section_type || 'S').slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="sec-info">
+                              <div className="sec-name">{sec.section_name}</div>
+                              <div className="sec-type">{blurb}</div>
+                            </div>
+                            <button type="button" className="eye-btn" title={sec.is_visible ? 'Hide' : 'Show'} onClick={e => { e.stopPropagation(); toggleVis(sec); }}>
+                              {sec.is_visible ? I.eye : I.eyeOff}
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {!templateSecs.length && !booting && (
+                        <div style={{ padding: '8px 12px', color: '#94a3b8', fontSize: 11 }}>No template sections yet</div>
+                      )}
+                    </>
                   );
-                })}
-                {!visibleSections.length && !booting && (
-                  <div style={{ padding: '14px 12px', color: '#94a3b8', fontSize: 12 }}>
-                    {sectionQueryNorm ? 'No matching sections' : 'No sections yet'}
-                  </div>
-                )}
+                })()}
+
+                {/* ── FOOTER group ── */}
+                {(() => {
+                  const footerSecs = sections.filter(s => s.section_type === 'footer' || s.section_name === 'footer');
+                  return footerSecs.length > 0 ? (
+                    <>
+                      <div className="ts-sec-group-label">Footer</div>
+                      {footerSecs.map(sec => {
+                        const isActive = activeSection?.id === sec.id;
+                        return (
+                          <div
+                            key={sec.id}
+                            className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
+                            onClick={() => { setActiveSection(sec); setRpTab('edit'); setDirty({}); scrollPreviewToSection(iframeRef, sec.section_name); if (isMobile) { setMobilePanel('canvas'); setTimeout(() => setMobilePanel('inspector'), 120); } }}
+                          >
+                            <div className="sec-icon" style={{ color: '#a78bfa', background: '#a78bfa18' }}>FT</div>
+                            <div className="sec-info">
+                              <div className="sec-name">{sec.section_name}</div>
+                              <div className="sec-type">Global footer</div>
+                            </div>
+                            <button type="button" className="eye-btn" title={sec.is_visible ? 'Hide' : 'Show'} onClick={e => { e.stopPropagation(); toggleVis(sec); }}>
+                              {sec.is_visible ? I.eye : I.eyeOff}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </>
+                  ) : null;
+                })()}
               </div>
               <button type="button" className="add-sec-btn" onClick={() => openWizard('section')}>
                 <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
                 Add section
               </button>
-              <div className="ts-sections-hint">Drag sections to reorder.</div>
+              <div className="ts-sections-hint">Drag template sections to reorder.</div>
             </>
           ) : (
           <>
