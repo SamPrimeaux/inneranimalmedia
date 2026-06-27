@@ -33,6 +33,7 @@ import {
   enqueueCodemodePendingActions,
 } from './codemode-agent-bridge.js';
 import { isImageGenerationTool, streamImageGenerationSse } from '../tools/image_generation.js';
+import { imageGenerationShouldPersist } from './image-draft-store.js';
 import { mergeResolvedContextIntoRunContext } from './agent-chat-resolved-context.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { fireForgetAgentToolChainRow } from '../api/command-run-telemetry.js';
@@ -1103,7 +1104,12 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             }
           }
         } else if (isImageGenerationTool(call.name)) {
-          execResult = await streamImageGenerationSse(emit, env, call.name, call.input || {}, {
+          const toolInput =
+            call.input && typeof call.input === 'object' ? { ...call.input } : {};
+          if (!imageGenerationShouldPersist(toolInput)) {
+            toolInput.persist = false;
+          }
+          execResult = await streamImageGenerationSse(emit, env, call.name, toolInput, {
             authUser: { id: userId },
             workspaceId,
             tenantId,

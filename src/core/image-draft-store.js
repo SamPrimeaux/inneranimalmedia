@@ -1,0 +1,397 @@
+/**
+ * Image generation drafts — AI creates drafts. Users create canon.
+ *
+ * Draft objects live under drafts/images/{user_id}/{generation_id}.webp (TTL in D1).
+ * Commit copies to permanent upload prefix + images row (+ optional cms_assets).
+ */
+
+import { getR2Binding } from '../api/r2-api.js';
+import { resolvePrimaryUploadPrefix } from './media-r2-access.js';
+
+const BUCKET = 'inneranimalmedia';
+const CMS_ASSETS = 'cms_assets';
+export const IMAGE_DRAFT_TTL_SEC = Number(process.env.IMAGE_DRAFT_TTL_SEC || 72 * 3600);
+
+/** @param {string} userId @param {string} generationId @param {string} ext */
+export function draftImageR2Key(userId, generationId, ext = 'webp') {
+  const uid = String(userId || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
+  const gid = String(generationId || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48);
+  const e = String(ext || 'webp').replace(/^\./, '').slice(0, 8);
+  return `drafts/images/${uid}/${gid}.${e}`;
+}
+
+/** @param {string} origin @param {string} key */
+export function assetUrlFromR2Key(origin, key) {
+  const k = String(key || '').trim().replace(/^\/+/, '');
+  if (!k) return '';
+  const base = String(origin || 'https://inneranimalmedia.com').replace(/\/$/, '');
+  return `${base}/assets/${k}`;
+}
+
+/**
+ * @param {string} contentType
+ */
+function extFromContentType(contentType) {
+  const ct = String(contentType || 'image/png').toLowerCase();
+  if (ct.includes('jpeg') || ct.includes('jpg')) return 'jpg';
+  if (ct.includes('webp')) return 'webp';
+  if (ct.includes('gif')) return 'gif';
+  return 'png';
+}
+
+/**
+ * @param {unknown} env
+ * @param {Uint8Array | ArrayBuffer} bytes
+ * @param {string} contentType
+ */
+export async function maybeConvertDraftToWebp(bytes, contentType) {
+  const ct = String(contentType || 'image/png').toLowerCase();
+  if (ct.includes('webp')) {
+    return { bytes: bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), contentType: 'image/webp' };
+  }
+  // Store as-is for v1 — webp conversion would need sharp/wasm; png is fine for drafts.
+  return { bytes: bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), contentType: ct || 'image/png' };
+}
+
+/**
+ * @param {unknown} env
+ * @param {{
+ *   userId: string;
+ *   workspaceId?: string | null;
+ *   tenantId?: string | null;
+ *   generationId?: string;
+ *   bytes: Uint8Array | ArrayBuffer;
+ *   contentType: string;
+ *   purpose?: string | null;
+ *   prompt?: string | null;
+ *   provider?: string | null;
+ *   model?: string | null;
+ *   width?: number | null;
+ *   height?: number | null;
+ *   origin?: string;
+ * }} p
+ */
+export async function persistImageDraft(env, p) {
+  if (!env?.DB) throw new Error('Database not configured');
+  const binding = getR2Binding(env, BUCKET);
+  if (!binding?.put) throw new Error('R2 bucket inneranimalmedia not configured');
+
+  const userId = String(p.userId || '').trim();
+  if (!userId) throw new Error('user_id required');
+
+  const generationId =
+    String(p.generationId || '').trim() ||
+    `igen_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+
+  const packed = await maybeConvertDraftToWebp(p.bytes, p.contentType);
+  const ext = extFromContentType(packed.contentType);
+  const r2Key = draftImageR2Key(userId, generationId, ext);
+  const buf = packed.bytes instanceof Uint8Array ? packed.bytes : new Uint8Array(packed.bytes);
+
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt = now + IMAGE_DRAFT_TTL_SEC;
+  const origin = String(p.origin || env.IAM_ORIGIN || 'https://inneranimalmedia.com').replace(/\/$/, '');
+  const previewUrl = assetUrlFromR2Key(origin, r2Key);
+
+  await binding.put(r2Key, buf, {
+    httpMetadata: { contentType: packed.contentType },
+    customMetadata: {
+      iam_draft: '1',
+      iam_user_id: userId,
+      expires_at: String(expiresAt),
+    },
+  });
+
+  await env.DB.prepare(
+    `INSERT INTO image_generation_drafts (
+       id, user_id, workspace_id, tenant_id, status, r2_key, r2_bucket, preview_url,
+       purpose, prompt, provider, model, width, height, expires_at, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       status = 'draft',
+       r2_key = excluded.r2_key,
+       preview_url = excluded.preview_url,
+       purpose = excluded.purpose,
+       prompt = excluded.prompt,
+       provider = excluded.provider,
+       model = excluded.model,
+       width = excluded.width,
+       height = excluded.height,
+       expires_at = excluded.expires_at,
+       updated_at = excluded.updated_at`,
+  )
+    .bind(
+      generationId,
+      userId,
+      p.workspaceId != null ? String(p.workspaceId).trim() || null : null,
+      p.tenantId != null ? String(p.tenantId).trim() || null : null,
+      r2Key,
+      BUCKET,
+      previewUrl,
+      p.purpose != null ? String(p.purpose).slice(0, 64) : null,
+      p.prompt != null ? String(p.prompt).slice(0, 2000) : null,
+      p.provider != null ? String(p.provider).slice(0, 64) : null,
+      p.model != null ? String(p.model).slice(0, 128) : null,
+      p.width != null ? Number(p.width) || null : null,
+      p.height != null ? Number(p.height) || null : null,
+      expiresAt,
+      now,
+      now,
+    )
+    .run();
+
+  return {
+    id: generationId,
+    generation_id: generationId,
+    status: 'draft',
+    preview_url: previewUrl,
+    image_url: previewUrl,
+    r2_key: r2Key,
+    r2_bucket: BUCKET,
+    expires_at: new Date(expiresAt * 1000).toISOString(),
+    expires_at_unix: expiresAt,
+  };
+}
+
+/**
+ * @param {unknown} env
+ * @param {string} generationId
+ * @param {string} userId
+ */
+export async function getImageDraftForUser(env, generationId, userId) {
+  if (!env?.DB) return null;
+  const id = String(generationId || '').trim();
+  const uid = String(userId || '').trim();
+  if (!id || !uid) return null;
+  const row = await env.DB.prepare(
+    `SELECT * FROM image_generation_drafts WHERE id = ? AND user_id = ? LIMIT 1`,
+  )
+    .bind(id, uid)
+    .first();
+  if (!row) return null;
+  const now = Math.floor(Date.now() / 1000);
+  if (String(row.status) === 'draft' && Number(row.expires_at) < now) {
+    return { ...row, status: 'expired', expired: true };
+  }
+  return row;
+}
+
+/**
+ * @param {unknown} env
+ * @param {string} generationId
+ * @param {string} userId
+ */
+export async function discardImageDraft(env, generationId, userId) {
+  const row = await getImageDraftForUser(env, generationId, userId);
+  if (!row) throw new Error('draft_not_found');
+  if (String(row.status) === 'committed') throw new Error('draft_already_committed');
+
+  const binding = getR2Binding(env, BUCKET);
+  if (binding?.delete && row.r2_key) {
+    await binding.delete(String(row.r2_key)).catch(() => null);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB.prepare(
+    `UPDATE image_generation_drafts SET status = 'discarded', updated_at = ? WHERE id = ? AND user_id = ?`,
+  )
+    .bind(now, String(generationId), String(userId))
+    .run();
+
+  return { ok: true, generation_id: generationId, status: 'discarded' };
+}
+
+/**
+ * @param {unknown} env
+ * @param {{
+ *   authUser: { id: string; tenant_id?: string | null };
+ *   workspaceId?: string | null;
+ *   tenantId?: string | null;
+ *   origin?: string;
+ * }} ctx
+ * @param {{
+ *   generation_id: string;
+ *   label?: string;
+ *   category?: string;
+ *   register_cms_asset?: boolean;
+ * }} body
+ */
+export async function commitImageDraft(env, ctx, body) {
+  if (!env?.DB) throw new Error('Database not configured');
+  const userId = String(ctx.authUser?.id || '').trim();
+  if (!userId) throw new Error('Unauthorized');
+
+  const generationId = String(body.generation_id || '').trim();
+  if (!generationId) throw new Error('generation_id required');
+
+  const row = await getImageDraftForUser(env, generationId, userId);
+  if (!row) throw new Error('draft_not_found');
+  if (row.expired) throw new Error('draft_expired');
+  if (String(row.status) === 'committed') {
+    return {
+      ok: true,
+      status: 'saved',
+      generation_id: generationId,
+      asset_id: row.committed_asset_id || row.committed_image_id,
+      image_id: row.committed_image_id,
+      url: assetUrlFromR2Key(ctx.origin, row.committed_r2_key),
+      r2_key: row.committed_r2_key,
+      already_committed: true,
+    };
+  }
+  if (String(row.status) !== 'draft') throw new Error('draft_not_committable');
+
+  const binding = getR2Binding(env, BUCKET);
+  if (!binding?.get || !binding?.put) throw new Error('R2 not configured');
+
+  const draftKey = String(row.r2_key || '').trim();
+  const obj = await binding.get(draftKey);
+  if (!obj) throw new Error('draft_file_missing');
+
+  const workspaceId =
+    ctx.workspaceId != null && String(ctx.workspaceId).trim()
+      ? String(ctx.workspaceId).trim()
+      : row.workspace_id != null
+        ? String(row.workspace_id).trim()
+        : '';
+  const tenantId =
+    ctx.tenantId != null && String(ctx.tenantId).trim()
+      ? String(ctx.tenantId).trim()
+      : row.tenant_id != null
+        ? String(row.tenant_id).trim()
+        : String(ctx.authUser?.tenant_id || '').trim() || 'system';
+
+  const uploadPack = await resolvePrimaryUploadPrefix(env, ctx.authUser, workspaceId || null);
+  if (uploadPack.error) throw new Error(uploadPack.error);
+
+  const contentType = obj.httpMetadata?.contentType || 'image/png';
+  const ext = extFromContentType(contentType);
+  const committedKey = `${uploadPack.prefix}committed-${generationId.replace(/[^a-z0-9]/gi, '').slice(0, 20)}.${ext}`;
+  const buf = await obj.arrayBuffer();
+
+  await binding.put(committedKey, buf, { httpMetadata: { contentType } });
+  await binding.delete(draftKey).catch(() => null);
+
+  const origin = String(ctx.origin || env.IAM_ORIGIN || 'https://inneranimalmedia.com').replace(/\/$/, '');
+  const publicUrl = assetUrlFromR2Key(origin, committedKey);
+  const imageId = `img_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const label = String(body.label || row.prompt || 'Generated image').trim().slice(0, 120);
+  const category = String(body.category || 'image_gen').trim().slice(0, 64);
+  const now = Math.floor(Date.now() / 1000);
+
+  await env.DB.prepare(
+    `INSERT INTO images (
+       id, tenant_id, project_id, user_id, filename, original_filename,
+       mime_type, size, width, height, r2_key, cloudflare_image_id,
+       url, thumbnail_url, alt_text, description, tags, metadata, status,
+       created_at, updated_at, workspace_id
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+  )
+    .bind(
+      imageId,
+      tenantId,
+      null,
+      userId,
+      `${generationId}.${ext}`,
+      label,
+      contentType,
+      buf.byteLength,
+      row.width != null ? Number(row.width) : null,
+      row.height != null ? Number(row.height) : null,
+      committedKey,
+      null,
+      publicUrl,
+      publicUrl,
+      label,
+      null,
+      JSON.stringify([category]),
+      JSON.stringify({
+        generation_id: generationId,
+        purpose: row.purpose,
+        provider: row.provider,
+        model: row.model,
+        committed_from: 'draft',
+      }),
+      now,
+      now,
+      workspaceId || null,
+    )
+    .run();
+
+  let cmsAssetId = null;
+  const registerCms =
+    body.register_cms_asset !== false &&
+    body.register_cms_asset !== 0 &&
+    String(body.register_cms_asset || '').toLowerCase() !== 'false';
+
+  if (registerCms && tenantId) {
+    cmsAssetId = `img_asset_${generationId.replace(/[^a-z0-9]/gi, '').slice(0, 16)}`;
+    await env.DB.prepare(
+      `INSERT INTO ${CMS_ASSETS} (
+         id, tenant_id, filename, original_filename, path, size, mime_type, category,
+         tags, r2_key, public_url, metadata, created_by, is_live, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         public_url = excluded.public_url,
+         r2_key = excluded.r2_key,
+         metadata = excluded.metadata,
+         updated_at = datetime('now')`,
+    )
+      .bind(
+        cmsAssetId,
+        tenantId,
+        label,
+        label,
+        publicUrl.startsWith('/assets/') ? publicUrl : committedKey,
+        buf.byteLength,
+        contentType,
+        category,
+        JSON.stringify(['image_gen', category]),
+        committedKey,
+        publicUrl,
+        JSON.stringify({
+          label,
+          generation_id: generationId,
+          image_id: imageId,
+          purpose: row.purpose,
+        }),
+        userId,
+      )
+      .run();
+  }
+
+  await env.DB.prepare(
+    `UPDATE image_generation_drafts SET
+       status = 'committed',
+       committed_image_id = ?,
+       committed_r2_key = ?,
+       committed_asset_id = ?,
+       preview_url = ?,
+       updated_at = ?
+     WHERE id = ? AND user_id = ?`,
+  )
+    .bind(imageId, committedKey, cmsAssetId, publicUrl, now, generationId, userId)
+    .run();
+
+  return {
+    ok: true,
+    status: 'saved',
+    generation_id: generationId,
+    asset_id: cmsAssetId || imageId,
+    image_id: imageId,
+    url: publicUrl,
+    public_url: publicUrl,
+    r2_key: committedKey,
+  };
+}
+
+/**
+ * @param {Record<string, unknown> | null | undefined} params
+ */
+export function imageGenerationShouldPersist(params) {
+  return (
+    params?.persist === true ||
+    params?.persist === 1 ||
+    String(params?.persist || '').toLowerCase() === 'true'
+  );
+}

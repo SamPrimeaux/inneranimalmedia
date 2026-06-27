@@ -340,6 +340,8 @@ export function normalizeImageGenerationEvent(
 
   if (eventType === 'image_generation_complete') {
     const imageUrl = typeof o.image_url === 'string' ? o.image_url.trim() : '';
+    const previewUrl = typeof o.preview_url === 'string' ? o.preview_url.trim() : imageUrl;
+    const status = typeof o.status === 'string' ? o.status : imageUrl ? 'draft' : 'completed';
     return {
       eventType,
       patch: {
@@ -347,12 +349,16 @@ export function normalizeImageGenerationEvent(
         phase: 'completed',
         progress: 100,
         message: '',
-        imageUrl: imageUrl || undefined,
+        imageUrl: previewUrl || imageUrl || undefined,
+        previewUrl: previewUrl || imageUrl || undefined,
+        status,
+        expiresAt: typeof o.expires_at === 'string' ? o.expires_at : undefined,
+        persist: o.persist === true,
         r2Key: typeof o.r2_key === 'string' ? o.r2_key : undefined,
         artifactId: typeof o.artifact_id === 'string' ? o.artifact_id : undefined,
         provider: typeof o.provider === 'string' ? o.provider : undefined,
         model: typeof o.model === 'string' ? o.model : undefined,
-        failed: false,
+        failed: Boolean(o.failed),
       },
     };
   }

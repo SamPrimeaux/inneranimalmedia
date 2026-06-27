@@ -586,6 +586,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                     <div className="mb-3">
                       <AgentImageGenerationCard
                         state={msg.imageGenerationState}
+                        workspaceId={workspaceId}
                         onImagePreview={onImagePreview}
                       />
                     </div>

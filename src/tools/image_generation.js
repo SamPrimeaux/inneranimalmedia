@@ -1,9 +1,16 @@
 /**
  * Unified image generation — OpenAI, Google Imagen, Workers AI.
  * Used by /api/images/generate|edit and agent chat SSE tool paths.
+ *
+ * Product rule: AI creates drafts. Users create canon.
+ * Default persist: false — drafts in drafts/images/{user_id}/ until POST /api/images/commit.
  */
 
 import { generateImageOpenAI, normalizeOpenAiImageQuality } from '../integrations/openai.js';
+import {
+  imageGenerationShouldPersist,
+  persistImageDraft,
+} from '../core/image-draft-store.js';
 import { assertOpenAiImageModelActive } from '../core/image-model-routes.js';
 import { stripUserTextForIntent } from '../core/active-file-envelope.js';
 import { isCodeImplementationIntent } from '../core/code-implementation-intent.js';
@@ -359,8 +366,9 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
             model: imageModel.model_key,
             provider: imageModel.resolved_platform,
             secretKeyName: imageModel.keyName,
+            persist: false,
           }
-        : { prompt: message };
+        : { prompt: message, persist: false };
 
       const t0 = Date.now();
       try {
@@ -749,6 +757,13 @@ export async function editImage(env, params) {
 export async function runImageGenerationForTool(env, toolName, params, ctx = {}) {
   const prompt = String(params.prompt || params.description || '').trim();
   const isEdit = toolName === 'imgx_edit_image';
+  const persist = imageGenerationShouldPersist(params);
+  const generationId =
+    String(params.generation_id || '').trim() ||
+    `igen_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const dims = parseImageDimensions(params.size);
+  const purpose =
+    params.purpose != null ? String(params.purpose).trim().slice(0, 64) : null;
 
   const gen = isEdit
     ? await editImage(env, {
@@ -768,28 +783,72 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
         tenantId: ctx.tenantId,
       });
 
+  const previewUrls = [...(gen.preview_urls || [])];
+
+  if (!persist) {
+    const userId = String(ctx.userId || ctx.authUser?.id || '').trim();
+    if (!userId) throw new Error('user_id required for draft image');
+    const draft = await persistImageDraft(env, {
+      userId,
+      workspaceId: ctx.workspaceId,
+      tenantId: ctx.tenantId,
+      generationId,
+      bytes: gen.bytes,
+      contentType: gen.contentType,
+      purpose,
+      prompt,
+      provider: gen.provider,
+      model: gen.model,
+      width: dims.width,
+      height: dims.height,
+      origin: ctx.origin,
+    });
+    if (draft.preview_url && !previewUrls.includes(draft.preview_url)) {
+      previewUrls.push(draft.preview_url);
+    }
+    return {
+      ok: true,
+      status: 'draft',
+      generation_id: draft.generation_id,
+      preview_url: draft.preview_url,
+      image_url: draft.preview_url,
+      public_url: draft.preview_url,
+      url: draft.preview_url,
+      expires_at: draft.expires_at,
+      r2_key: draft.r2_key,
+      provider: gen.provider,
+      model: gen.model,
+      preview_urls: previewUrls,
+      metadata: { ...gen.metadata || {}, draft: true, purpose },
+      persist: false,
+    };
+  }
+
   const uploaded = await uploadImageBytesToR2(env, gen.bytes, gen.contentType, {
     authUser: ctx.authUser,
     workspaceId: ctx.workspaceId,
     origin: ctx.origin,
   });
 
-  const previewUrls = [...(gen.preview_urls || [])];
   if (uploaded.image_url && !previewUrls.includes(uploaded.image_url)) {
     previewUrls.push(uploaded.image_url);
   }
 
   return {
     ok: true,
+    status: 'saved',
+    generation_id: generationId,
     image_url: uploaded.image_url,
     public_url: uploaded.image_url,
     url: uploaded.image_url,
+    preview_url: uploaded.image_url,
     r2_key: uploaded.r2_key,
     artifact_id: uploaded.artifact_id,
     provider: gen.provider,
     model: gen.model,
     preview_urls: previewUrls,
     metadata: gen.metadata || {},
+    persist: true,
   };
 }
 
@@ -806,6 +865,9 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
   const prompt = String(params.prompt || params.description || '').trim();
   const dims = parseImageDimensions(params.size);
   const isEdit = toolName === 'imgx_edit_image';
+  if (!imageGenerationShouldPersist(params)) {
+    params = { ...params, persist: false };
+  }
 
   const ws = ctx.workspaceId != null ? String(ctx.workspaceId).trim() : '';
   let providerGuess = 'workers_ai';
@@ -872,7 +934,12 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
 
   const scoredT0 = Date.now();
   try {
-    const result = await runImageGenerationForTool(env, toolName, params, ctx);
+    const result = await runImageGenerationForTool(
+      env,
+      toolName,
+      { ...params, generation_id: generationId },
+      ctx,
+    );
     if (scoredModelKey && ws) {
       await recordImageModelOutcome(env, scoredModelKey, ws, true, Date.now() - scoredT0);
     }
@@ -899,12 +966,16 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
 
     emit('image_generation_complete', {
       type: 'image_generation_complete',
-      generation_id: generationId,
+      generation_id: result.generation_id || generationId,
+      status: result.status || (result.persist ? 'saved' : 'draft'),
+      preview_url: result.preview_url || result.image_url,
       image_url: result.image_url,
+      expires_at: result.expires_at,
       r2_key: result.r2_key,
       artifact_id: result.artifact_id,
       provider: result.provider,
       model: result.model,
+      persist: result.persist ?? false,
     });
 
     return result;

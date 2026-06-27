@@ -7,10 +7,18 @@ import React, { useMemo, useState } from 'react';
 import { IAM_AGENT_CHAT_COMPOSE } from '../agentChatConstants';
 import type { ImageGenerationState } from './ChatAssistant/types';
 import { ProgressiveImagePreview } from './ProgressiveImagePreview';
+import {
+  applyAgentHomeBackdropToTheme,
+  commitImageDraft,
+  discardImageDraft,
+  previewAgentHomeBackdropImage,
+  type ImageDraftDayPart,
+} from '../lib/imageDraftActions';
 import '../styles/image-generation.css';
 
 export type AgentImageGenerationCardProps = {
   state: ImageGenerationState;
+  workspaceId?: string | null;
   onImagePreview?: (url: string) => void;
 };
 
@@ -21,8 +29,17 @@ function providerLabel(provider?: string, model?: string): string {
   return p || m || 'image';
 }
 
-export function AgentImageGenerationCard({ state, onImagePreview }: AgentImageGenerationCardProps) {
+export function AgentImageGenerationCard({
+  state,
+  workspaceId,
+  onImagePreview,
+}: AgentImageGenerationCardProps) {
   const [selectedFrame, setSelectedFrame] = useState<number | null>(null);
+  const [dayPart, setDayPart] = useState<ImageDraftDayPart>('dusk');
+  const [previewingBackdrop, setPreviewingBackdrop] = useState(false);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [committedUrl, setCommittedUrl] = useState<string | null>(state.committedUrl || null);
 
   const activeFrame =
     selectedFrame != null
@@ -30,24 +47,33 @@ export function AgentImageGenerationCard({ state, onImagePreview }: AgentImageGe
       : state.previewFrames.find((f) => f.frameIndex === state.activeFrameIndex) ||
         state.previewFrames[state.previewFrames.length - 1];
 
-  const previewUrl = activeFrame?.previewUrl || state.imageUrl;
-  const isComplete = state.phase === 'completed' && Boolean(state.imageUrl);
+  const previewUrl = activeFrame?.previewUrl || state.previewUrl || state.imageUrl;
+  const isComplete = state.phase === 'completed' && Boolean(previewUrl);
+  const isDraft = isComplete && (state.status === 'draft' || !state.persist);
+  const canonicalUrl = committedUrl || (state.status === 'saved' ? previewUrl : null);
+
   const statusLine =
     state.phase === 'completed'
-      ? ''
+      ? previewingBackdrop
+        ? 'Previewing draft backdrop (not saved)'
+        : isDraft
+          ? 'Draft preview — not saved to library or theme'
+          : 'Saved to library'
       : state.phase === 'failed'
         ? state.message || 'Image generation failed'
         : state.message || 'Creating image…';
 
   const title =
     state.phase === 'completed'
-      ? 'Image ready'
+      ? isDraft
+        ? 'Draft image'
+        : 'Image saved'
       : state.phase === 'failed'
         ? 'Generation failed'
         : 'Creating image';
 
   const handleDownload = async () => {
-    const url = state.imageUrl || previewUrl;
+    const url = previewUrl;
     if (!url) return;
     try {
       const res = await fetch(url);
@@ -63,31 +89,18 @@ export function AgentImageGenerationCard({ state, onImagePreview }: AgentImageGe
   };
 
   const handleCopy = async () => {
-    const url = state.imageUrl || previewUrl;
+    const url = canonicalUrl || previewUrl;
     if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
+      setActionMsg('URL copied');
     } catch {
-      /* ignore */
+      setActionMsg('Could not copy URL');
     }
   };
 
-  const handleShare = async () => {
-    const url = state.imageUrl || previewUrl;
-    if (!url) return;
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: 'Agent Sam image', url });
-        return;
-      } catch {
-        /* fall through */
-      }
-    }
-    await handleCopy();
-  };
-
-  const handleEdit = () => {
-    const url = state.imageUrl || previewUrl;
+  const handleEditPrompt = () => {
+    const url = previewUrl;
     if (!url) return;
     const prompt = window.prompt('Describe how to edit this image:', state.prompt || '');
     if (!prompt?.trim()) return;
@@ -98,6 +111,82 @@ export function AgentImageGenerationCard({ state, onImagePreview }: AgentImageGe
         },
       }),
     );
+  };
+
+  const handlePreviewBackdrop = () => {
+    const url = previewUrl;
+    if (!url) return;
+    previewAgentHomeBackdropImage(url, dayPart);
+    setPreviewingBackdrop(true);
+    setActionMsg('Previewing on Agent Home (session only)');
+  };
+
+  const handleSaveToLibrary = async () => {
+    if (!state.generationId) return;
+    setBusyAction('save');
+    setActionMsg(null);
+    try {
+      const out = await commitImageDraft(state.generationId, {
+        workspaceId,
+        label: state.prompt?.slice(0, 120) || 'Generated image',
+        category: 'agent_backdrops',
+        register_cms_asset: true,
+      });
+      const url = out.url || out.public_url;
+      if (url) setCommittedUrl(url);
+      setActionMsg('Saved to library');
+      setPreviewingBackdrop(false);
+    } catch (e) {
+      setActionMsg(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleApplyToAgentHome = async () => {
+    if (!workspaceId?.trim()) {
+      setActionMsg('Select a workspace to apply theme');
+      return;
+    }
+    setBusyAction('apply');
+    setActionMsg(null);
+    try {
+      let url = canonicalUrl;
+      if (!url && isDraft) {
+        const out = await commitImageDraft(state.generationId, {
+          workspaceId,
+          label: state.prompt?.slice(0, 120) || 'Agent backdrop',
+          category: 'agent_backdrops',
+          register_cms_asset: true,
+        });
+        url = out.url || out.public_url || '';
+        if (url) setCommittedUrl(url);
+      }
+      if (!url) throw new Error('No image URL to apply');
+      await applyAgentHomeBackdropToTheme(workspaceId, url, dayPart);
+      setPreviewingBackdrop(false);
+      setActionMsg('Applied to Agent Home theme');
+    } catch (e) {
+      setActionMsg(e instanceof Error ? e.message : 'Apply failed');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleDiscard = async () => {
+    if (!state.generationId || !isDraft) return;
+    if (!window.confirm('Discard this draft? It will be removed from temporary storage.')) return;
+    setBusyAction('discard');
+    setActionMsg(null);
+    try {
+      await discardImageDraft(state.generationId);
+      setActionMsg('Draft discarded');
+      setPreviewingBackdrop(false);
+    } catch (e) {
+      setActionMsg(e instanceof Error ? e.message : 'Discard failed');
+    } finally {
+      setBusyAction(null);
+    }
   };
 
   const timeline = useMemo(
@@ -115,17 +204,26 @@ export function AgentImageGenerationCard({ state, onImagePreview }: AgentImageGe
         {(state.provider || state.model) && (
           <span className="iam-image-gen-card__badge">{providerLabel(state.provider, state.model)}</span>
         )}
+        {isDraft ? <span className="iam-image-gen-card__badge">draft</span> : null}
       </header>
       {statusLine ? (
         <p key={statusLine} className="iam-image-gen-card__status">
           {statusLine}
         </p>
       ) : null}
+      {state.expiresAt && isDraft ? (
+        <p className="iam-image-gen-card__status iam-image-gen-card__status--muted">
+          Draft expires {new Date(state.expiresAt).toLocaleString()}
+        </p>
+      ) : null}
+      {actionMsg ? (
+        <p className="iam-image-gen-card__status iam-image-gen-card__status--muted">{actionMsg}</p>
+      ) : null}
       <ProgressiveImagePreview
         phase={state.phase}
         progress={state.progress}
         previewUrl={previewUrl}
-        finalUrl={state.imageUrl}
+        finalUrl={previewUrl}
         onImageClick={onImagePreview}
       />
       {timeline.length > 1 ? (
@@ -148,19 +246,46 @@ export function AgentImageGenerationCard({ state, onImagePreview }: AgentImageGe
         </div>
       ) : null}
       {isComplete ? (
-        <div className="iam-image-gen-actions">
-          <button type="button" onClick={handleEdit}>
-            Edit
-          </button>
-          <button type="button" onClick={() => void handleCopy()}>
-            Copy
-          </button>
-          <button type="button" onClick={() => void handleShare()}>
-            Share
-          </button>
-          <button type="button" onClick={() => void handleDownload()}>
-            Download
-          </button>
+        <div className="iam-image-gen-actions iam-image-gen-actions--stacked">
+          <label className="iam-image-gen-daypart">
+            <span>Day-part</span>
+            <select
+              value={dayPart}
+              onChange={(e) => setDayPart(e.target.value as ImageDraftDayPart)}
+              disabled={busyAction != null}
+            >
+              <option value="dawn">Dawn</option>
+              <option value="day">Day</option>
+              <option value="dusk">Dusk</option>
+              <option value="night">Night</option>
+              <option value="minimal-dark">Minimal dark</option>
+            </select>
+          </label>
+          <div className="iam-image-gen-actions">
+            {isDraft ? (
+              <button type="button" disabled={busyAction != null} onClick={() => void handleSaveToLibrary()}>
+                {busyAction === 'save' ? 'Saving…' : 'Save to library'}
+              </button>
+            ) : null}
+            <button type="button" disabled={busyAction != null} onClick={handlePreviewBackdrop}>
+              Preview as Agent backdrop
+            </button>
+            <button
+              type="button"
+              disabled={busyAction != null}
+              onClick={() => void handleApplyToAgentHome()}
+            >
+              {busyAction === 'apply' ? 'Applying…' : 'Save & apply to Agent Home'}
+            </button>
+            <button type="button" onClick={handleEditPrompt}>Edit prompt</button>
+            <button type="button" onClick={() => void handleCopy()}>Copy URL</button>
+            <button type="button" onClick={() => void handleDownload()}>Download</button>
+            {isDraft ? (
+              <button type="button" disabled={busyAction != null} onClick={() => void handleDiscard()}>
+                Discard
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </article>

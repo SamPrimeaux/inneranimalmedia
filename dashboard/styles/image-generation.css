@@ -222,3 +222,34 @@
     opacity: 0.42;
   }
 }
+
+.iam-image-gen-actions--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.iam-image-gen-daypart {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 11px;
+  color: var(--dashboard-muted);
+}
+
+.iam-image-gen-daypart select {
+  flex: 1;
+  min-width: 0;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--dashboard-border) 90%, transparent);
+  background: color-mix(in srgb, var(--scene-bg) 90%, #0a0c12);
+  color: var(--dashboard-text);
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.iam-image-gen-card__status--muted {
+  opacity: 0.85;
+  font-size: 10px;
+}

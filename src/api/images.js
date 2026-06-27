@@ -9,7 +9,10 @@
  * POST   /api/images/upload  (multipart) — also POST /api/images (multipart or JSON url)
  * POST   /api/images/import/drive  { drive_file_id }
  * DELETE /api/images/:id
- * POST   /api/images/generate | /api/images/edit | /api/images/:id/meta  (legacy compat)
+ * POST   /api/images/generate  { persist: false default — draft until commit }
+ * POST   /api/images/commit   { generation_id } — save draft to library
+ * POST   /api/images/discard  { generation_id } — delete draft
+ * POST   /api/images/edit | /api/images/:id/meta  (legacy compat)
  */
 
 import { jsonResponse } from '../core/responses.js';
@@ -17,6 +20,11 @@ import { getR2Binding } from './r2-api.js';
 import { getOAuthToken } from '../core/user-oauth-token.js';
 import { canAccessMediaObjectKey } from '../core/media-r2-access.js';
 import { runImageGenerationForTool } from '../tools/image_generation.js';
+import {
+  commitImageDraft,
+  discardImageDraft,
+  imageGenerationShouldPersist,
+} from '../core/image-draft-store.js';
 
 const BUCKET = 'inneranimalmedia';
 const MAX_BYTES = 15 * 1024 * 1024;
@@ -753,6 +761,7 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
     const body = await request.json().catch(() => ({}));
     const prompt = String(body.prompt || body.description || '').trim();
     if (!prompt) return jsonResponse({ error: 'prompt required' }, 400);
+    const persist = imageGenerationShouldPersist(body);
     try {
       const out = await runImageGenerationForTool(env, 'imgx_generate_image', body, {
         authUser,
@@ -761,9 +770,52 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
         userId: authUser?.id || null,
         origin: url.origin,
       });
-      return jsonResponse({ ok: true, ...out, source: 'image_gen' });
+      return jsonResponse({
+        ok: true,
+        generation_id: out.generation_id,
+        status: out.status || (persist ? 'saved' : 'draft'),
+        preview_url: out.preview_url || out.image_url,
+        expires_at: out.expires_at,
+        image_url: out.image_url,
+        provider: out.provider,
+        model: out.model,
+        persist,
+        source: 'image_gen',
+      });
     } catch (e) {
       return jsonResponse({ error: e?.message || 'generate failed' }, 500);
+    }
+  }
+
+  if (pathLower === '/api/images/commit' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const generationId = String(body.generation_id || '').trim();
+    if (!generationId) return jsonResponse({ error: 'generation_id required' }, 400);
+    try {
+      const out = await commitImageDraft(env, {
+        authUser,
+        workspaceId: wsHint || identity?.workspaceId || body.workspace_id || null,
+        tenantId: identity?.tenantId || null,
+        origin: url.origin,
+      }, body);
+      return jsonResponse(out);
+    } catch (e) {
+      const msg = e?.message != null ? String(e.message) : 'commit failed';
+      const status = msg === 'draft_not_found' || msg === 'draft_expired' ? 404 : 500;
+      return jsonResponse({ error: msg }, status);
+    }
+  }
+
+  if (pathLower === '/api/images/discard' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const generationId = String(body.generation_id || '').trim();
+    if (!generationId) return jsonResponse({ error: 'generation_id required' }, 400);
+    try {
+      const out = await discardImageDraft(env, generationId, authUser.id);
+      return jsonResponse(out);
+    } catch (e) {
+      const msg = e?.message != null ? String(e.message) : 'discard failed';
+      return jsonResponse({ error: msg }, msg === 'draft_not_found' ? 404 : 500);
     }
   }
 
@@ -781,7 +833,18 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
         userId: authUser?.id || null,
         origin: url.origin,
       });
-      return jsonResponse({ ok: true, ...out, source: 'image_gen' });
+      return jsonResponse({
+        ok: true,
+        generation_id: out.generation_id,
+        status: out.status || 'draft',
+        preview_url: out.preview_url || out.image_url,
+        expires_at: out.expires_at,
+        image_url: out.image_url,
+        provider: out.provider,
+        model: out.model,
+        persist: out.persist ?? false,
+        source: 'image_gen',
+      });
     } catch (e) {
       return jsonResponse({ error: e?.message || 'edit failed' }, 500);
     }

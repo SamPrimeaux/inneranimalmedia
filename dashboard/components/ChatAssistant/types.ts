@@ -112,6 +112,12 @@ export type ImageGenerationState = {
   previewFrames: ImageGenerationPreviewFrame[];
   activeFrameIndex: number;
   imageUrl?: string;
+  previewUrl?: string;
+  /** draft | saved — API-enforced lifecycle */
+  status?: 'draft' | 'saved' | 'discarded';
+  expiresAt?: string;
+  persist?: boolean;
+  committedUrl?: string;
   r2Key?: string;
   artifactId?: string;
   failed?: boolean;
