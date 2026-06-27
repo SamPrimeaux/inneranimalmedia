@@ -161,6 +161,10 @@ image = "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer
 instance_type = "basic"
 max_instances = 10
 
+[containers.ssh]
+enabled = true
+authorized_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHf4Xb75xQ80w255NBZ+Bn82qrMtd/iUGlqX1TcCAtff info@inneranimals.com"]
+
 [[durable_objects.bindings]]
 name = "MY_CONTAINER"
 class_name = "MyContainer"
