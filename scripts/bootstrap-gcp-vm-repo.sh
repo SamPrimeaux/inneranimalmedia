@@ -67,20 +67,25 @@ REMOTE_CMD="$(cat <<EOF
 set -euo pipefail
 REPO_DIR='${VM_REPO}'
 REPO_URL='${REPO_URL}'
+AGENTSAM_USER=agentsam
+git_as_bootstrap() {
+  sudo -u samprimeaux git config --global --add safe.directory "\$REPO_DIR" 2>/dev/null || true
+  sudo -u samprimeaux git -C "\$REPO_DIR" "\$@"
+}
 if [[ -d "\$REPO_DIR/.git" ]]; then
   echo "→ existing clone — fetching main"
-  cd "\$REPO_DIR"
-  git fetch origin main
-  git checkout main
-  git merge --ff-only origin/main
+  git_as_bootstrap fetch origin main
+  git_as_bootstrap checkout main
+  git_as_bootstrap merge --ff-only origin/main
+  sudo chown -R "\${AGENTSAM_USER}:\${AGENTSAM_USER}" "\$REPO_DIR"
 else
   echo "→ cloning from GitHub"
-  mkdir -p "\$(dirname "\$REPO_DIR")"
-  git clone "\$REPO_URL" "\$REPO_DIR"
-  cd "\$REPO_DIR"
-  git checkout main
+  sudo mkdir -p "\$(dirname "\$REPO_DIR")"
+  sudo -u samprimeaux git clone "\$REPO_URL" "\$REPO_DIR"
+  git_as_bootstrap checkout main
+  sudo chown -R "\${AGENTSAM_USER}:\${AGENTSAM_USER}" "\$REPO_DIR"
 fi
-test -f package.json && echo "REPO_OK: \$(pwd)" && git rev-parse --short HEAD
+test -f "\$REPO_DIR/package.json" && echo "REPO_OK: \$(sudo -u \${AGENTSAM_USER} git -C "\$REPO_DIR" rev-parse --short HEAD)"
 EOF
 )"
 

@@ -92,13 +92,15 @@ for repo in "${REPOS[@]}"; do
   if [[ ! -d "$repo/.git" ]]; then
     echo "WARN: $repo is not a git clone — run ./scripts/bootstrap-gcp-vm-repo.sh from Mac first" >&2
   fi
-  mkdir -p "$repo"
-  cp /tmp/iam-env-sync/.env.cloudflare "$repo/.env.cloudflare"
-  chmod 600 "$repo/.env.cloudflare"
+  sudo mkdir -p "$repo"
+  sudo cp /tmp/iam-env-sync/.env.cloudflare "$repo/.env.cloudflare"
+  sudo chmod 600 "$repo/.env.cloudflare"
   if [[ -f /tmp/iam-env-sync/.mcp_exports.sh ]]; then
-    cp /tmp/iam-env-sync/.mcp_exports.sh "$repo/.mcp_exports.sh"
-    chmod 600 "$repo/.mcp_exports.sh"
+    sudo cp /tmp/iam-env-sync/.mcp_exports.sh "$repo/.mcp_exports.sh"
+    sudo chmod 600 "$repo/.mcp_exports.sh"
   fi
+  sudo chown -R agentsam:agentsam "$repo/.env.cloudflare" "$repo/.mcp_exports.sh" 2>/dev/null || \
+    sudo chown agentsam:agentsam "$repo/.env.cloudflare" 2>/dev/null || true
   echo "OK: synced env → $repo"
 done
 rm -rf /tmp/iam-env-sync

@@ -55,20 +55,28 @@ echo "→ GCP iam-tunnel sync (repo + env + ExecOS runtime)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 SYNC_ARGS=()
-(( DRY_RUN )) && SYNC_ARGS+=(--dry-run)
+(( DRY_RUN )) && SYNC_ARGS=(--dry-run)
 
 # Never fail the parent deploy — log warnings and continue.
 set +e
 
 echo "→ git pull operator repo on VM"
-"${REPO_ROOT}/scripts/bootstrap-gcp-vm-repo.sh" "${SYNC_ARGS[@]}"
+if (( ${#SYNC_ARGS[@]} )); then
+  "${REPO_ROOT}/scripts/bootstrap-gcp-vm-repo.sh" "${SYNC_ARGS[@]}"
+else
+  "${REPO_ROOT}/scripts/bootstrap-gcp-vm-repo.sh"
+fi
 _repo_rc=$?
 if (( _repo_rc != 0 )); then
   echo "⚠️  [gcp-vm-sync] bootstrap-gcp-vm-repo.sh exited ${_repo_rc}" >&2
 fi
 
 echo "→ sync .env.cloudflare to VM"
-"${REPO_ROOT}/scripts/sync-vm-env-cloudflare.sh" "${SYNC_ARGS[@]}"
+if (( ${#SYNC_ARGS[@]} )); then
+  "${REPO_ROOT}/scripts/sync-vm-env-cloudflare.sh" "${SYNC_ARGS[@]}"
+else
+  "${REPO_ROOT}/scripts/sync-vm-env-cloudflare.sh"
+fi
 _env_rc=$?
 if (( _env_rc != 0 )); then
   echo "⚠️  [gcp-vm-sync] sync-vm-env-cloudflare.sh exited ${_env_rc}" >&2
@@ -76,7 +84,11 @@ fi
 
 if [[ "${IAM_SYNC_GCP_EXECOS:-1}" != "0" ]]; then
   echo "→ sync ExecOS runtime + pm2 restart"
-  "${REPO_ROOT}/scripts/sync-gcp-vm-execos-runtime.sh" "${SYNC_ARGS[@]}"
+  if (( ${#SYNC_ARGS[@]} )); then
+    "${REPO_ROOT}/scripts/sync-gcp-vm-execos-runtime.sh" "${SYNC_ARGS[@]}"
+  else
+    "${REPO_ROOT}/scripts/sync-gcp-vm-execos-runtime.sh"
+  fi
   _execos_rc=$?
   if (( _execos_rc != 0 )); then
     echo "⚠️  [gcp-vm-sync] sync-gcp-vm-execos-runtime.sh exited ${_execos_rc}" >&2
