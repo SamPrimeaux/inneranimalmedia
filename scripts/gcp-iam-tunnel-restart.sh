@@ -7,6 +7,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# shellcheck source=scripts/lib/gcp-vm-paths.sh
+source "${REPO_ROOT}/scripts/lib/gcp-vm-paths.sh"
+
 DRY_RUN=0
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=1
 
@@ -62,10 +65,7 @@ if (( DRY_RUN )); then
 fi
 
 echo "→ GCP ${GCP_VM_NAME} (${GCP_PROJECT}/${GCP_ZONE_VAL})"
-gcloud compute ssh "$GCP_VM_NAME" \
-  --project="$GCP_PROJECT" \
-  --zone="$GCP_ZONE_VAL" \
-  --command="$REMOTE"
+gcp_vm_ssh --command="$REMOTE"
 
 echo ""
 echo "→ Public health"

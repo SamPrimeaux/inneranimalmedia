@@ -59,23 +59,21 @@ if (( DRY_RUN )); then
   exit 0
 fi
 
-gcloud compute ssh "$GCP_VM_NAME" --project="$GCP_PROJECT" --zone="$GCP_ZONE_VAL" \
-  --command='rm -rf /tmp/iam-env-sync && mkdir -p /tmp/iam-env-sync && chmod 700 /tmp/iam-env-sync'
+_gcp_vm_cmd() {
+  bash -lc "source '${REPO_ROOT}/scripts/lib/gcp-vm-paths.sh'; export GCP_PROJECT_ID='${GCP_PROJECT}'; export GCP_ZONE='${GCP_ZONE_VAL}'; \"\$@\"" bash "$@"
+}
 
-gcloud compute scp "$ENV_FILE" \
-  "${GCP_VM_NAME}:/tmp/iam-env-sync/.env.cloudflare" \
-  --project="$GCP_PROJECT" \
-  --zone="$GCP_ZONE_VAL"
+_gcp_vm_cmd gcp_vm_ssh --command='rm -rf /tmp/iam-env-sync && mkdir -p /tmp/iam-env-sync && chmod 700 /tmp/iam-env-sync'
+
+_gcp_vm_cmd gcp_vm_scp "$ENV_FILE" \
+  "${GCP_VM_NAME}:/tmp/iam-env-sync/.env.cloudflare"
 
 if [[ -f "$MCP_EXPORTS" ]]; then
-  gcloud compute scp "$MCP_EXPORTS" \
-    "${GCP_VM_NAME}:/tmp/iam-env-sync/.mcp_exports.sh" \
-    --project="$GCP_PROJECT" \
-    --zone="$GCP_ZONE_VAL"
+  _gcp_vm_cmd gcp_vm_scp "$MCP_EXPORTS" \
+    "${GCP_VM_NAME}:/tmp/iam-env-sync/.mcp_exports.sh"
 fi
 
-gcloud compute ssh "$GCP_VM_NAME" --project="$GCP_PROJECT" --zone="$GCP_ZONE_VAL" \
-  --command="export PATHS=$(printf '%q' "$VM_PATHS"); export DEFAULT_REPO=$(printf '%q' "$DEFAULT_REPO"); bash -s" <<'REMOTE'
+_gcp_vm_cmd gcp_vm_ssh --command="export PATHS=$(printf '%q' "$VM_PATHS"); export DEFAULT_REPO=$(printf '%q' "$DEFAULT_REPO"); bash -s" <<'REMOTE'
 set -euo pipefail
 if ! command -v zsh >/dev/null 2>&1; then
   if command -v apt-get >/dev/null 2>&1; then

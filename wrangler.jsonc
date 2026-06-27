@@ -192,7 +192,16 @@
 			"class_name": "MyContainer",
 			"image": "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-mycontainer:sandbox-v2",
 			"instance_type": "basic",
-			"max_instances": 10
+			"max_instances": 10,
+			"ssh": {
+				"enabled": true
+			},
+			"authorized_keys": [
+				{
+					"name": "info@inneranimals.com",
+					"public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHf4Xb75xQ80w255NBZ+Bn82qrMtd/iUGlqX1TcCAtff info@inneranimals.com"
+				}
+			]
 		}
 	],
 	// Match wrangler.production.toml so CF Builds (`wrangler deploy -c wrangler.production.toml`) exposes DO stubs.

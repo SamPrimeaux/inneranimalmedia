@@ -10,6 +10,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# shellcheck source=scripts/lib/gcp-vm-paths.sh
+source "${REPO_ROOT}/scripts/lib/gcp-vm-paths.sh"
+
 DRY_RUN=0
 for arg in "$@"; do
   [[ "$arg" == --dry-run ]] && DRY_RUN=1
@@ -59,23 +62,16 @@ fi
 
 echo "[gcp-execos-sync] → ${GCP_VM_NAME} (${GCP_PROJECT}/${GCP_ZONE_VAL})"
 
-gcloud compute ssh "$GCP_VM_NAME" \
-  --project="$GCP_PROJECT" \
-  --zone="$GCP_ZONE_VAL" \
-  --command='rm -rf /tmp/execos-runtime-sync && mkdir -p /tmp/execos-runtime-sync/shared /tmp/execos-runtime-sync/deploy/gcp'
+gcp_vm_ssh --command='rm -rf /tmp/execos-runtime-sync && mkdir -p /tmp/execos-runtime-sync/shared /tmp/execos-runtime-sync/deploy/gcp'
 
-gcloud compute scp "${EXECOS_HOME}/server.js" \
-  "${GCP_VM_NAME}:/tmp/execos-runtime-sync/server.js" \
-  --project="$GCP_PROJECT" \
-  --zone="$GCP_ZONE_VAL"
+gcp_vm_scp "${EXECOS_HOME}/server.js" \
+  "${GCP_VM_NAME}:/tmp/execos-runtime-sync/server.js"
 
 for rel in shared/guard.mjs shared/sam-operator-lane.mjs shared/sudo-allowlist.mjs deploy/gcp/install-agentsam-ops.sh; do
   if [[ -f "${EXECOS_HOME}/${rel}" ]]; then
     dest="/tmp/execos-runtime-sync/${rel}"
-    gcloud compute scp "${EXECOS_HOME}/${rel}" \
-      "${GCP_VM_NAME}:${dest}" \
-      --project="$GCP_PROJECT" \
-      --zone="$GCP_ZONE_VAL"
+    gcp_vm_scp "${EXECOS_HOME}/${rel}" \
+      "${GCP_VM_NAME}:${dest}"
   fi
 done
 
@@ -98,9 +94,6 @@ rm -rf /tmp/execos-runtime-sync
 EOF
 )"
 
-gcloud compute ssh "$GCP_VM_NAME" \
-  --project="$GCP_PROJECT" \
-  --zone="$GCP_ZONE_VAL" \
-  --command="$REMOTE_CMD"
+gcp_vm_ssh --command="$REMOTE_CMD"
 
 echo "[gcp-execos-sync] done"

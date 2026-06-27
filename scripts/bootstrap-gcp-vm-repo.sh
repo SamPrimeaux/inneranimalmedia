@@ -95,10 +95,7 @@ if (( DRY_RUN )); then
   exit 0
 fi
 
-gcloud compute ssh "$GCP_VM_NAME" \
-  --project="$GCP_PROJECT" \
-  --zone="$GCP_ZONE_VAL" \
-  --command="$REMOTE_CMD"
+gcp_vm_ssh --command="$REMOTE_CMD"
 
 if (( SYNC_ENV )) || [[ -x "${REPO_ROOT}/scripts/sync-vm-env-cloudflare.sh" ]]; then
   echo ""
