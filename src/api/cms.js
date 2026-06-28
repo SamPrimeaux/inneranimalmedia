@@ -75,8 +75,6 @@ import { resolveActiveCmsThemeRow } from '../core/cms-theme-resolve.js';
 import {
   enrichPagesWithStorefrontAssets,
   listIamStorefrontCatalog,
-  enrichPagesWithStorefrontAssets,
-  listIamStorefrontCatalog,
   readStorefrontAssetHtml,
   resolveIamPageHtmlKeys,
   resolveIamStorefrontAssetForPage,
