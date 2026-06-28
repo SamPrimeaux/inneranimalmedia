@@ -2,7 +2,7 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background: var(--agent-bg-deep, #050b12);
+  background: var(--bg-canvas, var(--agent-bg-deep, #050b12));
   z-index: 0;
 }
 
@@ -27,7 +27,7 @@
 }
 
 .agent-scene__preset--minimal-dark {
-  background: var(--agent-bg-deep, #050b12);
+  background: var(--bg-canvas, var(--agent-bg-deep, #050b12));
 }
 
 .agent-scene__vignette {

@@ -12,6 +12,7 @@ import {
 } from '../../lib/agentHomeSceneResolve';
 import { warmAgentChunksForTab } from '../../src/pwa/warmAgentChunks';
 import '../../styles/agent-home-tokens.css';
+import '../../styles/agentHomeGlow.css';
 import './AgentHome.css';
 
 interface AgentHomeProps {
@@ -120,11 +121,14 @@ export function AgentHome({ displayName, onComposerHost, onMessagesHost, showHer
             className="agent-home__messages-host"
             aria-label="Agent Sam conversation"
           />
-          <div
-            ref={onComposerHost}
-            className="agent-home__composer-host"
-            aria-label="Agent Sam command input"
-          />
+          <div className="agent-home__composer-wrap">
+            <div className="iam-agent-home-glow" aria-hidden="true" />
+            <div
+              ref={onComposerHost}
+              className="agent-home__composer-host"
+              aria-label="Agent Sam command input"
+            />
+          </div>
         </div>
       </main>
     </div>

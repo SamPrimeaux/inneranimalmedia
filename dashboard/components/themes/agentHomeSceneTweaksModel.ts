@@ -77,7 +77,8 @@ export function buildAgentHomeCmsFromFields(fields: AgentHomeTweakFields): Agent
   const defaults = DEFAULT_AGENT_HOME_CMS.backdrops!;
   return {
     version: 1,
-    mode: 'auto-time',
+    mode: 'fixed',
+    fixedPreset: 'minimal-dark',
     atmosphere: {
       vignette: Math.min(1, Math.max(0, fields.agentVignette / 100)),
       grain: Math.min(1, Math.max(0, fields.agentGrain / 100)),

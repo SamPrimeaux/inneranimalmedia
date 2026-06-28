@@ -18,6 +18,8 @@
     "gcp:sync-vm": "bash scripts/sync-gcp-vm-after-deploy.sh",
     "gcp:sync-vm:dry-run": "bash scripts/sync-gcp-vm-after-deploy.sh --dry-run",
     "gcp:sync-vm:repo": "bash scripts/bootstrap-gcp-vm-repo.sh --sync-env",
+    "agentsam-sdk:verify": "agentsam --version && node -e \"import('@inneranimalmedia/agentsam-sdk').then(m=>console.log('sdk', m.version))\"",
+    "remote:ready": "bash scripts/remote-ready.sh",
     "kv:purge-screenshots": "bash scripts/purge-kv-screenshot-keys.sh",
     "test:work-quality": "playwright test --config playwright.work.config.ts",
     "test:work-quality-report-upload": "npm run test:quality-pages-report-upload",
@@ -197,6 +199,7 @@
   },
   "devDependencies": {
     "@gltf-transform/cli": "^4.4.0",
+    "@inneranimalmedia/agentsam-sdk": "^1.1.1",
     "@playwright/test": "^1.49.0",
     "@remotion/bundler": "^4.0.462",
     "@remotion/player": "^4.0.462",

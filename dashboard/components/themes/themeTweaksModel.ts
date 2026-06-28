@@ -17,6 +17,8 @@ export type ThemeTweakFields = {
   textNav: string;
   textSidebar: string;
   monacoBg: string;
+  glowPrimary: string;
+  glowSecondary: string;
   syncNavShell: boolean;
 };
 
@@ -37,6 +39,8 @@ export const DEFAULT_TWEAK_FIELDS: ThemeTweakFields = {
   textNav: '#F4F4F5',
   textSidebar: '#F4F4F5',
   monacoBg: '#F6F6F7',
+  glowPrimary: '#2563EB',
+  glowSecondary: '#60A5FA',
   syncNavShell: true,
 };
 
@@ -70,6 +74,20 @@ export function fieldsFromTheme(theme: CatalogTheme | null): ThemeTweakFields {
     border: readCssVar(cv, ['--border', '--border-subtle'], String(cfg.border || DEFAULT_TWEAK_FIELDS.border)),
     primary: readCssVar(cv, ['--color-primary'], String(cfg.primary || DEFAULT_TWEAK_FIELDS.primary)),
     primaryHover: readCssVar(cv, ['--accent-hover'], String(cfg.primaryHover || DEFAULT_TWEAK_FIELDS.primaryHover)),
+    glowPrimary: readCssVar(
+      cv,
+      ['--agent-home-glow-primary'],
+      readCssVar(cv, ['--color-primary'], String(cfg.primary || DEFAULT_TWEAK_FIELDS.glowPrimary)),
+    ),
+    glowSecondary: readCssVar(
+      cv,
+      ['--agent-home-glow-secondary'],
+      readCssVar(
+        cv,
+        ['--solar-blue', '--solar-cyan'],
+        DEFAULT_TWEAK_FIELDS.glowSecondary,
+      ),
+    ),
     textNav: readCssVar(cv, ['--text-nav'], DEFAULT_TWEAK_FIELDS.textNav),
     textSidebar: readCssVar(cv, ['--text-sidebar'], readCssVar(cv, ['--text-nav'], DEFAULT_TWEAK_FIELDS.textSidebar)),
     monacoBg: readCssVar(cv, ['--editor-bg'], theme.preview_model?.monacoBg || DEFAULT_TWEAK_FIELDS.monacoBg),
@@ -98,6 +116,8 @@ export function cssVarsFromFields(f: ThemeTweakFields): Record<string, string> {
     '--border-subtle': f.border,
     '--editor-bg': f.monacoBg,
     '--editor-accent': f.primary,
+    '--agent-home-glow-primary': f.glowPrimary,
+    '--agent-home-glow-secondary': f.glowSecondary,
   };
 }
 

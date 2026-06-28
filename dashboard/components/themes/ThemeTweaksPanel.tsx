@@ -338,9 +338,24 @@ export function ThemeTweaksPanel({
               Agent home backdrop
             </span>
             <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-              Time-of-day gradients for <code className="text-[var(--solar-cyan)]">/dashboard/agent</code>.
-              Optional image URLs override each period (Cloudflare Images). Live preview updates the agent home if it is open.
+              Flat theme canvas with a tight glow behind the chat input on{' '}
+              <code className="text-[var(--solar-cyan)]">/dashboard/agent</code>. Optional backdrop image URLs
+              replace the canvas per time-of-day period.
             </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field
+                label="Glow primary"
+                value={fields.glowPrimary}
+                onChange={(v) => patchField('glowPrimary', v)}
+                type="color"
+              />
+              <Field
+                label="Glow secondary"
+                value={fields.glowSecondary}
+                onChange={(v) => patchField('glowSecondary', v)}
+                type="color"
+              />
+            </div>
             <div className="grid grid-cols-3 gap-3">
               <label className="grid gap-1 text-[11px]">
                 <span className="text-[var(--text-muted)] uppercase tracking-wide">Vignette %</span>
