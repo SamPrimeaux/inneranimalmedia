@@ -4,7 +4,7 @@
 import { normalizeWorkspaceContextPacket } from './workspace-studio-context.js';
 
 const CMS_PROTOCOL_LINES = [
-  'Loop: agentsam_cms_read → agentsam_cms_save_page_html|save_injected|cms_write → agentsam_cms_publish → agentsam_cms_verify_live',
+  'Loop: agentsam_cms_read → agentsam_cms_save_page_html|save_injected|save_site_shell|cms_write → agentsam_cms_publish|publish_site_shell → agentsam_cms_verify_live',
   'Always verify live_url after publish — reject Clean canvas / 404 as incomplete.',
 ].join('\n');
 

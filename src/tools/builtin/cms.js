@@ -5,6 +5,7 @@
 import {
   auditCmsMutation,
   flushCmsDraftToD1,
+  invalidateCmsBootstrap,
   logCmsActivity,
   stageCmsDraftKv,
   writeCmsDraftHtmlToR2,
@@ -19,14 +20,20 @@ import {
 import { executeCmsPagePublish } from '../../core/cms-agent-publish.ts';
 import { buildCmsPageUrls } from '../../core/cms-preview-route.js';
 import { CMS_DEFAULT_R2_BUCKET, getCmsR2Binding } from '../../core/cms-r2-binding.js';
+import {
+  listSiteShellPartsMeta,
+  publishSiteShellPart,
+  writeSiteShellDraft,
+} from '../../core/cms-site-shell.js';
+import { resolveCmsPublicDomain } from '../../core/cms-storefront-url.js';
 import { pipelineHandlers } from './cms-pipeline.js';
 import { sitePackageHandlers } from './cms-site-package.js';
 
 const CMS_PROTOCOL = [
   'PrimeTech CMS loop (use in order for page revisions):',
   '1. agentsam_cms_read({ page_id }) — page metadata, sections, draft/published HTML, preview_urls',
-  '2. cms_pipeline_prototype({ goal, page_id }) OR agentsam_cms_save_page_html({ page_id, html }) OR agentsam_cms_save_injected({ page_id, section_name, html })',
-  '3. agentsam_cms_publish({ page_id }) — copy draft R2 → published + update D1',
+  '2. cms_pipeline_prototype({ goal, page_id }) OR agentsam_cms_save_page_html({ page_id, html }) OR agentsam_cms_save_injected({ page_id, section_name, html }) OR agentsam_cms_save_site_shell({ part_id, html }) for header/footer chrome',
+  '3. agentsam_cms_publish({ page_id }) OR agentsam_cms_publish_site_shell({ part_id }) — copy draft R2 → published',
   '4. agentsam_cms_verify_live({ page_id }) — confirm live_url returns real content (not Clean canvas / 404)',
 ].join('\n');
 
@@ -378,6 +385,159 @@ async function cmsVerifyLive(params, env, runContext) {
   };
 }
 
+/**
+ * @param {Record<string, unknown>} params
+ * @param {any} env
+ * @param {Record<string, unknown>} runContext
+ */
+async function cmsSaveSiteShell(params, env, runContext) {
+  const tenantId = String(runContext.tenantId ?? runContext.tenant_id ?? '').trim();
+  const userId = String(runContext.userId ?? runContext.user_id ?? '').trim();
+  const workspaceId = String(runContext.workspaceId ?? runContext.workspace_id ?? '').trim();
+  const partId = String(params.part_id ?? params.partId ?? '').trim();
+  const html = params.html != null ? String(params.html) : '';
+  const projectSlug = String(
+    params.project_slug ??
+      params.projectSlug ??
+      runContext.projectSlug ??
+      runContext.project_slug ??
+      'inneranimalmedia',
+  ).trim();
+
+  if (!partId || !html.trim()) return { error: 'part_id and html required' };
+  if (!['header', 'footer'].includes(partId)) {
+    return { error: 'part_id must be header or footer' };
+  }
+
+  try {
+    const part = await writeSiteShellDraft(env, projectSlug, partId, html);
+    if (workspaceId && projectSlug) {
+      invalidateCmsBootstrap(env, runContext.executionCtx || runContext.ctx || null, workspaceId, projectSlug);
+    }
+    await logCmsActivity(env, {
+      tenantId,
+      userId,
+      action: 'agent_save_site_shell',
+      resourceType: 'site_shell',
+      resourceId: partId,
+      details: {
+        project_slug: projectSlug,
+        draft_key: part?.draft_key,
+        byte_length: html.length,
+        agent_applied: true,
+      },
+    });
+
+    const domain = resolveCmsPublicDomain(projectSlug, null);
+    const previewDraftUrl = `https://${domain}/?preview=draft&cms=1`;
+
+    return {
+      ok: true,
+      part_id: partId,
+      project_slug: projectSlug,
+      part: {
+        id: part?.id,
+        label: part?.label,
+        slot: part?.slot,
+        published_key: part?.published_key,
+        draft_key: part?.draft_key,
+        has_draft: part?.has_draft,
+        has_published: part?.has_published,
+        byte_length: html.length,
+      },
+      preview_draft_url: previewDraftUrl,
+      agent_applied: true,
+      next_step: `agentsam_cms_publish_site_shell({ part_id: "${partId}", project_slug: "${projectSlug}" })`,
+    };
+  } catch (e) {
+    const msg = e?.message || 'save_failed';
+    if (msg === 'site_shell_not_configured' || msg === 'site_shell_part_not_found') {
+      return { error: msg, project_slug: projectSlug, part_id: partId };
+    }
+    return { error: msg };
+  }
+}
+
+/**
+ * @param {Record<string, unknown>} params
+ * @param {any} env
+ * @param {Record<string, unknown>} runContext
+ */
+async function cmsPublishSiteShell(params, env, runContext) {
+  const tenantId = String(runContext.tenantId ?? runContext.tenant_id ?? '').trim();
+  const userId = String(runContext.userId ?? runContext.user_id ?? '').trim();
+  const workspaceId = String(runContext.workspaceId ?? runContext.workspace_id ?? '').trim();
+  const partId = String(params.part_id ?? params.partId ?? '').trim();
+  const projectSlug = String(
+    params.project_slug ??
+      params.projectSlug ??
+      runContext.projectSlug ??
+      runContext.project_slug ??
+      'inneranimalmedia',
+  ).trim();
+
+  if (!partId) return { error: 'part_id required' };
+  if (!['header', 'footer'].includes(partId)) {
+    return { error: 'part_id must be header or footer' };
+  }
+
+  try {
+    const part = await publishSiteShellPart(env, projectSlug, partId);
+    if (workspaceId && projectSlug) {
+      invalidateCmsBootstrap(env, runContext.executionCtx || runContext.ctx || null, workspaceId, projectSlug);
+    }
+    const siteShell = await listSiteShellPartsMeta(env, projectSlug);
+    await logCmsActivity(env, {
+      tenantId,
+      userId,
+      action: 'agent_publish_site_shell',
+      resourceType: 'site_shell',
+      resourceId: partId,
+      details: {
+        project_slug: projectSlug,
+        published_key: part?.published_key,
+        agent_applied: true,
+      },
+    });
+
+    const domain = resolveCmsPublicDomain(projectSlug, null);
+    const liveUrl = `https://${domain}/`;
+
+    return {
+      ok: true,
+      part_id: partId,
+      project_slug: projectSlug,
+      part: {
+        id: part?.id,
+        label: part?.label,
+        slot: part?.slot,
+        published_key: part?.published_key,
+        draft_key: part?.draft_key,
+        has_draft: part?.has_draft,
+        has_published: part?.has_published,
+      },
+      site_shell: siteShell,
+      live_url: liveUrl,
+      agent_applied: true,
+      next_step: `Confirm chrome on ${liveUrl} (header/footer should match published R2 keys)`,
+    };
+  } catch (e) {
+    const msg = e?.message || 'publish_failed';
+    if (msg === 'no_shell_draft') {
+      return {
+        error: msg,
+        hint: 'Save draft first with agentsam_cms_save_site_shell',
+        project_slug: projectSlug,
+        part_id: partId,
+      };
+    }
+    if (msg === 'site_shell_not_configured' || msg === 'site_shell_part_not_found') {
+      return { error: msg, project_slug: projectSlug, part_id: partId };
+    }
+    return { error: msg };
+  }
+}
+
 export const handlers = {
   cms_read: cmsRead,
   agentsam_cms_read: cmsRead,
@@ -391,6 +551,10 @@ export const handlers = {
   agentsam_cms_publish: cmsPublish,
   cms_verify_live: cmsVerifyLive,
   agentsam_cms_verify_live: cmsVerifyLive,
+  cms_save_site_shell: cmsSaveSiteShell,
+  agentsam_cms_save_site_shell: cmsSaveSiteShell,
+  cms_publish_site_shell: cmsPublishSiteShell,
+  agentsam_cms_publish_site_shell: cmsPublishSiteShell,
   ...pipelineHandlers,
   ...sitePackageHandlers,
 };
