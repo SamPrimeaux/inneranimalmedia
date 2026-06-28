@@ -1445,10 +1445,12 @@ function CmsEditor() {
       .catch(() => setPreviewUrls(null));
     const frame = iframeRef.current;
     if (frame) {
+      const isStorefrontAsset = page?.storefront_edit_mode === 'storefront_asset';
       const needsSrcdoc =
-        String(page?.status || '').toLowerCase() === 'draft' ||
+        !isStorefrontAsset &&
+        (String(page?.status || '').toLowerCase() === 'draft' ||
         !page?.r2_key ||
-        boot?.cms_hosting === 'client_worker';
+        boot?.cms_hosting === 'client_worker');
       if (needsSrcdoc) {
         api(`/api/cms/pages/${encodeURIComponent(page.id)}?draft=1&project_slug=${encodeURIComponent(ctx.project)}`)
           .then(data => {

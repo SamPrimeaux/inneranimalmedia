@@ -16,6 +16,10 @@ import {
   renderCmsSectionTreeHtmlWithInjections,
 } from './cms-injected-sections.js';
 import { CMS_DEFAULT_R2_BUCKET, getCmsR2Binding } from './cms-r2-binding.js';
+import {
+  resolveIamPageHtmlKeys,
+  resolveIamStorefrontAssetForPage,
+} from './iam-storefront-assets.js';
 
 const CMS_EDIT_SKILL_ID = 'skill_iam_cms_edit';
 
@@ -563,7 +567,9 @@ export async function writeCmsDraftHtmlToR2(env, opts) {
   const ctx = await loadCmsPagePreviewContext(env, pageId, userId, opts.draftData || null);
   if (!ctx) return { ok: false, error: 'page_not_found' };
 
-  const r2Bucket = String(page.r2_bucket || CMS_DEFAULT_R2_BUCKET).trim();
+  const layout = resolveIamPageHtmlKeys(page, workspaceId, cmsPageHtmlKey);
+  const asset = resolveIamStorefrontAssetForPage(page);
+  const r2Bucket = layout.bucket || String(page.r2_bucket || CMS_DEFAULT_R2_BUCKET).trim();
   const r2Binding = getCmsR2Binding(env, r2Bucket);
   if (!r2Binding) return { ok: false, error: 'r2_unavailable' };
 
@@ -571,6 +577,26 @@ export async function writeCmsDraftHtmlToR2(env, opts) {
     typeof opts.fullPageHtml === 'string' && opts.fullPageHtml.trim()
       ? normalizeFullPageHtml(opts.fullPageHtml)
       : await resolveFullPageHtmlFromSections(ctx.sections, r2Binding);
+
+  if (asset?.hydrate && !fullPageOverride) {
+    await putCmsDraftCache(env, {
+      pageId,
+      userId,
+      payload: {
+        draft_data: ctx.draftData || opts.draftData || null,
+        r2_bucket: r2Bucket,
+        byte_length: 0,
+        html_rendered_at: Math.floor(Date.now() / 1000),
+        storefront_hydrate_sections: true,
+      },
+    });
+    return {
+      ok: true,
+      skipped_r2: true,
+      reason: 'storefront_hydrate_sections',
+      edit_mode: 'storefront_asset',
+    };
+  }
 
   let html;
   if (fullPageOverride) {
@@ -585,16 +611,17 @@ export async function writeCmsDraftHtmlToR2(env, opts) {
     html = renderCmsSectionTreeHtml(ctx.sections, ctx.componentsBySection);
   }
 
-  const draftKey = cmsPageHtmlKey(
-    workspaceId,
-    String(page.project_id || page.project_slug || ''),
-    String(page.slug || ''),
-    'draft',
-  );
+  const draftKey = layout.draft_key;
   const contentBuffer = new TextEncoder().encode(html);
   await r2Binding.put(draftKey, contentBuffer, {
     httpMetadata: { contentType: String(page.content_type || 'text/html') },
   });
+
+  if (layout.mode === 'storefront_asset' && layout.legacy_draft_key && isFullHtmlDocument(html)) {
+    await r2Binding.put(layout.legacy_draft_key, contentBuffer, {
+      httpMetadata: { contentType: String(page.content_type || 'text/html') },
+    }).catch(() => {});
+  }
 
   await putCmsDraftCache(env, {
     pageId,
@@ -629,6 +656,17 @@ export async function ensureCmsDraftR2BeforePublish(env, opts) {
   const page = opts.page || {};
   const userId = String(opts.userId || '').trim();
   const pageId = String(page.id || '').trim();
+  const workspaceId = String(opts.workspaceId || '').trim();
+  const layout = resolveIamPageHtmlKeys(page, workspaceId, cmsPageHtmlKey);
+  const asset = resolveIamStorefrontAssetForPage(page);
+
+  if (asset?.hydrate) {
+    if (r2Binding && draftKey) {
+      const head = await r2Binding.head(draftKey).catch(() => null);
+      if (head) return { ok: true, existed: true, r2_key: draftKey };
+    }
+    return { ok: true, skipped_r2: true, reason: 'storefront_hydrate_sections' };
+  }
 
   if (pageId && env?.DB) {
     const sectionRow = await env.DB.prepare(
@@ -652,12 +690,12 @@ export async function ensureCmsDraftR2BeforePublish(env, opts) {
     if (head) return { ok: true, existed: true, r2_key: draftKey };
   }
 
-  const publishedKey = String(page.r2_key || '').trim();
+  const publishedKey = layout.published_key || String(page.r2_key || '').trim();
   if (r2Binding && draftKey && publishedKey && pageId && userId) {
     const pubObj = await r2Binding.get(publishedKey).catch(() => null);
     if (pubObj) {
       const content = await pubObj.arrayBuffer();
-      const r2Bucket = String(page.r2_bucket || CMS_DEFAULT_R2_BUCKET).trim();
+      const r2Bucket = layout.bucket || String(page.r2_bucket || CMS_DEFAULT_R2_BUCKET).trim();
       await r2Binding.put(draftKey, content, {
         httpMetadata: { contentType: String(page.content_type || 'text/html; charset=utf-8') },
       });

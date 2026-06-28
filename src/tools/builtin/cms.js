@@ -85,6 +85,9 @@ async function cmsRead(params, env, runContext) {
       preview_urls: previewUrls,
       html_draft: htmlDraft,
       html_published: htmlPublished,
+      storefront_edit_mode: htmlDraft?.edit_mode || htmlPublished?.edit_mode || null,
+      storefront_asset_r2_key:
+        htmlPublished?.storefront_asset_r2_key || htmlDraft?.storefront_asset_r2_key || null,
     };
   }
 

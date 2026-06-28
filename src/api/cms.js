@@ -73,6 +73,15 @@ import {
 } from '../core/cms-workspace-resolve.js';
 import { resolveActiveCmsThemeRow } from '../core/cms-theme-resolve.js';
 import {
+  enrichPagesWithStorefrontAssets,
+  listIamStorefrontCatalog,
+  enrichPagesWithStorefrontAssets,
+  listIamStorefrontCatalog,
+  readStorefrontAssetHtml,
+  resolveIamPageHtmlKeys,
+  resolveIamStorefrontAssetForPage,
+} from '../core/iam-storefront-assets.js';
+import {
   listSiteShellPartsMeta,
   publishSiteShellPart,
   readSiteShellPart,
@@ -86,6 +95,11 @@ import {
   normalizeFullPageHtml,
   renderCmsSectionTreeHtmlWithInjections,
 } from '../core/cms-injected-sections.js';
+import {
+  cmsStaticShellKeyForRoute,
+  hydrateCmsRoutePageHtml,
+  normalizeCmsRoutePath,
+} from '../core/cms-page-hydrate-dispatch.js';
 import { buildCmsPageUrls } from '../core/cms-preview-route.js';
 import { executeCmsPagePublish } from '../core/cms-agent-publish.ts';
 import { getSitePackageInventory, enqueueSitePackageProceed } from '../core/cms-site-package-api.js';
@@ -465,10 +479,13 @@ export async function handleCmsApi(request, url, env, ctx) {
         .catch(() => null);
 
       const bucket = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
+      const htmlKeys = resolveIamPageHtmlKeys(page, workspaceId, cmsPageKey);
+      const assetDef = resolveIamStorefrontAssetForPage(page);
+      const assetBucket = htmlKeys.bucket || bucket;
       let contentUrl = null;
-      const publishedKey = page.r2_key;
+      const publishedKey = htmlKeys.published_key || page.r2_key;
       if (publishedKey) {
-        contentUrl = await presignR2GetObjectUrl(env, bucket, publishedKey);
+        contentUrl = await presignR2GetObjectUrl(env, assetBucket, publishedKey);
       }
 
       let sections = [];
@@ -528,8 +545,8 @@ export async function handleCmsApi(request, url, env, ctx) {
           }
         }
       }
-      const r2BindingPreview = getCmsR2Binding(env, bucket);
-      const preview_html = r2BindingPreview
+      const r2BindingPreview = getCmsR2Binding(env, assetBucket);
+      let preview_html = r2BindingPreview
         ? await renderCmsSectionTreeHtmlWithInjections(
             sections,
             componentsBySection,
@@ -537,10 +554,33 @@ export async function handleCmsApi(request, url, env, ctx) {
           )
         : renderCmsSectionTreeHtml(sections, componentsBySection);
 
+      if (assetDef && r2BindingPreview) {
+        const assetRead = await readStorefrontAssetHtml(
+          r2BindingPreview,
+          {
+            draft_key: htmlKeys.draft_key,
+            published_key: htmlKeys.published_key,
+          },
+          useDraft ? 'draft' : 'published',
+        );
+        if (assetRead.html) {
+          if (assetDef.hydrate) {
+            const route = normalizeCmsRoutePath(assetDef.route);
+            preview_html = await hydrateCmsRoutePageHtml(
+              assetRead.html,
+              route,
+              sections,
+              r2BindingPreview,
+            );
+          } else {
+            preview_html = assetRead.html;
+          }
+        }
+      }
+
       let draftContentUrl = null;
-      if (useDraft) {
-        const draftKey = cmsPageKey(workspaceId, page.project_id, page.slug, 'draft');
-        draftContentUrl = await presignR2GetObjectUrl(env, bucket, draftKey);
+      if (useDraft && htmlKeys.draft_key) {
+        draftContentUrl = await presignR2GetObjectUrl(env, assetBucket, htmlKeys.draft_key);
       }
 
       const routePath = String(page.route_path || `/${page.slug || ''}`).trim() || '/';
@@ -551,13 +591,28 @@ export async function handleCmsApi(request, url, env, ctx) {
       const liveUrl = previewUrls.live_url;
 
       return jsonResponse({
-        page,
+        page: {
+          ...page,
+          storefront_edit_mode: htmlKeys.mode,
+          storefront_asset_r2_key: assetDef?.r2_key || null,
+          storefront_hydrate: assetDef?.hydrate === true,
+        },
         content_url: useDraft && draftContentUrl ? draftContentUrl : contentUrl,
         preview_html,
         preview_mode: useDraft ? 'draft' : 'published',
         live_url: liveUrl,
         preview_urls: previewUrls,
-        r2_key: useDraft ? cmsPageKey(workspaceId, page.project_id, page.slug, 'draft') : publishedKey,
+        r2_key: useDraft ? htmlKeys.draft_key : publishedKey,
+        storefront_edit_mode: htmlKeys.mode,
+        storefront_asset: assetDef
+          ? {
+              route_path: normalizeCmsRoutePath(assetDef.route),
+              r2_key: assetDef.r2_key,
+              draft_key: htmlKeys.draft_key,
+              hydrate: assetDef.hydrate === true,
+              chrome: assetDef.chrome === true,
+            }
+          : null,
         sections,
         components_by_section: componentsBySection,
         active_draft: activeDraft,
@@ -864,17 +919,24 @@ export async function handleCmsApi(request, url, env, ctx) {
 
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
-      const r2Bucket = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
-      const r2Key = cmsPageKey(workspaceId, page.project_id, page.slug, 'draft');
+      const htmlKeys = resolveIamPageHtmlKeys(page, workspaceId, cmsPageKey);
+      const r2Bucket = htmlKeys.bucket || page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
+      const r2Key = htmlKeys.draft_key;
       const r2Binding = getCmsR2Binding(env, r2Bucket);
 
       if (!r2Binding) return jsonResponse({ error: 'R2 storage unavailable' }, 503);
 
-      // 1. Upload to R2 as draft
+      // 1. Upload to R2 as draft (storefront asset key when mapped)
       const contentBuffer = new TextEncoder().encode(content || '');
       await r2Binding.put(r2Key, contentBuffer, {
         httpMetadata: { contentType: content_type }
       });
+
+      if (htmlKeys.mode === 'storefront_asset' && htmlKeys.legacy_draft_key) {
+        await r2Binding.put(htmlKeys.legacy_draft_key, contentBuffer, {
+          httpMetadata: { contentType: content_type },
+        }).catch(() => {});
+      }
 
       await putCmsDraftCache(env, {
         pageId,
@@ -892,8 +954,9 @@ export async function handleCmsApi(request, url, env, ctx) {
       // live URL keeps serving published.html until explicit Publish copies draft → published.
       const now = Math.floor(Date.now() / 1000);
       const wasPublished = String(page.status || '').trim().toLowerCase() === 'published';
-      const publishedKey = cmsPageKey(workspaceId, page.project_id, page.slug, 'published');
-      const r2KeyForDb = wasPublished ? publishedKey : r2Key;
+      const publishedKey = htmlKeys.published_key;
+      const r2KeyForDb =
+        htmlKeys.mode === 'storefront_asset' ? publishedKey : (wasPublished ? publishedKey : r2Key);
       const nextStatus = wasPublished ? 'published' : 'draft';
 
       await env.DB.prepare(`
@@ -1971,7 +2034,7 @@ export async function handleCmsApi(request, url, env, ctx) {
             .catch(() => ({ results: [] })),
         ]);
 
-      const pages = pagesRes.results || [];
+      const pages = enrichPagesWithStorefrontAssets(pagesRes.results || []);
       const sections = sectionsRes.results || [];
       const activeThemeResolved = await resolveActiveCmsThemeRow(env, {
         tenantId: authTenantId,
@@ -2137,6 +2200,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         liquid_imports: importsRes.results || [],
         global_settings: globalSettingsRes || null,
         site_shell,
+        storefront_catalog: listIamStorefrontCatalog(),
         home_page: homePage
           ? {
               id: homePage.id,
@@ -2145,6 +2209,9 @@ export async function handleCmsApi(request, url, env, ctx) {
               route_path: homePage.route_path,
               status: homePage.status,
               r2_key: homePage.r2_key,
+              storefront_edit_mode: homePage.storefront_edit_mode || null,
+              storefront_asset_r2_key: homePage.storefront_asset_r2_key || null,
+              storefront_hydrate: homePage.storefront_hydrate === true,
             }
           : null,
         assets_3d: assets3dRes.results || [],

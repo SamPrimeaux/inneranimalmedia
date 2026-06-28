@@ -6,6 +6,10 @@ import {
   invalidateCmsBootstrap,
   writeCmsDraftHtmlToR2,
 } from './cms-edit-safety.js';
+import {
+  readStorefrontAssetHtml,
+  resolveIamPageHtmlKeys,
+} from './iam-storefront-assets.js';
 import { putCmsDraftCache } from './cms-kv-cache.js';
 import { isFullHtmlDocument, normalizeFullPageHtml } from './cms-injected-sections.js';
 import { buildCmsPageUrls } from './cms-preview-route.js';
@@ -40,15 +44,27 @@ export async function readCmsPageHtmlFromR2(env, opts) {
   const page = opts.page || {};
   const workspaceId = String(opts.workspaceId || '').trim();
   const variant = opts.variant === 'published' ? 'published' : 'draft';
-  const r2Bucket = String(page.r2_bucket || CMS_DEFAULT_R2_BUCKET).trim();
-  const r2Binding = getCmsR2Binding(env, r2Bucket);
+  const layout = resolveIamPageHtmlKeys(page, workspaceId, cmsPageKey);
+  const r2Binding = getCmsR2Binding(env, layout.bucket);
   if (!r2Binding || !workspaceId) return { html: null, r2_key: null, byte_length: 0 };
 
-  const key = cmsPageKey(workspaceId, page.project_id, page.slug, variant);
+  if (layout.mode === 'storefront_asset') {
+    const out = await readStorefrontAssetHtml(r2Binding, {
+      draft_key: layout.draft_key,
+      published_key: layout.published_key,
+    }, variant);
+    return {
+      ...out,
+      storefront_asset_r2_key: layout.published_key,
+      edit_mode: 'storefront_asset',
+    };
+  }
+
+  const key = variant === 'published' ? layout.published_key : layout.draft_key;
   const obj = await r2Binding.get(key).catch(() => null);
-  if (!obj) return { html: null, r2_key: key, byte_length: 0 };
+  if (!obj) return { html: null, r2_key: key, byte_length: 0, edit_mode: 'cms' };
   const html = await obj.text();
-  return { html, r2_key: key, byte_length: html.length };
+  return { html, r2_key: key, byte_length: html.length, edit_mode: 'cms' };
 }
 
 /**
@@ -78,17 +94,24 @@ export async function saveCmsPageHtmlDraft(env, opts) {
   if (!html.trim()) return { ok: false, error: 'html required' };
   if (html.length > 1_024_000) return { ok: false, error: 'html exceeds 1MB limit' };
 
-  const r2Bucket = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
-  const draftKey = cmsPageKey(workspaceId, page.project_id, page.slug, 'draft');
-  const publishedKey = cmsPageKey(workspaceId, page.project_id, page.slug, 'published');
-  const r2Binding = getCmsR2Binding(env, r2Bucket);
+  const layout = resolveIamPageHtmlKeys(page, workspaceId, cmsPageKey);
+  const r2Binding = getCmsR2Binding(env, layout.bucket);
   if (!r2Binding) return { ok: false, error: 'R2 storage unavailable' };
 
   const normalized = isFullHtmlDocument(html) ? normalizeFullPageHtml(html) : html;
   const contentBuffer = new TextEncoder().encode(normalized);
+  const draftKey = layout.draft_key;
+  const publishedKey = layout.published_key;
+
   await r2Binding.put(draftKey, contentBuffer, {
     httpMetadata: { contentType },
   });
+
+  if (layout.mode === 'storefront_asset' && layout.legacy_draft_key) {
+    await r2Binding.put(layout.legacy_draft_key, contentBuffer, {
+      httpMetadata: { contentType },
+    }).catch(() => {});
+  }
 
   await putCmsDraftCache(env, {
     pageId,
@@ -96,7 +119,7 @@ export async function saveCmsPageHtmlDraft(env, opts) {
     payload: {
       content_type: contentType,
       r2_key: draftKey,
-      r2_bucket: r2Bucket,
+      r2_bucket: layout.bucket,
       title: opts.title || null,
       byte_length: contentBuffer.byteLength,
       agent_applied: true,
@@ -104,7 +127,7 @@ export async function saveCmsPageHtmlDraft(env, opts) {
   });
 
   const wasPublished = String(page.status || '').trim().toLowerCase() === 'published';
-  const r2KeyForDb = wasPublished ? publishedKey : draftKey;
+  const r2KeyForDb = layout.mode === 'storefront_asset' ? publishedKey : (wasPublished ? publishedKey : draftKey);
   const nextStatus = wasPublished ? 'published' : 'draft';
   const now = Math.floor(Date.now() / 1000);
 
@@ -130,7 +153,10 @@ export async function saveCmsPageHtmlDraft(env, opts) {
     ok: true,
     page_id: pageId,
     draft_r2_key: draftKey,
+    published_r2_key: publishedKey,
     live_r2_key: r2KeyForDb,
+    storefront_asset_r2_key: layout.mode === 'storefront_asset' ? publishedKey : null,
+    edit_mode: layout.mode,
     status: nextStatus,
     has_unpublished_draft: wasPublished,
     byte_length: contentBuffer.byteLength,

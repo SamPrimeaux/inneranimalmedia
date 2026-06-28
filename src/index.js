@@ -33,6 +33,11 @@ import {
   normalizeCmsRoutePath,
 } from './core/cms-page-hydrate-dispatch.js';
 import { loadSiteShellInjectionHtml } from './core/cms-site-shell.js';
+import {
+  iamAssetRoutesMap,
+  iamCmsHydrateRouteForAssetKey,
+  resolveStorefrontAssetServeKey,
+} from './core/iam-storefront-assets.js';
 import { hydrateWorkDetailPageHtml } from './core/cms-work-detail-hydrate.js';
 import { assetPassthroughCacheControl } from './core/asset-passthrough-cache.js';
 import { resolveIdentity } from './core/identity.js';
@@ -392,12 +397,15 @@ export default {
       if (qualityReportRes) return qualityReportRes;
 
       const ASSET_ROUTES = {
+        ...iamAssetRoutesMap(),
+        '/apiguide/providers': 'ApiProviderGuide.tsx',
+      };
+      // Legacy alias kept for games room pattern
+      const ASSET_ROUTE_ALIASES = {
         '/': 'pages/home/index.html',
         '/auth/login': 'pages/auth/login.html',
         '/auth/signup': 'pages/auth/signup.html',
         '/auth/reset': 'pages/auth/reset.html',
-
-
         '/work': 'pages/work/index.html',
         '/about': 'pages/about/index.html',
         '/services': 'pages/services/index.html',
@@ -408,9 +416,10 @@ export default {
         '/learn': 'learn.html',
         '/games': 'pages/games/index.html',
         '/start': 'start-project.html',
-        // Old-school: serve the raw TSX guide from ASSETS R2
-        '/apiguide/providers': 'ApiProviderGuide.tsx',
       };
+      for (const [route, key] of Object.entries(ASSET_ROUTE_ALIASES)) {
+        if (!ASSET_ROUTES[route]) ASSET_ROUTES[route] = key;
+      }
       let assetHtmlKey = ASSET_ROUTES[pathLower] || ASSET_ROUTES[path];
       if (!assetHtmlKey && /^\/games\/room_[a-z0-9]+$/i.test(pathLower)) {
         assetHtmlKey = 'pages/games/room.html';
@@ -560,10 +569,17 @@ export default {
         }
       }
       if (assetHtmlKey) {
-        let obj = null;
-        if (env.ASSETS) obj = await env.ASSETS.get(assetHtmlKey);
-        if (!obj) return new Response('Not found', { status: 404 });
         const previewCtx = parseCmsUrlPreviewMode(url);
+        let obj = null;
+        const preferDraft = previewCtx.previewMode === 'draft';
+        const serveKeys = resolveStorefrontAssetServeKey(assetHtmlKey, { preferDraft });
+        if (env.ASSETS) {
+          obj = await env.ASSETS.get(serveKeys.key).catch(() => null);
+          if (!obj && preferDraft) {
+            obj = await env.ASSETS.get(serveKeys.published_key).catch(() => null);
+          }
+        }
+        if (!obj) return new Response('Not found', { status: 404 });
         const isCmsEmbed = previewCtx.cmsEmbed;
         const fromMeta = obj.httpMetadata?.contentType;
         const k = assetHtmlKey.toLowerCase();
@@ -594,16 +610,7 @@ export default {
           (typeof assetHtmlKey === 'string' && assetHtmlKey.startsWith('pages/auth/')) ||
           assetHtmlKey === 'pages/games/room.html';
         let pageBody = obj.body;
-        const CMS_ASSET_ROUTES = {
-          'pages/home/index.html': '/',
-          'pages/contact/index.html': '/contact',
-          'pages/games/index.html': '/games',
-          'pages/work/index.html': '/work',
-          'pages/about/index.html': '/about',
-          'pages/services/index.html': '/services',
-          'pages/pricing/index.html': '/pricing',
-        };
-        const cmsRoute = CMS_ASSET_ROUTES[assetHtmlKey];
+        const cmsRoute = iamCmsHydrateRouteForAssetKey(assetHtmlKey);
         if (cmsRoute && env.DB && env.ASSETS) {
           let htmlText = await obj.text();
           try {

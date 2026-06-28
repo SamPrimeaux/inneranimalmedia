@@ -34,6 +34,8 @@ import {
 } from './cms-spawn-bridge.js';
 import { buildCmsPageUrls } from './cms-preview-route.js';
 import { CMS_DEFAULT_R2_BUCKET, getCmsR2Binding } from './cms-r2-binding.js';
+import { isFullHtmlDocument } from './cms-injected-sections.js';
+import { resolveIamPageHtmlKeys } from './iam-storefront-assets.js';
 import { emitInnerAnimalProEvent } from './inneranimalpro-stream.js';
 
 /** Copy draft R2 → published, update D1, bust caches. */
@@ -75,8 +77,9 @@ export async function executeCmsPagePublish(
     page.meta_description = autoDesc;
   }
 
-  const r2BucketPre = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
-  const draftKeyPre = cmsPageKey(workspaceId, page.project_id, page.slug, 'draft');
+  const layout = resolveIamPageHtmlKeys(page, workspaceId, cmsPageKey);
+  const r2BucketPre = layout.bucket || page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
+  const draftKeyPre = layout.draft_key;
   const r2BindingPre = getCmsR2Binding(env, r2BucketPre);
 
   await ensureCmsDraftR2BeforePublish(env, {
@@ -115,9 +118,9 @@ export async function executeCmsPagePublish(
     return { ok: false, error: 'publish_in_progress', holder: lock.holder || null };
   }
 
-  const r2Bucket = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
-  const draftKey = cmsPageKey(workspaceId, page.project_id, page.slug, 'draft');
-  const publishedKey = cmsPageKey(workspaceId, page.project_id, page.slug, 'published');
+  const r2Bucket = layout.bucket || page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
+  const draftKey = layout.draft_key;
+  const publishedKey = layout.published_key;
   const r2Binding = getCmsR2Binding(env, r2Bucket);
 
   if (!r2Binding) {
@@ -126,11 +129,21 @@ export async function executeCmsPagePublish(
   }
 
   let draftObj = await r2Binding.get(draftKey);
+  if (!draftObj && layout.mode === 'storefront_asset' && layout.legacy_draft_key) {
+    draftObj = await r2Binding.get(layout.legacy_draft_key).catch(() => null);
+  }
   if (!draftObj) {
     const kvDraft = await getCmsDraftCache(env, pageId, userId);
     if (kvDraft?.r2_key) draftObj = await r2Binding.get(String(kvDraft.r2_key)).catch(() => null);
   }
-  if (!draftObj) {
+
+  const storefrontHydrate = layout.mode === 'storefront_asset' && layout.asset?.hydrate === true;
+  let draftHtml: string | null = null;
+  if (draftObj) {
+    draftHtml = await draftObj.text();
+  }
+
+  if (!draftObj && !storefrontHydrate) {
     await releaseCmsPublishLock(env, workspaceId, projectSlug, userId);
     return { ok: false, error: 'No draft found to publish' };
   }
@@ -187,10 +200,29 @@ export async function executeCmsPagePublish(
     );
   }
 
-  const content = await draftObj.arrayBuffer();
-  await r2Binding.put(publishedKey, content, {
-    httpMetadata: { contentType: page.content_type || 'text/html' },
-  });
+  const shouldCopyDraftR2 =
+    draftObj &&
+  draftHtml &&
+  (!storefrontHydrate || isFullHtmlDocument(draftHtml));
+
+  let contentByteLength = 0;
+  if (shouldCopyDraftR2) {
+    const content = await draftObj.arrayBuffer();
+    contentByteLength = content.byteLength;
+    await r2Binding.put(publishedKey, content, {
+      httpMetadata: { contentType: page.content_type || 'text/html' },
+    });
+    if (layout.mode === 'storefront_asset' && layout.legacy_published_key) {
+      await r2Binding.put(layout.legacy_published_key, content, {
+        httpMetadata: { contentType: page.content_type || 'text/html' },
+      }).catch(() => {});
+    }
+  } else if (storefrontHydrate) {
+    const pubHead = await r2Binding.head(publishedKey).catch(() => null);
+    contentByteLength = Number(pubHead?.size) || Number(page.content_size_bytes) || 0;
+  }
+
+  const dbR2Key = layout.mode === 'storefront_asset' ? publishedKey : publishedKey;
 
   const now = Math.floor(Date.now() / 1000);
   await (env.DB as D1Database)
@@ -204,7 +236,7 @@ export async function executeCmsPagePublish(
         content_size_bytes = ?
     WHERE id = ?
   `)
-    .bind(now, userId, now, publishedKey, content.byteLength, pageId)
+    .bind(now, userId, now, dbR2Key, contentByteLength, pageId)
     .run();
 
   waitUntil(releaseCmsPublishLock(env, workspaceId, projectSlug, userId));
