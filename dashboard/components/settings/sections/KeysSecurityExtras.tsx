@@ -139,25 +139,25 @@ export function KeysSecurityExtras() {
   return (
     <>
       <section className="space-y-3 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]">
-        <h3 className="text-[11px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+        <h3 className="text-[11px] font-black uppercase tracking-widest text-muted">
           Connected accounts
         </h3>
         {!identitiesLoaded ? (
-          <p className="text-[11px] text-[var(--text-muted)]">Loading…</p>
+          <p className="text-[11px] text-muted">Loading…</p>
         ) : identities.length === 0 ? (
-          <p className="text-[11px] text-[var(--text-muted)]">No external accounts connected.</p>
+          <p className="text-[11px] text-muted">No external accounts connected.</p>
         ) : (
           <div className="flex flex-col gap-2">
             {identities.map((identity, idx) => (
               <div
                 key={`${identity.provider}-${identity.email}-${idx}`}
-                className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-main)]"
+                className="flex flex-wrap items-center gap-2 text-[11px] text-main"
               >
-                <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-[var(--text-muted)] font-black uppercase tracking-widest">
+                <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-muted font-black uppercase tracking-widest">
                   {capitalizeProvider(identity.provider)}
                 </span>
-                <span className="text-[var(--text-muted)]">{identity.email}</span>
-                <span className="text-[10px] text-[var(--text-muted)]">
+                <span className="text-muted">{identity.email}</span>
+                <span className="text-[10px] text-muted">
                   Connected {identity.created_at ? formatVaultCreated(identity.created_at) : '—'}
                 </span>
               </div>
@@ -173,7 +173,7 @@ export function KeysSecurityExtras() {
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <Shield className="h-4 w-4 text-[var(--solar-cyan)]" />
-            <h3 className="text-[11px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+            <h3 className="text-[11px] font-black uppercase tracking-widest text-muted">
               Active sessions
             </h3>
           </div>
@@ -182,7 +182,7 @@ export function KeysSecurityExtras() {
               type="button"
               disabled={sessionsLoading}
               onClick={() => void loadSessions()}
-              className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-40"
+              className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-muted hover:text-main disabled:opacity-40"
             >
               Refresh
             </button>
@@ -199,12 +199,12 @@ export function KeysSecurityExtras() {
           <p className="text-[11px] text-[var(--color-danger)]">{sessionsError}</p>
         ) : null}
         {sessionsLoading ? (
-          <p className="text-[11px] text-[var(--text-muted)]">Loading sessions…</p>
+          <p className="text-[11px] text-muted">Loading sessions…</p>
         ) : sessions.length === 0 ? (
-          <p className="text-[11px] text-[var(--text-muted)]">No active sessions.</p>
+          <p className="text-[11px] text-muted">No active sessions.</p>
         ) : (
           <div className="rounded-xl border border-[var(--border-subtle)] overflow-hidden bg-[var(--bg-panel)]">
-            <div className="grid grid-cols-6 gap-0 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
+            <div className="grid grid-cols-6 gap-0 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-muted border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
               <div className="col-span-1">Provider</div>
               <div className="col-span-1">IP</div>
               <div className="col-span-2">Agent</div>
@@ -225,7 +225,7 @@ export function KeysSecurityExtras() {
                   className="grid grid-cols-6 gap-0 px-4 py-3 border-b border-[var(--border-subtle)] items-center text-[11px]"
                 >
                   <div className="col-span-1 flex flex-wrap items-center gap-1">
-                    <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-muted)] font-black uppercase tracking-widest">
+                    <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-muted font-black uppercase tracking-widest">
                       {String(s.provider || 'email')}
                     </span>
                     {flag ? (
@@ -235,13 +235,13 @@ export function KeysSecurityExtras() {
                       </span>
                     ) : null}
                   </div>
-                  <div className="col-span-1 text-[10px] text-[var(--text-muted)] font-mono truncate">
+                  <div className="col-span-1 text-[10px] text-muted font-mono truncate">
                     {String(s.ip_address || '—')}
                   </div>
-                  <div className="col-span-2 text-[10px] text-[var(--text-muted)] truncate">
+                  <div className="col-span-2 text-[10px] text-muted truncate">
                     {browser || '—'}
                   </div>
-                  <div className="col-span-1 text-[10px] text-[var(--text-muted)]">
+                  <div className="col-span-1 text-[10px] text-muted">
                     {s.last_active_at ? relativeTime(String(s.last_active_at)) : '—'}
                   </div>
                   <div className="col-span-1 flex justify-end">
@@ -251,7 +251,7 @@ export function KeysSecurityExtras() {
                         const snapshot = sessions;
                         void revokeSession(String(s.id), snapshot);
                       }}
-                      className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--color-danger)] hover:border-[var(--color-danger)]/40"
+                      className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-muted hover:text-[var(--color-danger)] hover:border-[var(--color-danger)]/40"
                     >
                       Revoke
                     </button>
@@ -270,7 +270,7 @@ export function KeysSecurityExtras() {
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-[var(--color-warning)]" />
-            <h3 className="text-[11px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+            <h3 className="text-[11px] font-black uppercase tracking-widest text-muted">
               Security findings
             </h3>
           </div>
@@ -278,7 +278,7 @@ export function KeysSecurityExtras() {
             type="button"
             disabled={findingsLoading}
             onClick={() => void loadFindings()}
-            className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+            className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-muted hover:text-main"
           >
             Refresh
           </button>
@@ -287,7 +287,7 @@ export function KeysSecurityExtras() {
           <p className="text-[10px] text-[var(--color-warning)]">{findingActionMsg}</p>
         ) : null}
         {findingsLoading ? (
-          <p className="text-[11px] text-[var(--text-muted)]">Loading findings…</p>
+          <p className="text-[11px] text-muted">Loading findings…</p>
         ) : openFindings.length === 0 ? (
           <div className="flex items-center gap-2 rounded-xl border border-[var(--color-success)]/30 bg-[var(--color-success)]/5 p-4 text-[11px] text-[var(--color-success)]">
             <ShieldCheck className="h-5 w-5 shrink-0" />
@@ -314,20 +314,20 @@ export function KeysSecurityExtras() {
                           ? 'bg-[var(--color-danger)]/15 text-[var(--color-danger)] border-[var(--color-danger)]/40'
                           : sev === 'HIGH'
                             ? 'bg-[var(--color-warning)]/15 text-[var(--color-warning)] border-[var(--color-warning)]/40'
-                            : 'bg-[var(--bg-hover)] text-[var(--text-muted)] border-[var(--border-subtle)]'
+                            : 'bg-[var(--bg-hover)] text-muted border-[var(--border-subtle)]'
                       }`}
                     >
                       {sev}
                     </span>
-                    <span className="text-[12px] text-[var(--text-main)]">{title}</span>
-                    <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-hover)] text-[var(--text-muted)]">
+                    <span className="text-[12px] text-main">{title}</span>
+                    <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-hover)] text-muted">
                       {status}
                     </span>
                   </div>
-                  <pre className="font-mono text-[10px] text-[var(--text-muted)] whitespace-pre-wrap break-all">
+                  <pre className="font-mono text-[10px] text-muted whitespace-pre-wrap break-all">
                     {snippet || '—'}
                   </pre>
-                  <div className="text-[10px] text-[var(--text-muted)]">
+                  <div className="text-[10px] text-muted">
                     {created != null ? <>Recorded {relativeTime(String(created))}</> : null}
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -335,7 +335,7 @@ export function KeysSecurityExtras() {
                       type="button"
                       disabled={findingsBusy === id}
                       onClick={() => void patchFinding(id, 'triaged')}
-                      className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-main)]"
+                      className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-main"
                     >
                       Acknowledge
                     </button>
@@ -343,7 +343,7 @@ export function KeysSecurityExtras() {
                       type="button"
                       disabled={findingsBusy === id}
                       onClick={() => void patchFinding(id, 'false_positive')}
-                      className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)]"
+                      className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-muted"
                     >
                       Dismiss
                     </button>

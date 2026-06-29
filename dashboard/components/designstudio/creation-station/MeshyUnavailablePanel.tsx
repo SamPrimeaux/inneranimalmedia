@@ -12,9 +12,9 @@ type Props = {
 export function MeshyUnavailablePanel({ title, body }: Props) {
   return (
     <div className="space-y-3">
-      <p className="text-[11px] font-semibold text-[var(--text-main)]">{title}</p>
+      <p className="text-[11px] font-semibold text-main">{title}</p>
       <div
-        className="rounded-xl p-4 text-[12px] leading-relaxed text-[var(--text-muted)]"
+        className="rounded-xl p-4 text-[12px] leading-relaxed text-muted"
         style={{ background: 'var(--bg-hover)', border: '1px solid var(--border-subtle)' }}
       >
         {body}

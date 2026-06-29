@@ -18,7 +18,7 @@ export function RulesSkillsRulesTab({ data }: { data: SettingsPanelModel }) {
       ) : null}
 
       {data.rulesLoading ? (
-        <div className="text-[12px] text-[var(--text-muted)] animate-pulse">Loading rules…</div>
+        <div className="text-[12px] text-muted animate-pulse">Loading rules…</div>
       ) : null}
 
       {!data.rulesLoading && !data.rulesError && data.rules.length === 0 ? (
@@ -38,7 +38,7 @@ export function RulesSkillsRulesTab({ data }: { data: SettingsPanelModel }) {
 
       {!data.rulesLoading && data.rules.length > 0 ? (
         <>
-          <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
+          <div className="flex items-center justify-between text-[10px] text-muted uppercase tracking-wider">
             <span>
               {activeCount} active · {data.rules.length} total
             </span>
@@ -59,27 +59,27 @@ export function RulesSkillsRulesTab({ data }: { data: SettingsPanelModel }) {
                     onClick={() => data.openEditRuleDrawer(r)}
                     disabled={readOnly}
                   >
-                    <div className="w-8 h-8 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] flex items-center justify-center shrink-0 text-[11px] font-bold text-[var(--text-muted)]">
+                    <div className="w-8 h-8 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] flex items-center justify-center shrink-0 text-[11px] font-bold text-muted">
                       {String(r.title || '?')[0]?.toUpperCase() || 'R'}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-[12px] font-semibold text-[var(--text-main)] truncate">
+                        <span className="text-[12px] font-semibold text-main truncate">
                           {String(r.title || r.id)}
                         </span>
                         {isGlobal ? (
-                          <span className="text-[8px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] uppercase">
+                          <span className="text-[8px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-muted uppercase">
                             all workspaces
                           </span>
                         ) : null}
                         {readOnly ? (
-                          <span className="text-[8px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] uppercase">
+                          <span className="text-[8px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-muted uppercase">
                             read-only
                           </span>
                         ) : null}
                       </div>
                       <ApplyModeBadge mode={r.apply_mode} globs={r.globs} />
-                      <div className="text-[10px] text-[var(--text-muted)] mt-1 line-clamp-1 font-mono opacity-80">
+                      <div className="text-[10px] text-muted mt-1 line-clamp-1 font-mono opacity-80">
                         {String(r.body_markdown || '').replace(/\s+/g, ' ').slice(0, 96)}
                         {String(r.body_markdown || '').length > 96 ? '…' : ''}
                       </div>
@@ -87,12 +87,12 @@ export function RulesSkillsRulesTab({ data }: { data: SettingsPanelModel }) {
                     {!readOnly ? (
                       <ChevronRight
                         size={14}
-                        className="text-[var(--text-muted)] opacity-0 group-hover:opacity-100 shrink-0"
+                        className="text-muted opacity-0 group-hover:opacity-100 shrink-0"
                       />
                     ) : null}
                   </button>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[9px] text-[var(--text-muted)] font-mono hidden sm:inline">
+                    <span className="text-[9px] text-muted font-mono hidden sm:inline">
                       v{Number(r.version || 1)}
                     </span>
                     <Toggle
@@ -113,7 +113,7 @@ export function RulesSkillsRulesTab({ data }: { data: SettingsPanelModel }) {
                         type="button"
                         title="Remove rule"
                         onClick={() => void data.deleteRule(String(r.id))}
-                        className="p-1.5 rounded-lg border border-transparent text-[var(--text-muted)] hover:text-red-300 hover:border-red-500/30 hover:bg-red-500/10"
+                        className="p-1.5 rounded-lg border border-transparent text-muted hover:text-red-300 hover:border-red-500/30 hover:bg-red-500/10"
                       >
                         <Trash2 size={13} />
                       </button>

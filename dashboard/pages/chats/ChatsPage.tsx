@@ -99,14 +99,14 @@ export default function ChatsPage() {
   const rowBadge = (s: AgentSessionRow) => {
     if (s.project_name) {
       return (
-        <span className="shrink-0 max-w-[160px] truncate rounded border border-[var(--dashboard-border)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
+        <span className="shrink-0 max-w-[160px] truncate rounded border border-[var(--dashboard-border)] px-1.5 py-0.5 text-[10px] text-muted">
           {s.project_name}
         </span>
       );
     }
     if (s.session_type === 'shared' || String(s.status || '').toLowerCase() === 'shared') {
       return (
-        <span className="shrink-0 rounded border border-[var(--dashboard-border)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
+        <span className="shrink-0 rounded border border-[var(--dashboard-border)] px-1.5 py-0.5 text-[10px] text-muted">
           Shared
         </span>
       );
@@ -115,12 +115,12 @@ export default function ChatsPage() {
   };
 
   return (
-    <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-[var(--dashboard-canvas)] text-[var(--text-main)]">
+    <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-[var(--dashboard-canvas)] text-main">
       <header className="shrink-0 border-b border-[var(--dashboard-border)] px-4 py-4 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-xl font-semibold tracking-tight">Chats</h1>
           <div className="flex flex-wrap items-center gap-2 text-[12px]">
-            <span className="text-[var(--text-muted)] tabular-nums min-w-[5.5rem] text-right">
+            <span className="text-muted tabular-nums min-w-[5.5rem] text-right">
               {selectedCount} selected
             </span>
             <button
@@ -144,7 +144,7 @@ export default function ChatsPage() {
                 <div className="absolute right-0 z-20 mt-1 min-w-[180px] rounded-md border border-[var(--dashboard-border)] bg-[var(--bg-elevated)] py-1 shadow-lg">
                   <button
                     type="button"
-                    className="block w-full px-3 py-1.5 text-left text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]"
+                    className="block w-full px-3 py-1.5 text-left text-[11px] text-muted hover:bg-[var(--bg-hover)]"
                     onClick={() => void moveSelectedToProject(null)}
                   >
                     Remove from project
@@ -183,7 +183,7 @@ export default function ChatsPage() {
         <div className="relative mt-4">
           <Search
             size={16}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]"
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
           />
           <input
             type="search"
@@ -198,10 +198,10 @@ export default function ChatsPage() {
       <div className="flex-1 min-h-0 overflow-y-auto">
         {loading ? (
           <div className="flex justify-center py-12">
-            <Loader2 size={20} className="animate-spin text-[var(--text-muted)]" />
+            <Loader2 size={20} className="animate-spin text-muted" />
           </div>
         ) : !filtered.length ? (
-          <p className="px-6 py-8 text-sm text-[var(--text-muted)]">
+          <p className="px-6 py-8 text-sm text-muted">
             {query.trim() ? 'No chats match your search.' : 'No chats yet. Send a message in Agent Sam to start one.'}
           </p>
         ) : (
@@ -233,7 +233,7 @@ export default function ChatsPage() {
                   <button
                     type="button"
                     onClick={() => resumeChat(s)}
-                    className="shrink-0 text-[12px] text-[var(--text-muted)] tabular-nums hover:text-[var(--text-main)]"
+                    className="shrink-0 text-[12px] text-muted tabular-nums hover:text-main"
                   >
                     {chatsListRelativeTime(s)}
                   </button>

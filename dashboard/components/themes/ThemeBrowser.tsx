@@ -269,14 +269,14 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
   return (
     <div className="p-4 space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
-        <h3 className="text-sm font-medium text-[var(--text-main)] uppercase tracking-wider">Themes</h3>
+        <h3 className="text-sm font-medium text-main uppercase tracking-wider">Themes</h3>
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="search"
             placeholder="Search name, slug, family…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="text-xs rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] px-3 py-1.5 min-w-[200px] text-[var(--text-main)]"
+            className="text-xs rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] px-3 py-1.5 min-w-[200px] text-main"
           />
           <div className="flex rounded-lg border border-[var(--dashboard-border)] overflow-hidden">
             <button
@@ -311,7 +311,7 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
           >
             Refresh
           </button>
-          <label className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+          <label className="flex items-center gap-1.5 text-[11px] text-muted">
             <input
               type="checkbox"
               checked={hideDuplicates}
@@ -332,15 +332,15 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
         </div>
       </div>
 
-      {statusMsg ? <p className="text-xs text-[var(--text-muted)]">{statusMsg}</p> : null}
+      {statusMsg ? <p className="text-xs text-muted">{statusMsg}</p> : null}
       {hideDuplicates && deduped.duplicateCount > 0 ? (
-        <p className="text-[11px] text-[var(--text-muted)]">
+        <p className="text-[11px] text-muted">
           Showing {displayThemes.length} unique palettes ({deduped.duplicateCount} near-identical themes hidden).
         </p>
       ) : null}
 
       {loading ? (
-        <p className="text-xs text-[var(--text-muted)]">Loading themes…</p>
+        <p className="text-xs text-muted">Loading themes…</p>
       ) : (
         <div className="relative min-h-0">
           <div

@@ -138,7 +138,7 @@ export const DriveExplorerPanel: React.FC<{
 
   if (connected === null) {
     return (
-      <div className="flex items-center justify-center gap-2 py-8 text-[11px] text-[var(--text-muted)]">
+      <div className="flex items-center justify-center gap-2 py-8 text-[11px] text-muted">
         <Loader2 size={14} className="animate-spin" aria-hidden />
         Checking Drive…
       </div>
@@ -149,7 +149,7 @@ export const DriveExplorerPanel: React.FC<{
     return (
       <div className="flex flex-col items-center justify-center gap-3 px-4 py-8 text-center">
         <FolderOpen size={22} className="text-[var(--solar-green)] opacity-80" aria-hidden />
-        <p className="text-[11px] text-[var(--text-muted)] leading-relaxed max-w-[220px]">
+        <p className="text-[11px] text-muted leading-relaxed max-w-[220px]">
           Connect Google Drive to browse folders and open files in the editor.
         </p>
         {statusError ? (
@@ -167,18 +167,18 @@ export const DriveExplorerPanel: React.FC<{
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-[var(--bg-panel)] text-[var(--text-main)] overflow-hidden">
+    <div className="flex flex-col h-full min-h-0 bg-[var(--bg-panel)] text-main overflow-hidden">
       <div className="shrink-0 px-3 py-2 border-b border-[var(--border-subtle)] flex items-center justify-between gap-2">
         <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
           {crumbs.map((crumb, idx) => (
             <React.Fragment key={crumb.id}>
-              {idx > 0 ? <ChevronRight size={10} className="shrink-0 text-[var(--text-muted)]" /> : null}
+              {idx > 0 ? <ChevronRight size={10} className="shrink-0 text-muted" /> : null}
               <button
                 type="button"
                 className={`shrink-0 text-[10px] truncate max-w-[88px] ${
                   idx === crumbs.length - 1
                     ? 'text-[var(--solar-cyan)] font-semibold'
-                    : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                    : 'text-muted hover:text-main'
                 }`}
                 onClick={() => setFolderStack(crumbs.slice(0, idx + 1))}
                 title={crumb.name}
@@ -202,14 +202,14 @@ export const DriveExplorerPanel: React.FC<{
 
       <div className="flex-1 min-h-0 overflow-y-auto px-1 py-1">
         {loading && files.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 py-6 text-[11px] text-[var(--text-muted)]">
+          <div className="flex items-center justify-center gap-2 py-6 text-[11px] text-muted">
             <Loader2 size={14} className="animate-spin" aria-hidden />
             Loading…
           </div>
         ) : listError ? (
           <p className="px-3 py-4 text-[11px] text-[var(--solar-orange)]">{listError}</p>
         ) : files.length === 0 ? (
-          <p className="px-3 py-4 text-[11px] text-[var(--text-muted)]">This folder is empty.</p>
+          <p className="px-3 py-4 text-[11px] text-muted">This folder is empty.</p>
         ) : (
           files.map((file) => {
             const Icon = driveFileIcon(file);
@@ -226,7 +226,7 @@ export const DriveExplorerPanel: React.FC<{
                   className={
                     isDriveFolder(file)
                       ? 'text-[var(--solar-yellow)] shrink-0'
-                      : 'text-[var(--text-muted)] shrink-0'
+                      : 'text-muted shrink-0'
                   }
                 />
                 <span className="text-[11px] truncate flex-1">{file.name}</span>

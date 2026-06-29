@@ -13,6 +13,12 @@
 @import "tailwindcss";
 @config "./tailwind.config.js";
 
+/* Theme-linked text colors — use text-main / text-muted instead of text-[var(--text-*)] */
+@theme inline {
+  --color-main: var(--text-main);
+  --color-muted: var(--text-muted);
+}
+
 /* Tailwind v4: phone shell breakpoint (iPhone 13 Pro 390px → Pro Max 428px + slack) */
 @custom-variant max-phone (@media (max-width: 430px));
 @custom-variant tablet-up (@media (min-width: 431px));

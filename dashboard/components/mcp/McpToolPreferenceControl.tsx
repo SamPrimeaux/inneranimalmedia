@@ -60,7 +60,7 @@ export function McpToolPreferenceControl({
                   : opt.value === "allow"
                     ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
                     : "border-sky-500/40 bg-sky-500/15 text-sky-200"
-                : "border-[var(--border-subtle)] bg-[var(--bg-panel)] text-[var(--text-muted)] hover:text-[var(--text-main)]",
+                : "border-[var(--border-subtle)] bg-[var(--bg-panel)] text-muted hover:text-main",
               disabled && "opacity-50 cursor-not-allowed",
             )}
           >

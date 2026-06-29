@@ -127,7 +127,7 @@ export function CadPipelinePanel({
         <button
           type="button"
           onClick={() => setSketchOpen((v) => !v)}
-          className="w-full flex items-center justify-between text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]"
+          className="w-full flex items-center justify-between text-[10px] font-black text-muted uppercase tracking-[0.2em]"
         >
           <span className="flex items-center gap-2">
             <Layers size={14} style={{ color: 'var(--solar-cyan)' }} />
@@ -154,7 +154,7 @@ export function CadPipelinePanel({
               ))}
             </div>
             <div>
-              <div className="flex justify-between text-[9px] text-[var(--text-muted)] mb-1">
+              <div className="flex justify-between text-[9px] text-muted mb-1">
                 <span>Extrusion</span>
                 <span className="font-mono" style={{ color: 'var(--solar-cyan)' }}>
                   {genConfig.extrusion}
@@ -170,7 +170,7 @@ export function CadPipelinePanel({
                 style={{ accentColor: 'var(--solar-cyan)' }}
               />
             </div>
-            <p className="text-[9px] text-[var(--text-muted)]">
+            <p className="text-[9px] text-muted">
               Style: {genConfig.style || ArtStyle.CYBERPUNK} · Tool: {genConfig.cadTool || CADTool.NONE}
             </p>
           </div>
@@ -182,7 +182,7 @@ export function CadPipelinePanel({
           <button
             type="button"
             onClick={onDownloadLatestGlb}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-[var(--border-subtle)] text-[10px] font-black uppercase text-[var(--text-main)]"
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-[var(--border-subtle)] text-[10px] font-black uppercase text-main"
           >
             <Download size={14} />
             Download Latest GLB
@@ -192,7 +192,7 @@ export function CadPipelinePanel({
           <button
             type="button"
             onClick={onExportSceneJson}
-            className="w-full py-2 text-[9px] font-bold text-[var(--text-muted)] uppercase hover:text-[var(--text-main)]"
+            className="w-full py-2 text-[9px] font-bold text-muted uppercase hover:text-main"
           >
             Export scene JSON (dev)
           </button>

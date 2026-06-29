@@ -815,7 +815,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                       className={`relative px-3 py-2 text-[10px] font-bold tracking-[0.14em] uppercase transition-colors flex items-center gap-1.5 max-phone:px-[10px] max-phone:py-[6px] max-phone:text-[11px] max-phone:font-medium max-phone:tracking-[0.04em] max-phone:normal-case ${
                         activeTab === tab
                           ? 'text-[var(--solar-cyan)]'
-                          : 'text-[var(--terminal-tab-muted)] hover:text-[var(--text-main)]'
+                          : 'text-[var(--terminal-tab-muted)] hover:text-main'
                       }`}
                     >
                       {tab === 'terminal' && <TerminalIcon size={9} />}
@@ -836,7 +836,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
               <div className="hidden sm:flex items-center h-5 w-px bg-[var(--border-subtle)] shrink-0" />
 
               <span
-                className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-[var(--border-subtle)] text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)] shrink-0"
+                className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-[var(--border-subtle)] text-[10px] font-mono uppercase tracking-wide text-muted shrink-0"
                 title="Active terminal target (change via welcome screen)"
               >
                 <span
@@ -853,7 +853,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
 
               <div className="hidden sm:flex items-center gap-1.5 shrink-0 min-w-0">
                 {showSplash || setupWizardActive ? (
-                  <span className="text-[10px] font-mono text-[var(--text-muted)] flex items-center gap-1.5 truncate">
+                  <span className="text-[10px] font-mono text-muted flex items-center gap-1.5 truncate">
                     <span className="h-2 w-2 rounded-full shrink-0 bg-[var(--text-muted)]/50" />
                     Ready
                   </span>
@@ -874,7 +874,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                     <span className="iam-online-dot h-2 w-2 rounded-full bg-[var(--solar-green)] inline-block shrink-0" />
                     {statusMessage(primaryStatus)} · {fmtUptime(uptime)}
                     {primarySessionId && (
-                      <span className="text-[var(--text-muted)]/40 hidden md:inline">
+                      <span className="text-muted/40 hidden md:inline">
                         {' '}
                         · {primarySessionId.slice(0, 6)}…
                       </span>
@@ -892,7 +892,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                     </span>
                   )}
                 {splitEnabled && (
-                  <span className="text-[9px] font-mono text-[var(--text-muted)] shrink-0 hidden lg:inline">
+                  <span className="text-[9px] font-mono text-muted shrink-0 hidden lg:inline">
                     · split · {statusMessage(secondaryStatus)}
                   </span>
                 )}
@@ -905,7 +905,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                 <button
                   type="button"
                   onClick={() => primaryPaneRef.current?.reconnectClean()}
-                  className="hidden sm:inline-flex items-center gap-1.5 ml-1 px-2 py-1 rounded border border-[var(--border-subtle)] text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/30 hover:bg-[var(--bg-hover)] transition-colors shrink-0"
+                  className="hidden sm:inline-flex items-center gap-1.5 ml-1 px-2 py-1 rounded border border-[var(--border-subtle)] text-[10px] font-mono text-muted hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/30 hover:bg-[var(--bg-hover)] transition-colors shrink-0"
                   title="Retry terminal connection"
                 >
                   <RefreshCw size={11} />
@@ -931,7 +931,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                       onClick={handleTunnelRestart}
                       disabled={restarting}
                       title="Restart Cloudflare Tunnel"
-                      className="p-0.5 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--solar-yellow)] transition-colors disabled:opacity-40"
+                      className="p-0.5 rounded hover:bg-[var(--bg-hover)] text-muted hover:text-[var(--solar-yellow)] transition-colors disabled:opacity-40"
                     >
                       <RefreshCw size={9} className={restarting ? 'animate-spin' : ''} />
                     </button>
@@ -944,7 +944,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
               {activeTab === 'terminal' && (
                 <>
                   <span
-                    className="hidden sm:inline text-[10px] font-mono text-[var(--text-muted)] max-w-[72px] truncate"
+                    className="hidden sm:inline text-[10px] font-mono text-muted max-w-[72px] truncate"
                     title={shellPref}
                   >
                     {shellShort}
@@ -953,7 +953,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                     <button
                       type="button"
                       title="Terminal menu (shell, split, settings)"
-                      className="inline-flex shrink-0 items-center justify-center p-1.5 max-phone:p-[6px] rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 hover:bg-[var(--bg-hover)]"
+                      className="inline-flex shrink-0 items-center justify-center p-1.5 max-phone:p-[6px] rounded border border-[var(--border-subtle)] text-muted hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 hover:bg-[var(--bg-hover)]"
                       onClick={() => setPlusMenuOpen((v) => !v)}
                     >
                       <Plus size={15} strokeWidth={2} />
@@ -963,7 +963,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                         className="absolute right-0 top-full mt-1 py-1 min-w-[220px] rounded-md border border-[var(--border-subtle)] bg-[var(--bg-panel)] shadow-lg z-50 text-left"
                         role="menu"
                       >
-                        <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                        <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-muted">
                           Shell
                         </div>
                         {SHELL_CHOICES.map(({ label, path }) => (
@@ -971,7 +971,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                             key={path}
                             type="button"
                             role="menuitem"
-                            className="w-full text-left px-3 py-1.5 text-[11px] font-mono hover:bg-[var(--bg-hover)] text-[var(--text-main)]"
+                            className="w-full text-left px-3 py-1.5 text-[11px] font-mono hover:bg-[var(--bg-hover)] text-main"
                             onClick={() => {
                               setShellPref(path);
                               setPlusMenuOpen(false);
@@ -986,7 +986,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                         <button
                           type="button"
                           role="menuitem"
-                          className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-[var(--bg-hover)] text-[var(--text-main)] flex items-center justify-between gap-2"
+                          className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-[var(--bg-hover)] text-main flex items-center justify-between gap-2"
                           onClick={() => setSplitSubOpen((s) => !s)}
                         >
                           Split terminal
@@ -1007,7 +1007,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                             </button>
                             <button
                               type="button"
-                              className="w-full text-left px-2 py-1 text-[11px] font-mono rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)]"
+                              className="w-full text-left px-2 py-1 text-[11px] font-mono rounded hover:bg-[var(--bg-hover)] text-muted"
                               onClick={() => {
                                 setPlusMenuOpen(false);
                                 primaryPaneRef.current?.writeToTerminal(
@@ -1022,7 +1022,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                         <button
                           type="button"
                           role="menuitem"
-                          className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-[var(--bg-hover)] text-[var(--text-main)]"
+                          className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-[var(--bg-hover)] text-main"
                           onClick={() => {
                             setPlusMenuOpen(false);
                             primaryPaneRef.current?.writeToTerminal(
@@ -1036,7 +1036,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                         <button
                           type="button"
                           role="menuitem"
-                          className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-[var(--bg-hover)] text-[var(--text-main)]"
+                          className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-[var(--bg-hover)] text-main"
                           onClick={() => void handleConfigureTerminalSettings()}
                         >
                           Configure Terminal Settings
@@ -1044,7 +1044,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                         <button
                           type="button"
                           role="menuitem"
-                          className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-[var(--bg-hover)] text-[var(--text-main)]"
+                          className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-[var(--bg-hover)] text-main"
                           onClick={() => {
                             setPlusMenuOpen(false);
                             primaryPaneRef.current?.writeToTerminal(
@@ -1064,7 +1064,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                     className={`shrink-0 p-1.5 max-phone:p-[6px] rounded border transition-colors ${
                       splitEnabled
                         ? 'border-[var(--solar-cyan)]/50 bg-[var(--solar-cyan)]/10 text-[var(--solar-cyan)]'
-                        : 'border-transparent text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/20'
+                        : 'border-transparent text-muted hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/20'
                     }`}
                     onClick={() => setSplitEnabled((v) => !v)}
                   >
@@ -1092,7 +1092,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                   className={`shrink-0 p-1.5 max-phone:p-[6px] rounded text-[9px] font-mono font-bold tracking-wider transition-colors border ${
                     showSplash
                       ? 'bg-[var(--solar-cyan)]/10 border-[var(--solar-cyan)]/30 text-[var(--solar-cyan)]'
-                      : 'border-transparent text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/20'
+                      : 'border-transparent text-muted hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/20'
                   }`}
                 >
                   <TerminalIcon size={12} />
@@ -1102,7 +1102,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                 <button
                   type="button"
                   onClick={() => setIsCollapsed(!isCollapsed)}
-                  className="shrink-0 p-1.5 max-phone:p-[6px] rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
+                  className="shrink-0 p-1.5 max-phone:p-[6px] rounded hover:bg-[var(--bg-hover)] text-muted hover:text-main transition-colors"
                   title={isCollapsed ? 'Expand terminal' : 'Minimize terminal'}
                 >
                   {isCollapsed ? <ChevronUp size={15} strokeWidth={2} /> : <ChevronDown size={15} strokeWidth={2} />}
@@ -1111,7 +1111,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
               <button
                 type="button"
                 onClick={onClose}
-                className="shrink-0 p-1.5 max-phone:p-[6px] rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--solar-red)] transition-colors"
+                className="shrink-0 p-1.5 max-phone:p-[6px] rounded hover:bg-[var(--bg-hover)] text-muted hover:text-[var(--solar-red)] transition-colors"
                 title="Close"
               >
                 <X size={15} strokeWidth={2} />
@@ -1161,7 +1161,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                     <div
                       className={`relative iam-terminal-chrome-fill border-t md:border-t-0 border-[var(--border-subtle)] md:border-0 ${splitEnabled ? 'md:w-1/2 md:max-w-[50%]' : ''}`}
                     >
-                      <div className="absolute top-1 left-2 z-[5] pointer-events-none text-[9px] font-mono uppercase tracking-wider text-[var(--text-muted)]/80">
+                      <div className="absolute top-1 left-2 z-[5] pointer-events-none text-[9px] font-mono uppercase tracking-wider text-muted/80">
                         Session 2
                       </div>
                       <div className="absolute inset-0 flex flex-col min-h-0 min-w-0">
@@ -1182,9 +1182,9 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
               </div>
 
               {activeTab === 'output' && (
-                <div className="absolute inset-0 overflow-y-auto custom-scrollbar px-4 py-3 font-mono text-[11px] leading-relaxed text-[var(--text-main)] bg-[var(--terminal-surface)] z-[20]">
+                <div className="absolute inset-0 overflow-y-auto custom-scrollbar px-4 py-3 font-mono text-[11px] leading-relaxed text-main bg-[var(--terminal-surface)] z-[20]">
                   {outputLines.length === 0 ? (
-                    <p className="text-[var(--text-muted)]/40 text-xs italic mt-4">No output yet.</p>
+                    <p className="text-muted/40 text-xs italic mt-4">No output yet.</p>
                   ) : (
                     outputLines.map((line, i) => (
                       <div
@@ -1209,7 +1209,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                           setBulkResolving(true);
                           void resolveProblems({ older_than_days: 7 }).finally(() => setBulkResolving(false));
                         }}
-                        className="text-[10px] font-mono px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+                        className="text-[10px] font-mono px-2 py-1 rounded border border-[var(--border-subtle)] text-muted hover:text-main hover:bg-[var(--bg-hover)] disabled:opacity-40"
                       >
                         {bulkResolving ? 'Clearing…' : 'Dismiss 7d+ stale'}
                       </button>
@@ -1234,7 +1234,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                     </div>
                   )}
                   {problems.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-[var(--text-muted)] opacity-40 gap-2">
+                    <div className="flex flex-col items-center justify-center h-full text-muted opacity-40 gap-2">
                       <CircleCheck size={28} />
                       <p className="text-xs font-mono">No problems detected</p>
                     </div>
@@ -1253,8 +1253,8 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                           }
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="text-[11px] font-medium text-[var(--text-main)] font-mono">{p.msg}</div>
-                          <div className="text-[10px] text-[var(--text-muted)] font-mono">
+                          <div className="text-[11px] font-medium text-main font-mono">{p.msg}</div>
+                          <div className="text-[10px] text-muted font-mono">
                             {p.ts ? (
                               <span>{p.ts}</span>
                             ) : null}
@@ -1271,7 +1271,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                               setResolvingProblemId(p.id!);
                               void resolveProblems({ id: p.id }).finally(() => setResolvingProblemId(null));
                             }}
-                            className="shrink-0 p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+                            className="shrink-0 p-1 rounded text-muted hover:text-main hover:bg-[var(--bg-hover)] disabled:opacity-40"
                           >
                             <X size={12} strokeWidth={2} />
                           </button>

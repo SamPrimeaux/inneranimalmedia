@@ -36,7 +36,7 @@ function CopyButton({ text }: { text: string }) {
     <button
       type="button"
       onClick={handleCopy}
-      className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] transition-colors"
+      className="flex items-center gap-1 text-[10px] text-muted hover:text-[var(--solar-cyan)] transition-colors"
     >
       {copied ? <Check size={11} /> : <Copy size={11} />}
       {copied ? 'Copied' : 'Copy'}

@@ -25,7 +25,7 @@ type Props = {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1 text-[11px]">
-      <span className="text-[var(--text-muted)] font-semibold">{label}</span>
+      <span className="text-muted font-semibold">{label}</span>
       {children}
     </label>
   );
@@ -58,7 +58,7 @@ export const TextOverlayEditor: React.FC<Props> = ({ overlays, playheadMs, onCha
 
   if (panel === 'edit' && editing) {
     return (
-      <div className="flex flex-col gap-2 p-2 text-[var(--text-main)]">
+      <div className="flex flex-col gap-2 p-2 text-main">
         <div className="flex items-center justify-between">
           <button type="button" className="text-[11px] text-[var(--solar-cyan)]" onClick={() => setPanel('list')}>
             ← Back
@@ -157,7 +157,7 @@ export const TextOverlayEditor: React.FC<Props> = ({ overlays, playheadMs, onCha
         + Text overlay
       </button>
       {overlays.length === 0 && (
-        <p className="text-[10px] text-center text-[var(--text-muted)] opacity-60">No overlays yet.</p>
+        <p className="text-[10px] text-center text-muted opacity-60">No overlays yet.</p>
       )}
       {overlays.map((o) => (
         <button
@@ -174,7 +174,7 @@ export const TextOverlayEditor: React.FC<Props> = ({ overlays, playheadMs, onCha
           }}
         >
           <span className="block truncate font-medium">{o.text.slice(0, 40)}</span>
-          <span className="text-[var(--text-muted)]">
+          <span className="text-muted">
             {(o.startMs / 1000).toFixed(1)}s → {((o.startMs + o.durationMs) / 1000).toFixed(1)}s
             {activeIds.has(o.id) ? ' · LIVE' : ''}
           </span>

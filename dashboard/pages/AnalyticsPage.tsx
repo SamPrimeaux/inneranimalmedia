@@ -104,7 +104,7 @@ function toneClass(tone: HealthTone): string {
   if (tone === 'healthy') return 'text-emerald-400 border-emerald-500/40 bg-emerald-500/10';
   if (tone === 'degraded') return 'text-amber-400 border-amber-500/40 bg-amber-500/10';
   if (tone === 'critical') return 'text-rose-400 border-rose-500/40 bg-rose-500/10';
-  return 'text-[var(--text-muted)] border-[var(--border-subtle)] bg-[var(--bg-panel)]';
+  return 'text-muted border-[var(--border-subtle)] bg-[var(--bg-panel)]';
 }
 
 function toolSuccessTone(rate: number | null): HealthTone {
@@ -188,7 +188,7 @@ function InsightCardShell({
     <article
       className={`relative flex min-h-[160px] min-w-0 flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 ${cardClass}`}
     >
-      <div className="absolute right-3 top-3 rounded-full border border-[var(--border-subtle)] px-2 py-0.5 text-[9px] uppercase tracking-wide text-[var(--text-muted)]">
+      <div className="absolute right-3 top-3 rounded-full border border-[var(--border-subtle)] px-2 py-0.5 text-[9px] uppercase tracking-wide text-muted">
         Last 7d
       </div>
       {loading ? (
@@ -199,7 +199,7 @@ function InsightCardShell({
         </div>
       ) : (
         <>
-          <p className="text-[10px] font-medium uppercase tracking-widest text-[var(--text-muted)]">{label}</p>
+          <p className="text-[10px] font-medium uppercase tracking-widest text-muted">{label}</p>
           <div className="card-hero-number mt-1 tabular-nums text-[var(--text)]">{hero}</div>
           <div className="card-chart mt-3 min-h-0 overflow-hidden">{empty ? <InsightEmpty /> : children}</div>
         </>
@@ -211,8 +211,8 @@ function InsightCardShell({
 function InsightEmpty() {
   return (
     <div className="flex h-full min-h-[80px] flex-col items-center justify-center gap-1 text-center">
-      <span className="card-hero-number text-[var(--text-muted)]">—</span>
-      <span className="text-[11px] text-[var(--text-muted)]">No data yet</span>
+      <span className="card-hero-number text-muted">—</span>
+      <span className="text-[11px] text-muted">No data yet</span>
     </div>
   );
 }
@@ -649,7 +649,7 @@ export const AnalyticsPage: React.FC = () => {
                   <div key={m.model_key} className="space-y-1">
                     <div className="flex items-center justify-between gap-2 text-[10px]">
                       <span className="truncate font-mono text-[var(--text)]">{m.model_key}</span>
-                      <span className="tabular-nums text-[var(--text-muted)]">
+                      <span className="tabular-nums text-muted">
                         {m.success}↑ {m.failure}↓
                       </span>
                     </div>
@@ -701,7 +701,7 @@ export const AnalyticsPage: React.FC = () => {
                       />
                     </div>
                   </div>
-                  <div className="flex justify-between text-[9px] text-[var(--text-muted)] tabular-nums">
+                  <div className="flex justify-between text-[9px] text-muted tabular-nums">
                     <span>success {fmtPct(m.success)}</span>
                     <span>tools {fmtPct(m.toolSuccess)}</span>
                   </div>
@@ -762,7 +762,7 @@ export const AnalyticsPage: React.FC = () => {
                   <div key={m.model_key} className="space-y-1">
                     <div className="flex items-center justify-between gap-2 text-[10px]">
                       <span className="truncate font-mono text-[var(--text)]">{m.model_key}</span>
-                      <span className="tabular-nums text-[var(--text-muted)]">{m.rate}%</span>
+                      <span className="tabular-nums text-muted">{m.rate}%</span>
                     </div>
                     <div className="flex h-2 overflow-hidden rounded-full bg-[var(--border-subtle)]">
                       <div className="h-full" style={{ width: `${passPct}%`, backgroundColor: WIN_COLOR }} />
@@ -798,7 +798,7 @@ export const AnalyticsPage: React.FC = () => {
                       {d.status}
                     </span>
                   </div>
-                  <div className="flex w-full items-center justify-between gap-2 text-[9px] text-[var(--text-muted)] tabular-nums">
+                  <div className="flex w-full items-center justify-between gap-2 text-[9px] text-muted tabular-nums">
                     <span>{Number.isFinite(d.response_ms) ? `${Math.round(d.response_ms)} ms` : '—'}</span>
                     <span>{d.ts != null ? new Date(d.ts).toLocaleString() : '—'}</span>
                   </div>
@@ -829,10 +829,10 @@ export const AnalyticsPage: React.FC = () => {
                   >
                     {d.severity}
                   </span>
-                  <span className="shrink-0 tabular-nums text-[var(--text-muted)]">
+                  <span className="shrink-0 tabular-nums text-muted">
                     {Number.isFinite(d.delta_pct) ? `${Math.round(d.delta_pct * 10) / 10}%` : '—'}
                   </span>
-                  <span className="shrink-0 text-[9px] text-[var(--text-muted)] tabular-nums">
+                  <span className="shrink-0 text-[9px] text-muted tabular-nums">
                     {d.ts != null ? new Date(d.ts).toLocaleString() : '—'}
                   </span>
                 </li>
@@ -848,7 +848,7 @@ export const AnalyticsPage: React.FC = () => {
         <SectionShell title="Model intelligence">
           <div className="grid gap-3 lg:grid-cols-2">
             <div>
-              <div className="mb-2 text-[11px] text-[var(--text-muted)]">Models by run count (by provider)</div>
+              <div className="mb-2 text-[11px] text-muted">Models by run count (by provider)</div>
               {modelBarData.length ? (
                 <div className="h-64 w-full">
                   <ResponsiveContainer width="100%" height="100%">
@@ -871,11 +871,11 @@ export const AnalyticsPage: React.FC = () => {
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div className="text-sm text-[var(--text-muted)]">—</div>
+                <div className="text-sm text-muted">—</div>
               )}
             </div>
             <div>
-              <div className="mb-2 text-[11px] text-[var(--text-muted)]">Cost vs latency (dot size = executions)</div>
+              <div className="mb-2 text-[11px] text-muted">Cost vs latency (dot size = executions)</div>
               {scatterData.length ? (
                 <div className="h-64 w-full">
                   <ResponsiveContainer width="100%" height="100%">
@@ -894,7 +894,7 @@ export const AnalyticsPage: React.FC = () => {
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div className="text-sm text-[var(--text-muted)]">—</div>
+                <div className="text-sm text-muted">—</div>
               )}
             </div>
           </div>
@@ -903,7 +903,7 @@ export const AnalyticsPage: React.FC = () => {
         <SectionShell title="Tool reliability">
           <div className="grid gap-3 lg:grid-cols-2">
             <div>
-              <div className="mb-2 text-[11px] text-[var(--text-muted)]">Tool ok% (agentsam_tool_call_log / MCP exec)</div>
+              <div className="mb-2 text-[11px] text-muted">Tool ok% (agentsam_tool_call_log / MCP exec)</div>
               <div className="space-y-2">
                 {toolRows.length ? (
                   toolRows.map((t) => (
@@ -931,12 +931,12 @@ export const AnalyticsPage: React.FC = () => {
                     </div>
                   ))
                 ) : (
-                  <div className="text-sm text-[var(--text-muted)]">—</div>
+                  <div className="text-sm text-muted">—</div>
                 )}
               </div>
             </div>
             <div>
-              <div className="mb-2 text-[11px] text-[var(--text-muted)]">
+              <div className="mb-2 text-[11px] text-muted">
                 Chain breaks · agentsam_tool_chain · failed / timeout / cancelled
               </div>
               <div className="max-h-72 overflow-auto space-y-2">
@@ -950,19 +950,19 @@ export const AnalyticsPage: React.FC = () => {
                         <span className="font-mono text-[var(--text)] truncate">{row.tool_name}</span>
                         <span className="text-rose-400 tabular-nums shrink-0">{row.count} errors</span>
                       </div>
-                      <div className="text-[10px] text-[var(--text-muted)] truncate">
+                      <div className="text-[10px] text-muted truncate">
                         Last seen:{' '}
                         {row.lastSeen != null
                           ? new Date(row.lastSeen > 1e12 ? row.lastSeen : row.lastSeen * 1000).toLocaleString()
                           : '—'}
                       </div>
                       {row.lastError ? (
-                        <div className="text-[10px] text-[var(--text-muted)] truncate">{row.lastError}</div>
+                        <div className="text-[10px] text-muted truncate">{row.lastError}</div>
                       ) : null}
                     </div>
                   ))
                 ) : (
-                  <div className="text-sm text-[var(--text-muted)]">—</div>
+                  <div className="text-sm text-muted">—</div>
                 )}
               </div>
             </div>
@@ -970,7 +970,7 @@ export const AnalyticsPage: React.FC = () => {
         </SectionShell>
 
         <SectionShell title="Routing intelligence">
-          <div className="mb-2 text-[11px] text-[var(--text-muted)]">
+          <div className="mb-2 text-[11px] text-muted">
             Thompson sampling confidence · success_alpha / (success_alpha + success_beta) · sorted by decayed_score
           </div>
           <div className="space-y-2">
@@ -979,7 +979,7 @@ export const AnalyticsPage: React.FC = () => {
                 <div key={arm.id} className="rounded border border-[var(--border-subtle)] px-2 py-2">
                   <div className="flex flex-wrap items-baseline justify-between gap-2 text-[11px]">
                     <div className="font-mono text-[var(--text)]">{arm.model_key}</div>
-                    <div className="text-[var(--text-muted)]">
+                    <div className="text-muted">
                       {arm.task_type} · score {arm.decayed_score.toFixed(3)} · {arm.total_executions} exec
                     </div>
                   </div>
@@ -991,13 +991,13 @@ export const AnalyticsPage: React.FC = () => {
                       }}
                     />
                   </div>
-                  <div className="mt-0.5 text-[10px] text-[var(--text-muted)] tabular-nums">
+                  <div className="mt-0.5 text-[10px] text-muted tabular-nums">
                     confidence {arm.confidence == null ? '—' : fmtPct(arm.confidence * 100)}
                   </div>
                 </div>
               ))
             ) : (
-              <div className="text-sm text-[var(--text-muted)]">—</div>
+              <div className="text-sm text-muted">—</div>
             )}
           </div>
         </SectionShell>

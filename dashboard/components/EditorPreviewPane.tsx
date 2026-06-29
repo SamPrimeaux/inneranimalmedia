@@ -45,7 +45,7 @@ export function EditorPreviewPane({
             <button
               type="button"
               onClick={onRefresh}
-              className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)]"
+              className="p-1 rounded text-muted hover:text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)]"
               title="Refresh preview"
             >
               <RefreshCw size={14} />
@@ -54,7 +54,7 @@ export function EditorPreviewPane({
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+            className="p-1 rounded text-muted hover:text-main hover:bg-[var(--bg-hover)]"
             title="Close preview"
           >
             <X size={14} />
@@ -70,7 +70,7 @@ export function EditorPreviewPane({
 
       <div className="relative flex-1 min-h-0 min-w-0">
         {loading ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[var(--text-muted)] text-xs">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted text-xs">
             <Loader2 size={20} className="animate-spin text-[var(--solar-cyan)]" />
             <span>Starting dev server…</span>
           </div>
@@ -88,7 +88,7 @@ export function EditorPreviewPane({
             className="absolute inset-0 w-full h-full border-0 bg-white"
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-[11px] text-[var(--text-muted)] px-4 text-center">
+          <div className="absolute inset-0 flex items-center justify-center text-[11px] text-muted px-4 text-center">
             No preview available. Open a local workspace and run a dev server from the terminal.
           </div>
         )}

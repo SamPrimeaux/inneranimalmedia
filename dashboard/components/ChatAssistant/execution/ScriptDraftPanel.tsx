@@ -43,11 +43,11 @@ export const ScriptDraftPanel: React.FC<ScriptDraftPanelProps> = ({
           <SetiFileIcon filename={fileName || 'script.py'} size={16} />
         </div>
         <div className="min-w-0 flex-1 space-y-0.5">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Script draft</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Script draft</div>
           <div className="text-[12px] font-mono text-[var(--dashboard-text)] truncate" title={fileName || ''}>
             {fileName}
           </div>
-          <p className="text-[10px] text-[var(--text-muted)] leading-snug">
+          <p className="text-[10px] text-muted leading-snug">
             {canRunOnDisk
               ? 'Syntax check uses python3 -m py_compile; run uses python3 <path>. Both are single-line PTY commands (see Terminal when WS is connected).'
               : 'Buffer-only draft: save to your connected workspace folder to enable Syntax check and Run.'}

@@ -66,7 +66,7 @@ function ImageTo3DPanel({ cs }: { cs: MeshyCs }) {
 
   return (
     <div className="space-y-3">
-      <p className="text-[11px] font-semibold text-[var(--text-main)]">Image to 3D</p>
+      <p className="text-[11px] font-semibold text-main">Image to 3D</p>
       <input
         ref={ref}
         type="file"
@@ -92,14 +92,14 @@ function ImageTo3DPanel({ cs }: { cs: MeshyCs }) {
           />
         ) : (
           <div className="py-8">
-            <Upload size={22} className="mx-auto mb-2 text-[var(--text-muted)]" />
-            <p className="text-[12px] font-medium text-[var(--text-main)]">Click or drop image</p>
-            <p className="text-[10px] text-[var(--text-muted)] mt-1">PNG, JPG, WEBP — max 20 MB</p>
+            <Upload size={22} className="mx-auto mb-2 text-muted" />
+            <p className="text-[12px] font-medium text-main">Click or drop image</p>
+            <p className="text-[10px] text-muted mt-1">PNG, JPG, WEBP — max 20 MB</p>
           </div>
         )}
       </button>
       {cs.imageFile && (
-        <p className="text-[10px] text-[var(--text-muted)] truncate px-1">{cs.imageFile.name}</p>
+        <p className="text-[10px] text-muted truncate px-1">{cs.imageFile.name}</p>
       )}
       <MeshyKeysLink />
     </div>
@@ -123,7 +123,7 @@ function AnimatePanel({ cs }: { cs: MeshyCs }) {
         value={cs.rigTaskId}
         onChange={cs.setRigTaskId}
       />
-      <p className="text-[10px] text-[var(--text-muted)] leading-snug">
+      <p className="text-[10px] text-muted leading-snug">
         Textured humanoid GLB only. Face must point +Z for model URLs. Max 300,000 faces via
         input_task_id — remesh first if needed.
       </p>
@@ -135,8 +135,8 @@ function AnimatePanel({ cs }: { cs: MeshyCs }) {
       />
       <div>
         <div className="flex items-center gap-2 mb-2">
-          <Search size={12} className="text-[var(--text-muted)]" />
-          <p className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-[0.14em]">
+          <Search size={12} className="text-muted" />
+          <p className="text-[10px] font-bold text-muted uppercase tracking-[0.14em]">
             Animation library
           </p>
         </div>
@@ -150,7 +150,7 @@ function AnimatePanel({ cs }: { cs: MeshyCs }) {
                 className={`flex items-center gap-1.5 px-2 py-2 rounded-lg border text-[10px] font-medium transition-colors text-left ${
                   active
                     ? 'border-[var(--solar-cyan)] text-[var(--solar-cyan)]'
-                    : 'border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]'
+                    : 'border-[var(--border-subtle)] text-muted hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]'
                 }`}
                 style={{
                   background: active
@@ -166,7 +166,7 @@ function AnimatePanel({ cs }: { cs: MeshyCs }) {
           })}
         </div>
       </div>
-      <p className="text-[9px] text-[var(--text-muted)]">
+      <p className="text-[9px] text-muted">
         Step 1: Rig & Animate CTA runs rigging. Step 2: pick a clip and run again for full animation GLB.
       </p>
       <MeshyKeysLink />
@@ -271,7 +271,7 @@ export function MeshyToolkitTweaks({
         <AnimatePanel cs={cs} />
       ) : railTool === 'text-to-texture' ? (
         <div className="space-y-3">
-          <p className="text-[11px] font-semibold text-[var(--text-main)]">Text to Texture</p>
+          <p className="text-[11px] font-semibold text-main">Text to Texture</p>
           <MeshyTaskIdField
             value={cs.sourceTaskId}
             onChange={cs.setSourceTaskId}
@@ -285,14 +285,14 @@ export function MeshyToolkitTweaks({
             placeholder="Weathered bronze armor with emerald inlays"
             maxLength={600}
           />
-          <p className="text-[10px] text-[var(--text-muted)] leading-snug">
+          <p className="text-[10px] text-muted leading-snug">
             Source must be a SUCCEEDED Text-to-3D, Image-to-3D, or Remesh task. Max 600 characters.
           </p>
           <MeshyKeysLink />
         </div>
       ) : railTool === 'texture' ? (
         <div className="space-y-3">
-          <p className="text-[11px] font-semibold text-[var(--text-main)]">Retexture</p>
+          <p className="text-[11px] font-semibold text-main">Retexture</p>
           <SourceTaskPanel cs={cs}>
             <MeshyPromptField
               label="Texture prompt"
@@ -302,20 +302,20 @@ export function MeshyToolkitTweaks({
               maxLength={600}
             />
           </SourceTaskPanel>
-          <p className="text-[10px] text-[var(--text-muted)] leading-snug">
+          <p className="text-[10px] text-muted leading-snug">
             Provide text_style_prompt or image_style_url (image takes priority). model_url supports
             glb, gltf, obj, fbx, stl.
           </p>
         </div>
       ) : railTool === 'post-process' ? (
         <div className="space-y-3">
-          <p className="text-[11px] font-semibold text-[var(--text-main)]">Post-Process / Remesh</p>
+          <p className="text-[11px] font-semibold text-main">Post-Process / Remesh</p>
           <SourceTaskPanel cs={cs} />
-          <p className="text-[10px] text-[var(--text-muted)]">Exports GLB + FBX with optimized topology.</p>
+          <p className="text-[10px] text-muted">Exports GLB + FBX with optimized topology.</p>
         </div>
       ) : railTool === 'image' ? (
         <div className="space-y-3">
-          <p className="text-[11px] font-semibold text-[var(--text-main)]">Text to Image</p>
+          <p className="text-[11px] font-semibold text-main">Text to Image</p>
           <MeshyPromptField
             label="Prompt"
             value={cs.imageGenPrompt}
@@ -326,13 +326,13 @@ export function MeshyToolkitTweaks({
         </div>
       ) : railTool === 'print' ? (
         <div className="space-y-3">
-          <p className="text-[11px] font-semibold text-[var(--text-main)]">3D Print Export</p>
+          <p className="text-[11px] font-semibold text-main">3D Print Export</p>
           <SourceTaskPanel cs={cs} />
-          <p className="text-[10px] text-[var(--text-muted)] leading-snug">
+          <p className="text-[10px] text-muted leading-snug">
             Converts textured models to multi-color 3MF (10 credits). Download from Properties →
             Export after the job completes.
           </p>
-          <p className="text-[10px] text-[var(--text-muted)] leading-snug">
+          <p className="text-[10px] text-muted leading-snug">
             Workflow: analyze geometry → remesh/cleanup → orient on bed → export STL → verify in
             slicer.
           </p>
@@ -391,7 +391,7 @@ export function MeshyToolkitTweaks({
     <div className={`flex flex-col min-h-0 min-w-0 bg-[var(--bg-panel)] ${className}`}>
       <div className="shrink-0 px-3 pt-2 pb-2 space-y-2 border-b border-[var(--border-subtle)]">
         <StudioSegmentBar active={studioSegment} onChange={onStudioSegment} />
-        <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-[0.18em] font-bold">
+        <p className="text-[10px] text-muted uppercase tracking-[0.18em] font-bold">
           {studioSegment === 'meshy' ? railMeta?.label : studioSegment}
         </p>
       </div>
@@ -456,7 +456,7 @@ export function MeshyToolkitTweaks({
           style={{ background: 'linear-gradient(0deg, var(--bg-panel) 70%, transparent)' }}
         >
           {railTool === 'text-to-3d' && (
-            <p className="text-[10px] text-center text-[var(--text-muted)] mb-2">
+            <p className="text-[10px] text-center text-muted mb-2">
               ~{cs.ctaCost} credits · opens terminal output
             </p>
           )}

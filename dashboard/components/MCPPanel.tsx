@@ -62,7 +62,7 @@ export const MCPPanel: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full text-[var(--text-muted)]">
+      <div className="flex items-center justify-center h-full text-muted">
         <Loader2 className="animate-spin mr-2" size={16} />
         <span>Loading MCP Tools...</span>
       </div>
@@ -88,15 +88,15 @@ export const MCPPanel: React.FC = () => {
                 <div key={tool.id} className="p-3 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-xl hover:border-[var(--solar-cyan)]/30 transition-all">
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div>
-                      <div className="text-[12px] font-semibold text-[var(--text-main)]">{tool.tool_name}</div>
-                      <p className="text-[11px] text-[var(--text-muted)] mt-1">{tool.description}</p>
+                      <div className="text-[12px] font-semibold text-main">{tool.tool_name}</div>
+                      <p className="text-[11px] text-muted mt-1">{tool.description}</p>
                     </div>
                     <button
                       onClick={() => invokeTool(tool)}
                       disabled={invoking === tool.id}
                       className={`p-2 rounded-lg transition-colors ${
                         invoking === tool.id 
-                          ? 'bg-[var(--bg-hover)] text-[var(--text-muted)]' 
+                          ? 'bg-[var(--bg-hover)] text-muted' 
                           : 'bg-[var(--solar-cyan)]/10 text-[var(--solar-cyan)] hover:bg-[var(--solar-cyan)]/20'
                       }`}
                     >
@@ -106,11 +106,11 @@ export const MCPPanel: React.FC = () => {
                   
                   {results[tool.id] && (
                     <div className="mt-3 p-2 bg-[var(--scene-bg)] border border-[var(--border-subtle)] rounded-lg font-mono text-[10px] overflow-hidden">
-                      <div className="flex items-center gap-1.5 mb-1 text-[var(--text-muted)] uppercase tracking-tighter">
+                      <div className="flex items-center gap-1.5 mb-1 text-muted uppercase tracking-tighter">
                         {results[tool.id].error ? <AlertCircle size={10} className="text-red-400" /> : <CheckCircle2 size={10} className="text-green-400" />}
                         Result
                       </div>
-                      <pre className="whitespace-pre-wrap break-all text-[var(--text-main)]">
+                      <pre className="whitespace-pre-wrap break-all text-main">
                         {JSON.stringify(results[tool.id], null, 2)}
                       </pre>
                     </div>

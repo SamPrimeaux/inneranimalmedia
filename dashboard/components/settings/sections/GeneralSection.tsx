@@ -345,12 +345,12 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
       <h2 className="text-[13px] font-bold text-[var(--text-heading)] uppercase tracking-widest">General</h2>
 
       <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-4">
-        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+        <div className="text-[10px] font-black uppercase tracking-widest text-muted">
           Profile
         </div>
 
         {profileLoading ? (
-          <div className="flex items-center gap-2 text-[11px] text-[var(--text-muted)] py-4">
+          <div className="flex items-center gap-2 text-[11px] text-muted py-4">
             <Loader2 size={14} className="animate-spin" />
             Loading profile…
           </div>
@@ -380,8 +380,8 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
                 ) : null}
               </button>
               <div className="min-w-0">
-                <div className="text-[12px] font-semibold text-[var(--text-main)]">Avatar</div>
-                <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Click to upload via Cloudflare Images</div>
+                <div className="text-[12px] font-semibold text-main">Avatar</div>
+                <div className="text-[11px] text-muted mt-0.5">Click to upload via Cloudflare Images</div>
               </div>
               <input
                 ref={avatarInputRef}
@@ -393,7 +393,7 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
             </div>
 
             <label className="block space-y-1">
-              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Display name</span>
+              <span className="text-[11px] font-semibold text-muted">Display name</span>
               <input
                 type="text"
                 value={displayName}
@@ -404,7 +404,7 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
             </label>
 
             <label className="block space-y-1">
-              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Full name</span>
+              <span className="text-[11px] font-semibold text-muted">Full name</span>
               <input
                 type="text"
                 value={fullName}
@@ -415,7 +415,7 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
             </label>
 
             <label className="block space-y-1">
-              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Primary email</span>
+              <span className="text-[11px] font-semibold text-muted">Primary email</span>
               <div className="flex items-center gap-2">
                 <input
                   type="email"
@@ -435,7 +435,7 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
             </label>
 
             <label className="block space-y-1">
-              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Backup email</span>
+              <span className="text-[11px] font-semibold text-muted">Backup email</span>
               <input
                 type="email"
                 value={backupEmail}
@@ -446,7 +446,7 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
             </label>
 
             <label className="block space-y-1">
-              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Phone</span>
+              <span className="text-[11px] font-semibold text-muted">Phone</span>
               <input
                 type="tel"
                 value={phone}
@@ -457,7 +457,7 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
             </label>
 
             <label className="block space-y-1">
-              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Bio</span>
+              <span className="text-[11px] font-semibold text-muted">Bio</span>
               <textarea
                 value={bio}
                 onChange={(e) => setBio(e.target.value)}
@@ -467,7 +467,7 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
             </label>
 
             <label className="block space-y-1">
-              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Timezone</span>
+              <span className="text-[11px] font-semibold text-muted">Timezone</span>
               <select
                 value={timezone}
                 onChange={(e) => setTimezone(e.target.value)}
@@ -482,7 +482,7 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
             </label>
 
             <label className="block space-y-1">
-              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Language</span>
+              <span className="text-[11px] font-semibold text-muted">Language</span>
               <select
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
@@ -515,15 +515,15 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
       </div>
 
       <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-4">
-        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+        <div className="text-[10px] font-black uppercase tracking-widest text-muted">
           Sign-in &amp; password
         </div>
 
         <section className="space-y-3">
-          <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+          <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted">
             Login email
           </h3>
-          <p className="text-[11px] text-[var(--text-muted)]">
+          <p className="text-[11px] text-muted">
             Current: {loginEmail || '—'}
           </p>
           {!showEmailForm ? (
@@ -599,16 +599,16 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
         </section>
 
         <section className="space-y-3 pt-2 border-t border-[var(--border-subtle)]">
-          <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Password</h3>
+          <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted">Password</h3>
           {authUser?.passwordMethod === 'oauth' ? (
-            <p className="text-[11px] text-[var(--text-muted)]">
+            <p className="text-[11px] text-muted">
               You sign in via {authUser?.provider ?? 'external provider'}. No password set.
             </p>
           ) : !authUser ? (
-            <p className="text-[11px] text-[var(--text-muted)]">Loading account…</p>
+            <p className="text-[11px] text-muted">Loading account…</p>
           ) : (
             <>
-              <p className="text-[11px] text-[var(--text-muted)]">
+              <p className="text-[11px] text-muted">
                 Last changed:{' '}
                 {authUser?.passwordUpdatedAt ? formatVaultCreated(authUser.passwordUpdatedAt) : '—'}
               </p>
@@ -710,7 +710,7 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
       </div>
 
       <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-3">
-        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+        <div className="text-[10px] font-black uppercase tracking-widest text-muted">
           Layout
         </div>
         {rows.map((row) => (
@@ -719,8 +719,8 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
             className="flex items-center justify-between py-3 border-b border-[var(--border-subtle)]/50 last:border-0"
           >
             <div>
-              <div className="text-[12px] font-semibold text-[var(--text-main)]">{row.label}</div>
-              <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{row.desc}</div>
+              <div className="text-[12px] font-semibold text-main">{row.label}</div>
+              <div className="text-[11px] text-muted mt-0.5">{row.desc}</div>
             </div>
             <Toggle
               on={row.on}
@@ -734,11 +734,11 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
       </div>
 
       <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-4">
-        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+        <div className="text-[10px] font-black uppercase tracking-widest text-muted">
           Preferences
         </div>
         <label className="block space-y-1 max-w-md">
-          <span className="text-[11px] font-semibold text-[var(--text-muted)]">Conversation density</span>
+          <span className="text-[11px] font-semibold text-muted">Conversation density</span>
           <select
             value={conversationDensity}
             onChange={(e) => {
@@ -754,8 +754,8 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
         </label>
         <div className="flex items-center justify-between py-2">
           <div>
-            <div className="text-[12px] font-semibold text-[var(--text-main)]">Completion sound</div>
-            <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Play a sound when the agent finishes</div>
+            <div className="text-[12px] font-semibold text-main">Completion sound</div>
+            <div className="text-[11px] text-muted mt-0.5">Play a sound when the agent finishes</div>
           </div>
           <Toggle
             on={completionSound}
@@ -768,10 +768,10 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
       </div>
 
       <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
-        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-3">
+        <div className="text-[10px] font-black uppercase tracking-widest text-muted mb-3">
           Notifications
         </div>
-        <p className="text-[11px] text-[var(--text-muted)] mb-3">
+        <p className="text-[11px] text-muted mb-3">
           Deployment alerts, agent errors, spend thresholds, and webhook delivery.
         </p>
         <button
@@ -784,11 +784,11 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
       </div>
 
       <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-4">
-        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+        <div className="text-[10px] font-black uppercase tracking-widest text-muted">
           PR preferences
         </div>
         <label className="block space-y-1 max-w-md">
-          <span className="text-[11px] font-semibold text-[var(--text-muted)]">Preferred PR destination</span>
+          <span className="text-[11px] font-semibold text-muted">Preferred PR destination</span>
           <select
             value={prDestination}
             onChange={(e) => {
@@ -808,11 +808,11 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
       <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-2">
+            <div className="text-[10px] font-black uppercase tracking-widest text-muted mb-2">
               Manage account
             </div>
-            <div className="text-[12px] font-semibold text-[var(--text-main)]">Plan &amp; billing</div>
-            <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Billing, seats, and usage limits</div>
+            <div className="text-[12px] font-semibold text-main">Plan &amp; billing</div>
+            <div className="text-[11px] text-muted mt-0.5">Billing, seats, and usage limits</div>
           </div>
           <button
             type="button"

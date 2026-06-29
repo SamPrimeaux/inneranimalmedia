@@ -233,7 +233,7 @@ export function GitRepoBranchMenuPanel({
                 onClose();
                 onWorkspacePickerClick();
               }}
-              className="w-full text-left px-3 py-1.5 text-[0.6875rem] text-[var(--text-main)] hover:bg-[var(--bg-hover)] font-[var(--font-sans)]"
+              className="w-full text-left px-3 py-1.5 text-[0.6875rem] text-main hover:bg-[var(--bg-hover)] font-[var(--font-sans)]"
             >
               Switch workspace…
             </button>
@@ -276,14 +276,14 @@ export function GitRepoBranchMenuPanel({
           value={branchMenuFilter}
           onChange={(e) => setBranchMenuFilter(e.target.value)}
           placeholder="Filter branches…"
-          className="w-full bg-transparent text-[0.75rem] text-[var(--text-main)] placeholder:text-[var(--text-muted)] outline-none font-[var(--font-sans)]"
+          className="w-full bg-transparent text-[0.75rem] text-main placeholder:text-muted outline-none font-[var(--font-sans)]"
           autoFocus
         />
       </div>
       <ShellDropdownKeyHint />
       <div className="py-1 overflow-y-auto flex-1 min-h-0">
         {branchLoading && (
-          <div className="flex items-center justify-center px-3 py-6 text-[var(--text-muted)]">
+          <div className="flex items-center justify-center px-3 py-6 text-muted">
             <svg
               className="iam-branch-spinner h-5 w-5"
               viewBox="0 0 24 24"
@@ -313,7 +313,7 @@ export function GitRepoBranchMenuPanel({
               </button>
               <a
                 href="/dashboard/settings/integrations"
-                className="text-[11px] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] underline font-[var(--font-sans)]"
+                className="text-[11px] text-muted hover:text-[var(--solar-cyan)] underline font-[var(--font-sans)]"
                 onClick={() => onClose()}
               >
                 Integrations
@@ -323,18 +323,18 @@ export function GitRepoBranchMenuPanel({
         )}
         {!branchLoading && branchError && (githubReposLoading || githubRepos.length > 0) && (
           <div className="px-3 py-2 border-t border-[var(--border-subtle)]">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1.5">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-muted mb-1.5">
               Link repository
             </div>
             {githubReposLoading ? (
-              <p className="text-[11px] text-[var(--text-muted)]">Loading your repos…</p>
+              <p className="text-[11px] text-muted">Loading your repos…</p>
             ) : (
               <div className="max-h-[140px] overflow-y-auto">
                 {githubRepos.slice(0, 24).map((r) => (
                   <button
                     key={r.full_name}
                     type="button"
-                    className="w-full text-left py-1 text-[11px] text-[var(--text-main)] hover:text-[var(--solar-cyan)] truncate font-[var(--font-sans)]"
+                    className="w-full text-left py-1 text-[11px] text-main hover:text-[var(--solar-cyan)] truncate font-[var(--font-sans)]"
                     onClick={() => {
                       void persistGithubRepo(r.full_name, activeWorkspaceId);
                       setBranchError(null);
@@ -349,7 +349,7 @@ export function GitRepoBranchMenuPanel({
           </div>
         )}
         {!branchLoading && !branchError && filteredBranchRows.length === 0 && (
-          <p className="px-3 py-3 text-[11px] text-[var(--text-muted)]">No branches match.</p>
+          <p className="px-3 py-3 text-[11px] text-muted">No branches match.</p>
         )}
         {!branchLoading &&
           !branchError &&
@@ -414,14 +414,14 @@ export function GitRepoBranchNavTrigger({
       aria-haspopup="dialog"
       title="Repository and branches"
     >
-      <GitBranch size={13} className="shrink-0 opacity-70 text-[var(--text-muted)]" />
-      <span className="text-[11px] text-[var(--text-muted)] truncate min-w-0">
-        <span className="text-[var(--text-main)] font-medium">{label}</span>
+      <GitBranch size={13} className="shrink-0 opacity-70 text-muted" />
+      <span className="text-[11px] text-muted truncate min-w-0">
+        <span className="text-main font-medium">{label}</span>
         {branch ? (
-          <span className="text-[var(--text-muted)] font-normal"> · {branch}</span>
+          <span className="text-muted font-normal"> · {branch}</span>
         ) : null}
       </span>
-      <ChevronDown size={12} className="shrink-0 text-[var(--text-muted)] opacity-70" />
+      <ChevronDown size={12} className="shrink-0 text-muted opacity-70" />
     </button>
   );
 }

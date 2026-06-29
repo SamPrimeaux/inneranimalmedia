@@ -103,7 +103,7 @@ export function GitHubSection({ repos }: GitHubSectionProps) {
             type="button"
             onClick={() => reload()}
             disabled={loading}
-            className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-50"
+            className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main disabled:opacity-50"
           >
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
@@ -136,10 +136,10 @@ export function GitHubSection({ repos }: GitHubSectionProps) {
           <WarningStrip warnings={section.warnings} />
           <ActionRow actions={section.actions} onAction={onAction} />
           <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-4 space-y-2">
-            <div className="text-[11px] font-semibold text-[var(--text-main)]">
+            <div className="text-[11px] font-semibold text-main">
               Or connect with a personal access token
             </div>
-            <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
+            <p className="text-[10px] text-muted leading-relaxed">
               OAuth is preferred. For automation or headless use, paste a classic{' '}
               <code className="font-mono">ghp_…</code> or fine-grained{' '}
               <code className="font-mono">github_pat_…</code> token — stored encrypted like OAuth tokens.
@@ -152,7 +152,7 @@ export function GitHubSection({ repos }: GitHubSectionProps) {
                 value={patInput}
                 onChange={(e) => setPatInput(e.target.value)}
                 placeholder="ghp_… or github_pat_…"
-                className="flex-1 min-w-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[11px] font-mono text-[var(--text-main)]"
+                className="flex-1 min-w-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[11px] font-mono text-main"
               />
               <button
                 type="button"
@@ -176,14 +176,14 @@ export function GitHubSection({ repos }: GitHubSectionProps) {
               </button>
             </div>
             {patMsg ? (
-              <p className="text-[10px] text-[var(--text-muted)]">{patMsg}</p>
+              <p className="text-[10px] text-muted">{patMsg}</p>
             ) : null}
           </div>
         </>
       ) : null}
 
       <section className="flex flex-col gap-2">
-        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+        <div className="text-[10px] font-black uppercase tracking-widest text-muted">
           Repositories (from GitHub API)
         </div>
         {repos.length === 0 ? (
@@ -196,14 +196,14 @@ export function GitHubSection({ repos }: GitHubSectionProps) {
                 className="flex items-center justify-between p-3 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-xl hover:border-[var(--solar-cyan)]/30 transition-colors"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-[var(--bg-panel)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-muted)] shrink-0">
+                  <div className="w-7 h-7 rounded-lg bg-[var(--bg-panel)] border border-[var(--border-subtle)] flex items-center justify-center text-muted shrink-0">
                     <GitBranch size={13} />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-[12px] font-semibold text-[var(--text-main)] truncate">
+                    <div className="text-[12px] font-semibold text-main truncate">
                       {r.repo_full_name}
                     </div>
-                    <div className="text-[10px] text-[var(--text-muted)] font-mono">
+                    <div className="text-[10px] text-muted font-mono">
                       branch: {r.default_branch}{' '}
                       {r.cloudflare_worker_name ? `· worker: ${r.cloudflare_worker_name}` : ''}
                     </div>
@@ -215,7 +215,7 @@ export function GitHubSection({ repos }: GitHubSectionProps) {
                     href={r.repo_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="p-1.5 hover:bg-[var(--bg-hover)] rounded text-[var(--text-muted)] hover:text-[var(--solar-cyan)] transition-colors"
+                    className="p-1.5 hover:bg-[var(--bg-hover)] rounded text-muted hover:text-[var(--solar-cyan)] transition-colors"
                   >
                     <ExternalLink size={12} />
                   </a>
@@ -229,7 +229,7 @@ export function GitHubSection({ repos }: GitHubSectionProps) {
       {section ? (
         <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="flex flex-col gap-2">
-            <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+            <div className="text-[10px] font-black uppercase tracking-widest text-muted">
               Code index jobs
             </div>
             {(extra.code_index_jobs || []).length === 0 ? (
@@ -259,7 +259,7 @@ export function GitHubSection({ repos }: GitHubSectionProps) {
           </div>
 
           <div className="flex flex-col gap-2">
-            <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+            <div className="text-[10px] font-black uppercase tracking-widest text-muted">
               Audit events (integration_audit_log)
             </div>
             {(extra.audit_log || []).length === 0 ? (

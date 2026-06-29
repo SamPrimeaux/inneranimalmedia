@@ -179,7 +179,7 @@ export default function SettingsPanel({
       }
       default:
         return (
-          <div className="flex flex-col items-center justify-center h-40 gap-3 text-[var(--text-muted)]">
+          <div className="flex flex-col items-center justify-center h-40 gap-3 text-muted">
             <Package size={28} className="opacity-30" />
             <p className="text-[12px]">{resolvedLabel} settings coming soon.</p>
           </div>
@@ -196,7 +196,7 @@ export default function SettingsPanel({
         <button
           type="button"
           onClick={onClose}
-          className="p-1.5 hover:bg-[var(--bg-hover)] rounded transition-colors text-[var(--text-muted)] hover:text-[var(--text-heading)] text-[11px] uppercase tracking-wider"
+          className="p-1.5 hover:bg-[var(--bg-hover)] rounded transition-colors text-muted hover:text-[var(--text-heading)] text-[11px] uppercase tracking-wider"
         >
           Close
         </button>
@@ -242,7 +242,7 @@ export default function SettingsPanel({
                 title={nav.navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
                 aria-expanded={!nav.navCollapsed}
                 onClick={nav.toggleNavCollapsed}
-                className={`flex w-full min-h-[36px] items-center rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors ${
+                className={`flex w-full min-h-[36px] items-center rounded-lg text-muted hover:text-main hover:bg-[var(--bg-hover)] transition-colors ${
                   nav.navCollapsed ? 'justify-center px-0' : 'gap-2 px-2'
                 }`}
               >

@@ -80,7 +80,7 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
             type="button"
             onClick={() => reload()}
             disabled={loading}
-            className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-50"
+            className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main disabled:opacity-50"
           >
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
@@ -88,7 +88,7 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
       />
 
       <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3">
-        <div className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] font-semibold">
+        <div className="text-[10px] uppercase tracking-widest text-muted font-semibold">
           Worker base URL
         </div>
         <code className="text-[12px] font-mono break-all text-[var(--solar-blue)] mt-1 block">
@@ -119,7 +119,7 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
           <ActionRow actions={section.actions} />
 
           <section className="flex flex-col gap-2">
-            <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+            <div className="text-[10px] font-black uppercase tracking-widest text-muted">
               Workspace domains
             </div>
             {(section.rows || []).length === 0 ? (
@@ -150,7 +150,7 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
 
           <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="flex flex-col gap-2">
-              <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+              <div className="text-[10px] font-black uppercase tracking-widest text-muted">
                 Trusted browser origins
               </div>
               {(extra.trusted_origins || []).length === 0 ? (
@@ -168,7 +168,7 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
             </div>
 
             <div className="flex flex-col gap-2">
-              <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+              <div className="text-[10px] font-black uppercase tracking-widest text-muted">
                 Fetch domain allowlist
               </div>
               {(extra.fetch_allowlist || []).length === 0 ? (
@@ -187,7 +187,7 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
           </section>
 
           <section className="flex flex-col gap-2">
-            <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+            <div className="text-[10px] font-black uppercase tracking-widest text-muted">
               Integration endpoints (registry)
             </div>
             {(extra.integration_endpoints || []).length === 0 ? (

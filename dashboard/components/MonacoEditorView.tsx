@@ -485,7 +485,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
   if (!activeFile) {
     return (
       <div className="flex-1 bg-[var(--scene-bg)] flex items-center justify-center select-none h-full">
-        <div className="flex flex-col items-center gap-4 text-[var(--text-muted)] text-center px-8">
+        <div className="flex flex-col items-center gap-4 text-muted text-center px-8">
           <SetiFileIcon filename="untitled.txt" size={40} className="opacity-30" />
           <p className="text-[13px] font-medium">No files open</p>
           <p className="text-[11px] opacity-60 max-w-xs leading-relaxed">
@@ -523,7 +523,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
             className={`flex items-center gap-2 px-3 h-full border-r border-[var(--dashboard-border)] cursor-pointer select-none transition-all group min-w-[120px] max-w-[200px] ${
               activeTabId === tab.id 
                 ? 'bg-[var(--scene-bg)] text-[var(--solar-cyan)] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px] after:bg-[var(--solar-cyan)] relative' 
-                : 'text-[var(--text-muted)] hover:bg-[var(--dashboard-canvas)]'
+                : 'text-muted hover:bg-[var(--dashboard-canvas)]'
             }`}
           >
             <SetiFileIcon filename={tab.name} size={14} />
@@ -548,7 +548,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
 
       {/* ── Editor Toolbar (Active Tab Stats) ── */}
       <div className="h-8 flex items-center justify-between px-3 bg-[var(--scene-bg)] border-b border-[var(--dashboard-border)] shrink-0">
-        <div className="flex items-center gap-4 text-[10px] uppercase tracking-widest text-[var(--text-muted)] font-bold">
+        <div className="flex items-center gap-4 text-[10px] uppercase tracking-widest text-muted font-bold">
            <span>{language}</span>
            <span className="opacity-50">UTF-8</span>
            {gitActionHint && <span className="text-[var(--solar-cyan)] animate-pulse">{gitActionHint}</span>}

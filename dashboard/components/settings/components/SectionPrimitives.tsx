@@ -62,7 +62,7 @@ export function SectionHeader({
           {title}
         </h2>
         {description ? (
-          <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-2xl">{description}</p>
+          <p className="text-[11px] text-muted mt-1 max-w-2xl">{description}</p>
         ) : null}
       </div>
       {right ? <div className="shrink-0">{right}</div> : null}
@@ -83,14 +83,14 @@ export function SummaryGrid({
           key={it.label}
           className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2.5"
         >
-          <div className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] font-semibold">
+          <div className="text-[10px] uppercase tracking-widest text-muted font-semibold">
             {it.label}
           </div>
-          <div className="mt-1 text-[14px] font-semibold text-[var(--text-main)] truncate">
+          <div className="mt-1 text-[14px] font-semibold text-main truncate">
             {it.value}
           </div>
           {it.hint ? (
-            <div className="mt-0.5 text-[10px] text-[var(--text-muted)] font-mono truncate">
+            <div className="mt-0.5 text-[10px] text-muted font-mono truncate">
               {it.hint}
             </div>
           ) : null}
@@ -111,7 +111,7 @@ function severityClass(s: SettingsWarning['severity']) {
     return 'border-[var(--color-danger)]/40 bg-[var(--color-danger)]/5 text-[var(--color-danger)]';
   if (s === 'warn')
     return 'border-[var(--color-warning)]/40 bg-[var(--color-warning)]/5 text-[var(--color-warning)]';
-  return 'border-[var(--border-subtle)] bg-[var(--bg-app)] text-[var(--text-muted)]';
+  return 'border-[var(--border-subtle)] bg-[var(--bg-app)] text-muted';
 }
 
 export function WarningStrip({ warnings }: { warnings: SettingsWarning[] }) {
@@ -136,7 +136,7 @@ export function WarningStrip({ warnings }: { warnings: SettingsWarning[] }) {
                 <span className="font-mono text-[10px] opacity-70">provider: {w.provider}</span>
               ) : null}
             </div>
-            <div className="mt-0.5 text-[var(--text-main)]">{w.message}</div>
+            <div className="mt-0.5 text-main">{w.message}</div>
             {w.suggestedAction ? (
               <div className="mt-0.5 text-[10px] opacity-80">{w.suggestedAction}</div>
             ) : null}
@@ -154,7 +154,7 @@ export function StatusBadge({
 }) {
   const s = String(status || '').toLowerCase();
   let cls =
-    'border-[var(--border-subtle)] bg-[var(--bg-app)] text-[var(--text-muted)]';
+    'border-[var(--border-subtle)] bg-[var(--bg-app)] text-muted';
   let label = s || 'unknown';
   if (s === 'connected') {
     cls =
@@ -202,12 +202,12 @@ export function ProviderCard({ p }: { p: ProviderConnectionState }) {
   return (
     <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-[12px] font-semibold text-[var(--text-main)] truncate">
+        <div className="text-[12px] font-semibold text-main truncate">
           {providerLabel(p.provider)}
         </div>
         <StatusBadge status={p.status} />
       </div>
-      <div className="mt-1 flex flex-col gap-0.5 text-[11px] text-[var(--text-muted)]">
+      <div className="mt-1 flex flex-col gap-0.5 text-[11px] text-muted">
         {p.accountLabel ? <div className="truncate">Account: {p.accountLabel}</div> : null}
         {p.resourceLabel ? <div className="truncate">{p.resourceLabel}</div> : null}
         {p.capabilities && p.capabilities.length ? (
@@ -215,7 +215,7 @@ export function ProviderCard({ p }: { p: ProviderConnectionState }) {
             {p.capabilities.map((c) => (
               <span
                 key={c}
-                className="text-[9px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-app)] font-mono text-[var(--text-muted)]"
+                className="text-[9px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-app)] font-mono text-muted"
               >
                 {c}
               </span>
@@ -242,7 +242,7 @@ export function ActionButton({
   variant?: 'default' | 'primary' | 'danger';
 }) {
   const base = 'text-[11px] px-3 py-1.5 rounded-lg border transition-colors';
-  let cls = `${base} border-[var(--border-subtle)] text-[var(--text-main)] hover:bg-[var(--bg-hover)]`;
+  let cls = `${base} border-[var(--border-subtle)] text-main hover:bg-[var(--bg-hover)]`;
   if (variant === 'primary') {
     cls = `${base} border-[var(--solar-cyan)]/50 text-[var(--solar-cyan)] hover:bg-[var(--solar-cyan)]/10`;
   } else if (variant === 'danger') {
@@ -275,7 +275,7 @@ export function ActionRow({
         <div key={a.key} className="flex items-center gap-2">
           <ActionButton action={a} onClick={() => (a.enabled ? onAction?.(a.key) : undefined)} />
           {!a.enabled && a.reasonDisabled ? (
-            <span className="text-[10px] text-[var(--text-muted)] italic">
+            <span className="text-[10px] text-muted italic">
               {a.reasonDisabled}
             </span>
           ) : null}
@@ -287,7 +287,7 @@ export function ActionRow({
 
 export function EmptyState({ message }: { message: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-6 text-[11px] text-[var(--text-muted)] text-center">
+    <div className="rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-6 text-[11px] text-muted text-center">
       {message}
     </div>
   );
@@ -295,7 +295,7 @@ export function EmptyState({ message }: { message: string }) {
 
 export function LoadingRow({ label = 'Loading…' }: { label?: string }) {
   return (
-    <div className="inline-flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
+    <div className="inline-flex items-center gap-2 text-[11px] text-muted">
       <Loader2 size={12} className="animate-spin" />
       {label}
     </div>
@@ -314,7 +314,7 @@ export function DataTable<T extends Record<string, unknown>>({
   if (!rows?.length) return <EmptyState message={emptyMessage} />;
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] overflow-hidden bg-[var(--bg-panel)]">
-      <div className="grid gap-0 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] border-b border-[var(--border-subtle)] bg-[var(--bg-app)]"
+      <div className="grid gap-0 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-muted border-b border-[var(--border-subtle)] bg-[var(--bg-app)]"
         style={{ gridTemplateColumns: columns.map((c) => c.widthClass || '1fr').join(' ') }}
       >
         {columns.map((c) => (
@@ -330,7 +330,7 @@ export function DataTable<T extends Record<string, unknown>>({
           style={{ gridTemplateColumns: columns.map((c) => c.widthClass || '1fr').join(' ') }}
         >
           {columns.map((c) => (
-            <div key={c.key} className="px-1 truncate text-[var(--text-main)]">
+            <div key={c.key} className="px-1 truncate text-main">
               {c.render
                 ? c.render(row)
                 : row[c.key] != null
@@ -375,5 +375,5 @@ function formatRelativeFromValue(input: string | number | null | undefined): str
 }
 
 export function RelTime({ value }: { value: string | number | null | undefined }) {
-  return <span className="text-[var(--text-muted)]">{formatRelativeFromValue(value)}</span>;
+  return <span className="text-muted">{formatRelativeFromValue(value)}</span>;
 }

@@ -52,8 +52,8 @@ function UsageProgressBar({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2 text-[11px]">
-        <span className="text-[var(--text-muted)]">{label}</span>
-        <span className="text-[var(--text-main)] font-mono tabular-nums">
+        <span className="text-muted">{label}</span>
+        <span className="text-main font-mono tabular-nums">
           {rightLabel ?? (max != null && max > 0 ? `${pct}%` : formatCompactNumber(value))}
         </span>
       </div>
@@ -155,20 +155,20 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
 
       {/* Current plan — Cursor-style hero card */}
       <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-3">
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+        <div className="text-[10px] font-semibold uppercase tracking-widest text-muted">
           Current plan
         </div>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-[18px] font-semibold text-[var(--text-main)] leading-tight">
+            <div className="text-[18px] font-semibold text-main leading-tight">
               {planDisplayName}
             </div>
             {currentPlan?.tagline ? (
-              <p className="mt-1 text-[12px] text-[var(--text-muted)] max-w-md">
+              <p className="mt-1 text-[12px] text-muted max-w-md">
                 {String(currentPlan.tagline)}
               </p>
             ) : null}
-            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+            <p className="mt-1 text-[11px] text-muted">
               Billing period: {periodLabel}
               {sub?.current_period_end
                 ? ` · renews ${formatInvoiceWhen(Number(sub.current_period_end))}`
@@ -179,7 +179,7 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
             {paidActive ? (
               <button
                 type="button"
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-main)] hover:border-[var(--solar-cyan)]/40"
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-main hover:border-[var(--solar-cyan)]/40"
                 onClick={() => void data.openBillingPortal()}
               >
                 Manage
@@ -187,7 +187,7 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
             ) : null}
             <button
               type="button"
-              className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+              className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted hover:text-main"
               onClick={() => {
                 setShowInvoices(true);
                 void data.loadBillingInvoices();
@@ -200,13 +200,13 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
       </section>
 
       {data.usageLoading && !u ? (
-        <div className="text-[12px] text-[var(--text-muted)]">Loading usage…</div>
+        <div className="text-[12px] text-muted">Loading usage…</div>
       ) : null}
 
       {u ? (
         <>
           <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-4">
-            <div className="text-[12px] font-medium text-[var(--text-main)]">
+            <div className="text-[12px] font-medium text-main">
               Included in {planDisplayName}
             </div>
             <UsageProgressBar
@@ -227,7 +227,7 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
                 rightLabel={`${formatCompactNumber(usageTotals.tokens)} / ${formatCompactNumber(monthlyTokenLimit)}`}
               />
             ) : null}
-            <div className="flex flex-wrap gap-2 text-[10px] text-[var(--text-muted)] font-mono">
+            <div className="flex flex-wrap gap-2 text-[10px] text-muted font-mono">
               <span>{formatCompactNumber(usageTotals.input)} input</span>
               <span>·</span>
               <span>{formatCompactNumber(usageTotals.output)} output</span>
@@ -237,7 +237,7 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
 
             <button
               type="button"
-              className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+              className="flex items-center gap-1.5 text-[11px] text-muted hover:text-main"
               onClick={() => setShowBreakdown((v) => !v)}
             >
               {showBreakdown ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -253,10 +253,10 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
                   return (
                     <div key={`${r.model_used || i}`} className="space-y-1">
                       <div className="flex items-center justify-between gap-2 text-[11px]">
-                        <span className="text-[var(--text-main)] truncate font-medium">
+                        <span className="text-main truncate font-medium">
                           {String(r.model_used || '—')}
                         </span>
-                        <span className="text-[var(--text-muted)] font-mono shrink-0">
+                        <span className="text-muted font-mono shrink-0">
                           ${cost.toFixed(2)}
                         </span>
                       </div>
@@ -266,7 +266,7 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
                           style={{ width: `${Math.max(share, cost > 0 ? 4 : 0)}%` }}
                         />
                       </div>
-                      <div className="text-[10px] text-[var(--text-muted)]">
+                      <div className="text-[10px] text-muted">
                         {String(r.provider || '—')} · {formatCompactNumber(Number(r.input_tokens || 0))} in ·{' '}
                         {formatCompactNumber(Number(r.output_tokens || 0))} out
                       </div>
@@ -278,14 +278,14 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
           </section>
 
           <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-3">
-            <div className="text-[12px] font-medium text-[var(--text-main)]">Monthly limit</div>
-            <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+            <div className="text-[12px] font-medium text-main">Monthly limit</div>
+            <p className="text-[11px] text-muted leading-relaxed">
               Set a fixed USD cap for platform-metered usage. When hard stop is on, agent runs block after the
               limit.
             </p>
             <div className="flex flex-wrap items-end gap-2">
               <label className="flex flex-col gap-1 text-[11px] min-w-[120px]">
-                <span className="text-[var(--text-muted)]">Limit (USD)</span>
+                <span className="text-muted">Limit (USD)</span>
                 <input
                   value={data.budgetMonthlyLimit}
                   onChange={(e) => {
@@ -306,7 +306,7 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
                 {budgetSaving ? 'Saving…' : 'Save'}
               </button>
               <div className="flex items-center gap-2 pb-1">
-                <span className="text-[11px] text-[var(--text-muted)]">Hard stop</span>
+                <span className="text-[11px] text-muted">Hard stop</span>
                 <Toggle
                   on={data.budgetHardStop}
                   onChange={(v) => {
@@ -347,8 +347,8 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
               className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left hover:bg-[var(--bg-hover)]"
               onClick={() => setShowActivity((v) => !v)}
             >
-              <span className="text-[12px] font-medium text-[var(--text-main)]">Recent activity</span>
-              <span className="flex items-center gap-1 text-[11px] text-[var(--text-muted)]">
+              <span className="text-[12px] font-medium text-main">Recent activity</span>
+              <span className="flex items-center gap-1 text-[11px] text-muted">
                 Page {data.usagePage}
                 {showActivity ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               </span>
@@ -361,12 +361,12 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
                     className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-[var(--border-subtle)] last:border-0 text-[11px]"
                   >
                     <div className="min-w-0">
-                      <div className="text-[var(--text-main)] truncate">{String(r.model_used || '—')}</div>
-                      <div className="text-[10px] text-[var(--text-muted)]">
+                      <div className="text-main truncate">{String(r.model_used || '—')}</div>
+                      <div className="text-[10px] text-muted">
                         {String(r.provider || '—')} · {relativeTime(r.created_at)}
                       </div>
                     </div>
-                    <div className="text-right shrink-0 font-mono text-[10px] text-[var(--text-muted)]">
+                    <div className="text-right shrink-0 font-mono text-[10px] text-muted">
                       <div>
                         {formatCompactNumber(
                           Number(r.input_tokens || 0) + Number(r.output_tokens || 0),
@@ -380,7 +380,7 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
                 <div className="flex items-center justify-between px-4 py-2 bg-[var(--bg-app)]">
                   <button
                     type="button"
-                    className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-40"
+                    className="text-[11px] text-muted hover:text-main disabled:opacity-40"
                     disabled={data.usagePage <= 1}
                     onClick={() => {
                       const p = Math.max(1, data.usagePage - 1);
@@ -434,7 +434,7 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
                   </div>
                   <button
                     type="button"
-                    className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                    className="text-[11px] text-muted hover:text-main"
                     onClick={() => {
                       const p = data.usagePage + 1;
                       data.setUsagePage(p);
@@ -452,7 +452,7 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
 
       {/* Plans — collapsed when already on a paid plan */}
       {(data.billingPlansLoading || data.subscriptionLoading) && !data.billingPlans?.length ? (
-        <div className="text-[12px] text-[var(--text-muted)]">Loading plans…</div>
+        <div className="text-[12px] text-muted">Loading plans…</div>
       ) : null}
 
       {Array.isArray(data.billingPlans) && data.billingPlans.length > 0 ? (
@@ -462,8 +462,8 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
             className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-[var(--bg-hover)]"
             onClick={() => setShowPlans((v) => !v)}
           >
-            <span className="text-[12px] font-medium text-[var(--text-main)]">Change plan</span>
-            {showPlans ? <ChevronDown size={14} className="text-[var(--text-muted)]" /> : <ChevronRight size={14} className="text-[var(--text-muted)]" />}
+            <span className="text-[12px] font-medium text-main">Change plan</span>
+            {showPlans ? <ChevronDown size={14} className="text-muted" /> : <ChevronRight size={14} className="text-muted" />}
           </button>
           {showPlans ? (
             <div className="p-4 pt-0 space-y-3 border-t border-[var(--border-subtle)]">
@@ -482,11 +482,11 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
                       }`}
                     >
                       <div>
-                        <div className="text-[13px] font-medium text-[var(--text-main)]">
+                        <div className="text-[13px] font-medium text-main">
                           {String(plan.display_name ?? plan.name ?? id)}
                         </div>
                         {plan.monthly_token_limit != null ? (
-                          <div className="text-[10px] text-[var(--text-muted)] font-mono mt-0.5">
+                          <div className="text-[10px] text-muted font-mono mt-0.5">
                             {formatCompactNumber(Number(plan.monthly_token_limit))} tokens / mo
                           </div>
                         ) : null}
@@ -512,7 +512,7 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
                 const cc = couponsForPlan(highlightPlanId, data.billingCoupons);
                 if (!cc.length) return null;
                 return (
-                  <div className="text-[10px] text-[var(--text-muted)] space-y-1">
+                  <div className="text-[10px] text-muted space-y-1">
                     {cc.map((c: any) => (
                       <div key={String(c.id ?? c.stripe_coupon_id)}>
                         {String(c.name ?? 'Offer')}
@@ -529,9 +529,9 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
 
       {showInvoices ? (
         <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-3">
-          <div className="text-[12px] font-medium text-[var(--text-main)]">Invoices</div>
+          <div className="text-[12px] font-medium text-main">Invoices</div>
           {data.billingInvoicesLoading ? (
-            <div className="text-[11px] text-[var(--text-muted)]">Loading…</div>
+            <div className="text-[11px] text-muted">Loading…</div>
           ) : null}
           {data.billingInvoicesError ? (
             <div className="text-[11px] text-[var(--color-danger)]">{data.billingInvoicesError}</div>
@@ -543,10 +543,10 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
                   key={String(inv.id)}
                   className="flex items-center justify-between gap-3 text-[11px] py-2 border-b border-[var(--border-subtle)] last:border-0"
                 >
-                  <div className="text-[var(--text-muted)]">
+                  <div className="text-muted">
                     {formatInvoiceWhen(inv.period_end ?? inv.period_start)}
                   </div>
-                  <div className="font-mono text-[var(--text-main)]">
+                  <div className="font-mono text-main">
                     ${(Number(inv.amount_paid || 0) / 100).toFixed(2)}
                   </div>
                   <div>
@@ -569,14 +569,14 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
                         View
                       </a>
                     ) : (
-                      <span className="text-[var(--text-muted)]">{String(inv.status || '—')}</span>
+                      <span className="text-muted">{String(inv.status || '—')}</span>
                     )}
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-[11px] text-[var(--text-muted)]">No invoices yet.</p>
+            <p className="text-[11px] text-muted">No invoices yet.</p>
           )}
         </section>
       ) : null}

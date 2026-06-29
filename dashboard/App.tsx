@@ -214,7 +214,7 @@ const ClientWorkerCmsStudio = lazy(() => import('./pages/cms/ClientWorkerCmsStud
 
 function ActivityPanelFallback() {
   return (
-    <div className="flex flex-1 min-h-[120px] items-center justify-center text-[12px] text-[var(--text-muted)]">
+    <div className="flex flex-1 min-h-[120px] items-center justify-center text-[12px] text-muted">
       Loading…
     </div>
   );
@@ -447,6 +447,7 @@ const App: React.FC = () => {
   const {
     sessionUserId,
     sessionUserName,
+    sessionAvatarUrl,
     workspaceId: authWorkspaceId,
     setWorkspaceId: setAuthWorkspaceId,
     workspaces: workspaceRows,
@@ -3808,7 +3809,7 @@ const App: React.FC = () => {
       />
       {/* 1. TOP WINDOW BAR + mobile hamburger (sticky ≤430px) — hidden in fullscreen CMS editor */}
       {!isCmsFullscreen ? (
-      <header className="shrink-0 z-[110] max-phone:sticky max-phone:top-0 bg-[var(--dashboard-topbar)] text-[var(--dashboard-topbar-text)] [&_.text-\\[var\\(--text-muted\\)\\]]:text-[var(--text-nav-muted,var(--dashboard-muted))] [&_.text-\\[var\\(--text-main\\)\\]]:text-[var(--dashboard-topbar-text)]">
+      <header className="iam-chrome-topbar shrink-0 z-[110] max-phone:sticky max-phone:top-0">
       <div className="h-10 border-b border-[var(--dashboard-border)] flex items-center justify-between px-3 overflow-visible relative">
           <div className="flex items-center gap-1 pl-1 shrink-0 min-w-0">
               {/* Mobile: hamburger (MobileNavShell inline) then logo */}
@@ -3888,7 +3889,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="Open Browser"
-                  className="iam-topbar-desktop-only max-phone:hidden p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
+                  className="iam-topbar-desktop-only max-phone:hidden p-1.5 rounded transition-colors text-muted hover:text-white hover:bg-[var(--bg-hover)]"
                   onClick={() => {
                     openTab('browser');
                   }}
@@ -3898,7 +3899,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="Toggle agent panel"
-                  className={`iam-topbar-desktop-only max-phone:hidden p-1.5 rounded transition-colors ${agentPosition !== 'off' ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                  className={`iam-topbar-desktop-only max-phone:hidden p-1.5 rounded transition-colors ${agentPosition !== 'off' ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-muted hover:text-white hover:bg-[var(--bg-hover)]'}`}
                   onClick={onChatLayoutToggle}
               >
                   {agentPosition === 'left' ? <PanelLeftClose size={15} strokeWidth={1.75} /> : <PanelRightClose size={15} strokeWidth={1.75} />}
@@ -3909,7 +3910,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="Terminal (Cmd+J)"
-                  className={`iam-topbar-desktop-only max-phone:hidden p-1.5 rounded transition-colors ${isTerminalOpen ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                  className={`iam-topbar-desktop-only max-phone:hidden p-1.5 rounded transition-colors ${isTerminalOpen ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-muted hover:text-white hover:bg-[var(--bg-hover)]'}`}
                   onClick={() =>
                     setIsTerminalOpen((p) => {
                       const next = !p;
@@ -3924,7 +3925,7 @@ const App: React.FC = () => {
                   <button
                       type="button"
                       title="More tools"
-                      className={`p-1.5 rounded transition-colors ${topChromeMoreOpen ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                      className={`p-1.5 rounded transition-colors ${topChromeMoreOpen ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-muted hover:text-white hover:bg-[var(--bg-hover)]'}`}
                       onClick={() => setTopChromeMoreOpen((v) => !v)}
                   >
                       <MoreHorizontal size={15} strokeWidth={1.75} />
@@ -3934,36 +3935,36 @@ const App: React.FC = () => {
                           {location.pathname !== '/dashboard/meet' ? (
                           <button
                               type="button"
-                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[12px] text-main hover:bg-[var(--bg-hover)]"
                               onClick={() => {
                                   setTopChromeMoreOpen(false);
                                   shellOpenDraw();
                               }}
                           >
-                              <PenTool size={14} className="text-[var(--text-muted)]" />
+                              <PenTool size={14} className="text-muted" />
                               Draw
                           </button>
                           ) : null}
                           <button
                               type="button"
-                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[12px] text-main hover:bg-[var(--bg-hover)]"
                               onClick={() => {
                                   setTopChromeMoreOpen(false);
                                   navigate('/dashboard/chats');
                               }}
                           >
-                              <Search size={14} className="text-[var(--text-muted)]" />
+                              <Search size={14} className="text-muted" />
                               Chats
                           </button>
                           <button
                               type="button"
-                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[12px] text-main hover:bg-[var(--bg-hover)]"
                               onClick={() => {
                                   setTopChromeMoreOpen(false);
                                   navigate('/dashboard/overview');
                               }}
                           >
-                              <History size={14} className="text-[var(--text-muted)]" />
+                              <History size={14} className="text-muted" />
                               History
                           </button>
                       </div>
@@ -3992,8 +3993,11 @@ const App: React.FC = () => {
         onDeleteActiveChat={shellDeleteActiveChat}
         activeConversationId={activeAgentConversationId}
         workspaceLabel={workspaceContextLabel}
+        avatarUrl={sessionAvatarUrl}
         avatarInitial={
-          activeWorkspaceRow?.github_repo?.split('/')[0]?.charAt(0)?.toUpperCase() || undefined
+          sessionUserName?.trim()?.charAt(0)?.toUpperCase() ||
+          sessionUserId?.charAt(0)?.toUpperCase() ||
+          undefined
         }
         workspaceSubtitle={gitBranch?.trim() ? gitBranch.trim() : undefined}
       />
@@ -4014,7 +4018,7 @@ const App: React.FC = () => {
           {/* Activity bar: icon rail (width toggled via ☰ — localStorage iam_sidebar_expanded) */}
           {!isCmsFullscreen ? (
           <div
-            className="hidden tablet-up:flex flex-col h-full min-h-0 py-3 gap-1 px-1 bg-[var(--dashboard-sidebar)] text-[var(--dashboard-sidebar-text,var(--dashboard-text))] border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out [&_.text-\\[var\\(--text-muted\\)\\]]:text-[var(--dashboard-sidebar-muted,var(--dashboard-muted))] [&_.text-\\[var\\(--text-main\\)\\]]:text-[var(--dashboard-sidebar-text,var(--dashboard-text))]"
+            className="iam-chrome-sidebar hidden tablet-up:flex flex-col h-full min-h-0 py-3 gap-1 px-1 border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out"
             style={{ width: sidebarRailExpanded ? 200 : 48 }}
           >
               <DashboardSidebar
@@ -4027,8 +4031,11 @@ const App: React.FC = () => {
                 onDeleteActiveChat={shellDeleteActiveChat}
                 activeConversationId={activeAgentConversationId}
                 workspaceLabel={workspaceContextLabel}
+                avatarUrl={sessionAvatarUrl}
                 avatarInitial={
-                  activeWorkspaceRow?.github_repo?.split('/')[0]?.charAt(0)?.toUpperCase() || undefined
+                  sessionUserName?.trim()?.charAt(0)?.toUpperCase() ||
+                  sessionUserId?.charAt(0)?.toUpperCase() ||
+                  undefined
                 }
                 workspaceSubtitle={gitBranch?.trim() ? gitBranch.trim() : undefined}
               />
@@ -4049,7 +4056,7 @@ const App: React.FC = () => {
                     }
                     {...(narrowNeedsBack && !activeActivity ? mobileEdgeSwipeHandlers : {})}
                 >
-                    <div className="h-10 max-phone:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">
+                    <div className="h-10 max-phone:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-muted shrink-0">
                       {PRODUCT_NAME}
                     </div>
                     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -4205,7 +4212,7 @@ const App: React.FC = () => {
                         <GoogleDriveExplorer onOpenInEditor={openInEditorFromExplorer} />
                       </Suspense>
                   ) : activeActivity === 'debug' ? (
-                      <div className="p-4 text-xs text-[var(--text-muted)]">Redirecting to terminal problems...</div>
+                      <div className="p-4 text-xs text-muted">Redirecting to terminal problems...</div>
                   ) : activeActivity === 'git' ? (
                       <Suspense fallback={<ActivityPanelFallback />}>
                         <SourcePanel />
@@ -4220,7 +4227,7 @@ const App: React.FC = () => {
                       </Suspense>
                   ) : activeActivity === 'files' ? (
                       <div className="flex flex-col items-center justify-center h-full px-6 text-center gap-3">
-                        <p className="text-[12px] text-[var(--text-muted)]">The file explorer lives in the Agent editor.</p>
+                        <p className="text-[12px] text-muted">The file explorer lives in the Agent editor.</p>
                         <button
                           type="button"
                           className="text-[11px] px-3 py-2 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] transition-colors"
@@ -4230,7 +4237,7 @@ const App: React.FC = () => {
                         </button>
                       </div>
                   ) : location.pathname !== '/dashboard/meet' ? (
-                      <div className="p-4 text-xs text-[var(--text-muted)]">Panel empty.</div>
+                      <div className="p-4 text-xs text-muted">Panel empty.</div>
                   ) : null}
               </div>
           </div>
@@ -4264,7 +4271,7 @@ const App: React.FC = () => {
               {isAgentHomePath(location.pathname) && !activeActivity && (
                 <button
                   type="button"
-                  className="hidden tablet-up:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 flex-col items-center gap-1 py-3 px-1 rounded-r-md border border-l-0 border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 shadow-md transition-colors"
+                  className="hidden tablet-up:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 flex-col items-center gap-1 py-3 px-1 rounded-r-md border border-l-0 border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-muted hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 shadow-md transition-colors"
                   title="Open editor explorer (⌘B)"
                   aria-label="Open editor explorer"
                   onClick={() => {
@@ -4452,7 +4459,7 @@ const App: React.FC = () => {
                                   openEditorPreview();
                               }}
                               title={previewButtonTitle(activeFile.name)}
-                              className="shrink-0 h-8 w-8 p-0 inline-flex items-center justify-center rounded-md border border-[var(--dashboard-border)] bg-[var(--bg-hover)] text-[var(--text-main)] hover:bg-[var(--dashboard-panel)] hover:border-[var(--solar-cyan)]"
+                              className="shrink-0 h-8 w-8 p-0 inline-flex items-center justify-center rounded-md border border-[var(--dashboard-border)] bg-[var(--bg-hover)] text-main hover:bg-[var(--dashboard-panel)] hover:border-[var(--solar-cyan)]"
                           >
                               <Eye size={15} className="text-[var(--solar-cyan)]" strokeWidth={1.75} aria-hidden />
                               <span className="sr-only">Preview file</span>
@@ -4468,9 +4475,9 @@ const App: React.FC = () => {
                                   setToastMsg('R2 path copied');
                               }}
                               title={`Copy R2 path: ${activeFile.r2Bucket!.trim()}/${activeFile.r2Key!.trim()}`}
-                              className="shrink-0 h-8 w-8 p-0 inline-flex items-center justify-center rounded-md border border-[var(--dashboard-border)] bg-[var(--bg-hover)] text-[var(--text-main)] hover:bg-[var(--dashboard-panel)] hover:border-[var(--solar-cyan)]"
+                              className="shrink-0 h-8 w-8 p-0 inline-flex items-center justify-center rounded-md border border-[var(--dashboard-border)] bg-[var(--bg-hover)] text-main hover:bg-[var(--dashboard-panel)] hover:border-[var(--solar-cyan)]"
                           >
-                              <Link2 size={14} className="text-[var(--text-muted)]" strokeWidth={1.75} aria-hidden />
+                              <Link2 size={14} className="text-muted" strokeWidth={1.75} aria-hidden />
                               <span className="sr-only">Copy R2 path</span>
                           </button>
                       )}
@@ -4501,7 +4508,7 @@ const App: React.FC = () => {
                           <button
                             type="button"
                             title="Open Browser"
-                            className="hidden max-phone:block p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
+                            className="hidden max-phone:block p-1.5 rounded transition-colors text-muted hover:text-white hover:bg-[var(--bg-hover)]"
                             onClick={() => openTab('browser')}
                           >
                             <Globe size={15} strokeWidth={1.75} />
@@ -4514,7 +4521,7 @@ const App: React.FC = () => {
                       <button
                         type="button"
                         title="Terminal (Cmd+J)"
-                        className={`hidden max-phone:block p-1.5 rounded transition-colors ${isTerminalOpen ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                        className={`hidden max-phone:block p-1.5 rounded transition-colors ${isTerminalOpen ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-muted hover:text-white hover:bg-[var(--bg-hover)]'}`}
                         onClick={() =>
                           setIsTerminalOpen((p) => {
                             const next = !p;
@@ -4620,7 +4627,7 @@ const App: React.FC = () => {
                           >
                             <Suspense
                               fallback={
-                                <div className="flex h-full items-center justify-center text-[12px] text-[var(--text-muted)]">
+                                <div className="flex h-full items-center justify-center text-[12px] text-muted">
                                   Loading editor…
                                 </div>
                               }
@@ -4683,7 +4690,7 @@ const App: React.FC = () => {
                       <div className="absolute inset-0 z-10 overflow-hidden">
                           <Suspense
                             fallback={
-                              <div className="flex items-center justify-center h-full text-[var(--text-muted)] text-sm">
+                              <div className="flex items-center justify-center h-full text-muted text-sm">
                                 Loading browser…
                               </div>
                             }
@@ -4710,7 +4717,7 @@ const App: React.FC = () => {
                       <div className="absolute inset-0 z-10 overflow-hidden">
                           <Suspense
                             fallback={
-                              <div className="flex items-center justify-center h-full text-[var(--text-muted)] text-sm">
+                              <div className="flex items-center justify-center h-full text-muted text-sm">
                                 Loading CMS studio…
                               </div>
                             }
@@ -4744,7 +4751,7 @@ const App: React.FC = () => {
                   {isTerminalOpen && (
                       <Suspense
                         fallback={
-                          <div className="flex flex-1 items-center justify-center text-[11px] text-[var(--text-muted)]">
+                          <div className="flex flex-1 items-center justify-center text-[11px] text-muted">
                             Loading terminal…
                           </div>
                         }
@@ -4798,7 +4805,7 @@ const App: React.FC = () => {
                 <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
                   <Suspense
                     fallback={
-                      <div className="flex flex-1 items-center justify-center text-[11px] text-[var(--text-muted)]">
+                      <div className="flex flex-1 items-center justify-center text-[11px] text-muted">
                         Loading terminal…
                       </div>
                     }
@@ -4851,7 +4858,7 @@ const App: React.FC = () => {
                     }
                     {...(narrowNeedsBack && !activeActivity ? mobileEdgeSwipeHandlers : {})}
                 >
-                    <div className="h-10 max-phone:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">
+                    <div className="h-10 max-phone:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-muted shrink-0">
                       {PRODUCT_NAME}
                     </div>
                     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -4986,7 +4993,7 @@ const App: React.FC = () => {
       {/* 8. STATUS BAR (FOOTER) */}
       {toastMsg && (
         <div
-          className={`fixed bottom-16 left-1/2 z-[200] -translate-x-1/2 px-4 py-2 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] text-[11px] text-[var(--text-main)] shadow-lg max-w-md text-center ${
+          className={`fixed bottom-16 left-1/2 z-[200] -translate-x-1/2 px-4 py-2 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] text-[11px] text-main shadow-lg max-w-md text-center ${
             showStatusBar
               ? 'max-phone:[bottom:calc(56px+1.5rem+env(safe-area-inset-bottom,0px)+8px)]'
               : 'max-phone:[bottom:calc(56px+env(safe-area-inset-bottom,0px)+8px)]'
@@ -5012,10 +5019,10 @@ const App: React.FC = () => {
             style={{ bottom: `calc(${showStatusBar ? '1.5rem + ' : ''}env(safe-area-inset-bottom, 0px) + 52px)` }}
           >
             <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--dashboard-border)] shrink-0">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">More</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">More</span>
               <button
                 type="button"
-                className="p-2 rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                className="p-2 rounded-md text-muted hover:bg-[var(--bg-hover)] hover:text-main"
                 title="Close"
                 onClick={() => setMobileMoreOpen(false)}
               >
@@ -5143,10 +5150,10 @@ type LucideLike = React.ComponentType<{ size?: number; strokeWidth?: number; cla
 const MobileMoreRow: React.FC<{ icon: LucideLike; label: string; onClick: () => void }> = ({ icon: Icon, label, onClick }) => (
   <button
     type="button"
-    className="flex w-full items-center gap-3 min-h-[44px] rounded-lg px-3 text-left text-[13px] text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--dashboard-border)]"
+    className="flex w-full items-center gap-3 min-h-[44px] rounded-lg px-3 text-left text-[13px] text-main hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--dashboard-border)]"
     onClick={onClick}
   >
-    <Icon size={20} strokeWidth={1.5} className="shrink-0 text-[var(--text-muted)]" />
+    <Icon size={20} strokeWidth={1.5} className="shrink-0 text-muted" />
     <span>{label}</span>
   </button>
 );
@@ -5157,7 +5164,7 @@ const Tab: React.FC<{ title: React.ReactNode, icon: React.ReactNode, active: boo
         className={`h-full flex items-center gap-1.5 pl-3 pr-2 text-[12px] select-none cursor-pointer border-r border-[var(--dashboard-border)] relative group whitespace-nowrap shrink-0 ${
             active 
                 ? 'bg-[var(--dashboard-canvas)] text-[var(--solar-cyan)]' 
-                : 'bg-[var(--dashboard-panel)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                : 'bg-[var(--dashboard-panel)] text-muted hover:bg-[var(--bg-hover)]'
         }`}
     >
         {active && <div className="absolute top-0 left-0 right-0 h-[2px] bg-[var(--solar-cyan)]" />}
@@ -5181,7 +5188,7 @@ const Tab: React.FC<{ title: React.ReactNode, icon: React.ReactNode, active: boo
 const QuickOpen: React.FC<{ label: string, onClick: () => void }> = ({ label, onClick }) => (
     <button
         onClick={onClick}
-        className="text-[10px] px-2 py-0.5 rounded text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--dashboard-border)] font-sans"
+        className="text-[10px] px-2 py-0.5 rounded text-muted hover:text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--dashboard-border)] font-sans"
         title={`Open ${label}`}
     >
         + {label}

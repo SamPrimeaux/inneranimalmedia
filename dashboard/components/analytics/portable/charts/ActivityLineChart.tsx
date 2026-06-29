@@ -25,7 +25,7 @@ export function ActivityLineChart({
   height = 200,
 }: Props) {
   if (!data.length) {
-    return <p className="text-[12px] text-[var(--text-muted)]">No activity in window.</p>;
+    return <p className="text-[12px] text-muted">No activity in window.</p>;
   }
   return (
     <div style={{ width: '100%', height }}>

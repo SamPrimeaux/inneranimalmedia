@@ -50,8 +50,10 @@ type DashboardSidebarProps = {
   activeConversationId?: string | null;
   /** Repo / folder / slug label (not marketing display_name). */
   workspaceLabel?: string | null;
-  /** Avatar initial (account). */
+  /** Avatar initial (account) when no image URL. */
   avatarInitial?: string | null;
+  /** Profile image URL (GitHub avatar, etc.). */
+  avatarUrl?: string | null;
   /** Optional subtitle under workspace label (e.g. branch). */
   workspaceSubtitle?: string | null;
 };
@@ -85,6 +87,7 @@ export function DashboardSidebar({
   activeConversationId,
   workspaceLabel,
   avatarInitial,
+  avatarUrl,
   workspaceSubtitle,
 }: DashboardSidebarProps) {
   const location = useLocation();
@@ -135,7 +138,7 @@ export function DashboardSidebar({
           onClick={() => onToggleExpanded?.()}
           className={`relative flex w-full min-h-[40px] shrink-0 items-center rounded-lg transition-colors ${
             expanded ? 'gap-2.5 px-2 justify-start' : 'justify-center px-0'
-          } text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]/60`}
+          } text-muted hover:text-main hover:bg-[var(--bg-hover)]/60`}
         >
           {expanded ? <PanelLeftClose size={20} strokeWidth={1} /> : <PanelLeft size={18} strokeWidth={1} />}
           {expanded ? (
@@ -159,7 +162,7 @@ export function DashboardSidebar({
                 }}
                 className={`relative flex w-full min-h-[40px] shrink-0 items-center rounded-lg transition-colors ${
                   expanded ? 'gap-2.5 px-2 justify-start' : 'justify-center px-0'
-                } text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]/60`}
+                } text-muted hover:text-main hover:bg-[var(--bg-hover)]/60`}
               >
                 <CoreIcon id={item.id} size={expanded ? 20 : 18} />
                 {expanded ? (
@@ -185,7 +188,7 @@ export function DashboardSidebar({
               onClick={() => go(item.path)}
               className={`relative flex w-full min-h-[40px] shrink-0 items-center rounded-lg transition-colors ${
                 expanded ? 'gap-2.5 px-2 justify-start' : 'justify-center px-0'
-              } ${active ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]/60'}`}
+              } ${active ? 'text-main' : 'text-muted hover:text-main hover:bg-[var(--bg-hover)]/60'}`}
             >
               {active ? (
                 <div
@@ -205,7 +208,7 @@ export function DashboardSidebar({
       </div>
 
       {expanded ? (
-        <div className="px-2 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] opacity-70">
+        <div className="px-2 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted opacity-70">
           Products
         </div>
       ) : (
@@ -234,7 +237,7 @@ export function DashboardSidebar({
                 {expanded ? (
                   <button
                     type="button"
-                    className="shrink-0 p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]/60"
+                    className="shrink-0 p-1 rounded text-muted hover:text-main hover:bg-[var(--bg-hover)]/60"
                     aria-label={isOpen ? `Collapse ${product.label}` : `Expand ${product.label}`}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -262,15 +265,15 @@ export function DashboardSidebar({
                               }}
                               className={`flex flex-1 items-center gap-2 w-full text-left min-h-[32px] px-2 rounded-md text-[11px] font-medium transition-colors ${
                                 groupActive
-                                  ? 'text-[var(--text-main)] bg-[var(--bg-hover)]/40'
-                                  : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]/40'
+                                  ? 'text-main bg-[var(--bg-hover)]/40'
+                                  : 'text-muted hover:text-main hover:bg-[var(--bg-hover)]/40'
                               }`}
                             >
                               <span className="truncate">{child.label}</span>
                             </button>
                             <button
                               type="button"
-                              className="shrink-0 p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                              className="shrink-0 p-0.5 rounded text-muted hover:text-main"
                               aria-label={nestedOpen ? `Collapse ${child.label}` : `Expand ${child.label}`}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -303,7 +306,7 @@ export function DashboardSidebar({
                                     className={`flex items-center gap-2 w-full text-left min-h-[30px] px-2 rounded-md text-[11px] font-medium transition-colors ${
                                       subActive
                                         ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]/50'
-                                        : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]/40'
+                                        : 'text-muted hover:text-main hover:bg-[var(--bg-hover)]/40'
                                     }`}
                                   >
                                     <span className="truncate">{sub.label}</span>
@@ -328,7 +331,7 @@ export function DashboardSidebar({
                         className={`flex items-center gap-2 w-full text-left min-h-[32px] px-2 rounded-md text-[11px] font-medium transition-colors ${
                           childActive
                             ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]/50'
-                            : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]/40'
+                            : 'text-muted hover:text-main hover:bg-[var(--bg-hover)]/40'
                         }`}
                       >
                         {child.id === 'moviemode' ? (
@@ -347,7 +350,7 @@ export function DashboardSidebar({
 
       {expanded ? (
         <>
-          <div className="px-2 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] opacity-70">
+          <div className="px-2 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted opacity-70">
             Chats
           </div>
           <div className="flex-1 min-h-0 max-h-[42vh] overflow-hidden flex flex-col">
@@ -376,18 +379,22 @@ export function DashboardSidebar({
             title={workspaceLabel?.trim() || 'Workspace'}
           >
             <div
-              className="shrink-0 w-7 h-7 rounded-full bg-[var(--bg-hover)] border border-[var(--dashboard-border)] flex items-center justify-center text-[11px] font-semibold text-[var(--text-main)]"
-              aria-hidden
+              className="shrink-0 w-7 h-7 rounded-full bg-[var(--bg-hover)] border border-[var(--dashboard-border)] flex items-center justify-center text-[11px] font-semibold text-main overflow-hidden"
+              aria-hidden={!!avatarUrl?.trim()}
             >
-              {(avatarInitial || workspaceLabel || 'A').charAt(0).toUpperCase()}
+              {avatarUrl?.trim() ? (
+                <img src={avatarUrl.trim()} alt="" className="w-full h-full object-cover" />
+              ) : (
+                (avatarInitial || workspaceLabel || 'A').charAt(0).toUpperCase()
+              )}
             </div>
             {expanded ? (
               <div className="min-w-0 text-left">
-                <div className="text-[12px] font-medium text-[var(--text-main)] truncate font-mono">
+                <div className="text-[12px] font-medium text-main truncate font-mono">
                   {workspaceLabel?.trim() || 'No workspace'}
                 </div>
                 {workspaceSubtitle?.trim() ? (
-                  <div className="text-[10px] text-[var(--text-muted)] truncate">{workspaceSubtitle}</div>
+                  <div className="text-[10px] text-muted truncate">{workspaceSubtitle}</div>
                 ) : null}
               </div>
             ) : null}
@@ -397,7 +404,7 @@ export function DashboardSidebar({
             title="Settings"
             aria-label="Settings"
             onClick={() => go('/dashboard/settings/general')}
-            className={`shrink-0 p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]/60 transition-colors ${
+            className={`shrink-0 p-1.5 rounded-md text-muted hover:text-main hover:bg-[var(--bg-hover)]/60 transition-colors ${
               location.pathname.startsWith('/dashboard/settings') ? 'text-[var(--solar-cyan)]' : ''
             }`}
           >

@@ -92,7 +92,7 @@ export function CiCdSection() {
             type="button"
             onClick={() => reload()}
             disabled={loading}
-            className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-50"
+            className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main disabled:opacity-50"
           >
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
@@ -138,7 +138,7 @@ export function CiCdSection() {
           <ActionRow actions={data.actions} />
 
           <section className="flex flex-col gap-2">
-            <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+            <div className="text-[10px] font-black uppercase tracking-widest text-muted">
               Scripts
             </div>
             <DataTable<ScriptRow>
@@ -165,7 +165,7 @@ export function CiCdSection() {
           </section>
 
           <section className="flex flex-col gap-2">
-            <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+            <div className="text-[10px] font-black uppercase tracking-widest text-muted">
               Recent script runs
             </div>
             {(extra.recent_runs || []).length === 0 ? (
@@ -211,7 +211,7 @@ export function CiCdSection() {
           </section>
 
           <section className="flex flex-col gap-2">
-            <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+            <div className="text-[10px] font-black uppercase tracking-widest text-muted">
               Pipeline runs (cicd_pipeline_runs)
             </div>
             {(extra.cicd_pipeline_runs || []).length === 0 ? (
@@ -240,7 +240,7 @@ export function CiCdSection() {
 
           <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="flex flex-col gap-2">
-              <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+              <div className="text-[10px] font-black uppercase tracking-widest text-muted">
                 Deployment health
               </div>
               {(extra.deployment_health || []).length === 0 ? (
@@ -268,7 +268,7 @@ export function CiCdSection() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+              <div className="text-[10px] font-black uppercase tracking-widest text-muted">
                 Dashboard versions
               </div>
               {(extra.dashboard_versions || []).length === 0 ? (

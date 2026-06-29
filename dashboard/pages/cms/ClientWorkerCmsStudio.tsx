@@ -71,7 +71,7 @@ export default function ClientWorkerCmsStudio({
           <span className="font-medium text-[var(--text-heading)]">
             Client worker · {projectName || projectSlug}
           </span>
-          <span className="text-xs text-[var(--text-muted)]">
+          <span className="text-xs text-muted">
             {publicDomain || 'client worker CMS'}
             {apiProfile ? ` · ${apiProfile}` : ''}
             {bridgeSupported === false ? ' · bridge pending' : ''}
@@ -101,7 +101,7 @@ export default function ClientWorkerCmsStudio({
       </div>
 
       {loading ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-muted)]">
+        <div className="flex flex-1 items-center justify-center text-sm text-muted">
           Minting embed session…
         </div>
       ) : null}
@@ -123,7 +123,7 @@ export default function ClientWorkerCmsStudio({
       ) : null}
 
       {!loading && !embedUrl && fallbackUrl ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-sm text-[var(--text-muted)]">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-sm text-muted">
           <p>Embed session unavailable. Open the client studio directly.</p>
           <a
             href={fallbackUrl}

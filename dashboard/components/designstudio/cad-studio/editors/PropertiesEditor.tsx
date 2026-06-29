@@ -355,7 +355,7 @@ export function PropertiesEditor({
           {renderTab()}
           {exportLinks.length > 0 ? (
             <Accordion title="Export">
-              <p className="text-[10px] text-[var(--text-muted)] leading-snug mb-2">
+              <p className="text-[10px] text-muted leading-snug mb-2">
                 STL for 3D printing; OBJ/PLY when you need materials or vertex colors. Verify size in
                 your slicer before printing.
               </p>

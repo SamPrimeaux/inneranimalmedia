@@ -61,7 +61,7 @@ export function RulesSkillsSection({ data, rulesSkillsTab, setRulesSkillsTab }: 
           <h2 className="text-[15px] font-semibold text-[var(--text-heading)] tracking-tight">
             Rules, Skills, Subagents
           </h2>
-          <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-xl leading-relaxed">
+          <p className="text-[11px] text-muted mt-1 max-w-xl leading-relaxed">
             Configure how Agent Sam behaves in this workspace — your IAM equivalent of Cursor rules, skills, and
             subagents.
           </p>
@@ -83,7 +83,7 @@ export function RulesSkillsSection({ data, rulesSkillsTab, setRulesSkillsTab }: 
             className={`px-3.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
               rulesSkillsTab === t
                 ? 'bg-[var(--bg-panel)] text-[var(--text-heading)] shadow-sm border border-[var(--border-subtle)]'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                : 'text-muted hover:text-main'
             }`}
           >
             {t === 'skills'

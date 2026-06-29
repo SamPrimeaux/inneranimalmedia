@@ -74,7 +74,7 @@ export const ToolLauncherBar: React.FC<ToolLauncherBarProps> = ({
               title="In-app Meshy generate"
             >
               <Box size={16} className="text-[var(--solar-cyan)]" />
-              <span className="text-[11px] font-bold text-[var(--text-muted)]">Meshy</span>
+              <span className="text-[11px] font-bold text-muted">Meshy</span>
             </button>
             {latestGlbUrl && onDownloadGlb ? (
               <button
@@ -84,7 +84,7 @@ export const ToolLauncherBar: React.FC<ToolLauncherBarProps> = ({
                 title="Download latest CAD GLB"
               >
                 <Download size={16} className="text-[var(--solar-orange)]" />
-                <span className="text-[11px] font-bold text-[var(--text-muted)]">Export GLB</span>
+                <span className="text-[11px] font-bold text-muted">Export GLB</span>
               </button>
             ) : null}
           </>
@@ -96,7 +96,7 @@ export const ToolLauncherBar: React.FC<ToolLauncherBarProps> = ({
               className="flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-[var(--bg-hover)] transition-all"
             >
               <Box size={16} className="text-[var(--solar-cyan)]" />
-              <span className="text-[11px] font-bold text-[var(--text-muted)]">Meshy</span>
+              <span className="text-[11px] font-bold text-muted">Meshy</span>
             </button>
             <button
               type="button"
@@ -104,7 +104,7 @@ export const ToolLauncherBar: React.FC<ToolLauncherBarProps> = ({
               className="flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-[var(--bg-hover)] transition-all"
             >
               <Wand2 size={16} className="text-[var(--solar-blue)]" />
-              <span className="text-[11px] font-bold text-[var(--text-muted)]">Spline</span>
+              <span className="text-[11px] font-bold text-muted">Spline</span>
             </button>
             <button
               type="button"
@@ -112,7 +112,7 @@ export const ToolLauncherBar: React.FC<ToolLauncherBarProps> = ({
               className="flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-[var(--bg-hover)] transition-all"
             >
               <Triangle size={16} className="text-[var(--solar-orange)]" />
-              <span className="text-[11px] font-bold text-[var(--text-muted)]">Blender</span>
+              <span className="text-[11px] font-bold text-muted">Blender</span>
             </button>
           </>
         )}

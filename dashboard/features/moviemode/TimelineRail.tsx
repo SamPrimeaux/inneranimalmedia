@@ -348,7 +348,7 @@ export const TimelineRail: React.FC<TimelineRailProps> = ({
           style={{ left: x }}
         >
           <div className="w-px h-2 bg-[var(--border-subtle)]" />
-          <span className="text-[8px] text-[var(--text-muted)] tabular-nums select-none whitespace-nowrap" style={{ transform: 'translateX(-50%)' }}>
+          <span className="text-[8px] text-muted tabular-nums select-none whitespace-nowrap" style={{ transform: 'translateX(-50%)' }}>
             {msLabel(f, fps)}
           </span>
         </div>
@@ -367,14 +367,14 @@ export const TimelineRail: React.FC<TimelineRailProps> = ({
     >
       {/* ── toolbar ── */}
       <div className="flex items-center gap-2 px-3 py-1 border-b border-[var(--border-subtle)] shrink-0">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)] mr-1">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted mr-1">
           Timeline
         </span>
 
         {/* timecode */}
         <span className="text-[9px] text-[var(--solar-cyan)] tabular-nums font-mono">
           {msLabel(playheadFrame, fps)}
-          <span className="text-[var(--text-muted)]"> / {msLabel(timeline.durationFrames, fps)}</span>
+          <span className="text-muted"> / {msLabel(timeline.durationFrames, fps)}</span>
         </span>
 
         <div className="flex-1" />
@@ -388,7 +388,7 @@ export const TimelineRail: React.FC<TimelineRailProps> = ({
                 type="button"
                 title="Split at playhead (S)"
                 onClick={() => splitClip(selectedId, playheadFrame)}
-                className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+                className="p-1 rounded text-muted hover:text-main hover:bg-[var(--bg-hover)]"
               >
                 <Scissors size={12} />
               </button>
@@ -396,7 +396,7 @@ export const TimelineRail: React.FC<TimelineRailProps> = ({
                 type="button"
                 title="Duplicate (D)"
                 onClick={() => duplicateClip(selectedId)}
-                className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+                className="p-1 rounded text-muted hover:text-main hover:bg-[var(--bg-hover)]"
               >
                 <Copy size={12} />
               </button>
@@ -417,7 +417,7 @@ export const TimelineRail: React.FC<TimelineRailProps> = ({
         <button
           type="button"
           onClick={addTextClip}
-          className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-[var(--dashboard-border)] hover:border-[var(--solar-cyan)] text-[var(--text-main)]"
+          className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-[var(--dashboard-border)] hover:border-[var(--solar-cyan)] text-main"
         >
           <Type size={11} /> Text
         </button>
@@ -427,7 +427,7 @@ export const TimelineRail: React.FC<TimelineRailProps> = ({
           <button
             type="button"
             onClick={() => setPpf((p) => Math.max(MIN_PPF, +(p / 1.5).toFixed(2)))}
-            className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+            className="p-1 rounded text-muted hover:text-main hover:bg-[var(--bg-hover)]"
             title="Zoom out"
           >
             <ZoomOut size={13} />
@@ -445,7 +445,7 @@ export const TimelineRail: React.FC<TimelineRailProps> = ({
           <button
             type="button"
             onClick={() => setPpf((p) => Math.min(MAX_PPF, +(p * 1.5).toFixed(2)))}
-            className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+            className="p-1 rounded text-muted hover:text-main hover:bg-[var(--bg-hover)]"
             title="Zoom in"
           >
             <ZoomIn size={13} />
@@ -467,7 +467,7 @@ export const TimelineRail: React.FC<TimelineRailProps> = ({
           {timeline.tracks.map((track) => (
             <div
               key={track.id}
-              className="shrink-0 flex items-center justify-center gap-1 border-b border-[var(--border-subtle)] text-[9px] font-semibold uppercase tracking-wider text-[var(--text-muted)]"
+              className="shrink-0 flex items-center justify-center gap-1 border-b border-[var(--border-subtle)] text-[9px] font-semibold uppercase tracking-wider text-muted"
               style={{ height: TRACK_H + 8 }}
             >
               {trackIcon(track.type)}
@@ -521,7 +521,7 @@ export const TimelineRail: React.FC<TimelineRailProps> = ({
                   onDrop={(e) => onTrackDrop(e, track.id, track.type, e.currentTarget)}
                 >
                   {track.clips.length === 0 && (
-                    <span className="absolute inset-0 flex items-center justify-center text-[9px] text-[var(--text-muted)] opacity-40 pointer-events-none">
+                    <span className="absolute inset-0 flex items-center justify-center text-[9px] text-muted opacity-40 pointer-events-none">
                       Drop · click to seek
                     </span>
                   )}

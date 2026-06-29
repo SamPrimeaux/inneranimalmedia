@@ -217,9 +217,9 @@ function Drawer({
       <div className="flex items-start justify-between gap-3 border-b border-[var(--border-subtle)] px-4 py-3">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold">{title}</h3>
-          {subtitle && <p className="mt-0.5 truncate font-mono text-[11px] text-[var(--text-muted)]">{subtitle}</p>}
+          {subtitle && <p className="mt-0.5 truncate font-mono text-[11px] text-muted">{subtitle}</p>}
         </div>
-        <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]">
+        <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-muted hover:bg-[var(--bg-hover)] hover:text-main">
           <X size={15} />
         </button>
       </div>
@@ -231,8 +231,8 @@ function Drawer({
 function SetupCard({ title, body, to }: { title: string; body: string; to: string }) {
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-6 shadow-sm">
-      <h3 className="text-sm font-semibold text-[var(--text-main)]">{title}</h3>
-      <p className="mt-2 text-[12px] leading-relaxed text-[var(--text-muted)]">{body}</p>
+      <h3 className="text-sm font-semibold text-main">{title}</h3>
+      <p className="mt-2 text-[12px] leading-relaxed text-muted">{body}</p>
       <Link
         to={to}
         className="mt-4 inline-flex rounded-lg bg-[var(--color-accent,var(--solar-cyan))]/15 px-3 py-2 text-[11px] font-bold text-[var(--color-accent,var(--solar-cyan))] hover:bg-[var(--color-accent,var(--solar-cyan))]/25"
@@ -1446,7 +1446,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                     setSelectedTable(null);
                   }}
                   className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
-                    sidebarSource === 'd1' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                    sidebarSource === 'd1' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-muted hover:bg-[var(--bg-hover)]'
                   }`}
                 >
                   D1
@@ -1459,7 +1459,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                     setSelectedTable(null);
                   }}
                   className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
-                    sidebarSource === 'hyperdrive' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                    sidebarSource === 'hyperdrive' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-muted hover:bg-[var(--bg-hover)]'
                   }`}
                 >
                   Platform
@@ -1479,7 +1479,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                     className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
                       studioSection === 'workspace_d1'
                         ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]'
-                        : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                        : 'text-muted hover:bg-[var(--bg-hover)]'
                     }`}
                   >
                     D1
@@ -1493,7 +1493,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                     void loadPublicLearningTables();
                   }}
                   className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
-                    studioSection === 'public_learning' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                    studioSection === 'public_learning' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-muted hover:bg-[var(--bg-hover)]'
                   }`}
                 >
                   Learning
@@ -1505,7 +1505,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                     setSelectedTable(null);
                   }}
                   className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
-                    studioSection === 'customer_supabase' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                    studioSection === 'customer_supabase' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-muted hover:bg-[var(--bg-hover)]'
                   }`}
                 >
                   My DB
@@ -1521,7 +1521,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                 if (studioSection === 'workspace_d1' || effectiveDatasource === 'd1') void loadTables('d1');
                 else void loadTables(datasource);
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-subtle)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-subtle)] text-muted hover:bg-[var(--bg-hover)] hover:text-main"
             >
               <RefreshCw size={14} className={loadingTables ? 'animate-spin' : ''} />
             </button>
@@ -1535,7 +1535,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                 setSqlRunState('idle');
                 setSqlError(null);
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-subtle)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-subtle)] text-muted hover:bg-[var(--bg-hover)] hover:text-main"
             >
               <X size={14} />
             </button>
@@ -1544,12 +1544,12 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
 
         <div className="border-b border-[var(--border-subtle)] p-3">
           <div className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1.5">
-            <Search size={12} className="shrink-0 text-[var(--text-muted)]" />
+            <Search size={12} className="shrink-0 text-muted" />
             <input
               value={tableSearch}
               onChange={(e) => setTableSearch(e.target.value)}
               placeholder="Search tables"
-              className="min-w-0 flex-1 bg-transparent font-mono text-[11px] outline-none placeholder:text-[var(--text-muted)]"
+              className="min-w-0 flex-1 bg-transparent font-mono text-[11px] outline-none placeholder:text-muted"
             />
           </div>
         </div>
@@ -1573,7 +1573,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                     type="button"
                     title={open ? 'Collapse columns' : 'Expand columns'}
                     onClick={(e) => void toggleColumns(table.name, e)}
-                    className="flex w-7 shrink-0 items-center justify-center text-[var(--text-muted)] hover:bg-[var(--bg-hover)]"
+                    className="flex w-7 shrink-0 items-center justify-center text-muted hover:bg-[var(--bg-hover)]"
                   >
                     <ChevronRight size={13} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
                   </button>
@@ -1587,7 +1587,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                     <TableIcon size={12} className="shrink-0 opacity-70" />
                     <span className="min-w-0 truncate font-mono text-[11px]">
                       {table.table_schema && datasource === 'hyperdrive' && table.table_schema !== 'agentsam' ? (
-                        <span className="text-[var(--text-muted)]">{table.table_schema}.</span>
+                        <span className="text-muted">{table.table_schema}.</span>
                       ) : null}
                       {highlightSearchMatchAll(table.name, tableSearch)}
                     </span>
@@ -1601,7 +1601,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                       const rect = e.currentTarget.getBoundingClientRect();
                       setTableMenu({ table: table.name, x: rect.right, y: rect.bottom });
                     }}
-                    className="flex w-7 shrink-0 items-center justify-center text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                    className="flex w-7 shrink-0 items-center justify-center text-muted hover:bg-[var(--bg-hover)] hover:text-main"
                   >
                     <MoreHorizontal size={13} />
                   </button>
@@ -1609,20 +1609,20 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                 {open && (
                   <div className="border-t border-[var(--border-subtle)]/30 bg-[var(--bg-app)]/50 py-1 pl-8 pr-2">
                     {loadingCols ? (
-                      <div className="flex items-center gap-2 py-1 text-[10px] text-[var(--text-muted)]">
+                      <div className="flex items-center gap-2 py-1 text-[10px] text-muted">
                         <Loader2 size={11} className="animate-spin" /> Loading columns…
                       </div>
                     ) : (cols || []).length ? (
-                      <ul className="space-y-0.5 text-[10px] text-[var(--text-muted)]">
+                      <ul className="space-y-0.5 text-[10px] text-muted">
                         {cols!.map((c) => (
                           <li key={c.name} className="flex justify-between gap-2 font-mono">
-                            <span className="min-w-0 truncate text-[var(--text-main)]">{c.name}</span>
+                            <span className="min-w-0 truncate text-main">{c.name}</span>
                             <span className="shrink-0 opacity-80">{c.type || 'TEXT'}</span>
                           </li>
                         ))}
                       </ul>
                     ) : (
-                      <p className="py-1 text-[10px] text-[var(--text-muted)]">No columns</p>
+                      <p className="py-1 text-[10px] text-muted">No columns</p>
                     )}
                   </div>
                 )}
@@ -1630,7 +1630,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
             );
           })}
           {!filteredTables.length && (
-            <p className="p-4 text-center font-mono text-[11px] text-[var(--text-muted)]">
+            <p className="p-4 text-center font-mono text-[11px] text-muted">
               {!pageReady
                 ? 'Loading tables…'
                 : d1LoadError
@@ -1681,7 +1681,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
             ) : null}
             <div className="min-w-0">
               <p className="truncate font-mono text-sm font-semibold">{selectedTable || 'Query'}</p>
-              <p className="text-[11px] text-[var(--text-muted)]">
+              <p className="text-[11px] text-muted">
                 {datasourceLabel}
                 {!isSuperadmin && studioSection !== 'workspace_d1' ? ' · read-only SQL' : !isSuperadmin ? ' · read-only SQL' : ''}
               </p>
@@ -2178,7 +2178,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
               <label key={col.name} className="block">
                 <span className="mb-1 flex items-center gap-2 text-[11px] font-bold">
                   {col.name}
-                  <span className="font-mono text-[10px] text-[var(--text-muted)]">{col.type || 'TEXT'}</span>
+                  <span className="font-mono text-[10px] text-muted">{col.type || 'TEXT'}</span>
                   {isNotNull(col) && !isPrimaryKey(col) && <span className="text-[var(--solar-red)]">*</span>}
                 </span>
                 <input
@@ -2190,7 +2190,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
               </label>
             ))}
             <div>
-              <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">Generated SQL</p>
+              <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-muted">Generated SQL</p>
               <pre className="max-h-36 overflow-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3 font-mono text-[11px] text-[var(--color-accent,var(--solar-cyan))]">{insertSql}</pre>
             </div>
             <div className="flex justify-end gap-2 pt-2">
@@ -2210,7 +2210,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       )}
 
       {loadingMain && (
-        <div className="pointer-events-none absolute left-[220px] top-0 flex items-center gap-2 rounded-br-lg border-b border-r border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[11px] text-[var(--text-muted)]">
+        <div className="pointer-events-none absolute left-[220px] top-0 flex items-center gap-2 rounded-br-lg border-b border-r border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[11px] text-muted">
           <Loader2 size={12} className="animate-spin" /> Loading
         </div>
       )}

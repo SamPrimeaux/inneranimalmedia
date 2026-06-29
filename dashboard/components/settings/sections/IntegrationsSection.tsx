@@ -214,7 +214,7 @@ export function IntegrationsSection({
         <h2 className="text-[13px] font-bold text-[var(--text-heading)] uppercase tracking-widest">
           Integrations
         </h2>
-        <p className="text-[11px] text-[var(--text-muted)] mt-1">
+        <p className="text-[11px] text-muted mt-1">
           Connect third-party services and MCP endpoints. OAuth completes in the provider window,
           then returns here.
         </p>
@@ -235,7 +235,7 @@ export function IntegrationsSection({
             className={`text-[11px] px-3 py-1.5 rounded-lg border ${
               tab === id
                 ? 'border-[var(--solar-blue)] text-[var(--text-heading)] bg-[var(--bg-hover)]'
-                : 'border-transparent text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                : 'border-transparent text-muted hover:bg-[var(--bg-hover)]'
             }`}
           >
             {label}
@@ -248,13 +248,13 @@ export function IntegrationsSection({
       ) : null}
 
       {loading && tab === 'connected' ? (
-        <div className="text-[11px] text-[var(--text-muted)]">Loading connections…</div>
+        <div className="text-[11px] text-muted">Loading connections…</div>
       ) : null}
 
       {tab === 'connected' ? (
         <div className="flex flex-col gap-4">
           {connected.length === 0 && !loading ? (
-            <div className="text-[11px] text-[var(--text-muted)]">
+            <div className="text-[11px] text-muted">
               No integration rows for this workspace yet. Use Available to connect.
             </div>
           ) : null}
@@ -306,7 +306,7 @@ export function IntegrationsSection({
                 );
               })
           ) : connected.length ? (
-            <p className="text-[10px] text-[var(--text-muted)]">
+            <p className="text-[10px] text-muted">
               Tap an app icon to manage connection, test, or disconnect.
             </p>
           ) : null}
@@ -321,7 +321,7 @@ export function IntegrationsSection({
               className={`text-[10px] px-2 py-1 rounded-full border ${
                 !catFilter
                   ? 'border-[var(--solar-blue)] text-[var(--text-heading)]'
-                  : 'border-[var(--border-subtle)] text-[var(--text-muted)]'
+                  : 'border-[var(--border-subtle)] text-muted'
               }`}
               onClick={() => setCatFilter('')}
             >
@@ -334,7 +334,7 @@ export function IntegrationsSection({
                 className={`text-[10px] px-2 py-1 rounded-full border ${
                   catFilter === c
                     ? 'border-[var(--solar-blue)] text-[var(--text-heading)]'
-                    : 'border-[var(--border-subtle)] text-[var(--text-muted)]'
+                    : 'border-[var(--border-subtle)] text-muted'
                 }`}
                 onClick={() => setCatFilter(c)}
               >
@@ -343,7 +343,7 @@ export function IntegrationsSection({
             ))}
           </div>
           {filteredCatalog.length === 0 ? (
-            <div className="text-[11px] text-[var(--text-muted)]">
+            <div className="text-[11px] text-muted">
               No catalog entries returned. Ensure integration_catalog is populated in D1.
             </div>
           ) : (
@@ -400,7 +400,7 @@ export function IntegrationsSection({
                     );
                   })
               ) : (
-                <p className="text-[10px] text-[var(--text-muted)]">
+                <p className="text-[10px] text-muted">
                   Tap an icon to connect OAuth or view hosted MCP details.
                 </p>
               )}
@@ -415,7 +415,7 @@ export function IntegrationsSection({
             <div className="text-[12px] font-semibold text-[var(--text-heading)]">
               Add custom MCP
             </div>
-            <label className="text-[10px] text-[var(--text-muted)] flex flex-col gap-1">
+            <label className="text-[10px] text-muted flex flex-col gap-1">
               Display name
               <input
                 value={customName}
@@ -423,7 +423,7 @@ export function IntegrationsSection({
                 className="px-2 py-1.5 rounded-lg bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-[12px]"
               />
             </label>
-            <label className="text-[10px] text-[var(--text-muted)] flex flex-col gap-1">
+            <label className="text-[10px] text-muted flex flex-col gap-1">
               Endpoint URL (https)
               <input
                 value={customUrl}
@@ -432,7 +432,7 @@ export function IntegrationsSection({
                 className="px-2 py-1.5 rounded-lg bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-[12px] font-mono"
               />
             </label>
-            <label className="text-[10px] text-[var(--text-muted)] flex flex-col gap-1">
+            <label className="text-[10px] text-muted flex flex-col gap-1">
               Auth
               <select
                 value={customAuth}
@@ -447,7 +447,7 @@ export function IntegrationsSection({
               </select>
             </label>
             {customAuth === 'bearer' ? (
-              <label className="text-[10px] text-[var(--text-muted)] flex flex-col gap-1">
+              <label className="text-[10px] text-muted flex flex-col gap-1">
                 Bearer token
                 <input
                   type="password"
@@ -471,13 +471,13 @@ export function IntegrationsSection({
             Custom MCP connections
           </div>
           {customRows.length === 0 ? (
-            <div className="text-[11px] text-[var(--text-muted)]">None yet.</div>
+            <div className="text-[11px] text-muted">None yet.</div>
           ) : (
-            <ul className="text-[11px] text-[var(--text-main)] space-y-1">
+            <ul className="text-[11px] text-main space-y-1">
               {customRows.map((r) => (
                 <li key={r.id} className="flex justify-between gap-2 border-b border-[var(--border-subtle)] pb-1">
                   <span>{r.display_name || r.provider_key}</span>
-                  <span className="text-[var(--text-muted)] truncate font-mono text-[10px]">
+                  <span className="text-muted truncate font-mono text-[10px]">
                     {r.account_display || r.provider_key}
                   </span>
                 </li>

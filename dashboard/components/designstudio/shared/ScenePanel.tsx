@@ -35,7 +35,7 @@ export function ScenePanel({
     <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-3">
       <div className="flex items-center gap-2 mb-1">
         <Package size={14} className="text-[var(--solar-cyan)]" />
-        <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">Scene</p>
+        <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">Scene</p>
       </div>
       <input
         type="text"
@@ -45,7 +45,7 @@ export function ScenePanel({
         onChange={(e) => onSceneNameChange(e.target.value)}
       />
       {(cadJobId || glbR2Key) && (
-        <div className="text-[9px] font-mono text-[var(--text-muted)] space-y-0.5 px-1">
+        <div className="text-[9px] font-mono text-muted space-y-0.5 px-1">
           {cadJobId ? <div>CAD job: {cadJobId.slice(0, 20)}…</div> : null}
           {glbR2Key ? <div>GLB: {glbR2Key.split('/').pop()}</div> : null}
         </div>
@@ -69,7 +69,7 @@ export function ScenePanel({
               className="w-full text-left px-2 py-1.5 rounded-lg text-[10px] font-bold bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:border-[var(--solar-cyan)]/40"
             >
               {s.name}{' '}
-              <span className="text-[var(--text-muted)] font-mono">({s.entity_count})</span>
+              <span className="text-muted font-mono">({s.entity_count})</span>
               {s.cad_job_id ? <span className="text-[var(--solar-cyan)] ml-1">· CAD</span> : null}
             </button>
           ))}

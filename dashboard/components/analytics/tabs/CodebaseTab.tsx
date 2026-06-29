@@ -42,7 +42,7 @@ function fmtBytes(n: unknown): string {
 
 function SourceBadge() {
   return (
-    <span className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] bg-[var(--bg-canvas)]">
+    <span className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-muted bg-[var(--bg-canvas)]">
       Supabase
     </span>
   );
@@ -111,7 +111,7 @@ export default function CodebaseTab() {
             ].map((k) => (
               <div key={k.label} className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">{k.label}</div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted">{k.label}</div>
                   <SourceBadge />
                 </div>
                 <div className="mt-1 text-[18px] font-semibold text-[var(--text)]">{k.value}</div>
@@ -123,18 +123,18 @@ export default function CodebaseTab() {
             <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Latest snapshot</div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted">Latest snapshot</div>
                   <div className="text-sm font-semibold text-[var(--text)]">Index freshness</div>
                 </div>
                 <SourceBadge />
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <div className="rounded border border-[var(--border-subtle)] bg-[var(--bg-canvas)] p-3">
-                  <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Snapshots</div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted">Snapshots</div>
                   <div className="mt-1 text-[16px] font-semibold text-[var(--text)]">{fmtNumber(summary.snapshot_count)}</div>
                 </div>
                 <div className="rounded border border-[var(--border-subtle)] bg-[var(--bg-canvas)] p-3">
-                  <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Latest</div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted">Latest</div>
                   <div className="mt-1 text-[12px] font-mono text-[var(--text)]">
                     {summary.latest_snapshot_at ? String(summary.latest_snapshot_at) : '—'}
                   </div>
@@ -156,7 +156,7 @@ export default function CodebaseTab() {
             <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Language distribution</div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted">Language distribution</div>
                   <div className="text-sm font-semibold text-[var(--text)]">Chunks by language</div>
                 </div>
                 <SourceBadge />
@@ -174,7 +174,7 @@ export default function CodebaseTab() {
               ) : (
                 <div className="mt-3 overflow-auto border border-[var(--border-subtle)] rounded">
                   <table className="w-full text-left text-[12px]">
-                    <thead className="sticky top-0 bg-[var(--bg-panel)] text-[11px] uppercase text-[var(--text-muted)]">
+                    <thead className="sticky top-0 bg-[var(--bg-panel)] text-[11px] uppercase text-muted">
                       <tr>
                         <th className="p-2">Language</th>
                         <th className="p-2">Chunks</th>
@@ -198,7 +198,7 @@ export default function CodebaseTab() {
             <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Largest files</div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted">Largest files</div>
                   <div className="text-sm font-semibold text-[var(--text)]">Top 10 by bytes</div>
                 </div>
                 <SourceBadge />
@@ -216,7 +216,7 @@ export default function CodebaseTab() {
               ) : (
                 <div className="mt-3 overflow-auto border border-[var(--border-subtle)] rounded">
                   <table className="w-full text-left text-[12px]">
-                    <thead className="sticky top-0 bg-[var(--bg-panel)] text-[11px] uppercase text-[var(--text-muted)]">
+                    <thead className="sticky top-0 bg-[var(--bg-panel)] text-[11px] uppercase text-muted">
                       <tr>
                         <th className="p-2">File</th>
                         <th className="p-2">Lines</th>
@@ -240,7 +240,7 @@ export default function CodebaseTab() {
             <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Symbols & routes</div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted">Symbols & routes</div>
                   <div className="text-sm font-semibold text-[var(--text)]">Important exported surfaces</div>
                 </div>
                 <SourceBadge />
@@ -249,7 +249,7 @@ export default function CodebaseTab() {
               <div className="mt-3 grid gap-3">
                 <div className="overflow-auto border border-[var(--border-subtle)] rounded">
                   <table className="w-full text-left text-[12px]">
-                    <thead className="sticky top-0 bg-[var(--bg-panel)] text-[11px] uppercase text-[var(--text-muted)]">
+                    <thead className="sticky top-0 bg-[var(--bg-panel)] text-[11px] uppercase text-muted">
                       <tr>
                         <th className="p-2">Route symbol</th>
                         <th className="p-2">Type</th>
@@ -260,13 +260,13 @@ export default function CodebaseTab() {
                       {routeSymbols.map((r: any, idx: number) => (
                         <tr key={`rs-${idx}`} className="border-t border-[var(--border-subtle)]">
                           <td className="p-2 font-mono text-[11px]">{String(r.name ?? '—')}</td>
-                          <td className="p-2 text-[var(--text-muted)]">{String(r.symbol_type ?? '—')}</td>
+                          <td className="p-2 text-muted">{String(r.symbol_type ?? '—')}</td>
                           <td className="p-2 font-mono text-[11px]">{String(r.file_path ?? '—')}</td>
                         </tr>
                       ))}
                       {!routeSymbols.length ? (
                         <tr>
-                          <td className="p-2 text-[var(--text-muted)]" colSpan={3}>
+                          <td className="p-2 text-muted" colSpan={3}>
                             No route symbols returned (symbol typing may not be present in `codebase_symbols`).
                           </td>
                         </tr>
@@ -277,7 +277,7 @@ export default function CodebaseTab() {
 
                 <div className="overflow-auto border border-[var(--border-subtle)] rounded">
                   <table className="w-full text-left text-[12px]">
-                    <thead className="sticky top-0 bg-[var(--bg-panel)] text-[11px] uppercase text-[var(--text-muted)]">
+                    <thead className="sticky top-0 bg-[var(--bg-panel)] text-[11px] uppercase text-muted">
                       <tr>
                         <th className="p-2">Function symbol</th>
                         <th className="p-2">Type</th>
@@ -288,13 +288,13 @@ export default function CodebaseTab() {
                       {functionSymbols.map((r: any, idx: number) => (
                         <tr key={`fs-${idx}`} className="border-t border-[var(--border-subtle)]">
                           <td className="p-2 font-mono text-[11px]">{String(r.name ?? '—')}</td>
-                          <td className="p-2 text-[var(--text-muted)]">{String(r.symbol_type ?? '—')}</td>
+                          <td className="p-2 text-muted">{String(r.symbol_type ?? '—')}</td>
                           <td className="p-2 font-mono text-[11px]">{String(r.file_path ?? '—')}</td>
                         </tr>
                       ))}
                       {!functionSymbols.length ? (
                         <tr>
-                          <td className="p-2 text-[var(--text-muted)]" colSpan={3}>
+                          <td className="p-2 text-muted" colSpan={3}>
                             No function symbols returned (symbol typing may not be present in `codebase_symbols`).
                           </td>
                         </tr>

@@ -89,7 +89,7 @@ export function MeshyToolRail({
         type="button"
         title="Settings → Keys"
         onClick={onOpenApiKey}
-        className="flex flex-col items-center gap-0.5 py-2 text-[var(--text-muted)] hover:text-[var(--solar-cyan)]"
+        className="flex flex-col items-center gap-0.5 py-2 text-muted hover:text-[var(--solar-cyan)]"
       >
         <Key size={16} />
         <span className="text-[9px]">Keys</span>
@@ -98,7 +98,7 @@ export function MeshyToolRail({
         type="button"
         title="Terminal / logs"
         onClick={onOpenTerminal}
-        className="flex flex-col items-center gap-0.5 py-2 mb-1 text-[var(--text-muted)] hover:text-[var(--solar-cyan)]"
+        className="flex flex-col items-center gap-0.5 py-2 mb-1 text-muted hover:text-[var(--solar-cyan)]"
       >
         <Layers size={16} />
         <span className="text-[9px]">Log</span>

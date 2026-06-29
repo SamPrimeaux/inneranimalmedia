@@ -135,7 +135,7 @@ export default function MovieModePage() {
 
   if (inEditorWorkbench && loading) {
     return (
-      <div className="flex flex-1 min-h-0 items-center justify-center gap-2 text-[var(--text-muted)]">
+      <div className="flex flex-1 min-h-0 items-center justify-center gap-2 text-muted">
         <Loader2 size={18} className="animate-spin" />
         <span className="text-sm">Loading Movie Mode…</span>
       </div>
@@ -148,7 +148,7 @@ export default function MovieModePage() {
         <button
           type="button"
           disabled={mirrorBusy !== null}
-          className="text-[10px] px-2 py-1 rounded border border-[var(--dashboard-border)] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-50"
+          className="text-[10px] px-2 py-1 rounded border border-[var(--dashboard-border)] text-muted hover:text-main disabled:opacity-50"
           onClick={() => void mirrorExport(lastExportKey, 'google_drive')}
         >
           {mirrorBusy === 'google_drive' ? 'Drive…' : 'Drive'}
@@ -156,7 +156,7 @@ export default function MovieModePage() {
         <button
           type="button"
           disabled={mirrorBusy !== null}
-          className="text-[10px] px-2 py-1 rounded border border-[var(--dashboard-border)] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-50"
+          className="text-[10px] px-2 py-1 rounded border border-[var(--dashboard-border)] text-muted hover:text-main disabled:opacity-50"
           onClick={() => void mirrorExport(lastExportKey, 'local')}
         >
           {mirrorBusy === 'local' ? 'Saving…' : 'Download'}
@@ -237,13 +237,13 @@ export default function MovieModePage() {
             className="w-full max-w-md rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] shadow-2xl overflow-hidden"
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--dashboard-border)]">
-              <h2 id="moviemode-export-title" className="text-sm font-semibold text-[var(--text-main)]">
+              <h2 id="moviemode-export-title" className="text-sm font-semibold text-main">
                 Export
               </h2>
               <button
                 type="button"
                 onClick={() => setExportOpen(false)}
-                className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                className="p-1 rounded text-muted hover:text-main"
               >
                 <X size={16} />
               </button>

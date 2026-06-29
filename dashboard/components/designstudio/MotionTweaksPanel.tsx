@@ -29,12 +29,12 @@ export function MotionTweaksPanel({
   return (
     <div className="space-y-4">
       <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-4">
-        <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">
+        <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">
           Scene lighting
         </p>
         <div>
           <div className="flex justify-between items-center mb-2">
-            <label className="text-[10px] font-bold text-[var(--text-muted)] uppercase">Ambient</label>
+            <label className="text-[10px] font-bold text-muted uppercase">Ambient</label>
             <span className="text-[10px] font-mono text-amber-400">
               {sceneConfig.ambientIntensity.toFixed(1)}
             </span>
@@ -50,7 +50,7 @@ export function MotionTweaksPanel({
           />
         </div>
         <div>
-          <label className="text-[10px] font-bold text-[var(--text-muted)] uppercase block mb-2">
+          <label className="text-[10px] font-bold text-muted uppercase block mb-2">
             Sun color
           </label>
           <div className="grid grid-cols-4 gap-2">
@@ -67,7 +67,7 @@ export function MotionTweaksPanel({
                 title={s.name}
               >
                 <span style={{ color: s.id }}>{s.icon}</span>
-                <span className="text-[8px] font-bold text-[var(--text-muted)]">{s.name}</span>
+                <span className="text-[8px] font-bold text-muted">{s.name}</span>
               </button>
             ))}
           </div>
@@ -76,9 +76,9 @@ export function MotionTweaksPanel({
           <div className="flex items-center gap-2">
             <Sun
               size={16}
-              className={sceneConfig.castShadows ? 'text-amber-400' : 'text-[var(--text-muted)]'}
+              className={sceneConfig.castShadows ? 'text-amber-400' : 'text-muted'}
             />
-            <span className="text-[10px] font-black uppercase text-[var(--text-main)]">Ray shadows</span>
+            <span className="text-[10px] font-black uppercase text-main">Ray shadows</span>
           </div>
           <button
             type="button"
@@ -97,16 +97,16 @@ export function MotionTweaksPanel({
       </section>
 
       <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-4">
-        <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">
+        <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">
           Physics & motion
         </p>
         <div className="flex items-center justify-between p-3 bg-[var(--bg-panel)] rounded-xl border border-[var(--border-subtle)]">
           <div className="flex items-center gap-2">
             <Dumbbell
               size={16}
-              className={genConfig.usePhysics ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}
+              className={genConfig.usePhysics ? 'text-[var(--solar-cyan)]' : 'text-muted'}
             />
-            <span className="text-[10px] font-black uppercase text-[var(--text-main)]">Simulate physics</span>
+            <span className="text-[10px] font-black uppercase text-main">Simulate physics</span>
           </div>
           <button
             type="button"
@@ -127,10 +127,10 @@ export function MotionTweaksPanel({
             <Eye
               size={16}
               className={
-                sceneConfig.showPhysicsDebug ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'
+                sceneConfig.showPhysicsDebug ? 'text-[var(--solar-cyan)]' : 'text-muted'
               }
             />
-            <span className="text-[10px] font-black uppercase text-[var(--text-main)]">Physics gizmos</span>
+            <span className="text-[10px] font-black uppercase text-main">Physics gizmos</span>
           </div>
           <button
             type="button"
@@ -148,7 +148,7 @@ export function MotionTweaksPanel({
         </div>
         <div>
           <div className="flex justify-between items-center mb-2">
-            <label className="text-[10px] font-bold text-[var(--text-muted)] uppercase">
+            <label className="text-[10px] font-bold text-muted uppercase">
               Voxel density
             </label>
             <span className="text-[10px] font-mono text-[var(--solar-cyan)]">{genConfig.density}/10</span>

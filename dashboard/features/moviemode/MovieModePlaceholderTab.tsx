@@ -15,8 +15,8 @@ export function MovieModePlaceholderTab({ title, subtitle }: Props) {
         <Sparkles size={28} />
       </div>
       <div>
-        <h2 className="text-lg font-semibold text-[var(--text-main)]">{title}</h2>
-        <p className="text-sm text-[var(--text-muted)] mt-1 max-w-xs">{subtitle}</p>
+        <h2 className="text-lg font-semibold text-main">{title}</h2>
+        <p className="text-sm text-muted mt-1 max-w-xs">{subtitle}</p>
       </div>
     </div>
   );

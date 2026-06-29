@@ -19,7 +19,7 @@ type Props = {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block mb-2 text-[11px]">
-      <span className="block text-[var(--text-muted)] font-semibold mb-1">{label}</span>
+      <span className="block text-muted font-semibold mb-1">{label}</span>
       {children}
     </label>
   );
@@ -62,7 +62,7 @@ export const ExportPanel: React.FC<Props> = ({ session, onExportComplete, onSave
   };
 
   return (
-    <div className="p-2 text-[var(--text-main)]">
+    <div className="p-2 text-main">
       <h3 className="text-[13px] font-bold mb-2">Export</h3>
       {!job && (
         <>
@@ -130,7 +130,7 @@ export const ExportPanel: React.FC<Props> = ({ session, onExportComplete, onSave
           {onSaveToDrive ? (
             <button
               type="button"
-              className="text-[10px] text-[var(--text-main)] underline"
+              className="text-[10px] text-main underline"
               onClick={() => onSaveToDrive(job.r2Key!)}
             >
               Save to Google Drive

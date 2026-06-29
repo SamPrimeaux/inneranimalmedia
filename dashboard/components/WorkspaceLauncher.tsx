@@ -472,7 +472,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
         >
           <Icon size={20} className="text-[var(--solar-cyan)] mb-2" />
           <p className="text-sm font-semibold text-[var(--text-heading)]">{title}</p>
-          <p className="text-[11px] text-[var(--text-muted)]">{sub}</p>
+          <p className="text-[11px] text-muted">{sub}</p>
         </button>
       ))}
     </div>
@@ -491,7 +491,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
               <h2 className="text-base sm:text-lg md:text-xl font-bold text-[var(--text-heading)] truncate">
                 Switch Workspace
               </h2>
-              <p className="text-[11px] sm:text-sm text-[var(--text-muted)] truncate hidden sm:block">
+              <p className="text-[11px] sm:text-sm text-muted truncate hidden sm:block">
                 Select or create a development environment
               </p>
             </div>
@@ -500,7 +500,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close workspace picker"
-            className="p-2 shrink-0 hover:bg-[var(--bg-app)] rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
+            className="p-2 shrink-0 hover:bg-[var(--bg-app)] rounded-lg text-muted hover:text-main transition-colors"
           >
             <Plus size={20} className="rotate-45" />
           </button>
@@ -518,7 +518,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                 className={`w-full max-md:w-auto max-md:shrink-0 flex items-center gap-3 max-md:gap-1 max-md:flex-col px-3 max-md:px-2.5 py-2.5 max-md:py-2 rounded-xl max-md:rounded-lg text-sm max-md:text-[10px] font-medium transition-all min-w-[3.25rem] ${
                   activeFilter === f.id
                     ? 'bg-[var(--bg-panel)] text-[var(--solar-cyan)] shadow-sm border border-[var(--border-subtle)]'
-                    : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-panel)]/50'
+                    : 'text-muted hover:text-main hover:bg-[var(--bg-panel)]/50'
                 } ${uiMode === 'create' ? 'opacity-40 pointer-events-none' : ''}`}
               >
                 {f.icon}
@@ -528,13 +528,13 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
             ))}
 
             <div className="pt-8 px-3 max-md:hidden">
-              <p className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-muted)] mb-4">
+              <p className="text-[10px] uppercase tracking-widest font-bold text-muted mb-4">
                 Operations
               </p>
               <button
                 type="button"
                 onClick={openCreateFlow}
-                className="w-full flex items-center gap-3 text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors py-2"
+                className="w-full flex items-center gap-3 text-sm text-muted hover:text-main transition-colors py-2"
               >
                 <Plus size={14} /> New Workspace
               </button>
@@ -542,7 +542,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                 <button
                   type="button"
                   onClick={() => onOpenLocalFolder()}
-                  className="w-full flex items-center gap-3 text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors py-2"
+                  className="w-full flex items-center gap-3 text-sm text-muted hover:text-main transition-colors py-2"
                 >
                   <FolderOpen size={14} /> Open local folder
                 </button>
@@ -550,7 +550,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
               <button
                 type="button"
                 onClick={() => onManageEnvironments?.()}
-                className="w-full flex items-center gap-3 text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors py-2"
+                className="w-full flex items-center gap-3 text-sm text-muted hover:text-main transition-colors py-2"
               >
                 <Settings size={14} /> Manage environments
               </button>
@@ -564,7 +564,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                   <button
                     type="button"
                     onClick={openCreateFlow}
-                    className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[10px] font-semibold text-[var(--text-main)]"
+                    className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[10px] font-semibold text-main"
                   >
                     <Plus size={12} /> New
                   </button>
@@ -572,7 +572,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                     <button
                       type="button"
                       onClick={() => onOpenLocalFolder()}
-                      className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[10px] font-semibold text-[var(--text-main)]"
+                      className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[10px] font-semibold text-main"
                     >
                       <FolderOpen size={12} /> Local
                     </button>
@@ -580,7 +580,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                   <button
                     type="button"
                     onClick={() => onManageEnvironments?.()}
-                    className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[10px] font-semibold text-[var(--text-main)]"
+                    className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[10px] font-semibold text-main"
                   >
                     <Settings size={12} /> Manage
                   </button>
@@ -588,7 +588,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
 
                 <div className="p-3 sm:p-4 border-b border-[var(--border-subtle)] shrink-0">
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" size={16} />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" size={16} />
                     <input
                       type="search"
                       placeholder="Search workspaces…"
@@ -602,13 +602,13 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                 <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 space-y-2 [-webkit-overflow-scrolling:touch]">
                   {activeFilter === 'github' ? (
                     githubReposLoading && githubRepos.length === 0 ? (
-                      <div className="h-full flex items-center justify-center gap-2 text-[var(--text-muted)] text-[13px]">
+                      <div className="h-full flex items-center justify-center gap-2 text-muted text-[13px]">
                         <Loader2 size={16} className="animate-spin" />
                         Loading GitHub repositories…
                       </div>
                     ) : !githubReposAuthed ? (
                       <div className="text-center py-10 sm:py-16 space-y-4 px-4">
-                        <p className="text-[13px] text-[var(--text-muted)]">
+                        <p className="text-[13px] text-muted">
                           Connect GitHub to browse your repositories here.
                         </p>
                         <button
@@ -625,12 +625,12 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                         </button>
                       </div>
                     ) : filteredGithubRepos.length === 0 ? (
-                      <div className="text-[var(--text-muted)] text-center py-10 sm:py-16 text-[13px] sm:text-sm">
+                      <div className="text-muted text-center py-10 sm:py-16 text-[13px] sm:text-sm">
                         No GitHub repositories match this search.
                       </div>
                     ) : (
                       <>
-                        <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-muted)] px-1">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-muted px-1">
                           Your GitHub repositories ({githubRepoCount})
                         </p>
                         {filteredGithubRepos.map((repo) => {
@@ -652,7 +652,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                                   <div className="font-bold text-[var(--text-heading)] truncate text-[13px] sm:text-sm">
                                     {full}
                                   </div>
-                                  <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-0.5 flex flex-wrap gap-x-2">
+                                  <div className="text-[10px] sm:text-[11px] text-muted mt-0.5 flex flex-wrap gap-x-2">
                                     {repo.default_branch ? (
                                       <span>branch: {repo.default_branch}</span>
                                     ) : null}
@@ -677,7 +677,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                         })}
                         {filtered.length > 0 ? (
                           <div className="pt-4 space-y-2">
-                            <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-muted)] px-1">
+                            <p className="text-[10px] uppercase tracking-wider font-bold text-muted px-1">
                               Linked workspaces
                             </p>
                             {filtered.map((w) => (
@@ -689,7 +689,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                                   <div className="font-bold text-[var(--text-heading)] truncate text-[13px] sm:text-sm">
                                     {w.display_name || w.slug}
                                   </div>
-                                  <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-1 truncate">
+                                  <div className="text-[10px] sm:text-[11px] text-muted mt-1 truncate">
                                     GH: {w.github_repo}
                                   </div>
                                 </div>
@@ -707,11 +707,11 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                       </>
                     )
                   ) : loading ? (
-                    <div className="h-full flex items-center justify-center text-[var(--text-muted)] animate-pulse">
+                    <div className="h-full flex items-center justify-center text-muted animate-pulse">
                       Loading workspaces…
                     </div>
                   ) : filtered.length === 0 ? (
-                    <div className="text-[var(--text-muted)] text-center py-10 sm:py-16 text-[13px] sm:text-sm space-y-4">
+                    <div className="text-muted text-center py-10 sm:py-16 text-[13px] sm:text-sm space-y-4">
                       <p>No workspaces match this filter.</p>
                       {activeFilter === 'local' && onOpenLocalFolder ? (
                         <button
@@ -742,7 +742,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                               </span>
                             ) : null}
                           </div>
-                          <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-1 flex flex-col sm:flex-row sm:flex-wrap gap-x-3 gap-y-0.5 min-w-0">
+                          <div className="text-[10px] sm:text-[11px] text-muted mt-1 flex flex-col sm:flex-row sm:flex-wrap gap-x-3 gap-y-0.5 min-w-0">
                             {w.r2_prefix ? <span className="truncate">R2: {w.r2_prefix}</span> : null}
                             {w.github_repo ? <span className="truncate">GH: {w.github_repo}</span> : null}
                             <span className="flex items-center gap-1 shrink-0">
@@ -790,7 +790,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                 ) : (
                   <div className="space-y-4 max-w-md">
                     <label className="block">
-                      <span className="text-[11px] uppercase text-[var(--text-muted)] font-bold">
+                      <span className="text-[11px] uppercase text-muted font-bold">
                         Display name
                       </span>
                       <input
@@ -802,7 +802,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                     </label>
                     {createKind === 'github' ? (
                       <label className="block">
-                        <span className="text-[11px] uppercase text-[var(--text-muted)] font-bold">
+                        <span className="text-[11px] uppercase text-muted font-bold">
                           GitHub repo URL
                         </span>
                         <input
@@ -815,7 +815,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                     ) : null}
                     {createKind === 'r2' ? (
                       <label className="block">
-                        <span className="text-[11px] uppercase text-[var(--text-muted)] font-bold">
+                        <span className="text-[11px] uppercase text-muted font-bold">
                           R2 prefix
                         </span>
                         <input
@@ -847,7 +847,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
         </div>
 
         <div className="px-3 py-2.5 sm:p-4 bg-[var(--bg-app)] border-t border-[var(--border-subtle)] flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between text-[10px] sm:text-[11px] gap-2 sm:gap-3 shrink-0 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
-          <div className="flex items-center gap-2 sm:gap-3 text-[var(--text-muted)] shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 text-muted shrink-0">
             <span className="max-phone:inline-flex hidden items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--bg-panel)] border border-[var(--border-subtle)] whitespace-nowrap">
               <ShieldCheck size={12} className="text-[var(--solar-green)]" /> Auth
             </span>
@@ -862,7 +862,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
             </span>
           </div>
           {activeWorkspaceLabel ? (
-            <p className="text-[var(--text-muted)] font-mono truncate w-full sm:max-w-[55%] sm:text-right text-[10px] sm:text-[11px]">
+            <p className="text-muted font-mono truncate w-full sm:max-w-[55%] sm:text-right text-[10px] sm:text-[11px]">
               {activeWorkspaceLabel}
             </p>
           ) : null}

@@ -31,6 +31,8 @@ type WorkspaceContextValue = {
   sessionUserId: string | null;
   /** Signed-in user display name (first name preferred) — not workspace slug. */
   sessionUserName: string | null;
+  /** Profile image from /api/auth/me (GitHub avatar, etc.). */
+  sessionAvatarUrl: string | null;
   workspaceId: string | null;
   setWorkspaceId: (id: string) => void;
   workspaces: WorkspaceRow[];
@@ -161,6 +163,7 @@ function preserveLocalWorkspaceCurrent(
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [sessionUserName, setSessionUserName] = useState<string | null>(null);
+  const [sessionAvatarUrl, setSessionAvatarUrl] = useState<string | null>(null);
   const [workspaceId, setWorkspaceIdState] = useState<string | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceRow[]>([]);
   const [displayName, setDisplayName] = useState<string | null>(null);
@@ -357,7 +360,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         if (meRes.ok) {
           const me = (await meRes.json()) as {
             id?: string | null;
-            user?: { id?: string | null; name?: string | null; email?: string | null };
+            avatar_url?: string | null;
+            user?: {
+              id?: string | null;
+              name?: string | null;
+              email?: string | null;
+              avatar_url?: string | null;
+            };
           };
           const rawId = me?.user?.id ?? me?.id;
           userId = rawId != null && String(rawId).trim() ? String(rawId).trim() : null;
@@ -365,6 +374,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           const emailLocal =
             me?.user?.email != null ? String(me.user.email).split("@")[0]?.trim() : "";
           setSessionUserName(rawName || emailLocal || null);
+          const avatar =
+            (me?.user?.avatar_url != null ? String(me.user.avatar_url).trim() : "") ||
+            (me?.avatar_url != null ? String(me.avatar_url).trim() : "");
+          setSessionAvatarUrl(avatar || null);
         }
       } catch {
         /* ignore */
@@ -447,6 +460,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     () => ({
       sessionUserId,
       sessionUserName,
+      sessionAvatarUrl,
       workspaceId,
       setWorkspaceId,
       workspaces,
@@ -457,7 +471,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       switchWorkspace,
       persistGithubRepo,
     }),
-    [sessionUserId, sessionUserName, workspaceId, setWorkspaceId, workspaces, displayName, loading, refreshWorkspaces, switchWorkspace, persistGithubRepo],
+    [sessionUserId, sessionUserName, sessionAvatarUrl, workspaceId, setWorkspaceId, workspaces, displayName, loading, refreshWorkspaces, switchWorkspace, persistGithubRepo],
   );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

@@ -140,7 +140,7 @@ export const AgentChatSessionRowMenu: FC<Props> = ({
               setRenameValue('');
             }
           }}
-          className="flex-1 min-w-0 rounded border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] text-[var(--text-main)]"
+          className="flex-1 min-w-0 rounded border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] text-main"
         />
         <button
           type="button"
@@ -164,7 +164,7 @@ export const AgentChatSessionRowMenu: FC<Props> = ({
           setOpen((v) => !v);
           setProjectOpen(false);
         }}
-        className="p-1 rounded text-[var(--text-muted)] opacity-0 group-hover:opacity-100 hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] focus:opacity-100"
+        className="p-1 rounded text-muted opacity-0 group-hover:opacity-100 hover:bg-[var(--bg-hover)] hover:text-main focus:opacity-100"
       >
         <MoreHorizontal size={14} />
       </button>
@@ -198,19 +198,19 @@ export const AgentChatSessionRowMenu: FC<Props> = ({
             >
               <FolderKanban size={13} />
               <span className="flex-1">Add to project</span>
-              <ChevronRight size={12} className="text-[var(--text-muted)]" />
+              <ChevronRight size={12} className="text-muted" />
             </button>
             {projectOpen ? (
               <div className="absolute left-full top-0 z-50 ml-1 w-[200px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] py-1 shadow-lg">
                 <div className="px-2 pb-1">
                   <div className="flex items-center gap-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-2 py-1">
-                    <Search size={11} className="text-[var(--text-muted)] shrink-0" />
+                    <Search size={11} className="text-muted shrink-0" />
                     <input
                       autoFocus
                       value={projectQuery}
                       onChange={(e) => setProjectQuery(e.target.value)}
                       placeholder="Search projects"
-                      className="w-full min-w-0 bg-transparent text-[10px] outline-none text-[var(--text-main)] placeholder:text-[var(--text-muted)]"
+                      className="w-full min-w-0 bg-transparent text-[10px] outline-none text-main placeholder:text-muted"
                     />
                   </div>
                 </div>
@@ -218,7 +218,7 @@ export const AgentChatSessionRowMenu: FC<Props> = ({
                   type="button"
                   disabled={busy}
                   onClick={() => assignProject(null)}
-                  className="block w-full px-3 py-1.5 text-left text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                  className="block w-full px-3 py-1.5 text-left text-[10px] text-muted hover:bg-[var(--bg-hover)] disabled:opacity-50"
                 >
                   Remove from project
                 </button>
@@ -238,7 +238,7 @@ export const AgentChatSessionRowMenu: FC<Props> = ({
                       </button>
                     ))
                   ) : (
-                    <p className="px-3 py-2 text-[10px] text-[var(--text-muted)]">No projects found</p>
+                    <p className="px-3 py-2 text-[10px] text-muted">No projects found</p>
                   )}
                 </div>
               </div>

@@ -27,7 +27,7 @@ function Sel({
   onChange: (v: string) => void;
 }) {
   return (
-    <label className="flex flex-col gap-1 text-[11px] uppercase tracking-wide text-[var(--text-muted)] min-w-[120px]">
+    <label className="flex flex-col gap-1 text-[11px] uppercase tracking-wide text-muted min-w-[120px]">
       {label}
       <select
         className="iam-lib-select"

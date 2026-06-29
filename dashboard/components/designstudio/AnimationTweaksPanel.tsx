@@ -98,12 +98,12 @@ export function AnimationTweaksPanel({ genConfig, onUpdateGenConfig, onSpawnMode
       <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-4">
         <div className="flex items-center gap-2">
           <Sparkles size={14} className="text-[var(--solar-violet)]" />
-          <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">
+          <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">
             Art direction
           </p>
         </div>
         <div>
-          <label className="text-[10px] font-bold text-[var(--text-muted)] uppercase block mb-2">
+          <label className="text-[10px] font-bold text-muted uppercase block mb-2">
             Scene style preset
           </label>
           <div className="grid grid-cols-2 gap-2">
@@ -115,7 +115,7 @@ export function AnimationTweaksPanel({ genConfig, onUpdateGenConfig, onSpawnMode
                 className={`flex items-center gap-2 p-2 rounded-xl border text-[10px] font-black ${
                   genConfig.style === s.id
                     ? `bg-gradient-to-br ${s.colors} text-white border-transparent`
-                    : 'bg-[var(--bg-panel)] border-[var(--border-subtle)] text-[var(--text-muted)]'
+                    : 'bg-[var(--bg-panel)] border-[var(--border-subtle)] text-muted'
                 }`}
               >
                 {s.icon}
@@ -129,15 +129,15 @@ export function AnimationTweaksPanel({ genConfig, onUpdateGenConfig, onSpawnMode
       <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-3">
         <div className="flex items-center gap-2">
           <Sword size={14} className="text-[var(--solar-violet)]" />
-          <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">
+          <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">
             Character armory
           </p>
         </div>
-        <p className="text-[9px] text-[var(--text-muted)]">
+        <p className="text-[9px] text-muted">
           Drop chess pieces into the scene for games and motion tests.
         </p>
         <div>
-          <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-2">White pieces</p>
+          <p className="text-[9px] font-bold text-muted uppercase mb-2">White pieces</p>
           <div className="grid grid-cols-3 gap-2">
             {chessPieces.map((piece) => (
               <button
@@ -147,13 +147,13 @@ export function AnimationTweaksPanel({ genConfig, onUpdateGenConfig, onSpawnMode
                 className="flex flex-col items-center gap-1 p-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:border-[var(--solar-cyan)] transition-colors"
               >
                 <PieceIcon type={piece.type} color="var(--text-muted)" />
-                <span className="text-[8px] font-black uppercase text-[var(--text-muted)]">{piece.name}</span>
+                <span className="text-[8px] font-black uppercase text-muted">{piece.name}</span>
               </button>
             ))}
           </div>
         </div>
         <div>
-          <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-2">Orange pieces</p>
+          <p className="text-[9px] font-bold text-muted uppercase mb-2">Orange pieces</p>
           <div className="grid grid-cols-3 gap-2">
             {chessPieces.map((piece) => (
               <button
@@ -163,7 +163,7 @@ export function AnimationTweaksPanel({ genConfig, onUpdateGenConfig, onSpawnMode
                 className="flex flex-col items-center gap-1 p-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] hover:border-[var(--solar-violet)] transition-colors"
               >
                 <PieceIcon type={piece.type} color="var(--solar-violet)" />
-                <span className="text-[8px] font-black uppercase text-[var(--text-muted)]">{piece.name}</span>
+                <span className="text-[8px] font-black uppercase text-muted">{piece.name}</span>
               </button>
             ))}
           </div>

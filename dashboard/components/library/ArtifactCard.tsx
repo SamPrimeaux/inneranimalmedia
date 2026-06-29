@@ -46,7 +46,7 @@ export function ArtifactCard({ artifact, selected, viewMode, onSelect, onDetails
           <span className={statusBadgeClass('visibility', artifact.visibility)}>{artifact.visibility}</span>
         ) : null}
       </div>
-      <div className="text-[11px] text-[var(--text-muted)] space-y-0.5">
+      <div className="text-[11px] text-muted space-y-0.5">
         <div className="truncate" title={artifact.source}>
           {truncateMiddle(artifact.source, 42)}
         </div>

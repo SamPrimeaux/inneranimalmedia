@@ -68,7 +68,7 @@ export const VirtualizedFileTree: React.FC<VirtualizedFileTreeProps> = ({
 
   if (!rows.length) {
     return (
-      <p className="px-2 py-2 text-[10px] text-[var(--text-muted)]">Empty folder</p>
+      <p className="px-2 py-2 text-[10px] text-muted">Empty folder</p>
     );
   }
 
@@ -96,7 +96,7 @@ export const VirtualizedFileTree: React.FC<VirtualizedFileTreeProps> = ({
                       height: rowHeight,
                       paddingLeft: `${row.depth * 10 + 8}px`,
                     }}
-                    className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]"
+                    className="flex items-center gap-1.5 text-[11px] text-muted"
                   >
                     <Loader2 size={12} className="animate-spin shrink-0" aria-hidden />
                     <span>{row.label}</span>
@@ -114,7 +114,7 @@ export const VirtualizedFileTree: React.FC<VirtualizedFileTreeProps> = ({
                       height: rowHeight,
                       paddingLeft: `${row.depth * 10 + 8}px`,
                     }}
-                    className="flex items-center gap-1.5 text-[11px] italic text-[var(--text-muted)] cursor-default select-none"
+                    className="flex items-center gap-1.5 text-[11px] italic text-muted cursor-default select-none"
                   >
                     <span className="w-3.5 shrink-0" aria-hidden />
                     <span>{row.label}</span>
@@ -136,14 +136,14 @@ export const VirtualizedFileTree: React.FC<VirtualizedFileTreeProps> = ({
                     height: rowHeight,
                     paddingLeft: `${depth * 10 + 8}px`,
                   }}
-                  className="flex w-full items-center gap-1.5 pr-2 text-left text-[13px] text-[var(--text-main)] hover:bg-[var(--bg-hover)] border-none bg-transparent font-inherit cursor-pointer"
+                  className="flex w-full items-center gap-1.5 pr-2 text-left text-[13px] text-main hover:bg-[var(--bg-hover)] border-none bg-transparent font-inherit cursor-pointer"
                 >
                   {isDir ? (
                     <>
                       {node.isOpen ? (
-                        <ChevronDown size={14} className="shrink-0 text-[var(--text-muted)] opacity-50" aria-hidden />
+                        <ChevronDown size={14} className="shrink-0 text-muted opacity-50" aria-hidden />
                       ) : (
-                        <ChevronRight size={14} className="shrink-0 text-[var(--text-muted)] opacity-50" aria-hidden />
+                        <ChevronRight size={14} className="shrink-0 text-muted opacity-50" aria-hidden />
                       )}
                       <Folder size={14} className="shrink-0 text-[var(--solar-blue)]" aria-hidden />
                     </>
@@ -157,7 +157,7 @@ export const VirtualizedFileTree: React.FC<VirtualizedFileTreeProps> = ({
                     {node.name}
                   </span>
                   {isDir && node.loading ? (
-                    <Loader2 size={12} className="ml-auto shrink-0 animate-spin text-[var(--text-muted)]" aria-hidden />
+                    <Loader2 size={12} className="ml-auto shrink-0 animate-spin text-muted" aria-hidden />
                   ) : null}
                 </button>
               );
@@ -165,7 +165,7 @@ export const VirtualizedFileTree: React.FC<VirtualizedFileTreeProps> = ({
           </div>
         </div>
       </div>
-      <p className="shrink-0 px-2 py-0.5 text-[9px] text-[var(--text-muted)] border-t border-[var(--border-subtle)]/40">
+      <p className="shrink-0 px-2 py-0.5 text-[9px] text-muted border-t border-[var(--border-subtle)]/40">
         {entryCount.toLocaleString()} visible
         {entryCount > 500 ? ' — expand folders as needed' : ''}
       </p>

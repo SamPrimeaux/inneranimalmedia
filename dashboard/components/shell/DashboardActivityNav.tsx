@@ -46,7 +46,7 @@ export const ActivityRailItem: FC<ActivityRailItemProps> = ({
     title={label}
     className={`relative flex w-full min-h-[40px] shrink-0 items-center rounded-lg transition-colors ${
       expanded ? 'gap-2.5 px-2 justify-start' : 'justify-center px-0'
-    } ${active ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]/60'}`}
+    } ${active ? 'text-main' : 'text-muted hover:text-main hover:bg-[var(--bg-hover)]/60'}`}
   >
     {active ? (
       <div

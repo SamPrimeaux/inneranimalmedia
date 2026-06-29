@@ -50,7 +50,7 @@ export function ArtifactPreviewPanel({
       />
       <aside className="fixed z-[70] top-0 right-0 h-full w-full max-w-md border-l border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] shadow-xl flex flex-col">
         <div className="h-12 flex items-center justify-between px-4 border-b border-[var(--dashboard-border)] shrink-0">
-          <span className="text-xs uppercase tracking-widest text-[var(--text-muted)]">Details</span>
+          <span className="text-xs uppercase tracking-widest text-muted">Details</span>
           <button type="button" className="p-1 rounded hover:bg-[var(--bg-hover)]" onClick={onClose} aria-label="Close">
             <X size={18} />
           </button>
@@ -58,7 +58,7 @@ export function ArtifactPreviewPanel({
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 text-sm">
           <h2 className="text-lg font-semibold text-[var(--text-primary)] leading-tight">{artifact.name}</h2>
           {artifact.description ? (
-            <p className="text-[var(--text-muted)] text-sm leading-relaxed whitespace-pre-wrap">{artifact.description}</p>
+            <p className="text-muted text-sm leading-relaxed whitespace-pre-wrap">{artifact.description}</p>
           ) : null}
           <div className="flex flex-wrap gap-1">
             <span className={typeBadgeClass()}>{formatArtifactType(artifact.artifact_type)}</span>
@@ -86,7 +86,7 @@ export function ArtifactPreviewPanel({
             ].map(([k, v]) =>
               v ? (
                 <div key={String(k)} className="grid grid-cols-[120px_1fr] gap-2">
-                  <dt className="text-[var(--text-muted)]">{k}</dt>
+                  <dt className="text-muted">{k}</dt>
                   <dd className="font-mono break-all text-[var(--text-primary)]">{v}</dd>
                 </div>
               ) : null,
@@ -94,12 +94,12 @@ export function ArtifactPreviewPanel({
           </dl>
           {artifact.linked_skills?.length ? (
             <div>
-              <div className="text-[11px] uppercase text-[var(--text-muted)] mb-1">Linked skills</div>
+              <div className="text-[11px] uppercase text-muted mb-1">Linked skills</div>
               <ul className="text-sm space-y-1">
                 {artifact.linked_skills.map((s) => (
                   <li key={s.id || s.name}>
                     {s.name}
-                    {s.role ? <span className="text-[var(--text-muted)]"> · {s.role}</span> : null}
+                    {s.role ? <span className="text-muted"> · {s.role}</span> : null}
                   </li>
                 ))}
               </ul>
@@ -107,13 +107,13 @@ export function ArtifactPreviewPanel({
           ) : null}
           {metaStr ? (
             <div>
-              <div className="text-[11px] uppercase text-[var(--text-muted)] mb-1">metadata_json</div>
+              <div className="text-[11px] uppercase text-muted mb-1">metadata_json</div>
               <pre className="text-[11px] p-3 rounded-lg bg-[var(--dashboard-panel)] border border-[var(--dashboard-border)] overflow-x-auto whitespace-pre-wrap">
                 {metaStr}
               </pre>
             </div>
           ) : null}
-          <div className="text-[11px] text-[var(--text-muted)] space-y-1">
+          <div className="text-[11px] text-muted space-y-1">
             <div>created: {artifact.created_at_display || artifact.created_at || '—'}</div>
             <div>updated: {artifact.updated_at_display || artifact.updated_at || '—'}</div>
           </div>

@@ -20,6 +20,7 @@ type MobileNavShellProps = {
   activeConversationId?: string | null;
   workspaceLabel?: string | null;
   avatarInitial?: string | null;
+  avatarUrl?: string | null;
   workspaceSubtitle?: string | null;
 };
 
@@ -43,6 +44,7 @@ export function MobileNavShell({
   activeConversationId,
   workspaceLabel,
   avatarInitial,
+  avatarUrl,
   workspaceSubtitle,
 }: MobileNavShellProps) {
   return (
@@ -74,6 +76,7 @@ export function MobileNavShell({
         activeConversationId={activeConversationId}
         workspaceLabel={workspaceLabel}
         avatarInitial={avatarInitial}
+        avatarUrl={avatarUrl}
         workspaceSubtitle={workspaceSubtitle}
       />
     </>

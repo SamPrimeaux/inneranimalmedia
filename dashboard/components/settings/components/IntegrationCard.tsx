@@ -61,7 +61,7 @@ function statusBadgeClass(status: string | undefined): string {
     case 'auth_expired':
       return 'bg-[var(--accent-danger)]/15 text-[var(--accent-danger)] border-[var(--accent-danger)]/30';
     default:
-      return 'bg-[var(--bg-hover)] text-[var(--text-muted)] border-[var(--border-subtle)]';
+      return 'bg-[var(--bg-hover)] text-muted border-[var(--border-subtle)]';
   }
 }
 
@@ -198,16 +198,16 @@ export function IntegrationCard({
               {title}
             </span>
             {category ? (
-              <span className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] uppercase tracking-wide">
+              <span className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-muted uppercase tracking-wide">
                 {category}
               </span>
             ) : null}
             {authType ? (
-              <span className="text-[10px] text-[var(--text-muted)]">{authType}</span>
+              <span className="text-[10px] text-muted">{authType}</span>
             ) : null}
           </div>
           {catalog?.description ? (
-            <p className="text-[11px] text-[var(--text-muted)] mt-1 line-clamp-2">
+            <p className="text-[11px] text-muted mt-1 line-clamp-2">
               {String(catalog.description)}
             </p>
           ) : null}
@@ -255,7 +255,7 @@ export function IntegrationCard({
                 Connect
               </button>
             ) : (
-              <span className="text-[10px] text-[var(--text-muted)]">View docs</span>
+              <span className="text-[10px] text-muted">View docs</span>
             )
           ) : iamHosted ? (
             <button
@@ -287,7 +287,7 @@ export function IntegrationCard({
       (authType === 'api_key' || authType === 'oauth_or_key') &&
       expanded ? (
         <div className="mt-2 flex flex-col gap-2 border-t border-[var(--border-subtle)] pt-2">
-          <label className="text-[10px] text-[var(--text-muted)]">
+          <label className="text-[10px] text-muted">
             {catalog?.api_key_label || 'API key'}
           </label>
           <input
@@ -296,7 +296,7 @@ export function IntegrationCard({
             placeholder={catalog?.api_key_placeholder || 'Paste key'}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            className="w-full px-2 py-1.5 rounded-lg bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-[12px] text-[var(--text-main)]"
+            className="w-full px-2 py-1.5 rounded-lg bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-[12px] text-main"
           />
           <div className="flex flex-wrap gap-2">
             <button
@@ -324,23 +324,23 @@ export function IntegrationCard({
       {mode === 'connected' && expanded && !iamHosted ? (
         <div className="mt-2 border-t border-[var(--border-subtle)] pt-2 flex flex-col gap-2">
           {connection?.account_display ? (
-            <div className="text-[11px] text-[var(--text-main)]">
-              <span className="text-[var(--text-muted)]">Account: </span>
+            <div className="text-[11px] text-main">
+              <span className="text-muted">Account: </span>
               {connection.account_display}
             </div>
           ) : null}
           {connection?.last_sync_at ? (
-            <div className="text-[10px] text-[var(--text-muted)]">
+            <div className="text-[10px] text-muted">
               Last sync: {relTime(connection.last_sync_at)}
             </div>
           ) : null}
           {legacy?.last_used ? (
-            <div className="text-[10px] text-[var(--text-muted)]">
+            <div className="text-[10px] text-muted">
               Last used (legacy): {relTime(legacy.last_used)}
             </div>
           ) : null}
           {connection?.last_health_status != null && connection.last_health_status !== '' ? (
-            <div className="text-[10px] text-[var(--text-muted)]">
+            <div className="text-[10px] text-muted">
               Health: {String(connection.last_health_status)}
               {connection.last_health_latency_ms != null
                 ? ` (${connection.last_health_latency_ms} ms)`
@@ -352,7 +352,7 @@ export function IntegrationCard({
               {scopes.map((s) => (
                 <span
                   key={s}
-                  className="text-[9px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-muted)]"
+                  className="text-[9px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-muted"
                 >
                   {s}
                 </span>
@@ -370,7 +370,7 @@ export function IntegrationCard({
               Test connection
             </button>
             {testMsg ? (
-              <span className="text-[10px] text-[var(--text-muted)] self-center">{testMsg}</span>
+              <span className="text-[10px] text-muted self-center">{testMsg}</span>
             ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
@@ -385,7 +385,7 @@ export function IntegrationCard({
             ) : null}
             {(authType === 'api_key' || authType === 'oauth_or_key') && (
               <div className="flex flex-col gap-1 w-full">
-                <span className="text-[10px] text-[var(--text-muted)]">Rotate key</span>
+                <span className="text-[10px] text-muted">Rotate key</span>
                 <input
                   type="password"
                   value={apiKey}
@@ -418,10 +418,10 @@ export function IntegrationCard({
       ) : null}
 
       {mode === 'connected' && expanded && iamHosted ? (
-        <div className="mt-2 border-t border-[var(--border-subtle)] pt-2 text-[11px] text-[var(--text-muted)] space-y-2">
+        <div className="mt-2 border-t border-[var(--border-subtle)] pt-2 text-[11px] text-muted space-y-2">
           <div>
             MCP:{' '}
-            <span className="text-[var(--text-main)] font-mono text-[10px]">
+            <span className="text-main font-mono text-[10px]">
               https://mcp.inneranimalmedia.com/mcp
             </span>
           </div>

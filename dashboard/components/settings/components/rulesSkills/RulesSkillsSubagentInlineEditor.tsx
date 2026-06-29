@@ -11,13 +11,13 @@ export function RulesSkillsSubagentInlineEditor({ data }: { data: SettingsPanelM
       <div className="px-4 py-3 border-b border-[var(--border-subtle)] flex items-center justify-between gap-3">
         <div>
           <div className="text-[12px] font-semibold text-[var(--text-heading)]">Edit subagent</div>
-          <div className="text-[10px] text-[var(--text-muted)] font-mono mt-0.5">
+          <div className="text-[10px] text-muted font-mono mt-0.5">
             {String(data.subagentDraft.slug || id)}
           </div>
         </div>
         <button
           type="button"
-          className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+          className="text-[11px] text-muted hover:text-main"
           onClick={() => data.closeSubagentEdit()}
         >
           Close
@@ -25,7 +25,7 @@ export function RulesSkillsSubagentInlineEditor({ data }: { data: SettingsPanelM
       </div>
       <div className="p-4 space-y-3 max-h-[min(70vh,640px)] overflow-y-auto custom-scrollbar">
         <label className="flex flex-col gap-1 text-[11px]">
-          <span className="text-[var(--text-muted)]">Display name</span>
+          <span className="text-muted">Display name</span>
           <input
             value={data.subagentDraft.display_name || ''}
             onChange={(e) => data.setSubagentDraft((p: Record<string, unknown>) => ({ ...p, display_name: e.target.value }))}
@@ -33,7 +33,7 @@ export function RulesSkillsSubagentInlineEditor({ data }: { data: SettingsPanelM
           />
         </label>
         <label className="flex flex-col gap-1 text-[11px]">
-          <span className="text-[var(--text-muted)]">Description</span>
+          <span className="text-muted">Description</span>
           <textarea
             rows={2}
             value={data.subagentDraft.description || ''}
@@ -41,7 +41,7 @@ export function RulesSkillsSubagentInlineEditor({ data }: { data: SettingsPanelM
             className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] resize-y"
           />
         </label>
-        <div className="text-[11px] text-[var(--text-muted)]">Instructions (markdown)</div>
+        <div className="text-[11px] text-muted">Instructions (markdown)</div>
         <div className="rounded-xl overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-app)]">
           <Editor
             height="220px"
@@ -56,7 +56,7 @@ export function RulesSkillsSubagentInlineEditor({ data }: { data: SettingsPanelM
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="flex flex-col gap-1 text-[11px]">
-            <span className="text-[var(--text-muted)]">Default model</span>
+            <span className="text-muted">Default model</span>
             <select
               value={data.subagentDraft.default_model_id || ''}
               onChange={(e) =>
@@ -73,7 +73,7 @@ export function RulesSkillsSubagentInlineEditor({ data }: { data: SettingsPanelM
             </select>
           </label>
           <label className="flex flex-col gap-1 text-[11px]">
-            <span className="text-[var(--text-muted)]">Personality tone</span>
+            <span className="text-muted">Personality tone</span>
             <select
               value={data.subagentDraft.personality_tone || 'professional'}
               onChange={(e) =>
@@ -88,7 +88,7 @@ export function RulesSkillsSubagentInlineEditor({ data }: { data: SettingsPanelM
             </select>
           </label>
           <label className="flex flex-col gap-1 text-[11px]">
-            <span className="text-[var(--text-muted)]">Access mode</span>
+            <span className="text-muted">Access mode</span>
             <select
               value={data.subagentDraft.access_mode || 'read_write'}
               onChange={(e) =>
@@ -101,7 +101,7 @@ export function RulesSkillsSubagentInlineEditor({ data }: { data: SettingsPanelM
             </select>
           </label>
           <label className="flex flex-col gap-1 text-[11px]">
-            <span className="text-[var(--text-muted)]">Sandbox mode</span>
+            <span className="text-muted">Sandbox mode</span>
             <select
               value={data.subagentDraft.sandbox_mode || 'workspace-write'}
               onChange={(e) =>
@@ -115,7 +115,7 @@ export function RulesSkillsSubagentInlineEditor({ data }: { data: SettingsPanelM
             </select>
           </label>
           <label className="flex flex-col gap-1 text-[11px] sm:col-span-2">
-            <span className="text-[var(--text-muted)]">Reasoning effort</span>
+            <span className="text-muted">Reasoning effort</span>
             <select
               value={data.subagentDraft.model_reasoning_effort || 'medium'}
               onChange={(e) =>
@@ -132,15 +132,15 @@ export function RulesSkillsSubagentInlineEditor({ data }: { data: SettingsPanelM
             </select>
           </label>
         </div>
-        <div className="text-[10px] text-[var(--text-muted)]">
+        <div className="text-[10px] text-muted">
           Agent type:{' '}
-          <span className="font-mono text-[var(--text-main)]">{String(data.subagentDraft.agent_type || 'custom')}</span>
+          <span className="font-mono text-main">{String(data.subagentDraft.agent_type || 'custom')}</span>
         </div>
       </div>
       <div className="px-4 py-3 border-t border-[var(--border-subtle)] flex items-center justify-end gap-2 bg-[var(--bg-app)]/60">
         <button
           type="button"
-          className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]"
+          className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted"
           onClick={() => data.closeSubagentEdit()}
         >
           Cancel

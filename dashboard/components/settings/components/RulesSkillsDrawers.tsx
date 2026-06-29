@@ -25,7 +25,7 @@ export function RulesSkillsDrawers({ data }: RulesSkillsDrawersProps) {
               </div>
               <button
                 type="button"
-                className="text-[11px] text-[var(--text-muted)]"
+                className="text-[11px] text-muted"
                 onClick={() => data.setSkillDrawerOpen(false)}
               >
                 Close
@@ -33,7 +33,7 @@ export function RulesSkillsDrawers({ data }: RulesSkillsDrawersProps) {
             </div>
             <div className="p-4 flex-1 overflow-auto custom-scrollbar space-y-3">
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Name</span>
+                <span className="text-muted">Name</span>
                 <input
                   value={data.skillDraft.name || ''}
                   onChange={(e) => data.setSkillDraft((p: any) => ({ ...p, name: e.target.value }))}
@@ -41,7 +41,7 @@ export function RulesSkillsDrawers({ data }: RulesSkillsDrawersProps) {
                 />
               </label>
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Description</span>
+                <span className="text-muted">Description</span>
                 <textarea
                   rows={3}
                   value={data.skillDraft.description || ''}
@@ -49,7 +49,7 @@ export function RulesSkillsDrawers({ data }: RulesSkillsDrawersProps) {
                   className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px]"
                 />
               </label>
-              <div className="text-[11px] text-[var(--text-muted)]">Content (markdown)</div>
+              <div className="text-[11px] text-muted">Content (markdown)</div>
               <div className="rounded-xl overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-app)]">
                 <Editor
                   height="300px"
@@ -61,7 +61,7 @@ export function RulesSkillsDrawers({ data }: RulesSkillsDrawersProps) {
                 />
               </div>
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Slash trigger</span>
+                <span className="text-muted">Slash trigger</span>
                 <input
                   placeholder="/myskill"
                   value={data.skillDraft.slash_trigger || ''}
@@ -70,7 +70,7 @@ export function RulesSkillsDrawers({ data }: RulesSkillsDrawersProps) {
                 />
               </label>
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Globs</span>
+                <span className="text-muted">Globs</span>
                 <input
                   placeholder="**/*.ts"
                   value={data.skillDraft.globs || ''}
@@ -79,14 +79,14 @@ export function RulesSkillsDrawers({ data }: RulesSkillsDrawersProps) {
                 />
               </label>
               <div className="flex items-center justify-between py-2">
-                <div className="text-[11px] text-[var(--text-muted)]">Always apply</div>
+                <div className="text-[11px] text-muted">Always apply</div>
                 <Toggle
                   on={!!data.skillDraft.always_apply}
                   onChange={(v) => data.setSkillDraft((p: any) => ({ ...p, always_apply: v }))}
                 />
               </div>
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Tags</span>
+                <span className="text-muted">Tags</span>
                 <input
                   placeholder="tag1,tag2"
                   value={data.skillDraft.tags || ''}
@@ -98,7 +98,7 @@ export function RulesSkillsDrawers({ data }: RulesSkillsDrawersProps) {
             <div className="px-4 py-3 border-t border-[var(--border-subtle)] flex items-center justify-end gap-2 bg-[var(--bg-app)]">
               <button
                 type="button"
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]"
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted"
                 onClick={() => data.setSkillDrawerOpen(false)}
               >
                 Cancel
@@ -129,13 +129,13 @@ export function RulesSkillsDrawers({ data }: RulesSkillsDrawersProps) {
                 <div className="text-[12px] font-semibold text-[var(--text-heading)]">
                   {data.ruleDraft?.id ? 'Edit rule' : 'New rule'}
                 </div>
-                <div className="text-[10px] text-[var(--text-muted)] mt-0.5">
+                <div className="text-[10px] text-muted mt-0.5">
                   Injected into Agent Sam as ## Rules on chat (unless set to Manual).
                 </div>
               </div>
               <button
                 type="button"
-                className="text-[11px] text-[var(--text-muted)]"
+                className="text-[11px] text-muted"
                 onClick={() => data.setRuleDrawerOpen(false)}
               >
                 Close
@@ -143,7 +143,7 @@ export function RulesSkillsDrawers({ data }: RulesSkillsDrawersProps) {
             </div>
             <div className="p-4 flex-1 overflow-auto custom-scrollbar space-y-3">
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Title</span>
+                <span className="text-muted">Title</span>
                 <input
                   value={data.ruleDraft.title || ''}
                   onChange={(e) => data.setRuleDraft((p: any) => ({ ...p, title: e.target.value }))}
@@ -153,7 +153,7 @@ export function RulesSkillsDrawers({ data }: RulesSkillsDrawersProps) {
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <label className="flex flex-col gap-1 text-[11px]">
-                  <span className="text-[var(--text-muted)]">Apply</span>
+                  <span className="text-muted">Apply</span>
                   <select
                     value={data.ruleDraft.apply_mode || 'always'}
                     onChange={(e) =>
@@ -167,7 +167,7 @@ export function RulesSkillsDrawers({ data }: RulesSkillsDrawersProps) {
                   </select>
                 </label>
                 <label className="flex flex-col gap-1 text-[11px]">
-                  <span className="text-[var(--text-muted)]">Globs (when Apply = glob)</span>
+                  <span className="text-muted">Globs (when Apply = glob)</span>
                   <input
                     value={data.ruleDraft.globs || ''}
                     onChange={(e) => data.setRuleDraft((p: any) => ({ ...p, globs: e.target.value }))}
@@ -177,7 +177,7 @@ export function RulesSkillsDrawers({ data }: RulesSkillsDrawersProps) {
                   />
                 </label>
               </div>
-              <div className="text-[11px] text-[var(--text-muted)]">Rule body (markdown)</div>
+              <div className="text-[11px] text-muted">Rule body (markdown)</div>
               <div className="rounded-xl overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-app)] min-h-[280px]">
                 <Editor
                   height="320px"
@@ -194,7 +194,7 @@ export function RulesSkillsDrawers({ data }: RulesSkillsDrawersProps) {
             <div className="px-4 py-3 border-t border-[var(--border-subtle)] flex items-center justify-end gap-2 bg-[var(--bg-app)]">
               <button
                 type="button"
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]"
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted"
                 onClick={() => data.setRuleDrawerOpen(false)}
               >
                 Cancel

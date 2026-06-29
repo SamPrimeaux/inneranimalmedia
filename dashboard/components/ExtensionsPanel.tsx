@@ -56,10 +56,10 @@ export const ExtensionsPanel: React.FC<Props> = ({ onToolSelect }) => {
     );
 
     return (
-        <div className="flex flex-col h-full bg-[var(--bg-panel)] w-full text-[var(--text-main)] overflow-hidden">
+        <div className="flex flex-col h-full bg-[var(--bg-panel)] w-full text-main overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 shrink-0">
-                <span className="text-[11px] font-semibold tracking-widest uppercase text-[var(--text-muted)]">Integrations</span>
-                <div className="flex gap-2 text-[var(--text-muted)]">
+                <span className="text-[11px] font-semibold tracking-widest uppercase text-muted">Integrations</span>
+                <div className="flex gap-2 text-muted">
                     <RefreshCw size={14} className="hover:text-white cursor-pointer" onClick={fetchTools} />
                     <Settings2 size={14} className="hover:text-white cursor-pointer" />
                 </div>
@@ -67,22 +67,22 @@ export const ExtensionsPanel: React.FC<Props> = ({ onToolSelect }) => {
 
             <div className="px-4 pb-2 shrink-0">
                 <div className="relative flex items-center bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded shadow-inner p-1">
-                    <Search size={14} className="text-[var(--text-muted)] ml-1.5 absolute" />
+                    <Search size={14} className="text-muted ml-1.5 absolute" />
                     <input 
                         type="text"
                         placeholder="Search capabilities..."
                         value={search}
                         onChange={e => setSearch(e.target.value)}
-                        className="w-full bg-transparent pl-7 pr-2 py-1 text-[12px] focus:outline-none placeholder:text-[var(--text-muted)]"
+                        className="w-full bg-transparent pl-7 pr-2 py-1 text-[12px] focus:outline-none placeholder:text-muted"
                     />
                 </div>
             </div>
 
             <div className="flex-1 overflow-y-auto mt-2 pb-4">
                 {loading ? (
-                    <div className="p-4 text-xs text-[var(--text-muted)] flex justify-center animate-pulse">Scanning schema indexes...</div>
+                    <div className="p-4 text-xs text-muted flex justify-center animate-pulse">Scanning schema indexes...</div>
                 ) : filtered.length === 0 ? (
-                    <div className="p-4 text-xs text-[var(--text-muted)]">No active tool bindings.</div>
+                    <div className="p-4 text-xs text-muted">No active tool bindings.</div>
                 ) : (
                     <div className="flex flex-col">
                         {filtered.map(tool => (
@@ -101,7 +101,7 @@ export const ExtensionsPanel: React.FC<Props> = ({ onToolSelect }) => {
                                             {tool.status === 'active' && <div className="w-1.5 h-1.5 rounded-full bg-[var(--solar-green)] shrink-0" title="Active Socket" />}
                                             {tool.status !== 'active' && <div className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)] shrink-0 opacity-50" />}
                                         </div>
-                                        <span className="text-[11px] text-[var(--text-muted)] line-clamp-2 leading-relaxed" title={tool.description}>{tool.description}</span>
+                                        <span className="text-[11px] text-muted line-clamp-2 leading-relaxed" title={tool.description}>{tool.description}</span>
                                         <span className="text-[10px] text-[var(--solar-blue)] mt-1 font-mono truncate">{tool.mcp_name} v{tool.version || '1.0'}</span>
                                     </div>
                                 </div>

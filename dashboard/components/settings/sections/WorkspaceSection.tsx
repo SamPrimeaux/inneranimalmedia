@@ -75,7 +75,7 @@ function Card({
 }) {
   return (
     <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-3">
-      <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">{title}</div>
+      <div className="text-[10px] font-black uppercase tracking-widest text-muted">{title}</div>
       {children}
     </div>
   );
@@ -128,17 +128,17 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
         Workspace · CMS &amp; theme pipeline
       </h2>
       {saveErr ? <div className="text-[11px] text-[var(--color-danger)]">{saveErr}</div> : null}
-      {saving ? <div className="text-[11px] text-[var(--text-muted)]">Saving…</div> : null}
+      {saving ? <div className="text-[11px] text-muted">Saving…</div> : null}
 
       {data.workspaceError2 ? (
         <div className="text-[11px] text-[var(--color-danger)]">{data.workspaceError2}</div>
       ) : null}
       {data.workspaceLoading2 && !wd ? (
-        <div className="text-[12px] text-[var(--text-muted)]">Loading workspace…</div>
+        <div className="text-[12px] text-muted">Loading workspace…</div>
       ) : null}
 
       {wd?.notice ? (
-        <div className="rounded-xl border border-[var(--color-warning)]/40 bg-[var(--bg-app)] px-3 py-2 text-[11px] text-[var(--text-muted)]">
+        <div className="rounded-xl border border-[var(--color-warning)]/40 bg-[var(--bg-app)] px-3 py-2 text-[11px] text-muted">
           {String(wd.notice)}
         </div>
       ) : null}
@@ -150,34 +150,34 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
               {String(ws.name || ws.display_name || '—')}
             </div>
             <div className="flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="text-[var(--text-muted)]">Slug</span>
+              <span className="text-muted">Slug</span>
               <code className="px-2 py-1 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[10px] font-mono text-[var(--solar-cyan)]">
                 {String(ws.slug || workspaceId || '—')}
               </code>
               <button
                 type="button"
                 onClick={() => copyToClipboard(String(ws.slug || workspaceId || ''))}
-                className="px-2 py-1 rounded border border-[var(--border-subtle)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                className="px-2 py-1 rounded border border-[var(--border-subtle)] text-[10px] text-muted hover:text-main"
               >
                 Copy
               </button>
             </div>
             <div className="flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="text-[var(--text-muted)]">Tenant</span>
+              <span className="text-muted">Tenant</span>
               <code className="px-2 py-1 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[10px] font-mono">
                 {String(ws.tenant_id || '—')}
               </code>
               <button
                 type="button"
                 onClick={() => copyToClipboard(String(ws.tenant_id || ''))}
-                className="px-2 py-1 rounded border border-[var(--border-subtle)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                className="px-2 py-1 rounded border border-[var(--border-subtle)] text-[10px] text-muted hover:text-main"
               >
                 Copy
               </button>
             </div>
-            <div className="text-[11px] text-[var(--text-muted)]">
+            <div className="text-[11px] text-muted">
               Workspace id ·{' '}
-              <code className="font-mono text-[var(--text-main)]">{String(ws.id || workspaceId || '—')}</code>{' '}
+              <code className="font-mono text-main">{String(ws.id || workspaceId || '—')}</code>{' '}
               <button
                 type="button"
                 onClick={() => copyToClipboard(String(ws.id || workspaceId || ''))}
@@ -186,29 +186,29 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
                 Copy
               </button>
             </div>
-            <div className="text-[11px] text-[var(--text-muted)]">
+            <div className="text-[11px] text-muted">
               Created:{' '}
               {ws.created_at ? new Date(String(ws.created_at)).toLocaleDateString() : '—'}
             </div>
           </Card>
 
           <Card title="B · Theme defaults">
-            <div className="text-[11px] text-[var(--text-muted)] space-y-1">
+            <div className="text-[11px] text-muted space-y-1">
               <div>
                 Active preference (D1):{' '}
-                <span className="font-mono text-[var(--text-main)]">{prefSlug || '—'}</span>
+                <span className="font-mono text-main">{prefSlug || '—'}</span>
               </div>
               <div>
                 Workspace theme column:{' '}
-                <span className="font-mono text-[var(--text-main)]">{String(ws.theme_id ?? ws.theme_set ?? '—')}</span>
+                <span className="font-mono text-main">{String(ws.theme_id ?? ws.theme_set ?? '—')}</span>
               </div>
             </div>
-            <label className="block text-[11px] text-[var(--text-muted)]">
+            <label className="block text-[11px] text-muted">
               Default theme slug (pipeline metadata)
               <input
                 defaultValue={pipe.default_theme_slug || ''}
                 key={pipe.default_theme_slug || ''}
-                className="mt-1 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[12px] text-[var(--text-main)]"
+                className="mt-1 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[12px] text-main"
                 placeholder="iam-storm-white"
                 onBlur={(e) => {
                   const v = e.target.value.trim();
@@ -219,20 +219,20 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted hover:text-main"
                 onClick={() => navigate('/dashboard/settings/themes')}
               >
                 Open theme browser
               </button>
             </div>
-            <p className="text-[10px] text-[var(--text-muted)]">
+            <p className="text-[10px] text-muted">
               Preference scope is stored in <code className="font-mono">cms_theme_preferences</code> (workspace).
             </p>
           </Card>
 
           <Card title="C · CMS editing mode">
             <select
-              className="w-full max-w-md rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[12px] text-[var(--text-main)]"
+              className="w-full max-w-md rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[12px] text-main"
               value={pipe.cms_editing_mode || 'preview_only'}
               onChange={(e) => void patch({ cms_editing_mode: e.target.value })}
             >
@@ -247,23 +247,23 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
           <Card title="D · Storage / output target">
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[11px] space-y-1">
               <div className="flex items-center gap-2">
-                <span className="text-[var(--text-muted)]">Platform R2 seamless upload</span>
+                <span className="text-muted">Platform R2 seamless upload</span>
                 <span
                   className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${
                     platformEligible
                       ? 'border-[var(--color-success)]/50 text-[var(--color-success)]'
-                      : 'border-[var(--border-subtle)] text-[var(--text-muted)]'
+                      : 'border-[var(--border-subtle)] text-muted'
                   }`}
                 >
                   {platformEligible ? 'Eligible' : 'Not eligible'}
                 </span>
               </div>
-              <p className="text-[10px] text-[var(--text-muted)]">
+              <p className="text-[10px] text-muted">
                 Eligibility uses workspace <code className="font-mono">cms_pipeline</code>, or env{' '}
                 <code className="font-mono">CMS_THEME_PLATFORM_WORKSPACE_IDS</code> — no hardcoded workspace IDs.
               </p>
             </div>
-            <label className="flex items-center gap-2 text-[11px] text-[var(--text-main)]">
+            <label className="flex items-center gap-2 text-[11px] text-main">
               <input
                 type="checkbox"
                 checked={pipe.platform_r2_upload === true || pipe.platform_r2_upload === 1}
@@ -271,10 +271,10 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
               />
               Allow platform R2 uploads for this workspace (requires ASSETS binding + eligibility)
             </label>
-            <label className="block text-[11px] text-[var(--text-muted)]">
+            <label className="block text-[11px] text-muted">
               Preferred storage output
               <select
-                className="mt-1 w-full max-w-md rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[12px] text-[var(--text-main)]"
+                className="mt-1 w-full max-w-md rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[12px] text-main"
                 value={pipe.storage_output || (platformEligible ? 'platform_r2' : 'ask')}
                 onChange={(e) => void patch({ storage_output: e.target.value })}
               >
@@ -296,12 +296,12 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
           <Card title="E · R2 configuration">
             <div className="text-[11px] space-y-2">
               <div className="flex items-center gap-2">
-                <span className="text-[var(--text-muted)]">Status</span>
+                <span className="text-muted">Status</span>
                 <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded border border-[var(--border-subtle)]">
                   {r2Configured ? 'Partial / configured' : 'Not configured'}
                 </span>
               </div>
-              <p className="text-[10px] text-[var(--text-muted)]">
+              <p className="text-[10px] text-muted">
                 Binding names come from the Worker env (e.g. ASSETS). Store display metadata here for Agent Sam output
                 routing.
               </p>
@@ -317,11 +317,11 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
                   ['captures_prefix', 'Captures prefix'],
                 ] as const
               ).map(([key, label]) => (
-                <label key={key} className="block text-[var(--text-muted)]">
+                <label key={key} className="block text-muted">
                   {label}
                   <input
                     defaultValue={String((r2 as Record<string, string>)[key] || '')}
-                    className="mt-1 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1.5 text-[12px] text-[var(--text-main)]"
+                    className="mt-1 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1.5 text-[12px] text-main"
                     onBlur={(e) =>
                       void patch({
                         r2: { ...r2, [key]: e.target.value.trim() || undefined },
@@ -334,7 +334,7 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-40"
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted hover:text-main disabled:opacity-40"
                 disabled={!r2.public_base_url?.trim()}
                 onClick={() => {
                   const u = String(r2.public_base_url || '').trim();
@@ -347,10 +347,10 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
           </Card>
 
           <Card title="F · Repo / GitHub">
-            <div className="text-[11px] text-[var(--text-muted)] space-y-1">
+            <div className="text-[11px] text-muted space-y-1">
               <div>
                 Workspace repo field:{' '}
-                <span className="font-mono text-[var(--text-main)]">{String(ws.github_repo || '—')}</span>
+                <span className="font-mono text-main">{String(ws.github_repo || '—')}</span>
               </div>
               <div>
                 GitHub integration:{' '}
@@ -368,11 +368,11 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
                   ['pr_preference', 'PR / push preference'],
                 ] as const
               ).map(([key, label]) => (
-                <label key={key} className="block text-[var(--text-muted)]">
+                <label key={key} className="block text-muted">
                   {label}
                   <input
                     defaultValue={String((ghPipe as Record<string, string>)[key] || '')}
-                    className="mt-1 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1.5 text-[12px] text-[var(--text-main)]"
+                    className="mt-1 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1.5 text-[12px] text-main"
                     onBlur={(e) =>
                       void patch({
                         github: { ...ghPipe, [key]: e.target.value.trim() || undefined },
@@ -385,13 +385,13 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
           </Card>
 
           <Card title="G · Agent Sam CMS permissions">
-            <p className="text-[10px] text-[var(--text-muted)]">
+            <p className="text-[10px] text-muted">
               Stored under <code className="font-mono">cms_pipeline.agent_sam_cms</code>. Unchecked means “off” unless you
               set defaults elsewhere.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {AGENT_KEYS.map(({ key, label }) => (
-                <label key={key} className="flex items-center gap-2 text-[11px] text-[var(--text-main)]">
+                <label key={key} className="flex items-center gap-2 text-[11px] text-main">
                   <input
                     type="checkbox"
                     checked={agentSam[key] === true || agentSam[key] === 1}
@@ -408,13 +408,13 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
           </Card>
 
           <Card title="H · BrowserView + Monaco CMS editing">
-            <p className="text-[10px] text-[var(--text-muted)] mb-2">
+            <p className="text-[10px] text-muted mb-2">
               Capability flags for the realtime loop (BrowserView → ChatAssistant → Monaco). If integrations are not
               wired, leave these off — Agent Sam reads workspace metadata only.
             </p>
             <div className="grid grid-cols-1 gap-2">
               {BROWSER_MONACO_KEYS.map(({ key, label }) => (
-                <label key={key} className="flex items-center gap-2 text-[11px] text-[var(--text-main)]">
+                <label key={key} className="flex items-center gap-2 text-[11px] text-main">
                   <input
                     type="checkbox"
                     checked={bm[key] === true || bm[key] === 1}
@@ -428,7 +428,7 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
                 </label>
               ))}
             </div>
-            <label className="flex items-center gap-2 text-[11px] text-[var(--text-muted)] mt-2">
+            <label className="flex items-center gap-2 text-[11px] text-muted mt-2">
               <input
                 type="checkbox"
                 checked={pipe.validation?.require_approval_publish === true}
@@ -447,10 +447,10 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
 
           <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] overflow-hidden">
             <div className="px-4 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-app)] flex items-center justify-between">
-              <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+              <div className="text-[10px] font-black uppercase tracking-widest text-muted">
                 Members
               </div>
-              <span className="text-[10px] text-[var(--text-muted)]">
+              <span className="text-[10px] text-muted">
                 {Array.isArray(wd.members) ? wd.members.length : 0}
               </span>
             </div>
@@ -461,7 +461,7 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
                   ? 'text-[var(--color-warning)]'
                   : role === 'admin'
                     ? 'text-[var(--solar-blue)]'
-                    : 'text-[var(--text-muted)]';
+                    : 'text-muted';
               return (
                 <div
                   key={String(m.user_id)}
@@ -472,10 +472,10 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
                       {initialsFromDisplayName(String(m.display_name || m.email || '?'))}
                     </div>
                     <div className="min-w-0">
-                      <div className="text-[12px] text-[var(--text-main)] truncate">
+                      <div className="text-[12px] text-main truncate">
                         {String(m.display_name || '—')}
                       </div>
-                      <div className="text-[10px] text-[var(--text-muted)] truncate">
+                      <div className="text-[10px] text-muted truncate">
                         {String(m.email || '—')}
                       </div>
                     </div>
@@ -491,25 +491,25 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
           </div>
 
           <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
-            <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+            <div className="text-[10px] font-black uppercase tracking-widest text-muted">
               Limits
             </div>
             <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px]">
               <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3">
-                <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
+                <div className="text-[10px] text-muted uppercase tracking-wider">
                   Max daily cost
                 </div>
-                <div className="mt-1 text-[12px] text-[var(--text-main)] font-mono">
+                <div className="mt-1 text-[12px] text-main font-mono">
                   {ws.max_daily_cost_usd != null
                     ? `$${Number(ws.max_daily_cost_usd).toFixed(2)} / day`
                     : 'No limits configured'}
                 </div>
               </div>
               <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3">
-                <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
+                <div className="text-[10px] text-muted uppercase tracking-wider">
                   Max members
                 </div>
-                <div className="mt-1 text-[12px] text-[var(--text-main)] font-mono">
+                <div className="mt-1 text-[12px] text-main font-mono">
                   {ws.max_members != null
                     ? `${Number(ws.max_members)} members`
                     : 'No limits configured'}
@@ -520,13 +520,13 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
 
           <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
             <div className="flex items-center justify-between">
-              <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+              <div className="text-[10px] font-black uppercase tracking-widest text-muted">
                 Code index
               </div>
               <button
                 type="button"
                 onClick={() => void data.postWorkspaceReindex()}
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted hover:text-main"
               >
                 Re-index
               </button>
@@ -543,7 +543,7 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
                           ? 'text-[var(--color-success)]'
                           : st === 'error'
                             ? 'text-[var(--color-danger)]'
-                            : 'text-[var(--text-muted)]';
+                            : 'text-muted';
                     const label =
                       st === 'running'
                         ? 'Indexing…'
@@ -560,7 +560,7 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
                       </span>
                     );
                   })()}
-                  <span className="text-[10px] text-[var(--text-muted)]">
+                  <span className="text-[10px] text-muted">
                     {Number(wd.indexJob.indexed_file_count || 0)} / {Number(wd.indexJob.file_count || 0)} files
                   </span>
                 </div>
@@ -574,7 +574,7 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
                     />
                   </div>
                 ) : null}
-                <div className="mt-2 text-[10px] text-[var(--text-muted)]">
+                <div className="mt-2 text-[10px] text-muted">
                   Last sync: {wd.indexJob.last_sync_at ? relativeTime(wd.indexJob.last_sync_at) : 'Never'}
                 </div>
                 {wd.indexJob.last_error ? (
@@ -584,7 +584,7 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
                 ) : null}
               </div>
             ) : (
-              <div className="mt-3 text-[11px] text-[var(--text-muted)]">No index job found.</div>
+              <div className="mt-3 text-[11px] text-muted">No index job found.</div>
             )}
           </div>
         </div>

@@ -172,7 +172,7 @@ function AssetSelector({ assets, value, onChange, label }: {
 }) {
   return (
     <div className="space-y-1">
-      <label className="text-[9px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">{label}</label>
+      <label className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted">{label}</label>
       <div className="relative">
         <select value={value} onChange={(e) => onChange(e.target.value)}
           className="w-full appearance-none pl-2.5 pr-7 py-2 rounded-lg text-[11px] focus:outline-none"
@@ -180,7 +180,7 @@ function AssetSelector({ assets, value, onChange, label }: {
           <option value="">— none —</option>
           {assets.map((a) => <option key={a.id} value={a.url}>{a.name}</option>)}
         </select>
-        <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--text-muted)]" />
+        <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-muted" />
       </div>
     </div>
   );
@@ -190,7 +190,7 @@ function PresetSelector({ engine, onSelect }: { engine: Engine; onSelect: (scrip
   const presets = presetsFor(engine);
   return (
     <div className="space-y-1">
-      <label className="text-[9px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">Preset scripts</label>
+      <label className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted">Preset scripts</label>
       <div className="relative">
         <select defaultValue="" onChange={(e) => {
           const p = presets.find((x) => x.label === e.target.value);
@@ -202,7 +202,7 @@ function PresetSelector({ engine, onSelect }: { engine: Engine; onSelect: (scrip
           <option value="" disabled>Load a preset…</option>
           {presets.map((p) => <option key={p.label} value={p.label}>{p.label}</option>)}
         </select>
-        <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--text-muted)]" />
+        <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-muted" />
       </div>
     </div>
   );
@@ -326,8 +326,8 @@ function OpenScadEnginePanel({ cad, onScriptUpdate }: { cad: CadHook; onScriptUp
         </div>
       ) : (
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <span className="text-[10px] text-[var(--text-muted)]">
-            Blueprint: <span className="text-[var(--text-main)] font-medium">{cad.activeBlueprint?.title}</span>
+          <span className="text-[10px] text-muted">
+            Blueprint: <span className="text-main font-medium">{cad.activeBlueprint?.title}</span>
           </span>
           {jobStatus && <JobPill status={jobStatus} progress={progressPct} />}
         </div>
@@ -470,7 +470,7 @@ function BlenderEnginePanel({ customAssets }: { customAssets: CustomAsset[] }) {
           Blender Python API <ExternalLink size={9} />
         </a>
         <a href="https://docs.blender.org/manual/en/latest/advanced/scripting/" target="_blank" rel="noopener noreferrer"
-          className="flex items-center gap-1 text-[9px] text-[var(--text-muted)] hover:underline">
+          className="flex items-center gap-1 text-[9px] text-muted hover:underline">
           Scripting docs <ExternalLink size={9} />
         </a>
       </div>

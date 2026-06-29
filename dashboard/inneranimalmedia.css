@@ -172,6 +172,29 @@ body {
   background-color: color-mix(in srgb, var(--solar-cyan) 50%, transparent);
 }
 
+/* Dashboard chrome — remap token text utilities inside topbar/sidebar (no nested arbitrary Tailwind) */
+.iam-chrome-topbar {
+  background: var(--dashboard-topbar);
+  color: var(--dashboard-topbar-text);
+}
+.iam-chrome-topbar .text-main {
+  color: var(--dashboard-topbar-text);
+}
+.iam-chrome-topbar .text-muted {
+  color: var(--text-nav-muted, var(--dashboard-muted));
+}
+
+.iam-chrome-sidebar {
+  background: var(--dashboard-sidebar);
+  color: var(--dashboard-sidebar-text, var(--dashboard-text));
+}
+.iam-chrome-sidebar .text-main {
+  color: var(--dashboard-sidebar-text, var(--dashboard-text));
+}
+.iam-chrome-sidebar .text-muted {
+  color: var(--dashboard-sidebar-muted, var(--dashboard-muted));
+}
+
 @keyframes slide-up {
   from { transform: translateY(10px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }

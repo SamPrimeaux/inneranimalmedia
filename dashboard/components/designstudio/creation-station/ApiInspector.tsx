@@ -18,17 +18,17 @@ export function ApiInspector({ request, response, open, onToggle }: Props) {
   return (
     <aside className="flex flex-col flex-1 min-h-0 w-full bg-[var(--bg-panel)]">
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--border-subtle)]">
-        <span className="text-[11px] font-semibold text-[var(--text-muted)]">API</span>
-        <button type="button" onClick={onToggle} className="p-1 text-[var(--text-muted)] hover:text-[var(--text-main)]">
+        <span className="text-[11px] font-semibold text-muted">API</span>
+        <button type="button" onClick={onToggle} className="p-1 text-muted hover:text-main">
           <X size={14} />
         </button>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-3 space-y-4">
         <section>
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] font-semibold uppercase text-[var(--text-muted)]">Request</span>
+            <span className="text-[10px] font-semibold uppercase text-muted">Request</span>
             {request ? (
-              <button type="button" onClick={() => copy(request)} className="text-[var(--text-muted)] hover:text-[var(--solar-cyan)]">
+              <button type="button" onClick={() => copy(request)} className="text-muted hover:text-[var(--solar-cyan)]">
                 <Copy size={12} />
               </button>
             ) : null}
@@ -46,9 +46,9 @@ export function ApiInspector({ request, response, open, onToggle }: Props) {
         </section>
         <section>
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] font-semibold uppercase text-[var(--text-muted)]">Response</span>
+            <span className="text-[10px] font-semibold uppercase text-muted">Response</span>
             {response ? (
-              <button type="button" onClick={() => copy(response)} className="text-[var(--text-muted)] hover:text-[var(--solar-cyan)]">
+              <button type="button" onClick={() => copy(response)} className="text-muted hover:text-[var(--solar-cyan)]">
                 <Copy size={12} />
               </button>
             ) : null}

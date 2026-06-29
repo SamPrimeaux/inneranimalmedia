@@ -9,10 +9,10 @@ export function RulesSkillsCommandsTab({ data }: { data: SettingsPanelModel }) {
         <div className="text-[11px] text-[var(--color-danger)]">{data.commandsError2}</div>
       ) : null}
       {data.commandsLoading2 ? (
-        <div className="text-[12px] text-[var(--text-muted)]">Loading commands…</div>
+        <div className="text-[12px] text-muted">Loading commands…</div>
       ) : null}
       <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] overflow-hidden">
-        <div className="grid grid-cols-6 gap-0 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
+        <div className="grid grid-cols-6 gap-0 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-muted border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
           <div className="col-span-2">Slug</div>
           <div className="col-span-2">Name</div>
           <div className="col-span-1">Risk</div>
@@ -28,7 +28,7 @@ export function RulesSkillsCommandsTab({ data }: { data: SettingsPanelModel }) {
                 ? 'text-[var(--color-warning)] border-[var(--color-warning)]/30 bg-[var(--color-warning)]/5'
                 : risk === 'low'
                   ? 'text-[var(--solar-blue)] border-[var(--solar-blue)]/30 bg-[var(--solar-blue)]/5'
-                  : 'text-[var(--text-muted)] border-[var(--border-subtle)] bg-[var(--bg-app)]';
+                  : 'text-muted border-[var(--border-subtle)] bg-[var(--bg-app)]';
           return (
             <div key={id} className="border-b border-[var(--border-subtle)]">
               <button
@@ -39,7 +39,7 @@ export function RulesSkillsCommandsTab({ data }: { data: SettingsPanelModel }) {
                 <div className="col-span-2 font-mono text-[11px] text-[var(--solar-cyan)] truncate">
                   {String(c.slug || '')}
                 </div>
-                <div className="col-span-2 text-[11px] text-[var(--text-main)] truncate">
+                <div className="col-span-2 text-[11px] text-main truncate">
                   {String(c.display_name || '')}
                 </div>
                 <div className="col-span-1">
@@ -63,8 +63,8 @@ export function RulesSkillsCommandsTab({ data }: { data: SettingsPanelModel }) {
                 </div>
               </button>
               {data.expandedCommandId === id && (
-                <div className="px-4 pb-4 text-[11px] text-[var(--text-muted)]">
-                  <div className="mt-2 text-[var(--text-main)]">{String(c.description || '')}</div>
+                <div className="px-4 pb-4 text-[11px] text-muted">
+                  <div className="mt-2 text-main">{String(c.description || '')}</div>
                   {c.usage_hint ? (
                     <pre className="mt-3 p-3 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[10px] overflow-auto">
                       {String(c.usage_hint)}
@@ -82,7 +82,7 @@ export function RulesSkillsCommandsTab({ data }: { data: SettingsPanelModel }) {
                       })().map((m: unknown) => (
                         <span
                           key={String(m)}
-                          className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-muted)] font-mono"
+                          className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-muted font-mono"
                         >
                           {String(m)}
                         </span>

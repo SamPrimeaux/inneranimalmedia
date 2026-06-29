@@ -33,7 +33,7 @@ export function RulesSkillsIntro({ tab }: { tab: 'skills' | 'subagents' | 'comma
         </div>
         <div className="min-w-0">
           <div className="text-[13px] font-semibold text-[var(--text-heading)]">{copy.title}</div>
-          <p className="text-[11px] text-[var(--text-muted)] leading-relaxed mt-1">{copy.body}</p>
+          <p className="text-[11px] text-muted leading-relaxed mt-1">{copy.body}</p>
         </div>
       </div>
     </div>
@@ -55,7 +55,7 @@ export function ApplyModeBadge({ mode, globs }: { mode?: string; globs?: string 
         {label}
       </span>
       {m === 'glob' && globs ? (
-        <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-muted)] font-mono truncate max-w-[220px]">
+        <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-muted font-mono truncate max-w-[220px]">
           {globs}
         </span>
       ) : null}
@@ -66,7 +66,7 @@ export function ApplyModeBadge({ mode, globs }: { mode?: string; globs?: string 
 export function RulesSkillsEmpty({ message, action }: { message: string; action?: React.ReactNode }) {
   return (
     <div className="rounded-2xl border border-dashed border-[var(--border-subtle)] bg-[var(--bg-app)]/50 px-6 py-10 text-center">
-      <p className="text-[12px] text-[var(--text-muted)]">{message}</p>
+      <p className="text-[12px] text-muted">{message}</p>
       {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
     </div>
   );

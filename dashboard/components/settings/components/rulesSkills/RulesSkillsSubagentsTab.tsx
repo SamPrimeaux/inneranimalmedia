@@ -19,7 +19,7 @@ export function RulesSkillsSubagentsTab({ data }: { data: SettingsPanelModel }) 
       ) : null}
 
       {data.subagentsLoading ? (
-        <div className="text-[12px] text-[var(--text-muted)] animate-pulse">Loading subagents…</div>
+        <div className="text-[12px] text-muted animate-pulse">Loading subagents…</div>
       ) : null}
 
       {!data.subagentsLoading && !data.subagentsError && (data.subagents || []).length === 0 ? (
@@ -39,7 +39,7 @@ export function RulesSkillsSubagentsTab({ data }: { data: SettingsPanelModel }) 
 
       {!data.subagentsLoading && (data.subagents || []).length > 0 ? (
         <>
-          <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
+          <div className="flex items-center justify-between text-[10px] text-muted uppercase tracking-wider">
             <span>
               {activeCount} active · {(data.subagents || []).length} total
             </span>
@@ -64,23 +64,23 @@ export function RulesSkillsSubagentsTab({ data }: { data: SettingsPanelModel }) 
                       {String(sa.display_name || sa.id || '?')[0]?.toUpperCase?.() || '?'}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="text-[12px] font-semibold text-[var(--text-main)] truncate">
+                      <div className="text-[12px] font-semibold text-main truncate">
                         {String(sa.display_name || sa.id || '')}
                       </div>
-                      <div className="text-[10px] text-[var(--text-muted)] truncate font-mono">
+                      <div className="text-[10px] text-muted truncate font-mono">
                         {String(sa.slug || '')}
                         {sa.description ? ` · ${String(sa.description)}` : ''}
                       </div>
                     </div>
                     <ChevronRight
                       size={14}
-                      className={`shrink-0 text-[var(--text-muted)] transition-transform ${
+                      className={`shrink-0 text-muted transition-transform ${
                         isEditing ? 'rotate-90 text-[var(--solar-cyan)]' : 'opacity-0 group-hover:opacity-100'
                       }`}
                     />
                   </button>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-muted)] font-black uppercase tracking-widest hidden sm:inline">
+                    <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-muted font-black uppercase tracking-widest hidden sm:inline">
                       {String(sa.agent_type || 'custom')}
                     </span>
                     <Toggle
@@ -99,7 +99,7 @@ export function RulesSkillsSubagentsTab({ data }: { data: SettingsPanelModel }) 
                       className={`px-3 py-1.5 rounded-lg border text-[11px] ${
                         isEditing
                           ? 'border-[var(--solar-cyan)]/40 text-[var(--solar-cyan)] bg-[var(--solar-cyan)]/10'
-                          : 'border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                          : 'border-[var(--border-subtle)] text-muted hover:text-main'
                       }`}
                     >
                       {isEditing ? 'Editing' : 'Edit'}

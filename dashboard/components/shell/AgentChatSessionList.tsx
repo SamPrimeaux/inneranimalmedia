@@ -56,7 +56,7 @@ export const AgentChatSessionList: FC<{
             active ? 'bg-[var(--bg-elevated)] border-l-2 border-l-[var(--solar-cyan)]' : ''
           }`}
         >
-          <div className="truncate text-[11px] font-medium text-[var(--text-main)] pr-6">
+          <div className="truncate text-[11px] font-medium text-main pr-6">
             {sessionDisplayTitle(s)}
           </div>
         </button>
@@ -78,14 +78,14 @@ export const AgentChatSessionList: FC<{
   if (loading) {
     return (
       <div className={`flex justify-center ${variant === 'sidebar' ? 'py-2' : 'py-4'}`}>
-        <Loader2 size={16} className="animate-spin text-[var(--text-muted)]" />
+        <Loader2 size={16} className="animate-spin text-muted" />
       </div>
     );
   }
 
   if (!sessions.length) {
     return (
-      <p className="px-2 text-[10px] text-[var(--text-muted)] leading-snug">
+      <p className="px-2 text-[10px] text-muted leading-snug">
         Send a message in Agent Sam to start a chat.
       </p>
     );
@@ -95,14 +95,14 @@ export const AgentChatSessionList: FC<{
     <div className="flex flex-col gap-2 min-h-0 max-h-[42vh] overflow-y-auto chat-hide-scroll px-1">
       {starred.length > 0 ? (
         <div>
-          <div className="px-1 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] opacity-70">
+          <div className="px-1 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-muted opacity-70">
             Starred
           </div>
           {starred.map((s) => renderRow(s))}
         </div>
       ) : null}
       <div>
-        <div className="px-1 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] opacity-70">
+        <div className="px-1 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-muted opacity-70">
           Recents
         </div>
         {recents.slice(0, RECENT_TEASER_LIMIT).map((s) => renderRow(s))}

@@ -85,7 +85,7 @@ export const categoryIcon = (cat: string) => {
     search: { icon: <Search size={14} />, color: 'text-[var(--solar-violet)]' },
   };
   const key = Object.keys(map).find((k) => cat?.toLowerCase().includes(k));
-  return key ? map[key] : { icon: <Wrench size={14} />, color: 'text-[var(--text-muted)]' };
+  return key ? map[key] : { icon: <Wrench size={14} />, color: 'text-muted' };
 };
 
 export const Toggle: React.FC<{ on: boolean; onChange: (v: boolean) => void }> = ({ on, onChange }) => (

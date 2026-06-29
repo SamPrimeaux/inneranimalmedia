@@ -19,17 +19,17 @@ export const EmptyTelemetryCard: React.FC<EmptyTelemetryCardProps> = ({
     <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 text-[13px]">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">{dataSourceKey}</div>
+          <div className="text-[11px] uppercase tracking-wide text-muted">{dataSourceKey}</div>
           <div className="text-[var(--text)] font-semibold">{title}</div>
         </div>
-        <div className="text-[11px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] bg-[var(--bg-canvas)]">
+        <div className="text-[11px] px-2 py-1 rounded border border-[var(--border-subtle)] text-muted bg-[var(--bg-canvas)]">
           {status}
         </div>
       </div>
-      <div className="mt-2 text-[var(--text-muted)] leading-relaxed">{reason}</div>
+      <div className="mt-2 text-muted leading-relaxed">{reason}</div>
       {suggestedAction ? (
         <div className="mt-2 text-[12px] text-[var(--text)]">
-          <span className="text-[var(--text-muted)]">Suggested action:</span> {suggestedAction}
+          <span className="text-muted">Suggested action:</span> {suggestedAction}
         </div>
       ) : null}
     </div>

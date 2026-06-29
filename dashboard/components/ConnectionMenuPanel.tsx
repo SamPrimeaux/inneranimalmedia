@@ -103,7 +103,7 @@ export function ConnectionMenuPanel({
       aria-label="Terminal connection options"
       footer={
         <>
-          <div className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] border-b border-[var(--border-subtle)]/30 flex items-center gap-3">
+          <div className="px-3 py-1.5 text-[10px] text-muted border-b border-[var(--border-subtle)]/30 flex items-center gap-3">
             <span>↑↓ to navigate</span>
             <span>↵ to select</span>
           </div>
@@ -124,12 +124,12 @@ export function ConnectionMenuPanel({
           onChange={(e) => setFilter(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder="Filter connections…"
-          className="w-full bg-transparent text-[0.6875rem] text-[var(--text-main)] placeholder:text-[var(--text-muted)] outline-none px-1 py-1 font-[var(--font-sans)]"
+          className="w-full bg-transparent text-[0.6875rem] text-main placeholder:text-muted outline-none px-1 py-1 font-[var(--font-sans)]"
         />
       </div>
       <div className="py-1 overflow-y-auto flex-1 min-h-0">
         {filtered.length === 0 ? (
-          <div className="px-3 py-4 text-[0.6875rem] text-[var(--text-muted)] text-center">
+          <div className="px-3 py-4 text-[0.6875rem] text-muted text-center">
             No matches
           </div>
         ) : (

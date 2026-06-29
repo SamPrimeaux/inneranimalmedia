@@ -32,7 +32,7 @@ function PreviewShell({
 }) {
   return (
     <div className="flex flex-col h-full w-full bg-[var(--scene-bg)]">
-      <div className="h-8 flex items-center justify-between px-3 border-b border-[var(--dashboard-border)] shrink-0 text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
+      <div className="h-8 flex items-center justify-between px-3 border-b border-[var(--dashboard-border)] shrink-0 text-[10px] uppercase tracking-widest text-muted">
         <span className="truncate font-mono">{name}</span>
         <span className="opacity-60 shrink-0 ml-2">
           {contentType || 'media'} · {formatBytes(size)}
@@ -133,10 +133,10 @@ export const FilePreview: React.FC<FilePreviewProps> = ({
         <div className="max-w-md w-full rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] p-6 text-center space-y-4">
           <FileWarning size={40} className="mx-auto text-[var(--solar-yellow)] opacity-80" />
           <h3 className="text-sm font-semibold text-[var(--solar-base0)] truncate">{name}</h3>
-          <p className="text-xs text-[var(--text-muted)]">
+          <p className="text-xs text-muted">
             {message || 'Binary file — preview not available in the editor.'}
           </p>
-          <dl className="text-left text-[11px] text-[var(--text-muted)] space-y-1 font-mono">
+          <dl className="text-left text-[11px] text-muted space-y-1 font-mono">
             <div>
               <dt className="inline opacity-60">Type: </dt>
               <dd className="inline">{contentType || 'unknown'}</dd>

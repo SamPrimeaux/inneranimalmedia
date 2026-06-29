@@ -31,7 +31,7 @@ function SectionCard({
   return (
     <section className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)]/80 p-5 flex flex-col gap-4">
       <div className="border-b border-[var(--border-subtle)]/60 pb-2 flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted">
           {title}
         </h3>
         {action}
@@ -42,7 +42,7 @@ function SectionCard({
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <span className="text-[11px] text-[var(--text-muted)]">{children}</span>;
+  return <span className="text-[11px] text-muted">{children}</span>;
 }
 
 function ToggleRow({
@@ -61,8 +61,8 @@ function ToggleRow({
   return (
     <div className="flex items-center justify-between gap-3 py-2 border-b border-[var(--border-subtle)]/40 last:border-0">
       <div className="min-w-0">
-        <div className="text-[12px] font-semibold text-[var(--text-main)]">{label}</div>
-        {desc ? <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{desc}</div> : null}
+        <div className="text-[12px] font-semibold text-main">{label}</div>
+        {desc ? <div className="text-[11px] text-muted mt-0.5">{desc}</div> : null}
       </div>
       <DisabledToggleWrap disabled={disabled}>
         <Toggle on={on} onChange={onChange} />
@@ -77,7 +77,7 @@ function DisabledToggleWrap({ disabled, children }: { disabled?: boolean; childr
 }
 
 const selectClass =
-  'rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-[var(--text-main)] w-full disabled:opacity-40';
+  'rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-main w-full disabled:opacity-40';
 
 export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
   const navigate = useNavigate();
@@ -172,7 +172,7 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
             type="button"
             disabled={data.agentsLoading}
             onClick={() => void data.loadAgentsSettings(workspaceId)}
-            className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-40"
+            className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted hover:text-main disabled:opacity-40"
           >
             Refresh
           </button>
@@ -193,7 +193,7 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
         </div>
       ) : null}
 
-      <div className="text-[11px] text-[var(--text-muted)]">
+      <div className="text-[11px] text-muted">
         Workspace scope:{' '}
         <code className="font-mono text-[var(--solar-cyan)]">
           {data.agentsWorkspaceId || workspaceId || '—'}
@@ -201,7 +201,7 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
       </div>
 
       {data.agentsLoading && !policy ? (
-        <div className="text-[12px] text-[var(--text-muted)]">Loading…</div>
+        <div className="text-[12px] text-muted">Loading…</div>
       ) : null}
 
       {policy ? (
@@ -288,7 +288,7 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
               <button
                 type="button"
                 onClick={composeSubagentSetupInChat}
-                className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 transition-colors"
+                className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 transition-colors"
                 title="Create subagent via chat"
                 aria-label="Create subagent via chat"
               >
@@ -300,7 +300,7 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-[11px] border-collapse">
                   <thead>
-                    <tr className="text-[var(--text-muted)] uppercase tracking-wider border-b border-[var(--border-subtle)]">
+                    <tr className="text-muted uppercase tracking-wider border-b border-[var(--border-subtle)]">
                       <th className="py-2 pr-2">Active</th>
                       <th className="py-2 pr-2">Slug</th>
                       <th className="py-2 pr-2">Name</th>
@@ -329,10 +329,10 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
                             {slug || '—'}
                           </td>
                           <td className="py-2 pr-2">{String(row.display_name || '')}</td>
-                          <td className="py-2 pr-2 font-mono text-[var(--text-muted)]">
+                          <td className="py-2 pr-2 font-mono text-muted">
                             {String(row.default_model_id || '—')}
                           </td>
-                          <td className="py-2 pr-2 text-[var(--text-muted)]">
+                          <td className="py-2 pr-2 text-muted">
                             {String(row.sandbox_mode ?? row.access_mode ?? '—')}
                           </td>
                           <td className="py-2">
@@ -355,7 +355,7 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
                 </table>
               </div>
             ) : (
-              <div className="text-[12px] text-[var(--text-muted)]">No subagent profiles yet.</div>
+              <div className="text-[12px] text-muted">No subagent profiles yet.</div>
             )}
           </SectionCard>
 
@@ -548,7 +548,7 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
                 onChange={(e) => patchSettingsJson({ branch_prefix: e.target.value })}
                 className={selectClass}
               />
-              <span className="text-[10px] text-[var(--text-muted)] mt-1">
+              <span className="text-[10px] text-muted mt-1">
                 Prefix for new branches created by Agent Sam (e.g., agentsam/, username/)
               </span>
             </label>

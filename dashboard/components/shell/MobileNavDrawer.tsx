@@ -12,6 +12,7 @@ type MobileNavDrawerProps = {
   activeConversationId?: string | null;
   workspaceLabel?: string | null;
   avatarInitial?: string | null;
+  avatarUrl?: string | null;
   workspaceSubtitle?: string | null;
 };
 
@@ -26,6 +27,7 @@ export function MobileNavDrawer({
   activeConversationId,
   workspaceLabel,
   avatarInitial,
+  avatarUrl,
   workspaceSubtitle,
 }: MobileNavDrawerProps) {
   useEffect(() => {
@@ -74,6 +76,7 @@ export function MobileNavDrawer({
           activeConversationId={activeConversationId}
           workspaceLabel={workspaceLabel}
           avatarInitial={avatarInitial}
+          avatarUrl={avatarUrl}
           workspaceSubtitle={workspaceSubtitle}
         />
       </nav>

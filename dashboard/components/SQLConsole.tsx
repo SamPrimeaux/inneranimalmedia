@@ -153,7 +153,7 @@ export const SQLConsole: React.FC<SQLConsoleProps> = ({
           <button
             type="button"
             onClick={() => setSql('')}
-            className="p-1 px-2 hover:bg-[var(--bg-hover)] rounded text-[var(--text-muted)] hover:text-white transition-colors"
+            className="p-1 px-2 hover:bg-[var(--bg-hover)] rounded text-muted hover:text-white transition-colors"
           >
             <RotateCcw size={13} />
           </button>
@@ -162,14 +162,14 @@ export const SQLConsole: React.FC<SQLConsoleProps> = ({
           <button
             type="button"
             onClick={() => onSaveSnippet?.(sqlRef.current)}
-            className="p-1 text-[var(--text-muted)] hover:text-white"
+            className="p-1 text-muted hover:text-white"
             title="Save snippet"
           >
             <Save size={13} />
           </button>
           <button
             type="button"
-            className="p-1 text-[var(--text-muted)] hover:text-white"
+            className="p-1 text-muted hover:text-white"
             title="Reset starter SQL"
             onClick={() => {
               const next = DEFAULT_SQL[dialect];
@@ -189,7 +189,7 @@ export const SQLConsole: React.FC<SQLConsoleProps> = ({
       >
         <Suspense
           fallback={
-            <div className="flex flex-1 items-center justify-center text-[11px] text-[var(--text-muted)]">
+            <div className="flex flex-1 items-center justify-center text-[11px] text-muted">
               Loading editor…
             </div>
           }
@@ -209,7 +209,7 @@ export const SQLConsole: React.FC<SQLConsoleProps> = ({
 
       {/* Results Area */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <div className="px-4 py-1.5 bg-[var(--bg-app)] border-b border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-2 text-[10px] font-bold tracking-widest uppercase text-[var(--text-muted)]">
+        <div className="px-4 py-1.5 bg-[var(--bg-app)] border-b border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-2 text-[10px] font-bold tracking-widest uppercase text-muted">
           <span>Results</span>
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             {executionTime > 0 && <span className="text-[var(--solar-cyan)]">{executionTime}ms</span>}

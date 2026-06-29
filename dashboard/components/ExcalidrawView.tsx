@@ -196,7 +196,7 @@ export const ExcalidrawView: React.FC = () => {
 
     if (!initialDataLoaded || !stylesReady || !ExcalidrawComp) {
         return (
-            <div className="flex-1 flex items-center justify-center text-[var(--text-muted)] text-sm">
+            <div className="flex-1 flex items-center justify-center text-muted text-sm">
                 Loading canvas…
             </div>
         );

@@ -131,7 +131,7 @@ export function ArtifactTypeIcon({ artifact, className = '' }: Props) {
       className={`flex items-center justify-center rounded-lg bg-[var(--dashboard-panel)] border border-[var(--dashboard-border)] ${className}`}
       title={formatArtifactType(artifact.artifact_type)}
     >
-      <Icon size={28} className="text-[var(--text-muted)] opacity-90" aria-hidden />
+      <Icon size={28} className="text-muted opacity-90" aria-hidden />
     </div>
   );
 }

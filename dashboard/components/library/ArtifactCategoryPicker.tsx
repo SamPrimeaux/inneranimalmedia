@@ -30,11 +30,11 @@ export function ArtifactCategoryPicker({ open, onClose, onStarted }: Props) {
             <h2 id="artifact-category-title" className="text-lg font-semibold text-[var(--text-primary)] tracking-tight">
               Let&apos;s get cooking
             </h2>
-            <p className="text-sm text-[var(--text-muted)] mt-0.5">Pick a starting point — Agent Sam opens on this page.</p>
+            <p className="text-sm text-muted mt-0.5">Pick a starting point — Agent Sam opens on this page.</p>
           </div>
           <button
             type="button"
-            className="shrink-0 p-2 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)]"
+            className="shrink-0 p-2 rounded-lg hover:bg-[var(--bg-hover)] text-muted"
             aria-label="Close"
             onClick={onClose}
           >
@@ -68,7 +68,7 @@ export function ArtifactCategoryPicker({ open, onClose, onStarted }: Props) {
                       <span className="block text-sm font-medium text-[var(--text-primary)] group-hover:text-[var(--solar-cyan)]">
                         {cat.title}
                       </span>
-                      <span className="block text-xs text-[var(--text-muted)] mt-1 leading-snug">{cat.subtitle}</span>
+                      <span className="block text-xs text-muted mt-1 leading-snug">{cat.subtitle}</span>
                     </span>
                   </div>
                 </button>
@@ -78,7 +78,7 @@ export function ArtifactCategoryPicker({ open, onClose, onStarted }: Props) {
         </div>
 
         <div
-          className="shrink-0 px-4 sm:px-5 py-3 border-t border-[var(--dashboard-border)] text-[11px] text-[var(--text-muted)] text-center"
+          className="shrink-0 px-4 sm:px-5 py-3 border-t border-[var(--dashboard-border)] text-[11px] text-muted text-center"
           style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
         >
           Chat opens here — use the menu to return to your artifact list on phone.

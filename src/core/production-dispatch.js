@@ -373,6 +373,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleMyContainerExec(request, env);
   }
 
+  if (pathLower === '/api/internal/terminal/sandbox/exec' && methodUpper === 'POST') {
+    const { handleTerminalSandboxExec } = await import('../api/terminal-sandbox-internal.js');
+    return handleTerminalSandboxExec(request, env);
+  }
+
   if (pathLower === '/api/internal/cad-container/health' && methodUpper === 'GET') {
     const { isInternalSecretAuthorized, jsonResponse } = await import('../core/auth.js');
     if (!isInternalSecretAuthorized(request, env)) {

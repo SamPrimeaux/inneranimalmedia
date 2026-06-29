@@ -45,7 +45,7 @@ function Field({
 }) {
   return (
     <label className="grid gap-1 text-[11px]">
-      <span className="text-[var(--text-muted)] uppercase tracking-wide">{label}</span>
+      <span className="text-muted uppercase tracking-wide">{label}</span>
       <div className="flex gap-2 items-center">
         {type === 'color' ? (
           <input
@@ -59,7 +59,7 @@ function Field({
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="flex-1 min-w-0 rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] px-2 py-1.5 text-[12px] text-[var(--text-main)] font-mono"
+          className="flex-1 min-w-0 rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] px-2 py-1.5 text-[12px] text-main font-mono"
         />
       </div>
     </label>
@@ -223,14 +223,14 @@ export function ThemeTweaksPanel({
       >
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-[var(--dashboard-border)] shrink-0">
           <div className="min-w-0">
-            <h4 className="text-sm font-semibold text-[var(--text-main)] truncate">
+            <h4 className="text-sm font-semibold text-main truncate">
               {createMode ? 'New theme' : theme?.name || 'Theme tweaks'}
             </h4>
-            <p className="text-[11px] text-[var(--text-muted)]">Live preview · draft saved locally until Save</p>
+            <p className="text-[11px] text-muted">Live preview · draft saved locally until Save</p>
           </div>
           <button
             type="button"
-            className="text-xs shrink-0 px-2 py-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+            className="text-xs shrink-0 px-2 py-1 rounded-md text-muted hover:text-main hover:bg-[var(--bg-hover)]"
             onClick={onClose}
           >
             Close
@@ -240,7 +240,7 @@ export function ThemeTweaksPanel({
         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 space-y-5 custom-scrollbar">
           <section className="space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted">
                 Cover
               </span>
               <CoverImageAddButton onClick={() => setImagePickerOpen(true)} />
@@ -266,12 +266,12 @@ export function ThemeTweaksPanel({
               value={fields.preview_image_url}
               onChange={(e) => patchField('preview_image_url', e.target.value)}
               placeholder="https://imagedelivery.net/…"
-              className="w-full rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] px-2 py-1.5 text-[11px] font-mono text-[var(--text-main)]"
+              className="w-full rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] px-2 py-1.5 text-[11px] font-mono text-main"
             />
           </section>
 
           <section className="space-y-3">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-muted">
               Identity
             </span>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -279,7 +279,7 @@ export function ThemeTweaksPanel({
               <Field label="Slug" value={fields.slug} onChange={(v) => patchField('slug', v)} />
             </div>
             <label className="grid gap-1 text-[11px]">
-              <span className="text-[var(--text-muted)] uppercase tracking-wide">Family</span>
+              <span className="text-muted uppercase tracking-wide">Family</span>
               <select
                 value={fields.theme_family}
                 onChange={(e) => patchField('theme_family', e.target.value)}
@@ -293,10 +293,10 @@ export function ThemeTweaksPanel({
 
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted">
                 Colors
               </span>
-              <label className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
+              <label className="flex items-center gap-2 text-[11px] text-muted">
                 <input
                   type="checkbox"
                   checked={fields.syncNavShell}
@@ -334,10 +334,10 @@ export function ThemeTweaksPanel({
           </section>
 
           <section className="space-y-3">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-muted">
               Agent home backdrop
             </span>
-            <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+            <p className="text-[11px] text-muted leading-relaxed">
               Flat theme canvas with a tight glow behind the chat input on{' '}
               <code className="text-[var(--solar-cyan)]">/dashboard/agent</code>. Optional backdrop image URLs
               replace the canvas per time-of-day period.
@@ -358,7 +358,7 @@ export function ThemeTweaksPanel({
             </div>
             <div className="grid grid-cols-3 gap-3">
               <label className="grid gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)] uppercase tracking-wide">Vignette %</span>
+                <span className="text-muted uppercase tracking-wide">Vignette %</span>
                 <input
                   type="range"
                   min={0}
@@ -371,7 +371,7 @@ export function ThemeTweaksPanel({
                 />
               </label>
               <label className="grid gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)] uppercase tracking-wide">Grain</span>
+                <span className="text-muted uppercase tracking-wide">Grain</span>
                 <input
                   type="range"
                   min={0}
@@ -385,7 +385,7 @@ export function ThemeTweaksPanel({
                 />
               </label>
               <label className="grid gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)] uppercase tracking-wide">Glass %</span>
+                <span className="text-muted uppercase tracking-wide">Glass %</span>
                 <input
                   type="range"
                   min={0}
@@ -409,27 +409,27 @@ export function ThemeTweaksPanel({
                 ] as const
               ).map(([label, key]) => (
                 <label key={key} className="grid gap-1 text-[11px]">
-                  <span className="text-[var(--text-muted)] uppercase tracking-wide">{label}</span>
+                  <span className="text-muted uppercase tracking-wide">{label}</span>
                   <input
                     type="url"
                     value={agentFields[key]}
                     onChange={(e) => setAgentFields((p) => ({ ...p, [key]: e.target.value }))}
                     placeholder="Leave empty for built-in gradient"
-                    className="w-full rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] px-2 py-1.5 text-[11px] font-mono text-[var(--text-main)]"
+                    className="w-full rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] px-2 py-1.5 text-[11px] font-mono text-main"
                   />
                 </label>
               ))}
             </div>
           </section>
 
-          {msg ? <p className="text-[11px] text-[var(--text-muted)]">{msg}</p> : null}
+          {msg ? <p className="text-[11px] text-muted">{msg}</p> : null}
         </div>
 
         <div className="shrink-0 flex flex-wrap gap-2 p-4 border-t border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]">
           <button
             type="button"
             disabled={busy}
-            className="text-[11px] px-3 py-1.5 rounded-md border border-[var(--dashboard-border)] text-[var(--text-main)] font-medium disabled:opacity-50"
+            className="text-[11px] px-3 py-1.5 rounded-md border border-[var(--dashboard-border)] text-main font-medium disabled:opacity-50"
             onClick={() => void save(false)}
           >
             {busy ? 'Saving…' : 'Save'}

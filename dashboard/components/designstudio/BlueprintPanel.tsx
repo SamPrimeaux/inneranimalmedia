@@ -44,7 +44,7 @@ export function BlueprintPanel({ blueprints, activeBlueprintId, onSelect, onCrea
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <FileText size={14} className="text-[var(--solar-cyan)]" />
-          <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">
+          <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">
             Blueprints
           </p>
         </div>
@@ -88,7 +88,7 @@ export function BlueprintPanel({ blueprints, activeBlueprintId, onSelect, onCrea
 
       {linkedJob && activeBlueprintId ? (
         <div className="flex items-center justify-between gap-2 px-1 py-1 rounded-lg bg-cyan-500/5 border border-cyan-500/15">
-          <span className="text-[9px] text-[var(--text-muted)] uppercase tracking-wide">Pipeline</span>
+          <span className="text-[9px] text-muted uppercase tracking-wide">Pipeline</span>
           <span
             className={`text-[9px] font-black uppercase ${
               linkedJob.status === 'done'
@@ -108,7 +108,7 @@ export function BlueprintPanel({ blueprints, activeBlueprintId, onSelect, onCrea
 
       <div className="max-h-40 overflow-y-auto space-y-1">
         {blueprints.length === 0 && (
-          <p className="text-[10px] text-[var(--text-muted)] px-1">No blueprints yet.</p>
+          <p className="text-[10px] text-muted px-1">No blueprints yet.</p>
         )}
         {blueprints.map((bp) => {
           const id = String(bp.id);
@@ -120,7 +120,7 @@ export function BlueprintPanel({ blueprints, activeBlueprintId, onSelect, onCrea
               onClick={() => onSelect(id)}
               className={`w-full text-left px-2 py-2 rounded-lg border text-[10px] ${
                 active
-                  ? 'bg-cyan-500/10 border-cyan-500/40 text-[var(--text-main)]'
+                  ? 'bg-cyan-500/10 border-cyan-500/40 text-main'
                   : 'bg-[var(--bg-panel)] border-[var(--border-subtle)] hover:border-cyan-500/20'
               }`}
             >
@@ -129,7 +129,7 @@ export function BlueprintPanel({ blueprints, activeBlueprintId, onSelect, onCrea
                 {statusBadge(bp.status)}
               </div>
               {bp.original_prompt ? (
-                <p className="text-[9px] text-[var(--text-muted)] truncate mt-0.5">{bp.original_prompt}</p>
+                <p className="text-[9px] text-muted truncate mt-0.5">{bp.original_prompt}</p>
               ) : null}
             </button>
           );

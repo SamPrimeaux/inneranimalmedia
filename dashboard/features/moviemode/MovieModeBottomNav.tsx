@@ -32,7 +32,7 @@ export function MovieModeBottomNav({ activeTab, projectId }: Props) {
             key={tab.id}
             type="button"
             className={`relative flex flex-1 flex-col items-center justify-center min-h-[52px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${
-              active ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'
+              active ? 'text-[var(--solar-cyan)]' : 'text-muted'
             }`}
             onClick={() => navigate(movieModeTabPath(tab.id, tab.id === 'editor' ? projectId : null))}
           >

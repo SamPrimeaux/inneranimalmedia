@@ -35,7 +35,7 @@ export function OverviewPortablePanels({ pulse, show = true }: Props) {
     >
       <div>
         <div className="text-[12px] font-semibold text-[var(--text)]">Portable contract panels</div>
-        <div className="text-[10px] text-[var(--text-muted)] mt-0.5">
+        <div className="text-[10px] text-muted mt-0.5">
           Shared with agentsam-cms-editor — range {pulse.range || '—'}
         </div>
       </div>
@@ -48,12 +48,12 @@ export function OverviewPortablePanels({ pulse, show = true }: Props) {
 
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
-          <div className="text-[11px] uppercase text-[var(--text-muted)] mb-2">Runs (portable chart)</div>
+          <div className="text-[11px] uppercase text-muted mb-2">Runs (portable chart)</div>
           <ActivityLineChart data={chartData} dataKey="runs" stroke="#38bdf8" />
         </div>
 
         <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
-          <div className="text-[11px] uppercase text-[var(--text-muted)] mb-2">Model leaderboard (portable table)</div>
+          <div className="text-[11px] uppercase text-muted mb-2">Model leaderboard (portable table)</div>
           <SimpleTable
             columns={[
               { key: 'model', header: 'Model', render: (r) => String(r.model ?? '—') },

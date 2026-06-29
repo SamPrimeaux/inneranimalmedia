@@ -74,7 +74,7 @@ export function TweaksPanel({
     <>
       {!embedded && (
         <header className="shrink-0 px-4 pt-4 pb-3 border-b border-[var(--border-subtle)]">
-          <h2 className="text-[15px] font-semibold text-[var(--text-main)]">{title}</h2>
+          <h2 className="text-[15px] font-semibold text-main">{title}</h2>
           {tool === 'text-to-3d' && (
             <div className="flex gap-1 mt-3 p-0.5 rounded-lg" style={{ background: 'var(--bg-hover)' }}>
               {(['preview', 'refine'] as MeshyPhase[]).map((p) => (
@@ -279,7 +279,7 @@ export function TweaksPanel({
             type="button"
             disabled={isGenerating}
             onClick={onQuickGenerate}
-            className="w-full py-2 text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--text-main)]"
+            className="w-full py-2 text-[11px] font-medium text-muted hover:text-main"
           >
             Quick: preview + refine chain
           </button>

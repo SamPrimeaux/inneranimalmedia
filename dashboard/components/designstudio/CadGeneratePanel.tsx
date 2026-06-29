@@ -36,7 +36,7 @@ export function CadGeneratePanel({
     <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-3">
       <div className="flex items-center gap-2">
         <Sparkles size={14} className="text-[var(--solar-violet)]" />
-        <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">
+        <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">
           Generate
         </p>
       </div>

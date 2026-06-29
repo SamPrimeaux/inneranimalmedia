@@ -52,7 +52,7 @@ export function ShellDropdownPanel({
     >
       {title != null ? (
         <div
-          className="iam-shell-dropdown__header shrink-0 px-3.5 py-2.5 text-[0.75rem] font-semibold text-[var(--text-main)] truncate font-[var(--font-sans)]"
+          className="iam-shell-dropdown__header shrink-0 px-3.5 py-2.5 text-[0.75rem] font-semibold text-main truncate font-[var(--font-sans)]"
           style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
         >
           {title}
@@ -110,19 +110,19 @@ export function ShellDropdownRow({
       {icon ? <span className="shrink-0 w-4 h-4 flex items-center justify-center text-[11px]">{icon}</span> : null}
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
-          <span className="text-[0.75rem] text-[var(--text-main)] font-medium truncate font-[var(--font-sans)]">
+          <span className="text-[0.75rem] text-main font-medium truncate font-[var(--font-sans)]">
             {label}
           </span>
           {hint ? (
-            <span className="text-[10.5px] text-[var(--text-muted)] truncate font-[var(--font-sans)]">{hint}</span>
+            <span className="text-[10.5px] text-muted truncate font-[var(--font-sans)]">{hint}</span>
           ) : null}
         </span>
       </span>
       {meta ? (
-        <span className="shrink-0 text-[10.5px] text-[var(--text-muted)] font-[var(--font-sans)]">{meta}</span>
+        <span className="shrink-0 text-[10.5px] text-muted font-[var(--font-sans)]">{meta}</span>
       ) : null}
       {badge ? (
-        <span className="shrink-0 text-[0.5625rem] font-semibold text-[var(--text-muted)] uppercase tracking-wide">
+        <span className="shrink-0 text-[0.5625rem] font-semibold text-muted uppercase tracking-wide">
           {badge}
         </span>
       ) : null}
@@ -159,7 +159,7 @@ export function ShellDropdownDivider() {
 export function ShellDropdownKeyHint() {
   return (
     <div
-      className="px-3.5 py-1.5 text-[10px] text-[var(--text-muted)] flex items-center gap-3 font-[var(--font-sans)]"
+      className="px-3.5 py-1.5 text-[10px] text-muted flex items-center gap-3 font-[var(--font-sans)]"
       style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
     >
       <span>↑↓ to navigate</span>

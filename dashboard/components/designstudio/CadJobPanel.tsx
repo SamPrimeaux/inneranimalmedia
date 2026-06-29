@@ -15,7 +15,7 @@ function statusColor(status?: string) {
   if (s === 'done' || s === 'script_ready') return 'text-emerald-400';
   if (s === 'failed') return 'text-red-400';
   if (s === 'pending' || s === 'running') return 'text-cyan-400';
-  return 'text-[var(--text-muted)]';
+  return 'text-muted';
 }
 
 export function CadJobPanel({ jobs, activeJob, polling, onSelectJob, onDeploy }: Props) {
@@ -25,18 +25,18 @@ export function CadJobPanel({ jobs, activeJob, polling, onSelectJob, onDeploy }:
     <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-3">
       <div className="flex items-center gap-2">
         {polling ? <Loader2 size={14} className="animate-spin text-cyan-400" /> : <Rocket size={14} className="text-[var(--solar-orange)]" />}
-        <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">Jobs</p>
+        <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">Jobs</p>
       </div>
 
       {displayJob ? (
         <div className="p-3 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] space-y-2">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] font-mono text-[var(--text-muted)] truncate">{displayJob.id}</span>
+            <span className="text-[10px] font-mono text-muted truncate">{displayJob.id}</span>
             <span className={`text-[9px] font-black uppercase ${statusColor(displayJob.status)}`}>
               {displayJob.status}
             </span>
           </div>
-          <div className="text-[9px] text-[var(--text-muted)] uppercase">
+          <div className="text-[9px] text-muted uppercase">
             {displayJob.engine}
             {displayJob.status === 'pending' || displayJob.status === 'running' ? ' · execos gcp' : ''}
           </div>
@@ -62,7 +62,7 @@ export function CadJobPanel({ jobs, activeJob, polling, onSelectJob, onDeploy }:
           ) : null}
         </div>
       ) : (
-        <p className="text-[10px] text-[var(--text-muted)]">No jobs yet — generate OpenSCAD or Meshy.</p>
+        <p className="text-[10px] text-muted">No jobs yet — generate OpenSCAD or Meshy.</p>
       )}
 
       {jobs.length > 1 && (
@@ -79,7 +79,7 @@ export function CadJobPanel({ jobs, activeJob, polling, onSelectJob, onDeploy }:
               }`}
             >
               <span className={statusColor(j.status)}>{j.status}</span>
-              <span className="text-[var(--text-muted)] ml-2">{j.engine}</span>
+              <span className="text-muted ml-2">{j.engine}</span>
             </button>
           ))}
         </div>

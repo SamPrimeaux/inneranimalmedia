@@ -32,7 +32,7 @@ function studioDeepLinkParams(params: URLSearchParams): boolean {
 
 function DatabaseStudioFallback() {
   return (
-    <div className="flex h-full min-h-[240px] items-center justify-center gap-2 text-[12px] text-[var(--text-muted)]">
+    <div className="flex h-full min-h-[240px] items-center justify-center gap-2 text-[12px] text-muted">
       <Loader2 size={16} className="animate-spin" />
       Loading Database Studio…
     </div>

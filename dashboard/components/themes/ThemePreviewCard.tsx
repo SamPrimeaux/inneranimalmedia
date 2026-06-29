@@ -101,7 +101,7 @@ export function ThemePreviewCard({
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h4 className="text-sm font-semibold text-[var(--text-main)] truncate">{theme.name}</h4>
+                <h4 className="text-sm font-semibold text-main truncate">{theme.name}</h4>
                 {active ? (
                   <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-[var(--solar-cyan)]/15 text-[var(--solar-cyan)]">
                     Active
@@ -113,8 +113,8 @@ export function ThemePreviewCard({
                   </span>
                 ) : null}
               </div>
-              <p className="text-[11px] text-[var(--text-muted)] font-mono truncate">{theme.slug}</p>
-              <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+              <p className="text-[11px] text-muted font-mono truncate">{theme.slug}</p>
+              <p className="text-[11px] text-muted mt-0.5">
                 {theme.theme_family}
                 {theme.status ? ` · ${theme.status}` : ''}
               </p>
@@ -170,7 +170,7 @@ export function ThemePreviewCard({
                 aria-label="More actions"
                 aria-haspopup="menu"
                 aria-expanded={moreOpen}
-                className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] border border-[var(--dashboard-border)]"
+                className="p-1.5 rounded-md text-muted hover:text-main hover:bg-[var(--bg-hover)] border border-[var(--dashboard-border)]"
                 onClick={() => setMoreOpen((o) => !o)}
               >
                 <MoreHorizontal size={14} />
@@ -197,7 +197,7 @@ export function ThemePreviewCard({
                         key={item.label}
                         type="button"
                         role="menuitem"
-                        className="text-left text-[11px] px-3 py-1.5 text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+                        className="text-left text-[11px] px-3 py-1.5 text-main hover:bg-[var(--bg-hover)]"
                         onClick={() => {
                           setMoreOpen(false);
                           item.onClick(theme);

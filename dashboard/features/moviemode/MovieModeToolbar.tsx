@@ -38,14 +38,14 @@ export const MovieModeToolbar: React.FC<{
       <div className="flex items-center gap-2 px-3 py-2 min-h-[44px]">
         <Clapperboard size={16} className="text-[var(--solar-cyan)] shrink-0" />
         <div className="min-w-0 flex-1">
-          <h1 className="text-sm font-semibold text-[var(--text-main)] truncate">
+          <h1 className="text-sm font-semibold text-main truncate">
             {title || 'MovieMode'}
           </h1>
           {subtitle ? (
-            <p className="text-[10px] text-[var(--text-muted)] truncate">{subtitle}</p>
+            <p className="text-[10px] text-muted truncate">{subtitle}</p>
           ) : null}
         </div>
-        {saving ? <span className="text-[10px] text-[var(--text-muted)]">Saving…</span> : null}
+        {saving ? <span className="text-[10px] text-muted">Saving…</span> : null}
         {extraActions}
         {onExport ? (
           <button
@@ -73,7 +73,7 @@ export const MovieModeToolbar: React.FC<{
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium whitespace-nowrap transition-colors ${
                 active
                   ? 'bg-[var(--bg-hover)] text-[var(--solar-cyan)]'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]/60'
+                  : 'text-muted hover:text-main hover:bg-[var(--bg-hover)]/60'
               }`}
             >
               {tab.icon}

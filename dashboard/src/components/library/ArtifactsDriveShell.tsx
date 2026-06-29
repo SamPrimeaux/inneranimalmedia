@@ -387,9 +387,6 @@ export function ArtifactsDriveShell() {
                 <path d="M20 9a8 8 0 0 0-15-3M4 15a8 8 0 0 0 15 3" />
               </svg>
             </button>
-            <button type="button" className="user-pill">
-              <span className="iam-logo">IA</span>
-            </button>
           </div>
         </header>
 

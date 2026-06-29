@@ -91,7 +91,7 @@ export const SourcePanel: React.FC = () => {
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-8 text-center text-[var(--text-muted)]">
+      <div className="flex flex-col items-center justify-center h-full p-8 text-center text-muted">
         <AlertCircle size={48} className="mb-4 opacity-20" />
         <p className="text-sm mb-4">{error}</p>
         <button
@@ -117,17 +117,17 @@ export const SourcePanel: React.FC = () => {
   const commits = data?.commits ?? [];
 
   return (
-    <div className="flex flex-col h-full bg-[var(--bg-app)] text-[var(--text-main)] overflow-hidden">
+    <div className="flex flex-col h-full bg-[var(--bg-app)] text-main overflow-hidden">
       <div className="flex items-center justify-between p-4 border-b border-[var(--border-subtle)] bg-[var(--bg-panel)]/50">
         <div className="flex items-center gap-2">
-          <Github size={18} className="text-[var(--text-muted)]" />
-          <h2 className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">Source Control</h2>
+          <Github size={18} className="text-muted" />
+          <h2 className="text-xs font-bold uppercase tracking-widest text-muted">Source Control</h2>
         </div>
         <button
           type="button"
           onClick={() => void fetchStatus()}
           disabled={loading}
-          className="p-1.5 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
+          className="p-1.5 rounded-md hover:bg-[var(--bg-hover)] text-muted transition-colors"
           title="Refresh git status"
         >
           <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
@@ -141,22 +141,22 @@ export const SourcePanel: React.FC = () => {
               <GitBranch size={14} />
             </div>
             <div className="min-w-0">
-              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-tighter">Current Branch</div>
+              <div className="text-[10px] text-muted uppercase tracking-tighter">Current Branch</div>
               <div className="text-[13px] font-bold truncate" style={{ fontFamily: 'var(--font-mono)' }}>
                 {branchLabel}
               </div>
             </div>
           </div>
           {data?.repo_full_name ? (
-            <span className="text-[10px] text-[var(--text-muted)] opacity-50 truncate max-w-[40%] ml-2">
+            <span className="text-[10px] text-muted opacity-50 truncate max-w-[40%] ml-2">
               {data.repo_full_name}
             </span>
           ) : null}
-          <ArrowRight size={14} className="text-[var(--text-muted)] opacity-0 group-hover:opacity-100 transition-all shrink-0" />
+          <ArrowRight size={14} className="text-muted opacity-0 group-hover:opacity-100 transition-all shrink-0" />
         </div>
 
         {data?.status === 'no_repo' ? (
-          <div className="px-4 py-6 text-center text-[11px] text-[var(--text-muted)] border-b border-[var(--border-subtle)]/30">
+          <div className="px-4 py-6 text-center text-[11px] text-muted border-b border-[var(--border-subtle)]/30">
             Link a GitHub repo on this workspace in Settings to enable live branch tracking and history.
           </div>
         ) : null}
@@ -164,8 +164,8 @@ export const SourcePanel: React.FC = () => {
         <div className="p-4">
           <div className="flex items-center gap-2 mb-3">
             <Sparkles size={12} className="text-[var(--solar-cyan)]" />
-            <h3 className="text-[11px] font-bold text-[var(--text-muted)] uppercase">Changes</h3>
-            <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-panel)] text-[var(--text-muted)]">
+            <h3 className="text-[11px] font-bold text-muted uppercase">Changes</h3>
+            <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-panel)] text-muted">
               {staged.length + unstaged.length}
             </span>
           </div>
@@ -179,7 +179,7 @@ export const SourcePanel: React.FC = () => {
             {staged.length === 0 && unstaged.length === 0 && (
               <div className="py-8 text-center border-2 border-dashed border-[var(--border-subtle)]/30 rounded-xl">
                 <CheckCircle2 size={24} className="mx-auto mb-2 text-[var(--solar-green)] opacity-20" />
-                <p className="text-[11px] text-[var(--text-muted)]">
+                <p className="text-[11px] text-muted">
                   {data?.status === 'no_repo' ? 'No local working tree — GitHub API only' : 'Working directory clean'}
                 </p>
               </div>
@@ -189,12 +189,12 @@ export const SourcePanel: React.FC = () => {
 
         <div className="p-4 pt-0">
           <div className="flex items-center gap-2 mb-3">
-            <Clock size={12} className="text-[var(--text-muted)]" />
-            <h3 className="text-[11px] font-bold text-[var(--text-muted)] uppercase">Recent History</h3>
+            <Clock size={12} className="text-muted" />
+            <h3 className="text-[11px] font-bold text-muted uppercase">Recent History</h3>
           </div>
           <div className="bg-[var(--bg-panel)]/30 rounded-xl border border-[var(--border-subtle)]/30 overflow-hidden divide-y divide-[var(--border-subtle)]/20">
             {commits.length === 0 && (
-              <div className="p-4 text-center text-[11px] text-[var(--text-muted)] opacity-50">
+              <div className="p-4 text-center text-[11px] text-muted opacity-50">
                 {data?.status === 'no_repo' ? 'Link a GitHub repo to see history' : 'No commits found'}
               </div>
             )}
@@ -204,12 +204,12 @@ export const SourcePanel: React.FC = () => {
                   <span className="text-[10px] text-[var(--solar-cyan)]" style={{ fontFamily: 'var(--font-mono)' }}>
                     {c.hash}
                   </span>
-                  <span className="text-[10px] text-[var(--text-muted)] opacity-60">{c.date}</span>
+                  <span className="text-[10px] text-muted opacity-60">{c.date}</span>
                 </div>
-                <div className="text-[12px] font-medium text-[var(--text-main)] line-clamp-1 group-hover:text-[var(--solar-cyan)] transition-colors">
+                <div className="text-[12px] font-medium text-main line-clamp-1 group-hover:text-[var(--solar-cyan)] transition-colors">
                   {c.msg}
                 </div>
-                <div className="text-[10px] text-[var(--text-muted)] mt-1 flex items-center gap-1">
+                <div className="text-[10px] text-muted mt-1 flex items-center gap-1">
                   <div className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)] opacity-30" />
                   {c.author}
                 </div>
@@ -248,7 +248,7 @@ const FileItem: React.FC<{ path: string; status: string; isStaged?: boolean }> =
     if (status.includes('M')) return 'text-[#dab98f]';
     if (status.includes('A') || status.includes('?')) return 'text-[var(--solar-green)]';
     if (status.includes('D')) return 'text-[var(--solar-red)]';
-    return 'text-[var(--text-muted)]';
+    return 'text-muted';
   };
 
   return (
@@ -259,19 +259,19 @@ const FileItem: React.FC<{ path: string; status: string; isStaged?: boolean }> =
       >
         {status.includes('?') ? 'U' : status[0]}
       </div>
-      <div className="p-1 px-1.5 rounded bg-[var(--bg-app)] text-[var(--text-muted)] border border-[var(--border-subtle)] group-hover:border-[var(--solar-cyan)]/30 transition-colors">
+      <div className="p-1 px-1.5 rounded bg-[var(--bg-app)] text-muted border border-[var(--border-subtle)] group-hover:border-[var(--solar-cyan)]/30 transition-colors">
         <SetiFileIcon filename={name} size={13} />
       </div>
       <div className="min-w-0">
         <div
-          className="text-[12px] font-medium text-[var(--text-main)] truncate"
+          className="text-[12px] font-medium text-main truncate"
           style={{ fontFamily: 'var(--font-mono)' }}
         >
           {name}
         </div>
         {dir ? (
           <div
-            className="text-[9px] text-[var(--text-muted)] truncate opacity-50"
+            className="text-[9px] text-muted truncate opacity-50"
             style={{ fontFamily: 'var(--font-mono)' }}
           >
             {dir}

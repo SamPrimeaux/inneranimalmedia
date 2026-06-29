@@ -200,7 +200,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
       {needsSitePick ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
           <h2 className="text-lg font-semibold text-[var(--text-heading)]">Choose a CMS site</h2>
-          <p className="max-w-md text-sm text-[var(--text-muted)]">
+          <p className="max-w-md text-sm text-muted">
             {loading
               ? 'Loading sites for this workspace…'
               : error
@@ -277,7 +277,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
       {!needsSitePick && !isClientWorker && parsed.view === 'sites' ? (
         <Suspense
           fallback={
-            <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-muted)]">
+            <div className="flex flex-1 items-center justify-center text-sm text-muted">
               Loading…
             </div>
           }

@@ -113,16 +113,16 @@ export function McpTokensPanel() {
 
   return (
     <section className="flex flex-col gap-3 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)]">
-      <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+      <div className="text-[10px] font-black uppercase tracking-widest text-muted">
         Workspace MCP tokens
       </div>
-      <p className="text-[11px] text-[var(--text-muted)]">
+      <p className="text-[11px] text-muted">
         Bearer is shown once after generate. It is not stored in the dashboard after you close the dialog.
       </p>
       {error ? <p className="text-[11px] text-[var(--color-danger)]">{error}</p> : null}
       <div className="grid gap-2 sm:grid-cols-3">
         <label className="flex flex-col gap-1 text-[11px]">
-          <span className="text-[var(--text-muted)]">Label</span>
+          <span className="text-muted">Label</span>
           <input
             className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[12px]"
             value={label}
@@ -131,7 +131,7 @@ export function McpTokensPanel() {
           />
         </label>
         <label className="flex flex-col gap-1 text-[11px]">
-          <span className="text-[var(--text-muted)]">Rate limit / hour</span>
+          <span className="text-muted">Rate limit / hour</span>
           <input
             type="number"
             min={1}
@@ -142,7 +142,7 @@ export function McpTokensPanel() {
           />
         </label>
         <label className="flex flex-col gap-1 text-[11px]">
-          <span className="text-[var(--text-muted)]">Expires (days, optional)</span>
+          <span className="text-muted">Expires (days, optional)</span>
           <input
             type="number"
             min={1}
@@ -162,9 +162,9 @@ export function McpTokensPanel() {
         {busy ? 'Working…' : 'Generate token'}
       </button>
       {loading ? (
-        <p className="text-[11px] text-[var(--text-muted)]">Loading tokens…</p>
+        <p className="text-[11px] text-muted">Loading tokens…</p>
       ) : tokens.length === 0 ? (
-        <p className="text-[11px] text-[var(--text-muted)]">No active tokens for this workspace.</p>
+        <p className="text-[11px] text-muted">No active tokens for this workspace.</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {tokens.map((t) => (
@@ -173,8 +173,8 @@ export function McpTokensPanel() {
               className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-[11px]"
             >
               <div className="min-w-0">
-                <div className="font-semibold text-[var(--text-main)] truncate">{t.label || t.id}</div>
-                <div className="text-[var(--text-muted)] font-mono">
+                <div className="font-semibold text-main truncate">{t.label || t.id}</div>
+                <div className="text-muted font-mono">
                   {t.id} · {t.rate_limit_per_hour ?? '—'}/hr
                   {t.expires_at ? ` · exp ${t.expires_at}` : ''}
                 </div>
@@ -203,7 +203,7 @@ export function McpTokensPanel() {
             <h3 id="mcp-token-modal-title" className="text-[13px] font-bold text-[var(--text-heading)] mb-2">
               Copy your MCP bearer
             </h3>
-            <p className="text-[11px] text-[var(--text-muted)] mb-3">
+            <p className="text-[11px] text-muted mb-3">
               This value is shown once. Closing clears it from this browser session.
             </p>
             <code className="block text-[11px] font-mono text-[var(--solar-cyan)] break-all mb-4 p-3 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">

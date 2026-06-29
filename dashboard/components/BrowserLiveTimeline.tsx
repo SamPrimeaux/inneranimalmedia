@@ -109,7 +109,7 @@ export function BrowserLiveTimeline({ events, className = '' }: BrowserLiveTimel
     <div
       className={`shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-panel)]/60 max-h-28 overflow-y-auto ${className}`}
     >
-      <div className="px-3 py-1.5 text-[9px] font-mono uppercase tracking-widest text-[var(--text-muted)]">
+      <div className="px-3 py-1.5 text-[9px] font-mono uppercase tracking-widest text-muted">
         Live browser timeline
       </div>
       <ul className="px-2 pb-2 space-y-1">
@@ -120,7 +120,7 @@ export function BrowserLiveTimeline({ events, className = '' }: BrowserLiveTimel
           return (
             <li
               key={String(ev.id ?? `${type}-${idx}`)}
-              className="flex items-start gap-2 px-1 py-0.5 rounded text-[10px] text-[var(--text-muted)]"
+              className="flex items-start gap-2 px-1 py-0.5 rounded text-[10px] text-muted"
             >
               <Icon size={11} className="shrink-0 mt-0.5 text-[var(--color-primary)]" />
               <div className="min-w-0">

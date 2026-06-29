@@ -79,7 +79,7 @@ export function DocsSection({ onOpenInMonaco, onFileSelect }: DocsSectionProps) 
             type="button"
             onClick={() => reload()}
             disabled={loading}
-            className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-50"
+            className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main disabled:opacity-50"
           >
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
@@ -116,13 +116,13 @@ export function DocsSection({ onOpenInMonaco, onFileSelect }: DocsSectionProps) 
             ]}
           />
           {summary.knowledge_graph_note ? (
-            <p className="text-[11px] text-[var(--text-muted)]">{summary.knowledge_graph_note}</p>
+            <p className="text-[11px] text-muted">{summary.knowledge_graph_note}</p>
           ) : null}
           <WarningStrip warnings={section.warnings} />
           <ActionRow actions={section.actions} />
 
           <section className="flex flex-col gap-2">
-            <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+            <div className="text-[10px] font-black uppercase tracking-widest text-muted">
               CMS pages
             </div>
             {(section.rows || []).length === 0 ? (
@@ -148,7 +148,7 @@ export function DocsSection({ onOpenInMonaco, onFileSelect }: DocsSectionProps) 
 
           <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="flex flex-col gap-2">
-              <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+              <div className="text-[10px] font-black uppercase tracking-widest text-muted">
                 Rule documents
               </div>
               {(extra.rule_documents || []).length === 0 ? (
@@ -171,7 +171,7 @@ export function DocsSection({ onOpenInMonaco, onFileSelect }: DocsSectionProps) 
             </div>
 
             <div className="flex flex-col gap-2">
-              <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+              <div className="text-[10px] font-black uppercase tracking-widest text-muted">
                 Project context entries
               </div>
               {(extra.project_context || []).length === 0 ? (
@@ -193,10 +193,10 @@ export function DocsSection({ onOpenInMonaco, onFileSelect }: DocsSectionProps) 
       ) : null}
 
       <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-5">
-        <div className="text-[12px] font-semibold text-[var(--text-main)]">
+        <div className="text-[12px] font-semibold text-main">
           Deploy scripts (reference)
         </div>
-        <p className="text-[11px] text-[var(--text-muted)] mt-2">
+        <p className="text-[11px] text-muted mt-2">
           Sandbox first, then promote. Open as a read-only snippet in the editor.
         </p>
         <button
@@ -207,7 +207,7 @@ export function DocsSection({ onOpenInMonaco, onFileSelect }: DocsSectionProps) 
               `# Sandbox\n./scripts/deploy-sandbox.sh\n\n# Production promote\n./scripts/promote-to-prod.sh`,
             )
           }
-          className="mt-3 px-3 py-2 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40"
+          className="mt-3 px-3 py-2 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40"
         >
           Open in Monaco
         </button>

@@ -1052,16 +1052,16 @@ export const LocalExplorer: React.FC<{
 
 
     return (
-        <div className="flex flex-col h-full min-h-0 bg-[var(--bg-panel)] overflow-hidden text-[var(--text-main)] align-top">
+        <div className="flex flex-col h-full min-h-0 bg-[var(--bg-panel)] overflow-hidden text-main align-top">
             <div className="flex items-center justify-between px-3 py-2.5 shrink-0 border-b border-[var(--border-subtle)]/40 gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
-                    <GripVertical size={12} className="text-[var(--text-muted)]/50 shrink-0 hidden md:block" aria-hidden />
-                    <span className="text-[11px] font-semibold tracking-widest uppercase text-[var(--text-muted)] truncate">Explorer</span>
+                    <GripVertical size={12} className="text-muted/50 shrink-0 hidden md:block" aria-hidden />
+                    <span className="text-[11px] font-semibold tracking-widest uppercase text-muted truncate">Explorer</span>
                 </div>
                 {onClose ? (
                     <button
                         type="button"
-                        className="shrink-0 p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors"
+                        className="shrink-0 p-1.5 rounded-md text-muted hover:text-main hover:bg-[var(--bg-hover)] transition-colors"
                         title="Close Explorer (⌘B)"
                         aria-label="Close Explorer"
                         onClick={onClose}
@@ -1072,7 +1072,7 @@ export const LocalExplorer: React.FC<{
             </div>
 
             {localTunnelVerifyWarning ? (
-                <div className="mx-3 mb-2 flex items-start gap-2 rounded border border-[var(--solar-orange)]/45 bg-[var(--solar-orange)]/10 px-2.5 py-2 text-[10px] text-[var(--text-main)] leading-snug">
+                <div className="mx-3 mb-2 flex items-start gap-2 rounded border border-[var(--solar-orange)]/45 bg-[var(--solar-orange)]/10 px-2.5 py-2 text-[10px] text-main leading-snug">
                     <AlertTriangle size={14} className="shrink-0 text-[var(--solar-orange)] mt-0.5" aria-hidden />
                     <div>
                         Local tunnel has not been verified recently (&gt;5 min). Re-run connect in settings if the tunnel
@@ -1092,9 +1092,9 @@ export const LocalExplorer: React.FC<{
             <div className="flex flex-col border-b border-[var(--border-subtle)]/50 pb-1 pt-1">
                 <div className="flex items-center justify-between px-4 py-2 hover:bg-[var(--bg-hover)] cursor-pointer group">
                     <div className="flex items-center gap-2 flex-1" onClick={() => toggleSection('local')}>
-                        {expandedSections.local ? <ChevronDown size={14} className="text-[var(--text-muted)] group-hover:text-white" /> : <ChevronRight size={14} className="text-[var(--text-muted)] group-hover:text-white" />}
+                        {expandedSections.local ? <ChevronDown size={14} className="text-muted group-hover:text-white" /> : <ChevronRight size={14} className="text-muted group-hover:text-white" />}
                         <HardDrive size={14} className="text-[var(--solar-cyan)] group-hover:text-white" />
-                        <span className="text-[11px] font-bold tracking-wide uppercase text-[var(--text-muted)] group-hover:text-white transition-colors">Local Workspace</span>
+                        <span className="text-[11px] font-bold tracking-wide uppercase text-muted group-hover:text-white transition-colors">Local Workspace</span>
                     </div>
                     {expandedSections.local && (
                         <div className="flex items-center gap-1">
@@ -1102,7 +1102,7 @@ export const LocalExplorer: React.FC<{
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); void handleCreateLocalFile(); }}
                                 title="New file"
-                                className="p-1 hover:bg-[var(--bg-app)] rounded text-[var(--text-muted)] hover:text-white"
+                                className="p-1 hover:bg-[var(--bg-app)] rounded text-muted hover:text-white"
                             >
                                 <FilePlus size={12} />
                             </button>
@@ -1110,7 +1110,7 @@ export const LocalExplorer: React.FC<{
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); void handleCreateLocalFolder(); }}
                                 title="New folder"
-                                className="p-1 hover:bg-[var(--bg-app)] rounded text-[var(--text-muted)] hover:text-white"
+                                className="p-1 hover:bg-[var(--bg-app)] rounded text-muted hover:text-white"
                             >
                                 <FolderPlus size={12} />
                             </button>
@@ -1123,7 +1123,7 @@ export const LocalExplorer: React.FC<{
                             <div className="py-2 flex flex-col items-center justify-center gap-2">
                                 {localResumeHint ? (
                                     <div className="w-full max-w-[220px] rounded border border-[var(--border-subtle)] bg-[var(--bg-app)]/80 p-2 mb-1">
-                                        <p className="text-[9px] text-[var(--text-main)] leading-snug text-center">
+                                        <p className="text-[9px] text-main leading-snug text-center">
                                             You last had{' '}
                                             <span className="font-semibold text-[var(--solar-cyan)]">{localResumeHint.folderName}</span>{' '}
                                             open. Click reconnect to grant access again (browser security — no auto-prompt on page load).
@@ -1138,7 +1138,7 @@ export const LocalExplorer: React.FC<{
                                         <button
                                             type="button"
                                             onClick={() => void handleOpenFolder()}
-                                            className="mt-1 w-full text-[9px] py-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                                            className="mt-1 w-full text-[9px] py-1 rounded text-muted hover:text-main"
                                         >
                                             Choose a different folder
                                         </button>
@@ -1151,18 +1151,18 @@ export const LocalExplorer: React.FC<{
                                 >
                                     Connect Native Folder
                                 </button>
-                                <p className="text-[9px] text-[var(--text-muted)] text-center max-w-[200px] leading-relaxed">
+                                <p className="text-[9px] text-muted text-center max-w-[200px] leading-relaxed">
                                     Chromium: read/write for this site. The folder display name may be stored locally (and on the server when signed in) so we can prompt you to re-pick after a refresh—never the full disk path.
                                 </p>
                             </div>
                         ) : (
                             <div className="font-mono mt-1">
                                 <div className="flex items-center justify-between px-1 pb-1">
-                                    <span className="text-[9px] text-[var(--text-muted)] truncate">{rootDir.name}</span>
+                                    <span className="text-[9px] text-muted truncate">{rootDir.name}</span>
                                     <button
                                         type="button"
                                         onClick={() => void disconnectNativeFolder()}
-                                        className="text-[9px] text-[var(--text-muted)] hover:text-[var(--solar-orange)]"
+                                        className="text-[9px] text-muted hover:text-[var(--solar-orange)]"
                                     >
                                         Disconnect
                                     </button>
@@ -1195,9 +1195,9 @@ export const LocalExplorer: React.FC<{
                         className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
                         onClick={() => toggleSection('r2')}
                     >
-                        {expandedSections.r2 ? <ChevronDown size={14} className="text-[var(--text-muted)] group-hover:text-white" /> : <ChevronRight size={14} className="text-[var(--text-muted)] group-hover:text-white" />}
+                        {expandedSections.r2 ? <ChevronDown size={14} className="text-muted group-hover:text-white" /> : <ChevronRight size={14} className="text-muted group-hover:text-white" />}
                         <Cloud size={14} className="text-[var(--solar-orange)] group-hover:text-[var(--text-heading)]" />
-                        <span className="text-[11px] font-bold tracking-wide uppercase text-[var(--text-muted)] group-hover:text-white transition-colors">Cloudflare R2</span>
+                        <span className="text-[11px] font-bold tracking-wide uppercase text-muted group-hover:text-white transition-colors">Cloudflare R2</span>
                     </div>
                     <button
                         type="button"
@@ -1209,27 +1209,27 @@ export const LocalExplorer: React.FC<{
                             setR2AddMode(null);
                             setR2AddName('');
                         }}
-                        className="p-1 hover:bg-[var(--bg-app)] rounded text-[var(--text-muted)] hover:text-white shrink-0"
+                        className="p-1 hover:bg-[var(--bg-app)] rounded text-muted hover:text-white shrink-0"
                     >
                         <Plus size={12} />
                     </button>
                 </div>
                 {expandedSections.r2 && (
-                    <div className="px-4 py-2 text-[11px] text-[var(--text-muted)] flex flex-col gap-2 font-mono">
+                    <div className="px-4 py-2 text-[11px] text-muted flex flex-col gap-2 font-mono">
                         {r2AddOpen && (
                             <div className="rounded border border-[var(--border-subtle)]/50 bg-[var(--bg-app)]/80 p-2 flex flex-col gap-2 text-[10px]">
                                 {!r2AddMode ? (
                                     <div className="flex flex-col gap-1">
                                         <button
                                             type="button"
-                                            className="text-left px-2 py-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-main)]"
+                                            className="text-left px-2 py-1 rounded hover:bg-[var(--bg-hover)] text-main"
                                             onClick={() => setR2AddMode('connect')}
                                         >
                                             Connect existing bucket
                                         </button>
                                         <button
                                             type="button"
-                                            className="text-left px-2 py-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-main)]"
+                                            className="text-left px-2 py-1 rounded hover:bg-[var(--bg-hover)] text-main"
                                             onClick={() => setR2AddMode('create')}
                                         >
                                             Create new bucket
@@ -1237,7 +1237,7 @@ export const LocalExplorer: React.FC<{
                                     </div>
                                 ) : (
                                     <>
-                                        <label className="text-[var(--text-muted)] uppercase text-[9px]">
+                                        <label className="text-muted uppercase text-[9px]">
                                             {r2AddMode === 'connect' ? 'Bucket name' : 'New bucket name'}
                                         </label>
                                         <input
@@ -1250,7 +1250,7 @@ export const LocalExplorer: React.FC<{
                                                 }
                                             }}
                                             placeholder={r2AddMode === 'create' ? 'my-bucket-name' : 'inneranimalmedia'}
-                                            className="w-full bg-[var(--bg-panel)] border border-[var(--border-subtle)]/50 rounded px-2 py-1 text-[10px] text-[var(--text-main)] outline-none"
+                                            className="w-full bg-[var(--bg-panel)] border border-[var(--border-subtle)]/50 rounded px-2 py-1 text-[10px] text-main outline-none"
                                         />
                                         <div className="flex gap-2">
                                             <button
@@ -1263,7 +1263,7 @@ export const LocalExplorer: React.FC<{
                                             </button>
                                             <button
                                                 type="button"
-                                                className="px-2 py-1 rounded text-[var(--text-muted)] hover:text-white"
+                                                className="px-2 py-1 rounded text-muted hover:text-white"
                                                 onClick={() => {
                                                     setR2AddMode(null);
                                                     setR2AddName('');
@@ -1283,7 +1283,7 @@ export const LocalExplorer: React.FC<{
                             <span className="text-[10px] italic">No buckets listed.</span>
                         )}
                         {displayR2Buckets.length > 0 && (
-                            <label className="flex flex-wrap items-center gap-2 text-[10px] text-[var(--text-muted)]">
+                            <label className="flex flex-wrap items-center gap-2 text-[10px] text-muted">
                                 <span className="uppercase shrink-0">Bucket</span>
                                 <select
                                     value={selectedR2Bucket}
@@ -1293,7 +1293,7 @@ export const LocalExplorer: React.FC<{
                                         setR2PrefixByBucket((prev) => ({ ...prev, [b]: prev[b] ?? '' }));
                                         setR2SearchMode((m) => ({ ...m, [b]: false }));
                                     }}
-                                    className="flex-1 min-w-0 max-w-[220px] bg-[var(--bg-app)] border border-[var(--border-subtle)]/50 rounded px-1 py-0.5 text-[10px] text-[var(--text-main)]"
+                                    className="flex-1 min-w-0 max-w-[220px] bg-[var(--bg-app)] border border-[var(--border-subtle)]/50 rounded px-1 py-0.5 text-[10px] text-main"
                                 >
                                     {displayR2Buckets.map((name) => (
                                         <option key={name} value={name}>
@@ -1319,7 +1319,7 @@ export const LocalExplorer: React.FC<{
                                               <span className="truncate font-medium">{b}</span>
                                           </div>
                                           <div className="px-2 pb-2 flex flex-col gap-1">
-                                              <div className="flex flex-wrap items-center gap-1 text-[9px] text-[var(--text-muted)] border-b border-[var(--border-subtle)]/30 pb-1">
+                                              <div className="flex flex-wrap items-center gap-1 text-[9px] text-muted border-b border-[var(--border-subtle)]/30 pb-1">
                                                   <span className="truncate max-w-full">/{prefix || ''}</span>
                                                   {prefix ? (
                                                       <button
@@ -1359,7 +1359,7 @@ export const LocalExplorer: React.FC<{
                                                   </button>
                                               </div>
                                               <div className="flex items-center gap-1">
-                                                  <Search size={10} className="text-[var(--text-muted)] shrink-0" />
+                                                  <Search size={10} className="text-muted shrink-0" />
                                                   <input
                                                       type="search"
                                                       value={r2SearchQ[b] || ''}
@@ -1391,7 +1391,7 @@ export const LocalExplorer: React.FC<{
                                                   </div>
                                               )}
                                               {!r2Loading && !searchOn && prefs.length === 0 && objs.length === 0 && (
-                                                  <span className="text-[10px] italic py-1 text-[var(--text-muted)]">
+                                                  <span className="text-[10px] italic py-1 text-muted">
                                                       No objects at this prefix.
                                                   </span>
                                               )}
@@ -1427,7 +1427,7 @@ export const LocalExplorer: React.FC<{
                                                           }}
                                                           className={`flex flex-1 min-w-0 items-center gap-1 ${onOpenInEditor ? 'cursor-pointer' : ''}`}
                                                       >
-                                                          <FileIcon size={12} className="text-[var(--text-muted)] shrink-0" />
+                                                          <FileIcon size={12} className="text-muted shrink-0" />
                                                           <span className="truncate text-[10px]">{searchOn ? o.key : shortName(o.key)}</span>
                                                       </div>
                                                       {onOpenInEditor && (
@@ -1446,7 +1446,7 @@ export const LocalExplorer: React.FC<{
                                                       <button
                                                           type="button"
                                                           title="Delete object"
-                                                          className="p-0.5 opacity-50 hover:opacity-100 text-[var(--text-muted)] hover:text-[var(--solar-orange)] shrink-0"
+                                                          className="p-0.5 opacity-50 hover:opacity-100 text-muted hover:text-[var(--solar-orange)] shrink-0"
                                                           onClick={() => void deleteR2Key(b, o.key)}
                                                       >
                                                           <Trash2 size={11} />
@@ -1478,9 +1478,9 @@ export const LocalExplorer: React.FC<{
                     onClick={() => toggleSection('github')}
                     className="flex items-center gap-2 px-4 py-2 hover:bg-[var(--bg-hover)] cursor-pointer group"
                 >
-                    {expandedSections.github ? <ChevronDown size={14} className="text-[var(--text-muted)] group-hover:text-white" /> : <ChevronRight size={14} className="text-[var(--text-muted)] group-hover:text-white" />}
+                    {expandedSections.github ? <ChevronDown size={14} className="text-muted group-hover:text-white" /> : <ChevronRight size={14} className="text-muted group-hover:text-white" />}
                     <Github size={14} className="text-[var(--solar-magenta)] group-hover:text-white" />
-                    <span className="text-[11px] font-bold tracking-wide uppercase text-[var(--text-muted)] group-hover:text-white transition-colors">GitHub Sync</span>
+                    <span className="text-[11px] font-bold tracking-wide uppercase text-muted group-hover:text-white transition-colors">GitHub Sync</span>
                 </div>
                 {expandedSections.github && (
                     <div className={explorerSectionBodyClass('github', true)}>
@@ -1495,9 +1495,9 @@ export const LocalExplorer: React.FC<{
                     onClick={() => toggleSection('drive')}
                     className="flex items-center gap-2 px-4 py-2 hover:bg-[var(--bg-hover)] cursor-pointer group"
                 >
-                    {expandedSections.drive ? <ChevronDown size={14} className="text-[var(--text-muted)] group-hover:text-white" /> : <ChevronRight size={14} className="text-[var(--text-muted)] group-hover:text-white" />}
+                    {expandedSections.drive ? <ChevronDown size={14} className="text-muted group-hover:text-white" /> : <ChevronRight size={14} className="text-muted group-hover:text-white" />}
                     <FolderOpen size={14} className="text-[var(--solar-green)] group-hover:text-white" />
-                    <span className="text-[11px] font-bold tracking-wide uppercase text-[var(--text-muted)] group-hover:text-white transition-colors">Google Drive</span>
+                    <span className="text-[11px] font-bold tracking-wide uppercase text-muted group-hover:text-white transition-colors">Google Drive</span>
                 </div>
                 {expandedSections.drive && (
                     <div className={explorerSectionBodyClass('drive', true)}>

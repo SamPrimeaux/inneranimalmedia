@@ -330,7 +330,7 @@ export const DatabaseBrowser: React.FC<{
   const conn = KNOWN_CONNECTIONS[dbTarget];
 
   return (
-    <div className="w-full h-full min-h-0 bg-[var(--bg-panel)] flex flex-col text-[var(--text-main)] overflow-hidden relative">
+    <div className="w-full h-full min-h-0 bg-[var(--bg-panel)] flex flex-col text-main overflow-hidden relative">
       <div className="px-3 sm:px-4 py-2.5 border-b border-[var(--border-subtle)] flex flex-wrap items-center gap-x-3 gap-y-2 justify-between shrink-0 bg-[var(--bg-panel)]">
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
           <div className="p-1.5 bg-[var(--solar-blue)]/10 rounded shrink-0">
@@ -338,7 +338,7 @@ export const DatabaseBrowser: React.FC<{
           </div>
           <div className="flex flex-col leading-none min-w-0">
             <span className="text-[0.6875rem] font-bold tracking-widest uppercase">Database Explorer</span>
-            <span className="text-[0.6875rem] text-[var(--text-muted)] font-mono mt-0.5 truncate max-w-[min(100%,14rem)] sm:max-w-none">
+            <span className="text-[0.6875rem] text-muted font-mono mt-0.5 truncate max-w-[min(100%,14rem)] sm:max-w-none">
               {conn.label}
             </span>
           </div>
@@ -354,7 +354,7 @@ export const DatabaseBrowser: React.FC<{
                 className={`px-2 py-0.5 rounded text-[0.625rem] font-bold uppercase tracking-widest transition-all ${
                   dbTarget === t
                     ? 'text-[var(--text-heading)] border border-[var(--border-subtle)] bg-[var(--bg-hover)]'
-                    : 'text-[var(--text-muted)] hover:text-[var(--text-heading)]'
+                    : 'text-muted hover:text-[var(--text-heading)]'
                 }`}
               >
                 {t === 'd1' ? 'D1' : 'Hyperdrive'}
@@ -375,7 +375,7 @@ export const DatabaseBrowser: React.FC<{
             type="button"
             onClick={() => setView('console')}
             className={`p-1 px-2 rounded text-[0.6875rem] flex items-center gap-1.5 transition-all ${
-              view === 'console' ? 'bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)]' : 'hover:bg-[var(--bg-hover)] text-[var(--text-muted)]'
+              view === 'console' ? 'bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)]' : 'hover:bg-[var(--bg-hover)] text-muted'
             }`}
             title="SQL console and table list"
           >
@@ -385,7 +385,7 @@ export const DatabaseBrowser: React.FC<{
             type="button"
             onClick={() => setView('agent')}
             className={`p-1 px-2 rounded text-[0.6875rem] flex items-center gap-1.5 transition-all ${
-              view === 'agent' ? 'bg-[var(--solar-magenta)]/20 text-[var(--solar-magenta)]' : 'hover:bg-[var(--bg-hover)] text-[var(--text-muted)]'
+              view === 'agent' ? 'bg-[var(--solar-magenta)]/20 text-[var(--solar-magenta)]' : 'hover:bg-[var(--bg-hover)] text-muted'
             }`}
           >
             <MessageSquare size={12} /> Agent
@@ -394,7 +394,7 @@ export const DatabaseBrowser: React.FC<{
             type="button"
             onClick={() => setView('settings')}
             className={`p-1 px-2 rounded text-[0.6875rem] flex items-center gap-1.5 transition-all ${
-              view === 'settings' ? 'bg-[var(--solar-magenta)]/20 text-[var(--solar-magenta)]' : 'hover:bg-[var(--bg-hover)] text-[var(--text-muted)]'
+              view === 'settings' ? 'bg-[var(--solar-magenta)]/20 text-[var(--solar-magenta)]' : 'hover:bg-[var(--bg-hover)] text-muted'
             }`}
           >
             <Settings size={12} />
@@ -403,7 +403,7 @@ export const DatabaseBrowser: React.FC<{
           <button
             type="button"
             onClick={() => void fetchTables()}
-            className="p-1.5 hover:bg-[var(--bg-hover)] rounded text-[var(--text-muted)]"
+            className="p-1.5 hover:bg-[var(--bg-hover)] rounded text-muted"
             title="Refresh"
           >
             <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
@@ -412,7 +412,7 @@ export const DatabaseBrowser: React.FC<{
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 hover:bg-[var(--bg-hover)] rounded text-[var(--text-muted)] hover:text-[var(--solar-red)]"
+              className="p-1.5 hover:bg-[var(--bg-hover)] rounded text-muted hover:text-[var(--solar-red)]"
             >
               <X size={14} />
             </button>
@@ -425,19 +425,19 @@ export const DatabaseBrowser: React.FC<{
           <div className="w-60 max-md:w-full max-md:max-h-[min(38vh,260px)] max-md:min-h-[140px] max-md:shrink-0 border-r max-md:border-r-0 max-md:border-b border-[var(--border-subtle)] flex flex-col bg-[var(--bg-panel)] shrink-0 min-h-0">
             <div className="p-2 border-b border-[var(--border-subtle)]">
               <div className="flex items-center bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-md px-2 py-1 focus-within:border-[var(--solar-blue)]/50 transition-all">
-                <Search size={12} className="text-[var(--text-muted)] mr-2 shrink-0" />
+                <Search size={12} className="text-muted mr-2 shrink-0" />
                 <input
                   type="text"
                   placeholder="Filter tables..."
                   value={tableFilter}
                   onChange={(e) => setTableFilter(e.target.value)}
-                  className="bg-transparent border-none outline-none text-[0.6875rem] w-full placeholder:text-[var(--text-muted)] font-mono"
+                  className="bg-transparent border-none outline-none text-[0.6875rem] w-full placeholder:text-muted font-mono"
                 />
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-1 py-2 custom-scrollbar">
-              <div className="text-[0.625rem] font-black uppercase tracking-widest text-[var(--text-muted)] mb-1 px-3 flex items-center justify-between">
+              <div className="text-[0.625rem] font-black uppercase tracking-widest text-muted mb-1 px-3 flex items-center justify-between">
                 <span>Tables / Views</span>
                 <span className="bg-[var(--bg-app)] px-1 rounded text-[0.6875rem] opacity-60">{filteredTables.length}</span>
               </div>
@@ -452,7 +452,7 @@ export const DatabaseBrowser: React.FC<{
                     if (e.key === 'Enter' || e.key === ' ') handleTableClick(table);
                   }}
                   className={`group flex items-center gap-2.5 px-3 py-1.5 hover:bg-[var(--bg-hover)] cursor-pointer rounded-md text-[0.75rem] transition-all relative ${
-                    selectedTable === table.name ? 'bg-[var(--bg-hover)] text-[var(--solar-blue)] font-bold' : 'text-[var(--text-main)]'
+                    selectedTable === table.name ? 'bg-[var(--bg-hover)] text-[var(--solar-blue)] font-bold' : 'text-main'
                   }`}
                 >
                   {selectedTable === table.name && (
@@ -460,11 +460,11 @@ export const DatabaseBrowser: React.FC<{
                   )}
                   <TableIcon
                     size={13}
-                    className={`shrink-0 ${selectedTable === table.name ? 'text-[var(--solar-blue)]' : 'text-[var(--text-muted)] group-hover:text-[var(--solar-blue)]'}`}
+                    className={`shrink-0 ${selectedTable === table.name ? 'text-[var(--solar-blue)]' : 'text-muted group-hover:text-[var(--solar-blue)]'}`}
                   />
                   <span className="truncate font-mono text-[11px]">
                     {dbTarget === 'hyperdrive' && table.table_schema && table.table_schema !== 'agentsam' ? (
-                      <span className="text-[var(--text-muted)]">{table.table_schema}.</span>
+                      <span className="text-muted">{table.table_schema}.</span>
                     ) : null}
                     {table.name}
                   </span>
@@ -481,7 +481,7 @@ export const DatabaseBrowser: React.FC<{
               )}
 
               <div className="mt-4">
-                <div className="text-[0.625rem] font-black uppercase tracking-widest text-[var(--text-muted)] mb-1 px-3">System</div>
+                <div className="text-[0.625rem] font-black uppercase tracking-widest text-muted mb-1 px-3">System</div>
                 {dbTarget === 'd1' ? (
                   <div
                     role="button"
@@ -490,7 +490,7 @@ export const DatabaseBrowser: React.FC<{
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') handleSqliteMasterClick();
                     }}
-                    className="group flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-[var(--bg-hover)] rounded-md text-[0.6875rem] text-[var(--text-muted)] hover:text-[var(--text-heading)] transition-colors"
+                    className="group flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-[var(--bg-hover)] rounded-md text-[0.6875rem] text-muted hover:text-[var(--text-heading)] transition-colors"
                   >
                     <Database size={12} />
                     <span className="font-mono">sqlite_master</span>
@@ -503,7 +503,7 @@ export const DatabaseBrowser: React.FC<{
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') handleInformationSchemaClick();
                     }}
-                    className="group flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-[var(--bg-hover)] rounded-md text-[0.6875rem] text-[var(--text-muted)] hover:text-[var(--text-heading)] transition-colors"
+                    className="group flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-[var(--bg-hover)] rounded-md text-[0.6875rem] text-muted hover:text-[var(--text-heading)] transition-colors"
                   >
                     <Database size={12} />
                     <span className="font-mono">information_schema (public)</span>
@@ -513,7 +513,7 @@ export const DatabaseBrowser: React.FC<{
 
               <>
                 <div className="mt-4 border-t border-[var(--border-subtle)] pt-3">
-                  <div className="text-[0.625rem] font-black uppercase tracking-widest text-[var(--text-muted)] mb-1 px-3 flex items-center justify-between gap-2">
+                  <div className="text-[0.625rem] font-black uppercase tracking-widest text-muted mb-1 px-3 flex items-center justify-between gap-2">
                     <span>Saved snippets</span>
                     <button
                       type="button"
@@ -524,7 +524,7 @@ export const DatabaseBrowser: React.FC<{
                     </button>
                   </div>
                   {sqlSnippets.length === 0 ? (
-                    <p className="px-3 text-[0.625rem] text-[var(--text-muted)] opacity-80">No snippets yet. Use Save in the console.</p>
+                    <p className="px-3 text-[0.625rem] text-muted opacity-80">No snippets yet. Use Save in the console.</p>
                   ) : (
                     sqlSnippets.map((s) => (
                       <button
@@ -535,7 +535,7 @@ export const DatabaseBrowser: React.FC<{
                           if (!t) return;
                           pushConsoleSql(t);
                         }}
-                        className="w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] rounded-md text-[0.6875rem] text-[var(--text-main)] truncate"
+                        className="w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] rounded-md text-[0.6875rem] text-main truncate"
                         title={s.title}
                       >
                         {s.title || 'Untitled'}
@@ -544,7 +544,7 @@ export const DatabaseBrowser: React.FC<{
                   )}
                 </div>
                 <div className="mt-3 border-t border-[var(--border-subtle)] pt-3">
-                  <div className="text-[0.625rem] font-black uppercase tracking-widest text-[var(--text-muted)] mb-1 px-3 flex items-center justify-between gap-2">
+                  <div className="text-[0.625rem] font-black uppercase tracking-widest text-muted mb-1 px-3 flex items-center justify-between gap-2">
                     <span>Server history</span>
                     <button
                       type="button"
@@ -555,7 +555,7 @@ export const DatabaseBrowser: React.FC<{
                     </button>
                   </div>
                   {remoteSqlHistory.length === 0 ? (
-                    <p className="px-3 text-[0.625rem] text-[var(--text-muted)] opacity-80">
+                    <p className="px-3 text-[0.625rem] text-muted opacity-80">
                       Runs sync here after migration 225 is applied.
                     </p>
                   ) : (
@@ -570,12 +570,12 @@ export const DatabaseBrowser: React.FC<{
                             if (!st) return;
                             pushConsoleSql(st);
                           }}
-                          className="w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] rounded-md text-[0.625rem] font-mono text-[var(--text-muted)] border-b border-[var(--border-subtle)]/40"
+                          className="w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] rounded-md text-[0.625rem] font-mono text-muted border-b border-[var(--border-subtle)]/40"
                         >
                           <span className={ok ? 'text-[var(--solar-green)]' : 'text-[var(--solar-red)]'}>
                             {ok ? 'ok' : 'err'}
                           </span>{' '}
-                          <span className="text-[var(--text-main)] truncate block">{st.replace(/\s+/g, ' ').slice(0, 72)}</span>
+                          <span className="text-main truncate block">{st.replace(/\s+/g, ' ').slice(0, 72)}</span>
                         </button>
                       );
                     })
@@ -584,7 +584,7 @@ export const DatabaseBrowser: React.FC<{
               </>
             </div>
 
-            <div className="p-2.5 border-t border-[var(--border-subtle)] bg-[var(--bg-app)] text-[0.625rem] text-[var(--text-muted)] shrink-0 flex items-center justify-between font-mono">
+            <div className="p-2.5 border-t border-[var(--border-subtle)] bg-[var(--bg-app)] text-[0.625rem] text-muted shrink-0 flex items-center justify-between font-mono">
               <div className="flex items-center gap-1.5">
                 <div className="w-1.5 h-1.5 rounded-full bg-[var(--solar-green)] animate-pulse" />
                 <span>Connected</span>
@@ -698,7 +698,7 @@ const ConnectionCard = ({
       <div className="p-2 bg-[var(--bg-app)] rounded-lg">{icon}</div>
       <div className="flex-1">
         <h4 className="text-[0.8125rem] font-bold">{name}</h4>
-        <span className="text-[0.625rem] font-mono text-[var(--text-muted)]">{sublabel}</span>
+        <span className="text-[0.625rem] font-mono text-muted">{sublabel}</span>
       </div>
       <span
         className="text-[0.625rem] font-black uppercase tracking-widest"

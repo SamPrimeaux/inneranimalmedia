@@ -55,8 +55,8 @@ export function AdvancedOpenScadActions({
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-[11px] font-semibold text-[var(--text-main)]">OpenSCAD Advanced</p>
-          <p className="text-[10px] text-[var(--text-muted)] mt-0.5 leading-relaxed">
+          <p className="text-[11px] font-semibold text-main">OpenSCAD Advanced</p>
+          <p className="text-[10px] text-muted mt-0.5 leading-relaxed">
             Code on the left, 3D preview on the right — like{' '}
             <a
               href={OPENSCAD_REPO}
@@ -86,8 +86,8 @@ export function AdvancedOpenScadActions({
           <code className="font-mono text-[10px]">.scad</code> script here.
         </p>
       ) : (
-        <p className="text-[10px] text-[var(--text-muted)]">
-          Blueprint: <span className="text-[var(--text-main)]">{cad.activeBlueprint?.title}</span>
+        <p className="text-[10px] text-muted">
+          Blueprint: <span className="text-main">{cad.activeBlueprint?.title}</span>
           {dirty ? <span className="text-amber-400/90"> · unsaved</span> : null}
         </p>
       )}
@@ -159,7 +159,7 @@ export function OpenScadEditorStrip({
   return (
     <div className="flex flex-col h-full min-h-0 border-r border-[var(--border-subtle)] bg-[var(--bg-panel)]">
       <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-[var(--border-subtle)]">
-        <span className="text-[10px] font-black uppercase tracking-[0.15em] text-[var(--text-muted)]">
+        <span className="text-[10px] font-black uppercase tracking-[0.15em] text-muted">
           OpenSCAD
         </span>
         <a
@@ -176,7 +176,7 @@ export function OpenScadEditorStrip({
         value={script}
         onChange={(e) => onChange(e.target.value)}
         spellCheck={false}
-        className="flex-1 min-h-0 w-full font-mono text-[11px] leading-relaxed px-3 py-2 resize-none focus:outline-none bg-[var(--bg-hover)] text-[var(--text-main)]"
+        className="flex-1 min-h-0 w-full font-mono text-[11px] leading-relaxed px-3 py-2 resize-none focus:outline-none bg-[var(--bg-hover)] text-main"
         aria-label="OpenSCAD script"
       />
     </div>

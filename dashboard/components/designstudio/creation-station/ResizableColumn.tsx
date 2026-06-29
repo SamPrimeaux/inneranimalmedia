@@ -59,7 +59,7 @@ export function ResizableColumn({
         className="w-1.5 shrink-0 cursor-col-resize flex items-center justify-center hover:bg-[var(--bg-hover)]"
         style={{ borderLeft: '1px solid var(--border-subtle)' }}
       >
-        <GripVertical size={12} className="text-[var(--text-muted)] opacity-50" />
+        <GripVertical size={12} className="text-muted opacity-50" />
       </div>
     </div>
   );

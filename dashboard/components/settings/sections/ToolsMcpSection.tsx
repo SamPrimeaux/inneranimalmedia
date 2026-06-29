@@ -124,22 +124,22 @@ export function ToolsMcpSection({ data, activeSection }: ToolsMcpSectionProps) {
         <h2 className="text-[13px] font-bold text-[var(--text-heading)] uppercase tracking-widest">
           Tools &amp; MCP
         </h2>
-        <span className="text-[10px] text-[var(--text-muted)] font-mono">
+        <span className="text-[10px] text-muted font-mono">
           {tools.length} tools
         </span>
       </div>
 
       {!settings ? (
-        <div className="text-[12px] text-[var(--text-muted)]">Loading MCP settings…</div>
+        <div className="text-[12px] text-muted">Loading MCP settings…</div>
       ) : null}
 
       {settings ? (
         <div className="flex flex-col gap-2">
-          <div className="text-[11px] text-[var(--text-muted)]">
+          <div className="text-[11px] text-muted">
             <span className="font-semibold text-[var(--text-heading)]">Connected:</span>{' '}
             <span className="font-mono">{connectedUrl || '—'}</span>
           </div>
-          <div className="text-[11px] text-[var(--text-muted)]">{workspaceLabel}</div>
+          <div className="text-[11px] text-muted">{workspaceLabel}</div>
         </div>
       ) : null}
 
@@ -147,7 +147,7 @@ export function ToolsMcpSection({ data, activeSection }: ToolsMcpSectionProps) {
 
       {settings ? (
         <section className="flex flex-col gap-2">
-          <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+          <div className="text-[10px] font-black uppercase tracking-widest text-muted">
             Registered tools
           </div>
           <div className="flex flex-col gap-2">
@@ -168,19 +168,19 @@ export function ToolsMcpSection({ data, activeSection }: ToolsMcpSectionProps) {
                     className="w-full px-4 py-3 flex items-start gap-3 text-left hover:bg-[var(--bg-hover)]"
                     onClick={() => expandTool(toolKey)}
                   >
-                    <span className="mt-[2px] text-[var(--text-muted)] shrink-0">
+                    <span className="mt-[2px] text-muted shrink-0">
                       {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className="text-[12px] font-semibold text-[var(--text-main)] truncate">
+                      <div className="text-[12px] font-semibold text-main truncate">
                         {toolKey}
                       </div>
-                      <div className="text-[10px] text-[var(--text-muted)] mt-1">
+                      <div className="text-[10px] text-muted mt-1">
                         {getToolDescription(t) || '—'}
                       </div>
                     </div>
                     <div className="shrink-0 flex items-center gap-2">
-                      <span className="text-[10px] text-[var(--text-muted)] font-mono">
+                      <span className="text-[10px] text-muted font-mono">
                         {(t as any)?.handler_type ? String((t as any).handler_type) : ''}
                       </span>
                     </div>
@@ -189,13 +189,13 @@ export function ToolsMcpSection({ data, activeSection }: ToolsMcpSectionProps) {
                   {expanded ? (
                     <div className="border-t border-[var(--border-subtle)]">
                       <div className="px-4 py-2 flex items-center justify-between gap-2 bg-[var(--bg-app)]">
-                        <div className="text-[10px] text-[var(--text-muted)]">
+                        <div className="text-[10px] text-muted">
                           {editMode ? 'Editing' : 'Read-only'} JSON
                         </div>
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] uppercase tracking-wider bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:border-[var(--solar-cyan)]/50 text-[var(--text-main)]"
+                            className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] uppercase tracking-wider bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:border-[var(--solar-cyan)]/50 text-main"
                             onClick={() => setToolEditMode((p) => ({ ...p, [toolKey]: true }))}
                             disabled={toolSaveBusy[toolKey]}
                           >

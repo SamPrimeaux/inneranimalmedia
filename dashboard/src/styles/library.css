@@ -1002,7 +1002,11 @@
   flex-direction: column;
   align-items: center;
   gap: 16px;
-  border-left: 1px solid #edf2fa;
+  border-left: 1px solid var(--border);
+}
+
+html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
+  border-left-color: var(--dashboard-border, var(--border));
 }
 
 .artifacts-drive-shell .drive-rail .rbtn {

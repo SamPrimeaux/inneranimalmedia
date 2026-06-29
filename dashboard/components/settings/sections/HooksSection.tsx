@@ -22,13 +22,13 @@ export function HooksSection({ data }: HooksSectionProps) {
         <div className="text-[11px] text-[var(--color-danger)]">{data.hooksError2}</div>
       ) : null}
       {data.hooksLoading2 && !hd ? (
-        <div className="text-[12px] text-[var(--text-muted)]">Loading hooks…</div>
+        <div className="text-[12px] text-muted">Loading hooks…</div>
       ) : null}
 
       {hd && (
         <>
           <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] overflow-hidden">
-            <div className="grid grid-cols-7 gap-0 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
+            <div className="grid grid-cols-7 gap-0 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-muted border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
               <div className="col-span-1">Trigger</div>
               <div className="col-span-3">Command</div>
               <div className="col-span-1">Provider</div>
@@ -41,19 +41,19 @@ export function HooksSection({ data }: HooksSectionProps) {
                 className="grid grid-cols-7 gap-0 px-4 py-3 border-b border-[var(--border-subtle)] items-center text-[11px]"
               >
                 <div className="col-span-1">
-                  <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-muted)] font-mono">
+                  <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-muted font-mono">
                     {String(h.trigger || '')}
                   </span>
                 </div>
-                <div className="col-span-3 font-mono text-[10px] text-[var(--text-main)] truncate">
+                <div className="col-span-3 font-mono text-[10px] text-main truncate">
                   {String(h.command || '')}
                 </div>
                 <div className="col-span-1">
-                  <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-muted)]">
+                  <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-muted">
                     {String(h.provider || 'system')}
                   </span>
                 </div>
-                <div className="col-span-1 text-[10px] text-[var(--text-muted)]">
+                <div className="col-span-1 text-[10px] text-muted">
                   {Number(h.run_count || 0)} · {h.last_ran ? relativeTime(h.last_ran) : '—'}
                 </div>
                 <div className="col-span-1 flex items-center justify-end gap-2">
@@ -72,7 +72,7 @@ export function HooksSection({ data }: HooksSectionProps) {
                       const snapshot = data.hooksData;
                       void data.deleteHook(String(h.id), snapshot);
                     }}
-                    className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--color-danger)] hover:border-[var(--color-danger)]/40"
+                    className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-muted hover:text-[var(--color-danger)] hover:border-[var(--color-danger)]/40"
                   >
                     Delete
                   </button>
@@ -83,12 +83,12 @@ export function HooksSection({ data }: HooksSectionProps) {
 
           {data.newHookOpen && (
             <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
-              <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-3">
+              <div className="text-[10px] font-black uppercase tracking-widest text-muted mb-3">
                 New Hook
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <label className="flex flex-col gap-1 text-[11px]">
-                  <span className="text-[var(--text-muted)]">Trigger</span>
+                  <span className="text-muted">Trigger</span>
                   <select
                     value={data.newHookDraft.trigger}
                     onChange={(e) =>
@@ -106,7 +106,7 @@ export function HooksSection({ data }: HooksSectionProps) {
                   </select>
                 </label>
                 <label className="flex flex-col gap-1 text-[11px] md:col-span-2">
-                  <span className="text-[var(--text-muted)]">Command</span>
+                  <span className="text-muted">Command</span>
                   <input
                     value={data.newHookDraft.command}
                     onChange={(e) =>
@@ -116,7 +116,7 @@ export function HooksSection({ data }: HooksSectionProps) {
                   />
                 </label>
                 <label className="flex flex-col gap-1 text-[11px]">
-                  <span className="text-[var(--text-muted)]">Provider</span>
+                  <span className="text-muted">Provider</span>
                   <select
                     value={data.newHookDraft.provider}
                     onChange={(e) =>
@@ -135,7 +135,7 @@ export function HooksSection({ data }: HooksSectionProps) {
               <div className="mt-3 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]"
+                  className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted"
                   onClick={() => data.setNewHookOpen(false)}
                 >
                   Cancel
@@ -152,9 +152,9 @@ export function HooksSection({ data }: HooksSectionProps) {
           )}
 
           <div className="border-t border-[var(--border-subtle)] pt-3">
-            <div className="text-[12px] font-semibold text-[var(--text-main)]">Recent Executions</div>
+            <div className="text-[12px] font-semibold text-main">Recent Executions</div>
             <div className="mt-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] overflow-hidden">
-              <div className="grid grid-cols-5 gap-0 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
+              <div className="grid grid-cols-5 gap-0 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-muted border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
                 <div className="col-span-1">Status</div>
                 <div className="col-span-1">Ran</div>
                 <div className="col-span-1">Duration</div>
@@ -180,10 +180,10 @@ export function HooksSection({ data }: HooksSectionProps) {
                         {st}
                       </span>
                     </div>
-                    <div className="col-span-1 text-[10px] text-[var(--text-muted)]">
+                    <div className="col-span-1 text-[10px] text-muted">
                       {e.ran_at ? relativeTime(e.ran_at) : '—'}
                     </div>
-                    <div className="col-span-1 text-[10px] text-[var(--text-muted)] font-mono">
+                    <div className="col-span-1 text-[10px] text-muted font-mono">
                       {Number(e.duration_ms || 0)}ms
                     </div>
                     <div className="col-span-2 text-[10px] text-[var(--color-danger)] truncate">

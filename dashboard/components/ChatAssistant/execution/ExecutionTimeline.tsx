@@ -56,7 +56,7 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
         <div className="flex justify-end pb-0.5">
           <button
             type="button"
-            className="text-[10px] text-[var(--text-muted)] hover:text-[var(--solar-cyan)]"
+            className="text-[10px] text-muted hover:text-[var(--solar-cyan)]"
             onClick={onClear}
           >
             Clear

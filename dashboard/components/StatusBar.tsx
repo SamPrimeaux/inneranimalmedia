@@ -245,7 +245,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
   return (
     <nav
-      className="h-6 flex items-stretch text-[var(--text-muted)] bg-[var(--bg-panel)] border-t border-[var(--border-subtle)] overflow-hidden select-none shrink-0"
+      className="h-6 flex items-stretch text-muted bg-[var(--bg-panel)] border-t border-[var(--border-subtle)] overflow-hidden select-none shrink-0"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
       {notifOpen && (
@@ -254,11 +254,11 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           className="absolute bottom-full right-1 mb-0.5 z-[110] w-[min(380px,96vw)] max-h-[min(320px,50vh)] flex flex-col rounded-md border border-[var(--border-subtle)] bg-[var(--bg-panel)] shadow-lg overflow-hidden"
           onMouseDown={stop}
         >
-          <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-subtle)] text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-subtle)] text-[11px] font-semibold uppercase tracking-wide text-muted">
             <span>Notifications</span>
             <button
               type="button"
-              className="text-[var(--text-main)] hover:text-[var(--solar-cyan)] px-2 py-0.5 rounded hover:bg-[var(--bg-hover)]"
+              className="text-main hover:text-[var(--solar-cyan)] px-2 py-0.5 rounded hover:bg-[var(--bg-hover)]"
               onClick={() => setNotifOpen(false)}
             >
               Close
@@ -266,7 +266,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           </div>
           <div className="overflow-y-auto flex-1 min-h-0">
             {notifications.length === 0 ? (
-              <p className="px-3 py-4 text-[12px] text-[var(--text-muted)]">No unread notifications.</p>
+              <p className="px-3 py-4 text-[12px] text-muted">No unread notifications.</p>
             ) : (
               <ul className="divide-y divide-[var(--border-subtle)]/40">
                 {notifications.map((n) => (
@@ -276,18 +276,18 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                       className="w-full text-left"
                       onClick={() => void onMarkNotificationRead?.(n.id)}
                     >
-                      <div className="text-[12px] font-medium text-[var(--text-main)] line-clamp-2">
+                      <div className="text-[12px] font-medium text-main line-clamp-2">
                         {stripEmojiFromNotificationText(
                           (n.title ?? n.subject)?.trim(),
                         ) || 'Notice'}
                       </div>
                       {n.message && (
-                        <div className="text-[11px] text-[var(--text-muted)] mt-0.5 line-clamp-3 whitespace-pre-wrap">
+                        <div className="text-[11px] text-muted mt-0.5 line-clamp-3 whitespace-pre-wrap">
                           {stripEmojiFromNotificationText(n.message)}
                         </div>
                       )}
                       {n.created_at && (
-                        <div className="text-[10px] text-[var(--text-muted)] mt-1 font-[var(--font-sans)]">{n.created_at}</div>
+                        <div className="text-[10px] text-muted mt-1 font-[var(--font-sans)]">{n.created_at}</div>
                       )}
                     </button>
                   </li>
@@ -295,7 +295,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               </ul>
             )}
           </div>
-          <p className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] border-t border-[var(--border-subtle)]/40">
+          <p className="px-3 py-1.5 text-[10px] text-muted border-t border-[var(--border-subtle)]/40">
             Unread rows from D1 for your account. Deploy alerts also go out by email when the worker sends them.
           </p>
         </div>
@@ -323,7 +323,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             title="Repository and branches — opens top bar menu"
           >
             <GitBranch size={11} />
-            <span className="text-[0.5625rem] font-semibold text-[var(--text-muted)] font-[var(--font-sans)] max-w-[120px] truncate">
+            <span className="text-[0.5625rem] font-semibold text-muted font-[var(--font-sans)] max-w-[120px] truncate">
               {branch?.trim() ? branch : 'Branch'}
             </span>
             <ChevronDown size={10} className="opacity-50 shrink-0" />
@@ -341,7 +341,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           >
             <RefreshCw size={10} className={syncBusy ? 'animate-spin' : ''} />
             {(aheadCount != null && aheadCount > 0) || (behindCount != null && behindCount > 0) ? (
-              <span className="flex items-center gap-0.5 text-[9px] font-semibold font-[var(--font-sans)] text-[var(--text-muted)]">
+              <span className="flex items-center gap-0.5 text-[9px] font-semibold font-[var(--font-sans)] text-muted">
                 {behindCount != null && behindCount > 0 ? (
                   <span className="flex items-center gap-px text-[var(--solar-cyan)]">
                     <ArrowDown size={8} aria-hidden />
@@ -380,14 +380,14 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               }
               className="px-2.5 h-full hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1 max-w-[180px]"
             >
-              <span className="text-[0.5625rem] font-semibold text-[var(--text-muted)] truncate font-[var(--font-sans)]">
+              <span className="text-[0.5625rem] font-semibold text-muted truncate font-[var(--font-sans)]">
                 {workspace}
               </span>
               {pickWorkspaceEnabled && <ChevronDown size={10} className="opacity-50 shrink-0" />}
             </button>
             {pickWorkspaceEnabled && showWorkspaceMenu && (
               <div className="absolute bottom-full left-0 mb-1 z-50 w-56 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg shadow-xl overflow-hidden py-1 max-h-[min(280px,45vh)] flex flex-col">
-                <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] border-b border-[var(--border-subtle)]">
+                <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted border-b border-[var(--border-subtle)]">
                   Workspace
                 </div>
                 <div className="overflow-y-auto flex-1 min-h-0 py-1">
@@ -402,7 +402,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                           setWorkspaceMenu(false);
                         }}
                         className={`ws-picker-row w-full text-left px-3 py-1.5 text-[0.6875rem] hover:bg-[var(--bg-hover)] flex items-start gap-2 font-[var(--font-sans)] ${
-                          active ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-main)]'
+                          active ? 'text-[var(--solar-cyan)]' : 'text-main'
                         }`}
                       >
                         <span className="mt-0.5 shrink-0">
@@ -437,7 +437,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       <div className="flex items-stretch flex-1 min-w-0 overflow-hidden">
         {gitHash?.trim() ? (
           <div
-            className="hidden sm:flex items-center px-2 h-full text-[0.5625rem] font-[var(--font-sans)] text-[var(--text-muted)] border-r border-[var(--border-subtle)]/30 shrink-0"
+            className="hidden sm:flex items-center px-2 h-full text-[0.5625rem] font-[var(--font-sans)] text-muted border-r border-[var(--border-subtle)]/30 shrink-0"
             title="Latest deployed commit (short hash)"
           >
             {gitHash.trim()}
@@ -452,14 +452,14 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               className={`inline-block w-1.5 h-1.5 rounded-full ${healthOk ? 'bg-[var(--solar-green,#22c55e)]' : 'bg-[var(--solar-red)]'}`}
               aria-hidden
             />
-            <span className="text-[0.5625rem] font-semibold text-[var(--text-muted)] hidden lg:inline">
+            <span className="text-[0.5625rem] font-semibold text-muted hidden lg:inline">
               {healthOk ? 'Healthy' : 'Degraded'}
             </span>
           </div>
         ) : null}
         {tunnelHealthy != null ? (
           <div
-            className="hidden xl:flex items-center px-2 h-full text-[0.5625rem] text-[var(--text-muted)] truncate max-w-[140px] shrink-0"
+            className="hidden xl:flex items-center px-2 h-full text-[0.5625rem] text-muted truncate max-w-[140px] shrink-0"
             title={tunnelLabel?.trim() || (tunnelHealthy ? 'Tunnel connected' : 'Tunnel unavailable')}
           >
             {tunnelHealthy ? 'Tunnel' : 'No tunnel'}
@@ -467,7 +467,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         ) : null}
         {terminalOk != null ? (
           <div
-            className="hidden xl:flex items-center px-2 h-full text-[0.5625rem] text-[var(--text-muted)] shrink-0"
+            className="hidden xl:flex items-center px-2 h-full text-[0.5625rem] text-muted shrink-0"
             title={terminalOk ? 'PTY terminal configured' : 'PTY terminal not configured'}
           >
             {terminalOk ? 'PTY' : 'No PTY'}
@@ -512,7 +512,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               title="Go to Line/Column — click to navigate to a specific line number"
               className="px-2 h-full hover:bg-[var(--bg-hover)] transition-colors flex items-center"
             >
-              <span className="text-[0.5625rem] font-semibold text-[var(--text-muted)] font-[var(--font-sans)]">
+              <span className="text-[0.5625rem] font-semibold text-muted font-[var(--font-sans)]">
                 Ln {line}, Col {col}
               </span>
             </button>
@@ -522,7 +522,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               title="Indentation — controls whether Tab inserts spaces or a tab character, and how many spaces per indent. Click to change (Spaces vs Tabs, size per level)."
               className="px-2 h-full hover:bg-[var(--bg-hover)] transition-colors flex items-center"
             >
-              <span className="text-[0.5625rem] font-[var(--font-sans)] text-[var(--text-muted)]">{indentLabel}</span>
+              <span className="text-[0.5625rem] font-[var(--font-sans)] text-muted">{indentLabel}</span>
             </button>
 
             <button
@@ -530,7 +530,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               title="File Encoding — UTF-8 stores every character (all languages + emoji) as universal bytes. Most files should stay UTF-8. Only change for legacy files expecting Latin-1 or Windows-1252."
               className="px-2 h-full hover:bg-[var(--bg-hover)] transition-colors flex items-center"
             >
-              <span className="text-[0.5625rem] font-[var(--font-sans)] text-[var(--text-muted)]">{encodingLabel}</span>
+              <span className="text-[0.5625rem] font-[var(--font-sans)] text-muted">{encodingLabel}</span>
             </button>
 
             <button
@@ -538,7 +538,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               title="Line Endings — the invisible character at the end of each line. LF = Unix/Mac. CRLF = Windows. Mismatches cause every line to appear changed in git diffs even when nothing actually changed. Click to change for this file."
               className="px-2 h-full hover:bg-[var(--bg-hover)] transition-colors flex items-center"
             >
-              <span className="text-[0.5625rem] font-[var(--font-sans)] text-[var(--text-muted)]">{eolLabel}</span>
+              <span className="text-[0.5625rem] font-[var(--font-sans)] text-muted">{eolLabel}</span>
             </button>
 
             {canFormatDocument && (
@@ -556,7 +556,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
         {chatModeLabel && (
           <div
-            className="hidden min-[1000px]:flex items-center px-2 h-full text-[var(--text-muted)] font-semibold border-x border-[var(--border-subtle)]/20 max-w-[120px] truncate"
+            className="hidden min-[1000px]:flex items-center px-2 h-full text-muted font-semibold border-x border-[var(--border-subtle)]/20 max-w-[120px] truncate"
             title={chatModeLabel}
           >
             {chatModeLabel}
@@ -566,7 +566,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         <button
           type="button"
           onClick={onVersionClick}
-          className="hidden sm:flex items-center px-2 h-full hover:bg-[var(--bg-hover)] transition-colors text-[0.5625rem] font-[var(--font-sans)] text-[var(--text-muted)]"
+          className="hidden sm:flex items-center px-2 h-full hover:bg-[var(--bg-hover)] transition-colors text-[0.5625rem] font-[var(--font-sans)] text-muted"
           title={`Shell ${version}`}
         >
           {version}
@@ -574,7 +574,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
         <button
           type="button"
-          className="relative flex items-center justify-center hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] cursor-pointer px-3 h-full transition-colors border-0 bg-transparent"
+          className="relative flex items-center justify-center hover:text-main hover:bg-[var(--bg-hover)] cursor-pointer px-3 h-full transition-colors border-0 bg-transparent"
           title="Notifications"
           aria-expanded={notifOpen}
           onMouseDown={(e) => e.stopPropagation()}
@@ -599,7 +599,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             role="dialog"
             aria-labelledby="iam-sync-confirm-title"
           >
-            <p id="iam-sync-confirm-title" className="text-[13px] text-[var(--text-main)] leading-snug">
+            <p id="iam-sync-confirm-title" className="text-[13px] text-main leading-snug">
               This triggers a Workers Builds deploy for{' '}
               <span className="font-semibold">{workspace || 'this workspace'}</span>
               {branch ? (
@@ -609,14 +609,14 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                 </>
               ) : null}
               {trackingBranch ? (
-                <span className="text-[var(--text-muted)]">
+                <span className="text-muted">
                   {' '}
                   (tracks origin/{trackingBranch})
                 </span>
               ) : null}
               .
             </p>
-            <p className="text-[11px] text-[var(--text-muted)]">
+            <p className="text-[11px] text-muted">
               Push commits to GitHub first, then sync to deploy the latest remote ref — same flow as Cursor&apos;s
               synchronize after push.
             </p>

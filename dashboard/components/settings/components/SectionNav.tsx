@@ -29,7 +29,7 @@ export function SectionNav({
               ? collapsed
                 ? 'text-[var(--solar-cyan)] bg-[var(--solar-cyan)]/10'
                 : 'bg-[var(--solar-cyan)]/10 text-[var(--solar-cyan)] border-r-2 border-[var(--solar-cyan)]'
-              : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]'
+              : 'text-muted hover:text-main hover:bg-[var(--bg-hover)]'
           }`}
         >
           <span className="shrink-0">{item.icon}</span>

@@ -189,7 +189,7 @@ export function AssetLibrary({
         <section className="bg-gradient-to-br from-indigo-500/10 to-blue-500/5 p-4 rounded-2xl border border-[var(--border-subtle)] space-y-3">
           <div className="flex items-center gap-2 mb-1">
             <Link size={14} className="text-[var(--solar-cyan)]" />
-            <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">
+            <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">
               Direct URL Loader
             </p>
           </div>
@@ -216,7 +216,7 @@ export function AssetLibrary({
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2">
             <Package size={14} className="text-[var(--solar-green)]" />
-            <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">
+            <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">
               Asset Library
             </p>
           </div>
@@ -265,7 +265,7 @@ export function AssetLibrary({
           </form>
         )}
 
-        <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-1">
+        <p className="text-[9px] font-bold text-muted uppercase mb-1">
           AgentSam Procedural
         </p>
         <div className="grid grid-cols-2 gap-2 mb-3">
@@ -283,26 +283,26 @@ export function AssetLibrary({
           ))}
         </div>
 
-        <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-1">
+        <p className="text-[9px] font-bold text-muted uppercase mb-1">
           Stock Presets
           {!stockAssetsLoading && stockAssets.length > 0 ? (
-            <span className="text-[var(--text-muted)] font-normal normal-case ml-1">
+            <span className="text-muted font-normal normal-case ml-1">
               ({stockAssets.length})
             </span>
           ) : null}
         </p>
         <div className="asset-library__stock-grid max-h-[320px] overflow-y-auto pr-1">
           {stockAssetsLoading && (
-            <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">Loading presets…</p>
+            <p className="text-[10px] text-muted px-2 py-1">Loading presets…</p>
           )}
           {!stockAssetsLoading && stockAssets.length === 0 && (
-            <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">
+            <p className="text-[10px] text-muted px-2 py-1">
               No live stock assets in D1 (<code className="font-mono">3d_studio</code>).
             </p>
           )}
           {!stockAssetsLoading && astronautAssets.length > 0 && (
             <>
-              <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase px-1">
+              <p className="text-[9px] font-bold text-muted uppercase px-1">
                 Astronaut Pack ({astronautAssets.length})
               </p>
               <div className="asset-library__stock-row">
@@ -312,7 +312,7 @@ export function AssetLibrary({
           )}
           {!stockAssetsLoading && otherStockAssets.length > 0 && (
             <>
-              <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase px-1 mt-2">
+              <p className="text-[9px] font-bold text-muted uppercase px-1 mt-2">
                 Other Stock ({otherStockAssets.length})
               </p>
               <div className="asset-library__stock-row">
@@ -321,7 +321,7 @@ export function AssetLibrary({
             </>
           )}
           {customAssets.length > 0 && (
-            <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-1 mt-2">Your Assets</p>
+            <p className="text-[9px] font-bold text-muted uppercase mb-1 mt-2">Your Assets</p>
           )}
           {customAssets.map((asset) => (
             <div key={asset.id} className="group relative flex items-center gap-2">

@@ -233,8 +233,8 @@ export function DesignStudioCreationStation({
         <header className="shrink-0 flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-panel)]/95 backdrop-blur-md">
           <div className="flex items-center gap-2 min-w-0">
             <div className="min-w-0">
-              <h1 className="text-[13px] font-semibold text-[var(--text-main)] truncate">Design Studio</h1>
-              <p className="text-[10px] text-[var(--text-muted)] truncate">
+              <h1 className="text-[13px] font-semibold text-main truncate">Design Studio</h1>
+              <p className="text-[10px] text-muted truncate">
                 {advancedActive ? 'OpenSCAD · code + preview' : 'Meshy toolkit · viewport'}
               </p>
             </div>
@@ -242,14 +242,14 @@ export function DesignStudioCreationStation({
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              className="md:hidden px-2 py-1 text-[10px] font-semibold text-[var(--text-muted)] border border-[var(--border-subtle)] rounded-lg"
+              className="md:hidden px-2 py-1 text-[10px] font-semibold text-muted border border-[var(--border-subtle)] rounded-lg"
               onClick={() => setMobilePane((p) => (p === 'view' ? 'tools' : 'view'))}
             >
               {mobilePane === 'view' ? 'Tools' : 'View'}
             </button>
             <button
               type="button"
-              className="hidden lg:flex p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+              className="hidden lg:flex p-2 rounded-lg text-muted hover:text-main hover:bg-[var(--bg-hover)]"
               onClick={() => setApiOpen((o) => !o)}
               title="Toggle API inspector"
             >
@@ -316,7 +316,7 @@ export function DesignStudioCreationStation({
                   >
                     {progressLabel}
                   </span>
-                  <span className="text-[10px] font-mono text-[var(--text-muted)]">
+                  <span className="text-[10px] font-mono text-muted">
                     {progressPct != null && progressPct > 0 ? `${progressPct}%` : ''}
                   </span>
                 </div>

@@ -79,10 +79,10 @@ export const MovieModeStudio: React.FC<MovieModeStudioProps> = ({
 
   if (!timeline) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-[var(--text-muted)] p-8">
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted p-8">
         <Clapperboard size={40} className="opacity-30" />
         <p className="text-sm text-center max-w-sm">
-          Pick a clip from the <strong className="text-[var(--text-main)]">media library</strong> on the
+          Pick a clip from the <strong className="text-main">media library</strong> on the
           left, or upload / import from Stream.
         </p>
       </div>
@@ -115,7 +115,7 @@ export const MovieModeStudio: React.FC<MovieModeStudioProps> = ({
 
         {binTab === 'text' ? (
           <div className="shrink-0 max-h-[min(32vh,240px)] overflow-y-auto border-t border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]">
-            <p className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
+            <p className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest text-muted">
               Text overlays
             </p>
             <TextOverlayEditor

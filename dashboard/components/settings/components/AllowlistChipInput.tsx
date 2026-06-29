@@ -57,20 +57,20 @@ function CommandSuggestionsPopover({
         type="button"
         disabled={disabled}
         onClick={() => setSuggestionsOpen((o) => !o)}
-        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 disabled:opacity-40"
+        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[10px] font-semibold uppercase tracking-wide text-muted hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 disabled:opacity-40"
       >
         Add suggestions
         <ChevronDown size={12} className={suggestionsOpen ? 'rotate-180' : ''} />
       </button>
       {suggestionsOpen ? (
         <div className="absolute right-0 top-full mt-1 z-50 w-[min(100vw-2rem,22rem)] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] shadow-lg p-3">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-2">
             {existingCommands.length === 0 ? 'Starter commands' : 'Suggested commands'}
           </div>
           {suggestionsLoading ? (
-            <div className="text-[11px] text-[var(--text-muted)] py-2">Loading…</div>
+            <div className="text-[11px] text-muted py-2">Loading…</div>
           ) : suggestions.length === 0 ? (
-            <div className="text-[11px] text-[var(--text-muted)] py-2">No suggestions available</div>
+            <div className="text-[11px] text-muted py-2">No suggestions available</div>
           ) : (
             <div className="max-h-56 overflow-y-auto space-y-1 mb-3">
               {suggestions.map((row) => (
@@ -86,7 +86,7 @@ function CommandSuggestionsPopover({
                   />
                   <code className="font-mono text-[var(--solar-cyan)] truncate">{row.pattern}</code>
                   {row.category ? (
-                    <span className="text-[9px] text-[var(--text-muted)] ml-auto shrink-0">
+                    <span className="text-[9px] text-muted ml-auto shrink-0">
                       {row.category}
                     </span>
                   ) : null}
@@ -242,14 +242,14 @@ export function AllowlistChipInput({
       ) : (
         <div className="flex items-center justify-between gap-2">
           {label ? (
-            <div className="text-[12px] font-semibold text-[var(--text-main)]">{label}</div>
+            <div className="text-[12px] font-semibold text-main">{label}</div>
           ) : (
             <span />
           )}
           {suggestionsControl}
         </div>
       )}
-      {hint ? <p className="text-[10px] text-[var(--text-muted)] -mt-1">{hint}</p> : null}
+      {hint ? <p className="text-[10px] text-muted -mt-1">{hint}</p> : null}
       <div className="flex gap-2">
         <input
           value={inputValue}
@@ -262,19 +262,19 @@ export function AllowlistChipInput({
             }
           }}
           placeholder={placeholder}
-          className="flex-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-[var(--text-main)] disabled:opacity-40"
+          className="flex-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-main disabled:opacity-40"
         />
         <button
           type="button"
           disabled={disabled}
           onClick={() => onAdd()}
-          className="px-3 py-2 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-main)] hover:border-[var(--solar-cyan)]/50 disabled:opacity-40"
+          className="px-3 py-2 rounded-lg border border-[var(--border-subtle)] text-[11px] text-main hover:border-[var(--solar-cyan)]/50 disabled:opacity-40"
         >
           Add
         </button>
       </div>
       {items.length === 0 ? (
-        <div className="text-[12px] text-[var(--text-muted)]">None added yet</div>
+        <div className="text-[12px] text-muted">None added yet</div>
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {items.map((item) => (
@@ -285,7 +285,7 @@ export function AllowlistChipInput({
                 disabled={disabled}
                 aria-label={`Remove ${item}`}
                 onClick={() => onRemove(item)}
-                className="p-0.5 rounded-full text-[var(--text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+                className="p-0.5 rounded-full text-muted hover:text-[var(--color-danger)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
               >
                 <X size={10} aria-hidden />
               </button>

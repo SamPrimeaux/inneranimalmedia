@@ -9,7 +9,7 @@ export function RulesSkillsSkillsTab({ data }: { data: SettingsPanelModel }) {
         <div className="text-[11px] text-[var(--color-danger)]">{data.skillsError}</div>
       ) : null}
       {data.skillsLoading ? (
-        <div className="text-[12px] text-[var(--text-muted)]">Loading skills…</div>
+        <div className="text-[12px] text-muted">Loading skills…</div>
       ) : null}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {data.skills.map((skill) => (
@@ -26,16 +26,16 @@ export function RulesSkillsSkillsTab({ data }: { data: SettingsPanelModel }) {
                       .slice(0, 2)}
                   </div>
                   <div className="min-w-0">
-                    <div className="text-[12px] font-semibold text-[var(--text-main)] truncate">
+                    <div className="text-[12px] font-semibold text-main truncate">
                       {String(skill.name || '')}
                     </div>
-                    <div className="text-[10px] text-[var(--text-muted)] truncate">
+                    <div className="text-[10px] text-muted truncate">
                       {String(skill.description || '').slice(0, 80)}
                       {String(skill.description || '').length > 80 ? '…' : ''}
                     </div>
                   </div>
                 </div>
-                <div className="text-[10px] text-[var(--text-muted)] mt-2 flex items-center gap-2">
+                <div className="text-[10px] text-muted mt-2 flex items-center gap-2">
                   {Number(skill.invocation_count || 0) > 0 ? (
                     <span>{Number(skill.invocation_count)} uses</span>
                   ) : null}
@@ -69,11 +69,11 @@ export function RulesSkillsSkillsTab({ data }: { data: SettingsPanelModel }) {
                   });
                   data.setSkillDrawerOpen(true);
                 }}
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted hover:text-main"
               >
                 Edit
               </button>
-              <code className="text-[10px] text-[var(--text-muted)] font-mono truncate">
+              <code className="text-[10px] text-muted font-mono truncate">
                 {String(skill.slash_trigger || '')}
               </code>
             </div>

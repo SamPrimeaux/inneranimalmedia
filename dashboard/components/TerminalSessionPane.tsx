@@ -978,7 +978,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
         >
           {status === 'timed_out' && (
             <div className="absolute inset-0 z-[25] flex flex-col items-center justify-center gap-3 bg-[var(--terminal-surface)]/95 backdrop-blur-sm px-4 text-center">
-              <p className="text-[12px] font-mono text-[var(--text-main)]">
+              <p className="text-[12px] font-mono text-main">
                 Session timed out after 5 minutes of inactivity.
               </p>
               <button

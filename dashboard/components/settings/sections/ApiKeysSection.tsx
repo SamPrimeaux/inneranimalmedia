@@ -89,7 +89,7 @@ function badgeClass(status: string) {
     return 'border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 text-[var(--color-danger)]';
   if (s === 'disabled')
     return 'border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 text-[var(--color-warning)]';
-  return 'border-[var(--border-subtle)] bg-[var(--bg-app)] text-[var(--text-muted)]';
+  return 'border-[var(--border-subtle)] bg-[var(--bg-app)] text-muted';
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -686,7 +686,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
             <button
               type="button"
               onClick={() => void load()}
-              className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+              className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main hover:bg-[var(--bg-hover)]"
               title="Refresh"
             >
               <span className="inline-flex items-center gap-1.5">
@@ -723,13 +723,13 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
         ]}
       />
 
-      <p className="text-[11px] text-[var(--text-muted)] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2">
+      <p className="text-[11px] text-muted rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2">
         Personal PTY / Cloudflare tunnel setup lives in the bottom terminal: open{' '}
-        <span className="text-[var(--text-main)]">+ → Configure Terminal Settings</span> for a
+        <span className="text-main">+ → Configure Terminal Settings</span> for a
         step-by-step wizard (PowerShell, cloudflared, iam-pty).
       </p>
 
-      <h3 className="text-[11px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+      <h3 className="text-[11px] font-black uppercase tracking-widest text-muted">
         Provider keys
       </h3>
 
@@ -747,8 +747,8 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
               widthClass: '140px',
               render: (r) => (
                 <span className="inline-flex items-center gap-2">
-                  <Key size={14} className="text-[var(--text-muted)]" />
-                  <span className="text-[var(--text-main)]">{providerLabel(r.provider)}</span>
+                  <Key size={14} className="text-muted" />
+                  <span className="text-main">{providerLabel(r.provider)}</span>
                 </span>
               ),
             },
@@ -759,7 +759,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
               render: (r) => (
                 <div className="min-w-0">
                   <div className="truncate">{r.label || '—'}</div>
-                  <div className="text-[10px] text-[var(--text-muted)] font-mono truncate">
+                  <div className="text-[10px] text-muted font-mono truncate">
                     {String(r.provider || '').toLowerCase() === 'cloudflare' && r.cloudflare_account_mask
                       ? `Account: ${r.cloudflare_account_mask} · Token: ••••${r.last_four}`
                       : String(r.provider || '').toLowerCase() === 'cloudflare_r2'
@@ -779,7 +779,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                 r.validated_at ? (
                   <span className="text-[10px] text-[var(--color-success)]">✓ validated</span>
                 ) : (
-                  <span className="text-[10px] text-[var(--text-muted)]">—</span>
+                  <span className="text-[10px] text-muted">—</span>
                 ),
             },
             {
@@ -812,7 +812,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                     type="button"
                     disabled={validatingId === r.id}
                     onClick={() => void onTestStored(r)}
-                    className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                    className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-muted hover:text-main hover:bg-[var(--bg-hover)] disabled:opacity-50"
                     title="Test key"
                   >
                     {validatingId === r.id ? 'Testing…' : 'Test'}
@@ -822,7 +822,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                     type="button"
                     disabled={rotatingId === r.id}
                     onClick={() => openRotate(r)}
-                    className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                    className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-muted hover:text-main hover:bg-[var(--bg-hover)] disabled:opacity-50"
                     title="Rotate"
                   >
                     <span className="inline-flex items-center gap-1.5">
@@ -855,21 +855,21 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
       {hasCloudflareKey ? (
         <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3 space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="text-[11px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+            <h3 className="text-[11px] font-black uppercase tracking-widest text-muted">
               Cloudflare D1 (workspace default)
             </h3>
             <button
               type="button"
               onClick={() => void loadCloudflareD1()}
-              className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+              className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-muted hover:text-main hover:bg-[var(--bg-hover)]"
             >
               Refresh
             </button>
           </div>
           {selectedD1Label || selectedD1Id ? (
-            <div className="text-[11px] text-[var(--text-muted)]">
+            <div className="text-[11px] text-muted">
               Selected:{' '}
-              <span className="text-[var(--text-main)] font-semibold">
+              <span className="text-main font-semibold">
                 {selectedD1Label || selectedD1Id}
               </span>
             </div>
@@ -885,7 +885,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
           ) : (
             <div className="flex flex-wrap items-end gap-2">
               <label className="flex flex-col gap-1 text-[11px] min-w-[240px] flex-1">
-                <span className="text-[var(--text-muted)]">Default D1 database</span>
+                <span className="text-muted">Default D1 database</span>
                 <select
                   value={selectedD1Id}
                   onChange={(e) => setSelectedD1Id(e.target.value)}
@@ -917,14 +917,14 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
 
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-[11px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+          <h3 className="text-[11px] font-black uppercase tracking-widest text-muted">
             Personal secrets
           </h3>
           <button
             type="button"
             disabled={!ws}
             onClick={() => setPersonalCreateOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted hover:text-main hover:bg-[var(--bg-hover)] disabled:opacity-50"
           >
             <Plus size={14} />
             Add secret
@@ -942,10 +942,10 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                 className="flex items-center justify-between gap-3 px-3 py-2 border-b border-[var(--border-subtle)] text-[11px] last:border-b-0"
               >
                 <div className="min-w-0">
-                  <div className="font-semibold text-[var(--text-main)] truncate">
+                  <div className="font-semibold text-main truncate">
                     {r.secret_name || r.label || r.id}
                   </div>
-                  <div className="text-[10px] text-[var(--text-muted)] font-mono">••••{r.last_four}</div>
+                  <div className="text-[10px] text-muted font-mono">••••{r.last_four}</div>
                 </div>
                 <button
                   type="button"
@@ -963,13 +963,13 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
 
       <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3 space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <div className="text-[11px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+          <div className="text-[11px] font-black uppercase tracking-widest text-muted">
             Audit (latest)
           </div>
           <button
             type="button"
             onClick={() => void loadAudit()}
-            className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+            className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-muted hover:text-main hover:bg-[var(--bg-hover)]"
           >
             Refresh
           </button>
@@ -991,14 +991,14 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                 className="flex items-center justify-between gap-3 px-3 py-2 border-b border-[var(--border-subtle)] text-[11px]"
               >
                 <div className="min-w-0">
-                  <div className="text-[var(--text-main)] truncate">
-                    <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                  <div className="text-main truncate">
+                    <span className="font-mono text-[10px] uppercase tracking-wider text-muted">
                       {a.event_type}
                     </span>{' '}
-                    <span className="text-[var(--text-muted)]">·</span>{' '}
-                    <span className="text-[var(--text-muted)] font-mono truncate">{a.api_key_id}</span>
+                    <span className="text-muted">·</span>{' '}
+                    <span className="text-muted font-mono truncate">{a.api_key_id}</span>
                   </div>
-                  <div className="text-[10px] text-[var(--text-muted)] truncate">
+                  <div className="text-[10px] text-muted truncate">
                     {a.actor ? `actor: ${a.actor}` : 'actor: —'}
                     {a.new_last4 ? ` · last4: ${a.new_last4}` : ''}
                   </div>
@@ -1026,7 +1026,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
               <div className="text-[12px] font-semibold text-[var(--text-heading)]">Add personal secret</div>
               <button
                 type="button"
-                className="text-[11px] text-[var(--text-muted)]"
+                className="text-[11px] text-muted"
                 onClick={() => setPersonalCreateOpen(false)}
               >
                 Close
@@ -1034,7 +1034,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
             </div>
             <div className="p-4 flex-1 overflow-auto space-y-3">
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Name</span>
+                <span className="text-muted">Name</span>
                 <input
                   value={personalName}
                   onChange={(e) => setPersonalName(e.target.value)}
@@ -1043,7 +1043,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                 />
               </label>
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Secret value</span>
+                <span className="text-muted">Secret value</span>
                 <input
                   type="password"
                   value={personalValue}
@@ -1056,7 +1056,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
             <div className="px-4 py-3 border-t border-[var(--border-subtle)] flex justify-end gap-2">
               <button
                 type="button"
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]"
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted"
                 onClick={() => setPersonalCreateOpen(false)}
               >
                 Cancel
@@ -1089,7 +1089,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
               <div className="text-[12px] font-semibold text-[var(--text-heading)]">Add API key</div>
               <button
                 type="button"
-                className="text-[11px] text-[var(--text-muted)]"
+                className="text-[11px] text-muted"
                 onClick={() => {
                   setCreateOpen(false);
                   resetCreateForm();
@@ -1100,7 +1100,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
             </div>
             <div className="p-4 flex-1 overflow-auto custom-scrollbar space-y-3">
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Provider</span>
+                <span className="text-muted">Provider</span>
                 <select
                   value={provider}
                   onChange={(e) => {
@@ -1122,7 +1122,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
               </label>
               {isCfFamily ? (
                 <label className="flex flex-col gap-1 text-[11px]">
-                  <span className="text-[var(--text-muted)]">Cloudflare Account ID</span>
+                  <span className="text-muted">Cloudflare Account ID</span>
                   <input
                     value={cloudflareAccountId}
                     onChange={(e) => setCloudflareAccountId(e.target.value)}
@@ -1135,7 +1135,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
               {isCloudflareR2 ? (
                 <>
                   <label className="flex flex-col gap-1 text-[11px]">
-                    <span className="text-[var(--text-muted)]">R2 Access Key ID</span>
+                    <span className="text-muted">R2 Access Key ID</span>
                     <input
                       value={r2AccessKeyId}
                       onChange={(e) => setR2AccessKeyId(e.target.value)}
@@ -1145,7 +1145,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                     />
                   </label>
                   <label className="flex flex-col gap-1 text-[11px]">
-                    <span className="text-[var(--text-muted)]">R2 Secret Access Key</span>
+                    <span className="text-muted">R2 Secret Access Key</span>
                     <input
                       type="password"
                       value={r2SecretAccessKey}
@@ -1155,7 +1155,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                     />
                   </label>
                   <label className="flex flex-col gap-1 text-[11px]">
-                    <span className="text-[var(--text-muted)]">Default bucket (optional)</span>
+                    <span className="text-muted">Default bucket (optional)</span>
                     <input
                       value={r2Bucket}
                       onChange={(e) => setR2Bucket(e.target.value)}
@@ -1167,7 +1167,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                 </>
               ) : null}
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">
+                <span className="text-muted">
                   {isCfFamily ? 'Label (optional)' : 'Label'}
                 </span>
                 <input
@@ -1185,7 +1185,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
               </label>
               {!isCloudflareR2 ? (
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">{isCloudflare ? 'API Token' : 'API key'}</span>
+                <span className="text-muted">{isCloudflare ? 'API Token' : 'API key'}</span>
                 <input
                   type="password"
                   value={apiKey}
@@ -1193,7 +1193,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                   autoComplete="off"
                   className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono"
                 />
-                <div className="text-[10px] text-[var(--text-muted)]">
+                <div className="text-[10px] text-muted">
                   This key will not be shown again after you save it.
                   {isCloudflare ? (
                     <>
@@ -1205,13 +1205,13 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                 </div>
               </label>
               ) : (
-                <div className="text-[10px] text-[var(--text-muted)]">
+                <div className="text-[10px] text-muted">
                   R2 credentials are encrypted with the platform vault and never shown again after save.
                 </div>
               )}
               {!isCloudflareR2 ? (
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Expiration (optional)</span>
+                <span className="text-muted">Expiration (optional)</span>
                 <input
                   value={expiresAt}
                   onChange={(e) => setExpiresAt(e.target.value)}
@@ -1237,7 +1237,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
             <div className="px-4 py-3 border-t border-[var(--border-subtle)] flex items-center justify-end gap-2 bg-[var(--bg-app)]">
               <button
                 type="button"
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]"
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted"
                 onClick={() => {
                   setCreateOpen(false);
                   resetCreateForm();
@@ -1257,7 +1257,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                       !r2SecretAccessKey.trim()
                     : !apiKey.trim() || (isCloudflare && !cloudflareAccountId.trim()))
                 }
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] disabled:opacity-50"
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted disabled:opacity-50"
                 onClick={() => void onTestKey()}
               >
                 {testing ? 'Testing…' : 'Test connection'}
@@ -1298,7 +1298,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
               <div className="text-[12px] font-semibold text-[var(--text-heading)]">Rotate API key</div>
               <button
                 type="button"
-                className="text-[11px] text-[var(--text-muted)]"
+                className="text-[11px] text-muted"
                 onClick={() => setRotateOpen(false)}
               >
                 Close
@@ -1306,14 +1306,14 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
             </div>
             <div className="p-4 flex-1 overflow-auto custom-scrollbar space-y-3">
               <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[11px]">
-                <div className="text-[var(--text-muted)]">Target</div>
-                <div className="text-[var(--text-main)] font-semibold truncate">
+                <div className="text-muted">Target</div>
+                <div className="text-main font-semibold truncate">
                   {providerLabel(rotateTarget.provider)} · {rotateTarget.label || rotateTarget.id}
                 </div>
-                <div className="text-[10px] text-[var(--text-muted)] font-mono">••••{rotateTarget.last_four}</div>
+                <div className="text-[10px] text-muted font-mono">••••{rotateTarget.last_four}</div>
               </div>
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">New API key</span>
+                <span className="text-muted">New API key</span>
                 <input
                   type="password"
                   value={newApiKey}
@@ -1326,7 +1326,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
             <div className="px-4 py-3 border-t border-[var(--border-subtle)] flex items-center justify-end gap-2 bg-[var(--bg-app)]">
               <button
                 type="button"
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]"
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted"
                 onClick={() => setRotateOpen(false)}
               >
                 Cancel

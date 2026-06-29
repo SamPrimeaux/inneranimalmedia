@@ -83,7 +83,7 @@ export function ArtifactHomeCard({ artifact, onDetails }: Props) {
               <button
                 type="button"
                 onClick={handleOpenPublic}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--dashboard-panel)] border border-[var(--dashboard-border)] text-[var(--text-muted)] text-xs font-medium hover:bg-[var(--bg-hover)] transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--dashboard-panel)] border border-[var(--dashboard-border)] text-muted text-xs font-medium hover:bg-[var(--bg-hover)] transition-colors"
                 title="Open URL"
               >
                 <ExternalLink size={13} />
@@ -103,7 +103,7 @@ export function ArtifactHomeCard({ artifact, onDetails }: Props) {
           <div className="text-sm font-medium text-[var(--text-primary)] leading-snug line-clamp-2">
             {artifact.name}
           </div>
-          <div className="mt-1 text-xs text-[var(--text-muted)]">
+          <div className="mt-1 text-xs text-muted">
             {edited ? relativeTime(edited) : 'No date'}
           </div>
         </button>
@@ -112,7 +112,7 @@ export function ArtifactHomeCard({ artifact, onDetails }: Props) {
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onDetails(); }}
-          className="shrink-0 p-1 -mr-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+          className="shrink-0 p-1 -mr-1 rounded-md text-muted hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
           title="Details"
           aria-label="View artifact details"
         >

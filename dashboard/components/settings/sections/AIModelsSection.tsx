@@ -261,7 +261,7 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
             className={`px-3 py-1.5 rounded-lg text-[11px] border transition-colors ${
               modelsTab === 'models'
                 ? 'border-[var(--solar-cyan)]/40 text-[var(--solar-cyan)] bg-[var(--solar-cyan)]/10'
-                : 'border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                : 'border-[var(--border-subtle)] text-muted hover:text-main'
             }`}
           >
             Models
@@ -272,7 +272,7 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
             className={`px-3 py-1.5 rounded-lg text-[11px] border transition-colors ${
               modelsTab === 'routing'
                 ? 'border-[var(--solar-cyan)]/40 text-[var(--solar-cyan)] bg-[var(--solar-cyan)]/10'
-                : 'border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                : 'border-[var(--border-subtle)] text-muted hover:text-main'
             }`}
           >
             Routing
@@ -288,20 +288,20 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
 
       {modelsTab === 'models' ? (
         <>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--text-muted)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 bg-[var(--bg-app)]">
-            <span className="text-[var(--text-main)]">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted border border-[var(--border-subtle)] rounded-xl px-3 py-2 bg-[var(--bg-app)]">
+            <span className="text-main">
               <span className="font-semibold text-[var(--solar-cyan)]">{summary.activeModels}</span> models active
             </span>
             <span className="text-[var(--border-subtle)]">·</span>
             <span>
-              <span className="font-semibold text-[var(--text-main)]">
+              <span className="font-semibold text-main">
                 {summary.withPersonal}/{summary.totalProv || 0}
               </span>{' '}
               providers with personal keys
             </span>
             <span className="text-[var(--border-subtle)]">·</span>
             <span>
-              <span className="font-semibold text-[var(--text-main)]">${summary.monthUsd.toFixed(2)}</span> this month
+              <span className="font-semibold text-main">${summary.monthUsd.toFixed(2)}</span> this month
             </span>
           </div>
 
@@ -312,11 +312,11 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
           ) : null}
 
           {catalogLoading && !catalog ? (
-            <div className="text-[12px] text-[var(--text-muted)]">Loading catalog…</div>
+            <div className="text-[12px] text-muted">Loading catalog…</div>
           ) : null}
 
           {!catalogLoading && catalog && catalog.providers.length === 0 ? (
-            <div className="text-[12px] text-[var(--text-muted)]">No models in catalog.</div>
+            <div className="text-[12px] text-muted">No models in catalog.</div>
           ) : null}
 
           {catalog?.providers.map((p) => {
@@ -346,7 +346,7 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
               >
                 <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
                   <div className="flex flex-wrap items-center gap-2 min-w-0">
-                    <span className="text-[13px] font-semibold text-[var(--text-main)] truncate">{label}</span>
+                    <span className="text-[13px] font-semibold text-main truncate">{label}</span>
                     <span
                       className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${
                         p.has_personal_key
@@ -356,7 +356,7 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
                     >
                       {p.has_personal_key ? 'Personal Key' : 'Platform Key'}
                     </span>
-                    <span className="text-[11px] text-[var(--text-muted)] font-mono">
+                    <span className="text-[11px] text-muted font-mono">
                       ${month.toFixed(2)} this month
                     </span>
                   </div>
@@ -365,7 +365,7 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
                       <button
                         type="button"
                         onClick={() => void deleteKey(slug)}
-                        className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-lg border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:border-[var(--text-muted)]"
+                        className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main hover:border-[var(--text-muted)]"
                       >
                         Remove key
                       </button>
@@ -390,9 +390,9 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
                       placeholder={`Paste your ${label} API key`}
                       value={keyInputs[slug] || ''}
                       onChange={(e) => setKeyInputs((k) => ({ ...k, [slug]: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] text-[var(--text-main)]"
+                      className="w-full px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] text-main"
                     />
-                    <p className="text-[10px] text-[var(--text-muted)]">
+                    <p className="text-[10px] text-muted">
                       Encrypted at rest — never stored in plaintext
                     </p>
                     {keySubmitErr[slug] ? (
@@ -412,10 +412,10 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
                 <div className="overflow-x-auto">
                   {groupKeys.map((gk) => (
                     <div key={`${slug}-${gk}`}>
-                      <div className="px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] bg-[var(--bg-app)] border-b border-[var(--border-subtle)]">
+                      <div className="px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-muted bg-[var(--bg-app)] border-b border-[var(--border-subtle)]">
                         {gk === 'other' ? 'Other sizes' : `${gk.charAt(0).toUpperCase()}${gk.slice(1)}`}
                       </div>
-                      <div className={`grid ${modelRowGrid} gap-0 px-2 py-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] border-b border-[var(--border-subtle)]`}>
+                      <div className={`grid ${modelRowGrid} gap-0 px-2 py-1.5 text-[10px] font-black uppercase tracking-widest text-muted border-b border-[var(--border-subtle)]`}>
                         <div className="px-2">Model</div>
                         <div className="px-2">Context</div>
                         <div className="px-2">Input / Output</div>
@@ -433,7 +433,7 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
                             }`}
                           >
                             <div className="px-2 min-w-0">
-                              <div className="text-[12px] font-semibold text-[var(--text-main)] truncate">
+                              <div className="text-[12px] font-semibold text-main truncate">
                                 {m.display_name || m.model_key}
                               </div>
                               <div className="flex flex-wrap gap-1 mt-1">
@@ -463,16 +463,16 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
                                   </span>
                                 ) : null}
                                 {m.supports_responses_api ? (
-                                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--text-muted)]/15 text-[var(--text-muted)] border border-[var(--border-subtle)]">
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--text-muted)]/15 text-muted border border-[var(--border-subtle)]">
                                     Responses API
                                   </span>
                                 ) : null}
                               </div>
                             </div>
-                            <div className="px-2 text-[var(--text-main)] font-mono">
+                            <div className="px-2 text-main font-mono">
                               {formatCtxTok(m.context_max_tokens)}
                             </div>
-                            <div className="px-2 text-[var(--text-muted)] leading-tight">
+                            <div className="px-2 text-muted leading-tight">
                               <div>{formatUsdPerMtok(m.input_rate_per_mtok)}</div>
                               <div>{formatUsdPerMtok(m.output_rate_per_mtok)}</div>
                             </div>
@@ -485,7 +485,7 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
                             <div className="px-2 flex flex-col items-center gap-1">
                               <span
                                 className={`text-[10px] font-bold uppercase ${
-                                  inactive ? 'text-[var(--text-muted)]' : 'text-[var(--color-success)]'
+                                  inactive ? 'text-muted' : 'text-[var(--color-success)]'
                                 }`}
                               >
                                 {inactive ? 'Inactive' : 'Active'}
@@ -506,7 +506,7 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
                                   title={`Remove ${m.display_name || m.model_key}`}
                                   aria-label={`Remove ${m.display_name || m.model_key}`}
                                   onClick={() => void removeModel(m.model_key, m.display_name || m.model_key)}
-                                  className="p-1.5 rounded-lg border border-transparent text-[var(--text-muted)] hover:text-[var(--color-danger)] hover:border-[var(--color-danger)]/30 hover:bg-[var(--color-danger)]/10 transition-colors"
+                                  className="p-1.5 rounded-lg border border-transparent text-muted hover:text-[var(--color-danger)] hover:border-[var(--color-danger)]/30 hover:bg-[var(--color-danger)]/10 transition-colors"
                                 >
                                   <Trash2 size={14} />
                                 </button>
@@ -533,17 +533,17 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
           ) : null}
 
           {data.modelsLoading && !data.settingsModels ? (
-            <div className="text-[12px] text-[var(--text-muted)]">Loading routing…</div>
+            <div className="text-[12px] text-muted">Loading routing…</div>
           ) : null}
 
           {!data.settingsModels ? (
-            <div className="text-[12px] text-[var(--text-muted)]">No routing data.</div>
+            <div className="text-[12px] text-muted">No routing data.</div>
           ) : null}
 
           {data.settingsModels && (
             <>
               {Array.isArray(data.settingsModels.tiers) && data.settingsModels.tiers.length === 0 ? (
-                <div className="text-[12px] text-[var(--text-muted)]">No tiers configured for this workspace.</div>
+                <div className="text-[12px] text-muted">No tiers configured for this workspace.</div>
               ) : null}
 
               {(Array.isArray(data.settingsModels.tiers) ? data.settingsModels.tiers : []).map((tRaw: unknown) => {
@@ -563,10 +563,10 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
                   >
                     <div className="flex items-center justify-between gap-3 mb-3">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-muted)]">
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-[var(--bg-app)] border border-[var(--border-subtle)] text-muted">
                           T{tierLevel}
                         </span>
-                        <div className="text-[12px] font-semibold text-[var(--text-main)] truncate">
+                        <div className="text-[12px] font-semibold text-main truncate">
                           {tierName || 'Tier'}
                         </div>
                       </div>
@@ -590,7 +590,7 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="flex flex-col gap-1">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-muted">
                           Model
                         </div>
                         <select
@@ -609,7 +609,7 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
                             );
                             data.patchTierDebounced(tierId, { model_id: v });
                           }}
-                          className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[11px] text-[var(--text-main)]"
+                          className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[11px] text-main"
                         >
                           <option value="">—</option>
                           {data.modelOptions.map((mo) => (
@@ -621,7 +621,7 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
                       </div>
 
                       <div className="flex flex-col gap-1">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-muted">
                           Max context tokens
                         </div>
                         <input
@@ -645,17 +645,17 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
                             });
                           }}
                           inputMode="numeric"
-                          className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[11px] text-[var(--text-main)]"
+                          className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[11px] text-main"
                           placeholder="e.g. 120000"
                         />
                       </div>
 
                       <div className="flex flex-col gap-1 md:col-span-2">
                         <div className="flex items-center justify-between">
-                          <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+                          <div className="text-[10px] font-black uppercase tracking-widest text-muted">
                             Escalate if confidence below
                           </div>
-                          <div className="text-[10px] text-[var(--text-muted)] font-mono">
+                          <div className="text-[10px] text-muted font-mono">
                             {Math.round((Number.isFinite(esc) ? esc : 0) * 100)}%
                           </div>
                         </div>

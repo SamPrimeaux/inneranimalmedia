@@ -17,7 +17,7 @@ export type AgentsAllowlistsProps = {
 
 function SubsectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+    <div className="text-[11px] font-semibold uppercase tracking-wider text-muted">
       {children}
     </div>
   );
@@ -44,11 +44,11 @@ function AllowlistAccordion({
       >
         <ChevronRight
           size={14}
-          className={`shrink-0 text-[var(--text-muted)] transition-transform ${open ? 'rotate-90' : ''}`}
+          className={`shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}`}
           aria-hidden
         />
-        <span className="text-[12px] font-semibold text-[var(--text-main)]">{title}</span>
-        <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-muted)]">
+        <span className="text-[12px] font-semibold text-main">{title}</span>
+        <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-[var(--bg-app)] border border-[var(--border-subtle)] text-muted">
           {count}
         </span>
       </button>
@@ -83,13 +83,13 @@ export function AgentsAllowlists({ data, workspaceId, policy, onPolicyChange }: 
           value={policy?.auto_run_mode || 'allowlist'}
           disabled={!policy || disabled}
           onChange={(e) => onPolicyChange({ auto_run_mode: e.target.value })}
-          className="max-w-md rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-[var(--text-main)] disabled:opacity-40"
+          className="max-w-md rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-main disabled:opacity-40"
         >
           <option value="allowlist">Allowlist</option>
           <option value="manual">Auto-review</option>
           <option value="auto">Run everything</option>
         </select>
-        <p className="text-[10px] text-[var(--text-muted)]">
+        <p className="text-[10px] text-muted">
           Controls how terminal commands and tools run without explicit approval each time.
         </p>
       </div>
@@ -125,10 +125,10 @@ export function AgentsAllowlists({ data, workspaceId, policy, onPolicyChange }: 
         />
         {groups.length > 0 ? (
           <details className="mt-4 rounded-lg border border-[var(--border-subtle)]/60 bg-[var(--bg-panel)]/40 p-3">
-            <summary className="cursor-pointer text-[11px] font-semibold text-[var(--text-main)]">
+            <summary className="cursor-pointer text-[11px] font-semibold text-main">
               OAuth MCP tool permissions ({groups.length} groups)
             </summary>
-            <p className="text-[10px] text-[var(--text-muted)] mt-2 mb-3 leading-relaxed">
+            <p className="text-[10px] text-muted mt-2 mb-3 leading-relaxed">
               Per-group access for OAuth MCP clients. Changes apply on the next connection without
               reconnecting.
             </p>
@@ -139,10 +139,10 @@ export function AgentsAllowlists({ data, workspaceId, policy, onPolicyChange }: 
                   className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border border-[var(--border-subtle)] rounded-lg px-2.5 py-2 bg-[var(--bg-panel)]"
                 >
                   <div className="min-w-0">
-                    <div className="text-[11px] font-semibold text-[var(--text-main)] truncate">
+                    <div className="text-[11px] font-semibold text-main truncate">
                       {g.label}
                     </div>
-                    <div className="text-[10px] text-[var(--text-muted)]">
+                    <div className="text-[10px] text-muted">
                       {g.tools.length} tools
                       {g.read_count > 0 ? ` · ${g.read_count} read` : ''}
                       {g.write_count > 0 ? ` · ${g.write_count} write` : ''}
@@ -175,7 +175,7 @@ export function AgentsAllowlists({ data, workspaceId, policy, onPolicyChange }: 
         />
       </AllowlistAccordion>
 
-      <p className="text-[10px] text-[var(--text-muted)]">
+      <p className="text-[10px] text-muted">
         Workspace scope: <code className="font-mono text-[var(--solar-cyan)]">{ws || '—'}</code>.
         Allowlists save immediately when you add or remove items.
       </p>

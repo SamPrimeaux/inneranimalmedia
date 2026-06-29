@@ -235,7 +235,7 @@ export const MediaLibrary: React.FC<{
   return (
     <div className="flex flex-col min-h-[160px] max-h-[min(40vh,320px)] overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1 border-b border-[var(--border-subtle)]/40">
-        <span className="text-[10px] text-[var(--text-muted)]">{all.length} items</span>
+        <span className="text-[10px] text-muted">{all.length} items</span>
         <button
           type="button"
           onClick={() => void refresh()}
@@ -245,13 +245,13 @@ export const MediaLibrary: React.FC<{
         </button>
       </div>
       {loading && (
-        <div className="flex items-center gap-2 p-3 text-[11px] text-[var(--text-muted)]">
+        <div className="flex items-center gap-2 p-3 text-[11px] text-muted">
           <Loader2 size={14} className="animate-spin" /> Scanning…
         </div>
       )}
       {err && <p className="px-3 py-2 text-[10px] text-red-400">{err}</p>}
       {!loading && all.length === 0 && (
-        <p className="px-3 py-4 text-[11px] text-[var(--text-muted)] leading-relaxed">
+        <p className="px-3 py-4 text-[11px] text-muted leading-relaxed">
           Connect a local folder or upload to R2 / MovieMode to see clips here.
         </p>
       )}
@@ -266,7 +266,7 @@ export const MediaLibrary: React.FC<{
               {iconFor(item.kind)}
               <button
                 type="button"
-                className="flex-1 text-left text-[12px] truncate text-[var(--text-main)]"
+                className="flex-1 text-left text-[12px] truncate text-main"
                 onClick={() => onOpenInMovieMode(item)}
                 title="Add / open in MovieMode"
               >

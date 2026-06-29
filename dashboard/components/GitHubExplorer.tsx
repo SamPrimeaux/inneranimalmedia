@@ -483,15 +483,15 @@ export const GitHubExplorer: React.FC<{
     return (
       <div className="w-full h-full bg-[var(--bg-panel)] flex flex-col items-center justify-center p-6 text-center">
         <div className="p-10 bg-[var(--text-main)]/5 rounded-full mb-6 border border-dashed border-[var(--text-main)]/20 relative">
-          <Github size={48} className="text-[var(--text-main)] opacity-80" />
+          <Github size={48} className="text-main opacity-80" />
           <div className="absolute top-0 right-0 bg-[var(--bg-panel)] p-1 rounded-full border border-[var(--border-subtle)]">
-            <Lock size={12} className="text-[var(--text-muted)]" />
+            <Lock size={12} className="text-muted" />
           </div>
         </div>
         <h3 className="text-[14px] font-bold mb-2 uppercase tracking-widest text-[var(--text-heading)]">
           {reconnectAfterReposFailure ? 'Reconnect GitHub' : 'GitHub'}
         </h3>
-        <p className="text-[11px] font-mono text-[var(--text-muted)] mb-8 max-w-[220px]">
+        <p className="text-[11px] font-mono text-muted mb-8 max-w-[220px]">
           {reconnectAfterReposFailure
             ? 'GitHub returned an authorization or endpoint error (expired token, revoked access, or missing route). Use Reconnect to run the same OAuth flow as Connect.'
             : 'Connect GitHub OAuth to list repos, browse, open, create, save, and delete files (per repo permissions).'}
@@ -508,7 +508,7 @@ export const GitHubExplorer: React.FC<{
   }
 
   return (
-    <div className="w-full h-full bg-[var(--bg-panel)] flex flex-col text-[var(--text-main)] overflow-hidden min-h-0">
+    <div className="w-full h-full bg-[var(--bg-panel)] flex flex-col text-main overflow-hidden min-h-0">
       <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex flex-col gap-2 shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
@@ -529,7 +529,7 @@ export const GitHubExplorer: React.FC<{
             {onClose ? (
               <button
                 type="button"
-                className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors"
+                className="p-1.5 rounded text-muted hover:text-main hover:bg-[var(--bg-hover)] transition-colors"
                 title="Close repositories"
                 aria-label="Close repositories"
                 onClick={onClose}
@@ -540,14 +540,14 @@ export const GitHubExplorer: React.FC<{
           </div>
         </div>
         <div className="flex items-center gap-1 rounded border border-[var(--border-subtle)]/50 px-2 py-1.5">
-          <Search size={12} className="text-[var(--text-muted)] shrink-0" />
+          <Search size={12} className="text-muted shrink-0" />
           <input
             type="search"
             value={repoFilter}
             onChange={(e) => setRepoFilter(e.target.value)}
             onFocus={() => requestMobileActivitySheetExpand(75)}
             placeholder="Filter repos…"
-            className="w-full bg-transparent text-[11px] outline-none placeholder:text-[var(--text-muted)] min-h-[28px]"
+            className="w-full bg-transparent text-[11px] outline-none placeholder:text-muted min-h-[28px]"
           />
         </div>
         {loadError && (
@@ -558,7 +558,7 @@ export const GitHubExplorer: React.FC<{
       <div className="flex-1 overflow-y-auto p-2 min-h-0">
         {filteredRepos.length === 0 && !isLoading && (
           <div className="p-4 text-center">
-            <p className="text-[10px] text-[var(--text-muted)] italic">No repositories match.</p>
+            <p className="text-[10px] text-muted italic">No repositories match.</p>
           </div>
         )}
         <div className="flex flex-col gap-1">
@@ -578,15 +578,15 @@ export const GitHubExplorer: React.FC<{
                   className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-left text-[12px]"
                 >
                   {open ? (
-                    <ChevronDown size={14} className="text-[var(--text-muted)] shrink-0" />
+                    <ChevronDown size={14} className="text-muted shrink-0" />
                   ) : (
-                    <ChevronRight size={14} className="text-[var(--text-muted)] shrink-0" />
+                    <ChevronRight size={14} className="text-muted shrink-0" />
                   )}
-                  <Folder size={14} className="text-[var(--text-muted)] shrink-0" />
+                  <Folder size={14} className="text-muted shrink-0" />
                   <div className="flex flex-col min-w-0 flex-1">
                     <span className="font-bold truncate">{repo.name}</span>
-                    <span className="text-[9px] text-[var(--text-muted)] truncate">{fullName}</span>
-                    <span className="text-[8px] text-[var(--text-muted)] font-mono">branch: {branch}</span>
+                    <span className="text-[9px] text-muted truncate">{fullName}</span>
+                    <span className="text-[8px] text-muted font-mono">branch: {branch}</span>
                   </div>
                 </button>
                 {open && (
@@ -615,10 +615,10 @@ export const GitHubExplorer: React.FC<{
                       </button>
                     )}
                     {cwd && (
-                      <div className="text-[9px] font-mono text-[var(--text-muted)] truncate mb-1">{cwd}</div>
+                      <div className="text-[9px] font-mono text-muted truncate mb-1">{cwd}</div>
                     )}
                     {loading && (
-                      <div className="flex items-center gap-2 py-2 text-[10px] text-[var(--text-muted)]">
+                      <div className="flex items-center gap-2 py-2 text-[10px] text-muted">
                         <Loader2 size={12} className="animate-spin" /> Loading…
                       </div>
                     )}
@@ -646,7 +646,7 @@ export const GitHubExplorer: React.FC<{
                           {it.type === 'file' && (
                             <button
                               type="button"
-                              className="p-1 opacity-60 hover:opacity-100 text-[var(--text-muted)] hover:text-[var(--solar-orange)] shrink-0"
+                              className="p-1 opacity-60 hover:opacity-100 text-muted hover:text-[var(--solar-orange)] shrink-0"
                               title="Delete file"
                               onClick={(e) => {
                                 e.stopPropagation();

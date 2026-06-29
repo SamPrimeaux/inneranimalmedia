@@ -46,7 +46,7 @@ function fmtMs(n: unknown): string {
 
 function SourceBadge() {
   return (
-    <span className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] bg-[var(--bg-canvas)]">
+    <span className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-muted bg-[var(--bg-canvas)]">
       Supabase
     </span>
   );
@@ -115,7 +115,7 @@ export default function RagTab() {
             ].map((k) => (
               <div key={k.label} className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">{k.label}</div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted">{k.label}</div>
                   <SourceBadge />
                 </div>
                 <div className="mt-1 text-[18px] font-semibold text-[var(--text)]">{k.value}</div>
@@ -127,12 +127,12 @@ export default function RagTab() {
             <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Warning</div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted">Warning</div>
                   <div className="text-sm font-semibold text-[var(--text)]">Low semantic search logging volume</div>
                 </div>
                 <SourceBadge />
               </div>
-              <div className="mt-2 text-[13px] text-[var(--text-muted)] leading-relaxed">{warningLowLog.message}</div>
+              <div className="mt-2 text-[13px] text-muted leading-relaxed">{warningLowLog.message}</div>
             </div>
           ) : null}
 
@@ -140,7 +140,7 @@ export default function RagTab() {
             <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Source breakdown</div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted">Source breakdown</div>
                   <div className="text-sm font-semibold text-[var(--text)]">Documents by source</div>
                 </div>
                 <SourceBadge />
@@ -158,7 +158,7 @@ export default function RagTab() {
               ) : (
                 <div className="mt-3 overflow-auto border border-[var(--border-subtle)] rounded">
                   <table className="w-full text-left text-[12px]">
-                    <thead className="sticky top-0 bg-[var(--bg-panel)] text-[11px] uppercase text-[var(--text-muted)]">
+                    <thead className="sticky top-0 bg-[var(--bg-panel)] text-[11px] uppercase text-muted">
                       <tr>
                         <th className="p-2">Source</th>
                         <th className="p-2">Documents</th>
@@ -180,7 +180,7 @@ export default function RagTab() {
             <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Recent activity</div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted">Recent activity</div>
                   <div className="text-sm font-semibold text-[var(--text)]">Search logs + documents</div>
                 </div>
                 <SourceBadge />
@@ -189,7 +189,7 @@ export default function RagTab() {
               <div className="mt-3 grid gap-3">
                 <div className="overflow-auto border border-[var(--border-subtle)] rounded">
                   <table className="w-full text-left text-[12px]">
-                    <thead className="sticky top-0 bg-[var(--bg-panel)] text-[11px] uppercase text-[var(--text-muted)]">
+                    <thead className="sticky top-0 bg-[var(--bg-panel)] text-[11px] uppercase text-muted">
                       <tr>
                         <th className="p-2">When</th>
                         <th className="p-2">Query</th>
@@ -200,7 +200,7 @@ export default function RagTab() {
                     <tbody>
                       {(recentSearchLogs || []).map((r: any, idx: number) => (
                         <tr key={`log-${idx}`} className="border-t border-[var(--border-subtle)]">
-                          <td className="p-2 text-[var(--text-muted)]">{String(r.created_at ?? '—')}</td>
+                          <td className="p-2 text-muted">{String(r.created_at ?? '—')}</td>
                           <td className="p-2">{String(r.query_preview ?? '').slice(0, 70) || '—'}</td>
                           <td className="p-2">{fmtMs(r.latency_ms)}</td>
                           <td className="p-2">{r.top_similarity != null ? String(r.top_similarity) : '—'}</td>
@@ -208,7 +208,7 @@ export default function RagTab() {
                       ))}
                       {!recentSearchLogs.length ? (
                         <tr>
-                          <td className="p-2 text-[var(--text-muted)]" colSpan={4}>
+                          <td className="p-2 text-muted" colSpan={4}>
                             No recent `semantic_search_log` rows for this range.
                           </td>
                         </tr>
@@ -219,7 +219,7 @@ export default function RagTab() {
 
                 <div className="overflow-auto border border-[var(--border-subtle)] rounded">
                   <table className="w-full text-left text-[12px]">
-                    <thead className="sticky top-0 bg-[var(--bg-panel)] text-[11px] uppercase text-[var(--text-muted)]">
+                    <thead className="sticky top-0 bg-[var(--bg-panel)] text-[11px] uppercase text-muted">
                       <tr>
                         <th className="p-2">When</th>
                         <th className="p-2">Source</th>
@@ -230,7 +230,7 @@ export default function RagTab() {
                     <tbody>
                       {(recentDocs || []).map((r: any, idx: number) => (
                         <tr key={`doc-${idx}`} className="border-t border-[var(--border-subtle)]">
-                          <td className="p-2 text-[var(--text-muted)]">{String(r.created_at ?? '—')}</td>
+                          <td className="p-2 text-muted">{String(r.created_at ?? '—')}</td>
                           <td className="p-2 font-mono text-[11px]">{String(r.source ?? '—').slice(0, 42)}</td>
                           <td className="p-2">{String(r.title ?? '').slice(0, 70) || '—'}</td>
                           <td className="p-2">{r.has_embedding === true ? 'yes' : r.has_embedding === false ? 'no' : '—'}</td>
@@ -238,7 +238,7 @@ export default function RagTab() {
                       ))}
                       {!recentDocs.length ? (
                         <tr>
-                          <td className="p-2 text-[var(--text-muted)]" colSpan={4}>
+                          <td className="p-2 text-muted" colSpan={4}>
                             No recent `documents` rows for this range.
                           </td>
                         </tr>

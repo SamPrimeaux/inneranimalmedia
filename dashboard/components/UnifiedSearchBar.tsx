@@ -1284,12 +1284,12 @@ export const UnifiedSearchBar: React.FC<{
               ? `p-1.5 rounded transition-colors ${
                   open
                     ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]'
-                    : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'
+                    : 'text-muted hover:text-white hover:bg-[var(--bg-hover)]'
                 }`
               : `flex items-center justify-center w-9 h-9 rounded-md border transition-colors ${
                   open
                     ? 'border-[var(--solar-cyan)]/50 bg-[var(--bg-hover)] text-[var(--solar-cyan)]'
-                    : 'border-[var(--border-subtle)] bg-[var(--bg-app)] text-[var(--text-muted)] hover:border-[var(--solar-cyan)]/40 hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'
+                    : 'border-[var(--border-subtle)] bg-[var(--bg-app)] text-muted hover:border-[var(--solar-cyan)]/40 hover:bg-[var(--bg-hover)] hover:text-main'
                 }`
           }
           title="Search (Cmd+K)"
@@ -1342,7 +1342,7 @@ export const UnifiedSearchBar: React.FC<{
                 setConnectionMenuOpen((v) => !v);
                 closePalette();
               }}
-              className="flex items-center justify-center h-full px-2.5 hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-main)]"
+              className="flex items-center justify-center h-full px-2.5 hover:bg-[var(--bg-hover)] transition-colors text-muted hover:text-main"
               title="Connection options"
               aria-label="Connection options"
               aria-expanded={connectionMenuOpen}
@@ -1366,9 +1366,9 @@ export const UnifiedSearchBar: React.FC<{
           className="flex flex-1 items-center gap-2 min-w-0 px-2 py-1.5 text-left hover:bg-[var(--bg-hover)] transition-colors"
           title="Search (Cmd+K)"
         >
-          <Search size={14} className="shrink-0 opacity-70 text-[var(--text-muted)]" />
-          <span className="text-[11px] text-[var(--text-muted)] truncate flex-1">Search…</span>
-          <kbd className="hidden xl:inline text-[9px] font-mono px-1 py-px rounded border border-[var(--border-subtle)] text-[var(--text-muted)] shrink-0">
+          <Search size={14} className="shrink-0 opacity-70 text-muted" />
+          <span className="text-[11px] text-muted truncate flex-1">Search…</span>
+          <kbd className="hidden xl:inline text-[9px] font-mono px-1 py-px rounded border border-[var(--border-subtle)] text-muted shrink-0">
             {isMac ? 'Cmd' : 'Ctrl'}+K
           </kbd>
         </button>
@@ -1389,16 +1389,16 @@ export const UnifiedSearchBar: React.FC<{
           >
             <div className="px-3.5 py-2.5 space-y-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
               <div className="flex items-center gap-2">
-                <Search size={16} className="text-[var(--text-muted)] shrink-0" />
+                <Search size={16} className="text-muted shrink-0" />
                 <input
                   ref={inputRef}
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   onKeyDown={onKeyDown}
                   placeholder="Search buckets, D1, commands, chats…"
-                  className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[13px] text-[var(--text-main)] placeholder:text-[var(--text-muted)]"
+                  className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[13px] text-main placeholder:text-muted"
                 />
-                <kbd className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] shrink-0">
+                <kbd className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-muted shrink-0">
                   Esc
                 </kbd>
                 {loading ? <Loader2 size={16} className="animate-spin text-[var(--solar-cyan)] shrink-0" /> : null}
@@ -1414,8 +1414,8 @@ export const UnifiedSearchBar: React.FC<{
                       onClick={() => setSourceChip(id)}
                       className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium border transition-colors ${
                         on
-                          ? 'border-[var(--solar-cyan)]/50 bg-[var(--solar-cyan)]/10 text-[var(--text-main)]'
-                          : 'border-[var(--border-subtle)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                          ? 'border-[var(--solar-cyan)]/50 bg-[var(--solar-cyan)]/10 text-main'
+                          : 'border-[var(--border-subtle)] text-muted hover:bg-[var(--bg-hover)]'
                       }`}
                     >
                       <Icon size={11} className="shrink-0 opacity-80" />
@@ -1428,13 +1428,13 @@ export const UnifiedSearchBar: React.FC<{
 
             <div className="nav-dropdown__results flex-1 min-h-0 overflow-y-auto chat-hide-scroll">
               {flatList.length === 0 && !loading ? (
-                <div className="px-3 py-6 text-center text-[12px] text-[var(--text-muted)]">No results</div>
+                <div className="px-3 py-6 text-center text-[12px] text-muted">No results</div>
               ) : null}
 
               {displaySections.map((section) => (
                 <div key={section.key}>
                   {section.label ? (
-                    <div className="px-3.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)] font-[var(--font-sans)]">
+                    <div className="px-3.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted font-[var(--font-sans)]">
                       {section.label}
                     </div>
                   ) : null}
@@ -1463,13 +1463,13 @@ export const UnifiedSearchBar: React.FC<{
                         ) : (
                           <Icon
                             size={14}
-                            className={`shrink-0 ${item.category === 'r2' || item.category === 'resource' ? 'text-amber-500/90' : 'text-[var(--text-muted)]'}`}
+                            className={`shrink-0 ${item.category === 'r2' || item.category === 'resource' ? 'text-amber-500/90' : 'text-muted'}`}
                             aria-hidden
                           />
                         )}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-[12px] font-medium text-[var(--text-main)] truncate">{item.title}</span>
+                            <span className="text-[12px] font-medium text-main truncate">{item.title}</span>
                             {item.bound ? (
                               <span className="text-[9px] uppercase tracking-wide text-[var(--solar-cyan)] shrink-0">bound</span>
                             ) : null}
@@ -1480,18 +1480,18 @@ export const UnifiedSearchBar: React.FC<{
                             </div>
                           ) : null}
                           {item.subtitle ? (
-                            <div className="text-[11px] font-mono text-[var(--text-muted)] truncate">{item.subtitle}</div>
+                            <div className="text-[11px] font-mono text-muted truncate">{item.subtitle}</div>
                           ) : null}
                           {typeof item.objectCount === 'number' ? (
-                            <div className="text-[10px] text-[var(--text-muted)] font-mono">
+                            <div className="text-[10px] text-muted font-mono">
                               {item.objectCount.toLocaleString()} objects
                             </div>
                           ) : null}
                         </div>
                         {selected && !isTip ? (
-                          <ArrowRight size={14} className="shrink-0 text-[var(--text-muted)] opacity-70" />
+                          <ArrowRight size={14} className="shrink-0 text-muted opacity-70" />
                         ) : isTip ? (
-                          <ChevronRight size={14} className="shrink-0 text-[var(--text-muted)] opacity-50" />
+                          <ChevronRight size={14} className="shrink-0 text-muted opacity-50" />
                         ) : null}
                       </button>
                     );
@@ -1501,7 +1501,7 @@ export const UnifiedSearchBar: React.FC<{
             </div>
 
             <div
-              className="px-3.5 py-1.5 text-[10px] text-[var(--text-muted)] flex items-center gap-3 font-[var(--font-sans)]"
+              className="px-3.5 py-1.5 text-[10px] text-muted flex items-center gap-3 font-[var(--font-sans)]"
               style={{ borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.18)' }}
             >
               <span>↑↓ to navigate</span>
@@ -1511,7 +1511,7 @@ export const UnifiedSearchBar: React.FC<{
       )}
 
       {toast ? (
-        <div className="fixed bottom-6 left-1/2 z-[200] -translate-x-1/2 px-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[12px] text-[var(--text-main)] shadow-xl">
+        <div className="fixed bottom-6 left-1/2 z-[200] -translate-x-1/2 px-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[12px] text-main shadow-xl">
           {toast}
         </div>
       ) : null}

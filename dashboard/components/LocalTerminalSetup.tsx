@@ -184,7 +184,7 @@ export function LocalTerminalSettingsPanel({ workspaceId }: LocalTerminalSetting
 
   if (!workspaceId?.trim()) {
     return (
-      <p className="text-[11px] text-[var(--text-muted)] font-mono">
+      <p className="text-[11px] text-muted font-mono">
         Select a workspace to configure a local terminal tunnel.
       </p>
     );
@@ -193,10 +193,10 @@ export function LocalTerminalSettingsPanel({ workspaceId }: LocalTerminalSetting
   return (
     <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-4 max-w-lg">
       <div>
-        <h3 className="text-[12px] font-bold uppercase tracking-wider text-[var(--text-main)]">
+        <h3 className="text-[12px] font-bold uppercase tracking-wider text-main">
           Local terminal (iam-pty)
         </h3>
-        <p className="mt-1 text-[11px] text-[var(--text-muted)] leading-relaxed">
+        <p className="mt-1 text-[11px] text-muted leading-relaxed">
           Run iam-pty on your Mac, expose it with Cloudflare Tunnel, then activate the WebSocket URL here.
           The terminal panel picks up the active connection automatically — no URL paste in the shell.
         </p>
@@ -227,10 +227,10 @@ export function LocalTerminalSettingsPanel({ workspaceId }: LocalTerminalSetting
 
       {showSetup && !localConn && (
         <div className="space-y-3 border-t border-[var(--border-subtle)] pt-3">
-          <label className="block text-[10px] font-mono text-[var(--text-muted)]">
+          <label className="block text-[10px] font-mono text-muted">
             Platform
             <select
-              className="mt-1 w-full rounded border border-[var(--border-subtle)] bg-[var(--terminal-surface)] px-2 py-1.5 text-[11px] text-[var(--text-main)]"
+              className="mt-1 w-full rounded border border-[var(--border-subtle)] bg-[var(--terminal-surface)] px-2 py-1.5 text-[11px] text-main"
               value={platform}
               onChange={(e) => {
                 const p = e.target.value as LocalTerminalPlatform;
@@ -243,10 +243,10 @@ export function LocalTerminalSettingsPanel({ workspaceId }: LocalTerminalSetting
               <option value="linux">Linux</option>
             </select>
           </label>
-          <label className="block text-[10px] font-mono text-[var(--text-muted)]">
+          <label className="block text-[10px] font-mono text-muted">
             Shell
             <select
-              className="mt-1 w-full rounded border border-[var(--border-subtle)] bg-[var(--terminal-surface)] px-2 py-1.5 text-[11px] text-[var(--text-main)]"
+              className="mt-1 w-full rounded border border-[var(--border-subtle)] bg-[var(--terminal-surface)] px-2 py-1.5 text-[11px] text-main"
               value={shell}
               onChange={(e) => setShell(e.target.value)}
             >
@@ -270,12 +270,12 @@ export function LocalTerminalSettingsPanel({ workspaceId }: LocalTerminalSetting
 
       {(showTunnelForm || (localConn && !localConn.is_active)) && (
         <div className="space-y-3 border-t border-[var(--border-subtle)] pt-3">
-          <label className="block text-[10px] font-mono text-[var(--text-muted)]">
+          <label className="block text-[10px] font-mono text-muted">
             Tunnel WebSocket URL
             <input
               type="url"
               placeholder="wss://your-tunnel-hostname"
-              className="mt-1 w-full rounded border border-[var(--border-subtle)] bg-[var(--terminal-surface)] px-2 py-1.5 text-[11px] font-mono text-[var(--text-main)]"
+              className="mt-1 w-full rounded border border-[var(--border-subtle)] bg-[var(--terminal-surface)] px-2 py-1.5 text-[11px] font-mono text-main"
               value={tunnelUrl}
               onChange={(e) => setTunnelUrl(e.target.value)}
             />
@@ -294,7 +294,7 @@ export function LocalTerminalSettingsPanel({ workspaceId }: LocalTerminalSetting
       {localConn && !showTunnelForm && localConn.is_active && (
         <button
           type="button"
-          className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-main)] font-mono"
+          className="text-[10px] text-muted hover:text-main font-mono"
           onClick={() => {
             setShowTunnelForm(true);
             setTunnelUrl('');

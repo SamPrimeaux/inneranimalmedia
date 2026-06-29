@@ -377,7 +377,7 @@ export const MovieModeMediaPanel: React.FC<{
           className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium ${
             mediaSource === s.id
               ? 'bg-[var(--bg-hover)] text-[var(--solar-cyan)]'
-              : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
+              : 'text-muted hover:text-main'
           }`}
         >
           {s.icon}
@@ -391,10 +391,10 @@ export const MovieModeMediaPanel: React.FC<{
     <div className="flex flex-col h-full min-h-0 bg-[var(--dashboard-panel)]">
       <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-[var(--dashboard-border)]">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-muted">
             Media bin
           </p>
-          <p className="text-[10px] text-[var(--text-muted)] capitalize">{binTab}</p>
+          <p className="text-[10px] text-muted capitalize">{binTab}</p>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -410,7 +410,7 @@ export const MovieModeMediaPanel: React.FC<{
             type="button"
             title="Refresh"
             onClick={() => void refresh()}
-            className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+            className="p-1.5 rounded-md text-muted hover:text-main hover:bg-[var(--bg-hover)]"
           >
             <FolderOpen size={14} />
           </button>
@@ -419,16 +419,16 @@ export const MovieModeMediaPanel: React.FC<{
 
       <div className="px-2 py-1.5 border-b border-[var(--border-subtle)]">
         <div className="flex items-center gap-1.5 rounded-md border border-[var(--dashboard-border)] bg-[var(--scene-bg)] px-2 py-1">
-          <Search size={12} className="text-[var(--text-muted)] shrink-0" />
+          <Search size={12} className="text-muted shrink-0" />
           <input
             type="search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search media…"
-            className="flex-1 bg-transparent text-[11px] text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]"
+            className="flex-1 bg-transparent text-[11px] text-main outline-none placeholder:text-muted"
           />
           {searchQuery ? (
-            <button type="button" onClick={() => setSearchQuery('')} className="text-[var(--text-muted)]">
+            <button type="button" onClick={() => setSearchQuery('')} className="text-muted">
               <X size={12} />
             </button>
           ) : null}
@@ -454,20 +454,20 @@ export const MovieModeMediaPanel: React.FC<{
 
       {err ? <p className="px-3 py-2 text-[10px] text-red-400">{err}</p> : null}
       {loading ? (
-        <div className="flex items-center gap-2 p-4 text-[11px] text-[var(--text-muted)]">
+        <div className="flex items-center gap-2 p-4 text-[11px] text-muted">
           <Loader2 size={14} className="animate-spin" /> Loading…
         </div>
       ) : null}
 
       <div className="flex-1 min-h-0 overflow-y-auto p-2">
         {placeholderCopy && visibleLibrary.length === 0 && mediaSource !== 'stream' ? (
-          <p className="text-[11px] text-[var(--text-muted)] leading-relaxed px-1 py-2">{placeholderCopy}</p>
+          <p className="text-[11px] text-muted leading-relaxed px-1 py-2">{placeholderCopy}</p>
         ) : null}
 
         {binTab === 'templates' ? (
           <div className="space-y-3">
-            <p className="text-[11px] text-[var(--text-muted)] px-1 leading-relaxed">
-              <strong className="text-[var(--text-main)]">IAM Starter B-Roll (Free)</strong> — platform
+            <p className="text-[11px] text-muted px-1 leading-relaxed">
+              <strong className="text-main">IAM Starter B-Roll (Free)</strong> — platform
               clips for Connor and all workspaces. Apply imports from Stream → your library, then adds to
               timeline.
             </p>
@@ -498,7 +498,7 @@ export const MovieModeMediaPanel: React.FC<{
                     ) : null}
                   </div>
                   <div className="p-1.5">
-                    <p className="text-[10px] text-[var(--text-main)] truncate" title={tpl.title}>
+                    <p className="text-[10px] text-main truncate" title={tpl.title}>
                       {tpl.title}
                     </p>
                     <button
@@ -514,7 +514,7 @@ export const MovieModeMediaPanel: React.FC<{
               ))}
             </div>
             {!loading && templates.length === 0 ? (
-              <p className="text-[11px] text-[var(--text-muted)] px-1">
+              <p className="text-[11px] text-muted px-1">
                 No templates yet — run migration 617 on D1.
               </p>
             ) : null}
@@ -538,7 +538,7 @@ export const MovieModeMediaPanel: React.FC<{
                   </span>
                 </div>
                 <div className="p-1.5">
-                  <p className="text-[10px] text-[var(--text-main)] truncate" title={v.name}>
+                  <p className="text-[10px] text-main truncate" title={v.name}>
                     {v.name}
                   </p>
                   <div className="flex gap-1 mt-1">
@@ -555,7 +555,7 @@ export const MovieModeMediaPanel: React.FC<{
               </div>
             ))}
             {!loading && streamVideos.length === 0 ? (
-              <p className="col-span-2 text-[11px] text-[var(--text-muted)]">No Stream videos found.</p>
+              <p className="col-span-2 text-[11px] text-muted">No Stream videos found.</p>
             ) : null}
           </div>
         ) : (
@@ -608,7 +608,7 @@ export const MovieModeMediaPanel: React.FC<{
                       className="flex-1 text-[10px] bg-[var(--bg-hover)] rounded px-1 py-0.5 outline-none"
                     />
                   ) : (
-                    <p className="flex-1 text-[10px] text-[var(--text-main)] truncate" title={item.name}>
+                    <p className="flex-1 text-[10px] text-main truncate" title={item.name}>
                       {item.name}
                     </p>
                   )}
@@ -616,7 +616,7 @@ export const MovieModeMediaPanel: React.FC<{
                     <button
                       type="button"
                       onClick={() => setMenuId(menuId === item.id ? null : item.id)}
-                      className="p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                      className="p-0.5 rounded text-muted hover:text-main"
                     >
                       <MoreHorizontal size={12} />
                     </button>
@@ -647,9 +647,9 @@ export const MovieModeMediaPanel: React.FC<{
               </div>
             ))}
             {!loading && visibleLibrary.length === 0 && !placeholderCopy ? (
-              <p className="col-span-2 text-[11px] text-[var(--text-muted)] px-1">
-                No items yet — tap <strong className="text-[var(--text-main)]">+</strong> to upload or
-                open <strong className="text-[var(--text-main)]">Stream</strong> to import Cloudflare clips.
+              <p className="col-span-2 text-[11px] text-muted px-1">
+                No items yet — tap <strong className="text-main">+</strong> to upload or
+                open <strong className="text-main">Stream</strong> to import Cloudflare clips.
               </p>
             ) : null}
           </div>
