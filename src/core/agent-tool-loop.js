@@ -500,7 +500,15 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         assistantReasoningContent = String(parsed.reasoningContent || '').trim();
         for (const tc of parsed.pendingToolCalls) {
           const linkId = String(tc.call_id || tc.id || '').trim() || tc.id;
-          assistantContent.push({ type: 'tool_use', id: linkId, name: tc.name, input: tc.input });
+          assistantContent.push({
+            type: 'tool_use',
+            id: linkId,
+            name: tc.name,
+            input: tc.input,
+            ...(tc.gemini_thought_signature
+              ? { gemini_thought_signature: tc.gemini_thought_signature }
+              : {}),
+          });
           pendingToolCalls.push({ ...tc, id: linkId, _done: true, _server: false });
         }
         const fr = parsed.finishReason || '';

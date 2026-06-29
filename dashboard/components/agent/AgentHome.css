@@ -3,6 +3,8 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .agent-home__center {
@@ -11,10 +13,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 1 1 auto;
   height: 100%;
   min-height: 0;
   width: 100%;
-  padding: 24px 16px 32px;
+  padding: 24px 20px 32px;
 }
 
 .agent-home__stack {
@@ -23,7 +26,24 @@
   align-items: center;
   gap: 20px;
   width: 100%;
-  max-width: 720px;
+  max-width: min(720px, calc(100% - 24px));
+  margin-inline: auto;
+}
+
+.agent-home__stack--hero {
+  justify-content: center;
+}
+
+.agent-home__stack--chat {
+  justify-content: flex-end;
+  height: 100%;
+  min-height: 0;
+}
+
+.agent-home__composer-wrap {
+  width: 100%;
+  max-width: min(680px, 100%);
+  margin-inline: auto;
 }
 
 .agent-home__composer-host {
@@ -41,16 +61,14 @@
 }
 
 .agent-home__center--chat {
-  align-items: stretch;
+  align-items: center;
   justify-content: flex-end;
   padding-top: 12px;
-  padding-bottom: 24px;
+  padding-bottom: 20px;
 }
 
 .agent-home__center--chat .agent-home__stack {
-  max-width: 820px;
-  height: 100%;
-  min-height: 0;
+  max-width: min(820px, calc(100% - 16px));
   gap: 12px;
 }
 
@@ -69,4 +87,29 @@
 
 .agent-home__messages-host .chat-hide-scroll {
   scrollbar-width: thin;
+}
+
+/* When terminal is docked below, tighten vertical rhythm so chat + composer stay visible */
+.agent-home--terminal-dock .agent-home__center {
+  padding-top: 8px;
+  padding-bottom: 12px;
+}
+
+.agent-home--terminal-dock .agent-home__center--chat {
+  padding-bottom: 12px;
+}
+
+.agent-home__center--terminal-dock .agent-home__stack--hero {
+  justify-content: flex-start;
+  padding-top: clamp(8px, 2vh, 24px);
+}
+
+@media (max-width: 640px) {
+  .agent-home__center {
+    padding-inline: 12px;
+  }
+
+  .agent-home__stack {
+    max-width: 100%;
+  }
 }

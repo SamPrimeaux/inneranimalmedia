@@ -256,7 +256,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
     const retryTimerRef = useRef<number | null>(null);
     const ptySessionIdRef = useRef<string | null>(null);
     const bufferRef = useRef<string>('');
-    const statusRef = useRef<TerminalConnectionStatus>('connecting');
+    const statusRef = useRef<TerminalConnectionStatus>('disconnected');
     const historySeededRef = useRef(false);
 
     const cachedBootstrapRef = useRef<{
@@ -268,7 +268,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
       loadedAt: number;
     } | null>(null);
 
-    const [status, setStatus] = useState<TerminalConnectionStatus>('connecting');
+    const [status, setStatus] = useState<TerminalConnectionStatus>('disconnected');
     const [sessionIdState, setSessionIdState] = useState<string | null>(null);
     useEffect(() => {
       statusRef.current = status;
@@ -701,11 +701,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
         clearInactivityTimer();
         closeSocketQuietly(socketRef.current);
         socketRef.current = null;
-        if (!visible) {
-          return () => {
-            isMounted = false;
-          };
-        }
+        setStatus('disconnected');
         return () => {
           isMounted = false;
         };
@@ -713,9 +709,12 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
 
       intentionalCloseRef.current = false;
       const wsId = workspaceId?.trim() ?? '';
-      if (!wsId) return () => {
-        isMounted = false;
-      };
+      if (!wsId) {
+        setStatus('disconnected');
+        return () => {
+          isMounted = false;
+        };
+      }
 
       connectDebounceRef.current = window.setTimeout(() => {
         connectDebounceRef.current = null;

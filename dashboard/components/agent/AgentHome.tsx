@@ -18,6 +18,7 @@ import './AgentHome.css';
 interface AgentHomeProps {
   displayName?: string | null;
   showHero?: boolean;
+  terminalDocked?: boolean;
   onComposerHost?: (el: HTMLDivElement | null) => void;
   onMessagesHost?: (el: HTMLDivElement | null) => void;
   onModeSelect: (mode: AgentModeId) => void;
@@ -26,7 +27,7 @@ interface AgentHomeProps {
 /**
  * Bare `/dashboard/agent` — CMS-backed scene + greeting + mode pills + composer portal host.
  */
-export function AgentHome({ displayName, onComposerHost, onMessagesHost, showHero = true, onModeSelect }: AgentHomeProps) {
+export function AgentHome({ displayName, onComposerHost, onMessagesHost, showHero = true, terminalDocked = false, onModeSelect }: AgentHomeProps) {
   const navigate = useNavigate();
   const dayPart = useAgentDayPart();
   const [cms, setCms] = useState<AgentHomeCmsConfig>(DEFAULT_AGENT_HOME_CMS);
@@ -108,11 +109,16 @@ export function AgentHome({ displayName, onComposerHost, onMessagesHost, showHer
   }, []);
 
   return (
-    <div className="agent-home">
+    <div className={`agent-home${terminalDocked ? ' agent-home--terminal-dock' : ''}`}>
       <AgentHomeScene config={displayScene} paused={tabHidden} />
 
-      <main className={`agent-home__center${showHero ? '' : ' agent-home__center--chat'}`}>
-        <div className="agent-home__stack" onPointerEnter={handleModeHover}>
+      <main
+        className={`agent-home__center${showHero ? '' : ' agent-home__center--chat'}${terminalDocked ? ' agent-home__center--terminal-dock' : ''}`}
+      >
+        <div
+          className={`agent-home__stack${showHero ? ' agent-home__stack--hero' : ' agent-home__stack--chat'}`}
+          onPointerEnter={handleModeHover}
+        >
           {showHero ? (
             <AgentHomeHero name={name} dayPart={dayPart} onModeSelect={handlePillSelect} />
           ) : null}

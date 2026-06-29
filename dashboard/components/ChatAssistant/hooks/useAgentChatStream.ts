@@ -682,6 +682,12 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           });
           continue;
         }
+        if (evType === 'error') {
+          streamFinalizedRef.current = true;
+          const d = data as { message?: string; error?: string; detail?: string };
+          const partsErr = [d.message, d.error, d.detail].filter(Boolean);
+          throw new Error(partsErr.join(' — ') || 'Agent stream error');
+        }
         if (evType === 'done') {
           patchIamAgentStreamDebug({ done_at: Date.now(), done_received: true });
           if (!streamFinalizedRef.current) {
@@ -2421,6 +2427,10 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
       assistant_stream_buf_length: assistantStreamBuf.length,
       file_echo_suppress: fileEchoSuppress,
     });
+  }
+
+  if (!assistantContent.trim() && !fileEchoSuppress) {
+    setMessages((prev) => stripEmptyAssistantTail(prev));
   }
 
   const fullStreamText = hideIncompleteMonacoInvokeTail(assistantStreamBuf);

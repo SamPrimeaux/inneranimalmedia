@@ -50,6 +50,9 @@ export async function consumeOpenAIChatCompletionsSse(readable, emit) {
       if (fn && typeof fn === 'object') {
         if (typeof fn.name === 'string' && fn.name) slot.name = fn.name;
         if (typeof fn.arguments === 'string' && fn.arguments) slot.args += fn.arguments;
+        if (typeof fn.gemini_thought_signature === 'string' && fn.gemini_thought_signature) {
+          slot.geminiThoughtSignature = fn.gemini_thought_signature;
+        }
       }
     }
   };
@@ -106,6 +109,9 @@ export async function consumeOpenAIChatCompletionsSse(readable, emit) {
       raw_input: slot.args || '{}',
       provider: 'openai_chat_completions',
       index,
+      ...(slot.geminiThoughtSignature
+        ? { gemini_thought_signature: slot.geminiThoughtSignature }
+        : {}),
     }))
     .filter((c) => c.name);
 

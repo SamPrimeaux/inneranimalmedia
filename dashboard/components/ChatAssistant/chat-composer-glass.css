@@ -63,3 +63,16 @@
     transition: none !important;
   }
 }
+
+/* Atmospheric /dashboard/agent — centered composer column over the scene */
+.iam-chat-composer-shell--atmospheric {
+  width: 100%;
+  max-width: min(680px, calc(100vw - 48px));
+  margin-inline: auto;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.iam-chat-composer-shell--atmospheric .iam-chat-composer-glass {
+  width: 100%;
+}

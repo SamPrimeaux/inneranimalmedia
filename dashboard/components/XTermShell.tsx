@@ -30,6 +30,7 @@ export type ShellTab = 'terminal' | 'output' | 'problems';
 
 const LS_SHELL = 'iam_terminal_shell_pref';
 const LS_SPLIT = 'iam_terminal_split';
+const LS_PAGE_HEIGHT = 'iam_agent_terminal_h';
 
 function statusMessage(s: TerminalConnectionStatus): string {
   switch (s) {
@@ -49,6 +50,8 @@ function statusMessage(s: TerminalConnectionStatus): string {
       return 'Session expired';
     case 'timed_out':
       return 'Timed out';
+    case 'disconnected':
+      return 'Disconnected';
     default:
       return 'Disconnected';
   }
@@ -331,7 +334,19 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     const secondaryPaneRef = useRef<TerminalSessionPaneHandle>(null);
     const plusMenuRef = useRef<HTMLDivElement>(null);
 
-    const [height, setHeight] = useState(DEFAULT_HEIGHT);
+    const [height, setHeight] = useState(() => {
+      if (typeof window === 'undefined') return DEFAULT_HEIGHT;
+      try {
+        const raw = localStorage.getItem(LS_PAGE_HEIGHT);
+        const n = raw ? Number.parseInt(raw, 10) : NaN;
+        if (Number.isFinite(n) && n >= MIN_HEIGHT) {
+          return Math.min(n, window.innerHeight * MAX_HEIGHT_RATIO);
+        }
+      } catch {
+        /* ignore */
+      }
+      return DEFAULT_HEIGHT;
+    });
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [activeTab, setActiveTab] = useState<ShellTab>('terminal');
     const problemsTabOpenedRef = useRef(false);
@@ -371,9 +386,9 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     const [tunnelHealth, setTunnelHealth] = useState<{ healthy: boolean; connections: number } | null>(null);
     const [uptime, setUptime] = useState(0);
 
-    const [primaryStatus, setPrimaryStatus] = useState<TerminalConnectionStatus>('connecting');
+    const [primaryStatus, setPrimaryStatus] = useState<TerminalConnectionStatus>('disconnected');
     const [primarySessionId, setPrimarySessionId] = useState<string | null>(null);
-    const [secondaryStatus, setSecondaryStatus] = useState<TerminalConnectionStatus>('connecting');
+    const [secondaryStatus, setSecondaryStatus] = useState<TerminalConnectionStatus>('disconnected');
 
     const [shellPref, setShellPref] = useState(() => {
       if (typeof window === 'undefined') return '/bin/zsh';
@@ -430,6 +445,8 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       setShowSplash(true);
       primaryPaneRef.current?.disconnectQuiet();
       if (splitEnabled) secondaryPaneRef.current?.disconnectQuiet();
+      setPrimaryStatus('disconnected');
+      setSecondaryStatus('disconnected');
     }, [splitEnabled]);
 
     const startTerminalConnection = useCallback(
@@ -563,11 +580,12 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
         : `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
     };
 
-    const fetchTunnelStatus = useCallback(() => {
+    const fetchTunnelStatus = useCallback((writeToTerminal = false) => {
       void fetch('/api/tunnel/status', { credentials: 'same-origin' })
         .then((r) => r.json())
         .then((j) => {
           setTunnelHealth({ healthy: j?.healthy === true, connections: j?.connections ?? 0 });
+          if (!writeToTerminal) return;
           const ok = j?.healthy === true;
           const conns = j?.connections ?? 0;
           primaryPaneRef.current?.writeAnsi(
@@ -579,6 +597,12 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
         .catch(() => setTunnelHealth(null));
     }, []);
 
+    useEffect(() => {
+      fetchTunnelStatus(false);
+      const id = window.setInterval(() => fetchTunnelStatus(false), 60_000);
+      return () => window.clearInterval(id);
+    }, [fetchTunnelStatus]);
+
     const handleTunnelRestart = useCallback(async () => {
       setRestarting(true);
       primaryPaneRef.current?.writeAnsi('\r\n\x1b[38;5;208m  ◌ Requesting tunnel restart…\x1b[0m');
@@ -587,7 +611,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
         const data = await res.json().catch(() => ({} as { ok?: boolean; error?: string }));
         if (data.ok) {
           primaryPaneRef.current?.writeAnsi('\x1b[38;5;82m  ✓ Restart requested — re-checking in 4s…\x1b[0m');
-          setTimeout(fetchTunnelStatus, 4000);
+          setTimeout(() => fetchTunnelStatus(true), 4000);
         } else {
           primaryPaneRef.current?.writeAnsi(`\x1b[38;5;196m  ✗ ${data.error ?? 'Failed'}\x1b[0m`);
         }
@@ -699,13 +723,19 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       const startY = e.clientY;
       const startH = height;
       const maxH = window.innerHeight * MAX_HEIGHT_RATIO;
+      let latestH = startH;
       const onMove = (me: MouseEvent) => {
-        const next = Math.max(MIN_HEIGHT, Math.min(startH + (startY - me.clientY), maxH));
-        setHeight(next);
+        latestH = Math.max(MIN_HEIGHT, Math.min(startH + (startY - me.clientY), maxH));
+        setHeight(latestH);
       };
       const onUp = () => {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
+        try {
+          localStorage.setItem(LS_PAGE_HEIGHT, String(latestH));
+        } catch {
+          /* ignore */
+        }
       };
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
@@ -822,7 +852,15 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
               <div className="hidden sm:flex items-center h-5 w-px bg-[var(--border-subtle)] shrink-0" />
 
               <div className="hidden sm:flex items-center gap-1.5 shrink-0 min-w-0">
-                {(primaryStatus === 'connecting' || primaryStatus === 'reconnecting') && (
+                {showSplash || setupWizardActive ? (
+                  <span className="text-[10px] font-mono text-[var(--text-muted)] flex items-center gap-1.5 truncate">
+                    <span className="h-2 w-2 rounded-full shrink-0 bg-[var(--text-muted)]/50" />
+                    Ready
+                  </span>
+                ) : null}
+                {!showSplash &&
+                  !setupWizardActive &&
+                  (primaryStatus === 'connecting' || primaryStatus === 'reconnecting') && (
                   <span className="text-[10px] font-mono text-[var(--solar-yellow)] flex items-center gap-1.5 truncate">
                     <span className="relative flex h-2 w-2 shrink-0">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--solar-yellow)] opacity-40" />
@@ -831,7 +869,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                     {statusMessage(primaryStatus)}
                   </span>
                 )}
-                {primaryStatus === 'connected' && (
+                {!showSplash && !setupWizardActive && primaryStatus === 'connected' && (
                   <span className="text-[10px] font-mono text-[var(--solar-green)] flex items-center gap-1.5 truncate">
                     <span className="iam-online-dot h-2 w-2 rounded-full bg-[var(--solar-green)] inline-block shrink-0" />
                     {statusMessage(primaryStatus)} · {fmtUptime(uptime)}
@@ -843,7 +881,9 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                     )}
                   </span>
                 )}
-                {primaryStatus !== 'connected' &&
+                {!showSplash &&
+                  !setupWizardActive &&
+                  primaryStatus !== 'connected' &&
                   primaryStatus !== 'connecting' &&
                   primaryStatus !== 'reconnecting' && (
                     <span className="text-[10px] font-mono text-[var(--solar-red)] flex items-center gap-1.5 truncate">
@@ -1036,7 +1076,18 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
               {activeTab === 'terminal' && showIamWelcomeBar && (
                 <button
                   type="button"
-                  onClick={() => setShowSplash((v) => !v)}
+                  onClick={() => {
+                    setShowSplash((v) => {
+                      const next = !v;
+                      if (next) {
+                        primaryPaneRef.current?.disconnectQuiet();
+                        if (splitEnabled) secondaryPaneRef.current?.disconnectQuiet();
+                        setPrimaryStatus('disconnected');
+                        setSecondaryStatus('disconnected');
+                      }
+                      return next;
+                    });
+                  }}
                   title="Toggle welcome screen"
                   className={`shrink-0 p-1.5 max-phone:p-[6px] rounded text-[9px] font-mono font-bold tracking-wider transition-colors border ${
                     showSplash

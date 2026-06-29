@@ -9,9 +9,10 @@ import { resolveModelApiKey } from './tokens.js';
  * and Gemini's native REST + SSE format, then re-emits as OpenAI-compatible SSE so
  * the agent loop in agent.js parses it without any changes.
  *
- * Key contracts:
- *  - Input:  OpenAI messages array (role: user/assistant/tool/system), OpenAI tool defs
- *  - Output: `text/event-stream` with `data: <OpenAI-shaped JSON>` chunks + `data: [DONE]`
+ * Gemini 3.x notes (Google generateContent docs, June 2026):
+ *  - Default temperature should stay 1.0 (lower values can loop/degrade).
+ *  - thinkingConfig.thinkingLevel: low | medium | high (not minimal on 3.5).
+ *  - thoughtSignature on text/functionCall parts must round-trip for tool loops.
  */
 
 // ─── Model ID + URL helpers ───────────────────────────────────────────────────
@@ -21,6 +22,18 @@ export function normalizeGeminiModelId(raw) {
   return String(raw || '').trim().replace(/^models\//, '');
 }
 
+export function isGemini3ModelId(modelId) {
+  const id = normalizeGeminiModelId(modelId).toLowerCase();
+  return id.startsWith('gemini-3');
+}
+
+/** Visible user-facing text — exclude internal thought summaries only. */
+export function isVisibleGeminiTextPart(part) {
+  if (!part || part.text == null) return false;
+  if (part.thought === true) return false;
+  return true;
+}
+
 /** @param {string} providerModelId @param {string} apiKey @param {{ stream?: boolean }} [opts] */
 export function buildGeminiUrl(providerModelId, apiKey, opts = {}) {
   const modelId = normalizeGeminiModelId(providerModelId);
@@ -28,30 +41,71 @@ export function buildGeminiUrl(providerModelId, apiKey, opts = {}) {
     throw new Error(`[gemini] double models/ prefix: ${modelId}`);
   }
   const action = opts.stream ? 'streamGenerateContent' : 'generateContent';
+  // Keep `key` and `alt` as separate query params. The historical bug was `alt=sse?key=…`
+  // (key glued to alt). For streaming, `alt=sse` is required — without it Google returns a
+  // JSON array stream, not `data:` SSE lines that geminiChunkToOpenAI expects.
   const params = new URLSearchParams({ key: apiKey });
   if (opts.stream) params.set('alt', 'sse');
   return `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:${action}?${params.toString()}`;
 }
 
 /**
- * @param {{ mode?: string, lane?: string|null }} routingDecision
- * @param {{ maxOutputTokens?: number }} [opts]
+ * @param {{ mode?: string, lane?: string|null, taskType?: string|null }} routingDecision
+ * @param {{ maxOutputTokens?: number, modelId?: string|null }} [opts]
  */
-export function buildGeminiGenerationConfig(routingDecision, opts = {}) {
-  const mode = String(routingDecision?.mode || '').toLowerCase();
-  const lane = String(routingDecision?.lane || '').toLowerCase();
-  const expensive = ['debug', 'plan'].includes(mode) && lane === 'premium';
-  return {
-    temperature: expensive ? 0.7 : 0.2,
-    maxOutputTokens: opts.maxOutputTokens ?? 2048,
-    ...(expensive ? {} : { thinkingConfig: { thinkingLevel: 'minimal' } }),
-  };
+/** Gemini 3.x thinking shares the output budget — keep a floor so visible text is not starved. */
+export function resolveGeminiMaxOutputTokens(modelId, requested) {
+  const gemini3 = isGemini3ModelId(modelId);
+  const floor = gemini3 ? 8192 : 2048;
+  const req = Number(requested ?? 0);
+  if (req > 0) return Math.max(req, floor);
+  return floor;
 }
 
-/** Parse Gemini response text — never expose thoughtSignature parts. */
+export function buildGeminiGenerationConfig(routingDecision, opts = {}) {
+  const mode = String(routingDecision?.mode || '').toLowerCase();
+  const taskType = String(routingDecision?.taskType || '').toLowerCase();
+  const lane = String(routingDecision?.lane || '').toLowerCase();
+  const modelId = normalizeGeminiModelId(opts.modelId || '');
+  const gemini3 = isGemini3ModelId(modelId);
+
+  const agentic =
+    ['agent', 'code', 'debug', 'plan', 'terminal_execution'].includes(mode) ||
+    ['agent', 'code', 'debug', 'plan', 'terminal_execution'].includes(taskType);
+  const premium = ['debug', 'plan'].includes(mode) || ['debug', 'plan'].includes(taskType);
+  const askLike =
+    mode === 'ask' ||
+    ['ask', 'greeting', 'chat', 'explain', 'summary', 'question'].includes(taskType);
+
+  let thinkingLevel = 'low';
+  if (gemini3) {
+    if (premium && lane === 'premium') thinkingLevel = 'high';
+    else if (agentic && !askLike) thinkingLevel = 'medium';
+    else thinkingLevel = 'low';
+  } else if (premium) {
+    thinkingLevel = 'high';
+  } else if (!agentic) {
+    thinkingLevel = 'minimal';
+  }
+
+  const config = {
+    maxOutputTokens: resolveGeminiMaxOutputTokens(modelId, opts.maxOutputTokens),
+    thinkingConfig: { thinkingLevel },
+  };
+
+  if (gemini3) {
+    config.temperature = 1.0;
+  } else {
+    config.temperature = premium ? 0.7 : 0.2;
+  }
+
+  return config;
+}
+
+/** Parse Gemini response text for user-visible output. */
 export function parseGeminiResponseText(json) {
   return (json?.candidates?.[0]?.content?.parts ?? [])
-    .filter((p) => p?.text != null && !p?.thoughtSignature)
+    .filter(isVisibleGeminiTextPart)
     .map((p) => p.text || '')
     .join('')
     .trim();
@@ -72,9 +126,6 @@ export function parseGeminiUsageMetadata(json) {
 
 // ─── Tool schema normalisation ────────────────────────────────────────────────
 
-/**
- * Recursively uppercase JSON-Schema `type` fields — Gemini requires "STRING" not "string".
- */
 function uppercaseTypes(schema) {
   if (!schema || typeof schema !== 'object') return schema;
   const out = { ...schema };
@@ -88,10 +139,6 @@ function uppercaseTypes(schema) {
   return out;
 }
 
-/**
- * Convert OpenAI-shaped tool definitions → Gemini `function_declarations`.
- * Returns undefined (omit tools field) when the list is empty.
- */
 export function normalizeGeminiTools(tools) {
   if (!Array.isArray(tools) || tools.length === 0) return undefined;
   return [{
@@ -114,80 +161,167 @@ export function normalizeGeminiTools(tools) {
 
 // ─── Message format conversion ────────────────────────────────────────────────
 
+function buildToolNameById(messages) {
+  const map = new Map();
+  for (const m of messages || []) {
+    if (m?.role !== 'assistant') continue;
+    if (Array.isArray(m.content)) {
+      for (const b of m.content) {
+        if (b?.type === 'tool_use' && b.id && b.name) map.set(String(b.id), String(b.name));
+      }
+    }
+    if (Array.isArray(m.tool_calls)) {
+      for (const tc of m.tool_calls) {
+        const id = tc?.id != null ? String(tc.id) : '';
+        const name = tc?.function?.name != null ? String(tc.function.name) : '';
+        if (id && name) map.set(id, name);
+      }
+    }
+  }
+  return map;
+}
+
+function parseFunctionResponsePayload(content) {
+  if (typeof content === 'string') {
+    try {
+      const parsed = JSON.parse(content);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch (_) {}
+    return { result: content };
+  }
+  if (content && typeof content === 'object') return content;
+  return { result: String(content ?? '') };
+}
+
+function assistantAnthropicBlocksToGeminiParts(blocks) {
+  const parts = [];
+  for (const b of blocks) {
+    if (!b || typeof b !== 'object') continue;
+    if (b.type === 'text' && b.text) {
+      const part = { text: String(b.text) };
+      if (b.gemini_thought_signature) part.thoughtSignature = String(b.gemini_thought_signature);
+      parts.push(part);
+      continue;
+    }
+    if (b.type === 'tool_use' && b.name) {
+      const fc = {
+        name: String(b.name),
+        args: b.input && typeof b.input === 'object' ? b.input : {},
+      };
+      if (b.id) fc.id = String(b.id);
+      const part = { functionCall: fc };
+      if (b.gemini_thought_signature) part.thoughtSignature = String(b.gemini_thought_signature);
+      parts.push(part);
+    }
+  }
+  return parts;
+}
+
+function openAiToolCallsToGeminiParts(toolCalls) {
+  const parts = [];
+  for (const tc of toolCalls) {
+    let args = {};
+    try {
+      args = typeof tc.function?.arguments === 'string'
+        ? JSON.parse(tc.function.arguments)
+        : (tc.function?.arguments ?? {});
+    } catch (_) {}
+    const fc = {
+      name: tc.function?.name ?? 'unknown',
+      args,
+    };
+    if (tc.id) fc.id = String(tc.id);
+    const part = { functionCall: fc };
+    const sig = tc.gemini_thought_signature ?? tc.function?.gemini_thought_signature;
+    if (sig) part.thoughtSignature = String(sig);
+    parts.push(part);
+  }
+  return parts;
+}
+
 /**
- * Convert OpenAI-shaped messages → Gemini `contents` array.
- *
- * OpenAI roles → Gemini roles:
- *   system    → skipped here (goes to system_instruction at top level)
- *   user      → user
- *   assistant → model  (may contain tool_calls)
- *   tool      → user   (functionResponse part)
+ * Convert agent/OpenAI-shaped messages → Gemini `contents` array.
+ * Supports Anthropic-style content blocks (tool_use / tool_result) used by AgentSam.
  */
-function toGeminiContents(messages) {
+export function toGeminiContents(messages) {
+  const toolNames = buildToolNameById(messages);
   const out = [];
+
   for (const m of messages) {
     if (!m || m.role === 'system') continue;
 
-    // ── assistant turn (text and/or tool calls) ──────────────────────────────
     if (m.role === 'assistant') {
+      if (Array.isArray(m.gemini_model_parts) && m.gemini_model_parts.length > 0) {
+        out.push({ role: 'model', parts: m.gemini_model_parts });
+        continue;
+      }
+
       const parts = [];
-      if (m.content) parts.push({ text: String(m.content) });
-      if (Array.isArray(m.tool_calls)) {
-        for (const tc of m.tool_calls) {
-          let args = {};
-          try {
-            args = typeof tc.function?.arguments === 'string'
-              ? JSON.parse(tc.function.arguments)
-              : (tc.function?.arguments ?? {});
-          } catch (_) {}
-          parts.push({ functionCall: { name: tc.function?.name ?? 'unknown', args } });
-        }
+      if (typeof m.content === 'string' && m.content.trim()) {
+        parts.push({ text: m.content });
+      } else if (Array.isArray(m.content)) {
+        parts.push(...assistantAnthropicBlocksToGeminiParts(m.content));
+      }
+      if (Array.isArray(m.tool_calls) && m.tool_calls.length) {
+        parts.push(...openAiToolCallsToGeminiParts(m.tool_calls));
       }
       if (parts.length > 0) out.push({ role: 'model', parts });
       continue;
     }
 
-    // ── tool result turn ─────────────────────────────────────────────────────
     if (m.role === 'tool') {
-      let response = {};
-      try {
-        response = typeof m.content === 'string'
-          ? JSON.parse(m.content)
-          : (m.content ?? {});
-        if (typeof response !== 'object' || response === null) {
-          response = { result: String(m.content ?? '') };
-        }
-      } catch (_) {
-        response = { result: String(m.content ?? '') };
-      }
       out.push({
         role: 'user',
-        parts: [{ functionResponse: { name: m.name || m.tool_call_id || 'tool', response } }],
+        parts: [{
+          functionResponse: {
+            name: m.name || m.tool_call_id || 'tool',
+            response: parseFunctionResponsePayload(m.content),
+          },
+        }],
       });
       continue;
     }
 
-    // ── user turn (string or multi-part array) ───────────────────────────────
-    const textContent = typeof m.content === 'string'
-      ? m.content
-      : Array.isArray(m.content)
-        ? m.content.filter(p => p.type === 'text').map(p => p.text).join('\n')
-        : String(m.content ?? '');
-    if (textContent) out.push({ role: 'user', parts: [{ text: textContent }] });
+    if (m.role === 'user') {
+      const parts = [];
+      if (typeof m.content === 'string' && m.content.trim()) {
+        parts.push({ text: m.content });
+      } else if (Array.isArray(m.content)) {
+        for (const block of m.content) {
+          if (!block || typeof block !== 'object') continue;
+          if (block.type === 'text' && block.text) {
+            parts.push({ text: String(block.text) });
+            continue;
+          }
+          if (block.type === 'tool_result') {
+            const toolId = block.tool_use_id != null ? String(block.tool_use_id) : '';
+            const toolName =
+              (block.name && String(block.name)) ||
+              (toolId && toolNames.get(toolId)) ||
+              'tool';
+            parts.push({
+              functionResponse: {
+                name: toolName,
+                response: parseFunctionResponsePayload(block.content),
+              },
+            });
+          }
+        }
+      }
+      if (parts.length > 0) out.push({ role: 'user', parts });
+    }
   }
+
   return out;
 }
 
 // ─── SSE chunk translation ────────────────────────────────────────────────────
 
 /**
- * Translate a single Gemini SSE JSON payload → zero or more OpenAI-shaped delta objects.
- *
- * Gemini:  {"candidates":[{"content":{"parts":[{"text":"hi"}]},"finishReason":"STOP"}]}
- * OpenAI:  {"choices":[{"delta":{"content":"hi"},"finish_reason":null,"index":0}]}
- *          {"choices":[{"delta":{},"finish_reason":"stop","index":0}]}
+ * Translate Gemini SSE JSON → OpenAI-shaped deltas.
+ * Preserves gemini_thought_signature on tool_calls for multi-turn tool loops.
  */
-function geminiChunkToOpenAI(jsonStr) {
+export function geminiChunkToOpenAI(jsonStr) {
   let parsed;
   try { parsed = JSON.parse(jsonStr); } catch (_) { return []; }
 
@@ -198,8 +332,7 @@ function geminiChunkToOpenAI(jsonStr) {
   const finishReason = candidate?.finishReason ?? null;
   const out = [];
 
-  // Text parts → content delta (skip thoughtSignature-bearing parts)
-  const textParts = parts.filter((p) => p.text != null && !p.thoughtSignature);
+  const textParts = parts.filter(isVisibleGeminiTextPart);
   if (textParts.length > 0) {
     out.push({
       choices: [{
@@ -210,21 +343,23 @@ function geminiChunkToOpenAI(jsonStr) {
     });
   }
 
-  // functionCall parts → tool_calls delta (OpenAI streaming format)
   const fcParts = parts.filter(p => p.functionCall != null);
   for (let i = 0; i < fcParts.length; i++) {
-    const fc = fcParts[i].functionCall;
+    const fcPart = fcParts[i];
+    const fc = fcPart.functionCall;
+    const fn = {
+      name: fc.name ?? 'unknown',
+      arguments: typeof fc.args === 'string' ? fc.args : JSON.stringify(fc.args ?? {}),
+    };
+    if (fcPart.thoughtSignature) fn.gemini_thought_signature = fcPart.thoughtSignature;
     out.push({
       choices: [{
         delta: {
           tool_calls: [{
             index: i,
-            id: `call_g_${Date.now()}_${i}`,
+            id: fc.id ? String(fc.id) : `call_g_${Date.now()}_${i}`,
             type: 'function',
-            function: {
-              name: fc.name ?? 'unknown',
-              arguments: typeof fc.args === 'string' ? fc.args : JSON.stringify(fc.args ?? {}),
-            },
+            function: fn,
           }],
         },
         finish_reason: null,
@@ -233,7 +368,6 @@ function geminiChunkToOpenAI(jsonStr) {
     });
   }
 
-  // Finish reason chunk
   if (finishReason && finishReason !== 'FINISH_REASON_UNSPECIFIED') {
     const oaiFinish =
       finishReason === 'STOP'       ? 'stop'
@@ -288,8 +422,8 @@ export async function chatWithToolsGemini(env, request, params) {
     ...(systemPrompt ? { system_instruction: { parts: [{ text: systemPrompt }] } } : {}),
     ...(geminiTools ? { tools: geminiTools } : {}),
     generationConfig: buildGeminiGenerationConfig(
-      { mode: params.mode, lane: params.lane },
-      { maxOutputTokens: params.maxOutputTokens ?? 2048 },
+      { mode: params.mode, lane: params.lane, taskType: params.taskType },
+      { maxOutputTokens: params.maxOutputTokens, modelId: normalizedModelId },
     ),
   };
 
@@ -299,7 +433,10 @@ export async function chatWithToolsGemini(env, request, params) {
   try {
     upstream = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
       body: JSON.stringify(body),
       ...(params.signal != null ? { signal: params.signal } : {}),
     });
@@ -385,9 +522,6 @@ export async function chatWithToolsGemini(env, request, params) {
   });
 }
 
-/**
- * Non-streaming generateContent for plan tasks, workflows, and other dispatchComplete callers.
- */
 export async function completeWithGemini(env, params) {
   const {
     modelKey,
@@ -417,8 +551,8 @@ export async function completeWithGemini(env, params) {
     ...(systemPrompt ? { system_instruction: { parts: [{ text: systemPrompt }] } } : {}),
     ...(geminiTools ? { tools: geminiTools } : {}),
     generationConfig: buildGeminiGenerationConfig(
-      { mode: params.mode, lane: params.lane },
-      { maxOutputTokens: params.maxOutputTokens ?? 2048 },
+      { mode: params.mode, lane: params.lane, taskType: params.taskType },
+      { maxOutputTokens: params.maxOutputTokens, modelId: resolvedModel },
     ),
   };
 
@@ -428,7 +562,10 @@ export async function completeWithGemini(env, params) {
   try {
     res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
       body: JSON.stringify(body),
       ...(params.signal != null ? { signal: params.signal } : {}),
     });
@@ -442,14 +579,6 @@ export async function completeWithGemini(env, params) {
     throw new Error(`Gemini ${res.status}: ${detail}`);
   }
 
-  let text = parseGeminiResponseText(data);
-  if (!text) {
-    for (const c of data?.candidates || []) {
-      text += (c?.content?.parts ?? [])
-        .filter((p) => p?.text != null && !p?.thoughtSignature)
-        .map((p) => p.text || '')
-        .join('');
-    }
-  }
+  const text = parseGeminiResponseText(data);
   return { text, output_text: text, usage: parseGeminiUsageMetadata(data) };
 }

@@ -2643,13 +2643,18 @@ const App: React.FC = () => {
   }, []);
 
   const toggleExplorer = useCallback(() => {
-    if (!isAgentHomePath(location.pathname)) {
-      navigate(AGENT_HOME_PATH);
+    if (!isAgentEditorPath(location.pathname)) {
+      navigate(AGENT_EDITOR_PATH);
       setActiveActivity('files');
       return;
     }
     setActiveActivity((prev) => (prev === 'files' ? null : 'files'));
   }, [location.pathname, navigate]);
+
+  useEffect(() => {
+    if (!isAgentHomePath(location.pathname)) return;
+    if (activeActivity === 'files') setActiveActivity(null);
+  }, [location.pathname, activeActivity]);
 
   useEffect(() => {
     if (!isAgentShellPath(location.pathname)) return;
@@ -2741,7 +2746,7 @@ const App: React.FC = () => {
 
   const fetchHealth = useCallback(async () => {
     try {
-      const hr = await fetch('/api/health');
+      const hr = await fetch('/api/health', { credentials: 'same-origin' });
       const hj = await hr.json().catch(() => ({}));
       if (hr.ok) setHealthOk(hj.status === 'ok' || hr.ok);
       else setHealthOk(false);
@@ -2899,9 +2904,11 @@ const App: React.FC = () => {
       const tej = await ter.json().catch(() => ({}));
       if (ter.ok) {
         setTerminalOk(tej.status === 'connected');
+      } else {
+        setTerminalOk(false);
       }
     } catch {
-      /* ignore */
+      setTerminalOk(false);
     }
   }, []);
 
@@ -3093,7 +3100,7 @@ const App: React.FC = () => {
       const act = detail?.activity;
       if (!act) return;
       if (act === 'files' && !isAgentShellPath(location.pathname) && location.pathname !== '/dashboard/meet') {
-        navigate(AGENT_HOME_PATH);
+        navigate(AGENT_EDITOR_PATH);
       }
       if (act === 'remote') {
         if (!isAgentShellPath(location.pathname) && location.pathname !== '/dashboard/meet') {
@@ -4139,7 +4146,7 @@ const App: React.FC = () => {
                       <MeetProvider value={meetCtxValue}>
                         <MeetShellPanel />
                       </MeetProvider>
-                  ) : activeActivity === 'files' && isAgentHomePath(location.pathname) ? (
+                  ) : activeActivity === 'files' && isAgentEditorPath(location.pathname) ? (
                       <Suspense fallback={<ActivityPanelFallback />}>
                         <LocalExplorer
                           workspace_id={authWorkspaceId}
@@ -4185,13 +4192,13 @@ const App: React.FC = () => {
                       </Suspense>
                   ) : activeActivity === 'files' ? (
                       <div className="flex flex-col items-center justify-center h-full px-6 text-center gap-3">
-                        <p className="text-[12px] text-[var(--text-muted)]">The file explorer is available on the Agent page.</p>
+                        <p className="text-[12px] text-[var(--text-muted)]">The file explorer lives in the Agent editor.</p>
                         <button
                           type="button"
                           className="text-[11px] px-3 py-2 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] transition-colors"
-                          onClick={() => navigate(AGENT_HOME_PATH)}
+                          onClick={() => navigate(AGENT_EDITOR_PATH)}
                         >
-                          Go to Agent
+                          Open editor
                         </button>
                       </div>
                   ) : location.pathname !== '/dashboard/meet' ? (
@@ -4230,9 +4237,12 @@ const App: React.FC = () => {
                 <button
                   type="button"
                   className="hidden tablet-up:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 flex-col items-center gap-1 py-3 px-1 rounded-r-md border border-l-0 border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 shadow-md transition-colors"
-                  title="Show Explorer (⌘B)"
-                  aria-label="Show Explorer"
-                  onClick={() => setActiveActivity('files')}
+                  title="Open editor explorer (⌘B)"
+                  aria-label="Open editor explorer"
+                  onClick={() => {
+                    navigate(AGENT_EDITOR_PATH);
+                    setActiveActivity('files');
+                  }}
                 >
                   <Files size={16} strokeWidth={1.75} />
                 </button>
@@ -4507,10 +4517,11 @@ const App: React.FC = () => {
                   )}
 
                   {isAgentHomeAtmospheric && activeTab === 'Workspace' && (
-                      <div className="absolute inset-0 z-10">
+                      <div className="flex flex-1 min-h-0 min-w-0 z-10">
                           <AgentHome
                             displayName={workspaceDisplayName}
                             showHero={agentHomeShowHero}
+                            terminalDocked={isTerminalOpen}
                             onComposerHost={setAgentHomeComposerHost}
                             onMessagesHost={setAgentHomeMessagesHost}
                             onModeSelect={handleAgentHomeModeSelect}

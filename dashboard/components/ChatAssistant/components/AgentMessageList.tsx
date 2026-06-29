@@ -532,8 +532,9 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   return (
     <div
       ref={scrollRef}
-      className="order-4 flex flex-col flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain px-3 sm:px-4 pt-6 pb-4 space-y-6 w-full max-w-full chat-hide-scroll"
+      className="order-4 flex flex-col flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain w-full max-w-full agent-scroll-area"
     >
+      <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col space-y-6 px-3 sm:px-4 pt-6 pb-4">
       {showEmptyThreadPlaceholder && !suppressEmptyPlaceholder ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 px-6">
           <img
@@ -791,6 +792,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
         </div>
       ) : null}
 
+      </div>
     </div>
   );
 };

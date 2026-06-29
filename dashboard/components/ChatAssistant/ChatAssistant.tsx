@@ -3285,7 +3285,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         {composerVisible && (() => {
           const shell = (
         <div
-          className={`${composerFlexOrder} iam-chat-composer-shell flex-shrink-0 w-full min-w-0 max-w-full px-3 pt-2 space-y-2`}
+          className={`${composerFlexOrder} iam-chat-composer-shell flex-shrink-0 w-full min-w-0 max-w-full ${
+            composerPortaled ? 'iam-chat-composer-shell--atmospheric' : 'px-3'
+          } pt-2 space-y-2`}
           style={{
             paddingBottom: isNarrow && !mobileAgentHomeMode
               ? MOBILE_CHAT_COMPOSER_BOTTOM_PAD

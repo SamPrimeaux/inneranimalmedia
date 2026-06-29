@@ -195,3 +195,28 @@ samp.font-mono {
 [data-text-size="xl"] .chat-message {
   font-size: 1.0625rem;
 }
+
+/* Claude-style subtle scrollbar for agent message thread */
+.agent-scroll-area {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-subtle, rgba(255, 255, 255, 0.12)) transparent;
+}
+
+.agent-scroll-area::-webkit-scrollbar {
+  width: 4px;
+}
+
+.agent-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.agent-scroll-area::-webkit-scrollbar-thumb {
+  background: var(--border-subtle, rgba(255, 255, 255, 0.12));
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.agent-scroll-area:hover::-webkit-scrollbar-thumb {
+  opacity: 1;
+}
