@@ -5,14 +5,18 @@
  */
 import { runTerminalCommand } from './terminal.js';
 import { tryZoneContainerExec } from './my-container.js';
-import { normalizeMcpZoneSlug, resolveMcpZoneWorkspaceId } from './mcp-zone-spine.js';
+import {
+  normalizeMcpZoneSlug,
+  resolveMcpZoneWorkspaceId,
+  resolveSandboxContainerSlug,
+} from './mcp-zone-spine.js';
 import {
   buildTerminalToolResponseBody,
   terminalRecoveryHints,
   wrapShellCommandWithPath,
 } from './mcp-terminal-contract.js';
 
-export { normalizeMcpZoneSlug } from './mcp-zone-spine.js';
+export { normalizeMcpZoneSlug, resolveSandboxContainerSlug } from './mcp-zone-spine.js';
 
 /** @param {string} raw */
 function shellQuote(raw) {
@@ -56,8 +60,65 @@ export async function runMcpZoneSandboxCommand(env, request, opts) {
     return { ok: false, error: 'command required' };
   }
 
-  const zoneSlug = normalizeMcpZoneSlug(opts.zoneSlug);
   const config = opts.config && typeof opts.config === 'object' ? opts.config : {};
+  const useContainer =
+    String(config.target_type || '').trim() === 'container' ||
+    String(env?.IAM_SANDBOX_USE_CONTAINER || '1').trim() === '1';
+
+  const zoneSlug = useContainer
+    ? await resolveSandboxContainerSlug(env, {
+        zoneSlug: opts.zoneSlug,
+        userId: opts.userId,
+        username: opts.username,
+        workspaceId: opts.workspaceId,
+        tenantId: opts.tenantId,
+      })
+    : normalizeMcpZoneSlug(opts.zoneSlug);
+
+  if (useContainer) {
+    const innerPath = opts.path != null ? String(opts.path).trim() : '';
+    const language = String(opts.language || 'shell').trim().toLowerCase();
+    let runCmd = command;
+    if (language === 'python') {
+      runCmd = `python3 -c ${shellQuote(command)}`;
+    } else if (language === 'node') {
+      runCmd = `node -e ${shellQuote(command)}`;
+    }
+
+    const containerCwd = innerPath
+      ? `/tmp/${zoneSlug}/${innerPath.replace(/^\//, '')}`
+      : `/tmp/${zoneSlug}`;
+    const containerOut = await tryZoneContainerExec(env, {
+      command: runCmd,
+      zone_slug: zoneSlug,
+      cwd: containerCwd,
+    });
+    const stdout = String(containerOut.stdout ?? '');
+    const stderr = String(containerOut.stderr ?? containerOut.error ?? '');
+    const exitCode = containerOut.exit_code ?? (containerOut.ok ? 0 : 1);
+    const body = buildTerminalToolResponseBody({
+      explicitPath: containerCwd,
+      executedCommand: runCmd,
+      stdout,
+      stderr,
+      exitCode,
+      status: containerOut.ok ? 'success' : 'error',
+    });
+    return {
+      ok: containerOut.ok !== false && !containerOut.error,
+      error: containerOut.error || null,
+      body: {
+        ...body,
+        zone_slug: zoneSlug,
+        sandbox_root: containerCwd,
+        cwd_source: 'container_user',
+        lane: 'container',
+        image: containerOut.image ?? null,
+        recovery_hints: terminalRecoveryHints({ stdout, stderr, exitCode }),
+      },
+    };
+  }
+
   const useCallerWs = config.use_caller_workspace === true;
   const zoneWs =
     !useCallerWs && opts.zoneSlug != null
@@ -112,45 +173,6 @@ export async function runMcpZoneSandboxCommand(env, request, opts) {
     runCmd = `python3 -c ${shellQuote(command)}`;
   } else if (language === 'node') {
     runCmd = `node -e ${shellQuote(command)}`;
-  }
-
-  const useContainer =
-    String(config.target_type || '').trim() === 'container' ||
-    String(env?.IAM_SANDBOX_USE_CONTAINER || '1').trim() === '1';
-
-  if (useContainer) {
-    const containerCwd = innerPath
-      ? `/tmp/${zoneSlug}/${innerPath.replace(/^\//, '')}`
-      : `/tmp/${zoneSlug}`;
-    const containerOut = await tryZoneContainerExec(env, {
-      command: runCmd,
-      zone_slug: zoneSlug,
-      cwd: containerCwd,
-    });
-    const stdout = String(containerOut.stdout ?? '');
-    const stderr = String(containerOut.stderr ?? containerOut.error ?? '');
-    const exitCode = containerOut.exit_code ?? (containerOut.ok ? 0 : 1);
-    const body = buildTerminalToolResponseBody({
-      explicitPath: containerCwd,
-      executedCommand: runCmd,
-      stdout,
-      stderr,
-      exitCode,
-      status: containerOut.ok ? 'success' : 'error',
-    });
-    return {
-      ok: containerOut.ok !== false && !containerOut.error,
-      error: containerOut.error || null,
-      body: {
-        ...body,
-        zone_slug: zoneSlug,
-        sandbox_root: containerCwd,
-        cwd_source: 'container_zone',
-        lane: 'container',
-        image: containerOut.image ?? null,
-        recovery_hints: terminalRecoveryHints({ stdout, stderr, exitCode }),
-      },
-    };
   }
 
   const wrapped = `mkdir -p ${shellQuote(absZoneDir)} && cd ${shellQuote(absZoneDir)} && ${runCmd}`;

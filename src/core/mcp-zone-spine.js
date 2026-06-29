@@ -9,6 +9,10 @@ import { createSpawnJob } from './subagent-spawn-d1.js';
 export const MCP_ZONE_SLUGS = ['engineer', 'architect', 'cms', 'specialist'];
 const MCP_ZONE_SLUG_SET = new Set(MCP_ZONE_SLUGS);
 
+/** Legacy MCP panel facets — not used for CF Container DO ids. */
+export const LEGACY_ROLE_ZONE_SLUGS = MCP_ZONE_SLUGS;
+const LEGACY_ROLE_ZONE_SLUG_SET = MCP_ZONE_SLUG_SET;
+
 /** @param {string} raw */
 export function normalizeMcpZoneSlug(raw) {
   const s = String(raw || 'specialist')
@@ -16,6 +20,80 @@ export function normalizeMcpZoneSlug(raw) {
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, '');
   return MCP_ZONE_SLUG_SET.has(s) ? s : 'specialist';
+}
+
+/**
+ * Normalize a user/container slug (sam, connor, …). Rejects legacy role facet names.
+ * @param {string | null | undefined} raw
+ */
+export function normalizeSandboxContainerSlug(raw) {
+  const s = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '')
+    .slice(0, 64);
+  if (!s || LEGACY_ROLE_ZONE_SLUG_SET.has(s)) return null;
+  return s;
+}
+
+/**
+ * Derive container DO id from explicit zone_slug, profile, or workspace handle.
+ * One CF Container instance per user — named by username, not role facet.
+ * @param {any} env
+ * @param {{
+ *   zoneSlug?: string | null,
+ *   userId?: string | null,
+ *   username?: string | null,
+ *   workspaceId?: string | null,
+ *   tenantId?: string | null,
+ * }} p
+ */
+export async function resolveSandboxContainerSlug(env, p) {
+  for (const raw of [p.zoneSlug, p.username]) {
+    const slug = normalizeSandboxContainerSlug(raw);
+    if (slug) return slug;
+  }
+
+  if (env?.DB && p.userId) {
+    const uid = String(p.userId).trim();
+    const row = await env.DB.prepare(
+      `SELECT au.name, au.email, uip.github_username, uip.preferred_name
+         FROM auth_users au
+         LEFT JOIN user_intake_profiles uip ON uip.auth_user_id = au.id
+        WHERE au.id = ? LIMIT 1`,
+    )
+      .bind(uid)
+      .first()
+      .catch(() => null);
+    for (const raw of [row?.github_username, row?.preferred_name, row?.name]) {
+      const slug = normalizeSandboxContainerSlug(raw);
+      if (slug) return slug;
+    }
+    const emailLocal = String(row?.email || '')
+      .split('@')[0]
+      .trim();
+    const fromEmail = normalizeSandboxContainerSlug(emailLocal);
+    if (fromEmail) return fromEmail;
+  }
+
+  if (env?.DB && p.workspaceId) {
+    const wsId = String(p.workspaceId).trim();
+    const row = await env.DB.prepare(
+      `SELECT handle, name FROM workspaces WHERE id = ? LIMIT 1`,
+    )
+      .bind(wsId)
+      .first()
+      .catch(() => null);
+    const fromHandle = normalizeSandboxContainerSlug(row?.handle);
+    if (fromHandle) return fromHandle;
+    const wsMatch = wsId.match(/^ws_([a-z0-9]+)/i);
+    if (wsMatch?.[1]) {
+      const fromWs = normalizeSandboxContainerSlug(wsMatch[1]);
+      if (fromWs && !['inneranimalmedia', 'mcp'].includes(fromWs)) return fromWs;
+    }
+  }
+
+  return 'default';
 }
 
 /** @param {string} zoneSlug @param {string} tenantId */

@@ -1,9 +1,9 @@
 /**
- * POST /api/internal/terminal/sandbox/exec — zone sandbox via MY_CONTAINER (MCP + bridge).
+ * POST /api/internal/terminal/sandbox/exec — per-user CF Container sandbox (MCP + bridge).
  * Auth: INTERNAL_API_SECRET or superadmin session.
  */
 import { getAuthUser, isSamOnlyUser, jsonResponse, verifyInternalApiSecret } from '../core/auth.js';
-import { runMcpZoneSandboxCommand, normalizeMcpZoneSlug } from '../core/terminal-sandbox.js';
+import { runMcpZoneSandboxCommand } from '../core/terminal-sandbox.js';
 
 /**
  * @param {Request} request
@@ -34,20 +34,25 @@ export async function handleTerminalSandboxExec(request, env) {
     return jsonResponse({ ok: false, error: 'command_required' }, 400);
   }
 
-  const workspaceId = String(body.workspace_id || body.workspaceId || '').trim();
-  if (!workspaceId) {
-    return jsonResponse({ ok: false, error: 'workspace_id_required' }, 400);
-  }
-
-  const zoneSlug = normalizeMcpZoneSlug(body.zone_slug ?? body.zoneSlug ?? 'engineer');
+  const zoneSlugRaw = body.zone_slug ?? body.zoneSlug ?? null;
   const userId = String(body.user_id || body.userId || '').trim() || null;
+  const username = String(body.username || body.user_name || '').trim() || null;
+  const workspaceId = String(body.workspace_id || body.workspaceId || '').trim() || null;
   const tenantId = String(body.tenant_id || body.tenantId || '').trim() || null;
+
+  if (!zoneSlugRaw && !userId && !username && !workspaceId) {
+    return jsonResponse(
+      { ok: false, error: 'zone_slug_or_user_required', user_message: 'Pass zone_slug (username), user_id, or workspace_id.' },
+      400,
+    );
+  }
 
   const sb = await runMcpZoneSandboxCommand(env, request, {
     command,
-    zoneSlug,
+    zoneSlug: zoneSlugRaw,
     tenantId,
     userId,
+    username,
     workspaceId,
     sessionId: body.session_id ?? body.sessionId ?? null,
     config: body.config && typeof body.config === 'object' ? body.config : { target_type: 'container' },

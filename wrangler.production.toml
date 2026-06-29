@@ -157,7 +157,7 @@ class_name = "AgentBrowserLiveV1"
 # Standalone dashboard app: meauxcontainer-mycontainer (orphan until this binding deploys).
 [[containers]]
 class_name = "MyContainer"
-image = "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-mycontainer:sandbox-v2"
+image = "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-mycontainer:sandbox-v3"
 instance_type = "basic"
 max_instances = 10
 

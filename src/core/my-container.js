@@ -4,11 +4,30 @@
  */
 
 export const CONTAINER_IMAGE_REF =
-  'registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-mycontainer:sandbox-v2';
-export const CONTAINER_IMAGE_TAG = 'meauxcontainer-mycontainer:sandbox-v2';
+  'registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-mycontainer:sandbox-v3';
+export const CONTAINER_IMAGE_TAG = 'meauxcontainer-mycontainer:sandbox-v3';
 
 const CONTAINER_POOL_ID = 'meaux-pool';
 const CONTAINER_PORT = 8080;
+const CONTAINER_FETCH_TIMEOUT_MS = 90_000;
+
+/**
+ * @param {any} stub
+ * @param {string} path
+ * @param {RequestInit} [init]
+ */
+async function containerFetch(stub, path, init = {}) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), CONTAINER_FETCH_TIMEOUT_MS);
+  try {
+    return await stub.fetch(`http://container${path}`, {
+      ...init,
+      signal: ac.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** @param {any} env */
 function containerNamespace(env) {
@@ -19,12 +38,10 @@ function containerNamespace(env) {
  * @param {any} env
  * @param {{ ports?: number[] }} [opts]
  */
-async function getContainerStub(env, opts = {}) {
+async function getContainerStub(env) {
   const ns = containerNamespace(env);
   if (!ns?.getByName) return null;
-  const stub = ns.getByName(CONTAINER_POOL_ID);
-  await stub.startAndWaitForPorts({ ports: opts.ports || [CONTAINER_PORT] });
-  return stub;
+  return ns.getByName(CONTAINER_POOL_ID);
 }
 
 /**
@@ -40,7 +57,7 @@ export async function probeMyContainer(env) {
     if (!stub) {
       return { ok: false, bound: false, lane: 'container', image: CONTAINER_IMAGE_TAG };
     }
-    const res = await stub.fetch('http://container/health');
+    const res = await containerFetch(stub, '/health');
     const text = await res.text().catch(() => '');
     let json = null;
     try {
@@ -75,13 +92,11 @@ export const probeMoviemodeRenderContainer = probeMyContainer;
  * @param {string} zoneSlug
  * @param {{ ports?: number[] }} [opts]
  */
-async function getZoneContainerStub(env, zoneSlug, opts = {}) {
+async function getZoneContainerStub(env, zoneSlug) {
   const ns = containerNamespace(env);
   const id = String(zoneSlug || 'default').trim().slice(0, 128) || 'default';
   if (!ns?.getByName) return null;
-  const stub = ns.getByName(id);
-  await stub.startAndWaitForPorts({ ports: opts.ports || [CONTAINER_PORT] });
-  return stub;
+  return ns.getByName(id);
 }
 
 /**
@@ -107,7 +122,7 @@ export async function tryZoneContainerExec(env, opts) {
       return { ok: false, error: 'container_unbound', lane: 'container', zone_slug: zoneSlug };
     }
 
-    const res = await stub.fetch('http://container/exec', {
+    const res = await containerFetch(stub, '/exec', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -126,12 +141,14 @@ export async function tryZoneContainerExec(env, opts) {
       ...data,
     };
   } catch (e) {
+    const msg = String(e?.message || e);
+    const timedOut = /abort|timeout/i.test(msg);
     return {
       ok: false,
       lane: 'container',
       zone_slug: zoneSlug,
       image: CONTAINER_IMAGE_TAG,
-      error: String(e?.message || e).slice(0, 400),
+      error: timedOut ? 'container_start_timeout' : msg.slice(0, 400),
     };
   }
 }
@@ -157,7 +174,7 @@ export async function tryContainerExec(env, opts) {
       return { ok: false, error: 'container_unbound', lane: 'container' };
     }
 
-    const res = await stub.fetch('http://container/exec', {
+    const res = await containerFetch(stub, '/exec', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -175,11 +192,13 @@ export async function tryContainerExec(env, opts) {
       ...data,
     };
   } catch (e) {
+    const msg = String(e?.message || e);
+    const timedOut = /abort|timeout/i.test(msg);
     return {
       ok: false,
       lane: 'container',
       image: CONTAINER_IMAGE_TAG,
-      error: String(e?.message || e).slice(0, 400),
+      error: timedOut ? 'container_start_timeout' : msg.slice(0, 400),
     };
   }
 }
