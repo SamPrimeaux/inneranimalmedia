@@ -765,7 +765,29 @@ export const LocalExplorer: React.FC<{
     };
 
     const toggleSection = (section: keyof typeof expandedSections) => {
-        setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+        setExpandedSections((prev) => {
+            const nextOpen = !prev[section];
+            if (nextOpen && (section === 'github' || section === 'drive')) {
+                return {
+                    local: false,
+                    r2: false,
+                    github: section === 'github',
+                    drive: section === 'drive',
+                };
+            }
+            return { ...prev, [section]: nextOpen };
+        });
+    };
+
+    const explorerSectionBodyClass = (section: 'github' | 'drive' | 'local' | 'r2', open: boolean) => {
+        if (!open) return 'hidden';
+        const soloSource =
+            (section === 'github' && expandedSections.github && !expandedSections.drive) ||
+            (section === 'drive' && expandedSections.drive && !expandedSections.github);
+        const base =
+            'flex flex-col overflow-hidden border-t border-[var(--border-subtle)]/30 mx-1 mb-1 rounded border border-[var(--border-subtle)]/40';
+        if (soloSource) return `${base} flex-1 min-h-[160px]`;
+        return `${base} min-h-[160px] max-h-[min(55vh,480px)] max-phone:max-h-none max-phone:flex-1`;
     };
 
     const localTreeRows = useMemo(
@@ -1030,7 +1052,7 @@ export const LocalExplorer: React.FC<{
 
 
     return (
-        <div className="flex flex-col h-full bg-[var(--bg-panel)] overflow-hidden text-[var(--text-main)] overflow-y-auto align-top">
+        <div className="flex flex-col h-full min-h-0 bg-[var(--bg-panel)] overflow-hidden text-[var(--text-main)] align-top">
             <div className="flex items-center justify-between px-3 py-2.5 shrink-0 border-b border-[var(--border-subtle)]/40 gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
                     <GripVertical size={12} className="text-[var(--text-muted)]/50 shrink-0 hidden md:block" aria-hidden />
@@ -1065,6 +1087,7 @@ export const LocalExplorer: React.FC<{
                 </div>
             ) : null}
 
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             {/* Section 1: Local Workspace */}
             <div className="flex flex-col border-b border-[var(--border-subtle)]/50 pb-1 pt-1">
                 <div className="flex items-center justify-between px-4 py-2 hover:bg-[var(--bg-hover)] cursor-pointer group">
@@ -1450,7 +1473,7 @@ export const LocalExplorer: React.FC<{
             </div>
 
             {/* Section 3: GitHub Repositories */}
-            <div className="flex flex-col border-b border-[var(--border-subtle)]/50 pb-1">
+            <div className={`flex flex-col border-b border-[var(--border-subtle)]/50 pb-1 ${expandedSections.github ? 'flex-1 min-h-0' : 'shrink-0'}`}>
                 <div 
                     onClick={() => toggleSection('github')}
                     className="flex items-center gap-2 px-4 py-2 hover:bg-[var(--bg-hover)] cursor-pointer group"
@@ -1460,14 +1483,14 @@ export const LocalExplorer: React.FC<{
                     <span className="text-[11px] font-bold tracking-wide uppercase text-[var(--text-muted)] group-hover:text-white transition-colors">GitHub Sync</span>
                 </div>
                 {expandedSections.github && (
-                    <div className="min-h-[200px] max-h-[min(45vh,380px)] max-phone:max-h-none max-phone:flex-1 flex flex-col overflow-hidden border-t border-[var(--border-subtle)]/30 mx-1 mb-1 rounded border border-[var(--border-subtle)]/40">
+                    <div className={explorerSectionBodyClass('github', true)}>
                         <GitHubExplorer workspace_id={workspace_id} onOpenInEditor={onOpenInEditor} />
                     </div>
                 )}
             </div>
 
             {/* Section 4: Google Drive */}
-            <div className="flex flex-col border-b border-[var(--border-subtle)]/50 pb-1">
+            <div className={`flex flex-col border-b border-[var(--border-subtle)]/50 pb-1 ${expandedSections.drive ? 'flex-1 min-h-0' : 'shrink-0'}`}>
                 <div 
                     onClick={() => toggleSection('drive')}
                     className="flex items-center gap-2 px-4 py-2 hover:bg-[var(--bg-hover)] cursor-pointer group"
@@ -1477,13 +1500,14 @@ export const LocalExplorer: React.FC<{
                     <span className="text-[11px] font-bold tracking-wide uppercase text-[var(--text-muted)] group-hover:text-white transition-colors">Google Drive</span>
                 </div>
                 {expandedSections.drive && (
-                    <div className="min-h-[200px] max-h-[min(45vh,380px)] flex flex-col overflow-hidden border-t border-[var(--border-subtle)]/30 mx-1 mb-1 rounded border border-[var(--border-subtle)]/40">
+                    <div className={explorerSectionBodyClass('drive', true)}>
                         <GoogleDriveExplorer
                             key={googleDriveOAuthRefresh}
                             onOpenInEditor={onOpenInEditor}
                         />
                     </div>
                 )}
+            </div>
             </div>
         </div>
     );

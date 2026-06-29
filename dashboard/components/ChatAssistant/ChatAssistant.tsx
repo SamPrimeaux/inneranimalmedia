@@ -3024,6 +3024,15 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 {tab.title}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={handleNewChat}
+              className="shrink-0 p-1 rounded-md text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)] border border-transparent"
+              title="New chat"
+              aria-label="New chat"
+            >
+              <Plus size={14} strokeWidth={1.75} />
+            </button>
           </div>
         )}
 

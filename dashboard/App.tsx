@@ -446,6 +446,7 @@ const App: React.FC = () => {
   const { tabs, activeTabId, openFile, updateActiveContent, saveActiveFile } = useEditor();
   const {
     sessionUserId,
+    sessionUserName,
     workspaceId: authWorkspaceId,
     setWorkspaceId: setAuthWorkspaceId,
     workspaces: workspaceRows,
@@ -1410,11 +1411,24 @@ const App: React.FC = () => {
     });
   }, []);
 
+  const agentHomeGreetingName = useMemo(() => {
+    const user = sessionUserName?.trim();
+    if (user) return user;
+    return workspaceDisplayName;
+  }, [sessionUserName, workspaceDisplayName]);
+
+  const createNewAgentChatTabRef = useRef<(() => void) | null>(null);
+
   const shellNewChat = useCallback(() => {
+    createNewAgentChatTabRef.current?.();
+    if (isAgentEditorPath(location.pathname)) {
+      if (agentPosition === 'off') setAgentPosition('right');
+      return;
+    }
     if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
-    setActiveTab('Workspace');
-    setOpenTabs((prev) => (prev.includes('Workspace') ? prev : [...prev, 'Workspace']));
-  }, [location.pathname, navigate]);
+    if (isAgentHomeAtmospheric && !isNarrowViewport) return;
+    if (agentPosition === 'off') setAgentPosition('right');
+  }, [location.pathname, navigate, agentPosition, isAgentHomeAtmospheric, isNarrowViewport]);
 
   const shellOpenChats = useCallback(() => {
     navigate('/dashboard/chats');
@@ -2030,6 +2044,8 @@ const App: React.FC = () => {
       /* ignore */
     }
   }, [agentChatTabs.length, workspaceDisplayLine]);
+
+  createNewAgentChatTabRef.current = createNewAgentChatTab;
 
   const pendingNewThreadMessageRef = useRef<QuickstartThreadDetail | null>(null);
   const pendingAgentChatComposeRef = useRef<AgentChatComposeDetail | null>(null);
@@ -4519,7 +4535,7 @@ const App: React.FC = () => {
                   {isAgentHomeAtmospheric && activeTab === 'Workspace' && (
                       <div className="absolute inset-0 z-10 flex flex-col items-stretch min-h-0 min-w-0 w-full">
                           <AgentHome
-                            displayName={workspaceDisplayName}
+                            displayName={agentHomeGreetingName}
                             showHero={agentHomeShowHero}
                             terminalDocked={isTerminalOpen}
                             onComposerHost={setAgentHomeComposerHost}
@@ -4529,7 +4545,9 @@ const App: React.FC = () => {
                       </div>
                   )}
 
-                  {isAgentWorkspaceBrowser && activeTab === 'Workspace' && (
+                  {(isAgentWorkspaceBrowser || isAgentEditorPath(location.pathname)) &&
+                    activeTab === 'Workspace' &&
+                    !isAgentHomeAtmospheric && (
                       <div className="absolute inset-0 z-10">
                           <WorkspaceDashboardV2 
                             onOpenFolder={() => {
