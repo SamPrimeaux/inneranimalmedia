@@ -14,7 +14,10 @@
 .agent-hero__greeting-row {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 14px;
+  width: 100%;
+  text-align: center;
 }
 
 .agent-hero__mark {

@@ -8,6 +8,8 @@ import {
   normalizeIntegrationSlug,
 } from '../../core/integration-byok-sync.js';
 import { resolveIntegrationUserId } from '../../core/integration-user-id.js';
+import { upsertOauthToken } from '../oauth.js';
+import { validateProviderKey, normalizeApiKeySecret } from '../../core/secret-validators.js';
 
 function tenantIdFromAuth(authUser, env) {
   return (
@@ -259,6 +261,82 @@ async function touchUserIntegrationsDisconnected(DB, userEmail, slug) {
   }
 }
 
+async function handleGithubPatConnect(env, authUser, body) {
+  if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+  const pat = normalizeApiKeySecret(body.api_key || body.token || '');
+  if (!pat) {
+    return jsonResponse({ error: 'api_key required (GitHub personal access token or fine-grained token)' }, 400);
+  }
+
+  const validation = await validateProviderKey('github', pat, env);
+  if (!validation.ok) {
+    const detail =
+      validation.checks?.find((c) => c.status === 'fail')?.detail ||
+      'Invalid GitHub token';
+    return jsonResponse({ error: detail }, 400);
+  }
+
+  const userId = await resolveIntegrationUserId(env, authUser);
+  if (!userId) return jsonResponse({ error: 'User id required' }, 400);
+  const tenantId = tenantIdFromAuth(authUser, env);
+
+  let login = 'github';
+  try {
+    const res = await fetch('https://api.github.com/user', {
+      headers: {
+        Authorization: `Bearer ${pat}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'InnerAnimalMedia-GitHubConnect/1.0',
+      },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data?.login) login = String(data.login).trim();
+  } catch {
+    /* validation already passed */
+  }
+
+  await upsertOauthToken(
+    env,
+    {
+      user_id: userId,
+      tenant_id: tenantId,
+      provider: 'github',
+      access_token: pat,
+      refresh_token: null,
+      scope: typeof body.scope === 'string' && body.scope.trim() ? body.scope.trim() : 'repo',
+      expires_at: null,
+      account_identifier: login,
+      account_email: authUser?.email ? String(authUser.email) : null,
+      account_display: login,
+      workspace_id:
+        authUser?.active_workspace_id ||
+        authUser?.default_workspace_id ||
+        null,
+      metadata_json: JSON.stringify({ auth_method: 'pat' }),
+    },
+    { skipRegistry: false },
+  );
+
+  try {
+    await env.DB.prepare(
+      `UPDATE integration_registry
+       SET status = 'connected', account_display = ?, updated_at = datetime('now')
+       WHERE tenant_id = ? AND LOWER(provider_key) = 'github'`,
+    )
+      .bind(login, tenantId)
+      .run();
+  } catch (e) {
+    console.warn('[integrations/connect] github pat registry update', e?.message || e);
+  }
+
+  return jsonResponse({
+    success: true,
+    provider: 'github',
+    account_display: login,
+    auth_method: 'pat',
+  });
+}
+
 /**
  * @returns {Promise<Response|null>}
  */
@@ -336,6 +414,9 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
       }
       if (slugNorm === 'local_tunnel') {
         return handleLocalTunnelConnect(env, authUser, body);
+      }
+      if (slugNorm === 'github') {
+        return handleGithubPatConnect(env, authUser, body);
       }
       if (!body.api_key || typeof body.api_key !== 'string') {
         return jsonResponse({ error: 'api_key required' }, 400);

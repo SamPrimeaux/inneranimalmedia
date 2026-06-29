@@ -126,16 +126,61 @@ export function parseGeminiUsageMetadata(json) {
 
 // ─── Tool schema normalisation ────────────────────────────────────────────────
 
-function uppercaseTypes(schema) {
-  if (!schema || typeof schema !== 'object') return schema;
-  const out = { ...schema };
-  if (out.type) out.type = String(out.type).toUpperCase();
-  if (out.properties) {
-    const props = {};
-    for (const [k, v] of Object.entries(out.properties)) props[k] = uppercaseTypes(v);
-    out.properties = props;
+/** JSON Schema keys Gemini function_declarations reject (OpenAI/Anthropic allow them). */
+const GEMINI_SCHEMA_STRIP_KEYS = new Set([
+  'additionalProperties',
+  '$schema',
+  '$id',
+  '$ref',
+  '$defs',
+  'definitions',
+  'patternProperties',
+  'default',
+  'examples',
+  'const',
+  'deprecated',
+  'readOnly',
+  'writeOnly',
+]);
+
+/**
+ * Recursively strip unsupported JSON Schema keys and uppercase Gemini type literals.
+ * @param {unknown} schema
+ */
+export function sanitizeGeminiParameterSchema(schema) {
+  if (schema == null) return schema;
+  if (Array.isArray(schema)) {
+    return schema.map((entry) => sanitizeGeminiParameterSchema(entry));
   }
-  if (out.items) out.items = uppercaseTypes(out.items);
+  if (typeof schema !== 'object') return schema;
+
+  const out = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (GEMINI_SCHEMA_STRIP_KEYS.has(key)) continue;
+    if (key === 'properties' && value && typeof value === 'object' && !Array.isArray(value)) {
+      const props = {};
+      for (const [propKey, propVal] of Object.entries(value)) {
+        props[propKey] = sanitizeGeminiParameterSchema(propVal);
+      }
+      out.properties = props;
+      continue;
+    }
+    if (key === 'items') {
+      out.items = sanitizeGeminiParameterSchema(value);
+      continue;
+    }
+    if (key === 'anyOf' || key === 'oneOf' || key === 'allOf') {
+      out[key] = Array.isArray(value)
+        ? value.map((entry) => sanitizeGeminiParameterSchema(entry))
+        : value;
+      continue;
+    }
+    out[key] =
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? sanitizeGeminiParameterSchema(value)
+        : value;
+  }
+  if (out.type) out.type = String(out.type).toUpperCase();
   return out;
 }
 
@@ -147,15 +192,18 @@ export function normalizeGeminiTools(tools) {
       try {
         const raw = typeof t.input_schema === 'string'
           ? JSON.parse(t.input_schema)
-          : (t.input_schema || {});
-        if (raw?.type) parameters = uppercaseTypes(raw);
+          : (t.input_schema || t.function?.parameters || {});
+        if (raw && typeof raw === 'object') {
+          parameters = sanitizeGeminiParameterSchema(raw);
+          if (!parameters.type) parameters.type = 'OBJECT';
+        }
       } catch (_) {}
       return {
-        name: t.tool_name || t.name,
-        description: (t.description || t.tool_name || '').slice(0, 500),
+        name: t.tool_name || t.name || t.function?.name,
+        description: (t.description || t.tool_name || t.function?.description || t.name || '').slice(0, 500),
         parameters,
       };
-    }),
+    }).filter((fd) => fd.name),
   }];
 }
 

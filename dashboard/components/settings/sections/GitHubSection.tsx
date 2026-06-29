@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ExternalLink, GitBranch } from 'lucide-react';
 import type { GitRepo } from '../types';
 import { StatusDot } from '../settingsUi';
@@ -65,6 +65,9 @@ type GithubExtra = {
 };
 
 export function GitHubSection({ repos }: GitHubSectionProps) {
+  const [patInput, setPatInput] = useState('');
+  const [patBusy, setPatBusy] = useState(false);
+  const [patMsg, setPatMsg] = useState<string | null>(null);
   const { data: section, loading, error, reload } = useSettingsSectionStatus<ConnectionRow>({
     endpoint: '/api/settings/github',
   });
@@ -76,6 +79,18 @@ export function GitHubSection({ repos }: GitHubSectionProps) {
     if (key === 'connect_github') {
       window.location.href = '/api/integrations/github/connect';
     }
+  };
+
+  const connectGithubPat = async (pat: string) => {
+    const res = await fetch('/api/integrations/github/connect', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: pat.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || res.statusText || 'Connect failed');
+    await reload();
   };
 
   return (
@@ -120,6 +135,50 @@ export function GitHubSection({ repos }: GitHubSectionProps) {
           </div>
           <WarningStrip warnings={section.warnings} />
           <ActionRow actions={section.actions} onAction={onAction} />
+          <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-4 space-y-2">
+            <div className="text-[11px] font-semibold text-[var(--text-main)]">
+              Or connect with a personal access token
+            </div>
+            <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
+              OAuth is preferred. For automation or headless use, paste a classic{' '}
+              <code className="font-mono">ghp_…</code> or fine-grained{' '}
+              <code className="font-mono">github_pat_…</code> token — stored encrypted like OAuth tokens.
+              This covers GitHub API (repos, files, PRs); it does not replace the GCP VM for terminal/git CLI.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="password"
+                autoComplete="off"
+                value={patInput}
+                onChange={(e) => setPatInput(e.target.value)}
+                placeholder="ghp_… or github_pat_…"
+                className="flex-1 min-w-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[11px] font-mono text-[var(--text-main)]"
+              />
+              <button
+                type="button"
+                disabled={patBusy || !patInput.trim()}
+                className="shrink-0 px-3 py-2 rounded-lg border border-[var(--border-subtle)] text-[11px] font-medium text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                onClick={() => {
+                  setPatBusy(true);
+                  setPatMsg(null);
+                  void connectGithubPat(patInput)
+                    .then(() => {
+                      setPatInput('');
+                      setPatMsg('GitHub PAT connected.');
+                    })
+                    .catch((e: unknown) => {
+                      setPatMsg(e instanceof Error ? e.message : 'Connect failed');
+                    })
+                    .finally(() => setPatBusy(false));
+                }}
+              >
+                {patBusy ? 'Saving…' : 'Save PAT'}
+              </button>
+            </div>
+            {patMsg ? (
+              <p className="text-[10px] text-[var(--text-muted)]">{patMsg}</p>
+            ) : null}
+          </div>
         </>
       ) : null}
 

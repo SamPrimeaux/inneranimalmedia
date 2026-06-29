@@ -6,7 +6,9 @@ import {
   geminiChunkToOpenAI,
   isVisibleGeminiTextPart,
   parseGeminiResponseText,
+  normalizeGeminiTools,
   resolveGeminiMaxOutputTokens,
+  sanitizeGeminiParameterSchema,
   toGeminiContents,
 } from '../../src/integrations/gemini.js';
 
@@ -53,6 +55,36 @@ test('buildGeminiGenerationConfig uses low thinking for ask-like turns on Gemini
 test('resolveGeminiMaxOutputTokens enforces Gemini 3 floor', () => {
   assert.equal(resolveGeminiMaxOutputTokens('gemini-3.5-flash', 2048), 8192);
   assert.equal(resolveGeminiMaxOutputTokens('gemini-3.5-flash', 65536), 65536);
+});
+
+test('sanitizeGeminiParameterSchema strips additionalProperties', () => {
+  const out = sanitizeGeminiParameterSchema({
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      path: { type: 'string', additionalProperties: false },
+    },
+  });
+  assert.equal(out.additionalProperties, undefined);
+  assert.equal(out.properties.path.additionalProperties, undefined);
+  assert.equal(out.type, 'OBJECT');
+});
+
+test('normalizeGeminiTools strips additionalProperties from tool declarations', () => {
+  const tools = normalizeGeminiTools([{
+    name: 'workspace_read_file',
+    description: 'Read a workspace file',
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { path: { type: 'string' } },
+      required: ['path'],
+    },
+  }]);
+  const params = tools[0].function_declarations[0].parameters;
+  assert.equal(params.additionalProperties, undefined);
+  assert.equal(params.type, 'OBJECT');
+  assert.equal(params.properties.path.type, 'STRING');
 });
 
 test('geminiChunkToOpenAI forwards thought signatures on tool calls', () => {

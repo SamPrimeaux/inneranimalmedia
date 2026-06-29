@@ -4517,7 +4517,7 @@ const App: React.FC = () => {
                   )}
 
                   {isAgentHomeAtmospheric && activeTab === 'Workspace' && (
-                      <div className="flex flex-1 min-h-0 min-w-0 z-10">
+                      <div className="absolute inset-0 z-10 flex flex-col items-stretch min-h-0 min-w-0 w-full">
                           <AgentHome
                             displayName={workspaceDisplayName}
                             showHero={agentHomeShowHero}
