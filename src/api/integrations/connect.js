@@ -85,6 +85,52 @@ function validateScopesAgainstCatalog(requested, defaultScopes, available) {
   return { ok: true, scopes: chosen };
 }
 
+/** Legacy catalog aliases → real GitHub OAuth scope names. */
+const GITHUB_OAUTH_SCOPE_ALIASES = {
+  'user:read': 'read:user',
+  'user:read:email': 'user:email',
+  'repo:read': 'repo',
+  user: 'read:user',
+};
+
+function normalizeGithubOAuthScope(scope) {
+  const s = String(scope || '').trim();
+  if (!s) return '';
+  return GITHUB_OAUTH_SCOPE_ALIASES[s] || s;
+}
+
+function normalizeGithubOAuthScopes(scopes) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of scopes || []) {
+    const s = normalizeGithubOAuthScope(raw);
+    if (s && !seen.has(s)) {
+      seen.add(s);
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+function githubOAuthScopeSets(defaults, available, requested) {
+  const canonicalAvailable = normalizeGithubOAuthScopes([
+    ...(available || []),
+    ...(defaults || []),
+    ...(requested || []),
+    'repo',
+    'read:user',
+    'user:email',
+    'read:org',
+    'workflow',
+    'public_repo',
+  ]);
+  return {
+    defaults: normalizeGithubOAuthScopes(defaults),
+    available: canonicalAvailable,
+    requested: normalizeGithubOAuthScopes(requested),
+  };
+}
+
 async function loadCatalogRow(env, slug) {
   if (!env?.DB) return null;
   try {
@@ -388,12 +434,18 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
       const authType = String(cat?.auth_type || '').toLowerCase();
       if (cat && (authType === 'oauth' || authType === 'oauth_or_key')) {
         let available = parseJsonArr(cat.oauth_scopes_available);
-        const defaults = parseJsonArr(cat.oauth_scopes_default);
+        let defaults = parseJsonArr(cat.oauth_scopes_default);
+        let requested = collectScopesFromUrl(url);
         if (slugNorm === 'google_drive') {
           const manageScope = 'https://www.googleapis.com/auth/drive';
           if (!available.includes(manageScope)) available = [...available, manageScope];
         }
-        const requested = collectScopesFromUrl(url);
+        if (slugNorm === 'github') {
+          const gh = githubOAuthScopeSets(defaults, available, requested);
+          defaults = gh.defaults;
+          available = gh.available;
+          requested = gh.requested;
+        }
         const v = validateScopesAgainstCatalog(requested, defaults, available);
         if (!v.ok) return jsonResponse({ error: v.error || 'Invalid scopes' }, 400);
         if (v.scopes?.length) {

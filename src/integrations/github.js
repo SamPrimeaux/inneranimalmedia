@@ -173,20 +173,116 @@ export function getAdminGithubToken(env) {
   return { token, mode: 'pat' };
 }
 
+async function decryptUserApiKeyValue(env, row, userId) {
+  if (!row || !env?.DB) return null;
+  const uid = String(userId || '').trim();
+  if (!uid) return null;
+  if (row.vault_secret_id) {
+    const secretRow = await env.DB.prepare(
+      `SELECT secret_value_encrypted FROM user_secrets
+       WHERE id = ? AND user_id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+    )
+      .bind(String(row.vault_secret_id), uid)
+      .first();
+    if (secretRow?.secret_value_encrypted) {
+      const { vaultDecrypt } = await import('../api/vault.js');
+      const decrypted = await vaultDecrypt(env, secretRow.secret_value_encrypted);
+      if (decrypted) return String(decrypted).trim() || null;
+    }
+  }
+  if (row.encrypted_value) {
+    const { getAESKey, aesGcmDecryptFromB64 } = await import('../core/crypto-vault.js');
+    const aesKey = await getAESKey(env, ['decrypt']);
+    const decrypted = await aesGcmDecryptFromB64(row.encrypted_value, aesKey);
+    if (decrypted) return String(decrypted).trim() || null;
+  }
+  if (row.key_hash) {
+    const { getAESKey, aesGcmDecryptFromB64 } = await import('../core/crypto-vault.js');
+    const aesKey = await getAESKey(env, ['decrypt']);
+    const decrypted = await aesGcmDecryptFromB64(row.key_hash, aesKey);
+    if (decrypted) return String(decrypted).trim() || null;
+  }
+  return null;
+}
+
 /**
- * Per-user GitHub OAuth from `user_oauth_tokens` only (no env.GITHUB_TOKEN).
+ * BYOK GitHub PAT from Keys & Secrets (`user_api_keys` + vault).
+ * @param {string} providerAccountId — optional GitHub login filter
+ */
+async function resolveGithubByokToken(env, userId, providerAccountId = '') {
+  if (!env?.DB || !userId) return null;
+  const uid = String(userId).trim();
+  if (!uid) return null;
+  const accountFilter = providerAccountId != null ? String(providerAccountId).trim() : '';
+
+  const row = await env.DB.prepare(
+    `SELECT id, vault_secret_id, encrypted_value, key_hash, key_preview, last_four, metadata_json
+     FROM user_api_keys
+     WHERE user_id = ? AND LOWER(provider) = 'github' AND COALESCE(is_active, 1) = 1
+     ORDER BY rowid DESC
+     LIMIT 1`,
+  )
+    .bind(uid)
+    .first()
+    .catch(() => null);
+  if (!row) return null;
+
+  const token = await decryptUserApiKeyValue(env, row, uid);
+  if (!token) return null;
+
+  let login = '';
+  try {
+    const res = await fetch('https://api.github.com/user', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'InnerAnimalMedia-GitHubBYOK/1.0',
+      },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data?.login) login = String(data.login).trim();
+  } catch {
+    /* token may still work for repo calls */
+  }
+
+  if (accountFilter && login && login.toLowerCase() !== accountFilter.toLowerCase()) {
+    return null;
+  }
+
+  return {
+    token,
+    mode: 'byok',
+    account_identifier: login || accountFilter,
+    provider_account_id: login || accountFilter,
+    api_key_id: row.id != null ? String(row.id) : null,
+  };
+}
+
+/**
+ * Per-user GitHub token: OAuth/PAT in `user_oauth_tokens`, then BYOK in Keys & Secrets.
  * @param {string} providerAccountId — `account_identifier` / `?account=` login for multi-account rows
  */
 export async function getUserGithubToken(env, userId, providerAccountId = '') {
   if (!env?.DB || !userId) return null;
   const uid = String(userId).trim();
   if (!uid) return null;
-  const row = await getIntegrationOAuthRow(env, uid, 'github', providerAccountId != null ? String(providerAccountId) : '');
-  if (!row) return null;
-  const token = row.access_token || (await resolveOAuthAccessToken(env, row));
-  if (!token) return null;
-  const accountId = row.account_identifier != null ? String(row.account_identifier) : '';
-  return { token, mode: 'oauth', account_identifier: accountId, provider_account_id: accountId };
+  const account = providerAccountId != null ? String(providerAccountId) : '';
+  const row = await getIntegrationOAuthRow(env, uid, 'github', account);
+  if (row) {
+    const token = row.access_token || (await resolveOAuthAccessToken(env, row));
+    if (token) {
+      const accountId = row.account_identifier != null ? String(row.account_identifier) : '';
+      const authMethod =
+        row.metadata_json && String(row.metadata_json).includes('pat') ? 'pat' : 'oauth';
+      return {
+        token,
+        mode: authMethod === 'pat' ? 'pat' : 'oauth',
+        account_identifier: accountId,
+        provider_account_id: accountId,
+      };
+    }
+  }
+  return resolveGithubByokToken(env, uid, account);
 }
 
 export function githubReposCacheKey(userId, providerAccountId, workspaceId) {
