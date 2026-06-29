@@ -32,7 +32,7 @@ import {
   isWorkspaceCapabilityActionIntent,
 } from '../core/workspace-capability-actions/index.js';
 import { scheduleMirrorAgentsamPlanToSupabasePublic } from '../core/agentsam-plan-supabase-public-sync.js';
-import { listUserChatSessions, patchUserChatSession, initChatSessionR2, appendChatMessage, getChatMessages } from '../core/agentsam-chat-sessions.js';
+import { listUserChatSessions, patchUserChatSession, deleteUserChatSession, initChatSessionR2, appendChatMessage, getChatMessages } from '../core/agentsam-chat-sessions.js';
 import {
   legacyUnifiedRagSearch,
   handleAgentMemorySync,
@@ -3359,9 +3359,9 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     return jsonResponse([]);
   }
 
-  // ── /api/agent/sessions PATCH /:id ───────────────────────────────────────
+  // ── /api/agent/sessions PATCH / DELETE /:id ───────────────────────────────
   const sessionPatchMatch = path.match(/^\/api\/agent\/sessions\/([^/]+)$/);
-  if (sessionPatchMatch && method === 'PATCH') {
+  if (sessionPatchMatch && (method === 'PATCH' || method === 'DELETE')) {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -3374,6 +3374,26 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     if (!tenantId) return jsonResponse({ error: 'Tenant not configured for this account' }, 403);
     const userId = await resolveCanonicalUserId(String(authUser.id || ''), env).catch(() => String(authUser.id || ''));
     const convId = decodeURIComponent(sessionPatchMatch[1] || '').trim();
+
+    if (method === 'DELETE') {
+      const deleteResult = await deleteUserChatSession(env, {
+        conversationId: convId,
+        userId,
+        tenantId,
+      });
+      if (!deleteResult.ok) {
+        const status = deleteResult.error === 'not_found' ? 404 : 400;
+        return jsonResponse({ error: deleteResult.error || 'delete_failed' }, status);
+      }
+      await env.DB.prepare(
+        `UPDATE mcp_agent_sessions SET status = 'deleted', updated_at = unixepoch() WHERE conversation_id = ?`,
+      )
+        .bind(convId)
+        .run()
+        .catch(() => {});
+      return jsonResponse({ success: true, deleted: true });
+    }
+
     const body = await request.json().catch(() => ({}));
     const patchResult = await patchUserChatSession(env, {
       conversationId: convId,

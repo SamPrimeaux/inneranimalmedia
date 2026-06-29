@@ -33,10 +33,17 @@ const EXPOSURE_PATTERNS = [
 ];
 
 /**
- * D1 scan targets (last 24h). terminal_history uses `content` + direction; agentsam_mcp_tool_execution uses request_args_json.
+ * D1 scan targets (last 24h). Chat titles in agentsam_chat_sessions; message bodies in R2 (see scanRecentChatSessionR2).
  */
 const SCAN_TARGETS = [
-  { table: 'agent_messages', column: 'content', limit: 500, dateCol: 'created_at' },
+  {
+    table: 'agentsam_chat_sessions',
+    column: 'title',
+    idColumn: 'conversation_id',
+    tenantColumn: 'tenant_id',
+    limit: 500,
+    dateCol: 'updated_at',
+  },
   { table: 'terminal_history', column: 'content', limit: 200, dateCol: 'recorded_at', extraWhere: `direction = 'output'` },
   { table: 'terminal_history', column: 'content', limit: 200, dateCol: 'recorded_at', extraWhere: `direction = 'input'` },
   { table: 'agentsam_mcp_tool_execution', column: 'request_args_json', limit: 100, dateCol: 'created_at' },
@@ -63,6 +70,112 @@ function scanSourceLabel(target) {
   return base;
 }
 
+async function recordExposureFinding(env, {
+  tenantId,
+  sourceKey,
+  sourceRef,
+  match,
+  pat,
+  triggeredBy,
+}) {
+  const fp = fingerprintOf(match) + '_' + sourceKey;
+  const existing = await env.DB.prepare(
+    `SELECT id FROM security_findings
+     WHERE fingerprint = ? AND status IN ('open','triaged') LIMIT 1`,
+  ).bind(fp).first().catch(() => null);
+  if (existing) return null;
+
+  const findingId = 'sf_' + Math.random().toString(36).slice(2);
+  await env.DB.prepare(`
+    INSERT INTO security_findings
+      (id, tenant_id, source_type, source_ref, finding_type,
+       severity, fingerprint, snippet_redacted, status,
+       created_by, notification_sent_at, metadata_json,
+       title, description, user_id)
+    VALUES (?,?,?,?,?,?,?,?,  'open',?,NULL,?,?,?,?)
+  `).bind(
+    findingId, tenantId, sourceKey, sourceRef,
+    'credential_exposure', pat.severity, fp,
+    redact(match), triggeredBy,
+    JSON.stringify({ pattern_name: pat.name, rotate_key: pat.rotate }),
+    'credential_exposure',
+    redact(match),
+    triggeredBy,
+  ).run().catch(() => {});
+
+  return { id: findingId, pattern: pat.name, severity: pat.severity, source: sourceKey, rotate: pat.rotate };
+}
+
+/** Scan R2 messages.jsonl for sessions touched in the last 24h (agentsam_chat_sessions SSOT). */
+async function scanRecentChatSessionR2(env, tenantId, triggeredBy) {
+  const bucket = env.AUTORAG_BUCKET ?? env.R2 ?? null;
+  if (!env?.DB || !bucket) return [];
+
+  const findings = [];
+  const cutoff = Math.floor(Date.now() / 1000) - 86400;
+  let rows = [];
+  try {
+    const res = await env.DB.prepare(
+      `SELECT conversation_id, r2_messages_key
+       FROM agentsam_chat_sessions
+       WHERE updated_at >= ? AND tenant_id = ?
+         AND r2_messages_key IS NOT NULL AND trim(r2_messages_key) != ''
+       LIMIT 100`,
+    ).bind(cutoff, tenantId).all();
+    rows = res?.results ?? [];
+  } catch {
+    return findings;
+  }
+
+  for (const row of rows) {
+    const convId = String(row.conversation_id || row.id || '').trim();
+    const key = row.r2_messages_key != null ? String(row.r2_messages_key).trim() : '';
+    if (!convId || !key) continue;
+    const sourceKey = 'agentsam_chat_sessions:r2_messages';
+    try {
+      const obj = await bucket.get(key);
+      if (!obj) continue;
+      const raw = await obj.text();
+      const tail = raw.length > 65536 ? raw.slice(-65536) : raw;
+      const content = tail
+        .split('\n')
+        .filter(Boolean)
+        .slice(-80)
+        .map((line) => {
+          try {
+            const j = JSON.parse(line);
+            return String(j?.content ?? '');
+          } catch {
+            return '';
+          }
+        })
+        .join('\n');
+      for (const pat of EXPOSURE_PATTERNS) {
+        pat.regex.lastIndex = 0;
+        const matches = content.match(pat.regex);
+        if (!matches?.length) continue;
+        for (const match of matches) {
+          const finding = await recordExposureFinding(env, {
+            tenantId,
+            sourceKey,
+            sourceRef: convId,
+            match,
+            pat,
+            triggeredBy,
+          });
+          if (finding) {
+            finding.r2_key = key;
+            findings.push(finding);
+          }
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+  return findings;
+}
+
 export async function runSecurityScan(env, opts = {}) {
   if (!env?.DB) return { ok: false, skipped: true };
 
@@ -83,12 +196,17 @@ export async function runSecurityScan(env, opts = {}) {
     try {
       const cutoff = Math.floor(Date.now() / 1000) - 86400;
       const dateCol = target.dateCol || 'created_at';
+      const idCol = target.idColumn || 'id';
       const ew = target.extraWhere ? ` AND (${target.extraWhere})` : '';
+      const tenantClause = target.tenantColumn ? ` AND ${target.tenantColumn} = ?` : '';
+      const binds = target.tenantColumn
+        ? [cutoff, tenantId, target.limit]
+        : [cutoff, target.limit];
       const result = await env.DB.prepare(
-        `SELECT id, ${target.column} as content FROM ${target.table}
-         WHERE ${dateCol} >= ?${ew}
+        `SELECT ${idCol} AS id, ${target.column} AS content FROM ${target.table}
+         WHERE ${dateCol} >= ?${ew}${tenantClause}
          LIMIT ?`,
-      ).bind(cutoff, target.limit).all();
+      ).bind(...binds).all();
       rows = result?.results ?? [];
     } catch {
       continue;
@@ -99,43 +217,27 @@ export async function runSecurityScan(env, opts = {}) {
     for (const row of rows) {
       const text = String(row.content ?? '');
       for (const pat of EXPOSURE_PATTERNS) {
+        pat.regex.lastIndex = 0;
         const matches = text.match(pat.regex);
         if (!matches?.length) continue;
 
         for (const match of matches) {
-          const fp = fingerprintOf(match) + '_' + sourceKey;
-
-          // Dedup — skip if already logged (same fingerprint + open/triaged)
-          const existing = await env.DB.prepare(
-            `SELECT id FROM security_findings
-             WHERE fingerprint = ? AND status IN ('open','triaged') LIMIT 1`,
-          ).bind(fp).first().catch(() => null);
-          if (existing) continue;
-
-          const findingId = 'sf_' + Math.random().toString(36).slice(2);
-          await env.DB.prepare(`
-            INSERT INTO security_findings
-              (id, tenant_id, source_type, source_ref, finding_type,
-               severity, fingerprint, snippet_redacted, status,
-               created_by, notification_sent_at, metadata_json,
-               title, description, user_id)
-            VALUES (?,?,?,?,?,?,?,?,  'open',?,NULL,?,?,?,?)
-          `).bind(
-            findingId, tenantId, sourceKey, row.id,
-            'credential_exposure', pat.severity, fp,
-            redact(match), triggeredBy,
-            JSON.stringify({ pattern_name: pat.name, rotate_key: pat.rotate }),
-            'credential_exposure',
-            redact(match),
+          const finding = await recordExposureFinding(env, {
+            tenantId,
+            sourceKey,
+            sourceRef: row.id,
+            match,
+            pat,
             triggeredBy,
-          ).run().catch(() => {});
-
-          findings.push({ id: findingId, pattern: pat.name, severity: pat.severity,
-            source: sourceKey, rotate: pat.rotate });
+          });
+          if (finding) findings.push(finding);
         }
       }
     }
   }
+
+  const r2Findings = await scanRecentChatSessionR2(env, tenantId, triggeredBy);
+  findings.push(...r2Findings);
 
   // Shield rule: null_value_registered — env_secrets with no encrypted_value and key_type='encrypted_d1'
   const nullVault = await env.DB.prepare(`

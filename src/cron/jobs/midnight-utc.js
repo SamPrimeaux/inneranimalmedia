@@ -179,9 +179,7 @@ export async function runMidnightUtcJobs(env, ctx) {
     ctx.waitUntil(
       cronLedgerWrap(env, 'security_scan_nightly', CRON_MIDNIGHT, () =>
         runSecurityScan(env, {
-          // system-scoped cron — no user context
           tenantId: env.TENANT_ID ?? 'system',
-          scanSources: ['agent_messages', 'terminal_history', 'agentsam_mcp_tool_execution'],
           triggeredBy: 'nightly_cron',
         }),
       ),

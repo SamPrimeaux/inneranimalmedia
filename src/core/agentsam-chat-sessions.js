@@ -660,3 +660,71 @@ export async function patchUserChatSession(env, input) {
     return { ok: false, error: e?.message || 'patch_failed' };
   }
 }
+
+/**
+ * Hard-delete a chat session: D1 row + best-effort R2 message/meta/digest objects.
+ * @param {any} env
+ * @param {{ conversationId: string, userId: string, tenantId: string }} input
+ */
+export async function deleteUserChatSession(env, input) {
+  if (!env?.DB) return { ok: false, error: 'DB not configured' };
+  const conversationId = String(input.conversationId || '').trim();
+  const userId = String(input.userId || '').trim();
+  const tenantId = String(input.tenantId || '').trim();
+  if (!conversationId || !userId || !tenantId) return { ok: false, error: 'missing_context' };
+
+  let row = null;
+  try {
+    row = await env.DB.prepare(
+      `SELECT r2_messages_key, r2_meta_key, latest_digest_r2_key
+       FROM agentsam_chat_sessions
+       WHERE conversation_id = ? AND user_id = ? AND tenant_id = ?
+       LIMIT 1`,
+    )
+      .bind(conversationId, userId, tenantId)
+      .first();
+  } catch (e) {
+    return { ok: false, error: e?.message || 'lookup_failed' };
+  }
+  if (!row) return { ok: false, error: 'not_found' };
+
+  const bucket = env.AUTORAG_BUCKET ?? env.R2 ?? null;
+  if (bucket) {
+    const keys = [
+      row.r2_messages_key,
+      row.r2_meta_key,
+      row.latest_digest_r2_key,
+    ]
+      .map((k) => (k != null ? String(k).trim() : ''))
+      .filter(Boolean);
+    for (const key of keys) {
+      try {
+        await bucket.delete(key);
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
+  try {
+    const r = await env.DB.prepare(
+      `DELETE FROM agentsam_chat_sessions
+       WHERE conversation_id = ? AND user_id = ? AND tenant_id = ?`,
+    )
+      .bind(conversationId, userId, tenantId)
+      .run();
+    const changed = Number(r.meta?.changes ?? r.changes ?? 0);
+    if (!changed) return { ok: false, error: 'not_found' };
+    await env.DB.prepare(
+      `UPDATE agentsam_agent_run
+       SET status = 'cancelled', conversation_id = NULL, completed_at = COALESCE(completed_at, datetime('now'))
+       WHERE conversation_id = ? AND user_id = ?`,
+    )
+      .bind(conversationId, userId)
+      .run()
+      .catch(() => {});
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || 'delete_failed' };
+  }
+}

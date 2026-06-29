@@ -1447,6 +1447,16 @@ const App: React.FC = () => {
     [],
   );
 
+  const shellDeleteActiveChat = useCallback(
+    (deletedId: string) => {
+      const id = String(deletedId || '').trim();
+      if (!id || id !== activeAgentConversationId) return;
+      createNewAgentChatTabRef.current?.();
+      window.dispatchEvent(new CustomEvent(IAM_AGENT_CHAT_CONVERSATION_CHANGE, { detail: { id: null } }));
+    },
+    [activeAgentConversationId],
+  );
+
   const shellOpenMovieMode = useCallback(() => {
     navigate('/dashboard/moviemode');
   }, [navigate]);
@@ -3979,6 +3989,7 @@ const App: React.FC = () => {
         onOpenChats={shellOpenChats}
         onOpenMovieMode={shellOpenMovieMode}
         onSelectChat={shellSelectChat}
+        onDeleteActiveChat={shellDeleteActiveChat}
         activeConversationId={activeAgentConversationId}
         workspaceLabel={workspaceContextLabel}
         avatarInitial={
@@ -4013,6 +4024,7 @@ const App: React.FC = () => {
                 onOpenChats={shellOpenChats}
                 onOpenMovieMode={shellOpenMovieMode}
                 onSelectChat={shellSelectChat}
+                onDeleteActiveChat={shellDeleteActiveChat}
                 activeConversationId={activeAgentConversationId}
                 workspaceLabel={workspaceContextLabel}
                 avatarInitial={

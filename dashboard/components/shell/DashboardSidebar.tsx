@@ -46,6 +46,7 @@ type DashboardSidebarProps = {
   onOpenChats?: () => void;
   onOpenMovieMode?: () => void;
   onSelectChat?: (conversationId: string, title?: string) => void;
+  onDeleteActiveChat?: (conversationId: string) => void;
   activeConversationId?: string | null;
   /** Repo / folder / slug label (not marketing display_name). */
   workspaceLabel?: string | null;
@@ -80,6 +81,7 @@ export function DashboardSidebar({
   onOpenChats,
   onOpenMovieMode,
   onSelectChat,
+  onDeleteActiveChat,
   activeConversationId,
   workspaceLabel,
   avatarInitial,
@@ -353,6 +355,7 @@ export function DashboardSidebar({
               variant="sidebar"
               expanded={expanded}
               activeConversationId={activeConversationId}
+              onDeletedActive={onDeleteActiveChat}
               onSelect={(id) => {
                 onSelectChat?.(id);
                 onItemActivate?.();

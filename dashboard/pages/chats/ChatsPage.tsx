@@ -11,7 +11,7 @@ import { resumeAgentChatSession } from '../../lib/openAgentConversation';
 import { useAgentChatSessions } from '../../hooks/useAgentChatSessions';
 
 export default function ChatsPage() {
-  const { sessions, loading, projects, reload, patchSession } = useAgentChatSessions({ limit: 200 });
+  const { sessions, loading, projects, reload, patchSession, deleteSession } = useAgentChatSessions({ limit: 200 });
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [moveOpen, setMoveOpen] = useState(false);
@@ -68,13 +68,12 @@ export default function ChatsPage() {
     });
   }, []);
 
-  const archiveSelected = async () => {
+  const deleteSelected = async () => {
     if (!selectedCount || busy) return;
+    if (!window.confirm(`Delete ${selectedCount} chat${selectedCount === 1 ? '' : 's'}? This cannot be undone.`)) return;
     setBusy(true);
     try {
-      await Promise.all(
-        [...selected].map((id) => patchSession(id, { is_archived: 1 })),
-      );
+      await Promise.all([...selected].map((id) => deleteSession(id)));
       clearSelection();
       await reload();
     } finally {
@@ -166,7 +165,7 @@ export default function ChatsPage() {
             <button
               type="button"
               disabled={!selectedCount || busy}
-              onClick={() => void archiveSelected()}
+              onClick={() => void deleteSelected()}
               className="rounded-md border border-[var(--dashboard-border)] px-2.5 py-1 text-red-400 hover:bg-[var(--bg-hover)] disabled:opacity-40"
             >
               Delete

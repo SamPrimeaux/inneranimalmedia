@@ -5,13 +5,25 @@ import { conversationIdFromSession } from '../agentSessionsCatalog';
 
 export type AgentChatProjectOption = { id: string; name: string };
 
-export async function patchAgentSession(id: string, patch: Record<string, unknown>) {
-  await fetch(`/api/agent/sessions/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
+async function sessionMutation(id: string, method: 'PATCH' | 'DELETE', body?: Record<string, unknown>) {
+  const r = await fetch(`/api/agent/sessions/${encodeURIComponent(id)}`, {
+    method,
     credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch),
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
   });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new Error(typeof j.error === 'string' ? j.error : `Session ${method} failed (${r.status})`);
+  }
+}
+
+export async function patchAgentSession(id: string, patch: Record<string, unknown>) {
+  await sessionMutation(id, 'PATCH', patch);
+}
+
+export async function deleteAgentSession(id: string) {
+  await sessionMutation(id, 'DELETE');
 }
 
 /**
@@ -79,6 +91,7 @@ export function useAgentChatSessions(opts?: { limit?: number; refreshKey?: numbe
     projects,
     reload: load,
     patchSession: patchAgentSession,
+    deleteSession: deleteAgentSession,
     setSessions,
   };
 }

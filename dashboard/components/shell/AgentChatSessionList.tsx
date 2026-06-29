@@ -1,10 +1,10 @@
-import { useMemo, type FC, type MouseEvent } from 'react';
-import { Archive, FolderKanban, Layers, Loader2, Star } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useMemo, type FC } from 'react';
+import { Loader2 } from 'lucide-react';
 import { conversationIdFromSession, sessionDisplayTitle } from '../../agentSessionsCatalog';
 import type { AgentSessionRow } from '../../agentSessionsCatalog';
 import { resumeAgentChatSession } from '../../lib/openAgentConversation';
 import { useAgentChatSessions } from '../../hooks/useAgentChatSessions';
+import { AgentChatSessionRowMenu } from './AgentChatSessionRowMenu';
 
 const RECENT_TEASER_LIMIT = 8;
 
@@ -13,10 +13,17 @@ export const AgentChatSessionList: FC<{
   expanded?: boolean;
   activeConversationId?: string | null;
   onSelect?: (conversationId: string, title?: string) => void;
+  onDeletedActive?: (conversationId: string) => void;
   refreshKey?: number;
-}> = ({ variant = 'sidebar', expanded = true, activeConversationId, onSelect, refreshKey = 0 }) => {
-  const navigate = useNavigate();
-  const { sessions, loading, projects, reload, patchSession } = useAgentChatSessions({
+}> = ({
+  variant = 'sidebar',
+  expanded = true,
+  activeConversationId,
+  onSelect,
+  onDeletedActive,
+  refreshKey = 0,
+}) => {
+  const { sessions, loading, projects, reload, patchSession, deleteSession } = useAgentChatSessions({
     limit: 40,
     refreshKey,
   });
@@ -35,99 +42,34 @@ export const AgentChatSessionList: FC<{
     resumeAgentChatSession({ id, title, force: true });
   };
 
-  const toggleStar = async (s: AgentSessionRow, e: MouseEvent) => {
-    e.stopPropagation();
-    const id = conversationIdFromSession(s);
-    if (!id) return;
-    const next = !s.is_starred;
-    await patchSession(id, { is_starred: next ? 1 : 0 });
-    void reload();
-  };
-
-  const assignProject = async (s: AgentSessionRow, projectId: string | null) => {
-    const id = conversationIdFromSession(s);
-    if (!id) return;
-    await patchSession(id, { project_id: projectId });
-    void reload();
-  };
-
-  const archiveSession = async (s: AgentSessionRow, e: MouseEvent) => {
-    e.stopPropagation();
-    const id = conversationIdFromSession(s);
-    if (!id) return;
-    await patchSession(id, { is_archived: 1 });
-    void reload();
-  };
-
-  const openArtifacts = (s: AgentSessionRow, e: MouseEvent) => {
-    e.stopPropagation();
-    const sid = conversationIdFromSession(s);
-    navigate(sid ? `/dashboard/artifacts?session_id=${encodeURIComponent(sid)}` : '/dashboard/artifacts');
-  };
-
   const renderRow = (s: AgentSessionRow) => {
     const id = conversationIdFromSession(s);
     if (!id) return null;
     const active = activeConversationId && id === activeConversationId;
     return (
-      <div key={id} className="relative group">
+      <div key={id} className="relative group flex items-center gap-0.5 min-h-[32px]">
         <button
           type="button"
           onClick={() => selectConversation(s)}
           title={sessionDisplayTitle(s)}
-          className={`w-full text-left flex items-start gap-1.5 rounded-md transition-colors hover:bg-[var(--bg-hover)]/60 min-h-[32px] px-1.5 py-1 ${
+          className={`flex-1 min-w-0 text-left rounded-md transition-colors hover:bg-[var(--bg-hover)]/60 px-1.5 py-1 ${
             active ? 'bg-[var(--bg-elevated)] border-l-2 border-l-[var(--solar-cyan)]' : ''
           }`}
         >
-          <div className="flex-1 min-w-0">
-            <div className="truncate text-[11px] font-medium text-[var(--text-main)]">
-              {sessionDisplayTitle(s)}
-            </div>
+          <div className="truncate text-[11px] font-medium text-[var(--text-main)] pr-6">
+            {sessionDisplayTitle(s)}
           </div>
         </button>
         {expanded ? (
-          <div className="absolute right-0 top-0 flex items-center gap-0.5 pr-0.5 opacity-0 group-hover:opacity-100">
-            <button
-              type="button"
-              title={s.is_starred ? 'Unstar' : 'Star'}
-              onClick={(e) => void toggleStar(s, e)}
-              className={`p-1 rounded hover:bg-[var(--bg-hover)] ${s.is_starred ? 'text-[var(--solar-yellow)]' : 'text-[var(--text-muted)]'}`}
-            >
-              <Star size={12} fill={s.is_starred ? 'currentColor' : 'none'} />
-            </button>
-            {s.has_artifacts ? (
-              <button
-                type="button"
-                title="View artifacts"
-                onClick={(e) => openArtifacts(s, e)}
-                className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)]"
-              >
-                <Layers size={12} />
-              </button>
-            ) : null}
-            {projects.length > 0 ? (
-              <button
-                type="button"
-                title="Add to project"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const pid = projects[0]?.id;
-                  if (pid) void assignProject(s, pid);
-                }}
-                className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
-              >
-                <FolderKanban size={12} />
-              </button>
-            ) : null}
-            <button
-              type="button"
-              title="Archive"
-              onClick={(e) => void archiveSession(s, e)}
-              className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
-            >
-              <Archive size={12} />
-            </button>
-          </div>
+          <AgentChatSessionRowMenu
+            session={s}
+            projects={projects}
+            onPatch={patchSession}
+            onDelete={deleteSession}
+            onReload={reload}
+            activeConversationId={activeConversationId}
+            onDeletedActive={onDeletedActive}
+          />
         ) : null}
       </div>
     );
