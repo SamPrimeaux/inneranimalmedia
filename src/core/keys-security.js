@@ -4,7 +4,6 @@
  */
 import { logSecretAudit } from './security-scan.js';
 import { sendPlatformEmail } from '../lib/email.js';
-import { EXPOSURE_PATTERNS } from './security-scan.js';
 import { sendMessage as sendBlueBubblesMessage } from '../integrations/bluebubbles.js';
 import { sendSecurityAlertHtmlEmails } from './security-alert-email.js';
 
@@ -516,16 +515,6 @@ export async function runSecurityShieldPulseCron(env) {
   return { tenants: tenantIds.length, alerts };
 }
 
-function matchesExposurePattern(plaintext) {
-  const s = String(plaintext || '');
-  if (!s) return null;
-  for (const pat of EXPOSURE_PATTERNS) {
-    pat.regex.lastIndex = 0;
-    if (pat.regex.test(s)) return pat;
-  }
-  return null;
-}
-
 async function countRecentAuditEvents(env, { secretId, tenantId, eventType, windowSec }) {
   if (!env?.DB) return 0;
   const cutoff = Math.floor(Date.now() / 1000) - windowSec;
@@ -572,14 +561,7 @@ export async function runShieldRulesForKeyOp(env, ctx) {
       severity = PROVIDER_TEST_FAIL_SEVERITY[ctx.provider] || severity;
     }
 
-    if (ruleType === 'exposure_pattern' && ctx.plaintextKey) {
-      const pat = matchesExposurePattern(ctx.plaintextKey);
-      if (pat) {
-        triggered = true;
-        severity = pat.severity || severity;
-        findingType = 'exposure_pattern';
-      }
-    }
+    // exposure_pattern: log/chat scan only (security-scan.js). Never match vault plaintext on create/validate.
 
     if (ruleType === 'key_expiry_warning' && apiRow.expires_at != null) {
       const exp = Number(apiRow.expires_at);

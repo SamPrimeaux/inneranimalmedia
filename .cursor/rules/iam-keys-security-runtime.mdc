@@ -39,6 +39,7 @@ On validate pass: `UPDATE security_findings SET status='fixed', resolved_at=unix
 
 - `tenant_id` required; `user_id` NULL = all users in tenant
 - `rule_type` enum: `key_expiry_warning`, `rotation_due`, `test_failure`, `exposure_pattern`, `untested_key_age`, `null_value_registered`, `audit_anomaly`
+- `exposure_pattern` / credential leaks: **`runSecurityScan` in security-scan.js** (agent_messages, terminal_history, MCP args, etc.) — **not** `runShieldRulesForKeyOp` on BYOK create/validate
 - On trigger: `last_triggered_at=unixepoch()`, `trigger_count=trigger_count+1`
 - `notify_channels`: `dashboard` → finding row; `email` → `sendPlatformEmail`
 
