@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Key, Plus, RefreshCw, RotateCw, Trash2 } from 'lucide-react';
+import { Check, Copy, Eye, Key, Plus, RefreshCw, RotateCw, Trash2 } from 'lucide-react';
 import { useWorkspace } from '../../../src/context/WorkspaceContext';
 import {
   DataTable,
@@ -158,6 +158,14 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
   const [rotateTarget, setRotateTarget] = useState<ApiKeyItem | null>(null);
   const [newApiKey, setNewApiKey] = useState('');
 
+  const [revealOpen, setRevealOpen] = useState(false);
+  const [revealTarget, setRevealTarget] = useState<ApiKeyItem | null>(null);
+  const [revealValue, setRevealValue] = useState<string | null>(null);
+  const [revealLoading, setRevealLoading] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
+  const [revealCopied, setRevealCopied] = useState(false);
+  const [revealExpiresSec, setRevealExpiresSec] = useState(30);
+
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
@@ -189,6 +197,43 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
   );
 
   const KEYS_API = '/api/settings/keys';
+
+  const closeRevealModal = useCallback(() => {
+    setRevealOpen(false);
+    setRevealTarget(null);
+    setRevealValue(null);
+    setRevealError(null);
+    setRevealCopied(false);
+    setRevealExpiresSec(30);
+  }, []);
+
+  useEffect(() => {
+    if (!revealOpen || !revealValue) return undefined;
+    const timer = window.setTimeout(() => {
+      closeRevealModal();
+    }, Math.max(5, revealExpiresSec) * 1000);
+    return () => window.clearTimeout(timer);
+  }, [revealOpen, revealValue, revealExpiresSec, closeRevealModal]);
+
+  const openReveal = useCallback((row: ApiKeyItem) => {
+    setRevealTarget(row);
+    setRevealValue(null);
+    setRevealError(null);
+    setRevealCopied(false);
+    setRevealExpiresSec(30);
+    setRevealOpen(true);
+  }, []);
+
+  const onCopyRevealed = useCallback(async () => {
+    if (!revealValue) return;
+    try {
+      await navigator.clipboard.writeText(revealValue);
+      setRevealCopied(true);
+      window.setTimeout(() => setRevealCopied(false), 2000);
+    } catch {
+      setRevealError('Could not copy to clipboard');
+    }
+  }, [revealValue]);
 
   const load = useCallback(async () => {
     if (!ws) {
@@ -317,6 +362,32 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
       setAuditLoading(false);
     }
   }, [ws]);
+
+  const onConfirmReveal = useCallback(async () => {
+    if (!ws || !revealTarget) return;
+    setRevealLoading(true);
+    setRevealError(null);
+    setRevealCopied(false);
+    try {
+      const r = await fetch(`${KEYS_API}/${encodeURIComponent(revealTarget.id)}/reveal`, {
+        method: 'POST',
+        headers: apiKeysJsonHeaders(ws),
+      });
+      const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!r.ok || j.ok === false) {
+        throw new Error(readApiError(j, 'Reveal failed'));
+      }
+      const value = typeof j.value === 'string' ? j.value : '';
+      if (!value) throw new Error('Reveal returned empty value');
+      setRevealValue(value);
+      setRevealExpiresSec(typeof j.expires_in_sec === 'number' ? j.expires_in_sec : 30);
+      void loadAudit();
+    } catch (e) {
+      setRevealError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRevealLoading(false);
+    }
+  }, [ws, revealTarget, loadAudit]);
 
   useEffect(() => {
     void load();
@@ -680,7 +751,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
     <div className="flex flex-col gap-5 max-w-4xl">
       <SectionHeader
         title="Keys & Secrets"
-        description="Provider keys are saved per your account (BYOK). Run npm run sync:operator-keys to import from .env.cloudflare. Raw secrets are encrypted at rest and never returned after save."
+        description="Provider keys are saved per your account (BYOK). Secrets are encrypted at rest. Only you can reveal your own keys — every reveal is audited."
         right={
           <div className="flex items-center gap-2">
             <button
@@ -803,11 +874,24 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
             {
               key: 'actions',
               label: '',
-              widthClass: '210px',
+              widthClass: '260px',
               render: (r) => {
                 const isR2 = String(r.provider || '').toLowerCase() === 'cloudflare_r2';
+                const isRevoked = String(r.status || '').toLowerCase() === 'revoked';
                 return (
                 <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={isRevoked || revealLoading}
+                    onClick={() => openReveal(r)}
+                    className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-muted hover:text-main hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                    title="Reveal secret (audited, auto-hides in 30s)"
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <Eye size={12} />
+                      Reveal
+                    </span>
+                  </button>
                   <button
                     type="button"
                     disabled={validatingId === r.id}
@@ -947,14 +1031,28 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                   </div>
                   <div className="text-[10px] text-muted font-mono">••••{r.last_four}</div>
                 </div>
-                <button
-                  type="button"
-                  disabled={revokingId === r.id}
-                  onClick={() => void onRevoke(r)}
-                  className="text-[10px] px-2 py-1 rounded border border-[var(--color-danger)]/40 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 disabled:opacity-50"
-                >
-                  Delete
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={String(r.status || '').toLowerCase() === 'revoked' || revealLoading}
+                    onClick={() => openReveal(r)}
+                    className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-muted hover:text-main hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                    title="Reveal secret (audited, auto-hides in 30s)"
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <Eye size={12} />
+                      Reveal
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={revokingId === r.id}
+                    onClick={() => void onRevoke(r)}
+                    className="text-[10px] px-2 py-1 rounded border border-[var(--color-danger)]/40 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 disabled:opacity-50"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -1339,6 +1437,87 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
               >
                 {rotatingId === rotateTarget.id ? 'Rotating…' : 'Confirm rotate'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {revealOpen && revealTarget && (
+        <div className="fixed inset-0 z-[260]">
+          <div
+            className="absolute inset-0 bg-[var(--text-main)]/40"
+            onClick={closeRevealModal}
+            role="presentation"
+          />
+          <div className="absolute top-0 right-0 h-full w-[520px] max-w-[92vw] bg-[var(--bg-panel)] border-l border-[var(--border-subtle)] shadow-2xl flex flex-col">
+            <div className="px-4 py-3 border-b border-[var(--border-subtle)] flex items-center justify-between">
+              <div className="text-[12px] font-semibold text-[var(--text-heading)]">Reveal secret</div>
+              <button type="button" className="text-[11px] text-muted" onClick={closeRevealModal}>
+                Close
+              </button>
+            </div>
+            <div className="p-4 flex-1 overflow-auto custom-scrollbar space-y-3">
+              <div className="rounded-xl border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/5 px-3 py-2 text-[11px] text-[var(--color-warning)]">
+                Owner-only reveal. This action is logged in Audit. Value auto-hides in {revealExpiresSec}s.
+                Never share secrets in chat or screenshots.
+              </div>
+              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[11px]">
+                <div className="text-muted">Target</div>
+                <div className="text-main font-semibold truncate">
+                  {providerLabel(revealTarget.provider)} ·{' '}
+                  {revealTarget.secret_name || revealTarget.label || revealTarget.id}
+                </div>
+                <div className="text-[10px] text-muted font-mono">••••{revealTarget.last_four}</div>
+              </div>
+              {revealError ? (
+                <div className="rounded-xl border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/5 px-3 py-2 text-[11px] text-[var(--color-danger)]">
+                  {revealError}
+                </div>
+              ) : null}
+              {revealValue ? (
+                <div className="space-y-2">
+                  <label className="flex flex-col gap-1 text-[11px]">
+                    <span className="text-muted">Secret value</span>
+                    <textarea
+                      readOnly
+                      value={revealValue}
+                      rows={6}
+                      className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono resize-none"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void onCopyRevealed()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted hover:text-main hover:bg-[var(--bg-hover)]"
+                  >
+                    {revealCopied ? <Check size={12} /> : <Copy size={12} />}
+                    {revealCopied ? 'Copied' : 'Copy to clipboard'}
+                  </button>
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted">
+                  Confirm to decrypt and display this secret for your account only.
+                </p>
+              )}
+            </div>
+            <div className="px-4 py-3 border-t border-[var(--border-subtle)] flex items-center justify-end gap-2 bg-[var(--bg-app)]">
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted"
+                onClick={closeRevealModal}
+              >
+                {revealValue ? 'Hide now' : 'Cancel'}
+              </button>
+              {!revealValue ? (
+                <button
+                  type="button"
+                  disabled={revealLoading || !ws}
+                  className="px-3 py-1.5 rounded-lg border border-[var(--solar-cyan)]/40 text-[var(--solar-cyan)] hover:bg-[var(--solar-cyan)]/10 disabled:opacity-50"
+                  onClick={() => void onConfirmReveal()}
+                >
+                  {revealLoading ? 'Decrypting…' : 'Confirm reveal'}
+                </button>
+              ) : null}
             </div>
           </div>
         </div>

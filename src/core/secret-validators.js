@@ -306,6 +306,10 @@ const RL_PREFIX = 'key_validate_rl:';
 const RL_MAX = 10;
 const RL_TTL = 60;
 
+const REVEAL_RL_PREFIX = 'key_reveal_rl:';
+const REVEAL_RL_MAX = 8;
+const REVEAL_RL_TTL = 300;
+
 /** @returns {Promise<{ allowed: boolean, retry_after_sec?: number }>} */
 export async function checkValidateRateLimit(env, userId) {
   const uid = String(userId || '').trim();
@@ -318,6 +322,26 @@ export async function checkValidateRateLimit(env, userId) {
       return { allowed: false, retry_after_sec: RL_TTL };
     }
     await env.SESSION_CACHE.put(k, String((Number.isFinite(n) ? n : 0) + 1), { expirationTtl: RL_TTL });
+    return { allowed: true };
+  } catch {
+    return { allowed: true };
+  }
+}
+
+/** Reveal is audited and rate-limited per authenticated user. */
+export async function checkRevealRateLimit(env, userId) {
+  const uid = String(userId || '').trim();
+  if (!uid || !env?.SESSION_CACHE) return { allowed: true };
+  const k = `${REVEAL_RL_PREFIX}${uid}`;
+  try {
+    const raw = await env.SESSION_CACHE.get(k);
+    const n = raw ? parseInt(raw, 10) : 0;
+    if (Number.isFinite(n) && n >= REVEAL_RL_MAX) {
+      return { allowed: false, retry_after_sec: REVEAL_RL_TTL };
+    }
+    await env.SESSION_CACHE.put(k, String((Number.isFinite(n) ? n : 0) + 1), {
+      expirationTtl: REVEAL_RL_TTL,
+    });
     return { allowed: true };
   } catch {
     return { allowed: true };

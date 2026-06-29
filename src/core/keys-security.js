@@ -688,7 +688,11 @@ export async function handleKeySecurityAfterOp(env, ctx) {
       userId: ctx.userId,
       eventType: 'key_revealed',
       triggeredBy: ctx.triggeredBy || 'dashboard_ui',
-      notes: 'Personal secret revealed',
+      notes: ctx.provider
+        ? `${ctx.provider} key revealed by owner`
+        : ctx.apiKeyRow?.category === 'personal'
+          ? 'Personal secret revealed by owner'
+          : 'Secret revealed by owner',
       ipAddress: ip,
       userAgent: ua,
     });

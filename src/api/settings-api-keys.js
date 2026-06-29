@@ -25,6 +25,7 @@ import { userCanAccessWorkspace } from '../core/cms-theme-resolve.js';
 import {
   validateProviderKey,
   checkValidateRateLimit,
+  checkRevealRateLimit,
   normalizeApiKeySecret,
 } from '../core/secret-validators.js';
 import { upsertWorkspaceDataBinding, listWorkspaceDataBindings } from '../core/workspace-data-bindings.js';
@@ -578,27 +579,98 @@ async function revealKey(env, authUser, request, id) {
   }
   const tenantId = await resolveTenantIdOrFetch(env, authUser);
   const userId = String(authUser?.id || '').trim();
-  const { row, cols } = await loadApiKeyRowScoped(env, authUser, id, wsRes.workspaceId);
-  if (!row) return clientError('NOT_FOUND', 'Key not found.', 404);
-  const category = has(cols, 'category') ? row.category : 'provider';
-  if (category !== 'personal' && category !== 'internal') {
-    return clientError('REVEAL_NOT_ALLOWED', 'Provider keys cannot be revealed. Rotate instead.', 403);
+  if (!userId) return clientError('UNAUTHORIZED', 'Authentication required.', 401);
+
+  const rl = await checkRevealRateLimit(env, userId);
+  if (!rl.allowed) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: 'rate_limited',
+        message: `Too many reveal attempts. Retry in ${rl.retry_after_sec ?? 300}s.`,
+      },
+      429,
+    );
   }
+
+  const keyId = String(id || '').trim();
+  if (!keyId) return clientError('ID_REQUIRED', 'Key id required.', 400);
+
+  const r2Summary = await getUserCloudflareR2KeySummary(env, userId);
+  if (r2Summary?.id === keyId || keyId.startsWith('usak_cf_')) {
+    if (String(r2Summary?.status || '').toLowerCase() === 'revoked') {
+      return clientError('REVOKED', 'This key has been revoked.', 410);
+    }
+    const creds = await loadUserCloudflareR2Credentials(env, userId);
+    if (!creds) return clientError('DECRYPT_FAILED', 'Could not decrypt R2 credentials.', 500);
+    const plain = JSON.stringify(
+      {
+        access_key_id: creds.accessKeyId,
+        secret_access_key: creds.secretAccessKey,
+        cf_account_id: creds.cfAccountId || null,
+      },
+      null,
+      2,
+    );
+    await handleKeySecurityAfterOp(env, {
+      operation: 'reveal',
+      secretId: String(r2Summary?.id || keyId),
+      apiKeyId: keyId,
+      apiKeyRow: { provider: 'cloudflare_r2', category: 'provider' },
+      tenantId,
+      userId,
+      workspaceId: wsRes.workspaceId,
+      provider: 'cloudflare_r2',
+      request,
+      triggeredBy: 'dashboard_ui',
+    });
+    return jsonResponse({
+      ok: true,
+      value: plain,
+      expires_in_sec: 30,
+      format: 'cloudflare_r2_json',
+      last_four: r2Summary?.r2_access_key_id_preview?.slice(-4) || null,
+    });
+  }
+
+  const { row, cols } = await loadApiKeyRowScoped(env, authUser, keyId, wsRes.workspaceId);
+  if (!row) return clientError('NOT_FOUND', 'Key not found.', 404);
+  if (String(row.status || '').toLowerCase() === 'revoked') {
+    return clientError('REVOKED', 'This key has been revoked.', 410);
+  }
+  if (String(row.user_id || '').trim() && String(row.user_id).trim() !== userId) {
+    return clientError('FORBIDDEN', 'You do not have access to this key.', 403);
+  }
+  if (String(row.tenant_id || '').trim() && String(row.tenant_id).trim() !== tenantId) {
+    return clientError('FORBIDDEN', 'You do not have access to this key.', 403);
+  }
+
   const plain = await decryptVaultSecret(env, row.vault_secret_id, userId, tenantId, wsRes.workspaceId);
   if (!plain) return clientError('DECRYPT_FAILED', 'Could not decrypt secret.', 500);
+
+  const category = has(cols, 'category') ? row.category : 'provider';
+  const provider = String(row.provider || category || 'secret').toLowerCase();
   const secretId = canonicalUserSecretId(row);
   await handleKeySecurityAfterOp(env, {
     operation: 'reveal',
     secretId,
-    apiKeyId: id,
+    apiKeyId: keyId,
     apiKeyRow: row,
     tenantId,
     userId,
     workspaceId: wsRes.workspaceId,
+    provider,
     request,
     triggeredBy: 'dashboard_ui',
   });
-  return jsonResponse({ ok: true, value: plain, expires_in_sec: 30 });
+  return jsonResponse({
+    ok: true,
+    value: plain,
+    expires_in_sec: 30,
+    last_four: row.last_four ?? null,
+    provider,
+    category,
+  });
 }
 
 async function loadApiKeyRowScoped(env, authUser, id, workspaceId) {
