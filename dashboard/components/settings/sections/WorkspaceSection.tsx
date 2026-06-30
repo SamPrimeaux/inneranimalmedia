@@ -21,6 +21,7 @@ import {
 } from '../hooks/useWorkspaceSnapshot';
 import { IntegrationIconTile } from '../components/IntegrationIconTile';
 import { CfStackWizard, CfStackSummary, type CfStackConfig } from './CfStackWizard';
+import { WorkspaceActiveSwitcher } from '../components/WorkspaceActiveSwitcher';
 import { initialsFromDisplayName, relativeTime } from '../settingsUi';
 
 export type WorkspaceSectionProps = { data: SettingsPanelModel; workspaceId?: string | null };
@@ -181,6 +182,8 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
           Project connections, deploy target, and infrastructure at a glance.
         </p>
       </div>
+
+      <WorkspaceActiveSwitcher />
 
       {/* 1 · Project snapshot */}
       <div className="rounded-2xl border border-[var(--border-subtle)] bg-gradient-to-br from-[var(--bg-panel)] to-[var(--bg-app)] p-5 space-y-4">

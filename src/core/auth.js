@@ -854,6 +854,7 @@ function userFromAuthContext(ctx) {
   const authType = trimSessionField(ctx?.authType) || 'session';
   const tenantId = trimSessionField(ctx?.tenantId) || null;
   const workspaceId = trimSessionField(ctx?.workspaceId) || null;
+  const storedActiveWorkspaceId = trimSessionField(ctx?.storedActiveWorkspaceId) || null;
 
   if (authType === 'session' && (!tenantId || !workspaceId)) {
     return null;
@@ -866,7 +867,8 @@ function userFromAuthContext(ctx) {
     tenant_id: tenantId,
     active_tenant_id: tenantId,
     workspace_id: workspaceId,
-    active_workspace_id: workspaceId,
+    /** SSOT from auth_users row — never conflate with request-scoped workspace_id. */
+    active_workspace_id: storedActiveWorkspaceId || workspaceId,
     is_superadmin: ctx.isSuperadmin ? 1 : 0,
     auth_type: authType,
     capabilities: ctx.capabilities ?? {
@@ -946,10 +948,6 @@ export async function resolveAuth(request, env, opts = {}) {
     userId = trimSessionField(sessionRaw.user_id);
     sessionId = trimSessionField(sessionRaw.session_id) || null;
     if (!tenantId) tenantId = trimSessionField(sessionRaw.tenant_id) || null;
-    if (!workspaceId) {
-      workspaceId =
-        trimSessionField(sessionRaw.workspace_id) || trimSessionField(sessionRaw.workspaceId) || null;
-    }
   }
 
   if (!userId) {
@@ -982,18 +980,20 @@ export async function resolveAuth(request, env, opts = {}) {
 
   const headerWs = trimSessionField(request?.headers?.get?.('x-iam-workspace-id'));
   const overrideWs = trimSessionField(opts.workspaceIdOverride);
+  const dbActiveWs = trimSessionField(row.active_workspace_id);
   if (overrideWs) {
     if (isSuperadmin || (await userHasWorkspaceMembership(env, userId, overrideWs))) {
       workspaceId = overrideWs;
     }
+  } else if (
+    dbActiveWs &&
+    (isSuperadmin || (await userHasWorkspaceMembership(env, userId, dbActiveWs)))
+  ) {
+    /** auth_users.active_workspace_id wins over stale session/KV and client X-IAM-Workspace-Id. */
+    workspaceId = dbActiveWs;
   } else if (headerWs) {
     if (isSuperadmin || (await userHasWorkspaceMembership(env, userId, headerWs))) {
       workspaceId = headerWs;
-    }
-  } else {
-    const activeWs = trimSessionField(row.active_workspace_id);
-    if (activeWs && (isSuperadmin || (await userHasWorkspaceMembership(env, userId, activeWs)))) {
-      workspaceId = activeWs;
     }
   }
 
@@ -1049,6 +1049,7 @@ export async function resolveAuth(request, env, opts = {}) {
     personUuid: row.person_uuid != null ? String(row.person_uuid) : null,
     tenantId,
     workspaceId: workspaceId || null,
+    storedActiveWorkspaceId: dbActiveWs || null,
     sessionId,
     isSuperadmin,
     authType,

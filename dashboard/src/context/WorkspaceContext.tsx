@@ -112,10 +112,15 @@ function applySessionPayload(
   const serverCurrent =
     typeof payload.current === "string" && payload.current.trim() ? payload.current.trim() : null;
   const picked = pickActiveWorkspace(payload.data, payload.current);
+  const nextId =
+    serverCurrent && workspaceRows.some((w) => w.id === serverCurrent)
+      ? serverCurrent
+      : picked?.id ?? serverCurrent;
+  const row = nextId ? workspaceRows.find((w) => w.id === nextId) : null;
   return {
     workspaceRows,
-    workspaceId: picked?.id ?? serverCurrent,
-    displayName: picked?.displayName ?? null,
+    workspaceId: nextId,
+    displayName: (row?.name?.trim() || picked?.displayName) ?? null,
     canonicalWorkspaceId: serverCurrent,
   };
 }
@@ -147,10 +152,9 @@ function applyInSessionWorkspacePick(
   userPickedId: string | null | undefined,
 ): IamWorkspaceSessionPayload {
   const explicit = typeof userPickedId === "string" ? userPickedId.trim() : "";
-  if (explicit && payload.data.some((w) => w.id === explicit)) {
-    return { ...payload, current: explicit };
-  }
-  return payload;
+  if (!explicit) return payload;
+  if (!payload.data.some((w) => w.id === explicit)) return payload;
+  return { ...payload, current: explicit };
 }
 
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
@@ -166,6 +170,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const workspaceIdRef = useRef<string | null>(null);
   /** Holds user-selected workspace until server refresh confirms the same id. */
   const userPickedWorkspaceRef = useRef<string | null>(null);
+  const pendingWorkspaceIdRef = useRef<string | null>(null);
   const [pendingWorkspaceId, setPendingWorkspaceId] = useState<string | null>(null);
   const bootstrapDoneRef = useRef(false);
 
@@ -178,13 +183,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     setWorkspaces(applied.workspaceRows);
     setCanonicalWorkspaceId(applied.canonicalWorkspaceId);
 
-    const inSessionPick = userPickedWorkspaceRef.current;
-    const serverId = applied.canonicalWorkspaceId;
+    const pending = userPickedWorkspaceRef.current;
     let nextId = applied.workspaceId;
-    if (inSessionPick && applied.workspaceRows.some((w) => w.id === inSessionPick)) {
-      nextId = inSessionPick;
-    } else if (serverId && applied.workspaceRows.some((w) => w.id === serverId)) {
-      nextId = serverId;
+    if (
+      pending &&
+      pendingWorkspaceIdRef.current === pending &&
+      applied.workspaceRows.some((w) => w.id === pending)
+    ) {
+      nextId = pending;
     }
 
     if (nextId) setWorkspaceIdState(nextId);
@@ -195,6 +201,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     const serverCurrent = typeof payload.current === "string" ? payload.current.trim() : "";
     if (userPickedWorkspaceRef.current && serverCurrent === userPickedWorkspaceRef.current) {
       userPickedWorkspaceRef.current = null;
+      pendingWorkspaceIdRef.current = null;
       setPendingWorkspaceId(null);
     }
   }, []);
@@ -237,6 +244,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       }
       const userId = sessionUserIdRef.current;
       userPickedWorkspaceRef.current = trimmed;
+      pendingWorkspaceIdRef.current = trimmed;
       setPendingWorkspaceId(trimmed);
       workspaceIdRef.current = trimmed;
       setWorkspaceIdState(trimmed);
@@ -288,15 +296,20 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             if (data.workspace.display_name?.trim()) {
               setDisplayName(data.workspace.display_name.trim());
             }
+            userPickedWorkspaceRef.current = null;
+            pendingWorkspaceIdRef.current = null;
+            setPendingWorkspaceId(null);
           }
         } catch {
           /* local + sessionStorage already updated */
         }
       }
 
+      void refreshWorkspaces({ force: true });
+
       window.dispatchEvent(new CustomEvent("iam_workspace_id"));
     },
-    [workspaces],
+    [workspaces, refreshWorkspaces],
   );
 
   const setWorkspaceId = useCallback((id: string) => {
@@ -445,9 +458,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   }, [canonicalWorkspaceId, workspaceId, pendingWorkspaceId]);
 
   useEffect(() => {
-    if (!workspaceDrift) return;
+    if (!workspaceDrift || !canonicalWorkspaceId) return;
+    userPickedWorkspaceRef.current = null;
+    pendingWorkspaceIdRef.current = null;
+    setPendingWorkspaceId(null);
+    setWorkspaceIdState(canonicalWorkspaceId);
+    patchIamWorkspaceSessionCurrent(canonicalWorkspaceId, undefined, sessionUserIdRef.current);
     void refreshWorkspaces({ force: true });
-  }, [workspaceDrift, refreshWorkspaces]);
+  }, [workspaceDrift, canonicalWorkspaceId, refreshWorkspaces]);
 
   const value = useMemo(
     () => ({
