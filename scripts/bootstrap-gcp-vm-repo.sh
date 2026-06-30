@@ -78,6 +78,13 @@ if [[ -d "\$REPO_DIR/.git" ]]; then
   git_as_bootstrap checkout main
   git_as_bootstrap merge --ff-only origin/main
   sudo chown -R "\${AGENTSAM_USER}:\${AGENTSAM_USER}" "\$REPO_DIR"
+elif [[ -d "\$REPO_DIR" ]]; then
+  echo "→ repairing non-git directory at \$REPO_DIR"
+  sudo rm -rf "\$REPO_DIR"
+  sudo mkdir -p "\$(dirname "\$REPO_DIR")"
+  sudo -u samprimeaux git clone "\$REPO_URL" "\$REPO_DIR"
+  git_as_bootstrap checkout main
+  sudo chown -R "\${AGENTSAM_USER}:\${AGENTSAM_USER}" "\$REPO_DIR"
 else
   echo "→ cloning from GitHub"
   sudo mkdir -p "\$(dirname "\$REPO_DIR")"
