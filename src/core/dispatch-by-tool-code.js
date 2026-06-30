@@ -24,14 +24,23 @@ function normalizeAuthSourceForSpend(raw) {
   return s;
 }
 
+/** Legacy terminal tool names → canonical sandbox catalog row. */
+const LEGACY_TERMINAL_TOOL_REDIRECT = Object.freeze({
+  terminal_execute: 'agentsam_terminal_sandbox',
+  terminal_run: 'agentsam_terminal_sandbox',
+  terminal_wrangler: 'agentsam_terminal_sandbox',
+  run_command: 'agentsam_terminal_sandbox',
+  bash: 'agentsam_terminal_sandbox',
+});
+
 /**
  * @param {any} env
- * @param {string} toolCodeOrKey — tool_code, tool_key, tool_name, or display_name
- * @param {unknown} input
- * @param {Record<string, unknown>} runContext — workspaceId, tenantId, userId required for user creds
+ * @param {string} toolCodeOrKey
  */
 export async function dispatchByToolCode(env, toolCodeOrKey, input, runContext = {}) {
-  const row = await loadAgentsamToolRow(env, toolCodeOrKey);
+  const rawKey = String(toolCodeOrKey ?? '').trim();
+  const resolvedKey = LEGACY_TERMINAL_TOOL_REDIRECT[rawKey] || rawKey;
+  const row = await loadAgentsamToolRow(env, resolvedKey);
   if (!row) {
     return { ok: false, error: `agentsam_tools not found: ${toolCodeOrKey}` };
   }

@@ -54,8 +54,18 @@ export async function resolveSandboxContainerSlug(env, p) {
     if (slug) return slug;
   }
 
+  const explicitZone = String(p.zoneSlug || '').trim();
+  if (explicitZone) {
+    const facet = normalizeMcpZoneSlug(explicitZone);
+    if (facet) return facet;
+  }
+
   if (env?.DB && p.userId) {
     const uid = String(p.userId).trim();
+    if (uid.startsWith('au_')) {
+      const fromAu = normalizeSandboxContainerSlug(uid.slice(3));
+      if (fromAu) return fromAu;
+    }
     const row = await env.DB.prepare(
       `SELECT au.name, au.email, uip.github_username, uip.preferred_name
          FROM auth_users au

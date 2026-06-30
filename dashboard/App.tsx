@@ -789,8 +789,8 @@ const App: React.FC = () => {
   }, [agentPosition, isNarrowViewport]);
 
   const agentHomeAtmosphericChat = useMemo(
-    () => isAgentHomeAtmospheric && !isNarrowViewport && agentPosition === 'off',
-    [isAgentHomeAtmospheric, isNarrowViewport, agentPosition],
+    () => isAgentHomeAtmospheric && agentPosition === 'off',
+    [isAgentHomeAtmospheric, agentPosition],
   );
 
   useEffect(() => {
@@ -2150,9 +2150,9 @@ const App: React.FC = () => {
   }, [agentPosition, dispatchAgentChatCompose]);
 
   useEffect(() => {
-    if (!isAgentHomeAtmospheric || isNarrowViewport) return;
+    if (!isAgentHomeAtmospheric) return;
     setAgentPosition('off');
-  }, [isAgentHomeAtmospheric, isNarrowViewport]);
+  }, [isAgentHomeAtmospheric]);
 
   const openAgentQuickstart = useCallback(() => {
     navigate(AGENT_QUICKSTART_PATH);
@@ -4926,7 +4926,7 @@ const App: React.FC = () => {
 
           {!isCmsFullscreen && agentHomeAtmosphericChat && (
               <div
-                className="fixed overflow-hidden pointer-events-none opacity-0"
+                className="fixed overflow-hidden max-phone:pointer-events-none max-phone:opacity-0 tablet-up:pointer-events-none tablet-up:opacity-0"
                 style={{ left: -9999, top: 0, width: 420, height: '100%' }}
                 aria-hidden
               >

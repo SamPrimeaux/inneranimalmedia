@@ -72,10 +72,10 @@ export const TOOL_SUPERSESSION = Object.freeze({
   knowledge_search: 'agentsam_autorag',
   memory_semantic_search: 'agentsam_memory_manager',
 
-  // Terminal / deploy (chunk 9 subset)
-  terminal_execute: 'agentsam_terminal_remote',
-  terminal_run: 'agentsam_terminal_remote',
-  terminal_wrangler: 'agentsam_terminal_remote',
+  // Terminal / deploy (chunk 9 subset) — legacy names → CF Container sandbox
+  terminal_execute: 'agentsam_terminal_sandbox',
+  terminal_run: 'agentsam_terminal_sandbox',
+  terminal_wrangler: 'agentsam_terminal_sandbox',
   worker_deploy: 'agentsam_worker_deploy',
   deploy_status: 'agentsam_worker_deploy',
   agentsam_deploy_status: 'agentsam_worker_deploy',

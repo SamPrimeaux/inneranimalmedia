@@ -9,8 +9,9 @@ import { isSamOperatorLaneUserId } from './platform-operator-policy.js';
 
 export const TERMINAL_GCP_CONNECTION_ID = 'conn_gcp_iam_tunnel';
 
-const REMOTE_TOOL_NAMES = new Set([
-  'agentsam_terminal_remote',
+const REMOTE_TOOL_NAMES = new Set(['agentsam_terminal_remote']);
+
+const LEGACY_TERMINAL_TOOL_NAMES = new Set([
   'terminal_execute',
   'terminal_run',
   'terminal_wrangler',
@@ -47,6 +48,14 @@ export function resolveTerminalExecRouting(ctx = {}) {
   }
 
   if (SANDBOX_TOOL_NAMES.has(toolName)) {
+    return {
+      target_type: explicitType || 'container',
+      target_id: explicitTarget || null,
+      lane: 'sandbox_container',
+    };
+  }
+
+  if (LEGACY_TERMINAL_TOOL_NAMES.has(toolName)) {
     return {
       target_type: explicitType || 'container',
       target_id: explicitTarget || null,

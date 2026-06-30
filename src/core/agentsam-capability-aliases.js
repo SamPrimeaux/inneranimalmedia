@@ -40,7 +40,7 @@ const CAPABILITY_GROUPS = (() => {
     g(['code.search', 'code_search'], ['fs_search_files', 'github_search_code', 'workspace_search']),
     g(['grep', 'rg', 'ripgrep'], ['fs_search_files', 'github_search_code']),
     g(['sed'], ['fs_edit_file', 'fs_write_file']),
-    g(['bash', 'sh', 'zsh', 'shell'], ['terminal_execute', 'terminal_run']),
+    g(['bash', 'sh', 'zsh', 'shell'], ['agentsam_terminal_sandbox', 'terminal_execute', 'terminal_run']),
     g(['terminal'], ['agentsam_terminal_local', 'agentsam_terminal_remote', 'agentsam_terminal_sandbox']),
     g(['file.search', 'file_search', 'workspace_search'], ['fs_search_files']),
     g(['file.read', 'file_read', 'workspace_read', 'workspace_read_file'], [
@@ -74,7 +74,11 @@ const CAPABILITY_GROUPS = (() => {
         'github_delete_file',
       ],
     ),
-    g(['terminal.execute', 'terminal_execute', 'terminal_run'], ['terminal_execute', 'terminal_run']),
+    g(['terminal.execute', 'terminal_execute', 'terminal_run'], [
+      'agentsam_terminal_sandbox',
+      'terminal_execute',
+      'terminal_run',
+    ]),
     g(['container.exec', 'container_exec', 'cloud.sandbox', 'cloud_sandbox'], ['agentsam_container_exec']),
     g(['python.execute', 'python_execute'], ['python_execute']),
     g(['d1.read', 'd1_read', 'd1_query', 'database.read'], ['d1_query']),

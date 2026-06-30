@@ -308,7 +308,7 @@ export function filterAgentToolsForRequest(env, tools, message, intentResult, ca
 const AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS = [
   'd1_query',
   'github_file',
-  'terminal_run',
+  'agentsam_terminal_sandbox',
   'r2_read',
   'r2_write',
   'cdt_take_screenshot',
@@ -318,7 +318,7 @@ const AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS = [
 const AGENT_DASHBOARD_SURFACE_CAPABILITY_TOOLS = {
   open_browser: ['cdt_take_screenshot', 'browser_navigate'],
   workspace_read_file: ['workspace_read_file'],
-  terminal_execute: ['terminal_execute'],
+  terminal_execute: ['agentsam_terminal_sandbox'],
   d1_query: ['d1_query'],
 };
 
@@ -536,7 +536,7 @@ export async function ensureActiveFileCapabilityTools(env, tools, effectiveMaxTo
   if (activeFileIsGithubBound(envelope)) {
     names.push('github_file', 'github_update_file');
   } else if (activeFileIsLocalWorkspaceBuffer(envelope)) {
-    names.push('fs_search_files', 'terminal_execute');
+    names.push('fs_search_files', 'agentsam_terminal_sandbox');
   }
   if (envelope.r2_key) {
     names.push('r2_read', 'r2_write');

@@ -147,8 +147,7 @@ export const CODE_IMPLEMENTATION_TOOL_NAMES = [
   'github_update_file',
   'github_create_branch',
   'github_create_pr',
-  'terminal_run',
-  'terminal_execute',
+  'agentsam_terminal_sandbox',
   'd1_query',
   'd1_write',
 ];

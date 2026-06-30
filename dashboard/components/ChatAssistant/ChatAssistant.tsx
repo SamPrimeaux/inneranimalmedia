@@ -2733,9 +2733,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const composerVisible =
     !isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat');
   const composerFlexOrder = mobileAgentHomeMode ? 'order-3' : 'order-5';
-  const composerPortaled = Boolean(atmosphericHomeMode && composerPortalTarget && !isNarrow);
+  const composerPortaled = Boolean(atmosphericHomeMode && composerPortalTarget);
   const messagesPortaled = Boolean(
-    atmosphericHomeMode && messagesPortalTarget && !isNarrow && messagesVisible && !showEmptyThreadPlaceholder,
+    atmosphericHomeMode &&
+      messagesPortalTarget &&
+      messagesVisible &&
+      !showEmptyThreadPlaceholder,
   );
   const composerPlaceholder = composerPortaled
     ? 'Tell Agent Sam what to do'
@@ -3298,11 +3301,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             composerPortaled ? 'iam-chat-composer-shell--atmospheric' : 'px-3'
           } pt-2 space-y-2`}
           style={{
-            paddingBottom: isNarrow && !mobileAgentHomeMode
-              ? MOBILE_CHAT_COMPOSER_BOTTOM_PAD
-              : mobileAgentHomeMode
-                ? 'calc(env(safe-area-inset-bottom, 0px) + 8px)'
-                : 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
+            paddingBottom:
+              composerPortaled && isNarrow
+                ? 'calc(3.5rem + 1.5rem + env(safe-area-inset-bottom, 0px) + 8px)'
+                : isNarrow && !mobileAgentHomeMode
+                  ? MOBILE_CHAT_COMPOSER_BOTTOM_PAD
+                  : mobileAgentHomeMode
+                    ? 'calc(env(safe-area-inset-bottom, 0px) + 8px)'
+                    : 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
           }}
         >
           <ToolApprovalModal
@@ -3579,7 +3585,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           )}
         </div>
           );
-          if (composerPortaled && composerPortalTarget && typeof document !== 'undefined') {
+          if (composerPortaled) {
+            if (!composerPortalTarget || typeof document === 'undefined') return null;
             return createPortal(shell, composerPortalTarget);
           }
           return shell;
