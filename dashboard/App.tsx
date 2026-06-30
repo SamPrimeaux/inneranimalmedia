@@ -457,6 +457,15 @@ const App: React.FC = () => {
     refreshWorkspaces,
   } = useWorkspace();
   const location = useLocation();
+  const [isNarrowViewport, setIsNarrowViewport] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth <= BREAKPOINTS.PHONE_MAX,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(PHONE_MQ);
+    const fn = () => setIsNarrowViewport(mq.matches);
+    mq.addEventListener('change', fn);
+    return () => mq.removeEventListener('change', fn);
+  }, []);
   const agentHomeTab = useMemo(
     () => getAgentTabFromSearch(location.search),
     [location.search],
@@ -756,9 +765,6 @@ const App: React.FC = () => {
 
   const [meetCtxValue, setMeetCtxValue] = useState<MeetCtxValue | null>(null);
 
-  const [isNarrowViewport, setIsNarrowViewport] = useState(
-    () => typeof window !== 'undefined' && window.innerWidth <= BREAKPOINTS.PHONE_MAX,
-  );
   const mobileSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
   /** Mobile chat repo drawer: expand this repo when opening the GitHub / Deploy panel. */
   const [githubExpandRepo, setGithubExpandRepo] = useState<string | null>(null);
@@ -770,13 +776,6 @@ const App: React.FC = () => {
     };
     window.addEventListener('iam-agent-browser-presence', onBrowserPresence);
     return () => window.removeEventListener('iam-agent-browser-presence', onBrowserPresence);
-  }, []);
-
-  useEffect(() => {
-    const mq = window.matchMedia(PHONE_MQ);
-    const fn = () => setIsNarrowViewport(mq.matches);
-    mq.addEventListener('change', fn);
-    return () => mq.removeEventListener('change', fn);
   }, []);
 
   useEffect(() => {
