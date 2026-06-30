@@ -3,8 +3,8 @@
  *
  * Data plane priority:
  * 1. active_file_content in runContext (local Mac / Monaco — no VM clone)
- * 2. Absolute path on PTY host (operator hardware, e.g. /Users/you/.../inneranimalmedia)
- * 3. Per-user VM workspace: /workspace/{tenant}/{user}/{repoDir}/… (Connor isolation)
+ * 2. Absolute path on PTY host (user machine workspace_root)
+ * 3. GitHub API via agentsam_github_read when PTY path unavailable
  */
 import { escapeShellSingleQuoted } from './fs-search-rg-parse.js';
 import { FS_SEARCH_PTY_REPO_DIR } from './fs-search-rg-parse.js';
@@ -138,7 +138,7 @@ export async function executeFsReadFile(env, params, runContext = {}) {
   const isAbsolute = relPath.startsWith('/');
   let command = null;
   let execCwd = null;
-  let lane = 'workspace_pty_vm';
+  let lane = 'workspace_pty_local';
   let repoMeta = {};
 
   if (isAbsolute) {

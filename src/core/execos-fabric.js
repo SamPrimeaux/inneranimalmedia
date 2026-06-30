@@ -8,14 +8,11 @@
  * Fallbacks: public ExecOS URL, direct GCP /run, legacy PTY_SERVICE /exec.
  */
 
-import { execOnPtyHost, loadWorkspaceRootFromSettings, buildPtyUserWorkspaceRoot, PTY_REPO_DIRNAME } from './pty-workspace-paths.js';
+import { execOnPtyHost, loadWorkspaceRootFromSettings } from './pty-workspace-paths.js';
 import { userIsPlatformOperator, PLATFORM_WORKSPACE_ID } from './platform-operator-policy.js';
-import {
-  IAM_GCP_OPERATOR_REPO,
-  translateHostRootForGcp,
-} from './host-workspace-paths.js';
+import { IAM_GCP_EXECOS_HOME, gcpRemoteExecCwd } from './host-workspace-paths.js';
 
-export { translateHostRootForGcp, IAM_GCP_OPERATOR_REPO };
+export { IAM_GCP_EXECOS_HOME as IAM_GCP_OPERATOR_REPO, gcpRemoteExecCwd as translateHostRootForGcp } from './host-workspace-paths.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -34,7 +31,7 @@ export async function resolveCadExecRepoRoot(env, ctx = {}) {
 
   const explicit = trim(env?.EXECOS_CAD_CWD) || trim(env?.OPERATOR_TERMINAL_CWD);
   if (explicit) {
-    const repoRoot = target === 'gcp' ? translateHostRootForGcp(explicit) : explicit;
+    const repoRoot = target === 'gcp' ? gcpRemoteExecCwd() : explicit;
     return { repoRoot, source: 'env', strategy: 'explicit' };
   }
 
@@ -42,30 +39,21 @@ export async function resolveCadExecRepoRoot(env, ctx = {}) {
     ? await userIsPlatformOperator(env, { id: userId }, workspaceId)
     : false;
 
+  if (target === 'gcp') {
+    return { repoRoot: gcpRemoteExecCwd(), source: 'execos_home', strategy: 'gcp_stateless' };
+  }
+
   if (isOperator) {
     const hostRoot = await loadWorkspaceRootFromSettings(env, workspaceId);
     if (hostRoot) {
-      const repoRoot =
-        target === 'gcp'
-          ? translateHostRootForGcp(hostRoot) || IAM_GCP_OPERATOR_REPO
-          : hostRoot;
-      return { repoRoot, source: 'workspace_settings', strategy: 'host_default' };
+      return { repoRoot: hostRoot, source: 'workspace_settings', strategy: 'host_default' };
     }
-    if (target === 'gcp') {
-      return { repoRoot: IAM_GCP_OPERATOR_REPO, source: 'operator_fallback', strategy: 'host_default' };
-    }
-    return { repoRoot: hostRoot || '/Users/samprimeaux/inneranimalmedia', source: 'operator_fallback', strategy: 'host_default' };
+    return { repoRoot: '/Users/samprimeaux/inneranimalmedia', source: 'operator_fallback', strategy: 'host_default' };
   }
 
-  if (tenantId && userId) {
-    const workspaceRoot = buildPtyUserWorkspaceRoot(env, { tenantId, userId });
-    if (workspaceRoot) {
-      return {
-        repoRoot: `${workspaceRoot}/${PTY_REPO_DIRNAME}`,
-        source: 'platform_workspace',
-        strategy: 'tenant_isolated',
-      };
-    }
+  const hostRoot = workspaceId ? await loadWorkspaceRootFromSettings(env, workspaceId) : null;
+  if (hostRoot) {
+    return { repoRoot: hostRoot, source: 'workspace_settings', strategy: 'host_default' };
   }
 
   return { repoRoot: '', source: 'unresolved', strategy: 'none' };
@@ -76,8 +64,8 @@ export function resolveCadExecCwd(env, hints = {}) {
   const fromHint = trim(hints.repoRoot);
   if (fromHint) return fromHint;
   const explicit = trim(env?.EXECOS_CAD_CWD) || trim(env?.OPERATOR_TERMINAL_CWD);
-  if (explicit) return translateHostRootForGcp(explicit) || IAM_GCP_OPERATOR_REPO;
-  return IAM_GCP_OPERATOR_REPO;
+  if (explicit) return explicit;
+  return gcpRemoteExecCwd();
 }
 
 /**

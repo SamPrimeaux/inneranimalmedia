@@ -17,7 +17,8 @@ import {
 } from '../core/bootstrap.js';
 import {
   resolvePtyTenantIdForUser,
-  buildPtySessionWorkingDir,
+  resolveTerminalCwd,
+  loadWorkspaceRootFromSettings,
 } from '../core/pty-workspace-paths.js';
 import { dispatchComplete } from '../core/provider.js';
 import { resolveModelForTask, normalizeCanonicalTaskType } from '../core/resolveModel.js';
@@ -179,7 +180,13 @@ export async function handleTerminalApi(request, url, env, ctx) {
     let regTid = await resolvePtyTenantIdForUser(env, authUser, regUid);
     if (!regTid) return jsonResponse({ error: 'Tenant not resolved for terminal session' }, 403);
 
-    const workingDir = buildPtySessionWorkingDir(env, { tenantId: regTid, userId: regUid }) || '';
+    const cwdResolved = await resolveTerminalCwd(env, {
+      connection: null,
+      tenantId: regTid,
+      userId: regUid,
+      workspaceId: regWorkspaceId,
+    });
+    const workingDir = cwdResolved.cwd || (await loadWorkspaceRootFromSettings(env, regWorkspaceId)) || '';
 
     const bootstrap = await resolveActiveBootstrap(env, {
       userId: regUid,

@@ -14,8 +14,6 @@ import {
 } from "../core/bootstrap.js";
 import { assertWorkspaceTokenForPty } from "../core/workspace-tokens.js";
 import {
-  resolvePtyTenantIdForUser,
-  buildPtySessionWorkingDir,
   resolveTerminalCwd,
 } from "../core/pty-workspace-paths.js";
 import { resolveTerminalExecRouting } from "../core/terminal-routing-policy.js";
@@ -169,7 +167,7 @@ export class AgentChatSqlV1 extends DurableObject {
     this.ptSessionUserId = "";
     this.ptSessionTenantId = "";
     this.ptPersonUuid = "";
-    /** PTY cwd — /workspace/{tenant_id}/{user_id}/ (never mcp repo_path) */
+    /** PTY cwd — workspace_settings.workspace_root (local) or ExecOS home (GCP remote) */
     this.ptyWorkingDir = null;
     this.historySequence = 0;
     this._ptyOutBuf = "";
@@ -1248,12 +1246,21 @@ export class AgentChatSqlV1 extends DurableObject {
     });
   }
 
-  _ptyExecPayload(command) {
+  async _ptyExecPayload(command) {
     const uid = String(this.ptSessionUserId || "").trim();
     const tid = String(this.ptSessionTenantId || "").trim();
-    const cwd =
-      String(this.ptyWorkingDir || "").trim() ||
-      (tid && uid ? buildPtySessionWorkingDir(this.env, { tenantId: tid, userId: uid }) || "" : "");
+    const wid = String(this.workspaceId || "").trim();
+    let cwd = String(this.ptyWorkingDir || "").trim();
+    if (!cwd && wid && this.env?.DB) {
+      const r = await resolveTerminalCwd(this.env, {
+        connection: this.selectedTerminalConnection,
+        tenantId: tid,
+        userId: uid,
+        workspaceId: wid,
+      });
+      cwd = r?.cwd ? String(r.cwd).trim() : "";
+      if (cwd) this.ptyWorkingDir = cwd;
+    }
     const payload = { command };
     if (cwd) payload.cwd = cwd;
     return payload;
@@ -1291,7 +1298,7 @@ export class AgentChatSqlV1 extends DurableObject {
     }
     const execIdentity = await resolveTerminalExecIdentity(this.env?.DB, conn);
     const execHeaders = buildExecTransportHeaders(execIdentity);
-    const execPayload = this._ptyExecPayload(command);
+    const execPayload = await this._ptyExecPayload(command);
 
     const targetType = String(this.selectedTargetType || "platform_vm").trim();
     const usePtyService = targetType === "platform_vm" && !!this.env?.PTY_SERVICE;

@@ -1,47 +1,62 @@
 /**
- * PTY per-user workspace paths — same layout as iam-pty (/workspace/{tenant_id}/{user_id}/…).
- * MovieMode Remotion renders run inside {workspaceRoot}/inneranimalmedia (no per-user Worker secrets).
+ * Terminal cwd resolution — workspace_settings.workspace_root (local) or ExecOS home (GCP remote).
+ * No /workspace/{tenant}/{user}/ filesystem layout. No auto-clone. GitHub API for code I/O.
  */
 import { assertWorkspaceTokenForPty } from './workspace-tokens.js';
 import { runTerminalCommandViaHttpExec } from './terminal.js';
 import {
   connectionUsesGcpRepoLayout,
+  gcpRemoteExecCwd,
+  IAM_GCP_EXECOS_HOME,
   resolveRepoRootForHost,
   vmWorkspaceRootFromSettings,
 } from './host-workspace-paths.js';
 
+/** @deprecated Derive repo folder name from path tail — not a fixed platform repo name */
 export const PTY_REPO_DIRNAME = 'inneranimalmedia';
 
 /**
- * Safe directory name under the user's PTY workspace root (supports multiple clones).
- * @param {string|null|undefined} repoRoot e.g. /workspace/tenant_…/au_…/inneranimalmedia
- * @param {string|null|undefined} workspaceRoot e.g. /workspace/tenant_…/au_…
+ * @param {string|null|undefined} repoRoot
+ * @param {string|null|undefined} workspaceRoot
  */
 export function safePtyRepoDirName(repoRoot, workspaceRoot) {
   const root = String(repoRoot || '').trim().replace(/\/+$/, '');
   const ws = String(workspaceRoot || '').trim().replace(/\/+$/, '');
   if (!root) return PTY_REPO_DIRNAME;
-  let name = root.split('/').filter(Boolean).pop() || PTY_REPO_DIRNAME;
+  let name = root.split(/[/\\]/).filter(Boolean).pop() || PTY_REPO_DIRNAME;
   if (ws && root === ws) return PTY_REPO_DIRNAME;
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,120}$/.test(name)) return PTY_REPO_DIRNAME;
   return name;
 }
+
 const REMOTION_INSTALL_CMD =
   'npm install --save-dev remotion @remotion/renderer @remotion/bundler @remotion/player';
 
-/** Platform PTY mount (iam-pty `IAM_WORKSPACES_ROOT`); not a per-customer secret. */
-export function ptyWorkspacesRootFromEnv(env) {
-  const r = env?.IAM_WORKSPACES_ROOT != null ? String(env.IAM_WORKSPACES_ROOT).trim() : '';
-  return r || '/workspace';
+/**
+ * @deprecated Removed — no tenant filesystem roots on infrastructure.
+ */
+export function ptyWorkspacesRootFromEnv(_env) {
+  return null;
 }
 
 /**
- * Resolve tenant for PTY isolation from the authenticated user — never from workspace lookup.
- * Prefers auth_users.active_tenant_id, then tenant_id.
+ * @deprecated Removed — no /workspace/{tenant}/{user}/ layout.
+ */
+export function buildPtyUserWorkspaceRoot(_env, _ctx) {
+  return null;
+}
+
+/**
+ * @deprecated Use resolveTerminalCwd with workspaceId — sync stub returns null.
+ */
+export function buildPtySessionWorkingDir(_env, _ctx) {
+  return null;
+}
+
+/**
  * @param {any} env
  * @param {{ id?: string, active_tenant_id?: string|null, tenant_id?: string|null } | null | undefined} authUser
  * @param {string} [userId]
- * @returns {Promise<string | null>}
  */
 export async function resolvePtyTenantIdForUser(env, authUser, userId) {
   const fromUser =
@@ -66,35 +81,8 @@ export async function resolvePtyTenantIdForUser(env, authUser, userId) {
 }
 
 /**
- * Isolated PTY cwd root for one user: /workspace/tenant_…/au_…
- * @param {any} env
- * @param {{ tenantId: string, userId: string }} ctx
- */
-export function buildPtyUserWorkspaceRoot(env, { tenantId, userId }) {
-  const tid = String(tenantId || '').trim();
-  const uid = String(userId || '').trim();
-  if (!tid || !uid) return null;
-  const base = ptyWorkspacesRootFromEnv(env).replace(/\/+$/, '');
-  return `${base}/${tid}/${uid}`;
-}
-
-/**
- * PTY session working directory — always /workspace/{tenant_id}/{user_id}/
- * @param {any} env
- * @param {{ tenantId: string, userId: string }} ctx
- * @returns {string | null}
- */
-export function buildPtySessionWorkingDir(env, { tenantId, userId }) {
-  const root = buildPtyUserWorkspaceRoot(env, { tenantId, userId });
-  if (!root) return null;
-  return `${root}/`;
-}
-
-/**
- * Operator / workspace repo root from D1 workspace_settings (e.g. /Users/samprimeaux/inneranimalmedia).
  * @param {any} env
  * @param {string} workspaceId
- * @returns {Promise<string | null>}
  */
 export async function loadWorkspaceRootFromSettings(env, workspaceId) {
   const wid = String(workspaceId || '').trim();
@@ -115,7 +103,6 @@ export async function loadWorkspaceRootFromSettings(env, workspaceId) {
 }
 
 /**
- * Load parsed workspace_settings.settings_json.
  * @param {any} env
  * @param {string} workspaceId
  */
@@ -136,48 +123,48 @@ export async function loadWorkspaceSettingsJson(env, workspaceId) {
 }
 
 /**
- * Resolve PTY cwd from connection cwd_strategy (not target_type alone).
- * - host_default: workspace_settings.workspace_root for operators; null → host shell default
- * - platform_workspace: isolated /workspace/{tenant_id}/{user_id}/ for customers (Connor, BYOK)
+ * Cwd resolution:
+ * - user_hosted_tunnel / Mac local: workspace_settings.workspace_root
+ * - platform_vm / GCP remote: IAM_GCP_EXECOS_HOME (ExecOS only — no repo clone)
+ * - platform_workspace (legacy): same as host_default
+ *
  * @param {any} env
  * @param {{ connection?: Record<string, unknown> | null, tenantId: string, userId: string, workspaceId?: string | null }} ctx
- * @returns {Promise<{ cwd: string | null, strategy: string, unsupported?: boolean }>}
  */
 export async function resolveTerminalCwd(env, { connection = null, tenantId, userId, workspaceId = null }) {
-  const strategy = String(connection?.cwd_strategy || 'platform_workspace').trim() || 'platform_workspace';
+  const strategy = String(connection?.cwd_strategy || 'host_default').trim() || 'host_default';
+  const forceGcp = connectionUsesGcpRepoLayout(connection);
 
   if (strategy === 'custom') {
     return { cwd: null, strategy, unsupported: true };
   }
 
-  if (strategy === 'host_default' || strategy === 'user_home') {
-    const wid = String(workspaceId || connection?.workspace_id || '').trim();
-    if (strategy === 'host_default' && wid) {
-      const settings = await loadWorkspaceSettingsJson(env, wid);
-      const macRoot =
-        settings && typeof settings.workspace_root === 'string'
-          ? settings.workspace_root.trim()
-          : '';
-      if (connectionUsesGcpRepoLayout(connection)) {
-        const gcpRoot = vmWorkspaceRootFromSettings(settings);
-        if (gcpRoot) return { cwd: gcpRoot, strategy: 'host_default' };
-      }
-      const root = macRoot || (await loadWorkspaceRootFromSettings(env, wid));
-      if (root) {
-        const cwd = resolveRepoRootForHost(root, { connection, settings });
-        return { cwd, strategy: 'host_default' };
-      }
+  if (forceGcp) {
+    return { cwd: gcpRemoteExecCwd(), strategy: 'execos_home' };
+  }
+
+  const wid = String(workspaceId || connection?.workspace_id || '').trim();
+  if (wid) {
+    const settings = await loadWorkspaceSettingsJson(env, wid);
+    const localRoot =
+      settings && typeof settings.workspace_root === 'string'
+        ? settings.workspace_root.trim()
+        : '';
+    if (localRoot) {
+      return { cwd: localRoot, strategy: 'host_default' };
     }
+    const fallback = await loadWorkspaceRootFromSettings(env, wid);
+    if (fallback) {
+      return { cwd: fallback, strategy: 'host_default' };
+    }
+  }
+
+  if (strategy === 'user_home') {
     return { cwd: null, strategy };
   }
 
-  if (strategy === 'platform_workspace') {
-    const cwd = buildPtySessionWorkingDir(env, { tenantId, userId });
-    return { cwd, strategy };
-  }
-
-  const cwd = buildPtySessionWorkingDir(env, { tenantId, userId });
-  return { cwd, strategy };
+  // Legacy platform_workspace → no tenant path; null cwd (shell default)
+  return { cwd: null, strategy: strategy === 'platform_workspace' ? 'host_default' : strategy };
 }
 
 /**
@@ -185,11 +172,10 @@ export async function resolveTerminalCwd(env, { connection = null, tenantId, use
  * @param {string|null|undefined} workspaceRoot
  */
 export function deriveMoviemodeRepoRootFromCandidate(candidate, workspaceRoot) {
-  const c = String(candidate || '').trim().replace(/\/+$/, '');
-  const ws = String(workspaceRoot || '').trim().replace(/\/+$/, '');
-  if (!c) return ws ? `${ws}/${PTY_REPO_DIRNAME}` : null;
-  if (c.endsWith(`/${PTY_REPO_DIRNAME}`)) return c;
-  if (ws && c === ws) return `${ws}/${PTY_REPO_DIRNAME}`;
+  const c = String(candidate || '').trim().replace(/[/\\]+$/, '');
+  const ws = String(workspaceRoot || '').trim().replace(/[/\\]+$/, '');
+  if (!c) return ws || null;
+  if (ws && c === ws) return ws;
   return c;
 }
 
@@ -212,43 +198,37 @@ async function loadActiveTerminalSessionCwd(env, userId, workspaceId) {
 }
 
 /**
- * Resolve Remotion repo root for MovieMode export (same rules as terminal PTY cwd).
+ * MovieMode / Remotion export — user's local workspace_root from D1 (not VM clone).
  * @param {any} env
  * @param {{ tenantId: string, userId: string, workspaceId: string }} ctx
- * @returns {Promise<{ repoRoot: string, workspaceRoot: string, source: string } | null>}
  */
 export async function resolveMoviemodeRepoRootForSession(env, { tenantId, userId, workspaceId }) {
   const wid = String(workspaceId || '').trim();
   const uid = String(userId || '').trim();
-  let tid = String(tenantId || '').trim();
-  if (!tid && uid) {
-    tid = String((await resolvePtyTenantIdForUser(env, null, uid)) || '').trim();
-  }
-  if (!tid || !uid || !wid) return null;
+  if (!uid || !wid) return null;
 
-  const workspaceRoot = buildPtyUserWorkspaceRoot(env, { tenantId: tid, userId: uid });
-  if (!workspaceRoot) return null;
+  const settings = await loadWorkspaceSettingsJson(env, wid);
+  const workspaceRoot =
+    (settings && typeof settings.workspace_root === 'string'
+      ? settings.workspace_root.trim()
+      : '') || (await loadWorkspaceRootFromSettings(env, wid));
 
   const candidates = [];
 
-  const tok = await assertWorkspaceTokenForPty(env, wid, tid);
+  const tok = await assertWorkspaceTokenForPty(env, wid, tenantId);
   if (tok.ok && tok.repo_path) candidates.push({ path: tok.repo_path, source: 'mcp_workspace_tokens.repo_path' });
 
   const sessionCwd = await loadActiveTerminalSessionCwd(env, uid, wid);
   if (sessionCwd) candidates.push({ path: sessionCwd, source: 'terminal_sessions.cwd' });
 
-  candidates.push({ path: workspaceRoot, source: 'pty_workspace_layout' });
+  if (workspaceRoot) candidates.push({ path: workspaceRoot, source: 'workspace_settings.workspace_root' });
 
   for (const c of candidates) {
     const repoRoot = deriveMoviemodeRepoRootFromCandidate(c.path, workspaceRoot);
-    if (repoRoot) return { repoRoot, workspaceRoot, source: c.source };
+    if (repoRoot) return { repoRoot, workspaceRoot: workspaceRoot || repoRoot, source: c.source };
   }
 
-  return {
-    repoRoot: `${workspaceRoot}/${PTY_REPO_DIRNAME}`,
-    workspaceRoot,
-    source: 'pty_workspace_layout',
-  };
+  return null;
 }
 
 /**
@@ -316,7 +296,7 @@ export async function validateMoviemodeRepoOnPty(env, repoRoot, ctx = {}) {
     return {
       ok: false,
       errorCode: 'workspace_context_missing',
-      message: 'Could not resolve PTY workspace for export',
+      message: 'Could not resolve local workspace for export',
     };
   }
 
@@ -332,8 +312,8 @@ export async function validateMoviemodeRepoOnPty(env, repoRoot, ctx = {}) {
       errorCode: 'repo_not_found_in_workspace',
       expectedPath: root,
       message:
-        'GitHub repo not found in your PTY workspace. Clone or sync inneranimalmedia into the workspace shown in Terminal, then retry export.',
-      uiHint: 'clone_repo_into_workspace',
+        'Repo not found at workspace_settings.workspace_root on your machine. Clone locally, then retry export.',
+      uiHint: 'clone_repo_on_local_machine',
     };
   }
 
@@ -358,4 +338,4 @@ export async function validateMoviemodeRepoOnPty(env, repoRoot, ctx = {}) {
   return { ok: true, repoRoot: root };
 }
 
-export { REMOTION_INSTALL_CMD };
+export { REMOTION_INSTALL_CMD, IAM_GCP_EXECOS_HOME, vmWorkspaceRootFromSettings, resolveRepoRootForHost };

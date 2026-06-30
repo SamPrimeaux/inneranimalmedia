@@ -1,45 +1,49 @@
 /**
- * Host-specific workspace roots — Mac localpty vs GCP iam-tunnel Linux clone.
- * GitHub is SSOT; VM path is always ~/inneranimalmedia on iam-tunnel.
+ * Host cwd resolution — stateless infrastructure model.
+ *
+ * Repos live on user machines (workspace_settings.workspace_root) and GitHub only.
+ * GCP iam-tunnel runs ExecOS on :3099 — no repo clones, no /workspace tenant paths.
  */
 
-export const IAM_GCP_OPERATOR_REPO = '/home/samprimeaux/inneranimalmedia';
+/** ExecOS install dir on GCP VM — default cwd for agentsam_terminal_remote. */
+export const IAM_GCP_EXECOS_HOME = '/home/samprimeaux/ExecOS';
+
+/** @deprecated use IAM_GCP_EXECOS_HOME — VM holds ExecOS only, not a git clone */
+export const IAM_GCP_OPERATOR_REPO = IAM_GCP_EXECOS_HOME;
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
 }
 
 /**
- * Map D1 workspace_root (often Mac) to Linux GCP home layout.
- * @param {string} root
+ * GCP remote lane cwd — ExecOS dir only (never a repo path).
+ * @param {Record<string, unknown>|null|undefined} [_settings]
  */
-export function translateHostRootForGcp(root) {
-  const p = trim(root).replace(/\/+$/, '');
-  if (!p) return '';
-  if (p.startsWith('/Users/')) {
-    return `/home/${p.slice('/Users/'.length)}`;
-  }
-  return p;
+export function gcpRemoteExecCwd(_settings = null) {
+  return IAM_GCP_EXECOS_HOME;
+}
+
+/** @deprecated Do not map Mac repo paths onto GCP — VM has no clones */
+export function translateHostRootForGcp(_root) {
+  return IAM_GCP_EXECOS_HOME;
 }
 
 /**
  * @param {Record<string, unknown>|null|undefined} settings
  */
 export function vmWorkspaceRootFromSettings(settings) {
-  if (!settings || typeof settings !== 'object') return '';
-  const explicit = trim(settings.vm_workspace_root);
-  if (explicit) return explicit;
-  const macRoot = trim(settings.workspace_root);
-  return translateHostRootForGcp(macRoot) || IAM_GCP_OPERATOR_REPO;
+  if (settings && typeof settings === 'object') {
+    const explicit = trim(settings.execos_home || settings.gcp_execos_home);
+    if (explicit) return explicit;
+  }
+  return IAM_GCP_EXECOS_HOME;
 }
 
 /**
+ * GCP remote: no auto-cd into a repo — commands run from ExecOS home.
  * @param {Record<string, unknown>|null|undefined} settings
  */
 export function vmWorkspaceCdCommandFromSettings(settings) {
-  if (!settings || typeof settings !== 'object') return '';
-  const explicit = trim(settings.vm_workspace_cd_command);
-  if (explicit) return explicit;
   const root = vmWorkspaceRootFromSettings(settings);
   return root ? `cd ${root}` : '';
 }
@@ -56,6 +60,8 @@ export function connectionUsesGcpRepoLayout(connection) {
 }
 
 /**
+ * Local/user_hosted_tunnel: workspace_settings.workspace_root.
+ * GCP platform_vm: ExecOS home only.
  * @param {string|null|undefined} workspaceRoot
  * @param {{ connection?: Record<string, unknown>|null, settings?: Record<string, unknown>|null, forceGcp?: boolean }} [ctx]
  */
@@ -63,11 +69,7 @@ export function resolveRepoRootForHost(workspaceRoot, ctx = {}) {
   const root = trim(workspaceRoot);
   const forceGcp = ctx.forceGcp === true || connectionUsesGcpRepoLayout(ctx.connection);
   if (forceGcp) {
-    if (ctx.settings) {
-      const fromSettings = vmWorkspaceRootFromSettings(ctx.settings);
-      if (fromSettings) return fromSettings;
-    }
-    return translateHostRootForGcp(root) || IAM_GCP_OPERATOR_REPO;
+    return vmWorkspaceRootFromSettings(ctx.settings);
   }
   return root;
 }

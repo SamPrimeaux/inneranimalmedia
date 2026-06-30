@@ -156,7 +156,7 @@ export async function provisionIdentitySignup(env, identity) {
     (provider === 'email' ? email : `${authUserId}:${provider}`);
   const tenantSlug = tenantSlugFromId(tenantId);
   const orgId = tenantId;
-  const ptyPath = `/workspace/${orgId}/${authUserId}/`;
+  const ptyPath = null;
   const nowSec = Math.floor(Date.now() / 1000);
   const membershipRowId = membershipId();
   const twsId = tenantWorkspaceLinkId();

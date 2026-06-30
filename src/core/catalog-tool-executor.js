@@ -97,27 +97,21 @@ export function wrapWorkspaceShellCommand(settingsJson, command, opts = {}) {
   if (/^\s*cd\s+/i.test(cmd)) return cmd;
 
   const gcpExec = opts.gcpExec === true;
-  const root = gcpExec
-    ? vmWorkspaceRootFromSettings(parsed)
-    : String(parsed.workspace_root || '').trim();
+  if (gcpExec) {
+    // GCP VM is stateless (ExecOS only) — deploy/git commands are self-contained from settings.
+    return cmd;
+  }
+
+  const root = String(parsed.workspace_root || '').trim();
   if (root && cmd.includes(root)) return cmd;
 
-  const cdPrefix = gcpExec
-    ? vmWorkspaceCdCommandFromSettings(parsed)
-    : String(parsed.workspace_cd_command || '').trim();
+  const cdPrefix = String(parsed.workspace_cd_command || '').trim();
   if (cdPrefix) {
     if (/&&\s*$/.test(cdPrefix)) return `${cdPrefix} ${cmd}`;
     if (cdPrefix.includes('&&')) return `${cdPrefix} && ${cmd}`;
     return `${cdPrefix} && ${cmd}`;
   }
   if (root) return `cd ${root} && ${cmd}`;
-  if (gcpExec) {
-    const translated = resolveRepoRootForHost(String(parsed.workspace_root || ''), {
-      settings: parsed,
-      forceGcp: true,
-    });
-    if (translated) return `cd ${translated} && ${cmd}`;
-  }
   return cmd;
 }
 
@@ -1418,7 +1412,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         cmd = wrapWorkspaceShellCommand(settingsJson, cmd, { gcpExec });
       }
       const responseWorkspaceRoot = gcpExec
-        ? vmWorkspaceRootFromSettings(parsedSettings)
+        ? (await import('./host-workspace-paths.js')).IAM_GCP_EXECOS_HOME
         : workspaceRoot;
       const out = await termHandlers.run_command(
         {

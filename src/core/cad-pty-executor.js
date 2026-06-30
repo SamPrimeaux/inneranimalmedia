@@ -52,9 +52,7 @@ async function patchCadJob(env, jobId, patch) {
 }
 
 /**
- * Resolve inneranimalmedia repo on ExecOS for CAD toolchain scripts.
- * Operators: host_default repo from workspace_settings (Mac→Linux on GCP).
- * Tenants: /workspace/{tenant}/{user}/inneranimalmedia isolation.
+ * Resolve CAD exec cwd on ExecOS GCP (stateless — no repo clone on VM).
  * @param {any} env
  * @param {{ userId: string, tenantId?: string|null, workspaceId: string }} ctx
  */

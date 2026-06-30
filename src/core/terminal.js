@@ -10,7 +10,7 @@ import {
   WORKSPACE_CONTEXT_MISSING,
   WORKSPACE_ROOT_CONTEXT_MISSING,
 } from './bootstrap.js';
-import { resolvePtyTenantIdForUser, buildPtySessionWorkingDir } from './pty-workspace-paths.js';
+import { resolvePtyTenantIdForUser, resolveTerminalCwd } from './pty-workspace-paths.js';
 import { resolveTerminalExecRouting } from './terminal-routing-policy.js';
 import { notifySam } from './notifications';
 import { resolveUserPtyToken, USER_PTY_TOKEN_SENTINEL } from './user-secrets.js';

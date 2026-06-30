@@ -600,7 +600,7 @@ export async function ensureUserTerminalConnection(env, userId, workspaceId, ten
           .catch(() => {});
       }
     } else {
-      const cwdStrategy = isSamOperatorLaneUserId(uid) ? 'host_default' : 'platform_workspace';
+      const cwdStrategy = 'host_default';
       connId = `conn_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
       await env.DB.prepare(
         `INSERT INTO terminal_connections

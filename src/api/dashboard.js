@@ -6,7 +6,7 @@ import {
 } from '../core/bootstrap.js';
 import {
     resolvePtyTenantIdForUser,
-    buildPtySessionWorkingDir,
+    resolveTerminalCwd,
 } from '../core/pty-workspace-paths.js';
 import { getIntegrationToken } from '../integrations/tokens.js';
 import { getWorkspaceTheme, normalizeThemeSlug } from '../core/themes.js';
@@ -54,14 +54,20 @@ function terminalNotEnabledResponse() {
     }), { status: 403, headers: { 'Content-Type': 'application/json' } });
 }
 
-/** PTY tenant + cwd from authenticated user (active_tenant_id) — never workspace-derived. */
-async function resolveTerminalIdentityContext(env, authUser) {
+/** PTY tenant + cwd from workspace_settings (local) or ExecOS home (GCP remote). */
+async function resolveTerminalIdentityContext(env, authUser, workspaceId = null) {
     const userId = String(authUser?.id || '').trim();
     const tenantId = await resolvePtyTenantIdForUser(env, authUser, userId);
-    const workingDir =
-        tenantId && userId
-            ? buildPtySessionWorkingDir(env, { tenantId, userId })
-            : null;
+    let workingDir = null;
+    const wid = workspaceId != null ? String(workspaceId).trim() : '';
+    if (wid && env?.DB) {
+        const cwdResolved = await resolveTerminalCwd(env, {
+            tenantId,
+            userId,
+            workspaceId: wid,
+        });
+        workingDir = cwdResolved.cwd;
+    }
     const personUuid =
         authUser?.person_uuid != null && String(authUser.person_uuid).trim() !== ''
             ? String(authUser.person_uuid).trim()
@@ -459,7 +465,7 @@ export async function handleDashboardApi(request, url, env, ctx) {
         if (targetTypeQ) doUrl.searchParams.set('target_type', targetTypeQ);
         const connectionIdQ = (url.searchParams.get('connection_id') || '').trim();
         if (connectionIdQ) doUrl.searchParams.set('connection_id', connectionIdQ);
-        const termCtx = await resolveTerminalIdentityContext(env, authUser);
+        const termCtx = await resolveTerminalIdentityContext(env, authUser, workspaceId);
         if (!termCtx.tenantId) {
             return jsonResponse({ error: 'TENANT_CONTEXT_REQUIRED', code: 'TENANT_CONTEXT_REQUIRED' }, 403);
         }
@@ -547,7 +553,7 @@ export async function handleDashboardApi(request, url, env, ctx) {
         doUrl.pathname = '/terminal/status';
         doUrl.searchParams.set('execution_mode', executionMode);
         doUrl.searchParams.set('workspace_id', workspaceId);
-        const termCtx = await resolveTerminalIdentityContext(env, authUser);
+        const termCtx = await resolveTerminalIdentityContext(env, authUser, workspaceId);
         if (!termCtx.tenantId) {
             return jsonResponse({ error: 'TENANT_CONTEXT_REQUIRED', code: 'TENANT_CONTEXT_REQUIRED' }, 403);
         }
@@ -582,7 +588,7 @@ export async function handleDashboardApi(request, url, env, ctx) {
         doUrl.pathname = '/terminal/exec';
         doUrl.searchParams.set('execution_mode', executionMode);
         doUrl.searchParams.set('workspace_id', workspaceId);
-        const termCtx = await resolveTerminalIdentityContext(env, authUser);
+        const termCtx = await resolveTerminalIdentityContext(env, authUser, workspaceId);
         if (!termCtx.tenantId) {
             return jsonResponse({ error: 'TENANT_CONTEXT_REQUIRED', code: 'TENANT_CONTEXT_REQUIRED' }, 403);
         }

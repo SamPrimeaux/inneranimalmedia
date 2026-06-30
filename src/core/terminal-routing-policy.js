@@ -38,18 +38,11 @@ export function resolveTerminalExecRouting(ctx = {}) {
   const explicitType = ctx.target_type != null ? String(ctx.target_type).trim() : '';
 
   if (LOCAL_TOOL_NAMES.has(toolName)) {
-    if (!isSamOperatorLaneUserId(ctx.user_id ?? ctx.userId)) {
-      return {
-        target_type: explicitType || 'user_hosted_tunnel',
-        target_id: explicitTarget || null,
-        lane: 'forbidden_non_operator',
-        forbidden: true,
-      };
-    }
+    // Any user with a provisioned device tunnel (Connor Windows, Sam Mac, etc.)
     return {
       target_type: explicitType || 'user_hosted_tunnel',
       target_id: explicitTarget || null,
-      lane: 'mac_local',
+      lane: isSamOperatorLaneUserId(ctx.user_id ?? ctx.userId) ? 'mac_local' : 'user_local',
     };
   }
 
