@@ -114,7 +114,9 @@ export const AgentChatSessionRowMenu: FC<Props> = ({
 
   const assignProject = (projectId: string | null) =>
     void run(async () => {
-      await onPatch(id, { project_id: projectId });
+      const p = projects.find((x) => x.id === projectId);
+      const resolved = p?.chat_project_id || projectId;
+      await onPatch(id, { project_id: resolved });
     });
 
   const deleteSession = () => {
@@ -231,7 +233,10 @@ export const AgentChatSessionRowMenu: FC<Props> = ({
                         disabled={busy}
                         onClick={() => assignProject(p.id)}
                         className={`block w-full truncate px-3 py-1.5 text-left text-[10px] hover:bg-[var(--bg-hover)] disabled:opacity-50 ${
-                          session.project_id === p.id ? 'text-[var(--solar-cyan)]' : ''
+                          session.project_id === p.id ||
+                          (p.chat_project_id && session.project_id === p.chat_project_id)
+                            ? 'text-[var(--solar-cyan)]'
+                            : ''
                         }`}
                       >
                         {p.name}

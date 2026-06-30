@@ -107,15 +107,6 @@ function mapWorkspaceProjectType(projectType) {
   return map[t] || 'other';
 }
 
-/** workspace_projects status enum differs from projects.status. */
-function mapWorkspaceProjectStatus(projectStatus) {
-  const s = String(projectStatus || '').trim().toLowerCase();
-  if (s === 'archived' || s === 'maintenance') return 'archived';
-  if (s === 'production') return 'done';
-  if (s === 'staging' || s === 'qa') return 'on_hold';
-  return 'active';
-}
-
 function mapDbStatusToUi(status) {
   const s = String(status || '').toLowerCase();
   if (s === 'blocked' || s === 'maintenance') return 'blocked';
@@ -281,6 +272,8 @@ async function handleOverview(request, url, env, authUser) {
   }
 
   const wpCoverByProjectId = new Map();
+  /** @type {Map<string, string>} projects.id → workspace_projects.id */
+  const chatProjectIdByProjectsId = new Map();
 
   if (workspaceId) {
     try {
@@ -302,6 +295,8 @@ async function handleOverview(request, url, env, authUser) {
           linkedId = null;
         }
         const cover = extractCoverImageUrl(null, meta);
+        if (linkedId) chatProjectIdByProjectsId.set(linkedId, String(wp.id));
+        chatProjectIdByProjectsId.set(String(wp.id), String(wp.id));
         if (cover) {
           if (linkedId) wpCoverByProjectId.set(linkedId, cover);
           wpCoverByProjectId.set(String(wp.id), cover);
@@ -485,6 +480,7 @@ async function handleOverview(request, url, env, authUser) {
       tags,
       workspace_id: p.workspace_id || null,
       tenant_id: p.tenant_id || null,
+      chat_project_id: chatProjectIdByProjectsId.get(id) || null,
       cover_image_url: wpCoverByProjectId.get(id) || extractCoverImageUrl(p, parseMetadataObject(p?.metadata_json)),
     };
   });
@@ -665,6 +661,26 @@ async function handleOverview(request, url, env, authUser) {
   }
 }
 
+async function attachChatProjectIds(env, rows) {
+  if (!rows?.length) return rows || [];
+  const out = [];
+  for (const row of rows) {
+    let chatProjectId = null;
+    try {
+      const wp = await env.DB.prepare(
+        `SELECT id FROM workspace_projects WHERE json_extract(metadata_json, '$.projects_table_id') = ? LIMIT 1`,
+      )
+        .bind(String(row.id))
+        .first();
+      if (wp?.id) chatProjectId = String(wp.id);
+    } catch {
+      /* optional */
+    }
+    out.push({ ...row, chat_project_id: chatProjectId });
+  }
+  return out;
+}
+
 async function handleList(env, authUser, url) {
   const tenantId = authUser.tenant_id ? String(authUser.tenant_id) : null;
   const workspaceId =
@@ -672,7 +688,8 @@ async function handleList(env, authUser, url) {
     (authUser.active_workspace_id ? String(authUser.active_workspace_id) : null);
   const { sql: whereSql, binds: whereBinds } = buildProjectWhereClause(workspaceId, tenantId);
   const { results } = await env.DB.prepare(`SELECT p.* FROM projects p WHERE ${whereSql} ORDER BY COALESCE(p.priority,0) DESC, p.name ASC`).bind(...whereBinds).all();
-  return jsonResponse({ ok: true, success: true, projects: results || [] });
+  const projects = await attachChatProjectIds(env, results || []);
+  return jsonResponse({ ok: true, success: true, projects });
 }
 
 async function handleGetOne(env, authUser, id) {

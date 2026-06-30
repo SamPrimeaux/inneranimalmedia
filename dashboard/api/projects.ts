@@ -37,6 +37,7 @@ export type OverviewProject = {
   workspace_id: string | null;
   tenant_id: string | null;
   cover_image_url?: string | null;
+  chat_project_id?: string | null;
 };
 
 export type OverviewMilestone = {

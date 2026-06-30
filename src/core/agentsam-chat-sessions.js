@@ -16,6 +16,7 @@ import {
   CHAT_COMPACT_TOKEN_THRESHOLD,
   writeR2Text,
 } from './exec-context-tier.js';
+import { expandChatProjectRefs, resolveChatProjectId } from './project-chat-link.js';
 
 const STOP_WORDS = new Set([
   'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'is', 'are', 'was',
@@ -511,15 +512,31 @@ export function scheduleWorkspaceStateConversationUpdate(env, ctx, input) {
 /**
  * List real chat threads for nav/history (agentsam_chat_sessions SSOT — not raw agent_run rows).
  * @param {any} env
- * @param {{ userId: string, tenantId: string, limit?: number, includeArchived?: boolean }} input
+ * @param {{ userId: string, tenantId: string, limit?: number, includeArchived?: boolean, projectId?: string|null, workspaceId?: string|null }} input
  */
 export async function listUserChatSessions(env, input) {
   if (!env?.DB) return [];
   const userId = String(input.userId || '').trim();
   const tenantId = String(input.tenantId || '').trim();
   if (!userId || !tenantId) return [];
-  const lim = Math.min(Math.max(Number(input.limit) || 40, 1), 100);
+  const lim = Math.min(Math.max(Number(input.limit) || 40, 1), 200);
   const archivedClause = input.includeArchived ? '' : 'AND COALESCE(cs.is_archived, 0) = 0';
+
+  let projectClause = '';
+  /** @type {string[]} */
+  const projectBinds = [];
+  const projectRef = input.projectId != null ? String(input.projectId).trim() : '';
+  if (projectRef) {
+    const { wpId, projectsId } = await expandChatProjectRefs(env, projectRef, input.workspaceId || null);
+    const ids = [...new Set([wpId, projectsId, projectRef].filter(Boolean))];
+    if (ids.length === 1) {
+      projectClause = 'AND cs.project_id = ?';
+      projectBinds.push(ids[0]);
+    } else if (ids.length > 1) {
+      projectClause = `AND cs.project_id IN (${ids.map(() => '?').join(', ')})`;
+      projectBinds.push(...ids);
+    }
+  }
 
   try {
     const res = await env.DB.prepare(
@@ -547,12 +564,14 @@ export async function listUserChatSessions(env, input) {
               ) AS artifact_count
        FROM agentsam_chat_sessions cs
        LEFT JOIN workspace_projects wp ON wp.id = cs.project_id
+         OR json_extract(wp.metadata_json, '$.projects_table_id') = cs.project_id
        WHERE cs.user_id = ? AND cs.tenant_id = ?
          ${archivedClause}
+         ${projectClause}
        ORDER BY cs.is_starred DESC, cs.updated_at DESC
        LIMIT ?`,
     )
-      .bind(userId, tenantId, lim)
+      .bind(userId, tenantId, ...projectBinds, lim)
       .all();
     const rows = res?.results || [];
     return rows.map((r) => ({
@@ -638,8 +657,9 @@ export async function patchUserChatSession(env, input) {
   if (patch.project_id === null || patch.project_id === '') {
     sets.push('project_id = NULL');
   } else if (typeof patch.project_id === 'string' && patch.project_id.trim()) {
+    const resolved = await resolveChatProjectId(env, patch.project_id.trim(), patch.workspace_id || null);
     sets.push('project_id = ?');
-    binds.push(patch.project_id.trim());
+    binds.push(resolved || patch.project_id.trim());
   }
 
   if (!sets.length) return { ok: false, error: 'no_changes' };

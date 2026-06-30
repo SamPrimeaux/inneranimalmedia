@@ -9,10 +9,17 @@ type Props = {
   open: boolean;
   onClose: () => void;
   defaultWorkspaceId: string | null;
-  onCreated: () => void;
+  onCreated: (projectId?: string) => void;
+  variant?: 'full' | 'compact';
 };
 
-export default function NewProjectModal({ open, onClose, defaultWorkspaceId, onCreated }: Props) {
+export default function NewProjectModal({
+  open,
+  onClose,
+  defaultWorkspaceId,
+  onCreated,
+  variant = 'full',
+}: Props) {
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
   const [name, setName] = useState("");
   const [clientName, setClientName] = useState("");
@@ -67,6 +74,8 @@ export default function NewProjectModal({ open, onClose, defaultWorkspaceId, onC
 
   if (!open) return null;
 
+  const isCompact = variant === 'compact';
+
   const tags = tagsRaw
     .split(",")
     .map((t) => t.trim())
@@ -110,13 +119,75 @@ export default function NewProjectModal({ open, onClose, defaultWorkspaceId, onC
       setError(res.error || "Create failed.");
       return;
     }
-    onCreated();
+    const createdId =
+      res.project && typeof res.project === 'object' && res.project !== null && 'id' in res.project
+        ? String((res.project as { id?: string }).id || '')
+        : '';
+    onCreated(createdId || undefined);
     onClose();
     setName("");
     setDescription("");
     setTagsRaw("");
     setBudgetUsd("");
     setAdvanced(false);
+  }
+
+  if (isCompact) {
+    return (
+      <div
+        className="fixed inset-0 z-[120] flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
+        role="presentation"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
+        <div
+          className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6 shadow-xl text-neutral-900"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-project-compact-title"
+        >
+          <div className="flex items-start justify-between mb-5">
+            <h2 id="new-project-compact-title" className="text-lg font-medium">
+              Create a project
+            </h2>
+            <button type="button" className="rounded-md p-1 text-neutral-400 hover:bg-neutral-100" onClick={onClose} aria-label="Close">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          {error ? <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
+          <label className="block text-sm font-medium text-neutral-700 mb-1.5">What are you working on?</label>
+          <input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Name your project"
+            className="w-full px-3.5 py-2.5 text-sm bg-white border border-neutral-200 rounded-lg outline-none focus:border-neutral-400 mb-4"
+          />
+          <label className="block text-sm font-medium text-neutral-700 mb-1.5">What are you trying to achieve?</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Describe your project, goals, subject, etc…"
+            rows={4}
+            className="w-full px-3.5 py-2.5 text-sm bg-white border border-neutral-200 rounded-lg outline-none focus:border-neutral-400 resize-none mb-6"
+          />
+          <div className="flex justify-end gap-2">
+            <button type="button" className="px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100 rounded-lg" onClick={onClose} disabled={submitting}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!name.trim() || submitting}
+              className="px-4 py-2 text-sm font-medium bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 disabled:opacity-40"
+              onClick={() => void submit()}
+            >
+              {submitting ? 'Creating…' : 'Create project'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -85,8 +85,10 @@ export default function ChatsPage() {
     if (!selectedCount || busy) return;
     setBusy(true);
     try {
+      const p = projectId ? projects.find((x) => x.id === projectId) : null;
+      const resolved = projectId ? p?.chat_project_id || projectId : null;
       await Promise.all(
-        [...selected].map((id) => patchSession(id, { project_id: projectId })),
+        [...selected].map((id) => patchSession(id, { project_id: resolved })),
       );
       clearSelection();
       setMoveOpen(false);

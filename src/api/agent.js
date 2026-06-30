@@ -3454,8 +3454,12 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       }).catch(() => {});
       return jsonResponse({ id, status: 'active' });
     }
-    const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '40', 10) || 40, 1), 100);
-    const results = await listUserChatSessions(env, { userId, tenantId, limit });
+    const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '40', 10) || 40, 1), 200);
+    const projectId = url.searchParams.get('project_id') || url.searchParams.get('projectId') || null;
+    const workspaceId =
+      url.searchParams.get('workspace_id') ||
+      (authUser.active_workspace_id ? String(authUser.active_workspace_id) : null);
+    const results = await listUserChatSessions(env, { userId, tenantId, limit, projectId, workspaceId });
     return jsonResponse(results);
   }
 

@@ -3,7 +3,7 @@ import { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../agentChatConstants';
 import type { AgentSessionRow } from '../agentSessionsCatalog';
 import { conversationIdFromSession } from '../agentSessionsCatalog';
 
-export type AgentChatProjectOption = { id: string; name: string };
+export type AgentChatProjectOption = { id: string; name: string; chat_project_id?: string | null };
 
 async function sessionMutation(id: string, method: 'PATCH' | 'DELETE', body?: Record<string, unknown>) {
   const r = await fetch(`/api/agent/sessions/${encodeURIComponent(id)}`, {
@@ -75,9 +75,10 @@ export function useAgentChatSessions(opts?: { limit?: number; refreshKey?: numbe
         const list = Array.isArray(rows) ? rows : rows?.projects || [];
         setProjects(
           list
-            .map((p: { id?: string; name?: string }) => ({
+            .map((p: { id?: string; name?: string; chat_project_id?: string | null }) => ({
               id: String(p.id || '').trim(),
               name: String(p.name || 'Project').trim(),
+              chat_project_id: p.chat_project_id ? String(p.chat_project_id).trim() : null,
             }))
             .filter((p: AgentChatProjectOption) => p.id),
         );

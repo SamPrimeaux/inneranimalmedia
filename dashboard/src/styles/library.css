@@ -2318,3 +2318,571 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Projects grid (Claude-style) ─────────────────────────────────────────── */
+
+.artifacts-drive-shell .lib-proj-grid-surface,
+.artifacts-drive-shell .lib-proj-detail {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 28px 32px 40px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-head h1,
+.artifacts-drive-shell .lib-proj-detail-head h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 500;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-proj-grid-search {
+  position: relative;
+  margin-bottom: 28px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-search svg {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9aa0a6;
+}
+
+.artifacts-drive-shell .lib-proj-grid-search input {
+  width: 100%;
+  padding: 10px 14px 10px 40px;
+  font: inherit;
+  font-size: 14px;
+  border: 1px solid #dadce0;
+  border-radius: 10px;
+  background: #fff;
+  outline: none;
+}
+
+.artifacts-drive-shell .lib-proj-grid-search input:focus {
+  border-color: #80868b;
+}
+
+.artifacts-drive-shell .lib-proj-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 760px) {
+  .artifacts-drive-shell .lib-proj-grid {
+    grid-template-columns: 1fr;
+  }
+  .artifacts-drive-shell .lib-proj-grid-surface,
+  .artifacts-drive-shell .lib-proj-detail {
+    padding: 20px 16px 32px;
+  }
+}
+
+.artifacts-drive-shell .lib-proj-grid-card {
+  text-align: left;
+  padding: 20px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card:hover {
+  border-color: #bdc1c6;
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.12);
+}
+
+.artifacts-drive-shell .lib-proj-grid-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card-top h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card-desc {
+  margin: 0 0 24px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #5f6368;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card-meta {
+  margin: 0;
+  font-size: 12px;
+  color: #9aa0a6;
+}
+
+.artifacts-drive-shell .lib-proj-star,
+.artifacts-drive-shell .lib-proj-star-btn {
+  color: #f9ab00;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .lib-proj-star-btn {
+  opacity: 0;
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card:hover .lib-proj-star-btn {
+  opacity: 1;
+}
+
+.artifacts-drive-shell .lib-proj-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 0;
+}
+
+.artifacts-drive-shell .lib-proj-btn.primary {
+  background: #202124;
+  color: #fff;
+}
+
+.artifacts-drive-shell .lib-proj-btn.primary:hover {
+  background: #3c4043;
+}
+
+.artifacts-drive-shell .lib-proj-btn.outline {
+  background: #fff;
+  border: 1px solid #dadce0;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-proj-btn.ghost {
+  background: transparent;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-proj-btn.ghost:hover {
+  background: #f1f3f4;
+}
+
+.artifacts-drive-shell .lib-proj-btn.sm {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-empty {
+  text-align: center;
+  padding: 48px 16px;
+}
+
+.artifacts-drive-shell .lib-proj-back {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-bottom: 24px;
+  font: inherit;
+  font-size: 14px;
+  color: #5f6368;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-proj-back:hover {
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-proj-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.artifacts-drive-shell .lib-proj-detail-head p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-proj-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.artifacts-drive-shell .lib-proj-icon-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #5f6368;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-proj-icon-btn:hover {
+  background: #f1f3f4;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-proj-menu {
+  position: absolute;
+  right: 0;
+  top: 40px;
+  z-index: 30;
+  min-width: 168px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(60, 64, 67, 0.16);
+  padding: 6px 0;
+}
+
+.artifacts-drive-shell .lib-proj-menu button,
+.artifacts-drive-shell .lib-proj-menu a {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  text-align: left;
+  font-size: 13px;
+  color: #202124;
+  text-decoration: none;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-proj-menu button:hover,
+.artifacts-drive-shell .lib-proj-menu a:hover {
+  background: #f8f9fa;
+}
+
+.artifacts-drive-shell .lib-proj-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+  gap: 32px;
+}
+
+@media (max-width: 900px) {
+  .artifacts-drive-shell .lib-proj-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.artifacts-drive-shell .lib-proj-composer {
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 14px;
+  margin-bottom: 24px;
+}
+
+.artifacts-drive-shell .lib-proj-composer p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: #9aa0a6;
+}
+
+.artifacts-drive-shell .lib-proj-composer-plus {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  background: #fff;
+  color: #9aa0a6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-proj-chat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.artifacts-drive-shell .lib-proj-chat-count {
+  font-size: 12px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-proj-chat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.artifacts-drive-shell .lib-proj-chat-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid #f1f3f4;
+  background: none;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-proj-chat-row span:first-child {
+  font-size: 14px;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-proj-chat-row span:last-child {
+  font-size: 12px;
+  color: #9aa0a6;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .lib-proj-chat-row:hover span:first-child {
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-proj-chat-empty {
+  padding: 16px 0;
+  font-size: 13px;
+}
+
+.artifacts-drive-shell .lib-proj-card {
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 14px;
+  margin-bottom: 16px;
+}
+
+.artifacts-drive-shell .lib-proj-card.relative {
+  position: relative;
+}
+
+.artifacts-drive-shell .lib-proj-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.artifacts-drive-shell .lib-proj-card-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-proj-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f1f3f4;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-proj-card p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-proj-card-meta {
+  margin-top: 8px !important;
+  font-size: 11px !important;
+  color: #9aa0a6 !important;
+}
+
+.artifacts-drive-shell .lib-proj-instructions {
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid #e8eaed;
+  border-radius: 8px;
+  resize: vertical;
+  min-height: 88px;
+  outline: none;
+}
+
+.artifacts-drive-shell .lib-proj-files-empty {
+  border: 1px dashed #dadce0;
+  border-radius: 10px;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.artifacts-drive-shell .lib-proj-files-empty p {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #9aa0a6;
+}
+
+.artifacts-drive-shell .lib-proj-add-file-menu {
+  position: absolute;
+  right: 0;
+  top: 36px;
+  z-index: 20;
+  width: 220px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(60, 64, 67, 0.14);
+  padding: 6px 0;
+}
+
+.artifacts-drive-shell .lib-proj-add-file-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  color: #3c4043;
+  cursor: pointer;
+  text-align: left;
+}
+
+.artifacts-drive-shell .lib-proj-add-file-item:hover {
+  background: #f8f9fa;
+}
+
+.artifacts-drive-shell .lib-proj-add-file-item span {
+  color: #9aa0a6;
+}
+
+.artifacts-drive-shell .lib-proj-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 16px;
+}
+
+.artifacts-drive-shell .lib-proj-modal {
+  width: 100%;
+  max-width: 440px;
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #dadce0;
+  box-shadow: 0 16px 48px rgba(60, 64, 67, 0.2);
+  padding: 20px;
+}
+
+.artifacts-drive-shell .lib-proj-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.artifacts-drive-shell .lib-proj-modal-head h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.artifacts-drive-shell .lib-proj-modal-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid #dadce0;
+  border-radius: 10px;
+  margin-bottom: 12px;
+  color: #9aa0a6;
+}
+
+.artifacts-drive-shell .lib-proj-modal-search input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  font-size: 13px;
+  background: transparent;
+}
+
+.artifacts-drive-shell .lib-proj-add-chat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.artifacts-drive-shell .lib-proj-add-chat-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f3f4;
+}
+
+.artifacts-drive-shell .lib-proj-add-chat-title {
+  flex: 1;
+  font-size: 13px;
+  color: #202124;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifacts-drive-shell .lib-proj-add-chat-time {
+  font-size: 11px;
+  color: #9aa0a6;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .lib-proj-modal-empty {
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.artifacts-drive-shell .lib-proj-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
