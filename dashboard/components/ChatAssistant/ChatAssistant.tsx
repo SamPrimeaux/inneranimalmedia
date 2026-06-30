@@ -240,21 +240,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const { sessionUserId, workspaceId: ctxWorkspaceId, workspaces } = useWorkspace();
   const effectiveWsId = (workspaceId || ctxWorkspaceId || '').trim() || null;
 
-  const saveGithubRepoSelection = useCallback(
-    (full: string, filePath?: string | null, branch = 'main') => {
-      setGithubRepoContext(full);
-      if (filePath !== undefined) setChatGithubFilePath(filePath?.trim() || null);
-      setChatGithubBranch(branch.trim() || 'main');
-      const key = chatGithubContextStorageKey(sessionUserId, effectiveWsId, conversationId);
-      writeChatGithubContext(key, {
-        repo: full,
-        path: filePath?.trim() || null,
-        branch: branch.trim() || 'main',
-      });
-    },
-    [sessionUserId, effectiveWsId, conversationId],
-  );
-
   const agentsamPolicyRef = useRef<Record<string, unknown> | null>(null);
   useEffect(() => {
     agentsamPolicyRef.current = agentsamPolicy;
@@ -413,6 +398,22 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [githubRepoContext, setGithubRepoContext] = useState<string | null>(null);
   const [chatGithubFilePath, setChatGithubFilePath] = useState<string | null>(null);
   const [chatGithubBranch, setChatGithubBranch] = useState('main');
+
+  const saveGithubRepoSelection = useCallback(
+    (full: string, filePath?: string | null, branch = 'main') => {
+      setGithubRepoContext(full);
+      if (filePath !== undefined) setChatGithubFilePath(filePath?.trim() || null);
+      setChatGithubBranch(branch.trim() || 'main');
+      const key = chatGithubContextStorageKey(sessionUserId, effectiveWsId, conversationId);
+      writeChatGithubContext(key, {
+        repo: full,
+        path: filePath?.trim() || null,
+        branch: branch.trim() || 'main',
+      });
+    },
+    [sessionUserId, effectiveWsId, conversationId],
+  );
+
   const { setQuestionsIntake } = useEditor();
   const lastQuestionsBatchIdRef = useRef<string | null>(null);
 

@@ -158,7 +158,6 @@ export default defineConfig(({ mode }) => {
           },
           additionalManifestEntries: [
             { url: '/static/dashboard/shell.css', revision: null },
-            { url: '/offline.html', revision: null },
           ],
           navigateFallback: '/offline.html',
           navigateFallbackDenylist: [
