@@ -380,7 +380,7 @@ export default defineConfig(({ mode }) => {
         : []),
     ],
     resolve: {
-      dedupe: ['react', 'react-dom'],
+      dedupe: ['react', 'react-dom', 'remotion', '@remotion/player'],
       alias: {
         '@': path.resolve(__dirname, '.'),
       },
