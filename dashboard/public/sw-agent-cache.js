@@ -1,6 +1,7 @@
 /* Agent chunk precache — imported by Workbox-generated /sw.js */
 const SERVICES_MANIFEST_URL = 'https://services.inneranimalmedia.com/sw/manifest.json';
-const JS_CACHE_NAME = 'iam-dashboard-js-v1';
+const JS_CACHE_NAME = 'iam-dashboard-js-v2';
+const LEGACY_JS_CACHE_NAMES = ['iam-dashboard-js-v1'];
 
 /**
  * Optional control-plane manifest (services.inneranimalmedia.com).
@@ -45,7 +46,12 @@ async function warmTier1FromManifest() {
 }
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(warmTier1FromManifest());
+  event.waitUntil(
+    (async () => {
+      await Promise.all(LEGACY_JS_CACHE_NAMES.map((name) => caches.delete(name)));
+      await warmTier1FromManifest();
+    })(),
+  );
 });
 
 self.addEventListener('message', (event) => {

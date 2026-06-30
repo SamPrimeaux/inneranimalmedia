@@ -80,11 +80,17 @@ function triggerTier1Warm(): void {
   }
 }
 
+async function purgeLegacyDashboardJsCaches(): Promise<void> {
+  if (typeof caches === 'undefined') return;
+  await Promise.all(['iam-dashboard-js-v1'].map((name) => caches.delete(name)));
+}
+
 export async function registerIamServiceWorker(): Promise<void> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
   if (onAuthSurface()) return;
 
   try {
+    await purgeLegacyDashboardJsCaches();
     const registration = await navigator.serviceWorker.register(SW_URL, { scope: '/' });
 
     registration.addEventListener('updatefound', () => {

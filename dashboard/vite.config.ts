@@ -137,6 +137,10 @@ export default defineConfig(({ mode }) => {
         },
         workbox: {
           importScripts: ['push-handler.js', 'sw-agent-cache.js'],
+          skipWaiting: true,
+          clientsClaim: true,
+          /** HTML loads dashboard.js?v=… — must match precache entries without falling through to stale runtime cache. */
+          ignoreURLParametersMatching: [/^v$/],
           globDirectory: 'dist',
           globPatterns: [
             'dashboard.js',
@@ -183,10 +187,11 @@ export default defineConfig(({ mode }) => {
             {
               urlPattern: ({ url }) =>
                 url.pathname.startsWith('/static/dashboard/app/') && url.pathname.endsWith('.js'),
-              handler: 'CacheFirst',
+              handler: 'NetworkFirst',
               options: {
-                cacheName: 'iam-dashboard-js-v1',
-                expiration: { maxEntries: 128, maxAgeSeconds: 365 * 24 * 60 * 60 },
+                cacheName: 'iam-dashboard-js-v2',
+                networkTimeoutSeconds: 4,
+                expiration: { maxEntries: 64, maxAgeSeconds: 7 * 24 * 60 * 60 },
                 cacheableResponse: { statuses: [0, 200] },
               },
             },
@@ -258,6 +263,20 @@ export default defineConfig(({ mode }) => {
             }
             return out;
           },
+        },
+      },
+      {
+        name: 'iam-purge-stale-dashboard-js-cache',
+        apply: 'build',
+        enforce: 'post',
+        transformIndexHtml(html) {
+          if (html.includes('iam-purge-stale-dashboard-js-cache')) return html;
+          const purge =
+            '<script id="iam-purge-stale-dashboard-js-cache">try{if("caches"in window){caches.delete("iam-dashboard-js-v1");}}catch(e){}</script>';
+          return html.replace(
+            /<script type="module" crossorigin src="\/static\/dashboard\/app\/dashboard\.js/,
+            `${purge}\n  <script type="module" crossorigin src="/static/dashboard/app/dashboard.js`,
+          );
         },
       },
       {
