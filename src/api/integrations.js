@@ -222,6 +222,16 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
         return handleRotateWebhookSecret(env, authUser, normalizeProviderKey(rotateMatch[1]));
     }
 
+    if (pathLower === '/api/integrations/cloudflare_oauth/stack/enumerate' && method === 'POST') {
+        const { handleCfStackEnumerate } = await import('./integrations/cloudflare-stack.js');
+        return handleCfStackEnumerate(env, authUser);
+    }
+    if (pathLower === '/api/integrations/cloudflare_oauth/stack/save' && method === 'POST') {
+        const { handleCfStackSave } = await import('./integrations/cloudflare-stack.js');
+        const body = await request.json().catch(() => ({}));
+        return handleCfStackSave(env, authUser, body);
+    }
+
     const legacy = await handleLegacyProviderBrowser(request, env, authUser, url, pathLower, method);
     if (legacy) return legacy;
 

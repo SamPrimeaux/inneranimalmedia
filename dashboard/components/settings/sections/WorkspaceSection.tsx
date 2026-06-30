@@ -1,594 +1,511 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  ExternalLink,
+  Github,
+  Globe,
+  Loader2,
+  RefreshCw,
+  Shield,
+} from 'lucide-react';
 import type { SettingsPanelModel } from '../hooks/useSettingsData';
+import {
+  findConnectedItem,
+  isIntegrationConnected,
+  PROJECT_SERVICE_TILES,
+  tileIconSlug,
+  connectedSubtitle,
+  useWorkspaceSnapshot,
+  type KeyRow,
+  type OpSettings,
+} from '../hooks/useWorkspaceSnapshot';
+import { IntegrationIconTile } from '../components/IntegrationIconTile';
+import { CfStackWizard, CfStackSummary, type CfStackConfig } from './CfStackWizard';
 import { initialsFromDisplayName, relativeTime } from '../settingsUi';
-
-type CmsPipeline = {
-  cms_editing_mode?: string;
-  storage_output?: string;
-  default_theme_slug?: string;
-  platform_r2_upload?: boolean | number;
-  r2?: {
-    bucket_name?: string;
-    binding_name?: string;
-    public_base_url?: string;
-    cms_prefix?: string;
-    themes_prefix?: string;
-    captures_prefix?: string;
-  };
-  github?: {
-    branch?: string;
-    theme_package_path?: string;
-    cms_export_path?: string;
-    pr_preference?: string;
-  };
-  agent_sam_cms?: Record<string, boolean | string | number>;
-  browser_monaco?: Record<string, boolean | string | number>;
-  validation?: { require_approval_publish?: boolean };
-};
-
-const CMS_MODES: { v: string; label: string }[] = [
-  { v: 'preview_only', label: 'Preview only' },
-  { v: 'draft_edits', label: 'Draft edits' },
-  { v: 'live_session', label: 'Live edit session' },
-  { v: 'publish_approval', label: 'Publish with approval' },
-  { v: 'agent_assisted', label: 'Agent-assisted edits' },
-];
-
-const STORAGE_OPTS: { v: string; label: string }[] = [
-  { v: 'platform_r2', label: 'InnerAnimalMedia R2 (platform)' },
-  { v: 'workspace_r2', label: 'Workspace R2' },
-  { v: 'github', label: 'GitHub repo' },
-  { v: 'zip', label: 'Export zip' },
-  { v: 'ask', label: 'Ask each time' },
-];
-
-const AGENT_KEYS: { key: string; label: string }[] = [
-  { key: 'inspect_only', label: 'Inspect only' },
-  { key: 'draft_changes', label: 'Draft changes' },
-  { key: 'create_theme_packages', label: 'Create theme packages' },
-  { key: 'upload_r2', label: 'Upload to R2' },
-  { key: 'apply_workspace_theme', label: 'Apply workspace theme' },
-  { key: 'publish_after_approval_only', label: 'Publish only after approval' },
-  { key: 'rollback', label: 'Rollback' },
-];
-
-const BROWSER_MONACO_KEYS: { key: string; label: string }[] = [
-  { key: 'browser_inspect_dom', label: 'BrowserView inspect DOM' },
-  { key: 'browser_map_cms', label: 'Map selection → CMS sections (when metadata exists)' },
-  { key: 'monaco_open_sources', label: 'Monaco open source / R2 / GitHub files' },
-  { key: 'chat_receive_selection', label: 'ChatAssistant receives BrowserView selection' },
-  { key: 'agent_propose_edits', label: 'Agent Sam proposes edits' },
-  { key: 'agent_apply_draft', label: 'Agent Sam applies draft edits' },
-  { key: 'agent_validate_browser', label: 'Validate with BrowserView / Playwright' },
-  { key: 'agent_approval_publish', label: 'Approval before publish' },
-];
 
 export type WorkspaceSectionProps = { data: SettingsPanelModel; workspaceId?: string | null };
 
-function Card({
+function Panel({
   title,
   children,
+  className = '',
 }: {
   title: string;
   children: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-3">
-      <div className="text-[10px] font-black uppercase tracking-widest text-muted">{title}</div>
+    <section
+      className={`rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-3 ${className}`}
+    >
+      <h3 className="text-[10px] font-black uppercase tracking-widest text-muted">{title}</h3>
       {children}
+    </section>
+  );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 text-[12px] py-1.5 border-b border-[var(--border-subtle)]/60 last:border-0">
+      <span className="text-muted shrink-0 min-w-[100px]">{label}</span>
+      <span className="text-main text-right break-all">{children}</span>
     </div>
   );
 }
 
+function StatusPill({ tone, children }: { tone: 'ok' | 'warn' | 'bad' | 'muted'; children: React.ReactNode }) {
+  const cls =
+    tone === 'ok'
+      ? 'text-[var(--accent-success)] border-[var(--accent-success)]/30 bg-[var(--accent-success)]/10'
+      : tone === 'warn'
+        ? 'text-[var(--accent-warning)] border-[var(--accent-warning)]/30 bg-[var(--accent-warning)]/10'
+        : tone === 'bad'
+          ? 'text-[var(--accent-danger)] border-[var(--accent-danger)]/30 bg-[var(--accent-danger)]/10'
+          : 'text-muted border-[var(--border-subtle)] bg-[var(--bg-hover)]';
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cls}`}>
+      {children}
+    </span>
+  );
+}
+
+function deployCommand(op: OpSettings): string {
+  return (
+    op.deploy_stack_command?.trim() ||
+    op.deploy_command?.trim() ||
+    'npm run deploy:full'
+  );
+}
+
+function workerName(ws: Record<string, unknown> | null, op: OpSettings): string {
+  return (
+    op.cf_worker_name?.trim() ||
+    (ws?.worker_name != null ? String(ws.worker_name) : '') ||
+    (ws?.slug != null ? String(ws.slug) : '') ||
+    '—'
+  );
+}
+
+function productionDomain(ws: Record<string, unknown> | null, op: OpSettings): string {
+  const deployUrl = ws?.deploy_url != null ? String(ws.deploy_url).trim() : '';
+  if (deployUrl) {
+    try {
+      return new URL(deployUrl.startsWith('http') ? deployUrl : `https://${deployUrl}`).hostname;
+    } catch {
+      return deployUrl.replace(/^https?:\/\//, '').split('/')[0];
+    }
+  }
+  const slug = String(ws?.slug || ws?.workspace_slug || '').trim();
+  return slug ? `${slug}.inneranimalmedia.com` : 'inneranimalmedia.com';
+}
+
+const WATCH_SECRETS: { id: string; label: string; hint?: string }[] = [
+  { id: 'openai', label: 'OPENAI_API_KEY' },
+  { id: 'anthropic', label: 'ANTHROPIC_API_KEY' },
+  { id: 'supabase', label: 'SUPABASE_URL', hint: 'Supabase project URL' },
+  { id: 'supabase', label: 'SUPABASE_SERVICE_ROLE_KEY', hint: 'Supabase service role' },
+  { id: 'resend', label: 'RESEND_API_KEY', hint: 'Required for email sending' },
+  { id: 'cloudflare', label: 'CLOUDFLARE_API_TOKEN' },
+];
+
+function secretRows(keys: KeyRow[]) {
+  const byProvider = new Map<string, KeyRow>();
+  for (const k of keys) {
+    const p = String(k.provider || k.secret_name || k.label || '').toLowerCase();
+    if (p && !byProvider.has(p)) byProvider.set(p, k);
+  }
+
+  return WATCH_SECRETS.map((w) => {
+    const hit =
+      keys.find((k) => String(k.label || '').toUpperCase() === w.label) ||
+      keys.find((k) => String(k.secret_name || '').toUpperCase() === w.label) ||
+      byProvider.get(w.id);
+    const set = Boolean(hit && String(hit.status || 'active').toLowerCase() !== 'revoked');
+    return { ...w, set, row: hit };
+  });
+}
+
 export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
   const navigate = useNavigate();
-  const wd = data.workspaceData;
-  const pipe = (wd?.workspace?.cms_pipeline || {}) as CmsPipeline;
-  const ws = wd?.workspace;
-  const githubConnected = Array.isArray(data.repos) && data.repos.length > 0;
+  const wsId = workspaceId?.trim() || '';
+  const { loading, error, snapshot, reload, runHealthCheck, healthChecking } = useWorkspaceSnapshot(wsId);
+  const [cfWizardOpen, setCfWizardOpen] = useState(false);
 
-  const [saveErr, setSaveErr] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const ws = snapshot.workspace;
+  const op = snapshot.opSettings;
+  const cfConfig = op as CfStackConfig;
 
-  const platformEligible = wd?.platform_r2_eligible === true;
-  const prefSlug = wd?.cms_context?.theme_preference_slug ?? null;
+  const displayName = String(ws?.display_name || ws?.name || ws?.slug || 'Workspace');
+  const repo =
+    snapshot.git?.repo_full_name ||
+    snapshot.git?.repo ||
+    String(ws?.github_repo || op.github_repo || '').trim() ||
+    null;
+  const branch = snapshot.git?.branch || 'main';
+  const healthOverall = String(snapshot.health?.overall || '').toLowerCase();
+  const healthTone: 'ok' | 'warn' | 'bad' | 'muted' =
+    healthOverall === 'healthy' ? 'ok' : healthOverall === 'degraded' ? 'warn' : healthOverall === 'down' ? 'bad' : 'muted';
 
-  const patch = useCallback(
-    async (partial: Record<string, unknown>) => {
-      setSaving(true);
-      setSaveErr(null);
-      try {
-        await data.patchWorkspaceCmsPipeline(partial);
-      } catch (e) {
-        setSaveErr(e instanceof Error ? e.message : 'Save failed');
-      } finally {
-        setSaving(false);
-      }
-    },
-    [data],
-  );
+  const githubOk = isIntegrationConnected(snapshot.connected, 'github') && Boolean(repo);
+  const cfOk = isIntegrationConnected(snapshot.connected, 'cloudflare_oauth');
+  const secrets = useMemo(() => secretRows(snapshot.keys), [snapshot.keys]);
+  const secretsSet = secrets.filter((s) => s.set).length;
 
-  const r2 = useMemo(() => pipe.r2 || {}, [pipe.r2]);
-  const ghPipe = useMemo(() => pipe.github || {}, [pipe.github]);
-  const agentSam = useMemo(() => pipe.agent_sam_cms || {}, [pipe.agent_sam_cms]);
-  const bm = useMemo(() => pipe.browser_monaco || {}, [pipe.browser_monaco]);
+  const snapshotLine = [
+    healthOverall === 'healthy' ? 'Healthy' : healthOverall ? healthOverall : 'Status unknown',
+    cfOk ? 'Cloudflare connected' : 'Cloudflare not linked',
+    githubOk ? 'GitHub repo connected' : 'Repo not linked',
+  ].join(' · ');
 
-  const copyToClipboard = (t: string) => {
-    void navigator.clipboard.writeText(t);
-  };
+  if (loading && !ws) {
+    return <div className="text-[12px] text-muted py-8">Loading workspace…</div>;
+  }
 
-  const r2Configured =
-    !!(r2.public_base_url && String(r2.public_base_url).trim()) ||
-    !!(ws?.r2_prefix && String(ws.r2_prefix).trim());
+  if (error && !ws) {
+    return <div className="text-[12px] text-[var(--accent-danger)] py-8">{error}</div>;
+  }
 
   return (
-    <div className="flex flex-col gap-4 max-w-4xl">
-      <h2 className="text-[13px] font-bold text-[var(--text-heading)] uppercase tracking-widest">
-        Workspace · CMS &amp; theme pipeline
-      </h2>
-      {saveErr ? <div className="text-[11px] text-[var(--color-danger)]">{saveErr}</div> : null}
-      {saving ? <div className="text-[11px] text-muted">Saving…</div> : null}
+    <div className="flex flex-col gap-5 max-w-5xl pb-8">
+      <div>
+        <h2 className="text-[13px] font-bold text-[var(--text-heading)] uppercase tracking-widest">
+          Workspace
+        </h2>
+        <p className="text-[11px] text-muted mt-1">
+          Project connections, deploy target, and infrastructure at a glance.
+        </p>
+      </div>
 
-      {data.workspaceError2 ? (
-        <div className="text-[11px] text-[var(--color-danger)]">{data.workspaceError2}</div>
-      ) : null}
-      {data.workspaceLoading2 && !wd ? (
-        <div className="text-[12px] text-muted">Loading workspace…</div>
-      ) : null}
-
-      {wd?.notice ? (
-        <div className="rounded-xl border border-[var(--color-warning)]/40 bg-[var(--bg-app)] px-3 py-2 text-[11px] text-muted">
-          {String(wd.notice)}
-        </div>
-      ) : null}
-
-      {ws && (
-        <div className="flex flex-col gap-3">
-          <Card title="A · Workspace identity">
-            <div className="text-[18px] text-[var(--text-heading)] font-semibold">
-              {String(ws.name || ws.display_name || '—')}
+      {/* 1 · Project snapshot */}
+      <div className="rounded-2xl border border-[var(--border-subtle)] bg-gradient-to-br from-[var(--bg-panel)] to-[var(--bg-app)] p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div className="space-y-1">
+            <div className="text-[22px] font-semibold text-[var(--text-heading)] tracking-tight">
+              {displayName}
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="text-muted">Slug</span>
-              <code className="px-2 py-1 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[10px] font-mono text-[var(--solar-cyan)]">
-                {String(ws.slug || workspaceId || '—')}
-              </code>
-              <button
-                type="button"
-                onClick={() => copyToClipboard(String(ws.slug || workspaceId || ''))}
-                className="px-2 py-1 rounded border border-[var(--border-subtle)] text-[10px] text-muted hover:text-main"
-              >
-                Copy
-              </button>
+            <div className="text-[12px] text-muted">{snapshotLine}</div>
+            <div className="flex flex-wrap gap-2 pt-2">
+              <StatusPill tone={healthTone}>
+                {healthOverall === 'healthy' ? 'Live' : healthOverall || 'Unknown'}
+              </StatusPill>
+              {githubOk ? <StatusPill tone="ok">Repo linked</StatusPill> : <StatusPill tone="muted">No repo</StatusPill>}
+              {cfOk ? <StatusPill tone="ok">Cloudflare</StatusPill> : <StatusPill tone="warn">CF OAuth needed</StatusPill>}
+              <StatusPill tone={secretsSet >= 3 ? 'ok' : 'warn'}>
+                {secretsSet} secrets configured
+              </StatusPill>
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="text-muted">Tenant</span>
-              <code className="px-2 py-1 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[10px] font-mono">
-                {String(ws.tenant_id || '—')}
-              </code>
-              <button
-                type="button"
-                onClick={() => copyToClipboard(String(ws.tenant_id || ''))}
-                className="px-2 py-1 rounded border border-[var(--border-subtle)] text-[10px] text-muted hover:text-main"
-              >
-                Copy
-              </button>
-            </div>
-            <div className="text-[11px] text-muted">
-              Workspace id ·{' '}
-              <code className="font-mono text-main">{String(ws.id || workspaceId || '—')}</code>{' '}
-              <button
-                type="button"
-                onClick={() => copyToClipboard(String(ws.id || workspaceId || ''))}
-                className="ml-1 px-2 py-0.5 rounded border border-[var(--border-subtle)] text-[10px]"
-              >
-                Copy
-              </button>
-            </div>
-            <div className="text-[11px] text-muted">
-              Created:{' '}
-              {ws.created_at ? new Date(String(ws.created_at)).toLocaleDateString() : '—'}
-            </div>
-          </Card>
-
-          <Card title="B · Theme defaults">
-            <div className="text-[11px] text-muted space-y-1">
-              <div>
-                Active preference (D1):{' '}
-                <span className="font-mono text-main">{prefSlug || '—'}</span>
-              </div>
-              <div>
-                Workspace theme column:{' '}
-                <span className="font-mono text-main">{String(ws.theme_id ?? ws.theme_set ?? '—')}</span>
-              </div>
-            </div>
-            <label className="block text-[11px] text-muted">
-              Default theme slug (pipeline metadata)
-              <input
-                defaultValue={pipe.default_theme_slug || ''}
-                key={pipe.default_theme_slug || ''}
-                className="mt-1 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[12px] text-main"
-                placeholder="iam-storm-white"
-                onBlur={(e) => {
-                  const v = e.target.value.trim();
-                  void patch({ default_theme_slug: v || undefined });
-                }}
-              />
-            </label>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted hover:text-main"
-                onClick={() => navigate('/dashboard/settings/themes')}
-              >
-                Open theme browser
-              </button>
-            </div>
-            <p className="text-[10px] text-muted">
-              Preference scope is stored in <code className="font-mono">cms_theme_preferences</code> (workspace).
-            </p>
-          </Card>
-
-          <Card title="C · CMS editing mode">
-            <select
-              className="w-full max-w-md rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[12px] text-main"
-              value={pipe.cms_editing_mode || 'preview_only'}
-              onChange={(e) => void patch({ cms_editing_mode: e.target.value })}
+          </div>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <button
+              type="button"
+              className="text-[11px] px-3 py-2 rounded-lg bg-[var(--solar-blue)] text-[var(--toggle-knob)]"
+              onClick={() => window.open(`https://${productionDomain(ws, op)}`, '_blank', 'noopener,noreferrer')}
             >
-              {CMS_MODES.map((o) => (
-                <option key={o.v} value={o.v}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </Card>
-
-          <Card title="D · Storage / output target">
-            <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[11px] space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="text-muted">Platform R2 seamless upload</span>
-                <span
-                  className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${
-                    platformEligible
-                      ? 'border-[var(--color-success)]/50 text-[var(--color-success)]'
-                      : 'border-[var(--border-subtle)] text-muted'
-                  }`}
-                >
-                  {platformEligible ? 'Eligible' : 'Not eligible'}
-                </span>
-              </div>
-              <p className="text-[10px] text-muted">
-                Eligibility uses workspace <code className="font-mono">cms_pipeline</code>, or env{' '}
-                <code className="font-mono">CMS_THEME_PLATFORM_WORKSPACE_IDS</code> — no hardcoded workspace IDs.
-              </p>
-            </div>
-            <label className="flex items-center gap-2 text-[11px] text-main">
-              <input
-                type="checkbox"
-                checked={pipe.platform_r2_upload === true || pipe.platform_r2_upload === 1}
-                onChange={(e) => void patch({ platform_r2_upload: e.target.checked })}
-              />
-              Allow platform R2 uploads for this workspace (requires ASSETS binding + eligibility)
-            </label>
-            <label className="block text-[11px] text-muted">
-              Preferred storage output
-              <select
-                className="mt-1 w-full max-w-md rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[12px] text-main"
-                value={pipe.storage_output || (platformEligible ? 'platform_r2' : 'ask')}
-                onChange={(e) => void patch({ storage_output: e.target.value })}
+              Open site
+            </button>
+            {repo ? (
+              <button
+                type="button"
+                className="text-[11px] px-3 py-2 rounded-lg border border-[var(--border-subtle)] text-main hover:bg-[var(--bg-hover)]"
+                onClick={() => window.open(`https://github.com/${repo}`, '_blank', 'noopener,noreferrer')}
               >
-                {STORAGE_OPTS.map((o) => (
-                  <option key={o.v} value={o.v}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {!platformEligible && (pipe.storage_output === 'platform_r2' || pipe.platform_r2_upload) ? (
-              <p className="text-[10px] text-[var(--color-warning)]">
-                Platform R2 is selected but not eligible — theme packaging will fall back to export unless you configure
-                env allowlists or workspace flags.
-              </p>
+                Open repo
+              </button>
             ) : null}
-          </Card>
-
-          <Card title="E · R2 configuration">
-            <div className="text-[11px] space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="text-muted">Status</span>
-                <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded border border-[var(--border-subtle)]">
-                  {r2Configured ? 'Partial / configured' : 'Not configured'}
-                </span>
-              </div>
-              <p className="text-[10px] text-muted">
-                Binding names come from the Worker env (e.g. ASSETS). Store display metadata here for Agent Sam output
-                routing.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-              {(
-                [
-                  ['bucket_name', 'Bucket name'],
-                  ['binding_name', 'Binding name (display)'],
-                  ['public_base_url', 'Public base URL'],
-                  ['cms_prefix', 'CMS prefix'],
-                  ['themes_prefix', 'Themes prefix'],
-                  ['captures_prefix', 'Captures prefix'],
-                ] as const
-              ).map(([key, label]) => (
-                <label key={key} className="block text-muted">
-                  {label}
-                  <input
-                    defaultValue={String((r2 as Record<string, string>)[key] || '')}
-                    className="mt-1 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1.5 text-[12px] text-main"
-                    onBlur={(e) =>
-                      void patch({
-                        r2: { ...r2, [key]: e.target.value.trim() || undefined },
-                      })
-                    }
-                  />
-                </label>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted hover:text-main disabled:opacity-40"
-                disabled={!r2.public_base_url?.trim()}
-                onClick={() => {
-                  const u = String(r2.public_base_url || '').trim();
-                  if (u) window.open(u, '_blank', 'noopener,noreferrer');
-                }}
-              >
-                Test public base URL
-              </button>
-            </div>
-          </Card>
-
-          <Card title="F · Repo / GitHub">
-            <div className="text-[11px] text-muted space-y-1">
-              <div>
-                Workspace repo field:{' '}
-                <span className="font-mono text-main">{String(ws.github_repo || '—')}</span>
-              </div>
-              <div>
-                GitHub integration:{' '}
-                <span className={githubConnected ? 'text-[var(--color-success)]' : ''}>
-                  {githubConnected ? 'Connected (repos list non-empty)' : 'Not configured'}
-                </span>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-              {(
-                [
-                  ['branch', 'Branch'],
-                  ['theme_package_path', 'Theme package path'],
-                  ['cms_export_path', 'CMS export path'],
-                  ['pr_preference', 'PR / push preference'],
-                ] as const
-              ).map(([key, label]) => (
-                <label key={key} className="block text-muted">
-                  {label}
-                  <input
-                    defaultValue={String((ghPipe as Record<string, string>)[key] || '')}
-                    className="mt-1 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1.5 text-[12px] text-main"
-                    onBlur={(e) =>
-                      void patch({
-                        github: { ...ghPipe, [key]: e.target.value.trim() || undefined },
-                      })
-                    }
-                  />
-                </label>
-              ))}
-            </div>
-          </Card>
-
-          <Card title="G · Agent Sam CMS permissions">
-            <p className="text-[10px] text-muted">
-              Stored under <code className="font-mono">cms_pipeline.agent_sam_cms</code>. Unchecked means “off” unless you
-              set defaults elsewhere.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {AGENT_KEYS.map(({ key, label }) => (
-                <label key={key} className="flex items-center gap-2 text-[11px] text-main">
-                  <input
-                    type="checkbox"
-                    checked={agentSam[key] === true || agentSam[key] === 1}
-                    onChange={(e) =>
-                      void patch({
-                        agent_sam_cms: { ...agentSam, [key]: e.target.checked },
-                      })
-                    }
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </Card>
-
-          <Card title="H · BrowserView + Monaco CMS editing">
-            <p className="text-[10px] text-muted mb-2">
-              Capability flags for the realtime loop (BrowserView → ChatAssistant → Monaco). If integrations are not
-              wired, leave these off — Agent Sam reads workspace metadata only.
-            </p>
-            <div className="grid grid-cols-1 gap-2">
-              {BROWSER_MONACO_KEYS.map(({ key, label }) => (
-                <label key={key} className="flex items-center gap-2 text-[11px] text-main">
-                  <input
-                    type="checkbox"
-                    checked={bm[key] === true || bm[key] === 1}
-                    onChange={(e) =>
-                      void patch({
-                        browser_monaco: { ...bm, [key]: e.target.checked },
-                      })
-                    }
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-            <label className="flex items-center gap-2 text-[11px] text-muted mt-2">
-              <input
-                type="checkbox"
-                checked={pipe.validation?.require_approval_publish === true}
-                onChange={(e) =>
-                  void patch({
-                    validation: {
-                      ...(pipe.validation || {}),
-                      require_approval_publish: e.target.checked,
-                    },
-                  })
-                }
-              />
-              Require approval before publish (validation)
-            </label>
-          </Card>
-
-          <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] overflow-hidden">
-            <div className="px-4 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-app)] flex items-center justify-between">
-              <div className="text-[10px] font-black uppercase tracking-widest text-muted">
-                Members
-              </div>
-              <span className="text-[10px] text-muted">
-                {Array.isArray(wd.members) ? wd.members.length : 0}
-              </span>
-            </div>
-            {(Array.isArray(wd.members) ? wd.members : []).map((m: any) => {
-              const role = String(m.role || 'member');
-              const roleClass =
-                role === 'owner'
-                  ? 'text-[var(--color-warning)]'
-                  : role === 'admin'
-                    ? 'text-[var(--solar-blue)]'
-                    : 'text-muted';
-              return (
-                <div
-                  key={String(m.user_id)}
-                  className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)]"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-8 h-8 rounded-full bg-[var(--bg-app)] border border-[var(--border-subtle)] flex items-center justify-center text-[11px] font-bold text-[var(--solar-cyan)]">
-                      {initialsFromDisplayName(String(m.display_name || m.email || '?'))}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[12px] text-main truncate">
-                        {String(m.display_name || '—')}
-                      </div>
-                      <div className="text-[10px] text-muted truncate">
-                        {String(m.email || '—')}
-                      </div>
-                    </div>
-                  </div>
-                  <span
-                    className={`text-[9px] px-2 py-0.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] font-black uppercase tracking-widest ${roleClass}`}
-                  >
-                    {role}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
-            <div className="text-[10px] font-black uppercase tracking-widest text-muted">
-              Limits
-            </div>
-            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px]">
-              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3">
-                <div className="text-[10px] text-muted uppercase tracking-wider">
-                  Max daily cost
-                </div>
-                <div className="mt-1 text-[12px] text-main font-mono">
-                  {ws.max_daily_cost_usd != null
-                    ? `$${Number(ws.max_daily_cost_usd).toFixed(2)} / day`
-                    : 'No limits configured'}
-                </div>
-              </div>
-              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3">
-                <div className="text-[10px] text-muted uppercase tracking-wider">
-                  Max members
-                </div>
-                <div className="mt-1 text-[12px] text-main font-mono">
-                  {ws.max_members != null
-                    ? `${Number(ws.max_members)} members`
-                    : 'No limits configured'}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
-            <div className="flex items-center justify-between">
-              <div className="text-[10px] font-black uppercase tracking-widest text-muted">
-                Code index
-              </div>
-              <button
-                type="button"
-                onClick={() => void data.postWorkspaceReindex()}
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-muted hover:text-main"
-              >
-                Re-index
-              </button>
-            </div>
-            {wd.indexJob ? (
-              <div className="mt-3 text-[11px]">
-                <div className="flex items-center gap-2">
-                  {(() => {
-                    const st = String(wd.indexJob.status || 'idle');
-                    const cls =
-                      st === 'running'
-                        ? 'text-[var(--solar-blue)]'
-                        : st === 'complete'
-                          ? 'text-[var(--color-success)]'
-                          : st === 'error'
-                            ? 'text-[var(--color-danger)]'
-                            : 'text-muted';
-                    const label =
-                      st === 'running'
-                        ? 'Indexing…'
-                        : st === 'complete'
-                          ? 'Up to date'
-                          : st === 'error'
-                            ? 'Error'
-                            : 'Not indexed';
-                    return (
-                      <span
-                        className={`text-[10px] px-2 py-0.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] font-black uppercase tracking-widest ${cls}`}
-                      >
-                        {label}
-                      </span>
-                    );
-                  })()}
-                  <span className="text-[10px] text-muted">
-                    {Number(wd.indexJob.indexed_file_count || 0)} / {Number(wd.indexJob.file_count || 0)} files
-                  </span>
-                </div>
-                {String(wd.indexJob.status || '') === 'running' ? (
-                  <div className="mt-2 h-2 rounded-full bg-[var(--bg-app)] border border-[var(--border-subtle)] overflow-hidden">
-                    <div
-                      className="h-full bg-[var(--solar-cyan)]"
-                      style={{
-                        width: `${Math.max(0, Math.min(100, Number(wd.indexJob.progress_percent || 0)))}%`,
-                      }}
-                    />
-                  </div>
-                ) : null}
-                <div className="mt-2 text-[10px] text-muted">
-                  Last sync: {wd.indexJob.last_sync_at ? relativeTime(wd.indexJob.last_sync_at) : 'Never'}
-                </div>
-                {wd.indexJob.last_error ? (
-                  <div className="mt-1 text-[10px] text-[var(--color-danger)]">
-                    {String(wd.indexJob.last_error)}
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <div className="mt-3 text-[11px] text-muted">No index job found.</div>
-            )}
+            <button
+              type="button"
+              disabled={healthChecking}
+              className="text-[11px] px-3 py-2 rounded-lg border border-[var(--border-subtle)] text-main hover:bg-[var(--bg-hover)] inline-flex items-center gap-1.5 disabled:opacity-50"
+              onClick={() => void runHealthCheck()}
+            >
+              {healthChecking ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              Health check
+            </button>
           </div>
         </div>
-      )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-0 rounded-xl border border-[var(--border-subtle)]/80 bg-[var(--bg-app)]/50 px-4 py-2">
+          <Row label="Domain">{productionDomain(ws, op)}</Row>
+          <Row label="Repo">{repo || '—'}</Row>
+          <Row label="Branch">{branch}</Row>
+          <Row label="Deploy">{workerName(ws, op)} · Cloudflare Workers</Row>
+          <Row label="Last deploy">
+            {snapshot.lastDeploy.at ? relativeTime(snapshot.lastDeploy.at) : '—'}
+          </Row>
+          <Row label="Workspace ID">
+            <code className="text-[10px] font-mono">{wsId || '—'}</code>
+          </Row>
+        </div>
+      </div>
+
+      {/* 2 · Connected services */}
+      <Panel title="Connected services">
+        <div className="iam-app-icon-grid max-w-4xl">
+          {PROJECT_SERVICE_TILES.map((def) => {
+            const item = findConnectedItem(snapshot.connected, def.registryKey);
+            const connected = isIntegrationConnected(snapshot.connected, def.registryKey);
+            const subtitle = connected
+              ? def.registryKey === 'github' && repo
+                ? `${branch}${snapshot.git?.behind_by ? ` · ${snapshot.git.behind_by} behind` : ''}`
+                : connectedSubtitle(item)
+              : 'Not connected';
+            return (
+              <IntegrationIconTile
+                key={def.id}
+                title={def.title}
+                iconSlug={tileIconSlug(def, item)}
+                subtitle={subtitle}
+                status={
+                  connected
+                    ? null
+                    : def.registryKey === 'cloudflare_oauth' && !cfConfig.cf_stack_configured_at
+                      ? 'warning'
+                      : 'error'
+                }
+                onClick={() => navigate(def.settingsPath)}
+              />
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          className="text-[11px] text-[var(--solar-blue)] hover:underline"
+          onClick={() => navigate('/dashboard/settings/integrations')}
+        >
+          Manage integrations →
+        </button>
+      </Panel>
+
+      {/* Cloudflare stack (operational — not themes) */}
+      {cfOk && wsId ? (
+        <Panel title="Cloudflare stack">
+          {cfConfig.cf_stack_configured_at ? (
+            <>
+              <CfStackSummary config={cfConfig} />
+              <button
+                type="button"
+                className="text-[11px] px-3 py-2 rounded-lg border border-[var(--border-subtle)] text-main w-fit"
+                onClick={() => setCfWizardOpen(true)}
+              >
+                Reconfigure D1 / Worker / Tunnel
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-[11px] text-muted">
+                OAuth is connected. Select which D1 database, Worker, and Tunnel belong to this workspace.
+              </p>
+              <button
+                type="button"
+                className="text-[11px] px-3 py-2 rounded-lg bg-[var(--solar-blue)] text-[var(--toggle-knob)] w-fit"
+                onClick={() => setCfWizardOpen(true)}
+              >
+                Configure Cloudflare stack →
+              </button>
+            </>
+          )}
+        </Panel>
+      ) : null}
+
+      {/* 3 · Repo + deploy */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Panel title="Repository">
+          <Row label="Owner">{repo ? repo.split('/')[0] : '—'}</Row>
+          <Row label="Repo">{repo ? repo.split('/')[1] || repo : '—'}</Row>
+          <Row label="Branch">{branch}</Row>
+          <Row label="Last commit">
+            {snapshot.git?.checkpoint_sha
+              ? String(snapshot.git.checkpoint_sha).slice(0, 7)
+              : snapshot.lastDeploy.git_sha
+                ? String(snapshot.lastDeploy.git_sha).slice(0, 7)
+                : '—'}
+          </Row>
+          <Row label="Sync">
+            {snapshot.git?.status === 'live' ? 'Synced with GitHub' : String(snapshot.git?.status || '—')}
+          </Row>
+          <div className="flex flex-wrap gap-2 pt-2">
+            <button
+              type="button"
+              className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main inline-flex items-center gap-1"
+              onClick={() => navigate('/dashboard/settings/github')}
+            >
+              <Github size={13} /> GitHub settings
+            </button>
+            {repo ? (
+              <button
+                type="button"
+                className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main inline-flex items-center gap-1"
+                onClick={() => window.open(`https://github.com/${repo}`, '_blank', 'noopener,noreferrer')}
+              >
+                <ExternalLink size={13} /> Open repo
+              </button>
+            ) : null}
+          </div>
+        </Panel>
+
+        <Panel title="Deployment">
+          <Row label="Provider">Cloudflare Workers</Row>
+          <Row label="Worker">{workerName(ws, op)}</Row>
+          <Row label="Environment">production</Row>
+          <Row label="Command">
+            <code className="text-[10px] font-mono">{deployCommand(op)}</code>
+          </Row>
+          <Row label="Last deploy">
+            {snapshot.lastDeploy.at ? relativeTime(snapshot.lastDeploy.at) : '—'}
+          </Row>
+          <Row label="Result">
+            <StatusPill tone={String(snapshot.lastDeploy.status || '').toLowerCase().includes('fail') ? 'bad' : 'ok'}>
+              {snapshot.lastDeploy.status || '—'}
+            </StatusPill>
+          </Row>
+          <button
+            type="button"
+            className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main mt-1"
+            onClick={() => navigate('/dashboard/settings/cicd')}
+          >
+            CI/CD details →
+          </button>
+        </Panel>
+      </div>
+
+      {/* 4 · Secrets + domains */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Panel title="Worker secrets">
+          <p className="text-[10px] text-muted -mt-1">Status only — values never shown here.</p>
+          <ul className="space-y-2">
+            {secrets.map((s) => (
+              <li
+                key={s.label}
+                className="flex items-center justify-between gap-3 py-2 border-b border-[var(--border-subtle)]/50 last:border-0"
+              >
+                <div className="min-w-0">
+                  <div className="text-[12px] font-mono text-main">{s.label}</div>
+                  {s.hint && !s.set ? (
+                    <div className="text-[10px] text-muted">{s.hint}</div>
+                  ) : s.row?.updated_at ? (
+                    <div className="text-[10px] text-muted">
+                      {relativeTime(s.row.updated_at)}
+                    </div>
+                  ) : null}
+                </div>
+                <StatusPill tone={s.set ? 'ok' : 'bad'}>{s.set ? 'Set' : 'Missing'}</StatusPill>
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main inline-flex items-center gap-1"
+            onClick={() => navigate('/dashboard/settings/keys')}
+          >
+            <Shield size={13} /> Keys &amp; secrets
+          </button>
+        </Panel>
+
+        <Panel title="Domains &amp; data">
+          <div className="space-y-3">
+            <div>
+              <div className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">Domains</div>
+              <Row label={productionDomain(ws, op)}>Active</Row>
+            </div>
+            <div>
+              <div className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">Routes</div>
+              <Row label="/api/*">Worker</Row>
+              <Row label="/dashboard/*">App shell</Row>
+            </div>
+            <div>
+              <div className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">Storage</div>
+              <Row label="D1">
+                {op.cf_d1_database_name || op.cf_d1_database_id ? 'Connected' : 'Not configured'}
+              </Row>
+              <Row label="R2">
+                {snapshot.health?.services?.find((s) => s.service === 'r2')?.status === 'healthy'
+                  ? 'Connected'
+                  : 'Unknown'}
+              </Row>
+              <Row label="Supabase">
+                {isIntegrationConnected(snapshot.connected, 'supabase_oauth') ? 'Connected' : 'Not connected'}
+              </Row>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main inline-flex items-center gap-1"
+            onClick={() => navigate('/dashboard/settings/network')}
+          >
+            <Globe size={13} /> Network settings
+          </button>
+        </Panel>
+      </div>
+
+      {/* Team (compact) */}
+      {snapshot.members.length > 0 ? (
+        <Panel title="Team">
+          <ul className="space-y-2">
+            {snapshot.members
+              .filter((m) => String(m.status || 'active') !== 'removed')
+              .slice(0, 8)
+              .map((m) => (
+                <li key={String(m.member_id || m.user_id)} className="flex items-center gap-3 py-1">
+                  <div className="w-8 h-8 rounded-full bg-[var(--bg-app)] border border-[var(--border-subtle)] flex items-center justify-center text-[10px] font-bold text-[var(--solar-cyan)]">
+                    {initialsFromDisplayName(String(m.display_name || m.email || '?'))}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12px] text-main truncate">
+                      {String(m.display_name || m.email || '—')}
+                    </div>
+                    <div className="text-[10px] text-muted">{String(m.role || 'member')}</div>
+                  </div>
+                </li>
+              ))}
+          </ul>
+        </Panel>
+      ) : null}
+
+      {/* 5 · Activity + code index */}
+      <Panel title="Recent activity">
+        {snapshot.activity.length === 0 ? (
+          <p className="text-[11px] text-muted">No workspace audit events yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {snapshot.activity.slice(0, 8).map((ev, i) => (
+              <li key={i} className="text-[11px] text-main flex justify-between gap-2">
+                <span>{String(ev.action || 'event').replace(/\./g, ' · ')}</span>
+                <span className="text-muted shrink-0">{relativeTime(ev.created_at)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
+
+      <Panel title="Code index">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] text-muted">
+            Refresh the Agent Sam codebase index for this workspace.
+          </p>
+          <button
+            type="button"
+            onClick={() => void data.postWorkspaceReindex()}
+            className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main shrink-0"
+          >
+            Re-index
+          </button>
+        </div>
+        {data.workspaceData?.indexJob ? (
+          <div className="text-[10px] text-muted">
+            Status: {String(data.workspaceData.indexJob.status || '—')} ·{' '}
+            {relativeTime(data.workspaceData.indexJob.last_sync_at)}
+          </div>
+        ) : null}
+      </Panel>
+
+      {wsId ? (
+        <CfStackWizard
+          open={cfWizardOpen}
+          workspaceId={wsId}
+          onClose={() => setCfWizardOpen(false)}
+          onComplete={() => void reload()}
+        />
+      ) : null}
     </div>
   );
 }

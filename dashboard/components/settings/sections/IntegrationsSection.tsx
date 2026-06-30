@@ -2,6 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { IntegrationCard, type CatalogRow, type ConnectionRow } from '../components/IntegrationCard';
 import { IntegrationIconTile } from '../components/IntegrationIconTile';
 import { catalogSlugForRegistry, isSlugConnected, registrySlugForCatalog } from '../../../lib/integrationSlugAliases';
+import {
+  CfStackWizard,
+  CfStackSummary,
+  type CfStackConfig,
+} from './CfStackWizard';
 
 import '../../ui/AppIcon.css';
 
@@ -15,6 +20,7 @@ type ConnectedItem = {
 
 export type IntegrationsSectionProps = {
   userId?: string | null;
+  workspaceId?: string | null;
   onOpenInMonaco?: (content: string, virtualPath: string) => void;
 };
 
@@ -47,6 +53,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function IntegrationsSection({
+  workspaceId,
   onOpenInMonaco,
 }: IntegrationsSectionProps) {
   const [tab, setTab] = useState<TabId>('connected');
@@ -59,6 +66,8 @@ export function IntegrationsSection({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [catFilter, setCatFilter] = useState<string>('');
+  const [cfStackConfig, setCfStackConfig] = useState<CfStackConfig | null>(null);
+  const [cfWizardOpen, setCfWizardOpen] = useState(false);
 
   const [customName, setCustomName] = useState('');
   const [customUrl, setCustomUrl] = useState('');
@@ -96,6 +105,22 @@ export function IntegrationsSection({
     setCustomRows(data.items || []);
   }, []);
 
+  const loadCfStackConfig = useCallback(async () => {
+    const ws = workspaceId?.trim();
+    if (!ws) {
+      setCfStackConfig(null);
+      return;
+    }
+    try {
+      const data = await fetchJson<{ settings_json?: CfStackConfig }>(
+        `/api/workspace/settings?workspace_id=${encodeURIComponent(ws)}`,
+      );
+      setCfStackConfig(data.settings_json || null);
+    } catch {
+      setCfStackConfig(null);
+    }
+  }, [workspaceId]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -104,9 +129,12 @@ export function IntegrationsSection({
       try {
         await loadConnected();
         if (cancelled) return;
-        await loadCatalog().catch(() => {
-          /* catalog may 500 if table missing */
-        });
+        await Promise.all([
+          loadCatalog().catch(() => {
+            /* catalog may 500 if table missing */
+          }),
+          loadCfStackConfig().catch(() => {}),
+        ]);
       } catch (e) {
         if (!cancelled) {
           setErr(String(e instanceof Error ? e.message : e));
@@ -118,7 +146,7 @@ export function IntegrationsSection({
     return () => {
       cancelled = true;
     };
-  }, [loadConnected, loadCatalog]);
+  }, [loadConnected, loadCatalog, loadCfStackConfig]);
 
   useEffect(() => {
     if (tab === 'available') {
@@ -141,6 +169,18 @@ export function IntegrationsSection({
     if (!catFilter) return catalog;
     return catalog.filter((c) => String(c.category) === catFilter);
   }, [catalog, catFilter]);
+
+  const cfOAuthConnected = useMemo(
+    () =>
+      connected.some(
+        (item) =>
+          String(item.connection?.provider_key || '').toLowerCase() === 'cloudflare_oauth' &&
+          String(item.connection?.status || '').toLowerCase() === 'connected',
+      ),
+    [connected],
+  );
+
+  const cfStackConfigured = Boolean(cfStackConfig?.cf_stack_configured_at);
 
   const onConnectOAuth = useCallback((slug: string) => {
     window.location.href = `/api/integrations/${encodeURIComponent(slug)}/connect`;
@@ -289,20 +329,63 @@ export function IntegrationsSection({
               .map((item) => {
                 const slug = String(item.connection?.provider_key || item.catalog?.slug || selectedSlug);
                 return (
-                  <IntegrationCard
-                    key={`detail-${slug}`}
-                    mode="connected"
-                    initialExpanded
-                    catalog={item.catalog}
-                    connection={item.connection}
-                    legacy={item.legacy}
-                    iamHosted={item.iam_hosted}
-                    onConnectOAuth={onConnectOAuth}
-                    onConnectApiKey={onConnectApiKey}
-                    onDisconnect={onDisconnect}
-                    onTest={onTest}
-                    onOpenInMonaco={onOpenInMonaco}
-                  />
+                  <div key={`detail-${slug}`} className="flex flex-col gap-3">
+                    <IntegrationCard
+                      mode="connected"
+                      initialExpanded
+                      catalog={item.catalog}
+                      connection={item.connection}
+                      legacy={item.legacy}
+                      iamHosted={item.iam_hosted}
+                      onConnectOAuth={onConnectOAuth}
+                      onConnectApiKey={onConnectApiKey}
+                      onDisconnect={onDisconnect}
+                      onTest={onTest}
+                      onOpenInMonaco={onOpenInMonaco}
+                    />
+                    {slug === 'cloudflare_oauth' && cfOAuthConnected ? (
+                      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-4 flex flex-col gap-2">
+                        <div className="text-[12px] font-semibold text-[var(--text-heading)]">
+                          Cloudflare stack
+                        </div>
+                        {cfStackConfigured ? (
+                          <>
+                            <p className="text-[10px] text-muted">
+                              Workspace bindings are configured.
+                            </p>
+                            <CfStackSummary config={cfStackConfig} />
+                            <button
+                              type="button"
+                              onClick={() => setCfWizardOpen(true)}
+                              className="text-[11px] px-3 py-2 rounded-lg border border-[var(--border-subtle)] text-main w-fit mt-1"
+                            >
+                              Reconfigure stack
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-[10px] text-muted">
+                              OAuth is connected. Pick which D1, Worker, and Tunnel belong to this
+                              workspace.
+                            </p>
+                            <button
+                              type="button"
+                              disabled={!workspaceId?.trim()}
+                              onClick={() => setCfWizardOpen(true)}
+                              className="text-[11px] px-3 py-2 rounded-lg bg-[var(--solar-blue)] text-[var(--toggle-knob)] w-fit disabled:opacity-50"
+                            >
+                              Configure your CF stack →
+                            </button>
+                            {!workspaceId?.trim() ? (
+                              <p className="text-[10px] text-[var(--accent-warning)]">
+                                Select an active workspace to configure stack bindings.
+                              </p>
+                            ) : null}
+                          </>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
                 );
               })
           ) : connected.length ? (
@@ -485,6 +568,15 @@ export function IntegrationsSection({
             </ul>
           )}
         </div>
+      ) : null}
+
+      {workspaceId?.trim() ? (
+        <CfStackWizard
+          open={cfWizardOpen}
+          workspaceId={workspaceId.trim()}
+          onClose={() => setCfWizardOpen(false)}
+          onComplete={() => void loadCfStackConfig()}
+        />
       ) : null}
     </div>
   );

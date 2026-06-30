@@ -143,7 +143,7 @@ export default function SettingsPanel({
       }
       case 'Integrations': {
         const C = SECTION_LOADERS.Integrations;
-        return <C userId={data.profileEmail || null} onOpenInMonaco={onOpenInMonaco} />;
+        return <C userId={data.profileEmail || null} workspaceId={workspaceId} onOpenInMonaco={onOpenInMonaco} />;
       }
       case 'CI/CD': {
         const C = SECTION_LOADERS['CI/CD'];
