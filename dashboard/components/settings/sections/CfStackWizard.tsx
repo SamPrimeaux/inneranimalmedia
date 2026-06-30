@@ -2,9 +2,12 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Check, Loader2, X } from 'lucide-react';
 
 type CfResource = { id: string; name: string; status?: string };
+type CfAccount = { id: string; name: string };
 
 type EnumerateResponse = {
   account_id?: string;
+  accounts?: CfAccount[];
+  needs_account_selection?: boolean;
   d1_databases?: CfResource[];
   workers?: CfResource[];
   tunnels?: CfResource[];
@@ -44,6 +47,8 @@ export function CfStackWizard({ open, workspaceId, onClose, onComplete }: CfStac
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [d1Error, setD1Error] = useState<string | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<CfAccount[]>([]);
+  const [needsAccountSelection, setNeedsAccountSelection] = useState(false);
   const [d1List, setD1List] = useState<CfResource[]>([]);
   const [workers, setWorkers] = useState<CfResource[]>([]);
   const [tunnels, setTunnels] = useState<CfResource[]>([]);
@@ -63,6 +68,8 @@ export function CfStackWizard({ open, workspaceId, onClose, onComplete }: CfStac
     setSaveErr(null);
     setD1Error(null);
     setAccountId(null);
+    setAccounts([]);
+    setNeedsAccountSelection(false);
     setD1List([]);
     setWorkers([]);
     setTunnels([]);
@@ -76,35 +83,51 @@ export function CfStackWizard({ open, workspaceId, onClose, onComplete }: CfStac
     setSavedOk(false);
   }, []);
 
+  const enumerate = useCallback(async (explicitAccountId?: string) => {
+    setLoading(true);
+    setEnumerateErr(null);
+    try {
+      const data = await fetchJson<EnumerateResponse>(
+        '/api/integrations/cloudflare_oauth/stack/enumerate',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(explicitAccountId ? { account_id: explicitAccountId } : {}),
+        },
+      );
+      setAccounts(data.accounts || []);
+      if (data.needs_account_selection) {
+        setNeedsAccountSelection(true);
+        setAccountId(null);
+        return;
+      }
+      setNeedsAccountSelection(false);
+      setAccountId(data.account_id || null);
+      setD1List(data.d1_databases || []);
+      setWorkers(data.workers || []);
+      setTunnels(data.tunnels || []);
+    } catch (e) {
+      setEnumerateErr(String(e instanceof Error ? e.message : e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     reset();
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setEnumerateErr(null);
-      try {
-        const data = await fetchJson<EnumerateResponse>(
-          '/api/integrations/cloudflare_oauth/stack/enumerate',
-          { method: 'POST' },
-        );
-        if (cancelled) return;
-        setAccountId(data.account_id || null);
-        setD1List(data.d1_databases || []);
-        setWorkers(data.workers || []);
-        setTunnels(data.tunnels || []);
-      } catch (e) {
-        if (!cancelled) {
-          setEnumerateErr(String(e instanceof Error ? e.message : e));
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, reset]);
+    void enumerate();
+    // reset/enumerate are stable across the component's lifetime; re-running this
+    // effect should only be driven by the dialog opening.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const handleAccountPick = useCallback(
+    (id: string) => {
+      void enumerate(id);
+    },
+    [enumerate],
+  );
 
   const handleSave = useCallback(async () => {
     setStep(2);
@@ -118,6 +141,7 @@ export function CfStackWizard({ open, workspaceId, onClose, onComplete }: CfStac
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspace_id: workspaceId,
+          ...(accountId && { account_id: accountId }),
           ...(selections.d1Id && {
             d1_database_id: selections.d1Id,
             d1_database_name: selections.d1Name || selections.d1Id,
@@ -141,7 +165,7 @@ export function CfStackWizard({ open, workspaceId, onClose, onComplete }: CfStac
     } finally {
       setLoading(false);
     }
-  }, [selections, workspaceId]);
+  }, [accountId, selections, workspaceId]);
 
   const handleFinish = useCallback(() => {
     onComplete();
@@ -150,7 +174,8 @@ export function CfStackWizard({ open, workspaceId, onClose, onComplete }: CfStac
 
   if (!open) return null;
 
-  const canProceedStep1 = !loading && !enumerateErr;
+  const canProceedStep1 = !loading && !enumerateErr && !needsAccountSelection;
+  const selectedAccount = accounts.find((a) => a.id === accountId) || null;
 
   return (
     <div
@@ -185,9 +210,7 @@ export function CfStackWizard({ open, workspaceId, onClose, onComplete }: CfStac
               <div className="text-[12px] font-semibold text-[var(--text-heading)]">
                 What are you building on?
               </div>
-              {accountId ? (
-                <p className="text-[10px] text-muted font-mono">Account {accountId}</p>
-              ) : null}
+
               {loading ? (
                 <div className="flex items-center gap-2 text-[11px] text-muted py-6 justify-center">
                   <Loader2 size={16} className="animate-spin" />
@@ -195,8 +218,54 @@ export function CfStackWizard({ open, workspaceId, onClose, onComplete }: CfStac
                 </div>
               ) : enumerateErr ? (
                 <div className="text-[11px] text-[var(--accent-danger)]">{enumerateErr}</div>
+              ) : needsAccountSelection ? (
+                <div className="flex flex-col gap-3">
+                  <p className="text-[11px] text-muted">
+                    Your Cloudflare login has access to multiple accounts. Pick which one this
+                    workspace builds on.
+                  </p>
+                  <label className="text-[10px] text-muted flex flex-col gap-1">
+                    Cloudflare account
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) handleAccountPick(e.target.value);
+                      }}
+                      className="px-2 py-1.5 rounded-lg bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-[12px]"
+                    >
+                      <option value="" disabled>
+                        Choose an account…
+                      </option>
+                      {accounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name} ({a.id.slice(0, 8)}…)
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               ) : (
                 <div className="flex flex-col gap-3">
+                  {selectedAccount ? (
+                    <div className="flex items-center justify-between text-[10px] text-muted">
+                      <span>
+                        Account: {selectedAccount.name}{' '}
+                        <span className="font-mono">({selectedAccount.id.slice(0, 8)}…)</span>
+                      </span>
+                      {accounts.length > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() => setNeedsAccountSelection(true)}
+                          className="text-[var(--solar-blue)] hover:underline"
+                        >
+                          Change
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : accountId ? (
+                    <p className="text-[10px] text-muted font-mono">Account {accountId}</p>
+                  ) : null}
+
                   <label className="text-[10px] text-muted flex flex-col gap-1">
                     D1 database
                     <select
@@ -326,6 +395,11 @@ export function CfStackWizard({ open, workspaceId, onClose, onComplete }: CfStac
                 Cloudflare stack settings were saved to this workspace.
               </p>
               <ul className="text-[11px] text-main space-y-1 rounded-lg border border-[var(--border-subtle)] p-3 bg-[var(--bg-panel)]">
+                {selectedAccount ? (
+                  <li>
+                    <span className="text-muted">Account:</span> {selectedAccount.name}
+                  </li>
+                ) : null}
                 {selections.d1Id ? (
                   <li>
                     <span className="text-muted">D1:</span> {selections.d1Name || selections.d1Id}
@@ -389,6 +463,7 @@ export function CfStackWizard({ open, workspaceId, onClose, onComplete }: CfStac
 }
 
 export type CfStackConfig = {
+  cf_account_id?: string;
   cf_d1_database_id?: string;
   cf_d1_database_name?: string;
   cf_worker_name?: string;
