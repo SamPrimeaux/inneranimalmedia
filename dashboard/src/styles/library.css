@@ -53,6 +53,7 @@
   grid-template-rows: 72px 1fr;
   grid-template-columns: var(--sidebar) 1fr 58px;
   overflow: hidden;
+  transition: grid-template-columns 0.22s ease;
 }
 
 .artifacts-drive-shell .topbar {
@@ -85,6 +86,32 @@
 
 .artifacts-drive-shell .hamb:hover {
   background: #edf2fa;
+}
+
+.artifacts-drive-shell .hamb-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.artifacts-drive-shell .hamb-bar {
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.25s ease, opacity 0.2s ease;
+}
+
+.artifacts-drive-shell .hamb-icon.is-open .hamb-bar-top {
+  transform: translateY(5px) rotate(45deg);
+}
+
+.artifacts-drive-shell .hamb-icon.is-open .hamb-bar-mid {
+  opacity: 0;
+}
+
+.artifacts-drive-shell .hamb-icon.is-open .hamb-bar-bottom {
+  transform: translateY(-5px) rotate(-45deg);
 }
 
 .artifacts-drive-shell .drive-mark {
@@ -1003,6 +1030,8 @@
   align-items: center;
   gap: 16px;
   border-left: 1px solid var(--border);
+  position: relative;
+  z-index: 5;
 }
 
 html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
@@ -1015,6 +1044,7 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
   border-radius: 999px;
   display: grid;
   place-items: center;
+  flex-shrink: 0;
 }
 
 .artifacts-drive-shell .drive-rail .rbtn:hover {
@@ -1273,6 +1303,38 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
 .artifacts-drive-shell .title-back {
   margin-right: 6px;
   color: #0b57d0;
+}
+
+.artifacts-drive-shell.side-collapsed {
+  --sidebar: 88px;
+}
+
+.artifacts-drive-shell.side-collapsed .topbar {
+  grid-template-columns: 88px minmax(220px, 1fr) 1fr auto;
+}
+
+.artifacts-drive-shell.side-collapsed .brand span.label,
+.artifacts-drive-shell.side-collapsed .nav-item span,
+.artifacts-drive-shell.side-collapsed .nav-section,
+.artifacts-drive-shell.side-collapsed .storage,
+.artifacts-drive-shell.side-collapsed .new-btn span {
+  display: none;
+}
+
+.artifacts-drive-shell.side-collapsed .new-btn {
+  width: 54px;
+  border-radius: 18px;
+}
+
+.artifacts-drive-shell.side-collapsed .drive-side {
+  padding-left: 8px;
+}
+
+.artifacts-drive-shell.side-collapsed .nav-item {
+  border-radius: 999px;
+  width: 52px;
+  padding: 0;
+  justify-content: center;
 }
 
 @media (max-width: 1040px) {
