@@ -51,6 +51,7 @@ import { DatabaseCellDetailDrawer, type CellDetailPayload } from './database/Dat
 import { DatabaseResultsGrid } from './database/DatabaseResultsGrid';
 import { rowKeyForRow, type SelectedGridCell } from './database/databaseGridTypes';
 import { useWorkspace } from '../src/context/WorkspaceContext';
+import { isPlatformWorkspace } from '../src/lib/databaseStudioRoute';
 import '../components/database/database-page.css';
 
 type Datasource = 'd1' | 'hyperdrive';
@@ -249,7 +250,11 @@ export type DatabaseStudioProps = {
 };
 
 export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, onBackToOverview }) => {
-  const { workspaceId } = useWorkspace();
+  const { workspaceId, workspaces } = useWorkspace();
+  const activeWorkspace = useMemo(
+    () => workspaces.find((w) => w.id === workspaceId) ?? null,
+    [workspaces, workspaceId],
+  );
   const navigate = useNavigate();
   const [sidebarSource, setSidebarSource] = useState<Datasource>(readStoredDatasource);
   const datasource: Datasource = sidebarSource;
@@ -586,6 +591,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
 
   useEffect(() => {
     if (databaseName?.trim() || !workspaceId?.trim() || !pageReady) return;
+    if (isPlatformWorkspace(activeWorkspace)) return;
     let cancelled = false;
     (async () => {
       try {
@@ -606,7 +612,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     return () => {
       cancelled = true;
     };
-  }, [databaseName, workspaceId, pageReady, fetchD1Json, navigate]);
+  }, [databaseName, workspaceId, pageReady, fetchD1Json, navigate, activeWorkspace]);
 
   const loadSchema = useCallback(
     async (table: string) => {

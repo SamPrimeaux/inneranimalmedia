@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
-import { Plus, Search, Star } from 'lucide-react';
+import { Archive, CheckSquare, Plus, Search, Square, Star } from 'lucide-react';
 import type { OverviewProject } from '../../../api/projects';
-import { fetchProjectsOverview, updateProject } from '../../../api/projects';
+import { fetchProjectsList, fetchProjectsOverview, updateProject, deleteProject } from '../../../api/projects';
 import NewProjectModal from '../../../components/projects/NewProjectModal';
+import { readIamProjectsCache, writeIamProjectsCache } from '../../iamProjectsCache';
+import { cfImageVariants, projectAccentHue, projectInitials } from '../../lib/projectBranding';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { LibraryProjectDetail } from './LibraryProjectDetail';
 
@@ -28,45 +30,98 @@ function projectDescription(project: OverviewProject): string {
   return 'No description yet.';
 }
 
+function mergeOverviewProjects(fast: OverviewProject[], rich: OverviewProject[]): OverviewProject[] {
+  const richById = new Map(rich.map((p) => [p.id, p]));
+  const seen = new Set<string>();
+  const out: OverviewProject[] = [];
+  for (const p of fast) {
+    out.push(richById.get(p.id) || p);
+    seen.add(p.id);
+  }
+  for (const p of rich) {
+    if (!seen.has(p.id)) out.push(p);
+  }
+  return out;
+}
+
 export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectChange }: Props) {
   const { workspaceId, workspaces, loading: workspaceLoading } = useWorkspace();
   const [query, setQuery] = useState('');
-  const [overview, setOverview] = useState<Awaited<ReturnType<typeof fetchProjectsOverview>> | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [projects, setProjects] = useState<OverviewProject[]>(() => {
+    const cached = readIamProjectsCache(workspaceId);
+    return cached?.projects || [];
+  });
+  const [loading, setLoading] = useState(() => !readIamProjectsCache(workspaceId)?.projects?.length);
+  const [enriching, setEnriching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(initialProjectId || null);
-  const [starred, setStarred] = useState<Set<string>>(() => new Set());
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const refresh = useCallback(async () => {
-    setLoading(true);
+    if (!workspaceId) {
+      setLoading(false);
+      return;
+    }
+    const cached = readIamProjectsCache(workspaceId);
+    if (cached?.projects?.length) {
+      setProjects(cached.projects);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setError(null);
+
     try {
-      const data = await fetchProjectsOverview(workspaceId);
-      if (!data.ok) {
-        setError(data.error || 'Failed to load projects');
-        setOverview(null);
-      } else {
-        setOverview(data);
+      const fast = await fetchProjectsList(workspaceId);
+      if (fast.ok && fast.projects.length) {
+        setProjects(fast.projects);
+        writeIamProjectsCache(workspaceId, fast.projects);
+        setLoading(false);
+      } else if (!fast.ok && !cached?.projects?.length) {
+        setError(fast.error || 'Failed to load projects');
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load projects');
-      setOverview(null);
+      if (!cached?.projects?.length) {
+        setError(e instanceof Error ? e.message : 'Failed to load projects');
+      }
     } finally {
       setLoading(false);
+    }
+
+    setEnriching(true);
+    try {
+      const data = await fetchProjectsOverview(workspaceId);
+      if (data.ok && data.projects?.length) {
+        setProjects((prev) => {
+          const merged = mergeOverviewProjects(prev, data.projects);
+          writeIamProjectsCache(workspaceId, merged);
+          return merged;
+        });
+      }
+    } catch {
+      /* fast list already shown */
+    } finally {
+      setEnriching(false);
     }
   }, [workspaceId]);
 
   useEffect(() => {
-    if (workspaceLoading) return;
+    if (workspaceLoading && !workspaceId) return;
+    if (!workspaceId) {
+      setLoading(false);
+      return;
+    }
+    const cached = readIamProjectsCache(workspaceId);
+    if (cached?.projects?.length) setProjects(cached.projects);
     void refresh();
   }, [workspaceId, workspaceLoading, refresh]);
 
   useEffect(() => {
     if (initialProjectId) setSelectedId(initialProjectId);
   }, [initialProjectId]);
-
-  const projects = overview?.projects || [];
 
   const activeProjects = useMemo(
     () =>
@@ -98,6 +153,10 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
   }, [workspaceId, workspaces]);
 
   const openProject = (id: string) => {
+    if (selectMode) {
+      toggleSelect(id);
+      return;
+    }
     setSelectedId(id);
     onProjectChange?.(id);
   };
@@ -105,6 +164,68 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
   const closeProject = () => {
     setSelectedId(null);
     onProjectChange?.(null);
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filtered.map((p) => p.id)));
+    }
+  };
+
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const bulkArchive = async () => {
+    if (!selectedIds.size || bulkBusy) return;
+    if (!window.confirm(`Archive ${selectedIds.size} project(s)?`)) return;
+    setBulkBusy(true);
+    try {
+      const ids = [...selectedIds];
+      const results = await Promise.all(ids.map((id) => updateProject(id, { status: 'archived' })));
+      const failed = results.filter((r) => !r.ok).length;
+      if (failed) onToast?.(`${failed} project(s) could not be archived`);
+      else onToast?.(`Archived ${ids.length} project(s)`);
+      exitSelectMode();
+      void refresh();
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const bulkDelete = async () => {
+    if (!selectedIds.size || bulkBusy) return;
+    if (
+      !window.confirm(
+        `Permanently delete ${selectedIds.size} project(s)? This cannot be undone. Consider archiving instead.`,
+      )
+    ) {
+      return;
+    }
+    setBulkBusy(true);
+    try {
+      const ids = [...selectedIds];
+      const results = await Promise.all(ids.map((id) => deleteProject(id, { hard: true })));
+      const failed = results.filter((r) => !r.ok).length;
+      if (failed) onToast?.(`${failed} project(s) could not be deleted`);
+      else onToast?.(`Deleted ${ids.length} project(s)`);
+      exitSelectMode();
+      void refresh();
+    } finally {
+      setBulkBusy(false);
+    }
   };
 
   const toggleStar = (p: OverviewProject, e: MouseEvent) => {
@@ -119,7 +240,7 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
     })();
   };
 
-  const isStarred = (p: OverviewProject) => (p.tags || []).includes('starred') || starred.has(p.id);
+  const isStarred = (p: OverviewProject) => (p.tags || []).includes('starred');
 
   if (selected) {
     return (
@@ -138,11 +259,51 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
         <div>
           <h1>Projects</h1>
           {workspaceLabel ? <p className="lib-project-muted">Workspace · {workspaceLabel}</p> : null}
+          {enriching ? <p className="lib-project-muted lib-proj-sync-hint">Refreshing stats…</p> : null}
         </div>
-        <button type="button" className="lib-proj-btn primary" onClick={() => setModalOpen(true)}>
-          <Plus size={16} strokeWidth={2} />
-          New project
-        </button>
+        <div className="lib-proj-grid-head-actions">
+          {selectMode ? (
+            <>
+              <button type="button" className="lib-proj-btn ghost" onClick={toggleSelectAll}>
+                {selectedIds.size === filtered.length && filtered.length ? 'Deselect all' : 'Select all'}
+              </button>
+              <button
+                type="button"
+                className="lib-proj-btn ghost danger"
+                disabled={!selectedIds.size || bulkBusy}
+                onClick={() => void bulkArchive()}
+              >
+                <Archive size={16} />
+                Archive ({selectedIds.size})
+              </button>
+              <button
+                type="button"
+                className="lib-proj-btn ghost danger"
+                disabled={!selectedIds.size || bulkBusy}
+                onClick={() => void bulkDelete()}
+              >
+                Delete ({selectedIds.size})
+              </button>
+              <button type="button" className="lib-proj-btn ghost" onClick={exitSelectMode}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="lib-proj-btn ghost"
+              onClick={() => setSelectMode(true)}
+              title="Select projects"
+            >
+              <CheckSquare size={16} />
+              Select
+            </button>
+          )}
+          <button type="button" className="lib-proj-btn primary" onClick={() => setModalOpen(true)}>
+            <Plus size={16} strokeWidth={2} />
+            New project
+          </button>
+        </div>
       </div>
 
       {error ? <div className="lib-error">{error}</div> : null}
@@ -157,31 +318,62 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
       </div>
 
       {loading && !projects.length ? (
-        <p className="lib-project-muted lib-proj-grid-empty">Loading projects…</p>
+        <div className="lib-proj-grid lib-proj-grid-skeleton" aria-hidden>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="lib-proj-grid-card lib-proj-skeleton-card">
+              <div className="lib-proj-skeleton-cover" />
+              <div className="lib-proj-skeleton-line lg" />
+              <div className="lib-proj-skeleton-line" />
+              <div className="lib-proj-skeleton-line sm" />
+            </div>
+          ))}
+        </div>
       ) : null}
 
       <div className="lib-proj-grid">
-        {filtered.map((p) => (
-          <button key={p.id} type="button" className="lib-proj-grid-card" onClick={() => openProject(p.id)}>
-            <div className="lib-proj-grid-card-top">
-              <h3>{p.name}</h3>
-              {isStarred(p) ? (
-                <Star size={14} className="lib-proj-star" fill="currentColor" />
-              ) : (
-                <button
-                  type="button"
-                  className="lib-proj-star-btn"
-                  aria-label="Star project"
-                  onClick={(e) => toggleStar(p, e)}
-                >
-                  <Star size={14} />
-                </button>
-              )}
-            </div>
-            <p className="lib-proj-grid-card-desc">{projectDescription(p)}</p>
-            <p className="lib-proj-grid-card-meta">Updated {formatUpdated(p)}</p>
-          </button>
-        ))}
+        {filtered.map((p) => {
+          const cover = cfImageVariants(p.cover_image_url);
+          const hue = projectAccentHue(p.id);
+          const checked = selectedIds.has(p.id);
+          return (
+            <button
+              key={p.id}
+              type="button"
+              className={`lib-proj-grid-card${selectMode && checked ? ' is-selected' : ''}`}
+              onClick={() => openProject(p.id)}
+            >
+              {selectMode ? (
+                <span className="lib-proj-grid-check" aria-hidden>
+                  {checked ? <CheckSquare size={18} /> : <Square size={18} />}
+                </span>
+              ) : null}
+              <div className="lib-proj-grid-card-cover" style={cover.src ? undefined : { background: `linear-gradient(135deg, hsl(${hue} 52% 42%), hsl(${(hue + 40) % 360} 48% 32%))` }}>
+                {cover.src ? (
+                  <img src={cover.src} srcSet={cover.srcSet} alt="" loading="lazy" decoding="async" />
+                ) : (
+                  <span className="lib-proj-grid-card-initials">{projectInitials(p.name)}</span>
+                )}
+              </div>
+              <div className="lib-proj-grid-card-top">
+                <h3>{p.name}</h3>
+                {isStarred(p) ? (
+                  <Star size={14} className="lib-proj-star" fill="currentColor" />
+                ) : (
+                  <button
+                    type="button"
+                    className="lib-proj-star-btn"
+                    aria-label="Star project"
+                    onClick={(e) => toggleStar(p, e)}
+                  >
+                    <Star size={14} />
+                  </button>
+                )}
+              </div>
+              <p className="lib-proj-grid-card-desc">{projectDescription(p)}</p>
+              <p className="lib-proj-grid-card-meta">Updated {formatUpdated(p)}</p>
+            </button>
+          );
+        })}
       </div>
 
       {!loading && filtered.length === 0 ? (

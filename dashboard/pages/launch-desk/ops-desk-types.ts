@@ -131,6 +131,25 @@ export async function patchTodo(id: string, payload: Record<string, unknown>) {
   });
 }
 
+export async function deleteTodo(id: string) {
+  return patchTodo(id, { status: 'cancelled' });
+}
+
+export async function createCalendarEvent(payload: {
+  title: string;
+  description?: string;
+  start_datetime: string;
+  end_datetime: string;
+  event_type?: string;
+  location?: string;
+}) {
+  return apiJson<{ success?: boolean; id?: string; error?: string }>('/api/calendar/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
 export function sameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }

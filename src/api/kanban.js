@@ -2,6 +2,7 @@
  * Kanban API — /api/kanban/* (D1 kanban_boards, kanban_columns, kanban_tasks).
  */
 import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { resolveWorkerR2BucketName } from '../core/r2-storage-scope.js';
 import { userCanAccessWorkspace } from '../core/workspace-access.js';
 
 function resolveWorkspaceId(authUser, env, url) {
@@ -74,9 +75,10 @@ function resolveUserId(authUser) {
   return id != null && String(id).trim() ? String(id).trim() : null;
 }
 
-function attachmentDownloadUrl(requestUrl, fileKey) {
+function attachmentDownloadUrl(requestUrl, env, fileKey) {
   const origin = new URL(requestUrl).origin;
-  return `${origin}/api/r2/buckets/inneranimalmedia/object/${encodeURIComponent(fileKey)}`;
+  const bucket = resolveWorkerR2BucketName(env, 'ASSETS') || 'inneranimalmedia';
+  return `${origin}/api/r2/buckets/${encodeURIComponent(bucket)}/object/${encodeURIComponent(fileKey)}`;
 }
 
 async function assertTaskAccess(db, taskId, tenantIds, workspaceId) {
@@ -596,7 +598,7 @@ async function handleTaskAttachmentsList(request, env, authUser, taskId) {
 
   const attachments = (results || []).map((a) => ({
     ...a,
-    url: attachmentDownloadUrl(request.url, String(a.file_key)),
+    url: attachmentDownloadUrl(request.url, env, String(a.file_key)),
   }));
 
   return jsonResponse({ ok: true, attachments });
@@ -667,7 +669,7 @@ async function handleTaskAttachmentPost(request, env, authUser, taskId) {
     file_key: fileKey,
     file_size: bytes.byteLength,
     content_type: contentType,
-    url: attachmentDownloadUrl(request.url, fileKey),
+    url: attachmentDownloadUrl(request.url, env, fileKey),
   };
 
   return jsonResponse({ ok: true, attachment });

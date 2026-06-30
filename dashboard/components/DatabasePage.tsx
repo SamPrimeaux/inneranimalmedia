@@ -13,6 +13,8 @@ import { useWorkspace } from '../src/context/WorkspaceContext';
 import {
   databaseStudioPathFromName,
   expectedDatabaseNameForWorkspace,
+  isPlatformWorkspace,
+  PLATFORM_DATABASE_STUDIO_PATH,
 } from '../src/lib/databaseStudioRoute';
 import DatabasesTab from './analytics/tabs/DatabasesTab';
 
@@ -70,19 +72,25 @@ export const DatabasePage: React.FC = () => {
       return;
     }
 
-    // No collab D1 catalog for this workspace (i.e. this is the platform
-    // workspace) -- never leave a stale or explicit database slug sitting in
-    // the URL. Query execution is already correctly scoped server-side
-    // (resolveUserWorkspaceBinding), but a bookmarked or stale-tab URL like
-    // /dashboard/database/pelican-peptides should not keep displaying that
-    // name once the real workspace is known. Snap back to the platform view.
-    if (databaseName) {
-      navigate('/dashboard/database', { replace: true });
+    // Platform workspace: collab slugs in the URL are stale — stay in studio, not analytics.
+    if (databaseName && isPlatformWorkspace(activeWorkspace)) {
+      if (legacyStudio) return;
+      navigate(PLATFORM_DATABASE_STUDIO_PATH, { replace: true });
     }
-  }, [workspaceId, workspaces, activeWorkspace, databaseName, expectedStudioName, navigate]);
+  }, [
+    workspaceId,
+    workspaces,
+    activeWorkspace,
+    databaseName,
+    expectedStudioName,
+    legacyStudio,
+    navigate,
+  ]);
 
   useEffect(() => {
     if (databaseName || !legacyStudio) return;
+    // Platform uses env.DB — never rewrite ?studio=1 into a collab database slug.
+    if (isPlatformWorkspace(activeWorkspace)) return;
     let cancelled = false;
     (async () => {
       try {
@@ -92,12 +100,16 @@ export const DatabasePage: React.FC = () => {
         const res = await fetch('/api/d1/context', { credentials: 'same-origin', headers });
         const ctx = await res.json().catch(() => ({}));
         if (cancelled || !res.ok) return;
+        const match = Array.isArray(ctx.databases)
+          ? ctx.databases.find(
+              (d: { workspace_id?: string }) =>
+                String(d?.workspace_id || '').trim() === ws,
+            )
+          : null;
         const name =
-          typeof ctx.active_database_name === 'string' && ctx.active_database_name.trim()
-            ? ctx.active_database_name.trim()
-            : Array.isArray(ctx.databases) && ctx.databases[0]?.database_name
-              ? String(ctx.databases[0].database_name).trim()
-              : '';
+          (match?.database_name && String(match.database_name).trim()) ||
+          (typeof ctx.active_database_name === 'string' && ctx.active_database_name.trim()) ||
+          '';
         if (name) {
           navigate(`/dashboard/database/${encodeURIComponent(name)}`, { replace: true });
         }
@@ -108,7 +120,7 @@ export const DatabasePage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [databaseName, legacyStudio, navigate, workspaceId]);
+  }, [databaseName, legacyStudio, navigate, workspaceId, activeWorkspace]);
 
   const backToOverview = useCallback(() => {
     navigate('/dashboard/database', { replace: true });

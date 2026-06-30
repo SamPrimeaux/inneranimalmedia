@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ExternalLink, Lightbulb, NotebookPen, Plus, Users, X } from 'lucide-react';
+import { Lightbulb, NotebookPen, Plus, Users, X } from 'lucide-react';
 import { collaborateDeepLink, type CollaborateRailPanel } from '../../lib/collaborate/collaborateRailNav';
 import { CollaborateRailPanels } from '../collaborate/CollaborateRailPanels';
+import { RailQuickCreateMenu } from './RailQuickCreateMenu';
 
 type RailItem = {
   id: CollaborateRailPanel;
@@ -45,8 +45,8 @@ function RailIcon({ kind }: { kind: RailItem['icon'] }) {
 }
 
 export function LibrarySideRail({ onPanelChange }: { onPanelChange?: (open: boolean) => void }) {
-  const navigate = useNavigate();
   const [activePanel, setActivePanel] = useState<CollaborateRailPanel | null>(null);
+  const [panelVersion, setPanelVersion] = useState(0);
 
   const togglePanel = (id: CollaborateRailPanel) => {
     setActivePanel((cur) => {
@@ -61,6 +61,12 @@ export function LibrarySideRail({ onPanelChange }: { onPanelChange?: (open: bool
     onPanelChange?.(false);
   };
 
+  const openPanel = (id: CollaborateRailPanel) => {
+    setActivePanel(id);
+    onPanelChange?.(true);
+    setPanelVersion((v) => v + 1);
+  };
+
   const activeMeta = RAIL_ITEMS.find((r) => r.id === activePanel);
 
   return (
@@ -73,21 +79,12 @@ export function LibrarySideRail({ onPanelChange }: { onPanelChange?: (open: bool
               <strong>{activeMeta.title}</strong>
             </div>
             <div className="lib-rail-panel-actions">
-              <button
-                type="button"
-                className="icon-btn"
-                title="Open in Collaborate"
-                aria-label="Open in Collaborate"
-                onClick={() => navigate(collaborateDeepLink(activePanel))}
-              >
-                <ExternalLink size={18} strokeWidth={1.75} />
-              </button>
               <button type="button" className="icon-btn" onClick={closePanel} aria-label="Close panel">
                 <X size={18} strokeWidth={1.75} />
               </button>
             </div>
           </div>
-          <CollaborateRailPanels panel={activePanel} />
+          <CollaborateRailPanels key={`${activePanel}-${panelVersion}`} panel={activePanel} />
         </aside>
       ) : null}
 
@@ -106,15 +103,10 @@ export function LibrarySideRail({ onPanelChange }: { onPanelChange?: (open: bool
           </button>
         ))}
         <div className="plus">
-          <button
-            type="button"
-            className="rbtn"
-            title="Open Collaborate"
-            aria-label="Open Collaborate"
-            onClick={() => navigate('/dashboard/collaborate')}
-          >
-            <Plus size={20} strokeWidth={1.75} />
-          </button>
+          <RailQuickCreateMenu
+            onOpenPanel={openPanel}
+            onCreated={() => setPanelVersion((v) => v + 1)}
+          />
         </div>
       </aside>
     </>

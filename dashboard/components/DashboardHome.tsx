@@ -15,7 +15,9 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { IAM_AGENT_CHAT_COMPOSE } from '../agentChatConstants';
-import { fetchProjectsOverview, type OverviewProject } from '../api/projects';
+import { fetchProjectsList, type OverviewProject } from '../api/projects';
+import { readIamProjectsCache, writeIamProjectsCache } from '../src/iamProjectsCache';
+import { cfImageVariants, projectAccentHue, projectInitials } from '../src/lib/projectBranding';
 import {
   fetchDashboardHomeTiles,
   saveDashboardHomeTiles,
@@ -161,14 +163,6 @@ function HomeIcon({ id, size = 20 }: { id: HomeIconId; size?: number }) {
   return <Icon size={size} strokeWidth={1.75} aria-hidden />;
 }
 
-function cfImageVariants(url: string | null | undefined) {
-  const raw = (url || '').trim();
-  if (!raw) return { src: '', srcSet: undefined as string | undefined };
-  if (!raw.includes('imagedelivery.net')) return { src: raw, srcSet: undefined };
-  const publicUrl = raw.replace(/\/(small|thumbnail|avatar|hero)$/, '/public');
-  const smallUrl = publicUrl.replace(/\/public$/, '/small');
-  return { src: publicUrl, srcSet: `${smallUrl} 1x, ${publicUrl} 2x` };
-}
 
 function projectHref(project: OverviewProject) {
   return `/dashboard/projects/${encodeURIComponent(project.id)}`;
@@ -256,19 +250,30 @@ export function DashboardHome() {
 
   useEffect(() => {
     let cancelled = false;
-    setProjectsLoading(true);
-    void (async () => {
-      const data = await fetchProjectsOverview(workspaceId);
-      if (cancelled) return;
-      const rows = data.ok ? data.projects || [] : [];
-      const sorted = [...rows].sort((a, b) => {
-        const pa = Number(a.priority_num) || 0;
-        const pb = Number(b.priority_num) || 0;
-        if (pb !== pa) return pb - pa;
-        return a.name.localeCompare(b.name);
-      });
-      setRecentProjects(sorted.slice(0, 4));
+    const cached = readIamProjectsCache(workspaceId);
+    if (cached?.projects?.length) {
+      setRecentProjects(cached.projects.slice(0, 4));
       setProjectsLoading(false);
+    } else {
+      setProjectsLoading(true);
+    }
+    void (async () => {
+      const fast = await fetchProjectsList(workspaceId);
+      if (cancelled) return;
+      if (fast.ok && fast.projects.length) {
+        const sorted = [...fast.projects].sort((a, b) => {
+          const pa = Number(a.priority_num) || 0;
+          const pb = Number(b.priority_num) || 0;
+          if (pb !== pa) return pb - pa;
+          return a.name.localeCompare(b.name);
+        });
+        const slice = sorted.slice(0, 4);
+        setRecentProjects(slice);
+        if (workspaceId) writeIamProjectsCache(workspaceId, fast.projects);
+        setProjectsLoading(false);
+      } else if (!cached?.projects?.length) {
+        setProjectsLoading(false);
+      }
     })();
     return () => {
       cancelled = true;

@@ -1,8 +1,11 @@
+/** SQL explorer entry for platform workspace (inneranimalmedia-business via env.DB). */
+export const PLATFORM_DATABASE_STUDIO_PATH = '/dashboard/database?studio=1';
+
 /** Resolve Database Studio path for the active workspace (named URL when collab D1 exists). */
 export function databaseStudioPathFromName(databaseName?: string | null): string {
   const name = databaseName?.trim();
   if (name) return `/dashboard/database/${encodeURIComponent(name)}`;
-  return '/dashboard/database';
+  return PLATFORM_DATABASE_STUDIO_PATH;
 }
 
 /** Collab D1 database_name for this workspace, if any. */
@@ -29,10 +32,12 @@ export function databaseStudioPathForWorkspace(row?: {
   database_studio_name?: string | null;
   slug?: string | null;
   github_repo?: string | null;
+  id?: string | null;
 } | null): string {
   const name = expectedDatabaseNameForWorkspace(row);
   if (name) return databaseStudioPathFromName(name);
-  return '/dashboard/database';
+  if (isPlatformWorkspace(row)) return PLATFORM_DATABASE_STUDIO_PATH;
+  return PLATFORM_DATABASE_STUDIO_PATH;
 }
 
 export function isPlatformWorkspace(row?: { slug?: string | null; id?: string | null } | null): boolean {

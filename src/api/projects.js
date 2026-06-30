@@ -4,6 +4,15 @@
  */
 import { jsonResponse } from '../core/auth.js';
 
+const PROJECTS_LIST_CACHE = 'private, max-age=30, stale-while-revalidate=120';
+const PROJECTS_OVERVIEW_CACHE = 'private, max-age=15, stale-while-revalidate=300';
+
+function projectsJsonResponse(body, status = 200, cacheControl = null) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (cacheControl) headers['Cache-Control'] = cacheControl;
+  return new Response(JSON.stringify(body), { status: Number(status) || 200, headers });
+}
+
 function safeJsonArray(text, fallback = []) {
   try {
     const v = JSON.parse(String(text || 'null'));
@@ -643,18 +652,22 @@ async function handleOverview(request, url, env, authUser) {
     this_week_hours: thisWeekHours,
   };
 
-  return jsonResponse({
-    ok: true,
-    kpis,
-    projects,
-    milestones,
-    workload_mix,
-    status_counts,
-    velocity_week,
-    burn_week,
-    priority_tasks,
-    updated_at: new Date().toISOString(),
-  });
+  return projectsJsonResponse(
+    {
+      ok: true,
+      kpis,
+      projects,
+      milestones,
+      workload_mix,
+      status_counts,
+      velocity_week,
+      burn_week,
+      priority_tasks,
+      updated_at: new Date().toISOString(),
+    },
+    200,
+    PROJECTS_OVERVIEW_CACHE,
+  );
   } catch (e) {
     console.warn('[projects/overview]', e?.message ?? e);
     return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500);
@@ -688,8 +701,15 @@ async function handleList(env, authUser, url) {
     (authUser.active_workspace_id ? String(authUser.active_workspace_id) : null);
   const { sql: whereSql, binds: whereBinds } = buildProjectWhereClause(workspaceId, tenantId);
   const { results } = await env.DB.prepare(`SELECT p.* FROM projects p WHERE ${whereSql} ORDER BY COALESCE(p.priority,0) DESC, p.name ASC`).bind(...whereBinds).all();
-  const projects = await attachChatProjectIds(env, results || []);
-  return jsonResponse({ ok: true, success: true, projects });
+  const enriched = (results || []).map((p) => {
+    const meta = parseMetadataObject(p?.metadata_json);
+    return {
+      ...p,
+      cover_image_url: extractCoverImageUrl(p, meta),
+    };
+  });
+  const projects = await attachChatProjectIds(env, enriched);
+  return projectsJsonResponse({ ok: true, success: true, projects }, 200, PROJECTS_LIST_CACHE);
 }
 
 async function handleGetOne(env, authUser, id) {
@@ -941,6 +961,44 @@ async function handlePost(request, env, authUser) {
   return jsonResponse({ ok: true, project: row, workspace_project_id: wpId }, 201);
 }
 
+async function handleDelete(request, env, authUser, id, url) {
+  const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(id).first();
+  if (!row) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+  if (authUser.tenant_id && row.tenant_id && String(row.tenant_id) !== String(authUser.tenant_id) && !authUser.is_superadmin) {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+
+  const hard = url.searchParams.get('hard') === '1' || url.searchParams.get('hard') === 'true';
+  if (hard) {
+    try {
+      await env.DB.prepare(`DELETE FROM projects WHERE id = ?`).bind(id).run();
+    } catch (e) {
+      return jsonResponse({ ok: false, error: `db_delete_failed: ${e?.message || e}` }, 500);
+    }
+    try {
+      await env.DB.prepare(
+        `DELETE FROM workspace_projects WHERE json_extract(metadata_json, '$.projects_table_id') = ?`,
+      )
+        .bind(String(id))
+        .run();
+    } catch {
+      /* optional */
+    }
+    return jsonResponse({ ok: true, deleted: true, id });
+  }
+
+  try {
+    await env.DB
+      .prepare(`UPDATE projects SET status = 'archived', updated_at = datetime('now') WHERE id = ?`)
+      .bind(id)
+      .run();
+  } catch (e) {
+    return jsonResponse({ ok: false, error: `db_update_failed: ${e?.message || e}` }, 500);
+  }
+  const next = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(id).first();
+  return jsonResponse({ ok: true, archived: true, project: next });
+}
+
 /**
  * @param {Request} request
  * @param {URL} url
@@ -970,6 +1028,9 @@ export async function handleProjectsApi(request, url, env, authUser) {
   }
   if (seg.length === 1 && (method === 'PATCH' || method === 'PUT')) {
     return handlePatch(request, env, authUser, seg[0]);
+  }
+  if (seg.length === 1 && method === 'DELETE') {
+    return handleDelete(request, env, authUser, seg[0], url);
   }
 
   return jsonResponse({ ok: false, error: 'projects_route_not_found' }, 404);

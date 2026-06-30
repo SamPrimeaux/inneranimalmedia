@@ -102,6 +102,100 @@ function qs(workspaceId?: string | null) {
   return `?workspace_id=${encodeURIComponent(workspaceId.trim())}`;
 }
 
+export type ProjectListRow = {
+  id: string;
+  name: string;
+  description?: string | null;
+  client_name?: string | null;
+  status?: string | null;
+  priority?: number | null;
+  project_type?: string | null;
+  workspace_id?: string | null;
+  tenant_id?: string | null;
+  tags_json?: string | null;
+  metadata_json?: string | null;
+  cover_image_url?: string | null;
+  chat_project_id?: string | null;
+  launch_date?: string | null;
+  estimated_completion_date?: number | null;
+};
+
+function priorityToLabel(n: number) {
+  const p = Number(n) || 0;
+  if (p >= 80) return "P0";
+  if (p >= 60) return "P1";
+  if (p >= 40) return "P2";
+  return "P3";
+}
+
+function mapDbStatusToUi(status: string | null | undefined) {
+  const s = String(status || "").toLowerCase();
+  if (s === "blocked" || s === "maintenance") return "blocked";
+  if (s === "complete" || s === "archived") return "complete";
+  if (s === "review" || s === "staging") return "review";
+  if (s === "planning" || s === "discovery") return "planning";
+  if (s === "development" || s === "active" || s === "production") return "active";
+  return "planning";
+}
+
+function safeJsonArray(text: unknown, fallback: string[] = []) {
+  try {
+    const v = JSON.parse(String(text || "null"));
+    return Array.isArray(v) ? v.map(String) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Lightweight list row → grid card shape (no KPI/plan-task fan-out). */
+export function mapListRowToOverview(row: ProjectListRow): OverviewProject {
+  const tags = safeJsonArray(row.tags_json, []);
+  const dueTs = row.estimated_completion_date;
+  return {
+    id: String(row.id),
+    name: String(row.name || "Untitled"),
+    client: row.client_name || "",
+    client_name: row.client_name || "",
+    owner: "",
+    stage: row.description ? String(row.description).slice(0, 120) : "",
+    description: row.description || "",
+    status: mapDbStatusToUi(row.status),
+    status_raw: row.status || "",
+    priority: priorityToLabel(Number(row.priority) || 0),
+    priority_num: Number(row.priority) || 0,
+    project_type: row.project_type || "",
+    progress: 0,
+    health: 0,
+    budgetUsed: 0,
+    budgetTotal: 1,
+    budget_allocated_workspace: 0,
+    dueDate: dueTs
+      ? new Date(Number(dueTs) * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+      : row.launch_date || "—",
+    lastDeploy: "—",
+    activeTasks: 0,
+    blockedTasks: 0,
+    completedTasks: 0,
+    totalTasks: 0,
+    openIssueCount: 0,
+    tags,
+    workspace_id: row.workspace_id || null,
+    tenant_id: row.tenant_id || null,
+    cover_image_url: row.cover_image_url || null,
+    chat_project_id: row.chat_project_id || null,
+  };
+}
+
+export async function fetchProjectsList(
+  workspaceId?: string | null,
+): Promise<{ ok: boolean; projects: OverviewProject[]; error?: string }> {
+  const r = await fetch(`/api/projects${qs(workspaceId)}`, { credentials: "same-origin" });
+  const j = (await r.json()) as { ok?: boolean; success?: boolean; projects?: ProjectListRow[]; error?: string };
+  if (!r.ok) return { ok: false, projects: [], error: j.error || `HTTP ${r.status}` };
+  const rows = Array.isArray(j.projects) ? j.projects : [];
+  return { ok: true, projects: rows.map(mapListRowToOverview) };
+}
+
 export async function fetchProjectsOverview(workspaceId?: string | null): Promise<ProjectsOverviewResponse> {
   const r = await fetch(`/api/projects/overview${qs(workspaceId)}`, { credentials: "same-origin" });
   const j = (await r.json()) as ProjectsOverviewResponse;
@@ -132,6 +226,21 @@ export async function updateProject(
     body: JSON.stringify(payload),
   });
   const j = (await r.json()) as { ok: boolean; project?: unknown; error?: string };
+  if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
+  return j;
+}
+
+/** Soft-delete (archive) by default; pass hard=true to permanently remove. */
+export async function deleteProject(
+  id: string,
+  opts?: { hard?: boolean },
+): Promise<{ ok: boolean; error?: string; archived?: boolean; deleted?: boolean }> {
+  const qs = opts?.hard ? "?hard=1" : "";
+  const r = await fetch(`/api/projects/${encodeURIComponent(id)}${qs}`, {
+    method: "DELETE",
+    credentials: "same-origin",
+  });
+  const j = (await r.json()) as { ok: boolean; error?: string; archived?: boolean; deleted?: boolean };
   if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
   return j;
 }

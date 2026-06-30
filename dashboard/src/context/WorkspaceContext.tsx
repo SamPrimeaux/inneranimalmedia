@@ -213,6 +213,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       if (cached && cached.data.length > 0) {
         if (!userId || !cached.sessionUserId || cached.sessionUserId === userId) {
           hydrateFromPayload(cached);
+          setLoading(false);
           return;
         }
       }
@@ -363,6 +364,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           sessionUserIdRef.current = early.userId;
           setSessionUserId(early.userId);
         }
+        setLoading(false);
       } else {
         setLoading(true);
       }

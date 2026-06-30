@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import type { CreateProjectPayload } from "../../api/projects";
 import { createProject } from "../../api/projects";
+import { useWorkspace } from "../../src/context/WorkspaceContext";
 
 type WorkspaceOption = { id: string; name: string };
 
@@ -20,6 +21,8 @@ export default function NewProjectModal({
   onCreated,
   variant = 'full',
 }: Props) {
+  const { workspaceId: ctxWorkspaceId, canonicalWorkspaceId } = useWorkspace();
+  const resolvedDefaultWorkspaceId = defaultWorkspaceId || ctxWorkspaceId || canonicalWorkspaceId;
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
   const [name, setName] = useState("");
   const [clientName, setClientName] = useState("");
@@ -54,14 +57,14 @@ export default function NewProjectModal({
             .map((w) => ({ id: String(w.id || "").trim(), name: String(w.name || w.id || "").trim() }))
             .filter((w) => w.id),
         );
-        const cur = defaultWorkspaceId?.trim() || j.current?.trim() || "";
+        const cur = resolvedDefaultWorkspaceId?.trim() || j.current?.trim() || "";
         setWorkspaceId((prev) => (prev ? prev : cur));
       } catch {
         setWorkspaces([]);
-        if (defaultWorkspaceId) setWorkspaceId(defaultWorkspaceId);
+        if (resolvedDefaultWorkspaceId) setWorkspaceId(resolvedDefaultWorkspaceId);
       }
     })();
-  }, [open, defaultWorkspaceId]);
+  }, [open, resolvedDefaultWorkspaceId]);
 
   useEffect(() => {
     if (!open) return;
