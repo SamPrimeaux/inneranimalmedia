@@ -86,6 +86,14 @@ git_as_bootstrap() {
   sudo -u samprimeaux git -C "\$REPO_DIR" "\$@"
 }
 
+repo_git_prep() {
+  sudo chown -R samprimeaux:samprimeaux "\$REPO_DIR"
+}
+
+repo_git_finalize() {
+  sudo chown -R "\${AGENTSAM_USER}:\${AGENTSAM_USER}" "\$REPO_DIR"
+}
+
 sparse_configure() {
   git_as_bootstrap sparse-checkout init --cone
   # shellcheck disable=SC2086
@@ -99,14 +107,14 @@ fresh_sparse_clone() {
   sudo -u samprimeaux git clone --filter=blob:none --no-checkout "\$REPO_URL" "\$REPO_DIR"
   sparse_configure
   git_as_bootstrap checkout main
-  sudo chown -R "\${AGENTSAM_USER}:\${AGENTSAM_USER}" "\$REPO_DIR"
+  repo_git_finalize
 }
 
 if [[ "\$RECONVERT" == "1" ]]; then
   fresh_sparse_clone
 elif [[ -d "\$REPO_DIR/.git" ]]; then
   echo "→ existing clone — sparse sync"
-  sudo chown -R "\${AGENTSAM_USER}:\${AGENTSAM_USER}" "\$REPO_DIR/.git" 2>/dev/null || true
+  repo_git_prep
   if [[ "\$(git_as_bootstrap config --get core.sparseCheckout 2>/dev/null || true)" != "true" ]]; then
     echo "→ converting full checkout to sparse partial"
     sparse_configure
@@ -117,7 +125,7 @@ elif [[ -d "\$REPO_DIR/.git" ]]; then
   git_as_bootstrap fetch origin main
   git_as_bootstrap checkout main
   git_as_bootstrap merge --ff-only origin/main
-  sudo chown -R "\${AGENTSAM_USER}:\${AGENTSAM_USER}" "\$REPO_DIR"
+  repo_git_finalize
 elif [[ -d "\$REPO_DIR" ]]; then
   echo "→ repairing non-git directory at \$REPO_DIR"
   fresh_sparse_clone
