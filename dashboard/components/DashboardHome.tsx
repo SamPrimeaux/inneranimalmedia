@@ -23,6 +23,8 @@ import {
   saveDashboardHomeTiles,
   type DashboardHomeTile,
 } from '../api/home';
+import { fetchConnectTiles, type ConnectTile } from '../api/connectTiles';
+import { StartProjectWizard } from './projects/StartProjectWizard';
 import { AppIcon } from './ui/AppIcon';
 import {
   HomeTileEditor,
@@ -57,20 +59,6 @@ type HomeAction = {
   icon: HomeIconId;
 };
 
-type ConnectCard = {
-  id: string;
-  title: string;
-  connectSlug: string;
-  iconSlug: string;
-};
-
-const CONNECT_CARDS: ConnectCard[] = [
-  { id: 'drive', title: 'Google Drive', connectSlug: 'google_drive', iconSlug: 'google' },
-  { id: 'github', title: 'GitHub', connectSlug: 'github', iconSlug: 'github' },
-  { id: 'cloudflare', title: 'Cloudflare', connectSlug: 'cloudflare', iconSlug: 'cloudflare' },
-  { id: 'supabase', title: 'Supabase', connectSlug: 'supabase', iconSlug: 'supabase' },
-];
-
 const HOME_ICONS: Record<HomeIconId, LucideIcon> = {
   agent: Bot,
   cube: Box,
@@ -93,6 +81,7 @@ const FALLBACK_QUICK_TILES: DashboardHomeTile[] = [
     cta_label: 'Chat',
     path: '/dashboard/agent',
     image_url: 'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b5557284-485e-4305-2c5a-49c6acf99a00/public',
+    tile_size: 'lg',
     sort_order: 10,
     is_enabled: true,
   },
@@ -103,6 +92,7 @@ const FALLBACK_QUICK_TILES: DashboardHomeTile[] = [
     cta_label: 'Build',
     path: '/dashboard/designstudio',
     image_url: 'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b5557284-485e-4305-2c5a-49c6acf99a00/public',
+    tile_size: 'lg',
     sort_order: 20,
     is_enabled: true,
   },
@@ -113,6 +103,7 @@ const FALLBACK_QUICK_TILES: DashboardHomeTile[] = [
     cta_label: 'Inspect',
     path: '/dashboard/database',
     image_url: 'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/c2eec95d-98c4-48ed-0394-45ae2f632300/public',
+    tile_size: 'lg',
     sort_order: 30,
     is_enabled: true,
   },
@@ -123,6 +114,7 @@ const FALLBACK_QUICK_TILES: DashboardHomeTile[] = [
     cta_label: 'Edit',
     path: '/dashboard/cms',
     image_url: 'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b1d0bd36-0f88-4301-4e68-7e8d5e255b00/public',
+    tile_size: 'lg',
     sort_order: 40,
     is_enabled: true,
   },
@@ -193,42 +185,20 @@ export function DashboardHome() {
   const [editingTileKey, setEditingTileKey] = useState<string | null>(null);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [connectedSlugs, setConnectedSlugs] = useState<Set<string>>(new Set());
-  const [integrationIssues, setIntegrationIssues] = useState<Map<string, 'warning' | 'error'>>(new Map());
+  const [connectTiles, setConnectTiles] = useState<ConnectTile[]>([]);
+  const [startProjectOpen, setStartProjectOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      try {
-        const res = await fetch('/api/settings/integrations/connected', { credentials: 'same-origin' });
-        const data = (await res.json().catch(() => ({}))) as {
-          connected_slugs?: string[];
-          items?: Array<{
-            connection?: { provider_key?: string; status?: string };
-            integration_status?: { error?: string };
-          }>;
-        };
-        if (cancelled || !res.ok) return;
-        setConnectedSlugs(new Set((data.connected_slugs || []).map((s) => s.toLowerCase())));
-        const issues = new Map<string, 'warning' | 'error'>();
-        for (const item of data.items || []) {
-          const pk = String(item.connection?.provider_key || '').toLowerCase();
-          const st = String(item.connection?.status || '').toLowerCase();
-          if (st === 'auth_expired' || item.integration_status?.error === 'token_expired') {
-            issues.set(pk, 'error');
-          } else if (st === 'degraded' || item.integration_status?.error === 'tunnel_unreachable') {
-            issues.set(pk, 'warning');
-          }
-        }
-        setIntegrationIssues(issues);
-      } catch {
-        /* non-fatal on home */
-      }
+      const res = await fetchConnectTiles('home');
+      if (cancelled || !res.ok) return;
+      setConnectTiles(res.tiles || []);
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [workspaceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -334,21 +304,15 @@ export function DashboardHome() {
     [quickTiles],
   );
 
-  const openConnectCard = useCallback(
-    (card: ConnectCard) => {
-      const slug = card.connectSlug.toLowerCase();
-      const registrySlug = slug === 'cloudflare' ? 'cloudflare_oauth' : `${slug}_oauth`;
-      if (
-        connectedSlugs.has(slug) ||
-        connectedSlugs.has(registrySlug) ||
-        (slug === 'github' && connectedSlugs.has('github'))
-      ) {
-        navigate('/dashboard/settings/integrations');
+  const openConnectTile = useCallback(
+    (tile: ConnectTile) => {
+      if (tile.connected) {
+        navigate(tile.settings_path);
         return;
       }
-      window.location.href = `/api/integrations/${encodeURIComponent(slug)}/connect`;
+      window.location.href = tile.connect_url;
     },
-    [connectedSlugs, navigate],
+    [navigate],
   );
 
   return (
@@ -392,8 +356,8 @@ export function DashboardHome() {
         <section className="iam-home-section iam-home-section--quick" aria-labelledby="quick-starts-title">
           <div className="iam-section-head">
             <div>
-              <h2 id="quick-starts-title">Quick starts</h2>
-              <p>iOS-style app icons — tap Customize to remaster.</p>
+              <h2 id="quick-starts-title">Products</h2>
+              <p>Screenshot previews — tap Customize to swap artwork and resize tiles.</p>
             </div>
             <div className="iam-section-actions">
               {!editMode ? (
@@ -420,13 +384,13 @@ export function DashboardHome() {
             </div>
           ) : null}
           {saveError ? <p className="iam-home-customize-error">{saveError}</p> : null}
-          <div className="iam-app-icon-grid">
+          <div className="iam-app-icon-grid iam-app-icon-grid--products">
             {quickGrid.map((tile) => (
               <AppIcon
                 key={tile.id || tile.tile_key}
                 title={tile.title}
                 imageUrl={tile.image_url}
-                size="lg"
+                size={tile.tile_size || 'lg'}
                 subtitle={tile.cta_label}
                 editable={editMode}
                 editActive={editMode && editingTileKey === tile.tile_key}
@@ -447,34 +411,30 @@ export function DashboardHome() {
           <div className="iam-section-head">
             <div>
               <h2 id="connect-context-title">Connect context</h2>
-              <p>Make future chats smarter.</p>
+              <p>OAuth and services — managed in Integrations, surfaced here automatically.</p>
             </div>
             <button type="button" onClick={() => navigate('/dashboard/settings/integrations')}>See all</button>
           </div>
           <div className="iam-app-icon-grid">
-            {CONNECT_CARDS.map((item) => {
-              const slug = item.connectSlug.toLowerCase();
-              const registrySlug = slug === 'cloudflare' ? 'cloudflare_oauth' : `${slug}_oauth`;
-              const connected =
-                connectedSlugs.has(slug) ||
-                connectedSlugs.has(registrySlug) ||
-                (slug === 'github' && connectedSlugs.has('github'));
-              const issue =
-                integrationIssues.get(registrySlug) ||
-                integrationIssues.get(slug) ||
-                null;
-              return (
-                <AppIcon
-                  key={item.id}
-                  title={item.title}
-                  iconSlug={item.iconSlug}
-                  size="lg"
-                  status={issue}
-                  subtitle={issue ? (issue === 'error' ? 'Reconnect' : 'Issue') : connected ? 'Connected' : 'Connect'}
-                  onPress={() => openConnectCard(item)}
-                />
-              );
-            })}
+            {(connectTiles.length ? connectTiles : []).map((tile) => (
+              <AppIcon
+                key={tile.provider_key}
+                title={tile.title}
+                iconSlug={tile.icon_slug}
+                size="md"
+                status={tile.issue === 'error' ? 'error' : tile.issue === 'warning' ? 'warning' : null}
+                subtitle={
+                  tile.issue === 'error'
+                    ? 'Reconnect'
+                    : tile.issue === 'warning'
+                      ? 'Issue'
+                      : tile.connected
+                        ? tile.account_display || 'Connected'
+                        : 'Connect'
+                }
+                onPress={() => openConnectTile(tile)}
+              />
+            ))}
           </div>
         </section>
 
@@ -512,10 +472,10 @@ export function DashboardHome() {
                 );
               })
             )}
-            <button type="button" className="iam-project-card iam-project-card--new" onClick={() => navigate('/dashboard/projects')}>
+            <button type="button" className="iam-project-card iam-project-card--new" onClick={() => setStartProjectOpen(true)}>
               <span><Plus size={22} strokeWidth={1.75} aria-hidden /></span>
               <strong>New project</strong>
-              <small>Create a fresh workspace</small>
+              <small>Guided stack + kanban setup</small>
             </button>
           </div>
         </section>
@@ -533,6 +493,16 @@ export function DashboardHome() {
           }}
         />
       ) : null}
+
+      <StartProjectWizard
+        open={startProjectOpen}
+        onClose={() => setStartProjectOpen(false)}
+        onCreated={(id) => {
+          setStartProjectOpen(false);
+          if (id) navigate(`/dashboard/projects/${encodeURIComponent(id)}`);
+          else navigate('/dashboard/projects');
+        }}
+      />
     </main>
   );
 }

@@ -102,8 +102,25 @@
 
 .iam-home-tile-preview {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
   padding: 8px 0 4px;
+}
+
+.iam-home-tile-preview-label {
+  margin: 0 0 10px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--iam-home-muted);
+}
+
+.iam-home-tile-preview--screenshot {
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px dashed color-mix(in srgb, var(--iam-home-accent) 35%, var(--iam-home-border));
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .iam-home-tile-field {

@@ -1,0 +1,51 @@
+export type ConnectTile = {
+  id: string;
+  provider_key: string;
+  connect_slug: string;
+  catalog_slug: string;
+  title: string;
+  icon_slug: string;
+  category: string;
+  status: string;
+  connected: boolean;
+  issue: 'warning' | 'error' | null;
+  account_display: string | null;
+  sort_order: number;
+  connect_url: string;
+  settings_path: string;
+  show_on_home: boolean;
+  show_on_workspace: boolean;
+};
+
+export type ConnectTilesResponse = {
+  ok: boolean;
+  surface?: string;
+  tiles?: ConnectTile[];
+  connected_slugs?: string[];
+  error?: string;
+};
+
+export async function fetchConnectTiles(
+  surface: 'home' | 'workspace' = 'home',
+): Promise<ConnectTilesResponse> {
+  const qs = `?surface=${encodeURIComponent(surface)}`;
+  const r = await fetch(`/api/dashboard/home/connect-tiles${qs}`, { credentials: 'same-origin' });
+  const j = (await r.json()) as ConnectTilesResponse;
+  if (!r.ok) return { ...j, ok: false, error: j.error || `HTTP ${r.status}` };
+  return j;
+}
+
+export async function saveConnectTiles(
+  surface: 'home' | 'workspace',
+  tiles: Pick<ConnectTile, 'provider_key' | 'sort_order' | 'show_on_home' | 'show_on_workspace'>[],
+): Promise<ConnectTilesResponse> {
+  const r = await fetch(`/api/dashboard/home/connect-tiles?surface=${encodeURIComponent(surface)}`, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tiles }),
+  });
+  const j = (await r.json()) as ConnectTilesResponse;
+  if (!r.ok) return { ...j, ok: false, error: j.error || `HTTP ${r.status}` };
+  return j;
+}

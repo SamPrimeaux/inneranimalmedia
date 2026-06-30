@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'reac
 import { Archive, CheckSquare, Plus, Search, Square, Star } from 'lucide-react';
 import type { OverviewProject } from '../../../api/projects';
 import { fetchProjectsList, fetchProjectsOverview, updateProject, deleteProject } from '../../../api/projects';
-import NewProjectModal from '../../../components/projects/NewProjectModal';
+import { StartProjectWizard } from '../../../components/projects/StartProjectWizard';
 import { readIamProjectsCache, writeIamProjectsCache } from '../../iamProjectsCache';
 import { cfImageVariants, projectAccentHue, projectInitials } from '../../lib/projectBranding';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -382,11 +382,9 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
         </p>
       ) : null}
 
-      <NewProjectModal
+      <StartProjectWizard
         open={modalOpen}
-        variant="compact"
         onClose={() => setModalOpen(false)}
-        defaultWorkspaceId={workspaceId}
         onCreated={(createdId) => {
           setModalOpen(false);
           onToast?.('Project created');

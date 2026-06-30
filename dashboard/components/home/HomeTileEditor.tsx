@@ -74,11 +74,12 @@ export function HomeTileEditor({
           </button>
         </header>
 
-        <div className="iam-home-tile-preview">
+        <div className="iam-home-tile-preview iam-home-tile-preview--screenshot">
+          <p className="iam-home-tile-preview-label">Live preview (screenshot tile)</p>
           <AppIcon
             title={tile.title}
             imageUrl={tile.image_url}
-            size="lg"
+            size={tile.tile_size || 'lg'}
             subtitle={tile.cta_label}
             editable
             editActive
@@ -119,6 +120,20 @@ export function HomeTileEditor({
           {uploadBusy ? 'Uploading…' : 'Drop image here or tap to choose'}
         </div>
         {uploadErr ? <p className="iam-home-customize-error">{uploadErr}</p> : null}
+
+        <label className="iam-home-tile-field">
+          Tile size
+          <select
+            value={tile.tile_size || 'lg'}
+            onChange={(e) =>
+              onChange({ ...tile, tile_size: e.target.value as 'sm' | 'md' | 'lg' })
+            }
+          >
+            <option value="sm">Small</option>
+            <option value="md">Medium</option>
+            <option value="lg">Large (screenshot)</option>
+          </select>
+        </label>
 
         <label className="iam-home-tile-field">
           Title

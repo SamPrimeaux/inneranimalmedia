@@ -558,7 +558,10 @@ export function LaunchDeskPage() {
               onNavViewChange={setTasksNavView}
               onActiveListChange={setTasksActiveList}
               onReload={reloadTodos}
-              onCreateClick={() => setTasksComposing(true)}
+              onCreateClick={() => {
+                if (tasksNavView === 'starred') setTasksNavView('all');
+                setTasksComposing(true);
+              }}
             />
           ) : (
             <>

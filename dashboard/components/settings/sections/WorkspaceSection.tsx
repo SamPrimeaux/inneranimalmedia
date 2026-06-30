@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ExternalLink,
@@ -12,13 +12,12 @@ import type { SettingsPanelModel } from '../hooks/useSettingsData';
 import {
   findConnectedItem,
   isIntegrationConnected,
-  PROJECT_SERVICE_TILES,
-  tileIconSlug,
   connectedSubtitle,
   useWorkspaceSnapshot,
   type KeyRow,
   type OpSettings,
 } from '../hooks/useWorkspaceSnapshot';
+import { fetchConnectTiles, type ConnectTile } from '../../../api/connectTiles';
 import { IntegrationIconTile } from '../components/IntegrationIconTile';
 import { CfStackWizard, CfStackSummary, type CfStackConfig } from './CfStackWizard';
 import { WorkspaceActiveSwitcher } from '../components/WorkspaceActiveSwitcher';
@@ -131,6 +130,18 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
   const wsId = workspaceId?.trim() || '';
   const { loading, error, snapshot, reload, runHealthCheck, healthChecking } = useWorkspaceSnapshot(wsId);
   const [cfWizardOpen, setCfWizardOpen] = useState(false);
+  const [connectTiles, setConnectTiles] = useState<ConnectTile[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const res = await fetchConnectTiles('workspace');
+      if (!cancelled && res.ok) setConnectTiles(res.tiles || []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [wsId]);
 
   const ws = snapshot.workspace;
   const op = snapshot.opSettings;
@@ -250,28 +261,35 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
       {/* 2 · Connected services */}
       <Panel title="Connected services">
         <div className="iam-app-icon-grid max-w-4xl">
-          {PROJECT_SERVICE_TILES.map((def) => {
-            const item = findConnectedItem(snapshot.connected, def.registryKey);
-            const connected = isIntegrationConnected(snapshot.connected, def.registryKey);
+          {connectTiles.map((tile) => {
+            const item = findConnectedItem(snapshot.connected, tile.provider_key);
+            const connected = tile.connected || isIntegrationConnected(snapshot.connected, tile.provider_key);
             const subtitle = connected
-              ? def.registryKey === 'github' && repo
+              ? tile.provider_key === 'github' && repo
                 ? `${branch}${snapshot.git?.behind_by ? ` · ${snapshot.git.behind_by} behind` : ''}`
-                : connectedSubtitle(item)
+                : tile.account_display || connectedSubtitle(item)
               : 'Not connected';
             return (
               <IntegrationIconTile
-                key={def.id}
-                title={def.title}
-                iconSlug={tileIconSlug(def, item)}
+                key={tile.provider_key}
+                title={tile.title}
+                iconSlug={item?.catalog?.icon_slug || tile.icon_slug}
                 subtitle={subtitle}
                 status={
-                  connected
-                    ? null
-                    : def.registryKey === 'cloudflare_oauth' && !cfConfig.cf_stack_configured_at
+                  tile.issue === 'error'
+                    ? 'error'
+                    : tile.issue === 'warning'
                       ? 'warning'
-                      : 'error'
+                      : connected
+                        ? null
+                        : tile.provider_key === 'cloudflare_oauth' && !cfConfig.cf_stack_configured_at
+                          ? 'warning'
+                          : 'error'
                 }
-                onClick={() => navigate(def.settingsPath)}
+                onClick={() => {
+                  if (connected) navigate(tile.settings_path);
+                  else window.location.href = tile.connect_url;
+                }}
               />
             );
           })}

@@ -5,6 +5,7 @@ export type DashboardHomeTile = {
   cta_label: string;
   path: string;
   image_url: string | null;
+  tile_size?: 'sm' | 'md' | 'lg';
   sort_order: number;
   is_enabled: boolean;
 };

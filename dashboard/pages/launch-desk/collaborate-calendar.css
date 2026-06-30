@@ -365,6 +365,15 @@
 }
 .colab-tasks-compose textarea { margin-top: 8px; color: #5f6368; resize: vertical; min-height: 48px; }
 .colab-tasks-compose-actions { display: flex; gap: 8px; margin-top: 10px; }
+.colab-tasks-compose-error {
+  grid-column: 1 / -1;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(234, 67, 53, 0.12);
+  color: #c5221f;
+  font-size: 12px;
+}
 .colab-tasks-empty { color: #5f6368; font-size: 14px; padding: 24px 0; text-align: center; }
 
 .colab-tasks-inline-due {

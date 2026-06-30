@@ -2,8 +2,10 @@
  * Dashboard home — quick-start tiles (/api/dashboard/home).
  */
 import { jsonResponse } from '../core/auth.js';
+import { handleConnectTilesApi } from './dashboard-connect-tiles.js';
 
 const PLATFORM_DEFAULT_WS = 'platform_default';
+const VALID_TILE_SIZES = new Set(['sm', 'md', 'lg']);
 
 function parseJson(raw, fallback = {}) {
   if (raw == null || raw === '') return { ...fallback };
@@ -31,6 +33,7 @@ async function assertWorkspaceAllowed(db, workspaceId, tenantId, isSuperadmin) {
 }
 
 function mapTileRow(row) {
+  const sizeRaw = row.tile_size != null ? String(row.tile_size).toLowerCase() : 'lg';
   return {
     id: String(row.id),
     tile_key: String(row.tile_key),
@@ -38,38 +41,42 @@ function mapTileRow(row) {
     cta_label: String(row.cta_label || 'Open'),
     path: String(row.path || '/dashboard/agent'),
     image_url: row.image_url ? String(row.image_url) : null,
+    tile_size: VALID_TILE_SIZES.has(sizeRaw) ? sizeRaw : 'lg',
     sort_order: Number(row.sort_order) || 0,
     is_enabled: Number(row.is_enabled) === 1,
   };
+}
+
+async function selectHomeTiles(db, workspaceId) {
+  const ws = String(workspaceId || '').trim();
+  const sqlWithSize = `SELECT id, workspace_id, tile_key, title, cta_label, path, image_url, tile_size, sort_order, is_enabled
+         FROM dashboard_home_tiles
+         WHERE workspace_id = ? AND is_enabled = 1
+         ORDER BY sort_order ASC, tile_key ASC`;
+  const sqlLegacy = `SELECT id, workspace_id, tile_key, title, cta_label, path, image_url, sort_order, is_enabled
+         FROM dashboard_home_tiles
+         WHERE workspace_id = ? AND is_enabled = 1
+         ORDER BY sort_order ASC, tile_key ASC`;
+  try {
+    const { results } = await db.prepare(sqlWithSize).bind(ws).all();
+    return results || [];
+  } catch {
+    const { results } = await db.prepare(sqlLegacy).bind(ws).all();
+    return results || [];
+  }
 }
 
 async function loadTilesForWorkspace(db, workspaceId) {
   const ws = String(workspaceId || '').trim();
   if (!ws) return [];
   try {
-    const { results } = await db
-      .prepare(
-        `SELECT id, workspace_id, tile_key, title, cta_label, path, image_url, sort_order, is_enabled
-         FROM dashboard_home_tiles
-         WHERE workspace_id = ? AND is_enabled = 1
-         ORDER BY sort_order ASC, tile_key ASC`,
-      )
-      .bind(ws)
-      .all();
+    const results = await selectHomeTiles(db, ws);
     if (results?.length) return results.map(mapTileRow);
   } catch {
     /* table may not exist yet */
   }
   try {
-    const { results } = await db
-      .prepare(
-        `SELECT id, workspace_id, tile_key, title, cta_label, path, image_url, sort_order, is_enabled
-         FROM dashboard_home_tiles
-         WHERE workspace_id = ? AND is_enabled = 1
-         ORDER BY sort_order ASC, tile_key ASC`,
-      )
-      .bind(PLATFORM_DEFAULT_WS)
-      .all();
+    const results = await selectHomeTiles(db, PLATFORM_DEFAULT_WS);
     return (results || []).map(mapTileRow);
   } catch {
     return [];
@@ -87,6 +94,10 @@ export async function handleDashboardHomeApi(request, env, authUser, pathLower, 
   if (!pathLower.startsWith('/api/dashboard/home')) return null;
 
   if (!env?.DB) return jsonResponse({ ok: false, error: 'db_unavailable' }, 503);
+
+  if (pathLower === '/api/dashboard/home/connect-tiles') {
+    return handleConnectTilesApi(request, env, authUser, method);
+  }
 
   const tenantId = authUser?.tenant_id ? String(authUser.tenant_id) : null;
   const isSuperadmin = !!authUser?.is_superadmin;
@@ -131,22 +142,44 @@ export async function handleDashboardHomeApi(request, env, authUser, pathLower, 
       const imageUrl = t.image_url != null ? String(t.image_url).trim() || null : null;
       const sortOrder = Number.isFinite(Number(t.sort_order)) ? Number(t.sort_order) : i * 10;
       const enabled = t.is_enabled === false || t.is_enabled === 0 ? 0 : 1;
-      await env.DB
-        .prepare(
-          `INSERT INTO dashboard_home_tiles (
-             id, workspace_id, tile_key, title, cta_label, path, image_url, sort_order, is_enabled, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(workspace_id, tile_key) DO UPDATE SET
-             title = excluded.title,
-             cta_label = excluded.cta_label,
-             path = excluded.path,
-             image_url = excluded.image_url,
-             sort_order = excluded.sort_order,
-             is_enabled = excluded.is_enabled,
-             updated_at = excluded.updated_at`,
-        )
-        .bind(id, workspaceId, tileKey, title, cta, path, imageUrl, sortOrder, enabled, now, now)
-        .run();
+      const sizeRaw = String(t.tile_size || 'lg').toLowerCase();
+      const tileSize = VALID_TILE_SIZES.has(sizeRaw) ? sizeRaw : 'lg';
+      try {
+        await env.DB
+          .prepare(
+            `INSERT INTO dashboard_home_tiles (
+               id, workspace_id, tile_key, title, cta_label, path, image_url, tile_size, sort_order, is_enabled, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(workspace_id, tile_key) DO UPDATE SET
+               title = excluded.title,
+               cta_label = excluded.cta_label,
+               path = excluded.path,
+               image_url = excluded.image_url,
+               tile_size = excluded.tile_size,
+               sort_order = excluded.sort_order,
+               is_enabled = excluded.is_enabled,
+               updated_at = excluded.updated_at`,
+          )
+          .bind(id, workspaceId, tileKey, title, cta, path, imageUrl, tileSize, sortOrder, enabled, now, now)
+          .run();
+      } catch {
+        await env.DB
+          .prepare(
+            `INSERT INTO dashboard_home_tiles (
+               id, workspace_id, tile_key, title, cta_label, path, image_url, sort_order, is_enabled, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(workspace_id, tile_key) DO UPDATE SET
+               title = excluded.title,
+               cta_label = excluded.cta_label,
+               path = excluded.path,
+               image_url = excluded.image_url,
+               sort_order = excluded.sort_order,
+               is_enabled = excluded.is_enabled,
+               updated_at = excluded.updated_at`,
+          )
+          .bind(id, workspaceId, tileKey, title, cta, path, imageUrl, sortOrder, enabled, now, now)
+          .run();
+      }
     }
 
     const next = await loadTilesForWorkspace(env.DB, workspaceId);

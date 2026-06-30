@@ -83,7 +83,8 @@ export function CollaborateTasksSidebar({
         type="button"
         className="colab-cal-create-btn"
         onClick={() => {
-          onNavViewChange(navView === 'list' ? 'list' : 'all');
+          if (navView === 'starred') onNavViewChange('all');
+          else if (navView !== 'list') onNavViewChange('all');
           onCreateClick?.();
         }}
       >
@@ -168,12 +169,14 @@ export function CollaborateTasksMain({
   onSchedule,
   composing = false,
   onComposingChange,
+  onNavViewChange,
   projectId = null,
 }: Props) {
   const [draftTitle, setDraftTitle] = useState('');
   const [draftNotes, setDraftNotes] = useState('');
   const [draftDue, setDraftDue] = useState('');
   const [saving, setSaving] = useState(false);
+  const [composeError, setComposeError] = useState<string | null>(null);
   const [dueEditId, setDueEditId] = useState<string | null>(null);
   const [dueDraft, setDueDraft] = useState('');
 
@@ -199,9 +202,12 @@ export function CollaborateTasksMain({
 
   const toggleStar = async (todo: AgentTodo) => {
     setSaving(true);
+    setComposeError(null);
     try {
       await patchTodo(todo.id, { starred: !isTodoStarred(todo) });
       await onReload();
+    } catch (e) {
+      setComposeError(e instanceof Error ? e.message : 'Could not update star');
     } finally {
       setSaving(false);
     }
@@ -211,6 +217,7 @@ export function CollaborateTasksMain({
     const title = draftTitle.trim();
     if (!title) return;
     setSaving(true);
+    setComposeError(null);
     try {
       await createTodo({
         title,
@@ -223,7 +230,12 @@ export function CollaborateTasksMain({
       setDraftNotes('');
       setDraftDue('');
       onComposingChange?.(false);
+      if (navView === 'starred') {
+        /* parent owns nav — new tasks land in All / list */
+      }
       await onReload();
+    } catch (e) {
+      setComposeError(e instanceof Error ? e.message : 'Could not create task');
     } finally {
       setSaving(false);
     }
@@ -242,6 +254,11 @@ export function CollaborateTasksMain({
     }
   };
 
+  const openCompose = () => {
+    if (navView === 'starred') onNavViewChange?.('all');
+    onComposingChange?.(true);
+  };
+
   return (
     <section className="colab-tasks-main">
       <div className="colab-tasks-main-inner">
@@ -253,8 +270,9 @@ export function CollaborateTasksMain({
         </div>
 
         <div className="colab-tasks-add-row">
+          {composeError ? <p className="colab-tasks-compose-error">{composeError}</p> : null}
           {!composing ? (
-            <button type="button" className="colab-tasks-add-btn" onClick={() => onComposingChange?.(true)}>
+            <button type="button" className="colab-tasks-add-btn" onClick={openCompose}>
               <span className="colab-tasks-add-icon" aria-hidden>
                 <PlusCircle size={18} strokeWidth={1.75} />
               </span>

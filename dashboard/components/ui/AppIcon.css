@@ -182,3 +182,27 @@
     gap: 16px 12px;
   }
 }
+
+.iam-app-icon-grid--products {
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 22px 16px;
+}
+
+@media (min-width: 900px) {
+  .iam-app-icon-grid--products {
+    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+    gap: 24px 18px;
+  }
+
+  .iam-app-icon-grid--products .iam-app-icon-wrap--sm {
+    --iam-app-icon-size: 80px;
+  }
+
+  .iam-app-icon-grid--products .iam-app-icon-wrap--md {
+    --iam-app-icon-size: 120px;
+  }
+
+  .iam-app-icon-grid--products .iam-app-icon-wrap--lg {
+    --iam-app-icon-size: 152px;
+  }
+}
