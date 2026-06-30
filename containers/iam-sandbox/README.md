@@ -8,7 +8,7 @@ Remote-stable compute lane for Cloudflare Containers on `inneranimalmedia`.
 registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-mycontainer:sandbox-v2
 ```
 
-Wrangler binds this tag via `MY_CONTAINER` → `MyContainer` DO.
+Wrangler binds this tag via `MY_CONTAINER` → `MyContainer` DO. Pool instance id: **`inneranimalmedia`** (`CONTAINER_POOL_ID` var — must match worker name).
 
 ## API (inside container)
 

@@ -1251,9 +1251,15 @@ export class AgentChatSqlV1 extends DurableObject {
     const tid = String(this.ptSessionTenantId || "").trim();
     const wid = String(this.workspaceId || "").trim();
     let cwd = String(this.ptyWorkingDir || "").trim();
+    const conn = this.selectedTerminalConnection;
+    let settings = null;
+    if (wid && this.env?.DB) {
+      const { loadWorkspaceSettingsJson } = await import("../core/pty-workspace-paths.js");
+      settings = await loadWorkspaceSettingsJson(this.env, wid);
+    }
     if (!cwd && wid && this.env?.DB) {
       const r = await resolveTerminalCwd(this.env, {
-        connection: this.selectedTerminalConnection,
+        connection: conn,
         tenantId: tid,
         userId: uid,
         workspaceId: wid,
@@ -1261,8 +1267,10 @@ export class AgentChatSqlV1 extends DurableObject {
       cwd = r?.cwd ? String(r.cwd).trim() : "";
       if (cwd) this.ptyWorkingDir = cwd;
     }
+    const { normalizeExecCwdForConnection } = await import("../core/host-workspace-paths.js");
+    const normalized = normalizeExecCwdForConnection(cwd, conn, settings);
     const payload = { command };
-    if (cwd) payload.cwd = cwd;
+    if (normalized) payload.cwd = normalized;
     return payload;
   }
 
@@ -1297,7 +1305,10 @@ export class AgentChatSqlV1 extends DurableObject {
       } catch (_) {}
     }
     const execIdentity = await resolveTerminalExecIdentity(this.env?.DB, conn);
-    const execHeaders = buildExecTransportHeaders(execIdentity);
+    const execHeaders = buildExecTransportHeaders({
+      ...execIdentity,
+      userId: execUid,
+    });
     const execPayload = await this._ptyExecPayload(command);
 
     const targetType = String(this.selectedTargetType || "platform_vm").trim();

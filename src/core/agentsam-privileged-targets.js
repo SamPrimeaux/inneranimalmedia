@@ -207,12 +207,14 @@ export async function resolveTerminalExecIdentity(db, connection, privilegedTarg
   };
 }
 
-/** @param {{ execUser?: string|null, privilegedTargetId?: string|null }} identity */
+/** @param {{ execUser?: string|null, privilegedTargetId?: string|null, userId?: string|null }} identity */
 export function buildExecTransportHeaders(identity = {}) {
   const headers = { 'Content-Type': 'application/json' };
   const execUser = identity.execUser != null ? String(identity.execUser).trim() : '';
   if (execUser) headers['X-IAM-Exec-Identity'] = execUser;
   const pt = identity.privilegedTargetId != null ? String(identity.privilegedTargetId).trim() : '';
   if (pt) headers['X-IAM-Privileged-Target'] = pt;
+  const userId = identity.userId != null ? String(identity.userId).trim() : '';
+  if (userId) headers['X-User-Id'] = userId;
   return headers;
 }

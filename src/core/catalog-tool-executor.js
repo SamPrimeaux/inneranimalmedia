@@ -98,8 +98,10 @@ export function wrapWorkspaceShellCommand(settingsJson, command, opts = {}) {
 
   const gcpExec = opts.gcpExec === true;
   if (gcpExec) {
-    // GCP VM is stateless (ExecOS only) — deploy/git commands are self-contained from settings.
-    return cmd;
+    const vmRoot = String(parsed.vm_workspace_root || parsed.repo?.vm_path || '').trim();
+    const root = vmRoot || '/home/samprimeaux/inneranimalmedia';
+    if (root && cmd.includes(root)) return cmd;
+    return `cd ${root} && ${cmd}`;
   }
 
   const root = String(parsed.workspace_root || '').trim();
@@ -1419,7 +1421,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         cmd = wrapWorkspaceShellCommand(settingsJson, cmd, { gcpExec });
       }
       const responseWorkspaceRoot = gcpExec
-        ? (await import('./host-workspace-paths.js')).IAM_GCP_EXECOS_HOME
+        ? (await import('./host-workspace-paths.js')).IAM_GCP_OPERATOR_REPO
         : workspaceRoot;
       const out = await termHandlers.run_command(
         {

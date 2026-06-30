@@ -1,6 +1,6 @@
 /**
- * Terminal cwd resolution — workspace_settings.workspace_root (local) or ExecOS home (GCP remote).
- * No /workspace/{tenant}/{user}/ filesystem layout. No auto-clone. GitHub API for code I/O.
+ * Terminal cwd resolution — workspace_settings.workspace_root (local) or operator repo (GCP remote).
+ * GCP iam-tunnel: git clone at /home/samprimeaux/inneranimalmedia (agentsam user); ExecOS at /home/samprimeaux/ExecOS.
  */
 import { assertWorkspaceTokenForPty } from './workspace-tokens.js';
 import { runTerminalCommandViaHttpExec } from './terminal.js';
@@ -8,6 +8,8 @@ import {
   connectionUsesGcpRepoLayout,
   gcpRemoteExecCwd,
   IAM_GCP_EXECOS_HOME,
+  IAM_GCP_OPERATOR_REPO,
+  normalizeExecCwdForConnection,
   resolveRepoRootForHost,
   vmWorkspaceRootFromSettings,
 } from './host-workspace-paths.js';
@@ -125,8 +127,7 @@ export async function loadWorkspaceSettingsJson(env, workspaceId) {
 /**
  * Cwd resolution:
  * - user_hosted_tunnel / Mac local: workspace_settings.workspace_root
- * - platform_vm / GCP remote: IAM_GCP_EXECOS_HOME (ExecOS only — no repo clone)
- * - platform_workspace (legacy): same as host_default
+ * - platform_vm / GCP remote: IAM_GCP_OPERATOR_REPO (git clone on iam-tunnel)
  *
  * @param {any} env
  * @param {{ connection?: Record<string, unknown> | null, tenantId: string, userId: string, workspaceId?: string | null }} ctx
@@ -134,18 +135,18 @@ export async function loadWorkspaceSettingsJson(env, workspaceId) {
 export async function resolveTerminalCwd(env, { connection = null, tenantId, userId, workspaceId = null }) {
   const strategy = String(connection?.cwd_strategy || 'host_default').trim() || 'host_default';
   const forceGcp = connectionUsesGcpRepoLayout(connection);
+  const wid = String(workspaceId || connection?.workspace_id || '').trim();
+  const settings = wid ? await loadWorkspaceSettingsJson(env, wid) : null;
 
   if (strategy === 'custom') {
     return { cwd: null, strategy, unsupported: true };
   }
 
   if (forceGcp) {
-    return { cwd: gcpRemoteExecCwd(), strategy: 'execos_home' };
+    return { cwd: gcpRemoteExecCwd(settings), strategy: 'gcp_operator_repo' };
   }
 
-  const wid = String(workspaceId || connection?.workspace_id || '').trim();
   if (wid) {
-    const settings = await loadWorkspaceSettingsJson(env, wid);
     const localRoot =
       settings && typeof settings.workspace_root === 'string'
         ? settings.workspace_root.trim()
@@ -235,10 +236,14 @@ export async function resolveMoviemodeRepoRootForSession(env, { tenantId, userId
  * @param {any} env
  * @param {{ command: string, cwd?: string|null, timeout_ms?: number }} opts
  */
-export async function execOnPtyHost(env, { command, cwd = null, timeout_ms = 120_000 }) {
+export async function execOnPtyHost(env, { command, cwd = null, timeout_ms = 120_000, userId = null }) {
   const payload = { command, stream: false, timeout_ms };
-  const wd = cwd != null ? String(cwd).trim() : '';
-  if (wd) payload.cwd = wd;
+  let wd = cwd != null ? String(cwd).trim() : '';
+  if (wd) {
+    const { normalizeExecCwdForConnection } = await import('./host-workspace-paths.js');
+    wd = normalizeExecCwdForConnection(wd, { platform: 'linux', target_type: 'platform_vm' }) || wd;
+    payload.cwd = wd;
+  }
 
   const execUrl = (() => {
     const raw = env?.PTY_EXEC_URL != null ? String(env.PTY_EXEC_URL).trim() : '';
@@ -259,6 +264,7 @@ export async function execOnPtyHost(env, { command, cwd = null, timeout_ms = 120
             'Content-Type': 'application/json',
             'X-IAM-Exec-Identity': 'agentsam',
             'X-IAM-Privileged-Target': 'conn_gcp_iam_tunnel',
+            ...(userId ? { 'X-User-Id': String(userId).trim() } : {}),
           },
           body: JSON.stringify(payload),
         }),
@@ -338,4 +344,4 @@ export async function validateMoviemodeRepoOnPty(env, repoRoot, ctx = {}) {
   return { ok: true, repoRoot: root };
 }
 
-export { REMOTION_INSTALL_CMD, IAM_GCP_EXECOS_HOME, vmWorkspaceRootFromSettings, resolveRepoRootForHost };
+export { REMOTION_INSTALL_CMD, IAM_GCP_EXECOS_HOME, IAM_GCP_OPERATOR_REPO, vmWorkspaceRootFromSettings, resolveRepoRootForHost, normalizeExecCwdForConnection };

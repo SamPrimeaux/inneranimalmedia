@@ -7,7 +7,15 @@ export const CONTAINER_IMAGE_REF =
   'registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-mycontainer:sandbox-v3';
 export const CONTAINER_IMAGE_TAG = 'meauxcontainer-mycontainer:sandbox-v3';
 
-const CONTAINER_POOL_ID = 'meaux-pool';
+/** Default MY_CONTAINER pool id — must match worker name (wrangler name = inneranimalmedia). */
+export const CONTAINER_POOL_ID_DEFAULT = 'inneranimalmedia';
+
+/** @param {any} env */
+export function resolveContainerPoolId(env) {
+  const fromEnv = String(env?.CONTAINER_POOL_ID || '').trim();
+  return fromEnv || CONTAINER_POOL_ID_DEFAULT;
+}
+
 const CONTAINER_PORT = 8080;
 /** Worker → DO → container HTTP (includes cold start). */
 export const CONTAINER_FETCH_TIMEOUT_MS = 90_000;
@@ -60,7 +68,7 @@ function containerNamespace(env) {
 async function getContainerStub(env) {
   const ns = containerNamespace(env);
   if (!ns?.getByName) return null;
-  return ns.getByName(CONTAINER_POOL_ID);
+  return ns.getByName(resolveContainerPoolId(env));
 }
 
 /**

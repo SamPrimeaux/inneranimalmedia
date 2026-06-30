@@ -265,6 +265,7 @@ MEET_ENGINE = "realtimekit"
 AI_SEARCH_ENDPOINT = "https://2da31515-2005-42e4-9efe-a4e6a425a627.search.ai.cloudflare.com"
 # CAD jobs: gcp (default) | auto (container if healthy, else GCP) | container
 CAD_DISPATCH_TARGET = "gcp"
+CONTAINER_POOL_ID = "inneranimalmedia"
 
 [observability]
 

@@ -1080,6 +1080,7 @@ export async function runTerminalCommandViaHttpExec(env, cmd, opts = {}) {
   const execHeaders = buildExecTransportHeaders({
     execUser: opts.execUser,
     privilegedTargetId: opts.privilegedTargetId,
+    userId: uid || opts.userId,
   });
 
   // Prefer private VPC connector when present (tunnel handles auth; no worker-side PTY headers).

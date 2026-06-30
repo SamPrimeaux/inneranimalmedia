@@ -266,7 +266,8 @@
 		"TENANT_ID": "tenant_sam_primeaux",
 		"WORKSPACE_ID": "ws_inneranimalmedia",
 		"ENVIRONMENT": "production",
-		"CAD_DISPATCH_TARGET": "gcp"
+		"CAD_DISPATCH_TARGET": "gcp",
+		"CONTAINER_POOL_ID": "inneranimalmedia"
 	},
 	"observability": {
 		"logs": {

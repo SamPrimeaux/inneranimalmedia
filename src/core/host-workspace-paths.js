@@ -1,31 +1,36 @@
 /**
- * Host cwd resolution — stateless infrastructure model.
+ * Host cwd resolution — local Mac/Windows paths vs GCP iam-tunnel operator clone.
  *
- * Repos live on user machines (workspace_settings.workspace_root) and GitHub only.
- * GCP iam-tunnel runs ExecOS on :3099 — no repo clones, no /workspace tenant paths.
+ * Local: workspace_settings.workspace_root on user_hosted_tunnel.
+ * Remote (platform_vm): /home/samprimeaux/inneranimalmedia git clone (agentsam user).
+ * ExecOS runtime: /home/samprimeaux/ExecOS (PM2 :3099 dispatcher only).
  */
 
-/** ExecOS install dir on GCP VM — default cwd for agentsam_terminal_remote. */
+/** ExecOS PM2 install on GCP VM. */
 export const IAM_GCP_EXECOS_HOME = '/home/samprimeaux/ExecOS';
 
-/** @deprecated use IAM_GCP_EXECOS_HOME — VM holds ExecOS only, not a git clone */
-export const IAM_GCP_OPERATOR_REPO = IAM_GCP_EXECOS_HOME;
+/** Operator git clone on GCP iam-tunnel — agentsam_terminal_remote build lane. */
+export const IAM_GCP_OPERATOR_REPO = '/home/samprimeaux/inneranimalmedia';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
 }
 
 /**
- * GCP remote lane cwd — ExecOS dir only (never a repo path).
- * @param {Record<string, unknown>|null|undefined} [_settings]
+ * GCP remote lane cwd — operator repo clone (git/npm/wrangler on iam-tunnel).
+ * @param {Record<string, unknown>|null|undefined} [settings]
  */
-export function gcpRemoteExecCwd(_settings = null) {
-  return IAM_GCP_EXECOS_HOME;
+export function gcpRemoteExecCwd(settings = null) {
+  if (settings && typeof settings === 'object') {
+    const fromVm = trim(settings.vm_workspace_root || settings.repo?.vm_path);
+    if (fromVm) return fromVm;
+  }
+  return IAM_GCP_OPERATOR_REPO;
 }
 
-/** @deprecated Do not map Mac repo paths onto GCP — VM has no clones */
+/** @deprecated use gcpRemoteExecCwd() */
 export function translateHostRootForGcp(_root) {
-  return IAM_GCP_EXECOS_HOME;
+  return IAM_GCP_OPERATOR_REPO;
 }
 
 /**
@@ -33,14 +38,13 @@ export function translateHostRootForGcp(_root) {
  */
 export function vmWorkspaceRootFromSettings(settings) {
   if (settings && typeof settings === 'object') {
-    const explicit = trim(settings.execos_home || settings.gcp_execos_home);
-    if (explicit) return explicit;
+    const vmRoot = trim(settings.vm_workspace_root || settings.repo?.vm_path);
+    if (vmRoot) return vmRoot;
   }
-  return IAM_GCP_EXECOS_HOME;
+  return IAM_GCP_OPERATOR_REPO;
 }
 
 /**
- * GCP remote: no auto-cd into a repo — commands run from ExecOS home.
  * @param {Record<string, unknown>|null|undefined} settings
  */
 export function vmWorkspaceCdCommandFromSettings(settings) {
@@ -60,8 +64,25 @@ export function connectionUsesGcpRepoLayout(connection) {
 }
 
 /**
+ * Map macOS workspace_root to GCP operator clone when target is platform_vm.
+ * @param {string|null|undefined} cwd
+ * @param {{ platform?: string|null, target_type?: string|null, targetType?: string|null }} [connection]
+ * @param {Record<string, unknown>|null|undefined} [settings]
+ */
+export function normalizeExecCwdForConnection(cwd, connection = null, settings = null) {
+  const raw = trim(cwd);
+  if (!connectionUsesGcpRepoLayout(connection)) {
+    return raw || null;
+  }
+  if (!raw || raw.startsWith('/Users/') || raw.startsWith('/Volumes/')) {
+    return gcpRemoteExecCwd(settings);
+  }
+  return raw;
+}
+
+/**
  * Local/user_hosted_tunnel: workspace_settings.workspace_root.
- * GCP platform_vm: ExecOS home only.
+ * GCP platform_vm: operator repo clone on iam-tunnel.
  * @param {string|null|undefined} workspaceRoot
  * @param {{ connection?: Record<string, unknown>|null, settings?: Record<string, unknown>|null, forceGcp?: boolean }} [ctx]
  */
