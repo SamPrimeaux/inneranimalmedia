@@ -25,9 +25,11 @@ import {
   type AgentSessionRow,
 } from '../../../agentSessionsCatalog';
 import { patchAgentSession } from '../../../hooks/useAgentChatSessions';
-import { resumeAgentChatSession } from '../../../lib/openAgentConversation';
+import {
+  IAM_AGENT_ENSURE_PANEL,
+  openAgentConversation,
+} from '../../../lib/openAgentConversation';
 import { IAM_AGENT_CHAT_COMPOSE } from '../../../agentChatConstants';
-import { IAM_AGENT_ENSURE_PANEL } from '../../../lib/openAgentConversation';
 
 type Props = {
   project: OverviewProject;
@@ -205,8 +207,7 @@ export function LibraryProjectDetail({ project, onBack, onToast, onRefresh }: Pr
   const openChat = (s: AgentSessionRow) => {
     const id = conversationIdFromSession(s);
     if (!id) return;
-    resumeAgentChatSession({ id, title: sessionDisplayTitle(s), force: true });
-    navigate('/dashboard');
+    openAgentConversation({ id, title: sessionDisplayTitle(s), force: true });
   };
 
   const startNewChat = () => {
@@ -220,7 +221,6 @@ export function LibraryProjectDetail({ project, onBack, onToast, onRefresh }: Pr
         },
       }),
     );
-    navigate('/dashboard');
   };
 
   const saveInstructions = async () => {

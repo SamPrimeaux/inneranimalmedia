@@ -15,6 +15,8 @@ import {
 import { SHELL_VERSION } from '../src/shellVersion';
 import type { OpenCommandPaletteDetail } from '../src/lib/openCommandPalette';
 import { openConnectionMenu, openGitRepoMenu } from '../src/lib/openCommandPalette';
+import type { PlatformHealthIssue } from '../src/lib/platformHealth';
+import { platformHealthSummary } from '../src/lib/platformHealth';
 import './StatusBar.css';
 
 const SYNC_CONFIRM_SKIP_KEY = 'iam-git-sync-skip-confirm';
@@ -85,6 +87,8 @@ interface StatusBarProps {
   version?: string;
   /** Worker /api/health */
   healthOk?: boolean | null;
+  /** Aggregated platform issues (tunnel, PTY, worker) with fix links */
+  platformHealthIssues?: PlatformHealthIssue[];
   /** CF tunnel (auth) */
   tunnelHealthy?: boolean | null;
   tunnelLabel?: string | null;
@@ -132,6 +136,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   showCursor = false,
   version = SHELL_VERSION,
   healthOk = null,
+  platformHealthIssues = [],
   tunnelHealthy = null,
   tunnelLabel = null,
   terminalOk = null,
@@ -242,6 +247,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   };
 
   const unread = notifUnreadCount > 0 ? notifUnreadCount : notifications.length;
+  const platformSummary = platformHealthSummary(platformHealthIssues, healthOk);
+  const primaryFix = platformHealthIssues[0];
 
   return (
     <nav
@@ -443,19 +450,55 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             {gitHash.trim()}
           </div>
         ) : null}
-        {healthOk != null ? (
-          <div
-            className="flex items-center gap-1 px-2 h-full shrink-0"
-            title={healthOk ? 'Worker health OK' : 'Worker health check failed'}
-          >
-            <span
-              className={`inline-block w-1.5 h-1.5 rounded-full ${healthOk ? 'bg-[var(--solar-green,#22c55e)]' : 'bg-[var(--solar-red)]'}`}
-              aria-hidden
-            />
-            <span className="text-[0.5625rem] font-semibold text-muted hidden lg:inline">
-              {healthOk ? 'Healthy' : 'Degraded'}
-            </span>
-          </div>
+        {healthOk != null || platformHealthIssues.length > 0 ? (
+          primaryFix?.fixHref ? (
+            <a
+              href={primaryFix.fixHref}
+              className="flex items-center gap-1 px-2 h-full shrink-0 hover:bg-[var(--bg-hover)] transition-colors no-underline"
+              title={
+                platformHealthIssues.length > 1
+                  ? `${platformSummary.label} (+${platformHealthIssues.length - 1} more) — ${primaryFix.fixLabel || 'Fix'}`
+                  : `${platformSummary.label} — ${primaryFix.fixLabel || 'Fix'}`
+              }
+            >
+              <span
+                className={`inline-block w-1.5 h-1.5 rounded-full ${
+                  platformSummary.tone === 'ok'
+                    ? 'bg-[var(--solar-green,#22c55e)]'
+                    : platformSummary.tone === 'error'
+                      ? 'bg-[var(--solar-red)]'
+                      : 'bg-[var(--solar-yellow)]'
+                }`}
+                aria-hidden
+              />
+              <span
+                className={`text-[0.5625rem] font-semibold hidden lg:inline max-w-[180px] truncate ${
+                  platformSummary.tone === 'ok' ? 'text-muted' : 'text-[var(--solar-yellow)]'
+                }`}
+              >
+                {platformSummary.label}
+              </span>
+            </a>
+          ) : (
+            <div
+              className="flex items-center gap-1 px-2 h-full shrink-0"
+              title={platformSummary.label}
+            >
+              <span
+                className={`inline-block w-1.5 h-1.5 rounded-full ${
+                  platformSummary.tone === 'ok'
+                    ? 'bg-[var(--solar-green,#22c55e)]'
+                    : platformSummary.tone === 'error'
+                      ? 'bg-[var(--solar-red)]'
+                      : 'bg-[var(--solar-yellow)]'
+                }`}
+                aria-hidden
+              />
+              <span className="text-[0.5625rem] font-semibold text-muted hidden lg:inline">
+                {platformSummary.label}
+              </span>
+            </div>
+          )
         ) : null}
         {tunnelHealthy != null ? (
           <div

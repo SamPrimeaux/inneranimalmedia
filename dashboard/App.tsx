@@ -28,6 +28,7 @@ import {
   isAgentQuickstartPath,
   isAgentExamplesPath,
   isAgentShellPath,
+  isLibraryShellPath,
   type AgentHomeTab,
 } from './lib/agentRoutes';
 import { AgentHome } from './components/agent/AgentHome';
@@ -64,6 +65,7 @@ import { WorkspaceLauncher } from './components/WorkspaceLauncher';
 import type { XTermShellHandle, ShellTab } from './components/XTermShell';
 import { SecurityShieldBanner } from './components/SecurityShieldBanner';
 import { mapProblemsApiPayload, countProblemSeverities } from './src/lib/mapAgentProblems';
+import { buildPlatformHealthIssues, localTunnelVerificationStale } from './src/lib/platformHealth';
 import { ExtensionsPanel } from './components/ExtensionsPanel';
 import type { EditorModelMeta } from './types/editorModel';
 import { EditorPreviewPane } from './components/EditorPreviewPane';
@@ -669,6 +671,7 @@ const App: React.FC = () => {
   const [securityBannerDismissed, setSecurityBannerDismissed] = useState(false);
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
   const [tunnelHealthy, setTunnelHealthy] = useState<boolean | null>(null);
+  const [tunnelStale, setTunnelStale] = useState(false);
   const [tunnelLabel, setTunnelLabel] = useState<string | null>(null);
   const [terminalOk, setTerminalOk] = useState<boolean | null>(null);
   const [editorMeta, setEditorMeta] = useState<EditorModelMeta>({
@@ -1422,6 +1425,10 @@ const App: React.FC = () => {
   const shellNewChat = useCallback(() => {
     createNewAgentChatTabRef.current?.();
     if (isAgentEditorPath(location.pathname)) {
+      if (agentPosition === 'off') setAgentPosition('right');
+      return;
+    }
+    if (isLibraryShellPath(location.pathname)) {
       if (agentPosition === 'off') setAgentPosition('right');
       return;
     }
@@ -2998,6 +3005,21 @@ const App: React.FC = () => {
     void fetchTerminalConfigOnly();
 
     try {
+      const intRes = await fetch('/api/settings/integrations/connected', cred);
+      const intData = await intRes.json().catch(() => ({}));
+      if (intRes.ok && intData && typeof intData === 'object') {
+        const items = Array.isArray((intData as { items?: unknown[] }).items)
+          ? ((intData as { items: unknown[] }).items as Parameters<typeof localTunnelVerificationStale>[0])
+          : [];
+        setTunnelStale(localTunnelVerificationStale(items));
+      } else {
+        setTunnelStale(false);
+      }
+    } catch {
+      setTunnelStale(false);
+    }
+
+    try {
       const nr = await fetch('/api/agent/notifications', cred);
       const nj = await nr.json().catch(() => ({}));
       if (nr.ok && Array.isArray(nj.notifications)) {
@@ -3795,6 +3817,17 @@ const App: React.FC = () => {
     [editorMeta.insertSpaces, editorMeta.tabSize],
   );
 
+  const platformHealthIssues = useMemo(
+    () =>
+      buildPlatformHealthIssues({
+        healthOk,
+        tunnelHealthy,
+        tunnelStale,
+        terminalOk,
+      }),
+    [healthOk, tunnelHealthy, tunnelStale, terminalOk],
+  );
+
   return (
     <DesignStudioProvider>
     <div className="w-full h-[100dvh] bg-[var(--dashboard-canvas)] overflow-hidden text-[var(--dashboard-text)] font-sans flex flex-col">
@@ -4287,6 +4320,7 @@ const App: React.FC = () => {
                   <Suspense fallback={<DashboardRoutesFallback />}>
                     <div className="flex flex-1 flex-col min-h-0 min-w-0">
                     <Routes>
+                      <Route path="/dashboard" element={<Navigate to={AGENT_HOME_PATH} replace />} />
                       <Route path="/dashboard/calendar" element={<Navigate to="/dashboard/collaborate" replace />} />
                       <Route path="/dashboard/home" element={<DashboardHome />} />
                       <Route path="/dashboard/overview" element={<OverviewPage />} />
@@ -5068,6 +5102,7 @@ const App: React.FC = () => {
         col={cursorPos.col}
         version={SHELL_VERSION}
         healthOk={healthOk}
+        platformHealthIssues={platformHealthIssues}
         tunnelHealthy={tunnelHealthy}
         tunnelLabel={tunnelLabel}
         terminalOk={terminalOk}

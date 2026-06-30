@@ -17,14 +17,12 @@ import {
     Plus,
     Search,
     RefreshCw,
-    AlertTriangle,
     PanelLeftClose,
     GripVertical,
 } from 'lucide-react';
 import type { ActiveFile } from '../types';
 import { GitHubExplorer } from './GitHubExplorer';
 import { fetchTerminalTargets } from './LocalTerminalSetup';
-import { isEpochStale, normalizeEpochMs, parseHealthCheckEpochMs } from '../src/lib/normalizeEpochMs';
 import { GoogleDriveExplorer } from './GoogleDriveExplorer';
 import { pickR2DisplayBuckets, type R2BucketsApiResponse } from '../src/lib/r2Buckets';
 import {
@@ -274,7 +272,7 @@ export const LocalExplorer: React.FC<{
         drive: false,
     });
     /** Local tunnel registry row is connected but last_verified_at is missing or older than 5 minutes. */
-    const [localTunnelVerifyWarning, setLocalTunnelVerifyWarning] = useState(false);
+    // Stale tunnel warnings surface in the status bar (platformHealthIssues), not the explorer banner.
 
     const [r2Buckets, setR2Buckets] = useState<string[]>([]);
     const [r2SavedBuckets, setR2SavedBuckets] = useState<string[]>(() => loadR2SavedBuckets(user_id));
@@ -393,73 +391,6 @@ export const LocalExplorer: React.FC<{
     useEffect(() => {
         loadR2Buckets();
     }, [loadR2Buckets]);
-
-    useEffect(() => {
-        let cancelled = false;
-        void (async () => {
-            try {
-                if (workspace_id?.trim()) {
-                    const targets = await fetchTerminalTargets(workspace_id.trim());
-                    if (!cancelled && targets?.local?.ready === true) {
-                        setLocalTunnelVerifyWarning(false);
-                        return;
-                    }
-                }
-
-                const res = await fetch('/api/settings/integrations/connected', { credentials: 'same-origin' });
-                if (!res.ok || cancelled) return;
-                const data = (await res.json()) as {
-                    items?: Array<{
-                        derived_status?: string;
-                        connection?: {
-                            provider_key?: string;
-                            status?: string;
-                            config_json?: Record<string, unknown>;
-                            last_health_check_at?: string | null;
-                            last_health_status?: string | null;
-                        };
-                        integration_status?: { connected?: boolean; last_verified_at?: number };
-                    }>;
-                };
-                const items = Array.isArray(data.items) ? data.items : [];
-                const lt = items.find(
-                    (i) => String(i?.connection?.provider_key || '').toLowerCase() === 'local_tunnel',
-                );
-                const tunnelConnected =
-                    String(lt?.derived_status || '').toLowerCase() === 'connected' ||
-                    lt?.integration_status?.connected === true;
-                if (!lt || !tunnelConnected) {
-                    if (!cancelled) setLocalTunnelVerifyWarning(false);
-                    return;
-                }
-
-                const cfgTs =
-                    typeof lt?.integration_status?.last_verified_at === 'number'
-                        ? normalizeEpochMs(lt.integration_status.last_verified_at)
-                        : typeof lt?.connection?.config_json?.last_verified_at === 'number'
-                          ? normalizeEpochMs(lt.connection.config_json.last_verified_at as number)
-                          : null;
-                const healthTs = parseHealthCheckEpochMs(lt?.connection?.last_health_check_at);
-                const verifiedMs =
-                    cfgTs != null && healthTs != null
-                        ? Math.max(cfgTs, healthTs)
-                        : cfgTs ?? healthTs;
-
-                const healthOk =
-                    String(lt?.connection?.last_health_status || '').toLowerCase() === 'ok' &&
-                    healthTs != null &&
-                    !isEpochStale(healthTs);
-
-                const stale = !healthOk && isEpochStale(verifiedMs);
-                if (!cancelled) setLocalTunnelVerifyWarning(stale);
-            } catch {
-                if (!cancelled) setLocalTunnelVerifyWarning(false);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [workspace_id]);
 
     useEffect(() => {
         if (displayR2Buckets.length === 0) {
@@ -1070,22 +1001,6 @@ export const LocalExplorer: React.FC<{
                     </button>
                 ) : null}
             </div>
-
-            {localTunnelVerifyWarning ? (
-                <div className="mx-3 mb-2 flex items-start gap-2 rounded border border-[var(--solar-orange)]/45 bg-[var(--solar-orange)]/10 px-2.5 py-2 text-[10px] text-main leading-snug">
-                    <AlertTriangle size={14} className="shrink-0 text-[var(--solar-orange)] mt-0.5" aria-hidden />
-                    <div>
-                        Local tunnel has not been verified recently (&gt;5 min). Re-run connect in settings if the tunnel
-                        may have changed.
-                        <a
-                            href="/dashboard/settings/integrations"
-                            className="ml-1 text-[var(--solar-cyan)] underline font-medium"
-                        >
-                            Verify connection
-                        </a>
-                    </div>
-                </div>
-            ) : null}
 
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             {/* Section 1: Local Workspace */}

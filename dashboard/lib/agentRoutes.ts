@@ -94,3 +94,16 @@ export function isAgentQuickstartPath(pathname: string): boolean {
 export function isAgentExamplesPath(pathname: string): boolean {
   return normalizePath(pathname) === AGENT_EXAMPLES_PATH;
 }
+
+/** Routes that render dashboard content beside the agent column (stay put on new chat). */
+export function isLibraryShellPath(pathname: string): boolean {
+  const p = normalizePath(pathname);
+  return (
+    p === '/dashboard/artifacts' ||
+    p === '/dashboard/chats' ||
+    p === '/dashboard/tasks' ||
+    p === '/dashboard/collaborate' ||
+    p === '/dashboard/home' ||
+    p === '/dashboard/overview'
+  );
+}
