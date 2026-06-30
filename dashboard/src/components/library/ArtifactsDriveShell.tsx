@@ -128,6 +128,7 @@ export function ArtifactsDriveShell() {
 
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sideCollapsed, setSideCollapsed] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [noticeVisible, setNoticeVisible] = useState(true);
   const [selected, setSelected] = useState<LibraryItem | null>(null);
@@ -326,7 +327,7 @@ export function ArtifactsDriveShell() {
 
   return (
     <div
-      className={`artifacts-drive-shell flex-1 min-h-0 min-w-0${railPanelOpen ? ' has-rail-panel' : ''}${manageDriveOpen ? ' has-shared-drive-panel' : ''}`}
+      className={`artifacts-drive-shell flex-1 min-h-0 min-w-0${railPanelOpen ? ' has-rail-panel' : ''}${manageDriveOpen ? ' has-shared-drive-panel' : ''}${sideCollapsed ? ' side-collapsed' : ''}`}
     >
       <div className="drive-app">
         <input
@@ -341,9 +342,21 @@ export function ArtifactsDriveShell() {
         />
         <header className="topbar">
           <div className="brand">
-            <button type="button" className="hamb" aria-label="Main menu">
-              <svg className="drive-icon" viewBox="0 0 24 24">
-                <path d="M4 7h16M4 12h16M4 17h16" />
+            <button
+              type="button"
+              className="hamb"
+              aria-label={sideCollapsed ? 'Open menu' : 'Close menu'}
+              aria-expanded={!sideCollapsed}
+              onClick={() => setSideCollapsed((v) => !v)}
+            >
+              <svg
+                className={`hamb-icon${sideCollapsed ? '' : ' is-open'}`}
+                viewBox="0 0 24 24"
+                aria-hidden
+              >
+                <line className="hamb-bar hamb-bar-top" x1="4" y1="7" x2="20" y2="7" />
+                <line className="hamb-bar hamb-bar-mid" x1="4" y1="12" x2="20" y2="12" />
+                <line className="hamb-bar hamb-bar-bottom" x1="4" y1="17" x2="20" y2="17" />
               </svg>
             </button>
             <span className="drive-mark">
