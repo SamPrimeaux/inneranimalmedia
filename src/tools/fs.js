@@ -9,25 +9,28 @@ export const handlers = {
   /**
    * list_dir: Recursive directory scanner for workspace mapping.
    */
-  async list_dir({ path = '.', recursive = false, user_id, workspace_id }, env) {
+  async list_dir(params, env, runContext = {}) {
+    const pathArg = params?.path ?? params?.directory ?? '.';
+    const user_id =
+      params?.user_id ?? runContext?.userId ?? runContext?.user_id ?? runContext?.session?.user_id;
+    const workspace_id =
+      params?.workspace_id ?? runContext?.workspaceId ?? runContext?.workspace_id ?? runContext?.session?.workspace_id;
+    const tenant_id =
+      params?.tenant_id ?? runContext?.tenantId ?? runContext?.tenant_id ?? runContext?.session?.tenant_id;
     try {
-      const ign = await assertPathAllowedByIgnorePatterns(env, user_id, workspace_id, path);
-      if (!ign.ok) return { error: ign.error };
-      // In CF Workers/D1 context, we proxy to the shell or a R2/D1 registry
-      // For this dashboard, we primarily use the /api/fs/list endpoint
-      const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
-      const res = await fetch(`${origin}/api/fs/list`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, recursive }),
-      });
-      const data = await res.json();
-      
-      // If backend returns flat rows (e.g. from R2/S3), normalize to nested tree
-      if (Array.isArray(data) && !data.some(d => d.children)) {
-        return buildTree(data, path);
+      if (user_id && workspace_id) {
+        const ign = await assertPathAllowedByIgnorePatterns(env, user_id, workspace_id, pathArg);
+        if (!ign.ok) return { error: ign.error };
+        const { executeFsListDir } = await import('../core/fs-list-dir.js');
+        const out = await executeFsListDir(
+          env,
+          { ...params, path: pathArg, user_id, workspace_id, tenant_id },
+          runContext || {},
+        );
+        if (!out?.error) return out;
+        return { error: out.error, ...out };
       }
-      return data;
+      return { error: 'workspace_list_requires_user_context' };
     } catch (e) {
       return { error: `Failed to list directory: ${e.message}` };
     }
@@ -70,17 +73,32 @@ export const handlers = {
   /**
    * write_file: Save content to a file.
    */
-  async write_file({ path, content, user_id, workspace_id }, env) {
+  async write_file(params, env, runContext = {}) {
+    const path = params?.path != null ? String(params.path).trim() : '';
+    const user_id =
+      params?.user_id ?? runContext?.userId ?? runContext?.user_id ?? runContext?.session?.user_id;
+    const workspace_id =
+      params?.workspace_id ?? runContext?.workspaceId ?? runContext?.workspace_id ?? runContext?.session?.workspace_id;
+    const tenant_id =
+      params?.tenant_id ?? runContext?.tenantId ?? runContext?.tenant_id ?? runContext?.session?.tenant_id;
     try {
-      const ign = await assertPathAllowedByIgnorePatterns(env, user_id, workspace_id, path);
-      if (!ign.ok) return { error: ign.error };
-      const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
-      const res = await fetch(`${origin}/api/fs/write`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, content }),
-      });
-      return await res.json();
+      if (user_id && workspace_id && path) {
+        const ign = await assertPathAllowedByIgnorePatterns(env, user_id, workspace_id, path);
+        if (!ign.ok) return { error: ign.error };
+        const { executeFsWriteFile } = await import('../core/fs-write-file.js');
+        const out = await executeFsWriteFile(
+          env,
+          { ...params, path, user_id, workspace_id, tenant_id },
+          runContext || {},
+        );
+        if (!out?.error) return out;
+        return { error: out.error, ...out };
+      }
+      if (!path) return { error: 'path required' };
+      return {
+        error:
+          'workspace_write_requires_user_context — connect workspace and ensure PTY repo is cloned',
+      };
     } catch (e) {
       return { error: `Failed to write file: ${e.message}` };
     }

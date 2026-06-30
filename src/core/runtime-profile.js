@@ -659,6 +659,10 @@ export async function compileModeProfile(env, input) {
   let toolAllowlist = [];
   /** @type {Array<Record<string, unknown>>} */
   let compiledToolRows = [];
+  /** @type {string[]} */
+  let missingRequiredCapabilities = [];
+  /** @type {string[]} */
+  let allowedDomains = [];
   if (
     env?.DB &&
     workspaceId &&
@@ -715,6 +719,14 @@ export async function compileModeProfile(env, input) {
       outputLimit: maxTools,
     });
     let scoredRows = det.rows || [];
+    missingRequiredCapabilities = det.missingRequiredCapabilities || [];
+    allowedDomains = det.allowedDomains || [];
+    if (det.droppedUnknownLanes?.length) {
+      console.warn('[runtime-profile] route_unknown_lanes_dropped', {
+        route_key: routeKey,
+        lanes: det.droppedUnknownLanes,
+      });
+    }
     const readonlyAuditCompile =
       isReadonlyRepoAuditContext(message) ||
       refinedRouteKey === READONLY_REPO_AUDIT_ROUTE_KEY ||
@@ -848,6 +860,8 @@ export async function compileModeProfile(env, input) {
       mode === 'debug' ||
       mode === 'plan' ||
       mode === 'multitask',
+    missing_required_capabilities: missingRequiredCapabilities,
+    allowed_domains: allowedDomains,
     selected_provider: null,
     _compiled_tool_rows: compiledToolRows,
     _prompt_route_row: promptRouteRow,
@@ -1090,6 +1104,9 @@ export function logRouteContract(profile, meta = {}) {
       toolProfile: profile.tool_profile,
       writePolicy: profile.write_policy,
       finalToolCount: finalTools.length,
+      missingRequiredCapabilities: profile.missing_required_capabilities || [],
+      allowedDomains: profile.allowed_domains || [],
+      droppedRouteLanes: profile.source?.dropped_route_lanes || [],
       toolCapableRequired: profile.tool_capable_required || finalTools.length > 0,
       toolNames: finalTools,
       selectedModel: profile.model_key,

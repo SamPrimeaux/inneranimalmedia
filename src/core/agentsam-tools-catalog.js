@@ -256,6 +256,124 @@ export const LANE_TO_TOOL_CATEGORIES = {
   terminal: ['terminal', 'container'],
 };
 
+/**
+ * Phase 2 SSOT: route declares domains; lanes map here only for legacy rows.
+ * Domain = noun (what system). tool_category = domain.capability.
+ */
+export const LANE_TO_DOMAINS = {
+  develop: ['filesystem', 'terminal', 'github', 'git', 'database.d1', 'deploy', 'cloudflare', 'agent', 'storage', 'cms'],
+  inspect: ['browser', 'cms'],
+  research: ['knowledge', 'memory', 'web', 'cms'],
+  think: ['memory', 'knowledge', 'agent', 'cms'],
+  design: ['browser', 'media', 'cms'],
+  operate: ['deploy', 'workflow', 'cloudflare', 'agent', 'cms'],
+  integrate: ['integrations', 'github'],
+  admin: ['agent', 'cloudflare'],
+  observe: ['cloudflare', 'network'],
+  general: ['agent', 'knowledge'],
+  memory: ['memory'],
+  data: ['database.d1', 'database.supabase'],
+  terminal: ['terminal'],
+};
+
+const LEGACY_CATEGORY_TO_DOMAIN = /** @type {Record<string, string>} */ ({
+  d1: 'database.d1',
+  supabase: 'database.supabase',
+  shell: 'terminal',
+  terminal: 'terminal',
+  container: 'terminal',
+  filesystem: 'filesystem',
+  github: 'github',
+  git: 'git',
+  deploy: 'deploy',
+  browser: 'browser',
+  ui: 'browser',
+  memory: 'memory',
+  knowledge: 'knowledge',
+  context: 'knowledge',
+  ai: 'web',
+  web: 'web',
+  cloudflare: 'cloudflare',
+  platform: 'cloudflare',
+  agent: 'agent',
+  storage: 'storage',
+  r2: 'storage',
+  integrations: 'integrations',
+  email: 'integrations',
+  workflow: 'workflow',
+  network: 'network',
+  media: 'media',
+  cms: 'cms',
+});
+
+function parseJsonStringArray(raw) {
+  if (raw == null || raw === '') return [];
+  try {
+    const j = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(j) ? j.map((x) => trim(x).toLowerCase()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Resolve allowed domains from route requirements (SSOT) with legacy lane fallback.
+ * @param {{ allowed_domains?: string[], allowed_lanes?: string[] } | null | undefined} req
+ */
+export function toolDomainsFromRouteRequirements(req) {
+  const explicit = parseJsonStringArray(req?.allowed_domains);
+  if (explicit.length) return [...new Set(explicit)];
+
+  const out = new Set();
+  const unknownLanes = [];
+  for (const lane of req?.allowed_lanes || []) {
+    const key = trim(lane).toLowerCase();
+    if (!key) continue;
+    const domains = LANE_TO_DOMAINS[key];
+    if (domains?.length) {
+      for (const d of domains) out.add(d);
+      continue;
+    }
+    if (LANE_TO_TOOL_CATEGORIES[key]) {
+      for (const cat of LANE_TO_TOOL_CATEGORIES[key]) {
+        out.add(LEGACY_CATEGORY_TO_DOMAIN[cat] || cat);
+      }
+      continue;
+    }
+    unknownLanes.push(key);
+  }
+  if (unknownLanes.length) {
+    console.warn('[agentsam-tools-catalog] unknown_lanes_dropped', { lanes: unknownLanes });
+  }
+  return [...out];
+}
+
+/**
+ * SQL filter: tool_category is domain.capability; match any allowed domain prefix.
+ * @param {string[]} domains
+ */
+export function buildToolDomainFilterClause(domains) {
+  const doms = [...new Set((domains || []).map((d) => trim(d).toLowerCase()).filter(Boolean))];
+  if (!doms.length) return null;
+
+  const parts = [];
+  const binds = [];
+  for (const d of doms) {
+    parts.push(`lower(tool_category) LIKE ?`);
+    binds.push(`${d}.%`);
+    parts.push(`lower(tool_category) = ?`);
+    binds.push(d);
+    const legacyCats = Object.entries(LEGACY_CATEGORY_TO_DOMAIN)
+      .filter(([, dom]) => dom === d)
+      .map(([cat]) => cat);
+    for (const cat of legacyCats) {
+      parts.push(`lower(tool_category) = ?`);
+      binds.push(cat);
+    }
+  }
+  return { clause: `(${parts.join(' OR ')})`, binds };
+}
+
 /** Lane category → dotted `tool_category` prefixes (canonical catalog rows). */
 const CATEGORY_LIKE_PREFIXES = /** @type {Record<string, string[]>} */ ({
   d1: ['database.d1%'],
@@ -715,10 +833,13 @@ export async function resolveCatalogToolKeyFromPublicName(env, publicName) {
  */
 export async function listAgentsamToolsForContext(env, opts = {}) {
   if (!env?.DB) return [];
+  const domains = (opts.domains || [])
+    .map((d) => trim(d).toLowerCase())
+    .filter(Boolean);
   const categories = (opts.categories || [])
     .map((c) => trim(c).toLowerCase())
     .filter(Boolean);
-  if (!categories.length) return [];
+  if (!domains.length && !categories.length) return [];
 
   const lim = Math.max(
     1,
@@ -728,8 +849,10 @@ export async function listAgentsamToolsForContext(env, opts = {}) {
 
   let results = [];
   try {
-    const categoryFilter = buildToolCategoryFilterClause(categories);
-    if (!categoryFilter) return [];
+    const domainFilter = domains.length ? buildToolDomainFilterClause(domains) : null;
+    const categoryFilter = !domainFilter && categories.length ? buildToolCategoryFilterClause(categories) : null;
+    const filter = domainFilter || categoryFilter;
+    if (!filter) return [];
     const { results: rows } = await env.DB.prepare(
       `SELECT tool_key, tool_name, display_name, tool_category, description,
               input_schema, handler_config, capability_key, risk_level, requires_approval,
@@ -738,11 +861,11 @@ export async function listAgentsamToolsForContext(env, opts = {}) {
        WHERE COALESCE(is_active, 1) = 1
          AND COALESCE(is_degraded, 0) = 0
          AND (dispatch_target IS NULL OR dispatch_target IN ('internal', 'both'))
-         AND ${categoryFilter.clause}
+         AND ${filter.clause}
        ORDER BY COALESCE(sort_priority, 50) ASC, tool_name ASC
        LIMIT ?`,
     )
-      .bind(...categoryFilter.binds, Math.min(lim * 4, 120))
+      .bind(...filter.binds, Math.min(lim * 4, 120))
       .all();
     results = rows || [];
   } catch (e) {
@@ -845,9 +968,10 @@ export async function selectAgentsamToolsForAgentChat(db, runtimeCtx, opts) {
   }
   const connectedProviders = await loadConnectedProviders(db, userId || null);
 
+  let domains = toolDomainsFromRouteRequirements(req);
   const lanes = (req?.allowed_lanes || []).filter(Boolean);
   let categories = toolCategoriesFromLanes(lanes);
-  if (!categories.length) {
+  if (!domains.length && !categories.length) {
     categories = await inferToolCategoriesForContext(
       '',
       opts.message,
@@ -856,11 +980,15 @@ export async function selectAgentsamToolsForAgentChat(db, runtimeCtx, opts) {
     );
   }
   if (mcpServerKeys.length) {
+    for (const d of toolDomainsFromRouteRequirements({ allowed_lanes: ['operate', 'observe', 'admin', 'develop'] })) {
+      domains.push(d);
+    }
     const cfCats = toolCategoriesFromLanes(['operate', 'observe', 'admin', 'develop']);
     categories = [...new Set([...categories, 'cloudflare', ...cfCats])];
   }
-  if (!categories.length) {
-    return { rows: [], missingRequiredCapabilities: [], usedLegacyFallback: false };
+  const uniqueDomains = [...new Set(domains.map((d) => trim(d).toLowerCase()).filter(Boolean))];
+  if (!uniqueDomains.length && !categories.length) {
+    return { rows: [], missingRequiredCapabilities: [], usedLegacyFallback: false, allowedDomains: [] };
   }
 
   const catalogLimit = Math.max(
@@ -874,7 +1002,8 @@ export async function selectAgentsamToolsForAgentChat(db, runtimeCtx, opts) {
       workspaceId: runtimeCtx?.workspaceId,
       tenantId: runtimeCtx?.tenantId,
       userId: runtimeCtx?.userId,
-      categories,
+      domains: uniqueDomains,
+      categories: uniqueDomains.length ? [] : categories,
       modeSlug: opts.modeSlug,
       limit: catalogLimit,
       allowlistKeys: opts.allowlistKeys ?? null,
@@ -968,7 +1097,16 @@ export async function selectAgentsamToolsForAgentChat(db, runtimeCtx, opts) {
     req.max_tools != null && Number(req.max_tools) > 0 ? Math.floor(Number(req.max_tools)) : outputLimit;
   const maxOut = Math.max(0, Math.min(outputLimit, routeMax));
   const rows = candidates.slice(0, maxOut).map((c) => c.row);
-  return { rows, missingRequiredCapabilities: missing, usedLegacyFallback: false };
+  return {
+    rows,
+    missingRequiredCapabilities: missing,
+    usedLegacyFallback: false,
+    allowedDomains: uniqueDomains,
+    droppedUnknownLanes: lanes.filter((l) => {
+      const key = trim(l).toLowerCase();
+      return key && !LANE_TO_DOMAINS[key] && !LANE_TO_TOOL_CATEGORIES[key];
+    }),
+  };
 }
 
 /**

@@ -20,6 +20,7 @@ import { pragmaTableInfo } from './retention.js';
  *   route_key: string,
  *   task_type: string,
  *   allowed_lanes: string[],
+ *   allowed_domains: string[],
  *   required_capabilities: string[],
  *   optional_capabilities: string[],
  *   blocked_capabilities: string[],
@@ -230,7 +231,18 @@ const DEFAULT_ROUTE_TOOL = /** @type {Record<string, Omit<RouteToolRequirements,
     approval_policy: { high_risk_requires_approval: true },
   },
   agent: {
-    allowed_lanes: ['develop', 'inspect', 'research', 'observe'],
+    allowed_lanes: ['develop', 'inspect', 'research', 'terminal'],
+    allowed_domains: [
+      'filesystem',
+      'terminal',
+      'github',
+      'git',
+      'database.d1',
+      'deploy',
+      'knowledge',
+      'memory',
+      'browser',
+    ],
     required_capabilities: [],
     optional_capabilities: [
       'workspace_read_file',
@@ -501,6 +513,7 @@ export async function resolveAgentChatRouteToolRequirements(env, q) {
   }
 
   let allowed_lanes = [...base.allowed_lanes];
+  let allowed_domains = [...(base.allowed_domains || [])];
   let required_capabilities = [...base.required_capabilities];
   let optional_capabilities = [...base.optional_capabilities];
   let blocked_capabilities = [...base.blocked_capabilities];
@@ -513,6 +526,11 @@ export async function resolveAgentChatRouteToolRequirements(env, q) {
     if (lanesCol != null && String(lanesCol).trim() !== '') {
       const parsed = parseJsonArray(lanesCol);
       if (parsed.length) allowed_lanes = uniqLanes(parsed);
+    }
+    const domainsCol = r.allowed_domains_json;
+    if (domainsCol != null && String(domainsCol).trim() !== '') {
+      const parsed = parseJsonArray(domainsCol);
+      if (parsed.length) allowed_domains = parsed.map((x) => String(x).trim().toLowerCase()).filter(Boolean);
     }
     const reqC = r.required_capability_keys_json;
     if (reqC != null && String(reqC).trim() !== '') {
@@ -557,6 +575,7 @@ export async function resolveAgentChatRouteToolRequirements(env, q) {
     route_key: routeKeyRaw || taskTypeRaw || lookup,
     task_type: taskTypeRaw,
     allowed_lanes: uniqLanes(allowed_lanes),
+    allowed_domains,
     required_capabilities: required_capabilities.map((x) => String(x).trim()).filter(Boolean),
     optional_capabilities: optional_capabilities.map((x) => String(x).trim()).filter(Boolean),
     blocked_capabilities: blocked_capabilities.map((x) => String(x).trim()).filter(Boolean),

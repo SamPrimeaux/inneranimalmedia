@@ -1696,6 +1696,12 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
         break;
       }
+      if (dispatcher === 'fs_write_file') {
+        const { executeFsWriteFile } = await import('./fs-write-file.js');
+        const out = await executeFsWriteFile(env, params, runContext);
+        result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+        break;
+      }
       if (dispatcher === 'semantic_retrieval') {
         const { dispatchSemanticRetrieval } = await import('./semantic-retrieval-dispatch.js');
         const lane = String(
@@ -2382,10 +2388,16 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     }
 
     case 'filesystem': {
-      const op = String(config.operation || 'read').toLowerCase();
-      if (op === 'write' || op === 'put') {
+      const op = String(config.operation || config.dispatcher || 'read').toLowerCase();
+      if (op === 'write' || op === 'put' || op === 'fs_write_file') {
         const { handlers: fsHandlers } = await import('../tools/fs.js');
         const out = await fsHandlers.write_file?.(params, env, runContext);
+        result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+        break;
+      }
+      if (op === 'list' || op === 'list_dir' || op === 'fs_list_dir') {
+        const { handlers: fsHandlers } = await import('../tools/fs.js');
+        const out = await fsHandlers.list_dir?.(params, env, runContext);
         result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
         break;
       }
