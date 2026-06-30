@@ -59,10 +59,27 @@ export const DatabasePage: React.FC = () => {
   }, [activeWorkspace, databaseName, expectedStudioName]);
 
   useEffect(() => {
-    if (!expectedStudioName) return;
-    if (databaseName?.toLowerCase() === expectedStudioName.toLowerCase()) return;
-    navigate(databaseStudioPathFromName(expectedStudioName), { replace: true });
-  }, [workspaceId, activeWorkspace, databaseName, expectedStudioName, navigate]);
+    // Guard against acting on an incomplete workspace list mid-load -- avoid a
+    // false redirect-away flicker while `workspaces` is still populating.
+    if (!workspaceId || workspaces.length === 0) return;
+
+    if (expectedStudioName) {
+      if (databaseName?.toLowerCase() !== expectedStudioName.toLowerCase()) {
+        navigate(databaseStudioPathFromName(expectedStudioName), { replace: true });
+      }
+      return;
+    }
+
+    // No collab D1 catalog for this workspace (i.e. this is the platform
+    // workspace) -- never leave a stale or explicit database slug sitting in
+    // the URL. Query execution is already correctly scoped server-side
+    // (resolveUserWorkspaceBinding), but a bookmarked or stale-tab URL like
+    // /dashboard/database/pelican-peptides should not keep displaying that
+    // name once the real workspace is known. Snap back to the platform view.
+    if (databaseName) {
+      navigate('/dashboard/database', { replace: true });
+    }
+  }, [workspaceId, workspaces, activeWorkspace, databaseName, expectedStudioName, navigate]);
 
   useEffect(() => {
     if (databaseName || !legacyStudio) return;
