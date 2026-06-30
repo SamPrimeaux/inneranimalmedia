@@ -47,8 +47,20 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [questionsIntake, setQuestionsIntake] = useState<QuestionsIntakeState>(null);
 
+  /**
+   * Tab identity must be unique across *sources*, not just basename — two files
+   * named e.g. "README.md" from different GitHub repos, or a GitHub file vs a
+   * same-named local/R2 file, previously collapsed into one tab (id was just
+   * `workspacePath || name`) and silently overwrote each other's content.
+   * Composite key by source first, falling back to name only when no source
+   * identifier is present (e.g. a brand-new unsaved buffer).
+   */
   const getFileId = (file: ActiveFile) => {
-    return file.workspacePath || file.name;
+    if (file.githubRepo && file.githubPath) return `github:${file.githubRepo}:${file.githubPath}`;
+    if (file.r2Bucket && file.r2Key) return `r2:${file.r2Bucket}:${file.r2Key}`;
+    if (file.driveFileId) return `drive:${file.driveFileId}`;
+    if (file.workspacePath) return `local:${file.workspacePath}`;
+    return `name:${file.name}`;
   };
 
   const openFile = useCallback((file: ActiveFile) => {
