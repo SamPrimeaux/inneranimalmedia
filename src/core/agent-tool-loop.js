@@ -1151,6 +1151,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
                 isSuperadmin: mcpCtx.isSuperadmin,
                 request,
                 activeFileEnvelope: activeFileEnvelopeParam,
+                selectedGithubRepoContext: mcpCtx.selectedGithubRepoContext ?? mcpCtx.github_repo_context ?? null,
+                github_repo_context: mcpCtx.github_repo_context ?? mcpCtx.selectedGithubRepoContext ?? null,
                 userMessage: mcpCtx.userMessage ?? mcpCtx.message ?? null,
                 ...(mcpCtx.mcp_panel_slug != null && String(mcpCtx.mcp_panel_slug).trim() !== ''
                   ? { mcp_panel_slug: String(mcpCtx.mcp_panel_slug).trim() }

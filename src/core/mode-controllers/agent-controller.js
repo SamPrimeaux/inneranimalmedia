@@ -637,6 +637,9 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         }
       }
 
+      const githubRepoCtx = String(
+        body.selectedGithubRepoContext ?? body.github_repo_context ?? body.githubRepoContext ?? '',
+      ).trim();
       const mcpRuntimeContext = {
         userId,
         tenantId,
@@ -648,6 +651,13 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         writePolicy: profile.write_policy,
         userMessage: message,
         runtimeProfile: profile,
+        ...(githubRepoCtx
+          ? { selectedGithubRepoContext: githubRepoCtx, github_repo_context: githubRepoCtx }
+          : {}),
+        isSuperadmin:
+          sessionAuthUser?.role === 'superadmin' ||
+          sessionAuthUser?.is_superadmin === true ||
+          sessionAuthUser?.is_superadmin === 1,
       };
 
       await withTimeout(

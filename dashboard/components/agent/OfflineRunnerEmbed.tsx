@@ -36,14 +36,16 @@ function safeSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){ } }
 const game=document.getElementById('game'), runner=document.getElementById('runner'), scoreEl=document.getElementById('score'), highEl=document.getElementById('high'), ready=document.getElementById('ready'), over=document.getElementById('over');
 let playing=false, dead=false, score=0, raf=0, high=Number(safeGet('iamRunnerHigh')||0);
 highEl.textContent=String(high).padStart(5,'0');
-function start(){ if(dead){dead=false;over.classList.remove('show')} playing=true; score=0; ready.style.display='none'; game.classList.remove('paused'); tick(); }
-function jump(){ if(!playing||dead){start();return} if(runner.classList.contains('jump'))return; runner.classList.add('jump'); setTimeout(()=>runner.classList.remove('jump'),550); }
+function start(){ if(dead){dead=false;over.classList.remove('show')} playing=true; score=0; ready.style.display='none'; game.classList.remove('paused'); document.querySelectorAll('.obstacle').forEach(o=>{o.style.animation='none';o.offsetHeight;o.style.animation=''}); tick(); }
+function jump(e){ if(e&&e.target&&e.target.closest&&e.target.closest('#restart'))return; if(!playing||dead){start();return} if(runner.classList.contains('jump'))return; runner.classList.add('jump'); setTimeout(()=>runner.classList.remove('jump'),550); }
 function end(){ dead=true; playing=false; game.classList.add('paused'); over.classList.add('show'); cancelAnimationFrame(raf); if(score>high){high=score;safeSet('iamRunnerHigh',String(high));highEl.textContent=String(high).padStart(5,'0')} }
 function hit(a,b){ const r1=a.getBoundingClientRect(), r2=b.getBoundingClientRect(); return !(r1.right-10<r2.left+6||r1.left+10>r2.right-6||r1.bottom-6<r2.top+8||r1.top+8>r2.bottom-6); }
 function tick(){ if(!playing||dead)return; score+=1; scoreEl.textContent=String(score).padStart(5,'0'); document.querySelectorAll('.obstacle').forEach(o=>{if(hit(runner,o))end()}); raf=requestAnimationFrame(tick); }
 document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();jump()}});
 game.addEventListener('pointerdown',jump);
-document.getElementById('restart').addEventListener('click',e=>{e.stopPropagation();start()});
+const restartBtn=document.getElementById('restart');
+restartBtn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();start()});
+restartBtn.addEventListener('pointerdown',e=>{e.stopPropagation()});
 </script>
 </body></html>`;
 

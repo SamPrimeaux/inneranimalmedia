@@ -38,7 +38,8 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
 
   useEffect(() => {
     const anyRunning = rows.some((r) => r.status === 'running' && !r.cadJobLive);
-    if (!anyRunning) {
+    const anyFailed = rows.some((r) => r.status === 'error' || r.status === 'failed');
+    if (!anyRunning || anyFailed) {
       setShowRunner(false);
       return undefined;
     }
@@ -47,7 +48,8 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
   }, [rows]);
 
   if (!rows.length) return null;
-  const anyRunning = rows.some((r) => r.status === 'running');
+  const anyRunning = rows.some((r) => r.status === 'running' && !r.cadJobLive);
+  const anyFailed = rows.some((r) => r.status === 'error' || r.status === 'failed');
   const anyCadLive = rows.some((r) => r.cadJobLive);
 
   return (
@@ -76,7 +78,7 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
             onCadJobTerminal={onCadJobTerminal}
           />
         ))}
-        {showRunner && anyRunning && !anyCadLive ? (
+        {showRunner && anyRunning && !anyFailed && !anyCadLive ? (
           <div className="tool-trace-wait-runner mt-2 mb-1">
             <OfflineRunnerEmbed height={220} />
           </div>

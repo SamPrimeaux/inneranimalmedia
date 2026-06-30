@@ -70,6 +70,9 @@ import { ExecutionTimeline, ScriptDraftPanel, shellSingleQuote } from './executi
 import { useWorkspace } from '../../src/context/WorkspaceContext';
 import {
   githubRepoContextStorageKey,
+  chatGithubContextStorageKey,
+  readChatGithubContext,
+  writeChatGithubContext,
   MENTION_CONTEXT_HEADER,
   CHAT_ATTACH_MAX_TOTAL_BYTES,
   CHAT_REQUEST_MAX_BYTES,
@@ -234,20 +237,22 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   composerPortalTarget = null,
   messagesPortalTarget = null,
 }) => {
-  const { sessionUserId, workspaceId: ctxWorkspaceId, workspaces, persistGithubRepo } = useWorkspace();
+  const { sessionUserId, workspaceId: ctxWorkspaceId, workspaces } = useWorkspace();
   const effectiveWsId = (workspaceId || ctxWorkspaceId || '').trim() || null;
 
   const saveGithubRepoSelection = useCallback(
-    (full: string) => {
+    (full: string, filePath?: string | null, branch = 'main') => {
       setGithubRepoContext(full);
-      try {
-        localStorage.setItem(githubRepoContextStorageKey(sessionUserId, effectiveWsId), full);
-      } catch {
-        /* ignore */
-      }
-      void persistGithubRepo(full, effectiveWsId);
+      if (filePath !== undefined) setChatGithubFilePath(filePath?.trim() || null);
+      setChatGithubBranch(branch.trim() || 'main');
+      const key = chatGithubContextStorageKey(sessionUserId, effectiveWsId, conversationId);
+      writeChatGithubContext(key, {
+        repo: full,
+        path: filePath?.trim() || null,
+        branch: branch.trim() || 'main',
+      });
     },
-    [sessionUserId, effectiveWsId, persistGithubRepo],
+    [sessionUserId, effectiveWsId, conversationId],
   );
 
   const agentsamPolicyRef = useRef<Record<string, unknown> | null>(null);
@@ -406,6 +411,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [mobileThreadTab, setMobileThreadTab] = useState<'chat' | 'context'>('chat');
   const [repoDrawerOpen, setRepoDrawerOpen] = useState(false);
   const [githubRepoContext, setGithubRepoContext] = useState<string | null>(null);
+  const [chatGithubFilePath, setChatGithubFilePath] = useState<string | null>(null);
+  const [chatGithubBranch, setChatGithubBranch] = useState('main');
   const { setQuestionsIntake } = useEditor();
   const lastQuestionsBatchIdRef = useRef<string | null>(null);
 
@@ -507,20 +514,31 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, []);
 
   useEffect(() => {
-    const key = githubRepoContextStorageKey(sessionUserId, effectiveWsId);
-    let stored: string | null = null;
-    try {
-      stored = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
-    } catch {
-      stored = null;
+    const convId = conversationId.trim();
+    if (convId) {
+      const draftKey = chatGithubContextStorageKey(sessionUserId, effectiveWsId, 'draft');
+      const chatKey = chatGithubContextStorageKey(sessionUserId, effectiveWsId, convId);
+      const draft = readChatGithubContext(draftKey);
+      const existing = readChatGithubContext(chatKey);
+      if (draft?.repo && !existing?.repo) {
+        writeChatGithubContext(chatKey, draft);
+      }
     }
-    if (!stored?.trim() && effectiveWsId) {
+    const chatKey = chatGithubContextStorageKey(sessionUserId, effectiveWsId, conversationId);
+    let ctx = readChatGithubContext(chatKey);
+    if (!ctx?.repo && effectiveWsId) {
+      const legacyKey = githubRepoContextStorageKey(sessionUserId, effectiveWsId);
+      ctx = readChatGithubContext(legacyKey);
+    }
+    if (!ctx?.repo && effectiveWsId) {
       const row = workspaces.find((w) => w.id === effectiveWsId);
       const wsRepo = row?.github_repo?.trim();
-      if (wsRepo) stored = wsRepo;
+      if (wsRepo) ctx = { repo: wsRepo, path: null, branch: 'main' };
     }
-    setGithubRepoContext(stored?.trim() || null);
-  }, [sessionUserId, effectiveWsId, workspaces]);
+    setGithubRepoContext(ctx?.repo?.trim() || null);
+    setChatGithubFilePath(ctx?.path?.trim() || null);
+    setChatGithubBranch(ctx?.branch?.trim() || 'main');
+  }, [sessionUserId, effectiveWsId, conversationId, workspaces]);
 
   useEffect(() => {
     syncComposerTextareaHeight(
@@ -2485,6 +2503,13 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           activeFileContent.slice(0, 48000),
         );
       }
+    } else if (githubRepoContext?.trim()) {
+      form.append('active_file_source', 'github');
+      form.append('active_file_github_repo', githubRepoContext.trim());
+      if (chatGithubFilePath?.trim()) {
+        form.append('active_file_github_path', chatGithubFilePath.trim());
+      }
+      form.append('active_file_github_branch', chatGithubBranch.trim() || 'main');
     }
     const ghCtxForm = githubRepoContext?.trim();
     if (ghCtxForm) form.append('github_repo_context', ghCtxForm);
@@ -2734,6 +2759,21 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     !isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat');
   const composerFlexOrder = mobileAgentHomeMode ? 'order-3' : 'order-5';
   const composerPortaled = Boolean(atmosphericHomeMode && composerPortalTarget);
+  const showMobileRepoConnector =
+    isNarrow &&
+    mobileThreadTab === 'chat' &&
+    composerVisible &&
+    (mobileAgentsThread || atmosphericHomeMode);
+  const mobileRepoConnectorLabel = (() => {
+    const repo = githubRepoContext?.trim();
+    if (!repo) return 'Connect GitHub repository';
+    const file = chatGithubFilePath?.trim();
+    if (file) {
+      const short = file.length > 28 ? `…${file.slice(-27)}` : file;
+      return `${repo} · ${short}`;
+    }
+    return repo;
+  })();
   const messagesPortaled = Boolean(
     atmosphericHomeMode &&
       messagesPortalTarget &&
@@ -3203,11 +3243,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               </p>
               <button
                 type="button"
-                onClick={() => onOpenGitHubIntegration?.(githubRepoContext?.trim() ? { expandRepoFullName: githubRepoContext.trim() } : undefined)}
+                onClick={() => setRepoDrawerOpen(true)}
                 className="w-full py-2.5 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[13px] font-medium text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)] flex items-center justify-center gap-2"
               >
                 <GitBranch size={16} className="text-[var(--solar-cyan)]" />
-                Open GitHub browser
+                Choose repository for this chat
               </button>
               <button
                 type="button"
@@ -3303,7 +3343,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           style={{
             paddingBottom:
               composerPortaled && isNarrow
-                ? 'calc(3.5rem + 1.5rem + env(safe-area-inset-bottom, 0px) + 8px)'
+                ? 'calc(3.5rem + env(safe-area-inset-bottom, 0px) + 8px)'
                 : isNarrow && !mobileAgentHomeMode
                   ? MOBILE_CHAT_COMPOSER_BOTTOM_PAD
                   : mobileAgentHomeMode
@@ -3570,16 +3610,15 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               </div>
             </div>
           </div>
-          {mobileAgentsThread && mobileThreadTab === 'chat' && (
+          {showMobileRepoConnector && (
             <button
               type="button"
               onClick={() => setRepoDrawerOpen(true)}
               className="flex w-full items-center gap-1.5 text-left text-[11px] text-[var(--dashboard-muted)] transition-colors hover:text-[var(--dashboard-text)] py-2 px-1 rounded-lg hover:bg-[var(--bg-hover)]"
+              aria-label="Connect GitHub repository for this chat"
             >
               <FolderGit2 size={14} className="shrink-0 text-[var(--solar-cyan)]" />
-              <span className="min-w-0 flex-1 truncate">
-                {githubRepoContext?.trim() || 'Select GitHub repository'}
-              </span>
+              <span className="min-w-0 flex-1 truncate">{mobileRepoConnectorLabel}</span>
               <ChevronDown size={14} className="shrink-0 opacity-60" />
             </button>
           )}
@@ -3603,7 +3642,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         onClose={() => setRepoDrawerOpen(false)}
         workspaceId={effectiveWsId}
         githubRepoContext={githubRepoContext}
-        onSelectRepo={saveGithubRepoSelection}
+        githubFilePath={chatGithubFilePath}
+        onSelectRepo={(full) => saveGithubRepoSelection(full, null)}
+        onSelectFile={(repo, path, branch) => saveGithubRepoSelection(repo, path, branch)}
         onBrowseFiles={(full) => onOpenGitHubIntegration?.({ expandRepoFullName: full })}
       />
 

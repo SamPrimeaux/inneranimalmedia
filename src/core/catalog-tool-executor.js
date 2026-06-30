@@ -1912,6 +1912,9 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           ghParams.active_file_github_repo ||
           params.github_repo ||
           params.active_file_github_repo ||
+          runContext.selectedGithubRepoContext ||
+          runContext.github_repo_context ||
+          runContext.activeFileEnvelope?.github_repo ||
           null;
       }
       const { resolveGithubRepoForToolCall } = await import('./github-repo-scope.js');
@@ -1955,13 +1958,38 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         );
       }
       ghParams.repo = repoScope.repo;
+      let handlerNameResolved = handlerName;
+      let opResolved = op;
+      if (
+        (handlerNameResolved === 'github_get_file' || opResolved === 'get_file') &&
+        !String(ghParams.path || '').trim() &&
+        String(ghParams.repo || '').trim()
+      ) {
+        handlerNameResolved = 'github_get_tree';
+        opResolved = 'get_tree';
+        if (!String(ghParams.branch || ghParams.ref || '').trim()) {
+          ghParams.branch = 'main';
+        }
+      }
+      const fnResolved = ghHandlers[handlerNameResolved] || fn;
       const ghParamsWithMeta = {
         ...ghParams,
         user_id: userId || ghParams.user_id,
         tool: ghParams?.tool ?? toolKey,
-        operation: ghParams?.operation ?? op,
+        operation: ghParams?.operation ?? opResolved,
       };
-      const out = await fn(ghParamsWithMeta, env);
+      if (!String(ghParamsWithMeta.user_id || '').trim()) {
+        result = {
+          ok: false,
+          error: 'user_id_required',
+          body: {
+            user_message: 'GitHub tools require an authenticated session.',
+            missing: ['user_id'],
+          },
+        };
+        break;
+      }
+      const out = await fnResolved(ghParamsWithMeta, env);
 
       if (out?.success === false || out?.error) {
         result = {
@@ -1973,7 +2001,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       }
 
       const normalize = () => {
-        switch (op) {
+        switch (opResolved) {
           case 'get_file': {
             return {
               ok: true,

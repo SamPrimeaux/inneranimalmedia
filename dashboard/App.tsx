@@ -476,7 +476,7 @@ const App: React.FC = () => {
     [location.pathname, location.search],
   );
   const isMovieModeRoute = location.pathname.startsWith('/dashboard/moviemode');
-  const showStatusBar = showDashboardStatusBar(location.pathname);
+  const showStatusBar = showDashboardStatusBar(location.pathname, isNarrowViewport);
   const mobileTabBarBottom = mobileTabBarBottomOffset(showStatusBar);
   /** TODO: Movie Mode right rail — split Media bin + ChatAssistant (dual panel). */
   const isDrawRoute = location.pathname.startsWith('/dashboard/draw');

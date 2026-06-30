@@ -374,11 +374,65 @@ export const COMPOSER_TEXTAREA_MAX_PX_WIDE = 200;
 
 export const LS_GH_REPO = 'iam-chat-github-repo-context';
 
-/** Per-user + per-workspace — avoids leaking Sam's selected repo on shared machines. */
+/** Per-user + per-workspace — legacy default (migrated to per-chat keys). */
 export function githubRepoContextStorageKey(userId: string | null, workspaceId: string | null): string {
   const u = userId?.trim() || 'anon';
   const w = workspaceId?.trim() || 'nows';
   return `${LS_GH_REPO}:${u}:${w}`;
+}
+
+export type ChatGithubContextStored = {
+  repo: string;
+  path?: string | null;
+  branch?: string | null;
+};
+
+/** Per-user + per-workspace + per-conversation GitHub context for Agent Sam chat. */
+export function chatGithubContextStorageKey(
+  userId: string | null,
+  workspaceId: string | null,
+  conversationId: string | null | undefined,
+): string {
+  const u = userId?.trim() || 'anon';
+  const w = workspaceId?.trim() || 'nows';
+  const c = conversationId?.trim() || 'draft';
+  return `${LS_GH_REPO}:${u}:${w}:chat:${c}`;
+}
+
+export function readChatGithubContext(key: string): ChatGithubContextStored | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw?.trim()) return null;
+    const parsed = JSON.parse(raw) as ChatGithubContextStored;
+    if (parsed?.repo?.trim()) {
+      return {
+        repo: parsed.repo.trim(),
+        path: parsed.path?.trim() || null,
+        branch: parsed.branch?.trim() || 'main',
+      };
+    }
+    if (raw.includes('/')) {
+      return { repo: raw.trim(), path: null, branch: 'main' };
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+export function writeChatGithubContext(key: string, ctx: ChatGithubContextStored): void {
+  try {
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        repo: ctx.repo.trim(),
+        path: ctx.path?.trim() || null,
+        branch: ctx.branch?.trim() || 'main',
+      }),
+    );
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Composer model picker: Thompson / resolveRoutingArm on the Worker when sent as `model`. */
