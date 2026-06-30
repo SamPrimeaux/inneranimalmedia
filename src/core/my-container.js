@@ -8,6 +8,16 @@ export const CONTAINER_IMAGE_REF =
   'registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/inneranimalmedia:sandbox-v3';
 export const CONTAINER_IMAGE_TAG = 'inneranimalmedia:sandbox-v3';
 
+/** Legacy getByName ids from pre-inneranimalmedia pool routing — safe to destroy. */
+export const LEGACY_CONTAINER_INSTANCE_NAMES = Object.freeze([
+  'meaux-pool',
+  'specialist',
+  'samprimeaux',
+  'sam',
+  'engineer',
+  'default',
+]);
+
 /** Default MY_CONTAINER pool id — must match worker name (wrangler name = inneranimalmedia). */
 export const CONTAINER_POOL_ID_DEFAULT = 'inneranimalmedia';
 
@@ -236,6 +246,37 @@ export async function tryContainerExec(env, opts) {
       error: timedOut ? 'container_start_timeout' : msg.slice(0, 400),
     };
   }
+}
+
+/**
+ * Destroy legacy DO container instances (dashboard clutter from old zone routing).
+ * @param {any} env
+ * @param {string[]} [names]
+ */
+export async function purgeLegacyContainerInstances(env, names = LEGACY_CONTAINER_INSTANCE_NAMES) {
+  const ns = containerNamespace(env);
+  if (!ns?.getByName) {
+    return { ok: false, error: 'container_unbound', results: [] };
+  }
+
+  const poolId = resolveContainerPoolId(env);
+  /** @type {Array<{ name: string, ok: boolean, error?: string }>} */
+  const results = [];
+
+  for (const raw of names) {
+    const name = String(raw || '').trim();
+    if (!name || name === poolId) continue;
+    try {
+      const stub = ns.getByName(name);
+      const res = await stub.fetch('http://container/__admin/destroy', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      results.push({ name, ok: res.ok && data?.destroyed !== false, error: data?.error });
+    } catch (e) {
+      results.push({ name, ok: false, error: String(e?.message || e).slice(0, 200) });
+    }
+  }
+
+  return { ok: results.every((r) => r.ok), pool_id: poolId, results };
 }
 
 /**

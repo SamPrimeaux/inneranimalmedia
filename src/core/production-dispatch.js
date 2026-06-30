@@ -373,6 +373,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleMyContainerExec(request, env);
   }
 
+  if (pathLower === '/api/internal/my-container/purge-legacy' && methodUpper === 'POST') {
+    const { handleMyContainerPurgeLegacy } = await import('../api/my-container-internal.js');
+    return handleMyContainerPurgeLegacy(request, env);
+  }
+
   if (pathLower === '/api/internal/terminal/sandbox/exec' && methodUpper === 'POST') {
     const { handleTerminalSandboxExec } = await import('../api/terminal-sandbox-internal.js');
     return handleTerminalSandboxExec(request, env);

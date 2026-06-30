@@ -11,4 +11,21 @@ export class MyContainer extends Container {
   sleepAfter = '30m';
   enableInternet = true;
   pingEndpoint = '/health';
+
+  /** @param {Request} request */
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === '/__admin/destroy' && request.method === 'POST') {
+      try {
+        await this.destroy();
+        return Response.json({ ok: true, destroyed: true });
+      } catch (e) {
+        return Response.json(
+          { ok: false, error: String(e?.message || e).slice(0, 400) },
+          { status: 500 },
+        );
+      }
+    }
+    return super.fetch(request);
+  }
 }

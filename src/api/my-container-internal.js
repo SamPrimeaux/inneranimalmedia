@@ -3,7 +3,7 @@
  * Auth: INTERNAL_API_SECRET or superadmin session.
  */
 import { getAuthUser, isSamOnlyUser, jsonResponse, verifyInternalApiSecret } from '../core/auth.js';
-import { tryContainerExec } from '../core/my-container.js';
+import { purgeLegacyContainerInstances, tryContainerExec } from '../core/my-container.js';
 
 /**
  * @param {Request} request
@@ -41,4 +41,35 @@ export async function handleMyContainerExec(request, env) {
   });
 
   return jsonResponse(out, out.ok ? 200 : 502);
+}
+
+/**
+ * POST /api/internal/my-container/purge-legacy — destroy stale DO instance names.
+ * Auth: INTERNAL_API_SECRET or superadmin session.
+ * @param {Request} request
+ * @param {any} env
+ */
+export async function handleMyContainerPurgeLegacy(request, env) {
+  if (request.method !== 'POST') {
+    return jsonResponse({ error: 'Method not allowed' }, 405);
+  }
+
+  const internal = verifyInternalApiSecret(request, env);
+  if (!internal) {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser || !(await isSamOnlyUser(env, authUser))) {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
+    }
+  }
+
+  let body = {};
+  try {
+    body = await request.json().catch(() => ({}));
+  } catch {
+    body = {};
+  }
+
+  const names = Array.isArray(body.names) ? body.names.map(String) : undefined;
+  const out = await purgeLegacyContainerInstances(env, names);
+  return jsonResponse(out, out.ok ? 200 : 207);
 }
