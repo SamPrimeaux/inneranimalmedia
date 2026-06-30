@@ -20,10 +20,12 @@ export function parseCollaborateSearchParams(params: URLSearchParams): {
   mainSeg: 'calendar' | 'tasks';
   tasksList: string | null;
   focusPeople: boolean;
+  projectId: string | null;
 } {
   const seg = params.get('seg');
   const mainSeg = seg === 'tasks' ? 'tasks' : 'calendar';
   const tasksList = params.get('list')?.trim() || null;
   const focusPeople = params.get('panel') === 'people';
-  return { mainSeg, tasksList, focusPeople };
+  const projectId = params.get('project')?.trim() || null;
+  return { mainSeg, tasksList, focusPeople, projectId };
 }

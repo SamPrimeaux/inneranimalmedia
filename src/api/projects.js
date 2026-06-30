@@ -874,10 +874,10 @@ async function handlePost(request, env, authUser) {
     await env.DB
       .prepare(
         `INSERT INTO kanban_boards (
-           id, tenant_id, workspace_id, owner_id, name, description, board_type, is_active, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, 'Workspace Board', 'Default workspace kanban', 'workspace', 1, ?, ?)`,
+           id, tenant_id, workspace_id, project_id, owner_id, name, description, board_type, is_active, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, 'Project kanban board', 'project', 1, ?, ?)`,
       )
-      .bind(boardId, tenantId, workspaceId, ownerUserId, now, now)
+      .bind(boardId, tenantId, workspaceId, projectId, ownerUserId, `${name} Board`, now, now)
       .run();
 
     const defaultColumns = [

@@ -29,7 +29,12 @@ import {
   IAM_AGENT_ENSURE_PANEL,
   openAgentConversation,
 } from '../../../lib/openAgentConversation';
+import WorkspaceKanban from '../kanban/WorkspaceKanban';
+import { useWorkspace } from '../../context/WorkspaceContext';
+
 import { IAM_AGENT_CHAT_COMPOSE } from '../../../agentChatConstants';
+
+type ProjectTab = 'overview' | 'tasks';
 
 type Props = {
   project: OverviewProject;
@@ -178,7 +183,14 @@ function AddChatsModal({
 
 export function LibraryProjectDetail({ project, onBack, onToast, onRefresh }: Props) {
   const navigate = useNavigate();
+  const { workspaceId } = useWorkspace();
+  const [tab, setTab] = useState<ProjectTab>('overview');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState(project.name);
+  const [editStatus, setEditStatus] = useState(project.status_raw || project.status || 'development');
+  const [editPriority, setEditPriority] = useState(String(project.priority_num ?? 50));
+  const [editSaving, setEditSaving] = useState(false);
   const [addFileOpen, setAddFileOpen] = useState(false);
   const [addChatsOpen, setAddChatsOpen] = useState(false);
   const [chats, setChats] = useState<AgentSessionRow[]>([]);
@@ -238,6 +250,41 @@ export function LibraryProjectDetail({ project, onBack, onToast, onRefresh }: Pr
     }
   };
 
+  const saveEdit = async () => {
+    const name = editName.trim();
+    if (!name) return;
+    setEditSaving(true);
+    try {
+      const priority = Number(editPriority);
+      const res = await updateProject(project.id, {
+        name,
+        status: editStatus,
+        priority: Number.isFinite(priority) ? priority : undefined,
+      });
+      if (!res.ok) {
+        onToast?.(res.error || 'Failed to update project');
+        return;
+      }
+      onToast?.('Project updated');
+      setEditOpen(false);
+      onRefresh?.();
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const archiveProject = async () => {
+    if (!window.confirm(`Archive "${project.name}"? It will hide from the default project list.`)) return;
+    const res = await updateProject(project.id, { status: 'archived' });
+    if (!res.ok) {
+      onToast?.(res.error || 'Failed to archive');
+      return;
+    }
+    onToast?.('Project archived');
+    onBack();
+    onRefresh?.();
+  };
+
   const updatedLabel = project.lastDeploy && project.lastDeploy !== '—' ? project.lastDeploy : project.dueDate;
 
   return (
@@ -257,10 +304,21 @@ export function LibraryProjectDetail({ project, onBack, onToast, onRefresh }: Pr
           </IconButton>
           {menuOpen ? (
             <div className="lib-proj-menu" onMouseLeave={() => setMenuOpen(false)}>
+              <button type="button" onClick={() => { setEditOpen(true); setMenuOpen(false); }}>
+                Edit project
+              </button>
               <button type="button" onClick={() => void saveInstructions()}>
                 Save instructions
               </button>
-              <a href={`/dashboard/collaborate?project=${encodeURIComponent(project.id)}`}>Open in Collaborate</a>
+              <button
+                type="button"
+                onClick={() => navigate(`/dashboard/collaborate?seg=tasks&project=${encodeURIComponent(project.id)}`)}
+              >
+                Open in Collaborate
+              </button>
+              <button type="button" className="danger" onClick={() => void archiveProject()}>
+                Archive project
+              </button>
             </div>
           ) : null}
           <button type="button" className="lib-proj-btn outline">
@@ -269,6 +327,36 @@ export function LibraryProjectDetail({ project, onBack, onToast, onRefresh }: Pr
         </div>
       </div>
 
+      <div className="lib-proj-tabs" role="tablist" aria-label="Project sections">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'overview'}
+          className={tab === 'overview' ? 'active' : ''}
+          onClick={() => setTab('overview')}
+        >
+          Overview
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'tasks'}
+          className={tab === 'tasks' ? 'active' : ''}
+          onClick={() => setTab('tasks')}
+        >
+          Tasks
+        </button>
+      </div>
+
+      {tab === 'tasks' ? (
+        <div className="lib-proj-tasks-pane">
+          <WorkspaceKanban
+            workspaceId={project.workspace_id || workspaceId}
+            projectId={project.id}
+            variant="light"
+          />
+        </div>
+      ) : (
       <div className="lib-proj-detail-grid">
         <div className="lib-proj-detail-main">
           <div className="lib-proj-composer">
@@ -370,6 +458,54 @@ export function LibraryProjectDetail({ project, onBack, onToast, onRefresh }: Pr
           </section>
         </aside>
       </div>
+      )}
+
+      {editOpen ? (
+        <div className="lib-proj-modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && setEditOpen(false)}>
+          <div className="lib-proj-modal" role="dialog" aria-labelledby="edit-project-title">
+            <div className="lib-proj-modal-head">
+              <h2 id="edit-project-title">Edit project</h2>
+              <IconButton label="Close" onClick={() => setEditOpen(false)}>
+                <X size={18} />
+              </IconButton>
+            </div>
+            <label className="lib-proj-edit-field">
+              Name
+              <input value={editName} onChange={(e) => setEditName(e.target.value)} />
+            </label>
+            <label className="lib-proj-edit-field">
+              Status
+              <select value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
+                {['discovery', 'design', 'development', 'qa', 'staging', 'production', 'maintenance', 'archived'].map(
+                  (s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+            <label className="lib-proj-edit-field">
+              Priority (0–100)
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={editPriority}
+                onChange={(e) => setEditPriority(e.target.value)}
+              />
+            </label>
+            <div className="lib-proj-modal-actions">
+              <button type="button" className="lib-proj-btn ghost" onClick={() => setEditOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className="lib-proj-btn primary" disabled={editSaving} onClick={() => void saveEdit()}>
+                {editSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {addChatsOpen ? (
         <AddChatsModal

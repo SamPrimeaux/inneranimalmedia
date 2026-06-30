@@ -171,7 +171,7 @@ function cfImageVariants(url: string | null | undefined) {
 }
 
 function projectHref(project: OverviewProject) {
-  return `/dashboard/artifacts?view=projects&project=${encodeURIComponent(project.id)}`;
+  return `/dashboard/projects/${encodeURIComponent(project.id)}`;
 }
 
 function projectUpdatedLabel(project: OverviewProject) {
@@ -479,7 +479,7 @@ export function DashboardHome() {
               <h2 id="recent-title">Recent projects</h2>
               <p>Your workspace — not shared across tenants.</p>
             </div>
-            <button type="button" onClick={() => navigate('/dashboard/artifacts?view=projects')}>View all</button>
+            <button type="button" onClick={() => navigate('/dashboard/projects')}>View all</button>
           </div>
           <div className="iam-project-lane">
             {projectsLoading ? (

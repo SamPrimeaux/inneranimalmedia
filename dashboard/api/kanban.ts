@@ -78,6 +78,29 @@ export async function fetchKanbanTasks(opts: {
   return j;
 }
 
+export async function createKanbanTask(opts: {
+  title: string;
+  workspaceId?: string | null;
+  projectId?: string | null;
+  boardId?: string | null;
+  description?: string;
+}): Promise<{ ok: boolean; task?: KanbanTask; error?: string }> {
+  const r = await fetch(`/api/kanban/tasks${qs({ workspace_id: opts.workspaceId })}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: opts.title,
+      project_id: opts.projectId,
+      board_id: opts.boardId,
+      description: opts.description,
+    }),
+  });
+  const j = (await r.json()) as { ok: boolean; task?: KanbanTask; error?: string };
+  if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
+  return j;
+}
+
 export async function patchKanbanTask(
   id: string,
   payload: Record<string, unknown>,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useLibraryWorkspace } from '../../lib/library/useLibraryWorkspace';
 import type { LibraryItem, SourceFilter } from '../../lib/library/types';
 import { openDriveShareDialog } from '../../lib/library/googleDriveWidgets';
@@ -22,6 +22,7 @@ import { SharedDriveManagePanel } from './SharedDriveManagePanel';
 import { LibraryFileIcon, LibraryThumb, sourceLabel } from './LibraryThumb';
 import { NAV_DRIVE_VIEW, NAV_RAIL_MAP } from '../../lib/library/types';
 import '../../styles/library.css';
+import '../../styles/library-project-tabs.css';
 
 const CONTEXT_ACTIONS = ['Open', 'Share', 'Rename', 'Download', 'Move to trash'] as const;
 
@@ -124,6 +125,8 @@ function railForNavKey(key: string): string | undefined {
 
 export function ArtifactsDriveShell() {
   const ws = useLibraryWorkspace();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -145,8 +148,11 @@ export function ArtifactsDriveShell() {
 
   const canManageSharedDrives = hasDriveManageScope(ws.driveStatus);
   const showSharedDriveTools = ws.driveView === 'shared-drives' || ws.driveView === 'shared-drive';
-  const isProjectsView = ws.filters.rail === 'projects';
-  const projectIdParam = searchParams.get('project');
+  const isProjectsRoute = location.pathname === '/dashboard/projects' || location.pathname.startsWith('/dashboard/projects/');
+  const routeProjectMatch = location.pathname.match(/^\/dashboard\/projects\/([^/?#]+)/);
+  const routeProjectId = routeProjectMatch?.[1] ? decodeURIComponent(routeProjectMatch[1]) : null;
+  const isProjectsView = isProjectsRoute || ws.filters.rail === 'projects';
+  const projectIdParam = isProjectsRoute ? routeProjectId : searchParams.get('project');
   const activeSharedDriveId = ws.sharedDriveId || ws.driveFolderStack[0]?.id || null;
   const activeSharedDriveName =
     ws.driveFolderStack[0]?.name ||
@@ -206,13 +212,29 @@ export function ArtifactsDriveShell() {
 
   useEffect(() => {
     const view = searchParams.get('view');
-    if (view === 'projects' && ws.filters.rail !== 'projects') {
+    if (view === 'projects' && location.pathname === '/dashboard/artifacts') {
+      const pid = searchParams.get('project');
+      navigate(
+        pid ? `/dashboard/projects/${encodeURIComponent(pid)}` : '/dashboard/projects',
+        { replace: true },
+      );
+      return;
+    }
+    if (isProjectsRoute && ws.filters.rail !== 'projects') {
+      ws.setNavKey('projects');
+    } else if (view === 'projects' && ws.filters.rail !== 'projects') {
       ws.setNavKey('projects');
     }
-  }, [searchParams, ws]);
+  }, [searchParams, ws, location.pathname, navigate, isProjectsRoute]);
 
   const handleProjectChange = useCallback(
     (projectId: string | null) => {
+      if (isProjectsRoute) {
+        navigate(
+          projectId ? `/dashboard/projects/${encodeURIComponent(projectId)}` : '/dashboard/projects',
+        );
+        return;
+      }
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
         if (projectId) next.set('project', projectId);
@@ -221,7 +243,7 @@ export function ArtifactsDriveShell() {
         return next;
       });
     },
-    [setSearchParams],
+    [isProjectsRoute, navigate, setSearchParams],
   );
 
   const handleContextMenu = (e: MouseEvent, item: LibraryItem) => {
@@ -422,10 +444,13 @@ export function ArtifactsDriveShell() {
             {NAV_ITEMS.map((item) => {
               const rail = railForNavKey(item.key);
               const expectedDriveView = NAV_DRIVE_VIEW[item.key];
-              const active = rail
-                ? ws.filters.rail === rail &&
-                  (rail !== 'drive' || !expectedDriveView || ws.driveView === expectedDriveView)
-                : false;
+              const active =
+                item.key === 'projects'
+                  ? isProjectsRoute || (rail ? ws.filters.rail === rail : false)
+                  : rail
+                    ? ws.filters.rail === rail &&
+                      (rail !== 'drive' || !expectedDriveView || ws.driveView === expectedDriveView)
+                    : false;
               return (
                 <button
                   key={item.key}
@@ -439,12 +464,8 @@ export function ArtifactsDriveShell() {
                       return;
                     }
                     if (item.key === 'projects') {
-                      setSearchParams((prev) => {
-                        const next = new URLSearchParams(prev);
-                        next.set('view', 'projects');
-                        next.delete('project');
-                        return next;
-                      });
+                      navigate('/dashboard/projects');
+                      return;
                     }
                     if (rail) ws.setNavKey(item.key);
                     else showToast(`${item.label} — coming soon`);

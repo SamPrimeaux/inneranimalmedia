@@ -113,6 +113,8 @@ export async function createTodo(payload: {
   category?: string;
   starred?: boolean;
   notes?: string;
+  project_id?: string;
+  project_key?: string;
 }) {
   return apiJson<{ ok: boolean; todo: AgentTodo }>('/api/agent/todo', {
     method: 'POST',
@@ -271,7 +273,16 @@ export async function fetchPeople(q: string) {
   return data.people ?? [];
 }
 
-export async function fetchTodos() {
-  const data = await apiJson<{ todos?: AgentTodo[] }>('/api/agent/todo');
+export async function fetchTodos(opts?: {
+  projectId?: string | null;
+  category?: string | null;
+  includeLegacy?: boolean;
+}) {
+  const params = new URLSearchParams();
+  if (opts?.projectId?.trim()) params.set('project_id', opts.projectId.trim());
+  if (opts?.category?.trim()) params.set('category', opts.category.trim());
+  if (opts?.includeLegacy) params.set('include_legacy', '1');
+  const qs = params.toString();
+  const data = await apiJson<{ todos?: AgentTodo[] }>(`/api/agent/todo${qs ? `?${qs}` : ''}`);
   return data.todos ?? [];
 }

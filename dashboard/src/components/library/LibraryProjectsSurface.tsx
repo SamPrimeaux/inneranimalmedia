@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { Plus, Search, Star } from 'lucide-react';
 import type { OverviewProject } from '../../../api/projects';
-import { fetchProjectsOverview } from '../../../api/projects';
+import { fetchProjectsOverview, updateProject } from '../../../api/projects';
 import NewProjectModal from '../../../components/projects/NewProjectModal';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { LibraryProjectDetail } from './LibraryProjectDetail';
@@ -68,13 +68,27 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
 
   const projects = overview?.projects || [];
 
+  const activeProjects = useMemo(
+    () =>
+      projects.filter((p) => {
+        const st = String(p.status_raw || p.status || '').toLowerCase();
+        return st !== 'archived' && st !== 'complete';
+      }),
+    [projects],
+  );
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return projects;
-    return projects.filter((p) =>
-      [p.name, p.description, p.client, p.client_name, ...(p.tags || [])].join(' ').toLowerCase().includes(q),
-    );
-  }, [projects, query]);
+    const base = q
+      ? activeProjects.filter((p) =>
+          [p.name, p.description, p.client, p.client_name, ...(p.tags || [])]
+            .join(' ')
+            .toLowerCase()
+            .includes(q),
+        )
+      : activeProjects;
+    return base;
+  }, [activeProjects, query]);
 
   const selected = selectedId ? projects.find((p) => p.id === selectedId) : null;
 
@@ -93,15 +107,19 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
     onProjectChange?.(null);
   };
 
-  const toggleStar = (id: string, e: MouseEvent) => {
+  const toggleStar = (p: OverviewProject, e: MouseEvent) => {
     e.stopPropagation();
-    setStarred((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    void (async () => {
+      const tags = [...(p.tags || [])];
+      const has = tags.includes('starred');
+      const next = has ? tags.filter((t) => t !== 'starred') : [...tags, 'starred'];
+      const res = await updateProject(p.id, { tags_json: next });
+      if (!res.ok) onToast?.(res.error || 'Could not update star');
+      else void refresh();
+    })();
   };
+
+  const isStarred = (p: OverviewProject) => (p.tags || []).includes('starred') || starred.has(p.id);
 
   if (selected) {
     return (
@@ -147,14 +165,14 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
           <button key={p.id} type="button" className="lib-proj-grid-card" onClick={() => openProject(p.id)}>
             <div className="lib-proj-grid-card-top">
               <h3>{p.name}</h3>
-              {starred.has(p.id) ? (
+              {isStarred(p) ? (
                 <Star size={14} className="lib-proj-star" fill="currentColor" />
               ) : (
                 <button
                   type="button"
                   className="lib-proj-star-btn"
                   aria-label="Star project"
-                  onClick={(e) => toggleStar(p.id, e)}
+                  onClick={(e) => toggleStar(p, e)}
                 >
                   <Star size={14} />
                 </button>

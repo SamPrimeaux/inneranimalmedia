@@ -1915,6 +1915,14 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     set('notes', body.notes != null ? String(body.notes).slice(0, 4000) : undefined);
     set('due_date', body.due_date != null ? String(body.due_date).trim().slice(0, 40) : undefined);
     set('category', body.category != null ? String(body.category).trim().slice(0, 120) : undefined);
+    set(
+      'project_id',
+      body.project_id != null ? String(body.project_id).trim().slice(0, 120) || null : undefined,
+    );
+    set(
+      'project_key',
+      body.project_key != null ? String(body.project_key).trim().slice(0, 120) || null : undefined,
+    );
     set('status', body.status != null ? String(body.status).trim().slice(0, 40) : undefined);
     if (body.status === 'done') {
       set('execution_status', 'done');
@@ -1962,12 +1970,21 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     const id = `todo_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
     const userId = String(authUser.id || authUser.user_id || authUser.email || 'user').slice(0, 64);
     const category = String(body.category || 'My Tasks').trim().slice(0, 120) || 'My Tasks';
+    const projectId =
+      body.project_id != null && String(body.project_id).trim()
+        ? String(body.project_id).trim().slice(0, 120)
+        : null;
+    const projectKey =
+      body.project_key != null && String(body.project_key).trim()
+        ? String(body.project_key).trim().slice(0, 120)
+        : projectId;
     const tags = body.starred ? JSON.stringify(['starred']) : JSON.stringify(body.tags || []);
     await env.DB.prepare(
       `INSERT INTO agentsam_todo (
         id, tenant_id, workspace_id, title, description, status, priority, category, tags,
-        due_date, notes, created_by, sort_order, task_type, execution_status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'open', 'medium', ?, ?, ?, ?, ?, 50, 'execute', 'queued', datetime('now'), datetime('now'))`,
+        due_date, notes, created_by, sort_order, task_type, execution_status,
+        project_id, project_key, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 'open', 'medium', ?, ?, ?, ?, ?, 50, 'execute', 'queued', ?, ?, datetime('now'), datetime('now'))`,
     )
       .bind(
         id,
@@ -1980,6 +1997,8 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         body.due_date != null ? String(body.due_date).trim().slice(0, 40) : null,
         body.notes != null ? String(body.notes).slice(0, 4000) : null,
         userId,
+        projectId,
+        projectKey,
       )
       .run();
     const todo = await env.DB.prepare(`SELECT * FROM agentsam_todo WHERE id = ?`).bind(id).first();
@@ -1994,15 +2013,34 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     const scope = await resolveAgentDataScope(env, authUser, request, {});
     if (!scope.tenantId) return jsonResponse({ error: 'Tenant could not be resolved' }, 403);
     if (!scope.workspaceId) return jsonResponse({ todos: [] });
+    const reqUrl = new URL(request.url);
+    const projectId = reqUrl.searchParams.get('project_id')?.trim() || null;
+    const category = reqUrl.searchParams.get('category')?.trim() || null;
+    const includeLegacy = reqUrl.searchParams.get('include_legacy') === '1';
     try {
-      const { results } = await env.DB.prepare(
-        `SELECT * FROM agentsam_todo
+      const binds = [scope.tenantId, scope.workspaceId];
+      let sql = `SELECT * FROM agentsam_todo
          WHERE tenant_id = ? AND workspace_id = ?
-           AND (status IS NULL OR LOWER(TRIM(status)) != 'done')
-         ORDER BY sort_order ASC, created_at DESC`,
-      )
-        .bind(scope.tenantId, scope.workspaceId)
-        .all();
+           AND (status IS NULL OR LOWER(TRIM(status)) NOT IN ('done', 'completed', 'cancelled'))`;
+      if (!includeLegacy) {
+        sql += ` AND (
+             plan_id IS NULL
+             OR plan_id NOT IN (
+               SELECT id FROM agentsam_plans
+               WHERE LOWER(COALESCE(status, '')) IN ('abandoned', 'archived')
+             )
+           )`;
+      }
+      if (projectId) {
+        sql += ` AND (project_id = ? OR project_key = ?)`;
+        binds.push(projectId, projectId);
+      }
+      if (category) {
+        sql += ` AND LOWER(TRIM(COALESCE(category, ''))) = LOWER(TRIM(?))`;
+        binds.push(category);
+      }
+      sql += ` ORDER BY sort_order ASC, created_at DESC`;
+      const { results } = await env.DB.prepare(sql).bind(...binds).all();
       return jsonResponse({ todos: results || [] });
     } catch (e) {
       console.warn('[agent/todo]', e?.message ?? e);

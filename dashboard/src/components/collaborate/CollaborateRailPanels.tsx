@@ -48,8 +48,11 @@ export function CollaborateRailPanels({ panel }: Props) {
       if (panel === 'calendar') {
         const rows = await fetchDayEvents(new Date());
         setEvents(rows);
-      } else if (panel === 'keep' || panel === 'notes') {
-        const rows = await fetchTodos();
+      } else if (panel === 'keep') {
+        const rows = await fetchTodos({ category: 'Keep' });
+        setTodos(rows);
+      } else if (panel === 'notes') {
+        const rows = await fetchTodos({ category: 'Notes' });
         setTodos(rows);
       } else if (panel === 'contacts') {
         const rows = await fetchPeople(peopleQ);
@@ -72,19 +75,9 @@ export function CollaborateRailPanels({ panel }: Props) {
     return () => window.clearTimeout(t);
   }, [peopleQ, panel, reload]);
 
-  const keepNotes = useMemo(
-    () => todos.filter(isOpenTodo).filter(isKeepTodo),
-    [todos],
-  );
+  const keepNotes = useMemo(() => todos.filter(isOpenTodo), [todos]);
 
-  const taskNotes = useMemo(
-    () =>
-      todos
-        .filter(isOpenTodo)
-        .filter((t) => !isKeepTodo(t))
-        .slice(0, 12),
-    [todos],
-  );
+  const taskNotes = useMemo(() => todos.filter(isOpenTodo), [todos]);
 
   const saveKeepNote = async () => {
     const text = keepDraft.trim();
@@ -211,8 +204,35 @@ export function CollaborateRailPanels({ panel }: Props) {
       <div className="lib-rail-panel-body">
         <div className="lib-rail-panel-subhead">
           <NotebookPen size={16} strokeWidth={1.75} />
-          <span>Open tasks</span>
+          <span>Notes</span>
         </div>
+        <label className="lib-rail-note-input">
+          <NotebookPen size={16} strokeWidth={1.75} />
+          <input
+            type="text"
+            placeholder="Add a note…"
+            value={keepDraft}
+            onChange={(e) => setKeepDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                void (async () => {
+                  const text = keepDraft.trim();
+                  if (!text || saving) return;
+                  setSaving(true);
+                  try {
+                    await createTodo({ title: text, category: 'Notes', notes: text });
+                    setKeepDraft('');
+                    await reload();
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Could not save note');
+                  } finally {
+                    setSaving(false);
+                  }
+                })();
+              }
+            }}
+          />
+        </label>
         {taskNotes.length === 0 ? (
           <div className="lib-rail-empty compact">
             <NotebookPen size={36} strokeWidth={1.5} className="lib-rail-empty-icon lib-rail-empty-icon--notes" />

@@ -142,8 +142,8 @@ import { SetiFileIcon } from './src/components/SetiFileIcon';
 function ProjectsLegacyRedirect() {
   const { projectId } = useParams();
   const dest = projectId
-    ? `/dashboard/artifacts?view=projects&project=${encodeURIComponent(projectId)}`
-    : '/dashboard/artifacts?view=projects';
+    ? `/dashboard/projects/${encodeURIComponent(projectId)}`
+    : '/dashboard/projects';
   return <Navigate to={dest} replace />;
 }
 
@@ -164,6 +164,7 @@ const MeetPage = lazy(() => import('./components/MeetPage'));
 const SettingsPanel = lazy(() => import('./components/settings'));
 const TasksPage = lazy(() => import('./pages/tasks/TasksPage'));
 const LibraryPage = lazy(() => import('./pages/library/LibraryPage'));
+const ProjectsPage = lazy(() => import('./pages/projects/ProjectsPage'));
 const WorkflowsPage = lazy(() =>
   import('./pages/workflows/WorkflowsPage').then((m) => ({ default: m.WorkflowsPage })),
 );
@@ -4352,8 +4353,8 @@ const App: React.FC = () => {
                       />
                       <Route path="/dashboard/library" element={<Navigate to="/dashboard/artifacts" replace />} />
                       <Route path="/dashboard/artifacts" element={<LibraryPage />} />
-                      <Route path="/dashboard/projects" element={<Navigate to="/dashboard/artifacts?view=projects" replace />} />
-                      <Route path="/dashboard/projects/:projectId" element={<ProjectsLegacyRedirect />} />
+                      <Route path="/dashboard/projects" element={<ProjectsPage />} />
+                      <Route path="/dashboard/projects/:projectId" element={<ProjectsPage />} />
                       <Route path="/dashboard/tasks" element={<TasksPage />} />
                       <Route path="/dashboard/chats" element={<ChatsPage />} />
                       <Route path="/dashboard/launch-desk" element={<Navigate to="/dashboard/collaborate" replace />} />

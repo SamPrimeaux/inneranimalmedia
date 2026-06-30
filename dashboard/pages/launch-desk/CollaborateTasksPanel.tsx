@@ -32,6 +32,7 @@ type Props = {
   onSchedule?: (todo: AgentTodo) => void;
   composing?: boolean;
   onComposingChange?: (open: boolean) => void;
+  projectId?: string | null;
 };
 
 function isOpen(todo: AgentTodo) {
@@ -167,6 +168,7 @@ export function CollaborateTasksMain({
   onSchedule,
   composing = false,
   onComposingChange,
+  projectId = null,
 }: Props) {
   const [draftTitle, setDraftTitle] = useState('');
   const [draftNotes, setDraftNotes] = useState('');
@@ -215,6 +217,7 @@ export function CollaborateTasksMain({
         description: draftNotes.trim() || undefined,
         due_date: draftDue ? toSqlDatetime(draftDue) : undefined,
         category: navView === 'list' ? activeList : 'My Tasks',
+        ...(projectId ? { project_id: projectId, project_key: projectId } : {}),
       });
       setDraftTitle('');
       setDraftNotes('');

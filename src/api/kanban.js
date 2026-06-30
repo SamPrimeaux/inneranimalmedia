@@ -283,6 +283,90 @@ async function handleTasksList(url, env, authUser) {
   return jsonResponse({ ok: true, tasks: (results || []).map(mapTaskRow) });
 }
 
+async function handleTaskCreate(request, env, authUser) {
+  const url = new URL(request.url);
+  const workspaceId = resolveWorkspaceId(authUser, env, url);
+  const tenantIds = await resolveKanbanTenantScope(env.DB, authUser, env, workspaceId);
+  if (!tenantIds.length) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
+  if (!workspaceId) return jsonResponse({ ok: false, error: 'workspace_required' }, 403);
+
+  const body = await request.json().catch(() => ({}));
+  const title = String(body.title || '').trim();
+  if (!title) return jsonResponse({ ok: false, error: 'title_required' }, 400);
+
+  let boardId = body.board_id != null ? String(body.board_id).trim() : '';
+  const projectId = body.project_id != null ? String(body.project_id).trim() : '';
+
+  if (!boardId && projectId) {
+    const boardRow = await env.DB.prepare(
+      `SELECT id FROM kanban_boards
+       WHERE project_id = ?
+         AND tenant_id IN (${inClausePlaceholders(tenantIds.length)})
+         AND (workspace_id = ? OR workspace_id IS NULL OR workspace_id = '')
+         AND is_active = 1
+       ORDER BY COALESCE(updated_at, created_at) DESC
+       LIMIT 1`,
+    )
+      .bind(projectId, ...tenantIds, workspaceId)
+      .first();
+    if (boardRow?.id) boardId = String(boardRow.id);
+  }
+
+  if (!boardId) return jsonResponse({ ok: false, error: 'board_id_or_project_id_required' }, 400);
+  if (!(await assertBoardAccess(env.DB, boardId, tenantIds, workspaceId))) {
+    return jsonResponse({ ok: false, error: 'board_not_found' }, 404);
+  }
+
+  const primaryTenantId = tenantIds[0];
+  const isCollab = tenantIds.length > 1;
+  const columnIdParam = body.column_id != null ? String(body.column_id).trim() : '';
+  let columnId = columnIdParam || null;
+  if (!columnId) {
+    const col = isCollab
+      ? await env.DB.prepare(
+          `SELECT id FROM kanban_columns WHERE board_id = ? ORDER BY position ASC LIMIT 1`,
+        )
+          .bind(boardId)
+          .first()
+      : await env.DB.prepare(
+          `SELECT id FROM kanban_columns WHERE board_id = ? AND tenant_id = ? ORDER BY position ASC LIMIT 1`,
+        )
+          .bind(boardId, primaryTenantId)
+          .first();
+    columnId = col?.id ? String(col.id) : null;
+  }
+  if (!columnId) return jsonResponse({ ok: false, error: 'no_columns_on_board' }, 400);
+
+  const taskId = `kt_${crypto.randomUUID().replace(/-/g, '').slice(0, 14)}`;
+  const now = Math.floor(Date.now() / 1000);
+  const priority = ['low', 'medium', 'high', 'urgent'].includes(String(body.priority || '').toLowerCase())
+    ? String(body.priority).toLowerCase()
+    : 'medium';
+  const resolvedProjectId = projectId || null;
+
+  await env.DB.prepare(
+    `INSERT INTO kanban_tasks (
+       id, tenant_id, board_id, column_id, project_id, title, description, priority, position, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+  )
+    .bind(
+      taskId,
+      primaryTenantId,
+      boardId,
+      columnId,
+      resolvedProjectId,
+      title.slice(0, 500),
+      body.description != null ? String(body.description).slice(0, 4000) : null,
+      priority,
+      now,
+      now,
+    )
+    .run();
+
+  const row = await env.DB.prepare(`SELECT * FROM kanban_tasks WHERE id = ? LIMIT 1`).bind(taskId).first();
+  return jsonResponse({ ok: true, task: mapTaskRow(row) }, 201);
+}
+
 async function handleTaskPatch(request, env, authUser, taskId) {
   const workspaceId = resolveWorkspaceId(authUser, env, new URL(request.url));
   const tenantIds = await resolveKanbanTenantScope(env.DB, authUser, env, workspaceId);
@@ -606,6 +690,10 @@ export async function handleKanbanApi(request, url, env) {
 
   if (pathLower === '/api/kanban/tasks' && method === 'GET') {
     return handleTasksList(url, env, authUser);
+  }
+
+  if (pathLower === '/api/kanban/tasks' && method === 'POST') {
+    return handleTaskCreate(request, env, authUser);
   }
 
   const taskSubMatch = pathLower.match(/^\/api\/kanban\/tasks\/([^/]+)\/(activity|comments|attachments)$/);

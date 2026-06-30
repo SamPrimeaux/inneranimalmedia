@@ -143,6 +143,7 @@ function donutGradient(breakdown: Record<string, number>) {
 export function LaunchDeskPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const projectFilterId = searchParams.get('project')?.trim() || null;
   const weekScrollRef = useRef<HTMLDivElement>(null);
   const peopleSearchRef = useRef<HTMLInputElement>(null);
 
@@ -199,7 +200,7 @@ export function LaunchDeskPage() {
         fetchWeekEvents(anchor, sources),
         fetchInsights(anchor),
         fetchBookingPages(),
-        fetchTodos(),
+        fetchTodos(projectFilterId ? { projectId: projectFilterId } : undefined),
       ]);
       setEvents(ev);
       setInsights(ins);
@@ -210,19 +211,21 @@ export function LaunchDeskPage() {
     } finally {
       setLoading(false);
     }
-  }, [anchor, sources]);
+  }, [anchor, sources, projectFilterId]);
 
   useEffect(() => {
     reload();
   }, [reload]);
 
   useEffect(() => {
-    const { mainSeg: seg, tasksList, focusPeople } = parseCollaborateSearchParams(searchParams);
+    const { mainSeg: seg, tasksList, focusPeople, projectId } = parseCollaborateSearchParams(searchParams);
     if (seg === 'tasks') {
       setMainSeg('tasks');
       if (tasksList) {
         setTasksActiveList(tasksList);
         setTasksNavView('list');
+      } else if (projectId) {
+        setTasksNavView('all');
       }
     }
     if (focusPeople) {
@@ -458,12 +461,12 @@ export function LaunchDeskPage() {
 
   const reloadTodos = useCallback(async () => {
     try {
-      const taskList = await fetchTodos();
+      const taskList = await fetchTodos(projectFilterId ? { projectId: projectFilterId } : undefined);
       setTodos(taskList);
     } catch {
       /* parent reload handles errors */
     }
-  }, []);
+  }, [projectFilterId]);
 
   const copyBookingLink = (slug: string) => {
     const url = `${window.location.origin}/api/calendar/book/${slug}`;
@@ -786,6 +789,7 @@ export function LaunchDeskPage() {
             onSchedule={scheduleTaskOnCalendar}
             composing={tasksComposing}
             onComposingChange={setTasksComposing}
+            projectId={projectFilterId}
           />
         )}
 
