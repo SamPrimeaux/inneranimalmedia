@@ -97,7 +97,7 @@ export default defineConfig(({ mode }) => {
         strategies: 'generateSW',
         filename: 'sw.js',
         manifestFilename: 'manifest.webmanifest',
-        includeAssets: ['pwa/icon-192.png', 'pwa/icon-512.png', 'pwa/apple-touch-icon.png', 'offline.html'],
+        includeAssets: ['offline.html'],
         manifest: {
           name: 'IAM',
           short_name: 'IAM',

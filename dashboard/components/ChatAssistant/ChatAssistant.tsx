@@ -299,7 +299,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   useEffect(() => {
     messageQueueRef.current = messageQueue;
   }, [messageQueue]);
-  const handleSendRef = useRef<(override?: string) => Promise<void>>(async () => {});
+  const handleSendRef = useRef<
+    (override?: string, sendOpts?: ChatRoutingSendOpts) => Promise<void>
+  >(async () => {});
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const attachButtonRef = useRef<HTMLButtonElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
@@ -636,7 +638,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       const detail = (e as CustomEvent<QuickstartThreadDetail>).detail;
       const msg = detail?.message?.trim();
       if (!msg) return;
-      void handleSend(msg, routingSendOptsFromDetail(detail));
+      void handleSendRef.current(msg, routingSendOptsFromDetail(detail));
     };
     window.addEventListener('iam-agent-external-send', onExternalSend);
 
@@ -649,7 +651,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       setThreadTitle('New Chat');
       setPythonDraftHint(null);
       queueMicrotask(() => {
-        void handleSend(msg, routingSendOptsFromDetail(detail));
+        void handleSendRef.current(msg, routingSendOptsFromDetail(detail));
       });
     };
     window.addEventListener(IAM_AGENT_CHAT_NEW_THREAD, onNewThreadMessage);
@@ -659,7 +661,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       const msg = detail?.message ?? '';
       if (!msg) return;
       if (detail?.send) {
-        void handleSend(msg.trim(), routingSendOptsFromDetail(detail as QuickstartThreadDetail));
+        void handleSendRef.current(msg.trim(), routingSendOptsFromDetail(detail as QuickstartThreadDetail));
         return;
       }
       setMobileThreadTab('chat');
@@ -689,7 +691,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       window.removeEventListener(IAM_AGENT_CHAT_NEW_THREAD, onNewThreadMessage);
       window.removeEventListener(IAM_AGENT_CHAT_COMPOSE, onCompose);
     };
-  }, [handleSend, isNarrow]);
+  }, [isNarrow]);
 
   const [pendingToolApproval, setPendingToolApproval] = useState<{
     tool: ToolApprovalPayload;
