@@ -4,6 +4,7 @@
  *
  * | Expression      | Job |
  * |-----------------|-----|
+ * | `*/25 * * * *`  | `runContainerPrewarmCron` — MY_CONTAINER keep-warm + scheduler failure alert |
  * | `*/30 * * * *`  | `runThirtyMinuteJobs` — DB queue drain, overnight progress, stale terminal sweep |
  * | `0 * * * *`     | `runHourlyRoutingJobs` |
  * | `0 0 * * *`     | `runMidnightUtcJobs` — **retention purge** (`data_retention_policies`), OAuth expiry, master retention, security scan, usage rollups, archive, daily digest; snapshot + Sunday `runWeeklyRollup` + `webhook_weekly_rollup` |

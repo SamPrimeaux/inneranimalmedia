@@ -627,7 +627,7 @@ export function resolveToolExecutionBudgetMs(toolName, input) {
     if (Number.isFinite(rawTimeout) && rawTimeout > 0) {
       return Math.min(600_000, Math.max(60_000, Math.floor(rawTimeout)));
     }
-    return 120_000;
+    return 130_000;
   }
   const terminalNames = new Set([
     'terminal_run',
@@ -640,7 +640,7 @@ export function resolveToolExecutionBudgetMs(toolName, input) {
     if (Number.isFinite(rawTimeout) && rawTimeout > 0) {
       return Math.min(600_000, Math.max(60_000, Math.floor(rawTimeout)));
     }
-    return 120_000;
+    return 130_000;
   }
   if (
     n === 'd1_query' ||

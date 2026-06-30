@@ -6,7 +6,7 @@
 import { runTerminalCommand } from './terminal.js';
 import {
   CONTAINER_EXEC_COMMAND_TIMEOUT_MS,
-  tryZoneContainerExec,
+  tryContainerExec,
 } from './my-container.js';
 import {
   normalizeMcpZoneSlug,
@@ -96,10 +96,10 @@ export async function runMcpZoneSandboxCommand(env, request, opts) {
       opts.timeout_ms != null && Number.isFinite(Number(opts.timeout_ms))
         ? Number(opts.timeout_ms)
         : CONTAINER_EXEC_COMMAND_TIMEOUT_MS;
-    const containerOut = await tryZoneContainerExec(env, {
-      command: runCmd,
-      zone_slug: zoneSlug,
-      cwd: containerCwd,
+    const wrappedCmd = `mkdir -p ${shellQuote(containerCwd)} && cd ${shellQuote(containerCwd)} && ${runCmd}`;
+    const containerOut = await tryContainerExec(env, {
+      command: wrappedCmd,
+      cwd: '/tmp',
       timeout_ms: timeoutMs,
     });
     const stdout = String(containerOut.stdout ?? '');
@@ -107,12 +107,22 @@ export async function runMcpZoneSandboxCommand(env, request, opts) {
     const exitCode = containerOut.exit_code ?? (containerOut.ok ? 0 : 1);
     const body = buildTerminalToolResponseBody({
       explicitPath: containerCwd,
-      executedCommand: runCmd,
+      executedCommand: wrappedCmd,
       stdout,
       stderr,
       exitCode,
       status: containerOut.ok ? 'success' : 'error',
     });
+    const recoveryHints =
+      containerOut.error === 'container_start_timeout'
+        ? [
+            {
+              code: 'container_start_timeout',
+              action:
+                'CF Container pool failed to start (scheduler cold start). Use agentsam_terminal_remote for git/shell now; retry sandbox once the inneranimalmedia container is warm.',
+            },
+          ]
+        : terminalRecoveryHints({ stdout, stderr, exitCode });
     return {
       ok: containerOut.ok !== false && !containerOut.error,
       error: containerOut.error || null,
@@ -123,7 +133,7 @@ export async function runMcpZoneSandboxCommand(env, request, opts) {
         cwd_source: 'container_user',
         lane: 'container',
         image: containerOut.image ?? null,
-        recovery_hints: terminalRecoveryHints({ stdout, stderr, exitCode }),
+        recovery_hints: recoveryHints,
       },
     };
   }

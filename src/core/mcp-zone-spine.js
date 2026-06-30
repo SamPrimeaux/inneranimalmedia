@@ -33,12 +33,14 @@ export function normalizeSandboxContainerSlug(raw) {
     .replace(/[^a-z0-9_-]/g, '')
     .slice(0, 64);
   if (!s || LEGACY_ROLE_ZONE_SLUG_SET.has(s)) return null;
+  // Auth user id fragments (au_871d… → 871d920d1233cbd1) are not sandbox cwd tags.
+  if (/^[a-f0-9]{12,32}$/.test(s)) return null;
   return s;
 }
 
 /**
- * Derive container DO id from explicit zone_slug, profile, or workspace handle.
- * One CF Container instance per user — named by username, not role facet.
+ * Sandbox cwd zone tag (MCP panel facet or username) — NOT the CF Container DO id.
+ * Container pool is always resolveContainerPoolId() → inneranimalmedia.
  * @param {any} env
  * @param {{
  *   zoneSlug?: string | null,
@@ -49,23 +51,21 @@ export function normalizeSandboxContainerSlug(raw) {
  * }} p
  */
 export async function resolveSandboxContainerSlug(env, p) {
-  for (const raw of [p.zoneSlug, p.username]) {
+  const explicit = String(p.zoneSlug || '').trim();
+  if (explicit) {
+    const role = normalizeMcpZoneSlug(explicit);
+    if (MCP_ZONE_SLUG_SET.has(role)) return role;
+    const userSlug = normalizeSandboxContainerSlug(explicit);
+    if (userSlug) return userSlug;
+  }
+
+  for (const raw of [p.username]) {
     const slug = normalizeSandboxContainerSlug(raw);
     if (slug) return slug;
   }
 
-  const explicitZone = String(p.zoneSlug || '').trim();
-  if (explicitZone) {
-    const facet = normalizeMcpZoneSlug(explicitZone);
-    if (facet) return facet;
-  }
-
   if (env?.DB && p.userId) {
     const uid = String(p.userId).trim();
-    if (uid.startsWith('au_')) {
-      const fromAu = normalizeSandboxContainerSlug(uid.slice(3));
-      if (fromAu) return fromAu;
-    }
     const row = await env.DB.prepare(
       `SELECT au.name, au.email, uip.github_username, uip.preferred_name
          FROM auth_users au
@@ -96,14 +96,9 @@ export async function resolveSandboxContainerSlug(env, p) {
       .catch(() => null);
     const fromHandle = normalizeSandboxContainerSlug(row?.handle);
     if (fromHandle) return fromHandle;
-    const wsMatch = wsId.match(/^ws_([a-z0-9]+)/i);
-    if (wsMatch?.[1]) {
-      const fromWs = normalizeSandboxContainerSlug(wsMatch[1]);
-      if (fromWs && !['inneranimalmedia', 'mcp'].includes(fromWs)) return fromWs;
-    }
   }
 
-  return 'default';
+  return 'specialist';
 }
 
 /** @param {string} zoneSlug @param {string} tenantId */

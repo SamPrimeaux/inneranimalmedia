@@ -29,7 +29,7 @@ export function resolveContainerPoolId(env) {
 
 const CONTAINER_PORT = 8080;
 /** Worker → DO → container HTTP (includes cold start). */
-export const CONTAINER_FETCH_TIMEOUT_MS = 90_000;
+export const CONTAINER_FETCH_TIMEOUT_MS = 120_000;
 /** In-container command budget after instance is up (server.mjs caps at 120s). */
 export const CONTAINER_EXEC_COMMAND_TIMEOUT_MS = 90_000;
 /** Agent/MCP Promise.race budget — cold start (10–20s+) + command headroom. */
@@ -143,7 +143,7 @@ async function getZoneContainerStub(env, _zoneSlug) {
  */
 export async function tryZoneContainerExec(env, opts) {
   const command = String(opts?.command || '').trim();
-  const zoneSlug = String(opts?.zone_slug || 'default').trim() || 'default';
+  const zoneSlug = String(opts?.zone_slug || 'specialist').trim() || 'specialist';
   if (!command) {
     return { ok: false, error: 'command_required', lane: 'container', zone_slug: zoneSlug };
   }
