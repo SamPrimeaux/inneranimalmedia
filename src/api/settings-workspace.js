@@ -36,14 +36,18 @@ async function resolveAuthTenantId(env, authUser) {
 }
 
 /**
- * Strict workspace scoping:
- * - `x-iam-workspace-id` header (validated elsewhere)
+ * Strict workspace scoping (first match wins):
+ * - `x-iam-workspace-id` header
+ * - `?workspace_id=` query (dashboard settings pass this explicitly)
  * - `authUser.active_workspace_id`
  * - `session.workspace_id`
  */
-async function resolveStrictWorkspaceIdFromSession(request, env, authUser) {
+async function resolveStrictWorkspaceIdFromSession(request, env, authUser, url) {
   const headerWid = trimOrNull(request?.headers?.get('x-iam-workspace-id'));
   if (headerWid) return headerWid;
+
+  const queryWid = trimOrNull(url?.searchParams?.get('workspace_id'));
+  if (queryWid) return queryWid;
 
   const activeWid = trimOrNull(authUser?.active_workspace_id);
   if (activeWid) return activeWid;
@@ -245,7 +249,7 @@ async function assertNotLastActiveOwner(env, workspaceId, targetMemberId) {
  */
 export async function handleSettingsWorkspaceApi(request, env, ctx, authContext) {
   void ctx;
-  const { authUser, pathLower, method } = authContext || {};
+  const { authUser, pathLower, method, url } = authContext || {};
   if (!authUser) return null;
 
   const isWorkspacePath =
@@ -258,7 +262,7 @@ export async function handleSettingsWorkspaceApi(request, env, ctx, authContext)
   if (pathLower === '/api/settings/workspace' && method === 'GET') {
     if (!env?.DB) return jsonResponse({ workspace: null, workspace_limits: null, tenant_modules: [] });
 
-    const workspaceId = await resolveStrictWorkspaceIdFromSession(request, env, authUser);
+    const workspaceId = await resolveStrictWorkspaceIdFromSession(request, env, authUser, url);
     if (!workspaceId) return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING || 'WORKSPACE_CONTEXT_MISSING' }, 400);
 
     const okWs = await userCanAccessWorkspace(env, authUser, workspaceId);
@@ -311,7 +315,7 @@ export async function handleSettingsWorkspaceApi(request, env, ctx, authContext)
   if (pathLower === '/api/settings/workspace/members' && method === 'GET') {
     if (!env?.DB) return jsonResponse({ members: [] });
 
-    const workspaceId = await resolveStrictWorkspaceIdFromSession(request, env, authUser);
+    const workspaceId = await resolveStrictWorkspaceIdFromSession(request, env, authUser, url);
     if (!workspaceId) return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING || 'WORKSPACE_CONTEXT_MISSING' }, 400);
 
     const okWs = await userCanAccessWorkspace(env, authUser, workspaceId);
@@ -364,7 +368,7 @@ export async function handleSettingsWorkspaceApi(request, env, ctx, authContext)
   if (pathLower === '/api/settings/workspace/members/invite' && method === 'POST') {
     if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
-    const workspaceId = await resolveStrictWorkspaceIdFromSession(request, env, authUser);
+    const workspaceId = await resolveStrictWorkspaceIdFromSession(request, env, authUser, url);
     if (!workspaceId) return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING || 'WORKSPACE_CONTEXT_MISSING' }, 400);
 
     const okWs = await userCanAccessWorkspace(env, authUser, workspaceId);
@@ -477,7 +481,7 @@ export async function handleSettingsWorkspaceApi(request, env, ctx, authContext)
     if (m && method === 'POST') {
       if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
-      const workspaceId = await resolveStrictWorkspaceIdFromSession(request, env, authUser);
+      const workspaceId = await resolveStrictWorkspaceIdFromSession(request, env, authUser, url);
       if (!workspaceId) return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING || 'WORKSPACE_CONTEXT_MISSING' }, 400);
 
       const okWs = await userCanAccessWorkspace(env, authUser, workspaceId);
@@ -561,7 +565,7 @@ export async function handleSettingsWorkspaceApi(request, env, ctx, authContext)
     if (m && (method === 'PATCH' || method === 'DELETE')) {
       if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
-      const workspaceId = await resolveStrictWorkspaceIdFromSession(request, env, authUser);
+      const workspaceId = await resolveStrictWorkspaceIdFromSession(request, env, authUser, url);
       if (!workspaceId) return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING || 'WORKSPACE_CONTEXT_MISSING' }, 400);
 
       const okWs = await userCanAccessWorkspace(env, authUser, workspaceId);
@@ -651,7 +655,7 @@ export async function handleSettingsWorkspaceApi(request, env, ctx, authContext)
   if (pathLower === '/api/settings/workspace/modules' && method === 'PATCH') {
     if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
-    const workspaceId = await resolveStrictWorkspaceIdFromSession(request, env, authUser);
+    const workspaceId = await resolveStrictWorkspaceIdFromSession(request, env, authUser, url);
     if (!workspaceId) return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING || 'WORKSPACE_CONTEXT_MISSING' }, 400);
 
     const okWs = await userCanAccessWorkspace(env, authUser, workspaceId);

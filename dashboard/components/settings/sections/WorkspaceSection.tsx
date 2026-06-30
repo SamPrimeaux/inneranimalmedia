@@ -165,6 +165,12 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
     return <div className="text-[12px] text-[var(--accent-danger)] py-8">{error}</div>;
   }
 
+  const resolvedWorkspaceId =
+    (typeof ws?.id === "string" && ws.id.trim()) ||
+    (typeof ws?.workspace_id === "string" && String(ws.workspace_id).trim()) ||
+    wsId ||
+    "—";
+
   return (
     <div className="flex flex-col gap-5 max-w-5xl pb-8">
       <div>
@@ -233,7 +239,7 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
             {snapshot.lastDeploy.at ? relativeTime(snapshot.lastDeploy.at) : '—'}
           </Row>
           <Row label="Workspace ID">
-            <code className="text-[10px] font-mono">{wsId || '—'}</code>
+            <code className="text-[10px] font-mono">{resolvedWorkspaceId}</code>
           </Row>
         </div>
       </div>

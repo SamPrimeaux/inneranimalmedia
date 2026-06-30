@@ -150,14 +150,17 @@ async function fetchSettingsWorkspaces(): Promise<IamWorkspaceSessionPayload | n
 function preserveLocalWorkspaceCurrent(
   payload: IamWorkspaceSessionPayload,
   preferredId: string | null | undefined,
-  userId: string | null,
 ): IamWorkspaceSessionPayload {
-  const cached = readIamWorkspaceSession(userId);
-  const local =
-    (typeof preferredId === "string" ? preferredId.trim() : "") ||
-    (typeof cached?.current === "string" ? cached.current.trim() : "");
-  if (!local || !payload.data.some((w) => w.id === local)) return payload;
-  return { ...payload, current: local };
+  const explicit = typeof preferredId === "string" ? preferredId.trim() : "";
+  if (explicit && payload.data.some((w) => w.id === explicit)) {
+    return { ...payload, current: explicit };
+  }
+  const server =
+    typeof payload.current === "string" ? payload.current.trim() : "";
+  if (server && payload.data.some((w) => w.id === server)) {
+    return payload;
+  }
+  return payload;
 }
 
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
@@ -215,7 +218,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       const merged = preserveLocalWorkspaceCurrent(
         payload,
         userPickedWorkspaceRef.current || workspaceIdRef.current,
-        userId,
       );
       writeIamWorkspaceSession(merged);
       hydrateFromPayload(merged, userId);
@@ -404,7 +406,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             const merged = preserveLocalWorkspaceCurrent(
               fresh,
               userPickedWorkspaceRef.current || workspaceIdRef.current,
-              userId,
             );
             writeIamWorkspaceSession(merged);
             hydrateFromPayload(merged, userId);
@@ -426,7 +427,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         const merged = preserveLocalWorkspaceCurrent(
           payload,
           userPickedWorkspaceRef.current || workspaceIdRef.current,
-          userId,
         );
         writeIamWorkspaceSession(merged);
         hydrateFromPayload(merged, userId);
