@@ -153,11 +153,10 @@ class_name = "AgentChatSqlV1"
 name = "BROWSER_SESSION"
 class_name = "AgentBrowserLiveV1"
 
-# MeauxContainer — existing CF registry image (created 2026-01-02, updated 2026-06-05).
-# Standalone dashboard app: meauxcontainer-mycontainer (orphan until this binding deploys).
+# Platform container — image tag matches worker name (inneranimalmedia).
 [[containers]]
 class_name = "MyContainer"
-image = "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-mycontainer:sandbox-v3"
+image = "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/inneranimalmedia:sandbox-v3"
 instance_type = "basic"
 max_instances = 10
 

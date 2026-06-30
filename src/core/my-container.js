@@ -1,11 +1,12 @@
 /**
- * MY_CONTAINER lane — health probe, exec, render dispatch (PTY fallback when needed).
- * Image: registry …/meauxcontainer-mycontainer:sandbox-v2 (basic, 1 GiB).
+ * MY_CONTAINER lane — health probe, exec, render dispatch.
+ * Image: registry …/inneranimalmedia:sandbox-v3 (basic, 1 GiB).
+ * Instance id: inneranimalmedia (matches worker name — single platform pool).
  */
 
 export const CONTAINER_IMAGE_REF =
-  'registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-mycontainer:sandbox-v3';
-export const CONTAINER_IMAGE_TAG = 'meauxcontainer-mycontainer:sandbox-v3';
+  'registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/inneranimalmedia:sandbox-v3';
+export const CONTAINER_IMAGE_TAG = 'inneranimalmedia:sandbox-v3';
 
 /** Default MY_CONTAINER pool id — must match worker name (wrangler name = inneranimalmedia). */
 export const CONTAINER_POOL_ID_DEFAULT = 'inneranimalmedia';
@@ -98,6 +99,7 @@ export async function probeMyContainer(env) {
       lane: 'container',
       status: res.status,
       image: CONTAINER_IMAGE_TAG,
+      pool_id: resolveContainerPoolId(env),
       response: json,
     };
   } catch (e) {
@@ -115,15 +117,13 @@ export async function probeMyContainer(env) {
 export const probeMoviemodeRenderContainer = probeMyContainer;
 
 /**
+ * Single platform container instance — always inneranimalmedia (worker name).
+ * zone_slug is metadata + cwd isolation only, not a separate DO instance id.
  * @param {any} env
- * @param {string} zoneSlug
- * @param {{ ports?: number[] }} [opts]
+ * @param {string} [_zoneSlug]
  */
-async function getZoneContainerStub(env, zoneSlug) {
-  const ns = containerNamespace(env);
-  const id = String(zoneSlug || 'default').trim().slice(0, 128) || 'default';
-  if (!ns?.getByName) return null;
-  return ns.getByName(id);
+async function getZoneContainerStub(env, _zoneSlug) {
+  return getContainerStub(env);
 }
 
 /**
@@ -166,6 +166,7 @@ export async function tryZoneContainerExec(env, opts) {
     return {
       lane: 'container',
       zone_slug: zoneSlug,
+      pool_id: resolveContainerPoolId(env),
       image: CONTAINER_IMAGE_TAG,
       http_status: res.status,
       ...data,
@@ -221,6 +222,7 @@ export async function tryContainerExec(env, opts) {
     return {
       lane: 'container',
       image: CONTAINER_IMAGE_TAG,
+      pool_id: resolveContainerPoolId(env),
       http_status: res.status,
       ...data,
     };

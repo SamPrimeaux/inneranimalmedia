@@ -1,100 +1,39 @@
 #!/usr/bin/env node
 /**
  * Sync provider keys from gitignored .env.cloudflare into dashboard BYOK (user_api_keys).
- * Scoped to one operator user + workspace — does not touch other users' secrets.
+ * Scoped to canonical OPERATOR_USER_ID + ws_inneranimalmedia — does not touch other users.
  *
  * Usage (repo root):
  *   npm run sync:operator-keys
- *   node scripts/sync-operator-keys-from-env.mjs --dry-run
+ *   npm run sync:operator-keys:dry-run
  *
- * Requires in .env.cloudflare:
- *   AGENT_SESSION_MINT_SECRET, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
- * Provider keys (synced when present):
- *   OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY|GEMINI_API_KEY, MESHYAI_API_KEY,
- *   GITHUB_TOKEN, RESEND_API_KEY, SUPABASE_SERVICE_ROLE_KEY
- * R2 BYOK (optional): R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY — S3 API for all account buckets
- * Optional: AGENT_SESSION_USER_ID | AGENT_SESSION_DEFAULT_USER_ID | AGENT_SESSION_USER_EMAIL
- *           WORKSPACE_ID (default ws_inneranimalmedia)
+ * SSOT: .env.cloudflare (see scripts/lib/operator-env-manifest.mjs)
+ * Operator au_*: OPERATOR_USER_ID in .env.cloudflare (not person_uuid / not placeholder)
  */
 import { loadEnvCloudflare, REPO_ROOT } from './lib/load-env-cloudflare.mjs';
 import { mintAgentSessionCookie } from './lib/mint-agent-session.mjs';
+import { resolveOperatorUserIdOrThrow } from './lib/resolve-operator-user-id.mjs';
+import { PROVIDER_ENV_MAP, PERSONAL_ENV_MAP } from './lib/operator-env-manifest.mjs';
 
 loadEnvCloudflare();
 
 const BASE_URL = (process.env.IAM_BASE_URL || 'https://inneranimalmedia.com').replace(/\/$/, '');
 const WORKSPACE_ID = (process.env.WORKSPACE_ID || 'ws_inneranimalmedia').trim();
-function resolveOperatorUserId() {
-  for (const raw of [
-    process.env.AGENT_SESSION_USER_ID,
-    process.env.AGENT_SESSION_DEFAULT_USER_ID,
-    'au_871d920d1233cbd1',
-  ]) {
-    const s = String(raw || '').trim();
-    if (s.startsWith('au_')) return s;
-  }
-  return '';
-}
-
-const USER_ID = resolveOperatorUserId();
-const USER_EMAIL = (process.env.AGENT_SESSION_USER_EMAIL || 'sam@inneranimalmedia.com').trim();
+const USER_ID = resolveOperatorUserIdOrThrow();
 const dryRun = process.argv.includes('--dry-run');
 
-const PROVIDER_ROWS = [
-  {
-    provider: 'openai',
-    keys: ['OPENAI_API_KEY'],
-    label: 'OpenAI (synced from .env.cloudflare)',
-  },
-  {
-    provider: 'anthropic',
-    keys: ['ANTHROPIC_API_KEY'],
-    label: 'Anthropic (synced from .env.cloudflare)',
-  },
-  {
-    provider: 'google',
-    keys: ['GOOGLE_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
-    label: 'Google AI (synced from .env.cloudflare)',
-  },
-  {
-    provider: 'meshy',
-    keys: ['MESHYAI_API_KEY', 'MESHY_API_KEY'],
-    label: 'Meshy (synced from .env.cloudflare)',
-  },
-  {
-    provider: 'cloudflare',
-    keys: ['CLOUDFLARE_API_TOKEN'],
-    accountIdEnv: 'CLOUDFLARE_ACCOUNT_ID',
-    label: 'Cloudflare (synced from .env.cloudflare)',
-  },
-  {
-    provider: 'github',
-    keys: ['GITHUB_TOKEN'],
-    label: 'GitHub (synced from .env.cloudflare)',
-  },
-  {
-    provider: 'resend',
-    keys: ['RESEND_API_KEY'],
-    label: 'Resend (synced from .env.cloudflare)',
-  },
-  {
-    provider: 'supabase',
-    keys: ['SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SERVICE_KEY'],
-    label: 'Supabase (synced from .env.cloudflare)',
-  },
-];
+const PROVIDER_ROWS = PROVIDER_ENV_MAP.map((row) => ({
+  provider: row.provider,
+  keys: row.envKeys,
+  accountIdEnv: row.requires?.includes('CLOUDFLARE_ACCOUNT_ID') ? 'CLOUDFLARE_ACCOUNT_ID' : undefined,
+  label: `${row.provider} (synced from .env.cloudflare)`,
+}));
 
-const R2_ROW = {
-  provider: 'cloudflare_r2',
-  accessKeyEnv: ['R2_ACCESS_KEY_ID', 'AWS_ACCESS_KEY_ID'],
-  secretKeyEnv: ['R2_SECRET_ACCESS_KEY', 'AWS_SECRET_ACCESS_KEY'],
-  accountIdEnv: 'CLOUDFLARE_ACCOUNT_ID',
-  label: 'Cloudflare R2 S3 (account-wide BYOK)',
-};
-
-const PERSONAL_ROWS = [
-  { secret_name: 'tavily_api_key', keys: ['TAVILY_API_KEY'], label: 'Tavily API key' },
-  { secret_name: 'realtimekit_api_token', keys: ['REALTIMEKIT_API_TOKEN'], label: 'RealtimeKit API token' },
-];
+const PERSONAL_ROWS = PERSONAL_ENV_MAP.map((row) => ({
+  secret_name: row.secret_name,
+  keys: row.envKeys,
+  label: row.secret_name.replace(/_/g, ' '),
+}));
 
 function firstEnv(keys) {
   for (const k of keys) {
@@ -154,11 +93,11 @@ async function upsertProvider(cookie, row, apiKey, existing) {
     payload.cloudflare_account_id = accountId;
   }
 
-  const match = existing.find(
-    (i) =>
-      String(i.provider || '').toLowerCase() === row.provider &&
-      String(i.status || '').toLowerCase() === 'active',
-  );
+  const match = existing.find((i) => {
+    if (String(i.provider || '').toLowerCase() !== row.provider) return false;
+    const st = String(i.status || (Number(i.is_active) === 0 ? 'inactive' : 'active')).toLowerCase();
+    return st === 'active';
+  });
 
   if (dryRun) {
     console.log(`[dry-run] ${match ? 'rotate' : 'create'} ${row.provider}`);
@@ -294,8 +233,7 @@ async function savePtyDefaults(cookie) {
 
   let resolvedHostname = hostname;
   if (!resolvedHostname && envZones.length) {
-    const prefer =
-      envZones.find((z) => /inneranimalmedia\.com$/i.test(z.name)) || envZones[0];
+    const prefer = envZones.find((z) => /inneranimalmedia\.com$/i.test(z.name)) || envZones[0];
     if (prefer?.name) resolvedHostname = `terminal.${prefer.name}`;
   }
 
@@ -329,16 +267,6 @@ async function savePtyDefaults(cookie) {
   }
   console.warn(`[warn] pty-defaults API ${r.status} — deploy latest worker, then re-run sync`);
 }
-
-async function upsertR2(cookie, existing) {
-  const accessKeyId = firstEnv(R2_ROW.accessKeyEnv);
-  const secretAccessKey = firstEnv(R2_ROW.secretKeyEnv);
-  if (!accessKeyId || !secretAccessKey) {
-    console.log('[skip] R2 BYOK (use npm run sync:r2-byok when R2_ACCESS_KEY_ID is set)');
-    return;
-  }
-  console.log('[hint] R2 S3 BYOK: run npm run sync:r2-byok (user_storage_access_keys, not cloudflare_r2 provider row)');
-  return;
 
 async function main() {
   console.log(`→ sync operator keys → ${BASE_URL} workspace=${WORKSPACE_ID} user=${USER_ID}`);
@@ -376,10 +304,10 @@ async function main() {
     }
   }
 
-  try {
-    await upsertR2(cookie, providerItems);
-  } catch (e) {
-    console.warn(`[warn] cloudflare_r2: ${e instanceof Error ? e.message : e}`);
+  if (firstEnv(['R2_ACCESS_KEY_ID', 'AWS_ACCESS_KEY_ID'])) {
+    console.log('[hint] R2 S3 BYOK: npm run sync:r2-byok (user_storage_access_keys)');
+  } else {
+    console.log('[skip] R2 BYOK (set R2_ACCESS_KEY_ID in .env.cloudflare)');
   }
 
   await selectD1IfConfigured(cookie);

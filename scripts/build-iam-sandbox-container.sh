@@ -11,8 +11,8 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-TAG="${1:-sandbox-v2}"
-IMAGE="meauxcontainer-mycontainer:${TAG}"
+TAG="${1:-sandbox-v3}"
+IMAGE="inneranimalmedia:${TAG}"
 
 echo "Building and pushing ${IMAGE} from containers/iam-sandbox ..."
 npx wrangler containers build containers/iam-sandbox -t "${IMAGE}" -p

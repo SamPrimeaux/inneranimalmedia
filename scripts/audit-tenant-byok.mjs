@@ -9,23 +9,12 @@
  */
 import { spawnSync } from 'node:child_process';
 import { loadEnvCloudflare } from './lib/load-env-cloudflare.mjs';
+import { resolveOperatorUserIdOrThrow } from './lib/resolve-operator-user-id.mjs';
 
 loadEnvCloudflare();
 
 const TENANT_ID = (process.env.TENANT_ID || 'tenant_sam_primeaux').trim();
-function resolveOperatorUserId() {
-  for (const raw of [
-    process.env.USER_ID,
-    process.env.AGENT_SESSION_USER_ID,
-    process.env.AGENT_SESSION_DEFAULT_USER_ID,
-    'au_871d920d1233cbd1',
-  ]) {
-    const s = String(raw || '').trim();
-    if (s.startsWith('au_')) return s;
-  }
-  return 'au_871d920d1233cbd1';
-}
-const USER_ID = resolveOperatorUserId();
+const USER_ID = resolveOperatorUserIdOrThrow();
 const WORKSPACE_ID = (process.env.WORKSPACE_ID || 'ws_inneranimalmedia').trim();
 const remote = process.argv.includes('--remote') || !process.argv.includes('--local');
 const BASE_URL = (process.env.IAM_BASE_URL || 'https://inneranimalmedia.com').replace(/\/$/, '');

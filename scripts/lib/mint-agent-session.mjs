@@ -2,6 +2,7 @@
  * Mint automation session cookie via POST /api/auth/agent-session/mint
  */
 import { loadEnvCloudflare } from './load-env-cloudflare.mjs';
+import { resolveOperatorUserIdOrThrow } from './resolve-operator-user-id.mjs';
 
 loadEnvCloudflare();
 
@@ -9,16 +10,7 @@ const BASE_URL = (process.env.IAM_BASE_URL || 'https://inneranimalmedia.com').re
 const WORKSPACE_ID = (process.env.WORKSPACE_ID || 'ws_inneranimalmedia').trim();
 
 export function resolveOperatorUserId() {
-  for (const raw of [
-    process.env.USER_ID,
-    process.env.AGENT_SESSION_USER_ID,
-    process.env.AGENT_SESSION_DEFAULT_USER_ID,
-    'au_871d920d1233cbd1',
-  ]) {
-    const s = String(raw || '').trim();
-    if (s.startsWith('au_')) return s;
-  }
-  return 'au_871d920d1233cbd1';
+  return resolveOperatorUserIdOrThrow();
 }
 
 /**
