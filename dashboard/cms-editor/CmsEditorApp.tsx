@@ -192,6 +192,42 @@ const SECTION_TEMPLATES = [
   { id: 'custom', label: 'Content block', type: 'custom', name: 'content-block', data: { headline: 'Content block', body: 'Edit in the Content tab.' } },
 ];
 
+/** @typedef {'header' | 'template' | 'footer'} SectionZone */
+
+const ZONE_SECTION_TEMPLATES = {
+  header: [
+    { id: 'header-nav', label: 'Navigation bar', type: 'header', name: 'site-header', data: { headline: 'Your brand', nav_links: ['Home', 'About', 'Contact'] } },
+    { id: 'header-announce', label: 'Announcement bar', type: 'header', name: 'announcement', data: { headline: 'Free shipping on orders over $50' } },
+    { id: 'header-hero', label: 'Hero (header zone)', type: 'hero', name: 'header-hero', data: { headline: 'Welcome', subheadline: 'Supporting line', cta_label: 'Shop now', cta_href: '#' } },
+  ],
+  template: SECTION_TEMPLATES,
+  footer: [
+    { id: 'footer-links', label: 'Footer links', type: 'footer', name: 'site-footer', data: { headline: 'Company', bullets: ['About', 'Contact', 'Privacy'] } },
+    { id: 'footer-cta', label: 'Footer CTA', type: 'cta', name: 'footer-cta', data: { headline: 'Stay in touch', cta_label: 'Subscribe', cta_href: '#' } },
+    { id: 'footer-custom', label: 'Content block', type: 'custom', name: 'footer-content', data: { headline: 'Footer', body: 'Edit in Content or paste HTML.' } },
+  ],
+};
+
+const ZONE_HTML_STARTERS = {
+  header: `<!-- Header block — paste HTML -->\n<header data-cms-section="custom-header" style="padding:16px 24px;display:flex;justify-content:space-between;align-items:center;background:#0a0a0a;color:#fff">\n  <strong>Your brand</strong>\n  <nav style="display:flex;gap:16px"><a href="/" style="color:inherit">Home</a><a href="/about" style="color:inherit">About</a></nav>\n</header>`,
+  template: `<!-- Section block — paste HTML -->\n<section data-cms-section="custom-block" style="padding:64px 24px;text-align:center">\n  <h2>Heading</h2>\n  <p>Your content here</p>\n</section>`,
+  footer: `<!-- Footer block — paste HTML -->\n<footer data-cms-section="custom-footer" style="padding:32px 24px;text-align:center;color:#64748b;background:#f5f2eb">\n  <p>&copy; ${new Date().getFullYear()} Your company</p>\n</footer>`,
+};
+
+/** @param {import('../../src/types/cms').CmsSection | null | undefined} sec */
+function sectionZone(sec) {
+  if (!sec) return 'template';
+  const type = String(sec.section_type || '').toLowerCase();
+  const name = String(sec.section_name || '').toLowerCase();
+  if (type === 'header' || name === 'header' || name.startsWith('site-header')) return 'header';
+  if (type === 'footer' || name === 'footer' || name.startsWith('site-footer')) return 'footer';
+  return 'template';
+}
+
+function sectionsInZone(list, zone) {
+  return (list || []).filter((s) => sectionZone(s) === zone);
+}
+
 function sectionInjectHtml(tpl) {
   const d = tpl.data || {};
   const h = d.headline || d.title || tpl.name;
@@ -235,6 +271,11 @@ const WIZARD_STYLES = `
 .picker-action:disabled:hover{background:none}
 .picker-action svg,.picker-action-icon svg{width:15px;height:15px;flex-shrink:0;display:block}
 .picker-action-icon{width:15px;height:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#2563eb}
+.ts-zone-add{display:flex;align-items:center;gap:6px;width:calc(100% - 16px);margin:4px 8px 10px;padding:8px 10px;border:1px dashed #d6d0c4;border-radius:10px;background:transparent;color:#64748b;font-size:12px;font-weight:600;cursor:pointer;transition:all .12s}
+.ts-zone-add:hover{border-color:#0d9488;color:#0d9488;background:#f0fdfa}
+.ts-zone-add svg{width:14px;height:14px;flex-shrink:0}
+.section-add-html textarea{width:100%;min-height:200px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.5;padding:10px;border:1px solid #e8e4dc;border-radius:8px;background:#faf8f4;resize:vertical}
+.section-add-html textarea:focus{outline:none;border-color:#0d9488;background:#fff}
 `;
 
 /* ── DRAG REORDER ─────────────────────────────────────────── */
@@ -1023,6 +1064,188 @@ function CmsWizard({ open, step, onClose, onStep, project, activePage, onCreateP
   );
 }
 
+function SectionAddModal({
+  open,
+  zone = 'template',
+  siteShellEnabled = false,
+  activePage,
+  busy,
+  onClose,
+  onCreate,
+  onEditShell,
+}) {
+  const [step, setStep] = useState('choose');
+  const [sectionTpl, setSectionTpl] = useState('');
+  const [sectionName, setSectionName] = useState('');
+  const [htmlCode, setHtmlCode] = useState('');
+
+  const templates = ZONE_SECTION_TEMPLATES[zone] || SECTION_TEMPLATES;
+  const zoneLabel = zone === 'header' ? 'Header' : zone === 'footer' ? 'Footer' : 'Template';
+  const secTpl = templates.find((t) => t.id === sectionTpl) || templates[0];
+
+  useEffect(() => {
+    if (!open) return;
+    setStep('choose');
+    const first = templates[0];
+    setSectionTpl(first?.id || '');
+    setSectionName(first?.name || '');
+    setHtmlCode(ZONE_HTML_STARTERS[zone] || ZONE_HTML_STARTERS.template);
+  }, [open, zone]);
+
+  useEffect(() => {
+    if (secTpl && step === 'template' && !sectionName) setSectionName(secTpl.name);
+  }, [secTpl, step, sectionName]);
+
+  if (!open) return null;
+
+  return (
+    <div className="wizard-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="wizard-modal" role="dialog" aria-label={`Add ${zoneLabel} section`}>
+        <div className="wizard-head">
+          <h2>
+            {step === 'choose' ? `Add to ${zoneLabel}` : step === 'template' ? 'Prebuilt template' : 'Custom HTML'}
+          </h2>
+          <button type="button" className="wizard-close" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="wizard-body">
+          {!activePage ? (
+            <div style={{ color: '#64748b', fontSize: 13, lineHeight: 1.5 }}>
+              Select a page from the center dropdown first, then add sections.
+            </div>
+          ) : null}
+
+          {activePage && step === 'choose' ? (
+            <>
+              {siteShellEnabled && (zone === 'header' || zone === 'footer') ? (
+                <button
+                  type="button"
+                  className="wizard-menu-item"
+                  onClick={() => {
+                    onEditShell(zone);
+                    onClose();
+                  }}
+                >
+                  <div className="wizard-menu-icon">{I.block}</div>
+                  <div className="wizard-menu-text">
+                    <strong>Edit global {zone} (iam-{zone}.html)</strong>
+                    <span>Shared chrome on every page — paste HTML directly</span>
+                  </div>
+                </button>
+              ) : null}
+              <div className="wizard-step-label">Add block on {activePage.title || activePage.slug}</div>
+              <button type="button" className="wizard-menu-item" onClick={() => setStep('template')}>
+                <div className="wizard-menu-icon">{I.grid}</div>
+                <div className="wizard-menu-text">
+                  <strong>Prebuilt template</strong>
+                  <span>Hero, services, FAQ, CTA, and more</span>
+                </div>
+              </button>
+              <button type="button" className="wizard-menu-item" onClick={() => setStep('html')}>
+                <div className="wizard-menu-icon">{I.pencil}</div>
+                <div className="wizard-menu-text">
+                  <strong>Paste HTML</strong>
+                  <span>Custom Liquid-style block — full control</span>
+                </div>
+              </button>
+            </>
+          ) : null}
+
+          {activePage && step === 'template' ? (
+            <>
+              <div className="wizard-step-label">Choose template</div>
+              <div className="wizard-grid">
+                {templates.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={`wizard-card ${sectionTpl === t.id ? 'active' : ''}`}
+                    onClick={() => {
+                      setSectionTpl(t.id);
+                      setSectionName(t.name);
+                    }}
+                  >
+                    <div className="wizard-card-title">{t.label}</div>
+                    <div className="wizard-card-desc">{t.type}</div>
+                  </button>
+                ))}
+              </div>
+              <div className="wizard-field">
+                <label>Section name</label>
+                <input
+                  type="text"
+                  value={sectionName}
+                  placeholder="main-hero"
+                  onChange={(e) => setSectionName(e.target.value)}
+                />
+              </div>
+              <div className="wizard-actions">
+                <button type="button" className="btn" onClick={() => setStep('choose')}>Back</button>
+                <button
+                  type="button"
+                  className="btn pub"
+                  disabled={busy || !sectionName.trim()}
+                  onClick={() =>
+                    onCreate({
+                      zone,
+                      mode: 'template',
+                      template: secTpl,
+                      section_name: sectionName.trim(),
+                    })
+                  }
+                >
+                  {busy ? 'Adding…' : 'Add section'}
+                </button>
+              </div>
+            </>
+          ) : null}
+
+          {activePage && step === 'html' ? (
+            <>
+              <div className="wizard-step-label">Paste HTML for this {zoneLabel.toLowerCase()} block</div>
+              <div className="wizard-field">
+                <label>Section name</label>
+                <input
+                  type="text"
+                  value={sectionName}
+                  placeholder={zone === 'header' ? 'custom-header' : zone === 'footer' ? 'custom-footer' : 'custom-block'}
+                  onChange={(e) => setSectionName(e.target.value)}
+                />
+              </div>
+              <div className="wizard-field section-add-html">
+                <label>HTML</label>
+                <textarea
+                  value={htmlCode}
+                  onChange={(e) => setHtmlCode(e.target.value)}
+                  spellCheck={false}
+                  placeholder="<!-- Paste section HTML -->"
+                />
+              </div>
+              <div className="wizard-actions">
+                <button type="button" className="btn" onClick={() => setStep('choose')}>Back</button>
+                <button
+                  type="button"
+                  className="btn pub"
+                  disabled={busy || !sectionName.trim() || !htmlCode.trim()}
+                  onClick={() =>
+                    onCreate({
+                      zone,
+                      mode: 'html',
+                      section_name: sectionName.trim(),
+                      html: htmlCode,
+                    })
+                  }
+                >
+                  {busy ? 'Adding…' : 'Add HTML section'}
+                </button>
+              </div>
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PagePicker({ pages, activePage, onSelect, onOpenWizard }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -1115,7 +1338,7 @@ function PagePicker({ pages, activePage, onSelect, onOpenWizard }) {
             </button>
             <button type="button" className="picker-action" onClick={() => { setOpen(false); onOpenWizard?.('section'); }} disabled={!activePage && !sortedPages.length}>
               <span className="picker-action-icon" aria-hidden="true">{I.plus}</span>
-              Add section
+              Add section (template)
             </button>
           </div>
         </div>
@@ -1172,6 +1395,10 @@ function CmsEditor() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState('menu');
   const [wizardBusy, setWizardBusy] = useState(false);
+  const [sectionAddOpen, setSectionAddOpen] = useState(false);
+  const [sectionAddZone, setSectionAddZone] = useState('template');
+  const [sectionInjectedHtml, setSectionInjectedHtml] = useState('');
+  const [sectionInjectedHtmlDirty, setSectionInjectedHtmlDirty] = useState(false);
   const [undoStack, setUndoStack] = useState([]);
   const [lastRollback, setLastRollback] = useState(null);
   const [logoPopoverOpen, setLogoPopoverOpen] = useState(false);
@@ -1323,10 +1550,13 @@ function CmsEditor() {
     }
   }
 
-  async function wizardCreateSection({ template, section_name, injectHtml: doInject }) {
+  async function wizardCreateSection({ template, section_name, injectHtml: doInject, zone = 'template' }) {
     if (!activePage) { showToast('Select a page first', 'err'); return; }
     setWizardBusy(true);
     try {
+      const position = zone === 'header' ? 'start' : 'end';
+      const sectionType =
+        zone === 'header' ? 'header' : zone === 'footer' ? 'footer' : (template?.type || 'custom');
       let sec;
       if (doInject) {
         const html = sectionInjectHtml({ ...template, name: section_name });
@@ -1334,11 +1564,11 @@ function CmsEditor() {
           method: 'POST',
           body: {
             page_id: activePage.id,
-            section_type: template.type,
+            section_type: sectionType,
             section_name,
             html,
-            position: 'end',
-            sort_order: (sections.length + 1) * 10,
+            position,
+            sort_order: zone === 'header' ? 5 : (sections.length + 1) * 10,
             project_slug: ctx.project,
           },
         });
@@ -1348,27 +1578,120 @@ function CmsEditor() {
           method: 'POST',
           body: {
             page_id: activePage.id,
-            section_type: template.type,
+            section_type: sectionType,
             section_name,
-            sort_order: (sections.length + 1) * 10,
+            sort_order: zone === 'header' ? 5 : (sections.length + 1) * 10,
             section_data: template.data,
           },
         });
-        sec = result.section || { id: result.id, section_name, section_type: template.type, section_data: template.data, is_visible: 1 };
+        sec = result.section || { id: result.id, section_name, section_type: sectionType, section_data: template.data, is_visible: 1 };
       }
       pushUndo({ kind: 'section_create', sectionId: sec.id, pageId: activePage.id });
-      setSections(prev => [...prev, sec]);
+      setSections((prev) => [...prev, sec].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
       setActiveSection(sec);
       setDirty({});
       setRpTab('edit');
       setWizardOpen(false);
       setWizardStep('menu');
+      setSectionAddOpen(false);
       showToast('Section added · ' + section_name, 'ok');
       await refreshDraftPreview();
     } catch (e) {
       showToast('Add section failed: ' + e.message, 'err');
     } finally {
       setWizardBusy(false);
+    }
+  }
+
+  async function createSectionFromModal({ zone, mode, template, section_name, html }) {
+    if (!activePage) {
+      showToast('Select a page from the dropdown first', 'err');
+      return;
+    }
+    if (mode === 'template') {
+      await wizardCreateSection({
+        template,
+        section_name,
+        injectHtml: true,
+        zone,
+      });
+      return;
+    }
+    setWizardBusy(true);
+    try {
+      const position = zone === 'header' ? 'start' : 'end';
+      const sectionType = zone === 'header' ? 'header' : zone === 'footer' ? 'footer' : 'custom';
+      const result = await api('/api/cms/sections/save-injected', {
+        method: 'POST',
+        body: {
+          page_id: activePage.id,
+          section_type: sectionType,
+          section_name,
+          html,
+          position,
+          sort_order: zone === 'header' ? 5 : (sections.length + 1) * 10,
+          project_slug: ctx.project,
+        },
+      });
+      const sec = result.section || {
+        id: result.id,
+        section_name,
+        section_type: sectionType,
+        section_data: { html_source: 'injected', r2_key: result.r2_key, public_url: result.public_url },
+        is_visible: 1,
+      };
+      pushUndo({ kind: 'section_create', sectionId: sec.id, pageId: activePage.id });
+      setSections((prev) => [...prev, sec].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
+      setActiveSection(sec);
+      setDirty({});
+      setRpTab('edit');
+      setSectionAddOpen(false);
+      showToast('HTML section added · ' + section_name, 'ok');
+      await refreshDraftPreview();
+    } catch (e) {
+      showToast('Add section failed: ' + e.message, 'err');
+    } finally {
+      setWizardBusy(false);
+    }
+  }
+
+  function openSectionAdd(zone = 'template') {
+    if (!activePage) {
+      showToast('Choose a page from the center dropdown first', 'err');
+      return;
+    }
+    setSectionAddZone(zone);
+    setSectionAddOpen(true);
+  }
+
+  async function saveSectionInjectedHtml() {
+    if (!activePage || !activeSection || !sectionInjectedHtml.trim()) return;
+    setSaving(true);
+    try {
+      const zone = sectionZone(activeSection);
+      const position = zone === 'header' ? 'start' : 'end';
+      const result = await api('/api/cms/sections/save-injected', {
+        method: 'POST',
+        body: {
+          page_id: activePage.id,
+          section_id: activeSection.id,
+          section_type: activeSection.section_type || 'custom',
+          section_name: activeSection.section_name,
+          html: sectionInjectedHtml,
+          position,
+          project_slug: ctx.project,
+        },
+      });
+      const sec = result.section || activeSection;
+      setSections((prev) => prev.map((s) => (s.id === sec.id ? sec : s)));
+      setActiveSection(sec);
+      setSectionInjectedHtmlDirty(false);
+      showToast('HTML saved', 'ok');
+      await refreshDraftPreview();
+    } catch (e) {
+      showToast('HTML save failed: ' + e.message, 'err');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -1425,6 +1748,40 @@ function CmsEditor() {
     setWizardStep(step === 'section' && !activePage ? 'menu' : step);
     setWizardOpen(true);
   }
+
+  useEffect(() => {
+    if (!activeSection) {
+      setSectionInjectedHtml('');
+      setSectionInjectedHtmlDirty(false);
+      return;
+    }
+    const d = secData(activeSection);
+    if (d.html_source !== 'injected') {
+      setSectionInjectedHtml('');
+      setSectionInjectedHtmlDirty(false);
+      return;
+    }
+    const url = d.public_url;
+    if (!url) {
+      setSectionInjectedHtml('');
+      return;
+    }
+    let cancelled = false;
+    fetch(url, { credentials: 'omit' })
+      .then((r) => (r.ok ? r.text() : ''))
+      .then((text) => {
+        if (!cancelled) {
+          setSectionInjectedHtml(text);
+          setSectionInjectedHtmlDirty(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSectionInjectedHtml('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSection?.id]);
 
   function loadPage(page, boot = bootstrap, opts = {}) {
     const syncParent = opts.syncParent !== false;
@@ -1925,6 +2282,59 @@ function CmsEditor() {
     );
   }, [sections, sectionQueryNorm]);
   const themeViewports = isThemeStudio ? VIEWPORTS.filter(v => v.id === 'desktop' || v.id === 'mobile') : VIEWPORTS;
+  const headerSecs = sectionsInZone(sections, 'header');
+  const templateSecs = sectionsInZone(sections, 'template');
+  const footerSecs = sectionsInZone(sections, 'footer');
+
+  const onSelectSectionRow = (sec) => {
+    setActiveShellPart(null);
+    setActiveSection(sec);
+    setRpTab('edit');
+    setDirty({});
+    scrollPreviewToSection(iframeRef, sec.section_name);
+    if (isMobile) {
+      setMobilePanel('canvas');
+      if (isThemeStudio) setTimeout(() => setMobilePanel('inspector'), 120);
+    }
+  };
+
+  const renderThemeSectionRow = (sec, dragIdx = null) => {
+    const color = SECTION_TYPE_COLORS[sec.section_type] || SECTION_TYPE_COLORS.default;
+    const isActive = activeSection?.id === sec.id;
+    const blurb = SECTION_BLURBS[sec.section_type] || sec.section_type || 'Section';
+    const zone = sectionZone(sec);
+    const icon =
+      zone === 'header' ? 'HD' : zone === 'footer' ? 'FT' : (sec.section_type || 'S').slice(0, 2).toUpperCase();
+    const iconColor = zone === 'header' ? '#60a5fa' : zone === 'footer' ? '#a78bfa' : color;
+    return (
+      <div
+        key={sec.id}
+        className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
+        onClick={() => onSelectSectionRow(sec)}
+        {...(dragIdx != null ? dragH(dragIdx) : {})}
+      >
+        {dragIdx != null ? <span className="drag-grip">⋮⋮</span> : null}
+        <div className="sec-icon" style={{ color: iconColor, background: iconColor + '18' }}>{icon}</div>
+        <div className="sec-info">
+          <div className="sec-name">{sec.section_name}</div>
+          <div className="sec-type">
+            {secData(sec).html_source === 'injected' ? 'Custom HTML' : blurb}
+          </div>
+        </div>
+        <button
+          type="button"
+          className="eye-btn"
+          title={sec.is_visible ? 'Hide' : 'Show'}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleVis(sec);
+          }}
+        >
+          {sec.is_visible ? I.eye : I.eyeOff}
+        </button>
+      </div>
+    );
+  };
 
   /* ── iframe src effect ── */
   useEffect(() => {
@@ -2203,7 +2613,7 @@ function CmsEditor() {
               <div className="ts-sections-head">
                 <span className="ts-sections-title">Sections</span>
                 <div className="ts-sections-actions">
-                  <button type="button" className="ts-icon-btn" title="Add section" onClick={() => openWizard('section')}>{I.plus}</button>
+                  <button type="button" className="ts-icon-btn" title="Add page" onClick={() => openWizard('page')}>{I.page}</button>
                 </div>
               </div>
               <div className="sec-list">
@@ -2213,162 +2623,77 @@ function CmsEditor() {
                   </div>
                 )}
 
-                {/* ── HEADER (global R2 chrome) ── */}
+                <div className="ts-sec-group-label">Header</div>
                 {siteShell?.enabled ? (
-                  <>
-                    <div className="ts-sec-group-label">Header</div>
-                    {(() => {
-                      const meta = (siteShell.parts || []).find((p) => p.id === 'header');
-                      const isActive = activeShellPart === 'header';
-                      return (
-                        <div
-                          className={`sec-row ${isActive ? 'active' : ''}`}
-                          onClick={() => selectShellPart('header')}
-                        >
-                          <div className="sec-icon" style={{ color: '#60a5fa', background: '#60a5fa18' }}>HD</div>
-                          <div className="sec-info">
-                            <div className="sec-name">iam-header.html</div>
-                            <div className="sec-type">
-                              {meta?.has_draft ? 'Draft · publish to go live' : 'Global site chrome (R2)'}
-                            </div>
+                  (() => {
+                    const meta = (siteShell.parts || []).find((p) => p.id === 'header');
+                    const isActive = activeShellPart === 'header';
+                    return (
+                      <div
+                        className={`sec-row ${isActive ? 'active' : ''}`}
+                        onClick={() => selectShellPart('header')}
+                      >
+                        <div className="sec-icon" style={{ color: '#60a5fa', background: '#60a5fa18' }}>HD</div>
+                        <div className="sec-info">
+                          <div className="sec-name">iam-header.html</div>
+                          <div className="sec-type">
+                            {meta?.has_draft ? 'Draft · publish to go live' : 'Global site chrome (R2)'}
                           </div>
                         </div>
-                      );
-                    })()}
-                  </>
-                ) : (() => {
-                  const headerSecs = sections.filter(s => s.section_type === 'header' || s.section_name === 'header');
-                  return headerSecs.length > 0 ? (
-                    <>
-                      <div className="ts-sec-group-label">Header</div>
-                      {headerSecs.map(sec => {
-                        const isActive = activeSection?.id === sec.id;
-                        return (
-                          <div
-                            key={sec.id}
-                            className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
-                            onClick={() => { setActiveShellPart(null); setActiveSection(sec); setRpTab('edit'); setDirty({}); scrollPreviewToSection(iframeRef, sec.section_name); if (isMobile) { setMobilePanel('canvas'); setTimeout(() => setMobilePanel('inspector'), 120); } }}
-                          >
-                            <div className="sec-icon" style={{ color: '#60a5fa', background: '#60a5fa18' }}>HD</div>
-                            <div className="sec-info">
-                              <div className="sec-name">{sec.section_name}</div>
-                              <div className="sec-type">Global header</div>
-                            </div>
-                            <button type="button" className="eye-btn" title={sec.is_visible ? 'Hide' : 'Show'} onClick={e => { e.stopPropagation(); toggleVis(sec); }}>
-                              {sec.is_visible ? I.eye : I.eyeOff}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </>
-                  ) : null;
-                })()}
+                      </div>
+                    );
+                  })()
+                ) : null}
+                {headerSecs.map((sec) => renderThemeSectionRow(sec))}
+                {!headerSecs.length && !siteShell?.enabled && !booting ? (
+                  <div style={{ padding: '4px 14px 8px', color: '#94a3b8', fontSize: 11 }}>No header blocks yet</div>
+                ) : null}
+                <button type="button" className="ts-zone-add" onClick={() => openSectionAdd('header')}>
+                  {I.plus} Add section
+                </button>
 
-                {/* ── TEMPLATE group (draggable) ── */}
-                {(() => {
-                  const templateSecs = sections.filter(s => s.section_type !== 'header' && s.section_name !== 'header' && s.section_type !== 'footer' && s.section_name !== 'footer');
-                  return (
-                    <>
-                      <div className="ts-sec-group-label">Template</div>
-                      {templateSecs.map((sec) => {
-                        const realIdx = sections.findIndex(s => s.id === sec.id);
-                        const color = SECTION_TYPE_COLORS[sec.section_type] || SECTION_TYPE_COLORS.default;
-                        const isActive = activeSection?.id === sec.id;
-                        const blurb = SECTION_BLURBS[sec.section_type] || sec.section_type || 'Section';
-                        return (
-                          <div
-                            key={sec.id}
-                            className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
-                            onClick={() => {
-                              setActiveShellPart(null);
-                              setActiveSection(sec);
-                              setRpTab('edit');
-                              setDirty({});
-                              scrollPreviewToSection(iframeRef, sec.section_name);
-                              if (isMobile) {
-                                setMobilePanel('canvas');
-                                if (isThemeStudio) setTimeout(() => setMobilePanel('inspector'), 120);
-                              }
-                            }}
-                            {...dragH(realIdx >= 0 ? realIdx : 0)}
-                          >
-                            <span className="drag-grip">⋮⋮</span>
-                            <div className="sec-icon" style={{ color, background: color + '18' }}>
-                              {(sec.section_type || 'S').slice(0, 2).toUpperCase()}
-                            </div>
-                            <div className="sec-info">
-                              <div className="sec-name">{sec.section_name}</div>
-                              <div className="sec-type">{blurb}</div>
-                            </div>
-                            <button type="button" className="eye-btn" title={sec.is_visible ? 'Hide' : 'Show'} onClick={e => { e.stopPropagation(); toggleVis(sec); }}>
-                              {sec.is_visible ? I.eye : I.eyeOff}
-                            </button>
-                          </div>
-                        );
-                      })}
-                      {!templateSecs.length && !booting && (
-                        <div style={{ padding: '8px 12px', color: '#94a3b8', fontSize: 11 }}>No template sections yet</div>
-                      )}
-                    </>
-                  );
-                })()}
+                <div className="ts-sec-group-label">Template</div>
+                {templateSecs.map((sec) => {
+                  const realIdx = sections.findIndex((s) => s.id === sec.id);
+                  return renderThemeSectionRow(sec, realIdx >= 0 ? realIdx : 0);
+                })}
+                {!templateSecs.length && !booting ? (
+                  <div style={{ padding: '4px 14px 8px', color: '#94a3b8', fontSize: 11 }}>No template sections yet</div>
+                ) : null}
+                <button type="button" className="ts-zone-add" onClick={() => openSectionAdd('template')}>
+                  {I.plus} Add section
+                </button>
 
-                {/* ── FOOTER (global R2 chrome) ── */}
+                <div className="ts-sec-group-label">Footer</div>
                 {siteShell?.enabled ? (
-                  <>
-                    <div className="ts-sec-group-label">Footer</div>
-                    {(() => {
-                      const meta = (siteShell.parts || []).find((p) => p.id === 'footer');
-                      const isActive = activeShellPart === 'footer';
-                      return (
-                        <div
-                          className={`sec-row ${isActive ? 'active' : ''}`}
-                          onClick={() => selectShellPart('footer')}
-                        >
-                          <div className="sec-icon" style={{ color: '#a78bfa', background: '#a78bfa18' }}>FT</div>
-                          <div className="sec-info">
-                            <div className="sec-name">iam-footer.html</div>
-                            <div className="sec-type">
-                              {meta?.has_draft ? 'Draft · publish to go live' : 'Global site chrome (R2)'}
-                            </div>
+                  (() => {
+                    const meta = (siteShell.parts || []).find((p) => p.id === 'footer');
+                    const isActive = activeShellPart === 'footer';
+                    return (
+                      <div
+                        className={`sec-row ${isActive ? 'active' : ''}`}
+                        onClick={() => selectShellPart('footer')}
+                      >
+                        <div className="sec-icon" style={{ color: '#a78bfa', background: '#a78bfa18' }}>FT</div>
+                        <div className="sec-info">
+                          <div className="sec-name">iam-footer.html</div>
+                          <div className="sec-type">
+                            {meta?.has_draft ? 'Draft · publish to go live' : 'Global site chrome (R2)'}
                           </div>
                         </div>
-                      );
-                    })()}
-                  </>
-                ) : (() => {
-                  const footerSecs = sections.filter(s => s.section_type === 'footer' || s.section_name === 'footer');
-                  return footerSecs.length > 0 ? (
-                    <>
-                      <div className="ts-sec-group-label">Footer</div>
-                      {footerSecs.map(sec => {
-                        const isActive = activeSection?.id === sec.id;
-                        return (
-                          <div
-                            key={sec.id}
-                            className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
-                            onClick={() => { setActiveShellPart(null); setActiveSection(sec); setRpTab('edit'); setDirty({}); scrollPreviewToSection(iframeRef, sec.section_name); if (isMobile) { setMobilePanel('canvas'); setTimeout(() => setMobilePanel('inspector'), 120); } }}
-                          >
-                            <div className="sec-icon" style={{ color: '#a78bfa', background: '#a78bfa18' }}>FT</div>
-                            <div className="sec-info">
-                              <div className="sec-name">{sec.section_name}</div>
-                              <div className="sec-type">Global footer</div>
-                            </div>
-                            <button type="button" className="eye-btn" title={sec.is_visible ? 'Hide' : 'Show'} onClick={e => { e.stopPropagation(); toggleVis(sec); }}>
-                              {sec.is_visible ? I.eye : I.eyeOff}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </>
-                  ) : null;
-                })()}
+                      </div>
+                    );
+                  })()
+                ) : null}
+                {footerSecs.map((sec) => renderThemeSectionRow(sec))}
+                {!footerSecs.length && !siteShell?.enabled && !booting ? (
+                  <div style={{ padding: '4px 14px 8px', color: '#94a3b8', fontSize: 11 }}>No footer blocks yet</div>
+                ) : null}
+                <button type="button" className="ts-zone-add" onClick={() => openSectionAdd('footer')}>
+                  {I.plus} Add section
+                </button>
               </div>
-              <button type="button" className="add-sec-btn" onClick={() => openWizard('section')}>
-                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
-                Add section
-              </button>
-              <div className="ts-sections-hint">Drag template sections to reorder.</div>
+              <div className="ts-sections-hint">Drag template sections to reorder. Use the page dropdown above to switch pages.</div>
             </>
           ) : (
           <>
@@ -2619,6 +2944,13 @@ function CmsEditor() {
                   onToggle={() => activeSection && toggleVis(activeSection)}
                   onSaveMeta={saveSectionMeta}
                   onDelete={() => activeSection && deleteSection(activeSection)}
+                  injectedHtml={sectionInjectedHtml}
+                  injectedHtmlDirty={sectionInjectedHtmlDirty}
+                  onInjectedHtmlChange={(v) => {
+                    setSectionInjectedHtml(v);
+                    setSectionInjectedHtmlDirty(true);
+                  }}
+                  onSaveInjectedHtml={saveSectionInjectedHtml}
                 />
               ) : (
               <EditPanel
@@ -2783,6 +3115,20 @@ function CmsEditor() {
         onCreateSection={wizardCreateSection}
         busy={wizardBusy}
       />
+
+      <SectionAddModal
+        open={sectionAddOpen}
+        zone={sectionAddZone}
+        siteShellEnabled={Boolean(siteShell?.enabled)}
+        activePage={activePage}
+        busy={wizardBusy}
+        onClose={() => setSectionAddOpen(false)}
+        onCreate={createSectionFromModal}
+        onEditShell={(partId) => {
+          void selectShellPart(partId);
+          setRpTab('edit');
+        }}
+      />
     </>
   );
 }
@@ -2833,20 +3179,42 @@ function ThemeField({ label, value, onChange, type = 'input', colorValue = null,
   );
 }
 
-function ThemeStudioContentPanel({ section, data, onChange, dirty, onSave, saving, onRevert, onToggle, onSaveMeta, onDelete }) {
+function ThemeStudioContentPanel({
+  section,
+  data,
+  onChange,
+  dirty,
+  onSave,
+  saving,
+  onRevert,
+  onToggle,
+  onSaveMeta,
+  onDelete,
+  injectedHtml = '',
+  injectedHtmlDirty = false,
+  onInjectedHtmlChange,
+  onSaveInjectedHtml,
+}) {
   const [secName, setSecName] = useState('');
   const [secType, setSecType] = useState('');
+  const [contentMode, setContentMode] = useState('fields');
   useEffect(() => {
     setSecName(section?.section_name || '');
     setSecType(section?.section_type || '');
-  }, [section?.id, section?.section_name, section?.section_type]);
+    setContentMode(data?.html_source === 'injected' ? 'html' : 'fields');
+  }, [section?.id, section?.section_name, section?.section_type, data?.html_source]);
 
   if (!section) return (
     <div className="rp-empty">
       <div className="rp-empty-icon">✦</div>
       <div style={{ fontSize: 12 }}>Select a section to edit its content</div>
+      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, maxWidth: 220, lineHeight: 1.45 }}>
+        Use Header / Template / Footer → Add section for prebuilt blocks or paste HTML.
+      </div>
     </div>
   );
+
+  const isInjected = data?.html_source === 'injected';
 
   const headingVal = data.heading ?? data.headline ?? data.title ?? '';
   const descVal = data.description ?? data.subheadline ?? data.sub ?? data.body ?? data.copy ?? '';
@@ -2867,6 +3235,60 @@ function ThemeStudioContentPanel({ section, data, onChange, dirty, onSave, savin
     <div>
       <ThemeStudioPanelHead section={section} />
 
+      {isInjected ? (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+          <button
+            type="button"
+            className={`btn btn-sm ${contentMode === 'html' ? 'pub' : ''}`}
+            style={{ flex: 1, justifyContent: 'center' }}
+            onClick={() => setContentMode('html')}
+          >
+            HTML
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${contentMode === 'fields' ? 'pub' : ''}`}
+            style={{ flex: 1, justifyContent: 'center' }}
+            onClick={() => setContentMode('fields')}
+          >
+            Fields
+          </button>
+        </div>
+      ) : null}
+
+      {isInjected && contentMode === 'html' ? (
+        <>
+          <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 5 }}>
+            Section HTML
+          </label>
+          <div className="inject-code section-add-html">
+            <textarea
+              value={injectedHtml}
+              onChange={(e) => onInjectedHtmlChange?.(e.target.value)}
+              placeholder="<!-- Paste or edit section HTML -->"
+              spellCheck={false}
+            />
+            <div className="inject-footer">
+              <span>{(injectedHtml || '').length.toLocaleString()} chars</span>
+              <span>{(injectedHtml || '').split('\n').length} lines</span>
+            </div>
+          </div>
+          <div className="btn-row" style={{ marginTop: 10 }}>
+            <button
+              type="button"
+              className="btn btn-save"
+              onClick={onSaveInjectedHtml}
+              disabled={saving || !injectedHtmlDirty || !injectedHtml.trim()}
+            >
+              {saving ? 'Saving…' : 'Save HTML'}
+            </button>
+          </div>
+          <div className="divider" />
+        </>
+      ) : null}
+
+      {(contentMode === 'fields' || !isInjected) ? (
+      <>
       <div className="field" style={{ marginBottom: 8 }}>
         <label className="field-label">Section name</label>
         <input type="text" value={secName} onChange={e => setSecName(e.target.value)} />
@@ -2994,6 +3416,9 @@ function ThemeStudioContentPanel({ section, data, onChange, dirty, onSave, savin
         </button>
         <button type="button" className="btn btn-revert btn-sm" onClick={onRevert}>Revert</button>
       </div>
+      </>
+      ) : null}
+
       {onDelete && (
         <button type="button" className="btn btn-del" style={{ marginTop: 8 }} onClick={onDelete}>Delete section</button>
       )}
