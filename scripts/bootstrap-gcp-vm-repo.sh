@@ -106,6 +106,7 @@ if [[ "\$RECONVERT" == "1" ]]; then
   fresh_sparse_clone
 elif [[ -d "\$REPO_DIR/.git" ]]; then
   echo "→ existing clone — sparse sync"
+  sudo chown -R "\${AGENTSAM_USER}:\${AGENTSAM_USER}" "\$REPO_DIR/.git" 2>/dev/null || true
   if [[ "\$(git_as_bootstrap config --get core.sparseCheckout 2>/dev/null || true)" != "true" ]]; then
     echo "→ converting full checkout to sparse partial"
     sparse_configure
