@@ -143,17 +143,24 @@ function envelope(section, body) {
 }
 
 // ─── Section: CI/CD ──────────────────────────────────────────────────────────
-async function getCicd(env) {
+async function getCicd(env, authUser, workspaceId) {
   const warnings = [];
   const cache = new Map();
   const db = env.DB;
+  const wsId = workspaceId || '';
 
   const scripts = await safeQueryAll(
     db,
     'agentsam_scripts',
-    `SELECT id, name, language, kind, is_active, owner_user_id, last_run_at, created_at, updated_at
-     FROM agentsam_scripts ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 200`,
-    [],
+    wsId
+      ? `SELECT id, name, slug, language, runner, risk_level, is_active, created_by_user_id,
+                last_run_at_epoch, created_at_epoch, updated_at_epoch
+         FROM agentsam_scripts WHERE workspace_id = ?
+         ORDER BY COALESCE(updated_at_epoch, created_at_epoch) DESC LIMIT 200`
+      : `SELECT id, name, slug, language, runner, risk_level, is_active, created_by_user_id,
+                last_run_at_epoch, created_at_epoch, updated_at_epoch
+         FROM agentsam_scripts ORDER BY COALESCE(updated_at_epoch, created_at_epoch) DESC LIMIT 200`,
+    wsId ? [wsId] : [],
     warnings,
     cache,
   );
@@ -161,9 +168,12 @@ async function getCicd(env) {
   const recentRuns = await safeQueryAll(
     db,
     'agentsam_script_runs',
-    `SELECT id, script_id, status, exit_code, started_at, finished_at, duration_ms, triggered_by
-     FROM agentsam_script_runs ORDER BY started_at DESC LIMIT 50`,
-    [],
+    wsId
+      ? `SELECT id, script_id, status, exit_code, started_at_epoch, completed_at_epoch, duration_ms, triggered_by
+         FROM agentsam_script_runs WHERE workspace_id = ? ORDER BY started_at_epoch DESC LIMIT 50`
+      : `SELECT id, script_id, status, exit_code, started_at_epoch, completed_at_epoch, duration_ms, triggered_by
+         FROM agentsam_script_runs ORDER BY started_at_epoch DESC LIMIT 50`,
+    wsId ? [wsId] : [],
     warnings,
     cache,
   );
@@ -181,9 +191,12 @@ async function getCicd(env) {
   const deploymentHealth = await safeQueryAll(
     db,
     'agentsam_deployment_health',
-    `SELECT environment, status, last_checked_at, latency_ms, error_rate_pct, notes
-     FROM agentsam_deployment_health ORDER BY last_checked_at DESC LIMIT 10`,
-    [],
+    wsId
+      ? `SELECT environment, status, checked_at, response_time_ms, http_status_code, error_message
+         FROM agentsam_deployment_health WHERE workspace_id = ? ORDER BY checked_at DESC LIMIT 10`
+      : `SELECT environment, status, checked_at, response_time_ms, http_status_code, error_message
+         FROM agentsam_deployment_health ORDER BY checked_at DESC LIMIT 10`,
+    wsId ? [wsId] : [],
     warnings,
     cache,
   );
@@ -191,7 +204,7 @@ async function getCicd(env) {
   const dashboardVersions = await safeQueryAll(
     db,
     'dashboard_versions',
-    `SELECT version, deployed_at, git_sha, environment, deployed_by, notes
+    `SELECT version, deployed_at, git_commit, environment, locked_by, description
      FROM dashboard_versions ORDER BY deployed_at DESC LIMIT 10`,
     [],
     warnings,
@@ -516,8 +529,8 @@ async function getGithub(env, authUser, workspaceId) {
   const connections = await safeQueryAll(
     db,
     'integration_connections',
-    `SELECT id, provider_key, status, account_label, resource_label, last_synced_at, created_at, updated_at
-     FROM integration_connections WHERE user_id = ? AND provider_key IN ('github','github_app') ORDER BY updated_at DESC LIMIT 20`,
+    `SELECT id, provider, status, account_label, account_identifier, last_verified_at, created_at, updated_at
+     FROM integration_connections WHERE user_id = ? AND provider IN ('github','github_app') ORDER BY updated_at DESC LIMIT 20`,
     [userId],
     warnings,
     cache,
@@ -543,10 +556,10 @@ async function getGithub(env, authUser, workspaceId) {
   }));
 
   const indexJobSql = wsFilter
-    ? `SELECT id, repo_full_name, status, started_at, finished_at, indexed_files
+    ? `SELECT id, repo_full_name, status, started_at, finished_at, indexed_file_count
        FROM agentsam_code_index_job WHERE user_id = ? AND workspace_id = ?
        ORDER BY COALESCE(finished_at, started_at) DESC LIMIT 10`
-    : `SELECT id, repo_full_name, status, started_at, finished_at, indexed_files
+    : `SELECT id, repo_full_name, status, started_at, finished_at, indexed_file_count
        FROM agentsam_code_index_job WHERE user_id = ?
        ORDER BY COALESCE(finished_at, started_at) DESC LIMIT 10`;
   const indexJobBinds = wsFilter ? [userId, wsFilter] : [userId];
@@ -579,8 +592,8 @@ async function getGithub(env, authUser, workspaceId) {
     provider: 'github',
     status: connected ? 'connected' : connections.length ? 'degraded' : 'not_connected',
     accountLabel: connected?.account_label || connections[0]?.account_label || null,
-    resourceLabel: connected?.resource_label || connections[0]?.resource_label || null,
-    lastCheckedAt: connected?.last_synced_at || connections[0]?.updated_at || null,
+    resourceLabel: connected?.account_identifier || connections[0]?.account_identifier || null,
+    lastCheckedAt: connected?.last_verified_at || connections[0]?.updated_at || null,
     capabilities: ['repo:read', 'codebase:index', 'webhooks:receive'],
     warnings: [],
   };
@@ -1100,7 +1113,7 @@ async function getIntegrationsStatus(env, authUser) {
   const connections = await safeQueryAll(
     db,
     'integration_connections',
-    `SELECT id, provider_key, status, account_label, resource_label, last_synced_at, created_at, updated_at FROM integration_connections WHERE user_id = ? ORDER BY updated_at DESC LIMIT 100`,
+    `SELECT id, provider, status, account_label, account_identifier, last_verified_at, created_at, updated_at FROM integration_connections WHERE user_id = ? ORDER BY updated_at DESC LIMIT 100`,
     [userId],
     warnings,
     cache,
@@ -1137,7 +1150,7 @@ async function getIntegrationsStatus(env, authUser) {
   ];
 
   const providers = PROVIDERS.map((slug) => {
-    const conn = connections.find((c) => String(c.provider_key || '').toLowerCase().includes(slug));
+    const conn = connections.find((c) => String(c.provider || '').toLowerCase().includes(slug));
     const health = healthChecks.find((h) => String(h.slug || '').toLowerCase() === slug);
     const status = conn
       ? String(conn.status || '').toLowerCase() || 'connected'
@@ -1148,8 +1161,8 @@ async function getIntegrationsStatus(env, authUser) {
       provider: slug,
       status,
       accountLabel: conn?.account_label || null,
-      resourceLabel: conn?.resource_label || null,
-      lastCheckedAt: health?.checked_at || conn?.last_synced_at || conn?.updated_at || null,
+      resourceLabel: conn?.account_identifier || null,
+      lastCheckedAt: health?.checked_at || conn?.last_verified_at || conn?.updated_at || null,
       capabilities: [],
       warnings: [],
     };
@@ -1188,7 +1201,7 @@ export async function handleSettingsSectionStatusApi(request, env, authUser, url
   const workspaceId = wsParam != null && String(wsParam).trim() !== '' ? String(wsParam).trim() : null;
 
   try {
-    if (pathLower === '/api/settings/cicd') return jsonResponse(await getCicd(env));
+    if (pathLower === '/api/settings/cicd') return jsonResponse(await getCicd(env, authUser, workspaceId));
     if (pathLower === '/api/settings/network')
       return jsonResponse(await getNetwork(env, authUser, workspaceId));
     if (pathLower === '/api/settings/notifications')
