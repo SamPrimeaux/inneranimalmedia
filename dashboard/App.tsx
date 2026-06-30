@@ -2616,11 +2616,27 @@ const App: React.FC = () => {
     setActiveActivity('files');
   }, [location.pathname, focusCodeEditorFromChat]);
 
+  /**
+   * Tracks which editor pathname we've already attempted an auto-open for, so
+   * this effect can't re-fire openRecentEntry() while a previous call for the
+   * same path is still in flight. workspaceDashboardRecentFiles and
+   * openRecentEntry can both get new identities on renders that happen before
+   * the in-flight fetch resolves (e.g. while typing triggers the debounced
+   * recentFiles write), and without this guard each such re-render queued
+   * another GET to the same /api/github/repos/.../contents URL — the actual
+   * cause of the ERR_INSUFFICIENT_RESOURCES crash loop on this page.
+   */
+  const autoOpenAttemptedForPathRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isAgentEditorPath(location.pathname)) return;
-    if (activeFile) return;
+    if (activeFile) {
+      autoOpenAttemptedForPathRef.current = null;
+      return;
+    }
+    if (autoOpenAttemptedForPathRef.current === location.pathname) return;
     const recent = workspaceDashboardRecentFiles[0];
     if (!recent) return;
+    autoOpenAttemptedForPathRef.current = location.pathname;
     void openRecentEntry(recent);
   }, [location.pathname, activeFile, workspaceDashboardRecentFiles, openRecentEntry]);
 
