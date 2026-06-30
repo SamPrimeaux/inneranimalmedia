@@ -1,15 +1,16 @@
 /**
- * Host cwd resolution — local Mac/Windows paths vs GCP iam-tunnel operator clone.
+ * Host cwd resolution — local Mac/Windows paths vs GCP iam-tunnel sparse operator clone.
  *
  * Local: workspace_settings.workspace_root on user_hosted_tunnel.
- * Remote (platform_vm): /home/samprimeaux/inneranimalmedia git clone (agentsam user).
- * ExecOS runtime: /home/samprimeaux/ExecOS (PM2 :3099 dispatcher only).
+ * Remote (platform_vm): sparse git checkout at IAM_GCP_OPERATOR_REPO — git/shell only;
+ *   heavy builds (vite, Playwright, GLB) → agentsam_terminal_sandbox (MY_CONTAINER).
+ * ExecOS runtime: IAM_GCP_EXECOS_HOME (PM2 :3099 dispatcher only).
  */
 
 /** ExecOS PM2 install on GCP VM. */
 export const IAM_GCP_EXECOS_HOME = '/home/samprimeaux/ExecOS';
 
-/** Operator git clone on GCP iam-tunnel — agentsam_terminal_remote build lane. */
+/** Operator sparse git clone on GCP iam-tunnel — agentsam_terminal_remote shell lane. */
 export const IAM_GCP_OPERATOR_REPO = '/home/samprimeaux/inneranimalmedia';
 
 function trim(v) {
@@ -17,7 +18,7 @@ function trim(v) {
 }
 
 /**
- * GCP remote lane cwd — operator repo clone (git/npm/wrangler on iam-tunnel).
+ * GCP remote lane cwd — sparse operator repo (git/shell/wrangler on iam-tunnel).
  * @param {Record<string, unknown>|null|undefined} [settings]
  */
 export function gcpRemoteExecCwd(settings = null) {

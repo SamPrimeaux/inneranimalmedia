@@ -6,6 +6,8 @@
 
 : "${IAM_GCP_REPO_PATH:=/home/samprimeaux/inneranimalmedia}"
 : "${IAM_SANDBOX_REPO_URL:=git@github.com:SamPrimeaux/inneranimalmedia.git}"
+# Sparse cone paths on iam-tunnel — shell/git lane only (no full monorepo mirror).
+: "${IAM_GCP_SPARSE_PATHS:=src dashboard/src scripts}"
 : "${GCP_VM_NAME:=iam-tunnel}"
 
 _GCP_VM_PATHS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -15,7 +15,7 @@ Canonical split for `agentsam_terminal_*` tools. Each lane has one job; tools mu
 | Tool | Exec surface | Who | When |
 |------|--------------|-----|------|
 | **`agentsam_terminal_local`** | Caller's **own device** via `user_hosted_tunnel` | Any user who completed device setup | Sam's Mac (zsh), Connor's Windows (PowerShell), any provisioned tunnel |
-| **`agentsam_terminal_remote`** | **GCP iam-tunnel VM** (`terminal.inneranimalmedia.com`) | Platform operators (Sam) | Mac asleep, phone, OAuth — full repo git/npm/wrangler on Linux clone |
+| **`agentsam_terminal_remote`** | **GCP iam-tunnel VM** (`terminal.inneranimalmedia.com`) | Platform operators (Sam) | Mac asleep, phone, OAuth — sparse git/shell/wrangler on Linux clone |
 | **`agentsam_terminal_sandbox`** | **Cloudflare Container** per `zone_slug` | Any workspace user with tool access | Isolated dev zones, experiments, CAD/movie batch — not shared VM disk |
 
 ## Routing (code)
@@ -51,14 +51,16 @@ agentsam_terminal_sandbox → target_type: container          → MY_CONTAINER D
 
 ## Remote VM capability checklist (Sam)
 
-Remote is "fully capable" when all pass with Mac asleep:
+Remote is **git/shell capable** (not a CI box) when all pass with Mac asleep:
 
 - [ ] `curl https://terminal.inneranimalmedia.com/health` → 200
 - [ ] `agentsam_terminal_remote` + `git status` → real output from `/home/samprimeaux/inneranimalmedia`
-- [ ] `npm run build:vite-only` completes on VM clone
-- [ ] `wrangler deploy` works from VM (secrets synced via `sync-vm-env-cloudflare.sh`)
+- [ ] Sparse partial clone at `~/inneranimalmedia` (`src`, `dashboard/src`, `scripts` only — no root `npm ci`)
+- [ ] `wrangler deploy` works from VM when needed (secrets synced via `sync-vm-env-cloudflare.sh`; wrangler global on box)
 - [ ] No macOS `/Users/...` cwd passed to Linux spawn (ENOENT)
 - [ ] OAuth MCP defaults to `remote` when `local` tunnel health fails
+
+**Heavy builds** (`npm run build:vite-only`, Playwright, GLB tooling) → **`agentsam_terminal_sandbox`** (CF Container), not the VM.
 
 ## Sandbox → Container (target)
 
