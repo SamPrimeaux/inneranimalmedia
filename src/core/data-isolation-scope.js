@@ -83,11 +83,15 @@ export async function resolveUserWorkspaceBinding(env, userId, authUser, request
     }
   }
 
-  if (databaseName) {
-    const grant = await resolveD1GrantByDatabaseName(env, authUser, databaseName);
-    if (grant) return createRemoteD1Adapter(grant);
-    return null;
-  }
+  // SECURITY: no unanchored database-name fallback. A D1 grant must always be
+  // anchored to a server-resolved active workspaceId (resolveEffectiveWorkspaceId).
+  // Previously, when workspaceId failed to resolve, this function fell back to
+  // matching the client-supplied x-iam-database-name header against ANY workspace
+  // the user has membership in -- selecting a database without ever confirming it
+  // was the user's actual active workspace. Membership (userCanAccessWorkspace) was
+  // still checked, so this was not an open cross-tenant read, but it was a real
+  // "wrong workspace selected without an explicit switch" hole. Fixed 2026-06-30:
+  // no anchored workspaceId == no D1 grant, full stop.
 
   if (workspaceId) {
     const grant = await resolveWorkspaceMemberD1Grant(env, authUser, workspaceId);
