@@ -9,7 +9,26 @@ export const CONTAINER_IMAGE_TAG = 'meauxcontainer-mycontainer:sandbox-v3';
 
 const CONTAINER_POOL_ID = 'meaux-pool';
 const CONTAINER_PORT = 8080;
-const CONTAINER_FETCH_TIMEOUT_MS = 90_000;
+/** Worker → DO → container HTTP (includes cold start). */
+export const CONTAINER_FETCH_TIMEOUT_MS = 90_000;
+/** In-container command budget after instance is up (server.mjs caps at 120s). */
+export const CONTAINER_EXEC_COMMAND_TIMEOUT_MS = 90_000;
+/** Agent/MCP Promise.race budget — cold start (10–20s+) + command headroom. */
+export const CONTAINER_TOOL_EXECUTION_BUDGET_MS = 120_000;
+
+/** @param {string} toolName */
+export function isContainerExecToolName(toolName) {
+  const n = String(toolName || '').trim().toLowerCase();
+  return (
+    n === 'agentsam_terminal_sandbox' ||
+    n === 'agentsam_container_exec' ||
+    n === 'terminal_run' ||
+    n === 'terminal_execute' ||
+    n === 'terminal_wrangler' ||
+    n === 'run_command' ||
+    n === 'bash'
+  );
+}
 
 /**
  * @param {any} stub
@@ -128,7 +147,10 @@ export async function tryZoneContainerExec(env, opts) {
       body: JSON.stringify({
         command,
         cwd: opts.cwd ? String(opts.cwd) : '/tmp',
-        timeout_ms: opts.timeout_ms,
+        timeout_ms:
+          opts.timeout_ms != null && Number.isFinite(Number(opts.timeout_ms))
+            ? Number(opts.timeout_ms)
+            : CONTAINER_EXEC_COMMAND_TIMEOUT_MS,
       }),
     });
 
@@ -180,7 +202,10 @@ export async function tryContainerExec(env, opts) {
       body: JSON.stringify({
         command,
         cwd: opts.cwd ? String(opts.cwd) : '/tmp',
-        timeout_ms: opts.timeout_ms,
+        timeout_ms:
+          opts.timeout_ms != null && Number.isFinite(Number(opts.timeout_ms))
+            ? Number(opts.timeout_ms)
+            : CONTAINER_EXEC_COMMAND_TIMEOUT_MS,
       }),
     });
 

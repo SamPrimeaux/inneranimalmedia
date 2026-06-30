@@ -111,7 +111,13 @@ export async function authorizeMcpTool(env, input) {
   const modeRequiresApproval = String(policy.auto_run_mode || '').toLowerCase() !== 'auto';
   const requiresApproval = requiresApprovalForTool(mcpRow, policyRiskOk, modeRequiresApproval);
 
-  const timeoutSec = Math.max(1, Math.floor(Number(mcpRow.timeout_seconds) || 30));
+  let timeoutSec = Math.max(1, Math.floor(Number(mcpRow.timeout_seconds) || 30));
+  if (
+    toolKey === 'agentsam_terminal_sandbox' ||
+    toolKey === 'agentsam_container_exec'
+  ) {
+    timeoutSec = Math.max(timeoutSec, 120);
+  }
   const maxTimeoutMs = Math.min(600_000, timeoutSec * 1000);
 
   return {

@@ -623,10 +623,24 @@ export function resolveToolExecutionBudgetMs(toolName, input) {
   const n = String(toolName || '').toLowerCase();
   const inp = input && typeof input === 'object' ? input : {};
   const rawTimeout = inp.timeout_ms != null ? Number(inp.timeout_ms) : NaN;
-  const terminalNames = new Set(['terminal_run', 'terminal_execute', 'run_command', 'bash']);
+  if (n === 'agentsam_terminal_sandbox' || n === 'agentsam_container_exec') {
+    if (Number.isFinite(rawTimeout) && rawTimeout > 0) {
+      return Math.min(600_000, Math.max(60_000, Math.floor(rawTimeout)));
+    }
+    return 120_000;
+  }
+  const terminalNames = new Set([
+    'terminal_run',
+    'terminal_execute',
+    'terminal_wrangler',
+    'run_command',
+    'bash',
+  ]);
   if (terminalNames.has(n)) {
-    if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout < 20000) return Math.floor(rawTimeout);
-    return 20000;
+    if (Number.isFinite(rawTimeout) && rawTimeout > 0) {
+      return Math.min(600_000, Math.max(60_000, Math.floor(rawTimeout)));
+    }
+    return 120_000;
   }
   if (
     n === 'd1_query' ||

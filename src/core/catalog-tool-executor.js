@@ -1311,6 +1311,12 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         const zoneSlug = normalizeMcpZoneSlug(
           params.zone_slug ?? params.zoneSlug ?? runContext.mcp_panel_slug ?? runContext.mcpZoneSlug,
         );
+        const sandboxTimeoutMs =
+          params.timeout_ms != null
+            ? Number(params.timeout_ms)
+            : params.timeoutMs != null
+              ? Number(params.timeoutMs)
+              : undefined;
         const sb = await runMcpZoneSandboxCommand(env, runContext?.request, {
           command: rawCmd,
           zoneSlug,
@@ -1321,6 +1327,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           config,
           language: params.language,
           path: params.path,
+          timeout_ms: Number.isFinite(sandboxTimeoutMs) ? sandboxTimeoutMs : undefined,
         });
         if (!sb.ok) {
           result = {

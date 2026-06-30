@@ -4,7 +4,10 @@
  * Legacy fallback: PTY under .mcp-zones/{zone_slug} when container backend unavailable.
  */
 import { runTerminalCommand } from './terminal.js';
-import { tryZoneContainerExec } from './my-container.js';
+import {
+  CONTAINER_EXEC_COMMAND_TIMEOUT_MS,
+  tryZoneContainerExec,
+} from './my-container.js';
 import {
   normalizeMcpZoneSlug,
   resolveMcpZoneWorkspaceId,
@@ -52,6 +55,7 @@ export function resolveMcpZoneSandboxRoot(config, zoneSlug, tenantId, userId) {
  *   config?: Record<string, unknown>,
  *   language?: string,
  *   path?: string,
+ *   timeout_ms?: number,
  * }} opts
  */
 export async function runMcpZoneSandboxCommand(env, request, opts) {
@@ -88,10 +92,15 @@ export async function runMcpZoneSandboxCommand(env, request, opts) {
     const containerCwd = innerPath
       ? `/tmp/${zoneSlug}/${innerPath.replace(/^\//, '')}`
       : `/tmp/${zoneSlug}`;
+    const timeoutMs =
+      opts.timeout_ms != null && Number.isFinite(Number(opts.timeout_ms))
+        ? Number(opts.timeout_ms)
+        : CONTAINER_EXEC_COMMAND_TIMEOUT_MS;
     const containerOut = await tryZoneContainerExec(env, {
       command: runCmd,
       zone_slug: zoneSlug,
       cwd: containerCwd,
+      timeout_ms: timeoutMs,
     });
     const stdout = String(containerOut.stdout ?? '');
     const stderr = String(containerOut.stderr ?? containerOut.error ?? '');
