@@ -10,6 +10,7 @@
 import {
   getAuthUser,
   jsonResponse,
+  syncSessionWorkspaceId,
   fetchAuthUserTenantId,
   fallbackSystemTenantId,
   authUserIsSuperadmin,
@@ -1295,7 +1296,18 @@ export async function handleSettingsRequest(request, env, ctx) {
             ? String(authUser.active_workspace_id).trim()
             : null;
         const current = authCurrent || settingsCurrent || null;
-        return jsonResponse({ data: wsRows.length > 0 ? wsRows : CORE_WORKSPACES_DATA, current, workspaceThemes, workspaces });
+        const current_source = authCurrent
+          ? 'auth_users.active_workspace_id'
+          : settingsCurrent
+            ? 'user_settings.default_workspace_id'
+            : null;
+        return jsonResponse({
+          data: wsRows.length > 0 ? wsRows : CORE_WORKSPACES_DATA,
+          current,
+          current_source,
+          workspaceThemes,
+          workspaces,
+        });
       } catch (e) {
         const msg = e?.message != null ? String(e.message) : String(e);
         const stack = typeof e?.stack === 'string' ? e.stack : '';
@@ -1389,6 +1401,12 @@ export async function handleSettingsRequest(request, env, ctx) {
           .run();
       } catch (_) {
         /* ignore */
+      }
+
+      try {
+        await syncSessionWorkspaceId(env, request, sessionUserId, id);
+      } catch (_) {
+        /* non-fatal — auth_users is SSOT */
       }
 
       return jsonResponse({

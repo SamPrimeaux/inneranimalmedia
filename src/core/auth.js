@@ -677,6 +677,55 @@ export async function writeIamSessionToKv(env, sessionId, userId, tenantId, expi
   } catch (e) { }
 }
 
+/**
+ * Keep auth_sessions + KV aligned with auth_users.active_workspace_id (workspace switch SSOT).
+ * @param {*} env
+ * @param {Request} request
+ * @param {string} userId auth_users.id
+ * @param {string} workspaceId
+ */
+export async function syncSessionWorkspaceId(env, request, userId, workspaceId) {
+  const ws = trimSessionField(workspaceId);
+  const uid = trimSessionField(userId);
+  if (!ws || !uid || !env?.DB) return;
+
+  const session = await getSession(env, request).catch(() => null);
+  const sessionId = trimSessionField(session?.session_id || session?.id);
+  if (!sessionId) return;
+
+  try {
+    await env.DB.prepare(
+      `UPDATE auth_sessions
+       SET workspace_id = ?, last_active_at = ?
+       WHERE id = ? AND user_id = ?`,
+    )
+      .bind(ws, Date.now(), sessionId, uid)
+      .run();
+  } catch (_) {}
+
+  if (env.SESSION_CACHE && session) {
+    await writeIamSessionToKv(
+      env,
+      sessionId,
+      uid,
+      trimSessionField(session.tenant_id) || null,
+      session.expires_at ?? null,
+      {
+        workspaceId: ws,
+        personUuid: session.person_uuid,
+        supabaseUserId: session.supabase_user_id,
+        email: session.email,
+        provider: session.provider,
+        displayName: session.display_name,
+        avatarUrl: session.avatar_url,
+        providerSubject: session.provider_subject,
+        workSessionId: session.work_session_id,
+        lastActiveAt: Date.now(),
+      },
+    );
+  }
+}
+
 /** Per-request auth resolution cache (primed once at Worker front door). */
 const requestAuthCache = new WeakMap();
 
@@ -940,6 +989,22 @@ export async function resolveAuth(request, env, opts = {}) {
   } else if (headerWs) {
     if (isSuperadmin || (await userHasWorkspaceMembership(env, userId, headerWs))) {
       workspaceId = headerWs;
+    }
+  } else {
+    const activeWs = trimSessionField(row.active_workspace_id);
+    if (activeWs && (isSuperadmin || (await userHasWorkspaceMembership(env, userId, activeWs)))) {
+      workspaceId = activeWs;
+    }
+  }
+
+  if (!workspaceId) {
+    const sessionWs =
+      trimSessionField(sessionRaw?.workspace_id) || trimSessionField(sessionRaw?.workspaceId) || null;
+    if (
+      sessionWs &&
+      (isSuperadmin || (await userHasWorkspaceMembership(env, userId, sessionWs)))
+    ) {
+      workspaceId = sessionWs;
     }
   }
 

@@ -53,8 +53,18 @@ export function buildPlatformHealthIssues(opts: {
   tunnelHealthy: boolean | null;
   tunnelStale: boolean;
   terminalOk: boolean | null;
+  workspaceDrift?: boolean;
 }): PlatformHealthIssue[] {
   const issues: PlatformHealthIssue[] = [];
+  if (opts.workspaceDrift) {
+    issues.push({
+      id: 'workspace-drift',
+      severity: 'warn',
+      label: 'Workspace out of sync',
+      fixHref: '/dashboard/settings/workspace',
+      fixLabel: 'Workspace',
+    });
+  }
   if (opts.healthOk === false) {
     issues.push({
       id: 'worker',

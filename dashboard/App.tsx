@@ -457,6 +457,7 @@ const App: React.FC = () => {
     setDisplayName: setWorkspaceDisplayName,
     switchWorkspace,
     refreshWorkspaces,
+    workspaceDrift,
   } = useWorkspace();
   const location = useLocation();
   const [isNarrowViewport, setIsNarrowViewport] = useState(
@@ -3824,8 +3825,9 @@ const App: React.FC = () => {
         tunnelHealthy,
         tunnelStale,
         terminalOk,
+        workspaceDrift,
       }),
-    [healthOk, tunnelHealthy, tunnelStale, terminalOk],
+    [healthOk, tunnelHealthy, tunnelStale, terminalOk, workspaceDrift],
   );
 
   return (
