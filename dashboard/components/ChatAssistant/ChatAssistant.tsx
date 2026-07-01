@@ -1436,6 +1436,13 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     );
   }, [displayMessages]);
 
+  const mobileAgentHomeMode =
+    isNarrow &&
+    mobileHubTab === 'agents' &&
+    mobileThreadTab === 'chat' &&
+    showEmptyThreadPlaceholder &&
+    !conversationId.trim();
+
   const activeSessionRow = useMemo(
     () => findSessionRow(sessions, conversationId),
     [sessions, conversationId],
@@ -3066,12 +3073,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   const mobileAgentsThread = isNarrow && mobileHubTab === 'agents';
   const hubBodyVisible = isNarrow && mobileHubTab !== 'agents';
-  const mobileAgentHomeMode =
-    isNarrow &&
-    mobileHubTab === 'agents' &&
-    mobileThreadTab === 'chat' &&
-    showEmptyThreadPlaceholder &&
-    !conversationId.trim();
   const messagesVisible =
     !mobileAgentHomeMode &&
     (!isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat'));

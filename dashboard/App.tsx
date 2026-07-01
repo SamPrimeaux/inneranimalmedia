@@ -4268,7 +4268,6 @@ const App: React.FC = () => {
                         onBrowserNavigate={handleBrowserNavigateFromAgent}
                         onOpenGitHubIntegration={openGitHubFromChat}
                         onMobileOpenDashboard={openDashboardFromChat}
-                        onOpenChatHistory={shellOpenChatHistory}
                         onDeleteActiveChat={shellDeleteActiveChat}
                         onOpenQuickstart={openAgentQuickstart}
                         onOpenCodeTab={focusCodeEditorFromChat}
@@ -5073,7 +5072,6 @@ const App: React.FC = () => {
                             onBrowserNavigate={handleBrowserNavigateFromAgent}
                             onOpenGitHubIntegration={openGitHubFromChat}
                             onMobileOpenDashboard={openDashboardFromChat}
-                            onOpenChatHistory={shellOpenChatHistory}
                         onDeleteActiveChat={shellDeleteActiveChat}
                         onOpenQuickstart={openAgentQuickstart}
                             onOpenCodeTab={focusCodeEditorFromChat}
