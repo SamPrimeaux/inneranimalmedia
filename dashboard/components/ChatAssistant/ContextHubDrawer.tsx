@@ -1,29 +1,41 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Box,
   Check,
+  ChevronLeft,
   ChevronRight,
   ExternalLink,
   Globe,
   HardDrive,
   Image as ImageIcon,
-  Link2,
   Loader2,
   Paperclip,
   Plus,
   Search,
+  Settings2,
   X,
 } from 'lucide-react';
-import type { ConnectableIntegration } from './composer/useComposerIntegrations';
+import type { ConnectorCatalogRow } from '../../api/connectorsCatalog';
 import type { ChatComposerSource } from './composer/types';
 import { WEB_SEARCH_SOURCE, WEB_SEARCH_SOURCE_ID, SANDBOX_AGENT_SOURCE_ID } from './composer/types';
 import { GithubContextLane } from './GithubContextLane';
 import type { ExecLane } from '../../src/lib/execLane';
 import { EXEC_LANE_LABELS } from '../../src/lib/execLane';
 import { openIntegrationOAuthPopup } from '../../src/lib/integrationOAuthPopup';
+import {
+  connectorComposerSource,
+  isConnectorSessionEnabled,
+} from '../../src/lib/connectorComposerSource';
+import {
+  readSessionEnabledConnectors,
+  toggleSessionConnector,
+} from '../../src/lib/freshChatSession';
+import { useConnectorsCatalog } from './hooks/useConnectorsCatalog';
+import { AppIcon, type AppIconStatus } from '../ui/AppIcon';
+import '../ui/AppIcon.css';
 
-export type ContextHubLane = 'hub' | 'github' | 'connectors' | 'tool_access';
+export type ContextHubLane = 'hub' | 'github' | 'connectors' | 'connector_detail' | 'tool_access';
 
 export type ContextHubDrawerProps = {
   open: boolean;
@@ -42,8 +54,6 @@ export type ContextHubDrawerProps = {
     meta?: { content?: string | null; contentSha?: string | null; contentTruncated?: boolean },
   ) => void;
   onBrowseFiles?: (fullName: string) => void;
-  connectables: ConnectableIntegration[];
-  connectablesLoading: boolean;
   activeSourceIds: Set<string>;
   webSearchAllowed: boolean;
   sandboxAgentAllowed?: boolean;
@@ -52,10 +62,9 @@ export type ContextHubDrawerProps = {
   onToggleWebSearch: () => void;
   onToggleSandboxAgent?: () => void;
   onToggleSource: (source: ChatComposerSource, enabled: boolean) => void;
-  sourceFromIntegration: (item: ConnectableIntegration) => ChatComposerSource;
   execLane: ExecLane;
   onExecLaneChange: (lane: ExecLane) => void;
-  onIntegrationsRefresh?: () => void | Promise<void>;
+  focusConnectorKey?: string | null;
 };
 
 const SOURCE_TILES = [
@@ -89,10 +98,16 @@ const SOURCE_TILES = [
   },
 ] as const;
 
-function oauthReturnTo(): string {
-  return encodeURIComponent(
-    typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : '/dashboard/agent',
-  );
+function iconStatusForConnector(row: ConnectorCatalogRow): AppIconStatus | null {
+  if (row.issue === 'error') return 'error';
+  if (row.issue === 'warning') return 'warning';
+  return row.connected ? 'ok' : null;
+}
+
+function connectorSubtitle(row: ConnectorCatalogRow): string {
+  if (row.connected && row.account_display) return row.account_display;
+  if (row.tool_count > 0) return `${row.tool_count} tool${row.tool_count === 1 ? '' : 's'}`;
+  return row.kind === 'mcp_remote' ? 'MCP OAuth' : 'OAuth API';
 }
 
 export function ContextHubDrawer({
@@ -107,8 +122,6 @@ export function ContextHubDrawer({
   onSelectRepo,
   onSelectFile,
   onBrowseFiles,
-  connectables,
-  connectablesLoading,
   activeSourceIds,
   webSearchAllowed,
   sandboxAgentAllowed = true,
@@ -117,48 +130,124 @@ export function ContextHubDrawer({
   onToggleWebSearch,
   onToggleSandboxAgent,
   onToggleSource,
-  sourceFromIntegration,
   execLane,
   onExecLaneChange,
-  onIntegrationsRefresh,
+  focusConnectorKey = null,
 }: ContextHubDrawerProps) {
   const [lane, setLane] = useState<ContextHubLane>(initialLane);
   const [connectorFilter, setConnectorFilter] = useState('');
   const [connectBusy, setConnectBusy] = useState<string | null>(null);
+  const [selectedConnectorKey, setSelectedConnectorKey] = useState<string | null>(null);
+  const [detailTools, setDetailTools] = useState<
+    { tool_key: string; label: string; description: string | null; enabled: boolean }[]
+  >([]);
+  const [detailToolsLoading, setDetailToolsLoading] = useState(false);
+  const [sessionConnectorKeys, setSessionConnectorKeys] = useState<Set<string>>(
+    () => new Set(readSessionEnabledConnectors()),
+  );
+
+  const { loading: catalogLoading, connectors, connectedCount, refresh, loadTools } =
+    useConnectorsCatalog(workspaceId);
 
   useEffect(() => {
-    if (open) setLane(initialLane);
-  }, [open, initialLane]);
+    if (open) {
+      setLane(initialLane);
+      setSessionConnectorKeys(new Set(readSessionEnabledConnectors()));
+      if (focusConnectorKey?.trim()) {
+        setSelectedConnectorKey(focusConnectorKey.trim());
+        if (initialLane === 'connectors') setLane('connector_detail');
+      }
+    }
+  }, [open, initialLane, focusConnectorKey]);
 
   useEffect(() => {
     if (!open) {
       setLane('hub');
       setConnectorFilter('');
+      setSelectedConnectorKey(null);
+      setDetailTools([]);
     }
   }, [open]);
 
-  const filteredConnectables = useMemo(() => {
+  useEffect(() => {
+    const onOAuth = () => void refresh();
+    window.addEventListener('iam_oauth_done', onOAuth);
+    window.addEventListener('oauth_success', onOAuth);
+    return () => {
+      window.removeEventListener('iam_oauth_done', onOAuth);
+      window.removeEventListener('oauth_success', onOAuth);
+    };
+  }, [refresh]);
+
+  const selectedConnector = useMemo(
+    () => connectors.find((c) => c.provider_key === selectedConnectorKey) || null,
+    [connectors, selectedConnectorKey],
+  );
+
+  const filteredConnectors = useMemo(() => {
     const q = connectorFilter.trim().toLowerCase();
-    if (!q) return connectables;
-    return connectables.filter(
-      (c) => c.label.toLowerCase().includes(q) || c.providerKey.toLowerCase().includes(q),
+    if (!q) return connectors;
+    return connectors.filter(
+      (c) =>
+        c.title.toLowerCase().includes(q) ||
+        c.provider_key.toLowerCase().includes(q) ||
+        (c.account_display || '').toLowerCase().includes(q),
     );
-  }, [connectables, connectorFilter]);
+  }, [connectors, connectorFilter]);
+
+  const openConnectorDetail = useCallback(
+    async (row: ConnectorCatalogRow) => {
+      setSelectedConnectorKey(row.provider_key);
+      setLane('connector_detail');
+      setDetailToolsLoading(true);
+      try {
+        const tools = await loadTools(row.provider_key);
+        setDetailTools(tools);
+      } finally {
+        setDetailToolsLoading(false);
+      }
+    },
+    [loadTools],
+  );
+
+  const toggleConnectorForSession = useCallback(
+    (row: ConnectorCatalogRow, enabled: boolean) => {
+      if (row.provider_key === 'web_search') {
+        onToggleSource(WEB_SEARCH_SOURCE, enabled);
+        const next = toggleSessionConnector('web_search', enabled);
+        setSessionConnectorKeys(new Set(next));
+        return;
+      }
+      const src = connectorComposerSource(row);
+      onToggleSource(src, enabled);
+      const next = toggleSessionConnector(row.provider_key, enabled);
+      setSessionConnectorKeys(new Set(next));
+    },
+    [onToggleSource, onToggleWebSearch],
+  );
 
   if (!open || typeof document === 'undefined') return null;
 
   const closeAll = () => onClose();
 
-  const runOAuthConnect = async (item: ConnectableIntegration) => {
-    if (item.connected) return;
-    if (!item.connectUrl.startsWith('/')) {
-      window.open(item.connectUrl, '_blank', 'noopener,noreferrer');
+  const runOAuthConnect = async (row: ConnectorCatalogRow, forceReauth = false) => {
+    if (!forceReauth && row.connected) return;
+    if (!row.connect_url) return;
+    const url = row.connect_url;
+    if (!url.startsWith('/')) {
+      setConnectBusy(row.provider_key);
+      try {
+        const result = await openIntegrationOAuthPopup(url, row.provider_key);
+        if (result.ok) await refresh();
+      } finally {
+        setConnectBusy(null);
+      }
       return;
     }
-    setConnectBusy(item.providerKey);
+    setConnectBusy(row.provider_key);
     try {
-      const result = await openIntegrationOAuthPopup(item.connectUrl, item.providerKey);
-      if (result.ok) await onIntegrationsRefresh?.();
+      const result = await openIntegrationOAuthPopup(url, row.provider_key);
+      if (result.ok) await refresh();
     } finally {
       setConnectBusy(null);
     }
@@ -169,9 +258,11 @@ export function ContextHubDrawer({
       ? 'GitHub'
       : lane === 'connectors'
         ? 'Connectors'
-        : lane === 'tool_access'
-          ? 'Tool access'
-          : 'Add to context';
+        : lane === 'connector_detail'
+          ? selectedConnector?.title || 'Connector'
+          : lane === 'tool_access'
+            ? 'Tool access'
+            : 'Add to context';
 
   const sheet = (
     <>
@@ -198,11 +289,37 @@ export function ContextHubDrawer({
 
         {lane !== 'github' ? (
           <div className="shrink-0 flex items-center justify-between gap-2 border-b border-[var(--dashboard-border)] px-4 py-3">
-            <div className="min-w-0">
-              <h2 className="text-[15px] font-semibold text-[var(--dashboard-text)]">{hubHeaderTitle}</h2>
-              {lane === 'hub' ? (
-                <p className="text-[11px] text-[var(--dashboard-muted)]">Files, sources, and execution lane</p>
+            <div className="flex min-w-0 items-center gap-2">
+              {lane === 'connector_detail' ? (
+                <button
+                  type="button"
+                  aria-label="Back to connectors"
+                  onClick={() => setLane('connectors')}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--dashboard-muted)] hover:bg-[var(--bg-hover)]"
+                >
+                  <ChevronLeft size={18} />
+                </button>
               ) : null}
+              <div className="min-w-0">
+                <h2 className="truncate text-[15px] font-semibold text-[var(--dashboard-text)]">
+                  {hubHeaderTitle}
+                </h2>
+                {lane === 'hub' ? (
+                  <p className="text-[11px] text-[var(--dashboard-muted)]">Files, sources, and execution lane</p>
+                ) : lane === 'connectors' ? (
+                  <p className="text-[11px] text-[var(--dashboard-muted)]">
+                    Same spine as Settings — {connectedCount} connected
+                  </p>
+                ) : lane === 'connector_detail' && selectedConnector ? (
+                  <p className="truncate text-[11px] text-[var(--dashboard-muted)]">
+                    {selectedConnector.kind === 'mcp_remote'
+                      ? 'MCP OAuth — Cursor / Claude / ChatGPT parity'
+                      : selectedConnector.kind === 'capability'
+                        ? 'Platform capability'
+                        : 'OAuth-connected API tools'}
+                  </p>
+                ) : null}
+              </div>
             </div>
             <button
               type="button"
@@ -277,6 +394,9 @@ export function ContextHubDrawer({
                       return;
                     }
                     setLane('connectors');
+                    if ('focusProvider' in tile && tile.focusProvider) {
+                      setSelectedConnectorKey(tile.focusProvider);
+                    }
                   }}
                   className="flex flex-col items-center gap-1.5 rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] px-1 py-3 hover:bg-[var(--bg-hover)]"
                 >
@@ -339,7 +459,12 @@ export function ContextHubDrawer({
               onClick={() => setLane('connectors')}
               className="mt-2 flex w-full items-center justify-between rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] px-3 py-3 text-left hover:bg-[var(--bg-hover)]"
             >
-              <span className="text-[13px] text-[var(--dashboard-text)]">Connectors &amp; apps</span>
+              <span className="text-[13px] text-[var(--dashboard-text)]">
+                Connectors &amp; apps
+                {connectedCount > 0 ? (
+                  <span className="ml-1.5 text-[11px] text-[var(--dashboard-muted)]">({connectedCount})</span>
+                ) : null}
+              </span>
               <ChevronRight size={16} className="text-[var(--dashboard-muted)]" />
             </button>
           </div>
@@ -355,14 +480,14 @@ export function ContextHubDrawer({
             onBrowseFiles={onBrowseFiles}
             onClose={closeAll}
             onBackToHub={() => setLane('hub')}
-            onOAuthConnected={() => void onIntegrationsRefresh?.()}
+            onOAuthConnected={() => void refresh()}
           />
         ) : null}
 
         {lane === 'tool_access' ? (
           <div className="min-h-0 flex-1 overflow-y-auto chat-hide-scroll px-4 py-3">
             <p className="mb-3 text-[12px] text-[var(--dashboard-muted)]">
-              On mobile, Cloud desk keeps working when your Mac is asleep. Local Mac uses your desk tunnel only.
+              Fresh chats start on Auto — no Mac or repo assumptions. Cloud desk keeps working when your Mac is asleep.
             </p>
             <div className="space-y-2">
               {(['auto', 'remote', 'local', 'sandbox'] as ExecLane[]).map((opt) => (
@@ -403,85 +528,66 @@ export function ContextHubDrawer({
                   type="search"
                   value={connectorFilter}
                   onChange={(e) => setConnectorFilter(e.target.value)}
-                  placeholder="Search connections"
+                  placeholder="Search connectors"
                   className="w-full rounded-lg border border-[var(--dashboard-border)] bg-[var(--scene-bg)] py-2 pl-8 pr-3 text-[13px] outline-none focus:border-[var(--solar-cyan)]"
                 />
               </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto chat-hide-scroll px-2 pb-2">
-              {connectablesLoading ? (
-                <p className="px-3 py-4 text-[12px] text-[var(--dashboard-muted)]">Loading connections…</p>
-              ) : filteredConnectables.length === 0 ? (
-                <p className="px-3 py-4 text-[12px] text-[var(--dashboard-muted)]">No matches</p>
+            <div className="min-h-0 flex-1 overflow-y-auto chat-hide-scroll px-4 pb-2">
+              {catalogLoading ? (
+                <div className="flex items-center gap-2 px-1 py-6 text-[12px] text-[var(--dashboard-muted)]">
+                  <Loader2 size={14} className="animate-spin" />
+                  Loading connectors…
+                </div>
+              ) : filteredConnectors.length === 0 ? (
+                <p className="px-1 py-6 text-[12px] text-[var(--dashboard-muted)]">No matches</p>
               ) : (
-                filteredConnectables.map((item) => {
-                  const src = sourceFromIntegration(item);
-                  const active = activeSourceIds.has(src.id);
-                  const busy = connectBusy === item.providerKey;
-                  return (
-                    <div
-                      key={item.providerKey}
-                      className="flex items-center gap-1 rounded-lg px-2 py-0.5 hover:bg-[var(--bg-hover)]/60"
-                    >
-                      <button
-                        type="button"
-                        disabled={busy}
-                        className="flex flex-1 min-w-0 items-center justify-between gap-2 px-1 py-2 text-left text-[13px] disabled:opacity-60"
-                        onClick={() => {
-                          if (item.connected) {
-                            onToggleSource(src, !active);
-                            return;
-                          }
-                          void runOAuthConnect(item);
-                        }}
-                      >
-                        <span className="inline-flex items-center gap-2 min-w-0">
-                          {busy ? (
-                            <Loader2 size={14} className="shrink-0 animate-spin text-[var(--solar-cyan)]" />
-                          ) : (
-                            <Link2 size={14} className="shrink-0 text-[var(--dashboard-muted)]" />
-                          )}
-                          <span className="truncate text-[var(--dashboard-text)]">{item.label}</span>
-                        </span>
-                        {item.connected ? (
-                          active ? (
-                            <Check size={14} className="text-[var(--solar-cyan)] shrink-0" />
-                          ) : (
-                            <span className="text-[10px] text-[var(--dashboard-muted)] shrink-0">off</span>
-                          )
-                        ) : (
-                          <span className="text-[10px] text-amber-300/90 shrink-0">
-                            {busy ? 'connecting…' : 'connect'}
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {filteredConnectors.map((row) => {
+                    const enabled = isConnectorSessionEnabled(row, sessionConnectorKeys, activeSourceIds);
+                    const busy = connectBusy === row.provider_key;
+                    return (
+                      <div key={row.provider_key} className="relative">
+                        {enabled ? (
+                          <span className="absolute right-1 top-1 z-[1] rounded-full bg-[var(--solar-cyan)]/20 px-1.5 py-0.5 text-[8px] font-bold uppercase text-[var(--solar-cyan)]">
+                            on
                           </span>
-                        )}
-                      </button>
-                      {!item.connected && item.connectUrl.startsWith('/') ? (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          className="p-1.5 text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] disabled:opacity-50"
-                          title="Connect in popup"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void runOAuthConnect(item);
+                        ) : null}
+                        <AppIcon
+                          title={row.title}
+                          iconSlug={row.icon_slug}
+                          size="md"
+                          subtitle={connectorSubtitle(row)}
+                          status={iconStatusForConnector(row)}
+                          onPress={() => {
+                            if (!row.connected && row.connect_url) {
+                              void runOAuthConnect(row);
+                              return;
+                            }
+                            void openConnectorDetail(row);
                           }}
-                        >
-                          <ExternalLink size={13} />
-                        </button>
-                      ) : null}
-                    </div>
-                  );
-                })
+                          className={busy ? 'opacity-60 pointer-events-none' : ''}
+                        />
+                        {busy ? (
+                          <Loader2
+                            size={14}
+                            className="absolute bottom-2 right-2 animate-spin text-[var(--solar-cyan)]"
+                          />
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
               )}
               <button
                 type="button"
-                className="mt-2 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-[13px] text-[var(--dashboard-muted)] hover:bg-[var(--bg-hover)]"
+                className="mt-3 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-[13px] text-[var(--dashboard-muted)] hover:bg-[var(--bg-hover)]"
                 onClick={() => {
-                  window.location.href = '/dashboard/settings?section=integrations';
+                  window.location.href = '/dashboard/settings/integrations';
                 }}
               >
                 <Plus size={14} />
-                Connect more
+                Connect more in Settings
               </button>
               <button
                 type="button"
@@ -491,6 +597,128 @@ export function ContextHubDrawer({
                 Back
               </button>
             </div>
+          </div>
+        ) : null}
+
+        {lane === 'connector_detail' && selectedConnector ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto chat-hide-scroll px-4 pb-4">
+            <div className="mt-2 flex items-start gap-3 rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] p-3">
+              <AppIcon
+                title={selectedConnector.title}
+                iconSlug={selectedConnector.icon_slug}
+                size="lg"
+                subtitle={connectorSubtitle(selectedConnector)}
+                status={iconStatusForConnector(selectedConnector)}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] text-[var(--dashboard-muted)]">
+                  {selectedConnector.connected
+                    ? selectedConnector.account_display || 'Connected'
+                    : 'Not connected — authorize to unlock tools'}
+                </p>
+                {selectedConnector.note ? (
+                  <p className="mt-1 text-[11px] text-[var(--dashboard-muted)]">{selectedConnector.note}</p>
+                ) : null}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {!selectedConnector.connected && selectedConnector.connect_url ? (
+                    <button
+                      type="button"
+                      disabled={connectBusy === selectedConnector.provider_key}
+                      onClick={() => void runOAuthConnect(selectedConnector)}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--solar-cyan)] px-3 py-1.5 text-[12px] font-medium text-black disabled:opacity-60"
+                    >
+                      {connectBusy === selectedConnector.provider_key ? (
+                        <Loader2 size={13} className="animate-spin" />
+                      ) : (
+                        <ExternalLink size={13} />
+                      )}
+                      Connect
+                    </button>
+                  ) : null}
+                  {selectedConnector.connected ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const on = isConnectorSessionEnabled(
+                          selectedConnector,
+                          sessionConnectorKeys,
+                          activeSourceIds,
+                        );
+                        toggleConnectorForSession(selectedConnector, !on);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--dashboard-border)] px-3 py-1.5 text-[12px] text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)]"
+                    >
+                      {isConnectorSessionEnabled(selectedConnector, sessionConnectorKeys, activeSourceIds) ? (
+                        <>
+                          <Check size={13} className="text-[var(--solar-cyan)]" />
+                          Enabled this chat
+                        </>
+                      ) : (
+                        'Enable for this chat'
+                      )}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.location.href = selectedConnector.settings_path;
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--dashboard-border)] px-3 py-1.5 text-[12px] text-[var(--dashboard-muted)] hover:bg-[var(--bg-hover)]"
+                  >
+                    <Settings2 size={13} />
+                    Settings
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <p className="mt-4 mb-2 text-[9px] font-bold uppercase tracking-widest text-[var(--dashboard-muted)]">
+              Tools ({selectedConnector.tool_count})
+            </p>
+            {detailToolsLoading ? (
+              <div className="flex items-center gap-2 py-4 text-[12px] text-[var(--dashboard-muted)]">
+                <Loader2 size={14} className="animate-spin" />
+                Loading tools…
+              </div>
+            ) : detailTools.length === 0 ? (
+              <p className="py-2 text-[12px] text-[var(--dashboard-muted)]">
+                {selectedConnector.tools_preview.length
+                  ? selectedConnector.tools_preview.map((t) => t.label).join(', ')
+                  : 'No tools registered for this connector yet.'}
+              </p>
+            ) : (
+              <ul className="space-y-1 rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] p-2">
+                {detailTools.slice(0, 40).map((tool) => (
+                  <li
+                    key={tool.tool_key}
+                    className="rounded-lg px-2 py-2 text-[12px] hover:bg-[var(--bg-hover)]/50"
+                  >
+                    <div className="font-medium text-[var(--dashboard-text)]">{tool.label}</div>
+                    {tool.description ? (
+                      <div className="mt-0.5 line-clamp-2 text-[11px] text-[var(--dashboard-muted)]">
+                        {tool.description}
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+                {detailTools.length > 40 ? (
+                  <li className="px-2 py-1 text-[10px] text-[var(--dashboard-muted)]">
+                    +{detailTools.length - 40} more in MCP catalog
+                  </li>
+                ) : null}
+              </ul>
+            )}
+
+            {selectedConnector.connect_url?.startsWith('/') ? (
+              <button
+                type="button"
+                disabled={connectBusy === selectedConnector.provider_key}
+                onClick={() => void runOAuthConnect(selectedConnector, true)}
+                className="mt-3 text-[11px] text-[var(--dashboard-muted)] underline-offset-2 hover:underline disabled:opacity-50"
+              >
+                Re-authorize OAuth
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>

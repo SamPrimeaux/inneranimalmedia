@@ -25,4 +25,11 @@ describe('mobile-exec-profile', () => {
     assert.match(block, /agentsam_terminal_remote/);
     assert.match(block, /Do NOT use agentsam_terminal_local/);
   });
+
+  it('includes session-enabled connectors in mobile block', () => {
+    const block = formatMobileExecProfilePromptBlock('mobile_ios', 'auto', ['github', 'cloudflare_oauth']);
+    assert.match(block, /Session-enabled connectors: github, cloudflare_oauth/);
+    const empty = formatMobileExecProfilePromptBlock('mobile_ios', 'auto', []);
+    assert.match(empty, /No optional connectors enabled/);
+  });
 });

@@ -175,6 +175,15 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
     if (method === 'GET' && pathLower === '/api/integrations/summary') {
         return handleSummary(env, authUser);
     }
+    if (method === 'GET' && pathLower === '/api/integrations/connectors/catalog') {
+        const { handleConnectorsCatalogApi } = await import('./integrations-connectors-catalog.js');
+        return handleConnectorsCatalogApi(request, env, authUser);
+    }
+    const connectorToolsMatch = pathLower.match(/^\/api\/integrations\/connectors\/([^/]+)\/tools$/);
+    if (connectorToolsMatch && method === 'GET') {
+        const { handleConnectorToolsApi } = await import('./integrations-connectors-catalog.js');
+        return handleConnectorToolsApi(request, env, authUser, decodeURIComponent(connectorToolsMatch[1] || ''));
+    }
     if (method === 'GET' && pathLower === '/api/integrations/events') {
         return handleEvents(env, authUser, url);
     }
@@ -198,7 +207,7 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
     const singleIntegrationGet = pathLower.match(/^\/api\/integrations\/([^/]+)$/);
     if (singleIntegrationGet && method === 'GET') {
         const key = decodeURIComponent(singleIntegrationGet[1] || '').toLowerCase();
-        const reserved = new Set(['status', 'summary', 'events', 'webhooks', 'mcp-tools', 'api-keys']);
+        const reserved = new Set(['status', 'summary', 'events', 'webhooks', 'mcp-tools', 'api-keys', 'connectors']);
         if (key && !reserved.has(key)) {
             return handleProviderDetail(env, authUser, normalizeProviderKey(singleIntegrationGet[1]));
         }

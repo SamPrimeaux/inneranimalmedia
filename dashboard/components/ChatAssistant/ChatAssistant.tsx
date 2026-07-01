@@ -113,6 +113,7 @@ import {
   writeStoredExecLane,
   type ExecLane,
 } from '../../src/lib/execLane';
+import { applyFreshChatSessionDefaults, readSessionEnabledConnectors } from '../../src/lib/freshChatSession';
 import { formatHttpErrorMessage } from './streamParsing';
 import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
 import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug';
@@ -660,6 +661,25 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
   }, [syncedHostConversationId]);
 
+  const resetFreshChatContext = useCallback(() => {
+    applyFreshChatSessionDefaults({
+      composerSourcesKey,
+      githubContextStorageKey: chatGithubContextStorageKey(sessionUserId, effectiveWsId, ''),
+      onClearGithubState: () => {
+        setGithubRepoContext(null);
+        setChatGithubFilePath(null);
+        setChatGithubBranch('main');
+        setChatGithubFileContent(null);
+        setChatGithubContentTruncated(false);
+        setChatGithubContentSha(null);
+      },
+      onClearAttachments: () => setAttachments([]),
+    });
+    setComposerSources([]);
+    setExecLane('auto');
+    writeStoredExecLane('auto');
+  }, [composerSourcesKey, sessionUserId, effectiveWsId]);
+
   const handleNewChat = useCallback(() => {
     setMobileThreadTab('chat');
     setThreadTitle('New Chat');
@@ -670,8 +690,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
     if (typeof localStorage !== 'undefined') localStorage.removeItem(LS_AGENT_CHAT_CONVERSATION_ID);
     setConversationId('');
+    resetFreshChatContext();
     window.dispatchEvent(new CustomEvent(IAM_AGENT_CHAT_CONVERSATION_CHANGE, { detail: { id: null } }));
-  }, [onAgentChatShellNewTab]);
+  }, [onAgentChatShellNewTab, resetFreshChatContext]);
 
   useEffect(() => {
     const onExternal = (e: Event) => {
@@ -681,6 +702,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         setThreadTitle('New Chat');
         if (typeof localStorage !== 'undefined') localStorage.removeItem(LS_AGENT_CHAT_CONVERSATION_ID);
         setConversationId('');
+        resetFreshChatContext();
         return;
       }
       if (typeof raw === 'string' && raw.trim()) {
@@ -753,7 +775,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       window.removeEventListener(IAM_AGENT_CHAT_NEW_THREAD, onNewThreadMessage);
       window.removeEventListener(IAM_AGENT_CHAT_COMPOSE, onCompose);
     };
-  }, [isNarrow]);
+  }, [isNarrow, resetFreshChatContext]);
 
   const [pendingToolApproval, setPendingToolApproval] = useState<{
     tool: ToolApprovalPayload;
@@ -2544,6 +2566,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         })),
         web_search_enabled: composerSources.some((s) => s.id === WEB_SEARCH_SOURCE_ID),
         antigravity_sandbox_enabled: composerSources.some((s) => s.id === SANDBOX_AGENT_SOURCE_ID),
+        enabled_connectors: readSessionEnabledConnectors(),
+        assume_mac_local: false,
       };
       browserCtxPayload.workspaceContext = workspaceContextPacket;
       form.append('workspaceContext', JSON.stringify(workspaceContextPacket));
@@ -3770,8 +3794,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             saveGithubRepoSelection(repo, path, branch, meta)
           }
           onBrowseFiles={(full) => onOpenGitHubIntegration?.({ expandRepoFullName: full })}
-          connectables={connectables}
-          connectablesLoading={connectablesLoading}
           activeSourceIds={activeComposerSourceIds}
           webSearchAllowed={policyWebSearch}
           sandboxAgentAllowed
@@ -3786,10 +3808,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             toggleComposerSource(SANDBOX_AGENT_SOURCE, !on);
           }}
           onToggleSource={toggleComposerSource}
-          sourceFromIntegration={sourceFromIntegration}
           execLane={execLane}
           onExecLaneChange={handleExecLaneChange}
-          onIntegrationsRefresh={refreshConnectables}
         />
       )}
 

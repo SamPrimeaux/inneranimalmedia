@@ -47,10 +47,30 @@ export function shouldSkipLocalTerminalTunnel(clientSurface, execLane) {
 }
 
 /**
+ * @param {unknown} wsCtx
+ * @returns {string[]}
+ */
+export function parseEnabledConnectors(wsCtx) {
+  if (!wsCtx || typeof wsCtx !== 'object') return [];
+  const raw = /** @type {Record<string, unknown>} */ (wsCtx).enabled_connectors;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((x) => String(x || '').trim()).filter(Boolean).slice(0, 24);
+}
+
+/**
+ * @param {unknown} wsCtx
+ */
+export function parseAssumeMacLocal(wsCtx) {
+  if (!wsCtx || typeof wsCtx !== 'object') return false;
+  return /** @type {Record<string, unknown>} */ (wsCtx).assume_mac_local === true;
+}
+
+/**
  * @param {string|null|undefined} clientSurface
  * @param {'auto'|'remote'|'local'|'sandbox'|null|undefined} execLane
+ * @param {string[]} [enabledConnectors]
  */
-export function formatMobileExecProfilePromptBlock(clientSurface, execLane) {
+export function formatMobileExecProfilePromptBlock(clientSurface, execLane, enabledConnectors = []) {
   if (!isMobileClientSurface(clientSurface)) return '';
   const lane = String(execLane || 'auto').trim().toLowerCase();
   const lines = [
@@ -68,6 +88,12 @@ export function formatMobileExecProfilePromptBlock(clientSurface, execLane) {
     lines.push('- User selected Cloud desk — always use agentsam_terminal_remote for terminal work.');
   } else if (lane === 'sandbox') {
     lines.push('- User selected Sandbox — prefer agentsam_terminal_sandbox for command execution.');
+  }
+  if (enabledConnectors.length) {
+    lines.push('', `Session-enabled connectors: ${enabledConnectors.join(', ')}`);
+    lines.push('Only use tools from connectors the user enabled for this chat unless they ask otherwise.');
+  } else {
+    lines.push('', 'No optional connectors enabled — do not assume GitHub, Drive, Cloudflare, or Mac local access.');
   }
   return lines.join('\n');
 }
