@@ -259,6 +259,12 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleDashboardBootstrap(request, env, authCtx);
   }
 
+  if (pathLower === '/api/agent/policy' && request.method === 'GET') {
+    if (!authUser || !authCtx) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const { handleAgentPolicy } = await import('../api/agent-policy.js');
+    return handleAgentPolicy(request, env, authCtx);
+  }
+
   if (pathLower === '/api/dashboard/status-bundle' && request.method === 'GET') {
     return handleStatusBundle(request, url, env, ctx);
   }

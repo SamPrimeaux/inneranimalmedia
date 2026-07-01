@@ -122,6 +122,7 @@ import {
   isIamGitStatusCacheFresh,
 } from './src/iamGitStatusCache';
 import { readDashboardBootstrapCache, type DashboardBootstrapPayload } from './src/loadDashboardBootstrap';
+import { useAgentPolicy } from './src/hooks/useAgentPolicy';
 import { MeetProvider, MeetCtxValue } from './src/MeetContext';
 import { MeetShellPanel } from './components/MeetShellPanel';
 import { AuthSignInPage } from './components/auth/AuthSignInPage';
@@ -832,7 +833,7 @@ const App: React.FC = () => {
     setAgentPosition('off');
   }, [location.pathname, location.search, isNarrowViewport]);
 
-  const [agentsamChatPolicy, setAgentsamChatPolicy] = useState<Record<string, unknown> | null>(null);
+  const { policy: agentsamChatPolicy } = useAgentPolicy(authWorkspaceId);
   const maxTabsPolicyRef = useRef(24);
   const [workspaceSamState, setWorkspaceSamState] = useState<Record<string, unknown> | null>(null);
 
@@ -3184,6 +3185,15 @@ const App: React.FC = () => {
     return () => window.removeEventListener(IAM_GIT_SYNC_PUBLISH, onGitSync);
   }, [handleGitSyncPublish]);
 
+  useEffect(() => {
+    if (agentsamChatPolicy && typeof agentsamChatPolicy === 'object') {
+      const m = Number(agentsamChatPolicy.max_tab_count);
+      if (Number.isFinite(m) && m >= 2) {
+        maxTabsPolicyRef.current = Math.min(48, Math.max(2, Math.floor(m)));
+      }
+    }
+  }, [agentsamChatPolicy]);
+
   const applyDashboardBootstrapPayload = useCallback((boot: DashboardBootstrapPayload | null | undefined) => {
     if (!boot) return;
     const st = boot.status;
@@ -3210,15 +3220,6 @@ const App: React.FC = () => {
       if (st.terminal?.status) {
         setTerminalOk(String(st.terminal.status) === 'connected');
       }
-    }
-    if (boot.agent_policy && typeof boot.agent_policy === 'object') {
-      setAgentsamChatPolicy(boot.agent_policy);
-      const m = Number(boot.agent_policy.max_tab_count);
-      if (Number.isFinite(m) && m >= 2) {
-        maxTabsPolicyRef.current = Math.min(48, Math.max(2, Math.floor(m)));
-      }
-    } else {
-      setAgentsamChatPolicy(null);
     }
   }, [applyProblemsPayload]);
 

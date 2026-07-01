@@ -51,7 +51,6 @@ export type DashboardBootstrapPayload = {
     models?: unknown[];
     default_model?: string | null;
   };
-  agent_policy?: Record<string, unknown> | null;
   theme?: CmsActiveThemePayload | null;
   client?: {
     supabaseUrl?: string;
@@ -159,7 +158,7 @@ export function readDashboardBootstrapCache(maxAgeMs = 30_000): DashboardBootstr
   return cached;
 }
 
-/** Force a fresh bootstrap after workspace switch (theme + agent_policy follow session workspace). */
+/** Force a fresh bootstrap after workspace switch (theme follows session workspace). */
 export async function refreshDashboardBootstrap(): Promise<DashboardBootstrapPayload | null> {
   bootstrapPromise = null;
   if (typeof window !== 'undefined') {
