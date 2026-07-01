@@ -30,6 +30,7 @@ import {
   parseCmsUrlPreviewMode,
   loadCmsSectionsForRoute,
 } from './core/cms-preview-route.js';
+import { shouldProbeCmsPagesForRequest } from './core/cms-route-eligibility.js';
 import {
   cmsStaticShellKeyForRoute,
   hydrateCmsRoutePageHtml,
@@ -478,7 +479,12 @@ export default {
         }
       }
       // Dynamic CMS pages registered in D1 (route_path → R2 HTML shell)
-      if (!assetHtmlKey && env.DB && env.ASSETS) {
+      if (
+        !assetHtmlKey &&
+        env.DB &&
+        env.ASSETS &&
+        shouldProbeCmsPagesForRequest(url, methodUpper)
+      ) {
         const previewCtx = parseCmsUrlPreviewMode(url);
         const cmsRoute = normalizeCmsRoutePath(pathLower);
         const staticShell = cmsStaticShellKeyForRoute(cmsRoute);
