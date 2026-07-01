@@ -757,6 +757,15 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           onThinkingEvent?.({ type: 'thinking_start' });
           continue;
         }
+        if (evType === 'status' && data && typeof data === 'object') {
+          const phase = String((data as { phase?: string }).phase || '').trim();
+          if (phase === 'preflight') {
+            onThinkingEvent?.({ type: 'thinking', text: 'Starting…' });
+          } else if (phase === 'context') {
+            onThinkingEvent?.({ type: 'thinking', text: 'Gathering context…' });
+          }
+          continue;
+        }
         if (evType === 'thinking') {
           const d = data as { text?: string };
           onThinkingEvent?.({ type: 'thinking', text: d.text || '' });

@@ -52,6 +52,7 @@ import {
 } from './agentChatConstants';
 import { IAM_AGENT_ENSURE_PANEL, IAM_AGENT_RESUME_CHAT, openAgentConversation, resumeAgentChatSession } from './lib/openAgentConversation';
 import { resolveWorkspaceContextLabel } from './src/workspaceContextLabel';
+import { coalesceLabel } from './src/lib/coalesceLabel';
 import {
   IAM_OPEN_COMMAND_PALETTE,
   IAM_GIT_SYNC_PUBLISH,
@@ -834,15 +835,15 @@ const App: React.FC = () => {
   const workspaceContextLabel = useMemo(
     () =>
       resolveWorkspaceContextLabel({
-        githubRepo: activeWorkspaceRow?.github_repo ?? gitRepoFullName ?? null,
-        workspaceSlug: activeWorkspaceRow?.slug ?? null,
+        githubRepo: coalesceLabel(activeWorkspaceRow?.github_repo ?? gitRepoFullName ?? null, ''),
+        workspaceSlug: coalesceLabel(activeWorkspaceRow?.slug ?? null, ''),
         workspaceId: authWorkspaceId,
         ideWorkspace,
       }),
     [activeWorkspaceRow, authWorkspaceId, ideWorkspace, gitRepoFullName],
   );
 
-  const workspaceDisplayLine = workspaceContextLabel || workspaceDisplayFallback;
+  const workspaceDisplayLine = coalesceLabel(workspaceContextLabel || workspaceDisplayFallback, 'No workspace');
 
   const activeAgentConversationId = useMemo(
     () => agentChatTabs.find((t) => t.id === activeAgentChatTabId)?.conversationId?.trim() ?? '',
@@ -1446,9 +1447,9 @@ const App: React.FC = () => {
   }, []);
 
   const agentHomeGreetingName = useMemo(() => {
-    const user = sessionUserName?.trim();
+    const user = coalesceLabel(sessionUserName, '');
     if (user) return user;
-    return workspaceDisplayName;
+    return coalesceLabel(workspaceDisplayName, 'there');
   }, [sessionUserName, workspaceDisplayName]);
 
   const createNewAgentChatTabRef = useRef<(() => void) | null>(null);
@@ -2883,9 +2884,9 @@ const App: React.FC = () => {
       default_branch?: string;
     }) => {
       const repo = gitData.repo_full_name
-        ? String(gitData.repo_full_name)
+        ? coalesceLabel(gitData.repo_full_name, '')
         : gitData.repo
-          ? String(gitData.repo)
+          ? coalesceLabel(gitData.repo, '')
           : '';
       const branchName = gitData.branch ? String(gitData.branch) : '';
       if (branchName) setGitBranch(branchName);
@@ -3148,9 +3149,10 @@ const App: React.FC = () => {
       setAgentNotifications(st.notifications as AgentNotificationRow[]);
     }
     if (st.git) {
-      if (st.git.branch) setGitBranch(String(st.git.branch));
-      if (st.git.repo_full_name) setGitRepoFullName(String(st.git.repo_full_name));
-      if (st.git.git_hash) setGitHash(String(st.git.git_hash));
+      if (st.git.branch) setGitBranch(coalesceLabel(st.git.branch, ''));
+      const repo = coalesceLabel(st.git.repo_full_name, '');
+      if (repo) setGitRepoFullName(repo);
+      if (st.git.git_hash) setGitHash(coalesceLabel(st.git.git_hash, ''));
     }
     if (st.problems && typeof st.problems === 'object') {
       applyProblemsPayload(st.problems as Record<string, unknown>);

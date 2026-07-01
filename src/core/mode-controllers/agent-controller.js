@@ -105,11 +105,29 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   const agentChatResolvedContext = input.agentChatResolvedContext ?? null;
   const browserContextPayload = input.browserContextPayload ?? null;
 
-  const userPolicy = await loadAgentSamUserPolicy(env, userId, workspaceId);
+  const userPolicy =
+    input.userPolicy && typeof input.userPolicy === 'object'
+      ? input.userPolicy
+      : await loadAgentSamUserPolicy(env, userId, workspaceId);
   if (!profile.model_key) {
     return jsonResponse({ error: 'no_model_resolved', profile_id: profile.profile_id }, 503);
   }
 
+  const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const emit = (type, payload) => {
+    try {
+      writer.write(encoder.encode(`data: ${JSON.stringify({ type, ...payload })}\n\n`));
+    } catch (_) {
+      /* stream closed */
+    }
+  };
+  emit('thinking_start', {});
+  emit('status', { phase: 'context' });
+
+  void (async () => {
+    try {
   let chatMessages =
     Array.isArray(body.messages) && body.messages.length
       ? [...body.messages]
@@ -419,20 +437,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     );
   }
 
-  const encoder = new TextEncoder();
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
-  const emit = (type, payload) => {
-    try {
-      writer.write(encoder.encode(`data: ${JSON.stringify({ type, ...payload })}\n\n`));
-    } catch (_) {
-      /* stream closed */
-    }
-  };
-
-  // Required: runtime_context event for every turn.
   emit('runtime_context', runtimeContextPayload(profile, { modelOverride: input.modelOverride ?? null }));
-  // Compatibility: preserve older context event.
   emit(
     'context',
     legacyContextPayload(profile, {
@@ -779,6 +784,16 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       emit('error', { message: e?.message ?? 'Agent loop failed', code: 'agent_spine_error' });
       emit('done', {});
     } finally {
+      writer.close().catch(() => {});
+    }
+  })();
+    } catch (setupErr) {
+      console.warn('[agent-controller] setup_failed', setupErr?.message ?? setupErr);
+      emit('error', {
+        message: String(setupErr?.message || setupErr || 'Agent setup failed'),
+        code: 'agent_setup_error',
+      });
+      emit('done', {});
       writer.close().catch(() => {});
     }
   })();

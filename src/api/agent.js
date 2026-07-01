@@ -32,7 +32,7 @@ import {
   isWorkspaceCapabilityActionIntent,
 } from '../core/workspace-capability-actions/index.js';
 import { scheduleMirrorAgentsamPlanToSupabasePublic } from '../core/agentsam-plan-supabase-public-sync.js';
-import { listUserChatSessions, patchUserChatSession, deleteUserChatSession, initChatSessionR2, appendChatMessage, getChatMessages } from '../core/agentsam-chat-sessions.js';
+import { listUserChatSessions, patchUserChatSession, deleteUserChatSession, initChatSessionR2, appendChatMessage, getChatMessages, scheduleChatSessionTitleInsert } from '../core/agentsam-chat-sessions.js';
 import {
   legacyUnifiedRagSearch,
   handleAgentMemorySync,
@@ -43,7 +43,8 @@ import { LANES, writeToLane, writeMemoryLane } from '../core/rag-lanes.js';
 import { resolveAgentChatLaneContextBlock } from '../core/agent-chat-lane-context.js';
 import { loadAgentMemoryForPrompt }                     from '../core/memory.js';
 import { writeTelemetry }                               from './telemetry.js';
-import { jsonResponse }                                 from '../core/responses.js';
+import { startAgentChatEarlySse } from '../core/agent-chat-early-sse.js';
+import { withD1Retry } from '../core/d1-retry.js';
 import { authUserFromRequest, getSession,
          isIngestSecretAuthorized,
          fetchAuthUserTenantId,
@@ -989,8 +990,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const sessionId = body.conversationId || body.session_id || body.sessionId || null;
   const requestedMode = runtimeMode;
 
-  const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
-  const authUser = ingestBypass ? null : await authUserFromRequest(request, env).catch(() => null);
+  const [actorCtx, authUser] = await Promise.all([
+    resolveIamActorContext(request, env).catch(() => null),
+    ingestBypass ? Promise.resolve(null) : authUserFromRequest(request, env).catch(() => null),
+  ]);
 
   let tenantId =
     (session?.tenant_id != null && String(session.tenant_id).trim() !== ''
@@ -1000,7 +1003,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       ? String(actorCtx.tenantId).trim()
       : null);
   if (!tenantId && session?.user_id) {
-    tenantId = await fetchAuthUserTenantId(env, session.user_id);
+    tenantId = await withD1Retry(() => fetchAuthUserTenantId(env, session.user_id)).catch(() => null);
   }
   const userId =
     session?.user_id ||
@@ -1022,171 +1025,84 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   // All PTY execution paths MUST have an authenticated userId
   if (!userId) return jsonResponse({ error: 'UNAUTHENTICATED_USER' }, 401);
 
-  const chatIsSuperadmin = !!(identity?.isSuperadmin || authUser?.is_superadmin);
-  if (!ingestBypass && !chatIsSuperadmin && tenantId) {
-    try {
-      const { assertTenantSpendPolicy } = await import('../core/tenant-spend-policy.js');
-      const spendGate = await assertTenantSpendPolicy(env, {
-        tenantId,
-        userId,
-        workspaceId,
-        sessionId: sessionId ? String(sessionId) : null,
-        isSuperadmin: false,
-      });
-      if (!spendGate.ok) {
-        return jsonResponse(
-          {
-            error: spendGate.error || 'spend_policy_denied',
-            message: spendGate.message || 'Spend policy blocked this request.',
-            spent_usd: spendGate.spent_usd ?? null,
-            cap_usd: spendGate.cap_usd ?? null,
-            upgrade_url: '/dashboard/settings/integrations',
-          },
-          402,
-        );
-      }
-    } catch (spendErr) {
-      console.warn('[agent] spend_policy_gate', spendErr?.message ?? spendErr);
-    }
-  }
+  scheduleChatSessionTitleInsert(env, ctx, {
+    conversationId: sessionId,
+    tenantId,
+    userId,
+    workspaceId,
+    message,
+    body,
+  });
 
-  let handoffResume = null;
-  if (sessionId && env.DB) {
-    try {
-      handoffResume = await resolvePendingHandoffForSession(env, {
-        sessionId: String(sessionId),
-        workspaceId,
-      });
-      if (handoffResume?.fallbackModelKey) {
-        body.model = handoffResume.fallbackModelKey;
-        body.model_key = handoffResume.fallbackModelKey;
-        body.handoff_resume = true;
-        const primer = buildHandoffPrimingUserMessage(handoffResume);
-        if (primer && !body._handoff_priming_applied) {
-          body._handoff_priming_applied = true;
-          const trimmedMsg = String(message || '').trim();
-          if (!trimmedMsg || trimmedMsg.length < 24 || /^continue$/i.test(trimmedMsg)) {
-            message = primer;
-            body.message = primer;
-          } else {
-            message = `${primer}\n\n---\nUser follow-up:\n${trimmedMsg}`;
-            body.message = message;
-          }
-        }
-        await markHandoffAccepted(env, handoffResume.spawnId, {
-          childRunId: handoffResume.childRunId,
-        });
-        console.log(
-          '[agent-handoff] resume',
-          JSON.stringify({
-            session_id: sessionId,
-            spawn_id: handoffResume.spawnId,
-            model: handoffResume.fallbackModelKey,
-            depth: handoffResume.depth,
+  return startAgentChatEarlySse(async () => {
+    const chatIsSuperadmin = !!(identity?.isSuperadmin || authUser?.is_superadmin);
+    if (!ingestBypass && !chatIsSuperadmin && tenantId) {
+      try {
+        const { assertTenantSpendPolicy } = await import('../core/tenant-spend-policy.js');
+        const spendGate = await withD1Retry(() =>
+          assertTenantSpendPolicy(env, {
+            tenantId,
+            userId,
+            workspaceId,
+            sessionId: sessionId ? String(sessionId) : null,
+            isSuperadmin: false,
           }),
         );
+        if (!spendGate.ok) {
+          return jsonResponse(
+            {
+              error: spendGate.error || 'spend_policy_denied',
+              message: spendGate.message || 'Spend policy blocked this request.',
+              spent_usd: spendGate.spent_usd ?? null,
+              cap_usd: spendGate.cap_usd ?? null,
+              upgrade_url: '/dashboard/settings/integrations',
+            },
+            402,
+          );
+        }
+      } catch (spendErr) {
+        console.warn('[agent] spend_policy_gate', spendErr?.message ?? spendErr);
       }
-    } catch (e) {
-      console.warn('[agent-handoff] resume_pickup', e?.message ?? e);
     }
-  }
 
-  let activeFileEnvelope = null;
-  try {
-    const { parseActiveFileEnvelope } = await import('../core/active-file-envelope.js');
-    activeFileEnvelope = parseActiveFileEnvelope(body);
-    if (activeFileEnvelope) {
-      if (!activeFileEnvelope.content) {
-        const extracted = extractOpenFileContentFromMessage(message);
-        if (extracted) activeFileEnvelope.content = extracted;
-      }
-      body.activeFileEnvelope = activeFileEnvelope;
-    }
-    let githubRepoContext = String(body.github_repo_context || body.githubRepoContext || '').trim();
-    if (githubRepoContext && userId && workspaceId && tenantId) {
+    let handoffResume = null;
+    if (sessionId && env.DB) {
       try {
-        const { sanitizeGithubRepoContextForChat } = await import('../core/github-repo-scope.js');
-        const safe = await sanitizeGithubRepoContextForChat(env, {
-          userId: String(userId),
-          tenantId: String(tenantId),
-          workspaceId: String(workspaceId),
-          clientRepo: githubRepoContext,
-        });
-        githubRepoContext = safe || '';
-      } catch (e) {
-        console.warn('[agent] github_repo_context_sanitize', e?.message ?? e);
-        githubRepoContext = '';
-      }
-    }
-    if (!githubRepoContext && workspaceId && env?.DB) {
-      try {
-        const { resolveGithubRepoForChatSession } = await import('../core/agentsam-chat-sessions.js');
-        const fromWorkspace = await resolveGithubRepoForChatSession(env, {
-          workspaceId: String(workspaceId),
-          activeFileEnvelope,
-          body: null,
-        });
-        if (fromWorkspace) {
-          if (userId && tenantId) {
-            const { sanitizeGithubRepoContextForChat } = await import('../core/github-repo-scope.js');
-            githubRepoContext =
-              (await sanitizeGithubRepoContextForChat(env, {
-                userId: String(userId),
-                tenantId: String(tenantId),
-                workspaceId: String(workspaceId),
-                clientRepo: fromWorkspace,
-              })) || '';
-          } else {
-            githubRepoContext = fromWorkspace;
+        handoffResume = await withD1Retry(() =>
+          resolvePendingHandoffForSession(env, {
+            sessionId: String(sessionId),
+            workspaceId,
+          }),
+        );
+        if (handoffResume?.fallbackModelKey) {
+          body.model = handoffResume.fallbackModelKey;
+          body.model_key = handoffResume.fallbackModelKey;
+          body.handoff_resume = true;
+          const primer = buildHandoffPrimingUserMessage(handoffResume);
+          if (primer && !body._handoff_priming_applied) {
+            body._handoff_priming_applied = true;
+            const trimmedMsg = String(message || '').trim();
+            if (!trimmedMsg || trimmedMsg.length < 24 || /^continue$/i.test(trimmedMsg)) {
+              message = primer;
+              body.message = primer;
+            } else {
+              message = `${primer}\n\n---\nUser follow-up:\n${trimmedMsg}`;
+              body.message = message;
+            }
           }
+          await markHandoffAccepted(env, handoffResume.spawnId, {
+            childRunId: handoffResume.childRunId,
+          });
         }
       } catch (e) {
-        console.warn('[agent] workspace_github_repo_fallback', e?.message ?? e);
-      }
-    }
-    if (githubRepoContext) body.selectedGithubRepoContext = githubRepoContext;
-    if (activeFileEnvelope?.github_repo && userId && workspaceId && tenantId) {
-      try {
-        const { sanitizeGithubRepoContextForChat } = await import('../core/github-repo-scope.js');
-        const safeEnv = await sanitizeGithubRepoContextForChat(env, {
-          userId: String(userId),
-          tenantId: String(tenantId),
-          workspaceId: String(workspaceId),
-          clientRepo: activeFileEnvelope.github_repo,
-        });
-        if (!safeEnv) {
-          delete activeFileEnvelope.github_repo;
-          delete activeFileEnvelope.github_path;
-          body.activeFileEnvelope = activeFileEnvelope;
-        }
-      } catch (_) {
-        /* ignore */
-      }
-    }
-    const localBufferOpen = activeFileIsLocalWorkspaceBuffer(activeFileEnvelope);
-    if (githubRepoContext && !localBufferOpen) {
-      if (activeFileEnvelope) {
-        if (!activeFileEnvelope.github_repo) activeFileEnvelope.github_repo = githubRepoContext;
-      } else {
-        activeFileEnvelope = parseActiveFileEnvelope({
-          active_file_source: 'github',
-          active_file_github_repo: githubRepoContext,
-        });
-        if (activeFileEnvelope) body.activeFileEnvelope = activeFileEnvelope;
+        console.warn('[agent-handoff] resume_pickup', e?.message ?? e);
       }
     }
 
-    const {
-      parseContextEnvelope,
-      mergeContextEnvelopeIntoActiveFile,
-    } = await import('../core/context-envelope.js');
-    const contextEnvelope = parseContextEnvelope(body);
-    if (contextEnvelope) {
-      body.contextEnvelope = contextEnvelope;
-      activeFileEnvelope = mergeContextEnvelopeIntoActiveFile(activeFileEnvelope, contextEnvelope, {
-        parseActiveFileEnvelope,
-        activeFileIsLocalWorkspaceBuffer,
-      });
+    let activeFileEnvelope = null;
+    try {
+      const { parseActiveFileEnvelope } = await import('../core/active-file-envelope.js');
+      activeFileEnvelope = parseActiveFileEnvelope(body);
       if (activeFileEnvelope) {
         if (!activeFileEnvelope.content) {
           const extracted = extractOpenFileContentFromMessage(message);
@@ -1194,172 +1110,231 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         }
         body.activeFileEnvelope = activeFileEnvelope;
       }
+      let githubRepoContext = String(body.github_repo_context || body.githubRepoContext || '').trim();
+      if (githubRepoContext && userId && workspaceId && tenantId) {
+        try {
+          const { sanitizeGithubRepoContextForChat } = await import('../core/github-repo-scope.js');
+          const safe = await sanitizeGithubRepoContextForChat(env, {
+            userId: String(userId),
+            tenantId: String(tenantId),
+            workspaceId: String(workspaceId),
+            clientRepo: githubRepoContext,
+          });
+          githubRepoContext = safe || '';
+        } catch (e) {
+          console.warn('[agent] github_repo_context_sanitize', e?.message ?? e);
+          githubRepoContext = '';
+        }
+      }
+      if (!githubRepoContext && workspaceId && env?.DB) {
+        try {
+          const { resolveGithubRepoForChatSession } = await import('../core/agentsam-chat-sessions.js');
+          const fromWorkspace = await resolveGithubRepoForChatSession(env, {
+            workspaceId: String(workspaceId),
+            activeFileEnvelope,
+            body: null,
+          });
+          if (fromWorkspace) {
+            if (userId && tenantId) {
+              const { sanitizeGithubRepoContextForChat } = await import('../core/github-repo-scope.js');
+              githubRepoContext =
+                (await sanitizeGithubRepoContextForChat(env, {
+                  userId: String(userId),
+                  tenantId: String(tenantId),
+                  workspaceId: String(workspaceId),
+                  clientRepo: fromWorkspace,
+                })) || '';
+            } else {
+              githubRepoContext = fromWorkspace;
+            }
+          }
+        } catch (e) {
+          console.warn('[agent] workspace_github_repo_fallback', e?.message ?? e);
+        }
+      }
+      if (githubRepoContext) body.selectedGithubRepoContext = githubRepoContext;
+      if (activeFileEnvelope?.github_repo && userId && workspaceId && tenantId) {
+        try {
+          const { sanitizeGithubRepoContextForChat } = await import('../core/github-repo-scope.js');
+          const safeEnv = await sanitizeGithubRepoContextForChat(env, {
+            userId: String(userId),
+            tenantId: String(tenantId),
+            workspaceId: String(workspaceId),
+            clientRepo: activeFileEnvelope.github_repo,
+          });
+          if (!safeEnv) {
+            delete activeFileEnvelope.github_repo;
+            delete activeFileEnvelope.github_path;
+            body.activeFileEnvelope = activeFileEnvelope;
+          }
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      const localBufferOpen = activeFileIsLocalWorkspaceBuffer(activeFileEnvelope);
+      if (githubRepoContext && !localBufferOpen) {
+        if (activeFileEnvelope) {
+          if (!activeFileEnvelope.github_repo) activeFileEnvelope.github_repo = githubRepoContext;
+        } else {
+          activeFileEnvelope = parseActiveFileEnvelope({
+            active_file_source: 'github',
+            active_file_github_repo: githubRepoContext,
+          });
+          if (activeFileEnvelope) body.activeFileEnvelope = activeFileEnvelope;
+        }
+      }
+      const {
+        parseContextEnvelope,
+        mergeContextEnvelopeIntoActiveFile,
+      } = await import('../core/context-envelope.js');
+      const contextEnvelope = parseContextEnvelope(body);
+      if (contextEnvelope) {
+        body.contextEnvelope = contextEnvelope;
+        activeFileEnvelope = mergeContextEnvelopeIntoActiveFile(activeFileEnvelope, contextEnvelope, {
+          parseActiveFileEnvelope,
+          activeFileIsLocalWorkspaceBuffer,
+        });
+        if (activeFileEnvelope) body.activeFileEnvelope = activeFileEnvelope;
+      }
+    } catch (e) {
+      console.warn('[agent] active_file_envelope_parse', e?.message ?? e);
     }
-  } catch (e) {
-    console.warn('[agent] active_file_envelope_parse', e?.message ?? e);
-  }
 
-  /** Custom / platform subagent profile (composer slug or profile id). */
-  let subagentProfileRow = null;
-  try {
-    subagentProfileRow = await resolveSubagentProfileForChat(env.DB, {
-      userId: String(userId),
-      workspaceId,
-      tenantId,
-      profileId: body.subagent_profile_id ?? body.subagentProfileId,
-      slug: body.subagent_slug ?? body.subagentSlug,
-    });
-    if (subagentProfileRow) {
-      body.subagent_profile_id = subagentProfileRow.id;
-      body.subagent_slug = subagentProfileRow.slug;
-      body.subagent = true;
-      applySubagentDefaultModelToBody(body, subagentProfileRow, { useRoutingArms: true });
-    }
-  } catch (e) {
-    console.warn('[agent] subagent_profile_resolve', e?.message ?? e);
-  }
-
-  // Legacy compatibility: default ask subagent selection for the /api/agent/chat endpoint.
-  // Runtime spine (`executeAgentChatSpine`) uses compiled RuntimeProfile and does not route by requestedMode.
-  if (!subagentProfileRow && requestedMode === 'ask') {
+    let subagentProfileRow = null;
     try {
-      subagentProfileRow = await resolveSubagentProfileForChat(env.DB, {
-        userId: String(userId),
-        workspaceId,
-        tenantId,
-        profileId: 'codex_builtin_default',
-        slug: 'codex-default',
-      });
+      subagentProfileRow = await withD1Retry(() =>
+        resolveSubagentProfileForChat(env.DB, {
+          userId: String(userId),
+          workspaceId,
+          tenantId,
+          profileId: body.subagent_profile_id ?? body.subagentProfileId,
+          slug: body.subagent_slug ?? body.subagentSlug,
+        }),
+      );
       if (subagentProfileRow) {
         body.subagent_profile_id = subagentProfileRow.id;
         body.subagent_slug = subagentProfileRow.slug;
         body.subagent = true;
+        applySubagentDefaultModelToBody(body, subagentProfileRow, { useRoutingArms: true });
+      } else if (requestedMode === 'ask') {
+        subagentProfileRow = await withD1Retry(() =>
+          resolveSubagentProfileForChat(env.DB, {
+            userId: String(userId),
+            workspaceId,
+            tenantId,
+            profileId: 'codex_builtin_default',
+            slug: 'codex-default',
+          }),
+        );
+        if (subagentProfileRow) {
+          body.subagent_profile_id = subagentProfileRow.id;
+          body.subagent_slug = subagentProfileRow.slug;
+          body.subagent = true;
+        }
       }
     } catch (e) {
-      console.warn('[agent] ask_default_subagent_resolve', e?.message ?? e);
+      console.warn('[agent] subagent_profile_resolve', e?.message ?? e);
     }
-  }
 
-  const grRoute = await evaluateGuardrails(env, ctx, {
-    applies_to: 'route',
-    tenant_id: tenantId,
-    workspace_id: workspaceId,
-    user_id: userId,
-    session_id: sessionId,
-    conversation_id: sessionId,
-    request_id: sessionId,
-    route_path: '/api/agent/chat',
-    project_id:
-      body.project_id != null && String(body.project_id).trim() !== ''
-        ? String(body.project_id).trim()
-        : null,
-  });
-  if (grRoute.blocked) {
-    return jsonResponse(
-      { error: grRoute.decision?.reason || 'guardrail_blocked', guardrail: grRoute.decision?.guardrail_key },
-      403,
-    );
-  }
-
-  /** @type {Record<string, unknown>|null} */
-  let browserContextPayload = null;
-  try {
-    const bc = body.browserContext ?? body.browser_context;
-    if (typeof bc === 'string' && bc.trim()) browserContextPayload = parseJsonSafe(bc.trim(), null);
-    else if (bc && typeof bc === 'object') browserContextPayload = bc;
-  } catch (_) {
-    browserContextPayload = null;
-  }
-  const cmsRaw = body.cms_context ?? body.cmsContext;
-  if (cmsRaw && typeof cmsRaw === 'object') {
-    browserContextPayload = browserContextPayload && typeof browserContextPayload === 'object'
-      ? { ...browserContextPayload, cms_context: cmsRaw }
-      : { cms_context: cmsRaw };
-  }
-
-  logSurfacePreflightIntentDebug(message, requestedMode);
-  const surfacePreflight = await resolveSurfaceWorkflowPreflightExecution(
-    env,
-    message,
-    requestedMode,
-    browserContextPayload,
-  );
-  const surfaceTagForLog = resolveSurfaceWorkflowForMessage(message, requestedMode);
-  if (surfaceTagForLog?.route === 'browser') {
-    console.log(
-      '[agent] browser_surface_preflight',
-      JSON.stringify({
-        requestedMode,
-        workflowKey: surfacePreflight?.kind === 'execute' ? surfacePreflight.workflowKey : null,
-        url: extractPrimaryUrlForBrowserPreflight(message, browserContextPayload) || null,
-        reason: surfaceTagForLog.reason,
+    const grRoute = await withD1Retry(() =>
+      evaluateGuardrails(env, ctx, {
+        applies_to: 'route',
+        tenant_id: tenantId,
+        workspace_id: workspaceId,
+        user_id: userId,
+        session_id: sessionId,
+        conversation_id: sessionId,
+        request_id: sessionId,
+        route_path: '/api/agent/chat',
+        project_id:
+          body.project_id != null && String(body.project_id).trim() !== ''
+            ? String(body.project_id).trim()
+            : null,
       }),
     );
-  }
-  console.log(
-    '[agent] surface_workflow_preflight',
-    JSON.stringify({
-      requestedMode,
-      workflowKey: surfacePreflight?.kind === 'execute' ? surfacePreflight.workflowKey : null,
-      missingSurface: surfacePreflight?.kind === 'missing_workflow' ? surfacePreflight.surface : null,
-      reason: surfacePreflight?.reason ?? null,
-      hit: surfacePreflight != null,
-      message: String(message || '').slice(0, 200),
-    }),
-  );
-  if (surfacePreflight?.kind === 'execute') {
-    const actor = authUser || { id: userId, tenant_id: tenantId, email: null };
-    return executeWorkflowAndStream(env, surfacePreflight.workflowKey, message, actor, workspaceId, ctx, {
-      runtimeMode: requestedMode,
-      browserContext: browserContextPayload,
-      ptyExecUrl: env.PTY_EXEC_URL,
-    });
-  }
-  if (surfacePreflight?.kind === 'missing_workflow') {
-    if (shouldBypassSurfaceWorkflowPreflight(message, requestedMode)) {
-      logSurfaceWorkflowPreflightBypass(
-        requestedMode,
-        surfacePreflight.surface,
-        surfacePreflight.reason,
-        message,
+    if (grRoute.blocked) {
+      return jsonResponse(
+        {
+          error: grRoute.decision?.reason || 'guardrail_blocked',
+          guardrail: grRoute.decision?.guardrail_key,
+        },
+        403,
       );
-    } else if (surfacePreflight.surface === 'browser') {
-      return streamBrowserPreflightNoWorkflow(message, browserContextPayload);
-    } else {
-      return streamPreflightSurfaceWorkflowMissing(surfacePreflight.surface, message);
     }
-  }
 
-  kickoffModelTierMigration(env, ctx);
+    let browserContextPayload = null;
+    try {
+      const bc = body.browserContext ?? body.browser_context;
+      if (typeof bc === 'string' && bc.trim()) browserContextPayload = parseJsonSafe(bc.trim(), null);
+      else if (bc && typeof bc === 'object') browserContextPayload = bc;
+    } catch (_) {
+      browserContextPayload = null;
+    }
+    const cmsRaw = body.cms_context ?? body.cmsContext;
+    if (cmsRaw && typeof cmsRaw === 'object') {
+      browserContextPayload = browserContextPayload && typeof browserContextPayload === 'object'
+        ? { ...browserContextPayload, cms_context: cmsRaw }
+        : { cms_context: cmsRaw };
+    }
 
-  const userPolicy = await loadAgentSamUserPolicy(env, userId, workspaceId);
-  const agentChatResolvedContext = await buildAgentChatResolvedContext(env, {
-    request,
-    userId,
-    tenantId,
-    workspaceId,
-    workSessionId: body.work_session_id ?? body.workSessionId ?? session?.work_session_id ?? null,
-    sessionId,
-    userPolicy,
-  });
+    const [userPolicy, surfacePreflight] = await Promise.all([
+      withD1Retry(() => loadAgentSamUserPolicy(env, userId, workspaceId)).catch(() => null),
+      resolveSurfaceWorkflowPreflightExecution(env, message, requestedMode, browserContextPayload),
+    ]);
 
-  const { executeAgentChatSpine } = await import('./agent-chat-spine.js');
-  return executeAgentChatSpine(env, request, ctx, {
-    body,
-    message,
-    requestedMode,
-    tenantId,
-    userId,
-    workspaceId,
-    sessionId,
-    authUser,
-    subagentProfileRow,
-    activeFileEnvelope,
-    browserContextPayload,
-    handoffResume,
-    userPolicy,
-    agentChatResolvedContext,
-    quickstartBatch,
+    if (surfacePreflight?.kind === 'execute') {
+      const actor = authUser || { id: userId, tenant_id: tenantId, email: null };
+      return executeWorkflowAndStream(env, surfacePreflight.workflowKey, message, actor, workspaceId, ctx, {
+        runtimeMode: requestedMode,
+        browserContext: browserContextPayload,
+        ptyExecUrl: env.PTY_EXEC_URL,
+      });
+    }
+    if (surfacePreflight?.kind === 'missing_workflow') {
+      if (shouldBypassSurfaceWorkflowPreflight(message, requestedMode)) {
+        logSurfaceWorkflowPreflightBypass(
+          requestedMode,
+          surfacePreflight.surface,
+          surfacePreflight.reason,
+          message,
+        );
+      } else if (surfacePreflight.surface === 'browser') {
+        return streamBrowserPreflightNoWorkflow(message, browserContextPayload);
+      } else {
+        return streamPreflightSurfaceWorkflowMissing(surfacePreflight.surface, message);
+      }
+    }
+
+    kickoffModelTierMigration(env, ctx);
+
+    const agentChatResolvedContext = await buildAgentChatResolvedContext(env, {
+      request,
+      userId,
+      tenantId,
+      workspaceId,
+      workSessionId: body.work_session_id ?? body.workSessionId ?? session?.work_session_id ?? null,
+      sessionId,
+      userPolicy,
+    });
+
+    const { executeAgentChatSpine } = await import('./agent-chat-spine.js');
+    return executeAgentChatSpine(env, request, ctx, {
+      body,
+      message,
+      requestedMode,
+      tenantId,
+      userId,
+      workspaceId,
+      sessionId,
+      authUser,
+      subagentProfileRow,
+      activeFileEnvelope,
+      browserContextPayload,
+      handoffResume,
+      userPolicy,
+      agentChatResolvedContext,
+      quickstartBatch,
+    });
   });
 }
 

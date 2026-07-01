@@ -7,6 +7,8 @@ import { buildCanonicalAuthMe } from './auth-me.js';
 import { fetchSandboxRuntimeSummary } from './sandbox-api.js';
 import { resolveActiveBootstrap } from '../core/bootstrap.js';
 import { fetchAuthUserTenantId } from '../core/auth.js';
+import { gitStatusFromWorkspaceMetadata } from '../core/workspace-git-meta.js';
+import { pingTunnelHealth } from '../core/status-bar-runtime.js';
 
 /**
  * @param {Request} request
@@ -85,11 +87,7 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
           .then((ws) => {
             try {
               const meta = JSON.parse(ws?.metadata_json || '{}');
-              return {
-                branch: meta.branch || null,
-                repo_full_name: meta.repo_full_name || meta.repo || null,
-                git_hash: meta.last_commit || meta.git_hash || null,
-              };
+              return gitStatusFromWorkspaceMetadata(meta);
             } catch {
               return { branch: null, repo_full_name: null, git_hash: null };
             }
@@ -108,14 +106,7 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
           .catch(() => [])
       : Promise.resolve([]),
 
-    (async () => {
-      try {
-        const flag = await env.KV?.get('tunnel:status');
-        return { healthy: flag === 'active', status: flag || 'unknown' };
-      } catch {
-        return { healthy: false, status: 'unknown' };
-      }
-    })(),
+    pingTunnelHealth(env).catch(() => ({ healthy: false, status: 'unknown' })),
 
     env?.DB
       ? env.DB.prepare(

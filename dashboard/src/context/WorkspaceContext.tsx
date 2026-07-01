@@ -16,6 +16,7 @@ import {
 import { clearIamGitStatusCache } from "../iamGitStatusCache";
 import { normalizeGithubRepo } from "../normalizeGithubRepo";
 import { isDashboardBootstrapPath, loadDashboardBootstrap } from "../loadDashboardBootstrap";
+import { coalesceLabel } from "../lib/coalesceLabel";
 
 export type WorkspaceRow = {
   id: string;
@@ -376,7 +377,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           const boot = await loadDashboardBootstrap();
           if (boot?.me?.user?.id) {
             userId = String(boot.me.user.id).trim() || null;
-            const rawName = boot.me.user.name != null ? String(boot.me.user.name).trim() : "";
+            const rawName = coalesceLabel(boot.me.user.name, '');
             const emailLocal =
               boot.me.user.email != null ? String(boot.me.user.email).split("@")[0]?.trim() : "";
             setSessionUserName(rawName || emailLocal || null);
@@ -421,7 +422,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             };
             const rawId = me?.user?.id ?? me?.id;
             userId = rawId != null && String(rawId).trim() ? String(rawId).trim() : null;
-            const rawName = me?.user?.name != null ? String(me.user.name).trim() : "";
+            const rawName = coalesceLabel(me?.user?.name, '');
             const emailLocal =
               me?.user?.email != null ? String(me.user.email).split("@")[0]?.trim() : "";
             setSessionUserName(rawName || emailLocal || null);

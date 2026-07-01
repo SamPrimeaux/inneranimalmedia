@@ -1,3 +1,4 @@
+import { coalesceLabel } from './lib/coalesceLabel';
 import type { IdeWorkspaceSnapshot } from './ideWorkspace';
 
 /**
@@ -9,7 +10,7 @@ export function resolveWorkspaceContextLabel(opts: {
   workspaceId?: string | null;
   ideWorkspace?: IdeWorkspaceSnapshot;
 }): string {
-  const gh = opts.githubRepo?.trim();
+  const gh = coalesceLabel(opts.githubRepo, '');
   if (gh) return gh;
 
   const ide = opts.ideWorkspace;
