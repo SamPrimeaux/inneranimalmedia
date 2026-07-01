@@ -2,6 +2,7 @@
  * Canonical MCP terminal tool contracts (local vs remote).
  * Code wins at runtime; D1 agentsam_tools schemas kept in sync via migration.
  */
+import { wranglerTerminalRecoveryHints } from './wrangler-terminal-guidance.js';
 
 /** @type {Record<string, unknown>} */
 export const CANONICAL_AGENTSAM_TERMINAL_LOCAL_INPUT_SCHEMA = {
@@ -216,6 +217,8 @@ export function terminalRecoveryHints(opts = {}) {
   if (opts.exitCode != null && opts.exitCode !== 0 && hints.length === 0) {
     void opts.exitCode;
   }
+
+  hints.push(...wranglerTerminalRecoveryHints(opts));
 
   return hints;
 }
