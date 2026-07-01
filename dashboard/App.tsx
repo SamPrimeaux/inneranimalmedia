@@ -125,6 +125,7 @@ import {
   writeIamGitStatusCache,
   isIamGitStatusCacheFresh,
 } from './src/iamGitStatusCache';
+import { readDashboardBootstrapCache, type DashboardBootstrapPayload } from './src/loadDashboardBootstrap';
 import { MeetProvider, MeetCtxValue } from './src/MeetContext';
 import { MeetShellPanel } from './components/MeetShellPanel';
 import { AuthSignInPage } from './components/auth/AuthSignInPage';
@@ -3138,9 +3139,49 @@ const App: React.FC = () => {
     return () => window.removeEventListener(IAM_GIT_SYNC_PUBLISH, onGitSync);
   }, [handleGitSyncPublish]);
 
+  const applyDashboardBootstrapPayload = useCallback((boot: DashboardBootstrapPayload | null | undefined) => {
+    if (!boot?.status) return;
+    const st = boot.status;
+    if (st.health?.status === 'ok') setHealthOk(true);
+    if (st.sandbox && typeof st.sandbox.ok === 'boolean') setSandboxOk(st.sandbox.ok);
+    if (Array.isArray(st.notifications)) {
+      setAgentNotifications(st.notifications as AgentNotificationRow[]);
+    }
+    if (st.git) {
+      if (st.git.branch) setGitBranch(String(st.git.branch));
+      if (st.git.repo_full_name) setGitRepoFullName(String(st.git.repo_full_name));
+      if (st.git.git_hash) setGitHash(String(st.git.git_hash));
+    }
+    if (st.problems && typeof st.problems === 'object') {
+      applyProblemsPayload(st.problems as Record<string, unknown>);
+    }
+    if (st.tunnel && typeof st.tunnel.healthy === 'boolean') {
+      setTunnelHealthy(st.tunnel.healthy);
+      const ts = st.tunnel.status != null ? String(st.tunnel.status) : '';
+      setTunnelLabel(ts === 'connected' ? 'connected' : ts || null);
+    }
+    if (st.terminal?.status) {
+      setTerminalOk(String(st.terminal.status) === 'connected');
+    }
+  }, [applyProblemsPayload]);
+
+  useEffect(() => {
+    const cached = readDashboardBootstrapCache();
+    if (cached) applyDashboardBootstrapPayload(cached);
+    const onBoot = (e: Event) => {
+      const detail = (e as CustomEvent<DashboardBootstrapPayload>).detail;
+      applyDashboardBootstrapPayload(detail);
+    };
+    window.addEventListener('iam_dashboard_bootstrap', onBoot);
+    return () => window.removeEventListener('iam_dashboard_bootstrap', onBoot);
+  }, [applyDashboardBootstrapPayload]);
+
   useEffect(() => {
     // Polling (ms): health 5m, notifications 2m, git+problems 3m, tunnel 5m, terminal config 10m,
-    // telemetry 5m. Paused while tab hidden (visibilitychange).
+    // telemetry 5m. Paused while tab hidden (visibilitychange). Skipped until session is confirmed
+    // so unauthenticated / half-loaded shells do not stampede D1.
+    if (!sessionUserId) return;
+
     const ids: number[] = [];
     const clearAll = () => {
       ids.forEach((id) => clearInterval(id));
@@ -3151,12 +3192,15 @@ const App: React.FC = () => {
       clearAll();
       if (typeof document !== 'undefined' && document.hidden) return;
 
-      void fetchHealth();
-      void fetchNotifications();
-      void fetchGitAndProblems();
-      void fetchSecurityShieldPulse(true);
-      void fetchTunnelStatusOnly();
-      void fetchTerminalConfigOnly();
+      const freshBootstrap = readDashboardBootstrapCache();
+      if (!freshBootstrap) {
+        void fetchHealth();
+        void fetchNotifications();
+        void fetchGitAndProblems();
+        void fetchSecurityShieldPulse(true);
+        void fetchTunnelStatusOnly();
+        void fetchTerminalConfigOnly();
+      }
       void fetchTelemetryPoll();
 
       ids.push(window.setInterval(() => void fetchHealth(), 300_000));
@@ -3180,6 +3224,7 @@ const App: React.FC = () => {
       clearAll();
     };
   }, [
+    sessionUserId,
     fetchHealth,
     fetchNotifications,
     fetchGitAndProblems,

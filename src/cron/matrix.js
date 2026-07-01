@@ -4,6 +4,7 @@
  *
  * | Expression      | Job |
  * |-----------------|-----|
+ * | `*/20 * * * *`  | `runMeshyCadReconcileJobs` — Meshy CAD safety net (only when in-flight jobs > 0) |
  * | `*/25 * * * *`  | `runContainerPrewarmCron` — MY_CONTAINER keep-warm + scheduler failure alert |
  * | `*/30 * * * *`  | `runThirtyMinuteJobs` — DB queue drain, overnight progress, stale terminal sweep |
  * | `0 * * * *`     | `runHourlyRoutingJobs` |

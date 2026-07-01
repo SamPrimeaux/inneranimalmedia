@@ -70,6 +70,7 @@ import type {
 import type { AgentToolTraceRow } from './execution/types';
 import { ExecutionTimeline, ScriptDraftPanel, shellSingleQuote } from './execution';
 import { useWorkspace } from '../../src/context/WorkspaceContext';
+import { readDashboardBootstrapCache } from '../../src/loadDashboardBootstrap';
 import {
   githubRepoContextStorageKey,
   chatGithubContextStorageKey,
@@ -1168,6 +1169,27 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, [selectedModelKey]);
 
   useEffect(() => {
+    if (!sessionUserId) return;
+    const boot = readDashboardBootstrapCache();
+    const bootModels = boot?.agent?.models;
+    if (Array.isArray(bootModels) && bootModels.length > 0) {
+      const rows: ChatModelRow[] = (bootModels as Record<string, unknown>[]).map((raw) => ({
+        id: String(raw.id ?? raw.model_key ?? ''),
+        name: String(raw.name ?? raw.display_name ?? raw.model_key ?? ''),
+        provider: String(raw.provider ?? ''),
+        model_key: String(raw.model_key ?? ''),
+        api_platform: String(raw.api_platform ?? ''),
+        picker_group:
+          raw.picker_group != null && String(raw.picker_group).trim()
+            ? String(raw.picker_group).trim()
+            : '',
+        size_class: raw.size_class != null ? String(raw.size_class) : '',
+        input_rate_per_mtok: raw.input_rate_per_mtok != null ? Number(raw.input_rate_per_mtok) : null,
+        output_rate_per_mtok: raw.output_rate_per_mtok != null ? Number(raw.output_rate_per_mtok) : null,
+      }));
+      setChatModels(rows);
+      return;
+    }
     fetch('/api/agent/models?show_in_picker=1', { credentials: 'same-origin' })
       .then((r) => r.json())
       .then((data) => {
@@ -1197,7 +1219,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         });
       })
       .catch(() => {});
-  }, []);
+  }, [sessionUserId]);
 
   const prevSelectedModelKeyRef = useRef('');
   useEffect(() => {
@@ -1212,13 +1234,19 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, [selectedModelKey, isLoading]);
 
   useEffect(() => {
+    if (!sessionUserId) return;
+    const boot = readDashboardBootstrapCache();
+    if (boot?.agent?.default_model) {
+      setDefaultModelKey(String(boot.agent.default_model).trim() || null);
+      return;
+    }
     fetch('/api/settings/default-model', { credentials: 'same-origin' })
       .then((r) => r.json())
       .then((d: { default_model?: string | null }) => {
         setDefaultModelKey(typeof d.default_model === 'string' && d.default_model.trim() ? d.default_model.trim() : null);
       })
       .catch(() => setDefaultModelKey(null));
-  }, []);
+  }, [sessionUserId]);
 
   const modeLabel = modes.find((m) => m.id === mode)?.label ?? mode;
 

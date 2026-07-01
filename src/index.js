@@ -7,6 +7,9 @@ import { dispatchProductionDomainRoutes } from './core/router.js';
 import { recordWorkerAnalyticsError, writeTelemetry } from './api/telemetry';
 import {
   primeRequestAuth,
+  primeLegacySessionUpgrade,
+  peekSessionUpgradeToken,
+  formatSessionCookieHeader,
   peekRequestAuth,
   authContextToLegacyUser,
   jsonResponse,
@@ -153,6 +156,11 @@ export default {
         mutableHeaders.append('Set-Cookie', 'session=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax');
       }
 
+      const upgradeToken = peekSessionUpgradeToken(request);
+      if (!isSettingSession && upgradeToken) {
+        mutableHeaders.append('Set-Cookie', formatSessionCookieHeader(upgradeToken));
+      }
+
       return new Response(res.body, {
         status: res.status,
         statusText: res.statusText,
@@ -191,6 +199,7 @@ export default {
             });
       // keep primeRequestAuth for cache compatibility during migration (never required)
       await primeRequestAuth(request, env);
+      await primeLegacySessionUpgrade(request, env);
       const identity = await resolveIdentity(env, request);
       // Canonical auth URLs first — before health, assets, dashboard shell, or legacy fallthrough.
       // Preserve query string (e.g. next=). No-store so stale HTML is not cached at /login.

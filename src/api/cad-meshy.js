@@ -3,6 +3,7 @@
  */
 import { jsonResponse, resolveRequestContext } from '../core/auth.js';
 import { resolveCadJobScope } from '../core/cad-job-scope.js';
+import { scheduleMeshyCadJobReconcile } from '../core/meshy-cad-reconcile.js';
 import { applyMeshyTaskToCadJob } from '../core/meshy-cad-sync.js';
 import { buildCadAssetPublicUrl } from '../core/cad-job-scope.js';
 import {
@@ -46,8 +47,9 @@ export { getBalance, checkMeshyBalance };
 /**
  * @param {any} env
  * @param {Record<string, unknown>} fields
+ * @param {ExecutionContext | null | undefined} [ctx]
  */
-export async function insertMeshyCadJob(env, fields) {
+export async function insertMeshyCadJob(env, fields, ctx = null) {
   await env.DB.prepare(
     `INSERT INTO agentsam_cad_jobs (
        id, user_id, session_id, engine, prompt, mode, status,
@@ -82,6 +84,12 @@ export async function insertMeshyCadJob(env, fields) {
       fields.texture_data != null ? JSON.stringify(fields.texture_data) : null,
     )
     .run();
+
+  const extId = fields.external_task_id != null ? String(fields.external_task_id).trim() : '';
+  const jobId = fields.id != null ? String(fields.id).trim() : '';
+  if (ctx && extId && jobId) {
+    scheduleMeshyCadJobReconcile(env, ctx, jobId);
+  }
 }
 
 /** UI rail / API aliases → Meshy OpenAPI task route key. */
@@ -135,8 +143,9 @@ function logMeshyAuthResolution(reqCtx, meshyAuth, env) {
  * @param {Record<string, unknown>} body
  * @param {string} taskType
  * @param {{ apiKey?: string | null; source?: string }} meshyAuth
+ * @param {ExecutionContext | null | undefined} [ctx]
  */
-async function startMeshyCadJob(env, authRequest, authUser, body, taskType, meshyAuth) {
+async function startMeshyCadJob(env, authRequest, authUser, body, taskType, meshyAuth, ctx = null) {
   const normalized = MESHY_TASK_TYPE_ALIASES[taskType] || taskType;
   const op =
     normalized === 'text-to-image'
@@ -225,7 +234,7 @@ async function startMeshyCadJob(env, authRequest, authUser, body, taskType, mesh
     credits_consumed: estimateMeshyOperationCost(op, body),
     rig_task_id: body.rig_task_id ? String(body.rig_task_id) : null,
     texture_data: textureDataWithMeshySource(body.texture_data, meshyAuth.source === 'byok' ? 'byok' : 'platform'),
-  });
+  }, ctx);
 
   return {
     job_id: jobId,
@@ -253,6 +262,10 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
   if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
   const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
   if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
+
+  const insertJob = (fields) => insertMeshyCadJob(env, fields, ctx);
+  const startJob = (authReq, user, body, taskType, meshyAuth) =>
+    startMeshyCadJob(env, authReq, user, body, taskType, meshyAuth, ctx);
 
   try {
     if (path === '/api/cad/meshy/balance' && method === 'GET') {
@@ -298,7 +311,7 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
       }
 
       const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-      await insertMeshyCadJob(env, {
+      await insertJob({
         id: jobId,
         user_id: authUser.id,
         session_id: scope.sessionId,
@@ -370,7 +383,7 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
       }
 
       const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-      await insertMeshyCadJob(env, {
+      await insertJob({
         id: jobId,
         user_id: authUser.id,
         session_id: scope.sessionId,
@@ -477,7 +490,7 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
       }
 
       const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-      await insertMeshyCadJob(env, {
+      await insertJob({
         id: jobId,
         user_id: authUser.id,
         session_id: scope.sessionId,
@@ -660,7 +673,7 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
       }
 
       const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-      await insertMeshyCadJob(env, {
+      await insertJob({
         id: jobId,
         user_id: authUser.id,
         session_id: scope.sessionId,
@@ -797,7 +810,7 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
         (built.imageStyle ? 'retexture:image' : '') ||
         (built.inputTaskId ? `retexture:${built.inputTaskId.slice(0, 8)}` : 'retexture');
 
-      await insertMeshyCadJob(env, {
+      await insertJob({
         id: jobId,
         user_id: authUser.id,
         session_id: scope.sessionId,
@@ -851,7 +864,7 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
       }
 
       try {
-        const result = await startMeshyCadJob(env, authRequest, authUser, body, 'uv-unwrap', meshyAuth);
+        const result = await startJob(authRequest, authUser, body, 'uv-unwrap', meshyAuth);
         return jsonResponse({
           ...result,
           key_source: meshyAuth.source,
@@ -967,7 +980,7 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
         String(body.texture_prompt || body.prompt || '').trim() ||
         (built.inputTaskId ? `image-to-3d:${built.inputTaskId.slice(0, 8)}` : 'image-to-3d');
 
-      await insertMeshyCadJob(env, {
+      await insertJob({
         id: jobId,
         user_id: authUser.id,
         session_id: scope.sessionId,
@@ -1083,7 +1096,7 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
       }
 
       const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-      await insertMeshyCadJob(env, {
+      await insertJob({
         id: jobId,
         user_id: authUser.id,
         session_id: scope.sessionId,
@@ -1142,7 +1155,7 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
       if (isMeshyAuthMissing(meshyAuth)) {
         const scope = await resolveCadJobScope(env, authRequest, authUser, body);
         const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-        await insertMeshyCadJob(env, {
+        await insertJob({
           id: jobId,
           user_id: authUser.id,
           session_id: scope.sessionId,
@@ -1165,7 +1178,7 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
       }
 
       try {
-        const result = await startMeshyCadJob(env, authRequest, authUser, body, taskType, meshyAuth);
+        const result = await startJob(authRequest, authUser, body, taskType, meshyAuth);
         return jsonResponse({ ...result, key_source: meshyAuth.source });
       } catch (e) {
         const mapped = meshyErrorResponseBody(e);
@@ -1188,7 +1201,7 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
       logMeshyAuthResolution(reqCtx, meshyAuth, env);
 
       if (isMeshyAuthMissing(meshyAuth)) {
-        await insertMeshyCadJob(env, {
+        await insertJob({
           id: jobId,
           user_id: authUser.id,
           session_id: scope.sessionId,
@@ -1273,7 +1286,7 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
         return jsonResponse({ error: 'Meshy did not return task id' }, 502);
       }
 
-      await insertMeshyCadJob(env, {
+      await insertJob({
         id: jobId,
         user_id: authUser.id,
         session_id: scope.sessionId,

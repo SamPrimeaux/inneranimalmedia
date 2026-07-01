@@ -7,7 +7,13 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { EditorProvider } from './src/EditorContext';
 import { WorkspaceProvider } from './src/context/WorkspaceContext';
-import { bootstrapSupabaseFromSession } from './src/lib/supabase';
+import { bootstrapSupabaseFromSession, setSupabaseBootstrap } from './src/lib/supabase';
+import { readDashboardBootstrapCache } from './src/loadDashboardBootstrap';
+
+const bootClient = readDashboardBootstrapCache(60_000)?.client;
+if (bootClient?.supabaseUrl && bootClient?.supabaseAnonKey) {
+  setSupabaseBootstrap(bootClient.supabaseUrl, bootClient.supabaseAnonKey);
+}
 
 void bootstrapSupabaseFromSession();
 

@@ -15,6 +15,7 @@ import {
 } from "../iamWorkspaceStorage";
 import { clearIamGitStatusCache } from "../iamGitStatusCache";
 import { normalizeGithubRepo } from "../normalizeGithubRepo";
+import { isDashboardBootstrapPath, loadDashboardBootstrap } from "../loadDashboardBootstrap";
 
 export type WorkspaceRow = {
   id: string;
@@ -369,32 +370,69 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         setLoading(true);
       }
       let userId: string | null = null;
-      try {
-        const meRes = await fetch("/api/auth/me", { credentials: "same-origin" });
-        if (meRes.ok) {
-          const me = (await meRes.json()) as {
-            id?: string | null;
-            avatar_url?: string | null;
-            user?: {
-              id?: string | null;
-              name?: string | null;
-              email?: string | null;
-              avatar_url?: string | null;
+      const useBootstrap = isDashboardBootstrapPath();
+      if (useBootstrap) {
+        try {
+          const boot = await loadDashboardBootstrap();
+          if (boot?.me?.user?.id) {
+            userId = String(boot.me.user.id).trim() || null;
+            const rawName = boot.me.user.name != null ? String(boot.me.user.name).trim() : "";
+            const emailLocal =
+              boot.me.user.email != null ? String(boot.me.user.email).split("@")[0]?.trim() : "";
+            setSessionUserName(rawName || emailLocal || null);
+            const avatar =
+              boot.me.user.avatar_url != null ? String(boot.me.user.avatar_url).trim() : "";
+            setSessionAvatarUrl(avatar || null);
+          }
+          if (boot?.workspaces?.data?.length) {
+            const payload: IamWorkspaceSessionPayload = {
+              fetchedAt: boot.fetched_at ?? Date.now(),
+              sessionUserId: userId,
+              current: boot.workspaces.current ?? null,
+              data: boot.workspaces.data.map((w) => ({
+                id: w.id,
+                name: w.name ?? w.id,
+                slug: w.slug ?? w.handle ?? w.id.replace(/^ws_/, ""),
+                status: w.status ?? "active",
+                github_repo: w.github_repo ?? null,
+                database_studio_name: w.database_studio_name ?? null,
+              })),
             };
-          };
-          const rawId = me?.user?.id ?? me?.id;
-          userId = rawId != null && String(rawId).trim() ? String(rawId).trim() : null;
-          const rawName = me?.user?.name != null ? String(me.user.name).trim() : "";
-          const emailLocal =
-            me?.user?.email != null ? String(me.user.email).split("@")[0]?.trim() : "";
-          setSessionUserName(rawName || emailLocal || null);
-          const avatar =
-            (me?.user?.avatar_url != null ? String(me.user.avatar_url).trim() : "") ||
-            (me?.avatar_url != null ? String(me.avatar_url).trim() : "");
-          setSessionAvatarUrl(avatar || null);
+            writeIamWorkspaceSession(payload);
+            hydrateFromPayload(payload);
+          }
+        } catch {
+          /* fall through to /api/auth/me */
         }
-      } catch {
-        /* ignore */
+      }
+      if (!userId) {
+        try {
+          const meRes = await fetch("/api/auth/me", { credentials: "same-origin" });
+          if (meRes.ok) {
+            const me = (await meRes.json()) as {
+              id?: string | null;
+              avatar_url?: string | null;
+              user?: {
+                id?: string | null;
+                name?: string | null;
+                email?: string | null;
+                avatar_url?: string | null;
+              };
+            };
+            const rawId = me?.user?.id ?? me?.id;
+            userId = rawId != null && String(rawId).trim() ? String(rawId).trim() : null;
+            const rawName = me?.user?.name != null ? String(me.user.name).trim() : "";
+            const emailLocal =
+              me?.user?.email != null ? String(me.user.email).split("@")[0]?.trim() : "";
+            setSessionUserName(rawName || emailLocal || null);
+            const avatar =
+              (me?.user?.avatar_url != null ? String(me.user.avatar_url).trim() : "") ||
+              (me?.avatar_url != null ? String(me.avatar_url).trim() : "");
+            setSessionAvatarUrl(avatar || null);
+          }
+        } catch {
+          /* ignore */
+        }
       }
       if (cancelled) return;
       setSessionUserId(userId);
@@ -411,16 +449,18 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         writeIamWorkspaceSession(withUser);
         hydrateFromPayload(withUser);
         if (!cancelled) setLoading(false);
-        try {
-          const fresh = await fetchSettingsWorkspaces();
-          if (!cancelled && fresh) {
-            fresh.sessionUserId = userId;
-            const merged = applyInSessionWorkspacePick(fresh, userPickedWorkspaceRef.current);
-            writeIamWorkspaceSession(merged);
-            hydrateFromPayload(merged);
+        if (userId && !useBootstrap) {
+          try {
+            const fresh = await fetchSettingsWorkspaces();
+            if (!cancelled && fresh) {
+              fresh.sessionUserId = userId;
+              const merged = applyInSessionWorkspacePick(fresh, userPickedWorkspaceRef.current);
+              writeIamWorkspaceSession(merged);
+              hydrateFromPayload(merged);
+            }
+          } catch {
+            /* cache hydrate already applied */
           }
-        } catch {
-          /* cache hydrate already applied */
         }
         return;
       }
@@ -429,15 +469,17 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         clearIamWorkspaceSession(cached.sessionUserId);
       }
 
-      try {
-        const payload = await fetchSettingsWorkspaces();
-        if (cancelled || !payload) return;
-        payload.sessionUserId = userId;
-        const merged = applyInSessionWorkspacePick(payload, userPickedWorkspaceRef.current);
-        writeIamWorkspaceSession(merged);
-        hydrateFromPayload(merged);
-      } catch {
-        /* ignore */
+      if (userId && !useBootstrap) {
+        try {
+          const payload = await fetchSettingsWorkspaces();
+          if (cancelled || !payload) return;
+          payload.sessionUserId = userId;
+          const merged = applyInSessionWorkspacePick(payload, userPickedWorkspaceRef.current);
+          writeIamWorkspaceSession(merged);
+          hydrateFromPayload(merged);
+        } catch {
+          /* ignore */
+        }
       }
       if (!cancelled) setLoading(false);
     })();

@@ -49,6 +49,7 @@ import { handleCadApi } from '../api/cad.js';
 import { handleDesignStudioApi } from '../api/designstudio/index.js';
 import { handleStudioSessionApi } from '../api/studio-session.js';
 import { handleStatusBundle } from '../api/status-bundle.js';
+import { handleDashboardBootstrap } from '../api/dashboard-bootstrap.js';
 import { handleCursorAgentApi } from '../api/cursor-agent.js';
 import { handleCursorAcpMessage } from '../api/cursor-acp.js';
 import { handleStripeWebhook } from '../api/billing.js';
@@ -251,6 +252,11 @@ export async function dispatchProductionDomainRoutes(rc) {
   if (pathLower.startsWith('/api/data-plane')) {
     const { handleCustomerDataPlaneApi } = await import('../api/customer-data-plane-api.js');
     return handleCustomerDataPlaneApi(request, url, env);
+  }
+
+  if (pathLower === '/api/dashboard/bootstrap' && request.method === 'GET') {
+    if (!authUser || !authCtx) return jsonResponse({ error: 'Unauthorized' }, 401);
+    return handleDashboardBootstrap(request, env, authCtx);
   }
 
   if (pathLower === '/api/dashboard/status-bundle' && request.method === 'GET') {

@@ -840,6 +840,71 @@ export async function syncSessionWorkspaceId(env, request, userId, workspaceId) 
 
 /** Per-request auth resolution cache (primed once at Worker front door). */
 const requestAuthCache = new WeakMap();
+/** Lazy legacy UUID cookie → edge JWT upgrade (Set-Cookie on response). */
+const requestSessionUpgrade = new WeakMap();
+
+/**
+ * When the browser still holds a legacy auth_sessions UUID cookie, mint an edge JWT
+ * after getSession() has already validated revocation/expiry (KV + D1).
+ * @param {Request} request
+ * @param {any} env
+ */
+export async function primeLegacySessionUpgrade(request, env) {
+  if (!request || requestSessionUpgrade.has(request)) return;
+  requestSessionUpgrade.set(request, null);
+
+  const cookieHeader = request.headers.get('Cookie') || '';
+  const regex = new RegExp(`(?:^|;\\s*)${AUTH_COOKIE_NAME}=([^;]+)`, 'g');
+  let match;
+  let hasEdge = false;
+  let hasLegacy = false;
+  while ((match = regex.exec(cookieHeader)) !== null) {
+    const raw = trimSessionField(decodeURIComponent(String(match[1] || '')));
+    if (!raw) continue;
+    if (isEdgeSessionToken(raw)) hasEdge = true;
+    else if (isLegacySessionId(raw)) hasLegacy = true;
+  }
+  if (!hasLegacy || hasEdge) return;
+
+  const session = await getSession(env, request).catch(() => null);
+  const userId = trimSessionField(session?.user_id);
+  const sessionId = trimSessionField(session?.session_id || session?.id);
+  if (!userId || !sessionId) return;
+
+  try {
+    const workspaceId = trimSessionField(session?.workspace_id) || null;
+    const tenantId = trimSessionField(session?.tenant_id) || null;
+    const membership = workspaceId ? await loadMembershipCached(env, userId, workspaceId) : null;
+    const policy = await loadAgentSamUserPolicyCached(env, userId, workspaceId || '');
+    const isSuperadmin = Number(session?.is_superadmin) === 1;
+    const authRev = await readAuthRev(env, userId);
+    const capabilities = computeAuthCapabilities(isSuperadmin, membership, policy);
+    const sessionToken = await mintBrowserSessionToken(env, {
+      sessionId,
+      userId,
+      tenantId,
+      workspaceId,
+      email: session?.email,
+      personUuid: session?.person_uuid,
+      displayName: session?.display_name,
+      isSuperadmin,
+      authRev,
+      capabilities,
+    });
+    requestSessionUpgrade.set(request, sessionToken);
+  } catch (e) {
+    console.warn('[primeLegacySessionUpgrade]', e?.message ?? e);
+  }
+}
+
+/**
+ * @param {Request} request
+ * @returns {string | null}
+ */
+export function peekSessionUpgradeToken(request) {
+  if (!request || !requestSessionUpgrade.has(request)) return null;
+  return requestSessionUpgrade.get(request) ?? null;
+}
 
 /**
  * Resolve auth once per request and cache on the Request object.
@@ -1070,24 +1135,33 @@ export async function resolveAuth(request, env, opts = {}) {
   const isEdgeSession = sessionRaw?.edge === true;
   let row = null;
 
-  if (isEdgeSession) {
-    row = {
+  /** Session cookie claims when D1 auth_users is unavailable (edge JWT or degraded legacy). */
+  const rowFromSessionRaw = () => {
+    if (!sessionRaw?.user_id) return null;
+    return {
       id: userId,
       email: sessionRaw?.email ?? null,
-      name: sessionRaw?.display_name ?? null,
-      display_name: sessionRaw?.display_name ?? null,
+      name: sessionRaw?.display_name ?? sessionRaw?.name ?? null,
+      display_name: sessionRaw?.display_name ?? sessionRaw?.name ?? null,
       person_uuid: sessionRaw?.person_uuid ?? null,
       is_superadmin: Number(sessionRaw?.is_superadmin) === 1 ? 1 : 0,
       active_tenant_id: sessionRaw?.tenant_id ?? null,
       tenant_id: sessionRaw?.tenant_id ?? null,
       active_workspace_id: sessionRaw?.workspace_id ?? null,
     };
+  };
+
+  if (isEdgeSession) {
+    row = rowFromSessionRaw();
   } else if (env?.DB) {
     try {
       row = await env.DB.prepare(`SELECT * FROM auth_users WHERE id = ? LIMIT 1`).bind(userId).first();
     } catch (e) {
       console.warn('[resolveAuth]', e?.message || e);
+      row = rowFromSessionRaw();
     }
+  } else {
+    row = rowFromSessionRaw();
   }
 
   if (!row?.id) {
