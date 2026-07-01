@@ -138,9 +138,14 @@ export async function executeCmsPagePublish(
   }
 
   const storefrontHydrate = layout.mode === 'storefront_asset' && layout.asset?.hydrate === true;
+
+  // Read the R2 body ONCE as ArrayBuffer to avoid "Body already used" stream exhaustion.
+  // Derive text from the buffer via TextDecoder instead of calling .text() separately.
+  let draftBuffer: ArrayBuffer | null = null;
   let draftHtml: string | null = null;
   if (draftObj) {
-    draftHtml = await draftObj.text();
+    draftBuffer = await draftObj.arrayBuffer();
+    draftHtml = new TextDecoder().decode(draftBuffer);
   }
 
   if (!draftObj && !storefrontHydrate) {
@@ -201,19 +206,19 @@ export async function executeCmsPagePublish(
   }
 
   const shouldCopyDraftR2 =
-    draftObj &&
-  draftHtml &&
-  (!storefrontHydrate || isFullHtmlDocument(draftHtml));
+    draftBuffer != null &&
+    draftHtml != null &&
+    (!storefrontHydrate || isFullHtmlDocument(draftHtml));
 
+  // Hoist contentByteLength so it's accessible in the return statement regardless of branch.
   let contentByteLength = 0;
-  if (shouldCopyDraftR2) {
-    const content = await draftObj.arrayBuffer();
-    contentByteLength = content.byteLength;
-    await r2Binding.put(publishedKey, content, {
+  if (shouldCopyDraftR2 && draftBuffer != null) {
+    contentByteLength = draftBuffer.byteLength;
+    await r2Binding.put(publishedKey, draftBuffer, {
       httpMetadata: { contentType: page.content_type || 'text/html' },
     });
     if (layout.mode === 'storefront_asset' && layout.legacy_published_key) {
-      await r2Binding.put(layout.legacy_published_key, content, {
+      await r2Binding.put(layout.legacy_published_key, draftBuffer, {
         httpMetadata: { contentType: page.content_type || 'text/html' },
       }).catch(() => {});
     }
@@ -222,7 +227,7 @@ export async function executeCmsPagePublish(
     contentByteLength = Number(pubHead?.size) || Number(page.content_size_bytes) || 0;
   }
 
-  const dbR2Key = layout.mode === 'storefront_asset' ? publishedKey : publishedKey;
+  const dbR2Key = publishedKey;
 
   const now = Math.floor(Date.now() / 1000);
   await (env.DB as D1Database)
@@ -291,7 +296,7 @@ export async function executeCmsPagePublish(
     page_id: pageId,
     r2_key: publishedKey,
     r2_bucket: String(r2Bucket),
-    byte_length: content.byteLength,
+    byte_length: contentByteLength,
     bootstrap_cache_key: cmsBootstrapKey(workspaceId, projectSlug),
     override_chain: overrideChain,
     preview_urls: previewUrls,
