@@ -16,6 +16,8 @@ export function createChatStreamLifecycle(meta = {}) {
   /** @type {string|null} */
   let lastPhase = null;
   let firstTokenMs = null;
+  /** @type {Record<string, unknown>|null} */
+  let turnMeta = null;
 
   const basePayload = () => ({
     ...meta,
@@ -61,7 +63,7 @@ export function createChatStreamLifecycle(meta = {}) {
    * @param {string} [reason]
    */
   const finalize = (reason = 'stream_close') => {
-    const payload = { ...basePayload(), reason };
+    const payload = { ...basePayload(), reason, ...(turnMeta || {}) };
     if (sawError) {
       console.warn('[chat_stream] close_with_error', JSON.stringify(payload));
       return payload;
@@ -82,5 +84,10 @@ export function createChatStreamLifecycle(meta = {}) {
     console.info('[chat_stream] open', JSON.stringify({ ...meta, t0 }));
   };
 
-  return { wrapEmit, finalize, record, logOpen, basePayload, t0, get sawToken() { return sawToken; }, get sawDone() { return sawDone; } };
+  /** @param {Record<string, unknown>|null|undefined} metaPatch */
+  const setTurnMeta = (metaPatch) => {
+    turnMeta = metaPatch && typeof metaPatch === 'object' ? { ...metaPatch } : null;
+  };
+
+  return { wrapEmit, finalize, record, logOpen, setTurnMeta, basePayload, t0, get sawToken() { return sawToken; }, get sawDone() { return sawDone; } };
 }

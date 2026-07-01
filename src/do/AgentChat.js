@@ -131,17 +131,9 @@ export class AgentChatSqlV1 extends DurableObject {
     this.env = env;
     /** @type {import('@cloudflare/workers-types').SqlStorage} */
     this.sql = state.storage.sql;
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS session_messages (
-      id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      model_used TEXT,
-      input_tokens INTEGER DEFAULT 0,
-      output_tokens INTEGER DEFAULT 0,
-      rag_chunks_injected INTEGER DEFAULT 0,
-      top_rag_score REAL DEFAULT 0,
-      created_at INTEGER DEFAULT (unixepoch())
-    )`);
+    state.blockConcurrencyWhile(async () => {
+      this.migrateSessionMessagesSchema();
+    });
     this.sql.exec(`CREATE TABLE IF NOT EXISTS session_rag_cache (
       query_hash TEXT PRIMARY KEY,
       chunk_ids TEXT,
@@ -180,6 +172,172 @@ export class AgentChatSqlV1 extends DurableObject {
     /** Selected terminal_connections row for current session. */
     this.selectedTerminalConnection = null;
     this.selectedTargetType = "platform_vm";
+  }
+
+  migrateSessionMessagesSchema() {
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS session_messages (
+        id            TEXT PRIMARY KEY,
+        turn_id       TEXT,
+        role          TEXT NOT NULL,
+        content       TEXT NOT NULL,
+        status        TEXT NOT NULL DEFAULT 'complete',
+        error         TEXT,
+        model_used    TEXT,
+        input_tokens  INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        tool_calls    TEXT,
+        created_at    INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at    INTEGER NOT NULL DEFAULT (unixepoch())
+      )
+    `);
+
+    const cols = [...this.sql.exec(`PRAGMA table_info(session_messages)`)].map((c) => c.name);
+    if (!cols.includes("status")) {
+      this.sql.exec(`ALTER TABLE session_messages ADD COLUMN status TEXT NOT NULL DEFAULT 'complete'`);
+    }
+    if (!cols.includes("error")) {
+      this.sql.exec(`ALTER TABLE session_messages ADD COLUMN error TEXT`);
+    }
+    if (!cols.includes("turn_id")) {
+      this.sql.exec(`ALTER TABLE session_messages ADD COLUMN turn_id TEXT`);
+    }
+    if (!cols.includes("tool_calls")) {
+      this.sql.exec(`ALTER TABLE session_messages ADD COLUMN tool_calls TEXT`);
+    }
+    if (!cols.includes("updated_at")) {
+      this.sql.exec(`ALTER TABLE session_messages ADD COLUMN updated_at INTEGER NOT NULL DEFAULT (unixepoch())`);
+    }
+
+    this.sql.exec(`CREATE INDEX IF NOT EXISTS idx_session_messages_created_at ON session_messages(created_at)`);
+    this.sql.exec(`CREATE INDEX IF NOT EXISTS idx_session_messages_turn_id ON session_messages(turn_id)`);
+  }
+
+  /** @param {Request} request */
+  async handlePostMessage(request) {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ ok: false, error: "invalid_json" }, { status: 400 });
+    }
+
+    const {
+      id,
+      turn_id = null,
+      role,
+      content,
+      status = "complete",
+      error = null,
+      model_used = null,
+      input_tokens = 0,
+      output_tokens = 0,
+      tool_calls = null,
+    } = body || {};
+
+    if (!role || typeof content !== "string") {
+      return Response.json({ ok: false, error: "missing_role_or_content" }, { status: 400 });
+    }
+
+    const messageId = id || crypto.randomUUID();
+    const toolCallsJson = tool_calls ? JSON.stringify(tool_calls) : null;
+
+    this.sql.exec(
+      `INSERT INTO session_messages
+         (id, turn_id, role, content, status, error, model_used, input_tokens, output_tokens, tool_calls, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
+       ON CONFLICT(id) DO UPDATE SET
+         content       = excluded.content,
+         status        = excluded.status,
+         error         = excluded.error,
+         model_used    = excluded.model_used,
+         input_tokens  = excluded.input_tokens,
+         output_tokens = excluded.output_tokens,
+         tool_calls    = excluded.tool_calls,
+         updated_at    = unixepoch()`,
+      messageId,
+      turn_id,
+      role,
+      content,
+      status,
+      error,
+      model_used,
+      Number(input_tokens) || 0,
+      Number(output_tokens) || 0,
+      toolCallsJson,
+    );
+
+    return Response.json({ ok: true, id: messageId });
+  }
+
+  /**
+   * @param {string} id
+   * @param {Request} request
+   */
+  async handlePatchMessage(id, request) {
+    if (!id) return Response.json({ ok: false, error: "missing_id" }, { status: 400 });
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ ok: false, error: "invalid_json" }, { status: 400 });
+    }
+
+    const { status, error = null, output_tokens, content } = body || {};
+    if (!status) return Response.json({ ok: false, error: "missing_status" }, { status: 400 });
+
+    if (typeof content === "string") {
+      this.sql.exec(
+        `UPDATE session_messages
+         SET status = ?, error = ?, content = ?, output_tokens = COALESCE(?, output_tokens), updated_at = unixepoch()
+         WHERE id = ?`,
+        status,
+        error,
+        content,
+        output_tokens != null ? Number(output_tokens) : null,
+        id,
+      );
+    } else {
+      this.sql.exec(
+        `UPDATE session_messages
+         SET status = ?, error = ?, output_tokens = COALESCE(?, output_tokens), updated_at = unixepoch()
+         WHERE id = ?`,
+        status,
+        error,
+        output_tokens != null ? Number(output_tokens) : null,
+        id,
+      );
+    }
+
+    return Response.json({ ok: true });
+  }
+
+  /** @param {URL} url */
+  async handleGetHistory(url) {
+    const limit = Math.min(Number(url.searchParams.get("limit")) || 200, 500);
+    const cursor = url.searchParams.get("before");
+
+    const rows = cursor
+      ? [
+          ...this.sql.exec(
+            `SELECT * FROM session_messages WHERE created_at < ? ORDER BY created_at DESC LIMIT ?`,
+            Number(cursor),
+            limit,
+          ),
+        ]
+      : [
+          ...this.sql.exec(
+            `SELECT * FROM session_messages ORDER BY created_at DESC LIMIT ?`,
+            limit,
+          ),
+        ];
+
+    const messages = rows.reverse().map((r) => ({
+      ...r,
+      tool_calls: r.tool_calls ? JSON.parse(r.tool_calls) : null,
+    }));
+
+    return Response.json({ messages });
   }
 
   async resolvePtyTenantForSession(userId) {
@@ -387,29 +545,17 @@ export class AgentChatSqlV1 extends DurableObject {
       return Response.json({ ok: true, class: 'AgentChatSqlV1' });
     }
 
-    if (url.pathname === '/history') {
-      const limit = parseInt(url.searchParams.get('limit') || '50', 10);
-      const rows = [...this.sql.exec(
-        'SELECT id, role, content, model_used, input_tokens, output_tokens, created_at FROM session_messages ORDER BY created_at DESC LIMIT ?',
-        limit,
-      )];
-      return Response.json({ messages: rows.reverse() });
+    if (url.pathname === "/message" && request.method === "POST") {
+      return this.handlePostMessage(request);
     }
 
-    if (url.pathname === '/message' && request.method === 'POST') {
-      const body = await request.json().catch(() => ({}));
-      const { role, content, model_used, input_tokens, output_tokens, rag_chunks_injected, top_rag_score } = body;
-      this.sql.exec(
-        'INSERT INTO session_messages (role,content,model_used,input_tokens,output_tokens,rag_chunks_injected,top_rag_score) VALUES (?,?,?,?,?,?,?)',
-        role,
-        content,
-        model_used ?? null,
-        input_tokens ?? 0,
-        output_tokens ?? 0,
-        rag_chunks_injected ?? 0,
-        top_rag_score ?? 0,
-      );
-      return Response.json({ ok: true });
+    if (url.pathname.startsWith("/message/") && request.method === "PATCH") {
+      const messageId = url.pathname.split("/")[2] || "";
+      return this.handlePatchMessage(messageId, request);
+    }
+
+    if (url.pathname === "/history" && request.method === "GET") {
+      return this.handleGetHistory(url);
     }
 
     if (url.pathname === '/rag-cache' && request.method === 'GET') {

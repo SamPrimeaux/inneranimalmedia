@@ -174,6 +174,7 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     handoffResume,
     agentChatResolvedContext,
     projectContextBlock,
+    chatTurnMeta: pre.chatTurnMeta ?? null,
   };
 
   if (skillRoute) {

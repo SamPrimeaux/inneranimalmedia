@@ -104,6 +104,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   const handoffResume = input.handoffResume ?? null;
   const agentChatResolvedContext = input.agentChatResolvedContext ?? null;
   const browserContextPayload = input.browserContextPayload ?? null;
+  const chatTurnMeta = input.chatTurnMeta ?? null;
 
   const userPolicy =
     input.userPolicy && typeof input.userPolicy === 'object'
@@ -783,6 +784,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           maxRuntimeMs: maxRunMs,
           runtimeProfile: profile,
           codemodeRuntime,
+          chatTurnMeta,
         }),
         maxRunMs + 5000,
       );

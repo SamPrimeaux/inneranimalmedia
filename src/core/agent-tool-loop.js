@@ -1774,8 +1774,10 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     );
   }
 
-  // Persist user turn + assistant turns to AUTORAG_BUCKET R2 (non-blocking)
+  // Persist user turn + assistant turns to conversation DO (non-blocking)
   if (sessionId && userId) {
+    const turnId = params.chatTurnMeta?.turnId ?? null;
+    const assistantMessageId = params.chatTurnMeta?.assistantMessageId ?? null;
     const userMsg = messages?.[0];
     const userContent = typeof userMsg?.content === 'string'
       ? userMsg.content
@@ -1784,6 +1786,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       appendChatMessage(env, sessionId, {
         role: 'user',
         content: userContent,
+        turn_id: turnId,
         model_key: modelKey ?? null,
         tokens_in: 0,
         tokens_out: 0,
@@ -1797,13 +1800,22 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       .join('');
     if (assistantText) {
       appendChatMessage(env, sessionId, {
+        id: assistantMessageId ?? undefined,
+        turn_id: turnId,
         role: 'assistant',
         content: assistantText,
+        status: 'complete',
         model_key: modelKey ?? null,
         tokens_in: totalUsage.input_tokens ?? 0,
         tokens_out: totalUsage.output_tokens ?? 0,
       })
-        .then(() => markChatTurnStatus(env, sessionId, 'completed'))
+        .then(() =>
+          markChatTurnStatus(env, sessionId, 'completed', null, {
+            assistantMessageId,
+            output_tokens: totalUsage.output_tokens ?? 0,
+            content: assistantText,
+          }),
+        )
         .catch((e) => console.warn('[tool-loop] appendChatMessage assistant', e?.message ?? e));
     }
   }

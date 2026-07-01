@@ -18,6 +18,145 @@ import {
 } from './exec-context-tier.js';
 import { expandChatProjectRefs, resolveChatProjectId } from './project-chat-link.js';
 
+function getAgentSessionStub(env, conversationId) {
+  if (!env?.AGENT_SESSION) return null;
+  const convId = String(conversationId || '').trim();
+  if (!convId) return null;
+  return env.AGENT_SESSION.get(env.AGENT_SESSION.idFromName(convId));
+}
+
+/**
+ * @param {any} env
+ * @param {string} conversationId
+ * @param {{
+ *   id?: string|null,
+ *   turn_id?: string|null,
+ *   role: string,
+ *   content: string,
+ *   status?: string,
+ *   error?: string|null,
+ *   model_key?: string|null,
+ *   tokens_in?: number,
+ *   tokens_out?: number,
+ *   tool_calls?: unknown,
+ * }} turn
+ */
+async function appendChatMessageToDo(env, conversationId, turn) {
+  const stub = getAgentSessionStub(env, conversationId);
+  if (!stub) return { ok: false, reason: 'no_binding' };
+
+  const resp = await stub.fetch(
+    new Request('https://do/message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: turn.id ?? undefined,
+        turn_id: turn.turn_id ?? null,
+        role: turn.role,
+        content: turn.content,
+        status: turn.status ?? 'complete',
+        error: turn.error ?? null,
+        model_used: turn.model_key ?? null,
+        input_tokens: Number(turn.tokens_in) || 0,
+        output_tokens: Number(turn.tokens_out) || 0,
+        tool_calls: turn.tool_calls ?? null,
+      }),
+    }),
+  );
+  if (!resp.ok) return { ok: false, reason: `do_${resp.status}` };
+  const data = await resp.json().catch(() => ({}));
+  return { ok: true, id: data?.id ?? turn.id ?? null };
+}
+
+/**
+ * @param {any} env
+ * @param {string} conversationId
+ * @param {string} messageId
+ * @param {{ status: string, error?: string|null, output_tokens?: number|null, content?: string|null }} patch
+ */
+async function patchChatMessageInDo(env, conversationId, messageId, patch) {
+  const stub = getAgentSessionStub(env, conversationId);
+  const msgId = String(messageId || '').trim();
+  if (!stub || !msgId) return { ok: false, reason: 'missing_target' };
+
+  const resp = await stub.fetch(
+    new Request(`https://do/message/${encodeURIComponent(msgId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }),
+  );
+  if (!resp.ok) return { ok: false, reason: `do_${resp.status}` };
+  return { ok: true };
+}
+
+/**
+ * @param {any} env
+ * @param {string} conversationId
+ * @param {number} [limit]
+ */
+async function getChatMessagesFromDo(env, conversationId, limit = 200) {
+  const stub = getAgentSessionStub(env, conversationId);
+  if (!stub) return null;
+
+  const resp = await stub.fetch(
+    new Request(`https://do/history?limit=${encodeURIComponent(String(limit))}`),
+  );
+  if (!resp.ok) return null;
+  const data = await resp.json().catch(() => ({}));
+  const rows = Array.isArray(data) ? data : (data?.messages || []);
+  if (!rows.length) return null;
+
+  return rows.map((r) => ({
+    id: r.id,
+    turn_id: r.turn_id ?? null,
+    role: r.role,
+    content: r.content,
+    status: r.status ?? 'complete',
+    error: r.error ?? null,
+    ts: r.created_at ? new Date(Number(r.created_at) * 1000).toISOString() : null,
+    model_key: r.model_used ?? null,
+    tokens_in: Number(r.input_tokens) || 0,
+    tokens_out: Number(r.output_tokens) || 0,
+    tool_calls: r.tool_calls ?? null,
+  }));
+}
+
+/** @param {string} status */
+function mapChatTurnStatusToMessageStatus(status) {
+  const st = String(status || '').trim();
+  if (st === 'completed') return 'complete';
+  if (st === 'done_no_token') return 'failed';
+  if (st === 'in_progress') return 'pending';
+  return st;
+}
+
+/**
+ * Reserve a turn in the conversation DO: pending assistant row + turn_id for grouping.
+ *
+ * @param {any} env
+ * @param {string} conversationId
+ * @param {{ model_key?: string|null }} [opts]
+ * @returns {Promise<{ turnId: string, assistantMessageId: string }|null>}
+ */
+export async function beginChatTurn(env, conversationId, opts = {}) {
+  const convId = String(conversationId || '').trim();
+  if (!convId) return null;
+
+  const turnId = `turn_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const assistantMessageId = crypto.randomUUID();
+  const pending = await appendChatMessageToDo(env, convId, {
+    id: assistantMessageId,
+    turn_id: turnId,
+    role: 'assistant',
+    content: '',
+    status: 'pending',
+    model_key: opts.model_key ?? null,
+  });
+  if (!pending.ok) return null;
+  return { turnId, assistantMessageId };
+}
+
 const STOP_WORDS = new Set([
   'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'is', 'are', 'was',
   'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
@@ -164,93 +303,45 @@ export async function initChatSessionR2(env, session) {
  * @param {{
  *   role: 'user'|'assistant'|'tool',
  *   content: string,
+ *   id?: string|null,
+ *   turn_id?: string|null,
+ *   status?: string,
+ *   error?: string|null,
  *   model_key?: string|null,
  *   tokens_in?: number,
  *   tokens_out?: number,
+ *   tool_calls?: unknown,
  * }} turn
- * @returns {Promise<{ ok: boolean }>}
+ * @returns {Promise<{ ok: boolean, id?: string|null }>}
  */
 export async function appendChatMessage(env, conversationId, turn) {
   const convId = String(conversationId || '').trim();
   if (!convId) return { ok: false };
 
-  // Resolve the R2 key from D1 — avoids duplicating key-building logic if userId/workspaceId differ
-  let messagesKey = null;
-  if (env.DB) {
-    try {
-      const row = await env.DB.prepare(
-        `SELECT r2_messages_key, user_id, workspace_id FROM agentsam_chat_sessions
-         WHERE conversation_id = ? LIMIT 1`,
-      )
-        .bind(convId)
-        .first();
-      messagesKey = row?.r2_messages_key ?? null;
-      // If key not yet written (race: first message before initChatSessionR2 completes), build it
-      if (!messagesKey && row?.user_id && row?.workspace_id) {
-        const prefix = chatSessionR2Prefix({
-          userId: row.user_id,
-          workspaceId: row.workspace_id,
-          conversationId: convId,
-        });
-        messagesKey = `${prefix}/messages.jsonl`;
-      }
-    } catch (e) {
-      console.warn('[appendChatMessage] D1 key lookup failed', e?.message ?? e);
-    }
-  }
-
-  if (!messagesKey) return { ok: false };
-
-  const bucket = env.AUTORAG_BUCKET ?? env.R2 ?? null;
-  if (!bucket) return { ok: false };
-
-  const line = JSON.stringify({
-    role: String(turn.role || 'user'),
-    content: String(turn.content || ''),
-    ts: new Date().toISOString(),
-    model_key: turn.model_key ?? null,
-    tokens_in: Number(turn.tokens_in) || 0,
-    tokens_out: Number(turn.tokens_out) || 0,
-  }) + '\n';
-
-  try {
-    let existing = '';
-    const obj = await bucket.get(messagesKey);
-    if (obj) existing = await obj.text();
-    await bucket.put(messagesKey, existing + line, {
-      httpMetadata: { contentType: 'application/x-ndjson' },
-    });
-  } catch (e) {
-    console.warn('[appendChatMessage] R2 append failed', e?.message ?? e);
+  const doResult = await appendChatMessageToDo(env, convId, turn);
+  if (!doResult.ok) {
+    console.warn('[appendChatMessage] DO write failed', doResult.reason);
     return { ok: false };
   }
 
-  // Update D1 accumulators — best-effort, non-blocking
   if (env.DB) {
-    env.DB.prepare(
-      `UPDATE agentsam_chat_sessions
-       SET message_count    = COALESCE(message_count, 0) + 1,
-           total_tokens_in  = COALESCE(total_tokens_in, 0) + ?,
-           total_tokens_out = COALESCE(total_tokens_out, 0) + ?,
-           last_model_key   = COALESCE(?, last_model_key),
-           updated_at       = unixepoch()
-       WHERE conversation_id = ?`,
-    )
-      .bind(
-        Number(turn.tokens_in) || 0,
-        Number(turn.tokens_out) || 0,
-        turn.model_key ?? null,
-        convId,
+    const bumpCount =
+      turn.role === 'user' ||
+      (turn.role === 'assistant' && String(turn.status || 'complete') === 'complete');
+    if (bumpCount) {
+      env.DB.prepare(
+        `UPDATE agentsam_chat_sessions
+         SET message_count = COALESCE(message_count, 0) + 1,
+             updated_at    = unixepoch()
+         WHERE conversation_id = ?`,
       )
-      .run()
-      .catch((e) => console.warn('[appendChatMessage] D1 accumulator update failed', e?.message ?? e));
+        .bind(convId)
+        .run()
+        .catch((e) => console.warn('[appendChatMessage] D1 count update failed', e?.message ?? e));
+    }
   }
 
-  maybeCompactChatSession(env, convId).catch((e) =>
-    console.warn('[appendChatMessage] compaction failed', e?.message ?? e),
-  );
-
-  return { ok: true };
+  return { ok: true, id: doResult.id ?? null };
 }
 
 /**
@@ -261,11 +352,28 @@ export async function appendChatMessage(env, conversationId, turn) {
  * @param {string|null|undefined} conversationId
  * @param {string} status
  * @param {string|null} [error]
+ * @param {{ assistantMessageId?: string|null, output_tokens?: number|null, content?: string|null }} [opts]
  */
-export async function markChatTurnStatus(env, conversationId, status, error = null) {
+export async function markChatTurnStatus(env, conversationId, status, error = null, opts = {}) {
   const convId = String(conversationId || '').trim();
   const st = String(status || '').trim();
-  if (!env?.DB || !convId || !st) return { ok: false };
+  if (!convId || !st) return { ok: false };
+
+  const assistantMessageId =
+    opts.assistantMessageId != null ? String(opts.assistantMessageId).trim() : '';
+  if (assistantMessageId && env?.AGENT_SESSION && st !== 'in_progress') {
+    const patch = {
+      status: mapChatTurnStatusToMessageStatus(st),
+      error: error != null ? String(error).slice(0, 500) : null,
+    };
+    if (opts.output_tokens != null) patch.output_tokens = Number(opts.output_tokens) || 0;
+    if (typeof opts.content === 'string') patch.content = opts.content;
+    patchChatMessageInDo(env, convId, assistantMessageId, patch).catch((e) =>
+      console.warn('[markChatTurnStatus] DO patch failed', e?.message ?? e),
+    );
+  }
+
+  if (!env?.DB) return { ok: false };
   try {
     await env.DB.prepare(
       `UPDATE agentsam_chat_sessions
@@ -359,6 +467,9 @@ export async function maybeCompactChatSession(env, conversationId) {
 export async function getChatMessages(env, conversationId) {
   const convId = String(conversationId || '').trim();
   if (!convId) return [];
+
+  const fromDo = await getChatMessagesFromDo(env, convId);
+  if (fromDo?.length) return fromDo;
 
   let messagesKey = null;
   if (env.DB) {

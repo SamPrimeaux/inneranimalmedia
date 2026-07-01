@@ -1037,12 +1037,24 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   return startAgentChatEarlySse(async ({ emit, pipeResponse, streamLifecycle }) => {
     const chatIsSuperadmin = !!(identity?.isSuperadmin || chatAuthUser?.is_superadmin);
+    /** @type {{ turnId: string, assistantMessageId: string }|null} */
+    let chatTurnMeta = null;
     if (sessionId) {
-      const { markChatTurnStatus } = await import('../core/agentsam-chat-sessions.js');
+      const { beginChatTurn, markChatTurnStatus } = await import('../core/agentsam-chat-sessions.js');
+      chatTurnMeta = await beginChatTurn(env, sessionId, {
+        model_key: body.model_key ?? body.model ?? null,
+      });
+      if (chatTurnMeta) {
+        streamLifecycle.setTurnMeta(chatTurnMeta);
+      }
       if (ctx?.waitUntil) {
-        ctx.waitUntil(markChatTurnStatus(env, sessionId, 'in_progress'));
+        ctx.waitUntil(markChatTurnStatus(env, sessionId, 'in_progress', null, {
+          assistantMessageId: chatTurnMeta?.assistantMessageId ?? null,
+        }));
       } else {
-        void markChatTurnStatus(env, sessionId, 'in_progress');
+        void markChatTurnStatus(env, sessionId, 'in_progress', null, {
+          assistantMessageId: chatTurnMeta?.assistantMessageId ?? null,
+        });
       }
     }
     if (!ingestBypass && !chatIsSuperadmin && tenantId) {
@@ -1349,27 +1361,33 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       agentChatResolvedContext,
       quickstartBatch,
       streamLifecycle,
+      chatTurnMeta,
     });
   }, {
     conversationId: sessionId,
     userId,
     workspaceId,
     onStreamClose: async (result) => {
-      if (!sessionId || !env?.DB) return;
+      if (!sessionId) return;
       const { markChatTurnStatus } = await import('../core/agentsam-chat-sessions.js');
+      const turnOpts = {
+        assistantMessageId:
+          result?.assistantMessageId != null ? String(result.assistantMessageId) : null,
+      };
       if (result?.saw_error) {
-        await markChatTurnStatus(env, sessionId, 'failed', String(result.reason || 'stream_error'));
+        await markChatTurnStatus(env, sessionId, 'failed', String(result.reason || 'stream_error'), turnOpts);
       } else if (!result?.saw_token && !result?.saw_done) {
         await markChatTurnStatus(
           env,
           sessionId,
           'interrupted',
           'close_without_token_or_done',
+          turnOpts,
         );
       } else if (result?.saw_done && !result?.saw_token) {
-        await markChatTurnStatus(env, sessionId, 'done_no_token', 'stream_done_no_text');
+        await markChatTurnStatus(env, sessionId, 'done_no_token', 'stream_done_no_text', turnOpts);
       } else if (result?.saw_token) {
-        await markChatTurnStatus(env, sessionId, 'completed');
+        await markChatTurnStatus(env, sessionId, 'completed', null, turnOpts);
       }
     },
   });
