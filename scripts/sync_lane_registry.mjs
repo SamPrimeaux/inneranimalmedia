@@ -25,14 +25,14 @@ const LANE_REGISTRY_IDS = Object.freeze({
   documents: 'pgv_documents_1536',
   memory: 'pgv_memory_1536',
   database_schema: 'pgv_database_schema_1536',
-  deep_archive: 'pgv_deep_archive_1536',
+  deep_archive: 'pgv_deep_archive_3072',
 });
 
 /** Legacy rows superseded by LANE_CONFIG sync — deactivate, do not delete. */
 const SUPERSEDED_LANE_IDS = [
   'pgv_codebase_chunks_1536',
   'pgv_codebase_files_1536',
-  'pgv_deep_archive_3072',
+  'pgv_deep_archive_1536',
 ];
 
 function loadEnvCloudflare() {
@@ -73,19 +73,20 @@ function resolveTableName(cfg) {
 }
 
 function buildLaneRow(purpose, cfg) {
-  const id = LANE_REGISTRY_IDS[purpose] || `pgv_${purpose}_1536`;
+  const dims = Number(cfg.dimensions) || 1536;
+  const id = LANE_REGISTRY_IDS[purpose] || `pgv_${purpose}_${dims}`;
   return {
     id,
     schema_name: cfg.ssot === 'vectorize' ? 'cloudflare' : 'agentsam',
     table_name: resolveTableName(cfg),
     purpose,
-    dimensions: 1536,
+    dimensions: dims,
     metric: 'cosine',
     embedding_model: 'text-embedding-3-large',
     size_label: null,
     size_bytes: null,
     is_active: 1,
-    is_archive: cfg.ssot === 'vectorize' || purpose === 'deep_archive' ? 1 : 0,
+    is_archive: purpose === 'deep_archive' ? 1 : 0,
     description: buildDescription(purpose, cfg),
   };
 }

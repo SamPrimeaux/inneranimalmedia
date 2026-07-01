@@ -276,8 +276,12 @@ else
 fi
 
 echo "→ Sync pgvector lane registry from vectorize-lane-config.js…"
-./scripts/with-cloudflare-env.sh node "$REPO_ROOT/scripts/sync_lane_registry.mjs" \
-  || { echo "✗ sync_lane_registry failed" >&2; exit 1; }
+if [[ "${IAM_SKIP_LANE_REGISTRY_SYNC:-}" == "1" ]]; then
+  echo "  skipped (IAM_SKIP_LANE_REGISTRY_SYNC=1)"
+else
+  ./scripts/with-cloudflare-env.sh node "$REPO_ROOT/scripts/sync_lane_registry.mjs" \
+    || { echo "✗ sync_lane_registry failed" >&2; exit 1; }
+fi
 
 CACHE_SNIP="$(grep -oE '(dashboard|agent-dashboard|agent-core)\.(js|css)\?v=[0-9]+' "$REPO_ROOT/$DIST/index.html" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
 R2_LOCAL_OBJECTS="$(find "$REPO_ROOT/$DIST" -type f 2>/dev/null | wc -l | tr -d ' ')"

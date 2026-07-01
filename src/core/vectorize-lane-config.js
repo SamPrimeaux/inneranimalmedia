@@ -14,6 +14,7 @@
  *   filters: Record<string, unknown>,
  *   returns: LaneReturns,
  *   reindex_script: string|null,
+ *   dimensions?: number,
  * }>}
  */
 export const LANE_CONFIG = Object.freeze({
@@ -24,6 +25,7 @@ export const LANE_CONFIG = Object.freeze({
     filters: { source_type: 'repo_file' },
     returns: 'full_content',
     reindex_script: 'agentsam_codebase_reindex.mjs',
+    dimensions: 1536,
   },
   documents: {
     ssot: 'pgvector',
@@ -32,6 +34,7 @@ export const LANE_CONFIG = Object.freeze({
     filters: {},
     returns: 'full_content',
     reindex_script: 'rag_ingest.mjs',
+    dimensions: 1536,
   },
   memory: {
     ssot: 'pgvector',
@@ -40,6 +43,7 @@ export const LANE_CONFIG = Object.freeze({
     filters: { workspace_scoped: true },
     returns: 'full_content',
     reindex_script: null,
+    dimensions: 1536,
   },
   database_schema: {
     ssot: 'pgvector',
@@ -48,14 +52,16 @@ export const LANE_CONFIG = Object.freeze({
     filters: { workspace_scoped: true },
     returns: 'full_content',
     reindex_script: 'schema_ingest.mjs',
+    dimensions: 1536,
   },
   deep_archive: {
-    ssot: 'vectorize',
-    table: null,
-    vectorize: 'agentsam-deep-archive-1536',
-    filters: {},
-    returns: 'metadata_only',
+    ssot: 'pgvector',
+    table: 'agentsam_deep_archive_oai3large_3072',
+    vectorize: null,
+    filters: { workspace_scoped: true },
+    returns: 'full_content',
     reindex_script: 'archive_ingest.mjs',
+    dimensions: 3072,
   },
 });
 
