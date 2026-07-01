@@ -673,6 +673,7 @@ const App: React.FC = () => {
   } | null>(null);
   const [securityBannerDismissed, setSecurityBannerDismissed] = useState(false);
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
+  const [sandboxOk, setSandboxOk] = useState<boolean | null>(null);
   const [tunnelHealthy, setTunnelHealthy] = useState<boolean | null>(null);
   const [tunnelStale, setTunnelStale] = useState(false);
   const [tunnelLabel, setTunnelLabel] = useState<string | null>(null);
@@ -2811,12 +2812,23 @@ const App: React.FC = () => {
 
   const fetchHealth = useCallback(async () => {
     try {
-      const hr = await fetch('/api/health', { credentials: 'same-origin' });
+      const [hr, sr] = await Promise.all([
+        fetch('/api/health', { credentials: 'same-origin' }),
+        fetch('/api/sandbox/health', { credentials: 'same-origin' }),
+      ]);
       const hj = await hr.json().catch(() => ({}));
       if (hr.ok) setHealthOk(hj.status === 'ok' || hr.ok);
       else setHealthOk(false);
+      if (sr.ok) {
+        const sj = await sr.json().catch(() => ({}));
+        setSandboxOk(sj.ok === true);
+        void sj.exec_smoke;
+      } else {
+        setSandboxOk(false);
+      }
     } catch {
       setHealthOk(false);
+      setSandboxOk(false);
     }
   }, []);
 
@@ -3856,9 +3868,10 @@ const App: React.FC = () => {
         tunnelHealthy,
         tunnelStale,
         terminalOk,
+        sandboxOk,
         workspaceDrift,
       }),
-    [healthOk, tunnelHealthy, tunnelStale, terminalOk, workspaceDrift],
+    [healthOk, tunnelHealthy, tunnelStale, terminalOk, sandboxOk, workspaceDrift],
   );
 
   return (

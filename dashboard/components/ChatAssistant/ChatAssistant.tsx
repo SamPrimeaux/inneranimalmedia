@@ -419,6 +419,75 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [chatGithubFileContent, setChatGithubFileContent] = useState<string | null>(null);
   const [chatGithubContentTruncated, setChatGithubContentTruncated] = useState(false);
   const [chatGithubContentSha, setChatGithubContentSha] = useState<string | null>(null);
+  const [runtimeChecks, setRuntimeChecks] = useState<
+    { id: string; ok: boolean; label: string; detail?: string }[]
+  >([]);
+  const [runtimeChecksLoading, setRuntimeChecksLoading] = useState(false);
+
+  const refreshRuntimeChecks = useCallback(async () => {
+    setRuntimeChecksLoading(true);
+    const rows: { id: string; ok: boolean; label: string; detail?: string }[] = [];
+    try {
+      const [wr, sr, gr, wg] = await Promise.all([
+        fetch('/api/health', { credentials: 'same-origin' }),
+        fetch('/api/sandbox/health', { credentials: 'same-origin' }),
+        fetch('/api/mail/gmail/status', { credentials: 'same-origin' }),
+        fetch('/api/terminal/wrangler-guide?lane=sandbox', { credentials: 'same-origin' }),
+      ]);
+      const wj = await wr.json().catch(() => ({}));
+      rows.push({
+        id: 'worker',
+        ok: wr.ok && wj.status === 'ok',
+        label: 'Worker',
+        detail: wr.ok ? 'inneranimalmedia.com' : 'Unreachable',
+      });
+      const sj = await sr.json().catch(() => ({}));
+      const fuseLabel = sj.r2_fuse?.mounted
+        ? `R2 FUSE mounted (${sj.r2_fuse.bucket || 'bucket'})`
+        : sj.r2_fuse_configured
+          ? 'R2 FUSE configured — remount after container rebuild'
+          : undefined;
+      rows.push({
+        id: 'sandbox',
+        ok: sr.ok && sj.ok === true,
+        label: 'CF sandbox',
+        detail:
+          fuseLabel ||
+          sj.exec_smoke?.stdout?.trim() ||
+          sj.probe?.error ||
+          sj.exec_smoke?.error ||
+          undefined,
+      });
+      const gj = await gr.json().catch(() => ({}));
+      rows.push({
+        id: 'gmail',
+        ok: gr.ok && !!gj.connected,
+        label: 'Gmail',
+        detail: gj.email || (gj.connected ? 'Connected' : 'Not connected'),
+      });
+      const wgj = await wg.json().catch(() => ({}));
+      const whoamiOk =
+        wg.ok &&
+        wgj.wrangler_whoami?.ok === true &&
+        !/Unable to authenticate|Not logged in/i.test(
+          `${wgj.wrangler_whoami?.stdout ?? ''}${wgj.wrangler_whoami?.stderr ?? ''}`,
+        );
+      rows.push({
+        id: 'wrangler',
+        ok: whoamiOk,
+        label: 'Wrangler (sandbox)',
+        detail:
+          wgj.guide?.summary ||
+          wgj.wrangler_whoami?.stdout?.trim()?.slice(0, 120) ||
+          wgj.wrangler_whoami?.error ||
+          (wg.ok ? 'Use wrangler whoami — not login OAuth in container' : 'Guide unavailable'),
+      });
+    } catch {
+      rows.push({ id: 'worker', ok: false, label: 'Worker', detail: 'Check failed' });
+    }
+    setRuntimeChecks(rows);
+    setRuntimeChecksLoading(false);
+  }, []);
 
   const saveGithubRepoSelection = useCallback(
     (
@@ -2887,6 +2956,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     (!isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat'));
   const contextTabVisible =
     isNarrow && mobileHubTab === 'agents' && mobileThreadTab === 'context';
+
+  useEffect(() => {
+    if (!contextTabVisible) return;
+    void refreshRuntimeChecks();
+  }, [contextTabVisible, refreshRuntimeChecks]);
+
   const composerVisible =
     !isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat');
   const composerFlexOrder = mobileAgentHomeMode ? 'order-3' : 'order-5';
@@ -3353,6 +3428,49 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
         {contextTabVisible && (
           <div className="order-4 flex-1 min-h-0 overflow-y-auto chat-hide-scroll px-4 py-4 space-y-4 border-t border-[var(--dashboard-border)]">
+            <div className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-[12px] font-semibold text-[var(--text-heading)] uppercase tracking-wide">
+                  Runtime
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => void refreshRuntimeChecks()}
+                  disabled={runtimeChecksLoading}
+                  className="text-[11px] text-[var(--solar-cyan)] hover:underline disabled:opacity-50"
+                >
+                  {runtimeChecksLoading ? 'Checking…' : 'Recheck'}
+                </button>
+              </div>
+              <ul className="space-y-2">
+                {runtimeChecks.map((row) => (
+                  <li
+                    key={row.id}
+                    className="flex items-start justify-between gap-2 text-[12px] border border-[var(--dashboard-border)] rounded-lg px-2.5 py-2"
+                  >
+                    <span className="text-[var(--dashboard-text)]">{row.label}</span>
+                    <span className={row.ok ? 'text-emerald-400' : 'text-amber-400'}>
+                      {row.ok ? 'OK' : 'Fail'}
+                    </span>
+                  </li>
+                ))}
+                {!runtimeChecks.length && !runtimeChecksLoading ? (
+                  <li className="text-[12px] text-[var(--dashboard-muted)]">
+                    Tap Recheck to probe worker, sandbox, Wrangler auth, Gmail.
+                  </li>
+                ) : null}
+              </ul>
+              {runtimeChecks.find((r) => r.id === 'sandbox')?.detail ? (
+                <p className="text-[11px] text-[var(--dashboard-muted)] font-mono break-all">
+                  {runtimeChecks.find((r) => r.id === 'sandbox')?.detail}
+                </p>
+              ) : null}
+              {runtimeChecks.find((r) => r.id === 'wrangler')?.detail ? (
+                <p className="text-[11px] text-[var(--dashboard-muted)] break-words">
+                  {runtimeChecks.find((r) => r.id === 'wrangler')?.detail}
+                </p>
+              ) : null}
+            </div>
             <div className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] p-4 space-y-3">
               <h3 className="text-[12px] font-semibold text-[var(--text-heading)] uppercase tracking-wide">Editor</h3>
               <p className="text-[12px] text-[var(--dashboard-muted)] font-mono break-all">

@@ -4,6 +4,7 @@
  */
 
 export type WranglerCommandCategory =
+  | 'auth'
   | 'r2'
   | 'd1'
   | 'vectorize'
@@ -58,6 +59,7 @@ function entry(
 
 /** User-facing section labels (Cmd+K grouping). */
 export const WRANGLER_CATEGORY_LABELS: Record<WranglerCommandCategory, string> = {
+  auth: 'Auth & setup',
   r2: 'R2',
   d1: 'D1',
   vectorize: 'Vectorize',
@@ -69,6 +71,45 @@ export const WRANGLER_CATEGORY_LABELS: Record<WranglerCommandCategory, string> =
 };
 
 export const WRANGLER_COMMAND_CATALOG: WranglerCatalogEntry[] = [
+  // Auth & general (Cloudflare wrangler commands — Apr 2026)
+  entry(
+    'auth',
+    'auth-docs',
+    'Open Wrangler docs',
+    'npx wrangler docs [SEARCH]',
+    1,
+    'Search Cloudflare docs from the CLI.',
+  ),
+  entry('auth', 'auth-whoami', 'Whoami', 'wrangler whoami', 2, 'Verify auth. Add --json for scripts.'),
+  entry(
+    'auth',
+    'auth-token-json',
+    'Auth token (JSON)',
+    'wrangler auth token --json',
+    3,
+    'Headless / CI — sandbox uses injected CLOUDFLARE_API_TOKEN.',
+  ),
+  entry(
+    'auth',
+    'auth-login-local',
+    'Login (local Mac)',
+    'wrangler login',
+    4,
+    'OAuth in browser. Local PTY only — not CF container sandbox.',
+  ),
+  entry(
+    'auth',
+    'auth-login-container',
+    'Login (container)',
+    'wrangler login --callback-host=0.0.0.0 --callback-port=8976',
+    5,
+    'Requires port 8976 published. Prefer API token in Agent Sam sandbox.',
+  ),
+  entry('auth', 'auth-logout', 'Logout OAuth', 'wrangler logout', 6, 'Local OAuth only — invalidates wrangler login token.'),
+  entry('auth', 'auth-telemetry-disable', 'Disable telemetry', 'wrangler telemetry disable', 7),
+  entry('auth', 'auth-telemetry-status', 'Telemetry status', 'wrangler telemetry status', 8),
+  entry('auth', 'auth-complete-zsh', 'Shell completions (zsh)', 'wrangler complete zsh >> ~/.zshrc', 9),
+
   // R2
   entry('r2', 'r2-bucket-create', 'R2 bucket create', 'wrangler r2 bucket create <NAME>', 10),
   entry('r2', 'r2-bucket-list', 'R2 bucket list', 'wrangler r2 bucket list', 11),
@@ -164,9 +205,6 @@ export const WRANGLER_COMMAND_CATALOG: WranglerCatalogEntry[] = [
   entry('worker', 'worker-secret-put', 'Secret put', 'wrangler secret put <NAME>', 86),
   entry('worker', 'worker-secret-delete', 'Secret delete', 'wrangler secret delete <NAME>', 87),
   entry('worker', 'worker-secret-list', 'Secret list', 'wrangler secret list', 88),
-  entry('worker', 'worker-whoami', 'Whoami', 'wrangler whoami', 89),
-  entry('worker', 'worker-login', 'Login', 'wrangler login', 90),
-  entry('worker', 'worker-logout', 'Logout', 'wrangler logout', 91),
 
   // Cloudflare Workflows product (wrangler workflows *)
   entry('workflows', 'workflows-list', 'Workflows list', 'wrangler workflows list', 100),
@@ -204,6 +242,7 @@ export function groupWranglerCatalog(
   rows: WranglerCatalogEntry[],
 ): { category: WranglerCommandCategory; label: string; rows: WranglerCatalogEntry[] }[] {
   const order: WranglerCommandCategory[] = [
+    'auth',
     'r2',
     'd1',
     'vectorize',

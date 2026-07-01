@@ -62,12 +62,27 @@ Remote is **git/shell capable** (not a CI box) when all pass with Mac asleep:
 
 **Heavy builds** (`npm run build:vite-only`, Playwright, GLB tooling) → **`agentsam_terminal_sandbox`** (CF Container), not the VM.
 
+## Wrangler auth by lane
+
+Aligned with [Wrangler general commands](https://developers.cloudflare.com/workers/wrangler/commands/) (Apr 2026). Code: `src/core/wrangler-terminal-guidance.js` · API: `GET /api/terminal/wrangler-guide?lane=local|remote|sandbox`.
+
+| Lane | Auth path | Use |
+|------|-----------|-----|
+| **local** (Mac PTY) | `wrangler login` OAuth once | `wrangler whoami`, deploy, d1, r2 on your machine |
+| **remote** (GCP VM) | `CLOUDFLARE_API_TOKEN` via `scripts/sync-vm-env-cloudflare.sh` | Headless — **avoid** `wrangler login` unless port 8976 is tunneled |
+| **sandbox** (CF container) | Platform `CLOUDFLARE_API_TOKEN` injected for superadmin sandbox exec | `wrangler whoami --json` — **block** bare `wrangler login` (OAuth callback hangs) |
+
+Container OAuth (interactive only): publish port **8976** and run `wrangler login --callback-host=0.0.0.0 --callback-port=8976`. Agent Sam sandbox prefers API token over OAuth.
+
+Recovery hints on failed wrangler commands are appended via `wranglerTerminalRecoveryHints` in terminal tool responses.
+
 ## Sandbox → Container (target)
 
 ```
-zone_slug  →  getContainer(env.MY_CONTAINER, zoneSlug)
-           →  clone-on-boot from GitHub
-           →  node:22 + git + wrangler in image
+zone_slug  →  getContainer(env.MY_CONTAINER, inneranimalmedia pool)
+           →  Go sandbox + git + wrangler in image
+           →  optional R2 FUSE at /mnt/r2 (worker secrets R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY)
+           →  exec cwd: /mnt/r2/{workspace r2_prefix}/{zone_slug}/…
 ```
 
 Deprecate `agentsam_container_exec` once sandbox backend is container-native (same facet, clearer name).

@@ -53,6 +53,7 @@ export function buildPlatformHealthIssues(opts: {
   tunnelHealthy: boolean | null;
   tunnelStale: boolean;
   terminalOk: boolean | null;
+  sandboxOk?: boolean | null;
   workspaceDrift?: boolean;
 }): PlatformHealthIssue[] {
   const issues: PlatformHealthIssue[] = [];
@@ -98,6 +99,15 @@ export function buildPlatformHealthIssues(opts: {
       label: 'PTY terminal not ready',
       fixHref: '/dashboard/settings/network',
       fixLabel: 'Network',
+    });
+  }
+  if (opts.sandboxOk === false) {
+    issues.push({
+      id: 'sandbox',
+      severity: 'warn',
+      label: 'CF sandbox not ready',
+      fixHref: '/dashboard/agent/editor',
+      fixLabel: 'Agent editor',
     });
   }
   return issues;

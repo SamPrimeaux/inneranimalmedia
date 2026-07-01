@@ -13,9 +13,11 @@ export const EXEC_LANE_LABELS: Record<ExecLane, string> = {
 
 export const EXEC_LANE_DESCRIPTIONS: Record<ExecLane, string> = {
   auto: 'Platform picks the best lane — GCP when your Mac may be offline.',
-  remote: 'GCP cloud desk VM — git, shell, wrangler on the Linux clone.',
-  local: 'Your Mac tunnel only — requires desk awake and PTY connected.',
-  sandbox: 'Cloudflare Container per zone — isolated experiments, not shared VM disk.',
+  remote:
+    'GCP cloud desk VM — headless wrangler via CLOUDFLARE_API_TOKEN (sync-vm-env-cloudflare.sh). No OAuth login on VM.',
+  local: 'Your Mac tunnel — wrangler login OAuth once, then deploy/d1/r2 from local PTY.',
+  sandbox:
+    'CF container pool — platform injects CLOUDFLARE_API_TOKEN for operators. Use wrangler whoami, not wrangler login OAuth.',
 };
 
 export function readStoredExecLane(): ExecLane {
