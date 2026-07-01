@@ -6,7 +6,6 @@
 
 import React, { useEffect, useRef, useState, useCallback, useMemo, Suspense, lazy } from 'react';
 import { useLocation, Routes, Route, Navigate, useNavigate, useParams } from "react-router-dom";
-import { ChatAssistant } from './components/ChatAssistant';
 import { WorkspaceDashboard } from './components/WorkspaceDashboard';
 import { WorkspaceDashboardV2 } from './components/WorkspaceDashboardV2';
 import { AgentQuickstartPage, type QuickstartTemplate } from './components/AgentQuickstartPage';
@@ -86,7 +85,6 @@ import { StatusBar, type AgentNotificationRow } from './components/StatusBar';
 import { UnifiedSearchBar, type UnifiedSearchNavigate } from './components/UnifiedSearchBar';
 import { ProjectType, type ActiveFile } from './types';
 import { DesignStudioProvider } from './components/designstudio/DesignStudioContext';
-import { ChatAssistantWithStudioContext } from './components/designstudio/ChatAssistantWithStudioContext';
 import type { DatabaseExplorerJump } from './types/databaseExplorer';
 import { prepareActiveFileForEditor } from './src/lib/prepareActiveFileForEditor';
 import { databaseStudioPathForWorkspace } from './src/lib/databaseStudioRoute';
@@ -134,7 +132,13 @@ import AuthOAuthConsentPage from './components/auth/AuthOAuthConsentPage';
 import MountIamMcpConsent from './components/auth/MountIamMcpConsent';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
 import { DashboardSidebar } from './components/shell/DashboardSidebar';
+import { AgentSamChatHost } from './components/shell/AgentSamChatHost';
 import { MobileNavShell } from './components/shell/MobileNavShell';
+import {
+  resolveAgentChatLayout,
+  shouldShowAgentWorkbenchTabs,
+  shouldShowMonacoWorkbench,
+} from './lib/shellLayoutMeta';
 import { MobileNavHamburger } from './components/shell/MobileNavHamburger';
 import { mobileNavBackLabel } from './components/shell/mobileNavBackLabel';
 import { Files, Search, GitBranch, Settings, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Layers, Monitor, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, History, FileCode2, Rocket } from 'lucide-react';
@@ -608,15 +612,20 @@ const App: React.FC = () => {
     return true;
   });
   const [agentPosition, setAgentPosition] = useState<'right' | 'left' | 'off'>(() => {
-    if (typeof window === 'undefined') return 'right';
+    if (typeof window === 'undefined') return 'off';
     if (window.innerWidth <= BREAKPOINTS.PHONE_MAX) return 'off';
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname;
+      const search = window.location.search;
+      if (isAgentCenterChatHome(path, search) && !isAgentEditorPath(path)) return 'off';
+    }
     try {
       const v = localStorage.getItem(LS_AGENT_POSITION);
       if (v === 'left' || v === 'right' || v === 'off') return v;
     } catch {
       /* ignore */
     }
-    return 'right';
+    return 'off';
   });
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [terminalDrawerH, setTerminalDrawerH] = useState(288);
@@ -798,13 +807,35 @@ const App: React.FC = () => {
     }
   }, [agentPosition, isNarrowViewport]);
 
+
+  const agentChatLayout = useMemo(
+    () =>
+      resolveAgentChatLayout({
+        pathname: location.pathname,
+        search: location.search,
+        agentPosition,
+        isNarrow: isNarrowViewport,
+        isCmsFullscreen,
+      }),
+    [location.pathname, location.search, agentPosition, isNarrowViewport, isCmsFullscreen],
+  );
+
   const agentHomeAtmosphericChat = useMemo(
-    () => isAgentHomeAtmospheric && agentPosition === 'off',
-    [isAgentHomeAtmospheric, agentPosition],
+    () => isAgentBareHeroHome && agentChatLayout === 'center',
+    [isAgentBareHeroHome, agentChatLayout],
+  );
+
+  const showAgentWorkbenchTabs = useMemo(
+    () => shouldShowAgentWorkbenchTabs({ pathname: location.pathname, search: location.search }),
+    [location.pathname, location.search],
   );
 
   useEffect(() => {
-  }, [location.search]);
+    if (isNarrowViewport) return;
+    if (!isAgentCenterChatHome(location.pathname, location.search)) return;
+    if (isAgentEditorPath(location.pathname)) return;
+    setAgentPosition('off');
+  }, [location.pathname, location.search, isNarrowViewport]);
 
   const [agentsamChatPolicy, setAgentsamChatPolicy] = useState<Record<string, unknown> | null>(null);
   const maxTabsPolicyRef = useRef(24);
@@ -1230,6 +1261,17 @@ const App: React.FC = () => {
       agentWorkbenchOpenFiles,
       activePlanIdForChat,
     ],
+  );
+
+  const showMonacoWorkbench = useMemo(
+    () =>
+      shouldShowMonacoWorkbench({
+        pathname: location.pathname,
+        search: location.search,
+        activeTab,
+        hasActiveFile: !!activeFile,
+      }),
+    [location.pathname, location.search, activeTab, activeFile],
   );
 
   const { updateActiveFile } = useEditor();
@@ -2304,7 +2346,7 @@ const App: React.FC = () => {
 
   const mobileHamburgerConversationBack =
     isNarrowViewport &&
-    agentPosition !== 'off' &&
+    (agentChatLayout === 'center' || agentPosition !== 'off') &&
     !!(activeAgentConversationId?.trim() || urlAgentSessionId);
 
   const narrowBackToAgentHome = useCallback(() => {
@@ -3871,22 +3913,23 @@ const App: React.FC = () => {
 
   /** Mobile: only fullscreen agent chat hides the editor; activity drawer is a side panel. */
   // Studio needs full canvas on mobile — never let agent panel hide it
-  const narrowBlocksCenter = isNarrowViewport && agentPosition !== 'off' && !isDesignStudioRoute;
+  const narrowBlocksCenter =
+    isNarrowViewport && agentChatLayout !== 'center' && agentPosition !== 'off' && !isDesignStudioRoute;
   /** Explorer drawer has its own close control — no floating back pill while files panel is open. */
   const narrowNeedsBack =
     isNarrowViewport &&
-    (agentPosition !== 'off' || (!!activeActivity && activeActivity !== 'files'));
+    (agentChatLayout === 'center' || agentPosition !== 'off' || (!!activeActivity && activeActivity !== 'files'));
 
   const mobileBackLabel = useMemo(
     () =>
       narrowNeedsBack
         ? mobileNavBackLabel({
-            agentChatOpen: agentPosition !== 'off',
+            agentChatOpen: agentChatLayout === 'center' || agentPosition !== 'off',
             activeActivity,
             pathname: location.pathname,
           })
         : null,
-    [narrowNeedsBack, agentPosition, activeActivity, location.pathname],
+    [narrowNeedsBack, agentChatLayout, agentPosition, activeActivity, location.pathname],
   );
 
   const statusIndentLabel = useMemo(
@@ -3905,6 +3948,118 @@ const App: React.FC = () => {
         workspaceDrift,
       }),
     [healthOk, tunnelHealthy, tunnelStale, terminalOk, sandboxOk, workspaceDrift],
+  );
+
+  const agentSamChatShellTabs = useMemo(
+    () => (showAgentWorkbenchTabs ? agentChatTabs.map((t) => ({ id: t.id, title: t.title })) : undefined),
+    [showAgentWorkbenchTabs, agentChatTabs],
+  );
+
+  const agentSamChatHostProps = useMemo(
+    () => ({
+      fallbackProject: activeProject,
+      activeFileContent: activeFile?.content,
+      activeFileName: activeFile?.name,
+      activeFile,
+      editorCursorLine: cursorPos.line,
+      editorCursorColumn: cursorPos.col,
+      agentsamPolicy: agentsamChatPolicy,
+      workspaceId: authWorkspaceId,
+      defaultSubagentSlug: isDesignStudioRoute ? ('cadcreator' as const) : undefined,
+      messages: chatMessages,
+      setMessages: setChatMessages,
+      onOpenChatHistory: shellOpenChatHistory,
+      onDeleteActiveChat: shellDeleteActiveChat,
+      onFileSelect: openInMonacoFromChat,
+      onGlbFileSelect: (file: File) => {
+        const glbUrl = URL.createObjectURL(file);
+        setGlbViewerUrl((prev) => {
+          if (prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+          return glbUrl;
+        });
+        setGlbViewerFilename(file.name);
+        navigate('/dashboard/designstudio', {
+          state: { pendingGlb: { url: glbUrl, name: file.name.replace(/\.glb$/i, '') } },
+        });
+      },
+      onRunInTerminal: runInTerminal,
+      onR2FileUpdated: handleR2FileUpdatedFromAgent,
+      onBrowserNavigate: handleBrowserNavigateFromAgent,
+      onOpenGitHubIntegration: openGitHubFromChat,
+      onMobileOpenDashboard: openDashboardFromChat,
+      onOpenQuickstart: openAgentQuickstart,
+      onOpenCodeTab: focusCodeEditorFromChat,
+      onLoadingChange: setAgentIsStreaming,
+      onApprovalRequired: setActiveCommandRunId,
+      agentRunId: activeCommandRunId,
+      syncedHostConversationId: activeAgentConversationId,
+      showAgentWorkbenchTabs,
+      agentChatShellTabs: agentSamChatShellTabs,
+      activeAgentChatShellTabId: activeAgentChatTabId,
+      onAgentChatShellTabSelect: selectAgentChatTab,
+      onAgentChatShellNewTab: createNewAgentChatTab,
+      onAgentRunContext: setActiveAgentRunId,
+      activeWorkbenchTab: isMovieModeRoute
+        ? 'moviemode'
+        : isCmsRoute
+          ? 'cms'
+          : activeTab === 'cms'
+            ? 'cms'
+            : isDrawRoute
+              ? 'draw'
+              : activeTab,
+      browserUrl,
+      openFilePaths: agentWorkbenchOpenFiles,
+      activePlanId: activePlanIdForChat,
+      onActivePlanChange: handleActivePlanChange,
+      cmsContext: cmsWorkbenchContext,
+      hostWorkspaceContext: agentWorkspaceContext,
+      dashboardRouteKey: routeAgentMeta.route_key,
+      dashboardRouteLabel: routeAgentMeta.context_label,
+      routeQuickActions: routeAgentMeta.quickActions,
+    }),
+    [
+      activeProject,
+      activeFile,
+      cursorPos.line,
+      cursorPos.col,
+      agentsamChatPolicy,
+      authWorkspaceId,
+      isDesignStudioRoute,
+      chatMessages,
+      setChatMessages,
+      shellOpenChatHistory,
+      shellDeleteActiveChat,
+      openInMonacoFromChat,
+      navigate,
+      runInTerminal,
+      handleR2FileUpdatedFromAgent,
+      handleBrowserNavigateFromAgent,
+      openGitHubFromChat,
+      openDashboardFromChat,
+      openAgentQuickstart,
+      focusCodeEditorFromChat,
+      activeCommandRunId,
+      activeAgentConversationId,
+      showAgentWorkbenchTabs,
+      agentSamChatShellTabs,
+      activeAgentChatTabId,
+      selectAgentChatTab,
+      createNewAgentChatTab,
+      isMovieModeRoute,
+      isCmsRoute,
+      activeTab,
+      isDrawRoute,
+      browserUrl,
+      agentWorkbenchOpenFiles,
+      activePlanIdForChat,
+      handleActivePlanChange,
+      cmsWorkbenchContext,
+      agentWorkspaceContext,
+      routeAgentMeta.route_key,
+      routeAgentMeta.context_label,
+      routeAgentMeta.quickActions,
+    ],
   );
 
   return (
@@ -4154,100 +4309,19 @@ const App: React.FC = () => {
           ) : null}
 
           {/* Optional Left Agent Panel */}
-          {!isCmsFullscreen && agentPosition === 'left' && !agentHomeAtmosphericChat && (
-              <>
-                <div 
-                    className={`bg-[var(--dashboard-panel)] flex flex-col shrink-0 transition-opacity relative group z-30 opacity-100 max-phone:fixed max-phone:inset-0 max-phone:z-[45] max-phone:w-full max-phone:max-w-none max-phone:shrink ${
-                      activeActivity ? 'max-phone:hidden' : ''
-                    }`}
-                    style={
-                      isNarrowViewport
-                        ? { borderRight: '1px solid var(--dashboard-border)' }
-                        : { width: agentW, borderRight: '1px solid var(--dashboard-border)' }
-                    }
-                    {...(narrowNeedsBack && !activeActivity ? mobileEdgeSwipeHandlers : {})}
-                >
-                    <div className="h-10 max-phone:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-muted shrink-0">
-                      {PRODUCT_NAME}
-                    </div>
-                    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                    <ChatAssistantWithStudioContext 
-                        fallbackProject={activeProject}
-                        activeFileContent={activeFile?.content}
-                        activeFileName={activeFile?.name}
-                        activeFile={activeFile}
-                        editorCursorLine={cursorPos.line}
-                        editorCursorColumn={cursorPos.col}
-                        agentsamPolicy={agentsamChatPolicy}
-                        workspaceId={authWorkspaceId}
-                        defaultSubagentSlug={isDesignStudioRoute ? 'cadcreator' : undefined}
-                        messages={chatMessages} 
-                        setMessages={setChatMessages} 
-                        onOpenChatHistory={shellOpenChatHistory}
-                        onFileSelect={openInMonacoFromChat}
-                        onGlbFileSelect={(file) => {
-                          const glbUrl = URL.createObjectURL(file);
-                          setGlbViewerUrl((prev) => {
-                            if (prev.startsWith('blob:')) URL.revokeObjectURL(prev);
-                            return glbUrl;
-                          });
-                          setGlbViewerFilename(file.name);
-                          navigate('/dashboard/designstudio', {
-                            state: { pendingGlb: { url: glbUrl, name: file.name.replace(/\.glb$/i, '') } },
-                          });
-                        }}
-                        onRunInTerminal={runInTerminal}
-                        onR2FileUpdated={handleR2FileUpdatedFromAgent}
-                        onBrowserNavigate={handleBrowserNavigateFromAgent}
-                        onOpenGitHubIntegration={openGitHubFromChat}
-                        onMobileOpenDashboard={openDashboardFromChat}
-                        onDeleteActiveChat={shellDeleteActiveChat}
-                        onOpenQuickstart={openAgentQuickstart}
-                        onOpenCodeTab={focusCodeEditorFromChat}
-              onLoadingChange={setAgentIsStreaming}
-              onApprovalRequired={setActiveCommandRunId}
-              agentRunId={activeCommandRunId}
-              onAgentRunContext={setActiveAgentRunId}
-                        syncedHostConversationId={activeAgentConversationId}
-                        agentChatShellTabs={agentChatTabs.map((t) => ({ id: t.id, title: t.title }))}
-                        activeAgentChatShellTabId={activeAgentChatTabId}
-                        onAgentChatShellTabSelect={selectAgentChatTab}
-                        onAgentChatShellNewTab={createNewAgentChatTab}
-                        activeWorkbenchTab={
-                          isMovieModeRoute ? 'moviemode' : isCmsRoute ? 'cms' : activeTab === 'cms' ? 'cms' : isDrawRoute ? 'draw' : activeTab
-                        }
-                        browserUrl={browserUrl}
-                        openFilePaths={agentWorkbenchOpenFiles}
-                        activePlanId={activePlanIdForChat}
-                        onActivePlanChange={handleActivePlanChange}
-                        cmsContext={cmsWorkbenchContext}
-                        hostWorkspaceContext={agentWorkspaceContext}
-                        dashboardRouteKey={routeAgentMeta.route_key}
-                        dashboardRouteLabel={routeAgentMeta.context_label}
-                        routeQuickActions={routeAgentMeta.quickActions}
-                        atmosphericHomeMode={agentHomeAtmosphericChat}
-                        composerPortalTarget={agentHomeComposerHost}
-                        messagesPortalTarget={agentHomeMessagesHost}
-                        />
-                    </div>
-                </div>
-                {/* Grab Bar — wide hit target; stroke is 1px inside */}
-                <div
-                  role="separator"
-                  aria-orientation="vertical"
-                  title="Drag to resize Agent Sam panel"
-                  aria-label="Resize Agent Sam panel"
-                  className="max-phone:hidden shrink-0 z-50 flex justify-center cursor-col-resize touch-none select-none group relative"
-                  style={{ width: AGENT_RESIZER_HIT_PX }}
-                  onPointerDown={(e) => beginPanelResize('agent', e)}
-                >
-                  <span
-                    className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--dashboard-border)] group-hover:bg-[var(--solar-cyan)] group-active:bg-[var(--solar-cyan)] transition-colors"
-                    aria-hidden
-                  />
-                </div>
-              </>
-          )}
+          {!isCmsFullscreen && agentChatLayout === 'left-rail' ? (
+            <AgentSamChatHost
+              {...agentSamChatHostProps}
+              layout="left-rail"
+              agentW={agentW}
+              isNarrowViewport={isNarrowViewport}
+              activeActivity={activeActivity}
+              narrowNeedsBack={narrowNeedsBack}
+              mobileEdgeSwipeHandlers={mobileEdgeSwipeHandlers}
+              productLabel={PRODUCT_NAME}
+              onResizePointerDown={(e) => beginPanelResize('agent', e)}
+            />
+          ) : null}
 
           <div className="flex flex-1 min-w-0 overflow-hidden">
           {activeActivity && isNarrowViewport ? (
@@ -4664,7 +4738,7 @@ const App: React.FC = () => {
                       </div>
                   )}
 
-                  {isAgentHomeAtmospheric && activeTab === 'Workspace' && (
+                  {isAgentBareHeroHome && activeTab === 'Workspace' && (
                       <div className="absolute inset-0 z-10 flex flex-col items-stretch min-h-0 min-w-0 w-full">
                           <AgentHome
                             displayName={agentHomeGreetingName}
@@ -4725,7 +4799,23 @@ const App: React.FC = () => {
                       </div>
                   )}
 
-                  {activeTab === 'code' && (
+                  {!isCmsFullscreen && agentChatLayout === 'center' ? (
+                    <AgentSamChatHost
+                      {...agentSamChatHostProps}
+                      layout="center"
+                      agentW={agentW}
+                      isNarrowViewport={isNarrowViewport}
+                      activeActivity={activeActivity}
+                      narrowNeedsBack={narrowNeedsBack}
+                      mobileEdgeSwipeHandlers={mobileEdgeSwipeHandlers}
+                      productLabel={PRODUCT_NAME}
+                      atmosphericHomeMode={agentHomeAtmosphericChat}
+                      composerPortalTarget={agentHomeAtmosphericChat ? agentHomeComposerHost : null}
+                      messagesPortalTarget={agentHomeAtmosphericChat ? agentHomeMessagesHost : null}
+                    />
+                  ) : null}
+
+                  {showMonacoWorkbench && (
                       <div ref={editorPreviewSplitRef} className="absolute inset-0 z-10 flex min-h-0 min-w-0">
                           <div
                             className="flex flex-col min-h-0 min-w-0 shrink-0"
@@ -4944,166 +5034,19 @@ const App: React.FC = () => {
           </div>
 
           {/* 6. Optional Right Agent Panel */}
-          {!isCmsFullscreen && agentPosition === 'right' && !agentHomeAtmosphericChat && (
-              <>
-                {/* Agent Grab Bar */}
-                <div
-                  role="separator"
-                  aria-orientation="vertical"
-                  title="Drag to resize Agent Sam panel"
-                  className="max-phone:hidden shrink-0 z-50 group relative flex justify-center cursor-col-resize touch-none select-none"
-                  style={{ width: AGENT_RESIZER_HIT_PX }}
-                  onPointerDown={(e) => beginPanelResize('agent', e)}
-                >
-                  <span
-                    className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--dashboard-border)] group-hover:bg-[var(--solar-cyan)] group-active:bg-[var(--solar-cyan)]"
-                    aria-hidden
-                  />
-                </div>
-                <div 
-                    className={`bg-[var(--dashboard-panel)] flex flex-col shrink-0 transition-opacity z-30 relative group opacity-100 max-phone:fixed max-phone:inset-0 max-phone:z-[45] max-phone:w-full max-phone:max-w-none max-phone:shrink ${
-                      isNarrowViewport && activeActivity ? 'max-phone:hidden' : ''
-                    }`}
-                    style={
-                      isNarrowViewport
-                        ? { borderLeft: '1px solid var(--dashboard-border)' }
-                        : { width: agentW, borderLeft: '1px solid var(--dashboard-border)' }
-                    }
-                    {...(narrowNeedsBack && !activeActivity ? mobileEdgeSwipeHandlers : {})}
-                >
-                    <div className="h-10 max-phone:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-muted shrink-0">
-                      {PRODUCT_NAME}
-                    </div>
-                    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                         <ChatAssistantWithStudioContext 
-                            fallbackProject={activeProject}
-                            activeFileContent={activeFile?.content}
-                            activeFileName={activeFile?.name}
-                            activeFile={activeFile}
-                            editorCursorLine={cursorPos.line}
-                            editorCursorColumn={cursorPos.col}
-                            agentsamPolicy={agentsamChatPolicy}
-                            workspaceId={authWorkspaceId}
-                            defaultSubagentSlug={isDesignStudioRoute ? 'cadcreator' : undefined}
-                            messages={chatMessages} 
-                            setMessages={setChatMessages} 
-                            onOpenChatHistory={shellOpenChatHistory}
-                            onFileSelect={openInMonacoFromChat}
-                            onGlbFileSelect={(file) => {
-                              const glbUrl = URL.createObjectURL(file);
-                              setGlbViewerUrl((prev) => {
-                                if (prev.startsWith('blob:')) URL.revokeObjectURL(prev);
-                                return glbUrl;
-                              });
-                              setGlbViewerFilename(file.name);
-                              navigate('/dashboard/designstudio', {
-                                state: { pendingGlb: { url: glbUrl, name: file.name.replace(/\.glb$/i, '') } },
-                              });
-                            }}
-                            onRunInTerminal={runInTerminal}
-                            onR2FileUpdated={handleR2FileUpdatedFromAgent}
-                            onBrowserNavigate={handleBrowserNavigateFromAgent}
-                            onOpenGitHubIntegration={openGitHubFromChat}
-                            onMobileOpenDashboard={openDashboardFromChat}
-                        onDeleteActiveChat={shellDeleteActiveChat}
-                        onOpenQuickstart={openAgentQuickstart}
-                            onOpenCodeTab={focusCodeEditorFromChat}
-                            onLoadingChange={setAgentIsStreaming}
-                            onApprovalRequired={setActiveCommandRunId}
-                            agentRunId={activeCommandRunId}
-                            syncedHostConversationId={activeAgentConversationId}
-                            agentChatShellTabs={agentChatTabs.map((t) => ({ id: t.id, title: t.title }))}
-                            activeAgentChatShellTabId={activeAgentChatTabId}
-                            onAgentChatShellTabSelect={selectAgentChatTab}
-                            onAgentChatShellNewTab={createNewAgentChatTab}
-                            onAgentRunContext={setActiveAgentRunId}
-                            activeWorkbenchTab={
-                          isMovieModeRoute ? 'moviemode' : isCmsRoute ? 'cms' : activeTab === 'cms' ? 'cms' : isDrawRoute ? 'draw' : activeTab
-                        }
-                            browserUrl={browserUrl}
-                            openFilePaths={agentWorkbenchOpenFiles}
-                            activePlanId={activePlanIdForChat}
-                            onActivePlanChange={handleActivePlanChange}
-                            cmsContext={cmsWorkbenchContext}
-                        hostWorkspaceContext={agentWorkspaceContext}
-                        dashboardRouteKey={routeAgentMeta.route_key}
-                        dashboardRouteLabel={routeAgentMeta.context_label}
-                        routeQuickActions={routeAgentMeta.quickActions}
-                        atmosphericHomeMode={agentHomeAtmosphericChat}
-                        composerPortalTarget={agentHomeComposerHost}
-                        messagesPortalTarget={agentHomeMessagesHost}
-                        />
-                    </div>
-                </div>
-              </>
-          )}
-
-          {!isCmsFullscreen && agentHomeAtmosphericChat && (
-              <div
-                className="fixed overflow-hidden max-phone:pointer-events-none max-phone:opacity-0 tablet-up:pointer-events-none tablet-up:opacity-0"
-                style={{ left: -9999, top: 0, width: 420, height: '100%' }}
-                aria-hidden
-              >
-                <ChatAssistantWithStudioContext
-                  fallbackProject={activeProject}
-                  activeFileContent={activeFile?.content}
-                  activeFileName={activeFile?.name}
-                  activeFile={activeFile}
-                  editorCursorLine={cursorPos.line}
-                  editorCursorColumn={cursorPos.col}
-                  agentsamPolicy={agentsamChatPolicy}
-                  workspaceId={authWorkspaceId}
-                  defaultSubagentSlug={isDesignStudioRoute ? 'cadcreator' : undefined}
-                  messages={chatMessages}
-                  setMessages={setChatMessages}
-                  onOpenChatHistory={shellOpenChatHistory}
-                  onDeleteActiveChat={shellDeleteActiveChat}
-                  onFileSelect={openInMonacoFromChat}
-                  onGlbFileSelect={(file) => {
-                    const glbUrl = URL.createObjectURL(file);
-                    setGlbViewerUrl((prev) => {
-                      if (prev.startsWith('blob:')) URL.revokeObjectURL(prev);
-                      return glbUrl;
-                    });
-                    setGlbViewerFilename(file.name);
-                    navigate('/dashboard/designstudio', {
-                      state: { pendingGlb: { url: glbUrl, name: file.name.replace(/\.glb$/i, '') } },
-                    });
-                  }}
-                  onRunInTerminal={runInTerminal}
-                  onR2FileUpdated={handleR2FileUpdatedFromAgent}
-                  onBrowserNavigate={handleBrowserNavigateFromAgent}
-                  onOpenGitHubIntegration={openGitHubFromChat}
-                  onMobileOpenDashboard={openDashboardFromChat}
-                  onOpenQuickstart={openAgentQuickstart}
-                  onOpenCodeTab={focusCodeEditorFromChat}
-                  onLoadingChange={setAgentIsStreaming}
-                  onApprovalRequired={setActiveCommandRunId}
-                  agentRunId={activeCommandRunId}
-                  syncedHostConversationId={activeAgentConversationId}
-                  agentChatShellTabs={agentChatTabs.map((t) => ({ id: t.id, title: t.title }))}
-                  activeAgentChatShellTabId={activeAgentChatTabId}
-                  onAgentChatShellTabSelect={selectAgentChatTab}
-                  onAgentChatShellNewTab={createNewAgentChatTab}
-                  onAgentRunContext={setActiveAgentRunId}
-                  activeWorkbenchTab={
-                    isMovieModeRoute ? 'moviemode' : isCmsRoute ? 'cms' : activeTab === 'cms' ? 'cms' : isDrawRoute ? 'draw' : activeTab
-                  }
-                  browserUrl={browserUrl}
-                  openFilePaths={agentWorkbenchOpenFiles}
-                  activePlanId={activePlanIdForChat}
-                  onActivePlanChange={handleActivePlanChange}
-                  cmsContext={cmsWorkbenchContext}
-                  hostWorkspaceContext={agentWorkspaceContext}
-                  dashboardRouteKey={routeAgentMeta.route_key}
-                  dashboardRouteLabel={routeAgentMeta.context_label}
-                  routeQuickActions={routeAgentMeta.quickActions}
-                  atmosphericHomeMode
-                  composerPortalTarget={agentHomeComposerHost}
-                  messagesPortalTarget={agentHomeMessagesHost}
-                />
-              </div>
-          )}
+          {!isCmsFullscreen && agentChatLayout === 'right-rail' ? (
+            <AgentSamChatHost
+              {...agentSamChatHostProps}
+              layout="right-rail"
+              agentW={agentW}
+              isNarrowViewport={isNarrowViewport}
+              activeActivity={activeActivity}
+              narrowNeedsBack={narrowNeedsBack}
+              mobileEdgeSwipeHandlers={mobileEdgeSwipeHandlers}
+              productLabel={PRODUCT_NAME}
+              onResizePointerDown={(e) => beginPanelResize('agent', e)}
+            />
+          ) : null}
       </div>
       {/* 8. STATUS BAR (FOOTER) */}
       {toastMsg && (

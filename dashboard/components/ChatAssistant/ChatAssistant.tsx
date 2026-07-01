@@ -243,6 +243,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   activeAgentChatShellTabId,
   onAgentChatShellTabSelect,
   onAgentChatShellNewTab,
+  showAgentWorkbenchTabs = true,
   activeWorkbenchTab,
   browserUrl: browserUrlProp,
   openFilePaths,
@@ -1454,7 +1455,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     return true;
   }, [mobileAgentHomeMode, showEmptyThreadPlaceholder, conversationId]);
 
-  const renderThreadHeader = (compact = false) =>
+  const renderThreadHeader = (compact = false, embedded = false) =>
     showThreadHeader ? (
       <>
         <AgentChatThreadHeader
@@ -1469,8 +1470,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           onOpenFiles={() => setChatFilesOpen((v) => !v)}
           filesActive={chatFilesOpen}
           compact={compact}
+          embedded={embedded}
         />
-        {chatFilesOpen ? (
+        {chatFilesOpen && !embedded ? (
           <AgentChatFilesPanel
             messages={displayMessages}
             stagedCount={attachments.length}
@@ -1482,6 +1484,42 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           />
         ) : null}
       </>
+    ) : null;
+
+  const shellTabsVisible =
+    showAgentWorkbenchTabs &&
+    Boolean(onAgentChatShellNewTab && agentChatShellTabs && agentChatShellTabs.length > 0);
+
+  const renderShellTabStrip = (className = '') =>
+    shellTabsVisible ? (
+      <div
+        className={`flex items-center gap-1 min-w-0 overflow-x-auto chat-hide-scroll [scrollbar-width:none] ${className}`}
+      >
+        {agentChatShellTabs!.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => onAgentChatShellTabSelect?.(tab.id)}
+            className={`shrink-0 max-w-[min(160px,36vw)] truncate px-2 sm:px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+              tab.id === activeAgentChatShellTabId
+                ? 'bg-[var(--scene-bg)] text-[var(--solar-cyan)] border border-[var(--dashboard-border)]'
+                : 'text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)] border border-transparent'
+            }`}
+            title={tab.title}
+          >
+            {tab.title}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={handleNewChat}
+          className="shrink-0 p-1 rounded-md text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)] border border-transparent"
+          title="New chat"
+          aria-label="New chat"
+        >
+          <Plus size={14} strokeWidth={1.75} />
+        </button>
+      </div>
     ) : null;
 
   useEffect(() => {
@@ -3271,10 +3309,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               <button
                 type="button"
                 onClick={() => setMobileThreadTab('chat')}
-                className={`px-3 py-1 rounded-md text-[12px] font-medium transition-colors ${
+                className={`flex-1 min-w-0 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
                   mobileThreadTab === 'chat'
                     ? 'bg-[var(--scene-bg)] text-[var(--dashboard-text)] border border-[var(--dashboard-border)]'
-                    : 'text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]'
+                    : 'text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] border border-transparent'
                 }`}
               >
                 Chat
@@ -3282,10 +3320,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               <button
                 type="button"
                 onClick={() => setMobileThreadTab('context')}
-                className={`px-3 py-1 rounded-md text-[12px] font-medium transition-colors ${
+                className={`flex-1 min-w-0 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
                   mobileThreadTab === 'context'
                     ? 'bg-[var(--scene-bg)] text-[var(--dashboard-text)] border border-[var(--dashboard-border)]'
-                    : 'text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]'
+                    : 'text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] border border-transparent'
                 }`}
               >
                 Context
@@ -3300,36 +3338,27 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         )}
 
         {/* AgentPresenceLogo: built but unwired — chat header has no stable avatar slot without layout churn. */}
-        {!isNarrow && !atmosphericHomeMode && renderThreadHeader()}
-
-        {!isNarrow && !atmosphericHomeMode && onAgentChatShellNewTab && agentChatShellTabs && agentChatShellTabs.length > 0 && (
-          <div className="flex-shrink-0 flex items-center gap-1 px-2 py-1 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/60 overflow-x-auto chat-hide-scroll [scrollbar-width:none]">
-            {agentChatShellTabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => onAgentChatShellTabSelect?.(tab.id)}
-                className={`shrink-0 max-w-[min(160px,40vw)] truncate px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                  tab.id === activeAgentChatShellTabId
-                    ? 'bg-[var(--scene-bg)] text-[var(--solar-cyan)] border border-[var(--dashboard-border)]'
-                    : 'text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)] border border-transparent'
-                }`}
-                title={tab.title}
-              >
-                {tab.title}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={handleNewChat}
-              className="shrink-0 p-1 rounded-md text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)] border border-transparent"
-              title="New chat"
-              aria-label="New chat"
-            >
-              <Plus size={14} strokeWidth={1.75} />
-            </button>
+        {!isNarrow && !atmosphericHomeMode && (showThreadHeader || shellTabsVisible) ? (
+          <div className="flex-shrink-0 flex flex-col min-w-0 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/60">
+            <div className="flex items-stretch min-w-0 gap-1 sm:gap-2 overflow-x-auto chat-hide-scroll [scrollbar-width:none]">
+              {showThreadHeader ? (
+                <div className="flex-1 min-w-0">{renderThreadHeader(true, true)}</div>
+              ) : null}
+              {renderShellTabStrip('px-2 py-1 shrink-0 max-w-[min(100%,280px)] sm:max-w-none')}
+            </div>
+            {chatFilesOpen ? (
+              <AgentChatFilesPanel
+                messages={displayMessages}
+                stagedCount={attachments.length}
+                onAttach={() => {
+                  setAttachMenuOpen(true);
+                  textareaRef.current?.focus();
+                }}
+                onClose={() => setChatFilesOpen(false)}
+              />
+            ) : null}
           </div>
-        )}
+        ) : null}
 
         <div className="flex flex-1 min-h-0 overflow-hidden min-w-0">
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden min-w-0">

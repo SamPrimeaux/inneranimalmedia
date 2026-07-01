@@ -272,6 +272,8 @@ export interface ChatAssistantProps {
   onAgentChatShellTabSelect?: (tabId: string) => void;
   /** Open a parallel chat tab (host allocates tab + messages slot). */
   onAgentChatShellNewTab?: () => void;
+  /** When false, hide workbench tab strip (center chat home uses thread header only). */
+  showAgentWorkbenchTabs?: boolean;
   /** Parent mirrors streaming state (approval polling). */
   onLoadingChange?: (loading: boolean) => void;
   /** SSE surfaced a command_run awaiting approval. */

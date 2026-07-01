@@ -156,11 +156,30 @@ function deriveApiPlatformFromProvider(provider, rawPlatform) {
   return 'unknown';
 }
 
+/** Last-resort dispatch lane when catalog provider/api_platform are blank or stale. */
+function deriveApiPlatformFromModelKey(modelKey) {
+  const k = String(modelKey || '').trim().toLowerCase();
+  if (!k) return 'unknown';
+  if (k.startsWith('gpt-5') || k.startsWith('o3') || k.startsWith('o4')) return 'openai_responses';
+  if (k.startsWith('gpt-') || k.startsWith('o1')) return 'openai_chat_completions';
+  if (k.startsWith('claude')) return 'anthropic';
+  if (k.startsWith('gemini')) return 'gemini_api';
+  if (k.startsWith('@cf/') || k.includes('workers-ai')) return 'workers_ai';
+  if (k.startsWith('deepseek')) return 'deepseek';
+  return 'unknown';
+}
+
 /** Catalog api_platform with provider-derived fallback (never default to anthropic). */
 function resolveDispatchPlatform(meta) {
   let plat = String(
     meta?.api_platform ? meta.api_platform : deriveApiPlatformFromProvider(meta?.provider || '', ''),
   ).toLowerCase();
+  if (plat === 'unknown' || plat === '') {
+    plat = deriveApiPlatformFromProvider(meta?.provider || '', '').toLowerCase();
+  }
+  if (plat === 'unknown' || plat === '') {
+    plat = deriveApiPlatformFromModelKey(meta?.model_key || meta?.logical_model_key || '').toLowerCase();
+  }
   if (plat === 'google_ai' || plat === 'google_ai_studio') plat = 'gemini_api';
   return plat;
 }

@@ -18,6 +18,8 @@ type Props = {
   onOpenFiles: () => void;
   filesActive?: boolean;
   compact?: boolean;
+  /** When embedded in a merged shell row, omit bottom border. */
+  embedded?: boolean;
 };
 
 export const AgentChatThreadHeader: FC<Props> = ({
@@ -32,6 +34,7 @@ export const AgentChatThreadHeader: FC<Props> = ({
   onOpenFiles,
   filesActive = false,
   compact = false,
+  embedded = false,
 }) => {
   const convId = String(conversationId || '').trim();
   const [editing, setEditing] = useState(false);
@@ -119,8 +122,10 @@ export const AgentChatThreadHeader: FC<Props> = ({
   return (
     <div
       ref={rootRef}
-      className={`flex items-center gap-2 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/80 backdrop-blur-sm ${
-        compact ? 'px-2 py-1.5' : 'px-3 py-2'
+      className={`flex items-center gap-1.5 sm:gap-2 min-w-0 ${
+        embedded ? '' : 'border-b border-[var(--dashboard-border)]'
+      } bg-[var(--dashboard-panel)]/80 backdrop-blur-sm ${
+        compact ? 'px-2 py-1.5' : 'px-2.5 sm:px-3 py-2'
       }`}
     >
       <div className="flex-1 min-w-0 flex items-center gap-1.5">
