@@ -15,7 +15,8 @@ import {
   fallbackSystemTenantId,
   authUserIsSuperadmin,
   invalidateFeatureFlagsCache,
-  loadFeatureFlags,
+  loadFeatureFlagsFromD1,
+  appendBrowserLoginSessionCookies,
 } from '../core/auth.js';
 import {
   appendAgentsamSkillRevision,
@@ -893,7 +894,7 @@ export async function handleSettingsRequest(request, env, ctx) {
           authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
             ? String(authUser.tenant_id).trim()
             : (await fetchAuthUserTenantId(env, uid)) || null;
-        const feature_flags = await loadFeatureFlags(env, uid, tenantId);
+        const feature_flags = await loadFeatureFlagsFromD1(env, uid, tenantId);
         return jsonResponse({
           ok: true,
           flag_key: flagKey,
@@ -1403,13 +1404,14 @@ export async function handleSettingsRequest(request, env, ctx) {
         /* ignore */
       }
 
+      let reminted = null;
       try {
-        await syncSessionWorkspaceId(env, request, sessionUserId, id);
+        reminted = await syncSessionWorkspaceId(env, request, sessionUserId, id);
       } catch (_) {
         /* non-fatal — auth_users is SSOT */
       }
 
-      return jsonResponse({
+      const response = jsonResponse({
         success: true,
         workspace: {
           id: row.id,
@@ -1423,6 +1425,10 @@ export async function handleSettingsRequest(request, env, ctx) {
         ok: true,
         current: id,
       });
+      if (reminted?.sessionToken) {
+        appendBrowserLoginSessionCookies(response.headers, reminted.sessionToken);
+      }
+      return response;
     } catch (e) {
       return jsonResponse({ error: e?.message ?? 'Update failed' }, 500);
     }

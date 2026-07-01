@@ -21,6 +21,10 @@ import {
   DEFAULT_AGENT_SESSION_TTL_SECONDS,
   MIN_AGENT_SESSION_TTL_SECONDS,
   MAX_AGENT_SESSION_TTL_SECONDS,
+  appendBrowserLoginSessionCookies,
+  formatSessionCookieHeader,
+  normalizeLoginSessionResult,
+  resolveSessionIdFromCookieValue,
 } from '../core/auth';
 
 import { ensureIdentityPlaneBeforeSession } from '../core/ensureIdentityPlaneBeforeSession.js';
@@ -28,7 +32,6 @@ import { ensureAppUser } from '../core/ensureAppUser.js';
 import { logAuthEvent } from '../core/auth-events.js';
 import { buildCanonicalAuthMe } from './auth-me.js';
 import {
-  appendBrowserLoginSessionCookies,
   finalizeInboundOAuth,
 } from './oauth-login-callbacks.js';
 import { upsertOauthToken, resolveCanonicalWorkspace } from './oauth.js';
@@ -250,7 +253,8 @@ async function handleAgentSessionMint(request, env) {
   }
 
   try {
-    const sessionId = await createLoginSession(request, env, userId, 'agent_mint', { ttlSeconds });
+    const loginSession = await createLoginSession(request, env, userId, 'agent_mint', { ttlSeconds });
+    const { sessionId, sessionToken } = normalizeLoginSessionResult(loginSession);
     const tenantId =
       String(body.tenant_id || body.tenantId || '').trim() ||
       (await resolveTenantAtLogin(env, userId).catch(() => null)) ||
@@ -303,7 +307,7 @@ async function handleAgentSessionMint(request, env) {
       ok: true,
       session_id: sessionId,
       cookie_name: AUTH_COOKIE_NAME,
-      cookie_header: `${AUTH_COOKIE_NAME}=${sessionId}`,
+      cookie_header: formatSessionCookieHeader(sessionToken, ttlSeconds),
       ttl_seconds: ttlSeconds,
       expires_at: new Date(expiresAtMs).toISOString(),
     });
@@ -437,8 +441,8 @@ async function handleIdentityRecoveryVerify(request, url, env) {
     }, 503);
   }
 
-  const sessionId = await createLoginSession(request, env, result.user.id, 'identity_recovery');
-  return redirectWithLoginSession(request, sessionId);
+  const loginSession = await createLoginSession(request, env, result.user.id, 'identity_recovery');
+  return redirectWithLoginSession(request, loginSession);
 }
 
 /**
@@ -489,7 +493,8 @@ async function handleBackupCodeLogin(request, _url, env) {
     if (!identityOk?.ok) {
       return jsonResponse({ error: 'Account provisioning failed', reason: identityOk?.reason }, 503);
     }
-    const sessionId = await createLoginSession(request, env, authUserRow.id, 'backup_code');
+    const loginSession = await createLoginSession(request, env, authUserRow.id, 'backup_code');
+    const { sessionId } = normalizeLoginSessionResult(loginSession);
     const tenantId = await resolveTenantAtLogin(env, authUserRow.id).catch(() => null);
     try {
       const wsForSession = await resolveCanonicalWorkspace(env, authUserRow.id);
@@ -508,7 +513,7 @@ async function handleBackupCodeLogin(request, _url, env) {
     } catch (e) {
       console.warn('[work_session] create failed (non-fatal):', e?.message);
     }
-    return jsonLoginSessionResponse(request, sessionId, nextPath);
+    return jsonLoginSessionResponse(request, loginSession, nextPath);
   }
 
   const { results } = await env.DB.prepare(
@@ -555,7 +560,8 @@ async function handleBackupCodeLogin(request, _url, env) {
     return jsonResponse({ error: 'Account provisioning failed', reason: identityOk?.reason }, 503);
   }
 
-  const sessionId = await createLoginSession(request, env, authUserRow.id, 'backup_code');
+  const loginSession = await createLoginSession(request, env, authUserRow.id, 'backup_code');
+  const { sessionId } = normalizeLoginSessionResult(loginSession);
   const tenantId = await resolveTenantAtLogin(env, authUserRow.id).catch(() => null);
   try {
     const wsForSession = await resolveCanonicalWorkspace(env, authUserRow.id);
@@ -574,7 +580,7 @@ async function handleBackupCodeLogin(request, _url, env) {
   } catch (e) {
     console.warn('[work_session] create failed (non-fatal):', e?.message);
   }
-  return jsonLoginSessionResponse(request, sessionId, nextPath);
+  return jsonLoginSessionResponse(request, loginSession, nextPath);
 }
 
 /**
@@ -613,7 +619,8 @@ async function handleEmailVerification(request, url, env) {
     return Response.redirect(`${origin}/auth/login?error=invalid_token`, 302);
   }
 
-  const sessionId = await createLoginSession(request, env, authUserId, 'email_verify');
+  const loginSession = await createLoginSession(request, env, authUserId, 'email_verify');
+  const { sessionToken } = normalizeLoginSessionResult(loginSession);
   await logAuthEvent(env, {
     request,
     eventType: 'auth_session_created',
@@ -622,10 +629,7 @@ async function handleEmailVerification(request, url, env) {
   });
 
   const headers = new Headers({ Location: `${origin}/dashboard/agent` });
-  headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-  );
+  appendBrowserLoginSessionCookies(headers, sessionToken);
   return new Response(null, { status: 302, headers });
 }
 
@@ -826,7 +830,8 @@ async function handleEmailSignup(request, url, env) {
     );
   }
 
-  const sessionId = await createLoginSession(request, env, authUserId, 'email_signup');
+  const loginSession = await createLoginSession(request, env, authUserId, 'email_signup');
+  const { sessionId, sessionToken } = normalizeLoginSessionResult(loginSession);
   const tid = await resolveTenantAtLogin(env, authUserId).catch(() => null);
   try {
     const wsForSession = await resolveCanonicalWorkspace(env, authUserId);
@@ -856,40 +861,25 @@ async function handleEmailSignup(request, url, env) {
   const next = '/dashboard/agent';
   if (wantsJson) {
     const res = jsonResponse({ ok: true, redirect: next });
-    res.headers.append(
-      'Set-Cookie',
-      `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-    );
+    appendBrowserLoginSessionCookies(res.headers, sessionToken);
     return res;
   }
   const headers = new Headers({ Location: `${origin}${next}` });
-  headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-  );
+  appendBrowserLoginSessionCookies(headers, sessionToken);
   return new Response(null, { status: 302, headers });
 }
 
-function redirectWithLoginSession(request, sessionId) {
+function redirectWithLoginSession(request, loginResult) {
+  const { sessionToken } = normalizeLoginSessionResult(loginResult);
   const target = new URL(DASHBOARD_AFTER_LOGIN_PATH, request.url).href;
   const res = Response.redirect(target, 302);
-  res.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-  );
-  res.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
-  res.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
+  appendBrowserLoginSessionCookies(res.headers, sessionToken);
   return res;
 }
 
 /** JSON login success for fetch-based auth (backup code, etc.) — mirrors finishLogin cookies. */
-function jsonLoginSessionResponse(request, sessionId, redirectPath) {
+function jsonLoginSessionResponse(request, loginResult, redirectPath) {
+  const { sessionToken } = normalizeLoginSessionResult(loginResult);
   const next =
     sanitizeBrowserNextPath(
       redirectPath && redirectPath.startsWith('/') ? redirectPath : DASHBOARD_AFTER_LOGIN_PATH,
@@ -898,18 +888,7 @@ function jsonLoginSessionResponse(request, sessionId, redirectPath) {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });
-  response.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-  );
-  response.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
-  response.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
+  appendBrowserLoginSessionCookies(response.headers, sessionToken);
   return response;
 }
 
@@ -919,7 +898,8 @@ function jsonLoginSessionResponse(request, sessionId, redirectPath) {
 async function handleLogout(request, url, env) {
   const cookie = request.headers.get('Cookie') || '';
   const match = cookie.match(new RegExp(`${AUTH_COOKIE_NAME}=([^;]+)`));
-  const sessionId = match ? decodeURIComponent(String(match[1]).trim()) : null;
+  const rawCookie = match ? decodeURIComponent(String(match[1]).trim()) : null;
+  const sessionId = rawCookie ? await resolveSessionIdFromCookieValue(env, rawCookie) : null;
 
   let sessionUserId = null;
   if (sessionId && env?.DB) {
@@ -972,7 +952,8 @@ async function finishLogin(request, url, env, userId, redirectPath) {
     );
   }
 
-  const sessionId = await createLoginSession(request, env, userId, 'email');
+  const loginSession = await createLoginSession(request, env, userId, 'email');
+  const { sessionId, sessionToken } = normalizeLoginSessionResult(loginSession);
   const tenantId = await resolveTenantAtLogin(env, userId).catch(() => null);
   try {
     const wsForSession = await resolveCanonicalWorkspace(env, userId);
@@ -1001,19 +982,7 @@ async function finishLogin(request, url, env, userId, redirectPath) {
     headers: { 'Content-Type': 'application/json' },
   });
 
-  response.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-  );
-  response.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
-  response.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
-
+  appendBrowserLoginSessionCookies(response.headers, sessionToken);
   return response;
 }
 
@@ -1670,7 +1639,7 @@ export async function handleSupabaseOAuthCallback(request, env) {
     return redirectToAuthLogin(request, `error=${finalizedSb.error}`);
   }
 
-  const { authUserId, sessionId, tenantId: finalizedTenantId } = finalizedSb;
+  const { authUserId, sessionId, sessionToken, tenantId: finalizedTenantId } = finalizedSb;
 
   const authRow = await env.DB.prepare(
     `SELECT id, tenant_id, person_uuid, supabase_user_id FROM auth_users WHERE id = ? LIMIT 1`,
@@ -1738,7 +1707,7 @@ export async function handleSupabaseOAuthCallback(request, env) {
     client_id_tail: oauthClientIdTail(env.SUPABASE_OAUTH_CLIENT_ID),
   });
   const redirectHeaders = new Headers({ Location: `${originBase}${destPath}` });
-  appendBrowserLoginSessionCookies(redirectHeaders, sessionId);
+  appendBrowserLoginSessionCookies(redirectHeaders, sessionToken);
   appendLegacySessionCookieClears(redirectHeaders);
 
   return new Response(null, { status: 302, headers: redirectHeaders });

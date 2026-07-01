@@ -12,6 +12,48 @@ import {
   userHasWorkspaceMembership,
 } from './workspace-provisioning.js';
 import { defaultWorkspaceIdFromUserKey, getPlatformWorkspaceEnvId } from './platform-workspace-env.js';
+import {
+  buildSessionSetCookieHeader,
+  edgeClaimsToSessionPayload,
+  isEdgeSessionToken,
+  isLegacySessionId,
+  isSessionRevokedInKv,
+  markSessionRevokedInKv,
+  mintEdgeSessionToken,
+  resolveSessionFromCookieValue,
+  syncAuthRevCache,
+  readAuthRevFromCache,
+  verifyEdgeSessionToken,
+} from './auth/edge-session-token.js';
+import {
+  loadAgentSamUserPolicyCached,
+  loadMembershipCached,
+  readAuthRev,
+} from './auth/auth-claims-cache.js';
+import {
+  loadFeatureFlags,
+  loadFeatureFlagsCached,
+  loadFeatureFlagsFromD1,
+  invalidateFeatureFlagsCache,
+  invalidateGlobalFeatureFlagsCache,
+} from './auth/feature-flags-cache.js';
+
+export {
+  buildSessionSetCookieHeader,
+  isEdgeSessionToken,
+  isLegacySessionId,
+  mintEdgeSessionToken,
+  resolveSessionFromCookieValue,
+  verifyEdgeSessionToken,
+} from './auth/edge-session-token.js';
+export { bumpAuthRev, invalidateAuthClaimsCache } from './auth/auth-claims-cache.js';
+export {
+  loadFeatureFlags,
+  loadFeatureFlagsCached,
+  loadFeatureFlagsFromD1,
+  invalidateFeatureFlagsCache,
+  invalidateGlobalFeatureFlagsCache,
+} from './auth/feature-flags-cache.js';
 
 /** Cached superadmin identifiers: auth_users.id, emails (TTL 5m). */
 let SUPERADMIN_IDS_CACHE = null;
@@ -206,80 +248,16 @@ export function getApexDomain(hostname) {
 }
 
 /**
- * Loads merged feature flags (global defaults + per-user overrides). Cached ~60s under `ff:{userId}`.
- * Uses agentsam_feature_flag.enabled_globally and agentsam_user_feature_override — schema-driven columns only.
- * @returns {Promise<Record<string, boolean>>}
+ * Session feature flags: JWT snapshot on edge sessions; KV cache for legacy cookies.
+ * Never hits D1 when flags are already embedded or KV is warm.
  */
-export async function loadFeatureFlags(env, userId, tenantId) {
-  void tenantId;
-  const uid = userId != null ? String(userId).trim() : '';
-  if (!uid || !env?.DB) return {};
-  const kv = env.KV || env.SESSION_CACHE;
-  const cacheKey = `ff:${uid}`;
-  try {
-    if (kv?.get) {
-      const raw = await kv.get(cacheKey);
-      if (raw) {
-        const j = JSON.parse(raw);
-        if (j && typeof j === 'object' && j.flags && typeof j.ts === 'number' && Date.now() - j.ts < 60000) {
-          return j.flags && typeof j.flags === 'object' ? j.flags : {};
-        }
-      }
-    }
-  } catch {
-    /* cold cache */
-  }
-  const out = {};
-  try {
-    const gRes = await env.DB.prepare(
-      `SELECT flag_key FROM agentsam_feature_flag WHERE enabled_globally = 1`,
-    ).all();
-    for (const r of gRes.results || []) {
-      if (r?.flag_key != null && String(r.flag_key).trim() !== '') {
-        out[String(r.flag_key)] = true;
-      }
-    }
-    const oRes = await env.DB.prepare(
-      `SELECT flag_key, enabled FROM agentsam_user_feature_override WHERE user_id = ?`,
-    )
-      .bind(uid)
-      .all();
-    for (const r of oRes.results || []) {
-      if (r?.flag_key != null && String(r.flag_key).trim() !== '') {
-        out[String(r.flag_key)] = Number(r.enabled) === 1;
-      }
-    }
-  } catch (e) {
-    console.warn('[loadFeatureFlags]', e?.message ?? e);
-    return {};
-  }
-  try {
-    if (kv?.put) {
-      await kv.put(cacheKey, JSON.stringify({ flags: out, ts: Date.now() }), { expirationTtl: 120 });
-    }
-  } catch {
-    /* non-fatal */
-  }
-  return out;
-}
-
-/** Bust per-user feature flag KV cache after override writes. */
-export async function invalidateFeatureFlagsCache(env, userId) {
-  const uid = userId != null ? String(userId).trim() : '';
-  if (!uid) return;
-  const kv = env.KV || env.SESSION_CACHE;
-  if (!kv?.delete) return;
-  try {
-    await kv.delete(`ff:${uid}`);
-  } catch {
-    /* non-fatal */
-  }
-}
-
 async function attachFeatureFlagsToSession(env, session) {
   if (!session?.user_id) return session;
+  if (session.feature_flags && typeof session.feature_flags === 'object') {
+    return session;
+  }
   try {
-    const feature_flags = await loadFeatureFlags(env, session.user_id, session.tenant_id);
+    const feature_flags = await loadFeatureFlagsCached(env, session.user_id, session.tenant_id);
     return { ...session, feature_flags };
   } catch {
     return { ...session, feature_flags: {} };
@@ -548,6 +526,75 @@ function sessionFieldsFromAuthUser(userRow, sessionProvider, opts = {}) {
   };
 }
 
+function computeAuthCapabilities(isSuperadmin, membership, policy) {
+  const policyPty = Number(policy?.can_run_pty) === 1;
+  const memPty = Number(membership?.can_run_pty) === 1;
+  return {
+    canRunPty: isSuperadmin || policyPty || memPty,
+    canRunMcp: isSuperadmin || Number(membership?.can_run_mcp) === 1,
+    canDeploy: isSuperadmin || Number(membership?.can_deploy) === 1,
+  };
+}
+
+/**
+ * Mint HS256 edge session JWT after login / workspace switch.
+ * @param {*} env
+ * @param {object} input
+ */
+async function mintBrowserSessionToken(env, input) {
+  const ttlSec =
+    input.ttlSec != null
+      ? Math.min(
+          MAX_AGENT_SESSION_TTL_SECONDS,
+          Math.max(MIN_AGENT_SESSION_TTL_SECONDS, Number(input.ttlSec) || DEFAULT_AGENT_SESSION_TTL_SECONDS),
+        )
+      : AUTH_SESSION_TTL_SECONDS;
+  const featureFlags =
+    input.featureFlags ??
+    (await loadFeatureFlagsFromD1(env, input.userId, input.tenantId));
+  const token = await mintEdgeSessionToken(env, {
+    sessionId: input.sessionId,
+    userId: input.userId,
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    email: input.email,
+    personUuid: input.personUuid,
+    displayName: input.displayName,
+    isSuperadmin: input.isSuperadmin,
+    authRev: input.authRev,
+    capabilities: input.capabilities,
+    featureFlags,
+    ttlSec,
+  });
+  if (!token) throw new Error('edge_session_token_unavailable');
+  return token;
+}
+
+/** Normalize createLoginSession return value for callers. */
+export function normalizeLoginSessionResult(result) {
+  if (result && typeof result === 'object' && result.sessionId) return result;
+  const sid = trimSessionField(result);
+  return { sessionId: sid, sessionToken: sid };
+}
+
+/** @param {string} sessionToken @param {number} [maxAgeSec] */
+export function formatSessionCookieHeader(sessionToken, maxAgeSec = AUTH_SESSION_TTL_SECONDS) {
+  return buildSessionSetCookieHeader(sessionToken, maxAgeSec);
+}
+
+/** Clear stale domain-scoped session cookies, then set canonical host-only session (set last). */
+export function appendBrowserLoginSessionCookies(headers, sessionToken, maxAgeSec = AUTH_SESSION_TTL_SECONDS) {
+  headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
+  );
+  headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
+  );
+  headers.append('Set-Cookie', formatSessionCookieHeader(sessionToken, maxAgeSec));
+}
+
 /** D1 check: session exists, not revoked, not expired. */
 async function authSessionIsActive(env, sessionId) {
   const id = trimSessionField(sessionId);
@@ -569,7 +616,7 @@ async function authSessionIsActive(env, sessionId) {
 }
 
 /**
- * Global Session Retrieval (KV + Context)
+ * Global Session Retrieval — edge JWT first, legacy D1/KV fallback.
  */
 export async function getSession(env, request) {
   const cookieHeader = request.headers.get('Cookie') || '';
@@ -581,13 +628,49 @@ export async function getSession(env, request) {
   }
   if (sessionCandidates.length === 0) return null;
 
-  /** When multiple session= cookies exist, prefer the newest active D1 row (not first in header). */
+  /** Prefer newest valid edge JWT, then legacy D1 rows. */
+  let bestEdgePayload = null;
+  let bestEdgeExp = -1;
+
+  for (const sessionId of sessionCandidates) {
+    const raw = trimSessionField(decodeURIComponent(String(sessionId || '')));
+    if (!raw) continue;
+
+    const resolved = await resolveSessionFromCookieValue(env, raw);
+    if (resolved.claims) {
+      const sid = trimSessionField(resolved.sessionId);
+      if (!sid) continue;
+      if (await isSessionRevokedInKv(env, sid)) continue;
+
+      const userId = trimSessionField(resolved.claims.sub);
+      const tokenRev = Number(resolved.claims.rev) || 0;
+      const cachedRev = userId ? await readAuthRevFromCache(env, userId) : null;
+      if (cachedRev != null && cachedRev > tokenRev) continue;
+
+      const exp = Number(resolved.claims.exp) || 0;
+      if (exp >= bestEdgeExp) {
+        bestEdgeExp = exp;
+        bestEdgePayload = edgeClaimsToSessionPayload(resolved.claims);
+      }
+      continue;
+    }
+
+    if (!resolved.legacy || !isLegacySessionId(resolved.sessionId || raw)) continue;
+  }
+
+  if (bestEdgePayload) {
+    return attachFeatureFlagsToSession(env, bestEdgePayload);
+  }
+
+  /** Legacy opaque session id — D1 canonical with KV cache. */
   let bestRow = null;
   let bestCreatedMs = -1;
 
   if (env.DB) {
     for (const sessionId of sessionCandidates) {
-      const sid = trimSessionField(decodeURIComponent(String(sessionId || '')));
+      const raw = trimSessionField(decodeURIComponent(String(sessionId || '')));
+      if (!raw || isEdgeSessionToken(raw)) continue;
+      const sid = isLegacySessionId(raw) ? raw : trimSessionField(raw);
       if (!sid) continue;
       try {
         const row = await env.DB.prepare(
@@ -632,7 +715,9 @@ export async function getSession(env, request) {
   }
 
   for (const sessionId of sessionCandidates) {
-    const sid = trimSessionField(decodeURIComponent(String(sessionId || '')));
+    const raw = trimSessionField(decodeURIComponent(String(sessionId || '')));
+    if (!raw || isEdgeSessionToken(raw)) continue;
+    const sid = isLegacySessionId(raw) ? raw : trimSessionField(raw);
     if (!sid || !env.SESSION_CACHE) continue;
     try {
       const data = await env.SESSION_CACHE.get(IAM_KV_SESSION_KEY_PREFIX + sid);
@@ -687,11 +772,11 @@ export async function writeIamSessionToKv(env, sessionId, userId, tenantId, expi
 export async function syncSessionWorkspaceId(env, request, userId, workspaceId) {
   const ws = trimSessionField(workspaceId);
   const uid = trimSessionField(userId);
-  if (!ws || !uid || !env?.DB) return;
+  if (!ws || !uid || !env?.DB) return null;
 
   const session = await getSession(env, request).catch(() => null);
   const sessionId = trimSessionField(session?.session_id || session?.id);
-  if (!sessionId) return;
+  if (!sessionId) return null;
 
   try {
     await env.DB.prepare(
@@ -703,12 +788,13 @@ export async function syncSessionWorkspaceId(env, request, userId, workspaceId) 
       .run();
   } catch (_) {}
 
+  const tenantId = trimSessionField(session?.tenant_id) || null;
   if (env.SESSION_CACHE && session) {
     await writeIamSessionToKv(
       env,
       sessionId,
       uid,
-      trimSessionField(session.tenant_id) || null,
+      tenantId,
       session.expires_at ?? null,
       {
         workspaceId: ws,
@@ -723,6 +809,32 @@ export async function syncSessionWorkspaceId(env, request, userId, workspaceId) 
         lastActiveAt: Date.now(),
       },
     );
+  }
+
+  try {
+    const membership = await loadMembershipCached(env, uid, ws);
+    const policy = await loadAgentSamUserPolicyCached(env, uid, ws);
+    const isSuperadmin =
+      Number(session?.is_superadmin) === 1 ||
+      (await isSuperadminSessionUserKey(env, uid));
+    const authRev = await readAuthRev(env, uid);
+    const capabilities = computeAuthCapabilities(isSuperadmin, membership, policy);
+    const sessionToken = await mintBrowserSessionToken(env, {
+      sessionId,
+      userId: uid,
+      tenantId,
+      workspaceId: ws,
+      email: session?.email,
+      personUuid: session?.person_uuid,
+      displayName: session?.display_name,
+      isSuperadmin,
+      authRev,
+      capabilities,
+    });
+    return { sessionId, sessionToken };
+  } catch (e) {
+    console.warn('[syncSessionWorkspaceId] remint failed', e?.message ?? e);
+    return null;
   }
 }
 
@@ -955,8 +1067,22 @@ export async function resolveAuth(request, env, opts = {}) {
     return null;
   }
 
+  const isEdgeSession = sessionRaw?.edge === true;
   let row = null;
-  if (env?.DB) {
+
+  if (isEdgeSession) {
+    row = {
+      id: userId,
+      email: sessionRaw?.email ?? null,
+      name: sessionRaw?.display_name ?? null,
+      display_name: sessionRaw?.display_name ?? null,
+      person_uuid: sessionRaw?.person_uuid ?? null,
+      is_superadmin: Number(sessionRaw?.is_superadmin) === 1 ? 1 : 0,
+      active_tenant_id: sessionRaw?.tenant_id ?? null,
+      tenant_id: sessionRaw?.tenant_id ?? null,
+      active_workspace_id: sessionRaw?.workspace_id ?? null,
+    };
+  } else if (env?.DB) {
     try {
       row = await env.DB.prepare(`SELECT * FROM auth_users WHERE id = ? LIMIT 1`).bind(userId).first();
     } catch (e) {
@@ -974,14 +1100,26 @@ export async function resolveAuth(request, env, opts = {}) {
     tenantId =
       trimSessionField(row.active_tenant_id) || trimSessionField(row.tenant_id) || null;
   }
-  if (!tenantId && userId) {
+  if (!tenantId && userId && !isEdgeSession) {
     tenantId = trimSessionField(await fetchAuthUserTenantId(env, userId)) || null;
   }
 
   const headerWs = trimSessionField(request?.headers?.get?.('x-iam-workspace-id'));
   const overrideWs = trimSessionField(opts.workspaceIdOverride);
   const dbActiveWs = trimSessionField(row.active_workspace_id);
-  if (overrideWs) {
+
+  if (isEdgeSession) {
+    workspaceId = trimSessionField(sessionRaw?.workspace_id) || workspaceId;
+    if (overrideWs) {
+      if (isSuperadmin || (await loadMembershipCached(env, userId, overrideWs))) {
+        workspaceId = overrideWs;
+      }
+    } else if (headerWs) {
+      if (isSuperadmin || (await loadMembershipCached(env, userId, headerWs))) {
+        workspaceId = headerWs;
+      }
+    }
+  } else if (overrideWs) {
     if (isSuperadmin || (await userHasWorkspaceMembership(env, userId, overrideWs))) {
       workspaceId = overrideWs;
     }
@@ -997,7 +1135,7 @@ export async function resolveAuth(request, env, opts = {}) {
     }
   }
 
-  if (!workspaceId) {
+  if (!workspaceId && !isEdgeSession) {
     const sessionWs =
       trimSessionField(sessionRaw?.workspace_id) || trimSessionField(sessionRaw?.workspaceId) || null;
     if (
@@ -1008,7 +1146,7 @@ export async function resolveAuth(request, env, opts = {}) {
     }
   }
 
-  if (!workspaceId) {
+  if (!workspaceId && !isEdgeSession) {
     let candidate = trimSessionField(row.active_workspace_id) || null;
     if (candidate && !(isSuperadmin || (await userHasWorkspaceMembership(env, userId, candidate)))) {
       candidate = null;
@@ -1030,16 +1168,39 @@ export async function resolveAuth(request, env, opts = {}) {
     workspaceId = workspaceSlugFromTenantId(tenantId);
   }
 
-  const membership = workspaceId ? await loadMembership(env, userId, workspaceId) : null;
-  const policy = await loadAgentSamUserPolicy(env, userId, workspaceId || '');
+  let membership;
+  let policy;
+  let capabilities;
 
-  const policyPty = Number(policy?.can_run_pty) === 1;
-  const memPty = Number(membership?.can_run_pty) === 1;
-  const capabilities = {
-    canRunPty: isSuperadmin || policyPty || memPty,
-    canRunMcp: isSuperadmin || Number(membership?.can_run_mcp) === 1,
-    canDeploy: isSuperadmin || Number(membership?.can_deploy) === 1,
-  };
+  const workspaceChanged =
+    isEdgeSession &&
+    overrideWs &&
+    trimSessionField(sessionRaw?.workspace_id) &&
+    overrideWs !== trimSessionField(sessionRaw?.workspace_id);
+
+  const headerWsChanged =
+    isEdgeSession &&
+    headerWs &&
+    trimSessionField(sessionRaw?.workspace_id) &&
+    headerWs !== trimSessionField(sessionRaw?.workspace_id);
+
+  if (isEdgeSession && sessionRaw?.capabilities && !workspaceChanged && !headerWsChanged) {
+    capabilities = sessionRaw.capabilities;
+    membership = workspaceId
+      ? {
+          role: null,
+          can_run_pty: capabilities.canRunPty ? 1 : 0,
+          can_run_mcp: capabilities.canRunMcp ? 1 : 0,
+          can_deploy: capabilities.canDeploy ? 1 : 0,
+          org_id: null,
+        }
+      : null;
+    policy = null;
+  } else {
+    membership = workspaceId ? await loadMembershipCached(env, userId, workspaceId) : null;
+    policy = await loadAgentSamUserPolicyCached(env, userId, workspaceId || '');
+    capabilities = computeAuthCapabilities(isSuperadmin, membership, policy);
+  }
 
   const out = {
     userId: String(row.id),
@@ -1267,14 +1428,35 @@ export async function establishIamSession(request, env, userId, bodyObj = { ok: 
     lastActiveAt: Date.now(),
   });
 
+  const isSuperadmin = Number(userRow?.is_superadmin) === 1;
+  const membership = sessionFields.workspaceId
+    ? await loadMembership(env, userId, sessionFields.workspaceId)
+    : null;
+  const policy = await loadAgentSamUserPolicy(env, userId, sessionFields.workspaceId || '');
+  const authRev = await readAuthRev(env, userId);
+  const capabilities = computeAuthCapabilities(isSuperadmin, membership, policy);
+  const sessionToken = await mintBrowserSessionToken(env, {
+    sessionId,
+    userId,
+    tenantId: sessionFields.tenantId,
+    workspaceId: sessionFields.workspaceId,
+    email: sessionFields.email,
+    personUuid: sessionFields.personUuid,
+    displayName: sessionFields.displayName,
+    isSuperadmin,
+    authRev,
+    capabilities,
+  });
+  await syncAuthRevCache(env, userId, authRev);
+
   const response = jsonResponse(bodyObj);
-  response.headers.append('Set-Cookie', `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`);
+  response.headers.append('Set-Cookie', formatSessionCookieHeader(sessionToken));
   return response;
 }
 
 /**
  * Creates auth_sessions + KV (email / OAuth / signup login).
- * @returns {Promise<string>} session id
+ * @returns {Promise<{ sessionId: string, sessionToken: string }>}
  */
 export async function createLoginSession(request, env, userId, sessionProvider = 'email', opts = {}) {
   const sessionId = crypto.randomUUID();
@@ -1401,7 +1583,36 @@ export async function createLoginSession(request, env, userId, sessionProvider =
     lastActiveAt: Date.now(),
   });
 
-  return sessionId;
+  const isSuperadmin = Number(userRow?.is_superadmin) === 1;
+  const membership = sessionFields.workspaceId
+    ? await loadMembership(env, userId, sessionFields.workspaceId)
+    : null;
+  const policy = await loadAgentSamUserPolicy(env, userId, sessionFields.workspaceId || '');
+  const authRev = await readAuthRev(env, userId);
+  const capabilities = computeAuthCapabilities(isSuperadmin, membership, policy);
+  const ttlSec =
+    opts != null && opts.ttlSeconds != null
+      ? Math.min(
+          MAX_AGENT_SESSION_TTL_SECONDS,
+          Math.max(MIN_AGENT_SESSION_TTL_SECONDS, Number(opts.ttlSeconds) || DEFAULT_AGENT_SESSION_TTL_SECONDS),
+        )
+      : AUTH_SESSION_TTL_SECONDS;
+  const sessionToken = await mintBrowserSessionToken(env, {
+    sessionId,
+    userId,
+    tenantId: sessionFields.tenantId,
+    workspaceId: sessionFields.workspaceId,
+    email: sessionFields.email,
+    personUuid: sessionFields.personUuid,
+    displayName: sessionFields.displayName,
+    isSuperadmin,
+    authRev,
+    capabilities,
+    ttlSec,
+  });
+  await syncAuthRevCache(env, userId, authRev);
+
+  return { sessionId, sessionToken };
 }
 
 /**
@@ -1418,6 +1629,8 @@ export async function revokeAuthSession(env, sessionId, reason = 'logout', userI
       await env.SESSION_CACHE.delete(IAM_KV_SESSION_KEY_PREFIX + id);
     } catch (_) {}
   }
+
+  await markSessionRevokedInKv(env, id, AUTH_SESSION_TTL_SECONDS);
 
   try {
     if (uid) {
@@ -1443,6 +1656,16 @@ export async function revokeAuthSession(env, sessionId, reason = 'logout', userI
   } catch (e) {
     console.warn('[revokeAuthSession]', e?.message ?? e);
   }
+}
+
+/**
+ * Resolve canonical auth_sessions.id from cookie value (JWT sid or legacy UUID).
+ * @param {any} env
+ * @param {string} rawCookieValue
+ */
+export async function resolveSessionIdFromCookieValue(env, rawCookieValue) {
+  const resolved = await resolveSessionFromCookieValue(env, rawCookieValue);
+  return trimSessionField(resolved.sessionId);
 }
 
 export function isIngestSecretAuthorized(request, env) {

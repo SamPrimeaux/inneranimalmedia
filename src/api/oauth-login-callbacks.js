@@ -10,6 +10,9 @@ import {
   resolveTenantAtLogin,
   createLoginSession,
   revokeAuthSession,
+  appendBrowserLoginSessionCookies,
+  resolveSessionIdFromCookieValue,
+  normalizeLoginSessionResult,
 } from '../core/auth.js';
 import { ensureAppUser } from '../core/ensureAppUser.js';
 import { ensureIdentityPlaneBeforeSession } from '../core/ensureIdentityPlaneBeforeSession.js';
@@ -27,9 +30,11 @@ function oauthOrigin(url) {
 export async function revokeIncomingCookieSession(request, env, reason = 'oauth_login_replaced') {
   const cookie = request.headers.get('Cookie') || '';
   const match = cookie.match(new RegExp(`(?:^|;\\s*)${AUTH_COOKIE_NAME}=([^;]+)`));
-  const sessionId = match ? decodeURIComponent(String(match[1]).trim()) : null;
-  if (!sessionId || !env?.DB) return;
+  const rawCookie = match ? decodeURIComponent(String(match[1]).trim()) : null;
+  if (!rawCookie || !env?.DB) return;
   try {
+    const sessionId = await resolveSessionIdFromCookieValue(env, rawCookie);
+    if (!sessionId) return;
     const row = await env.DB.prepare(`SELECT user_id FROM auth_sessions WHERE id = ? LIMIT 1`)
       .bind(sessionId)
       .first();
@@ -39,21 +44,8 @@ export async function revokeIncomingCookieSession(request, env, reason = 'oauth_
   }
 }
 
-/** Clear stale domain-scoped session cookies, then set canonical host-only session (set last). */
-export function appendBrowserLoginSessionCookies(headers, sessionId) {
-  headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
-  headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
-  headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-  );
-}
+/** @deprecated Import appendBrowserLoginSessionCookies from ../core/auth.js */
+export { appendBrowserLoginSessionCookies } from '../core/auth.js';
 
 const DASHBOARD_LOGIN_FALLBACK = '/dashboard/agent';
 
@@ -203,15 +195,16 @@ export async function finalizeInboundOAuth(env, request, input) {
 
   await revokeIncomingCookieSession(request, env);
 
-  let sessionId;
+  let loginSession;
   try {
-    sessionId = await createLoginSession(request, env, authUserId, sessionProvider, {
+    loginSession = await createLoginSession(request, env, authUserId, sessionProvider, {
       providerSubject: providerUid,
     });
   } catch (e) {
     console.error(`[finalizeInboundOAuth/${provider}] createLoginSession failed`, e?.message ?? e);
     return { ok: false, error: 'session_failed' };
   }
+  const { sessionId, sessionToken } = normalizeLoginSessionResult(loginSession);
 
   const tenantId = await resolveTenantAtLogin(env, authUserId).catch(() => null);
   const workspaceId = await resolveCanonicalWorkspace(env, authUserId);
@@ -289,7 +282,7 @@ export async function finalizeInboundOAuth(env, request, input) {
     ).run().catch(() => {});
   }
 
-  return { ok: true, authUserId, sessionId, tenantId };
+  return { ok: true, authUserId, sessionId, sessionToken, tenantId };
 }
 
 /**
@@ -426,7 +419,7 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
       302,
     );
   }
-  const { authUserId: userId, sessionId, tenantId: tidGh } = finalizedGh;
+  const { authUserId: userId, sessionId, sessionToken, tenantId: tidGh } = finalizedGh;
   const workspaceId = await resolveCanonicalWorkspace(env, userId);
   const ghLogin = (userInfo.login || '').toString() || 'github';
   if (tokens.access_token && env.DB) {
@@ -455,7 +448,7 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
     Location: oauthPostLoginGlobeRedirectUrl(oauthOrigin(url), returnTo),
   });
 
-  appendBrowserLoginSessionCookies(loginHeaders, sessionId);
+  appendBrowserLoginSessionCookies(loginHeaders, sessionToken);
 
   return new Response(null, { status: 302, headers: loginHeaders });
 }
@@ -599,14 +592,14 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
       302,
     );
   }
-  const { sessionId } = finalizedGo;
+  const { sessionToken } = finalizedGo;
 
   const safeDest = safeDashboardLoginRedirectPath(oauthOrigin(url), returnTo);
   const headers = new Headers({
     Location: oauthPostLoginGlobeRedirectUrl(oauthOrigin(url), `${oauthOrigin(url)}${safeDest}`),
   });
 
-  appendBrowserLoginSessionCookies(headers, sessionId);
+  appendBrowserLoginSessionCookies(headers, sessionToken);
 
   return new Response(null, { status: 302, headers });
 }
