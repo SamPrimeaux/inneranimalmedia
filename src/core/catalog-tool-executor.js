@@ -4,7 +4,8 @@
  *
  * Credential resolution: ./resolve-credential.js (resolveCredential).
  */
-export { resolveCredential, parseHandlerConfig, normalizeAuthSource } from './resolve-credential.js';
+import { resolveCredential, parseHandlerConfig, normalizeAuthSource } from './resolve-credential.js';
+export { resolveCredential, parseHandlerConfig, normalizeAuthSource };
 import { d1_query, d1_write } from './d1.js';
 import { handlers as dbToolHandlers } from '../tools/db.js';
 import { handlers as termHandlers } from '../tools/terminal.js';
@@ -446,33 +447,94 @@ function bindingBucket(env, bindingName) {
 }
 
 /**
+ * Resolve the remote MCP JSON-RPC tool name (may differ from agentsam_tools.tool_key).
+ * @param {Record<string, unknown>} mcpRow
+ * @param {Record<string, unknown>} config
+ */
+function resolveMcpRemoteToolName(mcpRow, config) {
+  const remote = trim(config?.remote_tool || config?.operation);
+  if (remote) return remote;
+  const toolName = trim(mcpRow.tool_name || mcpRow.tool_key);
+  if (/^agentsam_(gh_|github_mcp_)/i.test(toolName)) return '';
+  return toolName;
+}
+
+function trimMcpValue(v) {
+  if (v == null) return '';
+  return String(v).trim();
+}
+
+/**
  * @param {any} env
  * @param {Record<string, unknown>} mcpRow
  * @param {Record<string, unknown>} params
  * @param {Record<string, unknown>} runContext
  */
 export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
-  const toolName = String(mcpRow.tool_key || mcpRow.tool_name || '').trim();
-  const tenantId = String(runContext.tenantId ?? runContext.tenant_id ?? '').trim();
-  const userId = String(runContext.userId ?? runContext.user_id ?? '').trim();
-  const workspaceId = String(runContext.workspaceId ?? runContext.workspace_id ?? '').trim();
-  const { url } = await resolveMcpServerForTool(env, {
+  const config = parseHandlerConfig(mcpRow.handler_config);
+  const toolKey = trimMcpValue(mcpRow.tool_key || mcpRow.tool_name);
+  const mcpCallName = resolveMcpRemoteToolName(mcpRow, config) || toolKey;
+  const tenantId = trimMcpValue(runContext.tenantId ?? runContext.tenant_id);
+  const userId = trimMcpValue(runContext.userId ?? runContext.user_id);
+  const workspaceId = trimMcpValue(runContext.workspaceId ?? runContext.workspace_id);
+  const toolForResolve = {
+    ...mcpRow,
+    server_key: mcpRow.server_key || config.server_key,
+    mcp_service_url: mcpRow.mcp_service_url || config.mcp_service_url,
+    handler_config: mcpRow.handler_config,
+  };
+  const { url, serverRow } = await resolveMcpServerForTool(env, {
     tenantId,
     workspaceId,
-  }, mcpRow);
+  }, toolForResolve);
 
   if (url) {
     const headers = { 'Content-Type': 'application/json' };
-    const mcpToken = env?.MCP_AUTH_TOKEN != null ? String(env.MCP_AUTH_TOKEN).trim() : '';
-    const internalSecret = env?.INTERNAL_API_SECRET != null ? String(env.INTERNAL_API_SECRET).trim() : '';
-    const bridgeKey = env?.AGENTSAM_BRIDGE_KEY != null ? String(env.AGENTSAM_BRIDGE_KEY).trim() : '';
-    if (mcpToken) {
-      headers.Authorization = `Bearer ${mcpToken}`;
-    } else if (internalSecret) {
-      headers.Authorization = `Bearer ${internalSecret}`;
-      headers['X-Internal-Secret'] = internalSecret;
-    } else if (bridgeKey) {
-      headers['X-Bridge-Key'] = bridgeKey;
+    const authType = String(serverRow?.auth_type || '').toLowerCase();
+    const authSource = String(config.auth_source || '').toLowerCase();
+    const provider = String(config.provider || '').toLowerCase();
+    const needsGithubUserToken =
+      authType === 'user_oauth_github' ||
+      authSource === 'user_oauth_github' ||
+      (authSource === 'user_oauth_tokens' && provider === 'github');
+
+    if (needsGithubUserToken) {
+      if (!userId) {
+        return {
+          ok: false,
+          error: 'user_oauth_required',
+          failed_tool: toolKey,
+          body: { user_message: 'This GitHub tool requires an authenticated user session.' },
+        };
+      }
+      const { getUserGithubToken } = await import('../integrations/github.js');
+      const account = trimMcpValue(
+        params.account_identifier ?? params.account ?? params.provider_account_id,
+      );
+      const gh = await getUserGithubToken(env, userId, account);
+      const accessToken = gh?.token ? String(gh.token).trim() : '';
+      if (!accessToken) {
+        return {
+          ok: false,
+          error: 'github_not_connected',
+          failed_tool: toolKey,
+          reauth_required: true,
+          body: { user_message: 'Connect GitHub in Integrations before using GitHub MCP tools.' },
+        };
+      }
+      headers.Authorization = `Bearer ${accessToken}`;
+    } else {
+      const mcpToken = env?.MCP_AUTH_TOKEN != null ? String(env.MCP_AUTH_TOKEN).trim() : '';
+      const internalSecret = env?.INTERNAL_API_SECRET != null ? String(env.INTERNAL_API_SECRET).trim() : '';
+      const bridgeKey = env?.AGENTSAM_BRIDGE_KEY != null ? String(env.AGENTSAM_BRIDGE_KEY).trim() : '';
+      if (mcpToken) {
+        headers.Authorization = `Bearer ${mcpToken}`;
+      } else if (internalSecret) {
+        headers.Authorization = `Bearer ${internalSecret}`;
+        headers['X-Internal-Secret'] = internalSecret;
+      } else if (bridgeKey) {
+        headers['X-Bridge-Key'] = bridgeKey;
+      }
     }
 
     const res = await fetch(url, {
@@ -482,15 +544,24 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
         jsonrpc: '2.0',
         id: 1,
         method: 'tools/call',
-        params: { name: toolName, arguments: params },
+        params: { name: mcpCallName, arguments: params },
       }),
     }).catch((e) => ({ ok: false, status: 0, _err: e }));
 
     if (!res?.ok) {
       const status = res?.status ?? 0;
+      if (status === 401 && needsGithubUserToken) {
+        return {
+          ok: false,
+          error: 'github_reauth_required',
+          failed_tool: toolKey,
+          reauth_required: true,
+          body: { user_message: 'GitHub token expired or was revoked. Reconnect GitHub in Integrations.' },
+        };
+      }
       if (
         status === 401 &&
-        /memory/i.test(toolName) &&
+        /memory/i.test(toolKey) &&
         tenantId &&
         userId &&
         workspaceId
@@ -503,14 +574,14 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
           tenantId,
           workspaceId,
           userId,
-          toolName,
+          toolName: toolKey,
           attemptedKey,
           ctx: runContext,
         });
         return {
           ok: false,
           error: fail.error ?? 'reauth_required',
-          failed_tool: fail.failed_tool ?? toolName,
+          failed_tool: fail.failed_tool ?? toolKey,
           attempted_key: fail.attempted_key,
           manual_fallback: fail.manual_fallback,
           reauth_required: true,
@@ -519,8 +590,8 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
       }
       return {
         ok: false,
-        error: `mcp HTTP ${status}: ${res?._err?.message ?? toolName}`,
-        failed_tool: toolName,
+        error: `mcp HTTP ${status}: ${res?._err?.message ?? mcpCallName}`,
+        failed_tool: toolKey,
         reauth_required: status === 401,
       };
     }
@@ -530,7 +601,7 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
 
   return {
     ok: false,
-    error: `mcp tool ${toolName}: no mcp_service_url or server row`,
+    error: `mcp tool ${toolKey}: no mcp_service_url or server row`,
   };
 }
 
@@ -2382,6 +2453,8 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           tool_key: row.tool_key,
           tool_name: row.tool_name || row.tool_key,
           mcp_service_url: mcpUrl,
+          handler_config: row.handler_config,
+          server_key: config.server_key,
         };
         result = await executeMcpCatalogRow(env, syntheticRow, params, runContext);
         break;

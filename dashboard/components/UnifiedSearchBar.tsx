@@ -40,6 +40,7 @@ import { SHELL_DROPDOWN_WIDTH_PX } from './ShellDropdownPanel';
 import { filterDeployPaletteRows } from '../src/lib/deployPaletteItems';
 import { IAM_GIT_SYNC_PUBLISH, IAM_OPEN_CONNECTION_MENU, IAM_OPEN_GIT_REPO_MENU } from '../src/lib/openCommandPalette';
 import type { OpenCommandPaletteDetail } from '../src/lib/openCommandPalette';
+import { isGithubCloneQuery, parseGithubCloneRef } from '../src/lib/githubClone';
 
 export type UnifiedSearchNavigate =
   | { kind: 'table'; name: string }
@@ -62,7 +63,8 @@ type PaletteCategory =
   | 'workflow'
   | 'file'
   | 'tip'
-  | 'search';
+  | 'search'
+  | 'github_clone';
 
 type PaletteItem = {
   id: string;
@@ -82,6 +84,7 @@ type PaletteItem = {
   commandCategory?: WranglerCommandCategory;
   /** Unified-search row passthrough */
   legacyRow?: LegacyUnifiedRow;
+  cloneRef?: string;
 };
 
 type CommandSection = { key: string; label: string; rows: PaletteItem[] };
@@ -96,7 +99,7 @@ type LegacyUnifiedRow = {
   summary?: string;
 };
 
-type QueryMode = 'default' | 'r2' | 'd1' | 'command' | 'workflow' | 'file' | 'search';
+type QueryMode = 'default' | 'r2' | 'd1' | 'command' | 'workflow' | 'file' | 'search' | 'clone';
 
 const SOURCE_CHIPS: { id: SourceChipId; label: string; Icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { id: 'all', label: 'All', Icon: LayoutGrid },
@@ -165,6 +168,9 @@ function parseQueryMode(raw: string): { mode: QueryMode; term: string } {
     return { mode: 'workflow', term: q.replace(/^wf:?/i, '').trim() };
   }
   if (q.startsWith('@')) return { mode: 'file', term: q.slice(1).trim() };
+  if (lower.startsWith('clone ') || lower === 'clone' || isGithubCloneQuery(q)) {
+    return { mode: 'clone', term: q.replace(/^clone\s*/i, '').trim() || q.trim() };
+  }
   if (q.length >= 2) return { mode: 'search', term: q };
   return { mode: 'default', term: q };
 }
@@ -526,6 +532,7 @@ export const UnifiedSearchBar: React.FC<{
   const [sourceChip, setSourceChip] = useState<SourceChipId>('all');
   const [commandSections, setCommandSections] = useState<CommandSection[]>([]);
   const [toast, setToast] = useState<string | null>(null);
+  const [cloneBusy, setCloneBusy] = useState(false);
   const [bucketMenuOpen, setBucketMenuOpen] = useState(false);
   const [bucketMenuRows, setBucketMenuRows] = useState<{ name: string; bound: boolean }[]>([]);
   const [bucketMenuLoading, setBucketMenuLoading] = useState(false);
@@ -894,6 +901,80 @@ export const UnifiedSearchBar: React.FC<{
     [recentFiles],
   );
 
+  const loadClone = useCallback((searchTerm: string) => {
+    const ref = parseGithubCloneRef(searchTerm);
+    if (!ref) {
+      setItems([]);
+      return;
+    }
+    setItems([
+      {
+        id: `github-clone-${ref}`,
+        category: 'github_clone',
+        title: `Clone ${ref}`,
+        subtitle: 'Git clone on your connected terminal lane · binds workspace_root',
+        cloneRef: ref,
+      },
+    ]);
+    setLoading(false);
+  }, []);
+
+  const runGithubClone = useCallback(
+    async (raw: string) => {
+      const ref = parseGithubCloneRef(raw);
+      if (!ref || cloneBusy) return;
+      setCloneBusy(true);
+      setLoading(true);
+      try {
+        const res = await fetch('/api/agent/git/clone', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(workspaceId?.trim() ? { 'X-IAM-Workspace-Id': workspaceId.trim() } : {}),
+          },
+          body: JSON.stringify({ repo: ref, workspace_id: workspaceId?.trim() || undefined }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+          repo_path?: string;
+          github_repo?: string;
+          body?: { user_message?: string };
+        };
+        if (!res.ok || !data.ok) {
+          const msg =
+            data.body?.user_message ||
+            (data.error === 'github_not_connected'
+              ? 'Connect GitHub in Integrations first.'
+              : data.error === 'terminal_unavailable'
+                ? 'Connect Local or Cloud terminal, then retry.'
+                : data.error === 'path_exists'
+                  ? `Path already exists: ${data.repo_path || ref}`
+                  : data.error || `Clone failed (${res.status})`);
+          setToast(msg);
+          return;
+        }
+        setToast(`Cloned ${data.github_repo || ref} → ${data.repo_path || 'workspace'}`);
+        window.dispatchEvent(
+          new CustomEvent('iam_workspace_github_repo', {
+            detail: { workspaceId: workspaceId?.trim() || null, github_repo: data.github_repo || ref },
+          }),
+        );
+        setOpen(false);
+        setQ('');
+        setItems([]);
+        navigate('/dashboard/agent/editor');
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : 'Clone failed');
+      } finally {
+        setCloneBusy(false);
+        setLoading(false);
+      }
+    },
+    [cloneBusy, workspaceId, navigate, setOpen],
+  );
+
   const loadUnifiedSearch = useCallback(
     async (searchTerm: string, chip: SourceChipId) => {
       setLoading(true);
@@ -970,17 +1051,22 @@ export const UnifiedSearchBar: React.FC<{
       await loadFiles(term);
       return;
     }
+    if (mode === 'clone') {
+      loadClone(term || q.trim());
+      return;
+    }
     if (sourceChip === 'commands') {
       await loadCommands(term);
       return;
     }
     await loadUnifiedSearch(term, sourceChip);
-  }, [mode, term, sourceChip, loadDefault, loadR2, loadD1, loadCommands, loadWorkflows, loadFiles, loadUnifiedSearch]);
+  }, [mode, term, q, sourceChip, loadDefault, loadR2, loadD1, loadCommands, loadWorkflows, loadFiles, loadClone, loadUnifiedSearch]);
 
   useEffect(() => {
     if (!open) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => void runQuery(), mode === 'default' ? 0 : 180);
+    const delay = mode === 'default' ? 0 : mode === 'clone' ? 0 : 180;
+    debounceRef.current = setTimeout(() => void runQuery(), delay);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
@@ -1144,6 +1230,11 @@ export const UnifiedSearchBar: React.FC<{
         return;
       }
 
+      if (item.category === 'github_clone' && item.cloneRef) {
+        void runGithubClone(item.cloneRef);
+        return;
+      }
+
       if (item.category === 'command' && item.commandText) {
         void navigator.clipboard?.writeText(item.commandText).catch(() => {});
         setToast('Copied to clipboard');
@@ -1182,7 +1273,7 @@ export const UnifiedSearchBar: React.FC<{
 
       closePalette();
     },
-    [closePalette, navigate, onNavigate, openDatabase, openR2Bucket],
+    [closePalette, navigate, onNavigate, openDatabase, openR2Bucket, runGithubClone],
   );
 
   const displaySections = useMemo(() => {
@@ -1257,10 +1348,20 @@ export const UnifiedSearchBar: React.FC<{
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setActive((i) => Math.max(0, i - 1));
-    } else if (e.key === 'Enter' && flatList.length > 0) {
-      e.preventDefault();
-      const item = flatList[active];
-      if (item) applyItem(item, q.trim());
+    } else if (e.key === 'Enter') {
+      if (flatList.length > 0) {
+        e.preventDefault();
+        const item = flatList[active];
+        if (item) applyItem(item, q.trim());
+        return;
+      }
+      if (mode === 'clone') {
+        const ref = parseGithubCloneRef(term || q.trim());
+        if (ref) {
+          e.preventDefault();
+          void runGithubClone(ref);
+        }
+      }
     }
   };
 

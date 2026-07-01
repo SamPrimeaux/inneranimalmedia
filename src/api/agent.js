@@ -3230,6 +3230,17 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     });
   }
 
+  // ── POST /api/agent/git/clone — clone on healthy PTY lane + bind workspace_root ─
+  if (path === '/api/agent/git/clone' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const body = await request.json().catch(() => ({}));
+    const { cloneGithubRepository } = await import('../core/github-clone.js');
+    const out = await cloneGithubRepository(env, request, body);
+    const status = out.status ?? (out.ok ? 200 : 500);
+    return jsonResponse(out, status);
+  }
+
   // ── /api/agent/git/sync ───────────────────────────────────────────────────
   if (path === '/api/agent/git/sync' && method === 'POST') {
     const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);

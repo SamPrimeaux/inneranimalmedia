@@ -10,6 +10,30 @@ function trim(v) {
   return String(v).trim();
 }
 
+function parseHandlerConfigServerKey(toolRow) {
+  const raw = toolRow?.handler_config;
+  if (raw == null) return '';
+  try {
+    const cfg = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return trim(cfg?.server_key);
+  } catch {
+    return '';
+  }
+}
+
+function parseHandlerConfigMcpUrl(toolRow) {
+  const direct = trim(toolRow?.mcp_service_url);
+  if (direct) return direct;
+  const raw = toolRow?.handler_config;
+  if (raw == null) return '';
+  try {
+    const cfg = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return trim(cfg?.mcp_service_url);
+  } catch {
+    return '';
+  }
+}
+
 /**
  * @param {any} env
  * @param {{ tenantId?: string|null, workspaceId?: string|null }} context
@@ -17,7 +41,7 @@ function trim(v) {
  * @returns {Promise<{ url: string, source: string, serverRow: object|null }>}
  */
 export async function resolveMcpServerForTool(env, context, toolRow) {
-  const fallbackUrl = trim(toolRow?.mcp_service_url);
+  const fallbackUrl = parseHandlerConfigMcpUrl(toolRow);
   const tenantId = trim(context?.tenantId);
   const workspaceId = trim(context?.workspaceId);
 
@@ -37,7 +61,7 @@ export async function resolveMcpServerForTool(env, context, toolRow) {
     } catch (_) {}
   }
 
-  const serverKey = trim(toolRow?.server_key);
+  const serverKey = trim(toolRow?.server_key) || parseHandlerConfigServerKey(toolRow);
   if (serverKey) {
     try {
       const row = await env.DB.prepare(
@@ -72,6 +96,18 @@ export async function resolveMcpServerForTool(env, context, toolRow) {
   }
 
   if (fallbackUrl) {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT * FROM agentsam_mcp_servers
+         WHERE trim(url) = ? AND COALESCE(is_active, 1) = 1
+         LIMIT 1`,
+      )
+        .bind(fallbackUrl)
+        .first();
+      if (row?.url) {
+        return { url: String(row.url), source: 'agentsam_mcp_servers.url', serverRow: row };
+      }
+    } catch (_) {}
     return { url: fallbackUrl, source: 'tool.mcp_service_url', serverRow: null };
   }
 

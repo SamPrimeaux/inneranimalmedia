@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generates migrations/701_register_github_official_mcp_tools.sql by calling
+ * Generates migrations/702_register_github_official_mcp_tools.sql by calling
  * tools/list on GitHub's official remote MCP server and emitting one
  * agentsam_tools row per tool (handler_type='mcp', server_key='github-official').
  *
@@ -26,7 +26,7 @@ import path from 'node:path';
 
 const MCP_URL = 'https://api.githubcopilot.com/mcp/';
 const SERVER_KEY = 'github-official';
-const OUT_FILE = path.resolve('migrations/701_register_github_official_mcp_tools.sql');
+const OUT_FILE = path.resolve('migrations/702_register_github_official_mcp_tools.sql');
 
 const READ_PREFIXES = ['get_', 'list_', 'search_'];
 
@@ -131,17 +131,16 @@ async function main() {
     .map((tool, i) => buildToolRowSql(tool, 30 + i))
     .join(',\n');
 
-  const sql = `-- 701: Register GitHub official MCP server tools (generated).
+  const sql = `-- 702: Register GitHub official MCP server tools (generated).
 -- Source: tools/list from ${MCP_URL}, ${tools.length} tools, generated ${new Date().toISOString()}.
 -- Regenerate with: GITHUB_TOKEN=... node scripts/generate-github-mcp-tools-migration.js
 --
 -- Depends on 700_register_github_official_mcp_server.sql (agentsam_mcp_servers row)
--- and the executeMcpCatalogRow() auth patch in src/core/catalog-tool-executor.js
--- (auth_type='user_oauth_github' branch) being deployed FIRST.
+-- and executeMcpCatalogRow() user_oauth_github auth in src/core/catalog-tool-executor.js.
 --
 -- Apply:
 --   ./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business \\
---     --remote -c wrangler.production.toml --file=./migrations/701_register_github_official_mcp_tools.sql
+--     --remote -c wrangler.production.toml --file=./migrations/702_register_github_official_mcp_tools.sql
 
 INSERT INTO agentsam_tools (
   tool_key, tool_name, display_name, tool_category,
@@ -152,8 +151,8 @@ INSERT INTO agentsam_tools (
   oauth_visible, modes_json, updated_at
 ) VALUES
 ${rows}
-ON CONFLICT(tool_key) DO UPDATE SET
-  tool_name = excluded.tool_name,
+ON CONFLICT(tool_name) DO UPDATE SET
+  tool_key = excluded.tool_key,
   display_name = excluded.display_name,
   tool_category = excluded.tool_category,
   handler_type = excluded.handler_type,

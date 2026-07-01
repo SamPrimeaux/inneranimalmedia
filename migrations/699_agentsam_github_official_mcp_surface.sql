@@ -383,8 +383,8 @@ VALUES
   'medium', 1, '["*"]', '["ask","plan","debug","agent","multitask"]', 1, 1, 1, unixepoch()
 )
 
-ON CONFLICT(tool_key) DO UPDATE SET
-  tool_name = excluded.tool_name,
+ON CONFLICT(tool_name) DO UPDATE SET
+  tool_key = excluded.tool_key,
   display_name = excluded.display_name,
   tool_category = excluded.tool_category,
   description = excluded.description,
@@ -399,3 +399,13 @@ ON CONFLICT(tool_key) DO UPDATE SET
   is_active = excluded.is_active,
   is_global = excluded.is_global,
   updated_at = unixepoch();
+
+-- Backfill column + server linkage for executor resolution (handler_config.server_key / mcp_service_url).
+UPDATE agentsam_tools
+SET mcp_service_url = 'https://api.githubcopilot.com/mcp/',
+    handler_config = json_set(
+      CASE WHEN json_valid(handler_config) THEN handler_config ELSE '{}' END,
+      '$.server_key', 'github-official'
+    ),
+    updated_at = unixepoch()
+WHERE tool_key LIKE 'agentsam_github_mcp_%';

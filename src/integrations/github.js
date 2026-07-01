@@ -357,6 +357,31 @@ export async function handleGithubReposList(request, env, authUser, urlIn) {
     return githubPrivateResponse({ error: 'github_not_connected' }, 401);
   }
 
+  const providerAccountId = tokenResult.provider_account_id || accountParam || tokenResult.account_identifier || '';
+  const cacheKey = githubReposCacheKey(userId, providerAccountId, workspaceId);
+
+  if (env?.SESSION_CACHE?.get) {
+    try {
+      const cached = await env.SESSION_CACHE.get(cacheKey, 'json');
+      if (Array.isArray(cached)) {
+        const scopedCached = scopeGithubReposListForAuthUser(
+          cached,
+          tokenResult.account_identifier || accountParam || '',
+          authUser,
+        );
+        if (githubReposDebugEnabled(env)) {
+          console.log('[github/repos] cache_hit', {
+            user_id: userId,
+            provider_account_id: providerAccountId,
+            account_login: tokenResult.account_identifier || null,
+            repo_count: scopedCached.length,
+          });
+        }
+        return githubPrivateResponse(scopedCached);
+      }
+    } catch (_) { /* non-fatal */ }
+  }
+
   const identity = await assertGitHubTokenOwner(tokenResult.token, tokenResult.account_identifier);
   if (!identity.ok) {
     if (identity.mismatch) {
@@ -371,31 +396,6 @@ export async function handleGithubReposList(request, env, authUser, urlIn) {
       { error: 'github_api_error', status: identity.status || 502 },
       identity.status >= 400 && identity.status < 500 ? identity.status : 502,
     );
-  }
-
-  const providerAccountId = tokenResult.provider_account_id || accountParam || identity.login || '';
-  const cacheKey = githubReposCacheKey(userId, providerAccountId, workspaceId);
-
-  if (env?.SESSION_CACHE?.get) {
-    try {
-      const cached = await env.SESSION_CACHE.get(cacheKey, 'json');
-      if (Array.isArray(cached)) {
-        const scopedCached = scopeGithubReposListForAuthUser(
-          cached,
-          identity.login || tokenResult.account_identifier || '',
-          authUser,
-        );
-        if (githubReposDebugEnabled(env)) {
-          console.log('[github/repos] cache_hit', {
-            user_id: userId,
-            provider_account_id: providerAccountId,
-            account_login: identity.login || tokenResult.account_identifier || null,
-            repo_count: scopedCached.length,
-          });
-        }
-        return githubPrivateResponse(scopedCached);
-      }
-    } catch (_) { /* non-fatal */ }
   }
 
   const res = await fetch(

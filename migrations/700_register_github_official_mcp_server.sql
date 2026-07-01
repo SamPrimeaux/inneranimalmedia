@@ -7,10 +7,10 @@
 -- otherwise auth_type='user_oauth_github' falls through to the bridge-key path
 -- and every call will 401.
 --
--- Tool rows are NOT included here — they're generated from the server's live
+-- tool rows are NOT included here — they're generated from the server's live
 -- tools/list response by scripts/generate-github-mcp-tools-migration.js, since
 -- hand-transcribing ~75 input schemas risks drift from the real contract.
--- Run that script to produce migrations/701_register_github_official_mcp_tools.sql.
+-- Run that script to produce migrations/702_register_github_official_mcp_tools.sql.
 --
 -- Apply:
 --   ./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business \

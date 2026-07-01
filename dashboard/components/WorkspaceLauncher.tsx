@@ -151,8 +151,12 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
 
   useEffect(() => {
     void loadList();
+  }, [loadList]);
+
+  useEffect(() => {
+    if (activeFilter !== 'github' && createKind !== 'github') return;
     void loadGithubRepos();
-  }, [loadList, loadGithubRepos]);
+  }, [activeFilter, createKind, loadGithubRepos]);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
