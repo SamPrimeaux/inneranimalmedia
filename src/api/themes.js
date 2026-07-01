@@ -23,7 +23,8 @@ async function resolveCanonicalUserIdShort(env, sessionUserId, email) {
     return { userId: null };
   }
 }
-import { buildActiveThemeApiPayload, hydrateCmsThemeCssVarsFromR2 } from "../core/cms-theme-active.js";
+import { buildActiveThemeApiPayload } from "../core/cms-theme-active.js";
+import { buildResolvedActiveThemeApiPayload } from "../core/cms-theme-bootstrap-payload.js";
 import {
   getCachedActiveThemePayload,
   putCachedActiveThemePayload,
@@ -288,51 +289,6 @@ async function patchWorkspaceThemeSlug(env, workspaceId, slug) {
  * @param {string} workspaceId
  * @param {string} themeSlug
  */
-/**
- * Hydrate D1 row, build GET /api/themes/active payload, optionally persist to SESSION_CACHE.
- * @param {any} env
- * @param {{
- *   themeRow: Record<string, unknown> | null,
- *   resolved: { row?: Record<string, unknown> | null, resolved_from?: string },
- *   workspaceId?: string | null,
- *   projectId?: string | null,
- *   authUser?: { id?: string } | null,
- *   cache?: boolean,
- * }} args
- */
-async function buildResolvedActiveThemeApiPayload(env, args) {
-  let themeRow = args.themeRow;
-  if (!themeRow) {
-    themeRow = await env.DB.prepare(
-      `SELECT * FROM cms_themes WHERE is_system = 1 AND slug = 'dark' LIMIT 1`,
-    ).first();
-  }
-
-  await hydrateCmsThemeCssVarsFromR2(env, themeRow);
-
-  const payload =
-    buildActiveThemeApiPayload(themeRow) ||
-    ({
-      name: "dark",
-      slug: "dark",
-      is_dark: true,
-      data: {},
-      theme_channel: "live",
-    });
-
-  payload.resolved_from = args.resolved?.resolved_from ?? "none";
-  const ws = args.workspaceId != null ? String(args.workspaceId).trim() : "";
-  const proj = args.projectId != null ? String(args.projectId).trim() : "";
-  if (ws) payload.workspace_id = ws;
-  if (proj) payload.project_id = proj;
-
-  if (args.cache !== false && args.authUser?.id) {
-    await putCachedActiveThemePayload(env, ws || null, args.authUser.id, proj || null, payload);
-  }
-
-  return payload;
-}
-
 async function upsertWorkspaceThemeAndResolve(env, authUser, tenantId, workspaceId, themeSlug) {
   const tid = String(tenantId).trim();
   const ws = String(workspaceId).trim();

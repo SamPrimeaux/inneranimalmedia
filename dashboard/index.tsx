@@ -8,31 +8,43 @@ import App from './App';
 import { EditorProvider } from './src/EditorContext';
 import { WorkspaceProvider } from './src/context/WorkspaceContext';
 import { bootstrapSupabaseFromSession, setSupabaseBootstrap } from './src/lib/supabase';
-import { readDashboardBootstrapCache } from './src/loadDashboardBootstrap';
+import {
+  ensureDashboardBootstrapBeforeMount,
+  isDashboardBootstrapPath,
+  readDashboardBootstrapCache,
+} from './src/loadDashboardBootstrap';
 
-const bootClient = readDashboardBootstrapCache(60_000)?.client;
-if (bootClient?.supabaseUrl && bootClient?.supabaseAnonKey) {
-  setSupabaseBootstrap(bootClient.supabaseUrl, bootClient.supabaseAnonKey);
+async function mountDashboard() {
+  if (isDashboardBootstrapPath()) {
+    await ensureDashboardBootstrapBeforeMount();
+  }
+
+  const bootClient = readDashboardBootstrapCache(60_000)?.client;
+  if (bootClient?.supabaseUrl && bootClient?.supabaseAnonKey) {
+    setSupabaseBootstrap(bootClient.supabaseUrl, bootClient.supabaseAnonKey);
+  }
+
+  void bootstrapSupabaseFromSession();
+
+  const rootElement = document.getElementById('root');
+  if (!rootElement) throw new Error('Could not find root element to mount to');
+
+  type DashboardRoot = ReturnType<typeof ReactDOM.createRoot>;
+  const w = window as Window & { __IAM_DASHBOARD_ROOT__?: DashboardRoot };
+  if (!w.__IAM_DASHBOARD_ROOT__) {
+    w.__IAM_DASHBOARD_ROOT__ = ReactDOM.createRoot(rootElement);
+  }
+  w.__IAM_DASHBOARD_ROOT__.render(
+    <React.StrictMode>
+      <BrowserRouter>
+        <EditorProvider>
+          <WorkspaceProvider>
+            <App />
+          </WorkspaceProvider>
+        </EditorProvider>
+      </BrowserRouter>
+    </React.StrictMode>,
+  );
 }
 
-void bootstrapSupabaseFromSession();
-
-const rootElement = document.getElementById('root');
-if (!rootElement) throw new Error("Could not find root element to mount to");
-
-type DashboardRoot = ReturnType<typeof ReactDOM.createRoot>;
-const w = window as Window & { __IAM_DASHBOARD_ROOT__?: DashboardRoot };
-if (!w.__IAM_DASHBOARD_ROOT__) {
-  w.__IAM_DASHBOARD_ROOT__ = ReactDOM.createRoot(rootElement);
-}
-w.__IAM_DASHBOARD_ROOT__.render(
-  <React.StrictMode>
-    <BrowserRouter>
-      <EditorProvider>
-        <WorkspaceProvider>
-          <App />
-        </WorkspaceProvider>
-      </EditorProvider>
-    </BrowserRouter>
-  </React.StrictMode>
-);
+void mountDashboard();

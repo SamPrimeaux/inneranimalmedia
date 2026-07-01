@@ -94,17 +94,10 @@ import { SHELL_VERSION } from './src/shellVersion';
 import { mobileTabBarBottomOffset, showDashboardStatusBar } from './config/shellChrome';
 import {
   fetchAndApplyActiveCmsTheme,
-  applyCachedCmsThemeFallback,
-  applyCachedCmsThemeFallbackForWorkspace,
-  migrateLegacyThemeLocalStorage,
   applyCmsThemeToDocument,
   logDashboardThemeDebug,
   type CmsActiveThemePayload,
 } from './src/applyCmsTheme';
-import {
-  activePayloadFromFields,
-  readThemeDraftMatchingActive,
-} from './components/themes/themeTweaksModel';
 import {
   hydrateIdeFromApi,
   persistIdeToApi,
@@ -815,8 +808,6 @@ const App: React.FC = () => {
 
   const [agentsamChatPolicy, setAgentsamChatPolicy] = useState<Record<string, unknown> | null>(null);
   const maxTabsPolicyRef = useRef(24);
-  /** Abort stale GET /api/themes/active after Settings → Apply overwrites document (race fix). */
-  const activeThemeBootstrapAbortRef = useRef<AbortController | null>(null);
   const [workspaceSamState, setWorkspaceSamState] = useState<Record<string, unknown> | null>(null);
 
   const workspaceDisplayFallback = useMemo(() => {
@@ -928,26 +919,6 @@ const App: React.FC = () => {
         ws.close();
       } catch (_) {}
     };
-  }, [authWorkspaceId]);
-
-  useEffect(() => {
-    const ws = authWorkspaceId?.trim();
-    if (!ws) {
-      setAgentsamChatPolicy(null);
-      return;
-    }
-    void fetch(`/api/settings/agents?workspace_id=${encodeURIComponent(ws)}`, { credentials: 'same-origin' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { policy?: Record<string, unknown> } | null) => {
-        if (!d?.policy || typeof d.policy !== 'object') {
-          setAgentsamChatPolicy(null);
-          return;
-        }
-        setAgentsamChatPolicy(d.policy);
-        const m = Number(d.policy.max_tab_count);
-        if (Number.isFinite(m) && m >= 2) maxTabsPolicyRef.current = Math.min(48, Math.max(2, Math.floor(m)));
-      })
-      .catch(() => setAgentsamChatPolicy(null));
   }, [authWorkspaceId]);
 
   useEffect(() => {
@@ -3168,29 +3139,40 @@ const App: React.FC = () => {
   }, [handleGitSyncPublish]);
 
   const applyDashboardBootstrapPayload = useCallback((boot: DashboardBootstrapPayload | null | undefined) => {
-    if (!boot?.status) return;
+    if (!boot) return;
     const st = boot.status;
-    if (st.health?.status === 'ok') setHealthOk(true);
-    if (st.sandbox && typeof st.sandbox.ok === 'boolean') setSandboxOk(st.sandbox.ok);
-    if (Array.isArray(st.notifications)) {
-      setAgentNotifications(st.notifications as AgentNotificationRow[]);
+    if (st) {
+      if (st.health?.status === 'ok') setHealthOk(true);
+      if (st.sandbox && typeof st.sandbox.ok === 'boolean') setSandboxOk(st.sandbox.ok);
+      if (Array.isArray(st.notifications)) {
+        setAgentNotifications(st.notifications as AgentNotificationRow[]);
+      }
+      if (st.git) {
+        if (st.git.branch) setGitBranch(coalesceLabel(st.git.branch, ''));
+        const repo = coalesceLabel(st.git.repo_full_name, '');
+        if (repo) setGitRepoFullName(repo);
+        if (st.git.git_hash) setGitHash(coalesceLabel(st.git.git_hash, ''));
+      }
+      if (st.problems && typeof st.problems === 'object') {
+        applyProblemsPayload(st.problems as Record<string, unknown>);
+      }
+      if (st.tunnel && typeof st.tunnel.healthy === 'boolean') {
+        setTunnelHealthy(st.tunnel.healthy);
+        const ts = st.tunnel.status != null ? String(st.tunnel.status) : '';
+        setTunnelLabel(ts === 'connected' ? 'connected' : ts || null);
+      }
+      if (st.terminal?.status) {
+        setTerminalOk(String(st.terminal.status) === 'connected');
+      }
     }
-    if (st.git) {
-      if (st.git.branch) setGitBranch(coalesceLabel(st.git.branch, ''));
-      const repo = coalesceLabel(st.git.repo_full_name, '');
-      if (repo) setGitRepoFullName(repo);
-      if (st.git.git_hash) setGitHash(coalesceLabel(st.git.git_hash, ''));
-    }
-    if (st.problems && typeof st.problems === 'object') {
-      applyProblemsPayload(st.problems as Record<string, unknown>);
-    }
-    if (st.tunnel && typeof st.tunnel.healthy === 'boolean') {
-      setTunnelHealthy(st.tunnel.healthy);
-      const ts = st.tunnel.status != null ? String(st.tunnel.status) : '';
-      setTunnelLabel(ts === 'connected' ? 'connected' : ts || null);
-    }
-    if (st.terminal?.status) {
-      setTerminalOk(String(st.terminal.status) === 'connected');
+    if (boot.agent_policy && typeof boot.agent_policy === 'object') {
+      setAgentsamChatPolicy(boot.agent_policy);
+      const m = Number(boot.agent_policy.max_tab_count);
+      if (Number.isFinite(m) && m >= 2) {
+        maxTabsPolicyRef.current = Math.min(48, Math.max(2, Math.floor(m)));
+      }
+    } else {
+      setAgentsamChatPolicy(null);
     }
   }, [applyProblemsPayload]);
 
@@ -3850,59 +3832,10 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const onInvalidateActiveThemeFetch = () => {
-      try {
-        activeThemeBootstrapAbortRef.current?.abort();
-      } catch {
-        /* ignore */
-      }
+      void fetchAndApplyActiveCmsTheme(authWorkspaceId);
     };
     window.addEventListener('iam:invalidate-active-theme-fetch', onInvalidateActiveThemeFetch);
     return () => window.removeEventListener('iam:invalidate-active-theme-fetch', onInvalidateActiveThemeFetch);
-  }, []);
-
-  // Themes: D1 cms_theme_preferences + fallbacks via GET /api/themes/active (?workspace_id)
-  useEffect(() => {
-    migrateLegacyThemeLocalStorage();
-    const ws = authWorkspaceId?.trim() || '';
-    if (ws) {
-      applyCachedCmsThemeFallbackForWorkspace(ws);
-    } else {
-      applyCachedCmsThemeFallback();
-    }
-    activeThemeBootstrapAbortRef.current?.abort();
-    const ac = new AbortController();
-    activeThemeBootstrapAbortRef.current = ac;
-    const { signal } = ac;
-    void fetchAndApplyActiveCmsTheme(authWorkspaceId, { signal })
-      .then((payload) => {
-        if (signal.aborted) return;
-        const activeRef = payload?.slug?.trim() || '';
-        const draft = ws && activeRef ? readThemeDraftMatchingActive(ws, activeRef) : null;
-        if (draft && ws) {
-          applyCmsThemeToDocument(activePayloadFromFields(draft, ws));
-          return;
-        }
-        const hasVars =
-          payload?.data &&
-          typeof payload.data === 'object' &&
-          !Array.isArray(payload.data) &&
-          Object.keys(payload.data).length > 0;
-        if (!hasVars) {
-          if (authWorkspaceId?.trim()) applyCachedCmsThemeFallbackForWorkspace(authWorkspaceId);
-          else applyCachedCmsThemeFallback();
-        }
-      })
-      .catch((err: unknown) => {
-        if (signal.aborted) return;
-        const name =
-          err && typeof err === 'object' && 'name' in err ? String((err as { name?: string }).name) : '';
-        if (name === 'AbortError') return;
-        if (authWorkspaceId?.trim()) applyCachedCmsThemeFallbackForWorkspace(authWorkspaceId);
-        else applyCachedCmsThemeFallback();
-      });
-    return () => {
-      ac.abort();
-    };
   }, [authWorkspaceId]);
 
   // Cmd+J Listener

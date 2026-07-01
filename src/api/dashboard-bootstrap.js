@@ -9,6 +9,8 @@ import { resolveActiveBootstrap } from '../core/bootstrap.js';
 import { fetchAuthUserTenantId } from '../core/auth.js';
 import { gitStatusFromWorkspaceMetadata } from '../core/workspace-git-meta.js';
 import { pingTunnelHealth } from '../core/status-bar-runtime.js';
+import { resolveDashboardBootstrapTheme } from '../core/cms-theme-bootstrap-payload.js';
+import { fetchDashboardBootstrapAgentPolicy } from '../core/dashboard-bootstrap-agent-policy.js';
 
 /**
  * @param {Request} request
@@ -46,6 +48,8 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
     sandboxSettled,
     modelsSettled,
     defaultModelSettled,
+    agentPolicySettled,
+    themeSettled,
   ] = await Promise.allSettled([
     buildCanonicalAuthMe(env, request, authUser),
 
@@ -162,6 +166,12 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
           }
         })()
       : Promise.resolve(null),
+
+    workspaceId
+      ? fetchDashboardBootstrapAgentPolicy(env, authUser, workspaceId).catch(() => null)
+      : Promise.resolve(null),
+
+    resolveDashboardBootstrapTheme(env, authUser, workspaceId).catch(() => null),
   ]);
 
   const me = meSettled.status === 'fulfilled' ? meSettled.value : null;
@@ -175,6 +185,8 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
   const sandbox = sandboxSettled.status === 'fulfilled' ? sandboxSettled.value : null;
   const models = modelsSettled.status === 'fulfilled' ? modelsSettled.value : [];
   const default_model = defaultModelSettled.status === 'fulfilled' ? defaultModelSettled.value : null;
+  const agent_policy = agentPolicySettled.status === 'fulfilled' ? agentPolicySettled.value : null;
+  const theme = themeSettled.status === 'fulfilled' ? themeSettled.value : null;
 
   return jsonResponse({
     ok: true,
@@ -203,6 +215,8 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
       models,
       default_model,
     },
+    agent_policy,
+    theme,
     client:
       supabaseUrl && supabaseAnonKey
         ? { supabaseUrl, supabaseAnonKey, supabase_url: supabaseUrl, supabase_anon_key: supabaseAnonKey }

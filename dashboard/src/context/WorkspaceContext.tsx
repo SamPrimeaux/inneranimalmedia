@@ -15,7 +15,7 @@ import {
 } from "../iamWorkspaceStorage";
 import { clearIamGitStatusCache } from "../iamGitStatusCache";
 import { normalizeGithubRepo } from "../normalizeGithubRepo";
-import { isDashboardBootstrapPath, loadDashboardBootstrap } from "../loadDashboardBootstrap";
+import { isDashboardBootstrapPath, loadDashboardBootstrap, refreshDashboardBootstrap } from "../loadDashboardBootstrap";
 import { coalesceLabel } from "../lib/coalesceLabel";
 
 export type WorkspaceRow = {
@@ -302,6 +302,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             userPickedWorkspaceRef.current = null;
             pendingWorkspaceIdRef.current = null;
             setPendingWorkspaceId(null);
+            if (isDashboardBootstrapPath()) {
+              void refreshDashboardBootstrap();
+            }
           }
         } catch {
           /* local + sessionStorage already updated */
