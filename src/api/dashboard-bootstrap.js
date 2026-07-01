@@ -2,7 +2,7 @@
  * GET /api/dashboard/bootstrap — single authenticated round-trip for dashboard mount.
  * Replaces parallel /api/auth/me, /api/settings/workspaces, status-bar polls, models, config.
  */
-import { jsonResponse, userFromAuthContext } from '../core/auth.js';
+import { jsonResponse, authContextToLegacyUser } from '../core/auth.js';
 import { buildCanonicalAuthMe } from './auth-me.js';
 import { fetchSandboxRuntimeSummary } from './sandbox-api.js';
 import { resolveActiveBootstrap } from '../core/bootstrap.js';
@@ -18,7 +18,7 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }
 
-  const authUser = userFromAuthContext(authCtx);
+  const authUser = authContextToLegacyUser(authCtx);
   if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
 
   const userId = String(authUser.id);
