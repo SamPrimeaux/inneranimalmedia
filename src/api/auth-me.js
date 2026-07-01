@@ -1,4 +1,5 @@
 import { getSession } from '../core/auth.js';
+import { withD1Retry } from '../core/d1-retry.js';
 import { ensureOauthTokenColumns } from './oauth.js';
 
 /**
@@ -85,12 +86,14 @@ async function buildIntegrationsSummary(env, authUser) {
 
   const userId = String(authUser.id);
   try {
-    const { results } = await env.DB.prepare(
+    const { results } = await withD1Retry(() =>
+      env.DB.prepare(
       `SELECT provider, account_identifier, scope, expires_at, updated_at
        FROM user_oauth_tokens WHERE user_id = ?`,
     )
       .bind(userId)
-      .all();
+      .all(),
+    );
     const now = Math.floor(Date.now() / 1000);
     for (const r of results || []) {
       const p = String(r.provider || '').toLowerCase();

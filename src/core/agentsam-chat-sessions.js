@@ -17,6 +17,7 @@ import {
   writeR2Text,
 } from './exec-context-tier.js';
 import { expandChatProjectRefs, resolveChatProjectId } from './project-chat-link.js';
+import { isD1OverloadError, withD1Retry } from './d1-retry.js';
 
 function getAgentSessionStub(env, conversationId) {
   if (!env?.AGENT_SESSION) return null;
@@ -807,7 +808,8 @@ export async function listUserChatSessions(env, input) {
   }
 
   try {
-    const res = await env.DB.prepare(
+    const res = await withD1Retry(() =>
+      env.DB.prepare(
       `SELECT cs.conversation_id AS id,
               cs.conversation_id,
               cs.title,
@@ -843,7 +845,8 @@ export async function listUserChatSessions(env, input) {
        LIMIT ?`,
     )
       .bind(userId, tenantId, ...projectBinds, lim)
-      .all();
+      .all(),
+    );
     const rows = res?.results || [];
     return rows.map((r) => ({
       ...r,
@@ -856,6 +859,7 @@ export async function listUserChatSessions(env, input) {
     }));
   } catch (e) {
     console.warn('[listUserChatSessions]', e?.message ?? e);
+    if (isD1OverloadError(e)) return [];
     try {
       const res = await env.DB.prepare(
         `SELECT cs.conversation_id AS id,

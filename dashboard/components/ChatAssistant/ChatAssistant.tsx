@@ -696,17 +696,27 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [sessions, setSessions] = useState<AgentSessionRow[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const hydratedFromLsRef = useRef(false);
+  const sessionsLoadInFlightRef = useRef<Promise<void> | null>(null);
 
   const loadSessions = useCallback(async () => {
-    setSessionsLoading(true);
+    if (sessionsLoadInFlightRef.current) return sessionsLoadInFlightRef.current;
+    const run = (async () => {
+      setSessionsLoading(true);
+      try {
+        const r = await fetch('/api/agent/sessions', { credentials: 'same-origin' });
+        const data = r.ok ? await r.json() : [];
+        setSessions(Array.isArray(data) ? (data as AgentSessionRow[]) : []);
+      } catch {
+        setSessions([]);
+      } finally {
+        setSessionsLoading(false);
+      }
+    })();
+    sessionsLoadInFlightRef.current = run;
     try {
-      const r = await fetch('/api/agent/sessions', { credentials: 'same-origin' });
-      const data = r.ok ? await r.json() : [];
-      setSessions(Array.isArray(data) ? (data as AgentSessionRow[]) : []);
-    } catch {
-      setSessions([]);
+      await run;
     } finally {
-      setSessionsLoading(false);
+      if (sessionsLoadInFlightRef.current === run) sessionsLoadInFlightRef.current = null;
     }
   }, []);
 
@@ -2448,7 +2458,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
     const userMessage = text || '(attachment)';
 
-    const effectiveWsId = (() => {
+    const sendWorkspaceId = (() => {
       const fromQuickstart = sendOpts?.workspace_id?.trim();
       if (fromQuickstart && fromQuickstart !== 'global') return fromQuickstart;
       const fromProp = workspaceId != null ? String(workspaceId).trim() : '';
@@ -2532,7 +2542,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               : null,
           contextEnvelope: buildGithubContextEnvelope({
             conversationId: conversationId.trim() || null,
-            workspaceId: effectiveWsId || null,
+            workspaceId: sendWorkspaceId || null,
             repo: githubRepoContext?.trim() || '',
             path: chatGithubFilePath,
             branch: chatGithubBranch,
@@ -2596,7 +2606,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     if (designStudioSceneId?.trim()) form.append('scene_snapshot_id', designStudioSceneId.trim());
     if (designStudioBlueprintId?.trim()) form.append('blueprint_id', designStudioBlueprintId.trim());
     if (designStudioCadJobId?.trim()) form.append('cad_job_id', designStudioCadJobId.trim());
-    if (effectiveWsId) form.append('workspace_id', effectiveWsId);
+    if (sendWorkspaceId) form.append('workspace_id', sendWorkspaceId);
     if (sendOpts?.task_type?.trim()) form.append('task_type', sendOpts.task_type.trim());
     if (sendOpts?.route_key?.trim()) form.append('route_key', sendOpts.route_key.trim());
     else if (dashboardRouteKey?.trim()) form.append('route_key', dashboardRouteKey.trim());
@@ -2748,7 +2758,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
     const contextEnvelopePayload = buildGithubContextEnvelope({
       conversationId: effectiveConvId,
-      workspaceId: effectiveWsId || null,
+      workspaceId: sendWorkspaceId || null,
       repo: githubRepoContext?.trim() || '',
       path: chatGithubFilePath,
       branch: chatGithubBranch,
@@ -2769,7 +2779,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       const streamDebugId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `dbg_${Date.now()}`;
       initIamAgentStreamDebug(streamDebugId);
       const chatHeaders: Record<string, string> = {};
-      if (effectiveWsId) chatHeaders['x-iam-workspace-id'] = effectiveWsId;
+      if (sendWorkspaceId) chatHeaders['x-iam-workspace-id'] = sendWorkspaceId;
 
       const response = await fetch('/api/agent/chat', {
         method: 'POST',

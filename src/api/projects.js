@@ -3,6 +3,7 @@
  * Dispatched from src/api/finance.js after auth + DB checks.
  */
 import { jsonResponse } from '../core/auth.js';
+import { withD1Retry } from '../core/d1-retry.js';
 
 const PROJECTS_LIST_CACHE = 'private, max-age=30, stale-while-revalidate=120';
 const PROJECTS_OVERVIEW_CACHE = 'private, max-age=15, stale-while-revalidate=300';
@@ -700,7 +701,9 @@ async function handleList(env, authUser, url) {
     url.searchParams.get('workspace_id') ||
     (authUser.active_workspace_id ? String(authUser.active_workspace_id) : null);
   const { sql: whereSql, binds: whereBinds } = buildProjectWhereClause(workspaceId, tenantId);
-  const { results } = await env.DB.prepare(`SELECT p.* FROM projects p WHERE ${whereSql} ORDER BY COALESCE(p.priority,0) DESC, p.name ASC`).bind(...whereBinds).all();
+  const { results } = await withD1Retry(() =>
+    env.DB.prepare(`SELECT p.* FROM projects p WHERE ${whereSql} ORDER BY COALESCE(p.priority,0) DESC, p.name ASC`).bind(...whereBinds).all(),
+  );
   const enriched = (results || []).map((p) => {
     const meta = parseMetadataObject(p?.metadata_json);
     return {

@@ -400,36 +400,50 @@ export async function handleThemesApi(request, url, env, ctx) {
         if (!ok) return jsonResponse({ error: "Forbidden" }, 403);
       }
 
-      const tenantId = await resolveTenantIdForCmsThemeOps(env, authUser, workspaceId || null);
-      const resolved = await resolveActiveCmsThemeRow(env, {
-        tenantId,
-        authUser,
-        workspaceId: workspaceId || null,
-        projectId: url.searchParams.get("project_id")?.trim() || null,
-      });
+      let payload;
+      let resolvedFrom = "default";
+      try {
+        const tenantId = await resolveTenantIdForCmsThemeOps(env, authUser, workspaceId || null);
+        const resolved = await resolveActiveCmsThemeRow(env, {
+          tenantId,
+          authUser,
+          workspaceId: workspaceId || null,
+          projectId: url.searchParams.get("project_id")?.trim() || null,
+        });
+        resolvedFrom = resolved.resolved_from || resolvedFrom;
 
-      let themeRow = resolved.row;
-      if (!themeRow) {
-        themeRow = await env.DB.prepare(
-          `SELECT * FROM cms_themes WHERE is_system = 1 AND slug = 'dark' LIMIT 1`,
-        ).first();
-      }
+        let themeRow = resolved.row;
+        if (!themeRow) {
+          themeRow = await env.DB.prepare(
+            `SELECT * FROM cms_themes WHERE is_system = 1 AND slug = 'dark' LIMIT 1`,
+          ).first();
+        }
 
-      const payload =
-        buildActiveThemeApiPayload(themeRow) ||
-        ({
+        payload =
+          buildActiveThemeApiPayload(themeRow) ||
+          ({
+            name: "dark",
+            slug: "dark",
+            is_dark: true,
+            data: {},
+            theme_channel: "live",
+          });
+      } catch (e) {
+        console.warn("[user/preferences]", e?.message ?? e);
+        payload = {
           name: "dark",
           slug: "dark",
           is_dark: true,
           data: {},
           theme_channel: "live",
-        });
+        };
+      }
 
       return jsonResponse({
         theme_preset: payload.slug || "dark",
         theme: payload.slug || "dark",
         workspace_id: workspaceId || null,
-        resolved_from: resolved.resolved_from,
+        resolved_from: resolvedFrom,
       });
     }
 
@@ -453,33 +467,45 @@ export async function handleThemesApi(request, url, env, ctx) {
         if (!ok) return jsonResponse({ error: "Forbidden" }, 403);
       }
 
-      const tenantId = await resolveTenantIdForCmsThemeOps(env, authUser, workspaceId || null);
-      const uid = authUser?.id != null ? String(authUser.id).trim() : "";
+      try {
+        const tenantId = await resolveTenantIdForCmsThemeOps(env, authUser, workspaceId || null);
+        const uid = authUser?.id != null ? String(authUser.id).trim() : "";
 
-      const cached = await getCachedActiveThemePayload(env, workspaceId || null, uid, projectId || null);
-      if (cached) {
-        cached.theme_channel = cached.theme_channel || "live";
-        cached.cache_hit = "kv";
-        return jsonResponse(cached);
+        const cached = await getCachedActiveThemePayload(env, workspaceId || null, uid, projectId || null);
+        if (cached) {
+          cached.theme_channel = cached.theme_channel || "live";
+          cached.cache_hit = "kv";
+          return jsonResponse(cached);
+        }
+
+        const resolved = await resolveActiveCmsThemeRow(env, {
+          tenantId,
+          authUser,
+          workspaceId: workspaceId || null,
+          projectId: projectId || null,
+        });
+
+        const payload = await buildResolvedActiveThemeApiPayload(env, {
+          themeRow: resolved.row,
+          resolved,
+          workspaceId: workspaceId || null,
+          projectId: projectId || null,
+          authUser,
+          cache: true,
+        });
+
+        return jsonResponse(payload);
+      } catch (e) {
+        console.warn("[themes/active]", e?.message ?? e);
+        return jsonResponse({
+          name: "dark",
+          slug: "dark",
+          is_dark: true,
+          data: {},
+          theme_channel: "live",
+          resolved_from: "default",
+        });
       }
-
-      const resolved = await resolveActiveCmsThemeRow(env, {
-        tenantId,
-        authUser,
-        workspaceId: workspaceId || null,
-        projectId: projectId || null,
-      });
-
-      const payload = await buildResolvedActiveThemeApiPayload(env, {
-        themeRow: resolved.row,
-        resolved,
-        workspaceId: workspaceId || null,
-        projectId: projectId || null,
-        authUser,
-        cache: true,
-      });
-
-      return jsonResponse(payload);
     }
 
     // ── POST /api/themes/create ──

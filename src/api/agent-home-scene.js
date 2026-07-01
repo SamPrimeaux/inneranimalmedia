@@ -177,42 +177,52 @@ export async function handleAgentHomeSceneApi(request, env, routeAuth = null) {
   const workspaceId = String(reqCtx.workspaceId || '').trim();
 
   if (method === 'GET') {
-    const tenantId =
-      (await resolveTenantIdForCmsThemeOps(env, authUser, workspaceId)) ||
-      fallbackSystemTenantId(env);
-    const themeResolved = await resolveActiveCmsThemeRow(env, {
-      tenantId,
-      authUser,
-      workspaceId,
-      projectId: null,
-    });
-    const themeCms = parseAgentHomeFromComponentsJson(themeResolved.row?.components_json);
+    try {
+      const tenantId =
+        (await resolveTenantIdForCmsThemeOps(env, authUser, workspaceId)) ||
+        fallbackSystemTenantId(env);
+      const themeResolved = await resolveActiveCmsThemeRow(env, {
+        tenantId,
+        authUser,
+        workspaceId,
+        projectId: null,
+      });
+      const themeCms = parseAgentHomeFromComponentsJson(themeResolved.row?.components_json);
 
-    const { row, source: rowSource } = await readSceneRow(env, userId, workspaceId);
-    if (row?.scene_json) {
-      try {
-        const parsedRaw = JSON.parse(String(row.scene_json));
-        const userCms = sanitizeAgentHomeCms(parsedRaw) || sanitizeAgentHomeScene(parsedRaw);
-        if (userCms) {
-          return jsonResponse({
-            ok: true,
-            source: rowSource,
-            cms: userCms,
-            theme_slug: themeResolved.row?.slug || null,
-          });
+      const { row, source: rowSource } = await readSceneRow(env, userId, workspaceId);
+      if (row?.scene_json) {
+        try {
+          const parsedRaw = JSON.parse(String(row.scene_json));
+          const userCms = sanitizeAgentHomeCms(parsedRaw) || sanitizeAgentHomeScene(parsedRaw);
+          if (userCms) {
+            return jsonResponse({
+              ok: true,
+              source: rowSource,
+              cms: userCms,
+              theme_slug: themeResolved.row?.slug || null,
+            });
+          }
+        } catch {
+          /* fall through */
         }
-      } catch {
-        /* fall through */
       }
-    }
 
-    return jsonResponse({
-      ok: true,
-      source: themeResolved.row ? 'theme' : 'default',
-      cms: themeCms,
-      theme_slug: themeResolved.row?.slug || null,
-      resolved_from: themeResolved.resolved_from || null,
-    });
+      return jsonResponse({
+        ok: true,
+        source: themeResolved.row ? 'theme' : 'default',
+        cms: themeCms,
+        theme_slug: themeResolved.row?.slug || null,
+        resolved_from: themeResolved.resolved_from || null,
+      });
+    } catch (e) {
+      console.warn('[agent/scene GET]', e?.message ?? e);
+      return jsonResponse({
+        ok: true,
+        source: 'default',
+        cms: DEFAULT_SCENE,
+        theme_slug: null,
+      });
+    }
   }
 
   if (method === 'PUT') {
