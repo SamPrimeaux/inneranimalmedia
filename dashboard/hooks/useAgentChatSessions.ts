@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../agentChatConstants';
 import type { AgentSessionRow } from '../agentSessionsCatalog';
-import { conversationIdFromSession } from '../agentSessionsCatalog';
+import { conversationIdFromSession, sessionSortMs } from '../agentSessionsCatalog';
 
 export type AgentChatProjectOption = { id: string; name: string; chat_project_id?: string | null };
 
@@ -50,6 +50,7 @@ export function useAgentChatSessions(opts?: { limit?: number; refreshKey?: numbe
           return map;
         }, new Map<string, AgentSessionRow>())
         .values()];
+      deduped.sort((a, b) => sessionSortMs(b) - sessionSortMs(a));
       setSessions(deduped);
     } catch {
       setSessions([]);

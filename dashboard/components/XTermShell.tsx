@@ -412,6 +412,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     const [splitSubOpen, setSplitSubOpen] = useState(false);
     const [setupWizardActive, setSetupWizardActive] = useState(false);
     const [terminalTarget, setTerminalTarget] = useState<TerminalTarget>('platform_vm');
+    const autoCloudConnectAttemptedRef = useRef(false);
     const { sessionUserId } = useWorkspace();
 
     useEffect(() => {
@@ -461,6 +462,25 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       },
       [splitEnabled, workspaceId],
     );
+
+    // Mac tunnel unloaded → connect GCP cloud desk without extra splash click.
+    useEffect(() => {
+      if (!showSplash || !workspaceId?.trim() || autoCloudConnectAttemptedRef.current) return;
+      let cancelled = false;
+      void fetchTerminalTargets(workspaceId).then((targets) => {
+        if (cancelled || autoCloudConnectAttemptedRef.current) return;
+        const localReady = targets?.local?.ready === true;
+        const cloudReady = targets?.cloud?.ready !== false;
+        if (cloudReady && !localReady) {
+          autoCloudConnectAttemptedRef.current = true;
+          setShowSplash(false);
+          void startTerminalConnection('platform_vm');
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [showSplash, workspaceId, startTerminalConnection]);
 
     const handleConfigureTerminalSettings = useCallback(async () => {
       setPlusMenuOpen(false);

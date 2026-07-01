@@ -17,6 +17,17 @@ export const IAM_AGENT_ENSURE_PANEL = 'iam-agent-ensure-panel';
 /** App listens — navigate to Agent + open panel, then load the thread. */
 export const IAM_AGENT_RESUME_CHAT = 'iam-agent-resume-chat';
 
+/** Sidebar + session list hooks listen for this to reload /api/agent/sessions. */
+export function notifyAgentChatSessionsRefresh(conversationId?: string | null): void {
+  if (typeof window === 'undefined') return;
+  const id = conversationId != null ? String(conversationId).trim() : '';
+  window.dispatchEvent(
+    new CustomEvent(IAM_AGENT_CHAT_CONVERSATION_CHANGE, {
+      detail: id ? { id } : {},
+    }),
+  );
+}
+
 /** Write thread id to localStorage — synchronous, safe before navigation. */
 export function persistAgentConversationId(id: string): void {
   const trimmed = id.trim();

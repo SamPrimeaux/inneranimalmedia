@@ -250,6 +250,21 @@ export async function persistIdeToApi(
   }
 }
 
+/** Skip editor boot auto-open for generated/local scrap (e.g. d1_table_counts.py output). */
+export function shouldAutoOpenRecentOnEditorBoot(entry: RecentFileEntry): boolean {
+  const name = String(entry.name || '').trim();
+  if (!name) return false;
+  if (/^db_table_counts(\.(md|csv|txt))?$/i.test(name)) return false;
+  if (/^\.env(\.|$)/i.test(name)) return false;
+  const hasDurableSource = Boolean(
+    entry.githubRepo || entry.r2Key || entry.driveFileId,
+  );
+  if (!hasDurableSource && (entry.source === 'local' || entry.source === 'buffer')) {
+    return false;
+  }
+  return true;
+}
+
 export function buildRecentEntryFromActiveFile(file: ActiveFile): RecentFileEntry {
   const orig =
     file.originalContent !== undefined ? truncateSnapshot(file.originalContent) : null;

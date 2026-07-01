@@ -7,6 +7,7 @@
 
 import type React from 'react';
 import { LS_AGENT_CHAT_CONVERSATION_ID, IAM_AGENT_RUN_CONTEXT, IAM_DESIGNSTUDIO_CAD_JOB } from '../../../agentChatConstants';
+import { notifyAgentChatSessionsRefresh } from '../../../lib/openAgentConversation';
 import {
   resolveToolApprovalPreview,
 } from '../toolApprovalCopy';
@@ -645,6 +646,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             }
             setConversationId(nextId);
             loadSessions();
+            notifyAgentChatSessionsRefresh(nextId);
             onAgentHandoff?.({
               next_session_id: nextId,
               fallback_model_key:
@@ -2355,6 +2357,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             setConversationId(cid);
             localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, cid);
             void loadSessions();
+            notifyAgentChatSessionsRefresh(cid);
           }
         }
         const delta = normalizeAssistantSseText(data);

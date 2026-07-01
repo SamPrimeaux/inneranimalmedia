@@ -108,6 +108,7 @@ import {
   IDE_PERSIST_VERSION,
   type IdeWorkspaceSnapshot,
   type RecentFileEntry,
+  shouldAutoOpenRecentOnEditorBoot,
   type AgentWorkspaceContextPacket,
   type DevServerState,
 } from './src/ideWorkspace';
@@ -2650,7 +2651,7 @@ const App: React.FC = () => {
       return;
     }
     if (autoOpenAttemptedForPathRef.current === location.pathname) return;
-    const recent = workspaceDashboardRecentFiles[0];
+    const recent = workspaceDashboardRecentFiles.find(shouldAutoOpenRecentOnEditorBoot);
     if (!recent) return;
     autoOpenAttemptedForPathRef.current = location.pathname;
     void openRecentEntry(recent);

@@ -53,6 +53,7 @@ import {
   type AgentChatComposeDetail,
   type QuickstartThreadDetail,
 } from '../../agentChatConstants';
+import { notifyAgentChatSessionsRefresh } from '../../lib/openAgentConversation';
 import type { AgentSessionRow } from '../../agentSessionsCatalog';
 import { sessionDisplayTitle } from '../../agentSessionsCatalog';
 import type {
@@ -2528,6 +2529,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         try {
           localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id);
         } catch (_) {}
+        notifyAgentChatSessionsRefresh(id);
+        window.setTimeout(() => void loadSessions(), 800);
+        window.setTimeout(() => void loadSessions(), 2500);
         return id;
       })();
     if (sendOpts?.conversationIdOverride?.trim() && sendOpts.conversationIdOverride.trim() !== conversationId) {
