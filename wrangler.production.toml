@@ -157,7 +157,7 @@ class_name = "AgentBrowserLiveV1"
 # Platform container — image tag matches worker name (inneranimalmedia).
 [[containers]]
 class_name = "MyContainer"
-image = "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/inneranimalmedia:sandbox-v3"
+image = "./containers/iam-sandbox-go/Dockerfile"
 instance_type = "basic"
 max_instances = 10
 
@@ -266,6 +266,9 @@ AI_SEARCH_ENDPOINT = "https://2da31515-2005-42e4-9efe-a4e6a425a627.search.ai.clo
 # CAD jobs: gcp (default) | auto (container if healthy, else GCP) | container
 CAD_DISPATCH_TARGET = "gcp"
 CONTAINER_POOL_ID = "inneranimalmedia"
+SANDBOX_R2_BUCKET_NAME = "inneranimalmedia"
+IAM_SANDBOX_R2_FUSE = "1"
+IAM_R2_FUSE_READONLY = "1"
 
 [observability]
 

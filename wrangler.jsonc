@@ -190,7 +190,7 @@
 	"containers": [
 		{
 			"class_name": "MyContainer",
-			"image": "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/inneranimalmedia:sandbox-v3",
+			"image": "./containers/iam-sandbox-go/Dockerfile",
 			"instance_type": "basic",
 			"max_instances": 10,
 			"ssh": {
@@ -267,7 +267,10 @@
 		"WORKSPACE_ID": "ws_inneranimalmedia",
 		"ENVIRONMENT": "production",
 		"CAD_DISPATCH_TARGET": "gcp",
-		"CONTAINER_POOL_ID": "inneranimalmedia"
+		"CONTAINER_POOL_ID": "inneranimalmedia",
+		"SANDBOX_R2_BUCKET_NAME": "inneranimalmedia",
+		"IAM_SANDBOX_R2_FUSE": "1",
+		"IAM_R2_FUSE_READONLY": "1"
 	},
 	"observability": {
 		"logs": {

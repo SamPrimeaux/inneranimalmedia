@@ -56,6 +56,7 @@ export function resolveMcpZoneSandboxRoot(config, zoneSlug, tenantId, userId) {
  *   language?: string,
  *   path?: string,
  *   timeout_ms?: number,
+ *   authUser?: { role?: string, is_superadmin?: boolean|number }|null,
  * }} opts
  */
 export async function runMcpZoneSandboxCommand(env, request, opts) {
@@ -89,24 +90,33 @@ export async function runMcpZoneSandboxCommand(env, request, opts) {
       runCmd = `node -e ${shellQuote(command)}`;
     }
 
-    const containerCwd = innerPath
-      ? `/tmp/${zoneSlug}/${innerPath.replace(/^\//, '')}`
-      : `/tmp/${zoneSlug}`;
     const timeoutMs =
       opts.timeout_ms != null && Number.isFinite(Number(opts.timeout_ms))
         ? Number(opts.timeout_ms)
         : CONTAINER_EXEC_COMMAND_TIMEOUT_MS;
-    const wrappedCmd = `mkdir -p ${shellQuote(containerCwd)} && cd ${shellQuote(containerCwd)} && ${runCmd}`;
+
+    const { resolveSandboxContainerCwd, buildSandboxExecShellPreamble } = await import(
+      './sandbox-r2-fuse-env.js'
+    );
+    const execCwd = await resolveSandboxContainerCwd(env, {
+      workspaceId: opts.workspaceId,
+      zoneSlug,
+      innerPath: opts.path,
+    });
+    const preamble = buildSandboxExecShellPreamble(env, execCwd, zoneSlug);
+
+    const wrappedCmd = `${preamble} && ${runCmd}`;
     const containerOut = await tryContainerExec(env, {
       command: wrappedCmd,
       cwd: '/tmp',
       timeout_ms: timeoutMs,
+      authUser: opts.authUser ?? null,
     });
     const stdout = String(containerOut.stdout ?? '');
     const stderr = String(containerOut.stderr ?? containerOut.error ?? '');
     const exitCode = containerOut.exit_code ?? (containerOut.ok ? 0 : 1);
     const body = buildTerminalToolResponseBody({
-      explicitPath: containerCwd,
+      explicitPath: execCwd,
       executedCommand: wrappedCmd,
       stdout,
       stderr,
@@ -122,14 +132,22 @@ export async function runMcpZoneSandboxCommand(env, request, opts) {
                 'CF Container pool failed to start (scheduler cold start). Use agentsam_terminal_remote for git/shell now; retry sandbox once the inneranimalmedia container is warm.',
             },
           ]
-        : terminalRecoveryHints({ stdout, stderr, exitCode });
+        : containerOut.guidance
+          ? [
+              {
+                code: 'wrangler_auth_lane',
+                action: String(containerOut.guidance.summary || containerOut.error || ''),
+              },
+              ...terminalRecoveryHints({ stdout, stderr, exitCode, command: runCmd }),
+            ]
+          : terminalRecoveryHints({ stdout, stderr, exitCode, command: runCmd });
     return {
       ok: containerOut.ok !== false && !containerOut.error,
       error: containerOut.error || null,
       body: {
         ...body,
         zone_slug: zoneSlug,
-        sandbox_root: containerCwd,
+        sandbox_root: execCwd,
         cwd_source: 'container_user',
         lane: 'container',
         image: containerOut.image ?? null,

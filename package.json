@@ -153,6 +153,7 @@
     "container:cad-worker:build": "./scripts/build-iam-cad-worker-container.sh",
     "container:cad-worker:push": "./scripts/build-iam-cad-worker-container.sh --push-only",
     "container:sandbox:build": "./scripts/build-iam-sandbox-container.sh sandbox-v3",
+    "container:sandbox-go:build": "./scripts/build-iam-sandbox-go-container.sh sandbox-go-v1",
     "freecad:install:remote-download": "./scripts/designstudio/install-freecad-appimage.sh --remote-download",
     "freecad:install:remote-apt": "./scripts/designstudio/install-freecad-appimage.sh --remote-apt",
     "freecad:install:remote-only": "./scripts/designstudio/install-freecad-appimage.sh --remote-install-only",

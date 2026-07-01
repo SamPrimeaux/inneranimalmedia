@@ -15,8 +15,9 @@ export async function handleTerminalSandboxExec(request, env) {
   }
 
   const internal = verifyInternalApiSecret(request, env);
+  let authUser = null;
   if (!internal) {
-    const authUser = await getAuthUser(request, env);
+    authUser = await getAuthUser(request, env);
     if (!authUser || !(await isSamOnlyUser(env, authUser))) {
       return jsonResponse({ error: 'Unauthorized' }, 401);
     }
@@ -58,6 +59,7 @@ export async function handleTerminalSandboxExec(request, env) {
     config: body.config && typeof body.config === 'object' ? body.config : { target_type: 'container' },
     language: body.language,
     path: body.path ?? body.cwd,
+    authUser,
   });
 
   return jsonResponse(

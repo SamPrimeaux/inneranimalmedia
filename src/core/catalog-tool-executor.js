@@ -1349,6 +1349,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           language: params.language,
           path: params.path,
           timeout_ms: Number.isFinite(sandboxTimeoutMs) ? sandboxTimeoutMs : undefined,
+          authUser: runContext.authUser ?? runContext.user ?? null,
         });
         if (!sb.ok) {
           result = {

@@ -2,6 +2,7 @@
  * Single dashboard status payload — reduces parallel D1 polling.
  */
 import { getAuthUser, jsonResponse, fallbackSystemTenantId } from '../core/auth.js';
+import { fetchSandboxRuntimeSummary } from './sandbox-api.js';
 
 export async function handleStatusBundle(request, url, env, ctx) {
   if (request.method.toUpperCase() !== 'GET') {
@@ -83,9 +84,11 @@ export async function handleStatusBundle(request, url, env, ctx) {
       ORDER BY created_at DESC LIMIT 5
     `).all().then((r) => r.results || []).catch(() => [])
       : Promise.resolve([]),
+
+    fetchSandboxRuntimeSummary(env),
   ]);
 
-  const [health, notifications, git, problems, tunnel, terminal, deployments] = results.map((r) =>
+  const [health, notifications, git, problems, tunnel, terminal, deployments, sandbox] = results.map((r) =>
     r.status === 'fulfilled' ? r.value : null,
   );
 
@@ -98,6 +101,7 @@ export async function handleStatusBundle(request, url, env, ctx) {
       tunnel: tunnel || { active: false },
       terminal: terminal || null,
       deployments: deployments || [],
+      sandbox: sandbox || { ok: false, label: 'Sandbox check failed' },
       fetched_at: Date.now(),
     }),
     {

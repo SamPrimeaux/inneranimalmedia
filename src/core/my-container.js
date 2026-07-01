@@ -6,7 +6,7 @@
 
 export const CONTAINER_IMAGE_REF =
   'registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/inneranimalmedia:sandbox-v3';
-export const CONTAINER_IMAGE_TAG = 'inneranimalmedia:sandbox-v3';
+export const CONTAINER_IMAGE_TAG = 'inneranimalmedia:sandbox-go-v1';
 
 /** Legacy getByName ids from pre-inneranimalmedia pool routing — safe to destroy. */
 export const LEGACY_CONTAINER_INSTANCE_NAMES = Object.freeze([
@@ -199,9 +199,24 @@ export async function tryZoneContainerExec(env, opts) {
  * @param {{ command: string, cwd?: string, timeout_ms?: number }} opts
  */
 export async function tryContainerExec(env, opts) {
-  const command = String(opts?.command || '').trim();
+  let command = String(opts?.command || '').trim();
   if (!command) {
     return { ok: false, error: 'command_required', lane: 'container' };
+  }
+
+  if (!opts?.skip_wrangler_normalize) {
+    const { prepareContainerShellCommand } = await import('./wrangler-terminal-guidance.js');
+    const prep = prepareContainerShellCommand(env, opts?.authUser ?? null, command, 'sandbox');
+    if (!prep.ok) {
+      return {
+        ok: false,
+        lane: 'container',
+        image: CONTAINER_IMAGE_TAG,
+        error: prep.error,
+        guidance: prep.guidance,
+      };
+    }
+    command = prep.command;
   }
 
   const ns = containerNamespace(env);
@@ -209,24 +224,33 @@ export async function tryContainerExec(env, opts) {
     return { ok: false, error: 'container_unbound', lane: 'container' };
   }
 
+  const body = JSON.stringify({
+    command,
+    cwd: opts.cwd ? String(opts.cwd) : '/tmp',
+    timeout_ms:
+      opts.timeout_ms != null && Number.isFinite(Number(opts.timeout_ms))
+        ? Number(opts.timeout_ms)
+        : CONTAINER_EXEC_COMMAND_TIMEOUT_MS,
+  });
+
   try {
     const stub = await getContainerStub(env);
     if (!stub) {
       return { ok: false, error: 'container_unbound', lane: 'container' };
     }
 
-    const res = await containerFetch(stub, '/exec', {
+    let res = await containerFetch(stub, '/v1/exec', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        command,
-        cwd: opts.cwd ? String(opts.cwd) : '/tmp',
-        timeout_ms:
-          opts.timeout_ms != null && Number.isFinite(Number(opts.timeout_ms))
-            ? Number(opts.timeout_ms)
-            : CONTAINER_EXEC_COMMAND_TIMEOUT_MS,
-      }),
+      body,
     });
+    if (res.status === 404) {
+      res = await containerFetch(stub, '/exec', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      });
+    }
 
     const data = await res.json().catch(() => ({}));
     return {
@@ -338,5 +362,64 @@ export async function tryMoviemodeRenderOnContainer(env, jobId, job) {
       reason: 'container_error',
       error: String(e?.message || e).slice(0, 400),
     };
+  }
+}
+
+/** Smoke exec for in-app runtime confirmation (status bar / Context tab). */
+export async function runSandboxSmokeExec(env) {
+  return tryContainerExec(env, {
+    command: 'echo iam-sandbox-ok',
+    cwd: '/tmp',
+    timeout_ms: 20_000,
+  });
+}
+
+/**
+ * GET JSON from container HTTP API (e.g. /v1/mounts).
+ * @param {any} env
+ * @param {string} path
+ */
+export async function fetchSandboxContainerJson(env, path) {
+  const stub = await getContainerStub(env);
+  if (!stub) return null;
+  try {
+    const res = await containerFetch(stub, path);
+    return await res.json().catch(() => null);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Proxy authenticated sandbox HTTP to container (Go /v1/* API).
+ * @param {any} env
+ * @param {Request} request
+ * @param {string} subpath e.g. /v1/mounts
+ */
+export async function proxySandboxContainer(env, request, subpath) {
+  const ns = containerNamespace(env);
+  if (!ns?.getByName) {
+    return Response.json({ ok: false, error: 'container_unbound' }, { status: 503 });
+  }
+  try {
+    const stub = await getContainerStub(env);
+    if (!stub) {
+      return Response.json({ ok: false, error: 'container_unbound' }, { status: 503 });
+    }
+    /** @type {RequestInit} */
+    const init = { method: request.method, headers: request.headers };
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      init.body = await request.text();
+    }
+    const res = await containerFetch(stub, subpath, init);
+    return new Response(res.body, {
+      status: res.status,
+      headers: {
+        'Content-Type': res.headers.get('Content-Type') || 'application/json; charset=utf-8',
+        'Cache-Control': 'private, no-store',
+      },
+    });
+  } catch (e) {
+    return Response.json({ ok: false, error: String(e?.message || e).slice(0, 400) }, { status: 502 });
   }
 }

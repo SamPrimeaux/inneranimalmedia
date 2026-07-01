@@ -256,6 +256,16 @@ export async function dispatchProductionDomainRoutes(rc) {
   if (pathLower === '/api/dashboard/status-bundle' && request.method === 'GET') {
     return handleStatusBundle(request, url, env, ctx);
   }
+
+  if (pathLower.startsWith('/api/sandbox')) {
+    const { handleSandboxApi } = await import('../api/sandbox-api.js');
+    return handleSandboxApi(request, url, env);
+  }
+
+  if (pathLower === '/api/terminal/wrangler-guide' && methodUpper === 'GET') {
+    const { handleTerminalWranglerGuide } = await import('../api/terminal-wrangler-guide.js');
+    return handleTerminalWranglerGuide(request, url, env);
+  }
   if (pathLower.startsWith('/api/dashboard/home')) {
     if (!authUser) return jsonResponse({ error: 'Unauthorized', code: 'SESSION_MISSING' }, 401);
     const homeRes = await handleDashboardHomeApi(request, env, authUser, pathLower, methodUpper);
