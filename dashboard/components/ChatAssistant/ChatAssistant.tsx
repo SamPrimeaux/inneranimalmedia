@@ -126,6 +126,9 @@ import { PlanRecentPicker } from './components/PlanRecentPicker';
 import { PlanStartOverBar } from './components/PlanStartOverBar';
 import { suggestPlanMode, nextAgentMode, isPlanSlashMessage } from '../../lib/plan-mode-utils';
 import { AgentMobileHomePanel } from './components/AgentMobileHomePanel';
+import { AgentChatThreadHeader, findSessionRow } from './components/AgentChatThreadHeader';
+import { AgentChatFilesPanel } from './components/AgentChatFilesPanel';
+import type { AgentChatProjectOption } from '../../hooks/useAgentChatSessions';
 import { AgentComposerSourceChips } from './composer/AgentComposerSourceChips';
 import { AgentComposerPlusMenu } from './composer/AgentComposerPlusMenu';
 import { AgentComposerMicButton } from './composer/AgentComposerMicButton';
@@ -231,6 +234,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   agentRunId = null,
   onAgentRunContext,
   onOpenChatHistory,
+  onDeleteActiveChat,
   onOpenQuickstart,
   agentsamPolicy = null,
   workspaceId = null,
@@ -328,6 +332,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [chatFilesOpen, setChatFilesOpen] = useState(false);
+  const [chatProjects, setChatProjects] = useState<AgentChatProjectOption[]>([]);
   const [attachMenuStyle, setAttachMenuStyle] = useState<React.CSSProperties | null>(null);
   const [composerSources, setComposerSources] = useState<ChatComposerSource[]>([]);
   const composerSourcesKey = composerSourcesStorageKey(sessionUserId, effectiveWsId);
@@ -723,6 +729,24 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   useEffect(() => {
     void loadSessions();
   }, [loadSessions, conversationId]);
+
+  useEffect(() => {
+    void fetch('/api/projects', { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => {
+        const list = Array.isArray(rows) ? rows : rows?.projects || [];
+        setChatProjects(
+          list
+            .map((p: { id?: string; name?: string; chat_project_id?: string | null }) => ({
+              id: String(p.id || '').trim(),
+              name: String(p.name || 'Project').trim(),
+              chat_project_id: p.chat_project_id ?? null,
+            }))
+            .filter((p: AgentChatProjectOption) => p.id),
+        );
+      })
+      .catch(() => setChatProjects([]));
+  }, [conversationId]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || hydratedFromLsRef.current) return;
@@ -1411,6 +1435,47 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       (m) => m.role === 'assistant' && isAgentSamEmptyThreadGreeting(m.content)
     );
   }, [displayMessages]);
+
+  const activeSessionRow = useMemo(
+    () => findSessionRow(sessions, conversationId),
+    [sessions, conversationId],
+  );
+
+  const showThreadHeader = useMemo(() => {
+    if (mobileAgentHomeMode) return false;
+    if (showEmptyThreadPlaceholder && !conversationId.trim()) return false;
+    return true;
+  }, [mobileAgentHomeMode, showEmptyThreadPlaceholder, conversationId]);
+
+  const renderThreadHeader = (compact = false) =>
+    showThreadHeader ? (
+      <>
+        <AgentChatThreadHeader
+          conversationId={conversationId}
+          threadTitle={threadTitle}
+          session={activeSessionRow}
+          projects={chatProjects}
+          onTitleChange={setThreadTitle}
+          onReloadSessions={loadSessions}
+          onDeletedActive={onDeleteActiveChat}
+          onNewChat={handleNewChat}
+          onOpenFiles={() => setChatFilesOpen((v) => !v)}
+          filesActive={chatFilesOpen}
+          compact={compact}
+        />
+        {chatFilesOpen ? (
+          <AgentChatFilesPanel
+            messages={displayMessages}
+            stagedCount={attachments.length}
+            onAttach={() => {
+              setAttachMenuOpen(true);
+              textareaRef.current?.focus();
+            }}
+            onClose={() => setChatFilesOpen(false)}
+          />
+        ) : null}
+      </>
+    ) : null;
 
   useEffect(() => {
     if (!conversationId.trim()) return;
@@ -3200,36 +3265,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
         {isNarrow && mobileAgentsThread && (
           <div className="shrink-0 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] z-10">
-            <div className="flex items-center gap-2 px-3 py-2">
-              <button
-                type="button"
-                onClick={() => {
-                  onOpenChatHistory?.();
-                  setMobileThreadTab('chat');
-                }}
-                className="flex items-center justify-center w-9 h-9 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]"
-                aria-label="Open chat history"
-              >
-                <ChevronLeft size={20} />
-              </button>
-              <span className="flex-1 text-[14px] font-semibold text-[var(--dashboard-text)] truncate">{threadTitle}</span>
-              <button
-                type="button"
-                onClick={handleNewChat}
-                className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] transition-colors"
-                title="New chat"
-                aria-label="New chat"
-              >
-                <Plus size={18} strokeWidth={2} />
-              </button>
-              <button
-                type="button"
-                className="flex items-center justify-center w-9 h-9 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--dashboard-muted)]"
-                aria-label="More options"
-              >
-                <MoreHorizontal size={18} />
-              </button>
-            </div>
+            {renderThreadHeader(true)}
             <div className="flex gap-2 px-3 pb-2">
               <button
                 type="button"
@@ -3263,55 +3299,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         )}
 
         {/* AgentPresenceLogo: built but unwired — chat header has no stable avatar slot without layout churn. */}
-        {!isNarrow && !atmosphericHomeMode && (
-          <div className="flex-shrink-0 flex items-start gap-2.5 px-3 py-2 border-b border-[var(--dashboard-border)]">
-            <div className="flex-1 min-w-0 flex flex-col gap-1">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="flex-1 text-[13px] font-semibold text-[var(--dashboard-text)] truncate min-w-0">
-                  {threadTitle || 'Chat'}
-                </span>
-                {onOpenChatHistory && (
-                  <button
-                    type="button"
-                    onClick={() => onOpenChatHistory()}
-                    className="shrink-0 text-[0.6875rem] font-semibold uppercase tracking-wide text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] px-2 py-1.5 rounded-md hover:bg-[var(--bg-hover)] transition-colors"
-                  >
-                    Chats
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={handleNewChat}
-                  className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] transition-colors"
-                  title="New chat"
-                  aria-label="New chat"
-                >
-                  <Plus size={18} strokeWidth={2} />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onOpenCodeTab?.()}
-                  title="Code editor"
-                  aria-label="Open code editor"
-                  className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-[var(--dashboard-muted)]"
-                >
-                  <SetiFileIcon filename={activeFile?.name || 'code.ts'} size={16} />
-                </button>
-                <button
-                  type="button"
-                  className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-[var(--dashboard-muted)]"
-                  aria-label="More options"
-                >
-                  <MoreHorizontal size={15} />
-                </button>
-              </div>
-              {showHeaderPresence ? (
-                <AgentPresenceStatus presence={presence} mode={mode} className="pl-0.5" />
-              ) : null}
-            </div>
-          </div>
-        )}
+        {!isNarrow && !atmosphericHomeMode && renderThreadHeader()}
 
         {!isNarrow && !atmosphericHomeMode && onAgentChatShellNewTab && agentChatShellTabs && agentChatShellTabs.length > 0 && (
           <div className="flex-shrink-0 flex items-center gap-1 px-2 py-1 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/60 overflow-x-auto chat-hide-scroll [scrollbar-width:none]">
@@ -3460,6 +3448,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           if (messagesPortaled && messagesPortalTarget && typeof document !== 'undefined') {
             return createPortal(
               <div className="agent-home-messages-portal flex flex-col flex-1 min-h-0 overflow-hidden w-full">
+                {renderThreadHeader(true)}
                 {block}
               </div>,
               messagesPortalTarget,

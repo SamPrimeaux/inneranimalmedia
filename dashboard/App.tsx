@@ -23,6 +23,8 @@ import {
   agentHomeWithTab,
   getAgentTabFromSearch,
   isAgentAtmosphericHome,
+  isAgentCenterChatHome,
+  isAgentNewChatPath,
   isAgentEditorPath,
   isAgentWorkspaceBrowserPath,
   resolveAgentWorkspaceTab,
@@ -491,7 +493,11 @@ const App: React.FC = () => {
   const [agentHomeComposerHost, setAgentHomeComposerHost] = useState<HTMLDivElement | null>(null);
   const [agentHomeMessagesHost, setAgentHomeMessagesHost] = useState<HTMLDivElement | null>(null);
   const isAgentHomeAtmospheric = useMemo(
-    () => isAgentAtmosphericHome(location.pathname, location.search),
+    () => isAgentCenterChatHome(location.pathname, location.search),
+    [location.pathname, location.search],
+  );
+  const isAgentBareHeroHome = useMemo(
+    () => isAgentAtmosphericHome(location.pathname, location.search) || isAgentNewChatPath(location.pathname),
     [location.pathname, location.search],
   );
   const isMovieModeRoute = location.pathname.startsWith('/dashboard/moviemode');
@@ -1849,8 +1855,8 @@ const App: React.FC = () => {
   }, [messagesByTabId, activeAgentChatTabId, workspaceDisplayLine]);
 
   const agentHomeShowHero = useMemo(
-    () => !chatMessages.some((m) => m.role === 'user'),
-    [chatMessages],
+    () => isAgentBareHeroHome && !chatMessages.some((m) => m.role === 'user'),
+    [chatMessages, isAgentBareHeroHome],
   );
 
   const setChatMessages = useCallback(
@@ -2102,11 +2108,6 @@ const App: React.FC = () => {
   }, [agentChatTabs.length, workspaceDisplayLine]);
 
   createNewAgentChatTabRef.current = createNewAgentChatTab;
-
-  useEffect(() => {
-    if (!isAgentNewChatPath(location.pathname)) return;
-    if (agentPosition === 'off') setAgentPosition('right');
-  }, [location.pathname, agentPosition]);
 
   useEffect(() => {
     const onStartNewChat = (e: Event) => {
@@ -4267,6 +4268,8 @@ const App: React.FC = () => {
                         onBrowserNavigate={handleBrowserNavigateFromAgent}
                         onOpenGitHubIntegration={openGitHubFromChat}
                         onMobileOpenDashboard={openDashboardFromChat}
+                        onOpenChatHistory={shellOpenChatHistory}
+                        onDeleteActiveChat={shellDeleteActiveChat}
                         onOpenQuickstart={openAgentQuickstart}
                         onOpenCodeTab={focusCodeEditorFromChat}
               onLoadingChange={setAgentIsStreaming}
@@ -5070,7 +5073,9 @@ const App: React.FC = () => {
                             onBrowserNavigate={handleBrowserNavigateFromAgent}
                             onOpenGitHubIntegration={openGitHubFromChat}
                             onMobileOpenDashboard={openDashboardFromChat}
-                            onOpenQuickstart={openAgentQuickstart}
+                            onOpenChatHistory={shellOpenChatHistory}
+                        onDeleteActiveChat={shellDeleteActiveChat}
+                        onOpenQuickstart={openAgentQuickstart}
                             onOpenCodeTab={focusCodeEditorFromChat}
                             onLoadingChange={setAgentIsStreaming}
                             onApprovalRequired={setActiveCommandRunId}
@@ -5121,6 +5126,7 @@ const App: React.FC = () => {
                   messages={chatMessages}
                   setMessages={setChatMessages}
                   onOpenChatHistory={shellOpenChatHistory}
+                  onDeleteActiveChat={shellDeleteActiveChat}
                   onFileSelect={openInMonacoFromChat}
                   onGlbFileSelect={(file) => {
                     const glbUrl = URL.createObjectURL(file);

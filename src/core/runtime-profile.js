@@ -1062,6 +1062,11 @@ export async function resolveProfileModel(env, profile, opts) {
   } catch (e) {
     console.warn('[runtime-profile] resolveProfileModel', e?.message ?? e);
   }
+  if (!profile.model_key) {
+    profile.model_key = 'gpt-5.4-nano';
+    profile.selected_provider = profile.selected_provider || 'openai';
+    console.warn('[runtime-profile] resolveProfileModel using platform fallback gpt-5.4-nano');
+  }
   return profile;
 }
 

@@ -30,6 +30,14 @@ export function isAgentAtmosphericHome(pathname: string, search: string): boolea
   return isAgentHomePath(pathname) && getAgentTabFromSearch(search) === null;
 }
 
+/** Claude-like center chat: bare home, /new, or active conversation — not workspace tab routes. */
+export function isAgentCenterChatHome(pathname: string, search: string): boolean {
+  if (getAgentTabFromSearch(search) !== null) return false;
+  const p = normalizePath(pathname);
+  if (p === AGENT_HOME_PATH || p === AGENT_NEW_CHAT_PATH) return true;
+  return isAgentConversationPath(pathname);
+}
+
 export function isAgentEditorPath(pathname: string): boolean {
   return normalizePath(pathname) === AGENT_EDITOR_PATH;
 }

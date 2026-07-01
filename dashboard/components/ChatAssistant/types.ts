@@ -256,6 +256,8 @@ export interface ChatAssistantProps {
   onOpenCodeTab?: () => void;
   /** Open the Search sidebar (knowledge + chat history). */
   onOpenChatHistory?: () => void;
+  /** When the active thread is deleted from chat header menu. */
+  onDeleteActiveChat?: (conversationId: string) => void;
   /** Mobile agent home: Quickstart chip → /dashboard/agent/quickstart. */
   onOpenQuickstart?: () => void;
   /** `agentsam_user_policy` row fields for the active workspace (from App bootstrap). */
