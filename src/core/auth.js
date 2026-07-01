@@ -4,6 +4,7 @@
  * Canonical Identity: auth_users.id (au_ prefix).
  */
 import { workspaceSlugFromTenantId } from '../api/provisioning.js';
+import { withD1Retry } from './d1-retry.js';
 import { loadAgentSamUserPolicy } from './agent-policy.js';
 import { validateMcpToken } from './mcp-auth.js';
 import { loadMembership, resolveFirstMembershipWorkspaceId } from './membership.js';
@@ -1469,12 +1470,14 @@ export async function establishIamSession(request, env, userId, bodyObj = { ok: 
     expiresAtIso,
   });
 
-  await env.DB.batch([
-    env.DB.prepare(
-      `UPDATE auth_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`,
-    ).bind(userId),
-    insertStmt,
-  ]);
+  await withD1Retry(() =>
+    env.DB.batch([
+      env.DB.prepare(
+        `UPDATE auth_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`,
+      ).bind(userId),
+      insertStmt,
+    ]),
+  );
 
   if (sessionFields.workspaceId) {
     try {
@@ -1554,9 +1557,16 @@ export async function createLoginSession(request, env, userId, sessionProvider =
 
   let userRow = null;
   try {
-    userRow = await env.DB.prepare(`SELECT * FROM auth_users WHERE id = ? LIMIT 1`).bind(userId).first();
+    userRow = await withD1Retry(() =>
+      env.DB.prepare(`SELECT * FROM auth_users WHERE id = ? LIMIT 1`).bind(userId).first(),
+    );
   } catch (e) {
     console.warn('[createLoginSession] auth_users lookup failed', e.message);
+  }
+
+  if (!userRow?.email && opts?.fallbackUserRow?.email) {
+    userRow = { ...opts.fallbackUserRow, id: userId };
+    console.warn('[createLoginSession] using fallback user row during D1 pressure', userId);
   }
 
   if (!userRow?.email) {
@@ -1578,7 +1588,14 @@ export async function createLoginSession(request, env, userId, sessionProvider =
       allowCreateAuthUser: false,
     });
     if (!gap?.ok) {
-      throw new Error(`identity_plane_gap_fill_failed:${gap?.reason ?? 'unknown'}`);
+      if (opts?.fallbackUserRow?.email) {
+        console.warn(
+          '[createLoginSession] accounts gap fill skipped during D1 pressure',
+          gap?.reason ?? 'unknown',
+        );
+      } else {
+        throw new Error(`identity_plane_gap_fill_failed:${gap?.reason ?? 'unknown'}`);
+      }
     }
     userRow = await env.DB.prepare(`SELECT * FROM auth_users WHERE id = ? LIMIT 1`).bind(userId).first().catch(() => userRow);
   }
@@ -1624,12 +1641,14 @@ export async function createLoginSession(request, env, userId, sessionProvider =
     expiresAtIso,
   });
 
-  await env.DB.batch([
-    env.DB.prepare(
-      `UPDATE auth_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`,
-    ).bind(userId),
-    insertStmt,
-  ]);
+  await withD1Retry(() =>
+    env.DB.batch([
+      env.DB.prepare(
+        `UPDATE auth_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`,
+      ).bind(userId),
+      insertStmt,
+    ]),
+  );
 
   if (sessionFields.workspaceId) {
     try {

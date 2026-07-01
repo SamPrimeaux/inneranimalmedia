@@ -190,7 +190,14 @@ export async function finalizeInboundOAuth(env, request, input) {
     supabaseUserId: supabaseUserId || undefined,
   });
   if (!identityOk?.ok) {
-    return { ok: false, error: 'provision_failed' };
+    // Existing users must not be locked out when D1 is temporarily overloaded.
+    if (ensured.created) {
+      return { ok: false, error: 'provision_failed' };
+    }
+    console.warn(
+      `[finalizeInboundOAuth/${provider}] identity plane skipped for existing user`,
+      identityOk?.reason ?? 'unknown',
+    );
   }
 
   await revokeIncomingCookieSession(request, env);
@@ -199,6 +206,7 @@ export async function finalizeInboundOAuth(env, request, input) {
   try {
     loginSession = await createLoginSession(request, env, authUserId, sessionProvider, {
       providerSubject: providerUid,
+      fallbackUserRow: ensured.fromCache ? ensured.row : undefined,
     });
   } catch (e) {
     console.error(`[finalizeInboundOAuth/${provider}] createLoginSession failed`, e?.message ?? e);
