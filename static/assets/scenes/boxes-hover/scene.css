@@ -1,0 +1,10 @@
+/* boxes-hover — interactive box grid (Spline source: _source/boxes_hover.spline) */
+@import url('../shared/scene-shell.css');
+
+#boxes-hover-section {
+  --scene-accent: #bd573f;
+}
+
+#boxes-hover-section .spline-scene-wrap__fallback-card strong {
+  color: var(--scene-accent);
+}

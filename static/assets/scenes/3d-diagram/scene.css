@@ -1,0 +1,10 @@
+/* 3d-diagram — workflow / architecture diagram (Spline source: _source/3_d_diagram.spline) */
+@import url('../shared/scene-shell.css');
+
+#diagram-3d-section {
+  --scene-accent: #67e8ff;
+}
+
+#diagram-3d-section .spline-scene-wrap__fallback-card strong {
+  color: var(--scene-accent);
+}

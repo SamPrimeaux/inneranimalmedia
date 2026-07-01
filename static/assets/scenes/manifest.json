@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "updated": "2026-07-01",
+  "publish_note": "Open each .spline in app.spline.design, publish, then set SCENE_URL in the matching spline.js and spline_scene_url in cms_component_templates.template_data.",
+  "scenes": [
+    {
+      "id": "boxes-hover",
+      "title": "Boxes Hover",
+      "description": "Interactive box grid with mouse hover rotate and pan.",
+      "source_file": "scenes/_source/boxes_hover.spline",
+      "source_bytes": 47104,
+      "spline_scene_url": null,
+      "publish_status": "source_only",
+      "cms_slug": "spline-boxes-hover",
+      "cms_template_id": "tpl_spline_boxes_hover",
+      "embed_html_r2": "pages/marketing/boxes-hover/index.html",
+      "assets": {
+        "css": "scenes/boxes-hover/scene.css",
+        "js": "scenes/boxes-hover/spline.js"
+      },
+      "window_api": "BoxesHoverScene"
+    },
+    {
+      "id": "3d-diagram",
+      "title": "3D Workflow Diagram",
+      "description": "Interactive 3D workflow diagram with nodes, paths, and colored lighting.",
+      "source_file": "scenes/_source/3_d_diagram.spline",
+      "source_bytes": 129024,
+      "spline_scene_url": null,
+      "publish_status": "source_only",
+      "cms_slug": "spline-3d-diagram",
+      "cms_template_id": "tpl_spline_3d_diagram",
+      "embed_html_r2": "pages/marketing/3d-diagram/index.html",
+      "assets": {
+        "css": "scenes/3d-diagram/scene.css",
+        "js": "scenes/3d-diagram/spline.js"
+      },
+      "window_api": "Diagram3dScene"
+    }
+  ]
+}
