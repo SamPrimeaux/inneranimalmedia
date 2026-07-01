@@ -11,6 +11,9 @@ import {
   IAM_AGENT_HOME_SCENE_CHANGED,
 } from '../../lib/agentHomeSceneResolve';
 import { warmAgentChunksForTab } from '../../src/pwa/warmAgentChunks';
+import { AGENT_HOME_PATH } from '../../lib/agentRoutes';
+import { IAM_AGENT_MOBILE_CODE_FOCUS } from '../../agentChatConstants';
+import { isPhoneViewport } from '../../lib/breakpoints';
 import '../../styles/agent-home-tokens.css';
 import '../../styles/agentHomeGlow.css';
 import './AgentHome.css';
@@ -95,6 +98,11 @@ export function AgentHome({ displayName, onComposerHost, onMessagesHost, showHer
       const pill = AGENT_MODE_PILLS.find((p) => p.id === mode);
       if (pill?.route) {
         warmAgentChunksForTab('code');
+        if (mode === 'code' && isPhoneViewport()) {
+          window.dispatchEvent(new CustomEvent(IAM_AGENT_MOBILE_CODE_FOCUS));
+          navigate(AGENT_HOME_PATH);
+          return;
+        }
         navigate(pill.route);
         return;
       }

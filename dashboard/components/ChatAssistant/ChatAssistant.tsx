@@ -48,6 +48,7 @@ import {
   IAM_AGENT_CHAT_CONVERSATION_CHANGE,
   IAM_AGENT_CHAT_NEW_THREAD,
   IAM_AGENT_CHAT_COMPOSE,
+  IAM_AGENT_MOBILE_CODE_FOCUS,
   LS_AGENT_CHAT_CONVERSATION_ID,
   type AgentChatComposeDetail,
   type QuickstartThreadDetail,
@@ -717,6 +718,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       }
     };
     window.addEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onExternal);
+
+    const onMobileCodeFocus = () => {
+      setMobileThreadTab('context');
+    };
+    window.addEventListener(IAM_AGENT_MOBILE_CODE_FOCUS, onMobileCodeFocus);
     
     const onExternalSend = (e: Event) => {
       const detail = (e as CustomEvent<QuickstartThreadDetail>).detail;
@@ -771,6 +777,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
     return () => {
       window.removeEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onExternal);
+      window.removeEventListener(IAM_AGENT_MOBILE_CODE_FOCUS, onMobileCodeFocus);
       window.removeEventListener('iam-agent-external-send', onExternalSend);
       window.removeEventListener(IAM_AGENT_CHAT_NEW_THREAD, onNewThreadMessage);
       window.removeEventListener(IAM_AGENT_CHAT_COMPOSE, onCompose);

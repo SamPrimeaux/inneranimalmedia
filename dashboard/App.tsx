@@ -41,6 +41,7 @@ import {
   IAM_AGENT_CHAT_CONVERSATION_CHANGE,
   IAM_AGENT_CHAT_NEW_THREAD,
   IAM_AGENT_CHAT_COMPOSE,
+  IAM_AGENT_MOBILE_CODE_FOCUS,
   IAM_ARTIFACT_OPEN_BUILDER,
   LS_AGENT_CHAT_CONVERSATION_ID,
   QUICKSTART_BATCH_LABEL,
@@ -2344,13 +2345,22 @@ const App: React.FC = () => {
     [revealMainWorkspaceIfNarrow, isNarrowViewport, mergeRecentFromActiveFile],
   );
 
+  const focusMobileCodeContext = useCallback(() => {
+    if (agentPosition === 'off') setAgentPosition('right');
+    window.dispatchEvent(new CustomEvent(IAM_AGENT_MOBILE_CODE_FOCUS));
+    if (isAgentEditorPath(location.pathname)) {
+      navigate(AGENT_HOME_PATH, { replace: true });
+    }
+  }, [agentPosition, location.pathname, navigate]);
+
   const focusCodeEditorFromChat = useCallback(() => {
+    if (isNarrowViewport) {
+      focusMobileCodeContext();
+      return;
+    }
     revealMainWorkspaceIfNarrow();
     openTab('code');
-    if (isNarrowViewport) {
-      setToastMsg('Code editor opened. Tap Chat to return to Agent Sam.');
-    }
-  }, [revealMainWorkspaceIfNarrow, isNarrowViewport, openTab]);
+  }, [focusMobileCodeContext, isNarrowViewport, revealMainWorkspaceIfNarrow, openTab]);
 
   const openInEditorFromExplorer = useCallback(
     (file: ActiveFile) => {
@@ -2613,9 +2623,13 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!isAgentEditorPath(location.pathname)) return;
+    if (isNarrowViewport) {
+      focusMobileCodeContext();
+      return;
+    }
     focusCodeEditorFromChat();
     setActiveActivity('files');
-  }, [location.pathname, focusCodeEditorFromChat]);
+  }, [location.pathname, focusCodeEditorFromChat, focusMobileCodeContext, isNarrowViewport]);
 
   /**
    * Tracks which editor pathname we've already attempted an auto-open for, so

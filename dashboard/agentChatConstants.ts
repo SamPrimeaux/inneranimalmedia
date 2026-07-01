@@ -7,6 +7,9 @@ export const IAM_AGENT_CHAT_CONVERSATION_CHANGE = 'iam-agent-chat-conversation-c
 /** Window event: detail.id is active agent/workflow run id; null clears. */
 export const IAM_AGENT_RUN_CONTEXT = 'iam-agent-run-context';
 
+/** Mobile: keep Agent Sam chat shell open and focus the Context tab (repo/editor) instead of empty Monaco. */
+export const IAM_AGENT_MOBILE_CODE_FOCUS = 'iam-agent-mobile-code-focus';
+
 /** Window event: detail.job_id — CAD/Meshy job created from Agent Sam tools. */
 export const IAM_DESIGNSTUDIO_CAD_JOB = 'iam-designstudio-cad-job';
 

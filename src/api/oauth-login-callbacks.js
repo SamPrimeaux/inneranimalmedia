@@ -11,6 +11,7 @@ import {
   createLoginSession,
   revokeAuthSession,
 } from '../core/auth.js';
+import { ensureAppUser } from '../core/ensureAppUser.js';
 import { ensureIdentityPlaneBeforeSession } from '../core/ensureIdentityPlaneBeforeSession.js';
 import { oauthPopupCompleteHtml } from '../core/oauth-popup-complete.js';
 import { upsertOauthToken } from '../core/oauth-token-store.js';
