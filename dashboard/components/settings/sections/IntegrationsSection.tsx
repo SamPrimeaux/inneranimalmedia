@@ -312,6 +312,7 @@ export function IntegrationsSection({
                     key={slug}
                     title={title}
                     iconSlug={item.catalog?.icon_slug || catalogSlug}
+                    imageUrl={item.catalog?.icon_url}
                     status={integrationTileStatus(item)}
                     subtitle={integrationSubtitle(item)}
                     onClick={() => setSelectedSlug(isSelected ? null : slug)}
@@ -443,6 +444,7 @@ export function IntegrationsSection({
                       key={slug || String(row.id)}
                       title={String(row.name || slug)}
                       iconSlug={row.icon_slug || slug}
+                      imageUrl={row.icon_url}
                       subtitle={isConn ? 'Connected' : isIam ? 'Hosted' : 'Connect'}
                       onClick={() => {
                         if (isIam) {

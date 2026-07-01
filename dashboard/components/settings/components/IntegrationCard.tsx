@@ -17,6 +17,7 @@ export type CatalogRow = {
   api_key_placeholder?: string;
   docs_url?: string;
   icon_slug?: string;
+  icon_url?: string | null;
   description?: string;
 };
 

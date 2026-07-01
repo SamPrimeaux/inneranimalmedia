@@ -66,11 +66,40 @@ export function parseAssumeMacLocal(wsCtx) {
 }
 
 /**
+ * @param {unknown} wsCtx
+ * @returns {string[]}
+ */
+export function parseEnabledTools(wsCtx) {
+  if (!wsCtx || typeof wsCtx !== 'object') return [];
+  const raw = /** @type {Record<string, unknown>} */ (wsCtx).enabled_tools;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((x) => String(x || '').trim()).filter(Boolean).slice(0, 200);
+}
+
+/**
+ * @param {unknown} wsCtx
+ */
+export function parseSessionProjectId(wsCtx) {
+  if (!wsCtx || typeof wsCtx !== 'object') return null;
+  const id = /** @type {Record<string, unknown>} */ (wsCtx).session_project_id;
+  const raw = id != null ? String(id).trim() : '';
+  return raw || null;
+}
+
+/**
  * @param {string|null|undefined} clientSurface
  * @param {'auto'|'remote'|'local'|'sandbox'|null|undefined} execLane
  * @param {string[]} [enabledConnectors]
+ * @param {string[]} [enabledTools]
+ * @param {string|null} [sessionProjectId]
  */
-export function formatMobileExecProfilePromptBlock(clientSurface, execLane, enabledConnectors = []) {
+export function formatMobileExecProfilePromptBlock(
+  clientSurface,
+  execLane,
+  enabledConnectors = [],
+  enabledTools = [],
+  sessionProjectId = null,
+) {
   if (!isMobileClientSurface(clientSurface)) return '';
   const lane = String(execLane || 'auto').trim().toLowerCase();
   const lines = [
@@ -87,13 +116,19 @@ export function formatMobileExecProfilePromptBlock(clientSurface, execLane, enab
   if (lane === 'remote') {
     lines.push('- User selected Cloud desk — always use agentsam_terminal_remote for terminal work.');
   } else if (lane === 'sandbox') {
-    lines.push('- User selected Sandbox — prefer agentsam_terminal_sandbox for command execution.');
+    lines.push('- User selected CF container sandbox — prefer agentsam_terminal_sandbox for command execution.');
+  }
+  if (sessionProjectId) {
+    lines.push('', `Session project context: ${sessionProjectId}`);
   }
   if (enabledConnectors.length) {
     lines.push('', `Session-enabled connectors: ${enabledConnectors.join(', ')}`);
     lines.push('Only use tools from connectors the user enabled for this chat unless they ask otherwise.');
   } else {
     lines.push('', 'No optional connectors enabled — do not assume GitHub, Drive, Cloudflare, or Mac local access.');
+  }
+  if (enabledTools.length) {
+    lines.push('', `Session-enabled tools (${enabledTools.length}): ${enabledTools.slice(0, 24).join(', ')}${enabledTools.length > 24 ? '…' : ''}`);
   }
   return lines.join('\n');
 }

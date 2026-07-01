@@ -5,6 +5,7 @@
 import { jsonResponse, fetchAuthUserTenantId, fallbackSystemTenantId } from '../core/auth.js';
 import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 import { catalogSlugForRegistry } from '../core/integration-slug-aliases.js';
+import { resolveIntegrationIconUrl } from '../core/integration-brand-avatars.js';
 
 async function resolveTenantIdOrFetch(env, authUser) {
   if (authUser?.tenant_id && String(authUser.tenant_id).trim()) {
@@ -42,6 +43,7 @@ async function loadRegistryRows(db, tenantId, surface) {
            c.slug AS catalog_slug,
            c.category AS catalog_category,
            c.icon_slug,
+           c.icon_url AS catalog_icon_url,
            c.auth_type AS catalog_auth_type,
            c.sort_order AS catalog_sort_order
     FROM integration_registry r
@@ -61,6 +63,7 @@ async function loadRegistryRows(db, tenantId, surface) {
            c.slug AS catalog_slug,
            c.category AS catalog_category,
            c.icon_slug,
+           c.icon_url AS catalog_icon_url,
            c.auth_type AS catalog_auth_type,
            c.sort_order AS catalog_sort_order
     FROM integration_registry r
@@ -163,6 +166,11 @@ export function mapConnectTileRow(row, tok, byok, env) {
     catalog_slug: row.catalog_slug || catalogSlugForRegistry(providerKey),
     title: String(row.display_name || row.catalog_name || providerKey),
     icon_slug: row.icon_slug || catalogSlugForRegistry(providerKey),
+    icon_url: resolveIntegrationIconUrl(
+      providerKey,
+      row.catalog_icon_url,
+      row.catalog_slug || catalogSlugForRegistry(providerKey),
+    ),
     category: row.catalog_category || row.category || 'other',
     auth_type: row.catalog_auth_type || row.auth_type || 'oauth2',
     status,

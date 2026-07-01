@@ -5,6 +5,7 @@ export type ConnectorCatalogRow = {
   catalog_slug: string;
   title: string;
   icon_slug: string;
+  icon_url?: string | null;
   category: string;
   kind: 'oauth_api' | 'mcp_remote' | 'mcp_custom' | 'capability';
   status: string;

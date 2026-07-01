@@ -80,6 +80,7 @@ async function getConnectedIntegrations(env, authUser) {
               c.api_key_placeholder,
               c.docs_url,
               c.icon_slug,
+              c.icon_url,
               c.description AS catalog_description,
               c.sort_order AS catalog_sort_order,
               c.is_active AS catalog_is_active
@@ -154,6 +155,7 @@ async function getConnectedIntegrations(env, authUser) {
             api_key_placeholder: row.api_key_placeholder,
             docs_url: row.docs_url,
             icon_slug: row.icon_slug,
+            icon_url: row.icon_url,
             description: row.catalog_description,
             sort_order: row.catalog_sort_order,
             is_active: row.catalog_is_active,

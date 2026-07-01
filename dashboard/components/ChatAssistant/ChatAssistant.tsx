@@ -113,7 +113,7 @@ import {
   writeStoredExecLane,
   type ExecLane,
 } from '../../src/lib/execLane';
-import { applyFreshChatSessionDefaults, readSessionEnabledConnectors } from '../../src/lib/freshChatSession';
+import { applyFreshChatSessionDefaults, readSessionEnabledConnectors, flattenSessionEnabledTools, readSessionProject } from '../../src/lib/freshChatSession';
 import { formatHttpErrorMessage } from './streamParsing';
 import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
 import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug';
@@ -2567,6 +2567,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         web_search_enabled: composerSources.some((s) => s.id === WEB_SEARCH_SOURCE_ID),
         antigravity_sandbox_enabled: composerSources.some((s) => s.id === SANDBOX_AGENT_SOURCE_ID),
         enabled_connectors: readSessionEnabledConnectors(),
+        enabled_tools: flattenSessionEnabledTools(),
+        session_project_id: readSessionProject()?.id || null,
         assume_mac_local: false,
       };
       browserCtxPayload.workspaceContext = workspaceContextPacket;

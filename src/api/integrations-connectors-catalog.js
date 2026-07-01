@@ -10,6 +10,7 @@ import {
   AGENT_HUB_REGISTRY_KEYS,
   connectorKindForProvider,
 } from '../core/connectors-hub-helpers.js';
+import { resolveIntegrationIconUrl } from '../core/integration-brand-avatars.js';
 
 export { AGENT_HUB_REGISTRY_KEYS, connectorKindForProvider };
 
@@ -79,6 +80,7 @@ async function loadAgentHubRegistryRows(db, tenantId, keys) {
            c.slug AS catalog_slug,
            c.category AS catalog_category,
            c.icon_slug,
+           c.icon_url AS catalog_icon_url,
            c.auth_type AS catalog_auth_type,
            c.sort_order AS catalog_sort_order
     FROM integration_registry r
@@ -247,6 +249,11 @@ export async function loadAgentHubConnectorsCatalog(env, authUser, opts = {}) {
       catalog_slug: tile.catalog_slug || catalogSlugForRegistry(pk),
       title: tile.title || pk,
       icon_slug: tile.icon_slug || catalogSlugForRegistry(pk),
+      icon_url: resolveIntegrationIconUrl(
+        pk,
+        reg?.catalog_icon_url || tile.icon_url,
+        tile.catalog_slug || catalogSlugForRegistry(pk),
+      ),
       category: tile.category || 'integrations',
       kind: connectorKindForProvider(pk),
       status: tile.status || 'disconnected',
@@ -270,6 +277,7 @@ export async function loadAgentHubConnectorsCatalog(env, authUser, opts = {}) {
       catalog_slug: 'mcp',
       title: 'inneranimalmedia-mcp-server',
       icon_slug: 'mcp',
+      icon_url: resolveIntegrationIconUrl('inneranimalmedia-mcp-server', null, 'mcp'),
       category: 'mcp',
       kind: 'mcp_remote',
       status: 'connected',

@@ -276,12 +276,14 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         ? browserContextPayload.workspaceContext
         : null;
     if (wsCtxForMobile) {
-      const { parseClientSurface, parseExecLane, parseEnabledConnectors, formatMobileExecProfilePromptBlock } =
+      const { parseClientSurface, parseExecLane, parseEnabledConnectors, parseEnabledTools, parseSessionProjectId, formatMobileExecProfilePromptBlock } =
         await import('../mobile-exec-profile.js');
       const mobileBlock = formatMobileExecProfilePromptBlock(
         parseClientSurface(wsCtxForMobile),
         parseExecLane(wsCtxForMobile),
         parseEnabledConnectors(wsCtxForMobile),
+        parseEnabledTools(wsCtxForMobile),
+        parseSessionProjectId(wsCtxForMobile),
       );
       if (mobileBlock && !systemPrompt.includes('[Mobile client surface')) {
         systemPrompt = `${systemPrompt}\n\n## Mobile exec profile\n${mobileBlock}`;

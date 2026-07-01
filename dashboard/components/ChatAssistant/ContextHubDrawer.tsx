@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  FolderKanban,
   Globe,
   HardDrive,
   Image as ImageIcon,
@@ -21,7 +22,7 @@ import type { ChatComposerSource } from './composer/types';
 import { WEB_SEARCH_SOURCE, WEB_SEARCH_SOURCE_ID, SANDBOX_AGENT_SOURCE_ID } from './composer/types';
 import { GithubContextLane } from './GithubContextLane';
 import type { ExecLane } from '../../src/lib/execLane';
-import { EXEC_LANE_LABELS } from '../../src/lib/execLane';
+import { EXEC_LANE_LABELS, EXEC_LANE_DESCRIPTIONS } from '../../src/lib/execLane';
 import { openIntegrationOAuthPopup } from '../../src/lib/integrationOAuthPopup';
 import {
   connectorComposerSource,
@@ -30,12 +31,25 @@ import {
 import {
   readSessionEnabledConnectors,
   toggleSessionConnector,
+  readSessionEnabledTools,
+  toggleSessionTool,
+  seedSessionToolsForProvider,
+  isSessionToolEnabled,
+  readSessionProject,
+  writeSessionProject,
+  type SessionProject,
 } from '../../src/lib/freshChatSession';
 import { useConnectorsCatalog } from './hooks/useConnectorsCatalog';
 import { AppIcon, type AppIconStatus } from '../ui/AppIcon';
 import '../ui/AppIcon.css';
 
-export type ContextHubLane = 'hub' | 'github' | 'connectors' | 'connector_detail' | 'tool_access';
+export type ContextHubLane =
+  | 'hub'
+  | 'github'
+  | 'connectors'
+  | 'connector_detail'
+  | 'tool_access'
+  | 'project';
 
 export type ContextHubDrawerProps = {
   open: boolean;
@@ -65,7 +79,10 @@ export type ContextHubDrawerProps = {
   execLane: ExecLane;
   onExecLaneChange: (lane: ExecLane) => void;
   focusConnectorKey?: string | null;
+  onSessionContextChange?: () => void;
 };
+
+type ProjectOption = { id: string; name: string; chat_project_id?: string | null };
 
 const SOURCE_TILES = [
   {
@@ -133,6 +150,7 @@ export function ContextHubDrawer({
   execLane,
   onExecLaneChange,
   focusConnectorKey = null,
+  onSessionContextChange,
 }: ContextHubDrawerProps) {
   const [lane, setLane] = useState<ContextHubLane>(initialLane);
   const [connectorFilter, setConnectorFilter] = useState('');
@@ -145,6 +163,11 @@ export function ContextHubDrawer({
   const [sessionConnectorKeys, setSessionConnectorKeys] = useState<Set<string>>(
     () => new Set(readSessionEnabledConnectors()),
   );
+  const [sessionToolsRevision, setSessionToolsRevision] = useState(0);
+  const [sessionProject, setSessionProject] = useState<SessionProject>(() => readSessionProject());
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectFilter, setProjectFilter] = useState('');
 
   const { loading: catalogLoading, connectors, connectedCount, refresh, loadTools } =
     useConnectorsCatalog(workspaceId);
@@ -153,12 +176,34 @@ export function ContextHubDrawer({
     if (open) {
       setLane(initialLane);
       setSessionConnectorKeys(new Set(readSessionEnabledConnectors()));
+      setSessionProject(readSessionProject());
       if (focusConnectorKey?.trim()) {
         setSelectedConnectorKey(focusConnectorKey.trim());
         if (initialLane === 'connectors') setLane('connector_detail');
       }
     }
   }, [open, initialLane, focusConnectorKey]);
+
+  useEffect(() => {
+    if (!open || lane !== 'project') return;
+    setProjectsLoading(true);
+    void fetch('/api/projects', { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => {
+        const list = Array.isArray(rows) ? rows : rows?.projects || [];
+        setProjects(
+          list
+            .map((p: ProjectOption) => ({
+              id: String(p.id || '').trim(),
+              name: String(p.name || 'Project').trim(),
+              chat_project_id: p.chat_project_id ? String(p.chat_project_id).trim() : null,
+            }))
+            .filter((p: ProjectOption) => p.id),
+        );
+      })
+      .catch(() => setProjects([]))
+      .finally(() => setProjectsLoading(false));
+  }, [open, lane]);
 
   useEffect(() => {
     if (!open) {
@@ -211,20 +256,44 @@ export function ContextHubDrawer({
   );
 
   const toggleConnectorForSession = useCallback(
-    (row: ConnectorCatalogRow, enabled: boolean) => {
+    (row: ConnectorCatalogRow, enabled: boolean, allToolKeys: string[] = []) => {
       if (row.provider_key === 'web_search') {
         onToggleSource(WEB_SEARCH_SOURCE, enabled);
         const next = toggleSessionConnector('web_search', enabled);
         setSessionConnectorKeys(new Set(next));
+        if (enabled && allToolKeys.length) seedSessionToolsForProvider('web_search', allToolKeys);
+        setSessionToolsRevision((n) => n + 1);
+        onSessionContextChange?.();
         return;
       }
       const src = connectorComposerSource(row);
       onToggleSource(src, enabled);
       const next = toggleSessionConnector(row.provider_key, enabled);
       setSessionConnectorKeys(new Set(next));
+      if (enabled && allToolKeys.length) seedSessionToolsForProvider(row.provider_key, allToolKeys);
+      setSessionToolsRevision((n) => n + 1);
+      onSessionContextChange?.();
     },
-    [onToggleSource, onToggleWebSearch],
+    [onToggleSource, onSessionContextChange],
   );
+
+  const bumpToolToggle = useCallback(
+    (providerKey: string, toolKey: string, enabled: boolean) => {
+      toggleSessionTool(providerKey, toolKey, enabled);
+      if (enabled && !sessionConnectorKeys.has(providerKey)) {
+        setSessionConnectorKeys(new Set(toggleSessionConnector(providerKey, true)));
+      }
+      setSessionToolsRevision((n) => n + 1);
+      onSessionContextChange?.();
+    },
+    [sessionConnectorKeys, onSessionContextChange],
+  );
+
+  const filteredProjects = useMemo(() => {
+    const q = projectFilter.trim().toLowerCase();
+    if (!q) return projects;
+    return projects.filter((p) => p.name.toLowerCase().includes(q));
+  }, [projects, projectFilter]);
 
   if (!open || typeof document === 'undefined') return null;
 
@@ -260,6 +329,8 @@ export function ContextHubDrawer({
         ? 'Connectors'
         : lane === 'connector_detail'
           ? selectedConnector?.title || 'Connector'
+          : lane === 'project'
+            ? 'Add to project'
           : lane === 'tool_access'
             ? 'Tool access'
             : 'Add to context';
@@ -456,6 +527,21 @@ export function ContextHubDrawer({
 
             <button
               type="button"
+              onClick={() => setLane('project')}
+              className="mt-2 flex w-full items-center justify-between rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] px-3 py-3 text-left hover:bg-[var(--bg-hover)]"
+            >
+              <span className="inline-flex items-center gap-2 text-[13px] text-[var(--dashboard-text)]">
+                <FolderKanban size={15} className="text-[var(--dashboard-muted)]" />
+                Add to project
+                <span className="text-[11px] text-[var(--dashboard-muted)]">
+                  {sessionProject?.name || 'None'}
+                </span>
+              </span>
+              <ChevronRight size={16} className="text-[var(--dashboard-muted)]" />
+            </button>
+
+            <button
+              type="button"
               onClick={() => setLane('connectors')}
               className="mt-2 flex w-full items-center justify-between rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] px-3 py-3 text-left hover:bg-[var(--bg-hover)]"
             >
@@ -498,14 +584,17 @@ export function ContextHubDrawer({
                     onExecLaneChange(opt);
                     setLane('hub');
                   }}
-                  className={`flex w-full items-center justify-between rounded-xl border px-3 py-3 text-left text-[13px] ${
+                  className={`flex w-full flex-col gap-1 rounded-xl border px-3 py-3 text-left ${
                     execLane === opt
                       ? 'border-[var(--solar-cyan)]/50 bg-[var(--scene-bg)] ring-1 ring-[var(--solar-cyan)]/30'
                       : 'border-[var(--dashboard-border)] bg-[var(--scene-bg)] hover:bg-[var(--bg-hover)]'
                   }`}
                 >
-                  <span className="text-[var(--dashboard-text)]">{EXEC_LANE_LABELS[opt]}</span>
-                  {execLane === opt ? <Check size={15} className="text-[var(--solar-cyan)]" /> : null}
+                  <span className="flex w-full items-center justify-between text-[13px] text-[var(--dashboard-text)]">
+                    {EXEC_LANE_LABELS[opt]}
+                    {execLane === opt ? <Check size={15} className="text-[var(--solar-cyan)]" /> : null}
+                  </span>
+                  <span className="text-[11px] text-[var(--dashboard-muted)]">{EXEC_LANE_DESCRIPTIONS[opt]}</span>
                 </button>
               ))}
             </div>
@@ -542,42 +631,51 @@ export function ContextHubDrawer({
               ) : filteredConnectors.length === 0 ? (
                 <p className="px-1 py-6 text-[12px] text-[var(--dashboard-muted)]">No matches</p>
               ) : (
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                <ul className="space-y-1">
                   {filteredConnectors.map((row) => {
                     const enabled = isConnectorSessionEnabled(row, sessionConnectorKeys, activeSourceIds);
                     const busy = connectBusy === row.provider_key;
                     return (
-                      <div key={row.provider_key} className="relative">
-                        {enabled ? (
-                          <span className="absolute right-1 top-1 z-[1] rounded-full bg-[var(--solar-cyan)]/20 px-1.5 py-0.5 text-[8px] font-bold uppercase text-[var(--solar-cyan)]">
-                            on
-                          </span>
-                        ) : null}
-                        <AppIcon
-                          title={row.title}
-                          iconSlug={row.icon_slug}
-                          size="md"
-                          subtitle={connectorSubtitle(row)}
-                          status={iconStatusForConnector(row)}
-                          onPress={() => {
+                      <li key={row.provider_key}>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => {
                             if (!row.connected && row.connect_url) {
                               void runOAuthConnect(row);
                               return;
                             }
                             void openConnectorDetail(row);
                           }}
-                          className={busy ? 'opacity-60 pointer-events-none' : ''}
-                        />
-                        {busy ? (
-                          <Loader2
-                            size={14}
-                            className="absolute bottom-2 right-2 animate-spin text-[var(--solar-cyan)]"
+                          className="flex w-full items-center gap-3 rounded-xl border border-transparent px-2 py-2 text-left hover:border-[var(--dashboard-border)] hover:bg-[var(--bg-hover)]/60 disabled:opacity-60"
+                        >
+                          <AppIcon
+                            title={row.title}
+                            iconSlug={row.icon_slug}
+                            imageUrl={row.icon_url}
+                            size="sm"
+                            status={iconStatusForConnector(row)}
                           />
-                        ) : null}
-                      </div>
+                          <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--dashboard-text)]">
+                            {row.title}
+                          </span>
+                          {row.tool_count > 0 ? (
+                            <span className="shrink-0 text-[12px] text-[var(--dashboard-muted)]">
+                              ({row.tool_count})
+                            </span>
+                          ) : null}
+                          {enabled ? (
+                            <Check size={14} className="shrink-0 text-[var(--solar-cyan)]" />
+                          ) : busy ? (
+                            <Loader2 size={14} className="shrink-0 animate-spin text-[var(--solar-cyan)]" />
+                          ) : !row.connected ? (
+                            <span className="shrink-0 text-[10px] text-amber-300/90">Connect</span>
+                          ) : null}
+                        </button>
+                      </li>
                     );
                   })}
-                </div>
+                </ul>
               )}
               <button
                 type="button"
@@ -602,10 +700,16 @@ export function ContextHubDrawer({
 
         {lane === 'connector_detail' && selectedConnector ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto chat-hide-scroll px-4 pb-4">
+            {(() => {
+              const allToolKeys = detailTools.map((t) => t.tool_key);
+              void sessionToolsRevision;
+              return (
+                <>
             <div className="mt-2 flex items-start gap-3 rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] p-3">
               <AppIcon
                 title={selectedConnector.title}
                 iconSlug={selectedConnector.icon_slug}
+                imageUrl={selectedConnector.icon_url}
                 size="lg"
                 subtitle={connectorSubtitle(selectedConnector)}
                 status={iconStatusForConnector(selectedConnector)}
@@ -644,7 +748,7 @@ export function ContextHubDrawer({
                           sessionConnectorKeys,
                           activeSourceIds,
                         );
-                        toggleConnectorForSession(selectedConnector, !on);
+                        toggleConnectorForSession(selectedConnector, !on, allToolKeys);
                       }}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--dashboard-border)] px-3 py-1.5 text-[12px] text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)]"
                     >
@@ -688,19 +792,42 @@ export function ContextHubDrawer({
               </p>
             ) : (
               <ul className="space-y-1 rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] p-2">
-                {detailTools.slice(0, 40).map((tool) => (
-                  <li
-                    key={tool.tool_key}
-                    className="rounded-lg px-2 py-2 text-[12px] hover:bg-[var(--bg-hover)]/50"
-                  >
-                    <div className="font-medium text-[var(--dashboard-text)]">{tool.label}</div>
-                    {tool.description ? (
-                      <div className="mt-0.5 line-clamp-2 text-[11px] text-[var(--dashboard-muted)]">
-                        {tool.description}
-                      </div>
-                    ) : null}
-                  </li>
-                ))}
+                {detailTools.slice(0, 40).map((tool) => {
+                  const on = isSessionToolEnabled(
+                    selectedConnector.provider_key,
+                    tool.tool_key,
+                    allToolKeys,
+                  );
+                  return (
+                    <li key={tool.tool_key}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          bumpToolToggle(selectedConnector.provider_key, tool.tool_key, !on)
+                        }
+                        className="flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left hover:bg-[var(--bg-hover)]/50"
+                      >
+                        <span className="mt-0.5 shrink-0">
+                          {on ? (
+                            <Check size={14} className="text-[var(--solar-cyan)]" />
+                          ) : (
+                            <span className="inline-block h-3.5 w-3.5 rounded border border-[var(--dashboard-border)]" />
+                          )}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[12px] font-medium text-[var(--dashboard-text)]">
+                            {tool.label}
+                          </span>
+                          {tool.description ? (
+                            <span className="mt-0.5 block line-clamp-2 text-[11px] text-[var(--dashboard-muted)]">
+                              {tool.description}
+                            </span>
+                          ) : null}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
                 {detailTools.length > 40 ? (
                   <li className="px-2 py-1 text-[10px] text-[var(--dashboard-muted)]">
                     +{detailTools.length - 40} more in MCP catalog
@@ -719,6 +846,89 @@ export function ContextHubDrawer({
                 Re-authorize OAuth
               </button>
             ) : null}
+                </>
+              );
+            })()}
+          </div>
+        ) : null}
+
+        {lane === 'project' ? (
+          <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
+            <div className="relative mb-2">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--dashboard-muted)]" />
+              <input
+                type="search"
+                value={projectFilter}
+                onChange={(e) => setProjectFilter(e.target.value)}
+                placeholder="Search projects"
+                className="w-full rounded-lg border border-[var(--dashboard-border)] bg-[var(--scene-bg)] py-2 pl-8 pr-3 text-[13px] outline-none focus:border-[var(--solar-cyan)]"
+              />
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto chat-hide-scroll">
+              <button
+                type="button"
+                onClick={() => {
+                  writeSessionProject(null);
+                  setSessionProject(null);
+                  onSessionContextChange?.();
+                  setLane('hub');
+                }}
+                className={`mb-2 flex w-full items-center justify-between rounded-xl border px-3 py-3 text-left text-[13px] ${
+                  !sessionProject
+                    ? 'border-[var(--solar-cyan)]/50 bg-[var(--scene-bg)] ring-1 ring-[var(--solar-cyan)]/30'
+                    : 'border-[var(--dashboard-border)] bg-[var(--scene-bg)] hover:bg-[var(--bg-hover)]'
+                }`}
+              >
+                <span className="text-[var(--dashboard-text)]">None</span>
+                {!sessionProject ? <Check size={15} className="text-[var(--solar-cyan)]" /> : null}
+              </button>
+              {projectsLoading ? (
+                <div className="flex items-center gap-2 py-4 text-[12px] text-[var(--dashboard-muted)]">
+                  <Loader2 size={14} className="animate-spin" />
+                  Loading projects…
+                </div>
+              ) : filteredProjects.length === 0 ? (
+                <p className="py-4 text-[12px] text-[var(--dashboard-muted)]">No projects found</p>
+              ) : (
+                <ul className="space-y-1">
+                  {filteredProjects.map((p) => {
+                    const active =
+                      sessionProject?.id === p.id ||
+                      (p.chat_project_id && sessionProject?.id === p.chat_project_id);
+                    return (
+                      <li key={p.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const resolved = p.chat_project_id || p.id;
+                            const next = { id: resolved, name: p.name };
+                            writeSessionProject(next);
+                            setSessionProject(next);
+                            onSessionContextChange?.();
+                            setLane('hub');
+                          }}
+                          className={`flex w-full items-center justify-between rounded-xl border px-3 py-3 text-left text-[13px] ${
+                            active
+                              ? 'border-[var(--solar-cyan)]/50 bg-[var(--scene-bg)] ring-1 ring-[var(--solar-cyan)]/30'
+                              : 'border-[var(--dashboard-border)] bg-[var(--scene-bg)] hover:bg-[var(--bg-hover)]'
+                          }`}
+                        >
+                          <span className="truncate text-[var(--dashboard-text)]">{p.name}</span>
+                          {active ? <Check size={15} className="shrink-0 text-[var(--solar-cyan)]" /> : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setLane('hub')}
+              className="mt-3 w-full rounded-xl border border-[var(--dashboard-border)] py-2.5 text-[12px] text-[var(--dashboard-muted)]"
+            >
+              Back
+            </button>
           </div>
         ) : null}
       </div>
