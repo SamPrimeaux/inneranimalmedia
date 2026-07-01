@@ -133,6 +133,16 @@ export async function purgeWorkspaceArtifacts(opts: {
   return (await r.json()) as ArtifactPurgeResponse;
 }
 
+export async function deleteArtifact(
+  id: string,
+): Promise<{ ok: boolean; deleted?: boolean; error?: string }> {
+  const r = await fetch(`/api/agent/artifacts/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    credentials: 'same-origin',
+  });
+  return (await r.json()) as { ok: boolean; deleted?: boolean; error?: string };
+}
+
 export async function patchArtifact(
   id: string,
   body: Record<string, unknown>,

@@ -1037,30 +1037,45 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   /** @type {{ turnId: string, assistantMessageId: string }|null} */
   let chatTurnMeta = null;
-  if (sessionId) {
-    const { beginChatTurn, markChatTurnStatus } = await import('../core/agentsam-chat-sessions.js');
-    chatTurnMeta = await beginChatTurn(env, sessionId, {
-      model_key: body.model_key ?? body.model ?? null,
-    });
-    if (ctx?.waitUntil) {
-      ctx.waitUntil(
-        markChatTurnStatus(env, sessionId, 'in_progress', null, {
-          assistantMessageId: chatTurnMeta?.assistantMessageId ?? null,
-        }),
-      );
-    } else {
-      void markChatTurnStatus(env, sessionId, 'in_progress', null, {
-        assistantMessageId: chatTurnMeta?.assistantMessageId ?? null,
-      });
-    }
-  }
 
   return startAgentChatEarlySse(async ({ emit, pipeResponse, streamLifecycle }) => {
+    const heartbeat = setInterval(() => {
+      void emit('status', { phase: 'preflight', heartbeat: true });
+    }, 12000);
+    const stopHeartbeat = () => clearInterval(heartbeat);
+
+    if (sessionId) {
+      try {
+        const { beginChatTurn, markChatTurnStatus } = await import('../core/agentsam-chat-sessions.js');
+        chatTurnMeta = await beginChatTurn(env, sessionId, {
+          model_key: body.model_key ?? body.model ?? null,
+          timeoutMs: 4000,
+        });
+        if (chatTurnMeta) {
+          streamLifecycle.setTurnMeta(chatTurnMeta);
+          await emit('turn_meta', {
+            turn_id: chatTurnMeta.turnId,
+            conversation_id: sessionId,
+            assistant_message_id: chatTurnMeta.assistantMessageId,
+          });
+          void markChatTurnStatus(env, sessionId, 'in_progress', null, {
+            assistantMessageId: chatTurnMeta.assistantMessageId,
+          });
+        }
+      } catch (e) {
+        console.warn('[agent] beginChatTurn', e?.message ?? e);
+      }
+    }
+
+    const { isSimpleAskMessage } = await import('../core/runtime-profile.js');
+    const casualFastPath = isSimpleAskMessage(message);
+
+    try {
     const chatIsSuperadmin = !!(identity?.isSuperadmin || chatAuthUser?.is_superadmin);
     if (chatTurnMeta) {
       streamLifecycle.setTurnMeta(chatTurnMeta);
     }
-    if (!ingestBypass && !chatIsSuperadmin && tenantId) {
+    if (!casualFastPath && !ingestBypass && !chatIsSuperadmin && tenantId) {
       try {
         const { assertTenantSpendPolicy } = await import('../core/tenant-spend-policy.js');
         const spendGate = await withD1Retry(() =>
@@ -1090,7 +1105,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     }
 
     let handoffResume = null;
-    if (sessionId && env.DB) {
+    if (!casualFastPath && sessionId && env.DB) {
       try {
         handoffResume = await withD1Retry(() =>
           resolvePendingHandoffForSession(env, {
@@ -1225,6 +1240,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     }
 
     let subagentProfileRow = null;
+    if (!casualFastPath) {
     try {
       subagentProfileRow = await withD1Retry(() =>
         resolveSubagentProfileForChat(env.DB, {
@@ -1259,8 +1275,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     } catch (e) {
       console.warn('[agent] subagent_profile_resolve', e?.message ?? e);
     }
+    }
 
-    const grRoute = await withD1Retry(() =>
+    const grRoute = casualFastPath
+      ? { blocked: false }
+      : await withD1Retry(() =>
       evaluateGuardrails(env, ctx, {
         applies_to: 'route',
         tenant_id: tenantId,
@@ -1301,10 +1320,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         : { cms_context: cmsRaw };
     }
 
-    const [userPolicy, surfacePreflight] = await Promise.all([
-      withD1Retry(() => loadAgentSamUserPolicy(env, userId, workspaceId)).catch(() => null),
-      resolveSurfaceWorkflowPreflightExecution(env, message, requestedMode, browserContextPayload),
-    ]);
+    const [userPolicy, surfacePreflight] = casualFastPath
+      ? [null, null]
+      : await Promise.all([
+          withD1Retry(() => loadAgentSamUserPolicy(env, userId, workspaceId)).catch(() => null),
+          resolveSurfaceWorkflowPreflightExecution(env, message, requestedMode, browserContextPayload),
+        ]);
 
     if (surfacePreflight?.kind === 'execute') {
       const actor = chatAuthUser || { id: userId, tenant_id: tenantId, email: null };
@@ -1331,8 +1352,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
     kickoffModelTierMigration(env, ctx);
 
-    const { isSimpleAskMessage } = await import('../core/runtime-profile.js');
-    const casualChatTurn = isSimpleAskMessage(message) && !activeFileEnvelope;
+    const casualChatTurn = casualFastPath && !activeFileEnvelope;
 
     const agentChatResolvedContext = casualChatTurn
       ? null
@@ -1366,12 +1386,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       streamLifecycle,
       chatTurnMeta,
     });
+    } finally {
+      stopHeartbeat();
+    }
   }, {
     conversationId: sessionId,
     userId,
     workspaceId,
     env,
-    chatTurnMeta,
     onStreamClose: async (result) => {
       if (!sessionId) return;
       const { markChatTurnStatus } = await import('../core/agentsam-chat-sessions.js');

@@ -48,10 +48,10 @@ export function startAgentChatEarlySse(runPipeline, meta = {}) {
   const conversationId =
     meta.conversationId != null ? String(meta.conversationId).trim() : '';
   const emitBase = streamLifecycle.wrapEmit(rawEmit);
-  const emit =
-    turnId && conversationId && meta.env
-      ? wrapEmitWithTurnOutbox(meta.env, conversationId, turnId, emitBase)
-      : emitBase;
+  let emit = emitBase;
+  if (turnId && conversationId && meta.env) {
+    emit = wrapEmitWithTurnOutbox(meta.env, conversationId, turnId, emitBase);
+  }
 
   const outboxTapState = { buffer: '' };
 
@@ -104,13 +104,6 @@ export function startAgentChatEarlySse(runPipeline, meta = {}) {
     try {
       await emit('thinking_start', {});
       await emit('status', { phase: 'preflight' });
-      if (turnId && conversationId) {
-        await emit('turn_meta', {
-          turn_id: turnId,
-          conversation_id: conversationId,
-          assistant_message_id: meta.chatTurnMeta?.assistantMessageId ?? null,
-        });
-      }
       const inner = await runPipeline({ emit, pipeResponse, streamLifecycle });
       if (inner instanceof Response) {
         await pipeResponse(inner);

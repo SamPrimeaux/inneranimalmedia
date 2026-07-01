@@ -411,7 +411,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   let emptyRun = 0;
   const MAX_STREAM_MS = 900000;
   /** No SSE bytes for this long → surface error instead of infinite spinner. */
-  const MAX_IDLE_MS = 45000;
+  const MAX_IDLE_MS = 90000;
   let lastSseByteAt = Date.now();
   let idleTimedOut = false;
   /** Raised for long artifact/HTML streams (many small SSE reads). */

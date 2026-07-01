@@ -42,31 +42,66 @@ function getAgentSessionStub(env, conversationId) {
  *   tool_calls?: unknown,
  * }} turn
  */
-async function appendChatMessageToDo(env, conversationId, turn) {
+/**
+ * @param {Promise<Response|null>} fetchPromise
+ * @param {number} [timeoutMs]
+ */
+async function withDoFetchTimeout(fetchPromise, timeoutMs = 5000) {
+  const ms = Math.max(500, Number(timeoutMs) || 5000);
+  return Promise.race([
+    fetchPromise,
+    new Promise((resolve) => {
+      setTimeout(() => resolve(null), ms);
+    }),
+  ]);
+}
+
+async function appendChatMessageToDo(env, conversationId, turn, opts = {}) {
   const stub = getAgentSessionStub(env, conversationId);
   if (!stub) return { ok: false, reason: 'no_binding' };
 
-  const resp = await stub.fetch(
-    new Request('https://do/message', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: turn.id ?? undefined,
-        turn_id: turn.turn_id ?? null,
-        role: turn.role,
-        content: turn.content,
-        status: turn.status ?? 'complete',
-        error: turn.error ?? null,
-        model_used: turn.model_key ?? null,
-        input_tokens: Number(turn.tokens_in) || 0,
-        output_tokens: Number(turn.tokens_out) || 0,
-        tool_calls: turn.tool_calls ?? null,
+  const resp = await withDoFetchTimeout(
+    stub.fetch(
+      new Request('https://do/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: turn.id ?? undefined,
+          turn_id: turn.turn_id ?? null,
+          role: turn.role,
+          content: turn.content,
+          status: turn.status ?? 'complete',
+          error: turn.error ?? null,
+          model_used: turn.model_key ?? null,
+          input_tokens: Number(turn.tokens_in) || 0,
+          output_tokens: Number(turn.tokens_out) || 0,
+          tool_calls: turn.tool_calls ?? null,
+        }),
       }),
-    }),
+    ),
+    opts.timeoutMs ?? 5000,
   );
+  if (!resp) return { ok: false, reason: 'do_timeout' };
   if (!resp.ok) return { ok: false, reason: `do_${resp.status}` };
   const data = await resp.json().catch(() => ({}));
   return { ok: true, id: data?.id ?? turn.id ?? null };
+}
+
+/**
+ * Best-effort wipe of DO SQLite for a conversation (messages + outbox).
+ * @param {any} env
+ * @param {string} conversationId
+ */
+export async function wipeChatSessionDo(env, conversationId) {
+  const stub = getAgentSessionStub(env, conversationId);
+  if (!stub) return { ok: false, reason: 'no_binding' };
+  const resp = await withDoFetchTimeout(
+    stub.fetch(new Request('https://do/wipe', { method: 'POST' })),
+    8000,
+  );
+  if (!resp) return { ok: false, reason: 'do_timeout' };
+  if (!resp.ok) return { ok: false, reason: `do_${resp.status}` };
+  return { ok: true };
 }
 
 /**
@@ -268,15 +303,23 @@ export async function beginChatTurn(env, conversationId, opts = {}) {
 
   const turnId = `turn_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const assistantMessageId = crypto.randomUUID();
-  const pending = await appendChatMessageToDo(env, convId, {
-    id: assistantMessageId,
-    turn_id: turnId,
-    role: 'assistant',
-    content: '',
-    status: 'pending',
-    model_key: opts.model_key ?? null,
-  });
-  if (!pending.ok) return null;
+  const pending = await appendChatMessageToDo(
+    env,
+    convId,
+    {
+      id: assistantMessageId,
+      turn_id: turnId,
+      role: 'assistant',
+      content: '',
+      status: 'pending',
+      model_key: opts.model_key ?? null,
+    },
+    { timeoutMs: opts.timeoutMs ?? 4000 },
+  );
+  if (!pending.ok) {
+    console.warn('[beginChatTurn]', pending.reason || 'do_write_failed', convId);
+    return null;
+  }
   void appendTurnOutboxEvent(env, convId, turnId, 'status', {
     phase: 'turn_started',
     assistant_message_id: assistantMessageId,
@@ -1000,6 +1043,10 @@ export async function deleteUserChatSession(env, input) {
       }
     }
   }
+
+  void wipeChatSessionDo(env, conversationId).catch((e) =>
+    console.warn('[deleteUserChatSession] do_wipe', e?.message ?? e),
+  );
 
   try {
     const r = await env.DB.prepare(

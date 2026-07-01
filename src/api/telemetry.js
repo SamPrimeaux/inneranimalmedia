@@ -27,7 +27,6 @@ export function spendLedgerProvider(provider) {
  * Log a worker error to the analytics registry.
  */
 export async function recordWorkerAnalyticsError(env, { path = '', method = 'GET', status_code = 500, error_message = '' } = {}) {
-  if (!env?.DB) return;
   const eventId = crypto.randomUUID();
   const workerName = 'inneranimalmedia';
   const environment = 'production';
@@ -37,6 +36,19 @@ export async function recordWorkerAnalyticsError(env, { path = '', method = 'GET
   const code = Number(status_code);
   const msg = String(error_message || '').slice(0, 8000);
 
+  try {
+    env?.WAE?.writeDataPoint?.({
+      indexes: ['worker_error'],
+      blobs: [workerName, environment, pathSlice, methodSlice, msg.slice(0, 200)],
+      doubles: [Number.isFinite(code) ? code : 500, 1],
+    });
+  } catch {
+    /* non-fatal */
+  }
+
+  if (!env?.DB) return;
+
+  const { isD1OverloadError } = await import('../core/d1-retry.js');
   try {
     await env.DB.prepare(
       `INSERT INTO worker_analytics_errors (
@@ -50,7 +62,9 @@ export async function recordWorkerAnalyticsError(env, { path = '', method = 'GET
       0, ts
     ).run();
   } catch (e) {
-    console.warn('[worker_analytics_errors]', e?.message ?? e);
+    if (!isD1OverloadError(e)) {
+      console.warn('[worker_analytics_errors]', e?.message ?? e);
+    }
   }
 }
 

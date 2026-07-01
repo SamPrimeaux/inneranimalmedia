@@ -571,6 +571,43 @@ export async function handleAgentArtifactsApi(request, url, env) {
       }));
       return jsonResponse({ ok: true, artifact });
     }
+
+    if (oneMatch && method === 'DELETE') {
+      const id = oneMatch[1];
+      const gate = await assertArtifactAccess(env, id, scope);
+      if (!gate.ok) return jsonResponse({ ok: false, error: gate.error }, gate.status);
+
+      const row = await env.DB.prepare(
+        `SELECT id, r2_key, r2_bucket, preview_r2_key, thumbnail_r2_key FROM agentsam_artifacts WHERE id = ?`,
+      )
+        .bind(id)
+        .first();
+      if (!row) return jsonResponse({ ok: false, error: 'Not found' }, 404);
+
+      const { resolveArtifactR2Binding } = await import('../core/artifact-key.js');
+      const bucketName = row.r2_bucket != null ? String(row.r2_bucket).trim() : '';
+      const binding = resolveArtifactR2Binding(env, bucketName || undefined);
+      const keys = [row.r2_key, row.preview_r2_key, row.thumbnail_r2_key]
+        .map((k) => (k != null ? String(k).trim() : ''))
+        .filter(Boolean);
+      if (binding) {
+        for (const key of keys) {
+          try {
+            await binding.delete(key);
+          } catch {
+            /* best-effort */
+          }
+        }
+      }
+
+      await env.DB.prepare(`DELETE FROM agentsam_artifact_skills WHERE artifact_id = ?`)
+        .bind(id)
+        .run()
+        .catch(() => {});
+      await env.DB.prepare(`DELETE FROM agentsam_artifacts WHERE id = ?`).bind(id).run();
+
+      return jsonResponse({ ok: true, deleted: true, id });
+    }
   } catch (e) {
     console.warn('[agent-artifacts]', e?.message ?? e);
     return jsonResponse({ ok: false, error: e?.message ?? String(e) }, 500);

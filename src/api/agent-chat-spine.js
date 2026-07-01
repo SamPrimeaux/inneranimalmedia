@@ -2,6 +2,7 @@
  * Agent Sam chat spine — login → mode → RuntimeProfile → model (Thompson if auto) → tool loop.
  * Replaces the boolean maze in agent.js for standard composer chat.
  */
+import { withD1Retry } from '../core/d1-retry.js';
 import { jsonResponse } from '../core/responses.js';
 import {
   resolveRuntimeProfile,
@@ -86,18 +87,22 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
       ? String(rawModel).trim()
       : null;
 
-  const profile = await resolveRuntimeProfile(env, {
-    mode: requestedMode,
-    message,
-    session: { userId, workspaceId, tenantId, conversationId: sessionId },
-    overrides: {
-      model_key: modelOverride,
-      subagent_slug: body.subagent_slug ?? body.subagentSlug ?? null,
-      route_key: body.route_key ?? body.routeKey ?? null,
-      task_type: body.task_type ?? body.taskType ?? null,
-    },
-    compile_lane: 'live',
-  });
+  const profile = await withD1Retry(
+    () =>
+      resolveRuntimeProfile(env, {
+        mode: requestedMode,
+        message,
+        session: { userId, workspaceId, tenantId, conversationId: sessionId },
+        overrides: {
+          model_key: modelOverride,
+          subagent_slug: body.subagent_slug ?? body.subagentSlug ?? null,
+          route_key: body.route_key ?? body.routeKey ?? null,
+          task_type: body.task_type ?? body.taskType ?? null,
+        },
+        compile_lane: 'live',
+      }),
+    { maxAttempts: 2, delays: [40, 120] },
+  );
 
   profile.source.compile_lane = 'live';
   logRuntimeProfile(profile, { path: 'executeAgentChatSpine', conversation_id: sessionId, live: true });

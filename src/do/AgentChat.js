@@ -729,6 +729,17 @@ export class AgentChatSqlV1 extends DurableObject {
       return this.handleGetHistory(url);
     }
 
+    if (url.pathname === "/wipe" && request.method === "POST") {
+      try {
+        this.sql.exec('DELETE FROM turn_outbox');
+        this.sql.exec('DELETE FROM session_messages');
+        this.sql.exec('DELETE FROM session_rag_cache');
+      } catch (e) {
+        return Response.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+      }
+      return Response.json({ ok: true, wiped: true });
+    }
+
     if (url.pathname === "/outbox" && request.method === "POST") {
       return this.handlePostOutbox(request);
     }
