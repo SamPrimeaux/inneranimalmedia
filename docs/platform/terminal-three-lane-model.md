@@ -2,7 +2,7 @@
 title: Terminal Three-Lane Model
 project_key: inneranimalmedia
 topic: terminal_exec
-updated: 2026-06-27
+updated: 2026-07-01
 status: canonical
 ---
 
@@ -16,15 +16,16 @@ Canonical split for `agentsam_terminal_*` tools. Each lane has one job; tools mu
 |------|--------------|-----|------|
 | **`agentsam_terminal_local`** | Caller's **own device** via `user_hosted_tunnel` | Any user who completed device setup | Sam's Mac (zsh), Connor's Windows (PowerShell), any provisioned tunnel |
 | **`agentsam_terminal_remote`** | **GCP iam-tunnel VM** (`terminal.inneranimalmedia.com`) | Platform operators (Sam) | Mac asleep, phone, OAuth — sparse git/shell/wrangler on Linux clone |
-| **`agentsam_terminal_sandbox`** | **Cloudflare Container** per `zone_slug` | Any workspace user with tool access | Isolated dev zones, experiments, CAD/movie batch — not shared VM disk |
+| **`agentsam_terminal_sandbox`** | **Cloudflare Container** — single shared `inneranimalmedia` pool (path/R2-isolated, not per-`zone_slug` DO instance) | Any workspace user with tool access | Isolated dev zones, experiments, CAD/movie batch — not shared VM disk |
 
 ## Routing (code)
 
 ```
 agentsam_terminal_local   → target_type: user_hosted_tunnel  → wss://localpty.* or user tunnel URL
 agentsam_terminal_remote  → target_type: platform_vm        → wss://terminal.inneranimalmedia.com
-agentsam_terminal_sandbox → target_type: container          → MY_CONTAINER DO id = zone_slug (target)
-                            (interim: sandbox PTY until container dev image ships)
+agentsam_terminal_sandbox → target_type: container          → MY_CONTAINER.getByName("inneranimalmedia")
+                            zone_slug = cwd/R2 path tag only, NOT a separate DO instance id
+                            (per-zone_slug DO affinity was tried and explicitly reverted — see getZoneContainerStub)
 ```
 
 ## Access control
@@ -41,13 +42,13 @@ agentsam_terminal_sandbox → target_type: container          → MY_CONTAINER D
 
 - **Awake at desk:** `local` → Mac `localpty.inneranimalmedia.com` → `/Users/samprimeaux/inneranimalmedia`
 - **Mac asleep / phone / ChatGPT:** `remote` → GCP VM → `/home/samprimeaux/inneranimalmedia`
-- **Risky experiment / MCP zone:** `sandbox` → Container `zone_slug=engineer|architect|…`
+- **Risky experiment / MCP zone:** `sandbox` → Container (shared `inneranimalmedia` pool; `zone_slug=engineer|architect|…` sets cwd/R2 path, not the container instance)
 
 ### Connor (tenant dev)
 
 - **His PC:** `local` → his `user_hosted_tunnel` → PowerShell on Windows (when provisioned)
 - **Never:** `remote` (Sam's production VM clone)
-- **Default cloud work:** `sandbox` → Container dev zone or tenant-scoped sandbox
+- **Default cloud work:** `sandbox` → shared Container pool, tenant-scoped cwd/R2 path
 
 ## Remote VM capability checklist (Sam)
 
@@ -79,24 +80,33 @@ Recovery hints on failed wrangler commands are appended via `wranglerTerminalRec
 ## Sandbox → Container (target)
 
 ```
-zone_slug  →  getContainer(env.MY_CONTAINER, inneranimalmedia pool)
-           →  Go sandbox + git + wrangler in image
-           →  optional R2 FUSE at /mnt/r2 (worker secrets R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY)
-           →  exec cwd: /mnt/r2/{workspace r2_prefix}/{zone_slug}/…
+getContainerStub(env)  →  env.MY_CONTAINER.getByName(resolveContainerPoolId(env))  // always "inneranimalmedia"
+                       →  Go sandbox + git + wrangler in image
+                       →  optional R2 FUSE at /mnt/r2 (worker secrets R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY)
+                       →  exec cwd: /mnt/r2/{workspace r2_prefix}/{zone_slug}/…
 ```
 
-Deprecate `agentsam_container_exec` once sandbox backend is container-native (same facet, clearer name).
+`zone_slug` is metadata for cwd + R2 path isolation only — it is **not** the container DO id. Every `agentsam_terminal_sandbox` exec, health probe, MovieMode render attempt, and `/v1/*` proxy call hits the same named stub (`inneranimalmedia`). `getZoneContainerStub(env, _zoneSlug)` is a thin wrapper that ignores the zone argument and delegates to `getContainerStub(env)` — kept for call-site compatibility during the migration off per-zone routing, not because zone affects which DO instance is used.
+
+Legacy per-zone DO instance names (`engineer`, `specialist`, `sam`, …) are retained in code/docs only for **cleanup and purge**, not for routing. See `src/core/my-container.js` (`getContainerStub`, `getZoneContainerStub`) and `mcp-zone-spine.js`.
+
+Deprecate `agentsam_container_exec` once sandbox backend is fully consolidated onto this pool (same facet, clearer name).
+
+### When to revisit this model
+
+Single shared pool + R2 path isolation is correct for stateless jobs (git clone, npm, wrangler on mounted workspace dirs) where persistence lives in R2, not on local container disk. Switch to `idFromName(workspaceId)` / `idFromName(sessionId)` routing only if a workload needs true per-user/per-workspace container affinity — e.g. persistent local `node_modules`, a long-running `wrangler dev` process, or any state that can't live on R2/mounted storage. That is a distinct model from what's implemented today and would require explicit opt-in per facet, not a blanket routing change.
 
 ## Do not conflate
 
 | Name | Meaning |
 |------|---------|
 | `sandboxterminal.inneranimalmedia.com` | Legacy GCP PTY hostname for tenant `/workspace/` — retire after container tenant facets |
-| `agentsam_terminal_sandbox` tool | Product sandbox lane → **Containers** |
-| `.mcp-zones/{slug}/` on shared host | Old path isolation — **remove** when container backend ships |
+| `agentsam_terminal_sandbox` tool | Product sandbox lane → **Containers**, single shared `inneranimalmedia` pool |
+| `.mcp-zones/{slug}/` on shared host | Superseded by R2-backed cwd isolation (`/mnt/r2/{workspace}/{zone_slug}/…`) — remove any remaining references |
 
 ## Related
 
 - [agents-sdk-2026-06-adoption.md](./agents-sdk-2026-06-adoption.md) — detached sub-agents wrap all three lanes
 - [REPAIR-REMOTE-TERMINAL.md](../ops/REPAIR-REMOTE-TERMINAL.md) — GCP cwd / ENOENT fixes
 - `src/core/terminal-routing-policy.js` — tool → target_type map
+- `src/core/my-container.js` — pool routing SSOT (`getContainerStub`, `resolveContainerPoolId`, `getZoneContainerStub`)
