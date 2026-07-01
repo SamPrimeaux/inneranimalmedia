@@ -172,6 +172,24 @@ samp.font-mono {
   transform: none;
 }
 
+/* Mobile: escape narrow top-bar trigger — fixed centered panel, tappable chips */
+.nav-search-container[data-palette-open='true'].iam-nav-search--mobile .nav-dropdown,
+.nav-search-container[data-palette-open='true'].iam-nav-search--toolbar .nav-dropdown {
+  position: fixed;
+  left: 50%;
+  right: auto;
+  top: var(--dashboard-topbar-height, 2.5rem);
+  transform: translateX(-50%);
+  width: min(var(--shell-dropdown-width, 600px), calc(100vw - 1.5rem));
+  max-height: min(70vh, var(--shell-dropdown-max-height, 28rem));
+  z-index: 250;
+  border-radius: 0 0 var(--shell-dropdown-radius, 6px) var(--shell-dropdown-radius, 6px);
+}
+
+.iam-palette-chips button {
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* Split Editor Layout */
 [data-editor-split="true"] {
   display: grid !important;

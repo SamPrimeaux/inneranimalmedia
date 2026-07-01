@@ -580,6 +580,7 @@ export const UnifiedSearchBar: React.FC<{
   const inputRef = useRef<HTMLInputElement>(null);
   const bucketMenuRef = useRef<HTMLDivElement>(null);
   const paletteRef = useRef<HTMLDivElement>(null);
+  const mobileDropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [connectionMenuOpen, setConnectionMenuOpen] = useState(false);
   const [gitMenuOpen, setGitMenuOpen] = useState(false);
@@ -587,6 +588,22 @@ export const UnifiedSearchBar: React.FC<{
   const gitMenuRef = useRef<HTMLDivElement>(null);
 
   const { mode, term } = useMemo(() => parseQueryMode(q), [q]);
+
+  const activeChip = useMemo((): SourceChipId => {
+    if (mode === 'r2') return 'r2';
+    if (mode === 'd1') return 'd1';
+    if (mode === 'planes' || mode === 'hyperdrive' || mode === 'vectorize') return 'planes';
+    return sourceChip;
+  }, [mode, sourceChip]);
+
+  const activateDataPlaneChip = useCallback((chip: SourceChipId, prefix: string) => {
+    setSourceChip(chip);
+    setQ(prefix);
+    setActive(0);
+    setPlaneSections([]);
+    setCommandSections([]);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -1082,6 +1099,18 @@ export const UnifiedSearchBar: React.FC<{
         await loadCommands('');
         return;
       }
+      if (sourceChip === 'r2') {
+        await loadR2('');
+        return;
+      }
+      if (sourceChip === 'd1') {
+        await loadD1('');
+        return;
+      }
+      if (sourceChip === 'planes') {
+        await loadPlanes('', 1);
+        return;
+      }
       setCommandSections([]);
       await loadDefault();
       return;
@@ -1448,15 +1477,21 @@ export const UnifiedSearchBar: React.FC<{
     return () => window.removeEventListener('keydown', onKey);
   }, [open, closePalette]);
 
-  /** Click-outside closes palette — no fullscreen blur scrim (Cursor-style anchored dropdown). */
+  /** Click-outside closes palette — mobile panel is portaled to document.body. */
   useEffect(() => {
     if (!open) return;
     const onDocDown = (e: MouseEvent) => {
-      if (paletteRef.current?.contains(e.target as Node)) return;
+      const t = e.target as Node;
+      if (paletteRef.current?.contains(t)) return;
+      if (mobileDropdownRef.current?.contains(t)) return;
       closePalette();
     };
     document.addEventListener('mousedown', onDocDown);
-    return () => document.removeEventListener('mousedown', onDocDown);
+    document.addEventListener('touchstart', onDocDown, { passive: true });
+    return () => {
+      document.removeEventListener('mousedown', onDocDown);
+      document.removeEventListener('touchstart', onDocDown);
+    };
   }, [open, closePalette]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -1492,7 +1527,7 @@ export const UnifiedSearchBar: React.FC<{
       ref={paletteRef}
       className={`nav-search-container min-w-0 ${mobileCompact ? `iam-nav-search--mobile${mobileToolbar ? ' iam-nav-search--toolbar' : ''}` : ''}`}
       data-mobile-compact={mobileCompact ? 'true' : undefined}
-      data-palette-open={open && !mobileCompact ? 'true' : undefined}
+      data-palette-open={open ? 'true' : undefined}
     >
       {mobileCompact ? (
         <button
@@ -1596,11 +1631,12 @@ export const UnifiedSearchBar: React.FC<{
 
       {open && (
           <div
-            className="nav-dropdown iam-shell-dropdown shadow-2xl overflow-hidden flex flex-col"
+            ref={mobileCompact ? mobileDropdownRef : undefined}
+            className={`nav-dropdown iam-shell-dropdown shadow-2xl overflow-hidden flex flex-col${mobileCompact ? ' iam-palette-mobile-panel' : ''}`}
             role="dialog"
             aria-label="Command palette"
             style={{
-              background: 'rgba(12, 19, 26, 0.82)',
+              background: mobileCompact ? 'rgba(12, 19, 26, 0.94)' : 'rgba(12, 19, 26, 0.82)',
               backdropFilter: 'blur(16px) saturate(140%)',
               WebkitBackdropFilter: 'blur(16px) saturate(140%)',
               border: '1px solid rgba(255, 255, 255, 0.08)',
@@ -1614,7 +1650,7 @@ export const UnifiedSearchBar: React.FC<{
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   onKeyDown={onKeyDown}
-                  placeholder="Search buckets, D1, commands, chats…"
+                  placeholder="planes:, r2:, d1: — buckets, databases, commands…"
                   className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[13px] text-main placeholder:text-muted"
                 />
                 <kbd className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-muted shrink-0">
@@ -1622,33 +1658,33 @@ export const UnifiedSearchBar: React.FC<{
                 </kbd>
                 {loading ? <Loader2 size={16} className="animate-spin text-[var(--solar-cyan)] shrink-0" /> : null}
               </div>
-              <div className="flex flex-wrap gap-1">
+              <div className={`flex flex-wrap gap-1${mobileCompact ? ' iam-palette-chips' : ''}`}>
                 {SOURCE_CHIPS.map(({ id, label, Icon }) => {
-                  const on = sourceChip === id;
+                  const on = activeChip === id;
                   return (
                     <button
                       key={id}
                       type="button"
                       title={label}
-                      onClick={() => {
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
                         if (id === 'planes') {
-                          setSourceChip('planes');
-                          setQ('planes:');
+                          activateDataPlaneChip('planes', 'planes:');
                           return;
                         }
                         if (id === 'r2') {
-                          setSourceChip('r2');
-                          setQ('r2:');
+                          activateDataPlaneChip('r2', 'r2:');
                           return;
                         }
                         if (id === 'd1') {
-                          setSourceChip('d1');
-                          setQ('d1:');
+                          activateDataPlaneChip('d1', 'd1:');
                           return;
                         }
                         setSourceChip(id);
+                        setActive(0);
                       }}
-                      className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium border transition-colors ${
+                      className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[10px] font-medium border transition-colors touch-manipulation min-h-[30px] ${
                         on
                           ? 'border-[var(--solar-cyan)]/50 bg-[var(--solar-cyan)]/10 text-main'
                           : 'border-[var(--border-subtle)] text-muted hover:bg-[var(--bg-hover)]'
