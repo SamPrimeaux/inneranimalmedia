@@ -102,10 +102,17 @@ import {
   isAgentSamEmptyThreadGreeting,
 } from './composerLayout';
 import { RepoPickerBottomSheet } from './RepoPickerBottomSheet';
+import { ContextHubDrawer, type ContextHubLane } from './ContextHubDrawer';
 import {
   buildGithubContextEnvelope,
   fetchGithubFileContent,
 } from '../../types/contextEnvelope';
+import { detectClientSurface } from '../../src/lib/clientSurface';
+import {
+  readStoredExecLane,
+  writeStoredExecLane,
+  type ExecLane,
+} from '../../src/lib/execLane';
 import { formatHttpErrorMessage } from './streamParsing';
 import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
 import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug';
@@ -401,6 +408,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [mobileHubTab, setMobileHubTab] = useState<'agents' | 'automations' | 'dashboard'>('agents');
   const [mobileThreadTab, setMobileThreadTab] = useState<'chat' | 'context'>('chat');
   const [repoDrawerOpen, setRepoDrawerOpen] = useState(false);
+  const [contextHubOpen, setContextHubOpen] = useState(false);
+  const [contextHubInitialLane, setContextHubInitialLane] = useState<ContextHubLane>('hub');
+  const [execLane, setExecLane] = useState<ExecLane>(() => readStoredExecLane());
   const [githubRepoContext, setGithubRepoContext] = useState<string | null>(null);
   const [chatGithubFilePath, setChatGithubFilePath] = useState<string | null>(null);
   const [chatGithubBranch, setChatGithubBranch] = useState('main');
@@ -446,6 +456,24 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     },
     [sessionUserId, effectiveWsId, conversationId],
   );
+
+  const openContextHub = useCallback((lane: ContextHubLane = 'hub') => {
+    setContextHubInitialLane(lane);
+    setContextHubOpen(true);
+    setAttachMenuOpen(false);
+    setIsModeOpen(false);
+    setIsModelPickerOpen(false);
+  }, []);
+
+  const openRepoPicker = useCallback(() => {
+    if (isNarrow) openContextHub('github');
+    else setRepoDrawerOpen(true);
+  }, [isNarrow, openContextHub]);
+
+  const handleExecLaneChange = useCallback((lane: ExecLane) => {
+    setExecLane(lane);
+    writeStoredExecLane(lane);
+  }, []);
 
   const { setQuestionsIntake } = useEditor();
   const lastQuestionsBatchIdRef = useRef<string | null>(null);
@@ -2487,6 +2515,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         workflow_run_id: workflowLedger.runId || null,
         dashboard_path: typeof window !== 'undefined' ? window.location.pathname : null,
         dashboard_route_key: dashboardRouteKey || null,
+        client_surface: detectClientSurface(),
+        exec_lane: execLane,
         browser_surface:
           browserSurfaceRef.current && typeof browserSurfaceRef.current === 'object'
             ? browserSurfaceRef.current
@@ -2576,6 +2606,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       content: chatGithubFileContent,
       contentSha: chatGithubContentSha,
       contentTruncated: chatGithubContentTruncated,
+      execLane,
     });
     if (contextEnvelopePayload?.focus?.github?.path) {
       form.append('context_envelope', JSON.stringify(contextEnvelopePayload));
@@ -3310,7 +3341,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               </p>
               <button
                 type="button"
-                onClick={() => setRepoDrawerOpen(true)}
+                onClick={() => openRepoPicker()}
                 className="w-full py-2.5 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[13px] font-medium text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)] flex items-center justify-center gap-2"
               >
                 <GitBranch size={16} className="text-[var(--solar-cyan)]" />
@@ -3629,7 +3660,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   aria-expanded={attachMenuOpen}
                   aria-haspopup="menu"
                   onClick={() => {
-                    setAttachMenuOpen((o) => !o);
+                    if (isNarrow) {
+                      openContextHub('hub');
+                    } else {
+                      setAttachMenuOpen((o) => !o);
+                    }
                     setIsModeOpen(false);
                     setIsModelPickerOpen(false);
                   }}
@@ -3680,7 +3715,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           {showMobileRepoConnector && (
             <button
               type="button"
-              onClick={() => setRepoDrawerOpen(true)}
+              onClick={() => openRepoPicker()}
               className="flex w-full items-center gap-1.5 text-left text-[11px] text-[var(--dashboard-muted)] transition-colors hover:text-[var(--dashboard-text)] py-2 px-1 rounded-lg hover:bg-[var(--bg-hover)]"
               aria-label="Connect GitHub repository for this chat"
             >
@@ -3704,20 +3739,60 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
       </div>
 
-      <RepoPickerBottomSheet
-        open={repoDrawerOpen}
-        onClose={() => setRepoDrawerOpen(false)}
-        workspaceId={effectiveWsId}
-        githubRepoContext={githubRepoContext}
-        githubFilePath={chatGithubFilePath}
-        onSelectRepo={(full) => saveGithubRepoSelection(full, null)}
-        onSelectFile={(repo, path, branch, meta) =>
-          saveGithubRepoSelection(repo, path, branch, meta)
-        }
-        onBrowseFiles={(full) => onOpenGitHubIntegration?.({ expandRepoFullName: full })}
-      />
+      {!isNarrow ? (
+        <RepoPickerBottomSheet
+          open={repoDrawerOpen}
+          onClose={() => setRepoDrawerOpen(false)}
+          workspaceId={effectiveWsId}
+          githubRepoContext={githubRepoContext}
+          githubFilePath={chatGithubFilePath}
+          onSelectRepo={(full) => saveGithubRepoSelection(full, null)}
+          onSelectFile={(repo, path, branch, meta) =>
+            saveGithubRepoSelection(repo, path, branch, meta)
+          }
+          onBrowseFiles={(full) => onOpenGitHubIntegration?.({ expandRepoFullName: full })}
+        />
+      ) : (
+        <ContextHubDrawer
+          open={contextHubOpen}
+          onClose={() => setContextHubOpen(false)}
+          initialLane={contextHubInitialLane}
+          workspaceId={effectiveWsId}
+          githubRepoContext={githubRepoContext}
+          githubFilePath={chatGithubFilePath}
+          pinnedLabel={mobileRepoConnectorLabel !== 'Connect GitHub repository' ? mobileRepoConnectorLabel : undefined}
+          onClearPinned={() => {
+            if (githubRepoContext?.trim()) saveGithubRepoSelection(githubRepoContext.trim(), null);
+          }}
+          onSelectRepo={(full) => saveGithubRepoSelection(full, null)}
+          onSelectFile={(repo, path, branch, meta) =>
+            saveGithubRepoSelection(repo, path, branch, meta)
+          }
+          onBrowseFiles={(full) => onOpenGitHubIntegration?.({ expandRepoFullName: full })}
+          connectables={connectables}
+          connectablesLoading={connectablesLoading}
+          activeSourceIds={activeComposerSourceIds}
+          webSearchAllowed={policyWebSearch}
+          sandboxAgentAllowed
+          onUploadFile={() => fileInputRef.current?.click()}
+          onUploadImage={() => imageInputRef.current?.click()}
+          onToggleWebSearch={() => {
+            const on = activeComposerSourceIds.has(WEB_SEARCH_SOURCE_ID);
+            toggleComposerSource(WEB_SEARCH_SOURCE, !on);
+          }}
+          onToggleSandboxAgent={() => {
+            const on = activeComposerSourceIds.has(SANDBOX_AGENT_SOURCE_ID);
+            toggleComposerSource(SANDBOX_AGENT_SOURCE, !on);
+          }}
+          onToggleSource={toggleComposerSource}
+          sourceFromIntegration={sourceFromIntegration}
+          execLane={execLane}
+          onExecLaneChange={handleExecLaneChange}
+        />
+      )}
 
       {typeof document !== 'undefined' &&
+        !isNarrow &&
         attachMenuOpen &&
         attachMenuStyle &&
         createPortal(

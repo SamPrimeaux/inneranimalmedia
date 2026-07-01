@@ -398,6 +398,9 @@ const TERMINAL_CONN_SELECT = `
  *   tenantId?: string | null,
  *   connectionId?: string | null,
  *   targetType?: string | null,
+ *   clientSurface?: string | null,
+ *   execLane?: string | null,
+ *   skipLocalTunnel?: boolean,
  * }} opts
  * @returns {Promise<{ connection: Record<string, unknown> | null, error: string | null }>}
  */
@@ -463,6 +466,9 @@ export async function getSelectedTerminalConnection(db, opts = {}) {
           tenantId: tid,
           targetType: tt || 'auto',
           healthAware: true,
+          clientSurface: opts.clientSurface ?? null,
+          execLane: opts.execLane ?? null,
+          skipLocalTunnel: opts.skipLocalTunnel === true,
         });
         if (healthy.connection) {
           return {

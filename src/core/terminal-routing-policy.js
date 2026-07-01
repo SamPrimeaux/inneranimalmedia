@@ -6,6 +6,7 @@
  */
 
 import { isSamOperatorLaneUserId } from './platform-operator-policy.js';
+import { shouldSkipLocalTerminalTunnel } from './mobile-exec-profile.js';
 
 export const TERMINAL_GCP_CONNECTION_ID = 'conn_gcp_iam_tunnel';
 
@@ -29,6 +30,10 @@ const SANDBOX_TOOL_NAMES = new Set(['agentsam_terminal_sandbox']);
  *   toolKey?: string|null,
  *   target_id?: string|null,
  *   target_type?: string|null,
+ *   client_surface?: string|null,
+ *   exec_lane?: string|null,
+ *   user_id?: string|null,
+ *   userId?: string|null,
  * }} [ctx]
  */
 export function resolveTerminalExecRouting(ctx = {}) {
@@ -37,8 +42,21 @@ export function resolveTerminalExecRouting(ctx = {}) {
   ).trim();
   const explicitTarget = ctx.target_id != null ? String(ctx.target_id).trim() : '';
   const explicitType = ctx.target_type != null ? String(ctx.target_type).trim() : '';
+  const clientSurface = ctx.client_surface != null ? String(ctx.client_surface).trim() : '';
+  const execLane = ctx.exec_lane != null ? String(ctx.exec_lane).trim().toLowerCase() : 'auto';
+  const userId = ctx.user_id ?? ctx.userId ?? null;
 
   if (LOCAL_TOOL_NAMES.has(toolName)) {
+    if (
+      shouldSkipLocalTerminalTunnel(clientSurface, execLane) &&
+      isSamOperatorLaneUserId(userId)
+    ) {
+      return {
+        target_type: explicitType || 'platform_vm',
+        target_id: explicitTarget || TERMINAL_GCP_CONNECTION_ID,
+        lane: 'gcp_primary_mobile',
+      };
+    }
     // Any user with a provisioned device tunnel (Connor Windows, Sam Mac, etc.)
     return {
       target_type: explicitType || 'user_hosted_tunnel',

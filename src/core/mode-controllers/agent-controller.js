@@ -268,6 +268,25 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         systemPrompt = `${systemPrompt}\n\n## Active context (locked)\n${activeBlock}`;
       }
     }
+    const wsCtxForMobile =
+      browserContextPayload &&
+      typeof browserContextPayload === 'object' &&
+      browserContextPayload.workspaceContext &&
+      typeof browserContextPayload.workspaceContext === 'object'
+        ? browserContextPayload.workspaceContext
+        : null;
+    if (wsCtxForMobile) {
+      const { parseClientSurface, parseExecLane, formatMobileExecProfilePromptBlock } = await import(
+        '../mobile-exec-profile.js'
+      );
+      const mobileBlock = formatMobileExecProfilePromptBlock(
+        parseClientSurface(wsCtxForMobile),
+        parseExecLane(wsCtxForMobile),
+      );
+      if (mobileBlock && !systemPrompt.includes('[Mobile client surface')) {
+        systemPrompt = `${systemPrompt}\n\n## Mobile exec profile\n${mobileBlock}`;
+      }
+    }
   } catch (e) {
     console.warn('[agent-controller] cms_context', e?.message ?? e);
   }
@@ -648,6 +667,20 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       const githubRepoCtx = String(
         body.selectedGithubRepoContext ?? body.github_repo_context ?? body.githubRepoContext ?? '',
       ).trim();
+      const wsCtxMobile =
+        browserContextPayload &&
+        typeof browserContextPayload === 'object' &&
+        browserContextPayload.workspaceContext &&
+        typeof browserContextPayload.workspaceContext === 'object'
+          ? browserContextPayload.workspaceContext
+          : null;
+      let clientSurface = null;
+      let execLane = null;
+      if (wsCtxMobile) {
+        const { parseClientSurface, parseExecLane } = await import('../mobile-exec-profile.js');
+        clientSurface = parseClientSurface(wsCtxMobile);
+        execLane = parseExecLane(wsCtxMobile);
+      }
       const mcpRuntimeContext = {
         userId,
         tenantId,
@@ -662,6 +695,8 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         ...(githubRepoCtx
           ? { selectedGithubRepoContext: githubRepoCtx, github_repo_context: githubRepoCtx }
           : {}),
+        ...(clientSurface ? { client_surface: clientSurface, clientSurface } : {}),
+        ...(execLane ? { exec_lane: execLane, execLane } : {}),
         isSuperadmin:
           sessionAuthUser?.role === 'superadmin' ||
           sessionAuthUser?.is_superadmin === true ||

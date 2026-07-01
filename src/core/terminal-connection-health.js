@@ -149,6 +149,21 @@ function orderConnectionsForMode(rows, mode) {
 }
 
 /**
+ * @param {string|null|undefined} clientSurface
+ * @param {'auto'|'remote'|'local'|'sandbox'|null|undefined} execLane
+ */
+function mobileSkipsLocalTunnel(clientSurface, execLane) {
+  const surface = String(clientSurface || '')
+    .trim()
+    .toLowerCase();
+  if (!surface.startsWith('mobile')) return false;
+  const lane = String(execLane || 'auto')
+    .trim()
+    .toLowerCase();
+  return lane !== 'local';
+}
+
+/**
  * @param {import('@cloudflare/workers-types').D1Database} db
  * @param {{
  *   userId: string,
@@ -156,6 +171,9 @@ function orderConnectionsForMode(rows, mode) {
  *   tenantId?: string|null,
  *   targetType?: string|null,
  *   healthAware?: boolean,
+ *   clientSurface?: string|null,
+ *   execLane?: string|null,
+ *   skipLocalTunnel?: boolean,
  * }} opts
  */
 export async function selectHealthyTerminalConnection(db, opts = {}) {
@@ -186,7 +204,23 @@ export async function selectHealthyTerminalConnection(db, opts = {}) {
     return { connection: null, error: 'connection_missing', resolution: null, health: null };
   }
 
-  const ordered = orderConnectionsForMode(rows, mode);
+  const skipLocal =
+    opts.skipLocalTunnel === true ||
+    mobileSkipsLocalTunnel(opts.clientSurface, opts.execLane);
+
+  let ordered = orderConnectionsForMode(rows, mode);
+  if (skipLocal) {
+    ordered = ordered.filter((row) => !isLocalTerminalTargetType(row.target_type));
+  }
+
+  if (!ordered.length) {
+    return {
+      connection: null,
+      error: skipLocal ? 'mobile_local_skipped' : 'connection_missing',
+      resolution: skipLocal ? 'mobile_skip_local_no_lane' : null,
+      health: null,
+    };
+  }
 
   if (!healthAware) {
     return {

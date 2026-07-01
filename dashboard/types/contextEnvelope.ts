@@ -16,6 +16,7 @@ export type ContextEnvelopeV1 = {
   version: 1;
   conversation_id?: string | null;
   workspace_id?: string | null;
+  exec_lane?: 'auto' | 'remote' | 'local' | 'sandbox' | null;
   focus: {
     lane: ContextEnvelopeFocusLane;
     github?: {
@@ -77,6 +78,7 @@ export function buildGithubContextEnvelope(params: {
   content?: string | null;
   contentSha?: string | null;
   contentTruncated?: boolean;
+  execLane?: 'auto' | 'remote' | 'local' | 'sandbox' | null;
 }): ContextEnvelopeV1 | null {
   const repo = params.repo?.trim();
   if (!repo) return null;
@@ -87,6 +89,7 @@ export function buildGithubContextEnvelope(params: {
     version: 1,
     conversation_id: params.conversationId?.trim() || null,
     workspace_id: params.workspaceId?.trim() || null,
+    exec_lane: params.execLane ?? null,
     focus: { lane: null },
   };
 

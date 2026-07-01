@@ -1292,6 +1292,20 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
 
       if (toolKey === 'agentsam_terminal_local') {
         const { validateUserLocalTerminalAccess } = await import('./terminal-routing-policy.js');
+        const { shouldSkipLocalTerminalTunnel } = await import('./mobile-exec-profile.js');
+        const clientSurface = String(runContext?.client_surface ?? runContext?.clientSurface ?? '').trim();
+        const execLane = String(runContext?.exec_lane ?? runContext?.execLane ?? 'auto').trim().toLowerCase();
+        if (shouldSkipLocalTerminalTunnel(clientSurface, execLane)) {
+          result = {
+            ok: false,
+            error: 'mobile_local_forbidden',
+            body: {
+              user_message:
+                'agentsam_terminal_local is unavailable on mobile (Mac may be asleep). Use agentsam_terminal_remote for cloud desk shell work or GitHub tools for file edits.',
+            },
+          };
+          break;
+        }
         const localGate = await validateUserLocalTerminalAccess(env.DB, userId, workspaceId);
         if (!localGate.ok) {
           result = {
@@ -1299,6 +1313,11 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
             error: localGate.error,
             body: { user_message: localGate.user_message },
           };
+          break;
+        }
+        const localArgErr = assertTerminalLocalArgs(params);
+        if (localArgErr) {
+          result = { ok: false, error: localArgErr };
           break;
         }
       }
@@ -1363,14 +1382,6 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         break;
       }
 
-      if (toolKey === 'agentsam_terminal_local') {
-        const localArgErr = assertTerminalLocalArgs(params);
-        if (localArgErr) {
-          result = { ok: false, error: localArgErr };
-          break;
-        }
-      }
-
       let cmd = String(params.command || params.cmd || config.command_template || '').trim();
       if (!cmd) {
         result = { ok: false, error: 'terminal tool requires command in input' };
@@ -1411,6 +1422,9 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         tool_key: toolKey,
         target_id: params.target_id,
         target_type: params.target_type,
+        client_surface: runContext?.client_surface ?? runContext?.clientSurface ?? null,
+        exec_lane: runContext?.exec_lane ?? runContext?.execLane ?? null,
+        user_id: userId,
       });
       const remoteTargetId = routing.target_id || '';
       const gcpExec =
