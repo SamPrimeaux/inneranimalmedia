@@ -2,7 +2,7 @@
 title: Agents SDK Jun 2026 — Adoption Map for AgentSam
 project_key: inneranimalmedia
 topic: agentic_edge_sprint
-updated: 2026-06-27
+updated: 2026-07-01
 status: active
 sdk_release: 2026-06-26
 ---
@@ -32,14 +32,14 @@ Think DO (durable — survives eviction)
    ┌─────────────────────┬──────────────────────┬─────────────────────┐
    │ TerminalRemoteFacet │ ContainerDevFacet    │ ContainerBatchFacet │
    │ → GCP VM            │ → CF Container       │ → CF Container      │
-   │   persistent repo   │   per zone_slug      │   CAD / moviemode   │
+   │   persistent repo   │   shared pool        │   shared pool       │
    └─────────────────────┴──────────────────────┴─────────────────────┘
         │  reportProgress / milestone
         ▼
    reconnecting client (any device, Mac asleep OK)
 ```
 
-**Only the Think DO must be durable.** Exec target (VM vs Container) is swappable without touching detachment.
+**Only the Think DO must be durable.** Exec target (VM vs Container) is swappable without touching detachment. Both `ContainerDevFacet` and `ContainerBatchFacet` dispatch to the same shared `inneranimalmedia` Container pool (`getByName`), differentiated by cwd/R2 path — not by separate DO instances.
 
 ---
 
@@ -49,24 +49,27 @@ Think DO (durable — survives eviction)
 |------|-------------|-----------|---------|
 | `agentsam_terminal_local` | Mac `localpty` | None (host shell) | Desk work when iMac awake — **not** phone/OAuth primary |
 | `agentsam_terminal_remote` | GCP `terminal.inneranimalmedia.com` | Shared VM FS | Sam operator — full repo, git, wrangler, persistent state |
-| `agentsam_terminal_sandbox` | **CF Container** keyed by `zone_slug` | Per-zone compute | MCP zones (engineer/architect/cms/specialist), experiments, CAD batch |
-| `agentsam_container_exec` | CF Container (batch) | Pool / ad-hoc | **Merge into sandbox backend** once container dev image ships |
+| `agentsam_terminal_sandbox` | **CF Container** — single shared `inneranimalmedia` pool | Path/R2 isolation (`zone_slug` = cwd tag, not DO id) | MCP zones (engineer/architect/cms/specialist), experiments, CAD batch |
+| `agentsam_container_exec` | CF Container (same shared pool) | Path/R2 isolation | **Merge into sandbox backend** — duplicate facet, not a separate pool |
 
 ### Two different "sandbox" concepts (do not conflate)
 
-| Name | What it is today | Target |
+| Name | What it is today | Status |
 |------|------------------|--------|
-| **`agentsam_terminal_sandbox`** tool | Path isolation only: `{workspace_root}/.mcp-zones/{zone_slug}/` then shells out via whatever terminal connection health picks (was often Mac localpty) | **Container instance per `zone_slug`** |
+| **`agentsam_terminal_sandbox`** tool | Single shared `inneranimalmedia` Container pool (`getByName`), path/R2 isolation via `zone_slug` cwd tag | **Confirmed target.** Per-`zone_slug` DO instance affinity was evaluated and explicitly reverted in code (`getZoneContainerStub` now delegates to `getContainerStub`) — this is not an interim state pending a container backend, it's the chosen model. |
 | **`sandboxterminal` connection** | GCP PTY hostname `wss://sandboxterminal.inneranimalmedia.com` → `/workspace/{tenant}/{user}/` | Connor/tenant lane — keep for multi-tenant PTY until container tenant facets exist |
 
-Audit (2026-06-27): `src/core/terminal-sandbox.js` wraps `mkdir -p …/.mcp-zones/{zone}/ && cd … && cmd` and calls `runTerminalCommand` — **path-level isolation, not compute-level**. Two zones on the same host share CPU/RAM. Routing fix (pass `target_type: sandbox`) sends tool calls to `sandboxterminal` GCP PTY instead of Mac; **container backend is the real isolation finish line**.
+Audit (2026-07-01, supersedes 2026-06-27 audit below): `src/core/my-container.js` confirms `resolveContainerPoolId(env)` always resolves to `inneranimalmedia` (worker name). `getContainerStub` is the single entry point every `agentsam_terminal_sandbox` exec, health probe, MovieMode render attempt, and `/v1/*` proxy call goes through. `zone_slug` is filesystem/R2-path metadata for isolation (`/mnt/r2/{workspace}/{zone_slug}/…`), not a Durable Object id. `mcp-zone-spine.js` documents this explicitly: *"Sandbox cwd zone tag (MCP panel facet or username) — NOT the CF Container DO id. Container pool is always resolveContainerPoolId() → inneranimalmedia."*
 
-### Why dedicate `agentsam_terminal_sandbox` to Containers
+Prior audit (2026-06-27, historical): `src/core/terminal-sandbox.js` wraps `mkdir -p …/.mcp-zones/{zone}/ && cd … && cmd` and calls `runTerminalCommand` — path-level isolation, not compute-level. Two zones on the same host share CPU/RAM. This was accurate at the time but the isolation model has since moved to R2-backed paths under the single-pool architecture rather than toward per-zone Container DO instances.
 
-- Tool description already promises isolated `{zone_slug}` scope — matches `getContainer(env.MY_CONTAINER, zoneSlug)`.
-- `zone_slug` → Container DO id gives per-job isolation free (unlike one shared GCP VM).
-- `ContainerBatchFacet` and `ContainerDevFacet` both dispatch as sandbox with a zone — no new OAuth tools.
+### Why `agentsam_terminal_sandbox` stays a shared pool
+
+- Tool description promises isolated `{zone_slug}` scope — delivered via cwd + R2 path isolation on one shared pool (`getByName("inneranimalmedia")`), not per-zone DO instances.
+- Per-zone Container DO affinity (`zone_slug` → DO id) was tried and explicitly reverted in code — state for these jobs lives in R2/mounted paths, not on a dedicated container process per zone, so instance-per-zone bought no real isolation benefit while costing cold-start/scale complexity.
+- `ContainerBatchFacet` and `ContainerDevFacet` both dispatch as sandbox with a zone — no new OAuth tools, no new DO addressing.
 - `agentsam_terminal_remote` stays GCP for **your** persistent `/home/samprimeaux/inneranimalmedia` clone.
+- Revisit `idFromName(workspaceId)` / `idFromName(sessionId)` routing only if a workload needs true per-user/per-workspace container affinity (persistent local `node_modules`, long-running `wrangler dev`) that can't be satisfied by R2 FUSE — that is a distinct opt-in model, not the default.
 
 ---
 
@@ -121,7 +124,7 @@ await this.runAgentTool(DeployAgent, {
 Parent turn (AIChatAgent / Think on AGENT_SESSION DO)
   → detached DeployAgent sub-agent
   → runAgentTool dispatches terminal_remote OR container_exec
-  → GCP terminal.inneranimalmedia.com OR MY_CONTAINER dev desk
+  → GCP terminal.inneranimalmedia.com OR MY_CONTAINER shared pool
   → git pull / npm build / wrangler deploy
   → onFinish / notify → parent chat continues on phone
 ```
@@ -191,15 +194,17 @@ Containers are **not** the chat agent. They are an **exec facet** that detached 
 Think / AIChatAgent (AGENT_SESSION DO)
   └─ runAgentTool detached
        ├─ TerminalRemoteFacet → GCP iam-tunnel (repo clone, git, wrangler)
-       ├─ ContainerDevFacet   → MY_CONTAINER (edge dev desk — upgrade from Alpine smoke)
-       └─ ContainerBatchFacet → moviemode / CAD offload
+       ├─ ContainerDevFacet   → MY_CONTAINER shared pool (edge dev desk — upgrade from Alpine smoke)
+       └─ ContainerBatchFacet → MY_CONTAINER shared pool (moviemode / CAD offload)
 ```
+
+`ContainerDevFacet` and `ContainerBatchFacet` are both routed through the same `getByName("inneranimalmedia")` stub, distinguished by cwd/R2 path and image build, not by separate Durable Object instances.
 
 | Facet | Image | Role |
 |-------|-------|------|
 | **GCP terminal** | N/A (VM) | Primary operator desk until container dev image proven |
 | **MY_CONTAINER dev** | node:22 + git + wrangler | Edge-native desk; survives Mac sleep |
-| **MY_CONTAINER batch** | Current Alpine sandbox-v2 | Smoke, untrusted snippets |
+| **MY_CONTAINER batch** | Current sandbox-v3 (`containers/iam-sandbox-go/`) | Smoke, untrusted snippets, general exec |
 | **IamCadWorkerContainer** | CAD worker | OpenSCAD/Blender offload |
 
 SDK **detached sub-agents** + **reportProgress** make long container/VM deploys visible in chat without blocking the parent turn.
@@ -244,7 +249,7 @@ Keep D1 `agentsam_spawn_job` as **audit ledger**; SDK owns execution durability.
 ### Phase 4 — Container dev desk
 
 - Upgrade `containers/iam-sandbox` → dev image (git + node + wrangler)
-- Wire `agentsam_container_exec` as detached sub-agent target
+- Wire `agentsam_container_exec` as detached sub-agent target on the same shared pool
 - Add `conn_cf_dev_container` to terminal routing (priority 35)
 
 ---
@@ -276,7 +281,7 @@ npm i agents@latest @cloudflare/think@latest @cloudflare/ai-chat@latest @cloudfl
 
 ## Related docs
 
-- [terminal-three-lane-model.md](./terminal-three-lane-model.md) — canonical local / remote / sandbox product split
+- [terminal-three-lane-model.md](./terminal-three-lane-model.md) — canonical local / remote / sandbox product split, including shared-pool routing detail
 - [agentic-edge-sprint-2a-multi-agent-orchestration.md](./agentic-edge-sprint-2a-multi-agent-orchestration.md) — updated to reference SDK detached runs
 - [agentic-edge-sprint-1c-exec-fabric.md](./agentic-edge-sprint-1c-exec-fabric.md) — container target stretch
 - [REPAIR-REMOTE-TERMINAL.md](../ops/REPAIR-REMOTE-TERMINAL.md) — GCP cwd / routing fixes
