@@ -3,6 +3,7 @@
  */
 
 import { createChatStreamLifecycle } from './agent-chat-stream-audit.js';
+import { ingestSseChunkToTurnOutbox, wrapEmitWithTurnOutbox } from './agentsam-chat-sessions.js';
 
 export const AGENT_CHAT_SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -17,7 +18,7 @@ export const AGENT_CHAT_SSE_HEADERS = {
  *   pipeResponse: (response: Response) => Promise<void>,
  *   streamLifecycle: ReturnType<typeof createChatStreamLifecycle>,
  * }) => Promise<Response>} runPipeline
- * @param {{ conversationId?: string|null, userId?: string|null, workspaceId?: string|null, requestId?: string|null, onStreamClose?: (payload: Record<string, unknown>) => void|Promise<void> }} [meta]
+ * @param {{ conversationId?: string|null, userId?: string|null, workspaceId?: string|null, requestId?: string|null, env?: any, chatTurnMeta?: { turnId?: string|null, assistantMessageId?: string|null }|null, onStreamClose?: (payload: Record<string, unknown>) => void|Promise<void> }} [meta]
  * @returns {Response}
  */
 export function startAgentChatEarlySse(runPipeline, meta = {}) {
@@ -43,7 +44,16 @@ export function startAgentChatEarlySse(runPipeline, meta = {}) {
       /* stream closed */
     }
   };
-  const emit = streamLifecycle.wrapEmit(rawEmit);
+  const turnId = meta.chatTurnMeta?.turnId != null ? String(meta.chatTurnMeta.turnId).trim() : '';
+  const conversationId =
+    meta.conversationId != null ? String(meta.conversationId).trim() : '';
+  const emitBase = streamLifecycle.wrapEmit(rawEmit);
+  const emit =
+    turnId && conversationId && meta.env
+      ? wrapEmitWithTurnOutbox(meta.env, conversationId, turnId, emitBase)
+      : emitBase;
+
+  const outboxTapState = { buffer: '' };
 
   const pipeResponse = async (response) => {
     if (!response) {
@@ -70,11 +80,21 @@ export function startAgentChatEarlySse(runPipeline, meta = {}) {
     }
 
     const reader = response.body.getReader();
+    const decoder = new TextDecoder();
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       if (value?.byteLength) {
         streamLifecycle.record('pipe_bytes', { bytes: value.byteLength });
+        if (turnId && conversationId && meta.env) {
+          ingestSseChunkToTurnOutbox(
+            meta.env,
+            conversationId,
+            turnId,
+            decoder.decode(value, { stream: true }),
+            outboxTapState,
+          );
+        }
         await writer.write(value);
       }
     }
@@ -84,6 +104,13 @@ export function startAgentChatEarlySse(runPipeline, meta = {}) {
     try {
       await emit('thinking_start', {});
       await emit('status', { phase: 'preflight' });
+      if (turnId && conversationId) {
+        await emit('turn_meta', {
+          turn_id: turnId,
+          conversation_id: conversationId,
+          assistant_message_id: meta.chatTurnMeta?.assistantMessageId ?? null,
+        });
+      }
       const inner = await runPipeline({ emit, pipeResponse, streamLifecycle });
       if (inner instanceof Response) {
         await pipeResponse(inner);

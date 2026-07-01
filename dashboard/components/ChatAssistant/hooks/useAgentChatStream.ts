@@ -47,6 +47,12 @@ import {
   isStreamErrorPayload,
 } from '../streamParsing';
 import { markStreamParserError, patchIamAgentStreamDebug } from '../streamDebug';
+import {
+  applyTurnOutboxEvents,
+  fetchTurnOutboxReplay,
+  readTurnOutboxCursor,
+  writeTurnOutboxCursor,
+} from '../../../lib/chatTurnOutbox';
 
 /** Prefer agentsam_agent_run.id over legacy wrun_* when both appear on SSE payloads. */
 function sseSpineRunId(d: { agent_run_id?: unknown; run_id?: unknown }): string {
@@ -476,6 +482,47 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   let activeAgentRunId: string | null = null;
   let executionPlan: ExecutionPlanState | null = null;
   let doneReceived = false;
+  let activeTurnId = '';
+  let activeConversationId = '';
+
+  const applySsePayloadToAssistant = (data: unknown) => {
+    const delta = normalizeAssistantSseText(data);
+    if (!delta && ssePayloadLooksReasoningOnly(data)) {
+      if (!fileEchoSuppress) {
+        emptyRun += 1;
+      }
+      return;
+    }
+    if (delta) {
+      emptyRun = 0;
+      if (typeof window !== 'undefined') {
+        const dbg = window.__IAM_AGENT_LAST_STREAM_DEBUG;
+        if (dbg && dbg.first_text_at == null) {
+          patchIamAgentStreamDebug({ first_text_at: Date.now() });
+        }
+      }
+    }
+    const sseText = normalizeAssistantSseText(data);
+    const trialBuf = assistantStreamBuf + sseText;
+    const extracted = extractMonacoInvokesFromBuffer(trialBuf);
+    const nextBuf = extracted.text;
+    const nextVisible = hideIncompleteMonacoInvokeTail(nextBuf);
+
+    if (!fileEchoSuppress && looksLikeEmbeddedFileDumpStart(nextVisible)) {
+      fileEchoSuppress = true;
+      if (typeof window !== 'undefined') {
+        patchIamAgentStreamDebug({ artifact_echo_suppress: true, artifact_echo_at: Date.now() });
+      }
+    }
+
+    assistantStreamBuf = nextBuf;
+    assistantContent = truncateCodeFencesForChat(nextVisible, 10);
+    setMessages((prev) => {
+      const last = [...prev];
+      last[last.length - 1] = { role: 'assistant', content: assistantContent, executionPlan };
+      return last;
+    });
+  };
 
   const idleTimer =
     typeof window !== 'undefined'
@@ -515,6 +562,32 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   sseLoop: while (true) {
     if (signal.aborted) break sseLoop;
     if (idleTimedOut) {
+      if (activeTurnId && activeConversationId) {
+        try {
+          const sinceSeq = readTurnOutboxCursor(activeTurnId);
+          const replay = await fetchTurnOutboxReplay(
+            activeConversationId,
+            activeTurnId,
+            sinceSeq,
+          );
+          const { terminal } = applyTurnOutboxEvents(replay.events, (payload) => {
+            applySsePayloadToAssistant(payload);
+          });
+          if (terminal === 'done') {
+            doneReceived = true;
+            break sseLoop;
+          }
+          if (terminal === 'error') {
+            break sseLoop;
+          }
+          if (replay.latest_seq > sinceSeq && assistantStreamBuf.trim()) {
+            patchIamAgentStreamDebug({ outbox_resume_at: Date.now(), outbox_resume_seq: replay.latest_seq });
+            break sseLoop;
+          }
+        } catch {
+          /* fall through to idle error */
+        }
+      }
       throw new Error(
         'No response from Agent Sam (stream idle timeout). Try again or switch to Ask mode for quick questions.',
       );
@@ -566,6 +639,17 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         markFirstSse();
 
         const evType = (data as { type?: string }).type;
+        if (evType === 'turn_meta' && data && typeof data === 'object') {
+          const d = data as { turn_id?: string; conversation_id?: string };
+          if (typeof d.turn_id === 'string' && d.turn_id.trim()) {
+            activeTurnId = d.turn_id.trim();
+            writeTurnOutboxCursor(activeTurnId, 0);
+          }
+          if (typeof d.conversation_id === 'string' && d.conversation_id.trim()) {
+            activeConversationId = d.conversation_id.trim();
+          }
+          continue;
+        }
         if (typeof evType === 'string' && evType.startsWith('antigravity_') && data && typeof data === 'object') {
           emptyRun = 0;
           onSubagentEvent?.({ type: evType, subagent_slug: 'antigravity_scout' });
@@ -2394,6 +2478,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         if (data && typeof data === 'object' && 'conversation_id' in data) {
           const cid = (data as { conversation_id?: string }).conversation_id;
           if (typeof cid === 'string' && cid) {
+            activeConversationId = cid;
             setConversationId(cid);
             replaceAgentConversationUrl(cid);
             localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, cid);

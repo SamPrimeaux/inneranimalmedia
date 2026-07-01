@@ -1035,27 +1035,30 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     body,
   });
 
+  /** @type {{ turnId: string, assistantMessageId: string }|null} */
+  let chatTurnMeta = null;
+  if (sessionId) {
+    const { beginChatTurn, markChatTurnStatus } = await import('../core/agentsam-chat-sessions.js');
+    chatTurnMeta = await beginChatTurn(env, sessionId, {
+      model_key: body.model_key ?? body.model ?? null,
+    });
+    if (ctx?.waitUntil) {
+      ctx.waitUntil(
+        markChatTurnStatus(env, sessionId, 'in_progress', null, {
+          assistantMessageId: chatTurnMeta?.assistantMessageId ?? null,
+        }),
+      );
+    } else {
+      void markChatTurnStatus(env, sessionId, 'in_progress', null, {
+        assistantMessageId: chatTurnMeta?.assistantMessageId ?? null,
+      });
+    }
+  }
+
   return startAgentChatEarlySse(async ({ emit, pipeResponse, streamLifecycle }) => {
     const chatIsSuperadmin = !!(identity?.isSuperadmin || chatAuthUser?.is_superadmin);
-    /** @type {{ turnId: string, assistantMessageId: string }|null} */
-    let chatTurnMeta = null;
-    if (sessionId) {
-      const { beginChatTurn, markChatTurnStatus } = await import('../core/agentsam-chat-sessions.js');
-      chatTurnMeta = await beginChatTurn(env, sessionId, {
-        model_key: body.model_key ?? body.model ?? null,
-      });
-      if (chatTurnMeta) {
-        streamLifecycle.setTurnMeta(chatTurnMeta);
-      }
-      if (ctx?.waitUntil) {
-        ctx.waitUntil(markChatTurnStatus(env, sessionId, 'in_progress', null, {
-          assistantMessageId: chatTurnMeta?.assistantMessageId ?? null,
-        }));
-      } else {
-        void markChatTurnStatus(env, sessionId, 'in_progress', null, {
-          assistantMessageId: chatTurnMeta?.assistantMessageId ?? null,
-        });
-      }
+    if (chatTurnMeta) {
+      streamLifecycle.setTurnMeta(chatTurnMeta);
     }
     if (!ingestBypass && !chatIsSuperadmin && tenantId) {
       try {
@@ -1367,6 +1370,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     conversationId: sessionId,
     userId,
     workspaceId,
+    env,
+    chatTurnMeta,
     onStreamClose: async (result) => {
       if (!sessionId) return;
       const { markChatTurnStatus } = await import('../core/agentsam-chat-sessions.js');
@@ -3447,6 +3452,48 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
        ORDER BY id DESC LIMIT 20`,
     ).bind(userId, like, like).all().catch(() => ({ results: [] }));
     return jsonResponse((results||[]).map(r=>({ id: r.id, title: r.title||'New Conversation' })));
+  }
+
+  // ── /api/agent/sessions/:id/outbox ───────────────────────────────────────
+  const sessOutboxMatch = path.match(/^\/api\/agent\/sessions\/([^/]+)\/outbox$/);
+  if (sessOutboxMatch && (method === 'GET' || method === 'POST')) {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const convId = decodeURIComponent(sessOutboxMatch[1] || '').trim();
+    if (!convId) return jsonResponse({ error: 'session id required' }, 400);
+    if (!env.AGENT_SESSION) return jsonResponse({ error: 'AGENT_SESSION not configured' }, 503);
+
+    const turnId = (url.searchParams.get('turn_id') || '').trim();
+    if (!turnId) return jsonResponse({ error: 'turn_id required' }, 400);
+
+    const stub = env.AGENT_SESSION.get(env.AGENT_SESSION.idFromName(convId));
+    if (method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      return stub.fetch(
+        new Request('https://do/outbox', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+      );
+    }
+
+    if (url.searchParams.get('stream') === '1') {
+      const sinceSeq = url.searchParams.get('since_seq') || '0';
+      return stub.fetch(
+        new Request(
+          `https://do/outbox/stream?turn_id=${encodeURIComponent(turnId)}&since_seq=${encodeURIComponent(sinceSeq)}`,
+        ),
+      );
+    }
+
+    const sinceSeq = url.searchParams.get('since_seq') || '0';
+    const limit = url.searchParams.get('limit') || '500';
+    return stub.fetch(
+      new Request(
+        `https://do/outbox?turn_id=${encodeURIComponent(turnId)}&since_seq=${encodeURIComponent(sinceSeq)}&limit=${encodeURIComponent(limit)}`,
+      ),
+    );
   }
 
   // ── /api/agent/sessions/:id/messages ─────────────────────────────────────

@@ -131,6 +131,128 @@ function mapChatTurnStatusToMessageStatus(status) {
   return st;
 }
 
+/** @param {string} sseType */
+export function mapSseTypeToOutboxEventType(sseType) {
+  const t = String(sseType || '').trim();
+  if (t === 'text' || t === 'content') return 'token';
+  if (t === 'done') return 'done';
+  if (t === 'error') return 'error';
+  return 'status';
+}
+
+/**
+ * @param {any} env
+ * @param {string} conversationId
+ * @param {string} turnId
+ * @param {string} sseType
+ * @param {Record<string, unknown>} [payload]
+ */
+export async function appendTurnOutboxEvent(env, conversationId, turnId, sseType, payload = {}) {
+  const convId = String(conversationId || '').trim();
+  const tid = String(turnId || '').trim();
+  if (!convId || !tid) return { ok: false, reason: 'missing_ids' };
+
+  const stub = getAgentSessionStub(env, convId);
+  if (!stub) return { ok: false, reason: 'no_binding' };
+
+  const resp = await stub.fetch(
+    new Request('https://do/outbox', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        turn_id: tid,
+        event_type: mapSseTypeToOutboxEventType(sseType),
+        payload: { type: sseType, ...payload },
+      }),
+    }),
+  );
+  if (!resp.ok) return { ok: false, reason: `do_${resp.status}` };
+  const data = await resp.json().catch(() => ({}));
+  return { ok: true, seq: data?.seq ?? null };
+}
+
+/**
+ * @param {any} env
+ * @param {string} conversationId
+ * @param {string} turnId
+ * @param {number} [sinceSeq]
+ */
+export async function fetchTurnOutboxEvents(env, conversationId, turnId, sinceSeq = 0) {
+  const convId = String(conversationId || '').trim();
+  const tid = String(turnId || '').trim();
+  if (!convId || !tid) return { events: [], latest_seq: sinceSeq };
+
+  const stub = getAgentSessionStub(env, convId);
+  if (!stub) return { events: [], latest_seq: sinceSeq };
+
+  const resp = await stub.fetch(
+    new Request(
+      `https://do/outbox?turn_id=${encodeURIComponent(tid)}&since_seq=${encodeURIComponent(String(Math.max(0, Number(sinceSeq) || 0)))}`,
+    ),
+  );
+  if (!resp.ok) return { events: [], latest_seq: sinceSeq };
+  const data = await resp.json().catch(() => ({}));
+  return {
+    events: Array.isArray(data?.events) ? data.events : [],
+    latest_seq: Number(data?.latest_seq) || sinceSeq,
+    turn_id: tid,
+  };
+}
+
+/**
+ * @param {any} env
+ * @param {string|null|undefined} conversationId
+ * @param {string|null|undefined} turnId
+ * @param {(type: string, payload?: Record<string, unknown>) => unknown} emit
+ */
+export function wrapEmitWithTurnOutbox(env, conversationId, turnId, emit) {
+  const convId = String(conversationId || '').trim();
+  const tid = String(turnId || '').trim();
+  if (!convId || !tid || !env?.AGENT_SESSION) return emit;
+
+  return (type, payload = {}) => {
+    void appendTurnOutboxEvent(env, convId, tid, type, payload).catch((e) =>
+      console.warn('[turn_outbox] append failed', e?.message ?? e),
+    );
+    return emit(type, payload);
+  };
+}
+
+/**
+ * Parse complete SSE blocks from a byte buffer and append each event to turn_outbox.
+ *
+ * @param {any} env
+ * @param {string} conversationId
+ * @param {string} turnId
+ * @param {string} chunk
+ * @param {{ buffer?: string }} state
+ */
+export function ingestSseChunkToTurnOutbox(env, conversationId, turnId, chunk, state = {}) {
+  const convId = String(conversationId || '').trim();
+  const tid = String(turnId || '').trim();
+  if (!convId || !tid || !env?.AGENT_SESSION || !chunk) return;
+
+  const buf = String(state.buffer || '') + chunk;
+  const parts = buf.split('\n\n');
+  state.buffer = parts.pop() || '';
+
+  for (const block of parts) {
+    for (const rawLine of block.split('\n')) {
+      const line = rawLine.trim();
+      if (!line.toLowerCase().startsWith('data:')) continue;
+      const dataStr = line.replace(/^data:\s*/i, '').trim();
+      if (!dataStr || dataStr === '[DONE]') continue;
+      try {
+        const parsed = JSON.parse(dataStr);
+        const type = typeof parsed?.type === 'string' ? parsed.type : 'status';
+        void appendTurnOutboxEvent(env, convId, tid, type, parsed).catch(() => {});
+      } catch {
+        /* ignore malformed SSE */
+      }
+    }
+  }
+}
+
 /**
  * Reserve a turn in the conversation DO: pending assistant row + turn_id for grouping.
  *
@@ -154,6 +276,10 @@ export async function beginChatTurn(env, conversationId, opts = {}) {
     model_key: opts.model_key ?? null,
   });
   if (!pending.ok) return null;
+  void appendTurnOutboxEvent(env, convId, turnId, 'status', {
+    phase: 'turn_started',
+    assistant_message_id: assistantMessageId,
+  }).catch(() => {});
   return { turnId, assistantMessageId };
 }
 

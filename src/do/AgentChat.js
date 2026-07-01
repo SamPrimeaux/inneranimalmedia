@@ -133,6 +133,7 @@ export class AgentChatSqlV1 extends DurableObject {
     this.sql = state.storage.sql;
     state.blockConcurrencyWhile(async () => {
       this.migrateSessionMessagesSchema();
+      this.migrateTurnOutboxSchema();
     });
     this.sql.exec(`CREATE TABLE IF NOT EXISTS session_rag_cache (
       query_hash TEXT PRIMARY KEY,
@@ -211,6 +212,176 @@ export class AgentChatSqlV1 extends DurableObject {
 
     this.sql.exec(`CREATE INDEX IF NOT EXISTS idx_session_messages_created_at ON session_messages(created_at)`);
     this.sql.exec(`CREATE INDEX IF NOT EXISTS idx_session_messages_turn_id ON session_messages(turn_id)`);
+  }
+
+  migrateTurnOutboxSchema() {
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS turn_outbox (
+        seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+        turn_id     TEXT NOT NULL,
+        event_type  TEXT NOT NULL,
+        payload     TEXT NOT NULL,
+        created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+      )
+    `);
+    this.sql.exec(
+      `CREATE INDEX IF NOT EXISTS idx_turn_outbox_turn ON turn_outbox(turn_id, seq)`,
+    );
+  }
+
+  /** @param {Request} request */
+  async handlePostOutbox(request) {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ ok: false, error: "invalid_json" }, { status: 400 });
+    }
+
+    const turnId = String(body?.turn_id || "").trim();
+    const eventType = String(body?.event_type || "").trim();
+    if (!turnId || !eventType) {
+      return Response.json({ ok: false, error: "missing_turn_id_or_event_type" }, { status: 400 });
+    }
+
+    const payloadJson = JSON.stringify(body?.payload ?? {});
+    this.sql.exec(
+      `INSERT INTO turn_outbox (turn_id, event_type, payload) VALUES (?, ?, ?)`,
+      turnId,
+      eventType,
+      payloadJson,
+    );
+    const row = [
+      ...this.sql.exec(`SELECT seq FROM turn_outbox WHERE turn_id = ? ORDER BY seq DESC LIMIT 1`, turnId),
+    ][0];
+    return Response.json({ ok: true, seq: Number(row?.seq) || null, turn_id: turnId });
+  }
+
+  /** @param {URL} url */
+  async handleGetOutbox(url) {
+    const turnId = (url.searchParams.get("turn_id") || "").trim();
+    if (!turnId) {
+      return Response.json({ error: "turn_id required" }, { status: 400 });
+    }
+
+    const sinceSeq = Math.max(0, Number(url.searchParams.get("since_seq") || 0) || 0);
+    const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 500, 1), 1000);
+
+    const rows = [
+      ...this.sql.exec(
+        `SELECT seq, turn_id, event_type, payload, created_at
+         FROM turn_outbox
+         WHERE turn_id = ? AND seq > ?
+         ORDER BY seq ASC
+         LIMIT ?`,
+        turnId,
+        sinceSeq,
+        limit,
+      ),
+    ];
+
+    const events = rows.map((r) => {
+      let payload = {};
+      try {
+        payload = r.payload ? JSON.parse(r.payload) : {};
+      } catch (_) {
+        payload = { raw: r.payload };
+      }
+      return {
+        seq: Number(r.seq),
+        turn_id: r.turn_id,
+        event_type: r.event_type,
+        payload,
+        created_at: r.created_at,
+      };
+    });
+
+    const latestSeq = events.length ? events[events.length - 1].seq : sinceSeq;
+    return Response.json({ turn_id: turnId, since_seq: sinceSeq, latest_seq: latestSeq, events });
+  }
+
+  /** @param {URL} url */
+  handleTurnOutboxStream(url) {
+    const turnId = (url.searchParams.get("turn_id") || "").trim();
+    if (!turnId) {
+      return Response.json({ error: "turn_id required" }, { status: 400 });
+    }
+
+    let lastSeq = Math.max(0, Number(url.searchParams.get("since_seq") || 0) || 0);
+    const encoder = new TextEncoder();
+    const sql = this.sql;
+    const startedMs = Date.now();
+    const maxMs = 10 * 60 * 1000;
+    const keepaliveMs = 15000;
+    const pollMs = 100;
+
+    const stream = new ReadableStream({
+      start: (controller) => {
+        let lastKeep = Date.now();
+        const pump = async () => {
+          try {
+            while (Date.now() - startedMs < maxMs) {
+              const batch = [
+                ...sql.exec(
+                  `SELECT seq, turn_id, event_type, payload, created_at
+                   FROM turn_outbox
+                   WHERE turn_id = ? AND seq > ?
+                   ORDER BY seq ASC
+                   LIMIT 100`,
+                  turnId,
+                  lastSeq,
+                ),
+              ];
+
+              for (const row of batch) {
+                const seqNum = Number(row.seq);
+                const chunk = `id: ${seqNum}\nevent: chat_outbox\ndata: ${JSON.stringify({
+                  seq: seqNum,
+                  turn_id: row.turn_id,
+                  event_type: row.event_type,
+                  payload: (() => {
+                    try {
+                      return row.payload ? JSON.parse(row.payload) : {};
+                    } catch (_) {
+                      return { raw: row.payload };
+                    }
+                  })(),
+                  created_at: row.created_at,
+                })}\n\n`;
+                controller.enqueue(encoder.encode(chunk));
+                lastSeq = seqNum;
+                if (row.event_type === "done" || row.event_type === "error") {
+                  controller.close();
+                  return;
+                }
+              }
+
+              if (Date.now() - lastKeep >= keepaliveMs) {
+                controller.enqueue(encoder.encode(": keepalive\n\n"));
+                lastKeep = Date.now();
+              }
+
+              await new Promise((r) => setTimeout(r, pollMs));
+            }
+            controller.close();
+          } catch (e) {
+            try {
+              controller.error(e);
+            } catch (_) {}
+          }
+        };
+        void pump();
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
   }
 
   /** @param {Request} request */
@@ -556,6 +727,18 @@ export class AgentChatSqlV1 extends DurableObject {
 
     if (url.pathname === "/history" && request.method === "GET") {
       return this.handleGetHistory(url);
+    }
+
+    if (url.pathname === "/outbox" && request.method === "POST") {
+      return this.handlePostOutbox(request);
+    }
+
+    if (url.pathname === "/outbox/stream" && request.method === "GET") {
+      return this.handleTurnOutboxStream(url);
+    }
+
+    if (url.pathname === "/outbox" && request.method === "GET") {
+      return this.handleGetOutbox(url);
     }
 
     if (url.pathname === '/rag-cache' && request.method === 'GET') {
