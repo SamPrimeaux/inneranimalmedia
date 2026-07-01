@@ -27,6 +27,10 @@ import {
 } from './oauth-login-callbacks.js';
 import { getAESKey, aesGcmEncryptToB64, aesGcmDecryptFromB64 } from '../core/crypto-vault.js';
 import { resolveIntegrationUserId } from '../core/integration-user-id.js';
+import {
+  integrationOAuthShouldPopup,
+  oauthPopupCompleteHtml,
+} from '../core/oauth-popup-complete.js';
 
 export { upsertOauthToken, ensureOauthTokenColumns, normalizeProvider } from '../core/oauth-token-store.js';
 import { syncProviderModels } from './integrations/model-sync.js';
@@ -187,6 +191,7 @@ async function loginGoogleOAuthStart(_request, url, env) {
   const connectDrive =
     url.searchParams.get('connectDrive') === '1' ||
     url.searchParams.get('connect') === 'drive';
+  const popup = url.searchParams.get('popup') === '1';
   const safeReturn =
     returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes(':')
       ? returnTo
@@ -200,6 +205,7 @@ async function loginGoogleOAuthStart(_request, url, env) {
     redirectUri,
     returnTo: safeReturn,
     connectDrive: !!connectDrive,
+    popup,
   });
   await env.SESSION_CACHE.put(`oauth_state_${state}`, statePayload, {
     expirationTtl: OAUTH_STATE_TTL_SECONDS,
@@ -224,6 +230,7 @@ async function loginGitHubOAuthStart(_request, url, env) {
     return jsonResponse({ error: 'OAuth not configured' }, 503);
   }
   const returnTo = url.searchParams.get('return_to') || url.searchParams.get('next') || '';
+  const popup = url.searchParams.get('popup') === '1';
   const safeReturn =
     returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes(':')
       ? returnTo
@@ -233,7 +240,11 @@ async function loginGitHubOAuthStart(_request, url, env) {
   const statePayload = JSON.stringify({
     redirectUri,
     returnTo: safeReturn,
-    connectGitHub: safeReturn === '/dashboard/agent' || returnTo === '/dashboard/agent',
+    connectGitHub:
+      popup ||
+      safeReturn.startsWith('/dashboard/agent') ||
+      safeReturn.startsWith('/dashboard/artifacts'),
+    popup,
   });
   await env.SESSION_CACHE.put(`oauth_state_github_${state}`, statePayload, {
     expirationTtl: OAUTH_STATE_TTL_SECONDS,
@@ -329,11 +340,6 @@ function isGitHubLoginOAuthStart(url) {
   if (returnTo.startsWith('/auth/')) return true;
   if (returnTo.startsWith('/dashboard/')) return true;
   return false;
-}
-
-function oauthPopupCompleteHtml(provider) {
-  const p = JSON.stringify(String(provider || 'google'));
-  return `<!DOCTYPE html><html><body><script>try{window.opener?.postMessage({type:'oauth_success',provider:${p}},window.location.origin);}catch(e){}window.close();</script><p>Connected. You can close this window.</p></body></html>`;
 }
 
 /** Workspace-scoped Supabase OAuth row key (multi-workspace per user). */
@@ -1422,6 +1428,7 @@ export async function handleOAuthApi(request, env, ctx) {
       return_to: returnTo,
       workspace_id,
       redirect_uri: redirectUriMgmt,
+      popup: url.searchParams.get('popup') === '1',
     });
 
     const oauthScopes = url.searchParams.get('oauth_scopes');
@@ -1596,14 +1603,22 @@ export async function handleOAuthApi(request, env, ctx) {
       }
     } catch (e) {
       await kvDeleteIntegrationOAuthState(env, provider, state);
-      const msg = encodeURIComponent(e?.message || 'oauth_failed');
-      const _origin = new URL(request.url).origin; const _abs638 = returnTo.startsWith("http") ? returnTo : _origin + returnTo; return Response.redirect(`${_abs638}?error=${msg}`, 302);
+      const msg = e?.message || 'oauth_failed';
+      const absReturnErr = returnTo.startsWith('http') ? returnTo : new URL(request.url).origin + returnTo;
+      if (integrationOAuthShouldPopup(stored, absReturnErr)) {
+        return new Response(oauthPopupCompleteHtml(provider, { error: msg }), {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      }
+      const _origin = new URL(request.url).origin;
+      const _abs638 = returnTo.startsWith('http') ? returnTo : _origin + returnTo;
+      return Response.redirect(`${_abs638}?error=${encodeURIComponent(msg)}`, 302);
     }
 
     await kvDeleteIntegrationOAuthState(env, provider, state);
     const absReturn = returnTo.startsWith('http') ? returnTo : new URL(request.url).origin + returnTo;
-    if (provider === 'google' && (absReturn.includes('/dashboard/agent') || absReturn.includes('/dashboard/artifacts'))) {
-      return new Response(oauthPopupCompleteHtml('google'), {
+    if (integrationOAuthShouldPopup(stored, absReturn)) {
+      return new Response(oauthPopupCompleteHtml(provider), {
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
       });
     }

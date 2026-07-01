@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { ChevronLeft, FileText, Folder, FolderGit2, Loader2 } from 'lucide-react';
 import { readGhReposCache, writeGhReposCache, type GhRepoRow } from './repoPickerCache';
 import { fetchGithubFileContent } from '../../types/contextEnvelope';
+import {
+  oauthConnectReturnTo,
+  openIntegrationOAuthPopup,
+} from '../../src/lib/integrationOAuthPopup';
 
 type GhContentRow = {
   name: string;
@@ -24,6 +28,7 @@ export type GithubContextLaneProps = {
   onClose?: () => void;
   /** Hub stack: return to hub root (not close drawer). */
   onBackToHub?: () => void;
+  onOAuthConnected?: () => void;
   embedded?: boolean;
 };
 
@@ -35,11 +40,13 @@ export function GithubContextLane({
   onBrowseFiles,
   onClose,
   onBackToHub,
+  onOAuthConnected,
   embedded = false,
 }: GithubContextLaneProps) {
   const [ghRepos, setGhRepos] = useState<GhRepoRow[]>([]);
   const [ghReposLoading, setGhReposLoading] = useState(false);
   const [ghReposAuthed, setGhReposAuthed] = useState(true);
+  const [githubConnectBusy, setGithubConnectBusy] = useState(false);
   const [repoSearch, setRepoSearch] = useState('');
   const [view, setView] = useState<'repos' | 'files'>('repos');
   const [browseRepo, setBrowseRepo] = useState<string | null>(null);
@@ -166,9 +173,22 @@ export function GithubContextLane({
   const showLoadingOverlay = ghReposLoading && ghRepos.length === 0 && view === 'repos';
   const pathSegments = browsePath ? browsePath.split('/').filter(Boolean) : [];
 
-  const oauthReturnTo = encodeURIComponent(
-    typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : '/dashboard/agent',
-  );
+  const oauthReturnTo = encodeURIComponent(oauthConnectReturnTo());
+
+  const connectGithub = () => {
+    setGithubConnectBusy(true);
+    void openIntegrationOAuthPopup(
+      `/api/oauth/github/start?return_to=${oauthReturnTo}`,
+      'github',
+    )
+      .then(async (result) => {
+        if (result.ok) {
+          onOAuthConnected?.();
+          await loadGhRepos();
+        }
+      })
+      .finally(() => setGithubConnectBusy(false));
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -241,12 +261,11 @@ export function GithubContextLane({
                 <p className="text-[12px] text-[var(--dashboard-muted)]">Connect GitHub to list your repositories.</p>
                 <button
                   type="button"
-                  onClick={() => {
-                    window.location.href = `/api/oauth/github/start?return_to=${oauthReturnTo}`;
-                  }}
-                  className="rounded-lg border border-[var(--dashboard-border)] bg-[var(--scene-bg)] px-4 py-2 text-[12px] font-medium text-[var(--dashboard-text)]"
+                  disabled={githubConnectBusy}
+                  onClick={connectGithub}
+                  className="rounded-lg border border-[var(--dashboard-border)] bg-[var(--scene-bg)] px-4 py-2 text-[12px] font-medium text-[var(--dashboard-text)] disabled:opacity-60"
                 >
-                  Connect GitHub
+                  {githubConnectBusy ? 'Connecting…' : 'Connect GitHub'}
                 </button>
               </div>
             ) : filteredGhRepos.length === 0 && !ghReposLoading ? (

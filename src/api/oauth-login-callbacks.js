@@ -12,7 +12,7 @@ import {
   revokeAuthSession,
 } from '../core/auth.js';
 import { ensureIdentityPlaneBeforeSession } from '../core/ensureIdentityPlaneBeforeSession.js';
-import { ensureAppUser } from '../core/ensureAppUser.js';
+import { oauthPopupCompleteHtml } from '../core/oauth-popup-complete.js';
 import { upsertOauthToken } from '../core/oauth-token-store.js';
 import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 import { resolveCanonicalWorkspace } from './oauth.js';
@@ -405,10 +405,9 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
         console.error('[oauth/github/callback] user_oauth_tokens upsert failed:', e?.message ?? e);
       }
     }
-    return new Response(
-      `<script>window.opener?.postMessage({type:'oauth_success',provider:'github'},window.location.origin);window.close();</script>`,
-      { headers: { 'Content-Type': 'text/html' } },
-    );
+    return new Response(oauthPopupCompleteHtml('github'), {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
   }
 
   const ghSubject = String(userInfo.id ?? userInfo.sub ?? oauthEmail).trim();
@@ -579,10 +578,9 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
     )
       .bind(driveTenantId)
       .run();
-    return new Response(
-      `<script>window.opener?.postMessage({type:'oauth_success',provider:'google'},window.location.origin);window.close();</script>`,
-      { headers: { 'Content-Type': 'text/html' } },
-    );
+    return new Response(oauthPopupCompleteHtml('google_drive'), {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
   }
 
   const goSubject = String(userInfo.id ?? userInfo.sub ?? oauthEmail).trim();

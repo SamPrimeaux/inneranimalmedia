@@ -770,7 +770,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   const policyWebSearch = Number(agentsamPolicy?.web_search_enabled ?? 1) === 1;
 
-  const { connectables, connectablesLoading, sourceFromIntegration } = useComposerIntegrations(false);
+  const { connectables, connectablesLoading, sourceFromIntegration, refresh: refreshConnectables } =
+    useComposerIntegrations(false);
 
   const activeComposerSourceIds = useMemo(
     () => new Set(composerSources.map((s) => s.id)),
@@ -3788,6 +3789,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           sourceFromIntegration={sourceFromIntegration}
           execLane={execLane}
           onExecLaneChange={handleExecLaneChange}
+          onIntegrationsRefresh={refreshConnectables}
         />
       )}
 

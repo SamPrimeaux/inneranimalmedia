@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ChatComposerSource } from './types';
 import { IAM_MCP_PLATFORM_SOURCE, IAM_MCP_PLATFORM_SOURCE_ID } from './types';
+import { oauthConnectReturnTo } from '../../../src/lib/integrationOAuthPopup';
 
 export type ConnectableIntegration = {
   providerKey: string;
@@ -17,9 +18,7 @@ type SummaryProvider = {
 };
 
 function connectUrlForProvider(providerKey: string): string {
-  const returnTo = encodeURIComponent(
-    typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : '/dashboard/agent',
-  );
+  const returnTo = encodeURIComponent(oauthConnectReturnTo());
   switch (providerKey) {
     case 'google_drive':
       return `/api/oauth/google/start?connectDrive=1&return_to=${returnTo}`;
@@ -27,6 +26,9 @@ function connectUrlForProvider(providerKey: string): string {
       return `/api/mail/gmail/start`;
     case 'github':
       return `/api/oauth/github/start?return_to=${returnTo}`;
+    case 'cloudflare':
+    case 'cloudflare_oauth':
+      return `/api/oauth/cloudflare/start?return_to=${returnTo}`;
     case 'mcp_servers':
       return `/dashboard/settings?section=integrations&focus=mcp_servers`;
     default:
@@ -63,7 +65,13 @@ export function useComposerIntegrations(isSuperadmin: boolean) {
         });
       }
 
-      const want = new Set(['google_drive', 'google_gmail', 'github', 'mcp_servers']);
+      const want = new Set([
+        'google_drive',
+        'google_gmail',
+        'github',
+        'cloudflare_oauth',
+        'mcp_servers',
+      ]);
       for (const p of d.providers || []) {
         const key = String(p.provider_key || '').trim();
         if (!want.has(key)) continue;

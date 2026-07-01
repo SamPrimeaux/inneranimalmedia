@@ -9,6 +9,7 @@ import {
   HardDrive,
   Image as ImageIcon,
   Link2,
+  Loader2,
   Paperclip,
   Plus,
   Search,
@@ -20,6 +21,7 @@ import { WEB_SEARCH_SOURCE, WEB_SEARCH_SOURCE_ID, SANDBOX_AGENT_SOURCE_ID } from
 import { GithubContextLane } from './GithubContextLane';
 import type { ExecLane } from '../../src/lib/execLane';
 import { EXEC_LANE_LABELS } from '../../src/lib/execLane';
+import { openIntegrationOAuthPopup } from '../../src/lib/integrationOAuthPopup';
 
 export type ContextHubLane = 'hub' | 'github' | 'connectors' | 'tool_access';
 
@@ -53,6 +55,7 @@ export type ContextHubDrawerProps = {
   sourceFromIntegration: (item: ConnectableIntegration) => ChatComposerSource;
   execLane: ExecLane;
   onExecLaneChange: (lane: ExecLane) => void;
+  onIntegrationsRefresh?: () => void | Promise<void>;
 };
 
 const SOURCE_TILES = [
@@ -117,9 +120,11 @@ export function ContextHubDrawer({
   sourceFromIntegration,
   execLane,
   onExecLaneChange,
+  onIntegrationsRefresh,
 }: ContextHubDrawerProps) {
   const [lane, setLane] = useState<ContextHubLane>(initialLane);
   const [connectorFilter, setConnectorFilter] = useState('');
+  const [connectBusy, setConnectBusy] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) setLane(initialLane);
@@ -143,6 +148,21 @@ export function ContextHubDrawer({
   if (!open || typeof document === 'undefined') return null;
 
   const closeAll = () => onClose();
+
+  const runOAuthConnect = async (item: ConnectableIntegration) => {
+    if (item.connected) return;
+    if (!item.connectUrl.startsWith('/')) {
+      window.open(item.connectUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    setConnectBusy(item.providerKey);
+    try {
+      const result = await openIntegrationOAuthPopup(item.connectUrl, item.providerKey);
+      if (result.ok) await onIntegrationsRefresh?.();
+    } finally {
+      setConnectBusy(null);
+    }
+  };
 
   const hubHeaderTitle =
     lane === 'github'
@@ -335,6 +355,7 @@ export function ContextHubDrawer({
             onBrowseFiles={onBrowseFiles}
             onClose={closeAll}
             onBackToHub={() => setLane('hub')}
+            onOAuthConnected={() => void onIntegrationsRefresh?.()}
           />
         ) : null}
 
@@ -396,6 +417,7 @@ export function ContextHubDrawer({
                 filteredConnectables.map((item) => {
                   const src = sourceFromIntegration(item);
                   const active = activeSourceIds.has(src.id);
+                  const busy = connectBusy === item.providerKey;
                   return (
                     <div
                       key={item.providerKey}
@@ -403,18 +425,22 @@ export function ContextHubDrawer({
                     >
                       <button
                         type="button"
-                        className="flex flex-1 min-w-0 items-center justify-between gap-2 px-1 py-2 text-left text-[13px]"
+                        disabled={busy}
+                        className="flex flex-1 min-w-0 items-center justify-between gap-2 px-1 py-2 text-left text-[13px] disabled:opacity-60"
                         onClick={() => {
-                          if (item.connected) onToggleSource(src, !active);
-                          else if (item.connectUrl.startsWith('http')) {
-                            window.open(item.connectUrl, '_blank', 'noopener,noreferrer');
-                          } else {
-                            window.location.href = item.connectUrl;
+                          if (item.connected) {
+                            onToggleSource(src, !active);
+                            return;
                           }
+                          void runOAuthConnect(item);
                         }}
                       >
                         <span className="inline-flex items-center gap-2 min-w-0">
-                          <Link2 size={14} className="shrink-0 text-[var(--dashboard-muted)]" />
+                          {busy ? (
+                            <Loader2 size={14} className="shrink-0 animate-spin text-[var(--solar-cyan)]" />
+                          ) : (
+                            <Link2 size={14} className="shrink-0 text-[var(--dashboard-muted)]" />
+                          )}
                           <span className="truncate text-[var(--dashboard-text)]">{item.label}</span>
                         </span>
                         {item.connected ? (
@@ -424,18 +450,24 @@ export function ContextHubDrawer({
                             <span className="text-[10px] text-[var(--dashboard-muted)] shrink-0">off</span>
                           )
                         ) : (
-                          <span className="text-[10px] text-amber-300/90 shrink-0">connect</span>
+                          <span className="text-[10px] text-amber-300/90 shrink-0">
+                            {busy ? 'connecting…' : 'connect'}
+                          </span>
                         )}
                       </button>
                       {!item.connected && item.connectUrl.startsWith('/') ? (
-                        <a
-                          href={item.connectUrl}
-                          className="p-1.5 text-[var(--dashboard-muted)]"
-                          title="Connect"
-                          onClick={(e) => e.stopPropagation()}
+                        <button
+                          type="button"
+                          disabled={busy}
+                          className="p-1.5 text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] disabled:opacity-50"
+                          title="Connect in popup"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void runOAuthConnect(item);
+                          }}
                         >
                           <ExternalLink size={13} />
-                        </a>
+                        </button>
                       ) : null}
                     </div>
                   );
