@@ -1,6 +1,7 @@
 # Architectural Audit — Inner Animal Media SaaS
 
 **Date:** 2026-06-12  
+**Updated:** 2026-07-01 — §1, §5.3, §8: `services.inneranimalmedia.com` deployed (`inneranimalmedia-pwa-services`); §5.3 bindings added.  
 **Worker version (last deploy):** `905d40c0-44c6-4755-afa3-5ee364fc6ab8` · git `36fb1730`  
 **Supersedes for ops:** stale sections in `docs/ARCHITECTURAL_AUDIT.md` (pre-`src/` layout) — use **this doc** + linked platform docs.
 
@@ -10,19 +11,19 @@
 
 ## 1. Platform at a glance
 
-Inner Animal Media is a **multi-tenant AI operations platform** on Cloudflare Workers: dashboard SPA, public marketing site, Agent Sam (in-app), MCP OAuth bridge (external clients), MovieMode, terminal/PTY lanes, and a D1-first `agentsam_*` control plane (~577 tables).
+Inner Animal Media is a **multi-tenant AI operations platform** on Cloudflare Workers: dashboard SPA, public marketing site, Agent Sam (in-app), MCP OAuth bridge (external clients), MovieMode, PWA services companion, terminal/PTY lanes, and a D1-first `agentsam_*` control plane (~577 tables).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         PRODUCTION SURFACES                                  │
-├─────────────────┬─────────────────┬─────────────────┬─────────────────────┤
-│ CORE            │ MOVIE satellite   │ MCP bridge      │ PTY (not a Worker)  │
-│ inneranimalmedia│ moviemode-service│ mcp.*           │ iam-pty :3099       │
-│ .com            │ .inneranimalmedia│ .inneranimalmedia│ via Cloudflare      │
-│                 │ .com             │ .com            │ Tunnels             │
-└────────┬────────┴────────┬────────┴────────┬────────┴──────────┬────────┘
-         │                   │                 │                    │
-         └───────────────────┴─────────────────┴────────────────────┘
+├──────────────┬──────────────┬──────────────┬──────────────┬─────────────────┤
+│ CORE         │ MOVIE        │ MCP bridge   │ PWA companion│ PTY (not Worker)│
+│ inneranimal  │ moviemode-   │ mcp.*        │ services.*   │ iam-pty :3099   │
+│ media.com    │ service.*    │ inneranimal  │ inneranimal  │ via CF Tunnels  │
+│              │              │ media.com    │ media.com    │                 │
+└──────┬───────┴──────┬───────┴──────┬───────┴──────┬───────┴────────┬────────┘
+       │              │              │              │                │
+       └──────────────┴──────────────┴──────────────┴────────────────┘
                                     │
                     D1 inneranimalmedia-business (SSOT)
                     R2 inneranimalmedia (SPA + public pages)
@@ -36,7 +37,7 @@ Inner Animal Media is a **multi-tenant AI operations platform** on Cloudflare Wo
 | MCP worker | `SamPrimeaux/inneranimalmedia-mcp-server` | `npm run deploy:full` in MCP repo | No — reads same D1 catalog |
 | PTY shell | `SamPrimeaux/iam-pty` → `~/iam-pty` | `pm2 restart iam-pty` | No — session verify via core |
 | CMS editor (Python) | `SamPrimeaux/agentsam-cms-editor` | `pywrangler deploy` | No — R2 `cms-editor/` + D1 metadata via core |
-| Services companion | *planned* `services.inneranimalmedia.com` | separate repo TBD | No — PWA manifest / push only |
+| PWA services companion | `services.inneranimalmedia.com` · Worker `inneranimalmedia-pwa-services` | `SamPrimeaux/iam-pwa-services` → `~/iam-pwa-services` · CF Builds: `npm run build` + `bash scripts/cf-builds-deploy.sh` | No — PWA manifest / push / deploy ingest only |
 
 **Golden rules**
 
@@ -261,9 +262,31 @@ Public /work → ASSET_ROUTES + optional section hydrate (contact pattern)
 
 **In-app path:** `catalog-invoke-handler.js` on core — **not** through MCP worker.
 
-### 5.3 services.inneranimalmedia.com (planned)
+### 5.3 services.inneranimalmedia.com
 
-Companion worker for PWA manifest mirror, Web Push, platform marketing landing — **not** dashboard SPA. Scaffold: `docs/platform/scaffolds/iam-pwa-services-README.md`. Core triggers events; companion stores subscriptions.
+| | Detail |
+|--|--------|
+| **URL** | `services.inneranimalmedia.com` |
+| **Worker** | `inneranimalmedia-pwa-services` |
+| **Repo** | `SamPrimeaux/iam-pwa-services` → `~/iam-pwa-services` (`ws_iam_pwa_services` in D1) |
+| **Deploy** | Cloudflare Workers Builds on `main`: build `npm run build`, deploy/version `bash scripts/cf-builds-deploy.sh` |
+| **Role** | PWA control plane — `/sw/manifest.json` mirror, Web Push, `GET /api/health`, deploy ingest — **not** dashboard SPA |
+| **D1 truth** | No — binds shared `inneranimalmedia-business` for companion rows only (push subs, manifest metadata) |
+| **Integration** | Dashboard SW polls manifest (`registerServiceWorker.ts`); main `deploy:full` can POST `/api/deploy/ingest` (`scripts/post-services-sw-manifest-ingest.mjs`) |
+
+**Production bindings** (`inneranimalmedia-pwa-services`):
+
+| Binding | Resource | Role |
+|---------|----------|------|
+| `ASSETS` | Workers Assets | Hub static shell, `/sw/*` publish surface |
+| `DB` | D1 `inneranimalmedia-business` | Shared platform DB — companion tables only |
+| `SW_MANIFEST_KV` | KV `SW_MANIFEST_KV` | Manifest tier cache, `cache_bust` coordination |
+
+**Runtime env (production):** `MAIN_APP_ORIGIN=https://inneranimalmedia.com`, `ENVIRONMENT` / `DEPLOY_ENV=production`. Secrets: `PUSH_SERVICE_TOKEN`, `CLOUDFLARE_API_TOKEN`, `OPENAI_API_KEY`.
+
+**Origin law:** Service Workers are origin-scoped — primary dashboard SW stays on `inneranimalmedia.com`; this worker publishes cross-origin metadata the main SW consumes.
+
+Scaffold/history: `docs/platform/scaffolds/iam-pwa-services-README.md`.
 
 ---
 
@@ -358,6 +381,7 @@ Cursor OAuth → mcp.inneranimalmedia.com tools/call
 | inneranimalmedia-mcp-server | `~/inneranimalmedia-mcp-server` | MCP OAuth worker |
 | iam-pty | `~/iam-pty` | PTY shell server |
 | moviemode-service | submodule `services/moviemode-service` | MovieMode satellite |
+| iam-pwa-services | `~/iam-pwa-services` | PWA companion → `services.inneranimalmedia.com` |
 | agentsam-cms-editor | optional `cms/agentsam-cms-editor` | Python CMS worker |
 
 ---
@@ -370,7 +394,6 @@ Cursor OAuth → mcp.inneranimalmedia.com tools/call
 | `docs/ARCHITECTURAL_AUDIT.md` | Pre-`src/` — deprecated for structure |
 | MCP `tools/list` operator filter | Core has `mcp-tool-resolve.js`; verify MCP repo parity |
 | `/dashboard/cms` routes | Planned — contact CMS shipped via hydrate |
-| `services.inneranimalmedia.com` | Not deployed |
 | Deploy email notification | Needs `INTERNAL_API_SECRET` in deploy shell |
 
 ---
