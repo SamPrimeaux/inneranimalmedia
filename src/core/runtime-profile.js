@@ -79,11 +79,29 @@ function maxModelToolsForAgentTask(taskType, modeSlug) {
 /**
  * @param {string} message
  */
-function isSimpleAskMessage(message) {
-  const s = String(message || '').trim().toLowerCase();
+/** Strip quickstart/on-demand suffixes before casual-intent checks. */
+export function stripCasualIntentMessage(message) {
+  const raw = String(message || '').trim();
+  if (!raw) return '';
+  const cut = raw.split(/\r?\n\r?\n--- On-demand context/i)[0]?.trim();
+  return cut || raw;
+}
+
+export function isSimpleAskMessage(message) {
+  const s = stripCasualIntentMessage(message).trim().toLowerCase();
   if (!s || s.length > 80) return false;
-  return ['hi', 'hello', 'hey', 'yo', 'sup', 'thanks', 'thank you', 'ok', 'okay', 'test', 'ping'].includes(
-    s,
+  if (
+    ['hi', 'hello', 'hey', 'yo', 'sup', 'thanks', 'thank you', 'ok', 'okay', 'test', 'ping', 'wyd'].includes(
+      s,
+    )
+  ) {
+    return true;
+  }
+  return (
+    /^what'?s up\??$/i.test(s) ||
+    /^how are you\??$/i.test(s) ||
+    /^how r u\??$/i.test(s) ||
+    /^whatcha doin\??$/i.test(s)
   );
 }
 
@@ -152,6 +170,7 @@ function askNeedsReadEvidenceTools(message) {
 function shouldCompileToolsForTurn(mode, message, maxTools, refinedRouteKey) {
   if (maxTools <= 0) return false;
   if (refinedRouteKey === 'simple_ask_greeting') return false;
+  if (isSimpleAskMessage(message)) return false;
   if (mode === 'agent' || mode === 'debug' || mode === 'multitask' || mode === 'plan') return true;
   if (mode === 'ask') return askNeedsReadEvidenceTools(message);
   return false;
@@ -465,7 +484,12 @@ async function resolvePromptRouteForCompile(env, q) {
   }
 
   const tooling = agentLikeTooling(mode, message);
-  if (mode === 'ask' && isSimpleAskMessage(message) && !tooling && env?.DB) {
+  if (
+    (mode === 'ask' || mode === 'agent') &&
+    isSimpleAskMessage(message) &&
+    !tooling &&
+    env?.DB
+  ) {
     try {
       const greetingRoute = await env.DB.prepare(
         `SELECT * FROM agentsam_prompt_routes

@@ -21,6 +21,7 @@ export type IamAgentStreamDebug = {
   done_received: boolean;
   parser_error: string | null;
   last_tool_name: string | null;
+  idle_timeout_at: number | null;
 };
 
 declare global {
@@ -51,6 +52,7 @@ export function initIamAgentStreamDebug(debugId: string): IamAgentStreamDebug {
     done_received: false,
     parser_error: null,
     last_tool_name: null,
+    idle_timeout_at: null,
   };
   w().__IAM_AGENT_LAST_STREAM_DEBUG = next;
   try {

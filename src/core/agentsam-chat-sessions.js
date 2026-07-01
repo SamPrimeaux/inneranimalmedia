@@ -254,6 +254,37 @@ export async function appendChatMessage(env, conversationId, turn) {
 }
 
 /**
+ * Persist turn lifecycle on agentsam_chat_sessions (requires migration 749).
+ * Values: in_progress | completed | failed | interrupted | done_no_token
+ *
+ * @param {any} env
+ * @param {string|null|undefined} conversationId
+ * @param {string} status
+ * @param {string|null} [error]
+ */
+export async function markChatTurnStatus(env, conversationId, status, error = null) {
+  const convId = String(conversationId || '').trim();
+  const st = String(status || '').trim();
+  if (!env?.DB || !convId || !st) return { ok: false };
+  try {
+    await env.DB.prepare(
+      `UPDATE agentsam_chat_sessions
+       SET last_turn_status = ?,
+           last_turn_error = ?,
+           last_turn_at = unixepoch(),
+           updated_at = unixepoch()
+       WHERE conversation_id = ?`,
+    )
+      .bind(st, error != null ? String(error).slice(0, 500) : null, convId)
+      .run();
+    return { ok: true };
+  } catch (e) {
+    console.warn('[markChatTurnStatus]', e?.message ?? e);
+    return { ok: false };
+  }
+}
+
+/**
  * Compact long chat sessions: write digest.md to R2 cold tier, update D1 markers.
  * Called after append when token estimate exceeds threshold.
  *
@@ -550,6 +581,9 @@ export async function listUserChatSessions(env, input) {
               cs.is_starred,
               cs.project_id,
               cs.message_count,
+              cs.total_tokens_out,
+              cs.last_turn_status,
+              cs.last_turn_error,
               cs.created_at AS started_at,
               cs.updated_at,
               wp.name AS project_name,

@@ -20,6 +20,8 @@ export type AgentSessionRow = {
   is_starred?: boolean;
   project_id?: string | null;
   project_name?: string | null;
+  last_turn_status?: string | null;
+  total_tokens_out?: number | null;
 };
 
 export function sessionDisplayTitle(s: AgentSessionRow): string {

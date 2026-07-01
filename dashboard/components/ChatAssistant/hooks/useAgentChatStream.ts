@@ -404,6 +404,10 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   let readCount = 0;
   let emptyRun = 0;
   const MAX_STREAM_MS = 900000;
+  /** No SSE bytes for this long → surface error instead of infinite spinner. */
+  const MAX_IDLE_MS = 45000;
+  let lastSseByteAt = Date.now();
+  let idleTimedOut = false;
   /** Raised for long artifact/HTML streams (many small SSE reads). */
   const MAX_READS = 12000;
   const MAX_EMPTY_RUN = 200;
@@ -471,6 +475,23 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   let browserAgentLiveSurfaced = false;
   let activeAgentRunId: string | null = null;
   let executionPlan: ExecutionPlanState | null = null;
+  let doneReceived = false;
+
+  const idleTimer =
+    typeof window !== 'undefined'
+      ? window.setInterval(() => {
+          if (signal.aborted || idleTimedOut) return;
+          if (Date.now() - lastSseByteAt > MAX_IDLE_MS) {
+            idleTimedOut = true;
+            patchIamAgentStreamDebug({ idle_timeout_at: Date.now() });
+            void reader.cancel().catch(() => {});
+          }
+        }, 2000)
+      : null;
+
+  const clearIdleTimer = () => {
+    if (idleTimer != null) window.clearInterval(idleTimer);
+  };
 
   const pushExecutionPlan = (next: ExecutionPlanState | null) => {
     executionPlan = next;
@@ -490,8 +511,14 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   }
   assistantContent = assistantStreamBuf;
 
+  try {
   sseLoop: while (true) {
     if (signal.aborted) break sseLoop;
+    if (idleTimedOut) {
+      throw new Error(
+        'No response from Agent Sam (stream idle timeout). Try again or switch to Ask mode for quick questions.',
+      );
+    }
     const overMs = Date.now() - streamStartedAt > MAX_STREAM_MS;
     const artifact = isCodeArtifactStream();
     const readCap =
@@ -507,6 +534,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
 
     const { done, value } = await reader.read();
     readCount += 1;
+    if (value?.byteLength) lastSseByteAt = Date.now();
     if (done) break;
 
     sseCarry += decoder.decode(value, { stream: true });
@@ -693,6 +721,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           throw new Error(partsErr.join(' — ') || 'Agent stream error');
         }
         if (evType === 'done') {
+          doneReceived = true;
           patchIamAgentStreamDebug({ done_at: Date.now(), done_received: true });
           if (!streamFinalizedRef.current) {
             streamFinalizedRef.current = true;
@@ -2435,6 +2464,9 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
       }
     }
   }
+  } finally {
+    clearIdleTimer();
+  }
 
   if (typeof window !== 'undefined' && window.__IAM_AGENT_LAST_STREAM_DEBUG) {
     patchIamAgentStreamDebug({
@@ -2445,7 +2477,19 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   }
 
   if (!assistantContent.trim() && !fileEchoSuppress) {
-    setMessages((prev) => stripEmptyAssistantTail(prev));
+    if (doneReceived) {
+      assistantContent =
+        'Agent finished without a visible reply. Try Ask mode for quick questions, or send again.';
+      setMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: assistantContent };
+        else next.push({ role: 'assistant', content: assistantContent });
+        return next;
+      });
+    } else {
+      setMessages((prev) => stripEmptyAssistantTail(prev));
+    }
   }
 
   const fullStreamText = hideIncompleteMonacoInvokeTail(assistantStreamBuf);

@@ -1,5 +1,5 @@
 import { dispatchStream, resolveModelMeta } from './provider.js';
-import { appendChatMessage } from './agentsam-chat-sessions.js';
+import { appendChatMessage, markChatTurnStatus } from './agentsam-chat-sessions.js';
 import { evaluateGuardrails } from './guardrails.js';
 import { pragmaTableInfo } from './retention.js';
 import {
@@ -1802,7 +1802,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         model_key: modelKey ?? null,
         tokens_in: totalUsage.input_tokens ?? 0,
         tokens_out: totalUsage.output_tokens ?? 0,
-      }).catch((e) => console.warn('[tool-loop] appendChatMessage assistant', e?.message ?? e));
+      })
+        .then(() => markChatTurnStatus(env, sessionId, 'completed'))
+        .catch((e) => console.warn('[tool-loop] appendChatMessage assistant', e?.message ?? e));
     }
   }
 

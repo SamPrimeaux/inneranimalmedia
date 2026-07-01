@@ -9,6 +9,8 @@ import {
 } from '../../agentSessionsCatalog';
 import { resumeAgentChatSession } from '../../lib/openAgentConversation';
 import { useAgentChatSessions } from '../../hooks/useAgentChatSessions';
+import { AgentChatSessionRowMenu } from '../../components/shell/AgentChatSessionRowMenu';
+import { Star } from 'lucide-react';
 
 export default function ChatsPage() {
   const { sessions, loading, projects, reload, patchSession, deleteSession } = useAgentChatSessions({ limit: 200 });
@@ -99,6 +101,13 @@ export default function ChatsPage() {
   };
 
   const rowBadge = (s: AgentSessionRow) => {
+    if (s.last_turn_status === 'interrupted' || s.last_turn_status === 'failed' || s.last_turn_status === 'done_no_token') {
+      return (
+        <span className="shrink-0 rounded border border-red-500/40 px-1.5 py-0.5 text-[10px] text-red-400">
+          Incomplete
+        </span>
+      );
+    }
     if (s.project_name) {
       return (
         <span className="shrink-0 max-w-[160px] truncate rounded border border-[var(--dashboard-border)] px-1.5 py-0.5 text-[10px] text-muted">
@@ -213,7 +222,7 @@ export default function ChatsPage() {
               if (!id) return null;
               const checked = selected.has(id);
               return (
-                <li key={id} className="flex items-center gap-3 px-4 py-3 sm:px-6 hover:bg-[var(--bg-hover)]/40">
+                <li key={id} className="group relative flex items-center gap-3 px-4 py-3 sm:px-6 hover:bg-[var(--bg-hover)]/40">
                   <input
                     type="checkbox"
                     checked={checked}
@@ -227,11 +236,21 @@ export default function ChatsPage() {
                     onClick={() => resumeChat(s)}
                     className="flex min-w-0 flex-1 items-center gap-2 text-left"
                   >
+                    {s.is_starred ? (
+                      <Star size={12} className="shrink-0 text-[var(--solar-yellow)]" fill="currentColor" />
+                    ) : null}
                     <span className="min-w-0 flex-1 truncate text-[14px] font-medium">
                       {sessionDisplayTitle(s)}
                     </span>
                     {rowBadge(s)}
                   </button>
+                  <AgentChatSessionRowMenu
+                    session={s}
+                    projects={projects}
+                    onPatch={patchSession}
+                    onDelete={deleteSession}
+                    onReload={reload}
+                  />
                   <button
                     type="button"
                     onClick={() => resumeChat(s)}

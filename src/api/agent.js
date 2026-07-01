@@ -991,40 +991,40 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const sessionId = body.conversationId || body.session_id || body.sessionId || null;
   const requestedMode = runtimeMode;
 
-  const [actorCtx, authUser] = await Promise.all([
-    resolveIamActorContext(request, env).catch(() => null),
-    ingestBypass ? Promise.resolve(null) : authUserFromRequest(request, env).catch(() => null),
-  ]);
-
-  let tenantId =
-    (session?.tenant_id != null && String(session.tenant_id).trim() !== ''
+  // Single auth pass: handleAgentApi already resolved identity from edge JWT / session.
+  const tenantId =
+    session?.tenant_id != null && String(session.tenant_id).trim() !== ''
       ? String(session.tenant_id).trim()
-      : null) ||
-    (actorCtx?.tenantId != null && String(actorCtx.tenantId).trim() !== ''
-      ? String(actorCtx.tenantId).trim()
-      : null);
-  if (!tenantId && session?.user_id) {
-    tenantId = await withD1Retry(() => fetchAuthUserTenantId(env, session.user_id)).catch(() => null);
-  }
+      : identity?.tenantId != null && String(identity.tenantId).trim() !== ''
+        ? String(identity.tenantId).trim()
+        : null;
   const userId =
     session?.user_id ||
     (ingestBypass ? null : identity?.userId) ||
-    actorCtx?.userId ||
     null;
-  const wsCache = {};
-  const bootstrapWorkspaceId = userId ? await resolveBootstrapWorkspaceIdForAgentApi(env, request, userId, wsCache) : null;
   let workspaceId =
     String(resolvedWorkspaceId || '').trim() ||
     String(session?.workspace_id || '').trim() ||
     String(body.workspace_id || '').trim() ||
-    (actorCtx?.workspaceId != null && String(actorCtx.workspaceId).trim() !== ''
-      ? String(actorCtx.workspaceId).trim()
+    (identity?.workspaceId != null && String(identity.workspaceId).trim() !== ''
+      ? String(identity.workspaceId).trim()
       : '') ||
     '';
-  if (!workspaceId) workspaceId = String(bootstrapWorkspaceId || '').trim();
   if (!workspaceId) return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
-  // All PTY execution paths MUST have an authenticated userId
   if (!userId) return jsonResponse({ error: 'UNAUTHENTICATED_USER' }, 401);
+
+  const chatAuthUser =
+    ingestBypass || !identity
+      ? { id: userId, tenant_id: tenantId, email: null }
+      : {
+          id: identity.userId,
+          tenant_id: tenantId,
+          email: identity.email ?? null,
+          name: identity.name ?? null,
+          role: identity.isSuperadmin ? 'superadmin' : undefined,
+          is_superadmin: identity.isSuperadmin ? 1 : 0,
+          person_uuid: identity.personUuid ?? null,
+        };
 
   scheduleChatSessionTitleInsert(env, ctx, {
     conversationId: sessionId,
@@ -1035,8 +1035,16 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     body,
   });
 
-  return startAgentChatEarlySse(async () => {
-    const chatIsSuperadmin = !!(identity?.isSuperadmin || authUser?.is_superadmin);
+  return startAgentChatEarlySse(async ({ emit, pipeResponse, streamLifecycle }) => {
+    const chatIsSuperadmin = !!(identity?.isSuperadmin || chatAuthUser?.is_superadmin);
+    if (sessionId) {
+      const { markChatTurnStatus } = await import('../core/agentsam-chat-sessions.js');
+      if (ctx?.waitUntil) {
+        ctx.waitUntil(markChatTurnStatus(env, sessionId, 'in_progress'));
+      } else {
+        void markChatTurnStatus(env, sessionId, 'in_progress');
+      }
+    }
     if (!ingestBypass && !chatIsSuperadmin && tenantId) {
       try {
         const { assertTenantSpendPolicy } = await import('../core/tenant-spend-policy.js');
@@ -1284,7 +1292,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     ]);
 
     if (surfacePreflight?.kind === 'execute') {
-      const actor = authUser || { id: userId, tenant_id: tenantId, email: null };
+      const actor = chatAuthUser || { id: userId, tenant_id: tenantId, email: null };
       return executeWorkflowAndStream(env, surfacePreflight.workflowKey, message, actor, workspaceId, ctx, {
         runtimeMode: requestedMode,
         browserContext: browserContextPayload,
@@ -1308,15 +1316,20 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
     kickoffModelTierMigration(env, ctx);
 
-    const agentChatResolvedContext = await buildAgentChatResolvedContext(env, {
-      request,
-      userId,
-      tenantId,
-      workspaceId,
-      workSessionId: body.work_session_id ?? body.workSessionId ?? session?.work_session_id ?? null,
-      sessionId,
-      userPolicy,
-    });
+    const { isSimpleAskMessage } = await import('../core/runtime-profile.js');
+    const casualChatTurn = isSimpleAskMessage(message) && !activeFileEnvelope;
+
+    const agentChatResolvedContext = casualChatTurn
+      ? null
+      : await buildAgentChatResolvedContext(env, {
+          request,
+          userId,
+          tenantId,
+          workspaceId,
+          workSessionId: body.work_session_id ?? body.workSessionId ?? session?.work_session_id ?? null,
+          sessionId,
+          userPolicy,
+        });
 
     const { executeAgentChatSpine } = await import('./agent-chat-spine.js');
     return executeAgentChatSpine(env, request, ctx, {
@@ -1327,7 +1340,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       userId,
       workspaceId,
       sessionId,
-      authUser,
+      authUser: chatAuthUser,
       subagentProfileRow,
       activeFileEnvelope,
       browserContextPayload,
@@ -1335,7 +1348,30 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       userPolicy,
       agentChatResolvedContext,
       quickstartBatch,
+      streamLifecycle,
     });
+  }, {
+    conversationId: sessionId,
+    userId,
+    workspaceId,
+    onStreamClose: async (result) => {
+      if (!sessionId || !env?.DB) return;
+      const { markChatTurnStatus } = await import('../core/agentsam-chat-sessions.js');
+      if (result?.saw_error) {
+        await markChatTurnStatus(env, sessionId, 'failed', String(result.reason || 'stream_error'));
+      } else if (!result?.saw_token && !result?.saw_done) {
+        await markChatTurnStatus(
+          env,
+          sessionId,
+          'interrupted',
+          'close_without_token_or_done',
+        );
+      } else if (result?.saw_done && !result?.saw_token) {
+        await markChatTurnStatus(env, sessionId, 'done_no_token', 'stream_done_no_text');
+      } else if (result?.saw_token) {
+        await markChatTurnStatus(env, sessionId, 'completed');
+      }
+    },
   });
 }
 

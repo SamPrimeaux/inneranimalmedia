@@ -123,7 +123,11 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     workspaceId,
   });
 
-  const projectContextBlock = await loadProjectContextSystemBlock(env, workspaceId);
+  const { isSimpleAskMessage } = await import('../core/runtime-profile.js');
+  const casualChatTurn = isSimpleAskMessage(message) && !activeFileEnvelope;
+  const projectContextBlock = casualChatTurn
+    ? ''
+    : await loadProjectContextSystemBlock(env, workspaceId);
 
   const skillRoute = await resolveSkillSpawnRouting(env, message, body, {
     sessionId,

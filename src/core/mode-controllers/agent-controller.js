@@ -2,7 +2,7 @@ import { jsonResponse } from '../responses.js';
 import { loadAgentSamUserPolicy } from '../agent-policy.js';
 import { newChatAgentRunId, scheduleAgentsamChatAgentRunStart } from '../agent-run-routing.js';
 import { fireAgentHooks } from '../hook-dispatcher.js';
-import { toolsManifestFromCompiledRows } from '../runtime-profile.js';
+import { toolsManifestFromCompiledRows, isSimpleAskMessage } from '../runtime-profile.js';
 import { executeRwsSpawnFanout, shouldRunRwsFanout } from '../rws-spawn-fanout.js';
 import { runtimeContextPayload, legacyContextPayload } from './runtime-context.js';
 import { resolveAgentChatLaneContextBlock } from '../agent-chat-lane-context.js';
@@ -134,6 +134,12 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       : [{ role: 'user', content: message }];
   const createSubagentFlow = resolveCreateSubagentFlow(chatMessages);
 
+  const skipHeavyContext =
+    !createSubagentFlow.active &&
+    !activeFileEnvelope &&
+    (profile.refined_route_key === 'simple_ask_greeting' ||
+      (profile.mode === 'agent' && isSimpleAskMessage(message)));
+
   const promptRouteRow = profile._prompt_route_row ?? null;
   let tools = toolsManifestFromCompiledRows(profile._compiled_tool_rows || []);
   if (activeFileEnvelope && env?.DB) {
@@ -147,6 +153,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   const rawBodyTaskType = body.task_type ?? body.taskType ?? null;
   const routeKeyPin = body.route_key ?? body.routeKey ?? profile.refined_route_key ?? null;
   const useCodemode =
+    !skipHeavyContext &&
     !createSubagentFlow.active &&
     shouldUseCodemodeForRequest(env, {
     agentLikeTooling:
@@ -187,12 +194,14 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
 
   const { buildSystemPrompt, runAgentToolLoop } = await import('../../api/agent.js');
   const minimalAsk =
-    profile.max_tools === 0 &&
-    !profile.context_policy.include_rag &&
-    !profile.context_policy.include_memory;
+    skipHeavyContext ||
+    (profile.max_tools === 0 &&
+      !profile.context_policy.include_rag &&
+      !profile.context_policy.include_memory);
 
   let contextBlock = '';
   const includeRag =
+    !skipHeavyContext &&
     !createSubagentFlow.active &&
     !minimalAsk &&
     profile.context_policy?.include_rag !== false &&
@@ -317,7 +326,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       'Add instrumentation when reproduction is needed; remove it after the fix is verified.';
   }
 
-  if (userId && !createSubagentFlow.active) {
+  if (userId && !createSubagentFlow.active && !skipHeavyContext) {
     try {
       const { buildGithubScopeSystemPromptLine } = await import('../github-repo-scope.js');
       const ghLine = await buildGithubScopeSystemPromptLine(env, userId);
@@ -329,7 +338,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     }
   }
 
-  if (workspaceId && !createSubagentFlow.active) {
+  if (workspaceId && !createSubagentFlow.active && !skipHeavyContext) {
     try {
       const {
         fetchWorkspaceChatBinding,
@@ -374,7 +383,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       'If the user asks you to fix or implement something, explain the likely approach and suggest switching to Agent or Debug.';
   }
 
-  if (profile.mode !== 'ask' && workspaceId) {
+  if (profile.mode !== 'ask' && workspaceId && !skipHeavyContext) {
     try {
       const { appendDeliveryWorkflowToPrompt } = await import('../agent-delivery-workflow.js');
       systemPrompt = await appendDeliveryWorkflowToPrompt(env, systemPrompt, {

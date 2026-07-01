@@ -2,6 +2,8 @@
  * Early SSE heartbeat for POST /api/agent/chat — return response headers before D1 preflight.
  */
 
+import { createChatStreamLifecycle } from './agent-chat-stream-audit.js';
+
 export const AGENT_CHAT_SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
   'Cache-Control': 'no-cache',
@@ -10,15 +12,29 @@ export const AGENT_CHAT_SSE_HEADERS = {
 };
 
 /**
- * @param {() => Promise<Response>} runPipeline
+ * @param {(ctx: {
+ *   emit: (type: string, payload?: Record<string, unknown>) => Promise<void>,
+ *   pipeResponse: (response: Response) => Promise<void>,
+ *   streamLifecycle: ReturnType<typeof createChatStreamLifecycle>,
+ * }) => Promise<Response>} runPipeline
+ * @param {{ conversationId?: string|null, userId?: string|null, workspaceId?: string|null, requestId?: string|null, onStreamClose?: (payload: Record<string, unknown>) => void|Promise<void> }} [meta]
  * @returns {Response}
  */
-export function startAgentChatEarlySse(runPipeline) {
+export function startAgentChatEarlySse(runPipeline, meta = {}) {
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
 
-  const emit = async (type, payload = {}) => {
+  const streamLifecycle = createChatStreamLifecycle({
+    layer: 'early_sse',
+    conversation_id: meta.conversationId ?? null,
+    user_id: meta.userId ?? null,
+    workspace_id: meta.workspaceId ?? null,
+    request_id: meta.requestId ?? null,
+  });
+  streamLifecycle.logOpen();
+
+  const rawEmit = async (type, payload = {}) => {
     try {
       await writer.write(
         encoder.encode(`data: ${JSON.stringify({ type, ...payload })}\n\n`),
@@ -27,6 +43,7 @@ export function startAgentChatEarlySse(runPipeline) {
       /* stream closed */
     }
   };
+  const emit = streamLifecycle.wrapEmit(rawEmit);
 
   const pipeResponse = async (response) => {
     if (!response) {
@@ -56,7 +73,10 @@ export function startAgentChatEarlySse(runPipeline) {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      if (value?.byteLength) await writer.write(value);
+      if (value?.byteLength) {
+        streamLifecycle.record('pipe_bytes', { bytes: value.byteLength });
+        await writer.write(value);
+      }
     }
   };
 
@@ -64,7 +84,7 @@ export function startAgentChatEarlySse(runPipeline) {
     try {
       await emit('thinking_start', {});
       await emit('status', { phase: 'preflight' });
-      const inner = await runPipeline({ emit, pipeResponse });
+      const inner = await runPipeline({ emit, pipeResponse, streamLifecycle });
       if (inner instanceof Response) {
         await pipeResponse(inner);
       }
@@ -73,6 +93,14 @@ export function startAgentChatEarlySse(runPipeline) {
       await emit('error', { message: String(e?.message || e || 'agent_chat_failed') });
       await emit('done', {});
     } finally {
+      const closePayload = streamLifecycle.finalize('early_sse_close');
+      if (typeof meta.onStreamClose === 'function') {
+        try {
+          await meta.onStreamClose(closePayload);
+        } catch (e) {
+          console.warn('[agent-chat-early-sse] onStreamClose', e?.message ?? e);
+        }
+      }
       writer.close().catch(() => {});
     }
   })();
