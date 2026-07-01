@@ -23,6 +23,9 @@ import { AgentPresenceCard } from '../../../features/mode-presence/AgentPresence
 import { SmoothProgressBar } from '../../shared/SmoothProgressBar';
 import '../../shared/smoothProgress.css';
 import { resolveWorkflowRunPresence } from './workflowRunPresence';
+import type { WorkflowRow, WorkflowRunState, WorkflowStepState } from './workflowRunTypes';
+
+export type { WorkflowRow, WorkflowRunState, WorkflowStepState } from './workflowRunTypes';
 
 function sseSpineRunId(d: { agent_run_id?: unknown; run_id?: unknown }): string {
   if (typeof d.agent_run_id === 'string' && d.agent_run_id.trim()) return d.agent_run_id.trim();
@@ -30,40 +33,7 @@ function sseSpineRunId(d: { agent_run_id?: unknown; run_id?: unknown }): string 
   return '';
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export type WorkflowRow = {
-  id: string;
-  workflow_key: string;
-  display_name: string;
-  description?: string | null;
-  risk_level?: string | null;
-  requires_approval?: number | boolean;
-  node_count?: number;
-  edge_count?: number;
-};
-
-export type WorkflowStepState = {
-  node_key: string;
-  node_type?: string;
-  status: 'pending' | 'running' | 'success' | 'failed' | 'approval_pending';
-  ok?: boolean;
-};
-
-export type WorkflowRunState = {
-  runId: string | null;
-  workflowKey: string | null;
-  status: 'idle' | 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'error';
-  stepsTotal: number;
-  stepsCompleted: number;
-  currentNodeKey: string | null;
-  steps: WorkflowStepState[];
-  approvalId: string | null;
-  errorMessage: string | null;
-  executionEngine?: 'sse' | 'durable' | null;
-};
-
-/** Compact workflow/multitask presence for chat thread + composer. */
+// ─── Components ───────────────────────────────────────────────────────────────
 export function WorkflowRunPresenceBanner({
   ledger,
   mode = 'multitask',

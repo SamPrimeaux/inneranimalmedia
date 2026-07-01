@@ -1,5 +1,5 @@
 import type { AgentMode, AgentPresenceState } from '../../../features/mode-presence/agentModePresenceMap';
-import type { WorkflowRunState } from './WorkflowRunBoard';
+import type { WorkflowRunState } from './workflowRunTypes';
 
 export type WorkflowRunPresenceView = {
   state: AgentPresenceState;
