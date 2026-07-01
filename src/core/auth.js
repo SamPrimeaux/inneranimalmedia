@@ -552,7 +552,7 @@ async function mintBrowserSessionToken(env, input) {
       : AUTH_SESSION_TTL_SECONDS;
   const featureFlags =
     input.featureFlags ??
-    (await loadFeatureFlagsFromD1(env, input.userId, input.tenantId));
+    (await loadFeatureFlagsCached(env, input.userId, input.tenantId).catch(() => ({})));
   const token = await mintEdgeSessionToken(env, {
     sessionId: input.sessionId,
     userId: input.userId,
@@ -1744,7 +1744,13 @@ export async function createLoginSession(request, env, userId, sessionProvider =
   });
   await syncAuthRevCache(env, userId, authRev);
 
-  return { sessionId, sessionToken };
+  return {
+    sessionId,
+    sessionToken,
+    tenantId: sessionFields.tenantId,
+    workspaceId: sessionFields.workspaceId,
+    d1SessionPersisted,
+  };
 }
 
 /**

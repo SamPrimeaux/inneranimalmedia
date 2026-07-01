@@ -21,6 +21,7 @@ import { upsertOauthToken } from '../core/oauth-token-store.js';
 import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 import { resolveCanonicalWorkspace } from './oauth.js';
 import { isMcpOAuthLoginChallengeResumePath } from './mcp-oauth-login-challenge.js';
+import { getPlatformWorkspaceEnvId } from '../core/platform-workspace-env.js';
 
 function oauthOrigin(url) {
   return url.origin || 'https://inneranimalmedia.com';
@@ -216,82 +217,103 @@ export async function finalizeInboundOAuth(env, request, input) {
     console.error(`[finalizeInboundOAuth/${provider}] createLoginSession failed`, e?.message ?? e);
     return { ok: false, error: 'session_failed' };
   }
-  const { sessionId, sessionToken } = normalizeLoginSessionResult(loginSession);
+  const {
+    sessionId,
+    sessionToken,
+    tenantId: sessionTenantId,
+    workspaceId: sessionWorkspaceId,
+    d1SessionPersisted,
+  } = normalizeLoginSessionResult(loginSession);
 
-  const tenantId = await resolveTenantAtLogin(env, authUserId).catch(() => null);
-  const workspaceId = await resolveCanonicalWorkspace(env, authUserId);
-  const sessionDate = new Date().toISOString().slice(0, 10);
-  try {
+  const ensuredRow = ensured.row && typeof ensured.row === 'object' ? ensured.row : {};
+  const tenantId =
+    sessionTenantId ??
+    (await resolveTenantAtLogin(env, authUserId).catch(() => null)) ??
+    (ensuredRow.active_tenant_id || ensuredRow.tenant_id || null);
+  const workspaceId =
+    sessionWorkspaceId ??
+    (await resolveCanonicalWorkspace(env, authUserId)) ??
+    getPlatformWorkspaceEnvId(env) ??
+    (ensuredRow.active_workspace_id || ensuredRow.default_workspace_id || null);
+
+  if (!d1SessionPersisted) {
+    console.warn(
+      `[finalizeInboundOAuth/${provider}] post-login D1 side effects skipped during overload`,
+    );
+  } else {
+    const sessionDate = new Date().toISOString().slice(0, 10);
+    try {
+      await env.DB.prepare(`
+        INSERT OR IGNORE INTO work_sessions (
+          session_id, user_id, tenant_id, workspace_id,
+          started_at, last_activity_at, page_context
+        ) VALUES (?, ?, ?, ?, unixepoch(), unixepoch(), ?)
+      `).bind(
+        sessionId,
+        authUserId,
+        tenantId ?? null,
+        workspaceId ?? null,
+        pageContext,
+      ).run();
+    } catch (e) {
+      console.warn(`[finalizeInboundOAuth/${provider}] work_sessions insert failed`, e?.message ?? e);
+    }
     await env.DB.prepare(`
-      INSERT OR IGNORE INTO work_sessions (
-        session_id, user_id, tenant_id, workspace_id,
-        started_at, last_activity_at, page_context
-      ) VALUES (?, ?, ?, ?, unixepoch(), unixepoch(), ?)
+      UPDATE auth_sessions
+      SET workspace_id = ?, work_session_id = ?
+      WHERE id = ?
     `).bind(
+      workspaceId ?? null,
       sessionId,
+      sessionId,
+    ).run().catch(() => {});
+    await env.DB.prepare(`
+      INSERT INTO time_entries
+        (user_id, tenant_id, workspace_id, description,
+         source, work_session_id, started_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'auto', ?, unixepoch(), unixepoch(), unixepoch())
+    `).bind(
       authUserId,
       tenantId ?? null,
       workspaceId ?? null,
-      pageContext,
-    ).run();
-  } catch (e) {
-    console.warn(`[finalizeInboundOAuth/${provider}] work_sessions insert failed`, e?.message ?? e);
-  }
-  await env.DB.prepare(`
-    UPDATE auth_sessions
-    SET workspace_id = ?, work_session_id = ?
-    WHERE id = ?
-  `).bind(
-    workspaceId ?? null,
-    sessionId,
-    sessionId,
-  ).run().catch(() => {});
-  await env.DB.prepare(`
-    INSERT INTO time_entries
-      (user_id, tenant_id, workspace_id, description,
-       source, work_session_id, started_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, 'auto', ?, unixepoch(), unixepoch(), unixepoch())
-  `).bind(
-    authUserId,
-    tenantId ?? null,
-    workspaceId ?? null,
-    'Login session — ' + sessionDate,
-    sessionId,
-  ).run().catch(() => {});
-  await env.DB.prepare(`
-    INSERT INTO agentsam_analytics
-      (tenant_id, workspace_id, period, period_date,
-       total_sessions, computed_at)
-    VALUES (?, ?, 'session', ?, 1, unixepoch())
-    ON CONFLICT(tenant_id, workspace_id, period, period_date)
-    DO UPDATE SET
-      total_sessions = total_sessions + 1,
-      computed_at = unixepoch()
-  `).bind(
-    tenantId ?? null,
-    workspaceId ?? 'ws_unknown',
-    sessionDate,
-  ).run().catch(() => {});
-  const existingProfile = await env.DB.prepare(
-    `SELECT id FROM agentsam_subagent_profile WHERE user_id = ? LIMIT 1`,
-  ).bind(authUserId).first().catch(() => null);
-  if (!existingProfile) {
-    await env.DB.prepare(`
-      INSERT INTO agentsam_subagent_profile
-        (id, user_id, workspace_id, tenant_id, slug,
-         display_name, description, icon, agent_type,
-         personality_tone, is_active, is_platform_global)
-      VALUES (
-        'sub_' || lower(hex(randomblob(8))),
-        ?, ?, ?, 'agent-sam',
-        'Agent Sam', 'Default AI assistant', 'robot',
-        'assistant', 'professional', 1, 0
-      )
-    `).bind(
-      authUserId,
-      workspaceId ?? '',
-      tenantId ?? null,
+      'Login session — ' + sessionDate,
+      sessionId,
     ).run().catch(() => {});
+    await env.DB.prepare(`
+      INSERT INTO agentsam_analytics
+        (tenant_id, workspace_id, period, period_date,
+         total_sessions, computed_at)
+      VALUES (?, ?, 'session', ?, 1, unixepoch())
+      ON CONFLICT(tenant_id, workspace_id, period, period_date)
+      DO UPDATE SET
+        total_sessions = total_sessions + 1,
+        computed_at = unixepoch()
+    `).bind(
+      tenantId ?? null,
+      workspaceId ?? 'ws_unknown',
+      sessionDate,
+    ).run().catch(() => {});
+    const existingProfile = await env.DB.prepare(
+      `SELECT id FROM agentsam_subagent_profile WHERE user_id = ? LIMIT 1`,
+    ).bind(authUserId).first().catch(() => null);
+    if (!existingProfile) {
+      await env.DB.prepare(`
+        INSERT INTO agentsam_subagent_profile
+          (id, user_id, workspace_id, tenant_id, slug,
+           display_name, description, icon, agent_type,
+           personality_tone, is_active, is_platform_global)
+        VALUES (
+          'sub_' || lower(hex(randomblob(8))),
+          ?, ?, ?, 'agent-sam',
+          'Agent Sam', 'Default AI assistant', 'robot',
+          'assistant', 'professional', 1, 0
+        )
+      `).bind(
+        authUserId,
+        workspaceId ?? '',
+        tenantId ?? null,
+      ).run().catch(() => {});
+    }
   }
 
   return { ok: true, authUserId, sessionId, sessionToken, tenantId };
