@@ -219,10 +219,12 @@ fi
 echo "→ Embedding sitemap HTML for Worker bundle..."
 node "$REPO_ROOT/scripts/embed-sitemap-html.mjs"
 
-# D1: apply pending migrations (d1_migrations ledger vs migrations/*.sql). Never wrangler migrations apply.
+# D1: optional pending migrations (d1_migrations ledger vs migrations/*.sql). Never wrangler migrations apply.
+# Paused by default — auto-apply blocked deploys when D1 is overloaded. Opt in when you have new SQL:
+#   D1_APPLY_PENDING=apply npm run deploy:full
 if [[ "${SKIP_D1_MIGRATIONS:-0}" != "1" ]]; then
-  echo "→ D1 pending migrations (ledger diff; d1 execute --file)…"
-  D1_APPLY_MODE="${D1_APPLY_PENDING:-apply}"
+  echo "→ D1 pending migrations (paused by default; set D1_APPLY_PENDING=apply to run)…"
+  D1_APPLY_MODE="${D1_APPLY_PENDING:-skip}"
   # Operator deploy (deploy:full): allow scoped DML/DDL in migration files unless explicitly disabled.
   D1_APPLY_ARGS=()
   case "$D1_APPLY_MODE" in

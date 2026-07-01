@@ -820,11 +820,6 @@ const App: React.FC = () => {
     [location.pathname, location.search, agentPosition, isNarrowViewport, isCmsFullscreen],
   );
 
-  const agentHomeAtmosphericChat = useMemo(
-    () => isAgentBareHeroHome && agentChatLayout === 'center',
-    [isAgentBareHeroHome, agentChatLayout],
-  );
-
   const showAgentWorkbenchTabs = useMemo(
     () => shouldShowAgentWorkbenchTabs({ pathname: location.pathname, search: location.search }),
     [location.pathname, location.search],
@@ -1065,6 +1060,15 @@ const App: React.FC = () => {
   // Tabs: Workspace matches default activeTab (welcome had no panel — stranded tab id removed from defaults).
   const [openTabs, setOpenTabs] = useState<TabId[]>(['Workspace']);
   const [activeTab, setActiveTab] = useState<TabId>('Workspace');
+
+  /** Hero scene only when chat is in a side rail — center chat IS the home (no portal shell). */
+  const showAgentHomeScene = useMemo(
+    () =>
+      isAgentBareHeroHome &&
+      activeTab === 'Workspace' &&
+      agentChatLayout !== 'center',
+    [isAgentBareHeroHome, activeTab, agentChatLayout],
+  );
   
   // Derived from EditorContext to minimize massive refactor breakage
   const activeFile = tabs.find(t => t.id === activeTabId) || null;
@@ -4738,7 +4742,7 @@ const App: React.FC = () => {
                       </div>
                   )}
 
-                  {isAgentBareHeroHome && activeTab === 'Workspace' && (
+                  {showAgentHomeScene && (
                       <div className="absolute inset-0 z-10 flex flex-col items-stretch min-h-0 min-w-0 w-full">
                           <AgentHome
                             displayName={agentHomeGreetingName}
@@ -4809,9 +4813,7 @@ const App: React.FC = () => {
                       narrowNeedsBack={narrowNeedsBack}
                       mobileEdgeSwipeHandlers={mobileEdgeSwipeHandlers}
                       productLabel={PRODUCT_NAME}
-                      atmosphericHomeMode={agentHomeAtmosphericChat}
-                      composerPortalTarget={agentHomeAtmosphericChat ? agentHomeComposerHost : null}
-                      messagesPortalTarget={agentHomeAtmosphericChat ? agentHomeMessagesHost : null}
+                      atmosphericHomeMode={false}
                     />
                   ) : null}
 

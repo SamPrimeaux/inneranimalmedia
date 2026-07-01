@@ -11,8 +11,9 @@
  *
  * Env:
  *   D1_MIGRATION_MIN=450          numeric floor (default 450)
- *   D1_ALLOW_DESTRUCTIVE=1        allow DELETE/DROP migrations (deploy:full defaults to 1; set 0 to block)
- *   SKIP_D1_MIGRATIONS=1          (deploy) skip step entirely
+ *   D1_ALLOW_DESTRUCTIVE=1        allow DELETE/DROP migrations (when --apply is used)
+ *   D1_APPLY_PENDING=apply        (deploy) opt in — deploy:full defaults to skip
+ *   SKIP_D1_MIGRATIONS=1          (deploy) skip step entirely (same as default skip)
  */
 import { resolve } from 'path';
 import {
