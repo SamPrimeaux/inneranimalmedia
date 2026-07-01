@@ -41,6 +41,18 @@ import { filterDeployPaletteRows } from '../src/lib/deployPaletteItems';
 import { IAM_GIT_SYNC_PUBLISH, IAM_OPEN_CONNECTION_MENU, IAM_OPEN_GIT_REPO_MENU } from '../src/lib/openCommandPalette';
 import type { OpenCommandPaletteDetail } from '../src/lib/openCommandPalette';
 import { isGithubCloneQuery, parseGithubCloneRef } from '../src/lib/githubClone';
+import {
+  PALETTE_CONNECT_CLOUDFLARE,
+  PALETTE_R2_PAGE_SIZE,
+  fetchPaletteCloudflareCatalog,
+  fetchPaletteD1Databases,
+  fetchPaletteHyperdriveConfigs,
+  fetchPaletteR2Buckets,
+  fetchPaletteVectorizeIndexes,
+  filterPaletteR2Buckets,
+  probePaletteCloudflareConnected,
+  type PaletteCfCatalog,
+} from '../src/lib/paletteCloudflare';
 
 export type UnifiedSearchNavigate =
   | { kind: 'table'; name: string }
@@ -51,12 +63,14 @@ export type UnifiedSearchNavigate =
   | { kind: 'column'; sql: string }
   | { kind: 'file'; path: string };
 
-type SourceChipId = 'all' | 'r2' | 'd1' | 'commands' | 'workflows' | 'chats';
+type SourceChipId = 'all' | 'planes' | 'r2' | 'd1' | 'commands' | 'workflows' | 'chats';
 
 type PaletteCategory =
   | 'resource'
   | 'r2'
   | 'd1'
+  | 'hyperdrive'
+  | 'vectorize'
   | 'chat'
   | 'deploy'
   | 'command'
@@ -64,7 +78,8 @@ type PaletteCategory =
   | 'file'
   | 'tip'
   | 'search'
-  | 'github_clone';
+  | 'github_clone'
+  | 'connect';
 
 type PaletteItem = {
   id: string;
@@ -85,6 +100,9 @@ type PaletteItem = {
   /** Unified-search row passthrough */
   legacyRow?: LegacyUnifiedRow;
   cloneRef?: string;
+  d1DatabaseName?: string;
+  hyperdriveId?: string;
+  vectorizeIndexName?: string;
 };
 
 type CommandSection = { key: string; label: string; rows: PaletteItem[] };
@@ -99,10 +117,11 @@ type LegacyUnifiedRow = {
   summary?: string;
 };
 
-type QueryMode = 'default' | 'r2' | 'd1' | 'command' | 'workflow' | 'file' | 'search' | 'clone';
+type QueryMode = 'default' | 'planes' | 'r2' | 'd1' | 'hyperdrive' | 'vectorize' | 'command' | 'workflow' | 'file' | 'search' | 'clone';
 
 const SOURCE_CHIPS: { id: SourceChipId; label: string; Icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { id: 'all', label: 'All', Icon: LayoutGrid },
+  { id: 'planes', label: 'Planes', Icon: Layers },
   { id: 'r2', label: 'R2', Icon: HardDrive },
   { id: 'd1', label: 'D1', Icon: Database },
   { id: 'commands', label: 'Commands', Icon: Terminal },
@@ -110,13 +129,123 @@ const SOURCE_CHIPS: { id: SourceChipId; label: string; Icon: React.ComponentType
   { id: 'chats', label: 'Chats', Icon: MessageSquare },
 ];
 
+const CF_DATA_TIP_PREFIXES = ['r2', 'd1', 'planes', 'hyperdrive', 'vectorize', 'hd', 'vx'];
+
 const SEARCH_TIPS: PaletteItem[] = [
+  { id: 'tip-planes', category: 'tip', title: 'planes:', subtitle: 'D1, R2, Hyperdrive & Vectorize in your account' },
   { id: 'tip-r2', category: 'tip', title: 'r2:', subtitle: 'Search R2 buckets' },
-  { id: 'tip-d1', category: 'tip', title: 'd1:', subtitle: 'D1 & data stores' },
+  { id: 'tip-d1', category: 'tip', title: 'd1:', subtitle: 'List D1 databases in your account' },
+  { id: 'tip-hd', category: 'tip', title: 'hyperdrive:', subtitle: 'List Hyperdrive configs' },
+  { id: 'tip-vx', category: 'tip', title: 'vectorize:', subtitle: 'List Vectorize indexes' },
   { id: 'tip-cmd', category: 'tip', title: '/', subtitle: 'Wrangler commands (R2, D1, KV, Workers…)' },
   { id: 'tip-wf', category: 'tip', title: 'wf', subtitle: 'D1 agentsam_workflows' },
   { id: 'tip-at', category: 'tip', title: '@', subtitle: 'Recent files' },
 ];
+
+function isCfDataTip(title: string): boolean {
+  const t = title.replace(/:$/, '').toLowerCase();
+  return CF_DATA_TIP_PREFIXES.includes(t);
+}
+
+function paletteSearchTips(cfConnected: boolean | null): PaletteItem[] {
+  const connected = cfConnected === true;
+  const tips = SEARCH_TIPS.filter((tip) => connected || !isCfDataTip(tip.title));
+  if (!connected) {
+    return [{ ...PALETTE_CONNECT_CLOUDFLARE }, ...tips];
+  }
+  return tips;
+}
+
+function r2CatalogToPaletteItems(rows: { name: string; bound: boolean }[]): PaletteItem[] {
+  return rows.map((b) => ({
+    id: `r2-${b.name}`,
+    category: 'r2' as const,
+    title: b.name,
+    subtitle: b.bound ? 'Bound to this Worker' : 'Account bucket',
+    bound: b.bound,
+    r2Bucket: b.name,
+  }));
+}
+
+function d1RowsToPalette(
+  rows: { name: string; uuid?: string; bound?: boolean }[],
+): PaletteItem[] {
+  return rows.map((db) => ({
+    id: `d1-db-${db.name}`,
+    category: 'd1' as const,
+    title: db.name,
+    subtitle: db.bound ? 'D1 database · bound to Worker' : 'D1 database · your Cloudflare account',
+    bound: db.bound,
+    d1DatabaseName: db.name,
+    dbTarget: 'd1' as const,
+  }));
+}
+
+function hyperdriveRowsToPalette(
+  rows: { id: string; name: string; bound?: boolean }[],
+): PaletteItem[] {
+  return rows.map((cfg) => ({
+    id: `hd-${cfg.id}`,
+    category: 'hyperdrive' as const,
+    title: cfg.name,
+    subtitle: cfg.bound ? 'Hyperdrive · bound to Worker' : 'Hyperdrive config · your account',
+    bound: cfg.bound,
+    hyperdriveId: cfg.id,
+    dbTarget: 'hyperdrive' as const,
+  }));
+}
+
+function vectorizeRowsToPalette(
+  rows: { name: string; description?: string | null; bound?: boolean }[],
+): PaletteItem[] {
+  return rows.map((idx) => ({
+    id: `vx-${idx.name}`,
+    category: 'vectorize' as const,
+    title: idx.name,
+    subtitle: idx.bound
+      ? 'Vectorize index · bound to Worker'
+      : idx.description || 'Vectorize index · your account',
+    bound: idx.bound,
+    vectorizeIndexName: idx.name,
+  }));
+}
+
+function buildPlaneSectionsFromCatalog(
+  catalog: {
+    d1?: { name: string; id?: string; bound?: boolean }[];
+    r2?: { name: string; bound?: boolean }[];
+    hyperdrive?: { id: string; name: string; bound?: boolean }[];
+    vectorize?: { name: string; description?: string | null; bound?: boolean }[];
+  },
+  searchTerm: string,
+  r2PageNum: number,
+): { sections: CommandSection[]; r2Catalog: { name: string; bound: boolean }[] } {
+  const term = searchTerm.trim().toLowerCase();
+  const match = (name: string) => !term || name.toLowerCase().includes(term);
+
+  const sections: CommandSection[] = [];
+
+  const d1Rows = d1RowsToPalette((catalog.d1 || []).filter((db) => match(db.name)));
+  if (d1Rows.length) sections.push({ key: 'd1', label: 'D1 Databases', rows: d1Rows });
+
+  const r2Sorted = filterPaletteR2Buckets(
+    (catalog.r2 || []).map((b) => ({ name: b.name, bound: !!b.bound })),
+    searchTerm,
+  );
+  const r2Start = (r2PageNum - 1) * PALETTE_R2_PAGE_SIZE;
+  const r2PageRows = r2CatalogToPaletteItems(r2Sorted.slice(r2Start, r2Start + PALETTE_R2_PAGE_SIZE));
+  if (r2PageRows.length) sections.push({ key: 'r2', label: 'R2 Buckets', rows: r2PageRows });
+
+  const hdRows = hyperdriveRowsToPalette(
+    (catalog.hyperdrive || []).filter((c) => match(c.name || c.id)),
+  );
+  if (hdRows.length) sections.push({ key: 'hyperdrive', label: 'Hyperdrive', rows: hdRows });
+
+  const vxRows = vectorizeRowsToPalette((catalog.vectorize || []).filter((i) => match(i.name)));
+  if (vxRows.length) sections.push({ key: 'vectorize', label: 'Vectorize', rows: vxRows });
+
+  return { sections, r2Catalog: r2Sorted };
+}
 
 function deployRowToPalette(row: ReturnType<typeof filterDeployPaletteRows>[number]): PaletteItem {
   return {
@@ -163,6 +292,22 @@ function parseQueryMode(raw: string): { mode: QueryMode; term: string } {
   if (lower === 'r2' || lower.startsWith('r2 ')) return { mode: 'r2', term: q.replace(/^r2\s*/i, '').trim() };
   if (lower.startsWith('d1:')) return { mode: 'd1', term: q.slice(3).trim() };
   if (lower === 'd1' || lower.startsWith('d1 ')) return { mode: 'd1', term: q.replace(/^d1\s*/i, '').trim() };
+  if (lower.startsWith('planes:')) return { mode: 'planes', term: q.slice(7).trim() };
+  if (lower === 'planes' || lower.startsWith('planes ')) {
+    return { mode: 'planes', term: q.replace(/^planes\s*/i, '').trim() };
+  }
+  if (lower.startsWith('hyperdrive:') || lower.startsWith('hd:')) {
+    return { mode: 'hyperdrive', term: q.replace(/^(hyperdrive|hd):/i, '').trim() };
+  }
+  if (lower === 'hyperdrive' || lower === 'hd' || lower.startsWith('hyperdrive ') || lower.startsWith('hd ')) {
+    return { mode: 'hyperdrive', term: q.replace(/^(hyperdrive|hd)\s*/i, '').trim() };
+  }
+  if (lower.startsWith('vectorize:') || lower.startsWith('vx:')) {
+    return { mode: 'vectorize', term: q.replace(/^(vectorize|vx):/i, '').trim() };
+  }
+  if (lower === 'vectorize' || lower === 'vx' || lower.startsWith('vectorize ') || lower.startsWith('vx ')) {
+    return { mode: 'vectorize', term: q.replace(/^(vectorize|vx)\s*/i, '').trim() };
+  }
   if (q.startsWith('/')) return { mode: 'command', term: q.slice(1).trim() };
   if (lower.startsWith('wf:') || lower === 'wf' || lower.startsWith('wf ')) {
     return { mode: 'workflow', term: q.replace(/^wf:?/i, '').trim() };
@@ -176,20 +321,18 @@ function parseQueryMode(raw: string): { mode: QueryMode; term: string } {
 }
 
 function chipMatchesCategory(chip: SourceChipId, category: PaletteCategory): boolean {
-  if (chip === 'all') return category !== 'tip';
+  if (chip === 'all') return category !== 'tip' && category !== 'connect';
   if (chip === 'r2') return category === 'r2' || category === 'resource';
   if (chip === 'd1') return category === 'd1';
+  if (chip === 'planes') {
+    return category === 'd1' || category === 'r2' || category === 'hyperdrive' || category === 'vectorize';
+  }
   if (chip === 'commands') return category === 'command' || category === 'deploy';
   if (chip === 'workflows') return category === 'workflow';
   if (chip === 'chats') return category === 'chat';
   return true;
 }
 
-function matchesTerm(item: PaletteItem, term: string): boolean {
-  if (!term) return true;
-  const hay = `${item.title} ${item.subtitle || ''}`.toLowerCase();
-  return hay.includes(term.toLowerCase());
-}
 
 async function fetchJson<T>(url: string): Promise<T | null> {
   try {
@@ -199,122 +342,6 @@ async function fetchJson<T>(url: string): Promise<T | null> {
   } catch {
     return null;
   }
-}
-
-async function fetchBoundR2Buckets(): Promise<string[]> {
-  const fromBuckets = await fetchJson<{ buckets?: string[] }>('/api/r2/buckets');
-  if (fromBuckets?.buckets?.length) return fromBuckets.buckets.map(String);
-  const fromList = await fetchJson<{ buckets?: string[] }>('/api/r2/list?buckets=true');
-  if (fromList?.buckets?.length) return fromList.buckets.map(String);
-  return [];
-}
-
-async function fetchAllR2BucketNames(): Promise<{ name: string; bound: boolean; object_count?: number }[]> {
-  const bound = await fetchBoundR2Buckets();
-  const boundSet = new Set(bound);
-  let account: string[] = [];
-
-  const fromAll = await fetchJson<{ buckets?: string[]; bucket_names?: string[] }>(
-    '/api/r2/list?buckets=true&all=true',
-  );
-  if (fromAll) {
-    account = (fromAll.buckets || fromAll.bucket_names || []).map(String);
-  }
-  if (!account.length) {
-    const storage = await fetchJson<{ buckets?: { storage_name?: string; bucket_name?: string; object_count?: number }[] }>(
-      '/api/storage/buckets',
-    );
-    if (storage?.buckets?.length) {
-      account = storage.buckets
-        .map((b) => String(b.storage_name || b.bucket_name || '').trim())
-        .filter(Boolean);
-    }
-  }
-
-  const merged: string[] = [...bound];
-  for (const n of account) {
-    if (!boundSet.has(n)) merged.push(n);
-  }
-
-  const withCounts = await Promise.all(
-    merged.slice(0, 80).map(async (name) => {
-      const stats = await fetchJson<{ object_count?: number }>(
-        `/api/r2/stats?bucket=${encodeURIComponent(name)}`,
-      );
-      return {
-        name,
-        bound: boundSet.has(name),
-        object_count: typeof stats?.object_count === 'number' ? stats.object_count : undefined,
-      };
-    }),
-  );
-  return withCounts;
-}
-
-function sortBuckets(
-  rows: { name: string; bound: boolean }[],
-  term: string,
-): { name: string; bound: boolean; object_count?: number }[] {
-  const t = term.toLowerCase();
-  const filtered = t ? rows.filter((r) => r.name.toLowerCase().includes(t)) : rows;
-  const bound = filtered.filter((r) => r.bound);
-  const rest = filtered.filter((r) => !r.bound).sort((a, b) => a.name.localeCompare(b.name));
-  return [...bound, ...rest];
-}
-
-function buildDefaultDataStores(): PaletteItem[] {
-  return [
-    {
-      id: 'db-d1',
-      category: 'd1',
-      title: 'inneranimalmedia-business',
-      subtitle: 'Cloudflare D1 · platform database',
-      dbTarget: 'd1',
-    },
-    {
-      id: 'db-hyperdrive',
-      category: 'd1',
-      title: 'Supabase (Hyperdrive)',
-      subtitle: 'Postgres mirror · session-scoped',
-      dbTarget: 'hyperdrive',
-    },
-    {
-      id: 'db-vectorize',
-      category: 'd1',
-      title: 'Vectorize',
-      subtitle: 'Embeddings index · tenant registry',
-    },
-    {
-      id: 'db-autorag',
-      category: 'd1',
-      title: 'AutoRAG',
-      subtitle: 'RAG pipeline · autorag bucket',
-    },
-  ];
-}
-
-function buildDataStoresForWorkspace(activeWorkspace: {
-  id?: string;
-  database_studio_name?: string | null;
-  slug?: string | null;
-  github_repo?: string | null;
-} | null): PaletteItem[] {
-  const collabDb = expectedDatabaseNameForWorkspace(activeWorkspace);
-  if (collabDb) {
-    return [
-      {
-        id: `db-collab-${collabDb}`,
-        category: 'd1',
-        title: collabDb,
-        subtitle: 'Cloudflare D1 · workspace database',
-        dbTarget: 'd1',
-      },
-    ];
-  }
-  if (isPlatformWorkspace(activeWorkspace)) {
-    return buildDefaultDataStores();
-  }
-  return buildDefaultDataStores();
 }
 
 function normalizeLegacySearchRows(data: Record<string, unknown>): LegacyUnifiedRow[] {
@@ -401,7 +428,10 @@ function legacyToPalette(row: LegacyUnifiedRow): PaletteItem | null {
 function sectionTitle(mode: QueryMode, chip: SourceChipId, hasQuery: boolean): string | null {
   if (!hasQuery && mode === 'default') return null;
   if (mode === 'r2') return 'R2 Buckets';
-  if (mode === 'd1') return 'Databases';
+  if (mode === 'd1') return 'D1 Databases';
+  if (mode === 'planes') return 'Data planes';
+  if (mode === 'hyperdrive') return 'Hyperdrive';
+  if (mode === 'vectorize') return 'Vectorize';
   if (mode === 'command') return 'Commands';
   if (mode === 'workflow') return 'Workflows';
   if (mode === 'file') return 'Files';
@@ -416,6 +446,10 @@ function rowIcon(category: PaletteCategory) {
       return HardDrive;
     case 'd1':
       return Database;
+    case 'hyperdrive':
+      return Router;
+    case 'vectorize':
+      return Layers;
     case 'command':
       return Terminal;
     case 'workflow':
@@ -426,6 +460,8 @@ function rowIcon(category: PaletteCategory) {
       return Layers;
     case 'file':
       return FileText;
+    case 'connect':
+      return HardDrive;
     default:
       return Search;
   }
@@ -530,7 +566,12 @@ export const UnifiedSearchBar: React.FC<{
   const [recentSearches, setRecentSearches] = useState<PaletteItem[]>([]);
   const [active, setActive] = useState(0);
   const [sourceChip, setSourceChip] = useState<SourceChipId>('all');
+  const [cfConnected, setCfConnected] = useState<boolean | null>(null);
+  const [r2Catalog, setR2Catalog] = useState<{ name: string; bound: boolean }[]>([]);
+  const [r2Page, setR2Page] = useState(1);
   const [commandSections, setCommandSections] = useState<CommandSection[]>([]);
+  const [planeSections, setPlaneSections] = useState<CommandSection[]>([]);
+  const [planesCatalog, setPlanesCatalog] = useState<PaletteCfCatalog | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [cloneBusy, setCloneBusy] = useState(false);
   const [bucketMenuOpen, setBucketMenuOpen] = useState(false);
@@ -580,27 +621,18 @@ export const UnifiedSearchBar: React.FC<{
   const loadDefault = useCallback(async () => {
     setLoading(true);
     try {
-      const [bucketsPayload, sessions, deploys, vectors, recentRes] = await Promise.all([
-        workspaceFetchJson<{ buckets?: string[]; bound?: string[] }>('/api/r2/buckets'),
+      const connected = await probePaletteCloudflareConnected(workspaceFetchInit);
+      setCfConnected(connected);
+
+      const [sessions, deploys, recentRes] = await Promise.all([
         workspaceFetchJson<
           { id?: string; name?: string; message_count?: number; started_at?: number }[]
         >('/api/agent/sessions?limit=5').then((d) => (Array.isArray(d) ? d : [])),
         workspaceFetchJson<{ deployments?: { worker_name?: string; environment?: string; status?: string; deployed_at?: string; deployment_notes?: string }[] }>(
           '/api/overview/deployments?limit=5',
         ).then((d) => (d?.deployments || []).slice(0, 5)),
-        isPlatformWorkspace(activeWorkspace)
-          ? workspaceFetchJson<{ indexes?: { display_name?: string; binding_name?: string; index_name?: string }[] }>(
-              '/api/storage/vectors',
-            )
-          : Promise.resolve(null),
         fetch('/api/unified-search/recent', { credentials: 'same-origin', ...workspaceFetchInit() }),
       ]);
-
-      const buckets = bucketsPayload?.buckets?.length
-        ? bucketsPayload.buckets.map(String)
-        : collabR2Bucket
-          ? [collabR2Bucket]
-          : [];
 
       const recentItems: PaletteItem[] = [];
       if (recentRes.ok) {
@@ -619,27 +651,6 @@ export const UnifiedSearchBar: React.FC<{
         }
       }
       setRecentSearches(recentItems);
-
-      const resourceRows: PaletteItem[] = buckets.slice(0, 6).map((name) => ({
-        id: `res-r2-${name}`,
-        category: 'resource',
-        title: name,
-        subtitle: collabR2Bucket && name === collabR2Bucket
-          ? 'R2 bucket · workspace storage'
-          : 'R2 bucket · Worker binding',
-        r2Bucket: name,
-        bound: true,
-      }));
-
-      const stores = buildDataStoresForWorkspace(activeWorkspace);
-      if (vectors?.indexes?.[0]) {
-        const vx = vectors.indexes[0];
-        stores[2] = {
-          ...stores[2],
-          title: vx.display_name || vx.index_name || vx.binding_name || 'Vectorize',
-          subtitle: `${vx.binding_name || 'VECTORIZE'} · embeddings`,
-        };
-      }
 
       const workspaceSlug = activeWorkspace?.slug?.trim().toLowerCase();
       const chatRows: PaletteItem[] = sessions.slice(0, 5).map((s) => ({
@@ -662,107 +673,151 @@ export const UnifiedSearchBar: React.FC<{
           return !worker || worker === workspaceSlug || worker.includes(workspaceSlug);
         })
         .map((d, i) => {
-        const title = [d.worker_name, d.environment].filter(Boolean).join(' · ') || 'Deployment';
-        const summary = [d.status, d.deployed_at, d.deployment_notes].filter(Boolean).join(' — ');
-        return {
-          id: `deploy-${i}-${title}`,
-          category: 'deploy',
-          title,
-          subtitle: summary,
-          deploySummary: summary || title,
-        };
-      });
+          const title = [d.worker_name, d.environment].filter(Boolean).join(' · ') || 'Deployment';
+          const summary = [d.status, d.deployed_at, d.deployment_notes].filter(Boolean).join(' — ');
+          return {
+            id: `deploy-${i}-${title}`,
+            category: 'deploy',
+            title,
+            subtitle: summary,
+            deploySummary: summary || title,
+          };
+        });
 
-      setItems([...resourceRows, ...stores, ...chatRows, ...deployRows]);
+      setItems([...chatRows, ...deployRows]);
     } finally {
       setLoading(false);
     }
-  }, [activeWorkspace, collabR2Bucket, workspaceFetchInit, workspaceFetchJson]);
+  }, [activeWorkspace, workspaceFetchInit, workspaceFetchJson]);
 
   const loadR2 = useCallback(async (searchTerm: string) => {
     setLoading(true);
     try {
-      if (collabR2Bucket && !isPlatformWorkspace(activeWorkspace)) {
-        const name = collabR2Bucket;
-        if (!searchTerm || name.toLowerCase().includes(searchTerm.toLowerCase())) {
-          setItems([
-            {
-              id: `r2-${name}`,
-              category: 'r2',
-              title: name,
-              subtitle: 'Workspace R2 bucket',
-              bound: true,
-              r2Bucket: name,
-            },
-          ]);
-        } else {
-          setItems([]);
-        }
+      setPlaneSections([]);
+      const connected = await probePaletteCloudflareConnected(workspaceFetchInit);
+      setCfConnected(connected);
+      if (!connected) {
+        setR2Catalog([]);
+        setR2Page(1);
+        setItems([{ ...PALETTE_CONNECT_CLOUDFLARE }]);
         return;
       }
-      const fromBuckets = await workspaceFetchJson<{ buckets?: string[]; bound?: string[] }>(
-        '/api/r2/buckets',
-      );
-      const bound = (fromBuckets?.bound || fromBuckets?.buckets || []).map(String);
-      const boundSet = new Set(bound);
-      let account: string[] = bound;
-      if (isPlatformWorkspace(activeWorkspace)) {
-        const fromAll = await workspaceFetchJson<{ buckets?: string[]; bucket_names?: string[] }>(
-          '/api/r2/list?buckets=true&all=true',
-        );
-        if (fromAll) {
-          account = (fromAll.buckets || fromAll.bucket_names || []).map(String);
-        }
-      }
-      const merged: string[] = [...bound];
-      for (const n of account) {
-        if (!boundSet.has(n)) merged.push(n);
-      }
-      const rows = merged.slice(0, 80).map((name) => ({
-        name,
-        bound: boundSet.has(name),
-      }));
-      const sorted = sortBuckets(rows, searchTerm);
-      setItems(
-        sorted.map((b) => ({
-          id: `r2-${b.name}`,
-          category: 'r2',
-          title: b.name,
-          subtitle: b.bound ? 'Bound to this Worker' : 'Account bucket',
-          bound: b.bound,
-          r2Bucket: b.name,
-        })),
-      );
+      const rows = await fetchPaletteR2Buckets(workspaceFetchInit, activeWorkspace);
+      const sorted = filterPaletteR2Buckets(rows, searchTerm);
+      setR2Catalog(sorted);
+      setR2Page(1);
+      setItems(r2CatalogToPaletteItems(sorted.slice(0, PALETTE_R2_PAGE_SIZE)));
     } finally {
       setLoading(false);
     }
-  }, [activeWorkspace, collabR2Bucket, workspaceFetchJson]);
+  }, [activeWorkspace, workspaceFetchInit]);
 
   const loadD1 = useCallback(async (searchTerm: string) => {
     setLoading(true);
     try {
-      const stores = buildDataStoresForWorkspace(activeWorkspace).filter((s) => matchesTerm(s, searchTerm));
-      const tableRows: PaletteItem[] = [];
-      const dbLabel = collabDbName || 'inneranimalmedia-business';
-      const tables = await workspaceFetchJson<{ tables?: { name: string }[] }>('/api/d1/tables');
-      if (tables?.tables?.length) {
-        for (const t of tables.tables.slice(0, 12)) {
-          const name = String(t.name || '');
-          if (!name || (searchTerm && !name.toLowerCase().includes(searchTerm.toLowerCase()))) continue;
-          tableRows.push({
-            id: `d1-table-${name}`,
-            category: 'd1',
-            title: name,
-            subtitle: `D1 table · ${dbLabel}`,
-            dbTarget: 'd1',
-          });
-        }
+      setPlaneSections([]);
+      const connected = await probePaletteCloudflareConnected(workspaceFetchInit);
+      setCfConnected(connected);
+      if (!connected) {
+        setItems([{ ...PALETTE_CONNECT_CLOUDFLARE }]);
+        return;
       }
-      setItems([...stores, ...tableRows]);
+      const databases = await fetchPaletteD1Databases(workspaceFetchInit);
+      const filtered = searchTerm
+        ? databases.filter((db) => db.name.toLowerCase().includes(searchTerm.toLowerCase()))
+        : databases;
+      setItems(
+        d1RowsToPalette(filtered),
+      );
     } finally {
       setLoading(false);
     }
-  }, [activeWorkspace, collabDbName, workspaceFetchJson]);
+  }, [workspaceFetchInit]);
+
+  const loadHyperdrive = useCallback(async (searchTerm: string) => {
+    setLoading(true);
+    try {
+      setPlaneSections([]);
+      const connected = await probePaletteCloudflareConnected(workspaceFetchInit);
+      setCfConnected(connected);
+      if (!connected) {
+        setItems([{ ...PALETTE_CONNECT_CLOUDFLARE }]);
+        return;
+      }
+      const configs = await fetchPaletteHyperdriveConfigs(workspaceFetchInit);
+      const term = searchTerm.trim().toLowerCase();
+      const filtered = term
+        ? configs.filter((c) => `${c.name} ${c.id}`.toLowerCase().includes(term))
+        : configs;
+      setItems(hyperdriveRowsToPalette(filtered));
+    } finally {
+      setLoading(false);
+    }
+  }, [workspaceFetchInit]);
+
+  const loadVectorize = useCallback(async (searchTerm: string) => {
+    setLoading(true);
+    try {
+      setPlaneSections([]);
+      const connected = await probePaletteCloudflareConnected(workspaceFetchInit);
+      setCfConnected(connected);
+      if (!connected) {
+        setItems([{ ...PALETTE_CONNECT_CLOUDFLARE }]);
+        return;
+      }
+      const indexes = await fetchPaletteVectorizeIndexes(workspaceFetchInit);
+      const term = searchTerm.trim().toLowerCase();
+      const filtered = term
+        ? indexes.filter((i) => `${i.name} ${i.description || ''}`.toLowerCase().includes(term))
+        : indexes;
+      setItems(vectorizeRowsToPalette(filtered));
+    } finally {
+      setLoading(false);
+    }
+  }, [workspaceFetchInit]);
+
+  const loadPlanes = useCallback(async (searchTerm: string, page = 1) => {
+    setLoading(true);
+    try {
+      setCommandSections([]);
+      if (!workspaceId?.trim()) {
+        setPlaneSections([]);
+        setItems([
+          {
+            id: 'workspace-required',
+            category: 'connect',
+            title: 'Select a workspace',
+            subtitle: 'Choose a workspace to browse your Cloudflare data planes',
+          },
+        ]);
+        return;
+      }
+      const connected = await probePaletteCloudflareConnected(workspaceFetchInit);
+      setCfConnected(connected);
+      if (!connected) {
+        setPlaneSections([]);
+        setR2Catalog([]);
+        setR2Page(1);
+        setItems([{ ...PALETTE_CONNECT_CLOUDFLARE }]);
+        return;
+      }
+      const catalog = await fetchPaletteCloudflareCatalog(workspaceFetchInit);
+      if (!catalog?.ok) {
+        setPlaneSections([]);
+        setPlanesCatalog(null);
+        setItems([{ ...PALETTE_CONNECT_CLOUDFLARE }]);
+        return;
+      }
+      setPlanesCatalog(catalog);
+      const built = buildPlaneSectionsFromCatalog(catalog, searchTerm, page);
+      setR2Catalog(built.r2Catalog);
+      setR2Page(page);
+      setPlaneSections(built.sections);
+      setItems(built.sections.flatMap((s) => s.rows));
+    } finally {
+      setLoading(false);
+    }
+  }, [workspaceFetchInit, workspaceId]);
 
   const loadCommands = useCallback(async (searchTerm: string) => {
     setLoading(true);
@@ -1039,6 +1094,18 @@ export const UnifiedSearchBar: React.FC<{
       await loadD1(term);
       return;
     }
+    if (mode === 'planes') {
+      await loadPlanes(term, 1);
+      return;
+    }
+    if (mode === 'hyperdrive') {
+      await loadHyperdrive(term);
+      return;
+    }
+    if (mode === 'vectorize') {
+      await loadVectorize(term);
+      return;
+    }
     if (mode === 'command') {
       await loadCommands(term);
       return;
@@ -1060,7 +1127,7 @@ export const UnifiedSearchBar: React.FC<{
       return;
     }
     await loadUnifiedSearch(term, sourceChip);
-  }, [mode, term, q, sourceChip, loadDefault, loadR2, loadD1, loadCommands, loadWorkflows, loadFiles, loadClone, loadUnifiedSearch]);
+  }, [mode, term, q, sourceChip, loadDefault, loadR2, loadD1, loadPlanes, loadHyperdrive, loadVectorize, loadCommands, loadWorkflows, loadFiles, loadClone, loadUnifiedSearch]);
 
   useEffect(() => {
     if (!open) return;
@@ -1078,8 +1145,13 @@ export const UnifiedSearchBar: React.FC<{
     setItems([]);
     setRecentSearches([]);
     setCommandSections([]);
+    setPlaneSections([]);
+    setPlanesCatalog(null);
     setSourceChip('all');
     setActive(0);
+    setR2Catalog([]);
+    setR2Page(1);
+    setCfConnected(null);
   }, []);
 
   useEffect(() => {
@@ -1182,6 +1254,12 @@ export const UnifiedSearchBar: React.FC<{
         return;
       }
 
+      if (item.category === 'connect') {
+        navigate('/dashboard/settings/integrations');
+        closePalette();
+        return;
+      }
+
       void fetch('/api/unified-search/track', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1203,11 +1281,32 @@ export const UnifiedSearchBar: React.FC<{
       }
 
       if (item.category === 'd1') {
-        if (item.id.startsWith('d1-table-')) {
-          onNavigate({ kind: 'table', name: item.title }, searchQuery);
-        } else {
-          openDatabase(item.dbTarget);
+        const dbName = item.d1DatabaseName || item.title;
+        if (dbName) {
+          navigate(databaseStudioPathFromName(dbName));
+          closePalette();
+          return;
         }
+        openDatabase(item.dbTarget);
+        closePalette();
+        return;
+      }
+
+      if (item.category === 'hyperdrive') {
+        openDatabase('hyperdrive');
+        closePalette();
+        return;
+      }
+
+      if (item.category === 'vectorize') {
+        if (item.vectorizeIndexName) {
+          try {
+            sessionStorage.setItem('iam-palette-vectorize-index', item.vectorizeIndexName);
+          } catch {
+            /* ignore */
+          }
+        }
+        navigate('/dashboard/storage');
         closePalette();
         return;
       }
@@ -1280,24 +1379,25 @@ export const UnifiedSearchBar: React.FC<{
     if ((mode === 'command' || (mode === 'default' && sourceChip === 'commands')) && commandSections.length > 0) {
       return commandSections;
     }
+    if (mode === 'planes' && planeSections.length > 0) {
+      return planeSections;
+    }
 
     const filtered = items.filter((item) => {
-      if (item.category === 'tip') return mode === 'default' && !q.trim();
+      if (item.category === 'tip' || item.category === 'connect') return mode === 'default' && !q.trim();
       if (mode !== 'default' && mode !== 'search') return true;
       if (mode === 'search') return chipMatchesCategory(sourceChip, item.category);
       return chipMatchesCategory(sourceChip, item.category);
     });
 
     if (mode === 'default' && !q.trim()) {
-      const resources = filtered.filter((i) => i.category === 'resource' || i.category === 'd1');
       const chats = filtered.filter((i) => i.category === 'chat');
       const deploys = filtered.filter((i) => i.category === 'deploy');
-      const tips = SEARCH_TIPS;
+      const tips = paletteSearchTips(cfConnected);
       return [
         ...(recentSearches.length
           ? [{ key: 'recent', label: 'Recent searches', rows: recentSearches }]
           : []),
-        { key: 'resources', label: 'Resources', rows: resources },
         { key: 'chats', label: 'Recent chats', rows: chats },
         { key: 'deploys', label: 'Recent deploys', rows: deploys },
         { key: 'tips', label: 'Search tips', rows: tips },
@@ -1306,7 +1406,25 @@ export const UnifiedSearchBar: React.FC<{
 
     const title = sectionTitle(mode, sourceChip, !!q.trim());
     return [{ key: 'main', label: title || 'Results', rows: filtered }];
-  }, [items, mode, q, sourceChip, commandSections, recentSearches]);
+  }, [items, mode, q, sourceChip, commandSections, planeSections, recentSearches, cfConnected]);
+
+  const r2TotalPages = useMemo(
+    () => Math.max(1, Math.ceil(r2Catalog.length / PALETTE_R2_PAGE_SIZE)),
+    [r2Catalog.length],
+  );
+
+  useEffect(() => {
+    if (mode === 'r2' && r2Catalog.length) {
+      const start = (r2Page - 1) * PALETTE_R2_PAGE_SIZE;
+      setItems(r2CatalogToPaletteItems(r2Catalog.slice(start, start + PALETTE_R2_PAGE_SIZE)));
+      return;
+    }
+    if (mode === 'planes' && planesCatalog?.ok && r2Catalog.length) {
+      const built = buildPlaneSectionsFromCatalog(planesCatalog, term, r2Page);
+      setPlaneSections(built.sections);
+      setItems(built.sections.flatMap((s) => s.rows));
+    }
+  }, [r2Page, r2Catalog, mode, planesCatalog, term]);
 
   const flatList = useMemo(() => displaySections.flatMap((s) => s.rows), [displaySections]);
 
@@ -1512,7 +1630,24 @@ export const UnifiedSearchBar: React.FC<{
                       key={id}
                       type="button"
                       title={label}
-                      onClick={() => setSourceChip(id)}
+                      onClick={() => {
+                        if (id === 'planes') {
+                          setSourceChip('planes');
+                          setQ('planes:');
+                          return;
+                        }
+                        if (id === 'r2') {
+                          setSourceChip('r2');
+                          setQ('r2:');
+                          return;
+                        }
+                        if (id === 'd1') {
+                          setSourceChip('d1');
+                          setQ('d1:');
+                          return;
+                        }
+                        setSourceChip(id);
+                      }}
                       className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium border transition-colors ${
                         on
                           ? 'border-[var(--solar-cyan)]/50 bg-[var(--solar-cyan)]/10 text-main'
@@ -1544,7 +1679,7 @@ export const UnifiedSearchBar: React.FC<{
                     const i = rowIndex;
                     const Icon = rowIcon(item.category);
                     const selected = i === active;
-                    const isTip = item.category === 'tip';
+                    const isTip = item.category === 'tip' || item.category === 'connect';
                     return (
                       <button
                         key={`${item.id}-${i}`}
@@ -1600,6 +1735,33 @@ export const UnifiedSearchBar: React.FC<{
                 </div>
               ))}
             </div>
+
+            {(mode === 'r2' || mode === 'planes') && r2TotalPages > 1 ? (
+              <div
+                className="px-3.5 py-1.5 flex items-center justify-between gap-2 text-[10px] text-muted font-[var(--font-sans)]"
+                style={{ borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.12)' }}
+              >
+                <button
+                  type="button"
+                  disabled={r2Page <= 1}
+                  onClick={() => setR2Page((p) => Math.max(1, p - 1))}
+                  className="px-2 py-0.5 rounded border border-[var(--border-subtle)] disabled:opacity-40 hover:bg-[var(--bg-hover)]"
+                >
+                  Previous
+                </button>
+                <span>
+                  Page {r2Page} of {r2TotalPages} · {r2Catalog.length} buckets
+                </span>
+                <button
+                  type="button"
+                  disabled={r2Page >= r2TotalPages}
+                  onClick={() => setR2Page((p) => Math.min(r2TotalPages, p + 1))}
+                  className="px-2 py-0.5 rounded border border-[var(--border-subtle)] disabled:opacity-40 hover:bg-[var(--bg-hover)]"
+                >
+                  Next
+                </button>
+              </div>
+            ) : null}
 
             <div
               className="px-3.5 py-1.5 text-[10px] text-muted flex items-center gap-3 font-[var(--font-sans)]"

@@ -128,12 +128,51 @@ export async function customerCloudflareListD1(env, userId, accountId, tenantId 
  * @param {any} env
  * @param {string} userId
  * @param {string} accountId
+ * @param {string} [tenantId]
+ * @param {string} [workspaceId]
  */
-export async function customerCloudflareListR2(env, userId, accountId) {
-  const token = await getOAuthToken(env, userId, 'cloudflare');
-  if (!token) return { ok: false, buckets: [], error: 'cloudflare_not_connected' };
-  const buckets = await cfApi(token, `/accounts/${encodeURIComponent(accountId)}/r2/buckets`);
+export async function customerCloudflareListR2(env, userId, accountId, tenantId = '', workspaceId = '') {
+  const resolved = await resolveCloudflareApiToken(env, userId, tenantId, workspaceId);
+  if (!resolved.token) return { ok: false, buckets: [], error: 'cloudflare_not_connected' };
+  const buckets = await cfApi(
+    resolved.token,
+    `/accounts/${encodeURIComponent(accountId)}/r2/buckets`,
+  );
   return { ok: true, buckets: Array.isArray(buckets) ? buckets : [] };
+}
+
+/**
+ * @param {any} env
+ * @param {string} userId
+ * @param {string} accountId
+ * @param {string} [tenantId]
+ * @param {string} [workspaceId]
+ */
+export async function customerCloudflareListHyperdrive(env, userId, accountId, tenantId = '', workspaceId = '') {
+  const resolved = await resolveCloudflareApiToken(env, userId, tenantId, workspaceId);
+  if (!resolved.token) return { ok: false, configs: [], error: 'cloudflare_not_connected' };
+  const configs = await cfApi(
+    resolved.token,
+    `/accounts/${encodeURIComponent(accountId)}/hyperdrive/configs`,
+  );
+  return { ok: true, configs: Array.isArray(configs) ? configs : [] };
+}
+
+/**
+ * @param {any} env
+ * @param {string} userId
+ * @param {string} accountId
+ * @param {string} [tenantId]
+ * @param {string} [workspaceId]
+ */
+export async function customerCloudflareListVectorize(env, userId, accountId, tenantId = '', workspaceId = '') {
+  const resolved = await resolveCloudflareApiToken(env, userId, tenantId, workspaceId);
+  if (!resolved.token) return { ok: false, indexes: [], error: 'cloudflare_not_connected' };
+  const indexes = await cfApi(
+    resolved.token,
+    `/accounts/${encodeURIComponent(accountId)}/vectorize/v2/indexes`,
+  );
+  return { ok: true, indexes: Array.isArray(indexes) ? indexes : [] };
 }
 
 /**
@@ -241,23 +280,67 @@ export async function dispatchCustomerCloudflare(env, opts) {
   /** @type {Record<string, () => Promise<Record<string, unknown>>>} */
   const handlers = {
     list_accounts: async () => {
-      const out = await customerCloudflareListAccounts(env, userId);
+      const out = await customerCloudflareListAccounts(
+        env,
+        userId,
+        String(opts.tenant_id || ''),
+        workspaceId,
+      );
       return out;
     },
     list_d1_databases: async () => {
       const accountId = String(opts.account_id || '').trim();
       if (!accountId) {
-        const accts = await customerCloudflareListAccounts(env, userId);
+        const accts = await customerCloudflareListAccounts(
+          env,
+          userId,
+          String(opts.tenant_id || ''),
+          workspaceId,
+        );
         const first = accts.accounts?.[0]?.id;
         if (!first) return { ok: false, error: 'account_id_required' };
-        return customerCloudflareListD1(env, userId, String(first));
+        return customerCloudflareListD1(
+          env,
+          userId,
+          String(first),
+          String(opts.tenant_id || ''),
+          workspaceId,
+        );
       }
-      return customerCloudflareListD1(env, userId, accountId);
+      return customerCloudflareListD1(
+        env,
+        userId,
+        accountId,
+        String(opts.tenant_id || ''),
+        workspaceId,
+      );
     },
     list_r2_buckets: async () => {
       const accountId = String(opts.account_id || '').trim();
-      if (!accountId) return { ok: false, error: 'account_id_required' };
-      return customerCloudflareListR2(env, userId, accountId);
+      if (!accountId) {
+        const accts = await customerCloudflareListAccounts(
+          env,
+          userId,
+          String(opts.tenant_id || ''),
+          workspaceId,
+        );
+        const first = accts.accounts?.[0]?.id;
+        if (!first) return { ok: false, error: 'account_id_required' };
+        return customerCloudflareListR2(
+          env,
+          userId,
+          String(first),
+          String(opts.tenant_id || ''),
+          workspaceId,
+        );
+      }
+      return customerCloudflareListR2(
+        env,
+        userId,
+        accountId,
+        String(opts.tenant_id || ''),
+        workspaceId,
+      );
     },
     list_workers: async () => {
       const accountId = String(opts.account_id || '').trim();

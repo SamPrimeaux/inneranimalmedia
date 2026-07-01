@@ -7,7 +7,14 @@ import { resolveAgentDataScope } from '../core/data-isolation-scope.js';
 import { resolveCustomerDataPlane } from '../core/customer-data-plane-router.js';
 import { dispatchCustomerDataPlaneOperation } from '../core/customer-data-plane-dispatch.js';
 import { customerSupabaseListProjects, customerSupabaseSelectProjectForWorkspace } from '../core/customer-supabase-dispatch.js';
-import { customerCloudflareListAccounts } from '../core/customer-cloudflare-dispatch.js';
+import { buildCustomerCloudflareCatalog } from '../core/customer-cloudflare-catalog.js';
+import {
+  customerCloudflareListAccounts,
+  customerCloudflareListD1,
+  customerCloudflareListHyperdrive,
+  customerCloudflareListR2,
+  customerCloudflareListVectorize,
+} from '../core/customer-cloudflare-dispatch.js';
 import { listWorkspaceDataBindings } from '../core/workspace-data-bindings.js';
 import { getUserSupabaseToken } from './oauth.js';
 import { getOAuthToken } from '../core/user-oauth-token.js';
@@ -134,7 +141,61 @@ export async function handleCustomerDataPlaneApi(request, url, env) {
   }
 
   if (pathLower === '/api/data-plane/customer-cloudflare/accounts' && method === 'GET') {
-    const out = await customerCloudflareListAccounts(env, userId);
+    const out = await customerCloudflareListAccounts(env, userId, tenantId, workspaceId);
+    return jsonResponse(out, out.ok ? 200 : 400);
+  }
+
+  if (pathLower === '/api/data-plane/customer-cloudflare/d1-databases' && method === 'GET') {
+    const accts = await customerCloudflareListAccounts(env, userId, tenantId, workspaceId);
+    if (!accts.ok) return jsonResponse(accts, 400);
+    const accountId = String(url.searchParams.get('account_id') || accts.accounts?.[0]?.id || '').trim();
+    if (!accountId) {
+      return jsonResponse({ ok: false, error: 'account_id_required', databases: [] }, 400);
+    }
+    const out = await customerCloudflareListD1(env, userId, accountId, tenantId, workspaceId);
+    return jsonResponse(out, out.ok ? 200 : 400);
+  }
+
+  if (pathLower === '/api/data-plane/customer-cloudflare/r2-buckets' && method === 'GET') {
+    const accts = await customerCloudflareListAccounts(env, userId, tenantId, workspaceId);
+    if (!accts.ok) return jsonResponse(accts, 400);
+    const accountId = String(url.searchParams.get('account_id') || accts.accounts?.[0]?.id || '').trim();
+    if (!accountId) {
+      return jsonResponse({ ok: false, error: 'account_id_required', buckets: [] }, 400);
+    }
+    const out = await customerCloudflareListR2(env, userId, accountId, tenantId, workspaceId);
+    return jsonResponse(out, out.ok ? 200 : 400);
+  }
+
+  if (pathLower === '/api/data-plane/customer-cloudflare/hyperdrive-configs' && method === 'GET') {
+    const accts = await customerCloudflareListAccounts(env, userId, tenantId, workspaceId);
+    if (!accts.ok) return jsonResponse(accts, 400);
+    const accountId = String(url.searchParams.get('account_id') || accts.accounts?.[0]?.id || '').trim();
+    if (!accountId) {
+      return jsonResponse({ ok: false, error: 'account_id_required', configs: [] }, 400);
+    }
+    const out = await customerCloudflareListHyperdrive(env, userId, accountId, tenantId, workspaceId);
+    return jsonResponse(out, out.ok ? 200 : 400);
+  }
+
+  if (pathLower === '/api/data-plane/customer-cloudflare/vectorize-indexes' && method === 'GET') {
+    const accts = await customerCloudflareListAccounts(env, userId, tenantId, workspaceId);
+    if (!accts.ok) return jsonResponse(accts, 400);
+    const accountId = String(url.searchParams.get('account_id') || accts.accounts?.[0]?.id || '').trim();
+    if (!accountId) {
+      return jsonResponse({ ok: false, error: 'account_id_required', indexes: [] }, 400);
+    }
+    const out = await customerCloudflareListVectorize(env, userId, accountId, tenantId, workspaceId);
+    return jsonResponse(out, out.ok ? 200 : 400);
+  }
+
+  if (pathLower === '/api/data-plane/customer-cloudflare/catalog' && method === 'GET') {
+    const out = await buildCustomerCloudflareCatalog(env, {
+      user_id: userId,
+      tenant_id: tenantId,
+      workspace_id: workspaceId,
+      authUser,
+    });
     return jsonResponse(out, out.ok ? 200 : 400);
   }
 
