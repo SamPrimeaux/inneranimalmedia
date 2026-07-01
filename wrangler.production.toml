@@ -258,6 +258,12 @@ CLOUDFLARE_IMAGES_ACCOUNT_HASH = "g7wf09fCONpnidkRnR_5vw"
 GITHUB_CLIENT_ID = "Ov23li6BZYxjVtGUWibX"
 GOOGLE_CLIENT_ID = "427617292678-gf3u47lpf876q7miq31hel2ms6tcr2f8.apps.googleusercontent.com"
 WORKSPACE_ID = "ws_inneranimalmedia"
+# Platform operator identity (override via secrets if needed; see src/core/platform-identity-constants.js)
+D1_AUTH_USER_ID = "au_871d920d1233cbd1"
+IAM_D1_AUTH_USER_ID = "au_871d920d1233cbd1"
+IAM_SUPABASE_USER_ID = "6cbd71f8-1d57-4530-9736-9bf03be1adad"
+IAM_SUPABASE_WORKSPACE_ID = "fa1f12a8-c841-4b79-a26c-d53a78b17dac"
+OPERATOR_USER_EMAIL = "info@inneranimals.com"
 ENVIRONMENT = "production"
 CMS_R2_PUBLIC_ORIGIN = "https://cms.inneranimalmedia.com"
 # Meet engine: legacy (Cloudflare Calls SFU) | realtimekit (RealtimeKit SDK path)

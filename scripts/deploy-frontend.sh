@@ -314,6 +314,8 @@ rm -f "$GIT_STATUS_TMP"
 
 # KV deploy markers + agentsam_hook trigger=post_deploy (writes agentsam_hook_execution)
 GIT_SHORT_HASH="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+: "${D1_AUTH_USER_ID:=${IAM_D1_AUTH_USER_ID:-au_871d920d1233cbd1}}"
+: "${IAM_SUPABASE_WORKSPACE_ID:=fa1f12a8-c841-4b79-a26c-d53a78b17dac}"
 echo "→ Worker post-deploy (KV + agentsam_hook post_deploy)..."
 if command -v jq >/dev/null 2>&1; then
   POST_DEPLOY_BODY=$(
@@ -323,11 +325,12 @@ if command -v jq >/dev/null 2>&1; then
       --arg v "${GIT_SHORT_HASH}" \
       --arg wv "${WORKER_VERSION_ID:-unknown}" \
       --argjson dur "${DEPLOY_DURATION_MS:-0}" \
-      --arg uid "${D1_AUTH_USER_ID:-usr_sam_iam}" \
+      --arg uid "${D1_AUTH_USER_ID}" \
+      --arg ws_uuid "${IAM_SUPABASE_WORKSPACE_ID}" \
       --arg branch "${BRANCH_NAME:-main}" \
       --arg desc "${GIT_MSG_LINE:-}" \
       --arg by "${DEPLOYED_BY:-deploy:full}" \
-      '{environment:$env, git_hash:$gh, version:$v, worker_version_id:$wv, deploy_duration_ms:$dur, user_id:$uid, branch_name:$branch, git_message:$desc, deployed_by:$by}'
+      '{environment:$env, git_hash:$gh, version:$v, worker_version_id:$wv, deploy_duration_ms:$dur, user_id:$uid, supabase_workspace_id:$ws_uuid, branch_name:$branch, git_message:$desc, deployed_by:$by}'
   )
   if [ -n "${AGENTSAM_BRIDGE_KEY:-}" ]; then
     curl -sS -X POST "https://inneranimalmedia.com/api/internal/post-deploy" \
@@ -392,8 +395,8 @@ _SHA_DISP="${GIT_FULL_SHA:-—}"
 _MSG_DISP="${GIT_MSG_LINE:-—}"
 _ENV_DISP="${ENVIRONMENT:-—}"
 _BY_DISP="${DEPLOYED_BY:-—}"
-# Notification recipient (Resend delivery) — not the deploy audit actor; see DEPLOY_USER_EMAIL.
-_NOTIFY_TO="${DEPLOY_NOTIFY_EMAIL:-${RESEND_TO:-${RESEND_NOTIFY_EMAIL:-sam@inneranimalmedia.com}}}"
+# Notification recipient (Resend delivery) — primary operator login info@inneranimals.com
+_NOTIFY_TO="${DEPLOY_NOTIFY_EMAIL:-${RESEND_TO:-${RESEND_NOTIFY_EMAIL:-info@inneranimals.com}}}"
 _DEPLOY_ACTOR="${DEPLOY_USER_EMAIL:-—}"
 
 echo "→ Sending deploy notification (POST /api/email/send) → ${_NOTIFY_TO} ..."

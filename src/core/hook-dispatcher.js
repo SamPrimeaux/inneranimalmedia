@@ -132,7 +132,7 @@ export async function fireAgentHooks(env, ctx, eventType, payload = {}) {
       try {
         await dispatchHook(env, hook, payload, ctx);
       } catch (e) {
-        outcome = 'error';
+        outcome = 'fail';
         errorMsg = e?.message ?? String(e);
         console.warn('[hook-dispatcher]', hook.hook_key, errorMsg);
       }

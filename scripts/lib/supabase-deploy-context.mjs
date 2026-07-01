@@ -43,8 +43,22 @@ export function resolveDeployScope(o = {}) {
   const projectId = String(
     process.env.DOCUMENTS_PROJECT_ID ?? process.env.DEPLOY_PROJECT_ID ?? process.env.PROJECT_ID ?? '',
   ).trim();
-  const d1AuthUserId = String(process.env.D1_AUTH_USER_ID ?? process.env.DEPLOY_D1_AUTH_USER_ID ?? '').trim();
-  const userEmail = String(process.env.DEPLOY_USER_EMAIL ?? process.env.USER_EMAIL ?? '').trim();
+  const d1AuthUserId = String(
+    process.env.D1_AUTH_USER_ID ??
+      process.env.IAM_D1_AUTH_USER_ID ??
+      process.env.OPERATOR_USER_ID ??
+      '',
+  ).trim();
+  const supabaseUserId = String(process.env.IAM_SUPABASE_USER_ID ?? '').trim();
+  const supabaseWorkspaceUuid = String(
+    process.env.IAM_SUPABASE_WORKSPACE_ID ?? process.env.SUPABASE_WORKSPACE_UUID ?? '',
+  ).trim();
+  const userEmail = String(
+    process.env.OPERATOR_USER_EMAIL ??
+      process.env.DEPLOY_USER_EMAIL ??
+      process.env.IAM_USER_EMAIL ??
+      '',
+  ).trim();
   const deployedBy = String(process.env.DEPLOYED_BY ?? process.env.DEPLOY_DEPLOYED_BY ?? '').trim();
   const triggeredBy = String(process.env.TRIGGERED_BY ?? process.env.DEPLOY_TRIGGERED_BY ?? deployedBy).trim();
 
@@ -60,6 +74,8 @@ export function resolveDeployScope(o = {}) {
     workspaceId: workspaceId || null,
     projectId: projectId || null,
     d1AuthUserId: d1AuthUserId || null,
+    supabaseUserId: supabaseUserId || null,
+    supabaseWorkspaceUuid: supabaseWorkspaceUuid || null,
     userEmail: userEmail || null,
     deployedBy: deployedBy || null,
     triggeredBy: triggeredBy || null,

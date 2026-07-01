@@ -13,7 +13,8 @@ Every `agentsam_match_*` RPC and pgvector `WHERE workspace_id = $n::uuid` expect
 ```javascript
 const SUPABASE_WORKSPACE_UUID = 'fa1f12a8-c841-4b79-a26c-d53a78b17dac'; // ws_inneranimalmedia
 const AGENT_SAM_USER_UUID     = '9c14ec31-61bc-4873-9beb-b3fc57620e52';
-const SAM_OWNER_UUID          = '6cbd71f8-1d57-4530-9736-9bf03be1adad';
+const SAM_OWNER_UUID          = '6cbd71f8-1d57-4530-9736-9bf03be1adad'; // info@inneranimals.com (primary login)
+const SAM_OWNER_UUID_SECONDARY = '8678c8bb-b9b2-4aad-bb95-882d27d00787'; // sam@inneranimalmedia.com (backup)
 ```
 
 Resolve at runtime when possible:

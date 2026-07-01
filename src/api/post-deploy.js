@@ -14,6 +14,10 @@ import { isIngestSecretAuthorized, verifyInternalApiSecret, jsonResponse } from 
 import { fireAgentHooks } from '../core/hook-dispatcher.js';
 import { PLATFORM_WORKSPACE_ID } from '../core/platform-operator-policy.js';
 import { getPlatformWorkspaceEnvId } from '../core/platform-workspace-env.js';
+import {
+  resolvePlatformD1AuthUserId,
+  resolvePlatformSupabaseWorkspaceUuid,
+} from '../core/platform-identity-constants.js';
 import { scheduleMirrorDeployEventToSupabase } from '../core/hyperdrive-write.js';
 
 function isPostDeployAuthorized(request, env) {
@@ -221,6 +225,9 @@ export async function handlePostDeploy(request, env, ctx) {
       typeof body.workspace_id === 'string' && body.workspace_id.trim()
         ? body.workspace_id.trim()
         : getPlatformWorkspaceEnvId(env) || PLATFORM_WORKSPACE_ID;
+    const operatorUserId =
+      (typeof body.user_id === 'string' && body.user_id.trim()) ||
+      resolvePlatformD1AuthUserId(env);
 
     // Workspace-scoped post_deploy hooks (workers_deploy, etc.) + agentsam_hook_execution audit
     const hookPayload = {
@@ -229,7 +236,8 @@ export async function handlePostDeploy(request, env, ctx) {
       dashboard_version: version,
       worker_version_id: workerVersion,
       workspace_id: workspaceId,
-      user_id: typeof body.user_id === 'string' && body.user_id.trim() ? body.user_id.trim() : undefined,
+      user_id: operatorUserId,
+      supabase_workspace_id: resolvePlatformSupabaseWorkspaceUuid(env),
       ms_wall: deployDurationMs,
       health_status: body.health_status,
       health_ms: body.health_ms,

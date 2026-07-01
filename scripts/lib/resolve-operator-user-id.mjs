@@ -27,6 +27,8 @@ export function resolveOperatorUserId(options = {}) {
   const env = options.env ?? process.env;
 
   for (const [key, source] of [
+    [env.D1_AUTH_USER_ID, 'D1_AUTH_USER_ID'],
+    [env.IAM_D1_AUTH_USER_ID, 'IAM_D1_AUTH_USER_ID'],
     [env.OPERATOR_USER_ID, 'OPERATOR_USER_ID'],
     [env.AGENT_SESSION_USER_ID, 'AGENT_SESSION_USER_ID'],
     [env.USER_ID, 'USER_ID'],
@@ -45,7 +47,11 @@ export function resolveOperatorUserId(options = {}) {
     );
   }
 
-  const email = String(env.OPERATOR_USER_EMAIL || env.AGENT_SESSION_USER_EMAIL || '').trim().toLowerCase();
+  const email = String(
+    env.OPERATOR_USER_EMAIL || env.IAM_USER_EMAIL || env.AGENT_SESSION_USER_EMAIL || '',
+  )
+    .trim()
+    .toLowerCase();
   if (email && options.lookupD1) {
     const fromD1 = lookupAuthUserIdByEmail(email, options);
     if (fromD1) return { userId: fromD1, source: `D1 email ${email}`, warnings };

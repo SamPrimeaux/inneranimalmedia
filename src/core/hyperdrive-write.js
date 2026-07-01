@@ -258,9 +258,9 @@ export function scheduleMirrorToolCallEventToSupabase(env, ctx, params) {
  * @param {Record<string, unknown>} params
  */
 export function scheduleMirrorDeployEventToSupabase(env, ctx, params) {
-  const workspaceId = params.workspace_id != null ? String(params.workspace_id).trim() : '';
   const workerName = params.worker_name != null ? String(params.worker_name).trim() : '';
-  if (!workspaceId || !workerName) return;
+  const rawWorkspaceId = params.workspace_id != null ? String(params.workspace_id).trim() : '';
+  if (!rawWorkspaceId || !workerName) return;
 
   const metadata =
     params.metadata != null && typeof params.metadata === 'object'
@@ -269,30 +269,42 @@ export function scheduleMirrorDeployEventToSupabase(env, ctx, params) {
         ? String(params.metadata_json)
         : JSON.stringify({ sync_source: params.sync_source || 'post-deploy' });
 
-  scheduleHyperdriveInsert(
-    env,
-    ctx,
-    'agentsam_deploy_events',
-    [
-      'workspace_id',
-      'worker_name',
-      'worker_version',
-      'deploy_status',
-      'commit_sha',
-      'notes',
-      'metadata',
-      'created_at',
-    ],
-    [
-      workspaceId,
-      workerName,
-      params.worker_version != null ? String(params.worker_version) : null,
-      params.deploy_status != null ? String(params.deploy_status) : 'passed',
-      params.commit_sha != null ? String(params.commit_sha) : null,
-      params.notes != null ? String(params.notes).slice(0, 500) : null,
-      metadata,
-      isoFromUnix(params.created_at),
-    ],
-    { onConflict: 'DO NOTHING' },
-  );
+  const write = async () => {
+    const workspaceUuid = await resolveMirrorWorkspaceUuid(env, rawWorkspaceId);
+    if (!workspaceUuid) {
+      console.warn(
+        '[hyperdrive-write] agentsam_deploy_events: skip — could not resolve workspace UUID from',
+        rawWorkspaceId,
+      );
+      return;
+    }
+    await hyperdriveInsert(
+      env,
+      'agentsam_deploy_events',
+      [
+        'workspace_id',
+        'worker_name',
+        'worker_version',
+        'deploy_status',
+        'commit_sha',
+        'notes',
+        'metadata',
+        'created_at',
+      ],
+      [
+        workspaceUuid,
+        workerName,
+        params.worker_version != null ? String(params.worker_version) : null,
+        params.deploy_status != null ? String(params.deploy_status) : 'passed',
+        params.commit_sha != null ? String(params.commit_sha) : null,
+        params.notes != null ? String(params.notes).slice(0, 500) : null,
+        metadata,
+        isoFromUnix(params.created_at),
+      ],
+      { onConflict: 'DO NOTHING' },
+    );
+  };
+
+  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(write());
+  else void write();
 }

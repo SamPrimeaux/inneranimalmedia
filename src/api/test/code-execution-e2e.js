@@ -102,7 +102,7 @@ async function resolveBootstrap(env) {
   return {
     workspace_id: 'ws_inneranimalmedia',
     tenant_id: 'tenant_sam_primeaux',
-    user_id: 'usr_sam_iam',
+    user_id: 'au_871d920d1233cbd1',
     _source: 'fallback',
   };
 }
