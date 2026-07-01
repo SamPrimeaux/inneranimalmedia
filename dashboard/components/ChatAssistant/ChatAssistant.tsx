@@ -2447,6 +2447,17 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
 
     const userMessage = text || '(attachment)';
+
+    const effectiveWsId = (() => {
+      const fromQuickstart = sendOpts?.workspace_id?.trim();
+      if (fromQuickstart && fromQuickstart !== 'global') return fromQuickstart;
+      const fromProp = workspaceId != null ? String(workspaceId).trim() : '';
+      if (fromProp && fromProp !== 'global') return fromProp;
+      if (typeof window === 'undefined') return '';
+      const w = String((window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ || '').trim();
+      return w && w !== 'global' ? w : '';
+    })();
+
     setPendingToolApproval(null);
     setWorkflowLedger({
       runId: null,
@@ -2549,16 +2560,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     if (snap && !browserMentionInMessage(userMessage)) {
       messageForApi += `\n\n### BrowserView selection (structured)\n\`\`\`json\n${JSON.stringify(snap, null, 2)}\n\`\`\`\n`;
     }
-
-    const effectiveWsId = (() => {
-      const fromQuickstart = sendOpts?.workspace_id?.trim();
-      if (fromQuickstart && fromQuickstart !== 'global') return fromQuickstart;
-      const fromProp = workspaceId != null ? String(workspaceId).trim() : '';
-      if (fromProp && fromProp !== 'global') return fromProp;
-      if (typeof window === 'undefined') return '';
-      const w = String((window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ || '').trim();
-      return w && w !== 'global' ? w : '';
-    })();
 
     const effectiveConvId =
       sendOpts?.conversationIdOverride?.trim() ||
