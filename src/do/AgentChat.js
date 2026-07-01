@@ -239,22 +239,52 @@ export class AgentChatSqlV1 extends DurableObject {
     }
 
     const turnId = String(body?.turn_id || "").trim();
-    const eventType = String(body?.event_type || "").trim();
-    if (!turnId || !eventType) {
-      return Response.json({ ok: false, error: "missing_turn_id_or_event_type" }, { status: 400 });
+    if (!turnId) {
+      return Response.json({ ok: false, error: "missing_turn_id" }, { status: 400 });
     }
 
-    const payloadJson = JSON.stringify(body?.payload ?? {});
-    this.sql.exec(
-      `INSERT INTO turn_outbox (turn_id, event_type, payload) VALUES (?, ?, ?)`,
-      turnId,
-      eventType,
-      payloadJson,
-    );
-    const row = [
-      ...this.sql.exec(`SELECT seq FROM turn_outbox WHERE turn_id = ? ORDER BY seq DESC LIMIT 1`, turnId),
-    ][0];
-    return Response.json({ ok: true, seq: Number(row?.seq) || null, turn_id: turnId });
+    /** @type {Array<{ event_type: string, payload: unknown }>} */
+    let events = [];
+    if (Array.isArray(body?.events) && body.events.length) {
+      events = body.events
+        .map((evt) => ({
+          event_type: String(evt?.event_type || "").trim(),
+          payload: evt?.payload ?? {},
+        }))
+        .filter((evt) => evt.event_type);
+    } else {
+      const eventType = String(body?.event_type || "").trim();
+      if (!eventType) {
+        return Response.json({ ok: false, error: "missing_turn_id_or_event_type" }, { status: 400 });
+      }
+      events = [{ event_type: eventType, payload: body?.payload ?? {} }];
+    }
+
+    let latestSeq = null;
+    for (const evt of events) {
+      const payloadJson = JSON.stringify(evt.payload ?? {});
+      this.sql.exec(
+        `INSERT INTO turn_outbox (turn_id, event_type, payload) VALUES (?, ?, ?)`,
+        turnId,
+        evt.event_type,
+        payloadJson,
+      );
+      const row = [
+        ...this.sql.exec(
+          `SELECT seq FROM turn_outbox WHERE turn_id = ? ORDER BY seq DESC LIMIT 1`,
+          turnId,
+        ),
+      ][0];
+      latestSeq = Number(row?.seq) || latestSeq;
+    }
+
+    return Response.json({
+      ok: true,
+      seq: latestSeq,
+      latest_seq: latestSeq,
+      turn_id: turnId,
+      count: events.length,
+    });
   }
 
   /** @param {URL} url */

@@ -1038,7 +1038,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   /** @type {{ turnId: string, assistantMessageId: string }|null} */
   let chatTurnMeta = null;
 
-  return startAgentChatEarlySse(async ({ emit, pipeResponse, streamLifecycle }) => {
+  return startAgentChatEarlySse(async ({ emit, pipeResponse, streamLifecycle, bindTurnOutbox }) => {
     const heartbeat = setInterval(() => {
       void emit('status', { phase: 'preflight', heartbeat: true });
     }, 12000);
@@ -1053,6 +1053,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         });
         if (chatTurnMeta) {
           streamLifecycle.setTurnMeta(chatTurnMeta);
+          bindTurnOutbox(chatTurnMeta.turnId);
           await emit('turn_meta', {
             turn_id: chatTurnMeta.turnId,
             conversation_id: sessionId,

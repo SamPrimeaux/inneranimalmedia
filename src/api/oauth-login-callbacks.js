@@ -206,7 +206,11 @@ export async function finalizeInboundOAuth(env, request, input) {
   try {
     loginSession = await createLoginSession(request, env, authUserId, sessionProvider, {
       providerSubject: providerUid,
-      fallbackUserRow: ensured.fromCache ? ensured.row : undefined,
+      fallbackUserRow: {
+        ...(ensured.row && typeof ensured.row === 'object' ? ensured.row : {}),
+        email: oauthEmail,
+        name: ensured.row?.name ?? name,
+      },
     });
   } catch (e) {
     console.error(`[finalizeInboundOAuth/${provider}] createLoginSession failed`, e?.message ?? e);

@@ -3,7 +3,11 @@
  */
 
 import { createChatStreamLifecycle } from './agent-chat-stream-audit.js';
-import { ingestSseChunkToTurnOutbox, wrapEmitWithTurnOutbox } from './agentsam-chat-sessions.js';
+import {
+  createTurnOutboxBatcher,
+  ingestSseChunkToTurnOutbox,
+  wrapEmitWithTurnOutboxBatcher,
+} from './agentsam-chat-sessions.js';
 
 export const AGENT_CHAT_SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -17,8 +21,9 @@ export const AGENT_CHAT_SSE_HEADERS = {
  *   emit: (type: string, payload?: Record<string, unknown>) => Promise<void>,
  *   pipeResponse: (response: Response) => Promise<void>,
  *   streamLifecycle: ReturnType<typeof createChatStreamLifecycle>,
+ *   outboxCtx: { batcher: ReturnType<typeof createTurnOutboxBatcher>|null },
  * }) => Promise<Response>} runPipeline
- * @param {{ conversationId?: string|null, userId?: string|null, workspaceId?: string|null, requestId?: string|null, env?: any, chatTurnMeta?: { turnId?: string|null, assistantMessageId?: string|null }|null, onStreamClose?: (payload: Record<string, unknown>) => void|Promise<void> }} [meta]
+ * @param {{ conversationId?: string|null, userId?: string|null, workspaceId?: string|null, requestId?: string|null, env?: any, onStreamClose?: (payload: Record<string, unknown>) => void|Promise<void> }} [meta]
  * @returns {Response}
  */
 export function startAgentChatEarlySse(runPipeline, meta = {}) {
@@ -35,6 +40,10 @@ export function startAgentChatEarlySse(runPipeline, meta = {}) {
   });
   streamLifecycle.logOpen();
 
+  const conversationId =
+    meta.conversationId != null ? String(meta.conversationId).trim() : '';
+  const outboxCtx = { batcher: null };
+
   const rawEmit = async (type, payload = {}) => {
     try {
       await writer.write(
@@ -44,14 +53,16 @@ export function startAgentChatEarlySse(runPipeline, meta = {}) {
       /* stream closed */
     }
   };
-  const turnId = meta.chatTurnMeta?.turnId != null ? String(meta.chatTurnMeta.turnId).trim() : '';
-  const conversationId =
-    meta.conversationId != null ? String(meta.conversationId).trim() : '';
-  const emitBase = streamLifecycle.wrapEmit(rawEmit);
-  let emit = emitBase;
-  if (turnId && conversationId && meta.env) {
-    emit = wrapEmitWithTurnOutbox(meta.env, conversationId, turnId, emitBase);
-  }
+
+  let emitImpl = streamLifecycle.wrapEmit(rawEmit);
+  const emit = async (type, payload = {}) => emitImpl(type, payload);
+
+  const bindTurnOutbox = (turnId) => {
+    const tid = String(turnId || '').trim();
+    if (!tid || !conversationId || !meta.env?.AGENT_SESSION) return;
+    outboxCtx.batcher = createTurnOutboxBatcher(meta.env, conversationId, tid);
+    emitImpl = wrapEmitWithTurnOutboxBatcher(outboxCtx.batcher, streamLifecycle.wrapEmit(rawEmit));
+  };
 
   const outboxTapState = { buffer: '' };
 
@@ -86,15 +97,10 @@ export function startAgentChatEarlySse(runPipeline, meta = {}) {
       if (done) break;
       if (value?.byteLength) {
         streamLifecycle.record('pipe_bytes', { bytes: value.byteLength });
-        if (turnId && conversationId && meta.env) {
-          ingestSseChunkToTurnOutbox(
-            meta.env,
-            conversationId,
-            turnId,
-            decoder.decode(value, { stream: true }),
-            outboxTapState,
-          );
-        }
+        ingestSseChunkToTurnOutbox(decoder.decode(value, { stream: true }), outboxTapState, {
+          batcher: outboxCtx.batcher,
+          onEvent: (type, payload) => streamLifecycle.record(type, payload),
+        });
         await writer.write(value);
       }
     }
@@ -104,7 +110,13 @@ export function startAgentChatEarlySse(runPipeline, meta = {}) {
     try {
       await emit('thinking_start', {});
       await emit('status', { phase: 'preflight' });
-      const inner = await runPipeline({ emit, pipeResponse, streamLifecycle });
+      const inner = await runPipeline({
+        emit,
+        pipeResponse,
+        streamLifecycle,
+        outboxCtx,
+        bindTurnOutbox,
+      });
       if (inner instanceof Response) {
         await pipeResponse(inner);
       }
@@ -113,6 +125,11 @@ export function startAgentChatEarlySse(runPipeline, meta = {}) {
       await emit('error', { message: String(e?.message || e || 'agent_chat_failed') });
       await emit('done', {});
     } finally {
+      try {
+        await outboxCtx.batcher?.finish();
+      } catch (e) {
+        console.warn('[agent-chat-early-sse] outbox finish', e?.message ?? e);
+      }
       const closePayload = streamLifecycle.finalize('early_sse_close');
       if (typeof meta.onStreamClose === 'function') {
         try {

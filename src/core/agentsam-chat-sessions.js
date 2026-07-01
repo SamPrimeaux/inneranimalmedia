@@ -184,9 +184,25 @@ export function mapSseTypeToOutboxEventType(sseType) {
  * @param {Record<string, unknown>} [payload]
  */
 export async function appendTurnOutboxEvent(env, conversationId, turnId, sseType, payload = {}) {
+  return appendTurnOutboxBatch(env, conversationId, turnId, [{ sseType, payload }]);
+}
+
+/**
+ * @param {any} env
+ * @param {string} conversationId
+ * @param {string} turnId
+ * @param {Array<{ sseType: string, payload?: Record<string, unknown> }>} events
+ */
+export async function appendTurnOutboxBatch(env, conversationId, turnId, events) {
   const convId = String(conversationId || '').trim();
   const tid = String(turnId || '').trim();
-  if (!convId || !tid) return { ok: false, reason: 'missing_ids' };
+  const batch = (Array.isArray(events) ? events : [])
+    .map((evt) => ({
+      sseType: String(evt?.sseType || evt?.type || 'status').trim(),
+      payload: evt?.payload && typeof evt.payload === 'object' ? evt.payload : {},
+    }))
+    .filter((evt) => evt.sseType);
+  if (!convId || !tid || !batch.length) return { ok: false, reason: 'missing_ids' };
 
   const stub = getAgentSessionStub(env, convId);
   if (!stub) return { ok: false, reason: 'no_binding' };
@@ -197,14 +213,129 @@ export async function appendTurnOutboxEvent(env, conversationId, turnId, sseType
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         turn_id: tid,
-        event_type: mapSseTypeToOutboxEventType(sseType),
-        payload: { type: sseType, ...payload },
+        events: batch.map((evt) => ({
+          event_type: mapSseTypeToOutboxEventType(evt.sseType),
+          payload: { type: evt.sseType, ...evt.payload },
+        })),
       }),
     }),
   );
   if (!resp.ok) return { ok: false, reason: `do_${resp.status}` };
   const data = await resp.json().catch(() => ({}));
-  return { ok: true, seq: data?.seq ?? null };
+  return {
+    ok: true,
+    seq: data?.latest_seq ?? data?.seq ?? null,
+    count: Number(data?.count) || batch.length,
+  };
+}
+
+/**
+ * Coalesce SSE events before writing to the conversation DO outbox.
+ *
+ * @param {any} env
+ * @param {string} conversationId
+ * @param {string} turnId
+ * @param {{ flushMs?: number, maxBatch?: number, maxTokenChars?: number }} [opts]
+ */
+export function createTurnOutboxBatcher(env, conversationId, turnId, opts = {}) {
+  const convId = String(conversationId || '').trim();
+  const tid = String(turnId || '').trim();
+  const flushMs = Math.max(100, Number(opts.flushMs) || 350);
+  const maxBatch = Math.max(5, Number(opts.maxBatch) || 24);
+  const maxTokenChars = Math.max(256, Number(opts.maxTokenChars) || 4096);
+
+  /** @type {Array<{ sseType: string, payload: Record<string, unknown> }>} */
+  let queue = [];
+  let tokenBuffer = '';
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let timer = null;
+  /** @type {Promise<void>|null} */
+  let flushPromise = null;
+  let closed = false;
+
+  const clearTimer = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  const flush = async () => {
+    if (flushPromise) return flushPromise;
+    flushPromise = (async () => {
+      try {
+        clearTimer();
+        if (tokenBuffer) {
+          queue.push({ sseType: 'text', payload: { type: 'text', text: tokenBuffer } });
+          tokenBuffer = '';
+        }
+        while (queue.length) {
+          const batch = queue.splice(0, maxBatch);
+          if (!batch.length) break;
+          await appendTurnOutboxBatch(env, convId, tid, batch).catch((e) =>
+            console.warn('[turn_outbox] batch append failed', e?.message ?? e),
+          );
+        }
+      } finally {
+        flushPromise = null;
+      }
+    })();
+    return flushPromise;
+  };
+
+  const scheduleFlush = () => {
+    if (closed || timer) return;
+    timer = setTimeout(() => {
+      timer = null;
+      void flush();
+    }, flushMs);
+  };
+
+  return {
+    append(sseType, payload = {}) {
+      if (closed || !convId || !tid || !env?.AGENT_SESSION) return;
+      const t = String(sseType || 'status').trim();
+      const body = payload && typeof payload === 'object' ? payload : {};
+
+      if (t === 'text' || t === 'content') {
+        const piece =
+          typeof body.text === 'string'
+            ? body.text
+            : typeof body.content === 'string'
+              ? body.content
+              : '';
+        if (!piece) return;
+        tokenBuffer += piece;
+        if (tokenBuffer.length >= maxTokenChars) {
+          void flush();
+        } else {
+          scheduleFlush();
+        }
+        return;
+      }
+
+      if (t === 'status' && body.heartbeat) return;
+
+      if (t === 'done' || t === 'error' || t === 'turn_meta') {
+        void flush().then(async () => {
+          await appendTurnOutboxBatch(env, convId, tid, [
+            { sseType: t, payload: { type: t, ...body } },
+          ]).catch((e) => console.warn('[turn_outbox] terminal append failed', e?.message ?? e));
+        });
+        if (t === 'done' || t === 'error') closed = true;
+        return;
+      }
+
+      queue.push({ sseType: t, payload: { type: t, ...body } });
+      if (queue.length >= maxBatch) void flush();
+      else scheduleFlush();
+    },
+    finish() {
+      closed = true;
+      clearTimer();
+      return flush();
+    },
+  };
 }
 
 /**
@@ -242,31 +373,31 @@ export async function fetchTurnOutboxEvents(env, conversationId, turnId, sinceSe
  * @param {(type: string, payload?: Record<string, unknown>) => unknown} emit
  */
 export function wrapEmitWithTurnOutbox(env, conversationId, turnId, emit) {
-  const convId = String(conversationId || '').trim();
-  const tid = String(turnId || '').trim();
-  if (!convId || !tid || !env?.AGENT_SESSION) return emit;
+  const batcher = createTurnOutboxBatcher(env, conversationId, turnId);
+  return wrapEmitWithTurnOutboxBatcher(batcher, emit);
+}
 
+/**
+ * @param {ReturnType<typeof createTurnOutboxBatcher>|null|undefined} batcher
+ * @param {(type: string, payload?: Record<string, unknown>) => unknown} emit
+ */
+export function wrapEmitWithTurnOutboxBatcher(batcher, emit) {
+  if (!batcher) return emit;
   return (type, payload = {}) => {
-    void appendTurnOutboxEvent(env, convId, tid, type, payload).catch((e) =>
-      console.warn('[turn_outbox] append failed', e?.message ?? e),
-    );
+    batcher.append(type, payload);
     return emit(type, payload);
   };
 }
 
 /**
- * Parse complete SSE blocks from a byte buffer and append each event to turn_outbox.
+ * Parse complete SSE blocks from a byte buffer; optionally record lifecycle + outbox batch.
  *
- * @param {any} env
- * @param {string} conversationId
- * @param {string} turnId
  * @param {string} chunk
  * @param {{ buffer?: string }} state
+ * @param {{ batcher?: ReturnType<typeof createTurnOutboxBatcher>|null, onEvent?: (type: string, payload: Record<string, unknown>) => void }} [hooks]
  */
-export function ingestSseChunkToTurnOutbox(env, conversationId, turnId, chunk, state = {}) {
-  const convId = String(conversationId || '').trim();
-  const tid = String(turnId || '').trim();
-  if (!convId || !tid || !env?.AGENT_SESSION || !chunk) return;
+export function ingestSseChunkToTurnOutbox(chunk, state = {}, hooks = {}) {
+  if (!chunk) return;
 
   const buf = String(state.buffer || '') + chunk;
   const parts = buf.split('\n\n');
@@ -281,7 +412,8 @@ export function ingestSseChunkToTurnOutbox(env, conversationId, turnId, chunk, s
       try {
         const parsed = JSON.parse(dataStr);
         const type = typeof parsed?.type === 'string' ? parsed.type : 'status';
-        void appendTurnOutboxEvent(env, convId, tid, type, parsed).catch(() => {});
+        hooks.batcher?.append(type, parsed);
+        hooks.onEvent?.(type, parsed);
       } catch {
         /* ignore malformed SSE */
       }

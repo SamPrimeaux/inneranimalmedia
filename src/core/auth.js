@@ -4,7 +4,7 @@
  * Canonical Identity: auth_users.id (au_ prefix).
  */
 import { workspaceSlugFromTenantId } from '../api/provisioning.js';
-import { withD1Retry } from './d1-retry.js';
+import { isD1OverloadError, withD1Retry } from './d1-retry.js';
 import { loadAgentSamUserPolicy } from './agent-policy.js';
 import { validateMcpToken } from './mcp-auth.js';
 import { loadMembership, resolveFirstMembershipWorkspaceId } from './membership.js';
@@ -1619,10 +1619,20 @@ export async function createLoginSession(request, env, userId, sessionProvider =
     workspaceId: opts.workspaceId,
     providerSubject: opts.providerSubject,
   });
-  const resolvedWorkspaceId = await resolveWorkspaceIdAtLogin(env, userRow, {
-    workspaceId: opts.workspaceId,
-  });
-  sessionFields.workspaceId = resolvedWorkspaceId ?? sessionFields.workspaceId;
+  let resolvedWorkspaceId = null;
+  try {
+    resolvedWorkspaceId = await resolveWorkspaceIdAtLogin(env, userRow, {
+      workspaceId: opts.workspaceId,
+    });
+  } catch (e) {
+    if (!isD1OverloadError(e)) throw e;
+    console.warn('[createLoginSession] resolveWorkspaceIdAtLogin skipped during overload', e?.message ?? e);
+  }
+  sessionFields.workspaceId =
+    resolvedWorkspaceId ??
+    sessionFields.workspaceId ??
+    getPlatformWorkspaceEnvId(env) ??
+    null;
 
   const insertStmt = await prepareInsertAuthSessionRow(env, {
     sessionId,
@@ -1641,16 +1651,28 @@ export async function createLoginSession(request, env, userId, sessionProvider =
     expiresAtIso,
   });
 
-  await withD1Retry(() =>
-    env.DB.batch([
-      env.DB.prepare(
-        `UPDATE auth_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`,
-      ).bind(userId),
-      insertStmt,
-    ]),
-  );
+  let d1SessionPersisted = false;
+  try {
+    await withD1Retry(
+      () =>
+        env.DB.batch([
+          env.DB.prepare(
+            `UPDATE auth_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`,
+          ).bind(userId),
+          insertStmt,
+        ]),
+      { maxAttempts: 6, delays: [100, 200, 400, 800, 1500, 3000] },
+    );
+    d1SessionPersisted = true;
+  } catch (e) {
+    if (!isD1OverloadError(e)) throw e;
+    console.warn(
+      '[createLoginSession] auth_sessions D1 batch deferred during overload — minting KV/JWT session',
+      e?.message ?? e,
+    );
+  }
 
-  if (sessionFields.workspaceId) {
+  if (d1SessionPersisted && sessionFields.workspaceId) {
     try {
       await env.DB.prepare(
         `UPDATE auth_users SET
@@ -1677,11 +1699,24 @@ export async function createLoginSession(request, env, userId, sessionProvider =
   });
 
   const isSuperadmin = Number(userRow?.is_superadmin) === 1;
-  const membership = sessionFields.workspaceId
-    ? await loadMembership(env, userId, sessionFields.workspaceId)
-    : null;
-  const policy = await loadAgentSamUserPolicy(env, userId, sessionFields.workspaceId || '');
-  const authRev = await readAuthRev(env, userId);
+  let membership = null;
+  let policy = null;
+  let authRev = 0;
+  if (d1SessionPersisted) {
+    membership = sessionFields.workspaceId
+      ? await loadMembership(env, userId, sessionFields.workspaceId)
+      : null;
+    policy = await loadAgentSamUserPolicy(env, userId, sessionFields.workspaceId || '');
+    authRev = await readAuthRev(env, userId);
+  } else {
+    membership = sessionFields.workspaceId
+      ? await loadMembershipCached(env, userId, sessionFields.workspaceId).catch(() => null)
+      : null;
+    policy = await loadAgentSamUserPolicyCached(env, userId, sessionFields.workspaceId || '').catch(
+      () => null,
+    );
+    authRev = (await readAuthRevFromCache(env, userId)) ?? 0;
+  }
   const capabilities = computeAuthCapabilities(isSuperadmin, membership, policy);
   const ttlSec =
     opts != null && opts.ttlSeconds != null
@@ -1690,6 +1725,9 @@ export async function createLoginSession(request, env, userId, sessionProvider =
           Math.max(MIN_AGENT_SESSION_TTL_SECONDS, Number(opts.ttlSeconds) || DEFAULT_AGENT_SESSION_TTL_SECONDS),
         )
       : AUTH_SESSION_TTL_SECONDS;
+  const featureFlags = d1SessionPersisted
+    ? undefined
+    : await loadFeatureFlagsCached(env, userId, sessionFields.tenantId).catch(() => ({}));
   const sessionToken = await mintBrowserSessionToken(env, {
     sessionId,
     userId,
@@ -1701,6 +1739,7 @@ export async function createLoginSession(request, env, userId, sessionProvider =
     isSuperadmin,
     authRev,
     capabilities,
+    featureFlags,
     ttlSec,
   });
   await syncAuthRevCache(env, userId, authRev);
