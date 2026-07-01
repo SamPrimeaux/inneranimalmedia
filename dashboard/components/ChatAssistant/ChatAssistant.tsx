@@ -102,6 +102,10 @@ import {
   isAgentSamEmptyThreadGreeting,
 } from './composerLayout';
 import { RepoPickerBottomSheet } from './RepoPickerBottomSheet';
+import {
+  buildGithubContextEnvelope,
+  fetchGithubFileContent,
+} from '../../types/contextEnvelope';
 import { formatHttpErrorMessage } from './streamParsing';
 import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
 import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug';
@@ -400,17 +404,44 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [githubRepoContext, setGithubRepoContext] = useState<string | null>(null);
   const [chatGithubFilePath, setChatGithubFilePath] = useState<string | null>(null);
   const [chatGithubBranch, setChatGithubBranch] = useState('main');
+  const [chatGithubFileContent, setChatGithubFileContent] = useState<string | null>(null);
+  const [chatGithubContentTruncated, setChatGithubContentTruncated] = useState(false);
+  const [chatGithubContentSha, setChatGithubContentSha] = useState<string | null>(null);
 
   const saveGithubRepoSelection = useCallback(
-    (full: string, filePath?: string | null, branch = 'main') => {
+    (
+      full: string,
+      filePath?: string | null,
+      branch = 'main',
+      fileMeta?: {
+        content?: string | null;
+        contentSha?: string | null;
+        contentTruncated?: boolean;
+      },
+    ) => {
       setGithubRepoContext(full);
-      if (filePath !== undefined) setChatGithubFilePath(filePath?.trim() || null);
+      if (filePath !== undefined) {
+        setChatGithubFilePath(filePath?.trim() || null);
+        if (!filePath?.trim()) {
+          setChatGithubFileContent(null);
+          setChatGithubContentTruncated(false);
+          setChatGithubContentSha(null);
+        }
+      }
       setChatGithubBranch(branch.trim() || 'main');
+      if (fileMeta !== undefined) {
+        setChatGithubFileContent(fileMeta.content?.trim() ? fileMeta.content : null);
+        setChatGithubContentTruncated(!!fileMeta.contentTruncated);
+        setChatGithubContentSha(fileMeta.contentSha?.trim() || null);
+      }
       const key = chatGithubContextStorageKey(sessionUserId, effectiveWsId, conversationId);
       writeChatGithubContext(key, {
         repo: full,
         path: filePath?.trim() || null,
         branch: branch.trim() || 'main',
+        content: fileMeta?.content?.trim() || null,
+        content_truncated: fileMeta?.contentTruncated ?? false,
+        content_sha: fileMeta?.contentSha?.trim() || null,
       });
     },
     [sessionUserId, effectiveWsId, conversationId],
@@ -541,6 +572,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     setGithubRepoContext(ctx?.repo?.trim() || null);
     setChatGithubFilePath(ctx?.path?.trim() || null);
     setChatGithubBranch(ctx?.branch?.trim() || 'main');
+    setChatGithubFileContent(ctx?.content?.trim() || null);
+    setChatGithubContentTruncated(!!ctx?.content_truncated);
+    setChatGithubContentSha(ctx?.content_sha?.trim() || null);
   }, [sessionUserId, effectiveWsId, conversationId, workspaces]);
 
   useEffect(() => {
@@ -2317,6 +2351,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             browserElementContext && typeof browserElementContext === 'object'
               ? browserElementContext
               : null,
+          contextEnvelope: buildGithubContextEnvelope({
+            conversationId: conversationId.trim() || null,
+            workspaceId: effectiveWsId || null,
+            repo: githubRepoContext?.trim() || '',
+            path: chatGithubFilePath,
+            branch: chatGithubBranch,
+            content: chatGithubFileContent,
+            contentSha: chatGithubContentSha,
+            contentTruncated: chatGithubContentTruncated,
+          }),
         });
     const ghCtx = githubRepoContext?.trim();
     const openIsLocal =
@@ -2513,9 +2557,29 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         form.append('active_file_github_path', chatGithubFilePath.trim());
       }
       form.append('active_file_github_branch', chatGithubBranch.trim() || 'main');
+      if (chatGithubContentSha?.trim()) {
+        form.append('active_file_github_sha', chatGithubContentSha.trim());
+      }
+      if (chatGithubFileContent?.trim()) {
+        form.append('active_file_content', chatGithubFileContent.slice(0, 48000));
+      }
     }
     const ghCtxForm = githubRepoContext?.trim();
     if (ghCtxForm) form.append('github_repo_context', ghCtxForm);
+
+    const contextEnvelopePayload = buildGithubContextEnvelope({
+      conversationId: effectiveConvId,
+      workspaceId: effectiveWsId || null,
+      repo: githubRepoContext?.trim() || '',
+      path: chatGithubFilePath,
+      branch: chatGithubBranch,
+      content: chatGithubFileContent,
+      contentSha: chatGithubContentSha,
+      contentTruncated: chatGithubContentTruncated,
+    });
+    if (contextEnvelopePayload?.focus?.github?.path) {
+      form.append('context_envelope', JSON.stringify(contextEnvelopePayload));
+    }
 
     const applyAssistantError = (msg: string) => {
       setMessages((prev) => [...stripEmptyAssistantTail(prev), { role: 'assistant', content: msg }]);
@@ -3647,7 +3711,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         githubRepoContext={githubRepoContext}
         githubFilePath={chatGithubFilePath}
         onSelectRepo={(full) => saveGithubRepoSelection(full, null)}
-        onSelectFile={(repo, path, branch) => saveGithubRepoSelection(repo, path, branch)}
+        onSelectFile={(repo, path, branch, meta) =>
+          saveGithubRepoSelection(repo, path, branch, meta)
+        }
         onBrowseFiles={(full) => onOpenGitHubIntegration?.({ expandRepoFullName: full })}
       />
 

@@ -1149,6 +1149,26 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         if (activeFileEnvelope) body.activeFileEnvelope = activeFileEnvelope;
       }
     }
+
+    const {
+      parseContextEnvelope,
+      mergeContextEnvelopeIntoActiveFile,
+    } = await import('../core/context-envelope.js');
+    const contextEnvelope = parseContextEnvelope(body);
+    if (contextEnvelope) {
+      body.contextEnvelope = contextEnvelope;
+      activeFileEnvelope = mergeContextEnvelopeIntoActiveFile(activeFileEnvelope, contextEnvelope, {
+        parseActiveFileEnvelope,
+        activeFileIsLocalWorkspaceBuffer,
+      });
+      if (activeFileEnvelope) {
+        if (!activeFileEnvelope.content) {
+          const extracted = extractOpenFileContentFromMessage(message);
+          if (extracted) activeFileEnvelope.content = extracted;
+        }
+        body.activeFileEnvelope = activeFileEnvelope;
+      }
+    }
   } catch (e) {
     console.warn('[agent] active_file_envelope_parse', e?.message ?? e);
   }

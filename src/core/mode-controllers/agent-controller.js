@@ -260,6 +260,14 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     if (cmsBlock && !systemPrompt.includes('## CMS context')) {
       systemPrompt = `${systemPrompt}\n\n${cmsBlock}`;
     }
+    const lockedEnvelope = body.activeFileEnvelope;
+    if (lockedEnvelope) {
+      const { formatActiveFileForAgent } = await import('../active-file-envelope.js');
+      const activeBlock = formatActiveFileForAgent(lockedEnvelope);
+      if (activeBlock && !systemPrompt.includes('[Active file envelope')) {
+        systemPrompt = `${systemPrompt}\n\n## Active context (locked)\n${activeBlock}`;
+      }
+    }
   } catch (e) {
     console.warn('[agent-controller] cms_context', e?.message ?? e);
   }

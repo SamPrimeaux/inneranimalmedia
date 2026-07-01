@@ -385,6 +385,10 @@ export type ChatGithubContextStored = {
   repo: string;
   path?: string | null;
   branch?: string | null;
+  /** Eager-read body from GitHub picker (Context Envelope v1). */
+  content?: string | null;
+  content_truncated?: boolean;
+  content_sha?: string | null;
 };
 
 /** Per-user + per-workspace + per-conversation GitHub context for Agent Sam chat. */
@@ -409,6 +413,9 @@ export function readChatGithubContext(key: string): ChatGithubContextStored | nu
         repo: parsed.repo.trim(),
         path: parsed.path?.trim() || null,
         branch: parsed.branch?.trim() || 'main',
+        content: parsed.content?.trim() || null,
+        content_truncated: !!parsed.content_truncated,
+        content_sha: parsed.content_sha?.trim() || null,
       };
     }
     if (raw.includes('/')) {
@@ -428,6 +435,9 @@ export function writeChatGithubContext(key: string, ctx: ChatGithubContextStored
         repo: ctx.repo.trim(),
         path: ctx.path?.trim() || null,
         branch: ctx.branch?.trim() || 'main',
+        content: ctx.content?.trim() || null,
+        content_truncated: ctx.content_truncated ?? false,
+        content_sha: ctx.content_sha?.trim() || null,
       }),
     );
   } catch {

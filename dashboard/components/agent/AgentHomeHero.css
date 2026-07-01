@@ -78,3 +78,11 @@
     font-size: 30px;
   }
 }
+
+@media (max-width: 430px) {
+  .agent-home__stack--hero .agent-hero {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 0;
+  }
+}

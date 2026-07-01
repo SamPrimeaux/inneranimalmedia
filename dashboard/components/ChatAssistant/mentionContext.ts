@@ -4,6 +4,8 @@
  */
 
 import type { ActiveFile } from '../../types';
+import type { ContextEnvelopeV1 } from '../../types/contextEnvelope';
+import { buildContextEnvelopeMessageBlock } from '../../types/contextEnvelope';
 import {
   MENTION_CONTEXT_HEADER,
   MENTION_FILE_MAX_CHARS,
@@ -160,10 +162,10 @@ function formatAgentToolRouting(activeFile: ActiveFile | null | undefined): stri
     );
   }
   if (activeFile.githubRepo && activeFile.githubPath) {
-    const branch = activeFile.githubBranch ? ` branch="${activeFile.githubBranch}"` : '';
+    const branch = activeFile.githubBranch ? ` ref="${activeFile.githubBranch}"` : '';
     lines.push(
-      `- GitHub read: github_file({ repo: "${activeFile.githubRepo}", path: "${activeFile.githubPath}"${branch} })`,
-      `- GitHub write: github_update_file({ repo: "${activeFile.githubRepo}", path: "${activeFile.githubPath}", content: "<full file text>", message: "<commit message>"${branch} }) — call this when the user asks to patch/save/commit.`,
+      `- GitHub read: agentsam_github_read({ repo: "${activeFile.githubRepo}", path: "${activeFile.githubPath}"${branch} })`,
+      `- GitHub write: agentsam_github_write / github_update_file({ repo: "${activeFile.githubRepo}", path: "${activeFile.githubPath}", content: "<full file text>", message: "<commit message>"${branch} }) — call this when the user asks to patch/save/commit.`,
     );
   }
   if (activeFile.driveFileId) {
@@ -205,10 +207,20 @@ export async function buildMentionContext(
     attachContextFiles?: Array<{ name: string; content: string }>;
     /** BrowserView element pick — injected when message includes `@browser`. */
     browserElementContext?: Record<string, unknown> | null;
+    /** Locked GitHub focus from repo/file picker (Context Envelope v1). */
+    contextEnvelope?: ContextEnvelopeV1 | null;
   },
 ): Promise<string> {
-  const { activeFileName, activeFileContent, activeFile, editorCursorLine, editorCursorColumn, attachContextFiles, browserElementContext } =
-    opts;
+  const {
+    activeFileName,
+    activeFileContent,
+    activeFile,
+    editorCursorLine,
+    editorCursorColumn,
+    attachContextFiles,
+    browserElementContext,
+    contextEnvelope,
+  } = opts;
   const parts: string[] = [];
   const injectFileSnippet =
     (hasWordMention(userMessage, 'file') || fileNameMentionedInMessage(userMessage, activeFileName)) &&
@@ -237,6 +249,11 @@ export async function buildMentionContext(
 
   if (activeFile) {
     parts.push(formatAgentToolRouting(activeFile));
+  }
+
+  if (contextEnvelope?.focus?.github?.path) {
+    const block = buildContextEnvelopeMessageBlock(contextEnvelope);
+    if (block) parts.push(`### Context envelope (locked)\n${block}`);
   }
 
   const r2Re = /@r2:([^\s]+)/g;

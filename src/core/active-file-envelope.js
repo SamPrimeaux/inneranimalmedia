@@ -150,6 +150,7 @@ export function activeFileDisplayPath(envelope) {
 
 /**
  * Tool-call defaults from the active editor envelope (GitHub repo/path, R2 bucket/key).
+ * When github-bound, envelope path/repo/branch override model guesses (Context Envelope v1).
  * @param {string} toolName
  * @param {Record<string, unknown>} toolInput
  * @param {ReturnType<typeof parseActiveFileEnvelope>|null|undefined} envelope
@@ -158,11 +159,20 @@ export function applyActiveFileDefaultsToToolInput(toolName, toolInput, envelope
   if (!envelope || !toolInput || typeof toolInput !== 'object') return toolInput;
   const out = { ...toolInput };
   const n = String(toolName || '').toLowerCase();
-  if (n.startsWith('github_') || n === 'github_file') {
+  const isGithubTool =
+    n.startsWith('github_') || n === 'github_file' || n.startsWith('agentsam_github_');
+  if (isGithubTool) {
     if (!activeFileIsGithubBound(envelope)) return out;
     if (!out.repo && envelope.github_repo) out.repo = envelope.github_repo;
-    if (!out.path && !out.file_path && envelope.github_path) out.path = envelope.github_path;
-    if (!out.branch && envelope.github_branch) out.branch = envelope.github_branch;
+    if (envelope.github_path) {
+      out.path = envelope.github_path;
+      delete out.file_path;
+    } else if (!out.path && !out.file_path && envelope.github_path) {
+      out.path = envelope.github_path;
+    }
+    const branch = envelope.github_branch || 'main';
+    if (!out.branch) out.branch = branch;
+    if (!out.ref) out.ref = branch;
   }
   if (n.startsWith('r2_') || n.startsWith('agentsam_r2_')) {
     if (!out.bucket && envelope.r2_bucket) out.bucket = envelope.r2_bucket;
@@ -180,10 +190,10 @@ function formatActiveFileToolTargets(envelope) {
     );
   }
   if (activeFileIsGithubBound(envelope)) {
-    const branch = envelope.github_branch ? `, branch="${envelope.github_branch}"` : '';
+    const branch = envelope.github_branch ? `, ref="${envelope.github_branch}"` : '';
     lines.push(
-      `- GitHub read: github_file({ repo: "${envelope.github_repo}", path: "${envelope.github_path}"${branch} })`,
-      `- GitHub write: github_update_file({ repo: "${envelope.github_repo}", path: "${envelope.github_path}", content: "<full file>", message: "<commit msg>"${branch} })`,
+      `- GitHub read: agentsam_github_read({ repo: "${envelope.github_repo}", path: "${envelope.github_path}"${branch} })`,
+      `- GitHub write: agentsam_github_write / github_update_file({ repo: "${envelope.github_repo}", path: "${envelope.github_path}", content: "<full file>", message: "<commit msg>"${branch} })`,
     );
   } else if (activeFileIsLocalWorkspaceBuffer(envelope)) {
     lines.push(
@@ -230,7 +240,7 @@ export function formatActiveFileForAgent(envelope) {
   if (!envelope) return null;
   const path = activeFileDisplayPath(envelope);
   const meta = [
-    `[Active file envelope — editor selection. Prefer this path unless the user names another file.]`,
+    `[Active file envelope — locked user/editor selection. Use exact github_path unless the user names another file.]`,
     `source: ${envelope.source}`,
     `path: ${path}`,
   ];

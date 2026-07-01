@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, FileText, Folder, FolderGit2, Loader2 } from 'lucide-react';
 import { readGhReposCache, writeGhReposCache, type GhRepoRow } from './repoPickerCache';
+import { fetchGithubFileContent } from '../../types/contextEnvelope';
 
 const HEIGHT_KEY = 'iam-repo-drawer-height-vh';
 const MIN_VH = 28;
@@ -32,7 +33,12 @@ type RepoPickerBottomSheetProps = {
   githubRepoContext: string | null;
   githubFilePath?: string | null;
   onSelectRepo: (fullName: string) => void;
-  onSelectFile?: (repo: string, path: string, branch: string) => void;
+  onSelectFile?: (
+    repo: string,
+    path: string,
+    branch: string,
+    meta?: { content?: string | null; contentSha?: string | null; contentTruncated?: boolean },
+  ) => void;
   onBrowseFiles?: (fullName: string) => void;
 };
 
@@ -58,6 +64,7 @@ export function RepoPickerBottomSheet({
   const [entries, setEntries] = useState<GhContentRow[]>([]);
   const [entriesLoading, setEntriesLoading] = useState(false);
   const [entriesError, setEntriesError] = useState<string | null>(null);
+  const [fileHydrating, setFileHydrating] = useState(false);
   const heightVhRef = useRef(heightVh);
   const resizeRef = useRef<{ startY: number; startH: number } | null>(null);
 
@@ -143,7 +150,12 @@ export function RepoPickerBottomSheet({
         }
         if (data?.type === 'file') {
           onSelectRepo(repoFull);
-          onSelectFile?.(repoFull, String(data.path || path), branch);
+          const hydration = await fetchGithubFileContent(repoFull, String(data.path || path), branch);
+          onSelectFile?.(repoFull, String(data.path || path), branch, {
+            content: hydration?.content ?? null,
+            contentSha: hydration?.sha ?? null,
+            contentTruncated: hydration?.truncated ?? false,
+          });
           onClose();
           return;
         }
@@ -406,15 +418,32 @@ export function RepoPickerBottomSheet({
                     <button
                       key={entry.path || entry.name}
                       type="button"
+                      disabled={fileHydrating}
                       onClick={() => {
                         if (isDir) {
                           setBrowsePath(entry.path);
                           return;
                         }
                         if (!browseRepo) return;
-                        onSelectRepo(browseRepo);
-                        onSelectFile?.(browseRepo, entry.path, browseBranch);
-                        onClose();
+                        void (async () => {
+                          setFileHydrating(true);
+                          try {
+                            const hydration = await fetchGithubFileContent(
+                              browseRepo,
+                              entry.path,
+                              browseBranch,
+                            );
+                            onSelectRepo(browseRepo);
+                            onSelectFile?.(browseRepo, entry.path, browseBranch, {
+                              content: hydration?.content ?? null,
+                              contentSha: hydration?.sha ?? null,
+                              contentTruncated: hydration?.truncated ?? false,
+                            });
+                            onClose();
+                          } finally {
+                            setFileHydrating(false);
+                          }
+                        })();
                       }}
                       className="mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[13px] hover:bg-[var(--bg-hover)]"
                     >
