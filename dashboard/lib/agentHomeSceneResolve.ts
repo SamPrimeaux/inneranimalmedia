@@ -34,6 +34,14 @@ export function resolveAgentHomeDisplayScene(
   };
 }
 
+export function applyDayPartToScene(
+  cms: AgentHomeCmsConfig,
+  dayPart: AgentDayPart,
+  _sceneSource: 'default' | 'user' | 'workspace',
+): AgentHomeSceneConfig {
+  return resolveAgentHomeDisplayScene(cms, dayPart);
+}
+
 export function applyAgentHomeCmsToDocument(cms: AgentHomeCmsConfig | null | undefined): void {
   const cfg = cms?.version === 1 ? cms : DEFAULT_AGENT_HOME_CMS;
   const root = document.documentElement;

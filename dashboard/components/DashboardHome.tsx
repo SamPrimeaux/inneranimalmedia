@@ -14,7 +14,7 @@ import {
   Pencil,
   type LucideIcon,
 } from 'lucide-react';
-import { IAM_AGENT_CHAT_COMPOSE } from '../agentChatConstants';
+import { startNewAgentChat } from '../lib/openAgentConversation';
 import { fetchProjectsList, type OverviewProject } from '../api/projects';
 import { readIamProjectsCache, writeIamProjectsCache } from '../src/iamProjectsCache';
 import { cfImageVariants, projectAccentHue, projectInitials } from '../src/lib/projectBranding';
@@ -164,14 +164,6 @@ function projectUpdatedLabel(project: OverviewProject) {
   if (project.lastDeploy && project.lastDeploy !== '—') return `Updated ${project.lastDeploy}`;
   if (project.dueDate && project.dueDate !== '—') return `Due ${project.dueDate}`;
   return 'Recently active';
-}
-
-function openAgentComposer() {
-  window.dispatchEvent(
-    new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
-      detail: { message: '', send: false, ensureAgentPanel: true },
-    }),
-  );
 }
 
 export function DashboardHome() {
@@ -326,7 +318,7 @@ export function DashboardHome() {
           <p>
             Pick a workflow below, or open Agent Sam from the panel to start with full context.
           </p>
-          <button type="button" className="iam-hero-agent-cta" onClick={openAgentComposer}>
+          <button type="button" className="iam-hero-agent-cta" onClick={() => startNewAgentChat({ stayOnPage: true })}>
             <Sparkles size={16} strokeWidth={1.75} aria-hidden />
             Ask Agent Sam
             <ArrowRight size={16} strokeWidth={1.75} aria-hidden />

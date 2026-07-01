@@ -54,6 +54,7 @@ import {
   type QuickstartThreadDetail,
 } from '../../agentChatConstants';
 import { notifyAgentChatSessionsRefresh } from '../../lib/openAgentConversation';
+import { replaceAgentConversationUrl } from '../../lib/agentRoutes';
 import type { AgentSessionRow } from '../../agentSessionsCatalog';
 import { sessionDisplayTitle } from '../../agentSessionsCatalog';
 import type {
@@ -2565,6 +2566,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       (() => {
         const id = crypto.randomUUID();
         setConversationId(id);
+        replaceAgentConversationUrl(id);
         try {
           localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id);
         } catch (_) {}

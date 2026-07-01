@@ -1,5 +1,7 @@
 /** Agent IDE shell routes (ChatAssistant + workspace stay mounted). */
 export const AGENT_HOME_PATH = '/dashboard/agent';
+/** Composer-only fresh thread — no persisted session id in URL until first send. */
+export const AGENT_NEW_CHAT_PATH = '/dashboard/agent/new';
 export const AGENT_EDITOR_PATH = '/dashboard/agent/editor';
 export const AGENT_WORKSPACE_PATH = '/dashboard/agent/workspace';
 export const AGENT_SYSTEMS_PATH = '/dashboard/agent/systems';
@@ -85,6 +87,36 @@ export function isAgentShellPath(pathname: string): boolean {
 
 export function isAgentHomePath(pathname: string): boolean {
   return normalizePath(pathname) === AGENT_HOME_PATH;
+}
+
+export function isAgentNewChatPath(pathname: string): boolean {
+  return normalizePath(pathname) === AGENT_NEW_CHAT_PATH;
+}
+
+/** `/dashboard/agent/:conversationId` — active thread deep link (set via replaceState after first send). */
+export function isAgentConversationPath(pathname: string): boolean {
+  const p = normalizePath(pathname);
+  if (p === AGENT_HOME_PATH || p === AGENT_NEW_CHAT_PATH) return false;
+  if (!p.startsWith(`${AGENT_HOME_PATH}/`)) return false;
+  const tail = p.slice(`${AGENT_HOME_PATH}/`.length);
+  if (!tail || tail.includes('/')) return false;
+  const reserved = new Set(['editor', 'workspace', 'systems', 'quickstart', 'examples', 'new']);
+  return !reserved.has(tail.toLowerCase());
+}
+
+export function agentConversationPath(conversationId: string): string {
+  const id = String(conversationId || '').trim();
+  return id ? `${AGENT_HOME_PATH}/${encodeURIComponent(id)}` : AGENT_NEW_CHAT_PATH;
+}
+
+export function replaceAgentConversationUrl(conversationId: string): void {
+  if (typeof window === 'undefined') return;
+  const id = String(conversationId || '').trim();
+  if (!id) return;
+  const next = agentConversationPath(id);
+  const current = normalizePath(window.location.pathname);
+  if (current === normalizePath(next)) return;
+  window.history.replaceState(window.history.state, '', next);
 }
 
 export function isAgentQuickstartPath(pathname: string): boolean {

@@ -1,6 +1,3 @@
-import type { AgentHomeCmsConfig, AgentHomeSceneConfig } from '../types/agentHomeScene';
-import { resolveAgentHomeDisplayScene } from './agentHomeSceneResolve';
-
 /** Local-time day segment — aligned with greeting strings. */
 export type AgentDayPart = 'late-night' | 'morning' | 'afternoon' | 'evening';
 
@@ -46,12 +43,4 @@ export function greetingNameFromDisplay(displayName?: string | null): string {
   if (!raw) return 'there';
   const first = raw.split(/\s+/)[0];
   return first || raw;
-}
-
-export function applyDayPartToScene(
-  cms: AgentHomeCmsConfig,
-  dayPart: AgentDayPart,
-  _sceneSource: 'default' | 'user' | 'workspace',
-): AgentHomeSceneConfig {
-  return resolveAgentHomeDisplayScene(cms, dayPart);
 }

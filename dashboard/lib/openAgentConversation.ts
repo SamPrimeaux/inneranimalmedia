@@ -57,6 +57,19 @@ export function openAgentConversation(detail: OpenAgentConversationDetail): void
   );
 }
 
+/** Fresh thread: new tab + greeting, navigate to /dashboard/agent/new when needed. */
+export const IAM_AGENT_START_NEW_CHAT = 'iam-agent-start-new-chat';
+
+export type StartNewAgentChatDetail = {
+  /** When true, open a fresh tab on the current page (e.g. Home hero CTA) without routing away. */
+  stayOnPage?: boolean;
+};
+
+export function startNewAgentChat(detail?: StartNewAgentChatDetail): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(IAM_AGENT_START_NEW_CHAT, { detail: detail ?? {} }));
+}
+
 /** Sidebar / Chats list — route to Agent Sam and restore the full thread. */
 export function resumeAgentChatSession(detail: OpenAgentConversationDetail): void {
   const id = detail.id?.trim();

@@ -4,10 +4,11 @@ import { AgentHomeScene } from './AgentHomeScene';
 import { AgentHomeHero } from './AgentHomeHero';
 import type { AgentHomeCmsConfig, AgentModeId } from '../../types/agentHomeScene';
 import { DEFAULT_AGENT_HOME_CMS, AGENT_MODE_PILLS } from '../../types/agentHomeScene';
-import { applyDayPartToScene, greetingNameFromDisplay } from '../../lib/agentDayPart';
+import { greetingNameFromDisplay } from '../../lib/agentDayPart';
 import { useAgentDayPart } from '../../src/hooks/useAgentDayPart';
 import {
   applyAgentHomeCmsToDocument,
+  applyDayPartToScene,
   IAM_AGENT_HOME_SCENE_CHANGED,
 } from '../../lib/agentHomeSceneResolve';
 import { warmAgentChunksForTab } from '../../src/pwa/warmAgentChunks';

@@ -8,6 +8,7 @@
 import type React from 'react';
 import { LS_AGENT_CHAT_CONVERSATION_ID, IAM_AGENT_RUN_CONTEXT, IAM_DESIGNSTUDIO_CAD_JOB } from '../../../agentChatConstants';
 import { notifyAgentChatSessionsRefresh } from '../../../lib/openAgentConversation';
+import { replaceAgentConversationUrl } from '../../../lib/agentRoutes';
 import {
   resolveToolApprovalPreview,
 } from '../toolApprovalCopy';
@@ -645,6 +646,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               /* ignore */
             }
             setConversationId(nextId);
+            replaceAgentConversationUrl(nextId);
             loadSessions();
             notifyAgentChatSessionsRefresh(nextId);
             onAgentHandoff?.({
@@ -2364,6 +2366,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const cid = (data as { conversation_id?: string }).conversation_id;
           if (typeof cid === 'string' && cid) {
             setConversationId(cid);
+            replaceAgentConversationUrl(cid);
             localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, cid);
             void loadSessions();
             notifyAgentChatSessionsRefresh(cid);

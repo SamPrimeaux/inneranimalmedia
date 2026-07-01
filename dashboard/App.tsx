@@ -12,6 +12,8 @@ import { WorkspaceDashboardV2 } from './components/WorkspaceDashboardV2';
 import { AgentQuickstartPage, type QuickstartTemplate } from './components/AgentQuickstartPage';
 import {
   AGENT_HOME_PATH,
+  AGENT_NEW_CHAT_PATH,
+  isAgentNewChatPath,
   AGENT_EDITOR_PATH,
   AGENT_WORKSPACE_PATH,
   AGENT_SYSTEMS_PATH,
@@ -50,7 +52,7 @@ import {
   type ArtifactOpenBuilderDetail,
   type QuickstartThreadDetail,
 } from './agentChatConstants';
-import { IAM_AGENT_ENSURE_PANEL, IAM_AGENT_RESUME_CHAT, openAgentConversation, resumeAgentChatSession } from './lib/openAgentConversation';
+import { IAM_AGENT_ENSURE_PANEL, IAM_AGENT_RESUME_CHAT, IAM_AGENT_START_NEW_CHAT, openAgentConversation, resumeAgentChatSession, type StartNewAgentChatDetail } from './lib/openAgentConversation';
 import { resolveWorkspaceContextLabel } from './src/workspaceContextLabel';
 import { coalesceLabel } from './src/lib/coalesceLabel';
 import {
@@ -1462,9 +1464,14 @@ const App: React.FC = () => {
     }
     if (isLibraryShellPath(location.pathname)) {
       if (agentPosition === 'off') setAgentPosition('right');
+      navigate(AGENT_NEW_CHAT_PATH);
       return;
     }
-    if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
+    if (!isAgentShellPath(location.pathname)) {
+      navigate(AGENT_NEW_CHAT_PATH);
+    } else if (!isAgentNewChatPath(location.pathname)) {
+      navigate(AGENT_NEW_CHAT_PATH, { replace: true });
+    }
     if (isAgentHomeAtmospheric && !isNarrowViewport) return;
     if (agentPosition === 'off') setAgentPosition('right');
   }, [location.pathname, navigate, agentPosition, isAgentHomeAtmospheric, isNarrowViewport]);
@@ -2095,6 +2102,25 @@ const App: React.FC = () => {
   }, [agentChatTabs.length, workspaceDisplayLine]);
 
   createNewAgentChatTabRef.current = createNewAgentChatTab;
+
+  useEffect(() => {
+    if (!isAgentNewChatPath(location.pathname)) return;
+    if (agentPosition === 'off') setAgentPosition('right');
+  }, [location.pathname, agentPosition]);
+
+  useEffect(() => {
+    const onStartNewChat = (e: Event) => {
+      const stayOnPage = (e as CustomEvent<StartNewAgentChatDetail>).detail?.stayOnPage === true;
+      if (stayOnPage) {
+        createNewAgentChatTabRef.current?.();
+        if (agentPosition === 'off') setAgentPosition('right');
+        return;
+      }
+      shellNewChat();
+    };
+    window.addEventListener(IAM_AGENT_START_NEW_CHAT, onStartNewChat);
+    return () => window.removeEventListener(IAM_AGENT_START_NEW_CHAT, onStartNewChat);
+  }, [shellNewChat]);
 
   const pendingNewThreadMessageRef = useRef<QuickstartThreadDetail | null>(null);
   const pendingAgentChatComposeRef = useRef<AgentChatComposeDetail | null>(null);

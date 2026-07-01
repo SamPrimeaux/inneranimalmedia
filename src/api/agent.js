@@ -43,6 +43,7 @@ import { LANES, writeToLane, writeMemoryLane } from '../core/rag-lanes.js';
 import { resolveAgentChatLaneContextBlock } from '../core/agent-chat-lane-context.js';
 import { loadAgentMemoryForPrompt }                     from '../core/memory.js';
 import { writeTelemetry }                               from './telemetry.js';
+import { jsonResponse }                                 from '../core/responses.js';
 import { startAgentChatEarlySse } from '../core/agent-chat-early-sse.js';
 import { withD1Retry } from '../core/d1-retry.js';
 import { authUserFromRequest, getSession,
