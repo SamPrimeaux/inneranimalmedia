@@ -311,6 +311,33 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     }
   }
 
+  if (workspaceId && !createSubagentFlow.active) {
+    try {
+      const {
+        fetchWorkspaceChatBinding,
+        appendWorkspaceBindingToPrompt,
+      } = await import('../workspace-chat-scope.js');
+      const binding = await fetchWorkspaceChatBinding(env, workspaceId);
+      const explicitGh = String(
+        body.selectedGithubRepoContext ?? body.github_repo_context ?? body.githubRepoContext ?? '',
+      ).trim();
+      const envelope = body.activeFileEnvelope;
+      systemPrompt = appendWorkspaceBindingToPrompt(systemPrompt, binding, {
+        explicitGithubRepo: explicitGh || null,
+        activeFileRepo:
+          envelope?.github_repo != null ? String(envelope.github_repo).trim() : null,
+        activeFileR2Key:
+          envelope?.r2_key != null
+            ? String(envelope.r2_key).trim()
+            : envelope?.path != null && String(envelope.path).startsWith('r2://')
+              ? String(envelope.path).trim()
+              : null,
+      });
+    } catch (e) {
+      console.warn('[agent-controller] workspace_binding_prompt', e?.message ?? e);
+    }
+  }
+
   if (createSubagentFlow.active && createSubagentFlow.phase) {
     try {
       const flowLine = buildCreateSubagentFlowSystemPromptLine(createSubagentFlow.phase);

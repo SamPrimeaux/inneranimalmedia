@@ -348,6 +348,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [defaultModelKey, setDefaultModelKey] = useState<string | null>(null);
 
   const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
+  const [composerToast, setComposerToast] = useState<string | null>(null);
   /** Structured BrowserView selection — appended to next Agent Sam message as JSON context. */
   const [browserElementContext, setBrowserElementContext] = useState<Record<string, unknown> | null>(null);
   /** Latest DOM pick — silent attach for Agent Sam (no composer tokens). */
@@ -383,6 +384,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     () => attachments.reduce((sum, a) => sum + (a.file.size || 0), 0),
     [attachments]
   );
+
+  useEffect(() => {
+    if (!composerToast) return;
+    const t = window.setTimeout(() => setComposerToast(null), 4500);
+    return () => clearTimeout(t);
+  }, [composerToast]);
   const [composerDragging, setComposerDragging] = useState(false);
   const composerDragDepthRef = useRef(0);
   const [conversationId, setConversationId] = useState<string>(() =>
@@ -756,6 +763,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     setThreadTitle('New Chat');
     setPythonDraftHint(null);
     if (onAgentChatShellNewTab) {
+      resetFreshChatContext();
       onAgentChatShellNewTab();
       return;
     }
@@ -2404,7 +2412,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     streamFinalizedRef.current = false;
     const signal = abortControllerRef.current.signal;
 
-    if (totalStagedBytes > CHAT_ATTACH_MAX_TOTAL_BYTES) return;
+    if (totalStagedBytes > CHAT_ATTACH_MAX_TOTAL_BYTES) {
+      setComposerToast('Attachments exceed 90 MB — remove files before sending.');
+      return;
+    }
 
     const userMessage = text || '(attachment)';
     setPendingToolApproval(null);
@@ -4103,6 +4114,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           </div>,
           document.body
         )}
+      {composerToast ? (
+        <div
+          role="status"
+          className="fixed bottom-16 left-1/2 z-[200] -translate-x-1/2 px-4 py-2 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] text-[11px] text-main shadow-lg max-w-md text-center"
+        >
+          {composerToast}
+        </div>
+      ) : null}
     </>
   );
 };

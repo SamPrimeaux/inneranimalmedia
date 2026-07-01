@@ -1171,6 +1171,25 @@ const App: React.FC = () => {
       activeFile?.r2Key ||
       activeFile?.name ||
       null;
+    const wsGithub = activeWorkspaceRow?.github_repo?.trim() || null;
+    const wsR2Prefix =
+      (activeWorkspaceRow as { r2_prefix?: string | null } | null)?.r2_prefix?.trim() || null;
+    const wsRoot =
+      (activeWorkspaceRow as { root_path?: string | null } | null)?.root_path?.trim() ||
+      (ideWorkspace?.source === 'local'
+        ? ideWorkspace.folderName
+        : ideWorkspace?.source === 'pinned'
+          ? ideWorkspace.pathHint
+          : null);
+    const workspaceSource = (() => {
+      const gh = !!wsGithub;
+      const r2 = !!wsR2Prefix;
+      if (gh && r2) return 'mixed';
+      if (gh) return 'github';
+      if (r2) return 'r2';
+      if (wsRoot || ideWorkspace?.source === 'local') return 'local';
+      return 'general';
+    })();
     return {
       activeTab: String(activeTab),
       browserUrl: browserUrl?.trim() || null,
@@ -1183,6 +1202,11 @@ const App: React.FC = () => {
       dev_server_url: devServer?.url ?? null,
       active_file: activePath,
       terminal_tail: shellOutputLines.slice(-8),
+      workspace_id: authWorkspaceId?.trim() || null,
+      workspace_source: workspaceSource,
+      github_repo: wsGithub,
+      r2_prefix: wsR2Prefix,
+      root_path: wsRoot,
       ...routeCtx.workspaceContext,
       ...(cmsWorkbenchContext || {}),
     };
@@ -1200,6 +1224,7 @@ const App: React.FC = () => {
     ideWorkspace,
     devServer,
     shellOutputLines,
+    activeWorkspaceRow,
   ]);
 
   const routeAgentMeta = useMemo(

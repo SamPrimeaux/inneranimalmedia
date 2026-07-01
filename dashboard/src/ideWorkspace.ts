@@ -86,6 +86,16 @@ export type AgentWorkspaceContextPacket = {
   capabilities?: string[] | null;
   r2_bucket?: string | null;
   r2_key?: string | null;
+  /** Active IAM workspace id — session anchor (Cursor-style opened workspace). */
+  workspace_id?: string | null;
+  /** Primary source lane: github | r2 | local | mixed | general */
+  workspace_source?: string | null;
+  /** D1-bound GitHub repo for this workspace (default scope, overridable per turn). */
+  github_repo?: string | null;
+  /** D1-bound R2 prefix for this workspace. */
+  r2_prefix?: string | null;
+  /** PTY / local root when workspace is filesystem-scoped. */
+  root_path?: string | null;
 };
 
 export function defaultIdeBundle(): IdePersistedBundle {

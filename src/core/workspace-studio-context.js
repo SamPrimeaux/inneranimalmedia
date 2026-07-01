@@ -36,6 +36,11 @@ export function formatWorkspaceContextForAgent(raw) {
   const capabilities = Array.isArray(raw.capabilities)
     ? raw.capabilities.map((c) => String(c || '').trim()).filter(Boolean)
     : [];
+  const workspaceId = raw.workspace_id != null ? String(raw.workspace_id).trim() : '';
+  const workspaceSource = raw.workspace_source != null ? String(raw.workspace_source).trim() : '';
+  const githubRepo = raw.github_repo != null ? String(raw.github_repo).trim() : '';
+  const r2Prefix = raw.r2_prefix != null ? String(raw.r2_prefix).trim() : '';
+  const rootPath = raw.root_path != null ? String(raw.root_path).trim() : '';
 
   if (
     !activeTab &&
@@ -48,19 +53,33 @@ export function formatWorkspaceContextForAgent(raw) {
     !dashboardPath &&
     !devServerUrl &&
     !activeFile &&
-    !previewUrl
+    !previewUrl &&
+    !workspaceId &&
+    !githubRepo &&
+    !r2Prefix
   ) {
     return null;
   }
 
   const lines = [
     '[IDE workspace context — live Agent Sam workbench. Use for active tab, browser URL, open files, and in-flight plan/run ids. Do not invent file paths or URLs.]',
+  ];
+  if (workspaceId || workspaceSource || githubRepo || r2Prefix || rootPath) {
+    lines.push(
+      `workspace_id: ${workspaceId || '(none)'}`,
+      `workspace_source: ${workspaceSource || '(none)'}`,
+      `workspace_github_repo: ${githubRepo || '(none)'}`,
+      `workspace_r2_prefix: ${r2Prefix || '(none)'}`,
+      `workspace_root_path: ${rootPath || '(none)'}`,
+    );
+  }
+  lines.push(
     `active_tab: ${activeTab || '(none)'}`,
     `browser_url: ${browserUrl || '(none)'}`,
     `open_files: ${openFiles.length ? openFiles.join(', ') : '(none)'}`,
     `plan_id: ${planId || '(none)'}`,
     `workflow_run_id: ${workflowRunId || '(none)'}`,
-  ];
+  );
   if (dashboardPath || dashboardRouteKey) {
     lines.push(
       `dashboard_path: ${dashboardPath || '(none)'}`,
@@ -157,6 +176,11 @@ export function normalizeWorkspaceContextPacket(browserContext, body) {
       : null,
     r2_bucket: raw.r2_bucket != null ? String(raw.r2_bucket).trim() : null,
     r2_key: raw.r2_key != null ? String(raw.r2_key).trim() : null,
+    workspace_id: raw.workspace_id != null ? String(raw.workspace_id).trim() : null,
+    workspace_source: raw.workspace_source != null ? String(raw.workspace_source).trim() : null,
+    github_repo: raw.github_repo != null ? String(raw.github_repo).trim() : null,
+    r2_prefix: raw.r2_prefix != null ? String(raw.r2_prefix).trim() : null,
+    root_path: raw.root_path != null ? String(raw.root_path).trim() : null,
     web_search_enabled: raw.web_search_enabled === true,
     antigravity_sandbox_enabled: raw.antigravity_sandbox_enabled === true,
   };

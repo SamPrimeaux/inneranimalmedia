@@ -1118,6 +1118,32 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         githubRepoContext = '';
       }
     }
+    if (!githubRepoContext && workspaceId && env?.DB) {
+      try {
+        const { resolveGithubRepoForChatSession } = await import('../core/agentsam-chat-sessions.js');
+        const fromWorkspace = await resolveGithubRepoForChatSession(env, {
+          workspaceId: String(workspaceId),
+          activeFileEnvelope,
+          body: null,
+        });
+        if (fromWorkspace) {
+          if (userId && tenantId) {
+            const { sanitizeGithubRepoContextForChat } = await import('../core/github-repo-scope.js');
+            githubRepoContext =
+              (await sanitizeGithubRepoContextForChat(env, {
+                userId: String(userId),
+                tenantId: String(tenantId),
+                workspaceId: String(workspaceId),
+                clientRepo: fromWorkspace,
+              })) || '';
+          } else {
+            githubRepoContext = fromWorkspace;
+          }
+        }
+      } catch (e) {
+        console.warn('[agent] workspace_github_repo_fallback', e?.message ?? e);
+      }
+    }
     if (githubRepoContext) body.selectedGithubRepoContext = githubRepoContext;
     if (activeFileEnvelope?.github_repo && userId && workspaceId && tenantId) {
       try {
