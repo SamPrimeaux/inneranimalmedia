@@ -86,19 +86,45 @@ export function isChatImageUpload(file) {
  * Merge multipart `files` and `images` fields from parsed chat body.
  * @param {Record<string, unknown>} body
  */
+function uploadBlobSize(file) {
+  if (!file || typeof file !== 'object') return 0;
+  const n = Number(file.size ?? file.byteLength ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function isUploadBlobLike(file) {
+  if (!file || typeof file !== 'object') return false;
+  return (
+    typeof file.arrayBuffer === 'function' ||
+    file instanceof ArrayBuffer ||
+    file instanceof Uint8Array
+  );
+}
+
 export function collectChatVisionUploadFiles(body) {
   const out = [];
   const seen = new Set();
-  for (const key of ['images', 'files']) {
-    const raw = body?.[key];
-    const arr = Array.isArray(raw) ? raw : raw != null ? [raw] : [];
-    for (const file of arr) {
-      if (!file || typeof file !== 'object') continue;
-      const id = `${String(file.name || '')}:${Number(file.size) || 0}:${String(file.type || '')}`;
-      if (seen.has(id)) continue;
+  const push = (file, { trustImageField = false } = {}) => {
+    if (!isUploadBlobLike(file)) return;
+    const size = uploadBlobSize(file);
+    const id = `${String(file.name || '')}:${size}:${String(file.type || '')}`;
+    if (seen.has(id)) return;
+    if (trustImageField ? size > 0 || isChatImageUpload(file) : isChatImageUpload(file)) {
       seen.add(id);
-      if (isChatImageUpload(file)) out.push(file);
+      out.push(file);
     }
+  };
+
+  const imagesRaw = body?.images;
+  const imagesArr = Array.isArray(imagesRaw) ? imagesRaw : imagesRaw != null ? [imagesRaw] : [];
+  for (const file of imagesArr) {
+    push(file, { trustImageField: true });
+  }
+
+  const filesRaw = body?.files;
+  const filesArr = Array.isArray(filesRaw) ? filesRaw : filesRaw != null ? [filesRaw] : [];
+  for (const file of filesArr) {
+    push(file, { trustImageField: false });
   }
   return out;
 }
@@ -180,7 +206,11 @@ export async function parseChatVisionFiles(files) {
       return visionError(
         VISION_ERROR_CODES.NO_IMAGE_FILE_IN_REQUEST,
         'The attached image file was empty.',
-        { name: file.name ?? null },
+        {
+          name: file.name ?? null,
+          reported_size: uploadBlobSize(file),
+          type: file.type ?? null,
+        },
       );
     }
     if (buf.byteLength > MAX_CHAT_IMAGE_BYTES) {

@@ -83,6 +83,8 @@ import {
   CHAT_ATTACH_MAX_TOTAL_BYTES,
   CHAT_REQUEST_MAX_BYTES,
   resolveComposerImageHandlingMode,
+  resolveAttachmentFileForUpload,
+  isImageAttachmentFile,
   MOBILE_CHAT_COMPOSER_BOTTOM_PAD,
   COMPOSER_TEXTAREA_MAX_PX_NARROW,
   COMPOSER_TEXTAREA_MAX_PX_WIDE,
@@ -1562,7 +1564,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     if (!list?.length) return;
     Array.from(list).forEach((file) => {
       const id = crypto.randomUUID();
-      const isImg = asImage || file.type.startsWith('image/');
+      const isImg = asImage || isImageAttachmentFile(file);
       const previewUrl = isImg ? URL.createObjectURL(file) : null;
       setAttachments((prev) => [
         ...prev,
@@ -2811,10 +2813,15 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     } catch {
       /* ignore */
     }
-    stagedAttachments.forEach((a) => {
-      if (a.type === 'image') form.append('images', a.file);
-      else form.append('files', a.file);
-    });
+    for (const a of stagedAttachments) {
+      const uploadFile = await resolveAttachmentFileForUpload(a);
+      if (a.type === 'image' || isImageAttachmentFile(uploadFile)) {
+        form.append('images', uploadFile, uploadFile.name || 'image.png');
+        form.append('files', uploadFile, uploadFile.name || 'image.png');
+      } else {
+        form.append('files', uploadFile, uploadFile.name || 'attachment');
+      }
+    }
     form.append('image_handling_mode', resolveComposerImageHandlingMode(userMessage));
     clearAttachments();
 

@@ -160,6 +160,12 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         code: vision.error.code,
         fileCount: visionUploadFiles.length,
         mode: vision.mode,
+        detail: vision.error.detail ?? {},
+        sizes: visionUploadFiles.map((f) => ({
+          name: f?.name ?? null,
+          size: f?.size ?? null,
+          type: f?.type ?? null,
+        })),
       });
     } else if (vision.blocks.length) {
       chatMessages = applyVisionBlocksToChatMessages(chatMessages, message, vision.blocks);

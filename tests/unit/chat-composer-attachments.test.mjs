@@ -23,12 +23,18 @@ test('isChatImageUpload detects mime and extension', () => {
 });
 
 test('collectChatVisionUploadFiles merges images and files', () => {
-  const png = { type: 'image/png', name: 'a.png', size: 10 };
+  const png = { type: 'image/png', name: 'a.png', size: 10, arrayBuffer: async () => new ArrayBuffer(10) };
   const txt = { type: 'text/plain', name: 'b.txt', size: 5 };
   const body = { images: [png], files: [png, txt] };
   const collected = collectChatVisionUploadFiles(body);
   assert.equal(collected.length, 1);
   assert.equal(collected[0].name, 'a.png');
+});
+
+test('collectChatVisionUploadFiles trusts images field blobs without image mime', () => {
+  const blob = { type: 'application/octet-stream', name: 'shot', size: 120, arrayBuffer: async () => new ArrayBuffer(120) };
+  const collected = collectChatVisionUploadFiles({ images: [blob] });
+  assert.equal(collected.length, 1);
 });
 
 test('chatUploadHasVisionImages', () => {

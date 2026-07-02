@@ -319,12 +319,38 @@ export interface ChatAssistantProps {
   onOpenEditor?: () => void;
 }
 
+const CHAT_IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|heic|heif)$/i;
+
 export type StagedAttachment = {
   id: string;
   file: File;
   type: 'image' | 'file';
   previewUrl: string | null;
 };
+
+export function isImageAttachmentFile(file: File): boolean {
+  const type = String(file.type || '').trim();
+  if (type.startsWith('image/')) return true;
+  return CHAT_IMAGE_EXT_RE.test(String(file.name || '').toLowerCase());
+}
+
+/** Ensure multipart upload has real bytes (preview blob is authoritative when File.size is 0). */
+export async function resolveAttachmentFileForUpload(
+  attachment: StagedAttachment,
+): Promise<File> {
+  const { file, previewUrl, type } = attachment;
+  if (file.size > 0) return file;
+  if (type === 'image' && previewUrl) {
+    const res = await fetch(previewUrl);
+    const blob = await res.blob();
+    const mime =
+      String(blob.type || file.type || '').trim() ||
+      (String(file.name || '').toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
+    const name = file.name?.trim() || `image-${Date.now()}.png`;
+    return new File([blob], name, { type: mime });
+  }
+  return file;
+}
 
 export type PickerItem = { id: string; label: string; kind: string };
 export type SlashCmd = { id?: string; slug: string; description: string | null };
