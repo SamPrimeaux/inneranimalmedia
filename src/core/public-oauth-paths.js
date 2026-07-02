@@ -108,11 +108,18 @@ export const PUBLIC_OAUTH_PATHS = [
   '/push-handler.js',
   '/sw-agent-cache.js',
   '/offline.html',
+  '/pwa-build-meta.json',
   '/static/dashboard/manifest.webmanifest',
   '/static/dashboard/app/manifest.webmanifest',
   '/static/dashboard/sw.js',
   '/static/dashboard/app/pwa',
 ];
+
+/** Workbox chunk when runtime is not inlined (legacy SW installs). */
+export function isPublicWorkboxPath(pathname) {
+  const base = String(pathname || '').split('/').pop() || '';
+  return /^workbox-[a-f0-9]+\.js$/i.test(base);
+}
 
 /**
  * Returns true if the given pathname should bypass the front-door session gate.
@@ -121,6 +128,7 @@ export const PUBLIC_OAUTH_PATHS = [
 export function isPublicOAuthPath(pathname) {
   const p = String(pathname || '/').replace(/\/$/, '') || '/';
   const pl = p.toLowerCase();
+  if (isPublicWorkboxPath(pl)) return true;
   return PUBLIC_OAUTH_PATHS.some((pub) => {
     const pubL = pub.toLowerCase();
     return pl === pubL || pl.startsWith(`${pubL}/`);

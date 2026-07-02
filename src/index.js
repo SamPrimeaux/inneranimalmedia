@@ -1202,12 +1202,12 @@ export default {
             return withSessionHealing(Response.redirect(`${url.origin}/dashboard/agent`, 302));
           }
 
+          const pwaNoCache =
+            pathLower === '/sw.js' ||
+            pathLower === '/push-handler.js' ||
+            pathLower === '/sw-agent-cache.js';
           const pwaRootAssets = {
             '/sw.js': { key: 'static/dashboard/sw.js', contentType: 'application/javascript; charset=utf-8' },
-            '/workbox-dff6aff8.js': {
-              key: 'static/dashboard/workbox-dff6aff8.js',
-              contentType: 'application/javascript; charset=utf-8',
-            },
             '/push-handler.js': {
               key: 'static/dashboard/push-handler.js',
               contentType: 'application/javascript; charset=utf-8',
@@ -1221,19 +1221,26 @@ export default {
               contentType: 'application/manifest+json; charset=utf-8',
             },
             '/offline.html': { key: 'static/dashboard/offline.html', contentType: 'text/html; charset=utf-8' },
+            '/pwa-build-meta.json': {
+              key: 'static/dashboard/pwa-build-meta.json',
+              contentType: 'application/json; charset=utf-8',
+            },
           };
-          const pwaAsset = pwaRootAssets[pathLower];
+          let pwaAsset = pwaRootAssets[pathLower];
+          if (!pwaAsset && /^\/workbox-[a-f0-9]+\.js$/.test(pathLower)) {
+            pwaAsset = {
+              key: `static/dashboard${pathLower}`,
+              contentType: 'application/javascript; charset=utf-8',
+            };
+          }
           if (pwaAsset && env.ASSETS) {
             const obj = await getDashboardR2Object(env.ASSETS, pwaAsset.key);
             if (obj) {
               const h = new Headers({
                 'Content-Type': pwaAsset.contentType,
-                'Cache-Control':
-                  pathLower === '/sw.js' ||
-                  pathLower === '/push-handler.js' ||
-                  pathLower === '/sw-agent-cache.js'
-                    ? 'no-cache'
-                    : 'public, max-age=3600',
+                'Cache-Control': pwaNoCache || pathLower.startsWith('/workbox-')
+                  ? 'no-cache, no-store, must-revalidate'
+                  : 'public, max-age=3600',
               });
               if (pathLower === '/sw.js') {
                 h.set('Service-Worker-Allowed', '/');

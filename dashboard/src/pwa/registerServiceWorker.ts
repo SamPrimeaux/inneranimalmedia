@@ -82,7 +82,21 @@ function triggerTier1Warm(): void {
 
 async function purgeLegacyDashboardJsCaches(): Promise<void> {
   if (typeof caches === 'undefined') return;
-  await Promise.all(['iam-dashboard-js-v1'].map((name) => caches.delete(name)));
+  await Promise.all(
+    ['iam-dashboard-js-v1', 'iam-dashboard-js-v2'].map((name) => caches.delete(name)),
+  );
+}
+
+const SW_UPDATE_INTERVAL_MS = 30 * 60 * 1000;
+
+function attachSwUpdatePoll(registration: ServiceWorkerRegistration): void {
+  const tick = () => {
+    void registration.update().catch(() => undefined);
+  };
+  window.setInterval(tick, SW_UPDATE_INTERVAL_MS);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') tick();
+  });
 }
 
 export async function registerIamServiceWorker(): Promise<void> {
@@ -102,6 +116,8 @@ export async function registerIamServiceWorker(): Promise<void> {
         }
       });
     });
+
+    attachSwUpdatePoll(registration);
 
     void pollServicesManifest();
     triggerTier1Warm();

@@ -136,6 +136,8 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
+          /** Single-file SW at /sw.js — no hashed workbox-*.js deploy drift. */
+          inlineWorkboxRuntime: true,
           importScripts: ['push-handler.js', 'sw-agent-cache.js'],
           skipWaiting: true,
           clientsClaim: true,

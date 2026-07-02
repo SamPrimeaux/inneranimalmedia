@@ -13,7 +13,7 @@ import { fileURLToPath } from 'url';
 /** @typedef {{ deploy_id: string, cache_bust: string, git_sha: string, created_at: string, tier0: string[], tier1: string[], tier2: Record<string, string[]>, tier2_tabs: Record<string, string[]> }} SwTieredManifest */
 
 export const SERVICES_MANIFEST_URL = 'https://services.inneranimalmedia.com/sw/manifest.json';
-export const JS_RUNTIME_CACHE_NAME = 'iam-dashboard-js-v1';
+export const JS_RUNTIME_CACHE_NAME = 'iam-dashboard-js-v2';
 export const CACHE_BUST_STORAGE_KEY = 'iam_sw_cache_bust';
 export const TIER2_TABS_SESSION_KEY = 'iam_sw_tier2_tabs';
 export const MANIFEST_POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;

@@ -62,6 +62,8 @@ binding = "MYBROWSER"
 [[r2_buckets]]
 binding = "ASSETS"
 bucket_name = "inneranimalmedia"
+# PWA root assets (site /sw.js, /manifest.webmanifest, …) live under static/dashboard/*
+# on this bucket — published each deploy by scripts/publish-pwa-r2.mjs (not wrangler build).
 
 [[r2_buckets]]
 binding = "AUTORAG_BUCKET"

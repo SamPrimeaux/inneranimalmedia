@@ -48,6 +48,7 @@
 			"database_id": "cf87b717-d4e2-4cf8-bab0-a81268e32d49"
 		}
 	],
+	// PWA SW/manifest: R2 keys static/dashboard/* via scripts/publish-pwa-r2.mjs on deploy:full
 	"r2_buckets": [
 		{
 			"binding": "ASSETS",
