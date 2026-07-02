@@ -508,7 +508,9 @@ const CHATS_CSS = `
 
 /* group label */
 .chats-group-label {
-  padding: 14px 24px 4px;
+  max-width: 740px;
+  margin: 0 auto;
+  padding: 20px 24px 4px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -529,11 +531,14 @@ const CHATS_CSS = `
   display: flex;
   align-items: center;
   gap: 8px;
+  max-width: 740px;
+  margin: 0 auto;
   padding: 0 24px;
-  min-height: 44px;
+  min-height: 46px;
   border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
   transition: background 0.1s;
   position: relative;
+  border-radius: 6px;
 }
 .chats-row:hover { background: var(--bg-hover, rgba(255,255,255,0.04)); }
 
