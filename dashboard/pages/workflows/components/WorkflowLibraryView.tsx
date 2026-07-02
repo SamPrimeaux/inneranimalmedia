@@ -1,6 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { GitBranch, Loader2 } from 'lucide-react';
 import type { WorkflowListItem } from '../workflowTypes';
+import { AppIcon } from '../../../components/ui/AppIcon';
+import { isStarterWorkflow, starterIconSlug } from '../lib/resolveWorkflowNodeBrand';
+import '../../../components/ui/AppIcon.css';
 
 function pct(success: number, total: number): string | null {
   if (total <= 0) return null;
@@ -34,12 +37,19 @@ export function WorkflowLibraryView({
   const [q, setQ] = useState('');
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    if (!needle) return workflows;
-    return workflows.filter(
-      (w) =>
-        (w.display_name || '').toLowerCase().includes(needle) ||
-        (w.workflow_key || '').toLowerCase().includes(needle),
-    );
+    const base = needle
+      ? workflows.filter(
+          (w) =>
+            (w.display_name || '').toLowerCase().includes(needle) ||
+            (w.workflow_key || '').toLowerCase().includes(needle),
+        )
+      : workflows;
+    return [...base].sort((a, b) => {
+      const aStarter = isStarterWorkflow(a.workflow_key) ? 0 : 1;
+      const bStarter = isStarterWorkflow(b.workflow_key) ? 0 : 1;
+      if (aStarter !== bStarter) return aStarter - bStarter;
+      return (a.display_name || a.workflow_key).localeCompare(b.display_name || b.workflow_key);
+    });
   }, [workflows, q]);
 
   return (
@@ -74,6 +84,8 @@ export function WorkflowLibraryView({
           const fail = Number(wf.fail_count ?? 0);
           const successPct = pct(success, runs);
           const failPct = pct(fail, runs);
+          const starter = isStarterWorkflow(wf.workflow_key);
+          const slug = starterIconSlug(wf.workflow_key);
           return (
             <button
               key={wf.id}
@@ -81,22 +93,34 @@ export function WorkflowLibraryView({
               className={`wf-library-card${selectedId === wf.id ? ' active' : ''}`}
               onClick={() => onSelect(wf.id)}
             >
-              <div
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 12,
-                  display: 'grid',
-                  placeItems: 'center',
-                  background: 'var(--wf-accent-soft)',
-                  color: 'var(--wf-accent)',
-                  border: '1px solid color-mix(in srgb, var(--wf-accent) 25%, var(--wf-border))',
-                }}
-              >
-                <GitBranch size={16} />
-              </div>
+              {starter && slug ? (
+                <AppIcon
+                  title={wf.display_name || wf.workflow_key}
+                  iconSlug={slug}
+                  size="sm"
+                  className="wf-library-starter-icon"
+                />
+              ) : (
+                <div
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 12,
+                    display: 'grid',
+                    placeItems: 'center',
+                    background: 'var(--wf-accent-soft)',
+                    color: 'var(--wf-accent)',
+                    border: '1px solid color-mix(in srgb, var(--wf-accent) 25%, var(--wf-border))',
+                  }}
+                >
+                  <GitBranch size={16} />
+                </div>
+              )}
               <div>
-                <div style={{ fontSize: 12, fontWeight: 800 }}>{wf.display_name || wf.workflow_key}</div>
+                <div style={{ fontSize: 12, fontWeight: 800, display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {wf.display_name || wf.workflow_key}
+                  {starter ? <span className="wf-tag accent">Starter</span> : null}
+                </div>
                 <p style={{ margin: '4px 0 0', fontSize: 10, color: 'var(--wf-muted)', lineHeight: 1.3 }}>
                   {wf.description || wf.workflow_key}
                 </p>

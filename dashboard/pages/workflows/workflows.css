@@ -755,3 +755,159 @@
     width: min(100vw, 320px);
   }
 }
+
+.wf-workspace--mobile-lane .wf-canvas-wrap {
+  display: none;
+}
+
+/* ─── Mobile workflow lane (app icons spine) ─────────────────────────────────── */
+.wf-mobile-lane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px 20px;
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--wf-accent) 12%, transparent), transparent 42%),
+    var(--wf-canvas);
+}
+
+.wf-mobile-lane-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.wf-mobile-lane-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.wf-mobile-lane-meta {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--wf-muted);
+}
+
+.wf-mobile-lane-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.wf-mobile-lane-item {
+  position: relative;
+}
+
+.wf-mobile-lane-spine {
+  position: absolute;
+  left: 35px;
+  top: -14px;
+  width: 2px;
+  height: 14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--wf-accent) 35%, transparent), var(--wf-border));
+}
+
+.wf-mobile-lane-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: 1px solid color-mix(in srgb, var(--wf-border) 90%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--wf-card) 88%, transparent);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms, box-shadow 140ms, transform 140ms;
+}
+
+.wf-mobile-lane-item.is-selected .wf-mobile-lane-row,
+.wf-mobile-lane-row:hover {
+  border-color: color-mix(in srgb, var(--wf-accent) 45%, var(--wf-border));
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--wf-accent) 10%, transparent);
+}
+
+.wf-mobile-lane-icon-wrap {
+  position: relative;
+}
+
+.wf-mobile-lane-icon.iam-app-icon-wrap {
+  gap: 0;
+}
+
+.wf-mobile-lane-icon .iam-app-icon-label,
+.wf-mobile-lane-icon .iam-app-icon-sub {
+  display: none;
+}
+
+.wf-mobile-lane-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wf-mobile-lane-copy strong {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wf-mobile-lane-copy span {
+  font-size: 11px;
+  color: var(--wf-muted);
+}
+
+.wf-mobile-lane-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.wf-mobile-lane-pill.is-waiting {
+  color: var(--wf-muted);
+  background: color-mix(in srgb, var(--wf-muted) 12%, transparent);
+}
+
+.wf-mobile-lane-pill.is-running {
+  color: #93c5fd;
+  background: color-mix(in srgb, var(--wf-accent) 18%, transparent);
+}
+
+.wf-mobile-lane-pill.is-done {
+  color: #86efac;
+  background: color-mix(in srgb, var(--wf-success) 16%, transparent);
+}
+
+.wf-mobile-lane-pill.is-failed {
+  color: #fca5a5;
+  background: color-mix(in srgb, var(--wf-danger) 16%, transparent);
+}
+
+.wf-library-starter-icon .iam-app-icon-label,
+.wf-library-starter-icon .iam-app-icon-sub {
+  display: none;
+}
+
+.wf-library-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+}

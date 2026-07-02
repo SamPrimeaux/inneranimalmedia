@@ -19,12 +19,27 @@ import { WorkflowDrawer } from './components/WorkflowDrawer';
 import { WorkflowInspector } from './components/WorkflowInspector';
 import { WorkflowStudioBanner } from './components/WorkflowStudioBanner';
 import { WorkflowDagLegend } from './components/WorkflowDagLegend';
+import { WorkflowMobileLane } from './components/WorkflowMobileLane';
+import '../../components/ui/AppIcon.css';
 import {
   useWorkflowRunner,
   type WorkflowRow,
 } from '../../components/ChatAssistant/components/WorkflowRunBoard';
 
 type WfEdgeLite = { id: string; from: string; to: string };
+
+function useMobileWorkflowLane(): boolean {
+  const [mobile, setMobile] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 900px)');
+    const fn = () => setMobile(mq.matches);
+    mq.addEventListener('change', fn);
+    return () => mq.removeEventListener('change', fn);
+  }, []);
+  return mobile;
+}
 
 function applyWorkflowSseToCanvas(
   d: Record<string, unknown>,
@@ -97,6 +112,7 @@ export const WorkflowsPage: React.FC = () => {
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, NodeStatus>>({});
   const [activeEdges, setActiveEdges] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<string | null>(null);
+  const mobileLane = useMobileWorkflowLane();
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -299,7 +315,7 @@ export const WorkflowsPage: React.FC = () => {
       />
 
       <div className={`wf-main${inspectorOpen ? ' inspector-open' : ' inspector-collapsed'}`}>
-        <div className="wf-workspace">
+        <div className={`wf-workspace${mobileLane && graph ? ' wf-workspace--mobile-lane' : ''}`}>
           <WorkflowRail
             drawerMode={drawerMode}
             connectMode={connectMode}
@@ -348,30 +364,49 @@ export const WorkflowsPage: React.FC = () => {
             onCreateWorkflow={() => void handleCreateWorkflow()}
           />
 
-          <WorkflowCanvas
-            graph={graph}
-            graphLoading={graphLoading}
-            selectedNodeKey={selectedNodeKey}
-            onSelectNode={(key) => {
-              setSelectedNodeKey(key);
-              if (connectMode && key) {
-                if (!connectFrom) setConnectFrom(key);
-                else if (connectFrom !== key) {
+          {mobileLane && graph && !graphLoading ? (
+            <WorkflowMobileLane
+              graph={graph}
+              selectedNodeKey={selectedNodeKey}
+              nodeStatuses={nodeStatuses}
+              onSelectNode={(key) => {
+                setSelectedNodeKey(key);
+                if (key) {
                   setInspectorTab('config');
-                  showToast(`Link ${connectFrom} → ${key} in Config tab`);
+                  setInspectorOpen(true);
                 }
-              }
-            }}
-            connectFrom={connectFrom}
-            onSavePositions={handleSavePositions}
-            externalStatuses={nodeStatuses}
-            externalActiveEdges={activeEdges}
-            liveRunning={isRunning}
-            traceMode={traceMode}
-            onOpenLibrary={() => setDrawerMode('library')}
-          />
+              }}
+              onOpenInspector={() => {
+                setInspectorTab('config');
+                setInspectorOpen(true);
+              }}
+            />
+          ) : (
+            <WorkflowCanvas
+              graph={graph}
+              graphLoading={graphLoading}
+              selectedNodeKey={selectedNodeKey}
+              onSelectNode={(key) => {
+                setSelectedNodeKey(key);
+                if (connectMode && key) {
+                  if (!connectFrom) setConnectFrom(key);
+                  else if (connectFrom !== key) {
+                    setInspectorTab('config');
+                    showToast(`Link ${connectFrom} → ${key} in Config tab`);
+                  }
+                }
+              }}
+              connectFrom={connectFrom}
+              onSavePositions={handleSavePositions}
+              externalStatuses={nodeStatuses}
+              externalActiveEdges={activeEdges}
+              liveRunning={isRunning}
+              traceMode={traceMode}
+              onOpenLibrary={() => setDrawerMode('library')}
+            />
+          )}
 
-          <WorkflowDagLegend />
+          {!mobileLane ? <WorkflowDagLegend /> : null}
 
           <div className={`wf-toast${toast ? ' show' : ''}`} role="status">
             {toast}
