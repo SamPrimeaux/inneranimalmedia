@@ -1,17 +1,31 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  BookOpen,
   Code2,
+  FileText,
   FolderOpen,
   Globe,
   Layers,
   MessageSquare,
+  MoreHorizontal,
+  Pencil,
   Plus,
   Search,
+  Share2,
   SlidersHorizontal,
+  Star,
+  Trash2,
   X,
   Zap,
 } from 'lucide-react';
+import {
+  deleteProject,
+  fetchProjectsList,
+  setProjectPinned,
+  updateProject,
+  type OverviewProject,
+} from '../../api/projects';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +46,30 @@ interface Project {
   cover_image_url?: string | null;
   dueDate?: string;
   workspace_id?: string | null;
+  is_pinned?: boolean;
+}
+
+function fromOverviewRow(p: OverviewProject): Project {
+  return {
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    status: p.status_raw || p.status,
+    status_raw: p.status_raw,
+    priority: p.priority,
+    priority_num: p.priority_num,
+    project_type: p.project_type,
+    health: p.health,
+    progress: p.progress,
+    activeTasks: p.activeTasks,
+    totalTasks: p.totalTasks,
+    completedTasks: p.completedTasks,
+    chat_project_id: p.chat_project_id,
+    cover_image_url: p.cover_image_url,
+    dueDate: p.dueDate,
+    workspace_id: p.workspace_id,
+    is_pinned: p.is_pinned === true,
+  };
 }
 
 // ─── constants ────────────────────────────────────────────────────────────────
@@ -244,48 +282,166 @@ function ProjectSidePanel({
   );
 }
 
+// ─── card menu ───────────────────────────────────────────────────────────────
+
+function ProjectCardMenu({
+  project,
+  isOpen,
+  onToggle,
+  onClose,
+  onStar,
+  onRename,
+  onShare,
+  onDelete,
+}: {
+  project: Project;
+  isOpen: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onStar: () => void;
+  onRename: () => void;
+  onShare: () => void;
+  onDelete: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [isOpen, onClose]);
+
+  return (
+    <div className="proj-card-menu" ref={ref}>
+      <button
+        type="button"
+        className="proj-card-menu-trigger"
+        aria-label={`Settings for ${project.name}`}
+        aria-expanded={isOpen}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+      >
+        <MoreHorizontal size={16} />
+      </button>
+      {isOpen && (
+        <div className="proj-card-menu-dropdown" role="menu">
+          <button type="button" className="proj-card-menu-item" role="menuitem" onClick={(e) => { e.stopPropagation(); onStar(); }}>
+            <Star size={14} fill={project.is_pinned ? 'currentColor' : 'none'} />
+            {project.is_pinned ? 'Unstar' : 'Star'}
+          </button>
+          <button type="button" className="proj-card-menu-item" role="menuitem" onClick={(e) => { e.stopPropagation(); onRename(); }}>
+            <Pencil size={14} />
+            Rename
+          </button>
+          <button type="button" className="proj-card-menu-item" role="menuitem" onClick={(e) => { e.stopPropagation(); onShare(); }}>
+            <Share2 size={14} />
+            Share
+          </button>
+          <button
+            type="button"
+            className="proj-card-menu-item proj-card-menu-item--danger"
+            role="menuitem"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          >
+            <Trash2 size={14} />
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── project card ─────────────────────────────────────────────────────────────
 
 function ProjectCard({
   project,
   isActive,
-  onClick,
+  menuOpen,
+  onOpen,
+  onMenuToggle,
+  onMenuClose,
+  onStar,
+  onRename,
+  onShare,
+  onDelete,
 }: {
   project: Project;
   isActive: boolean;
-  onClick: () => void;
+  menuOpen: boolean;
+  onOpen: () => void;
+  onMenuToggle: () => void;
+  onMenuClose: () => void;
+  onStar: () => void;
+  onRename: () => void;
+  onShare: () => void;
+  onDelete: () => void;
 }) {
   const statusColor = STATUS_COLORS[project.status ?? ''] ?? 'var(--color-muted)';
 
   return (
-    <button
-      type="button"
-      className={`proj-card${isActive ? ' proj-card--active' : ''}`}
-      onClick={onClick}
-      aria-pressed={isActive}
-    >
-      <div className="proj-card-header">
-        <span className="proj-card-name">{project.name}</span>
-        <span className="proj-card-status" style={{ color: statusColor }}>
-          <span className="proj-status-dot" style={{ background: statusColor }} />
-          {STATUS_LABELS[project.status ?? ''] ?? project.status_raw ?? ''}
-        </span>
-      </div>
-      {project.description && (
-        <p className="proj-card-desc">{project.description}</p>
-      )}
-      <div className="proj-card-footer">
-        <span className="proj-card-type">
-          {TYPE_ICONS[project.project_type ?? ''] ?? <Code2 size={12} />}
-          {project.project_type ?? 'project'}
-        </span>
-        {project.priority && (
-          <span className="proj-card-priority" style={{ color: priorityColor(project.priority) }}>
-            {project.priority}
+    <div className={`proj-card-wrap${isActive ? ' proj-card-wrap--active' : ''}`}>
+      <button
+        type="button"
+        className={`proj-card${isActive ? ' proj-card--active' : ''}${project.is_pinned ? ' proj-card--pinned' : ''}`}
+        onClick={onOpen}
+        aria-pressed={isActive}
+      >
+        <div className="proj-card-header">
+          <span className="proj-card-name">
+            {project.is_pinned && (
+              <Star size={12} className="proj-card-star" fill="currentColor" aria-hidden />
+            )}
+            {project.name}
+          </span>
+          <span className="proj-card-status" style={{ color: statusColor }}>
+            <span className="proj-status-dot" style={{ background: statusColor }} />
+            {STATUS_LABELS[project.status ?? ''] ?? project.status_raw ?? ''}
+          </span>
+        </div>
+        {project.description && (
+          <p className="proj-card-desc">{project.description}</p>
+        )}
+        <div className="proj-card-footer">
+          <span className="proj-card-type">
+            {TYPE_ICONS[project.project_type ?? ''] ?? <Code2 size={12} />}
+            {project.project_type ?? 'project'}
+          </span>
+          {project.priority && (
+            <span className="proj-card-priority" style={{ color: priorityColor(project.priority) }}>
+              {project.priority}
+            </span>
+          )}
+        </div>
+        {project.workspace_id && (
+          <span className="proj-card-workspace" title={project.workspace_id}>
+            {project.workspace_id.replace(/^ws_/, '')}
           </span>
         )}
-      </div>
-    </button>
+      </button>
+      <ProjectCardMenu
+        project={project}
+        isOpen={menuOpen}
+        onToggle={onMenuToggle}
+        onClose={onMenuClose}
+        onStar={onStar}
+        onRename={onRename}
+        onShare={onShare}
+        onDelete={onDelete}
+      />
+    </div>
   );
 }
 
@@ -302,27 +458,43 @@ export default function ProjectsPage() {
   const [newDesc, setNewDesc] = useState('');
   const [newBusy, setNewBusy] = useState(false);
   const [sortBy, setSortBy] = useState<'priority' | 'updated' | 'name'>('priority');
+  const [showAllWorkspaces, setShowAllWorkspaces] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [renameTarget, setRenameTarget] = useState<Project | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch('/api/projects', { credentials: 'same-origin' });
-      const data = r.ok ? await r.json() : {};
-      const rows: Project[] = Array.isArray(data.projects)
-        ? data.projects
-        : Array.isArray(data)
-          ? data
-          : [];
-      setProjects(rows.filter((p) => p.status !== 'archived'));
+      const res = await fetchProjectsList({
+        scope: showAllWorkspaces ? 'tenant' : 'workspace',
+        includeArchived: showArchived,
+      });
+      if (!res.ok) {
+        setProjects([]);
+        return;
+      }
+      setProjects(res.projects.map(fromOverviewRow));
     } catch {
       setProjects([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showAllWorkspaces, showArchived]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 2800);
+    return () => window.clearTimeout(t);
+  }, [toast]);
 
   const activeProject = useMemo(
     () => (activeId ? projects.find((p) => p.id === activeId) ?? null : null),
@@ -341,9 +513,10 @@ export default function ProjectsPage() {
       : [...projects];
 
     list.sort((a, b) => {
+      if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
       if (sortBy === 'priority') return (b.priority_num ?? 0) - (a.priority_num ?? 0);
       if (sortBy === 'name') return a.name.localeCompare(b.name);
-      return 0; // updated handled server-side
+      return 0;
     });
 
     return list;
@@ -376,6 +549,77 @@ export default function ProjectsPage() {
     }
   };
 
+  const handleStar = async (p: Project) => {
+    setMenuOpenId(null);
+    const next = !p.is_pinned;
+    setProjects((prev) => prev.map((row) => (row.id === p.id ? { ...row, is_pinned: next } : row)));
+    const res = await setProjectPinned(p.id, next);
+    if (!res.ok) {
+      setToast(res.error || 'Failed to update star');
+      await load();
+    }
+  };
+
+  const openRename = (p: Project) => {
+    setMenuOpenId(null);
+    setRenameTarget(p);
+    setRenameValue(p.name);
+  };
+
+  const submitRename = async () => {
+    if (!renameTarget || renameBusy) return;
+    const name = renameValue.trim();
+    if (!name) return;
+    setRenameBusy(true);
+    try {
+      const res = await updateProject(renameTarget.id, { name });
+      if (res.ok) {
+        setRenameTarget(null);
+        setRenameValue('');
+        await load();
+        setToast('Project renamed');
+      } else {
+        setToast(res.error || 'Rename failed');
+      }
+    } finally {
+      setRenameBusy(false);
+    }
+  };
+
+  const handleShare = async (p: Project) => {
+    setMenuOpenId(null);
+    const url = `${window.location.origin}/dashboard/projects/${encodeURIComponent(p.id)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setToast('Link copied to clipboard');
+    } catch {
+      setToast(url);
+    }
+  };
+
+  const openDelete = (p: Project) => {
+    setMenuOpenId(null);
+    setDeleteTarget(p);
+  };
+
+  const submitDelete = async (hard = false) => {
+    if (!deleteTarget || deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      const res = await deleteProject(deleteTarget.id, { hard });
+      if (res.ok) {
+        setDeleteTarget(null);
+        if (activeId === deleteTarget.id) setActiveId(null);
+        await load();
+        setToast(hard ? 'Project permanently deleted' : 'Project archived');
+      } else {
+        setToast(res.error || 'Delete failed');
+      }
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   return (
     <div className="proj-root">
       <style>{PROJECTS_CSS}</style>
@@ -387,6 +631,22 @@ export default function ProjectsPage() {
           <div className="proj-header-top">
             <h1 className="proj-header-title">Projects</h1>
             <div className="proj-header-actions">
+              <button
+                type="button"
+                className={`proj-btn proj-filter-toggle${showAllWorkspaces ? ' proj-filter-toggle--on' : ''}`}
+                onClick={() => setShowAllWorkspaces((v) => !v)}
+                title="Show projects across all workspaces in your tenant"
+              >
+                All workspaces
+              </button>
+              <button
+                type="button"
+                className={`proj-btn proj-filter-toggle${showArchived ? ' proj-filter-toggle--on' : ''}`}
+                onClick={() => setShowArchived((v) => !v)}
+              >
+                Archived
+              </button>
+
               {/* sort */}
               <select
                 className="proj-btn proj-sort-select"
@@ -490,7 +750,14 @@ export default function ProjectsPage() {
                   key={p.id}
                   project={p}
                   isActive={false}
-                  onClick={() => navigate(`/dashboard/projects/${encodeURIComponent(p.id)}`)}
+                  menuOpen={menuOpenId === p.id}
+                  onOpen={() => navigate(`/dashboard/projects/${encodeURIComponent(p.id)}`)}
+                  onMenuToggle={() => setMenuOpenId((cur) => (cur === p.id ? null : p.id))}
+                  onMenuClose={() => setMenuOpenId(null)}
+                  onStar={() => void handleStar(p)}
+                  onRename={() => openRename(p)}
+                  onShare={() => void handleShare(p)}
+                  onDelete={() => openDelete(p)}
                 />
               ))}
             </div>
@@ -507,6 +774,59 @@ export default function ProjectsPage() {
           allProjects={projects}
         />
       )}
+
+      {renameTarget && (
+        <div className="proj-modal-backdrop" role="presentation" onClick={() => !renameBusy && setRenameTarget(null)}>
+          <div className="proj-modal" role="dialog" aria-labelledby="proj-rename-title" onClick={(e) => e.stopPropagation()}>
+            <h2 id="proj-rename-title" className="proj-modal-title">Rename project</h2>
+            <input
+              autoFocus
+              type="text"
+              className="proj-create-input"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void submitRename();
+                if (e.key === 'Escape') setRenameTarget(null);
+              }}
+            />
+            <div className="proj-create-actions">
+              <button type="button" className="proj-btn proj-btn--primary" disabled={!renameValue.trim() || renameBusy} onClick={() => void submitRename()}>
+                {renameBusy ? 'Saving…' : 'Save'}
+              </button>
+              <button type="button" className="proj-btn" disabled={renameBusy} onClick={() => setRenameTarget(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="proj-modal-backdrop" role="presentation" onClick={() => !deleteBusy && setDeleteTarget(null)}>
+          <div className="proj-modal" role="dialog" aria-labelledby="proj-delete-title" onClick={(e) => e.stopPropagation()}>
+            <h2 id="proj-delete-title" className="proj-modal-title">Delete project</h2>
+            <p className="proj-modal-body">
+              <strong>{deleteTarget.name}</strong>
+              {deleteTarget.workspace_id && (
+                <span className="proj-modal-meta"> · {deleteTarget.workspace_id}</span>
+              )}
+            </p>
+            <p className="proj-modal-hint">
+              Archive hides it from the grid. Permanent delete removes the D1 row and Supabase mirror.
+            </p>
+            <div className="proj-create-actions">
+              <button type="button" className="proj-btn" disabled={deleteBusy} onClick={() => void submitDelete(false)}>
+                {deleteBusy ? 'Working…' : 'Archive'}
+              </button>
+              <button type="button" className="proj-btn proj-btn--danger" disabled={deleteBusy} onClick={() => void submitDelete(true)}>
+                Delete permanently
+              </button>
+              <button type="button" className="proj-btn" disabled={deleteBusy} onClick={() => setDeleteTarget(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && <div className="proj-toast" role="status">{toast}</div>}
     </div>
   );
 }
@@ -678,6 +998,154 @@ const PROJECTS_CSS = `
   .proj-grid { grid-template-columns: 1fr; }
 }
 
+/* card wrap + hover menu */
+.proj-card-wrap {
+  position: relative;
+  min-height: 110px;
+}
+.proj-card-wrap--active .proj-card {
+  border-color: var(--solar-cyan, #22d3ee) !important;
+  box-shadow: 0 0 0 1px var(--solar-cyan, #22d3ee);
+  background: rgba(34,211,238,0.04) !important;
+}
+.proj-card-menu {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+}
+.proj-card-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: rgba(15, 23, 42, 0.72);
+  color: var(--color-muted, #94a3b8);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s, border-color 0.12s;
+}
+.proj-card-wrap:hover .proj-card-menu-trigger,
+.proj-card-wrap:focus-within .proj-card-menu-trigger,
+.proj-card-menu-trigger[aria-expanded="true"] {
+  opacity: 1;
+}
+.proj-card-menu-trigger:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.1));
+  color: inherit;
+  border-color: var(--dashboard-border);
+}
+.proj-card-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 148px;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--bg-elevated, #1a1f2e);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+}
+.proj-card-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.proj-card-menu-item:hover { background: var(--bg-hover); }
+.proj-card-menu-item--danger { color: #f87171; }
+.proj-card-menu-item--danger:hover { background: rgba(248,113,113,0.12); }
+.proj-card-star {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 4px;
+  color: var(--solar-yellow, #fbbf24);
+}
+.proj-card-workspace {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--color-muted, #94a3b8);
+  opacity: 0.55;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.proj-filter-toggle--on {
+  border-color: var(--solar-cyan, #22d3ee);
+  color: var(--solar-cyan, #22d3ee);
+  background: rgba(34,211,238,0.08);
+}
+.proj-btn--danger {
+  border-color: rgba(248,113,113,0.35);
+  color: #f87171;
+}
+.proj-btn--danger:hover:not(:disabled) { background: rgba(248,113,113,0.12); }
+
+/* modals + toast */
+.proj-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0,0,0,0.55);
+}
+.proj-modal {
+  width: min(420px, 100%);
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--bg-elevated, #1a1f2e);
+  box-shadow: 0 20px 48px rgba(0,0,0,0.45);
+}
+.proj-modal-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.proj-modal-body {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.proj-modal-meta {
+  color: var(--color-muted, #94a3b8);
+  font-size: 12px;
+}
+.proj-modal-hint {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: var(--color-muted, #94a3b8);
+  line-height: 1.5;
+}
+.proj-toast {
+  position: fixed;
+  bottom: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1300;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--bg-elevated, #1a1f2e);
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  pointer-events: none;
+}
+
 /* card */
 .proj-card {
   display: flex;
@@ -697,10 +1165,16 @@ const PROJECTS_CSS = `
   background: var(--bg-hover, rgba(255,255,255,0.06));
   border-color: rgba(255,255,255,0.12);
 }
+@media (max-width: 620px) {
+  .proj-card-menu-trigger { opacity: 1; }
+}
 .proj-card--active {
   border-color: var(--solar-cyan, #22d3ee) !important;
   box-shadow: 0 0 0 1px var(--solar-cyan, #22d3ee);
   background: rgba(34,211,238,0.04) !important;
+}
+.proj-card--pinned {
+  border-color: rgba(251, 191, 36, 0.25);
 }
 .proj-card-header {
   display: flex;

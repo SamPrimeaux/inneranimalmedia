@@ -38,6 +38,7 @@ export type OverviewProject = {
   tenant_id: string | null;
   cover_image_url?: string | null;
   chat_project_id?: string | null;
+  is_pinned?: boolean;
 };
 
 export type OverviewMilestone = {
@@ -109,6 +110,9 @@ export type ProjectListRow = {
   client_name?: string | null;
   status?: string | null;
   priority?: number | null;
+  priority_num?: number | null;
+  priority_label?: string | null;
+  is_pinned?: boolean | null;
   project_type?: string | null;
   workspace_id?: string | null;
   tenant_id?: string | null;
@@ -161,8 +165,8 @@ export function mapListRowToOverview(row: ProjectListRow): OverviewProject {
     description: row.description || "",
     status: mapDbStatusToUi(row.status),
     status_raw: row.status || "",
-    priority: priorityToLabel(Number(row.priority) || 0),
-    priority_num: Number(row.priority) || 0,
+    priority: row.priority_label || priorityToLabel(Number(row.priority_num ?? row.priority) || 0),
+    priority_num: Number(row.priority_num ?? row.priority) || 0,
     project_type: row.project_type || "",
     progress: 0,
     health: 0,
@@ -183,17 +187,38 @@ export function mapListRowToOverview(row: ProjectListRow): OverviewProject {
     tenant_id: row.tenant_id || null,
     cover_image_url: row.cover_image_url || null,
     chat_project_id: row.chat_project_id || null,
+    is_pinned: row.is_pinned === true,
   };
 }
 
+export type FetchProjectsListOptions = {
+  workspaceId?: string | null;
+  /** Tenant-wide list (all workspaces) — for cleanup / audit grids. */
+  scope?: "tenant" | "workspace";
+  includeArchived?: boolean;
+};
+
+function projectsListQuery(opts?: FetchProjectsListOptions) {
+  const params = new URLSearchParams();
+  if (opts?.workspaceId?.trim()) params.set("workspace_id", opts.workspaceId.trim());
+  if (opts?.scope === "tenant") params.set("scope", "tenant");
+  if (opts?.includeArchived) params.set("include_archived", "1");
+  const q = params.toString();
+  return q ? `?${q}` : "";
+}
+
 export async function fetchProjectsList(
-  workspaceId?: string | null,
+  workspaceIdOrOpts?: string | null | FetchProjectsListOptions,
 ): Promise<{ ok: boolean; projects: OverviewProject[]; error?: string }> {
+  const opts: FetchProjectsListOptions =
+    workspaceIdOrOpts != null && typeof workspaceIdOrOpts === "object"
+      ? workspaceIdOrOpts
+      : { workspaceId: workspaceIdOrOpts ?? null };
   const controller = new AbortController();
   const timeoutMs = 25_000;
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const r = await fetch(`/api/projects${qs(workspaceId)}`, {
+    const r = await fetch(`/api/projects${projectsListQuery(opts)}`, {
       credentials: "same-origin",
       signal: controller.signal,
     });
@@ -249,6 +274,13 @@ export async function updateProject(
 }
 
 /** Soft-delete (archive) by default; pass hard=true to permanently remove. */
+export async function setProjectPinned(
+  id: string,
+  pinned: boolean,
+): Promise<{ ok: boolean; project?: unknown; error?: string }> {
+  return updateProject(id, { is_pinned: pinned });
+}
+
 export async function deleteProject(
   id: string,
   opts?: { hard?: boolean },

@@ -732,7 +732,21 @@ async function handleList(env, authUser, url) {
   const workspaceId =
     url.searchParams.get('workspace_id') ||
     (authUser.active_workspace_id ? String(authUser.active_workspace_id) : null);
-  const { sql: whereSql, binds: whereBinds } = buildProjectWhereClause(workspaceId, tenantId);
+  const scope = String(url.searchParams.get('scope') || '').trim().toLowerCase();
+  const includeArchived =
+    url.searchParams.get('include_archived') === '1' ||
+    url.searchParams.get('include_archived') === 'true';
+  let whereSql;
+  let whereBinds;
+  if (scope === 'tenant' && tenantId) {
+    whereSql = 'p.tenant_id = ?';
+    whereBinds = [tenantId];
+  } else {
+    ({ sql: whereSql, binds: whereBinds } = buildProjectWhereClause(workspaceId, tenantId));
+  }
+  if (!includeArchived) {
+    whereSql += ` AND COALESCE(p.status, '') != 'archived'`;
+  }
   const { results } = await withD1Retry(() =>
     env.DB.prepare(`SELECT p.* FROM projects p WHERE ${whereSql} ORDER BY COALESCE(p.priority,0) DESC, p.name ASC`).bind(...whereBinds).all(),
   );
@@ -743,11 +757,16 @@ async function handleList(env, authUser, url) {
   );
   const enriched = projectRows.map((p) => {
     const meta = parseMetadataObject(p?.metadata_json);
+    const tags = safeJsonArray(p?.tags_json, []);
     const coverFromMeta = extractCoverImageUrl(p, meta);
     const coverFromWp = wpCoverByProjectId.get(String(p.id)) ?? null;
+    const priorityNum = Number(p?.priority) || 0;
     return {
       ...p,
       cover_image_url: coverFromMeta || coverFromWp,
+      priority_num: priorityNum,
+      priority_label: priorityToLabel(priorityNum),
+      is_pinned: meta.is_pinned === true || tags.includes('pinned'),
     };
   });
   const projects = await attachChatProjectIds(env, enriched, chatProjectIdByProjectsId);
@@ -776,6 +795,20 @@ async function handlePatch(request, env, authUser, id, ctx) {
   }
   if (Object.prototype.hasOwnProperty.call(body, 'status')) {
     body.status = normalizeEnum(body.status, VALID_PROJECT_STATUSES, row.status || 'discovery');
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'is_pinned')) {
+    const meta = parseMetadataObject(row.metadata_json);
+    meta.is_pinned = body.is_pinned === true;
+    body.metadata_json = JSON.stringify(meta);
+    let tags = safeJsonArray(row.tags_json, []);
+    if (body.is_pinned === true) {
+      if (!tags.includes('pinned')) tags = [...tags, 'pinned'];
+    } else {
+      tags = tags.filter((t) => t !== 'pinned');
+    }
+    body.tags_json = tags;
+    delete body.is_pinned;
   }
 
   const allowed = [
