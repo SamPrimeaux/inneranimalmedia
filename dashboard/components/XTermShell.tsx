@@ -11,6 +11,8 @@ import {
   TerminalSessionPane,
   TerminalSessionPaneHandle,
   formatAgentsamModelsToTerminal,
+  formatAgentsamSdkBootstrapToTerminal,
+  agentsamSdkBootstrapCommands,
   type TerminalConnectionStatus,
 } from './TerminalSessionPane';
 import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
@@ -127,7 +129,7 @@ const GORILLA_LINES = [
   '         ▲      ▲         ',
 ];
 
-type SplashAction = 'local' | 'cloud' | 'sandbox' | 'models';
+type SplashAction = 'local' | 'cloud' | 'sandbox' | 'sdk';
 
 interface WelcomeSplashProps {
   cdCommand?: string;
@@ -138,10 +140,10 @@ interface WelcomeSplashProps {
 }
 
 const SPLASH_MENU: { action: SplashAction; label: string; desc: string }[] = [
-  { action: 'local', label: 'Start local', desc: 'Your Mac repo via localpty' },
-  { action: 'cloud', label: 'Cloud terminal', desc: 'Hosted shell (terminal.*)' },
+  { action: 'local', label: 'Start local', desc: 'Mac repo via localpty tunnel' },
+  { action: 'cloud', label: 'Cloud terminal', desc: 'Hosted shell on platform VM' },
   { action: 'sandbox', label: 'Sandbox terminal', desc: 'Isolated GCP /workspace lane' },
-  { action: 'models', label: 'Agent Sam', desc: 'View available models' },
+  { action: 'sdk', label: 'Agent Sam SDK', desc: 'Bootstrap + smoke @inneranimalmedia/agentsam-sdk' },
 ];
 
 function WelcomeSplash({ cdCommand, localReady, cloudReady, sandboxReady, onAction }: WelcomeSplashProps) {
@@ -154,6 +156,8 @@ function WelcomeSplash({ cdCommand, localReady, cloudReady, sandboxReady, onActi
       desc = 'Provisioning — retry shortly or contact support';
     } else if (item.action === 'sandbox' && !sandboxReady) {
       desc = 'GCP sandbox lane not ready — check tunnel + sandboxterminal.*';
+    } else if (item.action === 'sdk') {
+      desc = 'Self-host loop: npm smoke in my-app/ · BYOK models in Settings → Keys';
     }
     return {
       ...item,
@@ -379,6 +383,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     }, [activeTab, onProblemsTabOpen]);
 
     const [showSplash, setShowSplash] = useState(true);
+    const sdkBootstrapPendingRef = useRef(false);
     const [localTargetReady, setLocalTargetReady] = useState(false);
     const [cloudTargetReady, setCloudTargetReady] = useState(true);
     const [sandboxTargetReady, setSandboxTargetReady] = useState(false);
@@ -583,6 +588,17 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     }, []);
 
     useEffect(() => {
+      if (primaryStatus !== 'connected' || !sdkBootstrapPendingRef.current) return;
+      sdkBootstrapPendingRef.current = false;
+      const cmds = agentsamSdkBootstrapCommands(resolvedCdCmdRef.current);
+      let delay = 400;
+      for (const cmd of cmds) {
+        window.setTimeout(() => primaryPaneRef.current?.runCommand(cmd), delay);
+        delay += 1200;
+      }
+    }, [primaryStatus]);
+
+    useEffect(() => {
       if (primaryStatus !== 'connected') {
         setUptime(0);
         return;
@@ -682,12 +698,20 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
           return;
         }
 
-        if (action === 'models') {
+        if (action === 'sdk') {
           setShowSplash(false);
           const write = (text: string) => primaryPaneRef.current?.writeAnsi(text);
           window.setTimeout(() => {
-            void formatAgentsamModelsToTerminal(write);
+            void formatAgentsamSdkBootstrapToTerminal(write, {
+              cdCommand: resolvedCdCmdRef.current,
+              cloudReady: cloudTargetReady,
+            });
           }, 80);
+          if (cloudTargetReady) {
+            sdkBootstrapPendingRef.current = true;
+            void startTerminalConnection('platform_vm');
+          }
+          return;
         }
       },
       [startTerminalConnection, workspaceId, cloudTargetReady],
