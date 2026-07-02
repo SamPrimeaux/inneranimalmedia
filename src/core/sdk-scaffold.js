@@ -12,6 +12,7 @@ import {
   getUserHostedTunnelConnection,
 } from './terminal.js';
 import { generateUserPtyAuthToken } from './user-secrets.js';
+import { buildGorillaScaffoldFiles } from './sdk-gorilla-template.js';
 
 const LANE_KEYS = {
   fullstack: 'fullstack',
@@ -257,7 +258,7 @@ function buildScaffoldFiles({
   d1Id,
   kvId,
   bucketName,
-  sdkVersion = '1.5.0',
+  sdkVersion = '1.5.1',
 }) {
   const sdkRange = `^${sdkVersion.split('.').slice(0, 2).join('.')}.0`;
   const migrationSql = migrationTemplate({ projectName, laneKey });
@@ -277,6 +278,13 @@ function buildScaffoldFiles({
     baseUrl: '/api/agentsam',
   },
 };
+`,
+    },
+    {
+      path: '.env',
+      content: `VITE_PROJECT_NAME=${projectName}
+VITE_LANE_KEY=${laneKey}
+VITE_AGENT=${agent}
 `,
     },
     {
@@ -304,15 +312,23 @@ dist/
           type: 'module',
           private: true,
           scripts: {
-            dev: 'wrangler dev',
+            dev: 'concurrently -k "npm run dev:worker" "npm run dev:ui"',
+            'dev:worker': 'wrangler dev --port 8787',
+            'dev:ui': 'vite',
             deploy: 'wrangler deploy',
             smoke: 'node ./scripts/smoke.mjs',
+            'db:migrate': 'wrangler d1 migrations apply DB --remote',
           },
           dependencies: {
             '@inneranimalmedia/agentsam-sdk': sdkRange,
+            react: '^19.0.0',
+            'react-dom': '^19.0.0',
           },
           devDependencies: {
             wrangler: '^4.0.0',
+            vite: '^6.0.0',
+            '@vitejs/plugin-react': '^4.0.0',
+            concurrently: '^9.0.0',
           },
         },
         null,
@@ -336,6 +352,16 @@ dist/
       content: `# ${projectName}
 
 Built by [Agent Sam](https://inneranimalmedia.com) — your Cloudflare account, your repo, your Worker.
+
+## Gorilla Mode (default UI)
+
+\`\`\`bash
+npm install
+npm run smoke
+npm run dev
+\`\`\`
+
+Open **http://localhost:5173** — pixel Gorilla shell proxies \`/api\` → Worker on :8787.
 
 ## Lane
 
@@ -370,6 +396,10 @@ console.log('AgentSam smoke test passed:', data);
 `,
     },
   ];
+
+  files.push(
+    ...buildGorillaScaffoldFiles({ projectName, laneKey, laneLabel, agent }),
+  );
 
   return files;
 }
@@ -533,8 +563,9 @@ export async function runSdkScaffold(env, authUser, request, body, emit) {
       `cd ${projectName}`,
       'npm install',
       'npm run smoke',
-      'npx agentsam start-local',
       'npm run dev',
+      'Open http://localhost:5173 — Gorilla Mode UI',
+      'Optional: npx agentsam start-local',
       'npx agentsam deploy   # Cloudflare OAuth only when you ship',
     ],
   });
