@@ -471,6 +471,7 @@ export function DashboardHome() {
             ) : (
               recentProjects.map((project) => {
                 const cover = cfImageVariants(project.cover_image_url);
+                const hue = projectAccentHue(project.id);
                 return (
                   <button
                     key={project.id}
@@ -481,7 +482,15 @@ export function DashboardHome() {
                     <span className="iam-project-cover">
                       {cover.src ? (
                         <img src={cover.src} srcSet={cover.srcSet} alt="" loading="lazy" decoding="async" />
-                      ) : null}
+                      ) : (
+                        <span
+                          className="iam-project-cover-fallback"
+                          style={{ background: `linear-gradient(135deg, hsl(${hue} 42% 32%), hsl(${hue} 28% 18%))` }}
+                          aria-hidden
+                        >
+                          {projectInitials(project.name)}
+                        </span>
+                      )}
                     </span>
                     <strong>{project.name}</strong>
                     <small>{projectUpdatedLabel(project)}</small>

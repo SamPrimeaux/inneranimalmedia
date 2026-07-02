@@ -2,9 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
+  CheckSquare,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
   FolderOpen,
+  Image as ImageIcon,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -13,8 +16,16 @@ import {
   Star,
   X,
 } from 'lucide-react';
-import { fetchProjectMemory, updateProjectMemory } from '../../api/projects';
+import { fetchProjectMemory, updateProject, updateProjectMemory } from '../../api/projects';
 import { ProjectShareModal } from '../../components/projects/ProjectShareModal';
+import { uploadProjectR2File } from '../../src/lib/projectR2Upload';
+import { cfImageVariants } from '../../src/lib/projectBranding';
+import {
+  coverFromMeta,
+  parseProjectMeta,
+  projectFilesFromMeta,
+  type ProjectFileRef,
+} from './projectDetailMeta';
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -34,6 +45,8 @@ interface Project {
   completedTasks?: number;
   chat_project_id?: string | null;
   workspace_id?: string | null;
+  metadata_json?: string | null;
+  cover_image_url?: string | null;
 }
 
 interface ChatSession {
@@ -159,6 +172,13 @@ export default function ProjectDetailPage() {
   const [memBusy, setMemBusy] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [projectFiles, setProjectFiles] = useState<ProjectFileRef[]>([]);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [fileUploading, setFileUploading] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [fileDragOver, setFileDragOver] = useState(false);
+  const coverInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── load project ──
   const loadProject = useCallback(async () => {
@@ -173,6 +193,8 @@ export default function ProjectDetailPage() {
       const p: Project = data.project ?? data;
       setProject(p);
       setRenameDraft(p.name ?? '');
+      setProjectFiles(projectFilesFromMeta(p.metadata_json));
+      setCoverUrl(p.cover_image_url || coverFromMeta(p.metadata_json));
     } catch {
       navigate('/dashboard/projects', { replace: true });
     } finally {
@@ -293,6 +315,80 @@ export default function ProjectDetailPage() {
     }
   };
 
+  const persistProjectMeta = async (patch: Record<string, unknown>) => {
+    if (!project) return false;
+    const meta = { ...parseProjectMeta(project.metadata_json), ...patch };
+    const res = await updateProject(project.id, { metadata_json: JSON.stringify(meta) });
+    if (!res.ok) {
+      setToast(res.error || 'Update failed');
+      return false;
+    }
+    setProject((prev) => (prev ? { ...prev, metadata_json: JSON.stringify(meta) } : prev));
+    return true;
+  };
+
+  const saveCoverUrl = async (url: string) => {
+    const ok = await persistProjectMeta({ cover_image_url: url });
+    if (ok) {
+      setCoverUrl(url);
+      setToast('Cover updated — home preview will use this image');
+    }
+  };
+
+  const handleCoverPick = async (files: FileList | null) => {
+    if (!project) return;
+    const file = files?.[0];
+    if (!file || !file.type.startsWith('image/')) {
+      setToast('Choose an image file');
+      return;
+    }
+    setCoverUploading(true);
+    try {
+      const out = await uploadProjectR2File(project.id, file, 'cover');
+      if (!out.ok || !out.url) {
+        setToast(out.error || 'Cover upload failed');
+        return;
+      }
+      await saveCoverUrl(out.url);
+    } finally {
+      setCoverUploading(false);
+      if (coverInputRef.current) coverInputRef.current.value = '';
+    }
+  };
+
+  const appendProjectFiles = async (files: FileList | File[] | null) => {
+    if (!project) return;
+    const list = files ? Array.from(files) : [];
+    if (!list.length) return;
+    setFileUploading(true);
+    try {
+      const added: ProjectFileRef[] = [];
+      for (const file of list) {
+        const out = await uploadProjectR2File(project.id, file, 'files');
+        if (!out.ok || !out.url) {
+          setToast(out.error || `Upload failed: ${file.name}`);
+          break;
+        }
+        added.push({ name: file.name, url: out.url, uploaded_at: Date.now() });
+      }
+      if (!added.length) return;
+      const next = [...added, ...projectFiles];
+      const ok = await persistProjectMeta({ project_files: next });
+      if (ok) {
+        setProjectFiles(next);
+        setToast(added.length === 1 ? 'File added' : `${added.length} files added`);
+      }
+    } finally {
+      setFileUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const openProjectTasks = () => {
+    if (!project) return;
+    navigate(`/dashboard/collaborate?seg=tasks&project=${encodeURIComponent(project.id)}`);
+  };
+
   // ── start new chat ──
   const startNewChat = async () => {
     if (!project || sendBusy) return;
@@ -330,6 +426,45 @@ export default function ProjectDetailPage() {
   // ── rail content (shared between desktop aside and mobile sheet) ──
   const railContent = (
     <>
+      <RailSection
+        title="Cover"
+        defaultOpen={!isMobile}
+        action={
+          <button
+            type="button"
+            className="cpd-icon-btn"
+            title="Set cover photo"
+            disabled={coverUploading}
+            onClick={() => coverInputRef.current?.click()}
+          >
+            <ImageIcon size={14} strokeWidth={1.5} />
+          </button>
+        }
+      >
+        {coverUrl ? (
+          <div className="cpd-cover-preview">
+            <img src={cfImageVariants(coverUrl).src} alt="" />
+            <button
+              type="button"
+              className="cpd-rail-empty-btn"
+              disabled={coverUploading}
+              onClick={() => coverInputRef.current?.click()}
+            >
+              {coverUploading ? 'Uploading…' : 'Change cover photo'}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="cpd-rail-empty-btn"
+            disabled={coverUploading}
+            onClick={() => coverInputRef.current?.click()}
+          >
+            {coverUploading ? 'Uploading…' : 'Set cover for home & grid previews'}
+          </button>
+        )}
+      </RailSection>
+
       <RailSection
         title="Memory"
         defaultOpen={!isMobile}
@@ -390,17 +525,55 @@ export default function ProjectDetailPage() {
         title="Files"
         defaultOpen={!isMobile}
         action={
-          <button type="button" className="cpd-icon-btn" title="Add file">
+          <button
+            type="button"
+            className="cpd-icon-btn"
+            title="Add file"
+            disabled={fileUploading}
+            onClick={() => fileInputRef.current?.click()}
+          >
             <Plus size={14} strokeWidth={1.5} />
           </button>
         }
       >
-        <div className="cpd-files-empty">
-          <FolderOpen size={28} strokeWidth={1} className="cpd-files-icon" />
+        <div
+          className={`cpd-files-drop${fileDragOver ? ' cpd-files-drop--over' : ''}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setFileDragOver(true);
+          }}
+          onDragLeave={() => setFileDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setFileDragOver(false);
+            void appendProjectFiles(e.dataTransfer.files);
+          }}
+        >
+          <FolderOpen size={24} strokeWidth={1} className="cpd-files-icon" />
           <p className="cpd-files-text">
-            Add PDFs, documents, or other text to reference in this project.
+            Drop PDFs, docs, or images here — stored in project R2 under <code>projects/{project?.id}/files/</code>
           </p>
+          <button
+            type="button"
+            className="cpd-rail-empty-btn"
+            disabled={fileUploading}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {fileUploading ? 'Uploading…' : 'Choose files'}
+          </button>
         </div>
+        {projectFiles.length > 0 ? (
+          <ul className="cpd-files-list">
+            {projectFiles.map((f) => (
+              <li key={`${f.url}-${f.name}`}>
+                <a href={f.url} target="_blank" rel="noreferrer noopener">
+                  {f.name}
+                </a>
+                <ExternalLink size={12} aria-hidden />
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </RailSection>
     </>
   );
@@ -500,6 +673,22 @@ export default function ProjectDetailPage() {
                   </button>
                   {menuOpen && (
                     <div className="cpd-menu">
+                      <button
+                        type="button"
+                        className="cpd-menu-item"
+                        onClick={() => { openProjectTasks(); setMenuOpen(false); }}
+                      >
+                        <CheckSquare size={13} />
+                        View tasks
+                      </button>
+                      <button
+                        type="button"
+                        className="cpd-menu-item"
+                        onClick={() => { coverInputRef.current?.click(); setMenuOpen(false); }}
+                      >
+                        <ImageIcon size={13} />
+                        Set cover photo
+                      </button>
                       <button
                         type="button"
                         className="cpd-menu-item"
@@ -649,6 +838,20 @@ export default function ProjectDetailPage() {
         onToast={setToast}
       />
       {toast && <div className="cpd-toast" role="status">{toast}</div>}
+      <input
+        ref={coverInputRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => void handleCoverPick(e.target.files)}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        hidden
+        onChange={(e) => void appendProjectFiles(e.target.files)}
+      />
     </div>
   );
 }
@@ -1054,22 +1257,67 @@ const CSS = `
 }
 .cpd-rail-empty-btn:hover { color: var(--color-main, #e2e8f0); }
 
-/* files empty */
-.cpd-files-empty {
+/* files */
+.cpd-files-drop {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  padding: 16px 0;
+  padding: 14px 10px;
   text-align: center;
+  border-radius: 10px;
+  border: 1px dashed var(--dashboard-border);
+  transition: border-color 0.12s, background 0.12s;
+}
+.cpd-files-drop--over {
+  border-color: var(--solar-cyan, #22d3ee);
+  background: rgba(34, 211, 238, 0.06);
 }
 .cpd-files-icon { color: var(--color-muted, #94a3b8); opacity: 0.4; }
 .cpd-files-text {
   font-size: 12px;
   color: var(--color-muted, #94a3b8);
   margin: 0;
-  max-width: 220px;
+  max-width: 240px;
   line-height: 1.5;
+}
+.cpd-files-text code { font-size: 10px; }
+.cpd-files-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cpd-files-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--dashboard-border);
+}
+.cpd-files-list a {
+  color: var(--solar-cyan, #22d3ee);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cpd-cover-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cpd-cover-preview img {
+  width: 100%;
+  max-height: 120px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--dashboard-border);
 }
 
 /* ── mobile bottom sheet ── */
