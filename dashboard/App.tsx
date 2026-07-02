@@ -821,6 +821,20 @@ const App: React.FC = () => {
     [location.pathname, location.search, agentPosition, isNarrowViewport, isCmsFullscreen],
   );
 
+  /** Desktop center-chat routes keep layout=center — do not flip agentPosition to open a side rail. */
+  const isCenterAgentDesktop = useMemo(
+    () =>
+      !isNarrowViewport &&
+      isAgentCenterChatHome(location.pathname, location.search) &&
+      !isAgentEditorPath(location.pathname),
+    [isNarrowViewport, location.pathname, location.search],
+  );
+
+  const ensureAgentSidePanel = useCallback(() => {
+    if (isCenterAgentDesktop) return;
+    setAgentPosition((p) => (p === 'off' ? 'right' : p));
+  }, [isCenterAgentDesktop]);
+
   const showAgentWorkbenchTabs = useMemo(
     () => shouldShowAgentWorkbenchTabs({ pathname: location.pathname, search: location.search }),
     [location.pathname, location.search],
@@ -1328,8 +1342,8 @@ const App: React.FC = () => {
   }, []);
 
   const focusAgentChat = useCallback(() => {
-    setAgentPosition((p) => (p === 'off' ? 'right' : p));
-  }, []);
+    ensureAgentSidePanel();
+  }, [ensureAgentSidePanel]);
 
   const runVerificationInAgent = useCallback(
     (command: string) => {
@@ -1497,8 +1511,8 @@ const App: React.FC = () => {
       navigate(AGENT_NEW_CHAT_PATH, { replace: true });
     }
     if (isAgentHomeAtmospheric && !isNarrowViewport) return;
-    if (agentPosition === 'off') setAgentPosition('right');
-  }, [location.pathname, navigate, agentPosition, isAgentHomeAtmospheric, isNarrowViewport]);
+    ensureAgentSidePanel();
+  }, [location.pathname, navigate, isAgentHomeAtmospheric, isNarrowViewport, ensureAgentSidePanel]);
 
   const shellOpenChats = useCallback(() => {
     navigate('/dashboard/chats');
@@ -3963,6 +3977,21 @@ const App: React.FC = () => {
     [showAgentWorkbenchTabs, agentChatTabs],
   );
 
+  const handleGlbFileSelectFromChat = useCallback(
+    (file: File) => {
+      const glbUrl = URL.createObjectURL(file);
+      setGlbViewerUrl((prev) => {
+        if (prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+        return glbUrl;
+      });
+      setGlbViewerFilename(file.name);
+      navigate('/dashboard/designstudio', {
+        state: { pendingGlb: { url: glbUrl, name: file.name.replace(/\.glb$/i, '') } },
+      });
+    },
+    [navigate],
+  );
+
   const agentSamChatHostProps = useMemo(
     () => ({
       fallbackProject: activeProject,
@@ -3979,17 +4008,7 @@ const App: React.FC = () => {
       onOpenChatHistory: shellOpenChatHistory,
       onDeleteActiveChat: shellDeleteActiveChat,
       onFileSelect: openInMonacoFromChat,
-      onGlbFileSelect: (file: File) => {
-        const glbUrl = URL.createObjectURL(file);
-        setGlbViewerUrl((prev) => {
-          if (prev.startsWith('blob:')) URL.revokeObjectURL(prev);
-          return glbUrl;
-        });
-        setGlbViewerFilename(file.name);
-        navigate('/dashboard/designstudio', {
-          state: { pendingGlb: { url: glbUrl, name: file.name.replace(/\.glb$/i, '') } },
-        });
-      },
+      onGlbFileSelect: handleGlbFileSelectFromChat,
       onRunInTerminal: runInTerminal,
       onR2FileUpdated: handleR2FileUpdatedFromAgent,
       onBrowserNavigate: handleBrowserNavigateFromAgent,
@@ -4039,7 +4058,7 @@ const App: React.FC = () => {
       shellOpenChatHistory,
       shellDeleteActiveChat,
       openInMonacoFromChat,
-      navigate,
+      handleGlbFileSelectFromChat,
       runInTerminal,
       handleR2FileUpdatedFromAgent,
       handleBrowserNavigateFromAgent,

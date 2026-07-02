@@ -20,14 +20,14 @@ export function resolveAgentChatLayout(opts: {
   const centerChat = isAgentCenterChatHome(pathname, search);
   const editorRoute = isAgentEditorPath(pathname);
 
-  if (centerChat && !editorRoute && agentPosition === 'off') {
+  // Center-chat routes (/dashboard/agent, /new, /c/*) always use center layout.
+  // agentPosition must not flip layout to a side rail — that remounts ChatAssistant.
+  if (centerChat && !editorRoute) {
     return 'center';
   }
 
   if (agentPosition === 'left') return 'left-rail';
   if (agentPosition === 'right') return 'right-rail';
-
-  if (centerChat && !editorRoute && isNarrow) return 'center';
 
   if (isAgentShellPath(pathname) || isLibraryShellPath(pathname)) {
     return agentPosition === 'off' ? 'hidden' : 'right-rail';

@@ -1,8 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { AlertCircle, Pencil } from 'lucide-react';
 import './AppIcon.css';
-
-const assetBase = `${import.meta.env.BASE_URL || '/'}`.replace(/\/*$/, '/');
+import { resolveIntegrationIconUrl } from '../../src/lib/resolveIntegrationIconUrl';
 
 export type AppIconSize = 'sm' | 'md' | 'lg';
 export type AppIconStatus = 'ok' | 'warning' | 'error';
@@ -11,7 +10,7 @@ export type AppIconProps = {
   title: string;
   /** Full-bleed artwork (Cloudflare Images, R2, etc.) */
   imageUrl?: string | null;
-  /** Brand SVG under /assets/integrations/{slug}.svg */
+  /** @deprecated Use imageUrl from integration_catalog.icon_url only. Kept for letter fallback label. */
   iconSlug?: string;
   size?: AppIconSize;
   subtitle?: string;
@@ -58,14 +57,12 @@ export function AppIcon({
   const longPressRef = useRef<number | null>(null);
 
   const artSrc = (() => {
-    if (imageUrl && !iconFailed) return cfPublicUrl(imageUrl);
-    if (iconSlug && !iconFailed) {
-      return `${assetBase}assets/integrations/${encodeURIComponent(iconSlug)}.svg`;
-    }
+    const resolved = resolveIntegrationIconUrl(iconSlug, imageUrl, iconSlug);
+    if (resolved && !iconFailed) return cfPublicUrl(resolved);
     return null;
   })();
 
-  const isSvgBrand = !!iconSlug && !imageUrl;
+  const isSvgBrand = false;
 
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {

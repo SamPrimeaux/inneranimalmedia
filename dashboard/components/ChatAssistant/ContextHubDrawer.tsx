@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import type { ConnectorCatalogRow } from '../../api/connectorsCatalog';
+import { resolveIntegrationIconUrl } from '../../src/lib/resolveIntegrationIconUrl';
 import type { ChatComposerSource } from './composer/types';
 import { WEB_SEARCH_SOURCE, WEB_SEARCH_SOURCE_ID, SANDBOX_AGENT_SOURCE_ID } from './composer/types';
 import { GithubContextLane } from './GithubContextLane';
@@ -96,24 +97,32 @@ const SOURCE_TILES = [
   {
     id: 'cloudflare',
     label: 'Cloudflare',
-    iconSrc: '/assets/integrations/cloudflare.svg',
     lane: 'connectors' as const,
     focusProvider: 'cloudflare_oauth',
   },
   {
     id: 'github',
     label: 'GitHub',
-    iconSrc: '/assets/integrations/github.svg',
     lane: 'github' as const,
+    focusProvider: 'github',
   },
   {
     id: 'drive',
     label: 'Drive',
-    iconSrc: '/assets/integrations/google.svg',
     lane: 'connectors' as const,
     focusProvider: 'google_drive',
   },
 ] as const;
+
+function sourceTileIconUrl(
+  tile: (typeof SOURCE_TILES)[number],
+  connectors: ConnectorCatalogRow[],
+): string | null {
+  const providerKey =
+    'focusProvider' in tile && tile.focusProvider ? String(tile.focusProvider) : tile.id;
+  const row = connectors.find((c) => c.provider_key === providerKey);
+  return resolveIntegrationIconUrl(row?.provider_key || providerKey, row?.icon_url, row?.icon_slug);
+}
 
 function iconStatusForConnector(row: ConnectorCatalogRow): AppIconStatus | null {
   if (row.issue === 'error') return 'error';
@@ -471,8 +480,14 @@ export function ContextHubDrawer({
                   }}
                   className="flex flex-col items-center gap-1.5 rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] px-1 py-3 hover:bg-[var(--bg-hover)]"
                 >
-                  {'iconSrc' in tile && tile.iconSrc ? (
-                    <img src={tile.iconSrc} alt="" className="h-6 w-6 object-contain" />
+                  {'icon' in tile && tile.icon ? (
+                    <tile.icon size={22} style={{ color: 'accent' in tile ? tile.accent : undefined }} />
+                  ) : sourceTileIconUrl(tile, connectors) ? (
+                    <img
+                      src={sourceTileIconUrl(tile, connectors)!}
+                      alt=""
+                      className="h-6 w-6 object-contain rounded-md"
+                    />
                   ) : (
                     <HardDrive size={22} style={{ color: 'var(--solar-cyan)' }} />
                   )}

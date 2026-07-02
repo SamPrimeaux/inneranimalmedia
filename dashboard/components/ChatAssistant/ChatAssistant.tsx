@@ -6,6 +6,7 @@
 
 import './chat-composer-glass.css';
 import React, { useState, useEffect, useRef, useLayoutEffect, useCallback, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { PHONE_MQ } from '../../lib/breakpoints';
 import { preserveLiveCadTraceRows } from '../../lib/cadToolTrace';
 import { useEditor } from '../../src/EditorContext';
@@ -54,7 +55,7 @@ import {
   type QuickstartThreadDetail,
 } from '../../agentChatConstants';
 import { notifyAgentChatSessionsRefresh } from '../../lib/openAgentConversation';
-import { replaceAgentConversationUrl } from '../../lib/agentRoutes';
+import { replaceAgentConversationUrl, isAgentCenterChatHome } from '../../lib/agentRoutes';
 import type { AgentSessionRow } from '../../agentSessionsCatalog';
 import { sessionDisplayTitle } from '../../agentSessionsCatalog';
 import type {
@@ -259,6 +260,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   messagesPortalTarget = null,
 }) => {
   const { sessionUserId, workspaceId: ctxWorkspaceId, workspaces } = useWorkspace();
+  const location = useLocation();
   const effectiveWsId = (workspaceId || ctxWorkspaceId || '').trim() || null;
   const agentL2Enabled = Boolean(sessionUserId);
   const { models: chatModels } = useAgentModels(agentL2Enabled);
@@ -3069,6 +3071,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     !isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat');
   const composerFlexOrder = mobileAgentHomeMode ? 'order-3' : 'order-5';
   const composerPortaled = Boolean(atmosphericHomeMode && composerPortalTarget);
+  const centerChatComposerColumn =
+    !composerPortaled &&
+    !isNarrow &&
+    isAgentCenterChatHome(location.pathname, location.search);
   const showMobileRepoConnector =
     isNarrow &&
     mobileThreadTab === 'chat' &&
@@ -3606,7 +3612,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           const shell = (
         <div
           className={`${composerFlexOrder} iam-chat-composer-shell flex-shrink-0 w-full min-w-0 max-w-full ${
-            composerPortaled ? 'iam-chat-composer-shell--atmospheric' : 'px-3'
+            composerPortaled || centerChatComposerColumn
+              ? 'iam-chat-composer-shell--atmospheric'
+              : 'px-3'
           } pt-2 space-y-2`}
           style={{
             paddingBottom:
@@ -3707,7 +3715,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
           <div
             className={`iam-chat-composer-glass flex flex-col rounded-xl transition-all overflow-visible ${
-              composerPortaled ? 'iam-chat-composer-glass--atmospheric' : ''
+              composerPortaled || centerChatComposerColumn ? 'iam-chat-composer-glass--atmospheric' : ''
             } ${
               composerDragging
                 ? 'border-[var(--solar-cyan)]/70 ring-1 ring-[var(--solar-cyan)]/35'

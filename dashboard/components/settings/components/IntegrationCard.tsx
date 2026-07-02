@@ -1,7 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { ChevronDown, ChevronRight, Loader2, Plug } from 'lucide-react';
-
-const assetBase = `${import.meta.env.BASE_URL || '/'}`.replace(/\/*$/, '/');
+import { resolveIntegrationIconUrl } from '../../../src/lib/resolveIntegrationIconUrl';
 
 type Jsonish = Record<string, unknown> | null;
 
@@ -171,10 +170,11 @@ export function IntegrationCard({
 
   const status = String(connection?.status || (connected ? 'connected' : 'disconnected'));
 
-  const iconSrc =
-    catalog?.icon_slug && !iconFailed
-      ? `${assetBase}assets/integrations/${encodeURIComponent(catalog.icon_slug)}.svg`
-      : null;
+  const iconSrc = resolveIntegrationIconUrl(
+    slug,
+    catalog?.icon_url,
+    catalog?.icon_slug,
+  );
 
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3 flex flex-col gap-2">
