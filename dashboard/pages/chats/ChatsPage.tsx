@@ -367,11 +367,21 @@ const CHATS_CSS = `
   color: var(--color-main, #e2e8f0);
 }
 
+/* centered column */
+.chats-header,
+.chats-body > *,
+.chats-body > div > section {
+  max-width: 740px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+}
+
 /* header */
 .chats-header {
   flex-shrink: 0;
-  padding: 20px 24px 0;
-  border-bottom: 1px solid var(--dashboard-border);
+  padding: 32px 24px 0;
+  border-bottom: none;
 }
 .chats-header-top {
   display: flex;
@@ -381,7 +391,7 @@ const CHATS_CSS = `
   margin-bottom: 16px;
 }
 .chats-title {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.01em;
   margin: 0;
