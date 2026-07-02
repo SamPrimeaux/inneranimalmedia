@@ -179,7 +179,10 @@ export function resolveImageHandlingMode(body, message = '') {
  */
 export async function parseChatVisionFiles(files) {
   const arr = Array.isArray(files) ? files : [];
-  const imageCandidates = arr.filter(isChatImageUpload);
+  // Accept blob-like objects even if MIME/ext metadata is absent — isChatImageUpload may
+  // return false for Files whose type/name were lost in multipart serialization.
+  // We verify actual bytes below after arrayBuffer().
+  const imageCandidates = arr.filter((f) => isChatImageUpload(f) || isUploadBlobLike(f));
   if (!imageCandidates.length) {
     return visionError(
       VISION_ERROR_CODES.NO_IMAGE_FILE_IN_REQUEST,
