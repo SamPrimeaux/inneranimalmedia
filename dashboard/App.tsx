@@ -172,6 +172,7 @@ const SettingsPanel = lazy(() => import('./components/settings'));
 const TasksPage = lazy(() => import('./pages/tasks/TasksPage'));
 const LibraryPage = lazy(() => import('./pages/library/LibraryPage'));
 const ProjectsPage = lazy(() => import('./pages/projects/ProjectsPage'));
+const ProjectDetailPage = lazy(() => import('./pages/projects/ProjectDetailPage'));
 const WorkflowsPage = lazy(() =>
   import('./pages/workflows/WorkflowsPage').then((m) => ({ default: m.WorkflowsPage })),
 );
