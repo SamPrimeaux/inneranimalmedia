@@ -1,5 +1,7 @@
 /** Excalidraw library catalog + hydration (draw_libraries D1 + .excalidrawlib URLs). */
 
+import { normalizeExcalidrawLibraryPayload } from '../../src/core/excalidraw-library-normalize.js';
+
 export type DrawLibraryRow = {
   slug: string;
   name: string;
@@ -18,6 +20,48 @@ export type DrawLibraryRow = {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ExcalidrawLibraryItem = any;
+
+const LIBRARY_CACHE_KEY = 'iam.draw.libraryItems.v1';
+const LIBRARY_CACHE_TTL_MS = 1000 * 60 * 60 * 12; // 12h session cache
+
+type LibraryCacheEntry = {
+  slugsKey: string;
+  savedAt: number;
+  items: ExcalidrawLibraryItem[];
+};
+
+function slugsCacheKey(slugs: string[]): string {
+  return [...slugs].sort().join('|');
+}
+
+function readLibrarySessionCache(slugs: string[]): ExcalidrawLibraryItem[] | null {
+  if (typeof sessionStorage === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(LIBRARY_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as LibraryCacheEntry;
+    if (!parsed?.items?.length) return null;
+    if (parsed.slugsKey !== slugsCacheKey(slugs)) return null;
+    if (Date.now() - Number(parsed.savedAt || 0) > LIBRARY_CACHE_TTL_MS) return null;
+    return parsed.items;
+  } catch {
+    return null;
+  }
+}
+
+function writeLibrarySessionCache(slugs: string[], items: ExcalidrawLibraryItem[]): void {
+  if (typeof sessionStorage === 'undefined' || !items.length) return;
+  try {
+    const entry: LibraryCacheEntry = {
+      slugsKey: slugsCacheKey(slugs),
+      savedAt: Date.now(),
+      items,
+    };
+    sessionStorage.setItem(LIBRARY_CACHE_KEY, JSON.stringify(entry));
+  } catch {
+    /* quota — ignore */
+  }
+}
 
 export async function fetchDrawLibraryCatalog(): Promise<DrawLibraryRow[]> {
   const res = await fetch('/api/draw/libraries', { credentials: 'same-origin' });
@@ -44,6 +88,18 @@ export async function saveDrawLibraryPrefs(
   });
 }
 
+/** Persist default auto_load slugs when user has no prefs yet (one-time seed). */
+export async function ensureDrawLibraryPrefsSeeded(
+  catalog: DrawLibraryRow[],
+  prefs: { slug: string; enabled: boolean }[],
+): Promise<string[]> {
+  const resolved = resolveEnabledLibrarySlugs(catalog, prefs);
+  if (prefs.length === 0 && resolved.length > 0) {
+    await saveDrawLibraryPrefs(resolved).catch(() => {});
+  }
+  return resolved;
+}
+
 export async function fetchLibraryItemsBySlug(slug: string): Promise<ExcalidrawLibraryItem[]> {
   const res = await fetch('/api/draw/library', {
     method: 'POST',
@@ -53,24 +109,25 @@ export async function fetchLibraryItemsBySlug(slug: string): Promise<ExcalidrawL
   });
   if (!res.ok) return [];
   const data = (await res.json()) as { libraryItems?: ExcalidrawLibraryItem[] };
-  return Array.isArray(data.libraryItems) ? data.libraryItems : [];
+  if (Array.isArray(data.libraryItems) && data.libraryItems.length > 0) {
+    if (data.libraryItems[0]?.elements) return data.libraryItems;
+    return normalizeExcalidrawLibraryPayload({ libraryItems: data.libraryItems }, { slug });
+  }
+  return [];
 }
 
-function parseLibraryPayload(raw: unknown): ExcalidrawLibraryItem[] {
-  if (!raw || typeof raw !== 'object') return [];
-  const o = raw as Record<string, unknown>;
-  const items = o.libraryItems ?? o.library ?? o.items;
-  return Array.isArray(items) ? items : [];
+function parseLibraryPayload(raw: unknown, slug = ''): ExcalidrawLibraryItem[] {
+  return normalizeExcalidrawLibraryPayload(raw, { slug, itemNamePrefix: slug || undefined });
 }
 
-export async function fetchLibraryItemsFromUrl(url: string): Promise<ExcalidrawLibraryItem[]> {
+export async function fetchLibraryItemsFromUrl(url: string, slug = ''): Promise<ExcalidrawLibraryItem[]> {
   const trimmed = url.trim();
   if (!trimmed) return [];
   const res = await fetch(trimmed, { credentials: 'omit' });
   if (!res.ok) return [];
   try {
     const json = await res.json();
-    return parseLibraryPayload(json);
+    return parseLibraryPayload(json, slug);
   } catch {
     return [];
   }
@@ -106,14 +163,33 @@ export async function hydrateLibraryItemsForSlugs(
   catalog: DrawLibraryRow[],
   slugs: string[],
 ): Promise<ExcalidrawLibraryItem[]> {
+  if (!slugs.length) return [];
+
+  const cached = readLibrarySessionCache(slugs);
+  if (cached?.length) return cached;
+
   const slugSet = new Set(slugs);
   const targets = catalog.filter((row) => slugSet.has(row.slug));
   const batches = await Promise.all(
     targets.map(async (row) => {
       const url = row.public_url || row.r2_dev_url || '';
       if (!url) return fetchLibraryItemsBySlug(row.slug);
-      return fetchLibraryItemsFromUrl(url);
+      return fetchLibraryItemsFromUrl(url, row.slug);
     }),
   );
-  return mergeLibraryItemArrays(...batches);
+  const merged = mergeLibraryItemArrays(...batches);
+  if (merged.length) writeLibrarySessionCache(slugs, merged);
+  return merged;
+}
+
+/** Catalog + prefs + hydration in one call (cache-aware). */
+export async function loadDrawLibrariesForCanvas(
+  slugsOverride?: string[],
+): Promise<{ slugs: string[]; items: ExcalidrawLibraryItem[]; itemCount: number }> {
+  const [catalog, prefs] = await Promise.all([fetchDrawLibraryCatalog(), fetchDrawLibraryPrefs()]);
+  const slugs =
+    slugsOverride ??
+    (await ensureDrawLibraryPrefsSeeded(catalog, prefs));
+  const items = await hydrateLibraryItemsForSlugs(catalog, slugs);
+  return { slugs, items, itemCount: items.length };
 }

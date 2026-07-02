@@ -2,10 +2,7 @@ import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { DrawEntryScreen } from './DrawEntryScreen';
 import {
-  fetchDrawLibraryCatalog,
-  fetchDrawLibraryPrefs,
-  hydrateLibraryItemsForSlugs,
-  resolveEnabledLibrarySlugs,
+  loadDrawLibrariesForCanvas,
   type ExcalidrawLibraryItem,
 } from '../../lib/excalidrawLibraries';
 import './draw-entry.css';
@@ -32,16 +29,18 @@ export default function DrawPage({
   const [librariesReady, setLibrariesReady] = useState(false);
   const [clearOnOpen, setClearOnOpen] = useState(false);
 
+  const [libraryItemCount, setLibraryItemCount] = useState(0);
+
   useEffect(() => {
     onEntryPhaseChange?.(phase === 'entry');
   }, [phase, onEntryPhaseChange]);
 
   const hydrateLibraries = useCallback(async (slugs?: string[]) => {
-    const [catalog, prefs] = await Promise.all([fetchDrawLibraryCatalog(), fetchDrawLibraryPrefs()]);
-    const resolved = slugs ?? resolveEnabledLibrarySlugs(catalog, prefs);
+    setLibrariesReady(false);
+    const { slugs: resolved, items, itemCount } = await loadDrawLibrariesForCanvas(slugs);
     setEnabledLibrarySlugs(resolved);
-    const items = await hydrateLibraryItemsForSlugs(catalog, resolved);
     setLibraryItems(items);
+    setLibraryItemCount(itemCount);
     setLibrariesReady(true);
     return resolved;
   }, []);
@@ -100,9 +99,13 @@ export default function DrawPage({
           ← Back
         </button>
         <span className="draw-canvas-toolbar__label">
-          {enabledLibrarySlugs.length > 0
-            ? `${enabledLibrarySlugs.length} librar${enabledLibrarySlugs.length === 1 ? 'y' : 'ies'} loaded`
-            : 'Excalidraw canvas'}
+          {!librariesReady
+            ? 'Loading libraries…'
+            : enabledLibrarySlugs.length > 0
+              ? libraryItemCount > 0
+                ? `${libraryItemCount} shapes · ${enabledLibrarySlugs.length} pack${enabledLibrarySlugs.length === 1 ? '' : 's'}`
+                : `${enabledLibrarySlugs.length} pack${enabledLibrarySlugs.length === 1 ? '' : 's'} (empty — retry Libraries)`
+              : 'Excalidraw canvas'}
         </span>
       </div>
       <Suspense
@@ -119,9 +122,17 @@ export default function DrawPage({
             clearOnMount={clearOnOpen}
           />
         ) : (
-          <div className="draw-canvas-loading">
-            <Loader2 size={18} className="draw-entry__spin" aria-hidden />
-            Loading shape libraries…
+          <div className="draw-canvas-loading draw-canvas-loading--skeleton" aria-busy="true">
+            <div className="draw-library-skeleton">
+              <div className="draw-library-skeleton__bar draw-library-skeleton__bar--wide" />
+              <div className="draw-library-skeleton__bar" />
+              <div className="draw-library-skeleton__bar" />
+              <div className="draw-library-skeleton__bar draw-library-skeleton__bar--short" />
+            </div>
+            <p className="draw-canvas-loading__text">
+              <Loader2 size={18} className="draw-entry__spin" aria-hidden />
+              Loading shape libraries…
+            </p>
           </div>
         )}
       </Suspense>

@@ -45,11 +45,10 @@ function safeFilename(name = '') {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || `draw_${Date.now()}`;
 }
 
-function parseExcalidrawLibraryPayload(raw) {
-  if (!raw || typeof raw !== 'object') return [];
-  const o = raw;
-  const items = o.libraryItems ?? o.library ?? o.items;
-  return Array.isArray(items) ? items : [];
+import { normalizeExcalidrawLibraryPayload } from '../core/excalidraw-library-normalize.js';
+
+function parseExcalidrawLibraryPayload(raw, slug = '') {
+  return normalizeExcalidrawLibraryPayload(raw, { slug, itemNamePrefix: slug || undefined });
 }
 
 async function fetchLibraryJsonFromRow(env, row) {
@@ -58,7 +57,7 @@ async function fetchLibraryJsonFromRow(env, row) {
     const res = await fetch(url, { cf: { cacheTtl: 3600 } });
     if (res.ok) {
       try {
-        return parseExcalidrawLibraryPayload(await res.json());
+        return parseExcalidrawLibraryPayload(await res.json(), String(row.slug || ''));
       } catch {
         /* fall through to R2 */
       }
@@ -72,7 +71,7 @@ async function fetchLibraryJsonFromRow(env, row) {
   const obj = await binding.get(key);
   if (!obj) return [];
   try {
-    return parseExcalidrawLibraryPayload(await obj.json());
+    return parseExcalidrawLibraryPayload(await obj.json(), String(row.slug || ''));
   } catch {
     return [];
   }

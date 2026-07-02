@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2 } from 'lucide-react';
 import type { DrawLibraryRow } from '../../lib/excalidrawLibraries';
 import {
   fetchDrawLibraryCatalog,
@@ -87,9 +86,11 @@ export function DrawLibraryPanel({ open, onClose, onApply }: DrawLibraryPanelPro
         </p>
       </div>
       {loading ? (
-        <div className="draw-library-panel__loading">
-          <Loader2 size={16} className="draw-entry__spin" aria-hidden />
-          Loading libraries…
+        <div className="draw-library-panel__loading" aria-busy="true">
+          <div className="draw-library-panel__skeleton-row" />
+          <div className="draw-library-panel__skeleton-row" />
+          <div className="draw-library-panel__skeleton-row" />
+          <div className="draw-library-panel__skeleton-row" style={{ width: '62%' }} />
         </div>
       ) : (
         <div className="draw-library-panel__body">

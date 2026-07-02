@@ -55,7 +55,6 @@ export const ExcalidrawView: React.FC<ExcalidrawViewProps> = ({
     const [initialDataLoaded, setInitialDataLoaded] = useState(false);
     const [stylesReady, setStylesReady] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
-    const [librariesApplied, setLibrariesApplied] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -91,9 +90,11 @@ export const ExcalidrawView: React.FC<ExcalidrawViewProps> = ({
             libraryItems: [...items],
             merge: true,
             openLibraryMenu: false,
+            defaultStatus: 'published',
         });
-        setLibrariesApplied(true);
     };
+
+    const appliedLibraryCountRef = useRef(0);
 
     // Load persisted canvas when mount or IAM workspace id changes (via event from App.tsx).
     useEffect(() => {
@@ -123,9 +124,11 @@ export const ExcalidrawView: React.FC<ExcalidrawViewProps> = ({
     // Hydrate shape libraries when API + items are ready.
     useEffect(() => {
         const api = excalidrawApiRef.current;
-        if (!api || librariesApplied || !libraryItems.length) return;
+        if (!api || !libraryItems.length) return;
+        if (appliedLibraryCountRef.current === libraryItems.length) return;
         applyLibraries(api, libraryItems);
-    }, [libraryItems, librariesApplied]);
+        appliedLibraryCountRef.current = libraryItems.length;
+    }, [libraryItems]);
 
     // Listen for server-pushed plan maps / artifacts (fetch JSON → updateScene)
     useEffect(() => {
@@ -274,8 +277,9 @@ export const ExcalidrawView: React.FC<ExcalidrawViewProps> = ({
                     theme="dark"
                     excalidrawAPI={(api) => {
                         excalidrawApiRef.current = api;
-                        if (api && libraryItems.length && !librariesApplied) {
+                        if (api && libraryItems.length && appliedLibraryCountRef.current !== libraryItems.length) {
                             applyLibraries(api, libraryItems);
+                            appliedLibraryCountRef.current = libraryItems.length;
                         }
                     }}
                     initialData={{
