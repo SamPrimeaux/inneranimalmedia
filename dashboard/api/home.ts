@@ -6,6 +6,10 @@ export type DashboardHomeTile = {
   path: string;
   image_url: string | null;
   tile_size?: 'sm' | 'md' | 'lg';
+  /** Artwork scale within icon shell (0.5–1.2). */
+  icon_scale?: number;
+  /** Optional hex/rgb background behind artwork. */
+  icon_bg?: string | null;
   sort_order: number;
   is_enabled: boolean;
 };

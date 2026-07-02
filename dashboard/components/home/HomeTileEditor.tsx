@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { Minus, Plus, Upload, X } from 'lucide-react';
 import type { DashboardHomeTile } from '../../api/home';
 import { uploadDashboardImage } from '../../api/uploadImage';
 import { AppIcon } from '../ui/AppIcon';
@@ -14,6 +14,21 @@ const DESTINATION_OPTIONS = [
   { label: 'Integrations', path: '/dashboard/settings/integrations' },
   { label: 'Projects', path: '/dashboard/projects' },
 ];
+
+const BG_PRESETS: { label: string; value: string | null }[] = [
+  { label: 'None', value: null },
+  { label: 'White', value: '#ffffff' },
+  { label: 'Dark', value: '#0b1018' },
+  { label: 'Blue', value: '#1a6fe8' },
+];
+
+const SCALE_MIN = 0.5;
+const SCALE_MAX = 1.2;
+const SCALE_STEP = 0.05;
+
+function clampScale(n: number): number {
+  return Math.min(SCALE_MAX, Math.max(SCALE_MIN, Math.round(n * 100) / 100));
+}
 
 export type HomeTileEditorProps = {
   tile: DashboardHomeTile;
@@ -39,10 +54,12 @@ export function HomeTileEditor({
     ? tile.path
     : '__custom__';
 
+  const scale = clampScale(tile.icon_scale ?? 1);
+
   const applyFile = useCallback(
     async (file: File) => {
       if (!file.type.startsWith('image/')) {
-        setUploadErr('Please choose an image file');
+        setUploadErr('Please choose an image file (PNG, JPG, WebP…)');
         return;
       }
       setUploadBusy(true);
@@ -57,6 +74,10 @@ export function HomeTileEditor({
     },
     [onChange, tile, workspaceId],
   );
+
+  const bumpScale = (delta: number) => {
+    onChange({ ...tile, icon_scale: clampScale(scale + delta) });
+  };
 
   return (
     <div className="iam-home-tile-inspector-scrim" role="presentation" onClick={onClose}>
@@ -74,12 +95,15 @@ export function HomeTileEditor({
           </button>
         </header>
 
-        <div className="iam-home-tile-preview iam-home-tile-preview--screenshot">
-          <p className="iam-home-tile-preview-label">Live preview (screenshot tile)</p>
+        <div className="iam-home-tile-preview">
+          <p className="iam-home-tile-preview-label">Live preview</p>
           <AppIcon
             title={tile.title}
             imageUrl={tile.image_url}
-            size={tile.tile_size || 'lg'}
+            size="md"
+            artScale={scale}
+            backgroundColor={tile.icon_bg}
+            presentation="app"
             subtitle={tile.cta_label}
             editable
             editActive
@@ -88,7 +112,7 @@ export function HomeTileEditor({
         </div>
 
         <div
-          className={`iam-home-tile-dropzone ${dragOver ? 'is-over' : ''}`}
+          className={`iam-home-tile-dropzone ${dragOver ? 'is-over' : ''} ${uploadBusy ? 'is-busy' : ''}`}
           onDragOver={(e) => {
             e.preventDefault();
             setDragOver(true);
@@ -117,23 +141,66 @@ export function HomeTileEditor({
               e.target.value = '';
             }}
           />
-          {uploadBusy ? 'Uploading…' : 'Drop image here or tap to choose'}
+          <Upload size={20} strokeWidth={1.75} aria-hidden />
+          <strong>{uploadBusy ? 'Uploading…' : 'Drop icon here'}</strong>
+          <span>or click to browse — PNG, JPG, WebP</span>
         </div>
         {uploadErr ? <p className="iam-home-customize-error">{uploadErr}</p> : null}
+        {tile.image_url ? (
+          <p className="iam-home-tile-upload-ok">Icon uploaded — adjust scale and background below.</p>
+        ) : null}
 
-        <label className="iam-home-tile-field">
-          Tile size
-          <select
-            value={tile.tile_size || 'lg'}
-            onChange={(e) =>
-              onChange({ ...tile, tile_size: e.target.value as 'sm' | 'md' | 'lg' })
-            }
-          >
-            <option value="sm">Small</option>
-            <option value="md">Medium</option>
-            <option value="lg">Large (screenshot)</option>
-          </select>
-        </label>
+        <div className="iam-home-tile-control-row">
+          <span className="iam-home-tile-control-label">Icon scale</span>
+          <div className="iam-home-tile-stepper">
+            <button
+              type="button"
+              aria-label="Decrease icon scale"
+              disabled={scale <= SCALE_MIN}
+              onClick={() => bumpScale(-SCALE_STEP)}
+            >
+              <Minus size={14} />
+            </button>
+            <span className="iam-home-tile-stepper-value">{Math.round(scale * 100)}%</span>
+            <button
+              type="button"
+              aria-label="Increase icon scale"
+              disabled={scale >= SCALE_MAX}
+              onClick={() => bumpScale(SCALE_STEP)}
+            >
+              <Plus size={14} />
+            </button>
+          </div>
+        </div>
+
+        <div className="iam-home-tile-control-row iam-home-tile-control-row--stack">
+          <span className="iam-home-tile-control-label">Background</span>
+          <div className="iam-home-tile-bg-presets">
+            {BG_PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                className={`iam-home-tile-bg-chip${tile.icon_bg === preset.value ? ' active' : ''}`}
+                onClick={() => onChange({ ...tile, icon_bg: preset.value })}
+              >
+                {preset.value ? (
+                  <span className="iam-home-tile-bg-swatch" style={{ background: preset.value }} aria-hidden />
+                ) : (
+                  <span className="iam-home-tile-bg-swatch iam-home-tile-bg-swatch--none" aria-hidden />
+                )}
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <label className="iam-home-tile-field iam-home-tile-field--inline">
+            Custom color
+            <input
+              type="color"
+              value={tile.icon_bg && tile.icon_bg.startsWith('#') ? tile.icon_bg : '#ffffff'}
+              onChange={(e) => onChange({ ...tile, icon_bg: e.target.value })}
+            />
+          </label>
+        </div>
 
         <label className="iam-home-tile-field">
           Title
@@ -179,18 +246,6 @@ export function HomeTileEditor({
             />
           </label>
         ) : null}
-
-        <details className="iam-home-tile-advanced">
-          <summary>Advanced</summary>
-          <label className="iam-home-tile-field">
-            Image reference (internal)
-            <input
-              value={tile.image_url || ''}
-              onChange={(e) => onChange({ ...tile, image_url: e.target.value || null })}
-              placeholder="Set automatically after upload"
-            />
-          </label>
-        </details>
 
         <footer className="iam-home-tile-inspector-foot">
           <button type="button" onClick={onReset}>

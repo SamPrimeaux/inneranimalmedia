@@ -1,20 +1,26 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Pencil } from 'lucide-react';
 import './AppIcon.css';
 import { resolveIntegrationIconUrl } from '../../src/lib/resolveIntegrationIconUrl';
 
 export type AppIconSize = 'sm' | 'md' | 'lg';
 export type AppIconStatus = 'ok' | 'warning' | 'error';
+export type AppIconPresentation = 'app' | 'brand';
 
 export type AppIconProps = {
   title: string;
   /** Full-bleed artwork (Cloudflare Images, R2, etc.) */
   imageUrl?: string | null;
-  /** @deprecated Use imageUrl from integration_catalog.icon_url only. Kept for letter fallback label. */
+  /** Integration catalog slug — uses contained brand presentation when no custom image. */
   iconSlug?: string;
   size?: AppIconSize;
+  /** 0.5–1.2 — artwork scale within the icon shell (app tiles only). */
+  artScale?: number;
+  /** Optional shell background (hex/rgb). */
+  backgroundColor?: string | null;
+  /** Force app (full tile artwork) vs brand (integration logo). Auto when omitted. */
+  presentation?: AppIconPresentation;
   subtitle?: string;
-  /** Only rendered for warning/error — never for "connected" */
   status?: AppIconStatus | null;
   disabled?: boolean;
   editable?: boolean;
@@ -30,11 +36,33 @@ function initials(name: string): string {
   return p.map((w) => w[0]).join('').toUpperCase() || '?';
 }
 
-function cfPublicUrl(url: string | null | undefined): string {
-  const raw = (url || '').trim();
-  if (!raw) return '';
+function deliveryUrl(url: string, presentation: AppIconPresentation): string {
+  const raw = url.trim();
   if (!raw.includes('imagedelivery.net')) return raw;
+  if (presentation === 'brand') return raw;
   return raw.replace(/\/(small|thumbnail|avatar|hero)$/, '/public');
+}
+
+function isBrandDeliveryUrl(url: string): boolean {
+  return /\/(avatar|thumbnail|small)(?:\?|$)/i.test(url);
+}
+
+function resolvePresentation(
+  imageUrl: string | null | undefined,
+  iconSlug: string | undefined,
+  resolvedSrc: string | null,
+): AppIconPresentation {
+  const explicit = String(imageUrl || '').trim();
+  if (iconSlug && !explicit) return 'brand';
+  if (explicit && isBrandDeliveryUrl(explicit)) return 'brand';
+  if (resolvedSrc && isBrandDeliveryUrl(resolvedSrc)) return 'brand';
+  return 'app';
+}
+
+function clampScale(n: number | undefined): number {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return 1;
+  return Math.min(1.2, Math.max(0.5, v));
 }
 
 export function AppIcon({
@@ -42,6 +70,9 @@ export function AppIcon({
   imageUrl,
   iconSlug,
   size = 'md',
+  artScale = 1,
+  backgroundColor,
+  presentation: presentationProp,
   subtitle,
   status,
   disabled,
@@ -56,13 +87,14 @@ export function AppIcon({
   const [dragOver, setDragOver] = useState(false);
   const longPressRef = useRef<number | null>(null);
 
-  const artSrc = (() => {
-    const resolved = resolveIntegrationIconUrl(iconSlug, imageUrl, iconSlug);
-    if (resolved && !iconFailed) return cfPublicUrl(resolved);
-    return null;
-  })();
+  const rawResolved = resolveIntegrationIconUrl(iconSlug, imageUrl, iconSlug);
+  const presentation = presentationProp ?? resolvePresentation(imageUrl, iconSlug, rawResolved);
+  const scale = presentation === 'app' ? clampScale(artScale) : 1;
 
-  const isSvgBrand = false;
+  const artSrc = useMemo(() => {
+    if (!rawResolved || iconFailed) return null;
+    return deliveryUrl(rawResolved, presentation);
+  }, [rawResolved, iconFailed, presentation]);
 
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {
@@ -76,6 +108,17 @@ export function AppIcon({
     [onImageDrop],
   );
 
+  const shellStyle = useMemo(() => {
+    const style: React.CSSProperties & Record<string, string> = {};
+    if (presentation === 'app' && backgroundColor?.trim()) {
+      style.background = backgroundColor.trim();
+    }
+    if (presentation === 'app') {
+      style['--iam-icon-art-scale'] = `${Math.round(scale * 100)}%`;
+    }
+    return style;
+  }, [presentation, backgroundColor, scale]);
+
   const showPencil = !!editable;
 
   return (
@@ -83,6 +126,7 @@ export function AppIcon({
       <div
         className={[
           'iam-app-icon-shell',
+          presentation === 'brand' ? 'iam-app-icon-shell--brand' : 'iam-app-icon-shell--app',
           editActive ? 'is-edit-active' : '',
           dragOver ? 'is-drag-over' : '',
           disabled ? 'is-disabled' : '',
@@ -100,6 +144,7 @@ export function AppIcon({
         <button
           type="button"
           className="iam-app-icon-hit"
+          style={shellStyle}
           disabled={disabled}
           aria-label={title}
           onClick={onPress}
@@ -118,7 +163,7 @@ export function AppIcon({
             <img
               src={artSrc}
               alt=""
-              className={isSvgBrand ? 'iam-app-icon-brand' : 'iam-app-icon-art'}
+              className={presentation === 'brand' ? 'iam-app-icon-brand' : 'iam-app-icon-art'}
               loading="lazy"
               decoding="async"
               onError={() => setIconFailed(true)}

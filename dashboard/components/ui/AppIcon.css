@@ -34,29 +34,36 @@
   outline-offset: 2px;
 }
 
+/* Clean icon shell — no card chrome */
 .iam-app-icon-hit {
   width: 100%;
   height: 100%;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--iam-home-border, rgba(255, 255, 255, 0.12)) 85%, transparent);
+  border: 0;
   border-radius: 22%;
-  background: var(--iam-home-panel, rgba(255, 255, 255, 0.06));
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  background: transparent;
+  box-shadow: none;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 140ms ease, box-shadow 140ms ease;
+  transition: transform 140ms ease, opacity 140ms ease;
   cursor: pointer;
 }
 
 .iam-app-icon-hit:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.34);
+  transform: scale(1.04);
 }
 
-/* Pre-made app icons + integration logos — contained, never cropped */
-.iam-app-icon-art,
+.iam-app-icon-shell--brand .iam-app-icon-hit {
+  background: transparent;
+}
+
+.iam-app-icon-shell--app .iam-app-icon-hit {
+  background: transparent;
+}
+
+/* Integration logos (Google Drive, Cloudflare, …) */
 .iam-app-icon-brand {
   width: 100%;
   height: 100%;
@@ -66,11 +73,26 @@
   padding: 0;
 }
 
+/* User app icons — scale + optional background from editor */
+.iam-app-icon-art {
+  width: var(--iam-icon-art-scale, 100%);
+  height: var(--iam-icon-art-scale, 100%);
+  object-fit: contain;
+  object-position: center;
+  display: block;
+}
+
 .iam-app-icon-fallback {
   font-size: 14px;
   font-weight: 800;
   color: var(--iam-home-text, #fff);
   letter-spacing: -0.02em;
+  background: color-mix(in srgb, var(--iam-home-panel, #111) 80%, transparent);
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
 }
 
 .iam-app-icon-status {
@@ -180,7 +202,6 @@
   }
 }
 
-/* Creation tools — same footprint as Connect context (Google Drive reference) */
 .iam-app-icon-grid--products {
   grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
   gap: 14px 10px;

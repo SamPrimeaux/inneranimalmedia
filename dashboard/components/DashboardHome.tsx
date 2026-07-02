@@ -345,6 +345,9 @@ export function DashboardHome() {
                 title={tile.title}
                 imageUrl={tile.image_url}
                 size="md"
+                artScale={tile.icon_scale ?? 1}
+                backgroundColor={tile.icon_bg}
+                presentation="app"
                 subtitle={tile.cta_label}
                 editable={editMode}
                 editActive={editMode && editingTileKey === tile.tile_key}
