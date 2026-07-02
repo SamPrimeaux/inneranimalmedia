@@ -82,6 +82,7 @@ import {
   MENTION_CONTEXT_HEADER,
   CHAT_ATTACH_MAX_TOTAL_BYTES,
   CHAT_REQUEST_MAX_BYTES,
+  resolveComposerImageHandlingMode,
   MOBILE_CHAT_COMPOSER_BOTTOM_PAD,
   COMPOSER_TEXTAREA_MAX_PX_NARROW,
   COMPOSER_TEXTAREA_MAX_PX_WIDE,
@@ -2810,7 +2811,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     } catch {
       /* ignore */
     }
-    stagedAttachments.forEach((a) => form.append('files', a.file));
+    stagedAttachments.forEach((a) => {
+      if (a.type === 'image') form.append('images', a.file);
+      else form.append('files', a.file);
+    });
+    form.append('image_handling_mode', resolveComposerImageHandlingMode(userMessage));
     clearAttachments();
 
     if (activeFile) {

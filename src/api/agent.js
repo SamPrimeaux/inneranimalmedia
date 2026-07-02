@@ -864,7 +864,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     const formData = await request.formData();
     body = Object.fromEntries(formData.entries());
     const files = formData.getAll('files');
+    const images = formData.getAll('images');
     if (files.length) body.files = files;
+    if (images.length) body.images = images;
   } else {
     body = await request.json().catch(() => ({}));
   }

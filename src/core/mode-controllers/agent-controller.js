@@ -134,21 +134,48 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       ? [...body.messages]
       : [{ role: 'user', content: message }];
   const {
-    chatUploadHasVisionImages,
-    parseChatComposerImageBlocks,
+    resolveChatVisionUpload,
     applyVisionBlocksToChatMessages,
     chatMessagesHaveVisionUpload,
+    collectChatVisionUploadFiles,
+    resolveImageHandlingMode,
+    IMAGE_HANDLING_MODES,
+    visionErrorUserMessage,
+    VISION_ERROR_CODES,
   } = await import('../chat-composer-attachments.js');
   let visionUploadActive = false;
-  if (chatUploadHasVisionImages(body.files)) {
-    const imageBlocks = await parseChatComposerImageBlocks(body.files);
-    if (imageBlocks.length) {
-      chatMessages = applyVisionBlocksToChatMessages(chatMessages, message, imageBlocks);
-      visionUploadActive = true;
-    } else {
-      console.warn('[agent-controller] vision_upload_parse_empty', {
-        fileCount: Array.isArray(body.files) ? body.files.length : 0,
+  let visionUploadError = null;
+  let imageHandlingMode = IMAGE_HANDLING_MODES.EPHEMERAL_VISION;
+  const visionUploadFiles = collectChatVisionUploadFiles(body);
+  if (visionUploadFiles.length) {
+    const vision = await resolveChatVisionUpload(body, {
+      message,
+      sessionId,
+      env,
+    });
+    imageHandlingMode = vision.mode;
+    if (!vision.ok && vision.error) {
+      visionUploadError = vision.error;
+      console.warn('[agent-controller] vision_upload_failed', {
+        code: vision.error.code,
+        fileCount: visionUploadFiles.length,
+        mode: vision.mode,
       });
+    } else if (vision.blocks.length) {
+      chatMessages = applyVisionBlocksToChatMessages(chatMessages, message, vision.blocks);
+      visionUploadActive = true;
+    }
+  } else if (
+    resolveImageHandlingMode(body, message) === IMAGE_HANDLING_MODES.TEMPORARY_CONTEXT &&
+    sessionId &&
+    env
+  ) {
+    const { loadTemporaryVisionImages } = await import('../chat-vision-temp-store.js');
+    const cached = await loadTemporaryVisionImages(env, sessionId);
+    if (cached.length) {
+      chatMessages = applyVisionBlocksToChatMessages(chatMessages, message, cached);
+      visionUploadActive = true;
+      imageHandlingMode = IMAGE_HANDLING_MODES.TEMPORARY_CONTEXT;
     }
   }
   const createSubagentFlow = resolveCreateSubagentFlow(chatMessages);
@@ -403,6 +430,22 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       'If the user asks you to fix or implement something, explain the likely approach and suggest switching to Agent or Debug.';
   }
 
+  if (visionUploadActive) {
+    if (imageHandlingMode === IMAGE_HANDLING_MODES.EPHEMERAL_VISION) {
+      systemPrompt +=
+        '\n\n## Attached images (ephemeral)\nThe user attached image(s) for this turn only. ' +
+        'Analyze what you see. Do not write images to R2, D1, or the project asset library unless they explicitly ask to save/store/use as an asset.';
+    } else if (imageHandlingMode === IMAGE_HANDLING_MODES.TEMPORARY_CONTEXT) {
+      systemPrompt +=
+        '\n\n## Attached images (temporary context)\nImage(s) are kept in short-lived session cache for follow-up turns. ' +
+        'Do not promote to permanent project assets unless the user explicitly asks to save/store them.';
+    } else if (imageHandlingMode === IMAGE_HANDLING_MODES.PERSISTED_ASSET) {
+      systemPrompt +=
+        '\n\n## Attached images (save requested)\nThe user asked to save/store the attached image as a project asset. ' +
+        'Use the appropriate upload/asset tool (e.g. cf_images_upload or CMS asset flow) after analyzing the image; do not leave it ephemeral only.';
+    }
+  }
+
   if (profile.mode !== 'ask' && workspaceId && !skipHeavyContext) {
     try {
       const { appendDeliveryWorkflowToPrompt } = await import('../agent-delivery-workflow.js');
@@ -529,11 +572,21 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   (async () => {
     const chatT0 = Date.now();
     try {
-      if (chatUploadHasVisionImages(body.files) && !chatMessagesHaveVisionUpload(chatMessages)) {
-        const failText =
-          'I could not read the attached image. Please re-attach as PNG or JPEG under 4.5 MB and send again.';
+      if (visionUploadError) {
+        const failText = visionErrorUserMessage(visionUploadError.code, visionUploadError.message);
         emit('text', { text: failText });
-        emit('error', { message: failText, code: 'vision_upload_empty' });
+        emit('error', {
+          message: failText,
+          code: visionUploadError.code || VISION_ERROR_CODES.VISION_ADAPTER_FAILED,
+          detail: visionUploadError.detail ?? {},
+        });
+        emit('done', {});
+        return;
+      }
+      if (visionUploadFiles.length && !chatMessagesHaveVisionUpload(chatMessages)) {
+        const failText = visionErrorUserMessage(VISION_ERROR_CODES.NO_IMAGE_FILE_IN_REQUEST);
+        emit('text', { text: failText });
+        emit('error', { message: failText, code: VISION_ERROR_CODES.NO_IMAGE_FILE_IN_REQUEST });
         emit('done', {});
         return;
       }

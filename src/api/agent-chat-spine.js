@@ -87,8 +87,9 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
       ? String(rawModel).trim()
       : null;
 
-  const { chatUploadHasVisionImages } = await import('../core/chat-composer-attachments.js');
-  const requireVision = chatUploadHasVisionImages(body.files);
+  const { collectChatVisionUploadFiles } = await import('../core/chat-composer-attachments.js');
+  const visionUploadFiles = collectChatVisionUploadFiles(body);
+  const requireVision = visionUploadFiles.length > 0;
 
   const profile = await withD1Retry(
     () =>

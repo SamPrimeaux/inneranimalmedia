@@ -1,10 +1,40 @@
 /**
- * Composer multipart uploads (`files` in /api/agent/chat) → vision message blocks.
+ * Composer multipart uploads (`files` / `images` in /api/agent/chat) → vision message blocks.
+ * Default: ephemeral_vision — bytes forwarded to the model, never written to R2/D1.
  */
 
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif)$/i;
 /** Anthropic / OpenAI practical inline limit (~5 MB). */
-const MAX_CHAT_IMAGE_BYTES = 4_500_000;
+export const MAX_CHAT_IMAGE_BYTES = 4_500_000;
+
+export const IMAGE_HANDLING_MODES = Object.freeze({
+  EPHEMERAL_VISION: 'ephemeral_vision',
+  TEMPORARY_CONTEXT: 'temporary_context',
+  PERSISTED_ASSET: 'persisted_asset',
+});
+
+export const VISION_ERROR_CODES = Object.freeze({
+  NO_IMAGE_FILE_IN_REQUEST: 'NO_IMAGE_FILE_IN_REQUEST',
+  IMAGE_TOO_LARGE: 'IMAGE_TOO_LARGE',
+  UNSUPPORTED_IMAGE_MIME: 'UNSUPPORTED_IMAGE_MIME',
+  MODEL_NOT_VISION_CAPABLE: 'MODEL_NOT_VISION_CAPABLE',
+  PROVIDER_REJECTED_IMAGE: 'PROVIDER_REJECTED_IMAGE',
+  VISION_ADAPTER_FAILED: 'VISION_ADAPTER_FAILED',
+});
+
+/** Vision providers reliably accept these inline. */
+export const VISION_SUPPORTED_MIMES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
+  'image/gif',
+]);
+
+const PERSISTED_ASSET_INTENT_RE =
+  /\b(save this|save to (the )?project|add to project|use as (the )?hero|add this to (the )?cms|store this as|attach this to|make this reusable|store as (a )?reference|use as asset)\b/i;
+const TEMPORARY_CONTEXT_INTENT_RE =
+  /\b(compare this image|keep this screenshot|use this as reference|reference for the next|keep (this|it) in context while)\b/i;
 
 function bytesToBase64(bytes) {
   const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -29,6 +59,21 @@ function guessImageMime(name) {
   return 'image/png';
 }
 
+function normalizeMime(raw, name) {
+  const type = String(raw || '')
+    .trim()
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+  if (type && type.startsWith('image/')) return type === 'image/jpg' ? 'image/jpeg' : type;
+  const guessed = guessImageMime(name);
+  return guessed === 'image/jpg' ? 'image/jpeg' : guessed;
+}
+
+function visionError(code, message, detail = {}) {
+  return { ok: false, code, message, detail, blocks: [] };
+}
+
 /** @param {unknown} file */
 export function isChatImageUpload(file) {
   if (!file || typeof file !== 'object') return false;
@@ -37,21 +82,78 @@ export function isChatImageUpload(file) {
   return IMAGE_EXT_RE.test(String(file.name || ''));
 }
 
+/**
+ * Merge multipart `files` and `images` fields from parsed chat body.
+ * @param {Record<string, unknown>} body
+ */
+export function collectChatVisionUploadFiles(body) {
+  const out = [];
+  const seen = new Set();
+  for (const key of ['images', 'files']) {
+    const raw = body?.[key];
+    const arr = Array.isArray(raw) ? raw : raw != null ? [raw] : [];
+    for (const file of arr) {
+      if (!file || typeof file !== 'object') continue;
+      const id = `${String(file.name || '')}:${Number(file.size) || 0}:${String(file.type || '')}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      if (isChatImageUpload(file)) out.push(file);
+    }
+  }
+  return out;
+}
+
 /** @param {unknown} files */
 export function chatUploadHasVisionImages(files) {
-  const arr = Array.isArray(files) ? files : [];
-  return arr.some(isChatImageUpload);
+  if (Array.isArray(files)) return files.some(isChatImageUpload);
+  return collectChatVisionUploadFiles(
+    /** @type {Record<string, unknown>} */ ({ files, images: files }),
+  ).length > 0;
+}
+
+/**
+ * Resolve how attached images should be handled for this turn.
+ * @param {Record<string, unknown>} body
+ * @param {string} [message]
+ */
+export function resolveImageHandlingMode(body, message = '') {
+  const explicit = String(
+    body?.image_handling_mode ?? body?.imageHandlingMode ?? body?.image_mode ?? '',
+  )
+    .trim()
+    .toLowerCase();
+  if (explicit === IMAGE_HANDLING_MODES.TEMPORARY_CONTEXT) {
+    return IMAGE_HANDLING_MODES.TEMPORARY_CONTEXT;
+  }
+  if (explicit === IMAGE_HANDLING_MODES.PERSISTED_ASSET) {
+    return IMAGE_HANDLING_MODES.PERSISTED_ASSET;
+  }
+  if (explicit === IMAGE_HANDLING_MODES.EPHEMERAL_VISION) {
+    return IMAGE_HANDLING_MODES.EPHEMERAL_VISION;
+  }
+  const msg = String(message || body?.message || '').trim();
+  if (PERSISTED_ASSET_INTENT_RE.test(msg)) return IMAGE_HANDLING_MODES.PERSISTED_ASSET;
+  if (TEMPORARY_CONTEXT_INTENT_RE.test(msg)) return IMAGE_HANDLING_MODES.TEMPORARY_CONTEXT;
+  return IMAGE_HANDLING_MODES.EPHEMERAL_VISION;
 }
 
 /**
  * @param {unknown} files
- * @returns {Promise<Array<{ type: 'image', source: { type: 'base64', media_type: string, data: string }, _filename?: string }>>}
+ * @returns {Promise<{ ok: true, blocks: Array<{ type: 'image', source: { type: 'base64', media_type: string, data: string }, _filename?: string }> } | { ok: false, code: string, message: string, detail?: Record<string, unknown>, blocks: [] }>}
  */
-export async function parseChatComposerImageBlocks(files) {
+export async function parseChatVisionFiles(files) {
   const arr = Array.isArray(files) ? files : [];
+  const imageCandidates = arr.filter(isChatImageUpload);
+  if (!imageCandidates.length) {
+    return visionError(
+      VISION_ERROR_CODES.NO_IMAGE_FILE_IN_REQUEST,
+      'No image file was found in the chat request. Attach PNG, JPEG, WebP, or GIF and try again.',
+      { candidate_count: arr.length },
+    );
+  }
+
   const blocks = [];
-  for (const file of arr) {
-    if (!isChatImageUpload(file)) continue;
+  for (const file of imageCandidates) {
     let buf;
     try {
       if (typeof file.arrayBuffer === 'function') {
@@ -61,21 +163,41 @@ export async function parseChatComposerImageBlocks(files) {
       } else if (file instanceof Uint8Array) {
         buf = file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength);
       } else {
-        continue;
+        return visionError(
+          VISION_ERROR_CODES.VISION_ADAPTER_FAILED,
+          'The attached image could not be read from the upload.',
+          { name: file.name ?? null },
+        );
       }
-    } catch {
-      continue;
-    }
-    if (!buf || buf.byteLength === 0) continue;
-    if (buf.byteLength > MAX_CHAT_IMAGE_BYTES) {
-      console.warn(
-        '[chat-composer-attachments] image_too_large',
-        JSON.stringify({ name: file.name, bytes: buf.byteLength }),
+    } catch (e) {
+      return visionError(
+        VISION_ERROR_CODES.VISION_ADAPTER_FAILED,
+        'The attached image could not be read from the upload.',
+        { name: file.name ?? null, error: e?.message ?? String(e) },
       );
-      continue;
     }
-    const media_type =
-      String(file.type || '').trim() || guessImageMime(file.name) || 'image/png';
+    if (!buf || buf.byteLength === 0) {
+      return visionError(
+        VISION_ERROR_CODES.NO_IMAGE_FILE_IN_REQUEST,
+        'The attached image file was empty.',
+        { name: file.name ?? null },
+      );
+    }
+    if (buf.byteLength > MAX_CHAT_IMAGE_BYTES) {
+      return visionError(
+        VISION_ERROR_CODES.IMAGE_TOO_LARGE,
+        `Image is too large (${Math.round(buf.byteLength / 1024)} KB). Maximum is ${Math.round(MAX_CHAT_IMAGE_BYTES / 1024)} KB.`,
+        { name: file.name ?? null, bytes: buf.byteLength, max_bytes: MAX_CHAT_IMAGE_BYTES },
+      );
+    }
+    const media_type = normalizeMime(file.type, file.name);
+    if (!VISION_SUPPORTED_MIMES.has(media_type)) {
+      return visionError(
+        VISION_ERROR_CODES.UNSUPPORTED_IMAGE_MIME,
+        `Unsupported image type (${media_type || 'unknown'}). Use PNG, JPEG, WebP, or GIF.`,
+        { name: file.name ?? null, media_type },
+      );
+    }
     blocks.push({
       type: 'image',
       source: {
@@ -86,7 +208,71 @@ export async function parseChatComposerImageBlocks(files) {
       _filename: String(file.name || 'image').trim() || 'image',
     });
   }
-  return blocks;
+  return { ok: true, blocks };
+}
+
+/**
+ * Back-compat wrapper — returns blocks only (empty array on failure).
+ * @param {unknown} files
+ */
+export async function parseChatComposerImageBlocks(files) {
+  const parsed = await parseChatVisionFiles(files);
+  return parsed.ok ? parsed.blocks : [];
+}
+
+/**
+ * @param {Record<string, unknown>} body
+ * @param {{ message?: string, sessionId?: string|null, env?: any }} [opts]
+ */
+export async function resolveChatVisionUpload(body, opts = {}) {
+  const uploadFiles = collectChatVisionUploadFiles(body);
+  const mode = resolveImageHandlingMode(body, opts.message);
+  if (!uploadFiles.length) {
+    return { ok: true, blocks: [], mode, uploadFiles, error: null };
+  }
+
+  const parsed = await parseChatVisionFiles(uploadFiles);
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      blocks: [],
+      mode,
+      uploadFiles,
+      error: { code: parsed.code, message: parsed.message, detail: parsed.detail ?? {} },
+    };
+  }
+
+  let blocks = parsed.blocks;
+  if (
+    mode === IMAGE_HANDLING_MODES.TEMPORARY_CONTEXT &&
+    opts.env &&
+    opts.sessionId &&
+    blocks.length
+  ) {
+    const { storeTemporaryVisionImages } = await import('./chat-vision-temp-store.js');
+    await storeTemporaryVisionImages(opts.env, opts.sessionId, blocks);
+  }
+
+  return { ok: true, blocks, mode, uploadFiles, error: null };
+}
+
+/** User-facing copy for vision error codes. */
+export function visionErrorUserMessage(code, fallback) {
+  const messages = {
+    [VISION_ERROR_CODES.NO_IMAGE_FILE_IN_REQUEST]:
+      'No image file arrived with your message. Re-attach the image and send again.',
+    [VISION_ERROR_CODES.IMAGE_TOO_LARGE]:
+      'That image is too large. Use PNG or JPEG under 4.5 MB.',
+    [VISION_ERROR_CODES.UNSUPPORTED_IMAGE_MIME]:
+      'That image format is not supported for vision. Use PNG, JPEG, WebP, or GIF.',
+    [VISION_ERROR_CODES.MODEL_NOT_VISION_CAPABLE]:
+      'The selected model cannot analyze images. Pick a vision-capable model or set Auto.',
+    [VISION_ERROR_CODES.PROVIDER_REJECTED_IMAGE]:
+      'The model provider rejected this image. Try a smaller PNG or JPEG.',
+    [VISION_ERROR_CODES.VISION_ADAPTER_FAILED]:
+      'Could not prepare the image for the vision model. Re-attach and try again.',
+  };
+  return messages[code] || fallback || messages[VISION_ERROR_CODES.VISION_ADAPTER_FAILED];
 }
 
 /**
@@ -134,4 +320,20 @@ export function chatMessagesHaveVisionUpload(chatMessages) {
   return (Array.isArray(chatMessages) ? chatMessages : []).some(
     (m) => m?.role === 'user' && userMessageHasVisionContent(m.content),
   );
+}
+
+/**
+ * Map provider / model resolution failures to vision error codes.
+ * @param {unknown} err
+ */
+export function mapVisionProviderError(err) {
+  const code = err?.code != null ? String(err.code) : '';
+  const msg = String(err?.message || err || '').toLowerCase();
+  if (code === 'CAPABILITY_MISMATCH' || /no vision|vision.capable|supports_vision/.test(msg)) {
+    return VISION_ERROR_CODES.MODEL_NOT_VISION_CAPABLE;
+  }
+  if (/image.*(invalid|rejected|unsupported|too large)|content_policy|moderation/.test(msg)) {
+    return VISION_ERROR_CODES.PROVIDER_REJECTED_IMAGE;
+  }
+  return VISION_ERROR_CODES.VISION_ADAPTER_FAILED;
 }

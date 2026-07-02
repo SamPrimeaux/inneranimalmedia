@@ -370,6 +370,28 @@ export const MENTION_R2_LIST_MAX_ROWS = 250;
 export const CHAT_REQUEST_MAX_BYTES = 100 * 1024 * 1024;
 export const CHAT_ATTACH_MAX_TOTAL_BYTES = 90 * 1024 * 1024;
 
+export type ChatImageHandlingMode = 'ephemeral_vision' | 'temporary_context' | 'persisted_asset';
+
+/** Default: analyze-only — no R2/D1 write on attach. */
+export function resolveComposerImageHandlingMode(message: string): ChatImageHandlingMode {
+  const msg = String(message || '').trim();
+  if (
+    /\b(save this|save to (the )?project|add to project|use as (the )?hero|add this to (the )?cms|store this as|attach this to|make this reusable|store as (a )?reference|use as asset)\b/i.test(
+      msg,
+    )
+  ) {
+    return 'persisted_asset';
+  }
+  if (
+    /\b(compare this image|keep this screenshot|use this as reference|reference for the next|keep (this|it) in context while)\b/i.test(
+      msg,
+    )
+  ) {
+    return 'temporary_context';
+  }
+  return 'ephemeral_vision';
+}
+
 /**
  * App.tsx mobile shell: fixed tab bar z-[90] with `bottom: 1.5rem + safe-area` (~52px row) + status strip.
  * Chat panel is max-phone:fixed z-[45], so the composer must pad above that stack or it sits underneath.

@@ -1,0 +1,40 @@
+---
+description: Chat composer vision attachments — ephemeral by default, no auto R2/D1 on attach
+alwaysApply: false
+---
+
+# Chat vision attachments (IAM)
+
+Implement image vision attachments **without** automatically storing every image.
+
+## Default behavior (`ephemeral_vision`)
+
+- Images attached to chat are **ephemeral** (describe/analyze/inspect only).
+- Frontend shows a **local blob preview**; on send, include image files in the same `multipart/form-data` POST as the message.
+- Use field name **`images`** for image files (non-image attachments use **`files`**).
+- Set **`image_handling_mode=ephemeral_vision`** unless the user intent says otherwise.
+- Backend reads uploaded bytes in `src/core/chat-composer-attachments.js`, builds vision blocks, forwards to a vision-capable model, then **discards** — no R2, D1, or project asset row.
+
+## Three modes
+
+| Mode | When | Storage |
+|------|------|---------|
+| `ephemeral_vision` | Default — "what do you see?", "analyze this screenshot" | None |
+| `temporary_context` | Multi-turn reference ("keep this screenshot while debugging") | `SESSION_CACHE` TTL 1–24h via `chat-vision-temp-store.js` |
+| `persisted_asset` | Explicit save ("save to project", "use as hero", "add to CMS") | Agent uses upload/asset tools — **not** auto on attach |
+
+## Vision error codes (replace generic "could not read image")
+
+- `NO_IMAGE_FILE_IN_REQUEST`
+- `IMAGE_TOO_LARGE`
+- `UNSUPPORTED_IMAGE_MIME`
+- `MODEL_NOT_VISION_CAPABLE`
+- `PROVIDER_REJECTED_IMAGE`
+- `VISION_ADAPTER_FAILED`
+
+## Key files
+
+- `dashboard/components/ChatAssistant/ChatAssistant.tsx` — FormData: `images`, `image_handling_mode`
+- `src/api/agent.js` — parse `files` + `images` from multipart
+- `src/core/chat-composer-attachments.js` — parse, mode resolve, vision blocks
+- `src/core/mode-controllers/agent-controller.js` — inject vision into user message, emit structured errors
