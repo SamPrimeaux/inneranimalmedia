@@ -6,6 +6,25 @@ import type {
 } from '../workflowTypes';
 import { autoLayoutNodes, hasExplicitPosition } from './workflowLayout';
 
+function readSignedOff(raw: unknown): boolean {
+  if (raw == null) return false;
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const o = raw as Record<string, unknown>;
+    if (o.signed_off === true) return true;
+    const mode = String(o.automation_mode || '').toLowerCase();
+    return mode === 'trusted' || mode === 'signed_off';
+  }
+  try {
+    const o = JSON.parse(String(raw));
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+    if (o.signed_off === true) return true;
+    const mode = String(o.automation_mode || '').toLowerCase();
+    return mode === 'trusted' || mode === 'signed_off';
+  } catch {
+    return false;
+  }
+}
+
 type GraphPayload = {
   workflow: Record<string, unknown>;
   mcp_workflow?: Record<string, unknown> | null;
@@ -84,13 +103,15 @@ export function mapGraphPayload(payload: GraphPayload): WorkflowGraph {
     .filter(Boolean);
 
   const mcp = payload.mcp_workflow;
+  const signedOff = readSignedOff(w.metadata_json);
   return {
     registryId: String(payload.registry_workflow_id ?? w.id ?? ''),
     workflowKey: String(w.workflow_key ?? ''),
     displayName: String(w.display_name ?? w.workflow_key ?? w.id ?? 'Workflow'),
     description: w.description != null ? String(w.description) : undefined,
     riskLevel: w.risk_level != null ? String(w.risk_level) : null,
-    requiresApproval: !!w.requires_approval,
+    signedOff,
+    requiresApproval: !signedOff && !!w.requires_approval,
     dagWorkflowId: String(payload.dag_workflow_id ?? w.id ?? ''),
     mcpWorkflowId: mcp?.id != null ? String(mcp.id) : null,
     mcpGraphMode: mcp?.graph_mode != null ? Number(mcp.graph_mode) : null,

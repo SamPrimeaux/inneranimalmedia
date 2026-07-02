@@ -19,6 +19,7 @@ import { insertExecutionDependencyGraphEdge } from '../api/command-run-telemetry
 import { extractBrowserNavigateUrl } from './extract-browser-url.js';
 import * as agentApiModule from '../api/agent.js';
 import { scheduleSyncWorkflowRunToSupabase } from './agentsam-supabase-sync.js';
+import { shouldEnforceWorkflowApproval } from './workflow-signed-off.js';
 
 const TIER_ORDER = ['micro', 'flash', 'standard', 'power', 'reasoning'];
 
@@ -362,6 +363,16 @@ async function executePrimitive(env, executorKind, handlerKey, config, input, no
       return { ok: true, output: { terminal: true, handler_key: handlerKey, ...flattenWorkflowInput(input) } };
 
     case 'approval': {
+      if (!shouldEnforceWorkflowApproval(runContext?.workflowMeta)) {
+        return {
+          ok: true,
+          output: {
+            status: 'approved',
+            signed_off: true,
+            skipped_approval: true,
+          },
+        };
+      }
       if (!env?.DB) return { ok: false, error: 'DB not available for approval gate' };
       const flat = buildWorkflowParamRoot(input, runContext);
       const approvalId = `appr_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
@@ -757,6 +768,17 @@ export async function dispatchNode(env, node, input, runContext) {
         return {
           ok: true,
           output: { status: 'approved', smoke: true, skipped: true },
+        };
+      }
+      if (!shouldEnforceWorkflowApproval(runContext?.workflowMeta)) {
+        return {
+          ok: true,
+          output: {
+            status: 'approved',
+            signed_off: true,
+            skipped_approval: true,
+            node_key: node.node_key,
+          },
         };
       }
       if (!env.DB) return { ok: false, error: 'DB not available' };
@@ -1359,7 +1381,7 @@ export async function executeWorkflowGraph(env, opts) {
   const workflowMeta = env.DB
     ? await env.DB
         .prepare(
-          `SELECT default_task_type, default_mode, workflow_type, risk_level, requires_approval
+          `SELECT default_task_type, default_mode, workflow_type, risk_level, requires_approval, metadata_json
            FROM agentsam_workflows
            WHERE (id = ? OR workflow_key = ?) AND COALESCE(is_active, 1) = 1
            LIMIT 1`

@@ -154,7 +154,21 @@ export const WorkflowPicker: React.FC<WorkflowPickerProps> = ({ onStartWorkflow,
       </div>
       {workflows.map((wf) => {
         const isRisky = String(wf.risk_level || '').toLowerCase() === 'high';
-        const needsApproval = !!wf.requires_approval;
+        const signedOff =
+          wf.signed_off === true ||
+          (() => {
+            try {
+              const raw = wf.metadata_json;
+              const meta =
+                raw && typeof raw === 'object'
+                  ? raw
+                  : JSON.parse(String(raw || '{}'));
+              return meta?.signed_off === true;
+            } catch {
+              return false;
+            }
+          })();
+        const needsApproval = !signedOff && !!wf.requires_approval;
         return (
           <button
             key={wf.id}
@@ -191,6 +205,11 @@ export const WorkflowPicker: React.FC<WorkflowPickerProps> = ({ onStartWorkflow,
                 {needsApproval && (
                   <span className="shrink-0 px-1.5 py-0 rounded text-[8px] font-bold uppercase tracking-wide bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
                     approval
+                  </span>
+                )}
+                {signedOff && (
+                  <span className="shrink-0 px-1.5 py-0 rounded text-[8px] font-bold uppercase tracking-wide bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    signed off
                   </span>
                 )}
               </div>

@@ -695,7 +695,7 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
         const sql = `
           SELECT
             w.id, w.workflow_key, w.display_name, w.description,
-            w.risk_level, w.requires_approval, w.is_active,
+            w.risk_level, w.requires_approval, w.is_active, w.metadata_json,
             COUNT(DISTINCT n.id) AS node_count,
             COUNT(DISTINCT e.id) AS edge_count,
             COALESCE(rs.run_count, 0) AS run_count,
@@ -1156,7 +1156,9 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
       const registryId = decodeURIComponent(wfSingleMatch[1]);
       try {
         const body = await request.json().catch(() => ({}));
-        const out = await patchWorkflowRegistry(env.DB, registryId, body);
+        const out = await patchWorkflowRegistry(env.DB, registryId, body, {
+          userId: authUser?.id ?? null,
+        });
         if (out.error) return jsonResponse({ error: out.error }, out.status);
         return jsonResponse(out);
       } catch (e) {

@@ -642,6 +642,12 @@
   border-color: color-mix(in srgb, var(--wf-success) 30%, var(--wf-border));
 }
 
+.wf-tag-signed {
+  color: var(--wf-success);
+  border-color: color-mix(in srgb, var(--wf-success) 30%, var(--wf-border));
+  background: color-mix(in srgb, var(--wf-success) 12%, transparent);
+}
+
 /* ─── Library cards ──────────────────────────────────────────────────────────── */
 .wf-library-card {
   width: 100%;

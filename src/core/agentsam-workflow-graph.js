@@ -457,10 +457,11 @@ export async function deleteWorkflowEdge(db, opts) {
  * @param {import('@cloudflare/workers-types').D1Database} db
  * @param {string} registryId
  * @param {Record<string, unknown>} body
+ * @param {{ userId?: string|null }} [opts]
  */
-export async function patchWorkflowRegistry(db, registryId, body) {
+export async function patchWorkflowRegistry(db, registryId, body, opts = {}) {
   const workflow = await db
-    .prepare(`SELECT id FROM agentsam_workflows WHERE id = ? LIMIT 1`)
+    .prepare(`SELECT id, metadata_json FROM agentsam_workflows WHERE id = ? LIMIT 1`)
     .bind(registryId)
     .first();
   if (!workflow) return { error: 'workflow not found', status: 404 };
@@ -483,6 +484,30 @@ export async function patchWorkflowRegistry(db, registryId, body) {
     fields.push('requires_approval = ?');
     vals.push(body.requires_approval ? 1 : 0);
   }
+
+  let metadataTouched = false;
+  let nextMeta = parseJsonObject(workflow.metadata_json, {});
+  if (body.metadata_json != null) {
+    nextMeta = { ...nextMeta, ...parseJsonObject(body.metadata_json, {}) };
+    metadataTouched = true;
+  }
+  if (body.signed_off != null) {
+    const { buildSignedOffMetadataPatch } = await import('./workflow-signed-off.js');
+    nextMeta = buildSignedOffMetadataPatch(nextMeta, {
+      signedOff: body.signed_off === true,
+      userId: opts.userId ?? null,
+    });
+    metadataTouched = true;
+    if (body.signed_off === true) {
+      fields.push('requires_approval = ?');
+      vals.push(0);
+    }
+  }
+  if (metadataTouched) {
+    fields.push('metadata_json = ?');
+    vals.push(JSON.stringify(nextMeta));
+  }
+
   if (!fields.length) return { ok: true, unchanged: true };
   fields.push(`updated_at = datetime('now')`);
   vals.push(registryId);
@@ -490,5 +515,10 @@ export async function patchWorkflowRegistry(db, registryId, body) {
     .prepare(`UPDATE agentsam_workflows SET ${fields.join(', ')} WHERE id = ?`)
     .bind(...vals)
     .run();
-  return { ok: true, id: registryId };
+  return {
+    ok: true,
+    id: registryId,
+    signed_off: nextMeta.signed_off === true,
+    requires_approval: body.signed_off === true ? 0 : body.requires_approval != null ? (body.requires_approval ? 1 : 0) : undefined,
+  };
 }

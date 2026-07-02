@@ -32,6 +32,8 @@ export type WorkflowListItem = {
   description?: string | null;
   risk_level?: string | null;
   requires_approval?: number | boolean;
+  metadata_json?: string | Record<string, unknown> | null;
+  signed_off?: boolean;
   node_count?: number;
   edge_count?: number;
   run_count?: number;
@@ -89,6 +91,7 @@ export type WorkflowGraph = {
   displayName: string;
   description?: string;
   riskLevel?: string | null;
+  signedOff?: boolean;
   requiresApproval?: boolean;
   dagWorkflowId: string;
   mcpWorkflowId?: string | null;

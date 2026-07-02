@@ -4,8 +4,10 @@
  * agentsam_workflows.metadata_json.execution_engine:
  *   - "sse"     — in-Worker graph walk + SSE (default, fast/interactive)
  *   - "durable" — Cloudflare Workflows via iam-workflows
- *   - "auto"    — durable when requires_approval, high risk, or large graphs
+ *   - "auto"    — durable when high risk or large graphs (signed-off workflows stay SSE)
  */
+
+import { isWorkflowSignedOff } from './workflow-signed-off.js';
 
 function parseMetadata(raw) {
   if (raw == null) return {};
@@ -26,6 +28,10 @@ function normalizeEngine(value) {
 }
 
 function autoPickDurable(workflowRow, nodeCount) {
+  if (isWorkflowSignedOff(workflowRow)) {
+    if (Number(nodeCount) > 10) return 'durable';
+    return 'sse';
+  }
   const requiresApproval = Number(workflowRow?.requires_approval) === 1;
   const risk = String(workflowRow?.risk_level || 'low').toLowerCase();
   if (requiresApproval || risk === 'high' || risk === 'critical') return 'durable';

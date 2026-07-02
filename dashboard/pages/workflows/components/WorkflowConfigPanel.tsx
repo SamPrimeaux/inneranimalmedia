@@ -7,6 +7,7 @@ import {
   createNode,
   deleteEdge,
   deleteNode,
+  patchWorkflow,
   updateNode,
 } from '../lib/workflowApi';
 import { WorkflowNodeIcon, nodeAccent } from '../WorkflowNodeIcon';
@@ -110,8 +111,32 @@ export function WorkflowConfigPanel({
           {graph.riskLevel && graph.riskLevel !== 'low' && (
             <span className="wf-tag">{graph.riskLevel} risk</span>
           )}
-          {graph.requiresApproval && <span className="wf-tag">approval</span>}
+          {graph.signedOff ? (
+            <span className="wf-tag wf-tag-signed">Signed off</span>
+          ) : graph.requiresApproval ? (
+            <span className="wf-tag">approval</span>
+          ) : null}
         </div>
+        <div className="wf-row-btns" style={{ marginTop: 8 }}>
+          <button
+            type="button"
+            className={`wf-btn ${graph.signedOff ? '' : 'primary'}`}
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                await patchWorkflow(graph.registryId, { signed_off: !graph.signedOff });
+                onGraphChanged();
+              })
+            }
+          >
+            {graph.signedOff ? 'Revoke sign-off' : 'Sign off workflow'}
+          </button>
+        </div>
+        {!graph.signedOff && (
+          <p className="wf-hint" style={{ marginTop: 6 }}>
+            Sign off when setup is complete — deploy and terminal steps run without per-run approval gates.
+          </p>
+        )}
       </div>
 
       {/* Selected node editor */}

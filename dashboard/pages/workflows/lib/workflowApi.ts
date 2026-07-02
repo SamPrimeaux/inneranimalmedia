@@ -122,9 +122,14 @@ export async function deleteEdge(registryId: string, edgeId: string): Promise<vo
 
 export async function patchWorkflow(
   registryId: string,
-  body: { display_name?: string; description?: string },
-): Promise<void> {
-  await apiJson(`/api/agentsam/workflows/${encodeURIComponent(registryId)}`, {
+  body: {
+    display_name?: string;
+    description?: string;
+    signed_off?: boolean;
+    requires_approval?: boolean;
+  },
+): Promise<{ ok?: boolean; signed_off?: boolean }> {
+  return apiJson(`/api/agentsam/workflows/${encodeURIComponent(registryId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

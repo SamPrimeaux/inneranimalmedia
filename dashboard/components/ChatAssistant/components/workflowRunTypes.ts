@@ -7,6 +7,8 @@ export type WorkflowRow = {
   description?: string | null;
   risk_level?: string | null;
   requires_approval?: number | boolean;
+  metadata_json?: string | Record<string, unknown> | null;
+  signed_off?: boolean;
   node_count?: number;
   edge_count?: number;
 };
