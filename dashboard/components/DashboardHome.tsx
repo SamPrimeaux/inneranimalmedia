@@ -344,7 +344,7 @@ export function DashboardHome() {
                 key={tile.id || tile.tile_key}
                 title={tile.title}
                 imageUrl={tile.image_url}
-                size={tile.tile_size || 'lg'}
+                size="md"
                 subtitle={tile.cta_label}
                 editable={editMode}
                 editActive={editMode && editingTileKey === tile.tile_key}

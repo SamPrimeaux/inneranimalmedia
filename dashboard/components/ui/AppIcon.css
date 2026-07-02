@@ -55,18 +55,15 @@
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.34);
 }
 
-.iam-app-icon-art {
+/* Pre-made app icons + integration logos — contained, never cropped */
+.iam-app-icon-art,
+.iam-app-icon-brand {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.iam-app-icon-brand {
-  width: 52%;
-  height: 52%;
   object-fit: contain;
+  object-position: center;
   display: block;
+  padding: 0;
 }
 
 .iam-app-icon-fallback {
@@ -183,26 +180,15 @@
   }
 }
 
+/* Creation tools — same footprint as Connect context (Google Drive reference) */
 .iam-app-icon-grid--products {
-  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
-  gap: 22px 16px;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 14px 10px;
 }
 
 @media (min-width: 900px) {
   .iam-app-icon-grid--products {
-    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
-    gap: 24px 18px;
-  }
-
-  .iam-app-icon-grid--products .iam-app-icon-wrap--sm {
-    --iam-app-icon-size: 80px;
-  }
-
-  .iam-app-icon-grid--products .iam-app-icon-wrap--md {
-    --iam-app-icon-size: 120px;
-  }
-
-  .iam-app-icon-grid--products .iam-app-icon-wrap--lg {
-    --iam-app-icon-size: 152px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px 12px;
   }
 }
