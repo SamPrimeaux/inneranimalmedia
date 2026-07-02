@@ -292,6 +292,7 @@ function ProjectCard({
 // ─── main page ────────────────────────────────────────────────────────────────
 
 export default function ProjectsPage() {
+  const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
