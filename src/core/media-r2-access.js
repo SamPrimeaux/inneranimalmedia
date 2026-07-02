@@ -8,6 +8,7 @@
  *   media/{workspaceSlug}/library/    — curated workspace library
  *   captures/{workspaceSlug}/...      — workspace-scoped captures (reports, Playwright, etc.)
  *   captures/theme-debug/...          — theme-debug bundles (superadmin-only reads)
+ *   projects/{projectId}/cover|files/ — project cover photos and file attachments
  */
 import { userCanAccessWorkspace } from './cms-theme-resolve.js';
 
@@ -58,6 +59,33 @@ async function canAccessWorkspaceSlugOrId(env, authUser, segment) {
 
 /**
  * @param {unknown} env
+ * @param {{ id?: string; tenant_id?: string; is_superadmin?: number | boolean }} authUser
+ * @param {string} projectId
+ */
+async function canAccessProjectMedia(env, authUser, projectId) {
+  const pid = String(projectId || '').trim();
+  if (!pid || !authUser?.id) return false;
+  if (isSuperadmin(authUser)) return true;
+  if (!env?.DB) return false;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT tenant_id, workspace_id FROM projects WHERE id = ? LIMIT 1`,
+    )
+      .bind(pid)
+      .first();
+    if (!row) return false;
+    const tenantId = authUser.tenant_id != null ? String(authUser.tenant_id).trim() : '';
+    if (tenantId && row.tenant_id && String(row.tenant_id) !== tenantId) return false;
+    const ws = row.workspace_id != null ? String(row.workspace_id).trim() : '';
+    if (ws) return userCanAccessWorkspace(env, authUser, ws);
+    return !!tenantId;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @param {unknown} env
  * @param {{ id?: string }} authUser
  * @param {string} key
  */
@@ -84,6 +112,9 @@ export async function canAccessMediaObjectKey(env, authUser, key) {
   if (k.startsWith('captures/theme-debug/')) return isSuperadmin(authUser);
 
   if (k.startsWith('cms/')) return !!authUser?.id;
+
+  m = /^projects\/([^/]+)\/(?:cover|files)\//.exec(k);
+  if (m) return canAccessProjectMedia(env, authUser, m[1]);
 
   return false;
 }

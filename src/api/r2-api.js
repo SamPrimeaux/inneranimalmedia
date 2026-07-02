@@ -57,6 +57,7 @@ const DASHBOARD_MEDIA_KEY_PREFIXES = [
   'cms/pages/',
   'cms/sections/',
   'workspaces/',
+  'projects/',
 ];
 
 function isDashboardMediaScopedKey(key) {

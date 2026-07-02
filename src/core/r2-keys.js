@@ -16,6 +16,7 @@ export const DASHBOARD_UPLOAD_PREFIXES = [
   'cms/pages/',
   'moviemode/',
   'users/',
+  'projects/',
 ];
 
 const MAX_OBJECT_BYTES = 5 * 1024 * 1024 * 1024; // 5 GiB R2 limit guard
