@@ -10,6 +10,7 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
 import { runSdkScaffold, listCfAccountsForSdk } from '../core/sdk-scaffold.js';
+import { resolveSdkByokStatus } from '../core/sdk-byok.js';
 import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
 import { resolvePtyTenantIdForUser } from '../core/pty-workspace-paths.js';
 import { getIntegrationOAuthRow } from '../core/user-oauth-token.js';
@@ -204,12 +205,14 @@ async function handleAuthExchange(request, env) {
 async function authUserFromSdkBearer(env, request) {
   const session = await resolveSdkBearer(env, request);
   if (!session?.user_id) return null;
+  const wid = session.workspace_id != null ? String(session.workspace_id).trim() : '';
   return {
     id: String(session.user_id),
     email: session.email ?? null,
     person_uuid: session.person_uuid ?? null,
     tenant_id: session.tenant_id ?? null,
-    workspace_id: session.workspace_id ?? null,
+    workspace_id: wid || null,
+    active_workspace_id: wid || null,
   };
 }
 
@@ -218,13 +221,70 @@ async function handleSdkContext(request, env) {
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
   const cf = await listCfAccountsForSdk(env, authUser);
+  const tenantId = authUser.tenant_id ? String(authUser.tenant_id) : '';
+  const byok =
+    tenantId && authUser.id
+      ? await resolveSdkByokStatus(env, authUser.id, tenantId)
+      : { openai: { configured: false }, anthropic: { configured: false }, google: { configured: false } };
+
   return jsonResponse({
     ok: true,
     user_id: authUser.id,
     workspace_id: authUser.workspace_id,
     tenant_id: authUser.tenant_id,
     cloudflare: cf,
+    byok,
   });
+}
+
+async function handleSdkKeysPost(request, env, ctx) {
+  const authUser = await authUserFromSdkBearer(env, request);
+  if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+  if (!authUser.workspace_id) {
+    return jsonResponse({ error: 'workspace_context_missing' }, 400);
+  }
+
+  let body = {};
+  try {
+    body = await request.json();
+  } catch (_) {}
+
+  const provider = trim(body?.provider).toLowerCase();
+  const apiKey = trim(body?.api_key || body?.secret_value);
+  if (!provider || !apiKey) {
+    return jsonResponse({ error: 'provider and api_key required' }, 400);
+  }
+  if (!['openai', 'anthropic', 'google', 'google_ai'].includes(provider)) {
+    return jsonResponse({ error: 'unsupported_provider', allowed: ['openai', 'anthropic', 'google'] }, 400);
+  }
+
+  const { handleSettingsKeysApi } = await import('./settings-api-keys.js');
+  const fwdUrl = new URL('https://inneranimalmedia.com/api/settings/keys');
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  headers.set('X-Iam-Workspace-Id', authUser.workspace_id);
+
+  const fwdReq = new Request(fwdUrl.toString(), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      provider: provider === 'google' ? 'google' : provider,
+      api_key: apiKey,
+      label: trim(body?.label) || `${provider} (Agent Sam SDK init)`,
+      validate: body?.validate !== false,
+      category: 'provider',
+    }),
+  });
+
+  const res = await handleSettingsKeysApi(
+    fwdReq,
+    env,
+    ctx,
+    authUser,
+    fwdUrl,
+    '/api/settings/keys',
+    'POST',
+  );
+  return res || jsonResponse({ error: 'keys_save_failed' }, 500);
 }
 
 async function handleSdkScaffold(request, env) {
@@ -294,6 +354,9 @@ export async function handleSdkApi(request, url, env, ctx) {
   }
   if (path === '/api/sdk/context' && method === 'GET') {
     return handleSdkContext(request, env);
+  }
+  if (path === '/api/sdk/keys' && method === 'POST') {
+    return handleSdkKeysPost(request, env, ctx);
   }
   if (path === '/api/sdk/scaffold' && method === 'POST') {
     return handleSdkScaffold(request, env);

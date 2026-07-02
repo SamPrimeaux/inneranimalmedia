@@ -257,7 +257,7 @@ function buildScaffoldFiles({
   d1Id,
   kvId,
   bucketName,
-  sdkVersion = '1.3.0',
+  sdkVersion = '1.5.0',
 }) {
   const sdkRange = `^${sdkVersion.split('.').slice(0, 2).join('.')}.0`;
   const migrationSql = migrationTemplate({ projectName, laneKey });
@@ -347,7 +347,7 @@ Built by [Agent Sam](https://inneranimalmedia.com) — your Cloudflare account, 
 npm install
 npm run dev
 npm run smoke
-npm run deploy
+npx wrangler deploy
 \`\`\`
 
 This project is yours. IAM helped scaffold it; you can run it without IAM anytime.
@@ -450,6 +450,32 @@ export async function runSdkScaffold(env, authUser, request, body, emit) {
   }
   await emit({ type: 'log', message: 'Migration applied' });
 
+  const provisionOnly =
+    body?.provision_only === true ||
+    body?.provisionOnly === true ||
+    trim(body?.mode) === 'provision_only';
+
+  if (provisionOnly) {
+    await emit({
+      type: 'complete',
+      project_name: projectName,
+      lane: laneKey,
+      agent,
+      hosting,
+      workspace_id: workspaceId,
+      tenant_id: tenantId,
+      provision_only: true,
+      cloudflare: {
+        account_id: accountId,
+        d1_database_id: d1Id,
+        kv_namespace_id: kvId,
+        r2_bucket: projectName,
+      },
+      next_steps: ['Update wrangler.toml with returned IDs', 'npx wrangler deploy'],
+    });
+    return;
+  }
+
   await emit({ type: 'log', message: 'Generating project files…' });
   const files = buildScaffoldFiles({
     projectName,
@@ -481,14 +507,6 @@ export async function runSdkScaffold(env, authUser, request, body, emit) {
   }
 
   const conn = await getUserHostedTunnelConnection(env.DB, String(authUser.id), workspaceId);
-  const execosEnv = `# ExecOS — paste into .env on your machine
-WORKER_URL=https://inneranimalmedia.com
-IAM_PTY_USER_ID=${authUser.id}
-IAM_PTY_TENANT_ID=${tenantId}
-IAM_PTY_WORKSPACE_ID=${workspaceId}
-PTY_AUTH_TOKEN=${ptyToken || '<generate via dashboard if empty>'}
-IAM_WORKSPACES_ROOT=~/workspace
-`;
 
   await emit({
     type: 'complete',
@@ -509,18 +527,15 @@ IAM_WORKSPACES_ROOT=~/workspace
     pty: {
       connection_id: conn?.id ? String(conn.id) : ptyProv?.connection?.id ?? null,
       connection_created: ptyProv.created === true,
-      execos_env: execosEnv,
       pty_auth_token: ptyToken,
     },
     next_steps: [
       `cd ${projectName}`,
       'npm install',
       'npm run smoke',
+      'npx agentsam start-local',
       'npm run dev',
-      hosting === 'github'
-        ? 'Optional: git init && gh repo create (your GitHub account)'
-        : 'git init when ready — this repo is yours',
-      'Install ExecOS, paste execos_env into .env, run cloudflared tunnel — Start local in IAM dashboard',
+      'npx agentsam deploy   # Cloudflare OAuth only when you ship',
     ],
   });
 }
