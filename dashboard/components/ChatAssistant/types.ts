@@ -206,7 +206,22 @@ export interface Message {
   planQuestionsBatch?: PlanQuestionsBatchPayload | null;
   /** Plan proposal bubble — View Plan / Build → */
   planConfirmation?: PlanConfirmationPayload | null;
+  /** Agent-generated files from monaco_file_generated / RWS pipeline output (shown in files panel). */
+  agentFiles?: AgentGeneratedFile[];
 }
+
+export type AgentGeneratedFile = {
+  /** Display name, e.g. rws-summary.md */
+  filename: string;
+  /** R2 public URL to fetch content on demand */
+  r2Url?: string;
+  /** Inline content when small enough to embed */
+  content?: string;
+  /** Virtual Monaco workspace path */
+  workspacePath?: string;
+  /** File kind for icon selection */
+  kind: 'md' | 'sql' | 'ts' | 'js' | 'txt' | 'json' | 'other';
+};
 
 /** Host-managed chat tab strip (e.g. App.tsx multi-session). */
 export type AgentChatShellTab = { id: string; title: string };
