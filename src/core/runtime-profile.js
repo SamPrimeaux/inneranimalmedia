@@ -980,7 +980,15 @@ export async function resolveRuntimeProfile(env, input) {
     }
   }
 
-  const taskType = classifiedTaskType || composerMode;
+  // Explicit execution modes own their task_type — heuristic classification must not override
+  // composer intent. If the user picked multitask/agent/debug/plan, Thompson must sample the
+  // correct arms for that mode, not for whatever inferIntentHeuristically guessed from text.
+  const executionModeLocked =
+    composerMode === 'multitask' ||
+    composerMode === 'agent' ||
+    composerMode === 'debug' ||
+    composerMode === 'plan';
+  const taskType = executionModeLocked ? composerMode : (classifiedTaskType || composerMode);
 
   let profile = await compileModeProfile(env, {
     mode: composerMode,
