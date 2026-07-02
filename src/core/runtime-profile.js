@@ -380,6 +380,25 @@ function executionModeLocksRouteKey(mode) {
 }
 
 /**
+ * Composer modes that lock routing task_type for Thompson (intent heuristics must not override).
+ * @param {string} composerMode
+ * @param {string} classifiedTaskType
+ * @param {boolean} [hasExplicitTaskTypeOverride]
+ */
+export function resolveComposerRoutingTaskType(
+  composerMode,
+  classifiedTaskType,
+  hasExplicitTaskTypeOverride = false,
+) {
+  const mode = String(composerMode || 'agent').trim().toLowerCase();
+  const classified = String(classifiedTaskType || '').trim().toLowerCase();
+  if (executionModeLocksRouteKey(mode)) {
+    return hasExplicitTaskTypeOverride && classified ? classified : mode;
+  }
+  return classified || mode;
+}
+
+/**
  * @param {any} env
  * @param {string|null|undefined} tenantId
  * @param {string} routeKey
@@ -980,15 +999,11 @@ export async function resolveRuntimeProfile(env, input) {
     }
   }
 
-  // Explicit execution modes own their task_type — heuristic classification must not override
-  // composer intent. If the user picked multitask/agent/debug/plan, Thompson must sample the
-  // correct arms for that mode, not for whatever inferIntentHeuristically guessed from text.
-  const executionModeLocked =
-    composerMode === 'multitask' ||
-    composerMode === 'agent' ||
-    composerMode === 'debug' ||
-    composerMode === 'plan';
-  const taskType = executionModeLocked ? composerMode : (classifiedTaskType || composerMode);
+  const taskType = resolveComposerRoutingTaskType(
+    composerMode,
+    classifiedTaskType,
+    Boolean(overrides.task_type),
+  );
 
   let profile = await compileModeProfile(env, {
     mode: composerMode,

@@ -6,6 +6,7 @@ import {
   defaultWritePolicyForMode,
   resolveModeController,
   resolveExecutionKind,
+  resolveComposerRoutingTaskType,
   agentLikeTooling,
   askNeedsReadEvidenceTools,
   hashRuntimeProfile,
@@ -68,6 +69,19 @@ test('execution_kind is derived only from mode (no plan hijack)', () => {
 
 test('multitask mode → multitask_fanout', () => {
   assert.equal(resolveExecutionKind('multitask'), 'multitask_fanout');
+});
+
+test('resolveComposerRoutingTaskType pins locked composer modes for Thompson', () => {
+  assert.equal(resolveComposerRoutingTaskType('multitask', 'code'), 'multitask');
+  assert.equal(resolveComposerRoutingTaskType('agent', 'chat'), 'agent');
+  assert.equal(resolveComposerRoutingTaskType('debug', 'tool_use'), 'debug');
+  assert.equal(resolveComposerRoutingTaskType('plan', 'summary'), 'plan');
+  assert.equal(resolveComposerRoutingTaskType('multitask', 'code', true), 'code');
+});
+
+test('resolveComposerRoutingTaskType lets ask mode follow classified intent', () => {
+  assert.equal(resolveComposerRoutingTaskType('ask', 'code'), 'code');
+  assert.equal(resolveComposerRoutingTaskType('ask', ''), 'ask');
 });
 
 test('ask simple greeting is not agent-like tooling', () => {
