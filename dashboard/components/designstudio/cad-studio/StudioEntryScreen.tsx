@@ -3,7 +3,7 @@
  * No Three.js, no CadStudioShell, no ChatAssistant. Meshy jobs go direct to /api/cad/meshy/*.
  */
 import React, { useRef } from 'react';
-import { Loader2, Sparkles, Upload, LayoutGrid } from 'lucide-react';
+import { Loader2, Sparkles, Upload, LayoutGrid, ArrowUp } from 'lucide-react';
 import { StudioEntryGallery } from './StudioEntryGallery';
 import './cad-studio.css';
 
@@ -46,39 +46,69 @@ export function StudioEntryScreen({
 }: StudioEntryScreenProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const busy = generating || mode === 'loading-studio';
+  const charCount = prompt.trim().length;
+  const tooLong = charCount > 600;
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey && !busy && charCount > 0 && !tooLong) {
+      e.preventDefault();
+      onGenerate();
+    }
+  };
 
   return (
     <div className="studio-entry" role="main" aria-label="Design Studio">
       <div className="studio-entry__inner">
-        <div className="studio-entry__glyph" aria-hidden>
-          <span className="studio-entry__shape studio-entry__shape--tri" />
-          <span className="studio-entry__shape studio-entry__shape--sq" />
-          <span className="studio-entry__shape studio-entry__shape--circle" />
-          <span className="studio-entry__shape studio-entry__shape--diamond" />
+
+        {/* Wordmark / identity */}
+        <div className="studio-entry__brand" aria-hidden>
+          <span className="studio-entry__brand-word">Design</span>
+          <span className="studio-entry__brand-word studio-entry__brand-word--accent">Studio</span>
         </div>
 
-        <h1 className="studio-entry__title">What will you create today?</h1>
+        <h1 className="studio-entry__title">What should we build?</h1>
         <p className="studio-entry__subtitle">
-          Generate from text with Meshy, import a GLB, or open the full studio for modeling and animation.
+          Describe a model, import a GLB, or open the editor to get started.
         </p>
 
-        <label className="studio-entry__field">
-          <span className="studio-entry__field-label">Prompt</span>
+        {/* Chat-style composer */}
+        <div className={`studio-entry__composer${busy ? ' studio-entry__composer--busy' : ''}${error || tooLong ? ' studio-entry__composer--error' : ''}`}>
           <textarea
-            className="studio-entry__textarea"
+            className="studio-entry__composer-input"
             value={prompt}
             onChange={(e) => onPromptChange(e.target.value)}
-            placeholder="Describe the 3D model you want to generate…"
+            onKeyDown={handleKeyDown}
+            placeholder="A weathered wooden dock stretching into calm water at golden hour…"
             rows={3}
             disabled={busy}
+            aria-label="Describe your 3D model"
           />
-        </label>
+          <div className="studio-entry__composer-footer">
+            <span className={`studio-entry__composer-hint${tooLong ? ' studio-entry__composer-hint--over' : ''}`}>
+              {tooLong ? `${charCount}/600 — too long` : charCount > 400 ? `${charCount}/600` : 'Enter to generate · Shift+Enter for new line'}
+            </span>
+            <button
+              type="button"
+              className="studio-entry__composer-send"
+              disabled={busy || charCount === 0 || tooLong}
+              onClick={onGenerate}
+              aria-label="Generate model"
+            >
+              {busy
+                ? <Loader2 size={15} className="studio-entry__spin" aria-hidden />
+                : <ArrowUp size={15} aria-hidden />
+              }
+            </button>
+          </div>
+        </div>
 
-        {error ? <p className="studio-entry__error">{error}</p> : null}
+        {/* Error */}
+        {error && !tooLong ? <p className="studio-entry__error">{error}</p> : null}
 
+        {/* Progress / status */}
         {statusLabel ? (
           <div className="studio-entry__status">
-            {busy ? <Loader2 size={14} className="studio-entry__spin" aria-hidden /> : null}
+            {busy ? <Loader2 size={13} className="studio-entry__spin" aria-hidden /> : null}
             <span>{statusLabel}</span>
             {generating && progressPct > 0 ? (
               <div className="studio-entry__progress">
@@ -88,27 +118,19 @@ export function StudioEntryScreen({
           </div>
         ) : null}
 
-        <button
-          type="button"
-          className="studio-entry__cta"
-          disabled={busy || !prompt.trim() || prompt.trim().length > 600}
-          onClick={onGenerate}
-        >
-          {busy ? <Loader2 size={16} className="studio-entry__spin" aria-hidden /> : <Sparkles size={16} aria-hidden />}
-          <span>{mode === 'loading-studio' ? 'Opening studio…' : generating ? 'Generating…' : 'Generate model'}</span>
-        </button>
-
+        {/* "Model ready" banner */}
         {jobReady ? (
           <button type="button" className="studio-entry__cta studio-entry__cta--ready" onClick={onOpenStudio}>
-            <LayoutGrid size={16} aria-hidden />
+            <LayoutGrid size={15} aria-hidden />
             <span>View in full studio</span>
           </button>
         ) : null}
 
+        {/* Secondary actions */}
         <div className="studio-entry__secondary">
           <button type="button" className="studio-entry__link" onClick={onOpenStudio} disabled={busy}>
-            <LayoutGrid size={14} aria-hidden />
-            Open full studio
+            <LayoutGrid size={13} aria-hidden />
+            Open studio
           </button>
           <button
             type="button"
@@ -116,7 +138,7 @@ export function StudioEntryScreen({
             disabled={busy}
             onClick={() => fileRef.current?.click()}
           >
-            <Upload size={14} aria-hidden />
+            <Upload size={13} aria-hidden />
             Import GLB
           </button>
           <input
@@ -131,10 +153,6 @@ export function StudioEntryScreen({
             }}
           />
         </div>
-
-        <p className="studio-entry__hint">
-          Generation runs in the background on this page. Open full studio when you want to edit, rig, or save a scene.
-        </p>
 
         <StudioEntryGallery
           onSpawnStock={onSpawnStock}
