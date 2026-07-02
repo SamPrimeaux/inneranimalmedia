@@ -10,7 +10,8 @@ import { ToolTraceRow } from './ToolTraceRow';
 import { OfflineRunnerEmbed } from '../../agent/OfflineRunnerEmbed';
 import './toolTraceTimeline.css';
 
-const RUNNER_DELAY_MS = 2800;
+const RUNNER_DELAY_MS_DESKTOP = 2800;
+const RUNNER_DELAY_MS_COMPACT = 400;
 
 export type ExecutionTimelineProps = {
   rows: AgentToolTraceRow[];
@@ -28,6 +29,7 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
   rows,
   mode = 'agent',
   workspaceId = null,
+  compact = false,
   onDismissRow,
   onClear,
   onCadJobTerminal,
@@ -35,6 +37,7 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
   onOpenInEditor,
 }) => {
   const [showRunner, setShowRunner] = useState(false);
+  const runnerDelayMs = compact ? RUNNER_DELAY_MS_COMPACT : RUNNER_DELAY_MS_DESKTOP;
 
   useEffect(() => {
     const anyRunning = rows.some((r) => r.status === 'running' && !r.cadJobLive);
@@ -43,9 +46,9 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
       setShowRunner(false);
       return undefined;
     }
-    const t = window.setTimeout(() => setShowRunner(true), RUNNER_DELAY_MS);
+    const t = window.setTimeout(() => setShowRunner(true), runnerDelayMs);
     return () => window.clearTimeout(t);
-  }, [rows]);
+  }, [rows, runnerDelayMs]);
 
   if (!rows.length) return null;
   const anyRunning = rows.some((r) => r.status === 'running' && !r.cadJobLive);
@@ -72,6 +75,7 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
             row={row}
             mode={mode}
             workspaceId={workspaceId}
+            compact={compact}
             defaultExpanded={Boolean(row.cadJobLive) || Boolean(row.toolName?.startsWith('agentsam_terminal') && row.status === 'running')}
             onOpenInEditor={onOpenInEditor}
             onDismiss={onDismissRow ? () => onDismissRow(row.id) : undefined}

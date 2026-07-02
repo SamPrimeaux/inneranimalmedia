@@ -1439,7 +1439,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     );
   }, [isLoading, effectiveThinking, assistantStreaming, pendingToolApproval]);
 
-  const showHeaderPresence = isLoading && !showInlinePresence && presence.state !== 'idle';
+  const hasRunningToolTrace = useMemo(
+    () => toolTraceRows.some((r) => r.status === 'running'),
+    [toolTraceRows],
+  );
+
+  const showHeaderPresence =
+    isLoading &&
+    !showInlinePresence &&
+    presence.state !== 'idle' &&
+    !(isNarrow && hasRunningToolTrace);
 
   const showEmptyThreadPlaceholder = useMemo(() => {
     if (displayMessages.length === 0) return true;
@@ -2600,7 +2609,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     } else if (nextStoredKey !== selectedModelKey) {
       setSelectedModelKey(nextStoredKey);
     }
-    setThinkingState(null);
+    setThinkingState({
+      steps: [],
+      thinkingText: 'Thinking…',
+      status: 'thinking',
+      startedAt: Date.now(),
+    });
+    setPresenceState('thinking');
+    setLoadingStartedAt(Date.now());
     
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();

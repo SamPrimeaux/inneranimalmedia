@@ -560,6 +560,47 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
             isLastAssistant && toolTraceRows.length
               ? prepareAssistantMessageWithToolTrace(msg.content, toolTraceRows)
               : msg.content;
+          const traceOnlyAssistant =
+            msg.role === 'assistant' &&
+            isLastAssistant &&
+            !assistantContent.trim() &&
+            toolTraceRows.length > 0 &&
+            !msg.imageGenerationState &&
+            !msg.emailArtifact &&
+            !(msg.previewArtifacts && msg.previewArtifacts.length > 0);
+
+          if (traceOnlyAssistant) {
+            return (
+              <div key={i} className="flex w-full min-w-0 max-w-full justify-start">
+                <div className="min-w-0 flex-1 w-full">
+                  <ExecutionTimeline
+                    rows={toolTraceRows}
+                    mode={mode}
+                    workspaceId={workspaceId}
+                    compact={isNarrow}
+                    showDoneFooter={!isLoading}
+                    onOpenInEditor={
+                      onFileSelect
+                        ? (file) =>
+                            onFileSelect({ name: file.name, content: file.content, originalContent: file.content })
+                        : undefined
+                    }
+                    onDismissRow={(id) =>
+                      setToolTraceRows((prev) => prev.filter((r) => r.id !== id || traceRowCadJobLive(r)))
+                    }
+                    onClear={() => setToolTraceRows((prev) => preserveLiveCadTraceRows(prev))}
+                    onCadJobTerminal={(rowId) =>
+                      setToolTraceRows((prev) =>
+                        prev.map((r) =>
+                          r.id === rowId ? { ...r, status: 'done' as const, cadJobLive: false } : r,
+                        ),
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            );
+          }
 
           return (
           <div key={i} className={`flex w-full min-w-0 max-w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>

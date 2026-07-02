@@ -44,6 +44,7 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
   mode = 'agent',
   workspaceId = null,
   defaultExpanded = false,
+  compact = false,
   onDismiss,
   onOpenInEditor,
   onCadJobTerminal,
@@ -52,6 +53,7 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
   const running = row.status === 'running';
   const cadLive = Boolean(row.cadJobLive && row.cadJobId);
   const terminalTool = isTerminalTool(row.toolName);
+  const hideRequestPreview = compact && terminalTool && running;
   const [open, setOpen] = useState(defaultExpanded || cadLive || (terminalTool && running));
   const [debugOpen, setDebugOpen] = useState(false);
 
@@ -148,7 +150,7 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
             </div>
           ) : null}
 
-          {request ? (
+          {request && !hideRequestPreview ? (
             <ToolTraceCodeBlock
               label="Request"
               text={request.text}

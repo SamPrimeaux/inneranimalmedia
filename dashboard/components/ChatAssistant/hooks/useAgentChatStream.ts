@@ -382,6 +382,20 @@ export type ConsumeAgentChatSseContext = {
   initialAssistantBuffer?: string;
 };
 
+/** Create or patch the trailing assistant bubble (deferred until first SSE payload). */
+function upsertAssistantTail(
+  prev: Message[],
+  patch: Partial<Message> & { content?: string },
+): Message[] {
+  const next = [...prev];
+  const idx = next.length - 1;
+  if (idx >= 0 && next[idx].role === 'assistant') {
+    next[idx] = { ...next[idx], ...patch, role: 'assistant' };
+    return next;
+  }
+  return [...next, { ...patch, role: 'assistant', content: patch.content ?? '' }];
+}
+
 /**
  * Read NDJSON/SSE chunks from the chat response body until done or error.
  * Mutates assistant bubble via setMessages; throws on fatal stream errors for outer catch.
@@ -468,11 +482,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           : `\n\n[Stream stopped: exceeded safety limits (${reason}).]`;
     assistantStreamBuf += suffix;
     assistantContent = assistantStreamBuf;
-    setMessages((prev) => {
-      const last = [...prev];
-      last[last.length - 1] = { role: 'assistant', content: assistantContent };
-      return last;
-    });
+    setMessages((prev) => upsertAssistantTail(prev, { content: assistantContent }));
   };
 
   /** Active SSE tool row id for tool_output / tool_done / tool_error pairing. */
@@ -529,11 +539,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
 
     assistantStreamBuf = nextBuf;
     assistantContent = truncateCodeFencesForChat(nextVisible, 10);
-    setMessages((prev) => {
-      const last = [...prev];
-      last[last.length - 1] = { role: 'assistant', content: assistantContent, executionPlan };
-      return last;
-    });
+    setMessages((prev) => upsertAssistantTail(prev, { content: assistantContent, executionPlan }));
   };
 
   const idleTimer =
@@ -554,19 +560,12 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
 
   const pushExecutionPlan = (next: ExecutionPlanState | null) => {
     executionPlan = next;
-    setMessages((prev) => {
-      const last = [...prev];
-      const idx = last.length - 1;
-      if (idx < 0 || last[idx].role !== 'assistant') return prev;
-      last[idx] = { ...last[idx], content: assistantContent, executionPlan: next };
-      return last;
-    });
+    setMessages((prev) => upsertAssistantTail(prev, { content: assistantContent, executionPlan: next }));
   };
 
   if (!mergeIntoLastAssistant) {
     activeToolTraceId = null;
     setToolTraceRows?.((prev) => preserveLiveCadTraceRows(prev));
-    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
   }
   assistantContent = assistantStreamBuf;
 
@@ -2195,6 +2194,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               : /terminal/.test(tn)
                 ? 'Agent Sam'
                 : undefined;
+          setMessages((prev) => upsertAssistantTail(prev, { content: assistantContent, executionPlan }));
           setToolTraceRows?.((prev) => [
             ...prev,
             {
