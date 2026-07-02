@@ -2,18 +2,24 @@ import React from 'react';
 import { CodeXml, Globe, Image as ImageIcon } from 'lucide-react';
 
 export type ComposerStartupChipsProps = {
+  className?: string;
   onCreateImage: () => void;
   onWebSearch: () => void;
   onOpenEditor: () => void;
 };
 
 export function ComposerStartupChips({
+  className,
   onCreateImage,
   onWebSearch,
   onOpenEditor,
 }: ComposerStartupChipsProps) {
   return (
-    <div className="iam-chat-startup-chips" role="group" aria-label="Quick actions">
+    <div
+      className={`iam-chat-startup-chips${className ? ` ${className}` : ''}`}
+      role="group"
+      aria-label="Quick actions"
+    >
       <button type="button" className="iam-chat-startup-chip" onClick={onCreateImage}>
         <ImageIcon size={14} aria-hidden />
         Create an image

@@ -103,6 +103,7 @@ import {
 } from './mentionContext';
 import {
   measureAboveAnchor,
+  measureBelowComposerAnchor,
   syncComposerTextareaHeight,
   formatFileSize,
   isAgentSamEmptyThreadGreeting,
@@ -337,6 +338,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     (override?: string, sendOpts?: ChatRoutingSendOpts) => Promise<void>
   >(async () => {});
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerGlassRef = useRef<HTMLDivElement>(null);
+  const pendingSubagentSlugRef = useRef<string | null>(null);
   const attachButtonRef = useRef<HTMLButtonElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const modeButtonRef = useRef<HTMLButtonElement>(null);
@@ -954,11 +957,13 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const startWebSearchLane = useCallback(() => {
     if (policyWebSearch) toggleComposerSource(WEB_SEARCH_SOURCE, true);
     setInput((prev) => (prev.trim() ? prev : 'Search the web for: '));
+    if (mode === 'ask') setMode('agent');
     textareaRef.current?.focus();
-  }, [policyWebSearch, toggleComposerSource]);
+  }, [policyWebSearch, toggleComposerSource, mode]);
 
   const startImageGenerationPrompt = useCallback(() => {
     setInput('Generate an image of ');
+    pendingSubagentSlugRef.current = 'genmedia_image_gen';
     textareaRef.current?.focus();
   }, []);
 
@@ -1129,7 +1134,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const commandsCacheRef = useRef<{ at: number; items: SlashCmd[] } | null>(null);
 
   const measureAttachMenu = useCallback(() => {
-    setAttachMenuStyle(measureAboveAnchor(attachButtonRef.current, 240, 420));
+    setAttachMenuStyle(measureBelowComposerAnchor(composerGlassRef.current, 480));
   }, []);
 
   const measureModeMenu = useCallback(() => {
@@ -2488,6 +2493,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   );
 
   async function handleSend(overrideMessage?: string, sendOpts?: ChatRoutingSendOpts) {
+    if (pendingSubagentSlugRef.current && !sendOpts?.subagent_slug?.trim()) {
+      sendOpts = { ...(sendOpts ?? {}), subagent_slug: pendingSubagentSlugRef.current };
+      pendingSubagentSlugRef.current = null;
+    }
     const rawText = overrideMessage ?? input;
     let text = rawText;
     let sendMode: AgentMode = mode;
@@ -3101,7 +3110,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   const composerVisible =
     !isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat');
-  const composerFlexOrder = mobileAgentHomeMode ? 'order-3' : 'order-5';
   const composerPortaled = Boolean(atmosphericHomeMode && composerPortalTarget);
   const centerChatComposerColumn =
     !composerPortaled &&
@@ -3111,6 +3119,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     centerChatComposerColumn &&
     showEmptyThreadPlaceholder &&
     !conversationId.trim();
+  const composerFlexOrder = desktopStartupCenterMode
+    ? ''
+    : mobileAgentHomeMode
+      ? 'order-3'
+      : 'order-5';
   const showMobileRepoConnector =
     isNarrow &&
     mobileThreadTab === 'chat' &&
@@ -3752,6 +3765,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           />
 
           <div
+            ref={composerGlassRef}
             className={`iam-chat-composer-glass flex flex-col rounded-xl transition-all overflow-visible ${
               composerPortaled || centerChatComposerColumn ? 'iam-chat-composer-glass--atmospheric' : ''
             } ${
@@ -3947,6 +3961,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               <ComposerStartupGreeting isDarkTheme={isDarkTheme} />
               {shell}
               <ComposerStartupChips
+                className="mt-2"
                 onCreateImage={startImageGenerationPrompt}
                 onWebSearch={startWebSearchLane}
                 onOpenEditor={() => onOpenEditor?.()}

@@ -74,6 +74,34 @@ export function measureAboveAnchor(
   };
 }
 
+/** Attach menu: always below composer bar, left-aligned to composer edge (ChatGPT-style). */
+export function measureBelowComposerAnchor(
+  composerEl: HTMLElement | null,
+  maxHeightCap = 480,
+): CSSProperties | null {
+  if (!composerEl) return null;
+  const r = composerEl.getBoundingClientRect();
+  const gap = 8;
+  const hPad = 16;
+  const minW = 340;
+  const maxW = 480;
+  const menuWidth = Math.min(maxW, Math.max(minW, r.width));
+  const left = Math.max(hPad, Math.min(r.left, window.innerWidth - menuWidth - hPad));
+  const spaceBelow = Math.max(0, window.innerHeight - r.bottom - gap - 8);
+
+  return {
+    position: 'fixed',
+    left,
+    top: r.bottom + gap,
+    width: menuWidth,
+    minWidth: minW,
+    maxWidth: maxW,
+    boxSizing: 'border-box',
+    zIndex: 9999,
+    maxHeight: Math.min(maxHeightCap, Math.max(64, spaceBelow)),
+  };
+}
+
 export function syncComposerTextareaHeight(el: HTMLTextAreaElement | null, maxPx: number) {
   if (!el) return;
   el.style.height = 'auto';
