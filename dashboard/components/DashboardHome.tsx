@@ -1,17 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Bot,
   Box,
-  FolderOpen,
-  Database,
-  LayoutTemplate,
-  Github,
-  Cloud,
   Sparkles,
   Plus,
   ArrowRight,
   Pencil,
+  PenLine,
+  Layers,
+  Code2,
+  Rocket,
   type LucideIcon,
 } from 'lucide-react';
 import { startNewAgentChat } from '../lib/openAgentConversation';
@@ -36,42 +34,15 @@ import './ui/AppIcon.css';
 import './home/HomeTileEditor.css';
 import './DashboardHome.css';
 
-type HomeIconId =
-  | 'agent'
-  | 'cube'
-  | 'folder'
-  | 'chat'
-  | 'studio'
-  | 'database'
-  | 'cms'
-  | 'drive'
-  | 'github'
-  | 'cloud'
-  | 'supabase';
+const CREATION_WORKFLOW: { id: string; label: string; path: string; icon: LucideIcon }[] = [
+  { id: 'design', label: 'Design', path: '/dashboard/draw', icon: PenLine },
+  { id: 'model', label: 'Model', path: '/dashboard/designstudio', icon: Box },
+  { id: 'assets', label: 'Assets', path: '/dashboard/artifacts', icon: Layers },
+  { id: 'prototype', label: 'Prototype', path: '/dashboard/cms', icon: Code2 },
+  { id: 'deploy', label: 'Deploy', path: '/dashboard/workflows', icon: Rocket },
+];
 
-type HomeAction = {
-  id: string;
-  title: string;
-  body: string;
-  label: string;
-  path: string;
-  tone: 'blue' | 'dark' | 'purple';
-  icon: HomeIconId;
-};
-
-const HOME_ICONS: Record<HomeIconId, LucideIcon> = {
-  agent: Bot,
-  cube: Box,
-  folder: FolderOpen,
-  chat: Sparkles,
-  studio: Box,
-  database: Database,
-  cms: LayoutTemplate,
-  drive: Cloud,
-  github: Github,
-  cloud: Cloud,
-  supabase: Database,
-};
+const HOME_HERO_IMAGE = `${import.meta.env.BASE_URL}assets/home/design-studio-hero.png`;
 
 const FALLBACK_QUICK_TILES: DashboardHomeTile[] = [
   {
@@ -119,42 +90,6 @@ const FALLBACK_QUICK_TILES: DashboardHomeTile[] = [
     is_enabled: true,
   },
 ];
-
-const FEATURED_ACTIONS: HomeAction[] = [
-  {
-    id: 'resume-agent',
-    title: 'Resume latest build session',
-    body: 'Continue the most recent repo, design, or deployment task.',
-    label: 'Open',
-    path: '/dashboard/agent',
-    tone: 'blue',
-    icon: 'agent',
-  },
-  {
-    id: 'new-surface',
-    title: 'Create a new visual surface',
-    body: 'Start Design Studio with brand, UI, image, or model direction.',
-    label: 'Build',
-    path: '/dashboard/designstudio',
-    tone: 'dark',
-    icon: 'cube',
-  },
-  {
-    id: 'files',
-    title: 'Find files and artifacts',
-    body: 'Open Drive, R2, generated files, previews, and uploads.',
-    label: 'View',
-    path: '/dashboard/artifacts',
-    tone: 'purple',
-    icon: 'folder',
-  },
-];
-
-function HomeIcon({ id, size = 20 }: { id: HomeIconId; size?: number }) {
-  const Icon = HOME_ICONS[id];
-  return <Icon size={size} strokeWidth={1.75} aria-hidden />;
-}
-
 
 function projectHref(project: OverviewProject) {
   return `/dashboard/projects/${encodeURIComponent(project.id)}`;
@@ -310,46 +245,73 @@ export function DashboardHome() {
   return (
     <main className={`iam-home ${editMode ? 'iam-home-edit-mode' : ''}`} aria-label="Dashboard home">
       <section className="iam-home-shell">
-        <section className="iam-home-hero" aria-labelledby="home-title">
-          <p className="iam-home-eyebrow">Ready when you are.</p>
-          <h1 id="home-title">
-            What are we building, <span>Sam?</span>
-          </h1>
-          <p>
-            Pick a workflow below, or open Agent Sam from the panel to start with full context.
-          </p>
-          <button type="button" className="iam-hero-agent-cta" onClick={() => startNewAgentChat({ stayOnPage: true })}>
-            <Sparkles size={16} strokeWidth={1.75} aria-hidden />
-            Ask Agent Sam
-            <ArrowRight size={16} strokeWidth={1.75} aria-hidden />
-          </button>
-        </section>
-
-        <section className="iam-home-lane" aria-label="Suggested actions">
-          {FEATURED_ACTIONS.map((action, index) => (
-            <button
-              key={action.id}
-              type="button"
-              className={`iam-feature-card iam-feature-card--${action.tone} ${index === 0 ? 'is-featured' : ''}`}
-              onClick={() => navigate(action.path)}
-            >
-              <span className="iam-feature-glyph" aria-hidden>
-                <HomeIcon id={action.icon} size={22} />
-              </span>
-              <span className="iam-feature-copy">
-                <strong>{action.title}</strong>
-                <small>{action.body}</small>
-              </span>
-              <span className="iam-feature-cta">{action.label}</span>
-            </button>
-          ))}
+        <section className="iam-home-hero-studio" aria-labelledby="home-title">
+          <div className="iam-home-hero-studio__copy">
+            <p className="iam-home-hero-studio__eyebrow">Design Studio</p>
+            <h1 id="home-title" className="iam-home-hero-studio__title">
+              Design<span className="iam-home-hero-studio__dot">.</span>
+              <br />
+              Create<span className="iam-home-hero-studio__dot">.</span>
+              <br />
+              Ship<span className="iam-home-hero-studio__dot">.</span>
+            </h1>
+            <p className="iam-home-hero-studio__sub">
+              Build interfaces, products, and digital assets. Generate. Refine. Deploy.
+            </p>
+            <div className="iam-home-hero-studio__actions">
+              <button
+                type="button"
+                className="iam-home-hero-studio__cta"
+                onClick={() => navigate('/dashboard/designstudio')}
+              >
+                Continue in Design Studio
+                <ArrowRight size={18} strokeWidth={2} aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="iam-home-hero-studio__cta-secondary"
+                onClick={() => startNewAgentChat({ stayOnPage: true })}
+              >
+                <Sparkles size={15} strokeWidth={1.75} aria-hidden />
+                Ask Agent Sam
+              </button>
+            </div>
+            <nav className="iam-home-hero-studio__workflow" aria-label="Creation workflow">
+              {CREATION_WORKFLOW.map((step) => {
+                const Icon = step.icon;
+                return (
+                  <button
+                    key={step.id}
+                    type="button"
+                    className="iam-home-hero-studio__workflow-step"
+                    onClick={() => navigate(step.path)}
+                  >
+                    <span className="iam-home-hero-studio__workflow-icon" aria-hidden>
+                      <Icon size={18} strokeWidth={1.6} />
+                    </span>
+                    <span>{step.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+          <div className="iam-home-hero-studio__visual" aria-hidden>
+            <div className="iam-home-hero-studio__visual-glow" />
+            <img
+              src={HOME_HERO_IMAGE}
+              alt=""
+              className="iam-home-hero-studio__visual-img"
+              loading="eager"
+              decoding="async"
+            />
+          </div>
         </section>
 
         <section className="iam-home-section iam-home-section--quick" aria-labelledby="quick-starts-title">
           <div className="iam-section-head">
             <div>
-              <h2 id="quick-starts-title">Products</h2>
-              <p>Screenshot previews — tap Customize to swap artwork and resize tiles.</p>
+              <h2 id="quick-starts-title">Creation tools</h2>
+              <p>Jump into Draw, Design Studio, CMS, and more — customize tile artwork anytime.</p>
             </div>
             <div className="iam-section-actions">
               {!editMode ? (
