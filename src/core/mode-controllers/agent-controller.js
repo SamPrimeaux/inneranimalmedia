@@ -356,14 +356,26 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         ? browserContextPayload.workspaceContext
         : null;
     if (wsCtxForMobile) {
-      const { parseClientSurface, parseExecLane, parseEnabledConnectors, parseEnabledTools, parseSessionProjectId, formatMobileExecProfilePromptBlock } =
-        await import('../mobile-exec-profile.js');
+      const {
+        parseClientSurface,
+        parseExecLane,
+        parseEnabledConnectors,
+        parseEnabledTools,
+        parseSessionProjectId,
+        parsePlatformOperatorLane,
+        formatMobileExecProfilePromptBlock,
+      } = await import('../mobile-exec-profile.js');
+      const { userIsPlatformOperator } = await import('../platform-operator-policy.js');
+      const isPlatformOperator =
+        parsePlatformOperatorLane(wsCtxForMobile) ||
+        (userId ? await userIsPlatformOperator(env, sessionAuthUser, workspaceId) : false);
       const mobileBlock = formatMobileExecProfilePromptBlock(
         parseClientSurface(wsCtxForMobile),
         parseExecLane(wsCtxForMobile),
         parseEnabledConnectors(wsCtxForMobile),
         parseEnabledTools(wsCtxForMobile),
         parseSessionProjectId(wsCtxForMobile),
+        isPlatformOperator,
       );
       if (mobileBlock && !systemPrompt.includes('[Mobile client surface')) {
         systemPrompt = `${systemPrompt}\n\n## Mobile exec profile\n${mobileBlock}`;
@@ -468,29 +480,25 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   let capabilityDecision = null;
   if (message && (browserContextPayload || workspaceId)) {
     try {
-      const { extractComposerFlagsFromBrowserContext } = await import('../workspace-studio-context.js');
       const { classifyWorkspaceCapabilities, capabilityRouterPromptBlock } = await import('../capability-router.js');
-      const { applyComposerAntigravityToggle } = await import('../antigravity-policy.js');
-      const composerFlags = extractComposerFlagsFromBrowserContext(browserContextPayload);
       capabilityDecision = await classifyWorkspaceCapabilities(env, {
         message,
         browserContext: browserContextPayload,
         userId,
         tenantId,
       });
-      if (composerFlags.antigravity_sandbox_enabled) {
-        capabilityDecision = applyComposerAntigravityToggle(capabilityDecision, true);
-      }
-      if (capabilityDecision?.should_use_antigravity) {
+      if (capabilityDecision) {
         systemPrompt += `\n\n${capabilityRouterPromptBlock(capabilityDecision)}`;
-        console.info(
-          '[agent-controller] antigravity_routing',
-          JSON.stringify({
-            composer_toggle: composerFlags.antigravity_sandbox_enabled,
-            score: capabilityDecision.antigravity_score,
-            reasons: capabilityDecision.antigravity_reasons,
-          }),
-        );
+        if (capabilityDecision.prefer_container_sandbox) {
+          console.info(
+            '[agent-controller] sandbox_container_routing',
+            JSON.stringify({
+              score: capabilityDecision.sandbox_build_score,
+              reasons: capabilityDecision.sandbox_build_reasons,
+              preferred_model_key: capabilityDecision.preferred_model_key,
+            }),
+          );
+        }
       }
     } catch (e) {
       console.warn('[agent-controller] antigravity_capability', e?.message ?? e);
@@ -750,55 +758,6 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         ? { agent_run_id: chatAgentRunId, routing_arm_id: profile.routing_arm_id, mode: profile.mode }
         : null;
 
-      if (
-        !createSubagentFlow.active &&
-        capabilityDecision?.should_use_antigravity &&
-        workspaceId &&
-        profile.mode !== 'ask'
-      ) {
-        try {
-          const { streamAntigravitySandboxInteraction, formatAntigravityOrchestratorBlock } =
-            await import('../antigravity-interactions.js');
-          const { buildGithubScopeSystemPromptLine } = await import('../github-repo-scope.js');
-          const wsCtx =
-            browserContextPayload &&
-            typeof browserContextPayload === 'object' &&
-            browserContextPayload.workspaceContext &&
-            typeof browserContextPayload.workspaceContext === 'object'
-              ? browserContextPayload.workspaceContext
-              : null;
-          const openFiles = Array.isArray(wsCtx?.openFiles)
-            ? wsCtx.openFiles.map((f) => String(f || '').trim()).filter(Boolean)
-            : [];
-          const ghLine = userId ? await buildGithubScopeSystemPromptLine(env, userId).catch(() => '') : '';
-
-          const agResult = await streamAntigravitySandboxInteraction(env, {
-            message,
-            workspaceId,
-            tenantId,
-            userId,
-            modelKey: capabilityDecision.antigravity_model_key,
-            githubScopeLine: ghLine,
-            openFiles,
-            emit,
-          });
-
-          const agBlock = formatAntigravityOrchestratorBlock(agResult);
-          if (agBlock) {
-            systemPrompt = `${systemPrompt}\n\n${agBlock}`;
-          }
-          if (!agResult.ok) {
-            console.warn('[agent-controller] antigravity_dispatch_failed', agResult.message);
-          }
-        } catch (e) {
-          console.warn('[agent-controller] antigravity_dispatch', e?.message ?? e);
-          emit('antigravity_interaction_error', {
-            type: 'antigravity_interaction_error',
-            error: e?.message != null ? String(e.message) : String(e),
-          });
-        }
-      }
-
       const githubRepoCtx = String(
         body.selectedGithubRepoContext ?? body.github_repo_context ?? body.githubRepoContext ?? '',
       ).trim();
@@ -811,10 +770,23 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           : null;
       let clientSurface = null;
       let execLane = null;
+      let isPlatformOperator = false;
       if (wsCtxMobile) {
-        const { parseClientSurface, parseExecLane } = await import('../mobile-exec-profile.js');
+        const {
+          parseClientSurface,
+          parseExecLane,
+          parsePlatformOperatorLane,
+          resolveEffectiveExecLane,
+        } = await import('../mobile-exec-profile.js');
+        const { userIsPlatformOperator } = await import('../platform-operator-policy.js');
         clientSurface = parseClientSurface(wsCtxMobile);
         execLane = parseExecLane(wsCtxMobile);
+        isPlatformOperator =
+          parsePlatformOperatorLane(wsCtxMobile) ||
+          (userId ? await userIsPlatformOperator(env, sessionAuthUser, workspaceId) : false);
+        if (clientSurface && execLane) {
+          execLane = resolveEffectiveExecLane(clientSurface, execLane, isPlatformOperator);
+        }
       }
       const mcpRuntimeContext = {
         userId,
@@ -832,6 +804,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           : {}),
         ...(clientSurface ? { client_surface: clientSurface, clientSurface } : {}),
         ...(execLane ? { exec_lane: execLane, execLane } : {}),
+        ...(isPlatformOperator ? { platform_operator_lane: true, platformOperatorLane: true } : {}),
         isSuperadmin:
           sessionAuthUser?.role === 'superadmin' ||
           sessionAuthUser?.is_superadmin === true ||

@@ -123,6 +123,8 @@ import { dashboardComposerBottomPad } from '../../config/shellChrome';
 import {
   readStoredExecLane,
   writeStoredExecLane,
+  isPlatformOperatorFromPolicy,
+  LS_EXEC_LANE_MOBILE,
   type ExecLane,
 } from '../../src/lib/execLane';
 import { applyFreshChatSessionDefaults, readSessionEnabledConnectors, flattenSessionEnabledTools, readSessionProject } from '../../src/lib/freshChatSession';
@@ -457,7 +459,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [repoDrawerOpen, setRepoDrawerOpen] = useState(false);
   const [contextHubOpen, setContextHubOpen] = useState(false);
   const [contextHubInitialLane, setContextHubInitialLane] = useState<ContextHubLane>('hub');
-  const [execLane, setExecLane] = useState<ExecLane>(() => readStoredExecLane());
+  const [execLane, setExecLane] = useState<ExecLane>(() =>
+    readStoredExecLane(detectClientSurface(), isPlatformOperatorFromPolicy(agentsamPolicy)),
+  );
   const [githubRepoContext, setGithubRepoContext] = useState<string | null>(null);
   const [chatGithubFilePath, setChatGithubFilePath] = useState<string | null>(null);
   const [chatGithubBranch, setChatGithubBranch] = useState('main');
@@ -677,6 +681,18 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     const ar = String(agentsamPolicy.auto_run_mode || '').toLowerCase();
     if (ar === 'disabled' || ar === 'manual') setMode('ask');
     else if (ar === 'allowlist' || ar === 'auto') setMode('agent');
+  }, [agentsamPolicy]);
+
+  useEffect(() => {
+    if (!agentsamPolicy || typeof window === 'undefined') return;
+    const surface = detectClientSurface();
+    if (!surface.startsWith('mobile') || !isPlatformOperatorFromPolicy(agentsamPolicy)) return;
+    try {
+      const stored = localStorage.getItem(LS_EXEC_LANE_MOBILE);
+      if (!stored) setExecLane('remote');
+    } catch {
+      /* ignore */
+    }
   }, [agentsamPolicy]);
 
   useEffect(() => {
@@ -2812,6 +2828,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         dashboard_route_key: dashboardRouteKey || null,
         client_surface: detectClientSurface(),
         exec_lane: execLane,
+        platform_operator_lane: isPlatformOperatorFromPolicy(agentsamPolicy),
+        assume_mac_local: false,
         browser_surface:
           browserSurfaceRef.current && typeof browserSurfaceRef.current === 'object'
             ? browserSurfaceRef.current
@@ -2837,11 +2855,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           provider_key: s.providerKey ?? null,
         })),
         web_search_enabled: composerSources.some((s) => s.id === WEB_SEARCH_SOURCE_ID),
-        antigravity_sandbox_enabled: composerSources.some((s) => s.id === SANDBOX_AGENT_SOURCE_ID),
         enabled_connectors: readSessionEnabledConnectors(),
         enabled_tools: flattenSessionEnabledTools(),
         session_project_id: readSessionProject()?.id || null,
-        assume_mac_local: false,
       };
       browserCtxPayload.workspaceContext = workspaceContextPacket;
       form.append('workspaceContext', JSON.stringify(workspaceContextPacket));

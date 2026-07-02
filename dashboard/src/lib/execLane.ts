@@ -12,22 +12,32 @@ export const EXEC_LANE_LABELS: Record<ExecLane, string> = {
 };
 
 export const EXEC_LANE_DESCRIPTIONS: Record<ExecLane, string> = {
-  auto: 'Platform picks the best lane — GCP when your Mac may be offline.',
+  auto: 'On phone (operator): Cloud desk GCP VM — Mac not required. Tenants: CF container sandbox.',
   remote:
-    'GCP cloud desk VM — headless wrangler via CLOUDFLARE_API_TOKEN (sync-vm-env-cloudflare.sh). No OAuth login on VM.',
-  local: 'Your Mac tunnel — wrangler login OAuth once, then deploy/d1/r2 from local PTY.',
+    'GCP cloud desk (terminal.inneranimalmedia.com) — full git/shell/wrangler. Primary iPhone lane for operators.',
+  local: 'Your Mac tunnel — optional when awake; not required for operator mobile work.',
   sandbox:
-    'CF container pool — platform injects CLOUDFLARE_API_TOKEN for operators. Use wrangler whoami, not wrangler login OAuth.',
+    'CF container pool — heavy builds (vite, Playwright). Operators: use Cloud desk for routine shell/git.',
 };
 
-export function readStoredExecLane(): ExecLane {
+export function isPlatformOperatorFromPolicy(policy: Record<string, unknown> | null | undefined): boolean {
+  if (!policy) return false;
+  return (
+    policy.platform_operator === 1 ||
+    policy.platform_operator === true ||
+    policy.is_superadmin === 1 ||
+    policy.is_superadmin === true
+  );
+}
+
+export function readStoredExecLane(surface?: string, isPlatformOperator = false): ExecLane {
   try {
     const raw = localStorage.getItem(LS_EXEC_LANE_MOBILE);
     if (raw === 'auto' || raw === 'remote' || raw === 'local' || raw === 'sandbox') return raw;
   } catch {
     /* ignore */
   }
-  return 'auto';
+  return defaultExecLaneForSurface(surface ?? 'desktop_web', isPlatformOperator);
 }
 
 export function writeStoredExecLane(lane: ExecLane): void {
@@ -38,6 +48,9 @@ export function writeStoredExecLane(lane: ExecLane): void {
   }
 }
 
-export function defaultExecLaneForSurface(surface: string): ExecLane {
-  return surface.startsWith('mobile') ? 'auto' : 'auto';
+export function defaultExecLaneForSurface(surface: string, isPlatformOperator = false): ExecLane {
+  if (surface.startsWith('mobile')) {
+    return isPlatformOperator ? 'remote' : 'sandbox';
+  }
+  return 'auto';
 }

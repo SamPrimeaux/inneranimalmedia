@@ -1367,12 +1367,17 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         const clientSurface = String(runContext?.client_surface ?? runContext?.clientSurface ?? '').trim();
         const execLane = String(runContext?.exec_lane ?? runContext?.execLane ?? 'auto').trim().toLowerCase();
         if (shouldSkipLocalTerminalTunnel(clientSurface, execLane)) {
+          const { parsePlatformOperatorLane } = await import('./mobile-exec-profile.js');
+          const isOp =
+            parsePlatformOperatorLane(runContext) ||
+            (await userIsPlatformOperator(env, runContext?.authUser, workspaceId));
           result = {
             ok: false,
             error: 'mobile_local_forbidden',
             body: {
-              user_message:
-                'agentsam_terminal_local is unavailable on mobile (Mac may be asleep). Use agentsam_terminal_remote for cloud desk shell work or GitHub tools for file edits.',
+              user_message: isOp
+                ? 'agentsam_terminal_local is unavailable on mobile. Use agentsam_terminal_remote (GCP cloud desk) — Mac not required.'
+                : 'agentsam_terminal_local is unavailable on mobile. Use agentsam_terminal_sandbox for cloud shell work or GitHub tools for file edits.',
             },
           };
           break;

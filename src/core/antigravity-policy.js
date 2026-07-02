@@ -1,34 +1,30 @@
 /**
- * When AgentSam should delegate to Google Antigravity (remote Linux sandbox).
- * Antigravity produces files/reports/diffs — AgentSam must validate and normalize afterward.
- *
- * Limitations (June 2026): no structured outputs, MCP, function_calling, file_search,
- * computer_use, Google Maps, background jobs; text + image input only.
+ * Build/sandbox routing hints + Antigravity model preference.
+ * Antigravity is a model (Google Interactions) — NOT a separate sandbox lane.
+ * Product sandbox = agentsam_terminal_sandbox → MY_CONTAINER (see terminal-three-lane-model.md).
  */
 import { GOOGLE_MODEL_ROUTES } from './google-model-routes.js';
 
 export const ANTIGRAVITY_MODEL_KEY = GOOGLE_MODEL_ROUTES.antigravity;
 
-/** Task shapes that benefit from an isolated remote sandbox. */
-export const USE_ANTIGRAVITY_WHEN = Object.freeze([
+/** Task shapes that run in MY_CONTAINER via agentsam_terminal_sandbox. */
+export const USE_CONTAINER_SANDBOX_WHEN = Object.freeze([
   'needs isolated Linux sandbox',
   'needs repo clone or mounted source',
   'needs package install + test run',
   'needs web research + generated file/artifact',
   'needs long-running multi-step attempt',
   'needs safe experiment before touching local repo',
-  'needs independent second opinion against Cursor/Codex',
 ]);
 
 /** Lanes where local IDE / structured routing is strictly better. */
-export const AVOID_ANTIGRAVITY_WHEN = Object.freeze([
+export const AVOID_CONTAINER_SANDBOX_WHEN = Object.freeze([
   'normal chat answer',
   'simple code snippet',
   'quick classification/routing',
   'strict JSON structured output needed',
   'direct production deploy',
   'task requires secrets inside sandbox',
-  'task requires computer_use, mcp, function_calling, file_search, or google_maps',
 ]);
 
 const GREENFIELD_PATTERNS = [
@@ -47,7 +43,6 @@ const USE_PATTERNS = [
   { re: /\b(risk[- ]ranked|patch plan|security audit)\b/i, reason: 'risk-ranked patch plan' },
   { re: /\b(sandbox|isolated|remote environment)\b/i, reason: 'isolated Linux sandbox' },
   { re: /\b(d1 bloat|bloat analysis)\b/i, reason: 'D1 bloat analysis in sandbox' },
-  { re: /\b(second opinion|independent scout|scout agent)\b/i, reason: 'independent second opinion' },
   { re: /\b(research|look up|current docs?)\b.{0,50}\b(build|generate|create|html|artifact)\b/i, reason: 'web research + artifact' },
   { re: /\b(ui brief|preview html|mockup html)\b/i, reason: 'UI brief → preview file' },
   { re: /\b(multi[- ]step|long[- ]running|iterative attempt)\b/i, reason: 'long-running multi-step attempt' },
@@ -58,9 +53,8 @@ const AVOID_PATTERNS = [
   { re: /^\s*(what is|explain|define|how does)\b/i, reason: 'normal chat answer' },
   { re: /\b(json only|structured output|return json|schema:\s*\{)/i, reason: 'strict JSON structured output' },
   { re: /\b(deploy to prod|production deploy|wrangler deploy|npm run deploy)\b/i, reason: 'direct production deploy' },
-  { re: /\b(api key|secret|password|token)\b.{0,30}\b(sandbox|antigravity)\b/i, reason: 'secrets inside sandbox' },
-  { re: /\b(mcp|computer_use|file_search|google maps|function calling)\b/i, reason: 'unsupported Antigravity capability' },
-  { re: /\b(edit this (file|component)|change line \d+|quick fix)\b/i, reason: 'simple local edit — Cursor wins' },
+  { re: /\b(api key|secret|password|token)\b.{0,30}\b(sandbox)\b/i, reason: 'secrets inside sandbox' },
+  { re: /\b(edit this (file|component)|change line \d+|quick fix)\b/i, reason: 'simple local edit — use IDE lane' },
   { re: /^\s*(hi|hello|thanks|ok|yes|no)\b/i, reason: 'normal chat answer' },
 ];
 
@@ -69,7 +63,7 @@ const AVOID_PATTERNS = [
  * @param {{ wantsStructuredOutput?: boolean, hasLocalEditIntent?: boolean, requiresMcp?: boolean }} [ctx]
  * @returns {{ recommend: boolean, score: number, reasons: string[], avoidReasons: string[], model_key: string }}
  */
-export function evaluateAntigravityIntent(message, ctx = {}) {
+export function evaluateContainerSandboxIntent(message, ctx = {}) {
   const m = String(message || '').trim();
   if (!m || m.length < 12) {
     return { recommend: false, score: 0, reasons: [], avoidReasons: ['message too short'], model_key: ANTIGRAVITY_MODEL_KEY };
@@ -114,54 +108,51 @@ export function evaluateAntigravityIntent(message, ctx = {}) {
   };
 }
 
+/** @deprecated use evaluateContainerSandboxIntent */
+export const evaluateAntigravityIntent = evaluateContainerSandboxIntent;
+
 /**
- * Merge Antigravity hint into capability-router decision.
+ * Prefer MY_CONTAINER sandbox + optional Antigravity model for heavy build turns.
  * @param {Record<string, unknown>} decision
  * @param {string} message
  * @returns {Record<string, unknown>}
  */
 export function applyAntigravityOverlay(decision, message) {
   const d = decision && typeof decision === 'object' ? { ...decision } : {};
-  const evalResult = evaluateAntigravityIntent(message, {
+  const evalResult = evaluateContainerSandboxIntent(message, {
     wantsStructuredOutput: /\b(json only|structured output|return json)\b/i.test(String(message || '')),
     hasLocalEditIntent: !!d.should_use_monaco && !/\b(audit|clone|sandbox|full repo)\b/i.test(String(message || '')),
     requiresMcp: /\bmcp\b/i.test(String(message || '')),
   });
 
-  d.should_use_antigravity = evalResult.recommend;
-  d.antigravity_score = evalResult.score;
-  d.antigravity_reasons = evalResult.reasons;
-  d.antigravity_avoid_reasons = evalResult.avoidReasons;
-  d.antigravity_model_key = evalResult.model_key;
+  d.sandbox_build_score = evalResult.score;
+  d.sandbox_build_reasons = evalResult.reasons;
+  d.sandbox_build_avoid_reasons = evalResult.avoidReasons;
 
   if (evalResult.recommend) {
-    const opt = Array.isArray(d.optional_capabilities) ? [...d.optional_capabilities] : [];
-    if (!opt.includes('antigravity')) opt.push('antigravity');
-    d.optional_capabilities = opt;
+    d.should_use_terminal = true;
+    d.should_use_artifact_r2 = true;
+    d.preferred_model_key = evalResult.model_key;
     if (d.execution_lane === 'none' || !d.execution_lane) {
-      d.execution_lane = 'antigravity_sandbox';
+      d.execution_lane = 'terminal';
     }
+    const opt = Array.isArray(d.optional_capabilities) ? [...d.optional_capabilities] : [];
+    if (!opt.includes('terminal')) opt.push('terminal');
+    d.optional_capabilities = opt;
   }
 
   return d;
 }
 
 /**
- * Composer toggle forces Antigravity even when heuristics would avoid it (user opt-in).
+ * Optional composer hint — prefer Antigravity model on next routing arm (not a sandbox lane).
  * @param {Record<string, unknown>} decision
- * @param {boolean} composerEnabled
+ * @param {boolean} preferAntigravityModel
  */
-export function applyComposerAntigravityToggle(decision, composerEnabled) {
+export function applyComposerAntigravityToggle(decision, preferAntigravityModel) {
   const d = decision && typeof decision === 'object' ? { ...decision } : {};
-  if (!composerEnabled) return d;
-  d.should_use_antigravity = true;
-  d.antigravity_score = Math.max(Number(d.antigravity_score) || 0, 0.95);
-  d.antigravity_reasons = [...new Set([...(d.antigravity_reasons || []), 'composer_toggle'])];
-  d.antigravity_avoid_reasons = [];
-  d.antigravity_model_key = d.antigravity_model_key || ANTIGRAVITY_MODEL_KEY;
-  d.execution_lane = 'antigravity_sandbox';
-  const opt = Array.isArray(d.optional_capabilities) ? [...d.optional_capabilities] : [];
-  if (!opt.includes('antigravity')) opt.push('antigravity');
-  d.optional_capabilities = opt;
+  if (!preferAntigravityModel) return d;
+  d.preferred_model_key = d.preferred_model_key || ANTIGRAVITY_MODEL_KEY;
+  d.should_use_terminal = true;
   return d;
 }

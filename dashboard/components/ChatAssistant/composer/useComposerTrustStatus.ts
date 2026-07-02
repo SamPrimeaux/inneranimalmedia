@@ -106,6 +106,15 @@ export function useComposerTrustStatus(opts: {
     };
   }
 
+  if (isSuperadmin && vmOk) {
+    return {
+      tone: 'green',
+      line: 'Cloud desk ready · Mac not required',
+      detail: 'GCP VM lane for git/shell/wrangler from iPhone or desktop.',
+      loading: false,
+    };
+  }
+
   if (isSuperadmin && localptyOk) {
     const vmBit = vmOk ? ' · VM lane ready' : '';
     return {
