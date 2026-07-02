@@ -5,6 +5,11 @@
 import { jsonResponse } from '../core/auth.js';
 import { withD1Retry } from '../core/d1-retry.js';
 import { scheduleSyncProjectToSupabase } from '../core/agentsam-projects-supabase-sync.js';
+import {
+  readProjectDashboardMemory,
+  upsertProjectDashboardMemory,
+} from '../core/project-dashboard-memory.js';
+import { sendResendEmail } from '../services/resend.js';
 
 const PROJECTS_LIST_CACHE = 'private, max-age=30, stale-while-revalidate=120';
 const PROJECTS_OVERVIEW_CACHE = 'private, max-age=15, stale-while-revalidate=300';
@@ -818,6 +823,7 @@ async function handlePatch(request, env, authUser, id, ctx) {
     'project_type',
     'status',
     'priority',
+    'parent_id',
     'domain',
     'worker_id',
     'd1_databases',
@@ -1041,6 +1047,201 @@ async function handlePost(request, env, authUser, ctx) {
   );
 }
 
+async function assertProjectAccess(env, authUser, row) {
+  if (!row) return { ok: false, error: 'not_found', status: 404 };
+  if (
+    authUser.tenant_id &&
+    row.tenant_id &&
+    String(row.tenant_id) !== String(authUser.tenant_id) &&
+    !authUser.is_superadmin
+  ) {
+    return { ok: false, error: 'forbidden', status: 403 };
+  }
+  return { ok: true, row };
+}
+
+async function handleProjectMemoryGet(env, authUser, projectId) {
+  const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(projectId).first();
+  const access = await assertProjectAccess(env, authUser, row);
+  if (!access.ok) return jsonResponse({ ok: false, error: access.error }, access.status);
+
+  const mem = await readProjectDashboardMemory(env.DB, projectId);
+  return jsonResponse({ ok: true, project_id: String(projectId), ...mem });
+}
+
+async function handleProjectMemoryPatch(request, env, authUser, projectId) {
+  const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(projectId).first();
+  const access = await assertProjectAccess(env, authUser, row);
+  if (!access.ok) return jsonResponse({ ok: false, error: access.error }, access.status);
+
+  const body = await request.json().catch(() => ({}));
+  const tenantId = row.tenant_id ? String(row.tenant_id) : authUser.tenant_id ? String(authUser.tenant_id) : '';
+  if (!tenantId) return jsonResponse({ ok: false, error: 'tenant_required' }, 400);
+
+  try {
+    const next = await upsertProjectDashboardMemory(env.DB, {
+      projectId: String(projectId),
+      tenantId,
+      userId: authUser?.id ?? null,
+      memory: Object.prototype.hasOwnProperty.call(body, 'memory') ? String(body.memory ?? '') : undefined,
+      instructions: Object.prototype.hasOwnProperty.call(body, 'instructions')
+        ? String(body.instructions ?? '')
+        : undefined,
+    });
+    return jsonResponse({ ok: true, project_id: String(projectId), ...next });
+  } catch (e) {
+    return jsonResponse({ ok: false, error: `memory_update_failed: ${e?.message || e}` }, 500);
+  }
+}
+
+async function handleProjectCollaboratorsGet(env, authUser, projectId) {
+  const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(projectId).first();
+  const access = await assertProjectAccess(env, authUser, row);
+  if (!access.ok) return jsonResponse({ ok: false, error: access.error }, access.status);
+
+  try {
+    const { results } = await env.DB
+      .prepare(
+        `SELECT id, project_id, email, user_id, role, invited_by, workspace_id, created_at, updated_at
+         FROM project_collaborators WHERE project_id = ? ORDER BY created_at ASC`,
+      )
+      .bind(String(projectId))
+      .all();
+    return jsonResponse({ ok: true, project_id: String(projectId), collaborators: results || [] });
+  } catch (e) {
+    return jsonResponse({ ok: false, error: `collaborators_read_failed: ${e?.message || e}` }, 500);
+  }
+}
+
+async function handleProjectCollaboratorsPost(request, env, authUser, projectId) {
+  const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(projectId).first();
+  const access = await assertProjectAccess(env, authUser, row);
+  if (!access.ok) return jsonResponse({ ok: false, error: access.error }, access.status);
+
+  const body = await request.json().catch(() => ({}));
+  const email = String(body.email || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) return jsonResponse({ ok: false, error: 'valid_email_required' }, 400);
+  const role = String(body.role || 'editor').trim().toLowerCase() === 'viewer' ? 'viewer' : 'editor';
+  const tenantId = row.tenant_id ? String(row.tenant_id) : String(authUser.tenant_id || '');
+  const collabId = `pcol_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+
+  try {
+    await env.DB
+      .prepare(
+        `INSERT INTO project_collaborators (
+          id, project_id, tenant_id, workspace_id, email, user_id, role, invited_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, unixepoch(), unixepoch())
+        ON CONFLICT(project_id, email) DO UPDATE SET
+          role = excluded.role,
+          updated_at = unixepoch(),
+          invited_by = excluded.invited_by`,
+      )
+      .bind(
+        collabId,
+        String(projectId),
+        tenantId,
+        row.workspace_id ? String(row.workspace_id) : null,
+        email,
+        role,
+        authUser?.id != null ? String(authUser.id) : null,
+      )
+      .run();
+  } catch (e) {
+    return jsonResponse({ ok: false, error: `collaborator_upsert_failed: ${e?.message || e}` }, 500);
+  }
+
+  const { results } = await env.DB
+    .prepare(
+      `SELECT id, project_id, email, user_id, role, invited_by, workspace_id, created_at, updated_at
+       FROM project_collaborators WHERE project_id = ? AND email = ? LIMIT 1`,
+    )
+    .bind(String(projectId), email)
+    .all();
+
+  return jsonResponse(
+    { ok: true, collaborator: results?.[0] ?? null, collaborators: results || [] },
+    201,
+  );
+}
+
+async function handleProjectCollaboratorDelete(env, authUser, projectId, collabId) {
+  const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(projectId).first();
+  const access = await assertProjectAccess(env, authUser, row);
+  if (!access.ok) return jsonResponse({ ok: false, error: access.error }, access.status);
+
+  try {
+    await env.DB
+      .prepare(`DELETE FROM project_collaborators WHERE id = ? AND project_id = ?`)
+      .bind(String(collabId), String(projectId))
+      .run();
+  } catch (e) {
+    return jsonResponse({ ok: false, error: `collaborator_delete_failed: ${e?.message || e}` }, 500);
+  }
+  return jsonResponse({ ok: true, deleted: true, id: collabId });
+}
+
+async function handleProjectSharePost(request, env, authUser, projectId) {
+  const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(projectId).first();
+  const access = await assertProjectAccess(env, authUser, row);
+  if (!access.ok) return jsonResponse({ ok: false, error: access.error }, access.status);
+
+  const body = await request.json().catch(() => ({}));
+  const base =
+    (env.PUBLIC_APP_URL && String(env.PUBLIC_APP_URL).trim()) ||
+    (env.ASSETS_BASE_URL && String(env.ASSETS_BASE_URL).trim()) ||
+    'https://inneranimalmedia.com';
+  const shareUrl = `${base.replace(/\/$/, '')}/dashboard/projects/${encodeURIComponent(String(projectId))}`;
+  const message = String(body.message || '').trim();
+  const role = String(body.role || 'editor').trim().toLowerCase() === 'viewer' ? 'viewer' : 'editor';
+  const rawEmails = Array.isArray(body.emails) ? body.emails : body.email ? [body.email] : [];
+  const emails = [...new Set(rawEmails.map((e) => String(e || '').trim().toLowerCase()).filter((e) => e.includes('@')))];
+
+  const invited = [];
+  const emailErrors = [];
+
+  for (const email of emails) {
+    const fakeReq = new Request('http://local', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, role }),
+    });
+    const add = await handleProjectCollaboratorsPost(fakeReq, env, authUser, projectId);
+    if (add.status >= 400) {
+      emailErrors.push({ email, error: 'invite_failed' });
+      continue;
+    }
+    invited.push(email);
+
+    const inviter = authUser.email ? String(authUser.email) : 'A teammate';
+    const subject = `${inviter} shared project “${row.name}” with you`;
+    const text =
+      `${inviter} invited you to collaborate on “${row.name}” (${role} access).\n\n` +
+      `Open project: ${shareUrl}\n` +
+      (message ? `\nMessage:\n${message}\n` : '') +
+      `\nSign in at ${base.replace(/\/$/, '')}/auth/login if needed.`;
+
+    const sent = await sendResendEmail(env, {
+      to: email,
+      subject,
+      text,
+      tags: [{ name: 'type', value: 'project_share' }],
+    });
+    if (sent?.error) emailErrors.push({ email, error: sent.error });
+  }
+
+  const collabRes = await handleProjectCollaboratorsGet(env, authUser, projectId);
+  const collabJson = await collabRes.json();
+
+  return jsonResponse({
+    ok: true,
+    share_url: shareUrl,
+    invited,
+    email_errors: emailErrors,
+    collaborators: collabJson.collaborators ?? [],
+    copy_only: emails.length === 0,
+  });
+}
+
 async function handleDelete(request, env, authUser, id, url, ctx) {
   const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(id).first();
   if (!row) return jsonResponse({ ok: false, error: 'not_found' }, 404);
@@ -1048,46 +1249,42 @@ async function handleDelete(request, env, authUser, id, url, ctx) {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   }
 
-  const hard = url.searchParams.get('hard') === '1' || url.searchParams.get('hard') === 'true';
-  if (hard) {
-    const mirror = await mirrorProjectWrite(env, ctx, row, {
-      hardDelete: true,
-      updatedBy: authUser?.id ?? null,
-    });
-    if (!mirror?.ok) {
-      return jsonResponse(
-        { ok: false, error: 'supabase_mirror_failed', supabase_mirror: mirror },
-        502,
-      );
-    }
-    try {
-      await env.DB.prepare(`DELETE FROM projects WHERE id = ?`).bind(id).run();
-    } catch (e) {
-      return jsonResponse({ ok: false, error: `db_delete_failed: ${e?.message || e}` }, 500);
-    }
-    try {
-      await env.DB.prepare(
-        `DELETE FROM workspace_projects WHERE json_extract(metadata_json, '$.projects_table_id') = ?`,
-      )
-        .bind(String(id))
-        .run();
-    } catch {
-      /* optional */
-    }
-    return jsonResponse({ ok: true, deleted: true, id, supabase_mirror: mirror });
+  const mirror = await mirrorProjectWrite(env, ctx, row, {
+    hardDelete: true,
+    updatedBy: authUser?.id ?? null,
+  });
+  if (!mirror?.ok) {
+    return jsonResponse(
+      { ok: false, error: 'supabase_mirror_failed', supabase_mirror: mirror },
+      502,
+    );
   }
 
   try {
-    await env.DB
-      .prepare(`UPDATE projects SET status = 'archived', updated_at = datetime('now') WHERE id = ?`)
-      .bind(id)
-      .run();
-  } catch (e) {
-    return jsonResponse({ ok: false, error: `db_update_failed: ${e?.message || e}` }, 500);
+    await env.DB.prepare(`DELETE FROM project_collaborators WHERE project_id = ?`).bind(String(id)).run();
+  } catch {
+    /* optional until migration applied */
   }
-  const next = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(id).first();
-  const mirror = await mirrorProjectWrite(env, ctx, next, { updatedBy: authUser?.id ?? null });
-  return jsonResponse({ ok: true, archived: true, project: next, supabase_mirror: mirror });
+  try {
+    await env.DB.prepare(`DELETE FROM project_memory WHERE project_id = ?`).bind(String(id)).run();
+  } catch {
+    /* optional */
+  }
+  try {
+    await env.DB.prepare(`DELETE FROM projects WHERE id = ?`).bind(id).run();
+  } catch (e) {
+    return jsonResponse({ ok: false, error: `db_delete_failed: ${e?.message || e}` }, 500);
+  }
+  try {
+    await env.DB.prepare(
+      `DELETE FROM workspace_projects WHERE json_extract(metadata_json, '$.projects_table_id') = ?`,
+    )
+      .bind(String(id))
+      .run();
+  } catch {
+    /* optional */
+  }
+  return jsonResponse({ ok: true, deleted: true, id, supabase_mirror: mirror });
 }
 
 /**
@@ -1114,6 +1311,20 @@ export async function handleProjectsApi(request, url, env, authUser, ctx = null)
   }
 
   const seg = sub.split('/').filter(Boolean);
+  if (seg.length === 2 && seg[1] === 'memory') {
+    if (method === 'GET') return handleProjectMemoryGet(env, authUser, seg[0]);
+    if (method === 'PATCH' || method === 'PUT') return handleProjectMemoryPatch(request, env, authUser, seg[0]);
+  }
+  if (seg.length === 2 && seg[1] === 'collaborators') {
+    if (method === 'GET') return handleProjectCollaboratorsGet(env, authUser, seg[0]);
+    if (method === 'POST') return handleProjectCollaboratorsPost(request, env, authUser, seg[0]);
+  }
+  if (seg.length === 3 && seg[1] === 'collaborators' && method === 'DELETE') {
+    return handleProjectCollaboratorDelete(env, authUser, seg[0], seg[2]);
+  }
+  if (seg.length === 2 && seg[1] === 'share' && method === 'POST') {
+    return handleProjectSharePost(request, env, authUser, seg[0]);
+  }
   if (seg.length === 1 && method === 'GET') {
     return handleGetOne(env, authUser, seg[0]);
   }

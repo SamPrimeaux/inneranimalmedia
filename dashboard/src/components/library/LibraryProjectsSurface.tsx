@@ -219,7 +219,7 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
     setBulkBusy(true);
     try {
       const ids = [...selectedIds];
-      const results = await Promise.all(ids.map((id) => deleteProject(id, { hard: true })));
+      const results = await Promise.all(ids.map((id) => deleteProject(id)));
       const failed = results.filter((r) => !r.ok).length;
       if (failed) onToast?.(`${failed} project(s) could not be deleted`);
       else onToast?.(`Deleted ${ids.length} project(s)`);

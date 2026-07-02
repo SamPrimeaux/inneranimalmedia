@@ -26,6 +26,7 @@ import {
   updateProject,
   type OverviewProject,
 } from '../../api/projects';
+import { ProjectShareModal } from '../../components/projects/ProjectShareModal';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -472,6 +473,7 @@ export default function ProjectsPage() {
   const [renameBusy, setRenameBusy] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [shareTarget, setShareTarget] = useState<Project | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -593,15 +595,9 @@ export default function ProjectsPage() {
     }
   };
 
-  const handleShare = async (p: Project) => {
+  const openShare = (p: Project) => {
     setMenuOpenId(null);
-    const url = `${window.location.origin}/dashboard/projects/${encodeURIComponent(p.id)}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      setToast('Link copied to clipboard');
-    } catch {
-      setToast(url);
-    }
+    setShareTarget(p);
   };
 
   const openDelete = (p: Project) => {
@@ -609,16 +605,16 @@ export default function ProjectsPage() {
     setDeleteTarget(p);
   };
 
-  const submitDelete = async (hard = false) => {
+  const submitDelete = async () => {
     if (!deleteTarget || deleteBusy) return;
     setDeleteBusy(true);
     try {
-      const res = await deleteProject(deleteTarget.id, { hard });
+      const res = await deleteProject(deleteTarget.id);
       if (res.ok) {
         setDeleteTarget(null);
         if (activeId === deleteTarget.id) setActiveId(null);
         await load();
-        setToast(hard ? 'Project permanently deleted' : 'Project archived');
+        setToast('Project deleted');
       } else {
         setToast(res.error || 'Delete failed');
       }
@@ -768,7 +764,7 @@ export default function ProjectsPage() {
                   onMenuClose={() => setMenuOpenId(null)}
                   onStar={() => void handleStar(p)}
                   onRename={() => openRename(p)}
-                  onShare={() => void handleShare(p)}
+                  onShare={() => openShare(p)}
                   onDelete={() => openDelete(p)}
                 />
               ))}
@@ -823,20 +819,23 @@ export default function ProjectsPage() {
               )}
             </p>
             <p className="proj-modal-hint">
-              Archive hides it from the grid. Permanent delete removes the D1 row and Supabase mirror.
+              This permanently removes the project from D1 and Supabase. This cannot be undone.
             </p>
             <div className="proj-create-actions">
-              <button type="button" className="proj-btn" disabled={deleteBusy} onClick={() => void submitDelete(false)}>
-                {deleteBusy ? 'Working…' : 'Archive'}
-              </button>
-              <button type="button" className="proj-btn proj-btn--danger" disabled={deleteBusy} onClick={() => void submitDelete(true)}>
-                Delete permanently
+              <button type="button" className="proj-btn proj-btn--danger" disabled={deleteBusy} onClick={() => void submitDelete()}>
+                {deleteBusy ? 'Deleting…' : 'Delete project'}
               </button>
               <button type="button" className="proj-btn" disabled={deleteBusy} onClick={() => setDeleteTarget(null)}>Cancel</button>
             </div>
           </div>
         </div>
       )}
+
+      <ProjectShareModal
+        project={shareTarget ? { id: shareTarget.id, name: shareTarget.name } : null}
+        onClose={() => setShareTarget(null)}
+        onToast={setToast}
+      />
 
       {toast && <div className="proj-toast" role="status">{toast}</div>}
     </div>
@@ -1174,6 +1173,62 @@ const PROJECTS_CSS = `
   font-size: 13px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.35);
   pointer-events: none;
+}
+
+/* share modal */
+.proj-share-modal { max-width: 520px; }
+.proj-share-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.proj-share-label {
+  display: block;
+  margin: 14px 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted, #94a3b8);
+}
+.proj-share-link-row,
+.proj-share-invite-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.proj-share-link-row .proj-create-input { flex: 1; }
+.proj-share-invite-row .proj-create-input { flex: 1; }
+.proj-share-message { margin-top: 8px; resize: vertical; min-height: 72px; }
+.proj-share-collab-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.proj-share-collab-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--dashboard-border);
+  font-size: 13px;
+}
+.proj-share-role {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--color-muted, #94a3b8);
+  text-transform: uppercase;
+}
+.proj-share-remove {
+  padding: 4px 8px;
+  font-size: 11px;
 }
 
 /* card */

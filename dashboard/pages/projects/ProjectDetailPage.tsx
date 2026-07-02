@@ -9,9 +9,12 @@ import {
   Pencil,
   Plus,
   Send,
+  Share2,
   Star,
   X,
 } from 'lucide-react';
+import { fetchProjectMemory, updateProjectMemory } from '../../api/projects';
+import { ProjectShareModal } from '../../components/projects/ProjectShareModal';
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -150,8 +153,12 @@ export default function ProjectDetailPage() {
   // right rail edit states
   const [instructions, setInstructions] = useState('');
   const [instrSaved, setInstrSaved] = useState(false);
+  const [instrBusy, setInstrBusy] = useState(false);
   const [memory, setMemory] = useState('');
   const [memSaved, setMemSaved] = useState(false);
+  const [memBusy, setMemBusy] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   // ── load project ──
   const loadProject = useCallback(async () => {
@@ -190,6 +197,29 @@ export default function ProjectDetailPage() {
 
   useEffect(() => { void loadProject(); }, [loadProject]);
   useEffect(() => { void loadChats(); }, [loadChats]);
+
+  const loadMemory = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const res = await fetchProjectMemory(projectId);
+      if (res.ok) {
+        setMemory(res.memory ?? '');
+        setInstructions(res.instructions ?? '');
+        setMemSaved(true);
+        setInstrSaved(true);
+      }
+    } catch {
+      /* optional */
+    }
+  }, [projectId]);
+
+  useEffect(() => { void loadMemory(); }, [loadMemory]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 2800);
+    return () => window.clearTimeout(t);
+  }, [toast]);
 
   // close menu on outside click
   useEffect(() => {
@@ -236,6 +266,30 @@ export default function ProjectDetailPage() {
       await loadProject();
     } finally {
       setRenameBusy(false);
+    }
+  };
+
+  const saveMemory = async () => {
+    if (!project || memBusy) return;
+    setMemBusy(true);
+    try {
+      const res = await updateProjectMemory(project.id, { memory });
+      setMemSaved(res.ok);
+      if (!res.ok) setToast(res.error || 'Failed to save memory');
+    } finally {
+      setMemBusy(false);
+    }
+  };
+
+  const saveInstructions = async () => {
+    if (!project || instrBusy) return;
+    setInstrBusy(true);
+    try {
+      const res = await updateProjectMemory(project.id, { instructions });
+      setInstrSaved(res.ok);
+      if (!res.ok) setToast(res.error || 'Failed to save instructions');
+    } finally {
+      setInstrBusy(false);
     }
   };
 
@@ -294,8 +348,8 @@ export default function ProjectDetailPage() {
           placeholder="Key context Agent Sam should always know about this project..."
         />
         {memory && (
-          <button type="button" className="cpd-rail-save" onClick={() => setMemSaved(true)}>
-            {memSaved ? 'Saved' : 'Save memory'}
+          <button type="button" className="cpd-rail-save" disabled={memBusy} onClick={() => void saveMemory()}>
+            {memBusy ? 'Saving…' : memSaved ? 'Saved' : 'Save memory'}
           </button>
         )}
       </RailSection>
@@ -317,8 +371,8 @@ export default function ProjectDetailPage() {
               value={instructions}
               onChange={(e) => { setInstructions(e.target.value); setInstrSaved(false); }}
             />
-            <button type="button" className="cpd-rail-save" onClick={() => setInstrSaved(true)}>
-              {instrSaved ? 'Saved' : 'Save instructions'}
+            <button type="button" className="cpd-rail-save" disabled={instrBusy} onClick={() => void saveInstructions()}>
+              {instrBusy ? 'Saving…' : instrSaved ? 'Saved' : 'Save instructions'}
             </button>
           </>
         ) : (
@@ -454,6 +508,14 @@ export default function ProjectDetailPage() {
                         <Pencil size={13} />
                         Rename project
                       </button>
+                      <button
+                        type="button"
+                        className="cpd-menu-item"
+                        onClick={() => { setShareOpen(true); setMenuOpen(false); }}
+                      >
+                        <Share2 size={13} />
+                        Share
+                      </button>
                     </div>
                   )}
                 </div>
@@ -580,6 +642,13 @@ export default function ProjectDetailPage() {
           </div>
         </>
       )}
+
+      <ProjectShareModal
+        project={project && shareOpen ? { id: project.id, name: project.name } : null}
+        onClose={() => setShareOpen(false)}
+        onToast={setToast}
+      />
+      {toast && <div className="cpd-toast" role="status">{toast}</div>}
     </div>
   );
 }
@@ -807,6 +876,19 @@ const CSS = `
   font-size: 13px;
   color: var(--color-muted, #94a3b8);
   padding: 16px 0;
+}
+.cpd-toast {
+  position: fixed;
+  bottom: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1400;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--bg-elevated, #1a1f2e);
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
 }
 .cpd-chat-list {
   list-style: none;

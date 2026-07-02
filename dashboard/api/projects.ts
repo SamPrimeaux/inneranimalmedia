@@ -275,7 +275,6 @@ export async function updateProject(
   return j;
 }
 
-/** Soft-delete (archive) by default; pass hard=true to permanently remove. */
 export async function setProjectPinned(
   id: string,
   pinned: boolean,
@@ -285,15 +284,135 @@ export async function setProjectPinned(
 
 export async function deleteProject(
   id: string,
-  opts?: { hard?: boolean },
-): Promise<{ ok: boolean; error?: string; archived?: boolean; deleted?: boolean }> {
-  const qs = opts?.hard ? "?hard=1" : "";
-  const r = await fetch(`/api/projects/${encodeURIComponent(id)}${qs}`, {
+): Promise<{ ok: boolean; error?: string; deleted?: boolean }> {
+  const r = await fetch(`/api/projects/${encodeURIComponent(id)}`, {
     method: "DELETE",
     credentials: "same-origin",
     cache: "no-store",
   });
-  const j = (await r.json()) as { ok: boolean; error?: string; archived?: boolean; deleted?: boolean };
+  const j = (await r.json()) as { ok: boolean; error?: string; deleted?: boolean };
   if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
   return j;
+}
+
+export type ProjectCollaborator = {
+  id: string;
+  project_id: string;
+  email: string;
+  role: string;
+  user_id?: string | null;
+  invited_by?: string | null;
+  workspace_id?: string | null;
+  created_at?: number;
+  updated_at?: number;
+};
+
+export type ProjectMemoryPayload = {
+  ok: boolean;
+  memory?: string;
+  instructions?: string;
+  updated_at?: number | null;
+  error?: string;
+};
+
+export async function fetchProjectMemory(projectId: string): Promise<ProjectMemoryPayload> {
+  const r = await fetch(`/api/projects/${encodeURIComponent(projectId)}/memory`, {
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  const j = (await r.json()) as ProjectMemoryPayload;
+  if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
+  return j;
+}
+
+export async function updateProjectMemory(
+  projectId: string,
+  payload: { memory?: string; instructions?: string },
+): Promise<ProjectMemoryPayload> {
+  const r = await fetch(`/api/projects/${encodeURIComponent(projectId)}/memory`, {
+    method: "PATCH",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const j = (await r.json()) as ProjectMemoryPayload;
+  if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
+  return j;
+}
+
+export async function fetchProjectCollaborators(projectId: string): Promise<{
+  ok: boolean;
+  collaborators: ProjectCollaborator[];
+  error?: string;
+}> {
+  const r = await fetch(`/api/projects/${encodeURIComponent(projectId)}/collaborators`, {
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  const j = (await r.json()) as { ok?: boolean; collaborators?: ProjectCollaborator[]; error?: string };
+  if (!r.ok) return { ok: false, collaborators: [], error: j.error || `HTTP ${r.status}` };
+  return { ok: true, collaborators: Array.isArray(j.collaborators) ? j.collaborators : [] };
+}
+
+export async function inviteProjectCollaborator(
+  projectId: string,
+  payload: { email: string; role?: "editor" | "viewer" },
+): Promise<{ ok: boolean; error?: string; collaborator?: ProjectCollaborator | null }> {
+  const r = await fetch(`/api/projects/${encodeURIComponent(projectId)}/collaborators`, {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const j = (await r.json()) as { ok?: boolean; error?: string; collaborator?: ProjectCollaborator | null };
+  if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
+  return { ok: true, collaborator: j.collaborator ?? null };
+}
+
+export async function removeProjectCollaborator(
+  projectId: string,
+  collaboratorId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const r = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/collaborators/${encodeURIComponent(collaboratorId)}`,
+    { method: "DELETE", credentials: "same-origin", cache: "no-store" },
+  );
+  const j = (await r.json()) as { ok?: boolean; error?: string };
+  if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
+  return { ok: true };
+}
+
+export async function shareProject(
+  projectId: string,
+  payload: { email?: string; emails?: string[]; message?: string; role?: "editor" | "viewer" },
+): Promise<{
+  ok: boolean;
+  share_url?: string;
+  collaborators?: ProjectCollaborator[];
+  email_errors?: Array<{ email: string; error: string }>;
+  error?: string;
+}> {
+  const r = await fetch(`/api/projects/${encodeURIComponent(projectId)}/share`, {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const j = (await r.json()) as {
+    ok?: boolean;
+    share_url?: string;
+    collaborators?: ProjectCollaborator[];
+    email_errors?: Array<{ email: string; error: string }>;
+    error?: string;
+  };
+  if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
+  return {
+    ok: true,
+    share_url: j.share_url,
+    collaborators: j.collaborators,
+    email_errors: j.email_errors,
+  };
 }

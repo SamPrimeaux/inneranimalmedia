@@ -169,7 +169,12 @@ export function mapD1ProjectToSupabaseRow(row, opts = {}) {
     id: String(row.id),
     workspace_id: String(row.workspace_id),
     tenant_id: tenantId,
-    parent_id: meta.parent_id != null ? String(meta.parent_id) : null,
+    parent_id:
+      row.parent_id != null && String(row.parent_id).trim()
+        ? String(row.parent_id).trim()
+        : meta.parent_id != null
+          ? String(meta.parent_id)
+          : null,
     name: String(row.name || 'Untitled'),
     slug,
     description: row.description != null ? String(row.description) : null,
