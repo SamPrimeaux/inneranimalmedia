@@ -1242,6 +1242,41 @@ async function handleProjectSharePost(request, env, authUser, projectId) {
   });
 }
 
+async function deleteProjectDependents(env, projectId) {
+  const pid = String(projectId);
+  const optional = async (sql, bind = pid) => {
+    try {
+      await env.DB.prepare(sql).bind(bind).run();
+    } catch {
+      /* optional table / legacy schema */
+    }
+  };
+
+  await optional(`DELETE FROM project_collaborators WHERE project_id = ?`);
+  await optional(`DELETE FROM project_memory WHERE project_id = ?`);
+  await optional(`DELETE FROM project_goals WHERE project_id = ?`);
+  await optional(`DELETE FROM project_capability_constraints WHERE project_id = ?`);
+  await optional(`DELETE FROM project_permissions WHERE project_id = ?`);
+  await optional(`UPDATE cicd_events SET project_id = NULL WHERE project_id = ?`);
+  await optional(`UPDATE cicd_runs SET project_id = NULL WHERE project_id = ?`);
+  await optional(`UPDATE pipelines SET project_id = NULL WHERE project_id = ?`);
+  await optional(`UPDATE calendar_events SET project_id = NULL WHERE project_id = ?`);
+
+  // Legacy FKs on project_execution_audit point at dropped agent_configs / agent_command_executions (417).
+  await optional(
+    `UPDATE project_execution_audit SET agent_config_id = NULL, execution_id = NULL WHERE project_id = ?`,
+  );
+  try {
+    await env.DB.prepare(`DELETE FROM project_execution_audit WHERE project_id = ?`).bind(pid).run();
+  } catch {
+    await env.DB.batch([
+      env.DB.prepare(`PRAGMA foreign_keys = OFF`),
+      env.DB.prepare(`DELETE FROM project_execution_audit WHERE project_id = ?`).bind(pid),
+      env.DB.prepare(`PRAGMA foreign_keys = ON`),
+    ]);
+  }
+}
+
 async function handleDelete(request, env, authUser, id, url, ctx) {
   const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(id).first();
   if (!row) return jsonResponse({ ok: false, error: 'not_found' }, 404);
@@ -1249,27 +1284,8 @@ async function handleDelete(request, env, authUser, id, url, ctx) {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   }
 
-  const mirror = await mirrorProjectWrite(env, ctx, row, {
-    hardDelete: true,
-    updatedBy: authUser?.id ?? null,
-  });
-  if (!mirror?.ok) {
-    return jsonResponse(
-      { ok: false, error: 'supabase_mirror_failed', supabase_mirror: mirror },
-      502,
-    );
-  }
+  await deleteProjectDependents(env, id);
 
-  try {
-    await env.DB.prepare(`DELETE FROM project_collaborators WHERE project_id = ?`).bind(String(id)).run();
-  } catch {
-    /* optional until migration applied */
-  }
-  try {
-    await env.DB.prepare(`DELETE FROM project_memory WHERE project_id = ?`).bind(String(id)).run();
-  } catch {
-    /* optional */
-  }
   try {
     await env.DB.prepare(`DELETE FROM projects WHERE id = ?`).bind(id).run();
   } catch (e) {
@@ -1284,6 +1300,27 @@ async function handleDelete(request, env, authUser, id, url, ctx) {
   } catch {
     /* optional */
   }
+
+  let mirror = { ok: false, skipped: true };
+  try {
+    mirror = await mirrorProjectWrite(env, ctx, row, {
+      hardDelete: true,
+      updatedBy: authUser?.id ?? null,
+    });
+  } catch (e) {
+    mirror = { ok: false, error: e?.message || String(e) };
+  }
+
+  if (!mirror?.ok) {
+    return jsonResponse({
+      ok: true,
+      deleted: true,
+      id,
+      supabase_mirror: mirror,
+      warning: 'supabase_mirror_failed',
+    });
+  }
+
   return jsonResponse({ ok: true, deleted: true, id, supabase_mirror: mirror });
 }
 

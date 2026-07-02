@@ -14,9 +14,10 @@ import {
   Send,
   Share2,
   Star,
+  Trash2,
   X,
 } from 'lucide-react';
-import { fetchProjectMemory, updateProject, updateProjectMemory } from '../../api/projects';
+import { deleteProject, fetchProjectMemory, updateProject, updateProjectMemory } from '../../api/projects';
 import { ProjectShareModal } from '../../components/projects/ProjectShareModal';
 import { uploadProjectR2File } from '../../src/lib/projectR2Upload';
 import { cfImageVariants } from '../../src/lib/projectBranding';
@@ -171,6 +172,8 @@ export default function ProjectDetailPage() {
   const [memSaved, setMemSaved] = useState(false);
   const [memBusy, setMemBusy] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [projectFiles, setProjectFiles] = useState<ProjectFileRef[]>([]);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
@@ -387,6 +390,22 @@ export default function ProjectDetailPage() {
   const openProjectTasks = () => {
     if (!project) return;
     navigate(`/dashboard/collaborate?seg=tasks&project=${encodeURIComponent(project.id)}`);
+  };
+
+  const submitDelete = async () => {
+    if (!project?.id || deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      const res = await deleteProject(project.id);
+      if (res.ok) {
+        navigate('/dashboard/projects', { replace: true });
+        return;
+      }
+      setToast(res.error || 'Delete failed');
+      setDeleteOpen(false);
+    } finally {
+      setDeleteBusy(false);
+    }
   };
 
   // ── start new chat ──
@@ -705,6 +724,14 @@ export default function ProjectDetailPage() {
                         <Share2 size={13} />
                         Share
                       </button>
+                      <button
+                        type="button"
+                        className="cpd-menu-item cpd-menu-item--danger"
+                        onClick={() => { setDeleteOpen(true); setMenuOpen(false); }}
+                      >
+                        <Trash2 size={13} />
+                        Delete project
+                      </button>
                     </div>
                   )}
                 </div>
@@ -716,6 +743,7 @@ export default function ProjectDetailPage() {
           )}
         </div>
 
+        <div className="cpd-left-scroll">
         {/* composer */}
         <div className="cpd-composer">
           <textarea
@@ -795,6 +823,7 @@ export default function ProjectDetailPage() {
             </ul>
           )}
         </div>
+        </div>
       </div>
 
       {/* ── desktop right rail ── */}
@@ -837,6 +866,51 @@ export default function ProjectDetailPage() {
         onClose={() => setShareOpen(false)}
         onToast={setToast}
       />
+
+      {deleteOpen && project && (
+        <div
+          className="cpd-modal-backdrop"
+          role="presentation"
+          onClick={() => !deleteBusy && setDeleteOpen(false)}
+        >
+          <div
+            className="cpd-modal"
+            role="dialog"
+            aria-labelledby="cpd-delete-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="cpd-delete-title" className="cpd-modal-title">Delete project</h2>
+            <p className="cpd-modal-body">
+              <strong>{project.name}</strong>
+              {project.workspace_id ? (
+                <span className="cpd-modal-meta"> · {project.workspace_id}</span>
+              ) : null}
+            </p>
+            <p className="cpd-modal-hint">
+              This permanently removes the project and its memory, files metadata, and collaborators. This cannot be undone.
+            </p>
+            <div className="cpd-modal-actions">
+              <button
+                type="button"
+                className="cpd-btn cpd-btn--danger"
+                disabled={deleteBusy}
+                onClick={() => void submitDelete()}
+              >
+                {deleteBusy ? 'Deleting…' : 'Delete project'}
+              </button>
+              <button
+                type="button"
+                className="cpd-btn"
+                disabled={deleteBusy}
+                onClick={() => setDeleteOpen(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && <div className="cpd-toast" role="status">{toast}</div>}
       <input
         ref={coverInputRef}
@@ -874,13 +948,20 @@ const CSS = `
 .cpd-left {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  padding: 24px 0 60px;
+  overflow: visible;
+  padding: 24px 0 0;
   max-width: 660px;
   margin: 0 auto;
   width: 100%;
+}
+.cpd-left-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 60px;
 }
 
 /* back */
@@ -922,11 +1003,16 @@ const CSS = `
 .cpd-title-section {
   padding: 0 28px;
   margin-bottom: 20px;
+  position: relative;
+  z-index: 60;
+  overflow: visible;
 }
 .cpd-title-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
+  overflow: visible;
 }
 .cpd-title {
   font-size: 28px;
@@ -940,8 +1026,9 @@ const CSS = `
 .cpd-title-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   flex-shrink: 0;
+  overflow: visible;
 }
 .cpd-rename-row {
   display: flex;
@@ -981,9 +1068,10 @@ const CSS = `
 .cpd-menu {
   position: absolute;
   top: calc(100% + 4px);
-  left: 0;
-  z-index: 40;
-  min-width: 180px;
+  right: 0;
+  left: auto;
+  z-index: 200;
+  min-width: 200px;
   border-radius: 10px;
   border: 1px solid var(--dashboard-border);
   background: var(--bg-elevated, #1e2130);
@@ -1002,9 +1090,52 @@ const CSS = `
   color: inherit;
   cursor: pointer;
   text-align: left;
+  white-space: nowrap;
   transition: background 0.1s;
 }
 .cpd-menu-item:hover { background: var(--bg-hover); }
+.cpd-menu-item--danger { color: #f87171; }
+.cpd-menu-item--danger:hover { background: rgba(248, 113, 113, 0.12); }
+
+.cpd-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.cpd-modal {
+  width: min(420px, 100%);
+  border-radius: 12px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--bg-elevated, #1e2130);
+  padding: 20px 22px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+.cpd-modal-title { margin: 0 0 10px; font-size: 18px; font-weight: 600; }
+.cpd-modal-body { margin: 0 0 8px; font-size: 14px; line-height: 1.45; }
+.cpd-modal-meta { color: var(--color-muted, #94a3b8); font-size: 12px; }
+.cpd-modal-hint { margin: 0 0 16px; font-size: 12px; color: var(--color-muted, #94a3b8); line-height: 1.5; }
+.cpd-modal-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.cpd-btn {
+  border-radius: 8px;
+  border: 1px solid var(--dashboard-border);
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+.cpd-btn--danger {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.14);
+  color: #fca5a5;
+}
+.cpd-btn:disabled { opacity: 0.5; cursor: default; }
 
 /* ── composer ── */
 .cpd-composer {
