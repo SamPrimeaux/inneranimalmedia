@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { Loader2, Search } from 'lucide-react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { Loader2, MessageSquare, Plus, Search, Star } from 'lucide-react';
 import {
   chatsListRelativeTime,
   conversationIdFromSession,
@@ -10,15 +10,57 @@ import {
 import { resumeAgentChatSession } from '../../lib/openAgentConversation';
 import { useAgentChatSessions } from '../../hooks/useAgentChatSessions';
 import { AgentChatSessionRowMenu } from '../../components/shell/AgentChatSessionRowMenu';
-import { Star } from 'lucide-react';
+
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+function groupByDate(sessions: AgentSessionRow[]): { label: string; items: AgentSessionRow[] }[] {
+  const now = Date.now();
+  const DAY = 86_400_000;
+  const buckets: Record<string, AgentSessionRow[]> = {};
+
+  for (const s of sessions) {
+    const ms = sessionSortMs(s);
+    const diff = now - ms;
+    let label: string;
+    if (diff < DAY) label = 'Today';
+    else if (diff < 2 * DAY) label = 'Yesterday';
+    else if (diff < 7 * DAY) label = 'Previous 7 days';
+    else if (diff < 30 * DAY) label = 'Previous 30 days';
+    else {
+      const d = new Date(ms);
+      label = d.toLocaleString('default', { month: 'long', year: 'numeric' });
+    }
+    if (!buckets[label]) buckets[label] = [];
+    buckets[label].push(s);
+  }
+
+  const ORDER = ['Today', 'Yesterday', 'Previous 7 days', 'Previous 30 days'];
+  const entries = Object.entries(buckets).sort(([a], [b]) => {
+    const ai = ORDER.indexOf(a);
+    const bi = ORDER.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return b.localeCompare(a); // month-year descending
+  });
+
+  return entries.map(([label, items]) => ({ label, items }));
+}
+
+// ─── component ──────────────────────────────────────────────────────────────
 
 export default function ChatsPage() {
-  const { sessions, loading, projects, reload, patchSession, deleteSession } = useAgentChatSessions({ limit: 200 });
+  const { sessions, loading, projects, reload, patchSession, deleteSession } =
+    useAgentChatSessions({ limit: 200 });
+
   const [query, setQuery] = useState('');
+  const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [moveOpen, setMoveOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
 
+  // ── derived ──
   const sorted = useMemo(
     () => [...sessions].sort((a, b) => sessionSortMs(b) - sessionSortMs(a)),
     [sessions],
@@ -34,28 +76,30 @@ export default function ChatsPage() {
     });
   }, [sorted, query]);
 
+  const groups = useMemo(() => (query.trim() ? null : groupByDate(filtered)), [filtered, query]);
+
   const selectedCount = selected.size;
   const allVisibleSelected =
-    filtered.length > 0 && filtered.every((s) => selected.has(conversationIdFromSession(s)));
+    filtered.length > 0 &&
+    filtered.every((s) => selected.has(conversationIdFromSession(s) ?? ''));
 
-  const toggleOne = (id: string) => {
+  // ── actions ──
+  const toggleOne = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  };
 
   const toggleAllVisible = () => {
-    if (allVisibleSelected) {
-      setSelected(new Set());
-      return;
-    }
-    setSelected(new Set(filtered.map((s) => conversationIdFromSession(s)).filter(Boolean)));
+    if (allVisibleSelected) { setSelected(new Set()); return; }
+    setSelected(new Set(filtered.map((s) => conversationIdFromSession(s)).filter(Boolean) as string[]));
   };
 
-  const clearSelection = () => {
+  const enterSelectMode = () => { setSelectMode(true); };
+
+  const cancelSelect = () => {
+    setSelectMode(false);
     setSelected(new Set());
     setMoveOpen(false);
   };
@@ -63,11 +107,7 @@ export default function ChatsPage() {
   const resumeChat = useCallback((s: AgentSessionRow) => {
     const id = conversationIdFromSession(s);
     if (!id) return;
-    resumeAgentChatSession({
-      id,
-      title: sessionDisplayTitle(s),
-      force: true,
-    });
+    resumeAgentChatSession({ id, title: sessionDisplayTitle(s), force: true });
   }, []);
 
   const deleteSelected = async () => {
@@ -76,11 +116,9 @@ export default function ChatsPage() {
     setBusy(true);
     try {
       await Promise.all([...selected].map((id) => deleteSession(id)));
-      clearSelection();
+      cancelSelect();
       await reload();
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
   const moveSelectedToProject = async (projectId: string | null) => {
@@ -89,181 +127,483 @@ export default function ChatsPage() {
     try {
       const p = projectId ? projects.find((x) => x.id === projectId) : null;
       const resolved = projectId ? p?.chat_project_id || projectId : null;
-      await Promise.all(
-        [...selected].map((id) => patchSession(id, { project_id: resolved })),
-      );
-      clearSelection();
-      setMoveOpen(false);
+      await Promise.all([...selected].map((id) => patchSession(id, { project_id: resolved })));
+      cancelSelect();
       await reload();
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
+  // ── row badge ──
   const rowBadge = (s: AgentSessionRow) => {
-    if (s.last_turn_status === 'interrupted' || s.last_turn_status === 'failed' || s.last_turn_status === 'done_no_token') {
+    if (
+      s.last_turn_status === 'interrupted' ||
+      s.last_turn_status === 'failed' ||
+      s.last_turn_status === 'done_no_token'
+    ) {
       return (
-        <span className="shrink-0 rounded border border-red-500/40 px-1.5 py-0.5 text-[10px] text-red-400">
-          Incomplete
-        </span>
+        <span className="chats-badge chats-badge--error">Incomplete</span>
       );
     }
     if (s.project_name) {
-      return (
-        <span className="shrink-0 max-w-[160px] truncate rounded border border-[var(--dashboard-border)] px-1.5 py-0.5 text-[10px] text-muted">
-          {s.project_name}
-        </span>
-      );
-    }
-    if (s.session_type === 'shared' || String(s.status || '').toLowerCase() === 'shared') {
-      return (
-        <span className="shrink-0 rounded border border-[var(--dashboard-border)] px-1.5 py-0.5 text-[10px] text-muted">
-          Shared
-        </span>
-      );
+      return <span className="chats-badge">{s.project_name}</span>;
     }
     return null;
   };
 
+  // ── row ──
+  const renderRow = (s: AgentSessionRow) => {
+    const id = conversationIdFromSession(s);
+    if (!id) return null;
+    const checked = selected.has(id);
+
+    return (
+      <li key={id} className="chats-row group">
+        {selectMode && (
+          <span className="chats-check-wrap" onClick={(e) => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={() => toggleOne(id)}
+              aria-label={`Select ${sessionDisplayTitle(s)}`}
+              className="chats-checkbox"
+            />
+          </span>
+        )}
+
+        <button
+          type="button"
+          onClick={() => (selectMode ? toggleOne(id) : resumeChat(s))}
+          className="chats-row-main"
+        >
+          <span className="chats-row-title">
+            {s.is_starred && (
+              <Star size={11} className="chats-star" fill="currentColor" />
+            )}
+            {sessionDisplayTitle(s)}
+          </span>
+          {rowBadge(s)}
+        </button>
+
+        <span className="chats-row-time">
+          {chatsListRelativeTime(s)}
+        </span>
+
+        {!selectMode && (
+          <span className="chats-row-menu opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+            <AgentChatSessionRowMenu
+              session={s}
+              projects={projects}
+              onPatch={patchSession}
+              onDelete={deleteSession}
+              onReload={reload}
+            />
+          </span>
+        )}
+      </li>
+    );
+  };
+
+  // ── empty / loader ──
+  const renderBody = () => {
+    if (loading) {
+      return (
+        <div className="chats-empty">
+          <Loader2 size={18} className="animate-spin text-muted" />
+        </div>
+      );
+    }
+    if (!filtered.length) {
+      return (
+        <div className="chats-empty">
+          <MessageSquare size={32} className="chats-empty-icon" />
+          <p className="chats-empty-text">
+            {query.trim()
+              ? 'No chats match your search.'
+              : 'No chats yet. Send a message in Agent Sam to start one.'}
+          </p>
+        </div>
+      );
+    }
+
+    if (groups) {
+      return (
+        <div>
+          {groups.map(({ label, items }) => (
+            <section key={label}>
+              <div className="chats-group-label">{label}</div>
+              <ul className="chats-list">{items.map(renderRow)}</ul>
+            </section>
+          ))}
+        </div>
+      );
+    }
+
+    return <ul className="chats-list">{filtered.map(renderRow)}</ul>;
+  };
+
+  // ── render ──
   return (
-    <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-[var(--dashboard-canvas)] text-main">
-      <header className="shrink-0 border-b border-[var(--dashboard-border)] px-4 py-4 sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold tracking-tight">Chats</h1>
-          <div className="flex flex-wrap items-center gap-2 text-[12px]">
-            <span className="text-muted tabular-nums min-w-[5.5rem] text-right">
-              {selectedCount} selected
-            </span>
-            <button
-              type="button"
-              disabled={!filtered.length || busy}
-              onClick={toggleAllVisible}
-              className="rounded-md border border-[var(--dashboard-border)] px-2.5 py-1 hover:bg-[var(--bg-hover)] disabled:opacity-40"
-            >
-              Select all
-            </button>
-            <div className="relative">
-              <button
-                type="button"
-                disabled={!selectedCount || busy}
-                onClick={() => setMoveOpen((v) => !v)}
-                className="rounded-md border border-[var(--dashboard-border)] px-2.5 py-1 hover:bg-[var(--bg-hover)] disabled:opacity-40"
-              >
-                Move to project
-              </button>
-              {moveOpen && selectedCount > 0 ? (
-                <div className="absolute right-0 z-20 mt-1 min-w-[180px] rounded-md border border-[var(--dashboard-border)] bg-[var(--bg-elevated)] py-1 shadow-lg">
+    <div className="chats-root">
+      <style>{CHATS_CSS}</style>
+
+      {/* ── header ── */}
+      <header className="chats-header">
+        <div className="chats-header-top">
+          <h1 className="chats-title">Chats</h1>
+
+          <div className="chats-header-actions">
+            {selectMode ? (
+              /* ── selection action bar ── */
+              <>
+                <span className="chats-sel-count">{selectedCount} selected</span>
+                <button
+                  type="button"
+                  disabled={!filtered.length || busy}
+                  onClick={toggleAllVisible}
+                  className="chats-btn"
+                >
+                  {allVisibleSelected ? 'Deselect all' : 'Select all'}
+                </button>
+                <div className="relative">
                   <button
                     type="button"
-                    className="block w-full px-3 py-1.5 text-left text-[11px] text-muted hover:bg-[var(--bg-hover)]"
-                    onClick={() => void moveSelectedToProject(null)}
+                    disabled={!selectedCount || busy}
+                    onClick={() => setMoveOpen((v) => !v)}
+                    className="chats-btn"
                   >
-                    Remove from project
+                    Move to project
                   </button>
-                  {projects.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className="block w-full truncate px-3 py-1.5 text-left text-[11px] hover:bg-[var(--bg-hover)]"
-                      onClick={() => void moveSelectedToProject(p.id)}
-                    >
-                      {p.name}
-                    </button>
-                  ))}
+                  {moveOpen && selectedCount > 0 && (
+                    <div className="chats-dropdown">
+                      <button
+                        type="button"
+                        className="chats-dropdown-item chats-dropdown-item--muted"
+                        onClick={() => void moveSelectedToProject(null)}
+                      >
+                        Remove from project
+                      </button>
+                      {projects.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          className="chats-dropdown-item"
+                          onClick={() => void moveSelectedToProject(p.id)}
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              disabled={!selectedCount || busy}
-              onClick={() => void deleteSelected()}
-              className="rounded-md border border-[var(--dashboard-border)] px-2.5 py-1 text-red-400 hover:bg-[var(--bg-hover)] disabled:opacity-40"
-            >
-              Delete
-            </button>
-            <button
-              type="button"
-              disabled={!selectedCount || busy}
-              onClick={clearSelection}
-              className="rounded-md border border-[var(--dashboard-border)] px-2.5 py-1 hover:bg-[var(--bg-hover)] disabled:opacity-40"
-            >
-              Cancel
-            </button>
+                <button
+                  type="button"
+                  disabled={!selectedCount || busy}
+                  onClick={() => void deleteSelected()}
+                  className="chats-btn chats-btn--danger"
+                >
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelSelect}
+                  className="chats-btn"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              /* ── default header actions ── */
+              <>
+                <button
+                  type="button"
+                  onClick={enterSelectMode}
+                  className="chats-btn"
+                >
+                  Select chats
+                </button>
+                <button
+                  type="button"
+                  onClick={() => resumeAgentChatSession({ id: '', title: '', force: true })}
+                  className="chats-btn chats-btn--primary"
+                >
+                  <Plus size={14} />
+                  New chat
+                </button>
+              </>
+            )}
           </div>
         </div>
-        <div className="relative mt-4">
-          <Search
-            size={16}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
-          />
+
+        {/* ── search ── */}
+        <div className="chats-search-wrap">
+          <Search size={15} className="chats-search-icon" />
           <input
+            ref={searchRef}
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search chats..."
-            className="w-full rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] py-2 pl-9 pr-3 text-sm outline-none focus:border-[var(--solar-cyan)]/50"
+            className="chats-search-input"
           />
         </div>
       </header>
 
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {loading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 size={20} className="animate-spin text-muted" />
-          </div>
-        ) : !filtered.length ? (
-          <p className="px-6 py-8 text-sm text-muted">
-            {query.trim() ? 'No chats match your search.' : 'No chats yet. Send a message in Agent Sam to start one.'}
-          </p>
-        ) : (
-          <ul className="divide-y divide-[var(--border-subtle)]">
-            {filtered.map((s) => {
-              const id = conversationIdFromSession(s);
-              if (!id) return null;
-              const checked = selected.has(id);
-              return (
-                <li key={id} className="group relative flex items-center gap-3 px-4 py-3 sm:px-6 hover:bg-[var(--bg-hover)]/40">
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleOne(id)}
-                    className="shrink-0 rounded border-[var(--dashboard-border)]"
-                    aria-label={`Select ${sessionDisplayTitle(s)}`}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => resumeChat(s)}
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                  >
-                    {s.is_starred ? (
-                      <Star size={12} className="shrink-0 text-[var(--solar-yellow)]" fill="currentColor" />
-                    ) : null}
-                    <span className="min-w-0 flex-1 truncate text-[14px] font-medium">
-                      {sessionDisplayTitle(s)}
-                    </span>
-                    {rowBadge(s)}
-                  </button>
-                  <AgentChatSessionRowMenu
-                    session={s}
-                    projects={projects}
-                    onPatch={patchSession}
-                    onDelete={deleteSession}
-                    onReload={reload}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => resumeChat(s)}
-                    className="shrink-0 text-[12px] text-muted tabular-nums hover:text-main"
-                  >
-                    {chatsListRelativeTime(s)}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+      {/* ── body ── */}
+      <div className="chats-body">{renderBody()}</div>
     </div>
   );
 }
+
+// ─── scoped CSS ─────────────────────────────────────────────────────────────
+
+const CHATS_CSS = `
+.chats-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  background: var(--dashboard-canvas);
+  color: var(--color-main, #e2e8f0);
+}
+
+/* header */
+.chats-header {
+  flex-shrink: 0;
+  padding: 20px 24px 0;
+  border-bottom: 1px solid var(--dashboard-border);
+}
+.chats-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.chats-title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.chats-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.chats-sel-count {
+  font-size: 12px;
+  color: var(--color-muted, #94a3b8);
+  min-width: 5rem;
+  text-align: right;
+}
+
+/* buttons */
+.chats-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--dashboard-border);
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.12s;
+  white-space: nowrap;
+}
+.chats-btn:hover:not(:disabled) { background: var(--bg-hover); }
+.chats-btn:disabled { opacity: 0.4; cursor: default; }
+.chats-btn--primary {
+  background: var(--bg-elevated, rgba(255,255,255,0.08));
+  border-color: transparent;
+  font-weight: 500;
+}
+.chats-btn--primary:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.chats-btn--danger { color: #f87171; }
+
+/* dropdown */
+.chats-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  min-width: 180px;
+  border-radius: 10px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--bg-elevated);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  padding: 4px 0;
+}
+.chats-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 7px 14px;
+  text-align: left;
+  font-size: 12px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: none;
+}
+.chats-dropdown-item:hover { background: var(--bg-hover); }
+.chats-dropdown-item--muted { color: var(--color-muted, #94a3b8); }
+
+/* search */
+.chats-search-wrap {
+  position: relative;
+  margin-bottom: 0;
+  padding-bottom: 14px;
+}
+.chats-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-muted, #94a3b8);
+  pointer-events: none;
+}
+.chats-search-input {
+  width: 100%;
+  padding: 8px 12px 8px 36px;
+  border-radius: 10px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--dashboard-panel, rgba(255,255,255,0.04));
+  color: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+.chats-search-input:focus {
+  border-color: var(--solar-cyan, #22d3ee);
+}
+.chats-search-input::placeholder { color: var(--color-muted, #94a3b8); }
+
+/* body */
+.chats-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* group label */
+.chats-group-label {
+  padding: 14px 24px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted, #94a3b8);
+  opacity: 0.7;
+}
+
+/* list */
+.chats-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* row */
+.chats-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 24px;
+  min-height: 44px;
+  border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+  transition: background 0.1s;
+  position: relative;
+}
+.chats-row:hover { background: var(--bg-hover, rgba(255,255,255,0.04)); }
+
+.chats-check-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+.chats-checkbox {
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  border: 1.5px solid var(--dashboard-border);
+  accent-color: var(--solar-cyan, #22d3ee);
+  cursor: pointer;
+}
+
+.chats-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  padding: 0;
+}
+.chats-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 450;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.chats-star { color: var(--solar-yellow, #fbbf24); flex-shrink: 0; }
+
+.chats-row-time {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-muted, #94a3b8);
+  white-space: nowrap;
+  tabular-nums: true;
+}
+
+.chats-row-menu { flex-shrink: 0; transition: opacity 0.1s; }
+
+/* badge */
+.chats-badge {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--dashboard-border);
+  font-size: 10px;
+  color: var(--color-muted, #94a3b8);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chats-badge--error {
+  border-color: rgba(239,68,68,0.4);
+  color: #f87171;
+}
+
+/* empty */
+.chats-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 64px 24px;
+  text-align: center;
+}
+.chats-empty-icon { color: var(--color-muted, #94a3b8); opacity: 0.4; }
+.chats-empty-text { font-size: 14px; color: var(--color-muted, #94a3b8); max-width: 280px; }
+`;
