@@ -2227,6 +2227,7 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       { slug: 'plan', label: 'Plan', description: 'Design technical plans', color: null, icon: null, temperature: 0.7, auto_run: 0, max_tool_calls: 15 },
       { slug: 'debug', label: 'Debug', description: 'Inspect, prove, and fix', color: null, icon: null, temperature: 0.7, auto_run: 0, max_tool_calls: 15 },
       { slug: 'ask', label: 'Ask', description: 'Talk and answer questions', color: null, icon: null, temperature: 0.7, auto_run: 0, max_tool_calls: 15 },
+      { slug: 'multitask', label: 'Multitask', description: 'Coordinate workflows', color: null, icon: null, temperature: 0.7, auto_run: 0, max_tool_calls: 15 },
       { slug: 'auto', label: 'Auto', description: 'Automatic routing', color: null, icon: null, temperature: 0.7, auto_run: 0, max_tool_calls: 15 },
     ]);
   }
