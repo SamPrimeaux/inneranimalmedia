@@ -53,7 +53,8 @@ import {
   type ArtifactOpenBuilderDetail,
   type QuickstartThreadDetail,
 } from './agentChatConstants';
-import { IAM_AGENT_ENSURE_PANEL, IAM_AGENT_RESUME_CHAT, IAM_AGENT_START_NEW_CHAT, openAgentConversation, resumeAgentChatSession, type StartNewAgentChatDetail } from './lib/openAgentConversation';
+import { IAM_AGENT_ENSURE_PANEL, IAM_AGENT_RESUME_CHAT, IAM_AGENT_START_NEW_CHAT, IAM_AGENT_START_PROJECT_CHAT, openAgentConversation, resumeAgentChatSession, type StartNewAgentChatDetail, type StartProjectAgentChatDetail } from './lib/openAgentConversation';
+import { writeSessionProject } from './src/lib/freshChatSession';
 import { resolveWorkspaceContextLabel } from './src/workspaceContextLabel';
 import { coalesceLabel } from './src/lib/coalesceLabel';
 import {
@@ -2215,7 +2216,7 @@ const App: React.FC = () => {
     };
     window.addEventListener(IAM_AGENT_START_NEW_CHAT, onStartNewChat);
     return () => window.removeEventListener(IAM_AGENT_START_NEW_CHAT, onStartNewChat);
-  }, [shellNewChat]);
+  }, [shellNewChat, agentPosition]);
 
   const pendingNewThreadMessageRef = useRef<QuickstartThreadDetail | null>(null);
   const pendingAgentChatComposeRef = useRef<AgentChatComposeDetail | null>(null);
@@ -2266,6 +2267,29 @@ const App: React.FC = () => {
     },
     [agentPosition, createNewAgentChatTab, dispatchNewThreadMessage, isAgentHomeAtmospheric, isNarrowViewport],
   );
+
+  useEffect(() => {
+    const onProjectChat = (e: Event) => {
+      const detail = (e as CustomEvent<StartProjectAgentChatDetail>).detail;
+      const projectId = detail?.projectId?.trim();
+      if (!projectId) return;
+      writeSessionProject({
+        id: projectId,
+        name: detail?.projectName?.trim() || 'Project',
+      });
+      navigate(AGENT_HOME_PATH);
+      const message = detail?.message?.trim();
+      requestAnimationFrame(() => {
+        if (message) {
+          startAgentNewThreadWithMessage({ message });
+        } else {
+          shellNewChat();
+        }
+      });
+    };
+    window.addEventListener(IAM_AGENT_START_PROJECT_CHAT, onProjectChat);
+    return () => window.removeEventListener(IAM_AGENT_START_PROJECT_CHAT, onProjectChat);
+  }, [navigate, shellNewChat, startAgentNewThreadWithMessage]);
 
   useEffect(() => {
     const pending = pendingNewThreadMessageRef.current;

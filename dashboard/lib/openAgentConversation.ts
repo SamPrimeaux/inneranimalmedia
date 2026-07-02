@@ -65,6 +65,31 @@ export type StartNewAgentChatDetail = {
   stayOnPage?: boolean;
 };
 
+/** Project detail composer → Agent Sam with session project + optional first message. */
+export const IAM_AGENT_START_PROJECT_CHAT = 'iam-agent-start-project-chat';
+
+export type StartProjectAgentChatDetail = {
+  projectId: string;
+  projectName: string;
+  message?: string;
+};
+
+export function startProjectAgentChat(detail: StartProjectAgentChatDetail): void {
+  if (typeof window === 'undefined') return;
+  const projectId = String(detail.projectId || '').trim();
+  if (!projectId) return;
+  const message = String(detail.message || '').trim();
+  window.dispatchEvent(
+    new CustomEvent(IAM_AGENT_START_PROJECT_CHAT, {
+      detail: {
+        projectId,
+        projectName: String(detail.projectName || '').trim() || 'Project',
+        message: message || undefined,
+      },
+    }),
+  );
+}
+
 export function startNewAgentChat(detail?: StartNewAgentChatDetail): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(IAM_AGENT_START_NEW_CHAT, { detail: detail ?? {} }));

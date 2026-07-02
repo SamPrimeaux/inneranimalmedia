@@ -28,6 +28,8 @@ import {
   projectFilesFromMeta,
   type ProjectFileRef,
 } from './projectDetailMeta';
+import { resumeAgentChatSession, startProjectAgentChat } from '../../lib/openAgentConversation';
+import { writeSessionProject } from '../../src/lib/freshChatSession';
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -424,31 +426,24 @@ export default function ProjectDetailPage() {
     try {
       const message = draft.trim();
       setDraft('');
-      window.dispatchEvent(
-        new CustomEvent('iam:agent:start-new-chat', {
-          detail: {
-            projectContext: project.chat_project_id || project.id,
-            projectName: project.name,
-            initialMessage: message || undefined,
-          },
-        }),
-      );
-      navigate('/dashboard/agent');
+      startProjectAgentChat({
+        projectId: project.chat_project_id || project.id,
+        projectName: project.name,
+        message: message || undefined,
+      });
     } finally {
       setSendBusy(false);
     }
   };
 
-  // ── resume chat ──
   const resumeChat = (s: ChatSession) => {
     const id = s.conversation_id ?? s.id ?? '';
-    if (!id) return;
-    window.dispatchEvent(
-      new CustomEvent('iam:agent:resume-chat', {
-        detail: { conversationId: id, title: s.title || 'Chat' },
-      }),
-    );
-    navigate('/dashboard/agent');
+    if (!id || !project) return;
+    writeSessionProject({
+      id: project.chat_project_id || project.id,
+      name: project.name,
+    });
+    resumeAgentChatSession({ id, title: s.title || 'Chat', force: true });
   };
 
   // ── rail content (shared between desktop aside and mobile sheet) ──
