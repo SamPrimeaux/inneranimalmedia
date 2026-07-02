@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Github,
-  Folder,
   ExternalLink,
   Loader2,
   RefreshCw,
@@ -12,26 +11,26 @@ import {
   FilePlus,
   Search,
   PanelLeftClose,
+  Folder,
+  ArrowLeft,
 } from 'lucide-react';
 import type { ActiveFile } from '../types';
 import { SetiFileIcon } from '../src/components/SetiFileIcon';
 import { useWorkspace } from '../src/context/WorkspaceContext';
-
-type GhItem = {
-  name: string;
-  path: string;
-  type: 'file' | 'dir';
-  sha?: string;
-  size?: number;
-};
+import {
+  flattenVisibleGithubTree,
+  mapGithubNodeByPath,
+  sortGithubChildren,
+  GITHUB_TREE_ROW_HEIGHT_PX,
+  type GithubFileNode,
+  type GithubFileTreeRow,
+} from '../src/lib/githubFileTree';
 
 function utf8ToBase64(text: string) {
   return btoa(unescape(encodeURIComponent(text)));
 }
 
-/** Same OAuth entry as the initial Connect button (integration GitHub, not login-only). */
 const GITHUB_INTEGRATION_OAUTH_HREF = '/api/oauth/github/start?return_to=/dashboard/agent';
-
 const GITHUB_REPOS_RL_UNTIL_KEY = 'iam_github_repos_rl_until';
 
 type RepoListErrorKind = 'reconnect' | 'rate_limit' | 'unavailable' | 'other';
@@ -47,11 +46,135 @@ function repoListErrorKind(status: number): RepoListErrorKind {
 function requestMobileActivitySheetExpand(vh?: number) {
   if (typeof window === 'undefined') return;
   if (!window.matchMedia('(max-width: 430px)').matches) return;
-  window.dispatchEvent(
-    new CustomEvent('iam-mobile-activity-sheet-expand', { detail: { vh } }),
-  );
+  window.dispatchEvent(new CustomEvent('iam-mobile-activity-sheet-expand', { detail: { vh } }));
 }
 
+// ── Inline tree renderer (replaces CWD-swap pattern) ───────────────────────
+
+interface GithubTreeViewProps {
+  root: GithubFileNode;
+  fullName: string;
+  branch: string;
+  onToggleDir: (node: GithubFileNode) => void;
+  onOpenFile: (node: GithubFileNode) => void;
+  onDeleteFile: (node: GithubFileNode) => void;
+  onNewFile: (parentPath: string) => void;
+}
+
+const GithubTreeView: React.FC<GithubTreeViewProps> = ({
+  root,
+  fullName,
+  branch,
+  onToggleDir,
+  onOpenFile,
+  onDeleteFile,
+  onNewFile,
+}) => {
+  const rows = useMemo(() => flattenVisibleGithubTree(root), [root]);
+  // Skip the root repo node itself — we render it as the header above
+  const visibleRows = rows.slice(1);
+
+  if (visibleRows.length === 0 && !root.loading) {
+    return <p className="px-3 py-2 text-[10px] text-muted italic">(empty repository)</p>;
+  }
+
+  return (
+    <div className="flex flex-col min-h-0 overflow-y-auto" style={{ maxHeight: 'min(55vh, 520px)' }}>
+      {visibleRows.map((row) => {
+        if (row.type === 'loading') {
+          return (
+            <div
+              key={row.id}
+              style={{ height: GITHUB_TREE_ROW_HEIGHT_PX, paddingLeft: `${row.depth * 12 + 8}px` }}
+              className="flex items-center gap-1.5 text-[11px] text-muted"
+            >
+              <Loader2 size={12} className="animate-spin shrink-0" />
+              <span>Loading…</span>
+            </div>
+          );
+        }
+
+        if (row.type === 'empty') {
+          return (
+            <div
+              key={row.id}
+              style={{ height: GITHUB_TREE_ROW_HEIGHT_PX, paddingLeft: `${row.depth * 12 + 8}px` }}
+              className="flex items-center gap-1.5 text-[11px] text-muted italic"
+            >
+              <span className="w-3.5 shrink-0" />
+              <span>(empty)</span>
+            </div>
+          );
+        }
+
+        const { node, depth } = row as Extract<GithubFileTreeRow, { type: 'entry' }>;
+        const isDir = node.kind === 'directory';
+        const indent = depth * 12 + 4;
+
+        return (
+          <div
+            key={row.id}
+            className="flex items-center group hover:bg-[var(--bg-hover)] pr-1"
+            style={{ height: GITHUB_TREE_ROW_HEIGHT_PX }}
+          >
+            <button
+              type="button"
+              onClick={() => isDir ? onToggleDir(node) : onOpenFile(node)}
+              style={{ paddingLeft: `${indent}px` }}
+              className="flex flex-1 min-w-0 items-center gap-1.5 h-full text-left text-[12px]"
+            >
+              {isDir ? (
+                <>
+                  {node.isOpen
+                    ? <ChevronDown size={13} className="shrink-0 text-muted opacity-60" />
+                    : <ChevronRight size={13} className="shrink-0 text-muted opacity-60" />
+                  }
+                  <Folder size={13} className="shrink-0 text-[var(--solar-blue)]" />
+                </>
+              ) : (
+                <>
+                  <span className="w-3.5 shrink-0" />
+                  <SetiFileIcon filename={node.name} size={13} />
+                </>
+              )}
+              <span className="truncate">{node.name}</span>
+              {node.loading && <Loader2 size={11} className="ml-auto shrink-0 animate-spin text-muted" />}
+            </button>
+
+            {/* Actions: new file in dir, delete file */}
+            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 shrink-0">
+              {isDir && (
+                <button
+                  type="button"
+                  title="New file here"
+                  className="p-1 text-muted hover:text-[var(--solar-cyan)]"
+                  onClick={(e) => { e.stopPropagation(); onNewFile(node.path); }}
+                >
+                  <FilePlus size={11} />
+                </button>
+              )}
+              {!isDir && (
+                <button
+                  type="button"
+                  title="Delete file"
+                  className="p-1 text-muted hover:text-[var(--solar-orange)]"
+                  onClick={(e) => { e.stopPropagation(); onDeleteFile(node); }}
+                >
+                  <Trash2 size={11} />
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      <p className="px-3 py-0.5 text-[9px] text-muted border-t border-[var(--border-subtle)]/30 shrink-0">
+        {visibleRows.filter((r) => r.type === 'entry').length} visible · {branch}
+      </p>
+    </div>
+  );
+};
+
+// ── Main GitHubExplorer ─────────────────────────────────────────────────────
 
 export const GitHubExplorer: React.FC<{
   onOpenInEditor?: (file: ActiveFile) => void;
@@ -62,135 +185,63 @@ export const GitHubExplorer: React.FC<{
 }> = ({ onOpenInEditor, expandRepoFullName, onExpandRepoConsumed, workspace_id = null, onClose }) => {
   const { workspaceId: ctxWorkspaceId, persistGithubRepo } = useWorkspace();
   const effectiveWorkspaceId = (workspace_id?.trim() || ctxWorkspaceId || '').trim() || null;
+
   const [isAuthenticated, setIsAuthenticated] = useState(true);
-  /** True when repo list returned 404 — show “Reconnect” copy vs first-time connect. */
   const [reconnectAfterReposFailure, setReconnectAfterReposFailure] = useState(false);
   const [repos, setRepos] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [repoFilter, setRepoFilter] = useState('');
+
+  // Per-repo tree roots (keyed by fullName)
+  const [treeByRepo, setTreeByRepo] = useState<Record<string, GithubFileNode>>({});
   const [expandedRepo, setExpandedRepo] = useState<string | null>(null);
-  const [pathByRepo, setPathByRepo] = useState<Record<string, string>>({});
-  const [itemsByRepoPath, setItemsByRepoPath] = useState<Record<string, GhItem[]>>({});
-  const [loadingPath, setLoadingPath] = useState<string | null>(null);
+
   const rateLimitedUntil = useRef(0);
 
   const readReposRateLimitUntil = (): number => {
     try {
       const n = Number(sessionStorage.getItem(GITHUB_REPOS_RL_UNTIL_KEY) || 0);
       return Number.isFinite(n) ? n : 0;
-    } catch {
-      return 0;
-    }
+    } catch { return 0; }
   };
 
   const fetchRepos = async () => {
     const rlUntil = Math.max(rateLimitedUntil.current, readReposRateLimitUntil());
     if (Date.now() < rlUntil) {
-      rateLimitedUntil.current = rlUntil;
       setLoadError('Rate limited — try again shortly');
-      setRepos([]);
-      setIsAuthenticated(true);
-      setReconnectAfterReposFailure(false);
       setIsLoading(false);
       return;
     }
-
     setIsLoading(true);
     setLoadError(null);
     try {
       const res = await fetch('/api/integrations/github/repos', { credentials: 'same-origin' });
       const bodyText = await res.text();
       let data: Record<string, unknown> | unknown[] = {};
-      try {
-        data = bodyText ? JSON.parse(bodyText) : {};
-      } catch {
-        data = { _parseError: true, raw: bodyText };
-      }
+      try { data = bodyText ? JSON.parse(bodyText) : {}; } catch { data = {}; }
+
       if (res.status !== 200) {
-        console.warn('[GitHubExplorer] GET /api/integrations/github/repos non-200', {
-          status: res.status,
-          body: bodyText,
-        });
         const kind = repoListErrorKind(res.status);
-        if (kind === 'reconnect') {
-          setIsAuthenticated(false);
-          setReconnectAfterReposFailure(true);
-          setRepos([]);
-          return;
-        }
+        if (kind === 'reconnect') { setIsAuthenticated(false); setReconnectAfterReposFailure(true); setRepos([]); return; }
         if (kind === 'rate_limit') {
           const until = Date.now() + 60_000;
           rateLimitedUntil.current = until;
-          try {
-            sessionStorage.setItem(GITHUB_REPOS_RL_UNTIL_KEY, String(until));
-          } catch {
-            /* private mode */
-          }
-          setIsAuthenticated(true);
-          setReconnectAfterReposFailure(false);
-          setRepos([]);
+          try { sessionStorage.setItem(GITHUB_REPOS_RL_UNTIL_KEY, String(until)); } catch { /* ignore */ }
           setLoadError('Rate limited — try again shortly');
           return;
         }
-        if (kind === 'unavailable') {
-          setIsAuthenticated(true);
-          setReconnectAfterReposFailure(false);
-          setRepos([]);
-          setLoadError('GitHub sync unavailable');
-          return;
-        }
-        if (res.status === 400) {
-          let parsed: Record<string, unknown> = {};
-          try {
-            parsed = bodyText ? JSON.parse(bodyText) : {};
-          } catch {
-            parsed = {};
-          }
-          const errStr = String(parsed.error || '').toLowerCase();
-          const msgStr = String(parsed.message || '').toLowerCase();
-          if (errStr === 'not_connected' || msgStr.includes('not_connected')) {
-            setIsAuthenticated(false);
-            setReconnectAfterReposFailure(true);
-            setRepos([]);
-            return;
-          }
-          setIsAuthenticated(true);
-          setReconnectAfterReposFailure(false);
-          setRepos([]);
-          setLoadError(
-            typeof parsed.message === 'string'
-              ? parsed.message
-              : typeof parsed.error === 'string'
-                ? parsed.error
-                : 'Request failed (400)',
-          );
-          return;
-        }
         const d = data as Record<string, unknown>;
-        setIsAuthenticated(true);
-        setReconnectAfterReposFailure(false);
-        setRepos([]);
-        setLoadError(
-          typeof d.message === 'string'
-            ? d.message
-            : typeof d.error === 'string'
-              ? d.error
-              : `Request failed (${res.status})`,
-        );
+        setLoadError(typeof d.message === 'string' ? d.message : typeof d.error === 'string' ? d.error : `Request failed (${res.status})`);
         return;
       }
       setReconnectAfterReposFailure(false);
-      const d = data as Record<string, unknown> | unknown[];
-      const list = Array.isArray(d) ? d : ((d as Record<string, unknown>).repos as unknown[]) || [];
+      const list = Array.isArray(data) ? data : ((data as Record<string, unknown>).repos as unknown[]) || [];
       setRepos(list);
       setIsAuthenticated(true);
     } catch (err) {
-      console.warn('[GitHubExplorer] GET /api/integrations/github/repos exception', err);
       setIsAuthenticated(false);
-      setReconnectAfterReposFailure(false);
       setLoadError(err instanceof Error ? err.message : 'Failed to load repos');
-      setRepos([]);
     } finally {
       setIsLoading(false);
     }
@@ -201,253 +252,187 @@ export const GitHubExplorer: React.FC<{
       const raw = sessionStorage.getItem(GITHUB_REPOS_RL_UNTIL_KEY);
       const n = raw ? Number(raw) : 0;
       if (Number.isFinite(n) && n > Date.now()) rateLimitedUntil.current = n;
-    } catch {
-      /* ignore */
-    }
+    } catch { /* ignore */ }
     void fetchRepos();
   }, [workspace_id]);
 
   useEffect(() => {
     setRepos([]);
     setExpandedRepo(null);
-    setPathByRepo({});
-    setItemsByRepoPath({});
+    setTreeByRepo({});
     setLoadError(null);
   }, [workspace_id]);
 
   const filteredRepos = useMemo(() => {
     const q = repoFilter.trim().toLowerCase();
     if (!q) return repos;
-    return repos.filter((r) => {
-      const fn = String(r.full_name || r.name || '').toLowerCase();
-      return fn.includes(q);
-    });
-  }, [repos, repoFilter, workspace_id]);
+    return repos.filter((r) => String(r.full_name || r.name || '').toLowerCase().includes(q));
+  }, [repos, repoFilter]);
 
-  const defaultBranchFor = (fullName: string) => {
+  const defaultBranchFor = useCallback((fullName: string) => {
     const r = repos.find((x) => x.full_name === fullName);
     const b = r?.default_branch;
     return typeof b === 'string' && b.trim() ? b.trim() : 'main';
-  };
+  }, [repos]);
 
-  const cacheKey = (fullName: string, path: string) => `${workspace_id ?? ''}::${fullName}::${path}`;
-
-  const loadContents = useCallback(async (fullName: string, path: string, branch: string): Promise<void> => {
+  // Fetch children for a specific node path and inject into tree
+  const fetchChildren = useCallback(async (fullName: string, nodePath: string, branch: string) => {
     const [owner, repo] = fullName.split('/');
     if (!owner || !repo) return;
-    const ck = cacheKey(fullName, path);
-    setLoadingPath(ck);
+
     try {
       const qs = new URLSearchParams();
-      if (path) qs.set('path', path);
+      if (nodePath) qs.set('path', nodePath);
       if (branch) qs.set('ref', branch);
       const res = await fetch(
         `/api/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?${qs}`,
         { credentials: 'same-origin' },
       );
-      const bodyText = await res.text();
-      let data: unknown = {};
-      try {
-        data = bodyText ? JSON.parse(bodyText) : {};
-      } catch {
-        data = { raw: bodyText };
-      }
-      if (res.status !== 200) {
-        console.warn('[GitHubExplorer] GET /api/github/repos/.../contents non-200', {
-          status: res.status,
-          body: bodyText,
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const kind = repoListErrorKind(res.status);
+        if (kind === 'reconnect') { setIsAuthenticated(false); setReconnectAfterReposFailure(true); }
+        else setLoadError(`GitHub error (${res.status})`);
+        // Mark node as loaded but empty
+        setTreeByRepo((prev) => {
+          const root = prev[fullName];
+          if (!root) return prev;
+          const target = nodePath || root.path;
+          const updated = mapGithubNodeByPath(root, target, (n) => ({ ...n, loading: false, children: [] }));
+          return { ...prev, [fullName]: updated };
         });
-        setItemsByRepoPath((prev) => ({ ...prev, [ck]: [] }));
-        const ckKind = repoListErrorKind(res.status);
-        if (ckKind === 'reconnect') {
-          setIsAuthenticated(false);
-          setReconnectAfterReposFailure(true);
-          setLoadError(null);
-          return;
-        }
-        if (ckKind === 'rate_limit') {
-          setLoadError('Rate limited — try again shortly');
-          return;
-        }
-        if (ckKind === 'unavailable') {
-          setLoadError('GitHub sync unavailable');
-          return;
-        }
-        const msg =
-          typeof data === 'object' &&
-          data !== null &&
-          typeof (data as { message?: string }).message === 'string'
-            ? (data as { message: string }).message
-            : `Request failed (${res.status})`;
-        setLoadError(msg);
         return;
       }
+
       const list = Array.isArray(data) ? data : [];
-      const mapped: GhItem[] = list.map((it: any) => ({
-        name: it.name,
-        path: it.path,
-        type: it.type === 'dir' ? 'dir' : 'file',
-        sha: it.sha,
-        size: it.size,
-      }));
-      mapped.sort((a, b) => {
-        if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
-        return a.name.localeCompare(b.name);
+      const children: GithubFileNode[] = sortGithubChildren(
+        list.map((it: any) => ({
+          name: it.name,
+          path: it.path,
+          kind: it.type === 'dir' ? 'directory' : 'file',
+          sha: it.sha,
+          size: it.size,
+          isOpen: false,
+        }))
+      );
+
+      setTreeByRepo((prev) => {
+        const root = prev[fullName];
+        if (!root) return prev;
+        const target = nodePath || root.path;
+        const updated = mapGithubNodeByPath(root, target, (n) => ({ ...n, loading: false, children }));
+        return { ...prev, [fullName]: updated };
       });
-      setItemsByRepoPath((prev) => ({ ...prev, [ck]: mapped }));
-      setLoadError(null);
     } catch {
-      setItemsByRepoPath((prev) => ({ ...prev, [ck]: [] }));
-    } finally {
-      setLoadingPath(null);
+      setTreeByRepo((prev) => {
+        const root = prev[fullName];
+        if (!root) return prev;
+        const target = nodePath || root.path;
+        const updated = mapGithubNodeByPath(root, target, (n) => ({ ...n, loading: false, children: [] }));
+        return { ...prev, [fullName]: updated };
+      });
     }
-  }, [workspace_id]);
+  }, []);
 
-  useEffect(() => {
-    const fn = expandRepoFullName?.trim();
-    if (!fn) return;
-    if (isLoading) return;
-    setExpandedRepo(fn);
-    setPathByRepo((p) => ({ ...p, [fn]: '' }));
-    const br = defaultBranchFor(fn);
-    void (async () => {
-      await loadContents(fn, '', br);
-      onExpandRepoConsumed?.();
-    })();
-  }, [expandRepoFullName, loadContents, onExpandRepoConsumed, repos, isLoading, workspace_id]);
-
-  const toggleRepo = (fullName: string) => {
+  const toggleRepo = useCallback((fullName: string) => {
     if (expandedRepo === fullName) {
       setExpandedRepo(null);
       return;
     }
     setExpandedRepo(fullName);
     requestMobileActivitySheetExpand(58);
-    setPathByRepo((p) => ({ ...p, [fullName]: '' }));
-    void loadContents(fullName, '', defaultBranchFor(fullName));
     if (effectiveWorkspaceId) void persistGithubRepo(fullName, effectiveWorkspaceId);
-  };
 
-  const enterDir = (fullName: string, path: string) => {
-    requestMobileActivitySheetExpand(72);
-    setPathByRepo((p) => ({ ...p, [fullName]: path }));
-    void loadContents(fullName, path, defaultBranchFor(fullName));
-  };
+    // Init tree root if not yet loaded
+    setTreeByRepo((prev) => {
+      if (prev[fullName]) return prev;
+      const branch = defaultBranchFor(fullName);
+      const root: GithubFileNode = {
+        name: fullName.split('/')[1] || fullName,
+        path: '',
+        kind: 'directory',
+        isOpen: true,
+        loading: true,
+      };
+      return { ...prev, [fullName]: root };
+    });
 
-  const openFile = async (fullName: string, filePath: string) => {
+    // Fetch root contents
+    const branch = defaultBranchFor(fullName);
+    void fetchChildren(fullName, '', branch);
+  }, [expandedRepo, effectiveWorkspaceId, persistGithubRepo, defaultBranchFor, fetchChildren]);
+
+  const handleToggleDir = useCallback((fullName: string, branch: string, node: GithubFileNode) => {
+    if (node.isOpen) {
+      // Collapse
+      setTreeByRepo((prev) => {
+        const root = prev[fullName];
+        if (!root) return prev;
+        const updated = mapGithubNodeByPath(root, node.path, (n) => ({ ...n, isOpen: false }));
+        return { ...prev, [fullName]: updated };
+      });
+      return;
+    }
+
+    // Expand — mark loading, fetch if children not loaded
+    setTreeByRepo((prev) => {
+      const root = prev[fullName];
+      if (!root) return prev;
+      const updated = mapGithubNodeByPath(root, node.path, (n) => ({
+        ...n,
+        isOpen: true,
+        loading: n.children === undefined,
+      }));
+      return { ...prev, [fullName]: updated };
+    });
+
+    if (node.children === undefined) {
+      void fetchChildren(fullName, node.path, branch);
+    }
+  }, [fetchChildren]);
+
+  const handleOpenFile = useCallback(async (fullName: string, branch: string, node: GithubFileNode) => {
     if (!onOpenInEditor) return;
     const [owner, repo] = fullName.split('/');
     if (!owner || !repo) return;
-    const branch = defaultBranchFor(fullName);
     try {
-      const qs = new URLSearchParams({ path: filePath });
-      qs.set('ref', branch);
+      const qs = new URLSearchParams({ path: node.path, ref: branch });
       const res = await fetch(
         `/api/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?${qs}`,
         { credentials: 'same-origin' },
       );
       const data = await res.json();
       if (!res.ok || data.type !== 'file' || typeof data.content !== 'string') return;
-      const baseName = filePath.split('/').pop() || filePath;
-      const fileSize = typeof data.size === 'number' ? data.size : null;
       const { isBinaryFile } = await import('../src/lib/fileKind');
       const { activeFileFromPreview } = await import('../src/lib/mediaPreview');
-      if (isBinaryFile(baseName, fileSize)) {
+      const fileSize = typeof data.size === 'number' ? data.size : null;
+      if (isBinaryFile(node.name, fileSize)) {
         onOpenInEditor({
-          ...activeFileFromPreview({
-            name: data.name || baseName,
-            kind: 'binary',
-            previewUrl: '',
-            size: fileSize ?? undefined,
-            binaryMessage: 'Binary file — preview not available in the editor.',
-          }),
-          githubPath: filePath,
-          githubRepo: fullName,
-          githubSha: typeof data.sha === 'string' ? data.sha : undefined,
-          githubBranch: branch,
+          ...activeFileFromPreview({ name: node.name, kind: 'binary', previewUrl: '', size: fileSize ?? undefined, binaryMessage: 'Binary file — preview not available.' }),
+          githubPath: node.path, githubRepo: fullName, githubSha: data.sha, githubBranch: branch,
         });
         return;
       }
       const raw = String(data.content).replace(/\n/g, '');
-      const binary = atob(raw);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const bytes = new Uint8Array(atob(raw).split('').map((c) => c.charCodeAt(0)));
       const text = new TextDecoder().decode(bytes);
       onOpenInEditor({
-        name: data.name || baseName,
-        content: text,
-        originalContent: text,
-        githubPath: filePath,
-        githubRepo: fullName,
+        name: node.name, content: text, originalContent: text,
+        githubPath: node.path, githubRepo: fullName,
         githubSha: typeof data.sha === 'string' ? data.sha : undefined,
-        githubBranch: branch,
-        size: fileSize ?? undefined,
+        githubBranch: branch, size: fileSize ?? undefined,
       });
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return;
       console.error(e);
     }
-  };
+  }, [onOpenInEditor]);
 
-  const createNewFile = async (fullName: string, cwd: string) => {
-    const name = window.prompt('New file name (relative to current folder)', 'new-file.txt');
-    if (!name || !name.trim()) return;
+  const handleDeleteFile = useCallback(async (fullName: string, branch: string, node: GithubFileNode) => {
+    if (!node.sha) { window.alert('Missing SHA — refresh and retry.'); return; }
+    if (!window.confirm(`Delete ${node.path} on GitHub?`)) return;
     const [owner, repo] = fullName.split('/');
     if (!owner || !repo) return;
-    const branch = defaultBranchFor(fullName);
-    const rel = name.trim().replace(/^\/+/, '');
-    const pathSeg = cwd ? `${cwd}/${rel}` : rel;
-    try {
-      const res = await fetch(
-        `/api/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({
-            path: pathSeg,
-            message: 'Create file via Agent Sam',
-            content: utf8ToBase64('\n'),
-            branch,
-          }),
-        },
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        window.alert(typeof data.message === 'string' ? data.message : 'Create failed');
-        return;
-      }
-      void loadContents(fullName, cwd, branch);
-      if (onOpenInEditor) {
-        onOpenInEditor({
-          name: rel.split('/').pop() || rel,
-          content: '\n',
-          originalContent: '\n',
-          githubPath: pathSeg,
-          githubRepo: fullName,
-          githubSha: data.content?.sha || data.sha,
-          githubBranch: branch,
-        });
-      }
-    } catch (e) {
-      console.error(e);
-      window.alert('Create failed');
-    }
-  };
-
-  const deleteItem = async (fullName: string, cwd: string, it: GhItem) => {
-    if (it.type === 'dir') {
-      window.alert('Delete folder from GitHub.com (API needs empty tree).');
-      return;
-    }
-    if (!it.sha) {
-      window.alert('Missing file sha; refresh and try again.');
-      return;
-    }
-    if (!window.confirm(`Delete ${it.path} on GitHub?`)) return;
-    const [owner, repo] = fullName.split('/');
-    if (!owner || !repo) return;
-    const branch = defaultBranchFor(fullName);
     try {
       const res = await fetch(
         `/api/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`,
@@ -455,29 +440,61 @@ export const GitHubExplorer: React.FC<{
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
-          body: JSON.stringify({
-            path: it.path,
-            message: 'Delete via Agent Sam',
-            sha: it.sha,
-            branch,
-          }),
+          body: JSON.stringify({ path: node.path, message: 'Delete via Agent Sam', sha: node.sha, branch }),
         },
       );
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        window.alert(typeof data.message === 'string' ? data.message : 'Delete failed');
+        const d = await res.json().catch(() => ({}));
+        window.alert(typeof d.message === 'string' ? d.message : 'Delete failed');
         return;
       }
-      void loadContents(fullName, cwd, branch);
-    } catch (e) {
-      console.error(e);
-      window.alert('Delete failed');
-    }
-  };
+      // Remove from tree
+      setTreeByRepo((prev) => {
+        const root = prev[fullName];
+        if (!root) return prev;
+        const parentPath = node.path.includes('/') ? node.path.split('/').slice(0, -1).join('/') : '';
+        const updated = mapGithubNodeByPath(root, parentPath || root.path, (n) => ({
+          ...n,
+          children: n.children?.filter((c) => c.path !== node.path),
+        }));
+        return { ...prev, [fullName]: updated };
+      });
+    } catch (e) { console.error(e); window.alert('Delete failed'); }
+  }, []);
 
-  const handleConnect = () => {
-    window.location.href = GITHUB_INTEGRATION_OAUTH_HREF;
-  };
+  const handleNewFile = useCallback(async (fullName: string, branch: string, parentPath: string) => {
+    const name = window.prompt('New file name', 'new-file.ts');
+    if (!name?.trim()) return;
+    const [owner, repo] = fullName.split('/');
+    if (!owner || !repo) return;
+    const filePath = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
+    try {
+      const res = await fetch(
+        `/api/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ path: filePath, message: 'Create via Agent Sam', content: utf8ToBase64('\n'), branch }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { window.alert(typeof data.message === 'string' ? data.message : 'Create failed'); return; }
+      // Refresh parent dir
+      await fetchChildren(fullName, parentPath, branch);
+      if (onOpenInEditor) {
+        onOpenInEditor({ name: name.trim(), content: '\n', originalContent: '\n', githubPath: filePath, githubRepo: fullName, githubSha: data.content?.sha || data.sha, githubBranch: branch });
+      }
+    } catch (e) { console.error(e); window.alert('Create failed'); }
+  }, [fetchChildren, onOpenInEditor]);
+
+  // Handle external expandRepoFullName prop
+  useEffect(() => {
+    const fn = expandRepoFullName?.trim();
+    if (!fn || isLoading) return;
+    if (expandedRepo !== fn) toggleRepo(fn);
+    onExpandRepoConsumed?.();
+  }, [expandRepoFullName, isLoading, expandedRepo, toggleRepo, onExpandRepoConsumed]);
 
   if (!isAuthenticated) {
     return (
@@ -493,12 +510,12 @@ export const GitHubExplorer: React.FC<{
         </h3>
         <p className="text-[11px] font-mono text-muted mb-8 max-w-[220px]">
           {reconnectAfterReposFailure
-            ? 'GitHub returned an authorization or endpoint error (expired token, revoked access, or missing route). Use Reconnect to run the same OAuth flow as Connect.'
-            : 'Connect GitHub OAuth to list repos, browse, open, create, save, and delete files (per repo permissions).'}
+            ? 'GitHub returned an auth error. Use Reconnect to re-run OAuth.'
+            : 'Connect GitHub OAuth to browse repos, open files, and write back.'}
         </p>
         <button
           type="button"
-          onClick={handleConnect}
+          onClick={() => { window.location.href = GITHUB_INTEGRATION_OAUTH_HREF; }}
           className="flex items-center justify-center gap-2 px-4 py-2 bg-[var(--text-main)] text-[var(--bg-panel)] hover:brightness-110 rounded text-[11px] font-bold transition-all w-full max-w-[220px]"
         >
           <ExternalLink size={14} /> {reconnectAfterReposFailure ? 'Reconnect GitHub' : 'Connect GitHub'}
@@ -507,164 +524,151 @@ export const GitHubExplorer: React.FC<{
     );
   }
 
+  // If a repo is expanded, show focused tree view (hides repo list)
+  const activeTree = expandedRepo ? treeByRepo[expandedRepo] : null;
+  const activeBranch = expandedRepo ? defaultBranchFor(expandedRepo) : '';
+
   return (
     <div className="w-full h-full bg-[var(--bg-panel)] flex flex-col text-main overflow-hidden min-h-0">
-      <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex flex-col gap-2 shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <Github size={14} className="shrink-0" />
-            <span className="text-[11px] font-bold tracking-widest uppercase truncate">Repositories</span>
-          </div>
-          <div className="flex items-center gap-0.5 shrink-0">
+      {/* Header */}
+      <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          {expandedRepo ? (
             <button
               type="button"
-              onClick={() => void fetchRepos()}
-              disabled={isLoading}
-              className="p-1.5 hover:bg-[var(--bg-hover)] rounded disabled:opacity-50"
-              title="Refresh"
-              aria-label="Refresh repositories"
+              onClick={() => setExpandedRepo(null)}
+              className="p-1 hover:bg-[var(--bg-hover)] rounded text-muted hover:text-main"
+              title="Back to repos"
             >
-              <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
+              <ArrowLeft size={13} />
             </button>
-            {onClose ? (
-              <button
-                type="button"
-                className="p-1.5 rounded text-muted hover:text-main hover:bg-[var(--bg-hover)] transition-colors"
-                title="Close repositories"
-                aria-label="Close repositories"
-                onClick={onClose}
-              >
-                <PanelLeftClose size={14} strokeWidth={1.75} />
-              </button>
-            ) : null}
-          </div>
+          ) : (
+            <Github size={13} className="shrink-0 text-muted" />
+          )}
+          <span className="text-[11px] font-bold tracking-widest uppercase truncate text-muted">
+            {expandedRepo ? expandedRepo.split('/')[1] : 'Repositories'}
+          </span>
+          {expandedRepo && (
+            <span className="text-[9px] font-mono text-muted/60 truncate">{activeBranch}</span>
+          )}
         </div>
-        <div className="flex items-center gap-1 rounded border border-[var(--border-subtle)]/50 px-2 py-1.5">
-          <Search size={12} className="text-muted shrink-0" />
-          <input
-            type="search"
-            value={repoFilter}
-            onChange={(e) => setRepoFilter(e.target.value)}
-            onFocus={() => requestMobileActivitySheetExpand(75)}
-            placeholder="Filter repos…"
-            className="w-full bg-transparent text-[11px] outline-none placeholder:text-muted min-h-[28px]"
-          />
+        <div className="flex items-center gap-0.5 shrink-0">
+          {expandedRepo ? (
+            <button
+              type="button"
+              onClick={() => void handleNewFile(expandedRepo, activeBranch, '')}
+              className="p-1.5 hover:bg-[var(--bg-hover)] rounded text-muted hover:text-[var(--solar-cyan)]"
+              title="New file in root"
+            >
+              <FilePlus size={12} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              if (expandedRepo) {
+                // Re-fetch root of current repo
+                setTreeByRepo((prev) => {
+                  const root = prev[expandedRepo];
+                  if (!root) return prev;
+                  return { ...prev, [expandedRepo]: { ...root, loading: true, children: undefined } };
+                });
+                void fetchChildren(expandedRepo, '', activeBranch);
+              } else {
+                void fetchRepos();
+              }
+            }}
+            disabled={isLoading}
+            className="p-1.5 hover:bg-[var(--bg-hover)] rounded disabled:opacity-50 text-muted hover:text-main"
+            title="Refresh"
+          >
+            <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
+          </button>
+          {onClose ? (
+            <button
+              type="button"
+              className="p-1.5 rounded text-muted hover:text-main hover:bg-[var(--bg-hover)]"
+              title="Close"
+              onClick={onClose}
+            >
+              <PanelLeftClose size={13} strokeWidth={1.75} />
+            </button>
+          ) : null}
         </div>
-        {loadError && (
-          <p className="text-[10px] text-[var(--solar-orange)] font-mono break-words">{loadError}</p>
-        )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 min-h-0">
-        {filteredRepos.length === 0 && !isLoading && (
-          <div className="p-4 text-center">
-            <p className="text-[10px] text-muted italic">No repositories match.</p>
+      {/* Repo list OR focused tree */}
+      {!expandedRepo ? (
+        <>
+          {/* Filter */}
+          <div className="px-3 py-1.5 border-b border-[var(--border-subtle)]/40 shrink-0">
+            <div className="flex items-center gap-1.5 rounded border border-[var(--border-subtle)]/50 px-2 py-1">
+              <Search size={11} className="text-muted shrink-0" />
+              <input
+                type="search"
+                value={repoFilter}
+                onChange={(e) => setRepoFilter(e.target.value)}
+                placeholder="Filter repos…"
+                className="w-full bg-transparent text-[11px] outline-none placeholder:text-muted"
+              />
+            </div>
           </div>
-        )}
-        <div className="flex flex-col gap-1">
-          {filteredRepos.map((repo) => {
-            const fullName = repo.full_name as string;
-            const open = expandedRepo === fullName;
-            const cwd = pathByRepo[fullName] ?? '';
-            const ck = cacheKey(fullName, cwd);
-            const items = itemsByRepoPath[ck] || [];
-            const loading = loadingPath === ck;
-            const branch = defaultBranchFor(fullName);
-            return (
-              <div key={repo.id} className="rounded-lg border border-[var(--border-subtle)]/40 overflow-hidden">
+          {loadError && (
+            <p className="px-3 py-1 text-[10px] text-[var(--solar-orange)] font-mono shrink-0">{loadError}</p>
+          )}
+          <div className="flex-1 overflow-y-auto min-h-0">
+            {isLoading && (
+              <div className="flex items-center gap-2 px-3 py-3 text-[11px] text-muted">
+                <Loader2 size={12} className="animate-spin" /> Loading repos…
+              </div>
+            )}
+            {!isLoading && filteredRepos.length === 0 && (
+              <p className="px-3 py-3 text-[10px] text-muted italic">No repositories found.</p>
+            )}
+            {filteredRepos.map((repo) => {
+              const fn = repo.full_name as string;
+              const branch = defaultBranchFor(fn);
+              return (
                 <button
+                  key={repo.id}
                   type="button"
-                  onClick={() => toggleRepo(fullName)}
-                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-left text-[12px]"
+                  onClick={() => toggleRepo(fn)}
+                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] text-left border-b border-[var(--border-subtle)]/20"
                 >
-                  {open ? (
-                    <ChevronDown size={14} className="text-muted shrink-0" />
-                  ) : (
-                    <ChevronRight size={14} className="text-muted shrink-0" />
-                  )}
-                  <Folder size={14} className="text-muted shrink-0" />
+                  <ChevronRight size={13} className="text-muted shrink-0" />
+                  <Folder size={13} className="text-[var(--solar-blue)] shrink-0" />
                   <div className="flex flex-col min-w-0 flex-1">
-                    <span className="font-bold truncate">{repo.name}</span>
-                    <span className="text-[9px] text-muted truncate">{fullName}</span>
-                    <span className="text-[8px] text-muted font-mono">branch: {branch}</span>
+                    <span className="text-[12px] font-medium truncate">{repo.name}</span>
+                    <span className="text-[9px] text-muted font-mono truncate">{branch}</span>
                   </div>
                 </button>
-                {open && (
-                  <div className="px-2 pb-2 pl-2 border-t border-[var(--border-subtle)]/30">
-                    <div className="flex items-center gap-1 py-1">
-                      <button
-                        type="button"
-                        className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-[var(--bg-hover)] hover:bg-[var(--border-subtle)]"
-                        onClick={() => void createNewFile(fullName, cwd)}
-                        title="New file in current folder"
-                      >
-                        <FilePlus size={12} /> New file
-                      </button>
-                    </div>
-                    {cwd && (
-                      <button
-                        type="button"
-                        className="text-[10px] font-mono text-[var(--solar-cyan)] mb-1 hover:underline"
-                        onClick={() => {
-                          const parts = cwd.split('/');
-                          parts.pop();
-                          enterDir(fullName, parts.join('/'));
-                        }}
-                      >
-                        .. up
-                      </button>
-                    )}
-                    {cwd && (
-                      <div className="text-[9px] font-mono text-muted truncate mb-1">{cwd}</div>
-                    )}
-                    {loading && (
-                      <div className="flex items-center gap-2 py-2 text-[10px] text-muted">
-                        <Loader2 size={12} className="animate-spin" /> Loading…
-                      </div>
-                    )}
-                    {!loading &&
-                      items.map((it) => (
-                        <div
-                          key={it.path}
-                          className="flex items-center gap-1 group rounded hover:bg-[var(--bg-hover)] pr-1"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (it.type === 'dir') enterDir(fullName, it.path);
-                              else void openFile(fullName, it.path);
-                            }}
-                            className="flex flex-1 min-w-0 items-center gap-2 px-2 py-1.5 text-left text-[11px]"
-                          >
-                            {it.type === 'dir' ? (
-                              <Folder size={12} className="text-[var(--solar-cyan)] shrink-0" />
-                            ) : (
-                              <SetiFileIcon filename={it.name} size={13} />
-                            )}
-                            <span className="truncate">{it.name}</span>
-                          </button>
-                          {it.type === 'file' && (
-                            <button
-                              type="button"
-                              className="p-1 opacity-60 hover:opacity-100 text-muted hover:text-[var(--solar-orange)] shrink-0"
-                              title="Delete file"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void deleteItem(fullName, cwd, it);
-                              }}
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        /* Focused tree view */
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+          {loadError && (
+            <p className="px-3 py-1 text-[10px] text-[var(--solar-orange)] font-mono shrink-0">{loadError}</p>
+          )}
+          {activeTree ? (
+            <GithubTreeView
+              root={activeTree}
+              fullName={expandedRepo}
+              branch={activeBranch}
+              onToggleDir={(node) => handleToggleDir(expandedRepo, activeBranch, node)}
+              onOpenFile={(node) => void handleOpenFile(expandedRepo, activeBranch, node)}
+              onDeleteFile={(node) => void handleDeleteFile(expandedRepo, activeBranch, node)}
+              onNewFile={(parentPath) => void handleNewFile(expandedRepo, activeBranch, parentPath)}
+            />
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-3 text-[11px] text-muted">
+              <Loader2 size={12} className="animate-spin" /> Loading…
+            </div>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 };
