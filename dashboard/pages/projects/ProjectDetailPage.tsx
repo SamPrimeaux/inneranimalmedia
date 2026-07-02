@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
+  ChevronDown,
+  ChevronRight,
   FolderOpen,
   MoreHorizontal,
   Pencil,
@@ -56,6 +58,16 @@ function relTime(raw?: number | string): string {
   return mo === 1 ? '1 month ago' : `${mo} months ago`;
 }
 
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= breakpoint);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth <= breakpoint);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, [breakpoint]);
+  return isMobile;
+}
+
 // ─── skeleton rows ───────────────────────────────────────────────────────────
 
 function SkeletonRow() {
@@ -95,6 +107,9 @@ function RailSection({
         >
           {title}
           {badge}
+          <span className="cpd-rail-chevron">
+            {open ? <ChevronDown size={12} strokeWidth={2} /> : <ChevronRight size={12} strokeWidth={2} />}
+          </span>
         </button>
         {action && <div className="cpd-rail-section-action">{action}</div>}
       </div>
@@ -108,6 +123,7 @@ function RailSection({
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
 
   const [project, setProject] = useState<Project | null>(null);
   const [chats, setChats] = useState<ChatSession[]>([]);
@@ -127,6 +143,9 @@ export default function ProjectDetailPage() {
   // more menu
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // mobile rail sheet
+  const [railOpen, setRailOpen] = useState(false);
 
   // right rail edit states
   const [instructions, setInstructions] = useState('');
@@ -182,6 +201,16 @@ export default function ProjectDetailPage() {
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
 
+  // lock body scroll when mobile rail sheet is open
+  useEffect(() => {
+    if (isMobile && railOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isMobile, railOpen]);
+
   // auto-grow textarea
   useEffect(() => {
     const el = textareaRef.current;
@@ -217,7 +246,6 @@ export default function ProjectDetailPage() {
     try {
       const message = draft.trim();
       setDraft('');
-      // fire event that App.tsx already listens to for new chat + navigate to agent
       window.dispatchEvent(
         new CustomEvent('iam:agent:start-new-chat', {
           detail: {
@@ -245,6 +273,84 @@ export default function ProjectDetailPage() {
     navigate('/dashboard/agent');
   };
 
+  // ── rail content (shared between desktop aside and mobile sheet) ──
+  const railContent = (
+    <>
+      <RailSection
+        title="Memory"
+        defaultOpen={!isMobile}
+        badge={<span className="cpd-rail-badge">Only you</span>}
+        action={
+          <button type="button" className="cpd-icon-btn" title="Edit memory" onClick={() => {}}>
+            <Pencil size={13} strokeWidth={1.5} />
+          </button>
+        }
+      >
+        <textarea
+          className="cpd-rail-textarea"
+          rows={4}
+          value={memory}
+          onChange={(e) => { setMemory(e.target.value); setMemSaved(false); }}
+          placeholder="Key context Agent Sam should always know about this project..."
+        />
+        {memory && (
+          <button type="button" className="cpd-rail-save" onClick={() => setMemSaved(true)}>
+            {memSaved ? 'Saved' : 'Save memory'}
+          </button>
+        )}
+      </RailSection>
+
+      <RailSection
+        title="Instructions"
+        defaultOpen={!isMobile}
+        action={
+          <button type="button" className="cpd-icon-btn" title="Add instructions" onClick={() => {}}>
+            <Plus size={14} strokeWidth={1.5} />
+          </button>
+        }
+      >
+        {instructions ? (
+          <>
+            <textarea
+              className="cpd-rail-textarea"
+              rows={4}
+              value={instructions}
+              onChange={(e) => { setInstructions(e.target.value); setInstrSaved(false); }}
+            />
+            <button type="button" className="cpd-rail-save" onClick={() => setInstrSaved(true)}>
+              {instrSaved ? 'Saved' : 'Save instructions'}
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="cpd-rail-empty-btn"
+            onClick={() => setInstructions(' ')}
+          >
+            Add instructions to tailor Agent Sam responses
+          </button>
+        )}
+      </RailSection>
+
+      <RailSection
+        title="Files"
+        defaultOpen={!isMobile}
+        action={
+          <button type="button" className="cpd-icon-btn" title="Add file">
+            <Plus size={14} strokeWidth={1.5} />
+          </button>
+        }
+      >
+        <div className="cpd-files-empty">
+          <FolderOpen size={28} strokeWidth={1} className="cpd-files-icon" />
+          <p className="cpd-files-text">
+            Add PDFs, documents, or other text to reference in this project.
+          </p>
+        </div>
+      </RailSection>
+    </>
+  );
+
   // ── loading skeleton ──
   if (loadingProject) {
     return (
@@ -260,9 +366,11 @@ export default function ProjectDetailPage() {
             <div className="cpd-skel" style={{ height: 13, width: '45%' }} />
           </div>
         </div>
-        <div className="cpd-right">
-          <div className="cpd-skel" style={{ height: 80, width: '100%', borderRadius: 10 }} />
-        </div>
+        {!isMobile && (
+          <div className="cpd-right">
+            <div className="cpd-skel" style={{ height: 80, width: '100%', borderRadius: 10 }} />
+          </div>
+        )}
       </div>
     );
   }
@@ -276,7 +384,7 @@ export default function ProjectDetailPage() {
       {/* ── left column ── */}
       <div className="cpd-left">
 
-        {/* back */}
+        {/* back + mobile details toggle */}
         <div className="cpd-back-row">
           <button
             type="button"
@@ -286,6 +394,15 @@ export default function ProjectDetailPage() {
             <ArrowLeft size={13} strokeWidth={1.5} />
             All projects
           </button>
+          {isMobile && (
+            <button
+              type="button"
+              className="cpd-details-toggle"
+              onClick={() => setRailOpen(true)}
+            >
+              Details
+            </button>
+          )}
         </div>
 
         {/* title row */}
@@ -310,11 +427,7 @@ export default function ProjectDetailPage() {
               >
                 {renameBusy ? '...' : 'Save'}
               </button>
-              <button
-                type="button"
-                className="cpd-icon-btn"
-                onClick={() => setRenaming(false)}
-              >
+              <button type="button" className="cpd-icon-btn" onClick={() => setRenaming(false)}>
                 <X size={14} />
               </button>
             </div>
@@ -322,7 +435,6 @@ export default function ProjectDetailPage() {
             <div className="cpd-title-row">
               <h1 className="cpd-title">{project.name}</h1>
               <div className="cpd-title-actions">
-                {/* more menu */}
                 <div ref={menuRef} style={{ position: 'relative' }}>
                   <button
                     type="button"
@@ -434,109 +546,40 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {/* ── right rail ── */}
-      <aside className="cpd-right">
+      {/* ── desktop right rail ── */}
+      {!isMobile && (
+        <aside className="cpd-right">
+          {railContent}
+        </aside>
+      )}
 
-        {/* Memory */}
-        <RailSection
-          title="Memory"
-          badge={
-            <span className="cpd-rail-badge">Only you</span>
-          }
-          action={
-            <button
-              type="button"
-              className="cpd-icon-btn"
-              title="Edit memory"
-              onClick={() => {}}
-            >
-              <Pencil size={13} strokeWidth={1.5} />
-            </button>
-          }
-        >
-          <textarea
-            className="cpd-rail-textarea"
-            rows={4}
-            value={memory}
-            onChange={(e) => { setMemory(e.target.value); setMemSaved(false); }}
-            placeholder="Key context Agent Sam should always know about this project..."
+      {/* ── mobile bottom sheet ── */}
+      {isMobile && railOpen && (
+        <>
+          {/* backdrop */}
+          <div
+            className="cpd-sheet-backdrop"
+            onClick={() => setRailOpen(false)}
           />
-          {memory && (
-            <button
-              type="button"
-              className="cpd-rail-save"
-              onClick={() => setMemSaved(true)}
-            >
-              {memSaved ? 'Saved' : 'Save memory'}
-            </button>
-          )}
-        </RailSection>
-
-        {/* Instructions */}
-        <RailSection
-          title="Instructions"
-          defaultOpen={true}
-          action={
-            <button
-              type="button"
-              className="cpd-icon-btn"
-              title="Add instructions"
-              onClick={() => {}}
-            >
-              <Plus size={14} strokeWidth={1.5} />
-            </button>
-          }
-        >
-          {instructions ? (
-            <>
-              <textarea
-                className="cpd-rail-textarea"
-                rows={4}
-                value={instructions}
-                onChange={(e) => { setInstructions(e.target.value); setInstrSaved(false); }}
-              />
+          {/* sheet */}
+          <div className="cpd-sheet">
+            <div className="cpd-sheet-header">
+              <span className="cpd-sheet-title">Project Details</span>
               <button
                 type="button"
-                className="cpd-rail-save"
-                onClick={() => setInstrSaved(true)}
+                className="cpd-icon-btn"
+                onClick={() => setRailOpen(false)}
+                aria-label="Close"
               >
-                {instrSaved ? 'Saved' : 'Save instructions'}
+                <X size={18} strokeWidth={1.5} />
               </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              className="cpd-rail-empty-btn"
-              onClick={() => setInstructions(' ')}
-            >
-              Add instructions to tailor Agent Sam responses
-            </button>
-          )}
-        </RailSection>
-
-        {/* Files */}
-        <RailSection
-          title="Files"
-          defaultOpen={true}
-          action={
-            <button
-              type="button"
-              className="cpd-icon-btn"
-              title="Add file"
-            >
-              <Plus size={14} strokeWidth={1.5} />
-            </button>
-          }
-        >
-          <div className="cpd-files-empty">
-            <FolderOpen size={28} strokeWidth={1} className="cpd-files-icon" />
-            <p className="cpd-files-text">
-              Add PDFs, documents, or other text to reference in this project.
-            </p>
+            </div>
+            <div className="cpd-sheet-body">
+              {railContent}
+            </div>
           </div>
-        </RailSection>
-
-      </aside>
+        </>
+      )}
     </div>
   );
 }
@@ -572,6 +615,9 @@ const CSS = `
 .cpd-back-row {
   padding: 0 28px;
   margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 .cpd-back {
   display: inline-flex;
@@ -586,6 +632,19 @@ const CSS = `
   transition: color 0.12s;
 }
 .cpd-back:hover { color: var(--color-main, #e2e8f0); }
+
+/* mobile details toggle */
+.cpd-details-toggle {
+  font-size: 12px;
+  color: var(--solar-cyan, #22d3ee);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.1s;
+}
+.cpd-details-toggle:hover { background: rgba(34,211,238,0.08); }
 
 /* title */
 .cpd-title-section {
@@ -802,7 +861,7 @@ const CSS = `
   color: var(--color-muted, #94a3b8);
 }
 
-/* ── right rail ── */
+/* ── desktop right rail ── */
 .cpd-right {
   width: 320px;
   min-width: 320px;
@@ -815,6 +874,7 @@ const CSS = `
   padding: 20px 0 40px;
 }
 
+/* ── rail sections (shared desktop + mobile sheet) ── */
 .cpd-rail-section {
   border-bottom: 1px solid var(--dashboard-border);
   padding: 16px 20px;
@@ -839,6 +899,11 @@ const CSS = `
   cursor: pointer;
   padding: 0;
   text-align: left;
+}
+.cpd-rail-chevron {
+  display: flex;
+  align-items: center;
+  color: var(--color-muted, #94a3b8);
 }
 .cpd-rail-section-action {
   display: flex;
@@ -923,6 +988,95 @@ const CSS = `
   margin: 0;
   max-width: 220px;
   line-height: 1.5;
+}
+
+/* ── mobile bottom sheet ── */
+.cpd-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 50;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.cpd-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 51;
+  background: var(--bg-elevated, #1a1d2e);
+  border-top: 1px solid var(--dashboard-border);
+  border-radius: 20px 20px 0 0;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  animation: cpd-sheet-in 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes cpd-sheet-in {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.cpd-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--dashboard-border);
+  flex-shrink: 0;
+}
+
+.cpd-sheet-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.cpd-sheet-body {
+  overflow-y: auto;
+  flex: 1;
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+
+/* ── mobile overrides ── */
+@media (max-width: 768px) {
+  .cpd-root {
+    overflow: visible;
+  }
+  .cpd-left {
+    max-width: 100%;
+    padding: 16px 0 80px;
+  }
+  .cpd-back-row {
+    padding: 0 16px;
+    margin-bottom: 14px;
+  }
+  .cpd-title-section {
+    padding: 0 16px;
+    margin-bottom: 16px;
+  }
+  .cpd-title {
+    font-size: 22px;
+  }
+  .cpd-composer {
+    margin: 0 16px 20px;
+  }
+  .cpd-chat-section {
+    padding: 0 16px;
+  }
+  .cpd-chat-row:hover {
+    padding-left: 6px;
+    padding-right: 6px;
+    margin: 0 -6px;
+  }
+}
+
+@media (max-width: 480px) {
+  .cpd-title { font-size: 20px; }
+  .cpd-rail-textarea { font-size: 14px; }
+  .cpd-composer-input { font-size: 16px; /* prevents iOS zoom */ }
 }
 
 /* skeleton */
