@@ -25,7 +25,7 @@ export type ComposerConnectorSheetProps = {
   onCreateImage: () => void;
   onWebSearch: () => void;
   onDeepResearch: () => void;
-  onSandbox: () => void;
+  onSandbox?: () => void;
   onToggleSource: (source: ChatComposerSource, enabled: boolean) => void;
   sourceFromConnector: (item: ComposerAvailableConnector) => ChatComposerSource;
 };
@@ -102,7 +102,7 @@ export function ComposerConnectorSheet({
   connectorsLoading,
   activeSourceIds,
   webSearchAllowed,
-  sandboxAgentAllowed = true,
+  sandboxAgentAllowed = false,
   onClose,
   onAttachFiles,
   onCreateImage,
@@ -171,7 +171,7 @@ export function ComposerConnectorSheet({
             onClose();
           }}
         />
-        {sandboxAgentAllowed ? (
+        {sandboxAgentAllowed && onSandbox ? (
           <CapabilityRow
             icon={<Box size={16} />}
             label="Remote sandbox"

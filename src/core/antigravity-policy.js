@@ -31,6 +31,13 @@ export const AVOID_ANTIGRAVITY_WHEN = Object.freeze([
   'task requires computer_use, mcp, function_calling, file_search, or google_maps',
 ]);
 
+const GREENFIELD_PATTERNS = [
+  { re: /\b(landing page|one[- ]pager|marketing page|static page|home page)\b/i, reason: 'landing page build' },
+  { re: /\b(make|create|build|scaffold)\b.{0,48}\b(a\s+)?(project|site|app|website|page)\b/i, reason: 'greenfield scaffold' },
+  { re: /\b(simple|minimal|basic)\b.{0,24}\b(page|site|html|ui)\b/i, reason: 'simple page build' },
+  { re: /\b(html preview|preview html|live preview|vite dev)\b/i, reason: 'UI preview build' },
+];
+
 const USE_PATTERNS = [
   { re: /\b(audit|review)\b.{0,40}\b(repo|repository|codebase)\b/i, reason: 'full repo audit' },
   { re: /\b(clone|fork)\b.{0,30}\b(repo|repository)\b/i, reason: 'repo clone in sandbox' },
@@ -76,6 +83,9 @@ export function evaluateAntigravityIntent(message, ctx = {}) {
   for (const { re, reason } of USE_PATTERNS) {
     if (re.test(m)) reasons.push(reason);
   }
+  for (const { re, reason } of GREENFIELD_PATTERNS) {
+    if (re.test(m)) reasons.push(reason);
+  }
   for (const { re, reason } of AVOID_PATTERNS) {
     if (re.test(m)) avoidReasons.push(reason);
   }
@@ -87,6 +97,9 @@ export function evaluateAntigravityIntent(message, ctx = {}) {
   }
 
   let score = Math.min(1, reasons.length * 0.22);
+  if (GREENFIELD_PATTERNS.some(({ re }) => re.test(m))) {
+    score = Math.max(score, 0.62);
+  }
   if (avoidReasons.length) score -= avoidReasons.length * 0.28;
   score = Math.max(0, Math.min(1, score));
 

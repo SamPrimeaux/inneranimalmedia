@@ -26,6 +26,15 @@ export function showDashboardStatusBar(pathname: string, isNarrow = false): bool
   return !isCreateSurfaceRoute(pathname);
 }
 
+/** Fixed dashboard status lip height (matches StatusBar row). */
+export const DASHBOARD_STATUS_BAR_INSET = '1.5rem';
+
+/** Bottom padding for floating chat composer — clears status bar + safe area. */
+export function dashboardComposerBottomPad(pathname: string, isNarrow: boolean, extraPx = 16): string {
+  const status = showDashboardStatusBar(pathname, isNarrow) ? `${DASHBOARD_STATUS_BAR_INSET} + ` : '';
+  return `calc(${status}env(safe-area-inset-bottom, 0px) + ${extraPx}px)`;
+}
+
 /** Fixed mobile tab bar sits above the 1.5rem StatusBar when visible. */
 export const MOBILE_TAB_BAR_BOTTOM_WITH_STATUS =
   'calc(1.5rem + env(safe-area-inset-bottom, 0px))';

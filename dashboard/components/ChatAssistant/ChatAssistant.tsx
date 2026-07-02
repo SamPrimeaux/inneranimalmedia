@@ -119,6 +119,7 @@ import {
   fetchGithubFileContent,
 } from '../../types/contextEnvelope';
 import { detectClientSurface } from '../../src/lib/clientSurface';
+import { dashboardComposerBottomPad } from '../../config/shellChrome';
 import {
   readStoredExecLane,
   writeStoredExecLane,
@@ -3766,11 +3767,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 ? 'calc(3.5rem + env(safe-area-inset-bottom, 0px) + 8px)'
                 : isNarrow && !mobileAgentHomeMode
                   ? MOBILE_CHAT_COMPOSER_BOTTOM_PAD
-                  : mobileAgentHomeMode
-                    ? 'calc(env(safe-area-inset-bottom, 0px) + 8px)'
-                    : desktopStartupCenterMode
-                      ? 'calc(env(safe-area-inset-bottom, 0px) + 8px)'
-                      : 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
+                  : dashboardComposerBottomPad(location.pathname, isNarrow, desktopStartupCenterMode ? 12 : 20),
           }}
         >
           <ToolApprovalModal
@@ -3935,7 +3932,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   maxHeight: isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE,
                 }}
               />
-            <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5 min-w-0">
+            <div className="iam-composer-toolbar flex items-center justify-between gap-2 px-2 pb-2 pt-0.5 min-w-0">
               <div className="flex items-center gap-1.5 min-w-0 shrink">
                 <button
                   type="button"
@@ -4118,16 +4115,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           onBrowseFiles={(full) => onOpenGitHubIntegration?.({ expandRepoFullName: full })}
           activeSourceIds={activeComposerSourceIds}
           webSearchAllowed={policyWebSearch}
-          sandboxAgentAllowed
+          sandboxAgentAllowed={false}
           onUploadFile={() => fileInputRef.current?.click()}
           onUploadImage={() => imageInputRef.current?.click()}
           onToggleWebSearch={() => {
             const on = activeComposerSourceIds.has(WEB_SEARCH_SOURCE_ID);
             toggleComposerSource(WEB_SEARCH_SOURCE, !on);
-          }}
-          onToggleSandboxAgent={() => {
-            const on = activeComposerSourceIds.has(SANDBOX_AGENT_SOURCE_ID);
-            toggleComposerSource(SANDBOX_AGENT_SOURCE, !on);
           }}
           onToggleSource={toggleComposerSource}
           execLane={execLane}
@@ -4147,6 +4140,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               connectorsLoading={availableConnectorsLoading}
               activeSourceIds={activeComposerSourceIds}
               webSearchAllowed={policyWebSearch}
+              sandboxAgentAllowed={false}
               onClose={() => setAttachMenuOpen(false)}
               onAttachFiles={() => {
                 setAttachMenuOpen(false);
@@ -4155,10 +4149,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               onCreateImage={startImageGenerationPrompt}
               onWebSearch={startWebSearchLane}
               onDeepResearch={startDeepResearchPrompt}
-              onSandbox={() => {
-                const on = activeComposerSourceIds.has(SANDBOX_AGENT_SOURCE_ID);
-                toggleComposerSource(SANDBOX_AGENT_SOURCE, !on);
-              }}
               onToggleSource={toggleComposerSource}
               sourceFromConnector={sourceFromConnector}
             />

@@ -48,6 +48,9 @@
   width: 100%;
   max-width: min(680px, 100%);
   margin-inline: auto;
+  overflow: visible;
+  position: relative;
+  z-index: 5;
 }
 
 .agent-home__composer-host {
@@ -68,7 +71,7 @@
   align-items: center;
   justify-content: flex-end;
   padding-top: 12px;
-  padding-bottom: 20px;
+  padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px) + 16px);
 }
 
 .agent-home__center--chat .agent-home__stack {

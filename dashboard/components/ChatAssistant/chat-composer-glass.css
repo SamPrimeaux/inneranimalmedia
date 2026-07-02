@@ -4,6 +4,13 @@
   border: none !important;
   position: relative;
   z-index: 4;
+  overflow: visible;
+}
+
+.iam-composer-toolbar {
+  min-height: 40px;
+  flex-shrink: 0;
+  overflow: visible;
 }
 
 .iam-chat-composer-glass {

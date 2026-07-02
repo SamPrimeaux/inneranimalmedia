@@ -74,7 +74,7 @@ export function measureAboveAnchor(
   };
 }
 
-/** Attach menu: always below composer bar, same width, left-aligned (ChatGPT-style). */
+/** Attach menu: prefer below composer; flip above when bottom chrome would clip it. */
 export function measureBelowComposerAnchor(
   composerEl: HTMLElement | null,
   maxHeightCap = 480,
@@ -86,6 +86,28 @@ export function measureBelowComposerAnchor(
   const menuWidth = Math.min(r.width, window.innerWidth - 2 * hPad);
   const left = Math.max(hPad, Math.min(r.left, window.innerWidth - menuWidth - hPad));
   const spaceBelow = Math.max(0, window.innerHeight - r.bottom - gap - 8);
+  const spaceAbove = Math.max(0, r.top - gap - 8);
+  const minMenu = 120;
+  const placeAbove = spaceBelow < minMenu && spaceAbove >= minMenu;
+
+  const sizeStyle: CSSProperties = {
+    width: menuWidth,
+    boxSizing: 'border-box',
+    zIndex: 9999,
+    overflowX: 'hidden',
+  };
+
+  if (placeAbove) {
+    return {
+      position: 'fixed',
+      left,
+      right: 'auto',
+      bottom: window.innerHeight - r.top + gap,
+      top: 'auto',
+      maxHeight: Math.min(maxHeightCap, Math.max(64, spaceAbove)),
+      ...sizeStyle,
+    };
+  }
 
   return {
     position: 'fixed',
@@ -95,6 +117,7 @@ export function measureBelowComposerAnchor(
     boxSizing: 'border-box',
     zIndex: 9999,
     maxHeight: Math.min(maxHeightCap, Math.max(64, spaceBelow)),
+    overflowX: 'hidden',
   };
 }
 
