@@ -123,6 +123,7 @@ import {
 } from './src/iamGitStatusCache';
 import { readDashboardBootstrapCache, type DashboardBootstrapPayload } from './src/loadDashboardBootstrap';
 import { useAgentPolicy } from './src/hooks/useAgentPolicy';
+import { useAvailableConnectors } from './src/hooks/useAvailableConnectors';
 import { MeetProvider, MeetCtxValue } from './src/MeetContext';
 import { MeetShellPanel } from './components/MeetShellPanel';
 import { AuthSignInPage } from './components/auth/AuthSignInPage';
@@ -848,6 +849,8 @@ const App: React.FC = () => {
   }, [location.pathname, location.search, isNarrowViewport]);
 
   const { policy: agentsamChatPolicy } = useAgentPolicy(authWorkspaceId);
+  const { connectors: availableConnectors, loading: availableConnectorsLoading } =
+    useAvailableConnectors(authWorkspaceId);
   const maxTabsPolicyRef = useRef(24);
   const [workspaceSamState, setWorkspaceSamState] = useState<Record<string, unknown> | null>(null);
 
@@ -2450,6 +2453,14 @@ const App: React.FC = () => {
     openTab('code');
   }, [focusMobileCodeContext, isNarrowViewport, revealMainWorkspaceIfNarrow, openTab]);
 
+  const openEditorFromChat = useCallback(() => {
+    if (!isAgentEditorPath(location.pathname)) {
+      navigate(AGENT_EDITOR_PATH);
+    }
+    focusCodeEditorFromChat();
+    setActiveActivity('files');
+  }, [location.pathname, navigate, focusCodeEditorFromChat]);
+
   const openInEditorFromExplorer = useCallback(
     (file: ActiveFile) => {
       openFile(prepareActiveFileForEditor(file));
@@ -4016,6 +4027,7 @@ const App: React.FC = () => {
       onMobileOpenDashboard: openDashboardFromChat,
       onOpenQuickstart: openAgentQuickstart,
       onOpenCodeTab: focusCodeEditorFromChat,
+      onOpenEditor: openEditorFromChat,
       onLoadingChange: setAgentIsStreaming,
       onApprovalRequired: setActiveCommandRunId,
       agentRunId: activeCommandRunId,
@@ -4044,6 +4056,8 @@ const App: React.FC = () => {
       dashboardRouteKey: routeAgentMeta.route_key,
       dashboardRouteLabel: routeAgentMeta.context_label,
       routeQuickActions: routeAgentMeta.quickActions,
+      availableConnectors,
+      availableConnectorsLoading,
     }),
     [
       activeProject,
@@ -4066,6 +4080,7 @@ const App: React.FC = () => {
       openDashboardFromChat,
       openAgentQuickstart,
       focusCodeEditorFromChat,
+      openEditorFromChat,
       activeCommandRunId,
       activeAgentConversationId,
       showAgentWorkbenchTabs,
@@ -4086,6 +4101,8 @@ const App: React.FC = () => {
       routeAgentMeta.route_key,
       routeAgentMeta.context_label,
       routeAgentMeta.quickActions,
+      availableConnectors,
+      availableConnectorsLoading,
     ],
   );
 

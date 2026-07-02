@@ -5,6 +5,7 @@
 */
 
 import './chat-composer-glass.css';
+import './chat-startup-center.css';
 import React, { useState, useEffect, useRef, useLayoutEffect, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { PHONE_MQ } from '../../lib/breakpoints';
@@ -131,9 +132,13 @@ import { AgentChatThreadHeader, findSessionRow } from './components/AgentChatThr
 import { AgentChatFilesPanel } from './components/AgentChatFilesPanel';
 import type { AgentChatProjectOption } from '../../hooks/useAgentChatSessions';
 import { AgentComposerSourceChips } from './composer/AgentComposerSourceChips';
-import { AgentComposerPlusMenu } from './composer/AgentComposerPlusMenu';
+import { ComposerConnectorSheet } from './components/ComposerConnectorSheet';
+import {
+  ComposerStartupChips,
+  ComposerStartupGreeting,
+} from './components/ComposerStartupChips';
+import type { ComposerAvailableConnector } from '../../src/hooks/useAvailableConnectors';
 import { AgentComposerMicButton } from './composer/AgentComposerMicButton';
-import { useComposerIntegrations } from './composer/useComposerIntegrations';
 import {
   composerSourcesStorageKey,
   readComposerSources,
@@ -258,6 +263,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   atmosphericHomeMode = false,
   composerPortalTarget = null,
   messagesPortalTarget = null,
+  availableConnectors = [],
+  availableConnectorsLoading = false,
+  onOpenEditor,
 }) => {
   const { sessionUserId, workspaceId: ctxWorkspaceId, workspaces } = useWorkspace();
   const location = useLocation();
@@ -918,9 +926,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   const policyWebSearch = Number(agentsamPolicy?.web_search_enabled ?? 1) === 1;
 
-  const { connectables, connectablesLoading, sourceFromIntegration, refresh: refreshConnectables } =
-    useComposerIntegrations(false);
-
   const activeComposerSourceIds = useMemo(
     () => new Set(composerSources.map((s) => s.id)),
     [composerSources],
@@ -934,6 +939,33 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       }
       return prev.filter((s) => s.id !== source.id);
     });
+  }, []);
+
+  const sourceFromConnector = useCallback(
+    (item: ComposerAvailableConnector): ChatComposerSource => ({
+      id: `oauth:${item.providerKey}`,
+      label: item.name,
+      kind: 'oauth',
+      providerKey: item.providerKey,
+    }),
+    [],
+  );
+
+  const startWebSearchLane = useCallback(() => {
+    if (policyWebSearch) toggleComposerSource(WEB_SEARCH_SOURCE, true);
+    setInput((prev) => (prev.trim() ? prev : 'Search the web for: '));
+    textareaRef.current?.focus();
+  }, [policyWebSearch, toggleComposerSource]);
+
+  const startImageGenerationPrompt = useCallback(() => {
+    setInput('Generate an image of ');
+    textareaRef.current?.focus();
+  }, []);
+
+  const startDeepResearchPrompt = useCallback(() => {
+    setMode('plan');
+    setInput((prev) => (prev.trim() ? prev : 'Research in depth: '));
+    textareaRef.current?.focus();
   }, []);
 
   const removeComposerSource = useCallback((id: string) => {
@@ -3075,6 +3107,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     !composerPortaled &&
     !isNarrow &&
     isAgentCenterChatHome(location.pathname, location.search);
+  const desktopStartupCenterMode =
+    centerChatComposerColumn &&
+    showEmptyThreadPlaceholder &&
+    !conversationId.trim();
   const showMobileRepoConnector =
     isNarrow &&
     mobileThreadTab === 'chat' &&
@@ -3310,7 +3346,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         ) : null}
 
         <div className="flex flex-1 min-h-0 overflow-hidden min-w-0">
-        <div className="flex flex-col flex-1 min-h-0 overflow-hidden min-w-0">
+        <div className={`flex flex-col flex-1 min-h-0 overflow-hidden min-w-0${desktopStartupCenterMode ? ' iam-chat-startup-center' : ''}`}>
         {mobileAgentHomeMode ? (
           <div className="order-2 shrink-0 flex justify-center pt-2 pb-1 px-3">
             <img
@@ -3372,7 +3408,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           </div>
         )}
 
-        {messagesVisible && (() => {
+        {messagesVisible && !desktopStartupCenterMode && (() => {
           const block = (
           <>
           {(() => {
@@ -3394,7 +3430,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         <AgentMessageList
             scrollRef={scrollRef}
             showEmptyThreadPlaceholder={showEmptyThreadPlaceholder}
-            suppressEmptyPlaceholder={mobileAgentHomeMode || composerPortaled}
+            suppressEmptyPlaceholder={mobileAgentHomeMode || composerPortaled || desktopStartupCenterMode}
             displayMessages={displayMessages}
             isLoading={isLoading}
             mode={mode}
@@ -3624,7 +3660,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   ? MOBILE_CHAT_COMPOSER_BOTTOM_PAD
                   : mobileAgentHomeMode
                     ? 'calc(env(safe-area-inset-bottom, 0px) + 8px)'
-                    : 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
+                    : desktopStartupCenterMode
+                      ? 'calc(env(safe-area-inset-bottom, 0px) + 8px)'
+                      : 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
           }}
         >
           <ToolApprovalModal
@@ -3863,8 +3901,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 disabled={!isLoading && !canSend}
                 className={`flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full text-[0.6875rem] font-bold transition-all relative ${
                   canSend || isLoading
-                    ? 'bg-[var(--solar-cyan)] text-[var(--solar-base03)] shadow-[0_0_16px_color-mix(in_srgb,var(--solar-cyan)_25%,transparent)] hover:brightness-110'
-                    : 'text-[var(--text-chrome-muted)] bg-[var(--bg-disabled)] cursor-not-allowed'
+                    ? 'bg-[var(--accent,var(--accent-secondary,var(--solar-cyan)))] text-[var(--dashboard-canvas)] shadow-[0_0_16px_var(--accent-glow,color-mix(in_srgb,var(--accent-secondary,var(--solar-cyan))_25%,transparent))] hover:bg-[var(--accent-hover,var(--accent-secondary,var(--solar-cyan)))] hover:brightness-110'
+                    : 'text-[var(--text-chrome-muted)] bg-[var(--accent-muted,var(--bg-disabled))] cursor-not-allowed'
                 } ${isLoading ? 'agent-send-pulse' : ''} ${
                   pendingToolApproval && !isLoading ? 'agent-send-approval ring-1 ring-[var(--solar-yellow)]/45' : ''
                 }`}
@@ -3882,7 +3920,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                     )}
                   </>
                 ) : pendingToolApproval ? (
-                  <ShieldCheck size={14} className="text-[var(--solar-base03)]" />
+                  <ShieldCheck size={14} className="text-[var(--dashboard-canvas)]" />
                 ) : (
                   <ArrowUp size={14} strokeWidth={2.5} />
                 )}
@@ -3904,11 +3942,24 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           )}
         </div>
           );
+          const wrappedShell = desktopStartupCenterMode ? (
+            <div className="iam-chat-startup-stack order-2 shrink-0 w-full">
+              <ComposerStartupGreeting isDarkTheme={isDarkTheme} />
+              {shell}
+              <ComposerStartupChips
+                onCreateImage={startImageGenerationPrompt}
+                onWebSearch={startWebSearchLane}
+                onOpenEditor={() => onOpenEditor?.()}
+              />
+            </div>
+          ) : (
+            shell
+          );
           if (composerPortaled) {
             if (!composerPortalTarget || typeof document === 'undefined') return null;
-            return createPortal(shell, composerPortalTarget);
+            return createPortal(wrappedShell, composerPortalTarget);
           }
-          return shell;
+          return wrappedShell;
         })()}
 
         </div>
@@ -3972,31 +4023,26 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         attachMenuStyle &&
         createPortal(
           <div ref={attachMenuRef}>
-            <AgentComposerPlusMenu
+            <ComposerConnectorSheet
               style={attachMenuStyle}
-              connectables={connectables}
-              connectablesLoading={connectablesLoading}
+              connectors={availableConnectors}
+              connectorsLoading={availableConnectorsLoading}
               activeSourceIds={activeComposerSourceIds}
               webSearchAllowed={policyWebSearch}
-              onUploadFile={() => {
+              onClose={() => setAttachMenuOpen(false)}
+              onAttachFiles={() => {
                 setAttachMenuOpen(false);
                 fileInputRef.current?.click();
               }}
-              onUploadImage={() => {
-                setAttachMenuOpen(false);
-                imageInputRef.current?.click();
-              }}
-              onToggleWebSearch={() => {
-                const on = activeComposerSourceIds.has(WEB_SEARCH_SOURCE_ID);
-                toggleComposerSource(WEB_SEARCH_SOURCE, !on);
-              }}
-              sandboxAgentAllowed
-              onToggleSandboxAgent={() => {
+              onCreateImage={startImageGenerationPrompt}
+              onWebSearch={startWebSearchLane}
+              onDeepResearch={startDeepResearchPrompt}
+              onSandbox={() => {
                 const on = activeComposerSourceIds.has(SANDBOX_AGENT_SOURCE_ID);
                 toggleComposerSource(SANDBOX_AGENT_SOURCE, !on);
               }}
               onToggleSource={toggleComposerSource}
-              sourceFromIntegration={sourceFromIntegration}
+              sourceFromConnector={sourceFromConnector}
             />
           </div>,
           document.body,

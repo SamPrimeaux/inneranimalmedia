@@ -312,6 +312,11 @@ export interface ChatAssistantProps {
   composerPortalTarget?: HTMLElement | null;
   /** Desktop /dashboard/agent home: portal message thread above center composer. */
   messagesPortalTarget?: HTMLElement | null;
+  /** OAuth/MCP rows from GET /api/integrations/connectors/catalog — App-owned, no fetch in sheet. */
+  availableConnectors?: import('../../src/hooks/useAvailableConnectors').ComposerAvailableConnector[];
+  availableConnectorsLoading?: boolean;
+  /** Open /dashboard/agent/editor + files explorer (CodeXml chip / startup action). */
+  onOpenEditor?: () => void;
 }
 
 export type StagedAttachment = {
