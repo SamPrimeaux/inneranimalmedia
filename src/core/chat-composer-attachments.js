@@ -107,9 +107,19 @@ export function collectChatVisionUploadFiles(body) {
   const push = (file, { trustImageField = false } = {}) => {
     if (!isUploadBlobLike(file)) return;
     const size = uploadBlobSize(file);
+    // Workers formData() sometimes reports File.size === 0 for valid uploads when the client
+    // sends multipart without explicit Content-Length per part, or when File metadata is lost
+    // in the browser → Worker serialization boundary. Accept the blob as long as:
+    //   - it arrived on the `images` field (trustImageField), OR
+    //   - it has a recognized image MIME / extension
+    // Size === 0 is re-checked after arrayBuffer() in parseChatVisionFiles — truly empty files
+    // get rejected there with a clear NO_IMAGE_FILE_IN_REQUEST error.
     const id = `${String(file.name || '')}:${size}:${String(file.type || '')}`;
     if (seen.has(id)) return;
-    if (trustImageField ? size > 0 || isChatImageUpload(file) : isChatImageUpload(file)) {
+    const accepted = trustImageField
+      ? isUploadBlobLike(file)   // trust the field — validate size/mime downstream
+      : isChatImageUpload(file); // files field still requires image type/ext hint
+    if (accepted) {
       seen.add(id);
       out.push(file);
     }
