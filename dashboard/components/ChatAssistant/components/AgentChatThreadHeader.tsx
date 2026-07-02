@@ -31,8 +31,8 @@ export const AgentChatThreadHeader: FC<Props> = ({
   onReloadSessions,
   onDeletedActive,
   onNewChat,
-  onOpenFiles,
-  filesActive = false,
+  onToggleScratchpad,
+  scratchpadOpen = false,
   compact = false,
   embedded = false,
 }) => {
