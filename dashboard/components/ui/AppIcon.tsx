@@ -110,14 +110,12 @@ export function AppIcon({
 
   const shellStyle = useMemo(() => {
     const style: React.CSSProperties & Record<string, string> = {};
-    if (presentation === 'app' && backgroundColor?.trim()) {
+    if (backgroundColor?.trim()) {
       style.background = backgroundColor.trim();
     }
-    if (presentation === 'app') {
-      style['--iam-icon-art-scale'] = `${Math.round(scale * 100)}%`;
-    }
+    style['--iam-icon-art-scale'] = `${Math.round(scale * 100)}%`;
     return style;
-  }, [presentation, backgroundColor, scale]);
+  }, [backgroundColor, scale]);
 
   const showPencil = !!editable;
 

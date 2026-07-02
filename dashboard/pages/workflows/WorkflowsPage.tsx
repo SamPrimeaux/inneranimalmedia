@@ -86,7 +86,7 @@ export const WorkflowsPage: React.FC = () => {
 
   const [drawerMode, setDrawerMode] = useState<DrawerMode>(null);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('config');
-  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [connectMode, setConnectMode] = useState(false);
   const [traceMode, setTraceMode] = useState(false);
 
@@ -109,7 +109,6 @@ export const WorkflowsPage: React.FC = () => {
     try {
       const list = await fetchWorkflowList();
       setWorkflows(list);
-      if (list.length && !selectedRegistryId) setSelectedRegistryId(list[0].id);
     } catch (e) {
       setListError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -148,6 +147,16 @@ export const WorkflowsPage: React.FC = () => {
     void loadList();
     void loadMcp();
   }, []);
+
+  useEffect(() => {
+    if (!listLoading && workflows.length > 0 && !selectedRegistryId && drawerMode === null) {
+      const hint = sessionStorage.getItem('wf-studio-library-hint');
+      if (!hint) {
+        setDrawerMode('library');
+        sessionStorage.setItem('wf-studio-library-hint', '1');
+      }
+    }
+  }, [listLoading, workflows.length, selectedRegistryId, drawerMode]);
 
   useEffect(() => {
     if (selectedRegistryId) void loadGraph(selectedRegistryId);
@@ -289,7 +298,7 @@ export const WorkflowsPage: React.FC = () => {
         canRun={!!selectedWorkflowRow}
       />
 
-      <div className={`wf-main${inspectorOpen ? '' : ' inspector-collapsed'}`}>
+      <div className={`wf-main${inspectorOpen ? ' inspector-open' : ' inspector-collapsed'}`}>
         <div className="wf-workspace">
           <WorkflowRail
             drawerMode={drawerMode}
@@ -359,6 +368,7 @@ export const WorkflowsPage: React.FC = () => {
             externalActiveEdges={activeEdges}
             liveRunning={isRunning}
             traceMode={traceMode}
+            onOpenLibrary={() => setDrawerMode('library')}
           />
 
           <WorkflowDagLegend />
@@ -368,7 +378,7 @@ export const WorkflowsPage: React.FC = () => {
           </div>
         </div>
 
-        {inspectorOpen && (
+        {inspectorOpen ? (
           <WorkflowInspector
             tab={inspectorTab}
             onTab={setInspectorTab}
@@ -384,7 +394,7 @@ export const WorkflowsPage: React.FC = () => {
             canRun={!!selectedWorkflowRow}
             isRunning={isRunning}
           />
-        )}
+        ) : null}
       </div>
     </div>
   );

@@ -18,6 +18,7 @@ export type WorkflowCanvasProps = {
   externalActiveEdges?: Set<string>;
   liveRunning?: boolean;
   traceMode?: boolean;
+  onOpenLibrary?: () => void;
 };
 
 type NodePos = { x: number; y: number };
@@ -45,6 +46,7 @@ export function WorkflowCanvas({
   externalActiveEdges,
   liveRunning = false,
   traceMode = false,
+  onOpenLibrary,
 }: WorkflowCanvasProps) {
   const [nodePos, setNodePos] = useState<Record<string, NodePos>>({});
   const [pan, setPan] = useState({ x: 48, y: 48 });
@@ -189,6 +191,19 @@ export function WorkflowCanvas({
       {graphLoading && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'grid', placeItems: 'center', background: 'color-mix(in srgb, var(--wf-canvas) 75%, transparent)' }}>
           <Loader2 size={24} className="animate-spin" style={{ color: 'var(--wf-accent)' }} />
+        </div>
+      )}
+
+      {!graphLoading && !graph && (
+        <div className="wf-canvas-empty">
+          <p className="wf-canvas-empty-title">Workflow Studio</p>
+          <p className="wf-empty" style={{ maxWidth: 300 }}>
+            Pick a workflow from the Library to inspect or edit. Platform spines like{' '}
+            <code>agent_chat_plan</code> are advanced — start with a simpler automation or create new.
+          </p>
+          <button type="button" className="wf-btn primary" style={{ marginTop: 12 }} onClick={onOpenLibrary}>
+            Open Library
+          </button>
         </div>
       )}
 

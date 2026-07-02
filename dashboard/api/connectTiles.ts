@@ -5,6 +5,10 @@ export type ConnectTile = {
   catalog_slug: string;
   title: string;
   icon_slug: string;
+  icon_url: string | null;
+  custom_icon_url?: string | null;
+  icon_scale?: number;
+  icon_bg?: string | null;
   category: string;
   status: string;
   connected: boolean;
@@ -35,9 +39,14 @@ export async function fetchConnectTiles(
   return j;
 }
 
+export type ConnectTileSavePayload = Pick<
+  ConnectTile,
+  'provider_key' | 'sort_order' | 'show_on_home' | 'show_on_workspace' | 'icon_scale' | 'icon_bg' | 'custom_icon_url'
+>;
+
 export async function saveConnectTiles(
   surface: 'home' | 'workspace',
-  tiles: Pick<ConnectTile, 'provider_key' | 'sort_order' | 'show_on_home' | 'show_on_workspace'>[],
+  tiles: ConnectTileSavePayload[],
 ): Promise<ConnectTilesResponse> {
   const r = await fetch(`/api/dashboard/home/connect-tiles?surface=${encodeURIComponent(surface)}`, {
     method: 'PUT',

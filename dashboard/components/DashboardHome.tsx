@@ -21,7 +21,7 @@ import {
   saveDashboardHomeTiles,
   type DashboardHomeTile,
 } from '../api/home';
-import { fetchConnectTiles, type ConnectTile } from '../api/connectTiles';
+import { fetchConnectTiles, saveConnectTiles, type ConnectTile } from '../api/connectTiles';
 import { StartProjectWizard } from './projects/StartProjectWizard';
 import { AppIcon } from './ui/AppIcon';
 import {
@@ -29,6 +29,7 @@ import {
   loadHomeLayoutDraft,
   saveHomeLayoutDraft,
 } from './home/HomeTileEditor';
+import { ConnectIconEditor } from './home/ConnectIconEditor';
 import { useWorkspace } from '../src/context/WorkspaceContext';
 import './ui/AppIcon.css';
 import './home/HomeTileEditor.css';
@@ -113,6 +114,8 @@ export function DashboardHome() {
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [connectTiles, setConnectTiles] = useState<ConnectTile[]>([]);
+  const [connectTilesBaseline, setConnectTilesBaseline] = useState<ConnectTile[]>([]);
+  const [editingConnectKey, setEditingConnectKey] = useState<string | null>(null);
   const [startProjectOpen, setStartProjectOpen] = useState(false);
 
   useEffect(() => {
@@ -120,7 +123,9 @@ export function DashboardHome() {
     void (async () => {
       const res = await fetchConnectTiles('home');
       if (cancelled || !res.ok) return;
-      setConnectTiles(res.tiles || []);
+      const tiles = res.tiles || [];
+      setConnectTiles(tiles);
+      setConnectTilesBaseline(tiles.map((t) => ({ ...t })));
     })();
     return () => {
       cancelled = true;
@@ -179,41 +184,68 @@ export function DashboardHome() {
 
   const enterEditMode = useCallback(() => {
     setQuickTilesBaseline(quickTiles.map((t) => ({ ...t })));
+    setConnectTilesBaseline(connectTiles.map((t) => ({ ...t })));
     setSaveError(null);
     setEditMode(true);
-  }, [quickTiles]);
+  }, [quickTiles, connectTiles]);
 
   const exitEditMode = useCallback(() => {
     setEditMode(false);
     setEditingTileKey(null);
+    setEditingConnectKey(null);
   }, []);
 
   const saveLayout = useCallback(async () => {
-    if (!workspaceId?.trim()) {
-      saveHomeLayoutDraft('local', quickTiles);
-      exitEditMode();
-      return;
-    }
     setSaveBusy(true);
     setSaveError(null);
-    saveHomeLayoutDraft(workspaceId, quickTiles);
-    const res = await saveDashboardHomeTiles(workspaceId, quickTiles);
+    if (workspaceId?.trim()) {
+      saveHomeLayoutDraft(workspaceId, quickTiles);
+      const res = await saveDashboardHomeTiles(workspaceId, quickTiles);
+      if (!res.ok) {
+        setSaveBusy(false);
+        setSaveError(res.error || 'Save failed — kept local draft');
+        return;
+      }
+      if (res.tiles?.length) {
+        setQuickTiles(res.tiles);
+        setQuickTilesBaseline(res.tiles);
+      }
+      if (connectTiles.length) {
+        const connectRes = await saveConnectTiles(
+          'home',
+          connectTiles.map((t) => ({
+            provider_key: t.provider_key,
+            sort_order: t.sort_order,
+            show_on_home: t.show_on_home,
+            show_on_workspace: t.show_on_workspace,
+            icon_scale: t.icon_scale ?? 1,
+            icon_bg: t.icon_bg ?? null,
+            custom_icon_url: t.custom_icon_url ?? null,
+          })),
+        );
+        if (!connectRes.ok) {
+          setSaveBusy(false);
+          setSaveError(connectRes.error || 'Connect icons failed to save');
+          return;
+        }
+        if (connectRes.tiles?.length) {
+          setConnectTiles(connectRes.tiles);
+          setConnectTilesBaseline(connectRes.tiles.map((t) => ({ ...t })));
+        }
+      }
+    } else {
+      saveHomeLayoutDraft('local', quickTiles);
+    }
     setSaveBusy(false);
-    if (!res.ok) {
-      setSaveError(res.error || 'Save failed — kept local draft');
-      return;
-    }
-    if (res.tiles?.length) {
-      setQuickTiles(res.tiles);
-      setQuickTilesBaseline(res.tiles);
-    }
     exitEditMode();
-  }, [workspaceId, quickTiles, exitEditMode]);
+  }, [workspaceId, quickTiles, connectTiles, exitEditMode]);
 
   const resetLayout = useCallback(() => {
     setQuickTiles(quickTilesBaseline.map((t) => ({ ...t })));
+    setConnectTiles(connectTilesBaseline.map((t) => ({ ...t })));
     setEditingTileKey(null);
-  }, [quickTilesBaseline]);
+    setEditingConnectKey(null);
+  }, [quickTilesBaseline, connectTilesBaseline]);
 
   const updateTile = useCallback((tileKey: string, patch: Partial<DashboardHomeTile>) => {
     setQuickTiles((prev) =>
@@ -230,6 +262,17 @@ export function DashboardHome() {
     () => quickTiles.filter((t) => t.is_enabled).sort((a, b) => a.sort_order - b.sort_order),
     [quickTiles],
   );
+
+  const editingConnectTile = useMemo(
+    () => connectTiles.find((t) => t.provider_key === editingConnectKey) || null,
+    [connectTiles, editingConnectKey],
+  );
+
+  const updateConnectTile = useCallback((providerKey: string, next: ConnectTile) => {
+    setConnectTiles((prev) =>
+      prev.map((t) => (t.provider_key === providerKey ? next : t)),
+    );
+  }, []);
 
   const openConnectTile = useCallback(
     (tile: ConnectTile) => {
@@ -307,17 +350,17 @@ export function DashboardHome() {
           </div>
         </section>
 
-        <section className="iam-home-section iam-home-section--quick" aria-labelledby="quick-starts-title">
+        <section className={`iam-home-section iam-home-section--quick${editMode ? ' iam-home-section--editing' : ''}`} aria-labelledby="quick-starts-title">
           <div className="iam-section-head">
             <div>
               <h2 id="quick-starts-title">Creation tools</h2>
-              <p>Jump into Draw, Design Studio, CMS, and more — customize tile artwork anytime.</p>
+              <p>Jump into Draw, Design Studio, CMS, and more.</p>
             </div>
             <div className="iam-section-actions">
               {!editMode ? (
-                <button type="button" className="iam-section-icon-btn" onClick={enterEditMode} title="Customize tiles">
+                <button type="button" className="iam-section-icon-btn" onClick={enterEditMode} title="Customize home icons">
                   <Pencil size={14} strokeWidth={1.75} aria-hidden />
-                  <span>Customize</span>
+                  <span>Customize icons</span>
                 </button>
               ) : null}
               <button type="button" onClick={() => navigate('/dashboard/agent')}>See all</button>
@@ -326,7 +369,7 @@ export function DashboardHome() {
           {editMode ? (
             <div className="iam-home-edit-banner">
               <span>
-                <strong>Edit mode</strong> — tap an icon to change artwork, title, and destination.
+                <strong>Edit mode</strong> — tap any creation or connect icon. Scale, background, and drop-in upload. Canonical prefs also live in Settings → Integrations.
               </span>
               <div className="iam-home-edit-actions">
                 <button type="button" onClick={resetLayout}>Reset</button>
@@ -354,6 +397,7 @@ export function DashboardHome() {
                 onPress={() => {
                   if (editMode) {
                     setEditingTileKey(tile.tile_key);
+                    setEditingConnectKey(null);
                     return;
                   }
                   navigate(tile.path);
@@ -364,11 +408,11 @@ export function DashboardHome() {
           </div>
         </section>
 
-        <section className="iam-home-section" aria-labelledby="connect-context-title">
+        <section className={`iam-home-section${editMode ? ' iam-home-section--editing' : ''}`} aria-labelledby="connect-context-title">
           <div className="iam-section-head">
             <div>
               <h2 id="connect-context-title">Connect context</h2>
-              <p>OAuth and services — managed in Integrations, surfaced here automatically.</p>
+              <p>OAuth and services — tap to connect, or customize icons in edit mode.</p>
             </div>
             <button type="button" onClick={() => navigate('/dashboard/settings/integrations')}>See all</button>
           </div>
@@ -377,8 +421,11 @@ export function DashboardHome() {
               <AppIcon
                 key={tile.provider_key}
                 title={tile.title}
-                iconSlug={tile.icon_slug}
+                iconSlug={tile.custom_icon_url ? undefined : tile.icon_slug}
+                imageUrl={tile.custom_icon_url || tile.icon_url}
                 size="md"
+                artScale={tile.icon_scale ?? 1}
+                backgroundColor={tile.icon_bg}
                 status={tile.issue === 'error' ? 'error' : tile.issue === 'warning' ? 'warning' : null}
                 subtitle={
                   tile.issue === 'error'
@@ -389,7 +436,20 @@ export function DashboardHome() {
                         ? tile.account_display || 'Connected'
                         : 'Connect'
                 }
-                onPress={() => openConnectTile(tile)}
+                editable={editMode}
+                editActive={editMode && editingConnectKey === tile.provider_key}
+                onPress={() => {
+                  if (editMode) {
+                    setEditingConnectKey(tile.provider_key);
+                    setEditingTileKey(null);
+                    return;
+                  }
+                  openConnectTile(tile);
+                }}
+                onEdit={() => {
+                  setEditingConnectKey(tile.provider_key);
+                  setEditingTileKey(null);
+                }}
               />
             ))}
           </div>
@@ -447,6 +507,19 @@ export function DashboardHome() {
           onReset={() => {
             const base = quickTilesBaseline.find((t) => t.tile_key === editingTile.tile_key);
             if (base) updateTile(editingTile.tile_key, { ...base });
+          }}
+        />
+      ) : null}
+
+      {editingConnectTile ? (
+        <ConnectIconEditor
+          tile={editingConnectTile}
+          workspaceId={workspaceId}
+          onChange={(next) => updateConnectTile(editingConnectTile.provider_key, next)}
+          onClose={() => setEditingConnectKey(null)}
+          onReset={() => {
+            const base = connectTilesBaseline.find((t) => t.provider_key === editingConnectTile.provider_key);
+            if (base) updateConnectTile(editingConnectTile.provider_key, { ...base });
           }}
         />
       ) : null}

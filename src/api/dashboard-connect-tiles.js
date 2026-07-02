@@ -171,6 +171,12 @@ export function mapConnectTileRow(row, tok, byok, env) {
       row.catalog_icon_url,
       row.catalog_slug || catalogSlugForRegistry(providerKey),
     ),
+    custom_icon_url: row.custom_icon_url ? String(row.custom_icon_url) : null,
+    icon_scale: (() => {
+      const v = Number(row.icon_scale);
+      return Number.isFinite(v) ? Math.min(1.2, Math.max(0.5, v)) : 1;
+    })(),
+    icon_bg: row.icon_bg != null && String(row.icon_bg).trim() ? String(row.icon_bg).trim() : null,
     category: row.catalog_category || row.category || 'other',
     auth_type: row.catalog_auth_type || row.auth_type || 'oauth2',
     status,
@@ -223,21 +229,39 @@ export async function handleConnectTilesApi(request, env, authUser, method) {
       const sortOrder = Number.isFinite(Number(it.sort_order)) ? Number(it.sort_order) : (i + 1) * 10;
       const showHome = it.show_on_home === false || it.show_on_home === 0 ? 0 : 1;
       const showWs = it.show_on_workspace === false || it.show_on_workspace === 0 ? 0 : 1;
+      const scaleRaw = Number(it.icon_scale);
+      const iconScale = Number.isFinite(scaleRaw) ? Math.min(1.2, Math.max(0.5, scaleRaw)) : 1;
+      const iconBg = it.icon_bg != null && String(it.icon_bg).trim() ? String(it.icon_bg).trim() : null;
+      const customIcon =
+        it.custom_icon_url != null && String(it.custom_icon_url).trim()
+          ? String(it.custom_icon_url).trim()
+          : null;
       try {
         await env.DB.prepare(
           `UPDATE integration_registry
-           SET sort_order = ?, show_on_home = ?, show_on_workspace = ?, updated_at = datetime('now')
+           SET sort_order = ?, show_on_home = ?, show_on_workspace = ?,
+               icon_scale = ?, icon_bg = ?, custom_icon_url = ?, updated_at = datetime('now')
            WHERE tenant_id = ? AND provider_key = ?`,
         )
-          .bind(sortOrder, showHome, showWs, tenantId, providerKey)
+          .bind(sortOrder, showHome, showWs, iconScale, iconBg, customIcon, tenantId, providerKey)
           .run();
       } catch {
-        await env.DB.prepare(
-          `UPDATE integration_registry SET sort_order = ?, updated_at = datetime('now')
-           WHERE tenant_id = ? AND provider_key = ?`,
-        )
-          .bind(sortOrder, tenantId, providerKey)
-          .run();
+        try {
+          await env.DB.prepare(
+            `UPDATE integration_registry
+             SET sort_order = ?, show_on_home = ?, show_on_workspace = ?, updated_at = datetime('now')
+             WHERE tenant_id = ? AND provider_key = ?`,
+          )
+            .bind(sortOrder, showHome, showWs, tenantId, providerKey)
+            .run();
+        } catch {
+          await env.DB.prepare(
+            `UPDATE integration_registry SET sort_order = ?, updated_at = datetime('now')
+             WHERE tenant_id = ? AND provider_key = ?`,
+          )
+            .bind(sortOrder, tenantId, providerKey)
+            .run();
+        }
       }
     }
     const tiles = await loadConnectTiles(env, authUser, surface);

@@ -65,8 +65,8 @@
 
 /* Integration logos (Google Drive, Cloudflare, …) */
 .iam-app-icon-brand {
-  width: 100%;
-  height: 100%;
+  width: var(--iam-icon-art-scale, 100%);
+  height: var(--iam-icon-art-scale, 100%);
   object-fit: contain;
   object-position: center;
   display: block;

@@ -4,6 +4,20 @@
   border-radius: 18px;
 }
 
+.iam-home-section--editing {
+  outline: 1px dashed color-mix(in srgb, var(--iam-home-accent, #4ea7ff) 28%, transparent);
+  outline-offset: 6px;
+  border-radius: 16px;
+  padding-bottom: 4px;
+}
+
+.iam-home-tile-editor-note {
+  margin: -4px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--iam-home-muted);
+}
+
 .iam-home-edit-banner {
   display: flex;
   align-items: center;

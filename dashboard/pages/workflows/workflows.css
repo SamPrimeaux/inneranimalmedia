@@ -141,10 +141,19 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 272px;
-  transition: grid-template-columns 200ms ease;
+  grid-template-columns: minmax(0, 1fr);
+  position: relative;
 }
-.wf-main.inspector-collapsed { grid-template-columns: minmax(0, 1fr) 0; }
+.wf-main.inspector-open {
+  grid-template-columns: minmax(0, 1fr) 272px;
+}
+.wf-main.inspector-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.wf-main.inspector-collapsed .wf-inspector {
+  display: none;
+}
 
 .wf-workspace {
   position: relative;
@@ -380,12 +389,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: opacity 160ms, transform 200ms;
-}
-.wf-main.inspector-collapsed .wf-inspector {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(8px);
+  transition: transform 200ms ease, opacity 160ms;
 }
 
 .wf-inspector-tabs {
@@ -681,3 +685,73 @@
 .wf-drawer-body::-webkit-scrollbar-thumb,
 .wf-inspector-body::-webkit-scrollbar-thumb,
 .wf-config-scroll::-webkit-scrollbar-thumb { background: var(--wf-border); border-radius: 2px; }
+
+.wf-canvas-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  gap: 8px;
+}
+
+.wf-canvas-empty-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--wf-text);
+}
+
+.wf-canvas-empty code {
+  font-family: var(--wf-mono);
+  font-size: 10px;
+  color: var(--wf-accent);
+}
+
+@media (max-width: 900px) {
+  .wf-main.inspector-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wf-main.inspector-open .wf-inspector {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 45;
+    max-height: min(58vh, 480px);
+    border-left: 0;
+    border-top: 1px solid var(--wf-border);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -16px 48px rgba(0, 0, 0, 0.42);
+  }
+
+  .wf-topbar-meta {
+    display: none;
+  }
+
+  .wf-rail-btn[data-tip]:hover::after {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .wf-topbar {
+    height: auto;
+    min-height: 44px;
+    flex-wrap: wrap;
+    padding: 8px 10px;
+  }
+
+  .wf-topbar-key {
+    display: none;
+  }
+
+  .wf-drawer {
+    width: min(100vw, 320px);
+  }
+}
