@@ -197,6 +197,30 @@ function toOpenAIResponsesTools(tools) {
 }
 
 /**
+ * Map Anthropic-style vision blocks → OpenAI Responses API content parts.
+ * @param {unknown[]} blocks
+ */
+function anthropicVisionBlocksToResponsesContent(blocks) {
+  const parts = [];
+  for (const block of blocks) {
+    if (!block || typeof block !== 'object') continue;
+    if (block.type === 'text' && block.text) {
+      parts.push({ type: 'input_text', text: String(block.text) });
+      continue;
+    }
+    if (block.type === 'image' && block.source?.data) {
+      const mime = block.source.media_type || 'image/png';
+      parts.push({
+        type: 'input_image',
+        image_url: `data:${mime};base64,${block.source.data}`,
+        detail: 'auto',
+      });
+    }
+  }
+  return parts;
+}
+
+/**
  * Build `input` for /v1/responses. With `previousResponseId`, only `function_call_output` items
  * from the latest user message (tool results) are sent; otherwise user/assistant text turns.
  */
@@ -228,6 +252,11 @@ function buildOpenAIResponsesInput(messages, previousResponseId) {
       if (typeof msg.content === 'string' && msg.content.trim()) {
         items.push({ role: 'user', content: msg.content });
       } else if (Array.isArray(msg.content)) {
+        const visionParts = anthropicVisionBlocksToResponsesContent(msg.content);
+        if (visionParts.length) {
+          items.push({ role: 'user', content: visionParts });
+          continue;
+        }
         const text = msg.content
           .filter((b) => b.type === 'text')
           .map((b) => b.text || '')
@@ -336,7 +365,7 @@ function buildOpenAIMessages(systemPrompt, messages) {
   return normalized;
 }
 
-export { buildOpenAIMessages, assistantReasoningContentFromMessage };
+export { buildOpenAIMessages, buildOpenAIResponsesInput, assistantReasoningContentFromMessage };
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
 

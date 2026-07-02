@@ -5,6 +5,7 @@ import {
   chatUploadHasVisionImages,
   buildVisionUserMessage,
   applyVisionBlocksToChatMessages,
+  chatMessagesHaveVisionUpload,
 } from '../../src/core/chat-composer-attachments.js';
 
 test('isChatImageUpload detects mime and extension', () => {
@@ -42,4 +43,19 @@ test('applyVisionBlocksToChatMessages replaces last user turn', () => {
   );
   assert.equal(next.length, 2);
   assert.ok(Array.isArray(next[1].content));
+});
+
+test('chatMessagesHaveVisionUpload detects image blocks', () => {
+  assert.equal(
+    chatMessagesHaveVisionUpload([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'look' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc' } },
+        ],
+      },
+    ]),
+    true,
+  );
 });

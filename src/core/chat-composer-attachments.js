@@ -3,6 +3,8 @@
  */
 
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif)$/i;
+/** Anthropic / OpenAI practical inline limit (~5 MB). */
+const MAX_CHAT_IMAGE_BYTES = 4_500_000;
 
 function bytesToBase64(bytes) {
   const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -65,6 +67,13 @@ export async function parseChatComposerImageBlocks(files) {
       continue;
     }
     if (!buf || buf.byteLength === 0) continue;
+    if (buf.byteLength > MAX_CHAT_IMAGE_BYTES) {
+      console.warn(
+        '[chat-composer-attachments] image_too_large',
+        JSON.stringify({ name: file.name, bytes: buf.byteLength }),
+      );
+      continue;
+    }
     const media_type =
       String(file.type || '').trim() || guessImageMime(file.name) || 'image/png';
     blocks.push({
@@ -110,4 +119,19 @@ export function applyVisionBlocksToChatMessages(chatMessages, fallbackText, imag
   }
   next.push(built);
   return next;
+}
+
+/** @param {unknown} content */
+export function userMessageHasVisionContent(content) {
+  return (
+    Array.isArray(content) &&
+    content.some((b) => b && typeof b === 'object' && b.type === 'image' && b.source?.data)
+  );
+}
+
+/** @param {Array<{ role?: string, content?: unknown }>} chatMessages */
+export function chatMessagesHaveVisionUpload(chatMessages) {
+  return (Array.isArray(chatMessages) ? chatMessages : []).some(
+    (m) => m?.role === 'user' && userMessageHasVisionContent(m.content),
+  );
 }

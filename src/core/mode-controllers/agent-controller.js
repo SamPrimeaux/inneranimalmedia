@@ -137,16 +137,24 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     chatUploadHasVisionImages,
     parseChatComposerImageBlocks,
     applyVisionBlocksToChatMessages,
+    chatMessagesHaveVisionUpload,
   } = await import('../chat-composer-attachments.js');
+  let visionUploadActive = false;
   if (chatUploadHasVisionImages(body.files)) {
     const imageBlocks = await parseChatComposerImageBlocks(body.files);
     if (imageBlocks.length) {
       chatMessages = applyVisionBlocksToChatMessages(chatMessages, message, imageBlocks);
+      visionUploadActive = true;
+    } else {
+      console.warn('[agent-controller] vision_upload_parse_empty', {
+        fileCount: Array.isArray(body.files) ? body.files.length : 0,
+      });
     }
   }
   const createSubagentFlow = resolveCreateSubagentFlow(chatMessages);
 
   const skipHeavyContext =
+    !visionUploadActive &&
     !createSubagentFlow.active &&
     !activeFileEnvelope &&
     (profile.refined_route_key === 'simple_ask_greeting' ||
@@ -521,6 +529,15 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   (async () => {
     const chatT0 = Date.now();
     try {
+      if (chatUploadHasVisionImages(body.files) && !chatMessagesHaveVisionUpload(chatMessages)) {
+        const failText =
+          'I could not read the attached image. Please re-attach as PNG or JPEG under 4.5 MB and send again.';
+        emit('text', { text: failText });
+        emit('error', { message: failText, code: 'vision_upload_empty' });
+        emit('done', {});
+        return;
+      }
+
       // Quickstart-card first turn ("Slides", "Prototype", etc.): instead of letting the
       // model free-write a markdown question dump, run the same explore -> intake pipeline
       // Plan mode uses for pre_plan, and emit plan_questions_batch so the Questions tab
@@ -616,7 +633,11 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           // needs_questions === false: goal already specific enough -- still rewrite the
           // first message to the cleaned goal so the model doesn't redundantly free-write
           // questions from the original "ask the user / wait for answers" seed text.
-          if (chatMessages.length === 1 && chatMessages[0]?.role === 'user') {
+          if (
+            chatMessages.length === 1 &&
+            chatMessages[0]?.role === 'user' &&
+            !chatMessagesHaveVisionUpload(chatMessages)
+          ) {
             chatMessages[0] = { ...chatMessages[0], content: goalForIntake };
           }
         } catch (e) {

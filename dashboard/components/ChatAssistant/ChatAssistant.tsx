@@ -1540,7 +1540,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       e.preventDefault();
       const dt = new DataTransfer();
       fileItems.forEach((f) => dt.items.add(f));
-      addFilesFromList(dt.files, fileItems.every((f) => f.type.startsWith('image/')));
+      const allImages = fileItems.every(
+        (f) => !String(f.type || '').trim() || String(f.type).startsWith('image/'),
+      );
+      addFilesFromList(dt.files, allImages);
       return;
     }
     const text = cd.getData('text/plain');
