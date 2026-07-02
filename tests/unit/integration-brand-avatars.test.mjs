@@ -13,6 +13,12 @@ describe('integration-brand-avatars', () => {
     assert.equal(resolveIntegrationIconUrl('cloudflare_r2', null, 'cloudflare_r2', url), url);
   });
 
+  it('prefers tenant custom icon when it differs from catalog', () => {
+    const catalog = 'https://imagedelivery.net/example/catalog/avatar';
+    const custom = 'https://imagedelivery.net/example/custom/avatar';
+    assert.equal(resolveIntegrationIconUrl('cloudflare', catalog, 'cloudflare', custom), custom);
+  });
+
   it('falls back to brand map for known providers', () => {
     const cf = resolveIntegrationIconUrl('cloudflare_oauth', null, 'cloudflare');
     assert.match(cf || '', /8e623df0-6bd7-4314-87c3-8b377e53e700/);

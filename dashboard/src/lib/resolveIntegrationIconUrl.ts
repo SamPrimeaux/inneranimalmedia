@@ -63,9 +63,9 @@ export function resolveIntegrationIconUrl(
   registryIconUrl?: string | null,
 ): string | null {
   const fromCatalog = String(catalogIconUrl || '').trim();
-  if (fromCatalog) return fromCatalog;
-
   const fromRegistry = String(registryIconUrl || '').trim();
+  if (fromRegistry && fromRegistry !== fromCatalog) return fromRegistry;
+  if (fromCatalog) return fromCatalog;
   if (fromRegistry) return fromRegistry;
 
   const pk = String(providerKey || '')

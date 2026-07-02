@@ -6,6 +6,7 @@ import { jsonResponse, fetchAuthUserTenantId, fallbackSystemTenantId } from '../
 import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 import { catalogSlugForRegistry } from '../core/integration-slug-aliases.js';
 import { resolveIntegrationIconUrl } from '../core/integration-brand-avatars.js';
+import { loadIntegrationConnectCatalog } from '../core/integration-connect-catalog.js';
 
 async function resolveTenantIdOrFetch(env, authUser) {
   if (authUser?.tenant_id && String(authUser.tenant_id).trim()) {
@@ -209,11 +210,27 @@ export async function handleConnectTilesApi(request, env, authUser, method) {
   const tenantId = await resolveTenantIdOrFetch(env, authUser);
 
   if (method === 'GET') {
+    const returnTo =
+      surface === 'workspace' ? '/dashboard/settings/workspace' : '/dashboard/home';
+    const catalog = await loadIntegrationConnectCatalog(env, authUser, { returnTo });
+
+    if (surface === 'home') {
+      return jsonResponse({
+        ok: true,
+        surface,
+        tiles: catalog.connected,
+        catalog_available: catalog.available,
+        connected_slugs: catalog.connected.map((t) => t.connect_slug),
+        updated_at: catalog.updated_at,
+      });
+    }
+
     const tiles = await loadConnectTiles(env, authUser, surface);
     return jsonResponse({
       ok: true,
       surface,
       tiles,
+      catalog_available: catalog.available,
       connected_slugs: tiles.filter((t) => t.connected).map((t) => t.connect_slug),
       updated_at: new Date().toISOString(),
     });

@@ -26,6 +26,9 @@ function normalizeSlug(s) {
 }
 
 /** Maps integration_catalog.slug (hyphen or underscore) to /api/oauth/:provider/start */
+const MCP_OAUTH_REDIRECT =
+  'https://mcp.inneranimalmedia.com/api/oauth/authorize?client_id=iam_mcp_inneranimalmedia';
+
 function oauthStartPathForSlug(slugRaw) {
   const s = normalizeSlug(slugRaw).replace(/-/g, '_');
   if (s === 'github') return 'github';
@@ -410,6 +413,18 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
     }
 
     if (method === 'GET') {
+      if (slugNorm === 'gmail') {
+        const rt = encodeURIComponent(safeReturn);
+        return Response.redirect(`${origin}/api/mail/gmail/start?return_to=${rt}`, 302);
+      }
+      if (
+        slugNorm === 'custom_mcp' ||
+        slugNorm === 'mcp' ||
+        slugNorm === 'inneranimalmedia_mcp' ||
+        slug === 'inneranimalmedia-mcp'
+      ) {
+        return Response.redirect(`${MCP_OAUTH_REDIRECT}&return_to=${returnTo}`, 302);
+      }
       if (slugNorm === 'local_tunnel') {
         return jsonResponse(
           {

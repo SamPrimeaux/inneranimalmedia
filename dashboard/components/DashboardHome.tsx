@@ -30,9 +30,11 @@ import {
   saveHomeLayoutDraft,
 } from './home/HomeTileEditor';
 import { ConnectIconEditor } from './home/ConnectIconEditor';
+import { ConnectCatalogSheet } from './home/ConnectCatalogSheet';
 import { useWorkspace } from '../src/context/WorkspaceContext';
 import './ui/AppIcon.css';
 import './home/HomeTileEditor.css';
+import './home/ConnectCatalogSheet.css';
 import './DashboardHome.css';
 
 const CREATION_WORKFLOW: { id: string; label: string; path: string; icon: LucideIcon }[] = [
@@ -115,8 +117,19 @@ export function DashboardHome() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [connectTiles, setConnectTiles] = useState<ConnectTile[]>([]);
   const [connectTilesBaseline, setConnectTilesBaseline] = useState<ConnectTile[]>([]);
+  const [catalogAvailable, setCatalogAvailable] = useState<ConnectTile[]>([]);
+  const [connectCatalogOpen, setConnectCatalogOpen] = useState(false);
   const [editingConnectKey, setEditingConnectKey] = useState<string | null>(null);
   const [startProjectOpen, setStartProjectOpen] = useState(false);
+
+  const refreshConnectTiles = useCallback(async () => {
+    const res = await fetchConnectTiles('home');
+    if (!res.ok) return;
+    const tiles = res.tiles || [];
+    setConnectTiles(tiles);
+    setConnectTilesBaseline(tiles.map((t) => ({ ...t })));
+    setCatalogAvailable(res.catalog_available || []);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,6 +139,7 @@ export function DashboardHome() {
       const tiles = res.tiles || [];
       setConnectTiles(tiles);
       setConnectTilesBaseline(tiles.map((t) => ({ ...t })));
+      setCatalogAvailable(res.catalog_available || []);
     })();
     return () => {
       cancelled = true;
@@ -216,8 +230,8 @@ export function DashboardHome() {
           connectTiles.map((t) => ({
             provider_key: t.provider_key,
             sort_order: t.sort_order,
-            show_on_home: t.show_on_home,
-            show_on_workspace: t.show_on_workspace,
+            show_on_home: t.show_on_home ?? true,
+            show_on_workspace: t.show_on_workspace ?? false,
             icon_scale: t.icon_scale ?? 1,
             icon_bg: t.icon_bg ?? null,
             custom_icon_url: t.custom_icon_url ?? null,
@@ -274,16 +288,14 @@ export function DashboardHome() {
     );
   }, []);
 
-  const openConnectTile = useCallback(
-    (tile: ConnectTile) => {
-      if (tile.connected) {
-        navigate(tile.settings_path);
-        return;
-      }
-      window.location.href = tile.connect_url;
-    },
-    [navigate],
-  );
+  const openConnectTile = useCallback((tile: ConnectTile) => {
+    if (tile.connected) return;
+    if (!tile.connect_url) {
+      setConnectCatalogOpen(true);
+      return;
+    }
+    window.location.href = tile.connect_url;
+  }, []);
 
   return (
     <main className={`iam-home ${editMode ? 'iam-home-edit-mode' : ''}`} aria-label="Dashboard home">
@@ -414,7 +426,7 @@ export function DashboardHome() {
               <h2 id="connect-context-title">Connect context</h2>
               <p>OAuth and services — tap to connect, or customize icons in edit mode.</p>
             </div>
-            <button type="button" onClick={() => navigate('/dashboard/settings/integrations')}>See all</button>
+            <button type="button" onClick={() => setConnectCatalogOpen(true)}>Add app</button>
           </div>
           <div className="iam-app-icon-grid">
             {(connectTiles.length ? connectTiles : []).map((tile) => (
@@ -454,8 +466,29 @@ export function DashboardHome() {
                 }}
               />
             ))}
+            {!editMode ? (
+              <article className="iam-app-icon-wrap iam-app-icon-wrap--md iam-app-icon-wrap--add">
+                <button
+                  type="button"
+                  className="iam-app-icon-shell iam-app-icon-shell--app"
+                  aria-label="Connect app"
+                  onClick={() => setConnectCatalogOpen(true)}
+                >
+                  <span className="iam-app-icon-fallback">+</span>
+                </button>
+                <p className="iam-app-icon-label">Connect app</p>
+                <p className="iam-app-icon-sub">Add integration</p>
+              </article>
+            ) : null}
           </div>
         </section>
+
+        <ConnectCatalogSheet
+          open={connectCatalogOpen}
+          options={catalogAvailable}
+          onClose={() => setConnectCatalogOpen(false)}
+          onConnected={() => void refreshConnectTiles()}
+        />
 
         <section className="iam-home-section" aria-labelledby="recent-title">
           <div className="iam-section-head">

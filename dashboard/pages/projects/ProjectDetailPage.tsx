@@ -21,6 +21,7 @@ import { deleteProject, fetchProjectMemory, updateProject, updateProjectMemory }
 import { ProjectShareModal } from '../../components/projects/ProjectShareModal';
 import { uploadProjectR2File } from '../../src/lib/projectR2Upload';
 import { cfImageVariants } from '../../src/lib/projectBranding';
+import { useWorkspace } from '../../src/context/WorkspaceContext';
 import {
   coverFromMeta,
   parseProjectMeta,
@@ -140,6 +141,7 @@ function RailSection({
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
+  const { workspaceId } = useWorkspace();
   const isMobile = useIsMobile();
 
   const [project, setProject] = useState<Project | null>(null);
@@ -347,7 +349,12 @@ export default function ProjectDetailPage() {
     }
     setCoverUploading(true);
     try {
-      const out = await uploadProjectR2File(project.id, file, 'cover');
+      const out = await uploadProjectR2File(
+        project.id,
+        file,
+        'cover',
+        project.workspace_id || workspaceId,
+      );
       if (!out.ok || !out.url) {
         setToast(out.error || 'Cover upload failed');
         return;
@@ -367,7 +374,12 @@ export default function ProjectDetailPage() {
     try {
       const added: ProjectFileRef[] = [];
       for (const file of list) {
-        const out = await uploadProjectR2File(project.id, file, 'files');
+        const out = await uploadProjectR2File(
+          project.id,
+          file,
+          'files',
+          project.workspace_id || workspaceId,
+        );
         if (!out.ok || !out.url) {
           setToast(out.error || `Upload failed: ${file.name}`);
           break;

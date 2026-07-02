@@ -84,12 +84,12 @@ export const INTEGRATION_BRAND_AVATARS = {
  * @returns {string|null}
  */
 export function resolveIntegrationIconUrl(providerKey, catalogIconUrl, catalogSlug, registryIconUrl) {
-  // 1. Catalog icon_url — set once in D1, authoritative
+  // 1. Catalog icon_url — set once in D1, authoritative for product defaults
   const fromCatalog = String(catalogIconUrl || '').trim();
-  if (fromCatalog) return fromCatalog;
-
-  // 2. Per-tenant registry override
+  // 2. Per-tenant registry override (custom upload or backfill)
   const fromRegistry = String(registryIconUrl || '').trim();
+  if (fromRegistry && fromRegistry !== fromCatalog) return fromRegistry;
+  if (fromCatalog) return fromCatalog;
   if (fromRegistry) return fromRegistry;
 
   // 3. Exact key match on provider_key (underscored)

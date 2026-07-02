@@ -10,23 +10,32 @@ export type ConnectTile = {
   icon_scale?: number;
   icon_bg?: string | null;
   category: string;
+  auth_type?: string;
   status: string;
   connected: boolean;
-  issue: 'warning' | 'error' | null;
-  account_display: string | null;
+  issue?: 'warning' | 'error' | null;
+  account_display?: string | null;
   sort_order: number;
-  connect_url: string;
+  connect_url: string | null;
   settings_path: string;
-  show_on_home: boolean;
-  show_on_workspace: boolean;
+  show_on_home?: boolean;
+  show_on_workspace?: boolean;
+  description?: string | null;
+};
+
+export type ConnectCatalogOption = ConnectTile & {
+  connectable?: boolean;
+  api_key_label?: string | null;
 };
 
 export type ConnectTilesResponse = {
   ok: boolean;
   surface?: string;
   tiles?: ConnectTile[];
+  catalog_available?: ConnectCatalogOption[];
   connected_slugs?: string[];
   error?: string;
+  updated_at?: string;
 };
 
 export async function fetchConnectTiles(
