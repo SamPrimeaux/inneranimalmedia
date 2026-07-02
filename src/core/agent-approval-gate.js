@@ -3,11 +3,10 @@ import { scheduleRecordMcpToolExecution } from './mcp-tool-execution.js';
 import { scheduleAgentsamToolCallLog } from './agent-prompt-builder.js';
 import { formatToolApprovalPreview } from './agent-tool-validator.js';
 import { writeUsageEventFromChat } from './usage-event-writer.js';
+import { shouldRequireToolApproval } from './agent-approval-policy.js';
 
 export function needsApproval(validationResult, modeConfig, userPolicy) {
-  void modeConfig;
-  void userPolicy;
-  return validationResult?.requiresConfirmation === true;
+  return shouldRequireToolApproval(validationResult, modeConfig, userPolicy);
 }
 
 export async function createApprovalRequest(env, ctx, opts) {

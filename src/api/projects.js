@@ -1,9 +1,10 @@
 /**
- * Projects API — /api/projects* (D1 canonical; no Supabase dependency).
+ * Projects API — /api/projects* (D1 canonical; Supabase mirror on every write).
  * Dispatched from src/api/finance.js after auth + DB checks.
  */
 import { jsonResponse } from '../core/auth.js';
 import { withD1Retry } from '../core/d1-retry.js';
+import { scheduleSyncProjectToSupabase } from '../core/agentsam-projects-supabase-sync.js';
 
 const PROJECTS_LIST_CACHE = 'private, max-age=30, stale-while-revalidate=120';
 const PROJECTS_OVERVIEW_CACHE = 'private, max-age=15, stale-while-revalidate=300';
@@ -125,6 +126,15 @@ function mapDbStatusToUi(status) {
   if (s === 'planning' || s === 'discovery') return 'planning';
   if (s === 'development' || s === 'active' || s === 'production') return 'active';
   return 'planning';
+}
+
+async function mirrorProjectWrite(env, ctx, row, opts = {}) {
+  if (!row?.id) return { ok: false, error: 'missing_project_row' };
+  return scheduleSyncProjectToSupabase(env, ctx, row, {
+    ...opts,
+    awaitSync: true,
+    updatedBy: opts.updatedBy ?? null,
+  });
 }
 
 async function assertWorkspaceAllowed(db, workspaceId, tenantId, isSuperadmin) {
@@ -753,7 +763,7 @@ async function handleGetOne(env, authUser, id) {
   return jsonResponse({ ok: true, project: row });
 }
 
-async function handlePatch(request, env, authUser, id) {
+async function handlePatch(request, env, authUser, id, ctx) {
   const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(id).first();
   if (!row) return jsonResponse({ ok: false, error: 'not_found' }, 404);
   if (authUser.tenant_id && row.tenant_id && String(row.tenant_id) !== String(authUser.tenant_id) && !authUser.is_superadmin) {
@@ -804,10 +814,11 @@ async function handlePatch(request, env, authUser, id) {
     return jsonResponse({ ok: false, error: `db_update_failed: ${e?.message || e}` }, 500);
   }
   const next = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(id).first();
-  return jsonResponse({ ok: true, project: next });
+  const mirror = await mirrorProjectWrite(env, ctx, next, { updatedBy: authUser?.id ?? null });
+  return jsonResponse({ ok: true, project: next, supabase_mirror: mirror });
 }
 
-async function handlePost(request, env, authUser) {
+async function handlePost(request, env, authUser, ctx) {
   const body = await request.json().catch(() => ({}));
   const name = String(body.name || '').trim();
   if (!name) return jsonResponse({ ok: false, error: 'name_required' }, 400);
@@ -990,10 +1001,14 @@ async function handlePost(request, env, authUser) {
   }
 
   const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(projectId).first();
-  return jsonResponse({ ok: true, project: row, workspace_project_id: wpId }, 201);
+  const mirror = await mirrorProjectWrite(env, ctx, row, { updatedBy: authUser?.id ?? null });
+  return jsonResponse(
+    { ok: true, project: row, workspace_project_id: wpId, supabase_mirror: mirror },
+    201,
+  );
 }
 
-async function handleDelete(request, env, authUser, id, url) {
+async function handleDelete(request, env, authUser, id, url, ctx) {
   const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(id).first();
   if (!row) return jsonResponse({ ok: false, error: 'not_found' }, 404);
   if (authUser.tenant_id && row.tenant_id && String(row.tenant_id) !== String(authUser.tenant_id) && !authUser.is_superadmin) {
@@ -1002,6 +1017,16 @@ async function handleDelete(request, env, authUser, id, url) {
 
   const hard = url.searchParams.get('hard') === '1' || url.searchParams.get('hard') === 'true';
   if (hard) {
+    const mirror = await mirrorProjectWrite(env, ctx, row, {
+      hardDelete: true,
+      updatedBy: authUser?.id ?? null,
+    });
+    if (!mirror?.ok) {
+      return jsonResponse(
+        { ok: false, error: 'supabase_mirror_failed', supabase_mirror: mirror },
+        502,
+      );
+    }
     try {
       await env.DB.prepare(`DELETE FROM projects WHERE id = ?`).bind(id).run();
     } catch (e) {
@@ -1016,7 +1041,7 @@ async function handleDelete(request, env, authUser, id, url) {
     } catch {
       /* optional */
     }
-    return jsonResponse({ ok: true, deleted: true, id });
+    return jsonResponse({ ok: true, deleted: true, id, supabase_mirror: mirror });
   }
 
   try {
@@ -1028,7 +1053,8 @@ async function handleDelete(request, env, authUser, id, url) {
     return jsonResponse({ ok: false, error: `db_update_failed: ${e?.message || e}` }, 500);
   }
   const next = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(id).first();
-  return jsonResponse({ ok: true, archived: true, project: next });
+  const mirror = await mirrorProjectWrite(env, ctx, next, { updatedBy: authUser?.id ?? null });
+  return jsonResponse({ ok: true, archived: true, project: next, supabase_mirror: mirror });
 }
 
 /**
@@ -1037,7 +1063,7 @@ async function handleDelete(request, env, authUser, id, url) {
  * @param {any} env
  * @param {any} authUser
  */
-export async function handleProjectsApi(request, url, env, authUser) {
+export async function handleProjectsApi(request, url, env, authUser, ctx = null) {
   const pathLower = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
   const method = request.method.toUpperCase();
   const sub = pathLower.startsWith('/api/projects/') ? pathLower.slice('/api/projects/'.length) : '';
@@ -1051,7 +1077,7 @@ export async function handleProjectsApi(request, url, env, authUser) {
   }
 
   if (pathLower === '/api/projects' && method === 'POST') {
-    return handlePost(request, env, authUser);
+    return handlePost(request, env, authUser, ctx);
   }
 
   const seg = sub.split('/').filter(Boolean);
@@ -1059,10 +1085,10 @@ export async function handleProjectsApi(request, url, env, authUser) {
     return handleGetOne(env, authUser, seg[0]);
   }
   if (seg.length === 1 && (method === 'PATCH' || method === 'PUT')) {
-    return handlePatch(request, env, authUser, seg[0]);
+    return handlePatch(request, env, authUser, seg[0], ctx);
   }
   if (seg.length === 1 && method === 'DELETE') {
-    return handleDelete(request, env, authUser, seg[0], url);
+    return handleDelete(request, env, authUser, seg[0], url, ctx);
   }
 
   return jsonResponse({ ok: false, error: 'projects_route_not_found' }, 404);

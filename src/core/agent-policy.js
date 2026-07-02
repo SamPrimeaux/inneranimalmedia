@@ -341,10 +341,9 @@ export function isToolAllowedByPolicyRisk(policy, inferredRisk) {
 }
 
 export function requiresApprovalForTool(row, policyRiskOk, modeRequiresApproval) {
-  void row;
-  void policyRiskOk;
-  void modeRequiresApproval;
-  return false;
+  if (!row || Number(row.requires_approval || 0) !== 1) return false;
+  if (!policyRiskOk) return false;
+  return modeRequiresApproval !== false;
 }
 
 export function isSubagentToolName(toolName) {

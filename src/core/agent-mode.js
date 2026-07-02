@@ -63,3 +63,31 @@ export function isComposerAgentMode(raw) {
   const v = normalizeAgentRuntimeMode(raw);
   return v !== 'auto' && RUNTIME_MODE_SET.has(v);
 }
+
+/**
+ * API shape for GET /api/agent/modes — keep dashboard-free; Worker is SSOT for mode list.
+ */
+export function listAgentModesForApi() {
+  return [
+    ...AGENT_MODES.map((m) => ({
+      slug: m.id,
+      label: m.label,
+      description: m.description,
+      color: AGENT_MODE_CONTRACT[m.id]?.color ?? null,
+      icon: null,
+      temperature: 0.7,
+      auto_run: 0,
+      max_tool_calls: 15,
+    })),
+    {
+      slug: 'auto',
+      label: 'Auto',
+      description: 'Automatic routing',
+      color: null,
+      icon: null,
+      temperature: 0.7,
+      auto_run: 0,
+      max_tool_calls: 15,
+    },
+  ];
+}

@@ -145,7 +145,7 @@ export async function handleFinanceApi(request, url, env, ctx) {
 
         // ── /api/projects* — scoped via authUser inside handler ──
         if (pathLower.startsWith('/api/projects')) {
-            return handleProjectsApi(request, url, env, authUser);
+            return handleProjectsApi(request, url, env, authUser, ctx);
         }
 
         return jsonResponse({ error: 'Finance route not found' }, 404);

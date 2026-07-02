@@ -172,7 +172,7 @@ export async function resolveChainRootIdForParentRun(db, parentRunId) {
   }
 }
 
-const CHAT_MODES = new Set(['ask', 'agent', 'plan', 'debug', 'auto']);
+const CHAT_MODES = new Set(['ask', 'agent', 'plan', 'debug', 'multitask', 'auto']);
 
 /** Normalized chat body mode for `agentsam_agent_run.mode`. */
 export function normalizeChatRunMode(mode) {

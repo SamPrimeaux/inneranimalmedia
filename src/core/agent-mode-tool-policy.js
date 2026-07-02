@@ -55,13 +55,11 @@ function basePolicyForMode(modeSlug) {
 
   switch (mode) {
     case 'ask':
-      // Ask is tool-enabled but read-only by default.
-      // Mutations are not denied; they must flow through explicit approval.
+      // Ask is tool-enabled but read-only: mutations blocked by write_policy (switch to Agent to execute).
       policy.requireApprovalTools = [...ASK_MUTATION_DENY_TOOL_NAMES];
       break;
     case 'plan':
-      // Plan is also read-only by default.
-      // Allow mutation/execution tools to be *requested*, but require approval to execute.
+      // Plan is read-only during design; execution tasks use plan-task approval fabric separately.
       policy.requireApprovalTools = [...ASK_MUTATION_DENY_TOOL_NAMES];
       break;
     case 'debug':

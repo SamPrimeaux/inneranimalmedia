@@ -965,7 +965,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         });
         continue;
       }
-      if (needsApproval(validation, modeConfig, userPolicy)) {
+      if (needsApproval(validation, { ...modeConfig, mode }, userPolicy)) {
         const proposalId = await createApprovalRequest(env, ctx, {
           tenantId,
           sessionId,
