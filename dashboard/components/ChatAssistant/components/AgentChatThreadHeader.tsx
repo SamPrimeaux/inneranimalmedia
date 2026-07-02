@@ -15,8 +15,8 @@ type Props = {
   onReloadSessions: () => void | Promise<void>;
   onDeletedActive?: (id: string) => void;
   onNewChat: () => void;
-  onOpenFiles: () => void;
-  filesActive?: boolean;
+  onToggleScratchpad: () => void;
+  scratchpadOpen?: boolean;
   compact?: boolean;
   /** When embedded in a merged shell row, omit bottom border. */
   embedded?: boolean;
