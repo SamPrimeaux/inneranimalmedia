@@ -16,6 +16,7 @@ import {
 import { clearIamGitStatusCache } from "../iamGitStatusCache";
 import { normalizeGithubRepo } from "../normalizeGithubRepo";
 import { isDashboardBootstrapPath, loadDashboardBootstrap, refreshDashboardBootstrap } from "../loadDashboardBootstrap";
+import { invalidateAgentDomainCache } from "../agentDomainFetch";
 import { coalesceLabel } from "../lib/coalesceLabel";
 
 export type WorkspaceRow = {
@@ -303,6 +304,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             pendingWorkspaceIdRef.current = null;
             setPendingWorkspaceId(null);
             if (isDashboardBootstrapPath()) {
+              invalidateAgentDomainCache(trimmed);
               void refreshDashboardBootstrap();
             }
           }

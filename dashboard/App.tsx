@@ -3250,8 +3250,10 @@ const App: React.FC = () => {
       clearAll();
       if (typeof document !== 'undefined' && document.hidden) return;
 
-      const freshBootstrap = readDashboardBootstrapCache();
-      if (!freshBootstrap) {
+      const freshBootstrap = readDashboardBootstrapCache(60_000);
+      if (freshBootstrap) {
+        applyDashboardBootstrapPayload(freshBootstrap);
+      } else {
         void fetchHealth();
         void fetchNotifications();
         void fetchGitAndProblems();
@@ -3290,6 +3292,7 @@ const App: React.FC = () => {
     fetchTunnelStatusOnly,
     fetchTerminalConfigOnly,
     fetchTelemetryPoll,
+    applyDashboardBootstrapPayload,
   ]);
 
   const markNotificationRead = useCallback(async (id: string) => {

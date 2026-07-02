@@ -109,7 +109,7 @@ From `wrangler.production.toml` (verify with `npm run verify:wrangler-production
 | Session | HttpOnly `session` cookie |
 | Fetch | `credentials: 'same-origin'` on all dashboard API calls |
 | Identity | **Never** trust `workspace_id` / `tenant_id` from client body for auth — `resolveRequestContext` + `requireDashboardIdentity()` |
-| Bootstrap | `GET /api/auth/me` → `GET /api/config/client` → `GET /api/settings/workspaces` → `GET /api/themes/active` |
+| Bootstrap | `GET /api/dashboard/bootstrap` — single L1 envelope (session, workspaces, status, theme, client). Agent policy/models are L2 (`/api/agent/policy`, `/api/agent/models`). |
 
 **Key client files:** `dashboard/src/context/WorkspaceContext.tsx`, `dashboard/src/lib/supabase.ts`, `dashboard/src/applyCmsTheme.ts`
 
@@ -120,7 +120,7 @@ From `wrangler.production.toml` (verify with `npm run verify:wrangler-production
 | Terminal session, UI prefs | `agentsam_bootstrap` | `src/core/bootstrap.js` |
 | Workspace list | `agentsam_workspace` + `workspace_members` | `src/core/workspace-access.js` |
 | Theme | `cms_themes` + `cms_theme_preferences` | `src/core/cms-theme-resolve.js` |
-| User policy | `agentsam_user_policy` (`can_run_pty`, `platform_operator`, …) | terminal + MCP gates |
+| User policy | `agentsam_user_policy` | `GET /api/agent/policy` (L2) · chat turn via `buildAgentChatResolvedContext` |
 
 ### 3.3 API surface map (core)
 

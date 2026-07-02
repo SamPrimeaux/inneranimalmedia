@@ -1,15 +1,26 @@
 /**
  * GET /api/dashboard/bootstrap — single authenticated round-trip for dashboard mount.
- * Replaces parallel /api/auth/me, /api/settings/workspaces, status-bar polls, models, config.
+ * L1 envelope only: session, workspaces, status bar, theme, client config.
+ * Agent domain (policy, models) → L2 endpoints under /api/agent/* and /api/settings/*.
  */
 import { jsonResponse, authContextToLegacyUser } from '../core/auth.js';
 import { buildCanonicalAuthMe } from './auth-me.js';
 import { fetchSandboxRuntimeSummary } from './sandbox-api.js';
-import { resolveActiveBootstrap } from '../core/bootstrap.js';
-import { fetchAuthUserTenantId } from '../core/auth.js';
 import { gitStatusFromWorkspaceMetadata } from '../core/workspace-git-meta.js';
 import { pingTunnelHealth } from '../core/status-bar-runtime.js';
 import { resolveDashboardBootstrapTheme } from '../core/cms-theme-bootstrap-payload.js';
+
+/** @type {readonly string[]} */
+export const DASHBOARD_BOOTSTRAP_L1_KEYS = Object.freeze([
+  'ok',
+  'fetched_at',
+  'me',
+  'workspaces',
+  'status',
+  'theme',
+  'client',
+  '_meta',
+]);
 
 /**
  * @param {Request} request
@@ -45,8 +56,6 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
     tunnelSettled,
     terminalSettled,
     sandboxSettled,
-    modelsSettled,
-    defaultModelSettled,
     themeSettled,
   ] = await Promise.allSettled([
     buildCanonicalAuthMe(env, request, authUser),
@@ -124,47 +133,6 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
 
     fetchSandboxRuntimeSummary(env),
 
-    env?.DB
-      ? env.DB.prepare(
-          `SELECT id, name, provider, model_key, api_platform, show_in_picker,
-                  picker_group, size_class, input_rate_per_mtok, output_rate_per_mtok
-             FROM agentsam_model_catalog
-            WHERE COALESCE(is_active, 1) = 1
-              AND COALESCE(show_in_picker, 0) = 1
-            ORDER BY picker_group ASC, name ASC`,
-        )
-          .all()
-          .then((r) => r.results || [])
-          .catch(() => [])
-      : Promise.resolve([]),
-
-    env?.DB && workspaceId
-      ? (async () => {
-          try {
-            const tid =
-              authUser.tenant_id != null && String(authUser.tenant_id).trim()
-                ? String(authUser.tenant_id).trim()
-                : (await fetchAuthUserTenantId(env, userId)) || null;
-            const boot = await resolveActiveBootstrap(env, {
-              userId,
-              personUuid: authUser.person_uuid ?? null,
-              tenantId: tid,
-              workspaceId,
-            });
-            const prefs =
-              boot?.ui_preferences_json != null
-                ? typeof boot.ui_preferences_json === 'string'
-                  ? JSON.parse(boot.ui_preferences_json)
-                  : boot.ui_preferences_json
-                : {};
-            const dm = prefs?.default_model;
-            return typeof dm === 'string' && dm.trim() ? dm.trim() : null;
-          } catch {
-            return null;
-          }
-        })()
-      : Promise.resolve(null),
-
     resolveDashboardBootstrapTheme(env, authUser, workspaceId).catch(() => null),
   ]);
 
@@ -177,9 +145,9 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
   const tunnel = tunnelSettled.status === 'fulfilled' ? tunnelSettled.value : null;
   const terminal = terminalSettled.status === 'fulfilled' ? terminalSettled.value : null;
   const sandbox = sandboxSettled.status === 'fulfilled' ? sandboxSettled.value : null;
-  const models = modelsSettled.status === 'fulfilled' ? modelsSettled.value : [];
-  const default_model = defaultModelSettled.status === 'fulfilled' ? defaultModelSettled.value : null;
   const theme = themeSettled.status === 'fulfilled' ? themeSettled.value : null;
+
+  const parallelQueries = 8;
 
   return jsonResponse({
     ok: true,
@@ -204,14 +172,15 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
       tunnel,
       terminal,
     },
-    agent: {
-      models,
-      default_model,
-    },
     theme,
     client:
       supabaseUrl && supabaseAnonKey
         ? { supabaseUrl, supabaseAnonKey, supabase_url: supabaseUrl, supabase_anon_key: supabaseAnonKey }
         : null,
+    _meta: {
+      l1_version: 2,
+      parallel_queries: parallelQueries,
+      l2_excluded: ['agent_policy', 'agent_models', 'default_model'],
+    },
   });
 }

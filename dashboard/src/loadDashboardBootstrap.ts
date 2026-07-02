@@ -47,10 +47,6 @@ export type DashboardBootstrapPayload = {
     tunnel?: { healthy?: boolean; status?: string };
     terminal?: { status?: string };
   };
-  agent?: {
-    models?: unknown[];
-    default_model?: string | null;
-  };
   theme?: CmsActiveThemePayload | null;
   client?: {
     supabaseUrl?: string;
@@ -58,6 +54,11 @@ export type DashboardBootstrapPayload = {
     supabase_url?: string;
     supabase_anon_key?: string;
   } | null;
+  _meta?: {
+    l1_version?: number;
+    parallel_queries?: number;
+    l2_excluded?: string[];
+  };
 };
 
 declare global {
@@ -115,6 +116,17 @@ function publishDashboardBootstrap(body: DashboardBootstrapPayload): DashboardBo
   if (typeof window !== 'undefined') {
     window.__IAM_DASHBOARD_BOOTSTRAP__ = body;
     window.dispatchEvent(new CustomEvent('iam_dashboard_bootstrap', { detail: body }));
+    try {
+      if (localStorage.getItem('IAM_DEBUG_L1') === '1') {
+        console.info('[IAM L1] bootstrap published', {
+          keys: Object.keys(body),
+          l2_excluded: body._meta?.l2_excluded,
+          parallel_queries: body._meta?.parallel_queries,
+        });
+      }
+    } catch {
+      /* ignore */
+    }
   }
   return body;
 }

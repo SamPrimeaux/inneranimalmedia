@@ -71,7 +71,7 @@ import type {
 import type { AgentToolTraceRow } from './execution/types';
 import { ExecutionTimeline, ScriptDraftPanel, shellSingleQuote } from './execution';
 import { useWorkspace } from '../../src/context/WorkspaceContext';
-import { readDashboardBootstrapCache } from '../../src/loadDashboardBootstrap';
+import { useAgentModels, useAgentDefaultModel } from '../../src/hooks/useAgentModels';
 import {
   githubRepoContextStorageKey,
   chatGithubContextStorageKey,
@@ -260,6 +260,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 }) => {
   const { sessionUserId, workspaceId: ctxWorkspaceId, workspaces } = useWorkspace();
   const effectiveWsId = (workspaceId || ctxWorkspaceId || '').trim() || null;
+  const agentL2Enabled = Boolean(sessionUserId);
+  const { models: chatModels } = useAgentModels(agentL2Enabled);
+  const { defaultModelKey } = useAgentDefaultModel(agentL2Enabled);
 
   const agentsamPolicyRef = useRef<Record<string, unknown> | null>(null);
   useEffect(() => {
@@ -354,7 +357,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [localActivePlanId, setLocalActivePlanId] = useState<string | null>(null);
   const [isModeOpen, setIsModeOpen] = useState(false);
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
-  const [defaultModelKey, setDefaultModelKey] = useState<string | null>(null);
 
   const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
   const [composerToast, setComposerToast] = useState<string | null>(null);
@@ -1061,7 +1063,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     pendingApproval: !!pendingToolApproval,
   });
 
-  const [chatModels, setChatModels] = useState<ChatModelRow[]>([]);
   const [selectedModelKey, setSelectedModelKey] = useState<string>(() => {
     if (typeof localStorage === 'undefined') return AUTO_MODEL_KEY;
     try {
@@ -1205,57 +1206,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, [selectedModelKey]);
 
   useEffect(() => {
-    if (!sessionUserId) return;
-    const boot = readDashboardBootstrapCache();
-    const bootModels = boot?.agent?.models;
-    if (Array.isArray(bootModels) && bootModels.length > 0) {
-      const rows: ChatModelRow[] = (bootModels as Record<string, unknown>[]).map((raw) => ({
-        id: String(raw.id ?? raw.model_key ?? ''),
-        name: String(raw.name ?? raw.display_name ?? raw.model_key ?? ''),
-        provider: String(raw.provider ?? ''),
-        model_key: String(raw.model_key ?? ''),
-        api_platform: String(raw.api_platform ?? ''),
-        picker_group:
-          raw.picker_group != null && String(raw.picker_group).trim()
-            ? String(raw.picker_group).trim()
-            : '',
-        size_class: raw.size_class != null ? String(raw.size_class) : '',
-        input_rate_per_mtok: raw.input_rate_per_mtok != null ? Number(raw.input_rate_per_mtok) : null,
-        output_rate_per_mtok: raw.output_rate_per_mtok != null ? Number(raw.output_rate_per_mtok) : null,
-      }));
-      setChatModels(rows);
-      return;
-    }
-    fetch('/api/agent/models?show_in_picker=1', { credentials: 'same-origin' })
-      .then((r) => r.json())
-      .then((data) => {
-        if (!Array.isArray(data)) return;
-        const rows: ChatModelRow[] = (data as Record<string, unknown>[]).map((raw) => ({
-          id: String(raw.id ?? raw.model_key ?? ''),
-          name: String(raw.name ?? raw.display_name ?? raw.model_key ?? ''),
-          provider: String(raw.provider ?? ''),
-          model_key: String(raw.model_key ?? ''),
-          api_platform: String(raw.api_platform ?? ''),
-          picker_group:
-            raw.picker_group != null && String(raw.picker_group).trim()
-              ? String(raw.picker_group).trim()
-              : '',
-          size_class: raw.size_class != null ? String(raw.size_class) : '',
-          input_rate_per_mtok: raw.input_rate_per_mtok != null ? Number(raw.input_rate_per_mtok) : null,
-          output_rate_per_mtok: raw.output_rate_per_mtok != null ? Number(raw.output_rate_per_mtok) : null,
-        }));
-        setChatModels(rows);
-        if (userPinnedModelRef.current && !isAutoModelSelection(selectedModelKeyRef.current)) {
-          return;
-        }
-        setSelectedModelKey((prev) => {
-          if (isAutoModelSelection(prev)) return AUTO_MODEL_KEY;
-          if (prev && rows.some((m) => m.model_key === prev)) return prev;
-          return AUTO_MODEL_KEY;
-        });
-      })
-      .catch(() => {});
-  }, [sessionUserId]);
+    if (!chatModels.length) return;
+    if (userPinnedModelRef.current && !isAutoModelSelection(selectedModelKeyRef.current)) return;
+    setSelectedModelKey((prev) => {
+      if (isAutoModelSelection(prev)) return AUTO_MODEL_KEY;
+      if (prev && chatModels.some((m) => m.model_key === prev)) return prev;
+      return AUTO_MODEL_KEY;
+    });
+  }, [chatModels]);
 
   const prevSelectedModelKeyRef = useRef('');
   useEffect(() => {
@@ -1268,21 +1226,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     setMessageQueue((prevQ) => prevQ.slice(1));
     void handleSendRef.current(next);
   }, [selectedModelKey, isLoading]);
-
-  useEffect(() => {
-    if (!sessionUserId) return;
-    const boot = readDashboardBootstrapCache();
-    if (boot?.agent?.default_model) {
-      setDefaultModelKey(String(boot.agent.default_model).trim() || null);
-      return;
-    }
-    fetch('/api/settings/default-model', { credentials: 'same-origin' })
-      .then((r) => r.json())
-      .then((d: { default_model?: string | null }) => {
-        setDefaultModelKey(typeof d.default_model === 'string' && d.default_model.trim() ? d.default_model.trim() : null);
-      })
-      .catch(() => setDefaultModelKey(null));
-  }, [sessionUserId]);
 
   const modeLabel = modes.find((m) => m.id === mode)?.label ?? mode;
 
