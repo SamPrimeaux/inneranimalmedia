@@ -1,16 +1,14 @@
 /**
  * StudioEntryScreen — default lightweight Design Studio landing.
- * No Three.js, no CadStudioShell, no ChatAssistant. Meshy jobs go direct to /api/cad/meshy/*.
+ * Agent Sam composer is portaled here from App (same pattern as AgentHome).
  */
 import React, { useRef } from 'react';
-import { Loader2, Sparkles, Upload, LayoutGrid, ArrowUp } from 'lucide-react';
+import { Loader2, LayoutGrid, Upload } from 'lucide-react';
 import { StudioEntryGallery } from './StudioEntryGallery';
+import '../../../styles/agentHomeGlow.css';
 import './cad-studio.css';
 
 export type StudioEntryScreenProps = {
-  prompt: string;
-  onPromptChange: (value: string) => void;
-  onGenerate: () => void;
   onOpenStudio: () => void;
   onImportGlb?: (file: File) => void;
   generating?: boolean;
@@ -25,12 +23,11 @@ export type StudioEntryScreenProps = {
   onCancelJob?: (cadJobId: string) => void;
   activeProgressPct?: number;
   activeJobId?: string | null;
+  onComposerHost?: (el: HTMLDivElement | null) => void;
+  onMessagesHost?: (el: HTMLDivElement | null) => void;
 };
 
 export function StudioEntryScreen({
-  prompt,
-  onPromptChange,
-  onGenerate,
   onOpenStudio,
   onImportGlb,
   generating = false,
@@ -43,24 +40,16 @@ export function StudioEntryScreen({
   onCancelJob,
   activeProgressPct,
   activeJobId,
+  onComposerHost,
+  onMessagesHost,
 }: StudioEntryScreenProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const busy = generating || mode === 'loading-studio';
-  const charCount = prompt.trim().length;
-  const tooLong = charCount > 600;
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey && !busy && charCount > 0 && !tooLong) {
-      e.preventDefault();
-      onGenerate();
-    }
-  };
 
   return (
     <div className="studio-entry" role="main" aria-label="Design Studio">
-      <div className="studio-entry__inner">
+      <div className="studio-entry__inner studio-entry__inner--chat">
 
-        {/* Wordmark / identity */}
         <div className="studio-entry__brand" aria-hidden>
           <span className="studio-entry__brand-word">Design</span>
           <span className="studio-entry__brand-word studio-entry__brand-word--accent">Studio</span>
@@ -71,41 +60,23 @@ export function StudioEntryScreen({
           Describe a model, import a GLB, or open the editor to get started.
         </p>
 
-        {/* Chat-style composer */}
-        <div className={`studio-entry__composer${busy ? ' studio-entry__composer--busy' : ''}${error || tooLong ? ' studio-entry__composer--error' : ''}`}>
-          <textarea
-            className="studio-entry__composer-input"
-            value={prompt}
-            onChange={(e) => onPromptChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="A weathered wooden dock stretching into calm water at golden hour…"
-            rows={3}
-            disabled={busy}
-            aria-label="Describe your 3D model"
+        <div
+          ref={onMessagesHost}
+          className="studio-entry__messages-host"
+          aria-label="Agent Sam conversation"
+        />
+
+        <div className="studio-entry__composer-wrap">
+          <div className="iam-agent-home-glow" aria-hidden="true" />
+          <div
+            ref={onComposerHost}
+            className="studio-entry__composer-host"
+            aria-label="Agent Sam command input"
           />
-          <div className="studio-entry__composer-footer">
-            <span className={`studio-entry__composer-hint${tooLong ? ' studio-entry__composer-hint--over' : ''}`}>
-              {tooLong ? `${charCount}/600 — too long` : charCount > 400 ? `${charCount}/600` : 'Enter to generate · Shift+Enter for new line'}
-            </span>
-            <button
-              type="button"
-              className="studio-entry__composer-send"
-              disabled={busy || charCount === 0 || tooLong}
-              onClick={onGenerate}
-              aria-label="Generate model"
-            >
-              {busy
-                ? <Loader2 size={15} className="studio-entry__spin" aria-hidden />
-                : <ArrowUp size={15} aria-hidden />
-              }
-            </button>
-          </div>
         </div>
 
-        {/* Error */}
-        {error && !tooLong ? <p className="studio-entry__error">{error}</p> : null}
+        {error ? <p className="studio-entry__error">{error}</p> : null}
 
-        {/* Progress / status */}
         {statusLabel ? (
           <div className="studio-entry__status">
             {busy ? <Loader2 size={13} className="studio-entry__spin" aria-hidden /> : null}
@@ -118,7 +89,6 @@ export function StudioEntryScreen({
           </div>
         ) : null}
 
-        {/* "Model ready" banner */}
         {jobReady ? (
           <button type="button" className="studio-entry__cta studio-entry__cta--ready" onClick={onOpenStudio}>
             <LayoutGrid size={15} aria-hidden />
@@ -126,7 +96,6 @@ export function StudioEntryScreen({
           </button>
         ) : null}
 
-        {/* Secondary actions */}
         <div className="studio-entry__secondary">
           <button type="button" className="studio-entry__link" onClick={onOpenStudio} disabled={busy}>
             <LayoutGrid size={13} aria-hidden />

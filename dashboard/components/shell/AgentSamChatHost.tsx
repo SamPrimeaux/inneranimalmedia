@@ -1,8 +1,11 @@
-import type { ComponentProps, PointerEvent } from 'react';
+import { useCallback, useState, type ComponentProps, type PointerEvent, type ReactNode } from 'react';
 import { ChatAssistantWithStudioContext } from '../designstudio/ChatAssistantWithStudioContext';
+import { ChatScratchpadRail } from '../ChatAssistant/components/ChatScratchpadRail';
+import type { AgentGeneratedFile } from '../ChatAssistant/types';
 import type { AgentChatLayout } from '../../lib/shellLayoutMeta';
 
 const AGENT_RESIZER_HIT_PX = 10;
+const SCRATCHPAD_RAIL_W_PX = 220;
 
 type StudioChatProps = ComponentProps<typeof ChatAssistantWithStudioContext>;
 
@@ -17,6 +20,60 @@ export type AgentSamChatHostProps = StudioChatProps & {
   onResizePointerDown?: (e: PointerEvent<HTMLDivElement>) => void;
 };
 
+function ChatWithScratchpadRail({
+  chat,
+  messages,
+  onFileSelect,
+  scratchpadOpen,
+  showScratchpadRail,
+}: {
+  chat: ReactNode;
+  messages: StudioChatProps['messages'];
+  onFileSelect?: StudioChatProps['onFileSelect'];
+  scratchpadOpen: boolean;
+  showScratchpadRail: boolean;
+}) {
+  const openScratchpadFile = useCallback(
+    (file: AgentGeneratedFile) => {
+      if (file.content) {
+        onFileSelect?.({
+          name: file.filename,
+          content: file.content,
+          workspacePath: file.workspacePath,
+        });
+        return;
+      }
+      if (file.r2Url) {
+        void fetch(file.r2Url, { credentials: 'include' })
+          .then((r) => r.text())
+          .then((content) =>
+            onFileSelect?.({
+              name: file.filename,
+              content,
+              workspacePath: file.workspacePath,
+            }),
+          )
+          .catch((e) => console.warn('[AgentSamChatHost] scratchpad open failed', e));
+      }
+    },
+    [onFileSelect],
+  );
+
+  return (
+    <div className="flex flex-row flex-1 min-h-0 min-w-0 overflow-hidden">
+      <div className="flex flex-1 min-w-0 min-h-0 overflow-hidden flex-col">{chat}</div>
+      {scratchpadOpen && showScratchpadRail ? (
+        <div
+          className="shrink-0 min-h-0 max-phone:hidden flex flex-col"
+          style={{ width: SCRATCHPAD_RAIL_W_PX }}
+        >
+          <ChatScratchpadRail messages={messages} onOpenFile={openScratchpadFile} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /** Single ChatAssistant mount — center (portals), left rail, or right rail. */
 export function AgentSamChatHost({
   layout,
@@ -30,16 +87,36 @@ export function AgentSamChatHost({
   atmosphericHomeMode,
   composerPortalTarget,
   messagesPortalTarget,
+  messages,
+  onFileSelect,
   ...chatProps
 }: AgentSamChatHostProps) {
+  const [scratchpadOpen, setScratchpadOpen] = useState(false);
+
   if (layout === 'hidden') return null;
+
+  const showScratchpadRail = !isNarrowViewport && !atmosphericHomeMode;
 
   const chat = (
     <ChatAssistantWithStudioContext
       {...chatProps}
+      messages={messages}
+      onFileSelect={onFileSelect}
       atmosphericHomeMode={atmosphericHomeMode}
       composerPortalTarget={composerPortalTarget}
       messagesPortalTarget={messagesPortalTarget}
+      onToggleScratchpad={() => setScratchpadOpen((v) => !v)}
+      scratchpadOpen={scratchpadOpen}
+    />
+  );
+
+  const chatColumn = (
+    <ChatWithScratchpadRail
+      chat={chat}
+      messages={messages}
+      onFileSelect={onFileSelect}
+      scratchpadOpen={scratchpadOpen}
+      showScratchpadRail={showScratchpadRail}
     />
   );
 
@@ -53,7 +130,7 @@ export function AgentSamChatHost({
         }`}
         aria-label="Agent Sam chat"
       >
-        {chat}
+        {chatColumn}
       </div>
     );
   }
@@ -78,7 +155,7 @@ export function AgentSamChatHost({
           {productLabel}
         </div>
       ) : null}
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{chat}</div>
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{chatColumn}</div>
     </div>
   );
 

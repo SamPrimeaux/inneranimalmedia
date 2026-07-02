@@ -17,11 +17,6 @@ import type { CadJobRow } from './designstudio/api';
 import { downloadCadAsset } from './designstudio/cadExportFormats';
 import type { SavedSceneRow } from './designstudio/shared/ScenePanel';
 import { StudioEntryScreen } from './designstudio/cad-studio/StudioEntryScreen';
-import {
-  DEFAULT_MESHY_SETTINGS,
-  buildMeshyPreviewBody,
-  MESHY_PROMPT_MAX,
-} from './designstudio/creation-station/meshyTypes';
 import type { AgentSamGeneratorKey } from '../utils/agentSamGenerators';
 import {
   ProjectType,
@@ -73,7 +68,17 @@ function parseStudioAssetApiRow(row: {
   return { id, name, url, scale };
 }
 
-export const DesignStudioPage: React.FC = () => {
+export type DesignStudioPageProps = {
+  onEntryPhaseChange?: (entry: boolean) => void;
+  onComposerHost?: (el: HTMLDivElement | null) => void;
+  onMessagesHost?: (el: HTMLDivElement | null) => void;
+};
+
+export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
+  onEntryPhaseChange,
+  onComposerHost,
+  onMessagesHost,
+}) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { setStudioContext } = useDesignStudioContext();
@@ -92,7 +97,9 @@ export const DesignStudioPage: React.FC = () => {
   useEffect(() => {
     studioPhaseRef.current = studioPhase;
   }, [studioPhase]);
-  const [meshyPrompt, setMeshyPrompt] = useState('');
+  useEffect(() => {
+    onEntryPhaseChange?.(studioPhase === 'entry');
+  }, [studioPhase, onEntryPhaseChange]);
 
   const [engineHostReady, setEngineHostReady] = useState(false);
   const [engineReady, setEngineReady] = useState(false);
@@ -217,7 +224,6 @@ export const DesignStudioPage: React.FC = () => {
   const cad = useDesignStudioCad({
     sessionId: agentSessionId,
     sceneId: currentSceneId,
-    onPromptUsed: setMeshyPrompt,
     onJobDone: (job) => {
       const status = String(job.status || '').toLowerCase();
       const hasUrl = Boolean(job.public_url || job.result_url);
@@ -883,24 +889,6 @@ export const DesignStudioPage: React.FC = () => {
     setStudioPhase('studio');
   }, []);
 
-  const handleEntryGenerate = useCallback(async () => {
-    const prompt = meshyPrompt.trim();
-    if (!prompt) return;
-    if (prompt.length > 600) return;
-    pendingCompletedJobRef.current = null;
-    const settings = { ...DEFAULT_MESHY_SETTINGS, prompt };
-    const body = {
-      ...buildMeshyPreviewBody(settings),
-      register_cms_asset: false,
-      skip_glb_polish: true,
-    };
-    try {
-      await cad.runMeshyPreview(body);
-    } catch {
-      /* surfaced via cad.error */
-    }
-  }, [meshyPrompt, cad]);
-
   const handleEntrySpawnStock = useCallback(
     (name: string, url: string, scale: number) => {
       void handleSpawnModel(name, url, scale);
@@ -924,8 +912,6 @@ export const DesignStudioPage: React.FC = () => {
 
   const entryMode: 'idle' | 'generating' | 'loading-studio' =
     studioPhase === 'studio' && !engineReady ? 'loading-studio' : cad.isGenerating ? 'generating' : 'idle';
-
-  const meshyPromptTooLong = meshyPrompt.trim().length > MESHY_PROMPT_MAX;
 
   const polledStatus = String(cad.polledJob?.status || '').toLowerCase();
   const entryJobReady =
@@ -951,33 +937,25 @@ export const DesignStudioPage: React.FC = () => {
     >
       {studioPhase === 'entry' ? (
         <StudioEntryScreen
-          prompt={meshyPrompt}
-          onPromptChange={setMeshyPrompt}
-          onGenerate={() => void handleEntryGenerate()}
           onOpenStudio={openFullStudio}
           onImportGlb={handleEntryImportGlb}
           onSpawnStock={handleEntrySpawnStock}
           onCancelJob={handleCancelCadJob}
+          onComposerHost={onComposerHost}
+          onMessagesHost={onMessagesHost}
           generating={cad.isGenerating}
           jobReady={entryJobReady}
           progressPct={cad.polledJob?.progress_pct ?? cad.polledJob?.progress ?? 0}
           activeProgressPct={cad.polledJob?.progress_pct ?? cad.polledJob?.progress ?? 0}
           activeJobId={cad.activeJobId}
           statusLabel={entryStatusLabel}
-          error={
-            meshyPromptTooLong
-              ? `Prompt must be ${MESHY_PROMPT_MAX} characters or fewer`
-              : cad.error
-          }
+          error={cad.error}
           mode={entryMode}
         />
       ) : (
         <Suspense
           fallback={
             <StudioEntryScreen
-              prompt={meshyPrompt}
-              onPromptChange={setMeshyPrompt}
-              onGenerate={() => void handleEntryGenerate()}
               onOpenStudio={openFullStudio}
               mode="loading-studio"
               statusLabel="Loading Design Studio…"

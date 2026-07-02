@@ -60,6 +60,7 @@ import { replaceAgentConversationUrl, isAgentCenterChatHome } from '../../lib/ag
 import type { AgentSessionRow } from '../../agentSessionsCatalog';
 import { sessionDisplayTitle } from '../../agentSessionsCatalog';
 import type {
+  AgentGeneratedFile,
   ChatAssistantProps,
   ChatModelRow,
   Message,
@@ -267,6 +268,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   atmosphericHomeMode = false,
   composerPortalTarget = null,
   messagesPortalTarget = null,
+  composerPlaceholder: composerPlaceholderOverride,
+  onToggleScratchpad,
+  scratchpadOpen: scratchpadOpenProp = false,
   availableConnectors = [],
   availableConnectorsLoading = false,
   onOpenEditor,
@@ -352,7 +356,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
-  const [chatFilesOpen, setChatFilesOpen] = useState(false);
+  const [localScratchpadOpen, setLocalScratchpadOpen] = useState(false);
+  const scratchpadOpen = onToggleScratchpad ? scratchpadOpenProp : localScratchpadOpen;
+  const handleToggleScratchpad = useCallback(() => {
+    if (onToggleScratchpad) onToggleScratchpad();
+    else setLocalScratchpadOpen((v) => !v);
+  }, [onToggleScratchpad]);
   const [chatProjects, setChatProjects] = useState<AgentChatProjectOption[]>([]);
   const [attachMenuStyle, setAttachMenuStyle] = useState<React.CSSProperties | null>(null);
   const [composerSources, setComposerSources] = useState<ChatComposerSource[]>([]);
@@ -1440,6 +1449,32 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     return true;
   }, [mobileAgentHomeMode, showEmptyThreadPlaceholder, conversationId]);
 
+  const openAgentGeneratedFile = useCallback(
+    (file: AgentGeneratedFile) => {
+      if (file.content) {
+        onFileSelect?.({
+          name: file.filename,
+          content: file.content,
+          workspacePath: file.workspacePath,
+        });
+        return;
+      }
+      if (file.r2Url) {
+        void fetch(file.r2Url, { credentials: 'include' })
+          .then((r) => r.text())
+          .then((content) =>
+            onFileSelect?.({
+              name: file.filename,
+              content,
+              workspacePath: file.workspacePath,
+            }),
+          )
+          .catch((e) => console.warn('[ChatAssistant] scratchpad open failed', e));
+      }
+    },
+    [onFileSelect],
+  );
+
   const renderThreadHeader = (compact = false, embedded = false) =>
     showThreadHeader ? (
       <>
@@ -1452,12 +1487,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           onReloadSessions={loadSessions}
           onDeletedActive={onDeleteActiveChat}
           onNewChat={handleNewChat}
-          onOpenFiles={() => setChatFilesOpen((v) => !v)}
-          filesActive={chatFilesOpen}
+          onToggleScratchpad={handleToggleScratchpad}
+          scratchpadOpen={scratchpadOpen}
           compact={compact}
           embedded={embedded}
         />
-        {chatFilesOpen && !embedded ? (
+        {scratchpadOpen && isNarrow && !embedded ? (
           <AgentChatFilesPanel
             messages={displayMessages}
             stagedCount={attachments.length}
@@ -1465,7 +1500,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               setAttachMenuOpen(true);
               textareaRef.current?.focus();
             }}
-            onClose={() => setChatFilesOpen(false)}
+            onClose={handleToggleScratchpad}
+            onOpenFile={openAgentGeneratedFile}
           />
         ) : null}
       </>
@@ -3162,11 +3198,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       messagesVisible &&
       !showEmptyThreadPlaceholder,
   );
-  const composerPlaceholder = composerPortaled
+  const composerPlaceholder = composerPlaceholderOverride ?? (composerPortaled
     ? 'Tell Agent Sam what to do'
     : mobileAgentHomeMode
       ? 'What should we work on?'
-      : 'Message Agent Sam...';
+      : 'Message Agent Sam...');
 
   const modelPickerGroups = useMemo(() => {
     const order: string[] = [];
@@ -3279,7 +3315,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     <>
       <div
         data-chat-assistant-contract="agent-app-sse-v1"
-        className="flex flex-col h-full min-h-0 max-w-full overflow-x-hidden overflow-y-hidden bg-[var(--dashboard-panel)] w-full min-w-0"
+        className={`flex flex-col h-full min-h-0 max-w-full overflow-x-hidden overflow-y-hidden w-full min-w-0 ${
+          atmosphericHomeMode ? 'bg-transparent pointer-events-none' : 'bg-[var(--dashboard-panel)]'
+        }`}
         style={presenceColorwayStyle}
       >
         <style>{`
@@ -3292,7 +3330,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         .chat-hide-scroll::-webkit-scrollbar { display: none; }
       `}</style>
 
-        {isNarrow && (
+        {isNarrow && !atmosphericHomeMode && (
           <header className="grid grid-cols-[1fr_auto] items-center gap-2 px-3 py-2.5 border-b border-[var(--dashboard-border)] shrink-0 bg-[var(--dashboard-panel)] z-10">
             <nav className="flex items-center justify-center gap-2 sm:gap-3 min-w-0 max-w-full overflow-x-auto chat-hide-scroll [scrollbar-width:none]">
               {(['agents', 'automations', 'dashboard'] as const).map((tab) => (
@@ -3361,7 +3399,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               ) : null}
               {renderShellTabStrip('px-2 py-1 shrink-0 max-w-[min(100%,280px)] sm:max-w-none')}
             </div>
-            {chatFilesOpen ? (
+            {scratchpadOpen && isNarrow ? (
               <AgentChatFilesPanel
                 messages={displayMessages}
                 stagedCount={attachments.length}
@@ -3369,7 +3407,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   setAttachMenuOpen(true);
                   textareaRef.current?.focus();
                 }}
-                onClose={() => setChatFilesOpen(false)}
+                onClose={handleToggleScratchpad}
+                onOpenFile={openAgentGeneratedFile}
               />
             ) : null}
           </div>

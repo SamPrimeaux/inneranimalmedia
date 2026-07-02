@@ -327,6 +327,11 @@ export interface ChatAssistantProps {
   composerPortalTarget?: HTMLElement | null;
   /** Desktop /dashboard/agent home: portal message thread above center composer. */
   messagesPortalTarget?: HTMLElement | null;
+  /** Override default composer placeholder text. */
+  composerPlaceholder?: string;
+  /** Host-owned scratchpad rail toggle (desktop sidebar). */
+  onToggleScratchpad?: () => void;
+  scratchpadOpen?: boolean;
   /** OAuth/MCP rows from GET /api/integrations/connectors/catalog — App-owned, no fetch in sheet. */
   availableConnectors?: import('../../src/hooks/useAvailableConnectors').ComposerAvailableConnector[];
   availableConnectorsLoading?: boolean;
