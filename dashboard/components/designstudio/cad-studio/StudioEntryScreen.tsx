@@ -50,50 +50,58 @@ export function StudioEntryScreen({
     <div className="studio-entry" role="main" aria-label="Design Studio">
       <div className="studio-entry__inner studio-entry__inner--chat">
 
-        <div className="studio-entry__brand" aria-hidden>
-          <span className="studio-entry__brand-word">Design</span>
-          <span className="studio-entry__brand-word studio-entry__brand-word--accent">Studio</span>
-        </div>
+        <header className="studio-entry__hero">
+          <div className="studio-entry__brand" aria-hidden>
+            <span className="studio-entry__brand-word">Design</span>
+            <span className="studio-entry__brand-word studio-entry__brand-word--accent">Studio</span>
+          </div>
+          <h1 className="studio-entry__title">What should we build?</h1>
+          <p className="studio-entry__subtitle">
+            Describe a model, import a GLB, or open the editor to get started.
+          </p>
+        </header>
 
-        <h1 className="studio-entry__title">What should we build?</h1>
-        <p className="studio-entry__subtitle">
-          Describe a model, import a GLB, or open the editor to get started.
-        </p>
-
-        <div
-          ref={onMessagesHost}
-          className="studio-entry__messages-host"
-          aria-label="Agent Sam conversation"
-        />
-
-        <div className="studio-entry__composer-wrap">
-          <div className="iam-agent-home-glow" aria-hidden="true" />
+        <div className="studio-entry__chat-stack">
           <div
-            ref={onComposerHost}
-            className="studio-entry__composer-host"
-            aria-label="Agent Sam command input"
+            ref={onMessagesHost}
+            className="studio-entry__messages-host"
+            aria-label="Agent Sam conversation"
           />
+
+          <div className="studio-entry__composer-wrap">
+            <div className="iam-agent-home-glow" aria-hidden="true" />
+            <div
+              ref={onComposerHost}
+              className="studio-entry__composer-host"
+              aria-label="Agent Sam command input"
+            />
+          </div>
         </div>
 
-        {error ? <p className="studio-entry__error">{error}</p> : null}
-
-        {statusLabel ? (
-          <div className="studio-entry__status">
-            {busy ? <Loader2 size={13} className="studio-entry__spin" aria-hidden /> : null}
-            <span>{statusLabel}</span>
-            {generating && progressPct > 0 ? (
-              <div className="studio-entry__progress">
-                <div className="studio-entry__progress-fill" style={{ width: `${Math.min(100, progressPct)}%` }} />
+        {(error || statusLabel || jobReady) ? (
+          <div className="studio-entry__feedback">
+            {error ? <p className="studio-entry__error">{error}</p> : null}
+            {statusLabel ? (
+              <div className="studio-entry__status">
+                {busy ? <Loader2 size={13} className="studio-entry__spin" aria-hidden /> : null}
+                <span>{statusLabel}</span>
+                {generating && progressPct > 0 ? (
+                  <div className="studio-entry__progress">
+                    <div
+                      className="studio-entry__progress-fill"
+                      style={{ width: `${Math.min(100, progressPct)}%` }}
+                    />
+                  </div>
+                ) : null}
               </div>
             ) : null}
+            {jobReady ? (
+              <button type="button" className="studio-entry__cta studio-entry__cta--ready" onClick={onOpenStudio}>
+                <LayoutGrid size={15} aria-hidden />
+                <span>View in full studio</span>
+              </button>
+            ) : null}
           </div>
-        ) : null}
-
-        {jobReady ? (
-          <button type="button" className="studio-entry__cta studio-entry__cta--ready" onClick={onOpenStudio}>
-            <LayoutGrid size={15} aria-hidden />
-            <span>View in full studio</span>
-          </button>
         ) : null}
 
         <div className="studio-entry__secondary">

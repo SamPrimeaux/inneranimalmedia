@@ -3307,12 +3307,13 @@
   flex: 1;
   min-height: 0;
   display: flex;
-  align-items: stretch;
+  align-items: flex-start;
   justify-content: center;
-  padding: 24px 16px;
+  padding: clamp(20px, 4vh, 40px) 16px 24px;
   background: var(--dashboard-canvas, var(--bg-canvas, var(--bg-app, #111214)));
   color: var(--text-main, var(--text-primary, #e8eaed));
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .studio-entry__inner {
@@ -3865,17 +3866,22 @@
 /* On mobile, right-rail editor columns are suppressed — InspectorPanel is the bottom sheet */
 /* Studio entry — Agent Sam composer portal (matches agent-home pattern) */
 .studio-entry__inner--chat {
-  width: min(720px, calc(100% - 24px));
-  flex: 1 1 auto;
-  min-height: 0;
-  max-height: 100%;
+  width: min(680px, calc(100% - 24px));
+  flex: 0 1 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 20px;
   text-align: center;
-  overflow-y: auto;
-  overflow-x: hidden;
+}
+
+.studio-entry__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  flex-shrink: 0;
 }
 
 .studio-entry__brand {
@@ -3883,11 +3889,11 @@
   align-items: baseline;
   justify-content: center;
   gap: 0.35em;
-  margin-bottom: 4px;
+  margin: 0;
 }
 
 .studio-entry__brand-word {
-  font-size: 1.75rem;
+  font-size: clamp(1.5rem, 3.5vw, 1.75rem);
   font-weight: 700;
   letter-spacing: -0.04em;
   color: var(--text-heading, var(--text-main, #e8eaed));
@@ -3897,15 +3903,44 @@
   color: var(--color-primary, var(--solar-cyan, #22d3ee));
 }
 
-.studio-entry__messages-host {
-  flex: 1 1 auto;
-  min-height: 0;
+.studio-entry__inner--chat .studio-entry__title {
+  margin: 0;
+  font-size: clamp(1.1rem, 2.5vw, 1.35rem);
+}
+
+.studio-entry__inner--chat .studio-entry__subtitle {
+  margin: 0;
+  max-width: 36ch;
+}
+
+.studio-entry__chat-stack {
   width: 100%;
   max-width: min(680px, 100%);
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.studio-entry__messages-host {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   text-align: left;
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: min(40vh, 320px);
+}
+
+.studio-entry__messages-host:empty {
+  display: none;
+}
+
+.studio-entry__messages-host:not(:empty) {
+  flex: 1 1 auto;
+  min-height: 80px;
 }
 
 .studio-entry__messages-host .agent-home-messages-portal {
@@ -3915,14 +3950,13 @@
 
 .studio-entry__composer-wrap {
   width: 100%;
-  max-width: min(680px, 100%);
   position: relative;
+  flex-shrink: 0;
 }
 
 .studio-entry__composer-host {
   width: 100%;
   min-width: 0;
-  min-height: 132px;
 }
 
 .studio-entry__composer-host .iam-chat-composer-shell {
@@ -3932,6 +3966,23 @@
 
 .studio-entry__composer-host .iam-chat-composer-glass {
   border-radius: var(--agent-radius-bar, 14px);
+}
+
+.studio-entry__feedback {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.studio-entry__inner--chat .studio-entry__secondary {
+  margin-top: -4px;
+}
+
+.studio-entry__inner--chat .studio-entry__gallery {
+  width: 100%;
+  margin-top: 4px;
 }
 
 @media (max-width: 480px) {

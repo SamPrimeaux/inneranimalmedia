@@ -3177,6 +3177,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     composerPortaled &&
     showEmptyThreadPlaceholder &&
     !conversationId.trim();
+  const hideOverlayMessagesForPortalStartup =
+    designStudioPortalStartup || (composerPortaled && showEmptyThreadPlaceholder);
   const composerFlexOrder = desktopStartupCenterMode
     ? ''
     : mobileAgentHomeMode
@@ -3482,7 +3484,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           </div>
         )}
 
-        {messagesVisible && !desktopStartupCenterMode && (() => {
+        {messagesVisible && !desktopStartupCenterMode && !hideOverlayMessagesForPortalStartup && (() => {
           const block = (
           <>
           {(() => {
