@@ -137,6 +137,17 @@ function parseBrowserToolAutomationFlag(inp: Record<string, unknown>): boolean {
   return inp.automation === true || inp.use_automation === true || inp.automate === true;
 }
 
+function resolveAgentFileKind(filename: string): AgentGeneratedFile['kind'] {
+  const ext = String(filename || '').split('.').pop()?.toLowerCase() ?? '';
+  if (ext === 'md') return 'md';
+  if (ext === 'sql') return 'sql';
+  if (ext === 'ts' || ext === 'tsx') return 'ts';
+  if (ext === 'js' || ext === 'jsx') return 'js';
+  if (ext === 'json') return 'json';
+  if (ext === 'txt') return 'txt';
+  return 'other';
+}
+
 function mapTaskCompleteStatus(status: string | undefined): ExecutionPlanTask['status'] {
   if (status === 'done') return 'done';
   if (status === 'skipped') return 'skipped';
