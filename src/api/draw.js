@@ -5,6 +5,9 @@
  *
  * Routes:
  *   GET  /api/draw/libraries          — list Excalidraw libraries
+ *   GET  /api/draw/library-prefs      — user enabled library slugs
+ *   POST /api/draw/library-prefs      — save user enabled library slugs
+ *   POST /api/draw/library            — fetch one library by slug (agent + UI)
  *   GET  /api/draw/list               — list user's saved draws
  *   GET  /api/draw/load               — load most recent scene JSON
  *   GET  /api/draw/download/:id       — stream file bytes (R2)
@@ -21,6 +24,7 @@ import {
   broadcastExcalidrawAction,
   persistCollabCanvasElements,
 } from '../core/collab-broadcast.js';
+import { getIntegrationToken } from '../integrations/tokens.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -41,7 +45,38 @@ function safeFilename(name = '') {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || `draw_${Date.now()}`;
 }
 
-import { getIntegrationToken } from '../integrations/tokens.js';
+function parseExcalidrawLibraryPayload(raw) {
+  if (!raw || typeof raw !== 'object') return [];
+  const o = raw;
+  const items = o.libraryItems ?? o.library ?? o.items;
+  return Array.isArray(items) ? items : [];
+}
+
+async function fetchLibraryJsonFromRow(env, row) {
+  const url = String(row.public_url || row.r2_dev_url || '').trim();
+  if (url) {
+    const res = await fetch(url, { cf: { cacheTtl: 3600 } });
+    if (res.ok) {
+      try {
+        return parseExcalidrawLibraryPayload(await res.json());
+      } catch {
+        /* fall through to R2 */
+      }
+    }
+  }
+  const bucket = String(row.r2_bucket || 'agent-sam').trim();
+  const key = String(row.r2_key || '').trim();
+  if (!key) return [];
+  const binding = bucket === 'inneranimalmedia' ? env.ASSETS : env.TOOLS || env.ASSETS;
+  if (!binding?.get) return [];
+  const obj = await binding.get(key);
+  if (!obj) return [];
+  try {
+    return parseExcalidrawLibraryPayload(await obj.json());
+  } catch {
+    return [];
+  }
+}
 
 // Google Drive OAuth refresh: getIntegrationToken → getIntegrationOAuthRow reads
 // access_token_encrypted / refresh_token_encrypted, calls oauth2.googleapis.com/token
@@ -202,6 +237,55 @@ export async function handleDrawApi(request, url, env, ctx) {
         ORDER BY category ASC, sort_order ASC, name ASC
       `).all();
       return jsonResponse({ libraries: results || [] });
+    }
+
+    // ── GET /api/draw/library-prefs ───────────────────────────────────────────
+    if (pathLower === '/api/draw/library-prefs' && method === 'GET') {
+      const { results } = await env.DB.prepare(`
+        SELECT lib_slug AS slug, is_enabled AS enabled, is_pinned AS pinned
+        FROM user_draw_library_prefs
+        WHERE user_id = ?
+        ORDER BY is_pinned DESC, lib_slug ASC
+      `).bind(userId).all();
+      const prefs = (results || []).map((r) => ({
+        slug: String(r.slug || ''),
+        enabled: Number(r.enabled) === 1,
+        pinned: Number(r.pinned) === 1,
+      }));
+      return jsonResponse({ prefs });
+    }
+
+    // ── POST /api/draw/library-prefs ──────────────────────────────────────────
+    if (pathLower === '/api/draw/library-prefs' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const slugs = Array.isArray(body.enabled_slugs)
+        ? body.enabled_slugs.map((s) => String(s || '').trim()).filter(Boolean)
+        : [];
+      const tenantId = String(authUser.tenant_id || 'tenant_sam_primeaux').trim();
+      await env.DB.prepare(`DELETE FROM user_draw_library_prefs WHERE user_id = ?`).bind(userId).run();
+      for (const slug of slugs) {
+        await env.DB.prepare(`
+          INSERT INTO user_draw_library_prefs (user_id, tenant_id, lib_slug, is_enabled, is_pinned, updated_at)
+          VALUES (?, ?, ?, 1, 0, unixepoch())
+        `).bind(userId, tenantId, slug).run();
+      }
+      return jsonResponse({ ok: true, enabled_slugs: slugs });
+    }
+
+    // ── POST /api/draw/library ────────────────────────────────────────────────
+    if (pathLower === '/api/draw/library' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const slug = String(body.slug || body.library_slug || '').trim();
+      if (!slug) return jsonResponse({ error: 'slug required' }, 400);
+      const row = await env.DB.prepare(`
+        SELECT slug, name, public_url, r2_dev_url, r2_bucket, r2_key
+        FROM draw_libraries
+        WHERE slug = ? AND is_active = 1
+        LIMIT 1
+      `).bind(slug).first();
+      if (!row) return jsonResponse({ error: 'library not found' }, 404);
+      const libraryItems = await fetchLibraryJsonFromRow(env, row);
+      return jsonResponse({ ok: true, slug, name: row.name, libraryItems });
     }
 
     // ── GET /api/draw/list ────────────────────────────────────────────────────

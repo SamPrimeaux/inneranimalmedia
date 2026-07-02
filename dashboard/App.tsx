@@ -495,6 +495,9 @@ const App: React.FC = () => {
   const [designStudioComposerHost, setDesignStudioComposerHost] = useState<HTMLDivElement | null>(null);
   const [designStudioMessagesHost, setDesignStudioMessagesHost] = useState<HTMLDivElement | null>(null);
   const [designStudioEntryPhase, setDesignStudioEntryPhase] = useState(true);
+  const [drawComposerHost, setDrawComposerHost] = useState<HTMLDivElement | null>(null);
+  const [drawMessagesHost, setDrawMessagesHost] = useState<HTMLDivElement | null>(null);
+  const [drawEntryPhase, setDrawEntryPhase] = useState(true);
   const isAgentHomeAtmospheric = useMemo(
     () => isAgentCenterChatHome(location.pathname, location.search),
     [location.pathname, location.search],
@@ -818,6 +821,9 @@ const App: React.FC = () => {
     if (location.pathname.startsWith('/dashboard/designstudio') && designStudioEntryPhase) {
       return 'center' as const;
     }
+    if (location.pathname.startsWith('/dashboard/draw') && drawEntryPhase) {
+      return 'center' as const;
+    }
     return resolveAgentChatLayout({
       pathname: location.pathname,
       search: location.search,
@@ -832,6 +838,7 @@ const App: React.FC = () => {
     isNarrowViewport,
     isCmsFullscreen,
     designStudioEntryPhase,
+    drawEntryPhase,
   ]);
 
   /** Desktop center-chat routes keep layout=center — do not flip agentPosition to open a side rail. */
@@ -1200,6 +1207,8 @@ const App: React.FC = () => {
 
   const isDesignStudioRoute = location.pathname.startsWith('/dashboard/designstudio');
   const designStudioEntryAtmospheric = isDesignStudioRoute && designStudioEntryPhase;
+  const drawEntryAtmospheric = isDrawRoute && drawEntryPhase;
+  const routeEntryAtmospheric = designStudioEntryAtmospheric || drawEntryAtmospheric;
 
   useEffect(() => {
     if (!isDesignStudioRoute) {
@@ -1210,6 +1219,14 @@ const App: React.FC = () => {
   }, [isDesignStudioRoute]);
 
   useEffect(() => {
+    if (!isDrawRoute) {
+      setDrawEntryPhase(true);
+      setDrawComposerHost(null);
+      setDrawMessagesHost(null);
+    }
+  }, [isDrawRoute]);
+
+  useEffect(() => {
     if (!isDesignStudioRoute || isNarrowViewport) return;
     if (designStudioEntryPhase) {
       setAgentPosition('off');
@@ -1217,6 +1234,15 @@ const App: React.FC = () => {
       ensureAgentSidePanel();
     }
   }, [isDesignStudioRoute, designStudioEntryPhase, isNarrowViewport, ensureAgentSidePanel]);
+
+  useEffect(() => {
+    if (!isDrawRoute || isNarrowViewport) return;
+    if (drawEntryPhase) {
+      setAgentPosition('off');
+    } else {
+      ensureAgentSidePanel();
+    }
+  }, [isDrawRoute, drawEntryPhase, isNarrowViewport, ensureAgentSidePanel]);
 
   const agentWorkspaceContext = useMemo<AgentWorkspaceContextPacket>(() => {
     const routeCtx = resolveDashboardRouteAgentContext({
@@ -4047,7 +4073,9 @@ const App: React.FC = () => {
       composerPlaceholder:
         designStudioEntryAtmospheric
           ? 'Describe a 3D model, import a GLB, or ask Agent Sam to create…'
-          : undefined,
+          : drawEntryAtmospheric
+            ? 'Sketch a diagram, wireframe, or plan map with Agent Sam…'
+            : undefined,
       messages: chatMessages,
       setMessages: setChatMessages,
       onOpenChatHistory: shellOpenChatHistory,
@@ -4102,6 +4130,7 @@ const App: React.FC = () => {
       authWorkspaceId,
       isDesignStudioRoute,
       designStudioEntryAtmospheric,
+      drawEntryAtmospheric,
       chatMessages,
       setChatMessages,
       shellOpenChatHistory,
@@ -4625,7 +4654,11 @@ const App: React.FC = () => {
                         path="/dashboard/draw"
                         element={
                           <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
-                            <DrawPage />
+                            <DrawPage
+                              onEntryPhaseChange={setDrawEntryPhase}
+                              onComposerHost={setDrawComposerHost}
+                              onMessagesHost={setDrawMessagesHost}
+                            />
                           </div>
                         }
                       />
@@ -5107,12 +5140,20 @@ const App: React.FC = () => {
                   narrowNeedsBack={narrowNeedsBack}
                   mobileEdgeSwipeHandlers={mobileEdgeSwipeHandlers}
                   productLabel={PRODUCT_NAME}
-                  atmosphericHomeMode={designStudioEntryAtmospheric}
+                  atmosphericHomeMode={routeEntryAtmospheric}
                   composerPortalTarget={
-                    designStudioEntryAtmospheric ? designStudioComposerHost : null
+                    designStudioEntryAtmospheric
+                      ? designStudioComposerHost
+                      : drawEntryAtmospheric
+                        ? drawComposerHost
+                        : null
                   }
                   messagesPortalTarget={
-                    designStudioEntryAtmospheric ? designStudioMessagesHost : null
+                    designStudioEntryAtmospheric
+                      ? designStudioMessagesHost
+                      : drawEntryAtmospheric
+                        ? drawMessagesHost
+                        : null
                   }
                 />
               ) : null}

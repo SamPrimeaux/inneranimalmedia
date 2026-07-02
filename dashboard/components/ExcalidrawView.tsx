@@ -29,6 +29,8 @@ async function loadExcalidrawStyles(): Promise<void> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ExcalidrawElement = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ExcalidrawLibraryItem = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ExcalidrawImperativeAPI = any;
 
 const DEBOUNCE_MS = 800;
@@ -39,12 +41,21 @@ function getIamWorkspaceId(): string {
     return typeof w === 'string' && w.trim() ? w.trim() : 'global';
 }
 
-export const ExcalidrawView: React.FC = () => {
+export type ExcalidrawViewProps = {
+    libraryItems?: readonly ExcalidrawLibraryItem[];
+    clearOnMount?: boolean;
+};
+
+export const ExcalidrawView: React.FC<ExcalidrawViewProps> = ({
+    libraryItems = [],
+    clearOnMount = false,
+}) => {
     const [ExcalidrawComp, setExcalidrawComp] = useState<React.ComponentType<Record<string, unknown>> | null>(null);
     const [initialElements, setInitialElements] = useState<readonly ExcalidrawElement[]>([]);
     const [initialDataLoaded, setInitialDataLoaded] = useState(false);
     const [stylesReady, setStylesReady] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
+    const [librariesApplied, setLibrariesApplied] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -71,11 +82,28 @@ export const ExcalidrawView: React.FC = () => {
     const isLocalChangeRef = useRef(false);
     const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const artifactLoadedRef = useRef(false);
+    const clearOnMountRef = useRef(clearOnMount);
+    clearOnMountRef.current = clearOnMount;
+
+    const applyLibraries = (api: ExcalidrawImperativeAPI, items: readonly ExcalidrawLibraryItem[]) => {
+        if (!items.length || typeof api.updateLibrary !== 'function') return;
+        void api.updateLibrary({
+            libraryItems: [...items],
+            merge: true,
+            openLibraryMenu: false,
+        });
+        setLibrariesApplied(true);
+    };
 
     // Load persisted canvas when mount or IAM workspace id changes (via event from App.tsx).
     useEffect(() => {
         const load = () => {
             if (artifactLoadedRef.current) { setInitialDataLoaded(true); return; }
+            if (clearOnMountRef.current) {
+                setInitialElements([]);
+                setInitialDataLoaded(true);
+                return;
+            }
             const ws = getIamWorkspaceId();
             fetch(`/api/collab/canvas/state?workspace_id=${encodeURIComponent(ws)}`, { credentials: 'same-origin' })
                 .then((r) => (r.ok ? r.json() : null))
@@ -91,6 +119,13 @@ export const ExcalidrawView: React.FC = () => {
         window.addEventListener('iam_workspace_id', load);
         return () => window.removeEventListener('iam_workspace_id', load);
     }, []);
+
+    // Hydrate shape libraries when API + items are ready.
+    useEffect(() => {
+        const api = excalidrawApiRef.current;
+        if (!api || librariesApplied || !libraryItems.length) return;
+        applyLibraries(api, libraryItems);
+    }, [libraryItems, librariesApplied]);
 
     // Listen for server-pushed plan maps / artifacts (fetch JSON → updateScene)
     useEffect(() => {
@@ -150,6 +185,19 @@ export const ExcalidrawView: React.FC = () => {
                     a.href = url; a.download = 'excalidraw-export.png'; a.click();
                     URL.revokeObjectURL(url);
                 });
+            } else if (action === 'load_library' && params?.slug) {
+                void fetch('/api/draw/library', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ slug: params.slug }),
+                })
+                    .then((r) => (r.ok ? r.json() : null))
+                    .then((data) => {
+                        const items = Array.isArray(data?.libraryItems) ? data.libraryItems : [];
+                        if (items.length) applyLibraries(api, items);
+                    })
+                    .catch(() => {});
             }
         };
         window.addEventListener('iam:excalidraw_action', handler);
@@ -210,24 +258,30 @@ export const ExcalidrawView: React.FC = () => {
                 position: 'relative',
                 display: 'flex',
                 flexDirection: 'column',
+                flex: 1,
+                minHeight: 0,
             }}
         >
-            {/*
-              Excalidraw renders its own full-screen toolbar and canvas.
-              We must give it a properly-isolated container with explicit dimensions.
-              overflow:hidden prevents the shape list from spilling outside the pane.
-            */}
             <div
                 style={{
                     flex: 1,
                     overflow: 'hidden',
                     position: 'relative',
+                    minHeight: 0,
                 }}
             >
                 <ExcalidrawComp
                     theme="dark"
-                    excalidrawAPI={(api) => { excalidrawApiRef.current = api; }}
-                    initialData={{ elements: initialElements }}
+                    excalidrawAPI={(api) => {
+                        excalidrawApiRef.current = api;
+                        if (api && libraryItems.length && !librariesApplied) {
+                            applyLibraries(api, libraryItems);
+                        }
+                    }}
+                    initialData={{
+                        elements: clearOnMount ? [] : initialElements,
+                        libraryItems: libraryItems.length ? [...libraryItems] : undefined,
+                    }}
                     onChange={(elements) => handleChange(elements)}
                     UIOptions={{
                         canvasActions: {
