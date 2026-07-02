@@ -421,8 +421,10 @@ export function DashboardHome() {
               <AppIcon
                 key={tile.provider_key}
                 title={tile.title}
-                iconSlug={tile.custom_icon_url ? undefined : tile.icon_slug}
-                imageUrl={tile.custom_icon_url || tile.icon_url}
+                providerKey={tile.provider_key}
+                iconSlug={tile.icon_slug}
+                imageUrl={tile.icon_url}
+                registryIconUrl={tile.custom_icon_url}
                 size="md"
                 artScale={tile.icon_scale ?? 1}
                 backgroundColor={tile.icon_bg}

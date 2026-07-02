@@ -251,8 +251,9 @@ export async function loadAgentHubConnectorsCatalog(env, authUser, opts = {}) {
       icon_slug: tile.icon_slug || catalogSlugForRegistry(pk),
       icon_url: resolveIntegrationIconUrl(
         pk,
-        reg?.catalog_icon_url || tile.icon_url,
+        reg?.catalog_icon_url ?? null,
         tile.catalog_slug || catalogSlugForRegistry(pk),
+        reg?.custom_icon_url ?? tile.custom_icon_url ?? null,
       ),
       category: tile.category || 'integrations',
       kind: connectorKindForProvider(pk),

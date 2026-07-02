@@ -9,8 +9,12 @@ export type AppIconPresentation = 'app' | 'brand';
 
 export type AppIconProps = {
   title: string;
+  /** integration_registry.provider_key — used for brand map / prefix fallback */
+  providerKey?: string;
   /** Full-bleed artwork (Cloudflare Images, R2, etc.) */
   imageUrl?: string | null;
+  /** Per-tenant registry override (integration_registry.custom_icon_url) */
+  registryIconUrl?: string | null;
   /** Integration catalog slug — uses contained brand presentation when no custom image. */
   iconSlug?: string;
   size?: AppIconSize;
@@ -50,9 +54,11 @@ function isBrandDeliveryUrl(url: string): boolean {
 function resolvePresentation(
   imageUrl: string | null | undefined,
   iconSlug: string | undefined,
+  registryIconUrl: string | null | undefined,
   resolvedSrc: string | null,
 ): AppIconPresentation {
-  const explicit = String(imageUrl || '').trim();
+  const explicit = String(imageUrl || registryIconUrl || '').trim();
+  if (registryIconUrl?.trim() && !imageUrl?.trim()) return 'app';
   if (iconSlug && !explicit) return 'brand';
   if (explicit && isBrandDeliveryUrl(explicit)) return 'brand';
   if (resolvedSrc && isBrandDeliveryUrl(resolvedSrc)) return 'brand';
@@ -67,7 +73,9 @@ function clampScale(n: number | undefined): number {
 
 export function AppIcon({
   title,
+  providerKey,
   imageUrl,
+  registryIconUrl,
   iconSlug,
   size = 'md',
   artScale = 1,
@@ -87,8 +95,13 @@ export function AppIcon({
   const [dragOver, setDragOver] = useState(false);
   const longPressRef = useRef<number | null>(null);
 
-  const rawResolved = resolveIntegrationIconUrl(iconSlug, imageUrl, iconSlug);
-  const presentation = presentationProp ?? resolvePresentation(imageUrl, iconSlug, rawResolved);
+  const rawResolved = resolveIntegrationIconUrl(
+    providerKey || iconSlug,
+    imageUrl,
+    iconSlug,
+    registryIconUrl,
+  );
+  const presentation = presentationProp ?? resolvePresentation(imageUrl, iconSlug, registryIconUrl, rawResolved);
   const scale = presentation === 'app' ? clampScale(artScale) : 1;
 
   const artSrc = useMemo(() => {

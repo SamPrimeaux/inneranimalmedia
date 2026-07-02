@@ -170,6 +170,7 @@ export function mapConnectTileRow(row, tok, byok, env) {
       providerKey,
       row.catalog_icon_url,
       row.catalog_slug || catalogSlugForRegistry(providerKey),
+      row.custom_icon_url,
     ),
     custom_icon_url: row.custom_icon_url ? String(row.custom_icon_url) : null,
     icon_scale: (() => {
