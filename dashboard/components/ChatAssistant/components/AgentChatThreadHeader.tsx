@@ -184,16 +184,16 @@ export const AgentChatThreadHeader: FC<Props> = ({
       <div className="flex items-center gap-0.5 shrink-0">
         <button
           type="button"
-          onClick={onOpenFiles}
+          onClick={onToggleScratchpad}
           className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
-            filesActive
+            scratchpadOpen
               ? 'bg-[var(--bg-hover)] text-[var(--solar-cyan)]'
               : 'text-[var(--dashboard-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--dashboard-text)]'
           }`}
-          title="Chat files"
-          aria-label="Chat files"
+          title="Scratchpad"
+          aria-label="Toggle scratchpad"
         >
-          <FileText size={16} strokeWidth={1.75} />
+          <StickyNote size={16} strokeWidth={1.75} />
         </button>
 
         <button
