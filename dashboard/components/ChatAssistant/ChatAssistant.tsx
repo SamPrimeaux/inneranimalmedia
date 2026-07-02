@@ -2601,6 +2601,13 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     } else if (nextStoredKey !== selectedModelKey) {
       setSelectedModelKey(nextStoredKey);
     }
+
+    if (totalStagedBytes > CHAT_ATTACH_MAX_TOTAL_BYTES) {
+      setComposerToast('Attachments exceed 90 MB — remove files before sending.');
+      return;
+    }
+
+    const userMessage = text || '(attachment)';
     const terminalTurn =
       /\b(git|npm|wrangler|shell|status|deploy|command|whoami)\b/i.test(userMessage) ||
       execLane === 'remote' ||
@@ -2614,18 +2621,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     });
     setPresenceState(terminalTurn ? 'terminal' : 'thinking');
     setLoadingStartedAt(Date.now());
-    
+
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
     streamFinalizedRef.current = false;
     const signal = abortControllerRef.current.signal;
-
-    if (totalStagedBytes > CHAT_ATTACH_MAX_TOTAL_BYTES) {
-      setComposerToast('Attachments exceed 90 MB — remove files before sending.');
-      return;
-    }
-
-    const userMessage = text || '(attachment)';
 
     const sendWorkspaceId = (() => {
       const fromQuickstart = sendOpts?.workspace_id?.trim();
