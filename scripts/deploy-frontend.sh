@@ -147,7 +147,14 @@ if command -v node >/dev/null 2>&1; then
     || { echo "✗ R2 manifest-diff reconcile failed" >&2; exit 1; }
 fi
 
-# Notify services control-plane so it can publish /sw/manifest.json (optional, timeout-safe).
+echo "→ Publishing PWA root assets (sw.js, manifest, workbox if any) → R2 static/dashboard/"
+node "$REPO_ROOT/scripts/publish-pwa-r2.mjs" \
+  --dist "$REPO_ROOT/$DIST" \
+  --bucket "$BUCKET" \
+  -c "$TOML" \
+  || { echo "✗ PWA R2 publish failed" >&2; exit 1; }
+
+# Notify iam-pwa-services (services.inneranimalmedia.com) after PWA + tiered manifest exist.
 SW_TIERED_MANIFEST="$REPO_ROOT/.deploy-sw-tiered-manifest.json"
 if [[ "${SKIP_SERVICES_SW_INGEST:-}" == "1" ]]; then
   echo "[deploy-frontend] SKIP_SERVICES_SW_INGEST=1 — skipping services SW manifest ingest"
@@ -181,13 +188,6 @@ if [[ -f "$WS_SHELL" ]]; then
     --file "$WS_SHELL" --content-type "text/html;charset=UTF-8" \
     -c "$TOML" --remote
 fi
-
-echo "→ Publishing PWA root assets (sw.js, manifest, workbox if any) → R2 static/dashboard/"
-node "$REPO_ROOT/scripts/publish-pwa-r2.mjs" \
-  --dist "$REPO_ROOT/$DIST" \
-  --bucket "$BUCKET" \
-  -c "$TOML" \
-  || { echo "✗ PWA R2 publish failed" >&2; exit 1; }
 
 R2_RECONCILE_STATUS=passed
 R2_OBJECT_COUNT=""

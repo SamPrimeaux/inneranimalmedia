@@ -64,6 +64,26 @@ try {
   process.exit(0);
 }
 
+// Merge PWA build receipt from publish-pwa-r2.mjs (written after Vite + bump-cache).
+const pwaMetaPath = resolve(ROOT, 'dashboard/dist/pwa-build-meta.json');
+if (existsSync(pwaMetaPath)) {
+  try {
+    const pwaMeta = JSON.parse(readFileSync(pwaMetaPath, 'utf8'));
+    manifest.pwa = {
+      inline_workbox: pwaMeta.inline_workbox ?? true,
+      workbox_files: pwaMeta.workbox_files ?? [],
+      workbox_import: pwaMeta.workbox_import ?? null,
+      artifacts: pwaMeta.artifacts ?? [],
+      published_at: pwaMeta.published_at ?? null,
+      r2_prefix: pwaMeta.r2_prefix ?? 'static/dashboard',
+    };
+    if (pwaMeta.git_sha && !manifest.git_sha) manifest.git_sha = pwaMeta.git_sha;
+    console.log(`[services-sw-ingest] merged pwa-build-meta (inline_workbox=${manifest.pwa.inline_workbox})`);
+  } catch (err) {
+    console.warn(`[services-sw-ingest] pwa-build-meta merge skipped: ${err?.message || err}`);
+  }
+}
+
 const cacheBust = String(manifest?.cache_bust || '').trim();
 if (!cacheBust) {
   const msg = 'manifest missing cache_bust — skipping ingest';
