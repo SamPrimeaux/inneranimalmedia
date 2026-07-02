@@ -507,6 +507,10 @@ const TOOL_OAUTH_REQUIREMENTS = {
   agentsam_github_issue_create: 'github',
   agentsam_github_search_code: 'github',
   agentsam_github_search_issues_prs: 'github',
+  agentsam_github_list_commits: 'github',
+  agentsam_github_read: 'github',
+  agentsam_github_search: 'github',
+  agentsam_github_tree: 'github',
   agentsam_supabase_project_query: 'supabase',
   agentsam_supabase_project_write: 'supabase',
 };

@@ -679,6 +679,33 @@ export const handlers = {
     return { success: true, branches: Array.isArray(res.data) ? res.data : [] };
   },
 
+  async github_list_commits(params, env) {
+    const missing = missingNonEmptyStrings(params, ['user_id', 'repo']);
+    if (missing.length) return missingRequiredInput(params, missing);
+    const repo = trim(params.repo);
+    const ref = trim(params.sha || params.ref || params.branch) || 'main';
+    const limit = Math.min(100, Math.max(1, asInt(params.limit, asInt(params.per_page, 30))));
+    const t = await ghGetToken(env, params);
+    if (t.success === false || t.error) return t;
+    const qs = new URLSearchParams();
+    qs.set('per_page', String(Math.min(limit, 100)));
+    if (ref) qs.set('sha', ref);
+    const res = await ghJson(t.token, 'GET', `/repos/${repo}/commits?${qs.toString()}`, null);
+    if (res?.success === false) return { ...res, ...toolMeta(params) };
+    const rows = Array.isArray(res.data) ? res.data.slice(0, limit) : [];
+    const commits = rows.map((row) => ({
+      sha: row?.sha ?? null,
+      short_sha: row?.sha ? String(row.sha).slice(0, 7) : null,
+      message: String(row?.commit?.message || '')
+        .split('\n')[0]
+        .trim(),
+      author: row?.commit?.author?.name ?? row?.author?.login ?? null,
+      date: row?.commit?.author?.date ?? null,
+      html_url: row?.html_url ?? null,
+    }));
+    return { success: true, repo, ref, commits };
+  },
+
   async github_create_branch(params, env) {
     const missing = missingNonEmptyStrings(params, ['user_id', 'repo', 'base', 'name']);
     if (missing.length) return missingRequiredInput(params, missing);

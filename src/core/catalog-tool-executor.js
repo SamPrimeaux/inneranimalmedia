@@ -1949,6 +1949,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         read_file: 'github_get_file',
         list_repos: 'github_repos',
         list_branches: 'github_list_branches',
+        list_commits: 'github_list_commits',
         get_tree: 'github_get_tree',
         read_dir: 'github_read_dir',
         batch_read: 'github_batch_read',
@@ -2118,6 +2119,13 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
             return { ok: true, repos: out.repos || [] };
           case 'list_branches':
             return { ok: true, branches: out.branches || [] };
+          case 'list_commits':
+            return {
+              ok: true,
+              repo: out.repo ?? ghParamsWithMeta.repo ?? null,
+              ref: out.ref ?? ghParamsWithMeta.sha ?? ghParamsWithMeta.ref ?? ghParamsWithMeta.branch ?? null,
+              commits: out.commits || [],
+            };
           case 'get_tree':
             return { ok: true, repo: ghParamsWithMeta.repo ?? null, branch: out.branch ?? ghParamsWithMeta.branch ?? null, tree: out.tree || [] };
           case 'read_dir':
