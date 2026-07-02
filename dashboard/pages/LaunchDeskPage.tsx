@@ -2,7 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Calendar, CheckSquare, ChevronDown, Clock, MapPin, RefreshCw, Users, Video } from 'lucide-react';
 import { CollaboratePageRail } from '../src/components/collaborate/CollaboratePageRail';
-import { parseCollaborateSearchParams } from '../src/lib/collaborate/collaborateRailNav';
+import {
+  parseCollaborateSearchParams,
+  patchCollaborateSearchParams,
+  type CollaborateCalView,
+} from '../src/lib/collaborate/collaborateRailNav';
 import {
   addDays,
   anchorIso,
@@ -12,10 +16,10 @@ import {
   CalendarInsightsPayload,
   CalendarPerson,
   fetchBookingPages,
+  fetchCalendarViewEvents,
   fetchInsights,
   fetchPeople,
   fetchTodos,
-  fetchWeekEvents,
   fmtTime,
   isAllDay,
   isSyntheticEvent,
@@ -23,6 +27,7 @@ import {
   parseAttendees,
   parseEventDate,
   parseInviteEmails,
+  publicBookingPageUrl,
   QuickEventType,
   sameDay,
   startOfWeek,
@@ -142,13 +147,14 @@ function donutGradient(breakdown: Record<string, number>) {
 
 export function LaunchDeskPage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const projectFilterId = searchParams.get('project')?.trim() || null;
   const weekScrollRef = useRef<HTMLDivElement>(null);
   const peopleSearchRef = useRef<HTMLInputElement>(null);
 
   const [anchor, setAnchor] = useState(() => new Date());
   const [mainSeg, setMainSeg] = useState<MainSeg>('calendar');
+  const [calView, setCalView] = useState<CollaborateCalView>('week');
   const [tasksNavView, setTasksNavView] = useState<TasksNavView>('all');
   const [tasksActiveList, setTasksActiveList] = useState('My Tasks');
   const [tasksComposing, setTasksComposing] = useState(false);
@@ -183,6 +189,12 @@ export function LaunchDeskPage() {
 
   const weekStart = useMemo(() => startOfWeek(anchor), [anchor]);
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
+  const monthGridDays = useMemo(() => {
+    const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const start = startOfWeek(first);
+    return Array.from({ length: 42 }, (_, i) => addDays(start, i));
+  }, [anchor]);
+  const gridDays = calView === 'month' ? monthGridDays : weekDays;
   const today = useMemo(() => new Date(), []);
 
   const monthTitle = anchor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -192,12 +204,20 @@ export function LaunchDeskPage() {
     window.setTimeout(() => setToast(null), 2800);
   }, []);
 
+  const pushCollaborateUrl = useCallback(
+    (patch: Parameters<typeof patchCollaborateSearchParams>[1]) => {
+      const next = patchCollaborateSearchParams(searchParams, patch);
+      setSearchParams(next, { replace: false });
+    },
+    [searchParams, setSearchParams],
+  );
+
   const reload = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const [ev, ins, pages, taskList] = await Promise.all([
-        fetchWeekEvents(anchor, sources),
+        fetchCalendarViewEvents(anchor, calView, sources),
         fetchInsights(anchor),
         fetchBookingPages(),
         fetchTodos(projectFilterId ? { projectId: projectFilterId } : undefined),
@@ -211,21 +231,20 @@ export function LaunchDeskPage() {
     } finally {
       setLoading(false);
     }
-  }, [anchor, sources, projectFilterId]);
+  }, [anchor, calView, sources, projectFilterId]);
 
   useEffect(() => {
     reload();
   }, [reload]);
 
   useEffect(() => {
-    const { mainSeg: seg, tasksList, focusPeople, projectId } = parseCollaborateSearchParams(searchParams);
+    const { mainSeg: seg, tasksList, focusPeople, calView: view } = parseCollaborateSearchParams(searchParams);
+    setMainSeg(seg);
+    setCalView(view);
     if (seg === 'tasks') {
-      setMainSeg('tasks');
       if (tasksList) {
         setTasksActiveList(tasksList);
         setTasksNavView('list');
-      } else if (projectId) {
-        setTasksNavView('all');
       }
     }
     if (focusPeople) {
@@ -233,6 +252,40 @@ export function LaunchDeskPage() {
       window.setTimeout(() => peopleSearchRef.current?.focus(), 120);
     }
   }, [searchParams]);
+
+  const stepAnchor = useCallback(
+    (delta: number) => {
+      setAnchor((prev) => {
+        if (calView === 'month') {
+          const d = new Date(prev);
+          d.setMonth(d.getMonth() + delta);
+          return d;
+        }
+        return addDays(prev, delta * 7);
+      });
+    },
+    [calView],
+  );
+
+  const openCalendarSeg = useCallback(() => {
+    setMainSeg('calendar');
+    pushCollaborateUrl({ seg: 'calendar', view: calView });
+  }, [calView, pushCollaborateUrl]);
+
+  const openTasksSeg = useCallback(() => {
+    setMainSeg('tasks');
+    setTasksNavView('list');
+    setTasksActiveList('My Tasks');
+    pushCollaborateUrl({ seg: 'tasks', list: null, view: null });
+  }, [pushCollaborateUrl]);
+
+  const setCalendarView = useCallback(
+    (view: CollaborateCalView) => {
+      setCalView(view);
+      pushCollaborateUrl({ view, seg: 'calendar' });
+    },
+    [pushCollaborateUrl],
+  );
 
   useEffect(() => {
     const t = window.setTimeout(async () => {
@@ -256,7 +309,7 @@ export function LaunchDeskPage() {
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, { timed: CalEvent[]; allDay: CalEvent[] }>();
-    for (const day of weekDays) {
+    for (const day of gridDays) {
       map.set(anchorIso(day), { timed: [], allDay: [] });
     }
     for (const ev of events) {
@@ -269,7 +322,7 @@ export function LaunchDeskPage() {
       else bucket.timed.push(ev);
     }
     return map;
-  }, [events, weekDays]);
+  }, [events, gridDays]);
 
   const miniMonth = useMemo(() => {
     const d = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
@@ -469,10 +522,10 @@ export function LaunchDeskPage() {
   }, [projectFilterId]);
 
   const copyBookingLink = (slug: string) => {
-    const url = `${window.location.origin}/api/calendar/book/${slug}`;
+    const url = publicBookingPageUrl(slug);
     navigator.clipboard.writeText(url).then(
-      () => showToast('Booking API path copied'),
-      () => showToast(slug),
+      () => showToast('Booking link copied'),
+      () => showToast(url),
     );
   };
 
@@ -500,10 +553,10 @@ export function LaunchDeskPage() {
           <button type="button" className="colab-cal-pill-btn" onClick={() => setAnchor(new Date())}>
             Today
           </button>
-          <button type="button" className="colab-cal-circle-btn" aria-label="Previous" onClick={() => setAnchor(addDays(anchor, -7))}>
+          <button type="button" className="colab-cal-circle-btn" aria-label="Previous" onClick={() => stepAnchor(-1)}>
             ‹
           </button>
-          <button type="button" className="colab-cal-circle-btn" aria-label="Next" onClick={() => setAnchor(addDays(anchor, 7))}>
+          <button type="button" className="colab-cal-circle-btn" aria-label="Next" onClick={() => stepAnchor(1)}>
             ›
           </button>
           <h1 className="colab-cal-month-title">{monthTitle}</h1>
@@ -514,15 +567,24 @@ export function LaunchDeskPage() {
         </div>
         <div className="colab-cal-top-right">
           {mainSeg === 'calendar' && (
-            <div className="colab-cal-view-select">
-              Week <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
-            </div>
+            <label className="colab-cal-view-select">
+              <select
+                className="colab-cal-view-select-input"
+                value={calView}
+                onChange={(e) => setCalendarView(e.target.value as CollaborateCalView)}
+                aria-label="Calendar view"
+              >
+                <option value="week">Week</option>
+                <option value="month">Month</option>
+              </select>
+              <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
+            </label>
           )}
           <div className="colab-cal-seg">
             <button
               type="button"
               className={mainSeg === 'calendar' ? 'active' : ''}
-              onClick={() => setMainSeg('calendar')}
+              onClick={openCalendarSeg}
               title="Calendar"
               aria-label="Calendar"
             >
@@ -531,11 +593,7 @@ export function LaunchDeskPage() {
             <button
               type="button"
               className={mainSeg === 'tasks' ? 'active' : ''}
-              onClick={() => {
-                setMainSeg('tasks');
-                setTasksNavView('list');
-                setTasksActiveList('My Tasks');
-              }}
+              onClick={openTasksSeg}
               title="Tasks"
               aria-label="Tasks"
             >
@@ -547,6 +605,21 @@ export function LaunchDeskPage() {
           </button>
         </div>
       </header>
+
+      {projectFilterId && mainSeg === 'tasks' ? (
+        <div className="colab-cal-project-banner">
+          <span>Tasks filtered to project <strong>{projectFilterId}</strong></span>
+          <button
+            type="button"
+            className="colab-cal-outline-btn"
+            onClick={() => {
+              pushCollaborateUrl({ project: null, seg: 'tasks' });
+            }}
+          >
+            Clear filter
+          </button>
+        </div>
+      ) : null}
 
       <div className={`colab-cal-layout${mainSeg === 'tasks' ? ' tasks-mode' : ''}`}>
         <aside className="colab-cal-left">
@@ -685,6 +758,60 @@ export function LaunchDeskPage() {
         </aside>
 
         {mainSeg === 'calendar' ? (
+          calView === 'month' ? (
+            <section className="colab-cal-center colab-cal-center--month">
+              <div className="colab-cal-month-head-row">
+                {WEEKDAYS.map((d) => (
+                  <span key={d} className="colab-cal-month-weekday">
+                    {d}
+                  </span>
+                ))}
+              </div>
+              <div className="colab-cal-month-grid">
+                {monthGridDays.map((d) => {
+                  const key = anchorIso(d);
+                  const inMonth = d.getMonth() === anchor.getMonth();
+                  const dayEvents = [
+                    ...(eventsByDay.get(key)?.allDay || []),
+                    ...(eventsByDay.get(key)?.timed || []),
+                  ].slice(0, 4);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className={[
+                        'colab-cal-month-cell',
+                        inMonth ? '' : 'muted',
+                        sameDay(d, today) ? 'today' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      onClick={() => {
+                        setAnchor(new Date(d));
+                        setCalendarView('week');
+                      }}
+                    >
+                      <span className="colab-cal-month-cell-date">{d.getDate()}</span>
+                      <div className="colab-cal-month-cell-events">
+                        {dayEvents.map((ev) => (
+                          <span
+                            key={ev.id}
+                            className={`colab-cal-month-chip ${eventCssClass(ev)}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditPopover(ev, e.clientX, e.clientY);
+                            }}
+                          >
+                            {cleanTitle(ev.title)}
+                          </span>
+                        ))}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ) : (
           <section className="colab-cal-center">
             <div className="colab-cal-head-row">
               <div />
@@ -777,6 +904,7 @@ export function LaunchDeskPage() {
               </div>
             </div>
           </section>
+          )
         ) : (
           <CollaborateTasksMain
             todos={todos}

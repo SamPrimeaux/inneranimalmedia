@@ -191,6 +191,9 @@ const MonacoEditorView = lazy(() =>
 const LaunchDeskPage = lazy(() =>
   import('./pages/LaunchDeskPage').then((m) => ({ default: m.LaunchDeskPage })),
 );
+const BookPage = lazy(() =>
+  import('./pages/book/BookPage').then((m) => ({ default: m.BookPage })),
+);
 const BrowserView = lazy(() =>
   import('./components/BrowserView').then((m) => ({ default: m.BrowserView })),
 );
@@ -4606,6 +4609,14 @@ const App: React.FC = () => {
                         element={
                           <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
                             <LaunchDeskPage />
+                          </div>
+                        }
+                      />
+                      <Route
+                        path="/dashboard/book/:slug"
+                        element={
+                          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                            <BookPage />
                           </div>
                         }
                       />

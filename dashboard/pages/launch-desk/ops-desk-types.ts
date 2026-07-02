@@ -267,12 +267,30 @@ export function sourcesParam(enabled: Record<string, boolean>) {
 }
 
 export async function fetchWeekEvents(anchor: Date, sources: Record<string, boolean>) {
+  return fetchCalendarViewEvents(anchor, 'week', sources);
+}
+
+export async function fetchMonthEvents(anchor: Date, sources: Record<string, boolean>) {
+  return fetchCalendarViewEvents(anchor, 'month', sources);
+}
+
+export async function fetchCalendarViewEvents(
+  anchor: Date,
+  view: 'week' | 'month',
+  sources: Record<string, boolean>,
+) {
   const q = new URLSearchParams({
     anchor: anchorIso(anchor),
     sources: sourcesParam(sources),
   });
-  const data = await apiJson<{ events?: CalEvent[] }>(`/api/calendar/view/week?${q}`);
+  const data = await apiJson<{ events?: CalEvent[] }>(`/api/calendar/view/${view}?${q}`);
   return data.events ?? [];
+}
+
+/** Public booking page URL (not the API POST endpoint). */
+export function publicBookingPageUrl(slug: string) {
+  const s = String(slug || '').trim();
+  return `${window.location.origin}/dashboard/book/${encodeURIComponent(s)}`;
 }
 
 export async function fetchInsights(anchor: Date) {

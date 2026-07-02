@@ -106,7 +106,7 @@ async function createMeetRoomForEvent(env, request, { title, workspaceId, tenant
 async function fetchTaskCalendarEvents(env, workspaceId, tenantId, from, to) {
   try {
     const { results } = await env.DB.prepare(
-      `SELECT id, title, description, status, priority, linked_route, notes, created_at
+      `SELECT id, title, description, status, priority, linked_route, notes, due_date, created_at
        FROM agentsam_todo
        WHERE workspace_id = ?
          AND tenant_id = ?
@@ -119,10 +119,17 @@ async function fetchTaskCalendarEvents(env, workspaceId, tenantId, from, to) {
     const fromMs = parseSqlDate(from).getTime();
     const toMs = parseSqlDate(to).getTime();
     return (results || [])
-      .map((row, idx) => {
-        const created = row.created_at ? parseSqlDate(row.created_at) : new Date();
-        const start = new Date(created);
-        start.setHours(9 + (idx % 6), 0, 0, 0);
+      .map((row) => {
+        const dueRaw = row.due_date != null ? String(row.due_date).trim() : '';
+        const anchorRaw = dueRaw || (row.created_at != null ? String(row.created_at).trim() : '');
+        if (!anchorRaw) return null;
+        const parsed = parseSqlDate(anchorRaw);
+        if (Number.isNaN(parsed.getTime())) return null;
+        const start = new Date(parsed);
+        const hasTime = dueRaw.includes(':') || dueRaw.includes('T');
+        if (!hasTime) {
+          start.setHours(9, 0, 0, 0);
+        }
         if (start.getTime() < fromMs || start.getTime() > toMs) return null;
         const end = new Date(start.getTime() + 30 * 60000);
         return {
@@ -135,7 +142,8 @@ async function fetchTaskCalendarEvents(env, workspaceId, tenantId, from, to) {
           end_datetime: toSqlDateTime(end),
           color: '#4285f4',
           status: row.status || 'open',
-          all_day: 0,
+          all_day: hasTime ? 0 : 1,
+          todo_id: String(row.id),
         };
       })
       .filter(Boolean);

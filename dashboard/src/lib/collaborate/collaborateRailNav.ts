@@ -1,5 +1,9 @@
 export type CollaborateRailPanel = 'calendar' | 'keep' | 'notes' | 'contacts';
 
+export type CollaborateMainSeg = 'calendar' | 'tasks';
+
+export type CollaborateCalView = 'week' | 'month';
+
 /** Deep-link into the live /dashboard/collaborate surface (or related routes). */
 export function collaborateDeepLink(panel: CollaborateRailPanel): string {
   switch (panel) {
@@ -17,15 +21,45 @@ export function collaborateDeepLink(panel: CollaborateRailPanel): string {
 }
 
 export function parseCollaborateSearchParams(params: URLSearchParams): {
-  mainSeg: 'calendar' | 'tasks';
+  mainSeg: CollaborateMainSeg;
   tasksList: string | null;
   focusPeople: boolean;
   projectId: string | null;
+  calView: CollaborateCalView;
 } {
   const seg = params.get('seg');
   const mainSeg = seg === 'tasks' ? 'tasks' : 'calendar';
   const tasksList = params.get('list')?.trim() || null;
   const focusPeople = params.get('panel') === 'people';
   const projectId = params.get('project')?.trim() || null;
-  return { mainSeg, tasksList, focusPeople, projectId };
+  const calView = params.get('view') === 'month' ? 'month' : 'week';
+  return { mainSeg, tasksList, focusPeople, projectId, calView };
+}
+
+/** Merge collaborate URL params (omit null/empty to delete keys). */
+export function patchCollaborateSearchParams(
+  current: URLSearchParams,
+  patch: {
+    seg?: CollaborateMainSeg | null;
+    view?: CollaborateCalView | null;
+    project?: string | null;
+    list?: string | null;
+    panel?: string | null;
+  },
+): URLSearchParams {
+  const next = new URLSearchParams(current);
+  const apply = (key: string, val: string | null | undefined) => {
+    if (val == null || val === '') next.delete(key);
+    else next.set(key, val);
+  };
+  if ('seg' in patch) {
+    apply('seg', patch.seg === 'tasks' ? 'tasks' : null);
+  }
+  if ('view' in patch) {
+    apply('view', patch.view === 'month' ? 'month' : null);
+  }
+  if ('project' in patch) apply('project', patch.project ?? null);
+  if ('list' in patch) apply('list', patch.list ?? null);
+  if ('panel' in patch) apply('panel', patch.panel ?? null);
+  return next;
 }
