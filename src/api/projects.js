@@ -281,69 +281,12 @@ async function handleOverview(request, url, env, authUser) {
     return jsonResponse({ ok: false, error: String(e.message || e) }, 500);
   }
 
-  const wpCoverByProjectId = new Map();
-  /** @type {Map<string, string>} projects.id → workspace_projects.id */
-  const chatProjectIdByProjectsId = new Map();
-
-  if (workspaceId) {
-    try {
-      const { results: wpRows } = await env.DB.prepare(
-        `SELECT id, name, slug, description, client_company, project_type, status, metadata_json, workspace_id, tenant_id
-         FROM workspace_projects
-         WHERE workspace_id = ?
-         ORDER BY name ASC`,
-      )
-        .bind(workspaceId)
-        .all();
-      const existingIds = new Set(projectRows.map((r) => String(r.id)));
-      for (const wp of wpRows || []) {
-        let linkedId = null;
-        const meta = parseMetadataObject(wp.metadata_json);
-        try {
-          linkedId = meta.projects_table_id ? String(meta.projects_table_id) : null;
-        } catch {
-          linkedId = null;
-        }
-        const cover = extractCoverImageUrl(null, meta);
-        if (linkedId) chatProjectIdByProjectsId.set(linkedId, String(wp.id));
-        chatProjectIdByProjectsId.set(String(wp.id), String(wp.id));
-        if (cover) {
-          if (linkedId) wpCoverByProjectId.set(linkedId, cover);
-          wpCoverByProjectId.set(String(wp.id), cover);
-        }
-        if (linkedId && existingIds.has(linkedId)) continue;
-        if (linkedId) {
-          const linked = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(linkedId).first();
-          if (linked) {
-            projectRows.push(linked);
-            existingIds.add(linkedId);
-            continue;
-          }
-        }
-        const presetId = linkedId || String(wp.id);
-        if (existingIds.has(presetId)) continue;
-        projectRows.push({
-          id: presetId,
-          name: wp.name,
-          client_name: wp.client_company || wp.name,
-          description: wp.description || '',
-          status: wp.status || 'active',
-          priority: 2,
-          project_type: wp.project_type || '',
-          workspace_id: wp.workspace_id,
-          tenant_id: wp.tenant_id,
-          tags_json: '[]',
-          owner_user_id: null,
-          budget_tokens: 0,
-          tokens_used: 0,
-          estimated_completion_date: null,
-        });
-        existingIds.add(presetId);
-      }
-    } catch {
-      /* workspace_projects optional */
-    }
-  }
+  const {
+    projectRows: mergedRows,
+    wpCoverByProjectId,
+    chatProjectIdByProjectsId,
+  } = await mergeWorkspaceProjectRows(env, workspaceId, projectRows);
+  projectRows = mergedRows;
 
   const projectIds = projectRows.map((r) => String(r.id));
 
@@ -675,24 +618,103 @@ async function handleOverview(request, url, env, authUser) {
   }
 }
 
-async function attachChatProjectIds(env, rows) {
+/**
+ * Merge workspace_projects presets into project rows (same logic for list + overview).
+ * @returns {Promise<{ projectRows: any[], wpCoverByProjectId: Map<string, string>, chatProjectIdByProjectsId: Map<string, string> }>}
+ */
+async function mergeWorkspaceProjectRows(env, workspaceId, projectRows) {
+  const rows = Array.isArray(projectRows) ? [...projectRows] : [];
+  const wpCoverByProjectId = new Map();
+  const chatProjectIdByProjectsId = new Map();
+  if (!workspaceId || !env?.DB) {
+    return { projectRows: rows, wpCoverByProjectId, chatProjectIdByProjectsId };
+  }
+
+  try {
+    const { results: wpRows } = await env.DB.prepare(
+      `SELECT id, name, slug, description, client_company, project_type, status, metadata_json, workspace_id, tenant_id
+       FROM workspace_projects
+       WHERE workspace_id = ?
+       ORDER BY name ASC`,
+    )
+      .bind(workspaceId)
+      .all();
+    const existingIds = new Set(rows.map((r) => String(r.id)));
+    for (const wp of wpRows || []) {
+      const meta = parseMetadataObject(wp.metadata_json);
+      const linkedId = meta.projects_table_id ? String(meta.projects_table_id) : null;
+      const cover = extractCoverImageUrl(null, meta);
+      if (linkedId) chatProjectIdByProjectsId.set(linkedId, String(wp.id));
+      chatProjectIdByProjectsId.set(String(wp.id), String(wp.id));
+      if (cover) {
+        if (linkedId) wpCoverByProjectId.set(linkedId, cover);
+        wpCoverByProjectId.set(String(wp.id), cover);
+      }
+      if (linkedId && existingIds.has(linkedId)) continue;
+      if (linkedId) {
+        const linked = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(linkedId).first();
+        if (linked) {
+          rows.push(linked);
+          existingIds.add(linkedId);
+          continue;
+        }
+      }
+      const presetId = linkedId || String(wp.id);
+      if (existingIds.has(presetId)) continue;
+      rows.push({
+        id: presetId,
+        name: wp.name,
+        client_name: wp.client_company || wp.name,
+        description: wp.description || '',
+        status: wp.status || 'active',
+        priority: 2,
+        project_type: wp.project_type || '',
+        workspace_id: wp.workspace_id,
+        tenant_id: wp.tenant_id,
+        tags_json: '[]',
+        owner_user_id: null,
+        budget_tokens: 0,
+        tokens_used: 0,
+        estimated_completion_date: null,
+      });
+      existingIds.add(presetId);
+    }
+  } catch {
+    /* workspace_projects optional */
+  }
+
+  rows.sort(
+    (a, b) =>
+      (Number(b.priority) || 0) - (Number(a.priority) || 0) ||
+      String(a.name || '').localeCompare(String(b.name || '')),
+  );
+
+  return { projectRows: rows, wpCoverByProjectId, chatProjectIdByProjectsId };
+}
+
+async function attachChatProjectIds(env, rows, chatProjectIdByProjectsId = null) {
   if (!rows?.length) return rows || [];
-  const out = [];
-  for (const row of rows) {
-    let chatProjectId = null;
+  let chatMap = chatProjectIdByProjectsId;
+  if (!chatMap || !(chatMap instanceof Map)) {
+    chatMap = new Map();
     try {
-      const wp = await env.DB.prepare(
-        `SELECT id FROM workspace_projects WHERE json_extract(metadata_json, '$.projects_table_id') = ? LIMIT 1`,
-      )
-        .bind(String(row.id))
-        .first();
-      if (wp?.id) chatProjectId = String(wp.id);
+      const { results: wpRows } = await env.DB.prepare(
+        `SELECT id, metadata_json FROM workspace_projects WHERE metadata_json IS NOT NULL`,
+      ).all();
+      for (const wp of wpRows || []) {
+        const meta = parseMetadataObject(wp.metadata_json);
+        const linkedId = meta.projects_table_id ? String(meta.projects_table_id) : null;
+        if (linkedId) chatMap.set(linkedId, String(wp.id));
+        chatMap.set(String(wp.id), String(wp.id));
+      }
     } catch {
       /* optional */
     }
-    out.push({ ...row, chat_project_id: chatProjectId });
   }
-  return out;
+  return rows.map((row) => ({
+    ...row,
+    chat_project_id: chatMap.get(String(row.id)) ?? null,
+  }));
 }
 
 async function handleList(env, authUser, url) {
@@ -704,14 +726,21 @@ async function handleList(env, authUser, url) {
   const { results } = await withD1Retry(() =>
     env.DB.prepare(`SELECT p.* FROM projects p WHERE ${whereSql} ORDER BY COALESCE(p.priority,0) DESC, p.name ASC`).bind(...whereBinds).all(),
   );
-  const enriched = (results || []).map((p) => {
+  const { projectRows, wpCoverByProjectId, chatProjectIdByProjectsId } = await mergeWorkspaceProjectRows(
+    env,
+    workspaceId,
+    results || [],
+  );
+  const enriched = projectRows.map((p) => {
     const meta = parseMetadataObject(p?.metadata_json);
+    const coverFromMeta = extractCoverImageUrl(p, meta);
+    const coverFromWp = wpCoverByProjectId.get(String(p.id)) ?? null;
     return {
       ...p,
-      cover_image_url: extractCoverImageUrl(p, meta),
+      cover_image_url: coverFromMeta || coverFromWp,
     };
   });
-  const projects = await attachChatProjectIds(env, enriched);
+  const projects = await attachChatProjectIds(env, enriched, chatProjectIdByProjectsId);
   return projectsJsonResponse({ ok: true, success: true, projects }, 200, PROJECTS_LIST_CACHE);
 }
 

@@ -189,11 +189,29 @@ export function mapListRowToOverview(row: ProjectListRow): OverviewProject {
 export async function fetchProjectsList(
   workspaceId?: string | null,
 ): Promise<{ ok: boolean; projects: OverviewProject[]; error?: string }> {
-  const r = await fetch(`/api/projects${qs(workspaceId)}`, { credentials: "same-origin" });
-  const j = (await r.json()) as { ok?: boolean; success?: boolean; projects?: ProjectListRow[]; error?: string };
-  if (!r.ok) return { ok: false, projects: [], error: j.error || `HTTP ${r.status}` };
-  const rows = Array.isArray(j.projects) ? j.projects : [];
-  return { ok: true, projects: rows.map(mapListRowToOverview) };
+  const controller = new AbortController();
+  const timeoutMs = 25_000;
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const r = await fetch(`/api/projects${qs(workspaceId)}`, {
+      credentials: "same-origin",
+      signal: controller.signal,
+    });
+    const j = (await r.json()) as { ok?: boolean; success?: boolean; projects?: ProjectListRow[]; error?: string };
+    if (!r.ok) return { ok: false, projects: [], error: j.error || `HTTP ${r.status}` };
+    const rows = Array.isArray(j.projects) ? j.projects : [];
+    return { ok: true, projects: rows.map(mapListRowToOverview) };
+  } catch (e) {
+    const msg =
+      e instanceof DOMException && e.name === "AbortError"
+        ? "Projects request timed out"
+        : e instanceof Error
+          ? e.message
+          : "Failed to load projects";
+    return { ok: false, projects: [], error: msg };
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 export async function fetchProjectsOverview(workspaceId?: string | null): Promise<ProjectsOverviewResponse> {

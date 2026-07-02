@@ -45,13 +45,14 @@ function mergeOverviewProjects(fast: OverviewProject[], rich: OverviewProject[])
 }
 
 export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectChange }: Props) {
-  const { workspaceId, workspaces, loading: workspaceLoading } = useWorkspace();
+  const { workspaceId, canonicalWorkspaceId, workspaces, loading: workspaceLoading } = useWorkspace();
+  const effectiveWorkspaceId = workspaceId || canonicalWorkspaceId;
   const [query, setQuery] = useState('');
   const [projects, setProjects] = useState<OverviewProject[]>(() => {
-    const cached = readIamProjectsCache(workspaceId);
+    const cached = readIamProjectsCache(effectiveWorkspaceId);
     return cached?.projects || [];
   });
-  const [loading, setLoading] = useState(() => !readIamProjectsCache(workspaceId)?.projects?.length);
+  const [loading, setLoading] = useState(() => !readIamProjectsCache(effectiveWorkspaceId)?.projects?.length);
   const [enriching, setEnriching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -61,11 +62,12 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
   const [bulkBusy, setBulkBusy] = useState(false);
 
   const refresh = useCallback(async () => {
-    if (!workspaceId) {
+    const wsId = effectiveWorkspaceId?.trim() || '';
+    if (!wsId) {
       setLoading(false);
       return;
     }
-    const cached = readIamProjectsCache(workspaceId);
+    const cached = readIamProjectsCache(wsId);
     if (cached?.projects?.length) {
       setProjects(cached.projects);
       setLoading(false);
@@ -75,13 +77,14 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
     setError(null);
 
     try {
-      const fast = await fetchProjectsList(workspaceId);
+      const fast = await fetchProjectsList(wsId);
       if (fast.ok && fast.projects.length) {
         setProjects(fast.projects);
-        writeIamProjectsCache(workspaceId, fast.projects);
-        setLoading(false);
+        writeIamProjectsCache(wsId, fast.projects);
       } else if (!fast.ok && !cached?.projects?.length) {
         setError(fast.error || 'Failed to load projects');
+      } else if (fast.ok && !fast.projects.length && !cached?.projects?.length) {
+        setProjects([]);
       }
     } catch (e) {
       if (!cached?.projects?.length) {
@@ -93,11 +96,11 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
 
     setEnriching(true);
     try {
-      const data = await fetchProjectsOverview(workspaceId);
+      const data = await fetchProjectsOverview(wsId);
       if (data.ok && data.projects?.length) {
         setProjects((prev) => {
           const merged = mergeOverviewProjects(prev, data.projects);
-          writeIamProjectsCache(workspaceId, merged);
+          writeIamProjectsCache(wsId, merged);
           return merged;
         });
       }
@@ -106,18 +109,17 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
     } finally {
       setEnriching(false);
     }
-  }, [workspaceId]);
+  }, [effectiveWorkspaceId]);
 
   useEffect(() => {
-    if (workspaceLoading && !workspaceId) return;
-    if (!workspaceId) {
-      setLoading(false);
+    if (!effectiveWorkspaceId) {
+      if (!workspaceLoading) setLoading(false);
       return;
     }
-    const cached = readIamProjectsCache(workspaceId);
+    const cached = readIamProjectsCache(effectiveWorkspaceId);
     if (cached?.projects?.length) setProjects(cached.projects);
     void refresh();
-  }, [workspaceId, workspaceLoading, refresh]);
+  }, [effectiveWorkspaceId, workspaceLoading, refresh]);
 
   useEffect(() => {
     if (initialProjectId) setSelectedId(initialProjectId);
@@ -148,9 +150,9 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
   const selected = selectedId ? projects.find((p) => p.id === selectedId) : null;
 
   const workspaceLabel = useMemo(() => {
-    if (!workspaceId) return null;
-    return workspaces.find((w) => w.id === workspaceId)?.name || workspaceId;
-  }, [workspaceId, workspaces]);
+    if (!effectiveWorkspaceId) return null;
+    return workspaces.find((w) => w.id === effectiveWorkspaceId)?.name || effectiveWorkspaceId;
+  }, [effectiveWorkspaceId, workspaces]);
 
   const openProject = (id: string) => {
     if (selectMode) {
