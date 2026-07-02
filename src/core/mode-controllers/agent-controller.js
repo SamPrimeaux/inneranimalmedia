@@ -137,7 +137,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     chatUploadHasVisionImages,
     parseChatComposerImageBlocks,
     applyVisionBlocksToChatMessages,
-  } = await import('../core/chat-composer-attachments.js');
+  } = await import('../chat-composer-attachments.js');
   if (chatUploadHasVisionImages(body.files)) {
     const imageBlocks = await parseChatComposerImageBlocks(body.files);
     if (imageBlocks.length) {
