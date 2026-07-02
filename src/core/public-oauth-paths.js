@@ -152,5 +152,8 @@ export function isAutomationApiPath(pathname, method = 'GET') {
   if (p === '/api/push/notify' && m === 'POST') return true;
   // AGENT_SESSION_MINT_SECRET bearer — must bypass session gate (handler verifies mint secret).
   if (p === '/api/auth/agent-session/mint' && m === 'POST') return true;
+  if (p === '/api/sdk/auth/start' && m === 'POST') return true;
+  if (p === '/api/sdk/auth/exchange' && m === 'POST') return true;
+  if (p === '/api/sdk/auth/authorize' && m === 'GET') return true;
   return false;
 }

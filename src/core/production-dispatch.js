@@ -555,6 +555,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleOnboardingApi(request, url, env);
   }
 
+  if (pathLower.startsWith('/api/sdk')) {
+    const { handleSdkApi } = await import('../api/sdk.js');
+    return handleSdkApi(request, url, env, ctx);
+  }
+
   if (pathLower.startsWith('/api/games')) {
     const { handleGamesApi } = await import('../api/games.js');
     return handleGamesApi(request, url, env, ctx, authUser);
