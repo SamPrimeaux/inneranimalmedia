@@ -56,6 +56,7 @@ import {
   tryAutoActivateUserHostedTunnel,
 } from '../core/pty-tunnel-provisioner.js';
 import { resolveWorkspaceCloudflareCredentials } from '../core/workspace-cloudflare-credentials.js';
+import { resolvePtySessionCloudflareEnv } from '../core/pty-session-cloudflare-env.js';
 
 // ── Token validation ───────────────────────────────────────────────────────────
 export async function handleTerminalApi(request, url, env, ctx) {
@@ -64,6 +65,11 @@ export async function handleTerminalApi(request, url, env, ctx) {
 
   // POST /api/terminal/session/verify — PTY backend validates bearer vs D1 terminal_sessions (token_mint)
   if (path === '/api/terminal/session/verify' && method === 'POST') {
+    const authHdr = request.headers.get('Authorization') || '';
+    const bearer = authHdr.startsWith('Bearer ') ? authHdr.slice(7).trim() : authHdr.trim();
+    const bridgeKey = request.headers.get('X-Bridge-Key') || '';
+    const validBridge = env.AGENTSAM_BRIDGE_KEY && bridgeKey === env.AGENTSAM_BRIDGE_KEY;
+
     let body = {};
     try {
       body = await request.json();
@@ -75,7 +81,8 @@ export async function handleTerminalApi(request, url, env, ctx) {
 
     try {
       const row = await env.DB.prepare(
-        `SELECT auth_token_hash FROM terminal_sessions WHERE id = ? LIMIT 1`,
+        `SELECT auth_token_hash, user_id, workspace_id, tenant_id
+         FROM terminal_sessions WHERE id = ? LIMIT 1`,
       )
         .bind(sessionId)
         .first();
@@ -83,7 +90,34 @@ export async function handleTerminalApi(request, url, env, ctx) {
       if (!stored) return jsonResponse({ valid: false, error: 'invalid session' }, 401);
       const digest = await sha256HexUtf8(token);
       if (digest !== stored) return jsonResponse({ valid: false, error: 'invalid token' }, 401);
-      return jsonResponse({ valid: true, session_id: sessionId, ok: true });
+
+      const sessionUserId = row?.user_id != null ? String(row.user_id).trim() : '';
+      const sessionWorkspaceId = row?.workspace_id != null ? String(row.workspace_id).trim() : '';
+      const sessionTenantId = row?.tenant_id != null ? String(row.tenant_id).trim() : '';
+      const validBackend =
+        validBridge ||
+        (bearer &&
+          (await ptyBackendBearerValid(env, bearer, sessionUserId, sessionWorkspaceId)));
+      if (!validBackend) return jsonResponse({ valid: false, error: 'unauthorized' }, 401);
+
+      const cf = await resolvePtySessionCloudflareEnv(env, {
+        userId: sessionUserId,
+        tenantId: sessionTenantId,
+        workspaceId: sessionWorkspaceId,
+      });
+
+      return jsonResponse({
+        valid: true,
+        session_id: sessionId,
+        ok: true,
+        user_id: sessionUserId || null,
+        workspace_id: sessionWorkspaceId || null,
+        tenant_id: sessionTenantId || null,
+        cloudflare_api_token: cf.cloudflare_api_token,
+        cloudflare_account_id: cf.cloudflare_account_id,
+        cloudflare_configured: cf.ok === true,
+        cloudflare_error: cf.ok ? null : cf.error,
+      });
     } catch (e) {
       return jsonResponse({ valid: false, error: 'verify failed', detail: e?.message || String(e) }, 500);
     }
