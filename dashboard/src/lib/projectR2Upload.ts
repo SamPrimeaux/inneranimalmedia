@@ -24,7 +24,8 @@ export async function uploadProjectR2File(
   subpath: 'files' | 'cover' = 'files',
   workspaceId?: string | null,
 ): Promise<{ ok: boolean; url?: string; key?: string; error?: string }> {
-  if (isImageFile(file)) {
+  // Covers → CF Images when workspace is scoped; attachments always land in project R2.
+  if (subpath === 'cover' && isImageFile(file)) {
     const cf = await uploadProjectCoverImage(file, workspaceId);
     if (!cf.ok) return cf;
     return { ok: true, url: cf.url };

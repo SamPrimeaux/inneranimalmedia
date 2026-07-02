@@ -182,6 +182,7 @@ export default function ProjectDetailPage() {
   const [fileUploading, setFileUploading] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
   const [fileDragOver, setFileDragOver] = useState(false);
+  const fileDragDepthRef = useRef(0);
   const coverInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -370,16 +371,12 @@ export default function ProjectDetailPage() {
     if (!project) return;
     const list = files ? Array.from(files) : [];
     if (!list.length) return;
+    const wsForUpload = (project.workspace_id || workspaceId || '').trim() || null;
     setFileUploading(true);
     try {
       const added: ProjectFileRef[] = [];
       for (const file of list) {
-        const out = await uploadProjectR2File(
-          project.id,
-          file,
-          'files',
-          project.workspace_id || workspaceId,
-        );
+        const out = await uploadProjectR2File(project.id, file, 'files', wsForUpload);
         if (!out.ok || !out.url) {
           setToast(out.error || `Upload failed: ${file.name}`);
           break;
@@ -569,13 +566,22 @@ export default function ProjectDetailPage() {
       >
         <div
           className={`cpd-files-drop${fileDragOver ? ' cpd-files-drop--over' : ''}`}
-          onDragOver={(e) => {
+          onDragEnter={(e) => {
             e.preventDefault();
+            fileDragDepthRef.current += 1;
             setFileDragOver(true);
           }}
-          onDragLeave={() => setFileDragOver(false)}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+          }}
+          onDragLeave={() => {
+            fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+            if (fileDragDepthRef.current === 0) setFileDragOver(false);
+          }}
           onDrop={(e) => {
             e.preventDefault();
+            fileDragDepthRef.current = 0;
             setFileDragOver(false);
             void appendProjectFiles(e.dataTransfer.files);
           }}
