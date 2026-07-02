@@ -166,11 +166,12 @@ export default defineConfig(({ mode }) => {
             { url: '/static/dashboard/shell.css', revision: null },
           ],
           navigateFallback: '/offline.html',
+          // Only dashboard SPA navigations may show offline shell — never hijack marketing `/`.
+          navigateFallbackAllowlist: [/^\/dashboard\//],
           navigateFallbackDenylist: [
             /^\/api\//,
             /^\/auth/,
             /^\/oauth\//,
-            /^\/dashboard/,
             /^\/onboarding/,
           ],
           runtimeCaching: [
