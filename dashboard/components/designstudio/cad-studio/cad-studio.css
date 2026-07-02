@@ -3922,6 +3922,7 @@
 .studio-entry__composer-host {
   width: 100%;
   min-width: 0;
+  min-height: 132px;
 }
 
 .studio-entry__composer-host .iam-chat-composer-shell {

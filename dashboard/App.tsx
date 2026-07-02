@@ -4881,26 +4881,6 @@ const App: React.FC = () => {
                       </div>
                   )}
 
-                  {!isCmsFullscreen && agentChatLayout === 'center' ? (
-                    <AgentSamChatHost
-                      {...agentSamChatHostProps}
-                      layout="center"
-                      agentW={agentW}
-                      isNarrowViewport={isNarrowViewport}
-                      activeActivity={activeActivity}
-                      narrowNeedsBack={narrowNeedsBack}
-                      mobileEdgeSwipeHandlers={mobileEdgeSwipeHandlers}
-                      productLabel={PRODUCT_NAME}
-                      atmosphericHomeMode={designStudioEntryAtmospheric}
-                      composerPortalTarget={
-                        designStudioEntryAtmospheric ? designStudioComposerHost : null
-                      }
-                      messagesPortalTarget={
-                        designStudioEntryAtmospheric ? designStudioMessagesHost : null
-                      }
-                    />
-                  ) : null}
-
                   {showMonacoWorkbench && (
                       <div ref={editorPreviewSplitRef} className="absolute inset-0 z-10 flex min-h-0 min-w-0">
                           <div
@@ -5116,6 +5096,25 @@ const App: React.FC = () => {
                 </div>
               </div>
               )}
+              {!isCmsFullscreen && agentChatLayout === 'center' ? (
+                <AgentSamChatHost
+                  {...agentSamChatHostProps}
+                  layout="center"
+                  agentW={agentW}
+                  isNarrowViewport={isNarrowViewport}
+                  activeActivity={activeActivity}
+                  narrowNeedsBack={narrowNeedsBack}
+                  mobileEdgeSwipeHandlers={mobileEdgeSwipeHandlers}
+                  productLabel={PRODUCT_NAME}
+                  atmosphericHomeMode={designStudioEntryAtmospheric}
+                  composerPortalTarget={
+                    designStudioEntryAtmospheric ? designStudioComposerHost : null
+                  }
+                  messagesPortalTarget={
+                    designStudioEntryAtmospheric ? designStudioMessagesHost : null
+                  }
+                />
+              ) : null}
           </main>
           </div>
 

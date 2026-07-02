@@ -3172,6 +3172,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     centerChatComposerColumn &&
     showEmptyThreadPlaceholder &&
     !conversationId.trim();
+  const designStudioPortalStartup =
+    atmosphericHomeMode &&
+    composerPortaled &&
+    showEmptyThreadPlaceholder &&
+    !conversationId.trim();
   const composerFlexOrder = desktopStartupCenterMode
     ? ''
     : mobileAgentHomeMode
@@ -4012,16 +4017,20 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           )}
         </div>
           );
-          const wrappedShell = desktopStartupCenterMode ? (
+          const wrappedShell = desktopStartupCenterMode || designStudioPortalStartup ? (
             <div className="iam-chat-startup-stack order-2 shrink-0 w-full">
-              <ComposerStartupGreeting isDarkTheme={isDarkTheme} />
+              {!designStudioPortalStartup ? (
+                <ComposerStartupGreeting isDarkTheme={isDarkTheme} />
+              ) : null}
               {shell}
-              <ComposerStartupChips
-                className="mt-2"
-                onCreateImage={startImageGenerationPrompt}
-                onWebSearch={startWebSearchLane}
-                onOpenEditor={() => onOpenEditor?.()}
-              />
+              {!designStudioPortalStartup ? (
+                <ComposerStartupChips
+                  className="mt-2"
+                  onCreateImage={startImageGenerationPrompt}
+                  onWebSearch={startWebSearchLane}
+                  onOpenEditor={() => onOpenEditor?.()}
+                />
+              ) : null}
             </div>
           ) : (
             shell
