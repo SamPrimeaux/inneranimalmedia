@@ -127,7 +127,7 @@ export function ComposerConnectorSheet({
 
   return (
     <div
-      className="flex w-full min-w-[340px] max-w-[480px] max-h-[min(480px,70dvh)] flex-col overflow-hidden rounded-2xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[0.8125rem] shadow-xl"
+      className="flex w-full max-h-[min(480px,70dvh)] flex-col overflow-hidden rounded-2xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[0.8125rem] shadow-xl"
       style={style}
       role="menu"
     >

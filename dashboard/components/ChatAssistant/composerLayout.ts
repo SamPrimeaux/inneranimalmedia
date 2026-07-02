@@ -74,7 +74,7 @@ export function measureAboveAnchor(
   };
 }
 
-/** Attach menu: always below composer bar, left-aligned to composer edge (ChatGPT-style). */
+/** Attach menu: always below composer bar, same width, left-aligned (ChatGPT-style). */
 export function measureBelowComposerAnchor(
   composerEl: HTMLElement | null,
   maxHeightCap = 480,
@@ -83,9 +83,7 @@ export function measureBelowComposerAnchor(
   const r = composerEl.getBoundingClientRect();
   const gap = 8;
   const hPad = 16;
-  const minW = 340;
-  const maxW = 480;
-  const menuWidth = Math.min(maxW, Math.max(minW, r.width));
+  const menuWidth = Math.min(r.width, window.innerWidth - 2 * hPad);
   const left = Math.max(hPad, Math.min(r.left, window.innerWidth - menuWidth - hPad));
   const spaceBelow = Math.max(0, window.innerHeight - r.bottom - gap - 8);
 
@@ -94,8 +92,6 @@ export function measureBelowComposerAnchor(
     left,
     top: r.bottom + gap,
     width: menuWidth,
-    minWidth: minW,
-    maxWidth: maxW,
     boxSizing: 'border-box',
     zIndex: 9999,
     maxHeight: Math.min(maxHeightCap, Math.max(64, spaceBelow)),
