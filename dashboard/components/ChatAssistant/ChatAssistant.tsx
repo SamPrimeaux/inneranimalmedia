@@ -2526,6 +2526,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       ? AUTO_MODEL_KEY
       : rawModelKey || chatModels[0]?.model_key || AUTO_MODEL_KEY;
     if ((!text && attachments.length === 0) || (isLoading && !overrideMessage)) return;
+    const stagedAttachments = [...attachments];
     onAgentRunContext?.(null);
     if (!useAutoRouting && !effectiveModelKey) {
       if (overrideMessage?.trim()) {
@@ -2582,7 +2583,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE,
       );
     });
-    const attachmentPreviews: MessageAttachmentPreview[] = attachments.map((a) => ({
+    const attachmentPreviews: MessageAttachmentPreview[] = stagedAttachments.map((a) => ({
       previewUrl: a.previewUrl,
       type: a.type,
       name: a.file.name,
@@ -2603,7 +2604,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     setPythonDraftHint(null);
 
     const attachContextFiles: Array<{ name: string; content: string }> = [];
-    for (const a of attachments) {
+    for (const a of stagedAttachments) {
       if (a.type !== 'file') continue;
       const lower = a.file.name.toLowerCase();
       if (lower.endsWith('.glb')) {
@@ -2806,7 +2807,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     } catch {
       /* ignore */
     }
-    attachments.forEach((a) => form.append('files', a.file));
+    stagedAttachments.forEach((a) => form.append('files', a.file));
+    clearAttachments();
 
     if (activeFile) {
       const activePath = getEditorLightweightPath(activeFile) || activeFile.name || '';

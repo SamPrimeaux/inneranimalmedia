@@ -353,6 +353,15 @@ export function toGeminiContents(messages) {
                 response: parseFunctionResponsePayload(block.content),
               },
             });
+            continue;
+          }
+          if (block.type === 'image' && block.source?.data) {
+            parts.push({
+              inlineData: {
+                mimeType: block.source.media_type || 'image/png',
+                data: String(block.source.data),
+              },
+            });
           }
         }
       }

@@ -133,6 +133,17 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     Array.isArray(body.messages) && body.messages.length
       ? [...body.messages]
       : [{ role: 'user', content: message }];
+  const {
+    chatUploadHasVisionImages,
+    parseChatComposerImageBlocks,
+    applyVisionBlocksToChatMessages,
+  } = await import('../core/chat-composer-attachments.js');
+  if (chatUploadHasVisionImages(body.files)) {
+    const imageBlocks = await parseChatComposerImageBlocks(body.files);
+    if (imageBlocks.length) {
+      chatMessages = applyVisionBlocksToChatMessages(chatMessages, message, imageBlocks);
+    }
+  }
   const createSubagentFlow = resolveCreateSubagentFlow(chatMessages);
 
   const skipHeavyContext =

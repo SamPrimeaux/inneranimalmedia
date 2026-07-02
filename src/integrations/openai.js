@@ -298,6 +298,24 @@ function buildOpenAIMessages(systemPrompt, messages) {
 
     // Convert Anthropic tool_result blocks to OpenAI tool messages
     if (msg.role === 'user' && Array.isArray(msg.content)) {
+      const hasImage = msg.content.some((b) => b?.type === 'image' && b?.source?.data);
+      const hasToolResult = msg.content.some((b) => b?.type === 'tool_result');
+      if (hasImage && !hasToolResult) {
+        const parts = [];
+        for (const block of msg.content) {
+          if (block?.type === 'text' && block.text) {
+            parts.push({ type: 'text', text: String(block.text) });
+          } else if (block?.type === 'image' && block.source?.data) {
+            const mime = block.source.media_type || 'image/png';
+            parts.push({
+              type: 'image_url',
+              image_url: { url: `data:${mime};base64,${block.source.data}` },
+            });
+          }
+        }
+        if (parts.length) normalized.push({ role: 'user', content: parts });
+        continue;
+      }
       for (const block of msg.content) {
         if (block.type === 'tool_result') {
           normalized.push({

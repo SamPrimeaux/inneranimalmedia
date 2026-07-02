@@ -87,6 +87,9 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
       ? String(rawModel).trim()
       : null;
 
+  const { chatUploadHasVisionImages } = await import('../core/chat-composer-attachments.js');
+  const requireVision = chatUploadHasVisionImages(body.files);
+
   const profile = await withD1Retry(
     () =>
       resolveRuntimeProfile(env, {
@@ -100,6 +103,7 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
           task_type: body.task_type ?? body.taskType ?? null,
         },
         compile_lane: 'live',
+        requireVision,
       }),
     { maxAttempts: 2, delays: [40, 120] },
   );
@@ -129,7 +133,7 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
   });
 
   const { isSimpleAskMessage } = await import('../core/runtime-profile.js');
-  const casualChatTurn = isSimpleAskMessage(message) && !activeFileEnvelope;
+  const casualChatTurn = isSimpleAskMessage(message) && !activeFileEnvelope && !requireVision;
   const projectContextBlock = casualChatTurn
     ? ''
     : await loadProjectContextSystemBlock(env, workspaceId);

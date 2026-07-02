@@ -409,6 +409,7 @@ async function selectThompsonArm(db, {
   mode,
   workspace_id,
   require_tools,
+  require_vision = false,
 }) {
   const wsId = workspace_id ?? '';
   const modesToTry = [...new Set([mode, 'auto', 'agent', 'ask'].filter(Boolean))];
@@ -421,6 +422,7 @@ async function selectThompsonArm(db, {
         mode: tryMode,
         workspace_id: wsId,
         require_tools,
+        require_vision,
       });
       if (ranked?.length) return ranked;
     }
@@ -433,6 +435,7 @@ async function _selectThompsonArmOnce(db, {
   mode,
   workspace_id,
   require_tools,
+  require_vision = false,
 }) {
   const wsId = workspace_id ?? '';
 
@@ -461,6 +464,7 @@ async function _selectThompsonArmOnce(db, {
       AND ra.budget_exhausted = 0
       AND (ra.workspace_id = ? OR ra.workspace_id = '' OR ra.workspace_id IS NULL)
       ${require_tools ? 'AND mc.supports_tools = 1' : ''}
+      ${require_vision ? 'AND mc.supports_vision = 1' : ''}
     ORDER BY
       CASE WHEN ra.workspace_id = ? THEN 0 ELSE 1 END,
       ra.priority DESC,
@@ -614,7 +618,7 @@ export async function resolveModelForTask(env, opts = {}) {
     // ── Path C: Thompson sampling across eligible arms ──────────────────────
     source = 'thompson';
     const candidates = await selectThompsonArm(db, {
-      task_type: normalizedTaskType, mode: routingMode, workspace_id, require_tools,
+      task_type: normalizedTaskType, mode: routingMode, workspace_id, require_tools, require_vision,
     });
 
     if (candidates && candidates.length > 0) {

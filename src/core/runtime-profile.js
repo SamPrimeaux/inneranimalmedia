@@ -1006,6 +1006,7 @@ export async function resolveRuntimeProfile(env, input) {
     tenantId: session.tenantId,
     requestedModel: overrides.model_key,
     requireTools: profile.tool_allowlist.length > 0,
+    requireVision: input.requireVision === true,
   });
   profile.tool_capable_required = profile.tool_allowlist.length > 0;
   profile.profile_hash = await hashRuntimeProfile(profile);
@@ -1016,20 +1017,42 @@ export async function resolveRuntimeProfile(env, input) {
  * Bind model + routing arm via resolveModelForTask (Thompson when auto).
  * @param {any} env
  * @param {import('./runtime-profile.types.js').RuntimeProfile} profile
- * @param {{ workspaceId?: string|null, tenantId?: string|null, requestedModel?: string|null, requireTools?: boolean }} opts
+ * @param {{ workspaceId?: string|null, tenantId?: string|null, requestedModel?: string|null, requireTools?: boolean, requireVision?: boolean }} opts
  */
 export async function resolveProfileModel(env, profile, opts) {
   if (!env?.DB || !opts.workspaceId) return profile;
   const ws = String(opts.workspaceId).trim();
   const raw = opts.requestedModel != null ? String(opts.requestedModel).trim() : '';
   const isAuto = !raw || raw.toLowerCase() === 'auto';
-  if (!isAuto) {
+  const requireVision = opts.requireVision === true;
+  const toolCapableRequired = profile.tool_capable_required || profile.tool_allowlist.length > 0;
+  if (!isAuto && !requireVision) {
     profile.model_key = raw;
     return profile;
   }
   try {
     const { resolveModelForTask, normalizeCanonicalTaskType } = await import('./resolveModel.js');
-    const toolCapableRequired = profile.tool_capable_required || profile.tool_allowlist.length > 0;
+    if (!isAuto && requireVision) {
+      try {
+        const pinned = await resolveModelForTask(env, {
+          task_type: normalizeCanonicalTaskType(profile.routing_task_type || profile.mode),
+          mode: profile.mode,
+          workspace_id: ws,
+          tenant_id: opts.tenantId != null ? String(opts.tenantId).trim() : undefined,
+          requested_model_key: raw,
+          require_tools: toolCapableRequired,
+          require_vision: true,
+        });
+        profile.model_key = pinned.model_key;
+        profile.routing_arm_id =
+          pinned.routing_arm_id != null ? String(pinned.routing_arm_id) : null;
+        profile.selected_provider =
+          pinned.provider != null ? String(pinned.provider) : null;
+        return profile;
+      } catch (e) {
+        console.warn('[runtime-profile] pinned model lacks vision, re-routing', e?.message ?? e);
+      }
+    }
     let workspaceDefaultModel = null;
     if (env?.DB) {
       try {
@@ -1051,6 +1074,7 @@ export async function resolveProfileModel(env, profile, opts) {
       workspace_id: ws,
       tenant_id: opts.tenantId != null ? String(opts.tenantId).trim() : undefined,
       require_tools: toolCapableRequired,
+      require_vision: requireVision,
       requested_model_key: workspaceDefaultModel,
     });
     profile.model_key = resolved.model_key;
