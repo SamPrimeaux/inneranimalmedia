@@ -407,6 +407,9 @@ export type ChatModelRow = {
   size_class?: string;
   input_rate_per_mtok?: number | null;
   output_rate_per_mtok?: number | null;
+  byok_configured?: boolean;
+  byok_masked?: string | null;
+  billing_key_source?: 'byok' | 'platform' | string;
 };
 
 export const MENTION_CONTEXT_HEADER = '\n\n--- On-demand context (this message only) ---\n';

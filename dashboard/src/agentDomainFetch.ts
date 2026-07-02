@@ -34,6 +34,10 @@ function mapModelRow(raw: Record<string, unknown>): ChatModelRow {
     size_class: raw.size_class != null ? String(raw.size_class) : '',
     input_rate_per_mtok: raw.input_rate_per_mtok != null ? Number(raw.input_rate_per_mtok) : null,
     output_rate_per_mtok: raw.output_rate_per_mtok != null ? Number(raw.output_rate_per_mtok) : null,
+    byok_configured: raw.byok_configured === true,
+    byok_masked: raw.byok_masked != null ? String(raw.byok_masked) : null,
+    billing_key_source:
+      raw.billing_key_source != null ? String(raw.billing_key_source) : undefined,
   };
 }
 

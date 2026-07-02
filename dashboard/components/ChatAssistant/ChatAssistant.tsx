@@ -3226,6 +3226,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     return order.map((g) => ({ group: g, models: byGroup.get(g)! }));
   }, [chatModels]);
 
+  const modelPickerByokHint = useMemo(() => {
+    const platforms = new Set<string>();
+    for (const m of chatModels) {
+      if (m.billing_key_source === 'byok' || m.byok_configured) continue;
+      const p = (m.api_platform || m.provider || '').trim().toLowerCase();
+      if (p) platforms.add(p);
+    }
+    return platforms;
+  }, [chatModels]);
+
   const pickModelKey = useCallback((modelKey: string) => {
     const next = isAutoModelSelection(modelKey) ? AUTO_MODEL_KEY : modelKey.trim();
     userPinnedModelRef.current = !isAutoModelSelection(next);
@@ -3301,6 +3311,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                         Workspace default
                       </span>
                     ) : null}
+                    {m.byok_configured || m.billing_key_source === 'byok' ? (
+                      <span className="shrink-0 rounded border border-emerald-500/40 px-1 py-0 text-[8px] font-bold uppercase tracking-wide text-emerald-400/90">
+                        BYOK
+                      </span>
+                    ) : null}
                   </div>
                   {rateIn != null && rateOut != null ? (
                     <span className="text-[9px] text-[var(--dashboard-muted)]">
@@ -3314,9 +3329,25 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           })}
         </div>
         ))}
+        {modelPickerByokHint.size > 0 ? (
+          <div className="mx-2 mt-1 border-t border-[var(--dashboard-border)] pt-2">
+            <p className="px-2 pb-1 text-[9px] leading-snug text-[var(--dashboard-muted)]">
+              Paste your OpenAI, Anthropic, or Cloudflare AI keys to run models on your quota (BYOK).
+            </p>
+            <button
+              type="button"
+              className="mx-1 mb-1 w-[calc(100%-0.5rem)] rounded-lg border border-[var(--dashboard-border)] px-3 py-2 text-left text-[10px] font-semibold text-[var(--solar-cyan)] hover:bg-[var(--dashboard-panel)]"
+              onClick={() => {
+                window.location.assign('/dashboard/settings/keys');
+              }}
+            >
+              Connect provider keys → Settings
+            </button>
+          </div>
+        ) : null}
       </>
     ),
-    [modelPickerGroups, defaultModelKey, selectedModelKey],
+    [modelPickerGroups, defaultModelKey, selectedModelKey, modelPickerByokHint],
   );
 
   return (
