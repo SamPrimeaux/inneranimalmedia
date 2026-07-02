@@ -16,11 +16,10 @@
 | Dashboard | `dashboard/` (SPA, served from R2 `static/dashboard/app/*`) |
 | Local working dir | `/Users/samprimeaux/inneranimalmedia` |
 | Git remote | `github.com/SamPrimeaux/inneranimalmedia` |
-| Prod git HEAD | `3f7ace25` (Design Studio layout fix) |
+| Prod git HEAD | `c7d63d87` (PROJECT.md baseline) |
 | Cloudflare account | `ede6590ac0d2fb7daf155b35653457b2` |
 | D1 primary | `inneranimalmedia-business` (`cf87b717-d4e2-4cf8-bab0-a81268e32d49`) ~300 MB |
-| D1 last migration (ledger) | `749_agentsam_chat_sessions_turn_lifecycle.sql` @ 2026-07-01 20:14 UTC |
-| D1 migrations 750–752 | **SQL effects live in prod**; **ledger rows missing** (applied manually, not via `d1_migrations`) |
+| D1 last migration (ledger) | `752_agentsam_github_list_commits.sql` @ 2026-07-02 04:40 UTC |
 | Hyperdrive | `08183bb9d2914e87ac8395d7e4ecff60` → Supabase `dpmuvynqixblxsilnlut` |
 | R2 primary bucket | `inneranimalmedia` |
 | MCP server | `~/inneranimalmedia-mcp-server` → `mcp.inneranimalmedia.com` (separate repo) |
@@ -179,8 +178,11 @@ Auth model: `EXECOS_KEY` (X-ExecOS-Key header) is unified forward path. `PTY_AUT
 | `npm run deploy:frontend` | Dashboard + worker |
 | `npm run deploy:full` | Full pipeline |
 | Raw wrangler | `./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml` |
+| D1 migrations (prod) | `node scripts/d1-apply-pending.mjs --apply --from <n> --to <n>` |
 
 **Never use:** `wrangler deploy --env production` / bare `npx wrangler deploy` at repo root. No `[env.production]` block exists. Production config is `wrangler.production.toml`.
+
+**Never use:** `wrangler d1 migrations apply --remote` on prod — ledger is partially manual; bulk apply will attempt 150+ stale files. Use `scripts/d1-apply-pending.mjs` instead.
 
 ---
 
@@ -200,14 +202,15 @@ Auth model: `EXECOS_KEY` (X-ExecOS-Key header) is unified forward path. `PTY_AUT
 
 | # | Area | Gap | Priority |
 |---|---|---|---|
-| 1 | D1 migration ledger | 750–752 SQL already live in prod (gpt-5.4-nano platform, GitHub `both` dispatch, `list_commits` tool) but **not recorded** in `d1_migrations` — backfill ledger for audit parity | Medium |
-| 2 | Model picker vs router | `agentsam_ai` (picker) vs `agentsam_model_catalog` (router) can drift | Medium |
-| 3 | Agent modes | `/api/agent/modes` hardcoded in `agent.js` — not D1-driven | Medium |
-| 4 | Stale R2 comments | `agentsam-chat-sessions.js` still references R2 as "primary" — misleading | Low |
-| 5 | ExecOS default cwd | `ecosystem.config.cjs` still points to deleted `/home/samprimeaux/inneranimalmedia` — needs update to `/home/samprimeaux/ExecOS` | Medium |
-| 6 | Security scan R2 path | Cron still reads `messages.jsonl` for sessions (legacy path) — should read DO | Low |
-| 7 | Memory handler wiring | `agentsam_memory_search` handler config wiring incomplete | Medium |
-| 8 | Doc staleness | `cad_jobs` / `designstudio_scenes` table names in old docs are wrong | Low |
+| 1 | Model picker vs router | `agentsam_ai` (picker) vs `agentsam_model_catalog` (router) can drift | Medium |
+| 2 | Agent modes | `/api/agent/modes` hardcoded in `agent.js` — not D1-driven | Medium |
+| 3 | Stale R2 comments | `agentsam-chat-sessions.js` still references R2 as "primary" — misleading | Low |
+| 4 | ExecOS default cwd | `ecosystem.config.cjs` still points to deleted `/home/samprimeaux/inneranimalmedia` — needs update to `/home/samprimeaux/ExecOS` | Medium |
+| 5 | Security scan R2 path | Cron still reads `messages.jsonl` for sessions (legacy path) — should read DO | Low |
+| 6 | Memory handler wiring | `agentsam_memory_search` handler config wiring incomplete | Medium |
+| 7 | Doc staleness | `cad_jobs` / `designstudio_scenes` table names in old docs are wrong | Low |
+
+> **Closed July 2, 2026:** Gap — D1 migration ledger 750–752 backfilled via `d1-apply-pending.mjs --apply --from 750 --to 752`.
 
 ---
 
@@ -222,8 +225,7 @@ Auth model: `EXECOS_KEY` (X-ExecOS-Key header) is unified forward path. `PTY_AUT
 |---|---|
 | Worker health | `/api/health` → `ok` |
 | D1 size | ~300 MB |
-| Last migration | 749 @ 2026-07-01 20:14 UTC |
-| Migration ledger gap | 3 (750–752 not in `d1_migrations`; data already applied) |
+| Last migration | 752 @ 2026-07-02 04:40 UTC |
 | Active sessions | 84 rows in `agentsam_chat_sessions` |
 | Active tool catalog | 130 tools (79 dual-dispatch) |
 | Subagent profiles | 106 |
@@ -258,7 +260,6 @@ Auth model: `EXECOS_KEY` (X-ExecOS-Key header) is unified forward path. `PTY_AUT
 | Agent modes in D1 | ❌ Hardcoded |
 | Memory search E2E | ⚠️ Index live, handler wiring incomplete |
 | PWA | ⚠️ Manifest + companion worker planned, not shipped |
-| D1 migrations 750–752 ledger | ⚠️ Data live; ledger rows missing |
 | Model picker/router parity | ⚠️ Two tables, can drift |
 
 ---
@@ -301,4 +302,4 @@ CPAS D1:     companionscpas  fd6dd6fb-156b-4b6a-8ff0-505422652391
 
 ---
 
-*Last updated: July 1, 2026 — next review: August 1, 2026*
+*Last updated: July 2, 2026 — next review: August 1, 2026*
