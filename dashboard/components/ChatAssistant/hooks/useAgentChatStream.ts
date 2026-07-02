@@ -1129,6 +1129,43 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           };
           void openMonacoFiles();
           fileEchoSuppress = true;
+
+          // Stamp file entries onto the current assistant message for the files panel
+          const genFiles: AgentGeneratedFile[] = batch
+            .filter((raw): raw is NonNullable<typeof raw> => raw != null && typeof raw === 'object')
+            .map((raw) => {
+              const f = raw as { filename?: string; path?: string; content?: string; r2_url?: string };
+              const path = typeof f.path === 'string' ? f.path.trim() : '';
+              const filename =
+                (typeof f.filename === 'string' && f.filename.trim()) ||
+                path.split('/').pop() ||
+                'output';
+              const r2Url = typeof f.r2_url === 'string' ? f.r2_url.trim() : undefined;
+              const content = typeof f.content === 'string' && f.content.length < 32000 ? f.content : undefined;
+              return {
+                filename,
+                r2Url,
+                content,
+                workspacePath: path || filename,
+                kind: resolveAgentFileKind(filename),
+              };
+            })
+            .filter((gf) => gf.filename);
+
+          if (genFiles.length) {
+            setMessages((prev) => {
+              const next = [...prev];
+              const idx = next.length - 1;
+              if (idx < 0 || next[idx].role !== 'assistant') return prev;
+              const existing = next[idx].agentFiles ?? [];
+              const seen = new Set(existing.map((x) => x.workspacePath ?? x.filename));
+              const fresh = genFiles.filter((gf) => !seen.has(gf.workspacePath ?? gf.filename));
+              if (!fresh.length) return prev;
+              next[idx] = { ...next[idx], agentFiles: [...existing, ...fresh] };
+              return next;
+            });
+          }
+
           continue;
         }
         if (evType === 'code_diff') {
