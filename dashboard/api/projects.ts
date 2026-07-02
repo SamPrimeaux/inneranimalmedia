@@ -220,6 +220,7 @@ export async function fetchProjectsList(
   try {
     const r = await fetch(`/api/projects${projectsListQuery(opts)}`, {
       credentials: "same-origin",
+      cache: "no-store",
       signal: controller.signal,
     });
     const j = (await r.json()) as { ok?: boolean; success?: boolean; projects?: ProjectListRow[]; error?: string };
@@ -265,6 +266,7 @@ export async function updateProject(
   const r = await fetch(`/api/projects/${encodeURIComponent(id)}`, {
     method: "PATCH",
     credentials: "same-origin",
+    cache: "no-store",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
@@ -289,6 +291,7 @@ export async function deleteProject(
   const r = await fetch(`/api/projects/${encodeURIComponent(id)}${qs}`, {
     method: "DELETE",
     credentials: "same-origin",
+    cache: "no-store",
   });
   const j = (await r.json()) as { ok: boolean; error?: string; archived?: boolean; deleted?: boolean };
   if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };

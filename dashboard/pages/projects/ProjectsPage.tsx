@@ -392,12 +392,29 @@ function ProjectCard({
   const statusColor = STATUS_COLORS[project.status ?? ''] ?? 'var(--color-muted)';
 
   return (
-    <div className={`proj-card-wrap${isActive ? ' proj-card-wrap--active' : ''}`}>
-      <button
-        type="button"
+    <div className={`proj-card-wrap${isActive ? ' proj-card-wrap--active' : ''}${project.status === 'archived' ? ' proj-card-wrap--archived' : ''}`}>
+      <ProjectCardMenu
+        project={project}
+        isOpen={menuOpen}
+        onToggle={onMenuToggle}
+        onClose={onMenuClose}
+        onStar={onStar}
+        onRename={onRename}
+        onShare={onShare}
+        onDelete={onDelete}
+      />
+      <div
         className={`proj-card${isActive ? ' proj-card--active' : ''}${project.is_pinned ? ' proj-card--pinned' : ''}`}
-        onClick={onOpen}
+        role="button"
+        tabIndex={0}
         aria-pressed={isActive}
+        onClick={onOpen}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onOpen();
+          }
+        }}
       >
         <div className="proj-card-header">
           <span className="proj-card-name">
@@ -411,9 +428,7 @@ function ProjectCard({
             {STATUS_LABELS[project.status ?? ''] ?? project.status_raw ?? ''}
           </span>
         </div>
-        {project.description && (
-          <p className="proj-card-desc">{project.description}</p>
-        )}
+        <p className="proj-card-desc">{project.description || 'No description'}</p>
         <div className="proj-card-footer">
           <span className="proj-card-type">
             {TYPE_ICONS[project.project_type ?? ''] ?? <Code2 size={12} />}
@@ -430,17 +445,7 @@ function ProjectCard({
             {project.workspace_id.replace(/^ws_/, '')}
           </span>
         )}
-      </button>
-      <ProjectCardMenu
-        project={project}
-        isOpen={menuOpen}
-        onToggle={onMenuToggle}
-        onClose={onMenuClose}
-        onStar={onStar}
-        onRename={onRename}
-        onShare={onShare}
-        onDelete={onDelete}
-      />
+      </div>
     </div>
   );
 }
@@ -458,8 +463,9 @@ export default function ProjectsPage() {
   const [newDesc, setNewDesc] = useState('');
   const [newBusy, setNewBusy] = useState(false);
   const [sortBy, setSortBy] = useState<'priority' | 'updated' | 'name'>('priority');
-  const [showAllWorkspaces, setShowAllWorkspaces] = useState(false);
-  const [showArchived, setShowArchived] = useState(false);
+  /** Default tenant-wide + archived so cleanup grid shows every row immediately. */
+  const [workspaceOnly, setWorkspaceOnly] = useState(false);
+  const [hideArchived, setHideArchived] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<Project | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -473,8 +479,8 @@ export default function ProjectsPage() {
     setLoading(true);
     try {
       const res = await fetchProjectsList({
-        scope: showAllWorkspaces ? 'tenant' : 'workspace',
-        includeArchived: showArchived,
+        scope: workspaceOnly ? 'workspace' : 'tenant',
+        includeArchived: !hideArchived,
       });
       if (!res.ok) {
         setProjects([]);
@@ -486,7 +492,7 @@ export default function ProjectsPage() {
     } finally {
       setLoading(false);
     }
-  }, [showAllWorkspaces, showArchived]);
+  }, [workspaceOnly, hideArchived]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -508,7 +514,8 @@ export default function ProjectsPage() {
           (p) =>
             p.name.toLowerCase().includes(q) ||
             (p.description ?? '').toLowerCase().includes(q) ||
-            (p.project_type ?? '').toLowerCase().includes(q),
+            (p.project_type ?? '').toLowerCase().includes(q) ||
+            (p.workspace_id ?? '').toLowerCase().includes(q),
         )
       : [...projects];
 
@@ -629,22 +636,27 @@ export default function ProjectsPage() {
         {/* header */}
         <header className="proj-header">
           <div className="proj-header-top">
-            <h1 className="proj-header-title">Projects</h1>
+            <h1 className="proj-header-title">
+              Projects
+              {!loading && (
+                <span className="proj-header-count">{filtered.length}</span>
+              )}
+            </h1>
             <div className="proj-header-actions">
               <button
                 type="button"
-                className={`proj-btn proj-filter-toggle${showAllWorkspaces ? ' proj-filter-toggle--on' : ''}`}
-                onClick={() => setShowAllWorkspaces((v) => !v)}
-                title="Show projects across all workspaces in your tenant"
+                className={`proj-btn proj-filter-toggle${workspaceOnly ? ' proj-filter-toggle--on' : ''}`}
+                onClick={() => setWorkspaceOnly((v) => !v)}
+                title="Limit to active workspace only"
               >
-                All workspaces
+                This workspace only
               </button>
               <button
                 type="button"
-                className={`proj-btn proj-filter-toggle${showArchived ? ' proj-filter-toggle--on' : ''}`}
-                onClick={() => setShowArchived((v) => !v)}
+                className={`proj-btn proj-filter-toggle${hideArchived ? ' proj-filter-toggle--on' : ''}`}
+                onClick={() => setHideArchived((v) => !v)}
               >
-                Archived
+                Hide archived
               </button>
 
               {/* sort */}
@@ -862,10 +874,24 @@ const PROJECTS_CSS = `
 .proj-header,
 .proj-create-form,
 .proj-body {
-  max-width: 780px;
+  max-width: 1180px;
   margin-left: auto;
   margin-right: auto;
   width: 100%;
+}
+.proj-header-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted, #94a3b8);
+  border: 1px solid var(--dashboard-border);
+  vertical-align: middle;
 }
 
 /* header */
@@ -988,66 +1014,70 @@ const PROJECTS_CSS = `
   padding: 4px 24px 40px;
 }
 
-/* grid */
+/* grid — equal-height cards */
 .proj-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-auto-rows: 176px;
   gap: 12px;
 }
 @media (max-width: 620px) {
-  .proj-grid { grid-template-columns: 1fr; }
+  .proj-grid {
+    grid-template-columns: 1fr;
+    grid-auto-rows: 168px;
+  }
 }
 
-/* card wrap + hover menu */
+/* card wrap + menu (always visible) */
 .proj-card-wrap {
   position: relative;
-  min-height: 110px;
+  height: 100%;
+  min-height: 0;
 }
-.proj-card-wrap--active .proj-card {
-  border-color: var(--solar-cyan, #22d3ee) !important;
-  box-shadow: 0 0 0 1px var(--solar-cyan, #22d3ee);
-  background: rgba(34,211,238,0.04) !important;
+.proj-card-wrap--archived .proj-card {
+  opacity: 0.72;
+}
+.proj-card-wrap--archived .proj-card-desc {
+  color: var(--color-muted, #64748b);
 }
 .proj-card-menu {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 3;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
 }
 .proj-card-menu-trigger {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 8px;
-  border: 1px solid transparent;
-  background: rgba(15, 23, 42, 0.72);
-  color: var(--color-muted, #94a3b8);
+  border: 1px solid var(--dashboard-border);
+  background: var(--bg-elevated, rgba(15, 23, 42, 0.92));
+  color: var(--color-main, #e2e8f0);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s, background 0.12s, color 0.12s, border-color 0.12s;
-}
-.proj-card-wrap:hover .proj-card-menu-trigger,
-.proj-card-wrap:focus-within .proj-card-menu-trigger,
-.proj-card-menu-trigger[aria-expanded="true"] {
   opacity: 1;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
-.proj-card-menu-trigger:hover {
-  background: var(--bg-hover, rgba(255,255,255,0.1));
+.proj-card-menu-trigger:hover,
+.proj-card-menu-trigger[aria-expanded="true"] {
+  background: var(--bg-hover, rgba(255,255,255,0.12));
   color: inherit;
-  border-color: var(--dashboard-border);
+  border-color: rgba(255,255,255,0.18);
 }
 .proj-card-menu-dropdown {
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
-  min-width: 148px;
+  min-width: 156px;
   padding: 4px;
   border-radius: 10px;
   border: 1px solid var(--dashboard-border);
   background: var(--bg-elevated, #1a1f2e);
-  box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+  z-index: 20;
 }
 .proj-card-menu-item {
   display: flex;
@@ -1151,19 +1181,30 @@ const PROJECTS_CSS = `
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 16px;
+  height: 100%;
+  padding: 14px 44px 12px 14px;
   border-radius: 10px;
   border: 1px solid var(--dashboard-border);
   background: var(--dashboard-panel, rgba(255,255,255,0.03));
   text-align: left;
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
-  min-height: 110px;
   color: inherit;
+  box-sizing: border-box;
+  outline: none;
 }
 .proj-card:hover {
   background: var(--bg-hover, rgba(255,255,255,0.06));
   border-color: rgba(255,255,255,0.12);
+}
+.proj-card:focus-visible {
+  border-color: var(--solar-cyan, #22d3ee);
+  box-shadow: 0 0 0 2px rgba(34,211,238,0.25);
+}
+.proj-card-wrap--active .proj-card {
+  border-color: var(--solar-cyan, #22d3ee) !important;
+  box-shadow: 0 0 0 1px var(--solar-cyan, #22d3ee);
+  background: rgba(34,211,238,0.04) !important;
 }
 @media (max-width: 620px) {
   .proj-card-menu-trigger { opacity: 1; }
@@ -1206,12 +1247,14 @@ const PROJECTS_CSS = `
 .proj-card-desc {
   font-size: 12px;
   color: var(--color-muted, #94a3b8);
-  line-height: 1.5;
+  line-height: 1.45;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   margin: 0;
+  flex: 1;
+  min-height: 2.9em;
 }
 .proj-card-footer {
   display: flex;

@@ -752,7 +752,7 @@ async function handleList(env, authUser, url) {
   );
   const { projectRows, wpCoverByProjectId, chatProjectIdByProjectsId } = await mergeWorkspaceProjectRows(
     env,
-    workspaceId,
+    scope === 'tenant' ? null : workspaceId,
     results || [],
   );
   const enriched = projectRows.map((p) => {
@@ -770,7 +770,7 @@ async function handleList(env, authUser, url) {
     };
   });
   const projects = await attachChatProjectIds(env, enriched, chatProjectIdByProjectsId);
-  return projectsJsonResponse({ ok: true, success: true, projects }, 200, PROJECTS_LIST_CACHE);
+  return projectsJsonResponse({ ok: true, success: true, projects, total: projects.length }, 200, 'private, no-store');
 }
 
 async function handleGetOne(env, authUser, id) {
