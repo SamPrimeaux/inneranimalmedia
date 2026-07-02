@@ -42,7 +42,10 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
   useEffect(() => {
     const anyRunning = rows.some((r) => r.status === 'running' && !r.cadJobLive);
     const anyFailed = rows.some((r) => r.status === 'error' || r.status === 'failed');
-    if (!anyRunning || anyFailed) {
+    const anyTerminalRunning = rows.some(
+      (r) => r.status === 'running' && r.toolName?.startsWith('agentsam_terminal'),
+    );
+    if (!anyRunning || anyFailed || anyTerminalRunning) {
       setShowRunner(false);
       return undefined;
     }
@@ -54,6 +57,9 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
   const anyRunning = rows.some((r) => r.status === 'running' && !r.cadJobLive);
   const anyFailed = rows.some((r) => r.status === 'error' || r.status === 'failed');
   const anyCadLive = rows.some((r) => r.cadJobLive);
+  const anyTerminalRunning = rows.some(
+    (r) => r.status === 'running' && r.toolName?.startsWith('agentsam_terminal'),
+  );
 
   return (
     <div className="mt-2 min-w-0" aria-label="Execution timeline">
@@ -76,13 +82,13 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
             mode={mode}
             workspaceId={workspaceId}
             compact={compact}
-            defaultExpanded={Boolean(row.cadJobLive) || Boolean(row.toolName?.startsWith('agentsam_terminal') && row.status === 'running')}
+            defaultExpanded={Boolean(row.cadJobLive)}
             onOpenInEditor={onOpenInEditor}
             onDismiss={onDismissRow ? () => onDismissRow(row.id) : undefined}
             onCadJobTerminal={onCadJobTerminal}
           />
         ))}
-        {showRunner && anyRunning && !anyFailed && !anyCadLive ? (
+        {showRunner && anyRunning && !anyFailed && !anyCadLive && !anyTerminalRunning ? (
           <div className="tool-trace-wait-runner mt-2 mb-1">
             <OfflineRunnerEmbed height={220} />
           </div>

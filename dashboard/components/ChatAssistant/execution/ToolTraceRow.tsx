@@ -6,7 +6,7 @@ import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import type { AgentMode } from '../types';
 import type { AgentToolTraceRow } from './types';
 import { resolveToolTracePresence } from '../../../features/agent-run/toolTracePresence';
-import { ChatPresenceIcon } from '../../../features/mode-presence/ChatPresenceIcon';
+import { AgentModePresenceIcon } from '../../../features/mode-presence/AgentModePresenceIcon';
 import {
   formatToolTraceDisplayTitle,
   resolveToolTraceMetaLabel,
@@ -54,7 +54,7 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
   const cadLive = Boolean(row.cadJobLive && row.cadJobId);
   const terminalTool = isTerminalTool(row.toolName);
   const hideRequestPreview = compact && terminalTool && running;
-  const [open, setOpen] = useState(defaultExpanded || cadLive || (terminalTool && running));
+  const [open, setOpen] = useState(defaultExpanded || cadLive);
   const [debugOpen, setDebugOpen] = useState(false);
 
   const tracePresence = useMemo(
@@ -86,8 +86,8 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
     running || cadLive || terminalTool || Boolean(request || sqlTable || result || failed);
 
   useEffect(() => {
-    if (terminalTool && running) setOpen(true);
-  }, [terminalTool, running]);
+    if (cadLive) setOpen(true);
+  }, [cadLive]);
 
   const toggle = useCallback(() => {
     if (hasExpandable) setOpen((v) => !v);
@@ -103,13 +103,13 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
           aria-expanded={open}
           disabled={!hasExpandable}
         >
-          <ChatPresenceIcon
+          <AgentModePresenceIcon
             mode={mode}
             state={tracePresence.presenceState}
             iconKey={tracePresence.iconKey}
             size={16}
-            cardStatus={cardStatus}
             className="tool-trace-collapsed-icon shrink-0"
+            aria-label={title}
           />
           <span className={`tool-trace-title truncate${running || cadLive ? ' tool-trace-title--shimmer' : ''}`}>
             {title}

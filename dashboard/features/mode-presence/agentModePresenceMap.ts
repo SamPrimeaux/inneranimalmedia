@@ -148,7 +148,7 @@ export const modePresenceStateMap: Partial<Record<AgentMode, Partial<Record<Agen
 
 /** Runtime SSE / tool states → best-matching animated icon (prefer concrete tool glyphs). */
 const runtimeStateIconMap: Partial<Record<string, ModePresenceIconKey>> = {
-  terminal: 'terminal',
+  terminal: 'execute-pulse',
   browser: 'browser',
   browser_live: 'browser',
   browser_debug: 'scan',
@@ -217,11 +217,11 @@ export const stateIconMap: Partial<Record<AgentPresenceState, ModePresenceIconKe
 
 /** Legacy concrete tool states (from the existing presence system). */
 export const legacySurfaceStateMap: Partial<Record<AgentPresenceState, ModePresenceIconKey>> = {
-  reading: 'scan',
-  database: 'scan',
-  tool: 'scan',
-  writing: 'diff',
-  terminal: 'terminal',
+  reading: 'context-scan',
+  database: 'context-scan',
+  tool: 'tool-router',
+  writing: 'patch-sweep',
+  terminal: 'execute-pulse',
   browser: 'browser',
   files: 'files',
   drawing: 'path',

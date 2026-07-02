@@ -28,7 +28,7 @@ import type { AgentToolTraceRow } from '../execution/types';
 import { preserveLiveCadTraceRows, traceRowCadJobLive } from '../../../lib/cadToolTrace';
 import { ExecutionTimeline } from '../execution/ExecutionTimeline';
 import { prepareAssistantMessageWithToolTrace } from '../../../lib/stripToolTraceMessageContent';
-import { AgentPresenceInline } from '../../../features/mode-presence/AgentPresenceInline';
+import { AgentPresenceGlyphRow } from '../../../features/mode-presence/AgentPresenceGlyphRow';
 import { WorkflowRunPresenceBanner } from './WorkflowRunBoard';
 import { ArtifactChipList } from '../execution/ArtifactChipList';
 import type { AgentMode } from '../types';
@@ -818,17 +818,13 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
       ) : null}
 
       {inlinePresence ? (
-        <div className="flex justify-start w-full min-w-0" role="status" aria-live="polite">
-          <AgentPresenceInline
+        <div className="flex justify-start w-full min-w-0 pl-0.5" role="status" aria-live="polite">
+          <AgentPresenceGlyphRow
             mode={mode}
             state={inlinePresence.state}
-            title={inlinePresence.title}
-            meta={inlinePresence.meta}
-            size="sm"
-            titleFontSizePx={thinkingState?.surface === 'plan' ? 16 : undefined}
-            cardStatus={inlinePresence.cardStatus}
-            shimmer={inlinePresence.shimmer}
             iconKey={inlinePresence.iconKey}
+            label={inlinePresence.meta ? `${inlinePresence.title} · ${inlinePresence.meta}` : inlinePresence.title}
+            size={16}
           />
         </div>
       ) : null}

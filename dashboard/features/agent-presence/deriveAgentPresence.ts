@@ -196,6 +196,16 @@ export function deriveAgentPresence(i: DerivePresenceInput): { presence: AgentPr
   }
 
   const runningRow = [...i.toolTraceRows].reverse().find((r) => r.status === 'running');
+
+  if (i.isLoading && i.thinkingState?.surface === 'terminal' && !runningRow) {
+    const p: AgentPresence = {
+      state: 'terminal',
+      label: i.thinkingState.thinkingText?.trim() || 'Running command…',
+      toolName: 'agentsam_terminal',
+    };
+    return { presence: p, logoMotion: motionFor('terminal') };
+  }
+
   if (i.isLoading && runningRow) {
     const st = classifyRunningTool(runningRow);
     const label = formatToolTraceDisplayTitle(runningRow);

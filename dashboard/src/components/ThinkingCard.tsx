@@ -23,7 +23,7 @@ export interface ThinkingCardState {
   status: ThinkingCardStatus;
   startedAt: number;
   /** Plan-mode thinking indicator (16px inline label). */
-  surface?: 'plan' | null;
+  surface?: 'plan' | 'terminal' | null;
 }
 
 export interface ThinkingCardProps extends ThinkingCardState {

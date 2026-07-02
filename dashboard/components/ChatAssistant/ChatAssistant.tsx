@@ -1439,16 +1439,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     );
   }, [isLoading, effectiveThinking, assistantStreaming, pendingToolApproval]);
 
-  const hasRunningToolTrace = useMemo(
-    () => toolTraceRows.some((r) => r.status === 'running'),
-    [toolTraceRows],
-  );
-
   const showHeaderPresence =
-    isLoading &&
-    !showInlinePresence &&
-    presence.state !== 'idle' &&
-    !(isNarrow && hasRunningToolTrace);
+    isLoading && !showInlinePresence && !isNarrow && presence.state !== 'idle';
 
   const showEmptyThreadPlaceholder = useMemo(() => {
     if (displayMessages.length === 0) return true;
@@ -2609,13 +2601,18 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     } else if (nextStoredKey !== selectedModelKey) {
       setSelectedModelKey(nextStoredKey);
     }
+    const terminalTurn =
+      /\b(git|npm|wrangler|shell|status|deploy|command|whoami)\b/i.test(userMessage) ||
+      execLane === 'remote' ||
+      execLane === 'sandbox';
     setThinkingState({
       steps: [],
-      thinkingText: 'Thinking…',
-      status: 'thinking',
+      thinkingText: terminalTurn ? 'Running command…' : 'Thinking…',
+      status: terminalTurn ? 'working' : 'thinking',
       startedAt: Date.now(),
+      surface: terminalTurn ? 'terminal' : null,
     });
-    setPresenceState('thinking');
+    setPresenceState(terminalTurn ? 'terminal' : 'thinking');
     setLoadingStartedAt(Date.now());
     
     if (abortControllerRef.current) abortControllerRef.current.abort();

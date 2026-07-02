@@ -110,7 +110,11 @@ export function resolveInlinePresenceDisplay(input: {
     : null;
 
   const state = tracePresence?.presenceState || input.presence.state;
-  const iconKey = tracePresence?.iconKey;
+  const iconKey =
+    tracePresence?.iconKey ||
+    (input.thinkingState?.surface === 'terminal' || state === 'terminal' || state === 'executing'
+      ? 'execute-pulse'
+      : undefined);
   const shimmer = cardStatus === 'thinking' || cardStatus === 'working';
 
   return { title, meta, state, iconKey, cardStatus, shimmer };

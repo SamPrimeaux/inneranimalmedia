@@ -1,3 +1,4 @@
+export { AgentPresenceGlyphRow } from './AgentPresenceGlyphRow';
 export { AgentModePresenceIcon } from './AgentModePresenceIcon';
 export { AgentPresenceInline } from './AgentPresenceInline';
 export { AgentPresenceCard } from './AgentPresenceCard';
