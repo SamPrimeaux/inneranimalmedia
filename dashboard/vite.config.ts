@@ -145,6 +145,7 @@ export default defineConfig(({ mode }) => {
           ignoreURLParametersMatching: [/^v$/],
           globDirectory: 'dist',
           globPatterns: [
+            'index.html',
             'dashboard.js',
             'dashboard.css',
             'vendor-react.js',
@@ -165,8 +166,8 @@ export default defineConfig(({ mode }) => {
           additionalManifestEntries: [
             { url: '/static/dashboard/shell.css', revision: null },
           ],
-          navigateFallback: '/offline.html',
-          // Only dashboard SPA navigations may show offline shell — never hijack marketing `/`.
+          navigateFallback: '/static/dashboard/app/index.html',
+          // Only dashboard SPA navigations use navigateFallback — never hijack marketing `/`.
           navigateFallbackAllowlist: [/^\/dashboard\//],
           navigateFallbackDenylist: [
             /^\/api\//,

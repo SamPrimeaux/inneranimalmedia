@@ -189,6 +189,14 @@ if [[ -f "$WS_SHELL" ]]; then
     -c "$TOML" --remote
 fi
 
+# Canonical SPA shell at static/dashboard/app.html (worker getDashboardSpaHtmlShell tries this first).
+if [[ -f "$REPO_ROOT/$DIST/index.html" ]]; then
+  echo "→ Publishing static/dashboard/app.html (SPA shell)"
+  ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "${BUCKET}/static/dashboard/app.html" \
+    --file "$REPO_ROOT/$DIST/index.html" --content-type "text/html;charset=UTF-8" \
+    -c "$TOML" --remote
+fi
+
 R2_RECONCILE_STATUS=passed
 R2_OBJECT_COUNT=""
 R2_BYTE_COUNT=""
