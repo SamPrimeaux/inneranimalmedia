@@ -1,0 +1,17 @@
+{
+  "name": "my-app",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "smoke": "node ./scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "@inneranimalmedia/agentsam-sdk": "^1.1.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
