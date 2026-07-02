@@ -494,6 +494,8 @@ const CHATS_CSS = `
 }
 .chats-search-input:focus {
   border-color: var(--solar-cyan, #22d3ee);
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.15);
+  outline: none;
 }
 .chats-search-input::placeholder { color: var(--color-muted, #94a3b8); }
 
