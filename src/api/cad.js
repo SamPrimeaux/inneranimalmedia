@@ -171,7 +171,15 @@ async function cancelCadJobForUser(env, authUser, jobId) {
  *   maxScriptLen?: number,
  * }} opts
  */
-async function generateCadScriptJob(env, opts) {
+/** @param {string} engine */
+export function cadEngineSystemPrompt(engine) {
+  const e = String(engine || '').toLowerCase();
+  if (e === 'freecad') return FREECAD_SYSTEM_PROMPT;
+  if (e === 'blender') return BLENDER_SYSTEM_PROMPT;
+  return OPENSCAD_SYSTEM_PROMPT;
+}
+
+export async function generateCadScriptJob(env, opts) {
   const {
     authUser,
     scope,

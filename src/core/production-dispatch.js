@@ -28,6 +28,7 @@ import { handleMcpApi } from '../api/mcp.js';
 import { handleNotifyDeployComplete } from '../api/notify-deploy.js';
 import { handleTriggerWorkersBuild } from '../api/trigger-workers-build.js';
 import { handleDrawApi } from '../api/draw.js';
+import { handleIllustrationApi } from '../api/illustration.js';
 import { handleThemesApi } from '../api/themes.js';
 import { handleHubApi } from '../api/hub.js';
 import { handleOverviewApi } from '../api/overview.js';
@@ -493,6 +494,11 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (pathLower.startsWith('/api/draw')) {
     return handleDrawApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/illustration')) {
+    const illustrationRes = await handleIllustrationApi(request, url, env, ctx);
+    if (illustrationRes) return illustrationRes;
   }
 
   if (pathLower.startsWith('/api/themes') || pathLower === '/api/user/preferences') {

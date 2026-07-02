@@ -159,6 +159,69 @@ export const handlers = {
         }
     },
 
+    /**
+     * iam.illustration.v1 SSOT — route sketch/diagram → Excalidraw, CAD brief → Design Studio.
+     */
+    async illustration_create(params, env, runContext = {}) {
+        const {
+            parseIllustrationEnvelope,
+            normalizeIllustrationEnvelope,
+            validateIllustrationEnvelope,
+        } = await import('../../core/iam-illustration-v1.js');
+        const { routeIllustration } = await import('../../core/iam-illustration-router.js');
+
+        let envelope = parseIllustrationEnvelope(params);
+        if (!envelope && params && typeof params === 'object') {
+            envelope = parseIllustrationEnvelope({
+                schema: 'iam.illustration.v1',
+                intent: params.intent,
+                fidelity: params.fidelity,
+                engine: params.engine,
+                title: params.title,
+                brief: params.brief ?? params.prompt ?? params.description,
+                workspace_id: params.workspace_id,
+                tenant_id: params.tenant_id,
+                user_id: params.user_id,
+                payload: params.payload,
+                constraints: params.constraints,
+                references: params.references,
+                open_after_create: params.open_after_create,
+            });
+        }
+        if (!envelope) return { error: 'iam.illustration.v1 envelope required' };
+
+        const session = params?.session && typeof params.session === 'object' ? params.session : {};
+        envelope = normalizeIllustrationEnvelope(envelope, {
+            workspaceId:
+                runContext.workspaceId ??
+                runContext.workspace_id ??
+                params.workspace_id ??
+                session.workspace_id ??
+                null,
+            tenantId:
+                runContext.tenantId ??
+                runContext.tenant_id ??
+                params.tenant_id ??
+                session.tenant_id ??
+                null,
+            userId:
+                runContext.userId ??
+                runContext.user_id ??
+                params.user_id ??
+                session.user_id ??
+                null,
+            title: params.title ?? null,
+        });
+
+        const valid = validateIllustrationEnvelope(envelope);
+        if (!valid.ok) return { error: valid.errors.join('; ') };
+
+        return routeIllustration(env, null, envelope, {
+            ...runContext,
+            authUser: runContext.authUser ?? null,
+        });
+    },
+
     // ── Voxel (3D Engine) ─────────────────────────────────────────────────
     async voxel_generate_scene(params, env) { return await invokeMediaOp(env, '/api/voxel/generate', 'POST', params); },
     async voxel_spawn_model(params, env) { return await invokeMediaOp(env, '/api/voxel/spawn', 'POST', params); },

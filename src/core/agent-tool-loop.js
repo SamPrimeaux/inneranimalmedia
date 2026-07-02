@@ -1269,6 +1269,63 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             /* ignore malformed tool JSON */
           }
         }
+        if (call.name === 'illustration_create') {
+          try {
+            const parsed =
+              execResult && typeof execResult === 'object'
+                ? execResult
+                : JSON.parse(String(toolOutput || '{}'));
+            if (!parsed || parsed.error || parsed.ok === false) {
+              /* skip surface open */
+            } else if (parsed.open_draw && (parsed.artifact_id || parsed.public_url)) {
+              const origin = (env.IAM_ORIGIN || '').replace(/\/$/, '') || '';
+              const loadUrl =
+                typeof parsed.public_url === 'string' && parsed.public_url.trim()
+                  ? parsed.public_url.trim()
+                  : origin && parsed.artifact_id
+                    ? `${origin}/api/artifacts/${encodeURIComponent(String(parsed.artifact_id))}/content`
+                    : '';
+              emit('surface_open', {
+                surface: 'excalidraw',
+                reason: 'illustration_create',
+                artifact_id: parsed.artifact_id ?? null,
+                load_url: loadUrl,
+                artifact_type: 'excalidraw',
+                lane: parsed.lane ?? 'excalidraw',
+                engine: parsed.engine ?? null,
+              });
+              emit('agent_surface_open', {
+                surface: 'excalidraw',
+                reason: 'illustration_create',
+                artifact_id: parsed.artifact_id ?? null,
+                load_url: loadUrl,
+                artifact_type: 'excalidraw',
+                lane: parsed.lane ?? 'excalidraw',
+                engine: parsed.engine ?? null,
+              });
+            } else if (parsed.open_designstudio && (parsed.job_id || parsed.cad_job_id)) {
+              const jobId = parsed.job_id ?? parsed.cad_job_id;
+              emit('surface_open', {
+                surface: 'designstudio',
+                reason: 'illustration_create',
+                job_id: jobId != null ? String(jobId) : null,
+                lane: parsed.lane ?? 'cad',
+                engine: parsed.engine ?? null,
+                cad_job_live: true,
+              });
+              emit('agent_surface_open', {
+                surface: 'designstudio',
+                reason: 'illustration_create',
+                job_id: jobId != null ? String(jobId) : null,
+                lane: parsed.lane ?? 'cad',
+                engine: parsed.engine ?? null,
+                cad_job_live: true,
+              });
+            }
+          } catch (_) {
+            /* ignore malformed tool JSON */
+          }
+        }
         if (!execErr) {
           const surfaceFromTool = (() => {
             const input =
@@ -1401,6 +1458,31 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
               artifact_type: 'excalidraw',
               artifact_id: String(parsed.artifact_id),
               public_url: parsed.public_url != null ? String(parsed.public_url) : null,
+            };
+          }
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      if (!execErr && call.name === 'illustration_create') {
+        try {
+          const parsed = JSON.parse(String(toolOutput || '{}'));
+          if (parsed && !parsed.error && parsed.ok !== false) {
+            toolDoneExtra = {
+              schema: parsed.schema ?? 'iam.illustration.v1',
+              lane: parsed.lane ?? null,
+              engine: parsed.engine ?? null,
+              surface: parsed.surface ?? null,
+              ...(parsed.artifact_id
+                ? {
+                    artifact_type: parsed.artifact_type ?? 'excalidraw',
+                    artifact_id: String(parsed.artifact_id),
+                    public_url: parsed.public_url != null ? String(parsed.public_url) : null,
+                  }
+                : {}),
+              ...(parsed.job_id || parsed.cad_job_id
+                ? { job_id: String(parsed.job_id ?? parsed.cad_job_id) }
+                : {}),
             };
           }
         } catch (_) {

@@ -17,6 +17,7 @@ export const NON_CACHEABLE_TOOL_KEYS = new Set([
   'r2_delete',
   'd1_write',
   'excalidraw_plan_map_create',
+  'illustration_create',
 ]);
 
 /**

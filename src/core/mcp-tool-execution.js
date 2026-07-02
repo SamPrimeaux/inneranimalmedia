@@ -31,6 +31,7 @@ const NON_CACHEABLE_TOOLS_FALLBACK = new Set([
   'r2_delete',
   'd1_write',
   'excalidraw_plan_map_create',
+  'illustration_create',
 ]);
 
 async function toolExecutionIsCacheable(env, toolName) {

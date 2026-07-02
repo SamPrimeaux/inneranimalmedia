@@ -177,6 +177,7 @@ export async function runBuiltinTool(env, toolName, params, runContext = {}) {
 
         // ── CATEGORY: media / ui (13 Tools) ──────────────────────────────
         case toolName.startsWith('excalidraw_'):
+        case toolName === 'illustration_create':
         case toolName.startsWith('voxel_'):
         case toolName.startsWith('meshyai_'):
         case toolName.startsWith('imgx_'):

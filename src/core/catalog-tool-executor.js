@@ -2542,6 +2542,22 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       break;
     }
 
+    case 'media':
+    case 'canvas': {
+      const handlerKey = String(
+        config.handler || row.handler_key || row.tool_key || row.tool_name || toolKey || '',
+      ).trim();
+      const { handlers: mediaHandlers } = await import('../tools/builtin/media.js');
+      const fn = mediaHandlers[handlerKey];
+      if (typeof fn !== 'function') {
+        result = { ok: false, error: `media handler not registered: ${handlerKey}` };
+        break;
+      }
+      const out = await fn(params, env, runContext);
+      result = out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
+      break;
+    }
+
     default:
       result = {
         ok: false,

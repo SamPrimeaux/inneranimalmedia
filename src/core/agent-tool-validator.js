@@ -668,6 +668,7 @@ export function resolveToolExecutionBudgetMs(toolName, input) {
   if (n === 'search_web') return 12_000;
   if (n === 'web_fetch') return 15_000;
   if (n === 'excalidraw_plan_map_create') return 15000;
+  if (n === 'illustration_create') return 45000;
   if (n.startsWith('github_')) {
     if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout < 30000) return Math.floor(rawTimeout);
     return 30000;
