@@ -494,8 +494,8 @@ export default function ProjectsPage() {
                 <ProjectCard
                   key={p.id}
                   project={p}
-                  isActive={p.id === activeId}
-                  onClick={() => setActiveId(p.id === activeId ? null : p.id)}
+                  isActive={false}
+                  onClick={() => navigate(`/dashboard/projects/${encodeURIComponent(p.id)}`)}
                 />
               ))}
             </div>
