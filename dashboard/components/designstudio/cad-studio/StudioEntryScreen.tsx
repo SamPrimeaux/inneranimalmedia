@@ -1,10 +1,12 @@
 /**
- * StudioEntryScreen — default lightweight Design Studio landing.
+ * StudioEntryScreen — Design Studio startup center (matches /dashboard/agent layout).
  * Agent Sam composer is portaled here from App (same pattern as AgentHome).
  */
-import React, { useRef } from 'react';
-import { Loader2, LayoutGrid, Upload } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Loader2, LayoutGrid } from 'lucide-react';
 import { StudioEntryGallery } from './StudioEntryGallery';
+import { StudioStartupChips } from './StudioStartupChips';
+import '../../../components/ChatAssistant/chat-startup-center.css';
 import '../../../styles/agentHomeGlow.css';
 import './cad-studio.css';
 
@@ -44,39 +46,56 @@ export function StudioEntryScreen({
   onMessagesHost,
 }: StudioEntryScreenProps) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const busy = generating || mode === 'loading-studio';
 
   return (
-    <div className="studio-entry" role="main" aria-label="Design Studio">
-      <div className="studio-entry__inner studio-entry__inner--chat">
-
-        <header className="studio-entry__hero">
+    <div className="studio-entry iam-chat-startup-center" role="main" aria-label="Design Studio">
+      <div className="iam-chat-startup-stack studio-entry__stack">
+        <header className="iam-chat-startup-greeting studio-entry__hero">
           <div className="studio-entry__brand" aria-hidden>
             <span className="studio-entry__brand-word">Design</span>
             <span className="studio-entry__brand-word studio-entry__brand-word--accent">Studio</span>
           </div>
-          <h1 className="studio-entry__title">What should we build?</h1>
-          <p className="studio-entry__subtitle">
+          <p className="text-[15px] font-semibold text-[var(--dashboard-text)]">What should we build?</p>
+          <p className="text-[12px] text-[var(--dashboard-muted)] leading-relaxed max-w-sm">
             Describe a model, import a GLB, or open the editor to get started.
           </p>
         </header>
 
-        <div className="studio-entry__chat-stack">
-          <div
-            ref={onMessagesHost}
-            className="studio-entry__messages-host"
-            aria-label="Agent Sam conversation"
-          />
+        <div
+          ref={onMessagesHost}
+          className="studio-entry__messages-host"
+          aria-label="Agent Sam conversation"
+        />
 
-          <div className="studio-entry__composer-wrap">
-            <div className="iam-agent-home-glow" aria-hidden="true" />
-            <div
-              ref={onComposerHost}
-              className="studio-entry__composer-host"
-              aria-label="Agent Sam command input"
-            />
-          </div>
+        <div className="studio-entry__composer-wrap">
+          <div className="iam-agent-home-glow iam-agent-home-glow--subtle" aria-hidden="true" />
+          <div
+            ref={onComposerHost}
+            className="studio-entry__composer-host"
+            aria-label="Agent Sam command input"
+          />
         </div>
+
+        <StudioStartupChips
+          disabled={busy}
+          onOpenStudio={onOpenStudio}
+          onImportGlb={() => fileRef.current?.click()}
+          onBrowseLibrary={() => setLibraryOpen(true)}
+        />
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".glb"
+          className="studio-entry__file-input"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) onImportGlb?.(file);
+            e.target.value = '';
+          }}
+        />
 
         {(error || statusLabel || jobReady) ? (
           <div className="studio-entry__feedback">
@@ -96,42 +115,17 @@ export function StudioEntryScreen({
               </div>
             ) : null}
             {jobReady ? (
-              <button type="button" className="studio-entry__cta studio-entry__cta--ready" onClick={onOpenStudio}>
-                <LayoutGrid size={15} aria-hidden />
-                <span>View in full studio</span>
+              <button type="button" className="iam-chat-startup-chip" onClick={onOpenStudio}>
+                <LayoutGrid size={14} aria-hidden />
+                View in full studio
               </button>
             ) : null}
           </div>
         ) : null}
 
-        <div className="studio-entry__secondary">
-          <button type="button" className="studio-entry__link" onClick={onOpenStudio} disabled={busy}>
-            <LayoutGrid size={13} aria-hidden />
-            Open studio
-          </button>
-          <button
-            type="button"
-            className="studio-entry__link"
-            disabled={busy}
-            onClick={() => fileRef.current?.click()}
-          >
-            <Upload size={13} aria-hidden />
-            Import GLB
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".glb"
-            className="studio-entry__file-input"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) onImportGlb?.(file);
-              e.target.value = '';
-            }}
-          />
-        </div>
-
         <StudioEntryGallery
+          libraryOpen={libraryOpen}
+          onLibraryOpenChange={setLibraryOpen}
           onSpawnStock={onSpawnStock}
           onCancelJob={onCancelJob}
           generating={generating}

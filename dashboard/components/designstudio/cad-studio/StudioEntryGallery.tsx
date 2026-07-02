@@ -16,6 +16,8 @@ export type StudioEntryGalleryProps = {
   activeJobLabel?: string;
   activeProgressPct?: number;
   activeJobId?: string | null;
+  libraryOpen?: boolean;
+  onLibraryOpenChange?: (open: boolean) => void;
 };
 
 function GalleryCard({
@@ -90,9 +92,13 @@ export function StudioEntryGallery({
   activeJobLabel,
   activeProgressPct,
   activeJobId,
+  libraryOpen: libraryOpenProp,
+  onLibraryOpenChange,
 }: StudioEntryGalleryProps) {
   const gallery = useStudioGallery({ mode: 'entry', autoFetch: true });
-  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryOpenInternal, setLibraryOpenInternal] = useState(false);
+  const libraryOpen = libraryOpenProp ?? libraryOpenInternal;
+  const setLibraryOpen = onLibraryOpenChange ?? setLibraryOpenInternal;
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   const stockItems = useMemo(
@@ -111,12 +117,14 @@ export function StudioEntryGallery({
     !pendingItems.some((i) => resolveGalleryCadJobId(i) === activeJobId);
 
   const toggleLibrary = () => {
-    setLibraryOpen((open) => {
-      const next = !open;
-      if (next && !gallery.assetsLoaded) void gallery.refreshAssets();
-      return next;
-    });
+    const next = !libraryOpen;
+    if (next && !gallery.assetsLoaded) void gallery.refreshAssets();
+    setLibraryOpen(next);
   };
+
+  React.useEffect(() => {
+    if (libraryOpen && !gallery.assetsLoaded) void gallery.refreshAssets();
+  }, [libraryOpen, gallery.assetsLoaded, gallery.refreshAssets]);
 
   const handleSpawn = (item: GalleryItem) => {
     if (!item.url) return;
@@ -175,21 +183,23 @@ export function StudioEntryGallery({
         </div>
       ) : null}
 
-      <div className="studio-entry__library-toggle-row">
-        <button
-          type="button"
-          className={`studio-entry__library-toggle${libraryOpen ? ' studio-entry__library-toggle--open' : ''}`}
-          onClick={toggleLibrary}
-          aria-expanded={libraryOpen}
-          aria-controls="studio-entry-asset-library"
-        >
-          <FolderBookmarkIcon size={20} stroke="currentColor" />
-          <span>{libraryOpen ? 'Hide asset library' : 'Browse asset library'}</span>
-          {gallery.assetsLoading ? (
-            <Loader2 size={14} className="studio-entry__spin" aria-hidden />
-          ) : null}
-        </button>
-      </div>
+      {libraryOpen ? (
+        <div className="studio-entry__library-toggle-row">
+          <button
+            type="button"
+            className="studio-entry__library-toggle studio-entry__library-toggle--open"
+            onClick={toggleLibrary}
+            aria-expanded={libraryOpen}
+            aria-controls="studio-entry-asset-library"
+          >
+            <FolderBookmarkIcon size={20} stroke="currentColor" />
+            <span>Hide asset library</span>
+            {gallery.assetsLoading ? (
+              <Loader2 size={14} className="studio-entry__spin" aria-hidden />
+            ) : null}
+          </button>
+        </div>
+      ) : null}
 
       {libraryOpen ? (
         <div

@@ -124,9 +124,7 @@ export function AgentSamChatHost({
     return (
       <div
         className={`absolute inset-0 z-20 flex flex-col min-h-0 min-w-0 w-full overflow-hidden ${
-          atmosphericHomeMode
-            ? 'pointer-events-none bg-transparent [&_*]:pointer-events-auto'
-            : 'bg-[var(--dashboard-panel)]'
+          atmosphericHomeMode ? 'pointer-events-none bg-transparent' : 'bg-[var(--dashboard-panel)]'
         }`}
         aria-label="Agent Sam chat"
       >

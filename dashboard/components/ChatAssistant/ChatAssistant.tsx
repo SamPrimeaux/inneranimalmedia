@@ -3538,7 +3538,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           );
           if (messagesPortaled && messagesPortalTarget && typeof document !== 'undefined') {
             return createPortal(
-              <div className="agent-home-messages-portal flex flex-col flex-1 min-h-0 overflow-hidden w-full">
+              <div className="agent-home-messages-portal pointer-events-auto flex flex-col flex-1 min-h-0 overflow-hidden w-full">
                 {renderThreadHeader(true)}
                 {block}
               </div>,
@@ -4020,7 +4020,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         </div>
           );
           const wrappedShell = desktopStartupCenterMode || designStudioPortalStartup ? (
-            <div className="iam-chat-startup-stack order-2 shrink-0 w-full">
+            <div
+              className={`iam-chat-startup-stack order-2 shrink-0 w-full${
+                composerPortaled ? ' pointer-events-auto' : ''
+              }`}
+            >
               {!designStudioPortalStartup ? (
                 <ComposerStartupGreeting isDarkTheme={isDarkTheme} />
               ) : null}
