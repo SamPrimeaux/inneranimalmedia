@@ -1,20 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  BookOpen,
-  ChevronRight,
   Code2,
-  ExternalLink,
-  FileText,
   FolderOpen,
-  Github,
   Globe,
   Layers,
   MessageSquare,
-  MoreHorizontal,
   Plus,
   Search,
   SlidersHorizontal,
-  Star,
   X,
   Zap,
 } from 'lucide-react';
