@@ -21,6 +21,7 @@ import type {
   ExecutionPlanState,
   ExecutionPlanTask,
   ImageGenerationState,
+  AgentGeneratedFile,
 } from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
 import {
