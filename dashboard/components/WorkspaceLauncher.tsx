@@ -731,7 +731,6 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                         displayName={w.display_name || w.slug || w.id}
                         slug={w.slug}
                         githubRepo={w.github_repo}
-                        updatedAt={w.updated_at}
                         prefs={loadPrefsForWorkspace(w.id)}
                         isActive={w.id === authWorkspaceId}
                         onOpen={(id) => {

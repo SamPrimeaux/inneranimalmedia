@@ -68,7 +68,6 @@ import {
 } from './src/lib/openCommandPalette';
 import { type ConnectionMenuAction } from './components/ConnectionMenuPanel';
 import { WorkspaceLauncher } from './components/WorkspaceLauncher';
-import { WorkspaceTerminalTile } from './components/WorkspaceTerminalTile';
 import type { XTermShellHandle, ShellTab } from './components/XTermShell';
 import { useTerminalWorkspace } from './hooks/useTerminalWorkspace';
 import { SecurityShieldBanner } from './components/SecurityShieldBanner';
