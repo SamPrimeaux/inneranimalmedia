@@ -203,6 +203,9 @@ const BrowserView = lazy(() =>
 const LocalExplorer = lazy(() =>
   import('./components/LocalExplorer').then((m) => ({ default: m.LocalExplorer })),
 );
+const AgentSamFilesystem = lazy(() =>
+  import('./components/AgentSamFilesystem').then((m) => ({ default: m.AgentSamFilesystem })),
+);
 const GitHubExplorer = lazy(() =>
   import('./components/GitHubExplorer').then((m) => ({ default: m.GitHubExplorer })),
 );
@@ -4504,7 +4507,7 @@ const App: React.FC = () => {
                       </MeetProvider>
                   ) : activeActivity === 'files' && isAgentEditorPath(location.pathname) ? (
                       <Suspense fallback={<ActivityPanelFallback />}>
-                        <LocalExplorer
+                        <AgentSamFilesystem
                           workspace_id={authWorkspaceId}
                           user_id={sessionUserId}
                           nativeFolderOpenSignal={nativeFolderOpenSignal}

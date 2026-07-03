@@ -18,6 +18,9 @@ export type VirtualizedFileTreeProps = {
   rowHeight?: number;
   className?: string;
   maxHeight?: string;
+  /** When true, tree fills parent flex column (AgentSamFilesystem). */
+  fillHeight?: boolean;
+  ariaLabel?: string;
   onRowClick: (row: LocalFileTreeRow) => void;
 };
 
@@ -26,6 +29,8 @@ export const VirtualizedFileTree: React.FC<VirtualizedFileTreeProps> = ({
   rowHeight = LOCAL_TREE_ROW_HEIGHT_PX,
   className = '',
   maxHeight = 'min(45vh, 480px)',
+  fillHeight = false,
+  ariaLabel = 'Local files',
   onRowClick,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -75,14 +80,14 @@ export const VirtualizedFileTree: React.FC<VirtualizedFileTreeProps> = ({
   const entryCount = rows.filter((r) => r.type === 'entry').length;
 
   return (
-    <div className="flex flex-col min-h-0">
+    <div className={`flex flex-col min-h-0 ${fillHeight ? 'flex-1 h-full' : ''}`}>
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className={`overflow-auto overscroll-contain ${className}`}
-        style={{ maxHeight }}
+        className={`overflow-auto overscroll-contain ${fillHeight ? 'flex-1 min-h-0' : ''} ${className}`}
+        style={fillHeight ? undefined : { maxHeight }}
         role="tree"
-        aria-label="Local files"
+        aria-label={ariaLabel}
       >
         <div style={{ height: totalH, position: 'relative' }}>
           <div style={{ paddingTop, paddingBottom }}>

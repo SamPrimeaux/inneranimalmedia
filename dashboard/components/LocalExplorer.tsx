@@ -41,6 +41,11 @@ import {
     type LocalFileNode,
     type LocalFileTreeRow,
 } from '../src/lib/localFileTree';
+import {
+    loadPersistedAgentSamFsSource,
+    type AgentSamFsSource,
+} from '../src/lib/agentSamFilesystemTypes';
+import { AgentSamFilesystemView } from './AgentSamFilesystemView';
 
 const IAM_PALETTE_OPEN_R2 = 'iam-palette-open-r2';
 
@@ -236,7 +241,7 @@ async function requestLocalHandlePermission(
     ).requestPermission({ mode })) as 'granted' | 'denied' | 'prompt';
 }
 
-export const LocalExplorer: React.FC<{
+export type LocalExplorerProps = {
     onFileSelect: (file: ActiveFile) => void;
     /** Fires when user connects a native folder — drives status bar + persisted workspace. */
     onWorkspaceRootChange?: (info: { folderName: string }) => void;
@@ -247,7 +252,11 @@ export const LocalExplorer: React.FC<{
     workspace_id?: string | null;
     user_id?: string | null;
     onClose?: () => void;
-}> = ({
+    /** Accordion (legacy) vs unified AgentSamFilesystem tabs. */
+    presentation?: 'accordion' | 'unified';
+};
+
+export const LocalExplorer: React.FC<LocalExplorerProps> = ({
     onFileSelect,
     onWorkspaceRootChange,
     onOpenInEditor,
@@ -255,6 +264,7 @@ export const LocalExplorer: React.FC<{
     workspace_id = null,
     user_id = null,
     onClose,
+    presentation = 'accordion',
 }) => {
     const [rootDir, setRootDir] = useState<LocalFileNode | null>(null);
     /**
@@ -296,6 +306,9 @@ export const LocalExplorer: React.FC<{
     const directoryPickerActiveRef = useRef(false);
     const [googleDriveOAuthRefresh, setGoogleDriveOAuthRefresh] = useState(0);
     const [isSuperadmin, setIsSuperadmin] = useState(false);
+    const [unifiedSource, setUnifiedSource] = useState<AgentSamFsSource>(
+        () => loadPersistedAgentSamFsSource() ?? 'local',
+    );
 
     useEffect(() => {
         let cancelled = false;
@@ -335,6 +348,7 @@ export const LocalExplorer: React.FC<{
             const params = new URLSearchParams(window.location.search);
             if (params.get('connected') === 'google' && params.get('success') === 'true') {
                 setExpandedSections((s) => ({ ...s, drive: true }));
+                if (presentation === 'unified') setUnifiedSource('drive');
                 setGoogleDriveOAuthRefresh((n) => n + 1);
             }
         } catch {
@@ -346,6 +360,7 @@ export const LocalExplorer: React.FC<{
         const handler = (e: MessageEvent) => {
             if (e.data?.type === 'oauth_success' && e.data?.provider === 'google') {
                 setExpandedSections((s) => ({ ...s, drive: true }));
+                if (presentation === 'unified') setUnifiedSource('drive');
                 setGoogleDriveOAuthRefresh((n) => n + 1);
             }
         };
@@ -471,9 +486,14 @@ export const LocalExplorer: React.FC<{
     }, [loadR2List, r2ListCursorByBucket, r2Loading]);
 
     useEffect(() => {
+        if (presentation === 'unified') {
+            if (unifiedSource !== 'r2' || !selectedR2Bucket) return;
+            void loadR2List(selectedR2Bucket);
+            return;
+        }
         if (!selectedR2Bucket || !expandedSections.r2) return;
         void loadR2List(selectedR2Bucket);
-    }, [selectedR2Bucket, expandedSections.r2, loadR2List]);
+    }, [presentation, unifiedSource, selectedR2Bucket, expandedSections.r2, loadR2List]);
 
     useEffect(() => {
         const onPaletteOpen = (e: Event) => {
@@ -981,6 +1001,63 @@ export const LocalExplorer: React.FC<{
         }
     };
 
+
+    if (presentation === 'unified') {
+        return (
+            <AgentSamFilesystemView
+                onClose={onClose}
+                onOpenInEditor={onOpenInEditor}
+                workspace_id={workspace_id}
+                googleDriveOAuthRefresh={googleDriveOAuthRefresh}
+                rootDir={rootDir}
+                localResumeHint={localResumeHint}
+                localTreeRows={localTreeRows}
+                onLocalTreeRowClick={onLocalTreeRowClick}
+                handleOpenFolder={() => void handleOpenFolder()}
+                handleReconnectPersistedFolder={() => void handleReconnectPersistedFolder()}
+                disconnectNativeFolder={() => void disconnectNativeFolder()}
+                handleCreateLocalFile={() => void handleCreateLocalFile()}
+                handleCreateLocalFolder={() => void handleCreateLocalFolder()}
+                displayR2Buckets={displayR2Buckets}
+                selectedR2Bucket={selectedR2Bucket}
+                setSelectedR2Bucket={setSelectedR2Bucket}
+                setR2PrefixByBucket={setR2PrefixByBucket}
+                setR2SearchMode={setR2SearchMode}
+                r2PrefixByBucket={r2PrefixByBucket}
+                r2PrefixesByBucket={r2PrefixesByBucket}
+                r2ObjectsByBucket={r2ObjectsByBucket}
+                r2ListCursorByBucket={r2ListCursorByBucket}
+                r2ListTruncatedByBucket={r2ListTruncatedByBucket}
+                r2Loading={r2Loading}
+                r2Err={r2Err}
+                r2SearchQ={r2SearchQ}
+                r2SearchMode={r2SearchMode}
+                setR2SearchQ={setR2SearchQ}
+                setR2Prefix={setR2Prefix}
+                parentR2Prefix={parentR2Prefix}
+                loadR2List={(bucket) => void loadR2List(bucket)}
+                loadMoreR2List={loadMoreR2List}
+                runR2Search={runR2Search}
+                clearR2Search={clearR2Search}
+                openR2Key={openR2Key}
+                deleteR2Key={deleteR2Key}
+                createR2Folder={createR2Folder}
+                uploadToR2={uploadToR2}
+                r2AddOpen={r2AddOpen}
+                setR2AddOpen={setR2AddOpen}
+                r2AddMode={r2AddMode}
+                setR2AddMode={setR2AddMode}
+                r2AddName={r2AddName}
+                setR2AddName={setR2AddName}
+                r2AddBusy={r2AddBusy}
+                connectR2Bucket={() => void connectR2Bucket()}
+                createR2Bucket={() => void createR2Bucket()}
+                r2UploadRef={r2UploadRef}
+                setR2UploadTargetBucket={setR2UploadTargetBucket}
+                onSourceActivated={setUnifiedSource}
+            />
+        );
+    }
 
     return (
         <div className="flex flex-col h-full min-h-0 bg-[var(--bg-panel)] overflow-hidden text-main align-top">

@@ -61,7 +61,7 @@ interface GithubTreeViewProps {
   onNewFile: (parentPath: string) => void;
 }
 
-const GithubTreeView: React.FC<GithubTreeViewProps> = ({
+const GithubTreeView: React.FC<GithubTreeViewProps & { fillHeight?: boolean }> = ({
   root,
   fullName,
   branch,
@@ -69,6 +69,7 @@ const GithubTreeView: React.FC<GithubTreeViewProps> = ({
   onOpenFile,
   onDeleteFile,
   onNewFile,
+  fillHeight = false,
 }) => {
   const rows = useMemo(() => flattenVisibleGithubTree(root), [root]);
   // Skip the root repo node itself — we render it as the header above
@@ -79,7 +80,11 @@ const GithubTreeView: React.FC<GithubTreeViewProps> = ({
   }
 
   return (
-    <div className="flex flex-col min-h-0 overflow-y-auto" style={{ maxHeight: 'min(55vh, 520px)' }}>
+    <div className={`flex flex-col min-h-0 ${fillHeight ? 'flex-1 h-full' : ''}`}>
+      <div
+        className={`overflow-y-auto overscroll-contain ${fillHeight ? 'flex-1 min-h-0' : ''}`}
+        style={fillHeight ? undefined : { maxHeight: 'min(55vh, 520px)' }}
+      >
       {visibleRows.map((row) => {
         if (row.type === 'loading') {
           return (
@@ -167,6 +172,7 @@ const GithubTreeView: React.FC<GithubTreeViewProps> = ({
           </div>
         );
       })}
+      </div>
       <p className="px-3 py-0.5 text-[9px] text-muted border-t border-[var(--border-subtle)]/30 shrink-0">
         {visibleRows.filter((r) => r.type === 'entry').length} visible · {branch}
       </p>
@@ -182,7 +188,9 @@ export const GitHubExplorer: React.FC<{
   onExpandRepoConsumed?: () => void;
   workspace_id?: string | null;
   onClose?: () => void;
-}> = ({ onOpenInEditor, expandRepoFullName, onExpandRepoConsumed, workspace_id = null, onClose }) => {
+  /** Hide outer chrome when nested in AgentSamFilesystem. */
+  embedded?: boolean;
+}> = ({ onOpenInEditor, expandRepoFullName, onExpandRepoConsumed, workspace_id = null, onClose, embedded = false }) => {
   const { workspaceId: ctxWorkspaceId, persistGithubRepo } = useWorkspace();
   const effectiveWorkspaceId = (workspace_id?.trim() || ctxWorkspaceId || '').trim() || null;
 
@@ -530,8 +538,9 @@ export const GitHubExplorer: React.FC<{
 
   return (
     <div className="w-full h-full bg-[var(--bg-panel)] flex flex-col text-main overflow-hidden min-h-0">
-      {/* Header */}
-      <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0">
+      <div
+        className={`${embedded ? 'px-2 py-1' : 'px-3 py-2'} border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0`}
+      >
         <div className="flex items-center gap-2 min-w-0">
           {expandedRepo ? (
             <button
@@ -542,12 +551,16 @@ export const GitHubExplorer: React.FC<{
             >
               <ArrowLeft size={13} />
             </button>
-          ) : (
+          ) : embedded ? null : (
             <Github size={13} className="shrink-0 text-muted" />
           )}
-          <span className="text-[11px] font-bold tracking-widest uppercase truncate text-muted">
-            {expandedRepo ? expandedRepo.split('/')[1] : 'Repositories'}
-          </span>
+          {!embedded ? (
+            <span className="text-[11px] font-bold tracking-widest uppercase truncate text-muted">
+              {expandedRepo ? expandedRepo.split('/')[1] : 'Repositories'}
+            </span>
+          ) : expandedRepo ? (
+            <span className="text-[11px] font-medium truncate text-main">{expandedRepo}</span>
+          ) : null}
           {expandedRepo && (
             <span className="text-[9px] font-mono text-muted/60 truncate">{activeBranch}</span>
           )}
@@ -567,7 +580,6 @@ export const GitHubExplorer: React.FC<{
             type="button"
             onClick={() => {
               if (expandedRepo) {
-                // Re-fetch root of current repo
                 setTreeByRepo((prev) => {
                   const root = prev[expandedRepo];
                   if (!root) return prev;
@@ -584,7 +596,7 @@ export const GitHubExplorer: React.FC<{
           >
             <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
           </button>
-          {onClose ? (
+          {!embedded && onClose ? (
             <button
               type="button"
               className="p-1.5 rounded text-muted hover:text-main hover:bg-[var(--bg-hover)]"
@@ -657,6 +669,7 @@ export const GitHubExplorer: React.FC<{
               root={activeTree}
               fullName={expandedRepo}
               branch={activeBranch}
+              fillHeight={embedded}
               onToggleDir={(node) => handleToggleDir(expandedRepo, activeBranch, node)}
               onOpenFile={(node) => void handleOpenFile(expandedRepo, activeBranch, node)}
               onDeleteFile={(node) => void handleDeleteFile(expandedRepo, activeBranch, node)}

@@ -27,7 +27,8 @@ function driveFileIcon(file: DriveApiFile) {
 
 export const DriveExplorerPanel: React.FC<{
   onOpenInEditor?: (file: ActiveFile) => void;
-}> = ({ onOpenInEditor }) => {
+  embedded?: boolean;
+}> = ({ onOpenInEditor, embedded = false }) => {
   const [connected, setConnected] = useState<boolean | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -168,6 +169,7 @@ export const DriveExplorerPanel: React.FC<{
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-[var(--bg-panel)] text-main overflow-hidden">
+      {!embedded ? (
       <div className="shrink-0 px-3 py-2 border-b border-[var(--border-subtle)] flex items-center justify-between gap-2">
         <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
           {crumbs.map((crumb, idx) => (
@@ -199,6 +201,39 @@ export const DriveExplorerPanel: React.FC<{
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
+      ) : (
+        <div className="shrink-0 px-2 py-1 border-b border-[var(--border-subtle)]/30 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1 min-w-0 overflow-x-auto flex-1">
+            {crumbs.map((crumb, idx) => (
+              <React.Fragment key={crumb.id}>
+                {idx > 0 ? <ChevronRight size={10} className="shrink-0 text-muted" /> : null}
+                <button
+                  type="button"
+                  className={`shrink-0 text-[10px] truncate max-w-[96px] ${
+                    idx === crumbs.length - 1
+                      ? 'text-[var(--solar-cyan)] font-semibold'
+                      : 'text-muted hover:text-main'
+                  }`}
+                  onClick={() => setFolderStack(crumbs.slice(0, idx + 1))}
+                  title={crumb.name}
+                >
+                  {crumb.name}
+                </button>
+              </React.Fragment>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadFiles()}
+            disabled={loading}
+            className="p-1 rounded hover:bg-[var(--bg-hover)] disabled:opacity-50 shrink-0"
+            title="Refresh"
+            aria-label="Refresh Drive files"
+          >
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto px-1 py-1">
         {loading && files.length === 0 ? (
