@@ -16,15 +16,24 @@ import {
   type TerminalConnectionStatus,
 } from './TerminalSessionPane';
 import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
-import { PHONE_MQ } from '../lib/breakpoints';
 import { fetchLocalTerminalConnection, fetchTerminalTargets, type TerminalTarget } from './LocalTerminalSetup';
 import { useWorkspace } from '../src/context/WorkspaceContext';
+import {
+  cloudflareOAuthStartUrl,
+  hasCloudflareTerminalAccess,
+} from '../src/lib/ptyTerminalSetupApi';
 import { runPtyTerminalSetupWizard, type PtyWizardIO } from '../src/lib/ptyTerminalSetupWizard';
 import {
   IAM_TERMINAL_CONNECT,
   IAM_TERMINAL_CONFIGURE,
   IAM_TERMINAL_SETUP_WIZARD,
 } from '../src/lib/openCommandPalette';
+import { TerminalWelcomeSplash, type SplashAction } from './TerminalWelcomeSplash';
+import { fetchTerminalSplashStatus } from '../src/lib/terminalSplashStatus';
+import {
+  getTerminalWorkspacePref,
+  patchTerminalWorkspacePref,
+} from '../src/lib/terminalWorkspacePrefs';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 const DEFAULT_PRODUCT = 'Agent Sam';
@@ -92,213 +101,6 @@ const SHELL_CHOICES = [
   { label: 'bash', path: '/bin/bash' },
   { label: 'sh', path: '/bin/sh' },
 ] as const;
-
-// ─── WelcomeSplash ────────────────────────────────────────────────────────────
-const GORILLA_MAX_CHARS = 26;
-
-function useSplashFontPx(): number {
-  const [fontPx, setFontPx] = useState(11);
-  useEffect(() => {
-    const fit = () => {
-      if (!window.matchMedia(PHONE_MQ).matches) {
-        setFontPx(11);
-        return;
-      }
-      const charW = 6.2;
-      const maxLinePx = GORILLA_MAX_CHARS * charW;
-      const scale = Math.min(1, (window.innerWidth - 40) / maxLinePx);
-      setFontPx(Math.max(6, Math.min(11, 11 * scale)));
-    };
-    fit();
-    window.addEventListener('resize', fit);
-    return () => window.removeEventListener('resize', fit);
-  }, []);
-  return fontPx;
-}
-
-const GORILLA_LINES = [
-  '        ▄████████▄        ',
-  '      ██░░░░░░░░░░██      ',
-  '     ██░░░░░░░░░░░░██     ',
-  '     ██░░ ◉    ◉ ░░██     ',
-  '     ██░░░ ▀██▀ ░░░██     ',
-  '     ██░░░██████░░░██     ',
-  '     ████░░░░░░░████      ',
-  '    ██████░░░░░██████     ',
-  '   ██    ████████    ██   ',
-  '         ▲      ▲         ',
-];
-
-type SplashAction = 'local' | 'cloud' | 'sandbox' | 'sdk';
-
-interface WelcomeSplashProps {
-  cdCommand?: string;
-  localReady: boolean;
-  cloudReady: boolean;
-  sandboxReady: boolean;
-  onAction: (action: SplashAction) => void;
-}
-
-const SPLASH_MENU: { action: SplashAction; label: string; desc: string }[] = [
-  { action: 'local', label: 'Start local', desc: 'Mac repo via localpty tunnel' },
-  { action: 'cloud', label: 'Cloud terminal', desc: 'Hosted shell on platform VM' },
-  { action: 'sandbox', label: 'Sandbox terminal', desc: 'Isolated GCP /workspace lane' },
-  { action: 'sdk', label: 'Agent Sam SDK', desc: 'Bootstrap + smoke @inneranimalmedia/agentsam-sdk' },
-];
-
-function WelcomeSplash({ cdCommand, localReady, cloudReady, sandboxReady, onAction }: WelcomeSplashProps) {
-  const splashFontPx = useSplashFontPx();
-  const menuItems = SPLASH_MENU.map((item, index) => {
-    let desc = item.desc;
-    if (item.action === 'local' && !localReady) {
-      desc = 'Not configured — + → Configure Terminal Settings';
-    } else if (item.action === 'cloud' && !cloudReady) {
-      desc = 'Provisioning — retry shortly or contact support';
-    } else if (item.action === 'sandbox' && !sandboxReady) {
-      desc = 'GCP sandbox lane not ready — check tunnel + sandboxterminal.*';
-    } else if (item.action === 'sdk') {
-      desc = 'Self-host loop: npm smoke in my-app/ · BYOK models in Settings → Keys';
-    }
-    return {
-      ...item,
-      desc,
-      displayKey: String(index + 1),
-    };
-  });
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const match = menuItems.find((m) => m.displayKey === e.key);
-      if (match) onAction(match.action);
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onAction, menuItems]);
-
-  return (
-    <div
-      className="iam-terminal-welcome-splash"
-      style={{
-        position: 'absolute',
-        inset: 0,
-        zIndex: 10,
-        background: 'var(--terminal-surface)',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontFamily: '"JetBrains Mono", "Fira Code", "SF Mono", monospace',
-        padding: '16px',
-        overflow: 'hidden',
-      }}
-    >
-      <pre
-        className="iam-terminal-welcome-pre"
-        aria-hidden
-        style={{
-          margin: 0,
-          padding: 0,
-          fontSize: `${splashFontPx}px`,
-          lineHeight: '1.4',
-          color: 'var(--text-muted)',
-          textAlign: 'center',
-          userSelect: 'none',
-          letterSpacing: '0.03em',
-        }}
-      >
-        {GORILLA_LINES.join('\n')}
-      </pre>
-
-      <div style={{ marginTop: '14px', textAlign: 'center', lineHeight: 1 }}>
-        <div
-          style={{
-            color: 'var(--solar-yellow)',
-            fontSize: '22px',
-            fontWeight: 700,
-            letterSpacing: '0.2em',
-            textTransform: 'uppercase',
-          }}
-        >
-          INNERANIMAL
-        </div>
-        <div
-          style={{
-            color: 'var(--solar-cyan)',
-            fontSize: '13px',
-            fontWeight: 700,
-            letterSpacing: '0.6em',
-            marginTop: '4px',
-            paddingLeft: '0.6em',
-          }}
-        >
-          MEDIA
-        </div>
-      </div>
-
-      {cdCommand && (
-        <div
-          style={{
-            marginTop: '16px',
-            color: 'var(--solar-cyan)',
-            fontSize: '10px',
-            opacity: 0.5,
-            border: '1px solid var(--border-subtle)',
-            padding: '3px 10px',
-            borderRadius: '2px',
-            letterSpacing: '0.03em',
-            maxWidth: '100%',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {cdCommand}
-        </div>
-      )}
-
-      <div style={{ marginTop: '22px', width: 'min(280px, 100%)' }}>
-        {menuItems.map(({ action, displayKey, label, desc }) => (
-          <div
-            key={action}
-            role="button"
-            tabIndex={0}
-            onClick={() => onAction(action)}
-            onKeyDown={(e) => e.key === 'Enter' && onAction(action)}
-            style={{
-              cursor: 'pointer',
-              fontSize: '12px',
-              lineHeight: '1.5',
-              color: 'var(--text-main)',
-              display: 'flex',
-              gap: '8px',
-              marginBottom: '10px',
-            }}
-          >
-            <span style={{ color: 'var(--solar-yellow)', fontWeight: 700, minWidth: '18px' }}>{displayKey}.</span>
-            <span>
-              <span style={{ display: 'block' }}>{label}</span>
-              <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)', opacity: 0.75 }}>
-                {desc}
-              </span>
-            </span>
-          </div>
-        ))}
-      </div>
-
-      <div
-        style={{
-          marginTop: '20px',
-          color: 'var(--solar-yellow)',
-          fontSize: '11px',
-          opacity: 0.65,
-          letterSpacing: '0.04em',
-        }}
-      >
-        Enter a number to get started...
-      </div>
-    </div>
-  );
-}
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
@@ -382,11 +184,16 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       onProblemsTabOpen?.();
     }, [activeTab, onProblemsTabOpen]);
 
-    const [showSplash, setShowSplash] = useState(true);
+    const [showSplash, setShowSplash] = useState(() => {
+      const wid = workspaceId?.trim() || '';
+      if (!wid) return true;
+      return !getTerminalWorkspacePref(wid).splashDismissed;
+    });
     const sdkBootstrapPendingRef = useRef(false);
-    const [localTargetReady, setLocalTargetReady] = useState(false);
-    const [cloudTargetReady, setCloudTargetReady] = useState(true);
-    const [sandboxTargetReady, setSandboxTargetReady] = useState(false);
+    const prevWorkspaceIdRef = useRef(workspaceId);
+    const terminalTargetRef = useRef<TerminalTarget>('platform_vm');
+    const showSplashRef = useRef(showSplash);
+    const primaryStatusRef = useRef<TerminalConnectionStatus>('disconnected');
     const [restarting, setRestarting] = useState(false);
     const [tunnelHealth, setTunnelHealth] = useState<{ healthy: boolean; connections: number } | null>(null);
     const [uptime, setUptime] = useState(0);
@@ -416,48 +223,61 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     const [plusMenuOpen, setPlusMenuOpen] = useState(false);
     const [splitSubOpen, setSplitSubOpen] = useState(false);
     const [setupWizardActive, setSetupWizardActive] = useState(false);
-    const [terminalTarget, setTerminalTarget] = useState<TerminalTarget>('platform_vm');
-    const autoCloudConnectAttemptedRef = useRef(false);
+    const [terminalTarget, setTerminalTarget] = useState<TerminalTarget>(() => {
+      const wid = workspaceId?.trim() || '';
+      return wid ? getTerminalWorkspacePref(wid).targetType : 'platform_vm';
+    });
     const { sessionUserId } = useWorkspace();
 
     useEffect(() => {
-      if (!showSplash || !workspaceId?.trim()) {
-        setLocalTargetReady(false);
-        setCloudTargetReady(true);
-        setSandboxTargetReady(false);
-        return;
-      }
-      let cancelled = false;
-      void fetchTerminalTargets(workspaceId).then((targets) => {
-        if (cancelled) return;
-        setLocalTargetReady(targets?.local?.ready === true);
-        setCloudTargetReady(targets?.cloud?.ready !== false);
-        setSandboxTargetReady(targets?.sandbox?.ready === true);
-      });
-      return () => {
-        cancelled = true;
-      };
-    }, [showSplash, workspaceId]);
+      terminalTargetRef.current = terminalTarget;
+    }, [terminalTarget]);
+
+    useEffect(() => {
+      showSplashRef.current = showSplash;
+    }, [showSplash]);
+
+    useEffect(() => {
+      primaryStatusRef.current = primaryStatus;
+    }, [primaryStatus]);
+
+    const persistWorkspaceTerminalPref = useCallback(
+      (wid: string, patch: Parameters<typeof patchTerminalWorkspacePref>[1]) => {
+        if (!wid.trim()) return;
+        patchTerminalWorkspacePref(wid, {
+          workspaceName: workspaceLabel?.trim() || undefined,
+          ...patch,
+        });
+      },
+      [workspaceLabel],
+    );
 
     const refreshTerminalTargets = useCallback(async () => {
       if (!workspaceId?.trim()) return;
-      const targets = await fetchTerminalTargets(workspaceId);
-      setLocalTargetReady(targets?.local?.ready === true);
-      setCloudTargetReady(targets?.cloud?.ready !== false);
-      setSandboxTargetReady(targets?.sandbox?.ready === true);
+      await fetchTerminalTargets(workspaceId);
     }, [workspaceId]);
 
     const handleTerminalHardFailure = useCallback(() => {
       setShowSplash(true);
+      if (workspaceId?.trim()) {
+        patchTerminalWorkspacePref(workspaceId, { splashDismissed: false });
+      }
       primaryPaneRef.current?.disconnectQuiet();
       if (splitEnabled) secondaryPaneRef.current?.disconnectQuiet();
       setPrimaryStatus('disconnected');
       setSecondaryStatus('disconnected');
-    }, [splitEnabled]);
+    }, [splitEnabled, workspaceId]);
 
     const startTerminalConnection = useCallback(
       async (target: TerminalTarget) => {
         setTerminalTarget(target);
+        if (workspaceId?.trim()) {
+          persistWorkspaceTerminalPref(workspaceId, {
+            targetType: target,
+            splashDismissed: true,
+            lastConnectedAt: Date.now(),
+          });
+        }
         if (target === 'user_hosted_tunnel' && workspaceId?.trim()) {
           const { shell: connShell } = await fetchLocalTerminalConnection(workspaceId);
           if (connShell) setShellPref(connShell);
@@ -465,27 +285,8 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
         primaryPaneRef.current?.reconnectClean();
         if (splitEnabled) secondaryPaneRef.current?.reconnectClean();
       },
-      [splitEnabled, workspaceId],
+      [splitEnabled, workspaceId, persistWorkspaceTerminalPref],
     );
-
-    // Mac tunnel unloaded → connect GCP cloud desk without extra splash click.
-    useEffect(() => {
-      if (!showSplash || !workspaceId?.trim() || autoCloudConnectAttemptedRef.current) return;
-      let cancelled = false;
-      void fetchTerminalTargets(workspaceId).then((targets) => {
-        if (cancelled || autoCloudConnectAttemptedRef.current) return;
-        const localReady = targets?.local?.ready === true;
-        const cloudReady = targets?.cloud?.ready !== false;
-        if (cloudReady && !localReady) {
-          autoCloudConnectAttemptedRef.current = true;
-          setShowSplash(false);
-          void startTerminalConnection('platform_vm');
-        }
-      });
-      return () => {
-        cancelled = true;
-      };
-    }, [showSplash, workspaceId, startTerminalConnection]);
 
     const handleConfigureTerminalSettings = useCallback(async () => {
       setPlusMenuOpen(false);
@@ -528,14 +329,9 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
           },
           onConnectLocal: async () => {
             const targets = await fetchTerminalTargets(workspaceId);
-            if (targets?.local?.ready !== true) {
-              pane.writeAnsi(
-                '\r\n\x1b[38;5;208m  Local tunnel not ready yet — finish cloudflared + iam-pty, then pick 1 on welcome.\x1b[0m',
-              );
-              return;
-            }
-            const connShell = targets.local.shell?.trim();
+            const connShell = targets?.local?.shell?.trim();
             if (connShell) setShellPref(connShell);
+            setShowSplash(false);
             await startTerminalConnection('user_hosted_tunnel');
           },
         });
@@ -578,14 +374,64 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     }, []);
 
     useEffect(() => {
-      void fetch('/api/agentsam/config', { credentials: 'same-origin' })
+      const wid = workspaceId?.trim() || '';
+      const prev = prevWorkspaceIdRef.current?.trim() || '';
+
+      if (prev && prev !== wid) {
+        persistWorkspaceTerminalPref(prev, {
+          targetType: terminalTargetRef.current,
+          splashDismissed: !showSplashRef.current,
+          lastConnectedAt:
+            primaryStatusRef.current === 'connected' ? Date.now() : undefined,
+        });
+        primaryPaneRef.current?.disconnectQuiet();
+        if (splitEnabled) secondaryPaneRef.current?.disconnectQuiet();
+        setPrimaryStatus('disconnected');
+        setSecondaryStatus('disconnected');
+      }
+
+      prevWorkspaceIdRef.current = workspaceId;
+
+      if (!wid) {
+        setShowSplash(true);
+        return;
+      }
+
+      const pref = getTerminalWorkspacePref(wid);
+      setTerminalTarget(pref.targetType);
+      setShowSplash(!pref.splashDismissed);
+
+      void fetchTerminalSplashStatus(wid, workspaceLabel).then((splash) => {
+        if (splash.workspaceMeta?.cd_command) {
+          setResolvedCdCmd(splash.workspaceMeta.cd_command);
+        }
+        persistWorkspaceTerminalPref(wid, {
+          workspaceName: splash.workspace.name ?? workspaceLabel,
+          cwd: splash.workspaceMeta?.cwd ?? null,
+        });
+      });
+
+      if (pref.splashDismissed) {
+        window.setTimeout(() => {
+          primaryPaneRef.current?.reconnectClean();
+        }, 100);
+      }
+    }, [workspaceId, persistWorkspaceTerminalPref, splitEnabled]);
+
+    useEffect(() => {
+      const wid = workspaceId?.trim();
+      if (!wid) return;
+      void fetch(`/api/agentsam/config?workspace_id=${encodeURIComponent(wid)}`, {
+        credentials: 'same-origin',
+        headers: { 'X-IAM-Workspace-Id': wid, Accept: 'application/json' },
+      })
         .then((r) => (r.ok ? r.json() : Promise.reject()))
         .then((data: { workspace_cd_command?: string; iam_origin?: string }) => {
-          if (workspaceCdCommand === undefined && data.workspace_cd_command) setResolvedCdCmd(data.workspace_cd_command);
+          if (data.workspace_cd_command) setResolvedCdCmd(data.workspace_cd_command);
           if (iamOrigin === undefined && data.iam_origin) setResolvedOrigin(data.iam_origin);
         })
         .catch(() => {});
-    }, []);
+    }, [workspaceId, iamOrigin]);
 
     useEffect(() => {
       if (primaryStatus !== 'connected' || !sdkBootstrapPendingRef.current) return;
@@ -666,8 +512,10 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
         setActiveTab('terminal');
 
         if (action === 'cloud') {
-          if (!cloudTargetReady) return;
           setShowSplash(false);
+          if (workspaceId?.trim()) {
+            persistWorkspaceTerminalPref(workspaceId, { splashDismissed: true });
+          }
           await startTerminalConnection('platform_vm');
           return;
         }
@@ -675,46 +523,53 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
         if (action === 'local') {
           if (!workspaceId?.trim()) return;
           const targets = await fetchTerminalTargets(workspaceId);
-          if (targets?.local?.ready !== true) {
-            setLocalTargetReady(false);
+          const localLive = targets?.local?.ready === true || targets?.local?.configured === true;
+          if (!localLive) {
+            const cfReady = await hasCloudflareTerminalAccess(workspaceId);
+            if (!cfReady) {
+              window.location.assign(cloudflareOAuthStartUrl());
+              return;
+            }
+            await handleConfigureTerminalSettings();
             return;
           }
-          const connShell = targets.local.shell?.trim();
+          const connShell = targets?.local?.shell?.trim();
           if (connShell) setShellPref(connShell);
           setShowSplash(false);
+          if (workspaceId?.trim()) {
+            persistWorkspaceTerminalPref(workspaceId, { splashDismissed: true });
+          }
           await startTerminalConnection('user_hosted_tunnel');
           return;
         }
 
         if (action === 'sandbox') {
-          if (!workspaceId?.trim()) return;
-          const targets = await fetchTerminalTargets(workspaceId);
-          if (targets?.sandbox?.ready !== true) {
-            setSandboxTargetReady(false);
-            return;
-          }
           setShowSplash(false);
+          if (workspaceId?.trim()) {
+            persistWorkspaceTerminalPref(workspaceId, { splashDismissed: true });
+          }
           await startTerminalConnection('sandbox');
           return;
         }
 
         if (action === 'sdk') {
           setShowSplash(false);
+          if (workspaceId?.trim()) {
+            persistWorkspaceTerminalPref(workspaceId, { splashDismissed: true });
+          }
           const write = (text: string) => primaryPaneRef.current?.writeAnsi(text);
           window.setTimeout(() => {
             void formatAgentsamSdkBootstrapToTerminal(write, {
               cdCommand: resolvedCdCmdRef.current,
-              cloudReady: cloudTargetReady,
+              cloudReady: true,
             });
           }, 80);
-          if (cloudTargetReady) {
-            sdkBootstrapPendingRef.current = true;
-            void startTerminalConnection('platform_vm');
-          }
+          sdkBootstrapPendingRef.current = true;
+          void startTerminalConnection('platform_vm');
           return;
         }
       },
-      [startTerminalConnection, workspaceId, cloudTargetReady],
+      [startTerminalConnection, workspaceId, handleConfigureTerminalSettings, persistWorkspaceTerminalPref],
     );
 
     useEffect(() => {
@@ -742,8 +597,8 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       terminalTarget === 'user_hosted_tunnel'
         ? 'Local'
         : terminalTarget === 'sandbox'
-          ? 'Sandbox'
-          : 'Cloud';
+          ? 'Container'
+          : 'VM';
 
     useImperativeHandle(ref, () => ({
       writeToTerminal: (text: string) => {
@@ -1186,11 +1041,9 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                     />
                   </div>
                   {showSplash && showIamWelcomeBar && (
-                    <WelcomeSplash
-                      cdCommand={resolvedCdCmd}
-                      localReady={localTargetReady}
-                      cloudReady={cloudTargetReady}
-                      sandboxReady={sandboxTargetReady}
+                    <TerminalWelcomeSplash
+                      workspaceId={workspaceId}
+                      workspaceLabel={workspaceLabel}
                       onAction={handleSplashAction}
                     />
                   )}

@@ -203,6 +203,7 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@clack/prompts": "^1.6.0",
     "@gltf-transform/cli": "^4.4.0",
     "@inneranimalmedia/agentsam-sdk": "^1.1.1",
     "@playwright/test": "^1.49.0",

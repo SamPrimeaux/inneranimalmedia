@@ -44,6 +44,10 @@ import {
   buildTerminalConfigStatus,
 } from '../core/terminal.js';
 import {
+  buildTerminalLaneTargets,
+  buildTerminalSplashStatus,
+} from '../core/terminal-splash-status.js';
+import {
   generateUserPtyAuthToken,
   getUserPtyAuthTokenStatus,
   revokeUserPtyAuthToken,
@@ -296,117 +300,19 @@ export async function handleTerminalApi(request, url, env, ctx) {
     return jsonResponse({ commands, count: commands.length });
   }
 
-  // GET /api/terminal/splash-status — single-round-trip aggregator for splash HUD
-  // Replaces 4 separate probe calls. PTY_SERVICE binding short-circuits VM health check.
-  // Accepts ?workspace_id= for multi-workspace terminal isolation.
+  // GET /api/terminal/splash-status — workspace-scoped splash lanes (single round-trip)
   if (path === '/api/terminal/splash-status' && method === 'GET') {
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-
-    const wsParam = url.searchParams.get('workspace_id');
-    const tw = await resolveTerminalWorkspaceId(env, request, authUser, wsParam);
+    const tw = await resolveTerminalWorkspaceId(env, request, authUser, url.searchParams.get('workspace_id'));
     if (!tw.workspaceId) {
       return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
     }
-
-    const canPty = await userCanRunPtyFromPolicy(env, authUser.id, tw.workspaceId);
-    if (!canPty) {
-      return jsonResponse({
-        workspace:  { status: 'error',   label: 'Not permitted'  },
-        runtime:    { status: 'offline',  label: 'Unavailable'   },
-        tunnel:     { status: 'offline',  label: 'Unavailable'   },
-        agent:      { status: 'offline',  label: 'Unavailable'   },
-        can_run_pty: false,
-        workspace_id: tw.workspaceId,
-      });
-    }
-
-    // Resolve workspace label for inline display (not just tooltip)
-    let workspaceLabel = tw.workspaceId;
-    try {
-      const wsRow = await env.DB?.prepare(
-        'SELECT name FROM workspaces WHERE id = ? LIMIT 1'
-      ).bind(tw.workspaceId).first();
-      if (wsRow?.name) workspaceLabel = String(wsRow.name);
-    } catch (_) {}
-
-    // Fire all 3 lane checks in parallel — single D1 batch
-    const twCfg = { workspaceId: tw.workspaceId };
-    const [localCfg, cloudCfg, sandboxCfg] = await Promise.all([
-      buildTerminalConfigStatus(env, authUser, twCfg, { target_type: 'user_hosted_tunnel' }),
-      buildTerminalConfigStatus(env, authUser, twCfg, { target_type: 'platform_vm' }),
-      buildTerminalConfigStatus(env, authUser, twCfg, { target_type: 'sandbox' }),
-    ]);
-
-    // PTY_SERVICE short-circuit: if bound, VM lane is ready — no ws_url probe needed
-    const vpcBound = !!env.PTY_SERVICE;
-    const runtimeReady = vpcBound || cloudCfg.terminal_configured === true;
-
-    // Tunnel: local user_hosted_tunnel row + is_healthy
-    const localRow = await getUserHostedTunnelConnection(env.DB, authUser.id, tw.workspaceId);
-    const tunnelReady = localCfg.terminal_configured === true && !!localRow?.ws_url;
-    const tunnelLabel = tunnelReady
-      ? (localRow?.platform ? `${localRow.platform} connected` : 'connected')
-      : (localRow ? 'tunnel not active' : 'not configured');
-
-    // Agent: AgentChat DO reachable (AGENT_SESSION binding exists)
-    const agentReady = !!env.AGENT_SESSION;
-
-    return jsonResponse({
-      workspace_id:    tw.workspaceId,
-      workspace_label: workspaceLabel,
-      can_run_pty:     true,
-      pty_service_bound: vpcBound,
-
-      // HUD items — each has status + label for inline display
-      workspace: {
-        status: 'ready',
-        label:  workspaceLabel,
-      },
-      runtime: {
-        status: runtimeReady ? 'ready' : (cloudCfg.error_code === 'pty_backend_unconfigured' ? 'error' : 'offline'),
-        label:  runtimeReady ? (vpcBound ? 'VM · VPC' : 'VM · ready') : 'not ready',
-        via_pty_service: vpcBound,
-      },
-      tunnel: {
-        status: tunnelReady ? 'ready' : (localRow ? 'pending' : 'offline'),
-        label:  tunnelLabel,
-        platform: localRow?.platform ?? null,
-        shell:    localRow?.shell    ?? null,
-      },
-      agent: {
-        status: agentReady ? 'ready' : 'offline',
-        label:  agentReady ? 'online' : 'unavailable',
-      },
-
-      // Full lane details for lane picker (replaces /connections/targets)
-      lanes: {
-        local: {
-          target_type:  'user_hosted_tunnel',
-          ready:        localCfg.terminal_configured === true,
-          configured:   !!localRow,
-          connection_id: localCfg.selected_connection_id ?? null,
-          shell:        localRow?.shell   ?? null,
-          platform:     localRow?.platform ?? null,
-          error_code:   localCfg.error_code ?? null,
-        },
-        cloud: {
-          target_type:  'platform_vm',
-          ready:        runtimeReady,
-          configured:   vpcBound || cloudCfg.terminal_configured === true,
-          connection_id: cloudCfg.selected_connection_id ?? null,
-          via_pty_service: vpcBound,
-          error_code:   vpcBound ? null : (cloudCfg.error_code ?? null),
-        },
-        sandbox: {
-          target_type:  'sandbox',
-          ready:        sandboxCfg.terminal_configured === true,
-          configured:   sandboxCfg.terminal_configured === true,
-          connection_id: sandboxCfg.selected_connection_id ?? null,
-          error_code:   sandboxCfg.error_code ?? null,
-        },
-      },
+    const authWs = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+    const payload = await buildTerminalSplashStatus(env, authUser, tw.workspaceId, {
+      authWorkspaceId: authWs.workspaceId ?? tw.workspaceId,
     });
+    return jsonResponse(payload);
   }
 
   // GET /api/terminal/connections/targets — local + cloud lane readiness for splash UI
@@ -417,53 +323,8 @@ export async function handleTerminalApi(request, url, env, ctx) {
     if (!tw.workspaceId) {
       return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
     }
-    const canPty = await userCanRunPtyFromPolicy(env, authUser.id, tw.workspaceId);
-    if (!canPty) {
-      return jsonResponse({
-        can_run_pty: false,
-        error: 'terminal_not_enabled',
-        local: { target_type: 'user_hosted_tunnel', ready: false, configured: false },
-        cloud: { target_type: 'platform_vm', ready: false, configured: false },
-      });
-    }
-
-    const twCfg = { workspaceId: tw.workspaceId };
-    const [localCfg, cloudCfg, sandboxCfg] = await Promise.all([
-      buildTerminalConfigStatus(env, authUser, twCfg, { target_type: 'user_hosted_tunnel' }),
-      buildTerminalConfigStatus(env, authUser, twCfg, { target_type: 'platform_vm' }),
-      buildTerminalConfigStatus(env, authUser, twCfg, { target_type: 'sandbox' }),
-    ]);
-
-    const localRow = await getUserHostedTunnelConnection(env.DB, authUser.id, tw.workspaceId);
-    const localShell = localRow?.shell != null ? String(localRow.shell).trim() : null;
-
-    return jsonResponse({
-      can_run_pty: true,
-      workspace_id: tw.workspaceId,
-      local: {
-        target_type: 'user_hosted_tunnel',
-        ready: localCfg.terminal_configured === true,
-        configured: localCfg.terminal_configured === true,
-        connection_id: localCfg.selected_connection_id ?? null,
-        shell: localShell,
-        error_code: localCfg.error_code ?? null,
-      },
-      cloud: {
-        target_type: 'platform_vm',
-        ready: cloudCfg.terminal_configured === true,
-        configured: cloudCfg.terminal_configured === true,
-        connection_id: cloudCfg.selected_connection_id ?? null,
-        error_code: cloudCfg.error_code ?? null,
-      },
-      sandbox: {
-        target_type: 'sandbox',
-        ready: sandboxCfg.terminal_configured === true,
-        configured: sandboxCfg.terminal_configured === true,
-        connection_id: sandboxCfg.selected_connection_id ?? null,
-        ws_url_present: sandboxCfg.selected_connection_ws_url_present === true,
-        error_code: sandboxCfg.error_code ?? null,
-      },
-    });
+    const targets = await buildTerminalLaneTargets(env, authUser, tw.workspaceId);
+    return jsonResponse(targets);
   }
 
   // GET /api/terminal/connections/local — user_hosted_tunnel row for current user/workspace

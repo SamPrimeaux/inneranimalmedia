@@ -371,6 +371,8 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
     const connectInFlightRef = useRef(false);
     const connectSeqRef = useRef(0);
     const connectDebounceRef = useRef<number | null>(null);
+    const boundWorkspaceRef = useRef('');
+    const boundTargetRef = useRef<string>('platform_vm');
     const bootstrapInFlightRef = useRef<Promise<void> | null>(null);
     const refreshBootstrapRef = useRef<() => Promise<void>>(async () => {});
     const scheduleReconnectRef = useRef<(reason: string) => void>(() => {});
@@ -515,6 +517,12 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
       void refreshBootstrap();
     }, [refreshBootstrap]);
 
+    useEffect(() => {
+      cachedBootstrapRef.current = null;
+      connectSeqRef.current += 1;
+      historySeededRef.current = false;
+    }, [workspaceId, targetType]);
+
     const scheduleReconnect = useCallback((reason: string) => {
       if (intentionalCloseRef.current) return;
       if (statusRef.current === 'offline') return;
@@ -629,6 +637,8 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
 
             ws.onopen = () => {
               if (seq !== connectSeqRef.current) return;
+              boundWorkspaceRef.current = wsId;
+              boundTargetRef.current = targetType;
               retryCountRef.current = 0;
               setStatus('connected');
               lastActivityRef.current = Date.now();
@@ -808,8 +818,18 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
         connectDebounceRef.current = null;
         if (!isMounted || intentionalCloseRef.current) return;
         const existing = socketRef.current;
-        if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
+        const sameBinding =
+          boundWorkspaceRef.current === wsId && boundTargetRef.current === targetType;
+        if (
+          existing &&
+          sameBinding &&
+          (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)
+        ) {
           return;
+        }
+        if (existing && !sameBinding) {
+          closeSocketQuietly(existing);
+          socketRef.current = null;
         }
         connect();
       }, 120) as unknown as number;

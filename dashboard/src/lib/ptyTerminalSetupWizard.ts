@@ -4,7 +4,7 @@ import {
   fetchPtyDefaults,
   fetchPtyStatus,
   generatePtyToken,
-  hasCloudflareProviderKey,
+  hasCloudflareTerminalAccess,
   provisionPtyTunnel,
   type CfZone,
 } from './ptyTerminalSetupApi';
@@ -65,7 +65,7 @@ export async function runPtyTerminalSetupWizard(io: PtyWizardIO, ctx: PtyWizardC
   banner(io);
 
   let status = await fetchPtyStatus(ws);
-  let hasCf = await hasCloudflareProviderKey(ws);
+  let hasCf = await hasCloudflareTerminalAccess(ws);
   const defaults = await fetchPtyDefaults(ws);
 
   io.writeln(`${BOLD}  Status${RESET}`);
@@ -96,7 +96,7 @@ export async function runPtyTerminalSetupWizard(io: PtyWizardIO, ctx: PtyWizardC
       defaultValue: '',
     });
     if (retry === null) return;
-    hasCf = await hasCloudflareProviderKey(ws);
+    hasCf = await hasCloudflareTerminalAccess(ws);
     if (!hasCf) {
       io.writeln(`${ERR}  Still no Cloudflare key detected. Aborting setup.${RESET}`);
       return;

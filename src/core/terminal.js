@@ -916,7 +916,16 @@ export async function buildTerminalConfigStatus(env, authUser, twCfg, query = {}
     effectiveTargetType === 'ssh_target'
       ? false
       : effectiveTargetType === 'sandbox'
-        ? wsUrlPresent && (!!secret || dbBridgeOk)
+        ? await (async () => {
+            try {
+              const { probeMyContainer } = await import('./my-container.js');
+              const probe = await probeMyContainer(env);
+              if (probe.ok === true) return true;
+            } catch {
+              /* fall through */
+            }
+            return wsUrlPresent && (!!secret || dbBridgeOk);
+          })()
         : effectiveTargetType === 'platform_vm'
           ? !!(vpcPty || (httpsUrl && secret) || dbBridgeOk || wsUrlPresent)
           : wsUrlPresent;

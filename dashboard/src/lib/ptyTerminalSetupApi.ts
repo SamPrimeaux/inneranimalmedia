@@ -111,6 +111,38 @@ export async function hasCloudflareProviderKey(workspaceId: string): Promise<boo
   );
 }
 
+/** BYOK API key or connected Cloudflare OAuth — enough to provision a local tunnel. */
+export async function hasCloudflareTerminalAccess(workspaceId: string): Promise<boolean> {
+  if (await hasCloudflareProviderKey(workspaceId)) return true;
+  const ws = workspaceId.trim();
+  if (!ws) return false;
+  try {
+    const qs = new URLSearchParams({ workspace_id: ws });
+    const r = await fetch(`/api/settings/integrations/connected?${qs}`, { credentials: 'same-origin' });
+    if (!r.ok) return false;
+    const j = (await r.json().catch(() => ({}))) as {
+      connected?: { provider_key?: string; status?: string }[];
+    };
+    const rows = Array.isArray(j.connected) ? j.connected : [];
+    return rows.some(
+      (row) =>
+        String(row.provider_key || '').toLowerCase() === 'cloudflare_oauth' &&
+        String(row.status || '').toLowerCase() === 'connected',
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function cloudflareOAuthStartUrl(returnTo?: string): string {
+  const path =
+    typeof window !== 'undefined'
+      ? `${window.location.pathname}${window.location.search}`
+      : '/dashboard/agent';
+  const rt = encodeURIComponent(returnTo?.trim() || path);
+  return `/api/oauth/cloudflare/start?return_to=${rt}`;
+}
+
 export async function generatePtyToken(workspaceId: string): Promise<string> {
   const r = await fetch('/api/terminal/token/generate', {
     method: 'POST',
