@@ -114,15 +114,18 @@ export async function sendDailyDigest(env) {
          ORDER BY cost_usd DESC
          LIMIT 3`
       ).all()),
+      // roadmap_steps dead — use agentsam_todo for open work items
       safe(env.DB.prepare(
-        `SELECT id, title, status FROM roadmap_steps WHERE plan_id = 'plan_iam_dashboard_v1' ORDER BY order_index ASC LIMIT 100`
+        `SELECT id, title, status, priority FROM agentsam_todo
+         WHERE workspace_id = 'ws_inneranimalmedia'
+           AND status NOT IN ('done','completed','cancelled')
+         ORDER BY priority DESC, created_at DESC
+         LIMIT 10`
       ).all()),
+      // notification_outbox dead
+      Promise.resolve(null),
       safe(env.DB.prepare(
-        `SELECT COUNT(*) AS count FROM notification_outbox WHERE status = 'pending'`
-      ).all()),
-      safe(env.DB.prepare(
-        `SELECT project_name, status, priority, current_blockers,
-                cursor_usage_percent, tokens_used
+        `SELECT project_name, status, priority, current_blockers
          FROM agentsam_project_context
          WHERE status = 'active'
          ORDER BY priority DESC
