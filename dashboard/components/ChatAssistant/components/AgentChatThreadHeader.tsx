@@ -20,6 +20,9 @@ type Props = {
   compact?: boolean;
   /** When embedded in a merged shell row, omit bottom border. */
   embedded?: boolean;
+  /** Cursor-style mobile thread: adds View button; scratchpad stays available. */
+  mobileThreadChrome?: boolean;
+  onView?: () => void;
 };
 
 export const AgentChatThreadHeader: FC<Props> = ({
@@ -35,6 +38,8 @@ export const AgentChatThreadHeader: FC<Props> = ({
   scratchpadOpen = false,
   compact = false,
   embedded = false,
+  mobileThreadChrome = false,
+  onView,
 }) => {
   const convId = String(conversationId || '').trim();
   const [editing, setEditing] = useState(false);
@@ -196,15 +201,25 @@ export const AgentChatThreadHeader: FC<Props> = ({
           <StickyNote size={16} strokeWidth={1.75} />
         </button>
 
-        <button
-          type="button"
-          onClick={onNewChat}
-          className="flex items-center justify-center w-8 h-8 rounded-lg text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] transition-colors"
-          title="New chat"
-          aria-label="New chat"
-        >
-          <Plus size={18} strokeWidth={2} />
-        </button>
+        {!mobileThreadChrome ? (
+          <button
+            type="button"
+            onClick={onNewChat}
+            className="flex items-center justify-center w-8 h-8 rounded-lg text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] transition-colors"
+            title="New chat"
+            aria-label="New chat"
+          >
+            <Plus size={18} strokeWidth={2} />
+          </button>
+        ) : onView ? (
+          <button
+            type="button"
+            onClick={onView}
+            className="px-2.5 py-1 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[11px] font-semibold text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)] transition-colors"
+          >
+            View
+          </button>
+        ) : null}
 
         {canMutate ? (
           <div className="relative">

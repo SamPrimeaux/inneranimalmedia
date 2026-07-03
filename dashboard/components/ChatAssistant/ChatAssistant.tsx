@@ -137,6 +137,7 @@ import { PlanStartOverBar } from './components/PlanStartOverBar';
 import { suggestPlanMode, nextAgentMode, isPlanSlashMessage } from '../../lib/plan-mode-utils';
 import { AgentMobileHomePanel } from './components/AgentMobileHomePanel';
 import { AgentChatThreadHeader, findSessionRow } from './components/AgentChatThreadHeader';
+import { AgentMobileDiffPanel } from './components/AgentMobileDiffPanel';
 import { AgentChatFilesPanel } from './components/AgentChatFilesPanel';
 import type { AgentChatProjectOption } from '../../hooks/useAgentChatSessions';
 import { AgentComposerSourceChips } from './composer/AgentComposerSourceChips';
@@ -455,7 +456,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [planSuggestDismissed, setPlanSuggestDismissed] = useState(false);
   const [activePlanTitle, setActivePlanTitle] = useState<string | null>(null);
   const [mobileHubTab, setMobileHubTab] = useState<'agents' | 'automations' | 'dashboard'>('agents');
-  const [mobileThreadTab, setMobileThreadTab] = useState<'chat' | 'context'>('chat');
+  const [mobileThreadTab, setMobileThreadTab] = useState<'chat' | 'diff'>('chat');
+  const [mobileDiffFocusId, setMobileDiffFocusId] = useState<string | null>(null);
   const [repoDrawerOpen, setRepoDrawerOpen] = useState(false);
   const [contextHubOpen, setContextHubOpen] = useState(false);
   const [contextHubInitialLane, setContextHubInitialLane] = useState<ContextHubLane>('hub');
@@ -491,21 +493,23 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         detail: wr.ok ? 'inneranimalmedia.com' : 'Unreachable',
       });
       const sj = await sr.json().catch(() => ({}));
-      const fuseLabel = sj.r2_fuse?.mounted
-        ? `R2 FUSE mounted (${sj.r2_fuse.bucket || 'bucket'})`
-        : sj.r2_fuse_configured
+      const fuseMounted = sj.r2_fuse?.mounted === true;
+      const fuseNeedsRemount =
+        sj.r2_fuse_configured === true && !fuseMounted;
+      // FUSE stays wired in the container — only surface detail when something needs attention.
+      const sandboxDetail =
+        sj.probe?.error ||
+        sj.exec_smoke?.error ||
+        (fuseNeedsRemount
           ? 'R2 FUSE configured — remount after container rebuild'
-          : undefined;
+          : undefined) ||
+        (!fuseMounted && sj.exec_smoke?.stdout?.trim()) ||
+        undefined;
       rows.push({
         id: 'sandbox',
         ok: sr.ok && sj.ok === true,
         label: 'CF sandbox',
-        detail:
-          fuseLabel ||
-          sj.exec_smoke?.stdout?.trim() ||
-          sj.probe?.error ||
-          sj.exec_smoke?.error ||
-          undefined,
+        detail: sandboxDetail,
       });
       const gj = await gr.json().catch(() => ({}));
       rows.push({
@@ -794,6 +798,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, [conversationId]);
 
   useEffect(() => {
+    setMobileThreadTab('chat');
+    setMobileDiffFocusId(null);
+  }, [conversationId]);
+
+  useEffect(() => {
     if (typeof window === 'undefined' || hydratedFromLsRef.current) return;
     hydratedFromLsRef.current = true;
     if (onAgentChatShellNewTab) {
@@ -879,7 +888,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     window.addEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onExternal);
 
     const onMobileCodeFocus = () => {
-      setMobileThreadTab('context');
+      onOpenCodeTab?.();
     };
     window.addEventListener(IAM_AGENT_MOBILE_CODE_FOCUS, onMobileCodeFocus);
     
@@ -941,7 +950,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       window.removeEventListener(IAM_AGENT_CHAT_NEW_THREAD, onNewThreadMessage);
       window.removeEventListener(IAM_AGENT_CHAT_COMPOSE, onCompose);
     };
-  }, [isNarrow, resetFreshChatContext]);
+  }, [isNarrow, resetFreshChatContext, onOpenCodeTab]);
 
   const [pendingToolApproval, setPendingToolApproval] = useState<{
     tool: ToolApprovalPayload;
@@ -1493,7 +1502,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     [onFileSelect],
   );
 
-  const renderThreadHeader = (compact = false, embedded = false) =>
+  const renderThreadHeader = (compact = false, embedded = false, mobileThreadChrome = false) =>
     showThreadHeader ? (
       <>
         <AgentChatThreadHeader
@@ -1509,6 +1518,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           scratchpadOpen={scratchpadOpen}
           compact={compact}
           embedded={embedded}
+          mobileThreadChrome={mobileThreadChrome}
+          onView={mobileThreadChrome ? () => onOpenCodeTab?.() : undefined}
         />
         {scratchpadOpen && isNarrow && !embedded ? (
           <AgentChatFilesPanel
@@ -3179,17 +3190,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   };
 
   const mobileAgentsThread = isNarrow && mobileHubTab === 'agents';
+  const mobileActiveAgentThread = mobileAgentsThread && Boolean(conversationId.trim());
+  const showMobileHubNav = isNarrow && !atmosphericHomeMode && !mobileActiveAgentThread;
   const hubBodyVisible = isNarrow && mobileHubTab !== 'agents';
   const messagesVisible =
     !mobileAgentHomeMode &&
     (!isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat'));
-  const contextTabVisible =
-    isNarrow && mobileHubTab === 'agents' && mobileThreadTab === 'context';
-
-  useEffect(() => {
-    if (!contextTabVisible) return;
-    void refreshRuntimeChecks();
-  }, [contextTabVisible, refreshRuntimeChecks]);
+  const diffTabVisible =
+    isNarrow && mobileHubTab === 'agents' && mobileThreadTab === 'diff';
 
   const composerVisible =
     !isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat');
@@ -3399,7 +3407,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         .chat-hide-scroll::-webkit-scrollbar { display: none; }
       `}</style>
 
-        {isNarrow && !atmosphericHomeMode && (
+        {showMobileHubNav && (
           <header className="grid grid-cols-[1fr_auto] items-center gap-2 px-3 py-2.5 border-b border-[var(--dashboard-border)] shrink-0 bg-[var(--dashboard-panel)] z-10">
             <nav className="flex items-center justify-center gap-2 sm:gap-3 min-w-0 max-w-full overflow-x-auto chat-hide-scroll [scrollbar-width:none]">
               {(['agents', 'automations', 'dashboard'] as const).map((tab) => (
@@ -3426,7 +3434,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
         {isNarrow && mobileAgentsThread && (
           <div className="shrink-0 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] z-10">
-            {renderThreadHeader(true)}
+            {renderThreadHeader(true, false, true)}
             <div className="flex gap-2 px-3 pb-2">
               <button
                 type="button"
@@ -3441,14 +3449,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setMobileThreadTab('context')}
+                onClick={() => setMobileThreadTab('diff')}
                 className={`flex-1 min-w-0 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
-                  mobileThreadTab === 'context'
+                  mobileThreadTab === 'diff'
                     ? 'bg-[var(--scene-bg)] text-[var(--dashboard-text)] border border-[var(--dashboard-border)]'
                     : 'text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] border border-transparent'
                 }`}
               >
-                Context
+                Diff
               </button>
             </div>
             {showHeaderPresence ? (
@@ -3595,6 +3603,15 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             approvalBusy={approvalBusy}
             onApprovePendingTool={() => void handleApprovePendingTool()}
             onDenyPendingTool={() => void handleDenyPendingTool()}
+            mobileEnvelopeDiffs={isNarrow && mobileAgentsThread}
+            onOpenDiffTab={() => {
+              setMobileDiffFocusId(null);
+              setMobileThreadTab('diff');
+            }}
+            onOpenDiffFile={(entryId) => {
+              setMobileDiffFocusId(entryId);
+              setMobileThreadTab('diff');
+            }}
           />
           </>
           );
@@ -3624,90 +3641,15 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           </div>
         ) : null}
 
-        {contextTabVisible && (
-          <div className="order-4 flex-1 min-h-0 overflow-y-auto chat-hide-scroll px-4 py-4 space-y-4 border-t border-[var(--dashboard-border)]">
-            <div className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] p-4 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-[12px] font-semibold text-[var(--text-heading)] uppercase tracking-wide">
-                  Runtime
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => void refreshRuntimeChecks()}
-                  disabled={runtimeChecksLoading}
-                  className="text-[11px] text-[var(--solar-cyan)] hover:underline disabled:opacity-50"
-                >
-                  {runtimeChecksLoading ? 'Checking…' : 'Recheck'}
-                </button>
-              </div>
-              <ul className="space-y-2">
-                {runtimeChecks.map((row) => (
-                  <li
-                    key={row.id}
-                    className="flex items-start justify-between gap-2 text-[12px] border border-[var(--dashboard-border)] rounded-lg px-2.5 py-2"
-                  >
-                    <span className="text-[var(--dashboard-text)]">{row.label}</span>
-                    <span className={row.ok ? 'text-emerald-400' : 'text-amber-400'}>
-                      {row.ok ? 'OK' : 'Fail'}
-                    </span>
-                  </li>
-                ))}
-                {!runtimeChecks.length && !runtimeChecksLoading ? (
-                  <li className="text-[12px] text-[var(--dashboard-muted)]">
-                    Tap Recheck to probe worker, sandbox, Wrangler auth, Gmail.
-                  </li>
-                ) : null}
-              </ul>
-              {runtimeChecks.find((r) => r.id === 'sandbox')?.detail ? (
-                <p className="text-[11px] text-[var(--dashboard-muted)] font-mono break-all">
-                  {runtimeChecks.find((r) => r.id === 'sandbox')?.detail}
-                </p>
-              ) : null}
-              {runtimeChecks.find((r) => r.id === 'wrangler')?.detail ? (
-                <p className="text-[11px] text-[var(--dashboard-muted)] break-words">
-                  {runtimeChecks.find((r) => r.id === 'wrangler')?.detail}
-                </p>
-              ) : null}
-            </div>
-            <div className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] p-4 space-y-3">
-              <h3 className="text-[12px] font-semibold text-[var(--text-heading)] uppercase tracking-wide">Editor</h3>
-              <p className="text-[12px] text-[var(--dashboard-muted)] font-mono break-all">
-                {activeFile ? getEditorDisplayPath(activeFile, activeFileName) : 'No file open'}
-              </p>
-              <button
-                type="button"
-                onClick={() => onOpenCodeTab?.()}
-                className="w-full py-2.5 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[13px] font-medium text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)]"
-              >
-                Open code editor
-              </button>
-            </div>
-            <div className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] p-4 space-y-3">
-              <h3 className="text-[12px] font-semibold text-[var(--text-heading)] uppercase tracking-wide">GitHub</h3>
-              <p className="text-[12px] text-[var(--dashboard-muted)]">
-                {githubRepoContext?.trim()
-                  ? `Selected repo: ${githubRepoContext}`
-                  : 'Pick a repository from the Agents home screen (repo button below the composer).'}
-              </p>
-              <button
-                type="button"
-                onClick={() => openRepoPicker()}
-                className="w-full py-2.5 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[13px] font-medium text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)] flex items-center justify-center gap-2"
-              >
-                <GitBranch size={16} className="text-[var(--solar-cyan)]" />
-                Choose repository for this chat
-              </button>
-              <button
-                type="button"
-                onClick={() => window.open('https://github.com/new', '_blank', 'noopener,noreferrer')}
-                className="w-full py-2.5 rounded-lg border border-[var(--dashboard-border)] text-[13px] font-medium text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)] flex items-center justify-center gap-2"
-              >
-                <ExternalLink size={16} />
-                Create new repo on GitHub
-              </button>
-            </div>
+        {diffTabVisible ? (
+          <div className="order-4 flex flex-col flex-1 min-h-0 overflow-hidden border-t border-[var(--dashboard-border)]">
+            <AgentMobileDiffPanel
+              messages={displayMessages}
+              initialExpandedId={mobileDiffFocusId}
+              onOpenInEditor={(file) => onFileSelect?.(file)}
+            />
           </div>
-        )}
+        ) : null}
 
         {composerVisible && mode === 'plan' && resolvedActivePlanId ? (
           <div className={`${composerFlexOrder} flex-shrink-0 w-full min-w-0 max-w-full px-3 pt-1`}>

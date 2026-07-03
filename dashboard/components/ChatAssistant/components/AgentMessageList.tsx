@@ -37,6 +37,8 @@ import { AgentImageGenerationCard } from '../../../components/AgentImageGenerati
 import { EmailArtifactCard } from '../artifacts/EmailArtifactCard';
 import { ToolApprovalCard } from './ToolApprovalCard';
 import type { ToolApprovalPayload } from '../types';
+import { AgentMobileFilesChangedEnvelope } from './AgentMobileFilesChangedEnvelope';
+import { collectDiffArtifactsFromMessages } from '../lib/collectChatDiffArtifacts';
 
 const ASSISTANT_AVATAR_DARK =
   'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/dbb316af-9c97-4959-f09f-bf58b2783d00/avatar';
@@ -145,6 +147,10 @@ export type AgentMessageListProps = {
   onDenyPendingTool?: () => void;
   /** Mobile agent home renders history elsewhere — skip centered empty state. */
   suppressEmptyPlaceholder?: boolean;
+  /** Mobile thread: envelope file list instead of inline Monaco diff blobs. */
+  mobileEnvelopeDiffs?: boolean;
+  onOpenDiffTab?: () => void;
+  onOpenDiffFile?: (entryId: string) => void;
 };
 
 function renderMessageContent(
@@ -346,10 +352,12 @@ function AssistantPreviewArtifactsBar({
   artifacts,
   onFileSelect,
   onImagePreview,
+  hideInlineDiffs = false,
 }: {
   artifacts: AgentPreviewArtifact[];
   onFileSelect?: AgentMessageListProps['onFileSelect'];
   onImagePreview?: AgentMessageListProps['onImagePreview'];
+  hideInlineDiffs?: boolean;
 }) {
   const diffArts = artifacts.filter(
     (a) => a.kind === 'diff' && typeof a.before === 'string' && typeof a.content === 'string',
@@ -358,7 +366,8 @@ function AssistantPreviewArtifactsBar({
 
   return (
   <>
-      {diffArts.map((a) => (
+      {!hideInlineDiffs
+        ? diffArts.map((a) => (
         <AgentCodeDiffPreview
           key={a.id}
           path={a.path || a.title || a.id}
@@ -372,7 +381,8 @@ function AssistantPreviewArtifactsBar({
             })
           }
         />
-      ))}
+      ))
+        : null}
       {chipArts.length > 0 ? (
         <ArtifactChipList
           artifacts={chipArts}
@@ -522,7 +532,14 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   onApprovePendingTool,
   onDenyPendingTool,
   suppressEmptyPlaceholder = false,
+  mobileEnvelopeDiffs = false,
+  onOpenDiffTab,
+  onOpenDiffFile,
 }) => {
+  const mobileDiffEntries = useMemo(
+    () => (mobileEnvelopeDiffs ? collectDiffArtifactsFromMessages(displayMessages) : []),
+    [mobileEnvelopeDiffs, displayMessages],
+  );
   const inlinePresence = useMemo(
     () =>
       shouldShowInlinePresence({ showInlinePresence, toolTraceRows })
@@ -659,6 +676,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                       )}
                       onFileSelect={onFileSelect}
                       onImagePreview={onImagePreview}
+                      hideInlineDiffs={mobileEnvelopeDiffs}
                     />
                   ) : null}
                   {assistantContent.trim() ? (
@@ -780,6 +798,14 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
           );
         })
       )}
+
+      {mobileEnvelopeDiffs && mobileDiffEntries.length > 0 ? (
+        <AgentMobileFilesChangedEnvelope
+          entries={mobileDiffEntries}
+          onOpenDiffTab={onOpenDiffTab}
+          onOpenDiffFile={onOpenDiffFile}
+        />
+      ) : null}
 
       {activeSubagents.map((row) => (
         <div key={row.id} className="flex justify-start w-full min-w-0">

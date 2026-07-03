@@ -83,6 +83,8 @@ export type DiffViewerProps = {
   className?: string;
   /** Inline chat bubble — ~4 lines around the change hunk */
   compact?: boolean;
+  /** Mobile Diff tab — inline unified diff, word wrap, collapse unchanged regions */
+  mobileInline?: boolean;
 };
 
 export function DiffViewer({
@@ -93,6 +95,7 @@ export function DiffViewer({
   heightPx = 200,
   className = '',
   compact = false,
+  mobileInline = false,
 }: DiffViewerProps) {
   const monacoLang = useMemo(() => monacoLanguage(language, path), [language, path]);
   const display = useMemo(
@@ -125,8 +128,19 @@ export function DiffViewer({
         options={{
           ...buildDiffEditorOptions({ isLarge: false, modifiedEditable: false }),
           readOnly: true,
-          fontSize: 12,
+          fontSize: mobileInline ? 11 : 12,
           padding: { top: 8, bottom: 8 },
+          ...(mobileInline
+            ? {
+                renderSideBySide: false,
+                diffWordWrap: 'on',
+                hideUnchangedRegions: {
+                  enabled: true,
+                  minimumLineCount: 3,
+                  contextLineCount: 2,
+                },
+              }
+            : null),
         }}
       />
     </div>
