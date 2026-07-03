@@ -55,16 +55,38 @@ export function isContainerExecToolName(toolName) {
  * @param {RequestInit} [init]
  */
 async function containerFetch(stub, path, init = {}) {
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), CONTAINER_FETCH_TIMEOUT_MS);
-  try {
-    return await stub.fetch(`http://container${path}`, {
-      ...init,
-      signal: ac.signal,
-    });
-  } finally {
-    clearTimeout(timer);
+  const method = String(init?.method || 'GET').toUpperCase();
+  const isPost = method === 'POST';
+  const maxAttempts = isPost ? 3 : 1;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (attempt > 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+    }
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), CONTAINER_FETCH_TIMEOUT_MS);
+    try {
+      const res = await stub.fetch(`http://container${path}`, {
+        ...init,
+        signal: ac.signal,
+      });
+      if (isPost && res.status >= 500 && attempt < maxAttempts) {
+        continue;
+      }
+      return res;
+    } catch (e) {
+      const msg = String(e?.message || e);
+      const retryable = /abort|timeout|disconnect|VMStopped|suddenly disconnected/i.test(msg);
+      if (isPost && retryable && attempt < maxAttempts) {
+        continue;
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
   }
+
+  throw new Error('container_fetch_exhausted');
 }
 
 /** @param {any} env */

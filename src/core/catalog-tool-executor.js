@@ -1986,6 +1986,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         list_issues: 'github_list_issues',
         get_issue: 'github_get_issue',
         search_code: 'github_search_code',
+        search: 'github_search_code',
         search_issues: 'github_search_issues_prs',
         list_workflow_runs: 'github_list_workflow_runs',
         get_workflow_run: 'github_get_workflow_run',
@@ -2016,6 +2017,21 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       if (!handlerName && toolKey === 'github_create_file') handlerName = 'github_create_file';
       if (!handlerName && toolKey === 'github_repos') handlerName = 'github_repos';
       if (!handlerName && toolKey === 'github_create_pr') handlerName = 'github_create_pr';
+      if (
+        !handlerName &&
+        (toolKey === 'agentsam_github_search' ||
+          toolKey === 'agentsam_github_search_code' ||
+          toolKey === 'github_search')
+      ) {
+        handlerName = 'github_search_code';
+      }
+      if (
+        !handlerName &&
+        (toolKey === 'agentsam_github_search_issues' ||
+          toolKey === 'agentsam_github_search_issues_prs')
+      ) {
+        handlerName = 'github_search_issues_prs';
+      }
       if (!handlerName) {
         result = {
           ok: false,
@@ -2120,8 +2136,11 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       if (out?.success === false || out?.error) {
         result = {
           ok: false,
-          error: String(out?.message || out?.error || 'github_failed'),
-          body: out,
+          error: String(out?.error || out?.message || 'github_failed'),
+          body: {
+            ...out,
+            user_message: out?.user_message || out?.message || null,
+          },
         };
         break;
       }

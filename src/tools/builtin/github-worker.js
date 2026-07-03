@@ -102,14 +102,70 @@ async function ghJson(token, method, path, body) {
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    return {
-      success: false,
-      error: 'github_api_error',
-      status: res.status,
-      message: `GitHub ${method} ${path} → ${res.status}: ${json.message || JSON.stringify(json).slice(0, 200)}`,
-    };
+    return ghFailureFromResponse(res, json, method, path);
   }
   return { success: true, data: json };
+}
+
+const GITHUB_SEARCH_QUALIFIER_RE = /\b(repo:|user:|org:|in:)/i;
+
+function ghRateLimitResetIso(res) {
+  const raw = res.headers.get('X-RateLimit-Reset') || res.headers.get('x-ratelimit-reset');
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return new Date(n * 1000).toISOString();
+}
+
+function ghFailureFromResponse(res, json, method, path) {
+  const msg =
+    json?.message ||
+    (json && typeof json === 'object' ? JSON.stringify(json).slice(0, 200) : String(json || ''));
+  const rateLimited =
+    res.status === 403 && /rate limit exceeded|secondary rate limit/i.test(String(msg));
+  const user_message = rateLimited
+    ? 'GitHub Search API rate limit exceeded (code search: 10/min). Scope with repo:owner/name, prefer github_get_tree or github_list_commits, or retry after rate_limit_reset.'
+    : res.status === 403 && /Resource not accessible by integration/i.test(String(msg))
+      ? 'GitHub token lacks scope for this search. Reconnect GitHub OAuth with repo scope.'
+      : undefined;
+  return {
+    success: false,
+    error: rateLimited ? 'github_rate_limit_exceeded' : 'github_api_error',
+    status: res.status,
+    message: `GitHub ${method} ${path} → ${res.status}: ${msg}`,
+    user_message,
+    rate_limit_reset: rateLimited ? ghRateLimitResetIso(res) : null,
+    documentation_url: json?.documentation_url || null,
+  };
+}
+
+/**
+ * GitHub Search requires qualifiers for code search; unscoped queries burn the 10/min limit.
+ * @param {Record<string, unknown>} params
+ */
+function buildGithubSearchQuery(params) {
+  let q = trim(params.q);
+  const repo = trim(params.repo || params.github_repo);
+  if (!q) {
+    return structuredError(params, 'missing_required_input', 'q is required', { missing: ['q'] });
+  }
+  if (repo && !/\brepo:/i.test(q)) {
+    q = `repo:${repo} ${q}`;
+  }
+  if (!GITHUB_SEARCH_QUALIFIER_RE.test(q)) {
+    return structuredError(
+      params,
+      'github_search_query_too_broad',
+      'GitHub search requires a scoped query (repo:owner/name, user:, org:, or in:).',
+      {
+        user_message: repo
+          ? `Use repo:${repo} <term> or github_get_tree / github_list_commits instead of global search.`
+          : 'Pass repo:owner/name in q or set repo in tool input. Prefer github_get_tree or github_list_commits for repo browsing.',
+        suggested_query: repo ? `repo:${repo} ${trim(params.q)}` : null,
+      },
+    );
+  }
+  return { success: true, q };
 }
 
 async function ghText(token, method, path, accept) {
@@ -649,23 +705,35 @@ export const handlers = {
   async github_search_code(params, env) {
     const missing = missingNonEmptyStrings(params, ['user_id', 'q']);
     if (missing.length) return missingRequiredInput(params, missing);
-    const q = String(params.q).trim();
+    const built = buildGithubSearchQuery(params);
+    if (built.success === false || built.error) return { ...built, ...toolMeta(params) };
     const t = await ghGetToken(env, params);
     if (t.success === false || t.error) return t;
-    const res = await ghJson(t.token, 'GET', `/search/code?q=${encodeURIComponent(q)}`, null);
-    if (res?.success === false) return { ...res, ...toolMeta(params) };
-    return { success: true, results: res.data };
+    const res = await ghJson(
+      t.token,
+      'GET',
+      `/search/code?q=${encodeURIComponent(built.q)}`,
+      null,
+    );
+    if (res?.success === false) return { ...res, ...toolMeta(params), query: built.q };
+    return { success: true, query: built.q, results: res.data };
   },
 
   async github_search_issues_prs(params, env) {
     const missing = missingNonEmptyStrings(params, ['user_id', 'q']);
     if (missing.length) return missingRequiredInput(params, missing);
-    const q = String(params.q).trim();
+    const built = buildGithubSearchQuery(params);
+    if (built.success === false || built.error) return { ...built, ...toolMeta(params) };
     const t = await ghGetToken(env, params);
     if (t.success === false || t.error) return t;
-    const res = await ghJson(t.token, 'GET', `/search/issues?q=${encodeURIComponent(q)}`, null);
-    if (res?.success === false) return { ...res, ...toolMeta(params) };
-    return { success: true, results: res.data };
+    const res = await ghJson(
+      t.token,
+      'GET',
+      `/search/issues?q=${encodeURIComponent(built.q)}`,
+      null,
+    );
+    if (res?.success === false) return { ...res, ...toolMeta(params), query: built.q };
+    return { success: true, query: built.q, results: res.data };
   },
 
   async github_list_branches(params, env) {
