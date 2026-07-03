@@ -32,7 +32,7 @@ import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
 import { BrowserLiveTimeline } from './BrowserLiveTimeline';
 import { useAgentLiveBrowserWs } from '../hooks/useAgentLiveBrowserWs';
 import { applyBrowserRunLiveViewMode, resolveLiveViewMode } from '../lib/browserLiveViewUrl';
-import { originRequiresBrowserRunEmbed } from '../src/lib/browserEmbedPolicy';
+import { originRequiresBrowserRunEmbed, resolveEmbedModeRemote } from '../src/lib/browserEmbedPolicy';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
