@@ -145,26 +145,21 @@ export async function runPlaywrightScreenshotJob(env, opts) {
 }
 
 /**
- * Playwright Service Integration.
- * Handles browser rendering, screenshots, and job tracking via @cloudflare/playwright.
- */
-
-/**
  * Handle Browser-related API requests (/api/browser/*).
+ *
+ * IMPORTANT: The MYBROWSER binding (Cloudflare Browser Rendering / @cloudflare/playwright)
+ * is ONLY required for /api/browser/screenshot and /api/browser/invoke.
+ * ALL other routes — /api/browser/session, /api/browser/live/*, /api/browser/run/* —
+ * use either the Cloudflare Browser Run REST API or the AgentBrowserLiveV1 DO and
+ * must NOT be gated on env.MYBROWSER.
  */
 export async function handleBrowserRequest(request, url, env) {
-    if (!env.MYBROWSER) {
-        return jsonResponse({
-            error: 'MYBROWSER binding not configured',
-            hint: 'Add Browser rendering binding in Cloudflare dashboard and wrangler.toml'
-        }, 503);
-    }
-
     const pathLower = url.pathname.toLowerCase();
     const pathNorm = pathLower.replace(/\/$/, '') || '/';
     const method = request.method.toUpperCase();
 
     // ── GET /api/browser/live/ws?agent_run_id= — WebSocket live browser state ─
+    // Routes to AgentBrowserLiveV1 DO — no MYBROWSER needed.
     if (pathNorm === '/api/browser/live/ws' && request.headers.get('Upgrade') === 'websocket') {
         const authUser = await getAuthUser(request, env);
         if (!authUser?.id) return new Response('Unauthorized', { status: 401 });
@@ -172,10 +167,14 @@ export async function handleBrowserRequest(request, url, env) {
         if (!agentRunId) return new Response('agent_run_id required', { status: 400 });
         const access = await assertAgentRunAccess(env, agentRunId, String(authUser.id));
         if (!access.ok) return new Response(access.error || 'Forbidden', { status: access.status || 403 });
+        if (!env.BROWSER_SESSION) {
+            return new Response('BROWSER_SESSION Durable Object not configured', { status: 503 });
+        }
         return proxyBrowserLiveWebSocket(env, agentRunId, request);
     }
 
     // ── GET /api/browser/live/:agentRunId/live-url — refresh via DO ───────────
+    // No MYBROWSER needed.
     const liveUrlByRunMatch = pathNorm.match(/^\/api\/browser\/live\/([^/]+)\/live-url$/);
     if (liveUrlByRunMatch && method === 'GET') {
         const authUser = await getAuthUser(request, env);
@@ -189,6 +188,7 @@ export async function handleBrowserRequest(request, url, env) {
     }
 
     // ── GET /api/browser/live/:agentRunId/events — timeline outbox ───────────
+    // No MYBROWSER needed.
     const liveEventsMatch = pathNorm.match(/^\/api\/browser\/live\/([^/]+)\/events$/);
     if (liveEventsMatch && method === 'GET') {
         const authUser = await getAuthUser(request, env);
@@ -202,6 +202,7 @@ export async function handleBrowserRequest(request, url, env) {
     }
 
     // ── GET /api/browser/live/:agentRunId/health — DO health probe ───────────
+    // No MYBROWSER needed.
     const liveHealthMatch = pathNorm.match(/^\/api\/browser\/live\/([^/]+)\/health$/);
     if (liveHealthMatch && method === 'GET') {
         const authUser = await getAuthUser(request, env);
@@ -214,6 +215,7 @@ export async function handleBrowserRequest(request, url, env) {
     }
 
     // ── GET /api/browser/live/:agentRunId — full live session snapshot ─────────
+    // No MYBROWSER needed.
     const liveSessionMatch = pathNorm.match(/^\/api\/browser\/live\/([^/]+)$/);
     if (liveSessionMatch && method === 'GET') {
         const authUser = await getAuthUser(request, env);
@@ -226,80 +228,8 @@ export async function handleBrowserRequest(request, url, env) {
         return jsonResponse({ ok: true, live_session: session, agent_run_id: agentRunId });
     }
 
-    // ── GET /api/browser/screenshot ──────────────────────────────────────────
-    if (pathLower === '/api/browser/screenshot' && method === 'GET') {
-        const targetUrl = url.searchParams.get('url');
-        if (!targetUrl) return jsonResponse({ error: 'url required' }, 400);
-
-        const authUser = await getAuthUser(request, env);
-        if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
-        try {
-            await assertBrowserRunTargetAllowed(env, {
-                userId: String(authUser.id),
-                workspaceId: request.headers.get('x-iam-workspace-id') || null,
-                url: targetUrl,
-            });
-        } catch (e) {
-            return jsonResponse({ error: String(e?.message || e) }, 403);
-        }
-
-        const forceRefresh = url.searchParams.get('refresh') === 'true';
-        const bucket = screenshotR2Bucket(env);
-        const objectKey = await browserScreenshotCacheKey(targetUrl);
-
-        if (!forceRefresh && bucket) {
-            try {
-                const cached = await bucket.get(objectKey);
-                if (cached?.body) {
-                    return new Response(cached.body, {
-                        headers: {
-                            'Content-Type': 'image/jpeg',
-                            'Cache-Control': 'public, max-age=86400',
-                            'X-Cache': 'HIT',
-                            'X-Storage': 'r2',
-                            'X-R2-Key': objectKey,
-                        },
-                    });
-                }
-            } catch {
-                /* miss — capture below */
-            }
-        }
-
-        try {
-            const { launch } = await import('@cloudflare/playwright');
-            const browser = await launch(env.MYBROWSER);
-            const page = await browser.newPage();
-            await page.setViewportSize({ width: 1280, height: 800 });
-            try {
-                await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 30000 });
-            } catch {
-                await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-            }
-            const buf = await page.screenshot({ type: 'jpeg', quality: 80 });
-            await browser.close();
-
-            if (bucket && buf) {
-                bucket
-                    .put(objectKey, buf, { httpMetadata: { contentType: 'image/jpeg' } })
-                    .catch(() => {});
-            }
-
-            return new Response(buf, {
-                headers: {
-                    'Content-Type': 'image/jpeg',
-                    'Cache-Control': 'public, max-age=86400',
-                    'X-Cache': 'MISS',
-                    'X-Storage': 'r2',
-                    'X-R2-Key': objectKey,
-                },
-            });
-        } catch (e) {
-            return jsonResponse({ error: 'Screenshot failed', detail: e.message }, 500);
-        }
-    }
-
     // ── GET /api/browser/session/:sessionId/live-url — refresh devtoolsFrontendUrl ─
+    // Uses CF Browser Run REST API — no MYBROWSER needed.
     const liveUrlMatch = pathNorm.match(/^\/api\/browser\/session\/([^/]+)\/live-url$/);
     if (liveUrlMatch && method === 'GET') {
         const authUser = await getAuthUser(request, env);
@@ -333,6 +263,7 @@ export async function handleBrowserRequest(request, url, env) {
     }
 
     // ── POST /api/browser/session/human-resume — human clicked Continue (HITL) ─
+    // Routes to AgentBrowserLiveV1 DO — no MYBROWSER needed.
     if (pathNorm === '/api/browser/session/human-resume' && method === 'POST') {
         const authUser = await getAuthUser(request, env);
         if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -355,6 +286,7 @@ export async function handleBrowserRequest(request, url, env) {
     }
 
     // ── POST /api/browser/session/human-cancel — user cancelled HITL ───────────
+    // Routes to AgentBrowserLiveV1 DO — no MYBROWSER needed.
     if (pathNorm === '/api/browser/session/human-cancel' && method === 'POST') {
         const authUser = await getAuthUser(request, env);
         if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -375,7 +307,8 @@ export async function handleBrowserRequest(request, url, env) {
         return jsonResponse(out, out.ok ? 200 : out.status || 400);
     }
 
-    // ── POST /api/browser/session/close — end run-scoped MYBROWSER session (KV) ─
+    // ── POST /api/browser/session/close — end run-scoped MYBROWSER session ─
+    // Routes to DO or KV — no MYBROWSER needed.
     if (pathNorm === '/api/browser/session/close' && method === 'POST') {
         const authUser = await getAuthUser(request, env);
         if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -401,6 +334,7 @@ export async function handleBrowserRequest(request, url, env) {
     }
 
     // ── POST /api/browser/session — Browser Run Live View (live.browser.run embed) ─
+    // Uses Cloudflare Browser Run REST API + AgentBrowserLiveV1 DO — no MYBROWSER needed.
     if (pathNorm === '/api/browser/session' && method === 'POST') {
         const authUser = await getAuthUser(request, env);
         if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -489,11 +423,11 @@ export async function handleBrowserRequest(request, url, env) {
             url: out.url,
             title: out.title ?? null,
             target_id: out.target_id ?? null,
-            ...(agentRunId ? { agent_run_id: agentRunId } : {}),
         });
     }
 
     // ── DELETE /api/browser/session — release Browser Run CDP session ─────────
+    // Uses CF Browser Run REST API — no MYBROWSER needed.
     if (pathNorm === '/api/browser/session' && method === 'DELETE') {
         const authUser = await getAuthUser(request, env);
         if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -514,6 +448,96 @@ export async function handleBrowserRequest(request, url, env) {
             return jsonResponse({ error: out.error || 'Failed to close Browser Run session' }, 502);
         }
         return jsonResponse({ ok: true, session_id: sessionId, status: out.status ?? 'closing' });
+    }
+
+    // ── /api/browser/run/:action (Browser Run Quick Actions) ─────────────────
+    // Quick actions may or may not use MYBROWSER; each fn checks internally.
+    if (/^\/api\/browser\/run\/[^/]+\/?$/i.test(pathNorm)) {
+        const { handleBrowserRunQuickActionsRoute } = await import('../api/browser-run-quickactions-route.js');
+        return handleBrowserRunQuickActionsRoute(request, url, env);
+    }
+
+    // ── Routes below this line require MYBROWSER binding ─────────────────────
+
+    if (!env.MYBROWSER) {
+        return jsonResponse({
+            error: 'MYBROWSER binding not configured',
+            hint: 'Add Browser Rendering binding in Cloudflare dashboard and wrangler.production.toml',
+            path: url.pathname,
+        }, 503);
+    }
+
+    // ── GET /api/browser/screenshot ──────────────────────────────────────────
+    if (pathLower === '/api/browser/screenshot' && method === 'GET') {
+        const targetUrl = url.searchParams.get('url');
+        if (!targetUrl) return jsonResponse({ error: 'url required' }, 400);
+
+        const authUser = await getAuthUser(request, env);
+        if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
+        try {
+            await assertBrowserRunTargetAllowed(env, {
+                userId: String(authUser.id),
+                workspaceId: request.headers.get('x-iam-workspace-id') || null,
+                url: targetUrl,
+            });
+        } catch (e) {
+            return jsonResponse({ error: String(e?.message || e) }, 403);
+        }
+
+        const forceRefresh = url.searchParams.get('refresh') === 'true';
+        const bucket = screenshotR2Bucket(env);
+        const objectKey = await browserScreenshotCacheKey(targetUrl);
+
+        if (!forceRefresh && bucket) {
+            try {
+                const cached = await bucket.get(objectKey);
+                if (cached?.body) {
+                    return new Response(cached.body, {
+                        headers: {
+                            'Content-Type': 'image/jpeg',
+                            'Cache-Control': 'public, max-age=86400',
+                            'X-Cache': 'HIT',
+                            'X-Storage': 'r2',
+                            'X-R2-Key': objectKey,
+                        },
+                    });
+                }
+            } catch {
+                /* miss — capture below */
+            }
+        }
+
+        try {
+            const { launch } = await import('@cloudflare/playwright');
+            const browser = await launch(env.MYBROWSER);
+            const page = await browser.newPage();
+            await page.setViewportSize({ width: 1280, height: 800 });
+            try {
+                await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 30000 });
+            } catch {
+                await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+            }
+            const buf = await page.screenshot({ type: 'jpeg', quality: 80 });
+            await browser.close();
+
+            if (bucket && buf) {
+                bucket
+                    .put(objectKey, buf, { httpMetadata: { contentType: 'image/jpeg' } })
+                    .catch(() => {});
+            }
+
+            return new Response(buf, {
+                headers: {
+                    'Content-Type': 'image/jpeg',
+                    'Cache-Control': 'public, max-age=86400',
+                    'X-Cache': 'MISS',
+                    'X-Storage': 'r2',
+                    'X-R2-Key': objectKey,
+                },
+            });
+        } catch (e) {
+            return jsonResponse({ error: 'Screenshot failed', detail: e.message }, 500);
+        }
     }
 
     // ── POST /api/browser/invoke — session auth; MYBROWSER tools (no MCP hop) ─
