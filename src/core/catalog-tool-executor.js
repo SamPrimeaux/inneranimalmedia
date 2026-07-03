@@ -1513,32 +1513,25 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       const responseWorkspaceRoot = gcpExec
         ? (await import('./host-workspace-paths.js')).IAM_GCP_OPERATOR_REPO
         : workspaceRoot;
-      // In-process control plane — never HTTP loopback to /api/agent/terminal/run during chat SSE (Worker deadlock).
-      let out;
-      try {
-        const { runTerminalCommand } = await import('./terminal.js');
-        const runRes = await runTerminalCommand(
-          env,
-          runContext?.request ?? null,
-          cmd,
-          params.session_id ?? runContext?.sessionId ?? runContext?.session_id ?? null,
-          {
-            execution_mode: 'pty',
-            workspace_id: workspaceId,
-            tool_name: toolKey,
-            ...(remoteTargetId ? { target_id: remoteTargetId } : {}),
-            ...(routing.target_type ? { target_type: routing.target_type } : {}),
-          },
-        );
-        out = {
-          output: runRes.output,
-          command: runRes.command || cmd,
-          exit_code: runRes.exitCode ?? runRes.exit_code ?? 0,
-          status: 'success',
-        };
-      } catch (termErr) {
-        out = { error: `Terminal Error: ${termErr?.message || termErr}` };
-      }
+      // In-process control plane — shared terminal handler (no Worker HTTP loopback).
+      const out = await (
+        await import('./terminal-handler-run.js')
+      ).executeTerminalHandlerRun(
+        env,
+        {
+          command: cmd,
+          request: runContext?.request ?? null,
+          session_id: params.session_id ?? runContext?.sessionId ?? runContext?.session_id ?? null,
+          workspace_id: workspaceId,
+          tool_name: toolKey,
+          user_id: userId,
+          client_surface: runContext?.client_surface ?? runContext?.clientSurface ?? null,
+          exec_lane: runContext?.exec_lane ?? runContext?.execLane ?? null,
+          ...(remoteTargetId ? { target_id: remoteTargetId } : {}),
+          ...(routing.target_type ? { target_type: routing.target_type } : {}),
+        },
+        runContext,
+      );
       if (out?.error) {
         const errText = String(out.error);
         result = {

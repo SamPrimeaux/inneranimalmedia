@@ -3,75 +3,17 @@
  * Allows the agent to run shell commands in the workspace PTY.
  */
 
-import { wrapShellCommandWithPath } from '../core/mcp-terminal-contract.js';
-import { resolveTerminalExecRouting } from '../core/terminal-routing-policy.js';
+import { executeTerminalHandlerRun } from '../core/terminal-handler-run.js';
 
 export const handlers = {
   /**
    * run_command: Execute a single shell command and return the output.
+   * @param {Record<string, unknown>} params
+   * @param {any} env
+   * @param {Record<string, unknown>} [runContext]
    */
-  async run_command(
-    {
-      command,
-      request,
-      session_id,
-      sessionId,
-      workspace_id,
-      workspaceId,
-      path,
-      cwd,
-      target_id,
-      target_type,
-      tool_name,
-      toolName,
-    },
-    env,
-  ) {
-    try {
-      const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
-      const headers = { 'Content-Type': 'application/json' };
-      const cookie = request?.headers?.get?.('Cookie');
-      if (cookie) headers.Cookie = cookie;
-      const sid = session_id || sessionId || env.PTY_SESSION_ID || null;
-      const workDir = String(path || cwd || '').trim();
-      let runCommand = typeof command === 'string' ? command.trim() : '';
-      if (workDir) runCommand = wrapShellCommandWithPath(workDir, runCommand);
-      const routing = resolveTerminalExecRouting({
-        tool_name: tool_name || toolName,
-        target_id,
-        target_type,
-      });
-      // CF Workers: forward session cookie so /api/agent/terminal/run resolves the same user/workspace.
-      const wid =
-        workspace_id ??
-        workspaceId ??
-        null;
-      const res = await fetch(`${origin}/api/agent/terminal/run`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          command: runCommand,
-          session_id: sid,
-          ...(wid ? { workspace_id: String(wid).trim() } : {}),
-          ...(routing.target_id ? { target_id: routing.target_id } : {}),
-          ...(routing.target_type ? { target_type: routing.target_type } : {}),
-          ...(tool_name || toolName ? { tool_name: String(tool_name || toolName).trim() } : {}),
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'PTY Error');
-
-      return {
-        output: data.output || '(no output)',
-        command: data.command || runCommand,
-        exit_code: data.exit_code ?? data.exitCode ?? null,
-        cwd: workDir || null,
-        status: 'success',
-      };
-    } catch (e) {
-      return { error: `Terminal Error: ${e.message}` };
-    }
+  async run_command(params, env, runContext = {}) {
+    return executeTerminalHandlerRun(env, params, runContext);
   },
 };
 
