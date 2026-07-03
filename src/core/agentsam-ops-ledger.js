@@ -5,8 +5,9 @@
  * Re-exports scheduleAgentsamErrorLog from agentsam-error-log.js (canonical).
  * Does not replace MCP ledgers: tool_invocations, agentsam_mcp_tool_execution, otlp_traces.
  *
- * web_fetch gating: use assertFetchDomainAllowed (auth.js) + agentsam_fetch_domain_allowlist.
- * Browser automation: use assertBrowserTrustedOrigin (this module) → agentsam_browser_trusted_origin.
+ * web_fetch gating: assertFetchDomainAllowed (auth.js) → agentsam_fetch_domain_allowlist.
+ * Browser automation: assertBrowserTrustedOrigin → agentsam_browser_trusted_origin.
+ * Tool execution: findMcpAllowlistMatch (agent-policy.js) → agentsam_mcp_allowlist.
  */
 
 import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';

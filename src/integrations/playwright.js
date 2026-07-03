@@ -1,5 +1,5 @@
 import { jsonResponse } from '../core/responses.js';
-import { getAuthUser } from '../core/auth.js';
+import { getAuthUser, assertFetchDomainAllowed } from '../core/auth.js';
 import { assertBrowserTrustedOrigin } from '../core/agentsam-ops-ledger.js';
 import { handlePlaywrightQueueJob } from '../queue/playwright-queue-job.js';
 import { runBrowserBuiltinTool, closeBrowserRunSession, resolveBrowserRunScopeId, resolveBrowserToolUrl } from './browser-cdp.js';
@@ -35,6 +35,20 @@ import {
     openBrowserRunLiveView,
     deleteBrowserRunSession as deleteCfBrowserRunSession,
 } from './browser-run-session.js';
+
+/**
+ * Browser Run HTTP boundary — existing D1 allowlist tables:
+ *   agentsam_browser_trusted_origin (embed/trust modal)
+ *   agentsam_fetch_domain_allowlist (hostname fetch gate)
+ * Tool execution still intersects agentsam_mcp_allowlist via agent-policy.
+ */
+async function assertBrowserRunTargetAllowed(env, { userId, workspaceId, url }) {
+    await assertBrowserTrustedOrigin(env, { userId, workspaceId, origin: url });
+    const fetchGate = await assertFetchDomainAllowed(env, userId, workspaceId, url);
+    if (!fetchGate.ok) {
+        throw new Error(fetchGate.error || 'Domain not in your fetch allowlist');
+    }
+}
 
 /**
  * Shared screenshot job runner (POST /api/playwright/screenshot and agent builtin tools).
@@ -220,10 +234,10 @@ export async function handleBrowserRequest(request, url, env) {
         const authUser = await getAuthUser(request, env);
         if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
         try {
-            await assertBrowserTrustedOrigin(env, {
+            await assertBrowserRunTargetAllowed(env, {
                 userId: String(authUser.id),
-                workspaceId: null,
-                origin: targetUrl,
+                workspaceId: request.headers.get('x-iam-workspace-id') || null,
+                url: targetUrl,
             });
         } catch (e) {
             return jsonResponse({ error: String(e?.message || e) }, 403);
@@ -407,10 +421,10 @@ export async function handleBrowserRequest(request, url, env) {
                 : request.headers.get('x-iam-workspace-id') || null;
 
         try {
-            await assertBrowserTrustedOrigin(env, {
+            await assertBrowserRunTargetAllowed(env, {
                 userId: String(authUser.id),
                 workspaceId,
-                origin: targetUrl,
+                url: targetUrl,
             });
         } catch (e) {
             return jsonResponse({ error: String(e?.message || e), blocked: true }, 403);
@@ -527,14 +541,15 @@ export async function handleBrowserRequest(request, url, env) {
         const targetUrl =
             params.url ?? params.origin ?? params.href ?? params.target_url ?? params.page_url;
         if (targetUrl) {
+            const ws =
+                params.workspace_id != null
+                    ? String(params.workspace_id).trim()
+                    : request.headers.get('x-iam-workspace-id') || null;
             try {
-                await assertBrowserTrustedOrigin(env, {
+                await assertBrowserRunTargetAllowed(env, {
                     userId: String(authUser.id),
-                    workspaceId:
-                        params.workspace_id != null
-                            ? String(params.workspace_id).trim()
-                            : request.headers.get('x-iam-workspace-id') || null,
-                    origin: targetUrl,
+                    workspaceId: ws,
+                    url: targetUrl,
                 });
             } catch (e) {
                 return jsonResponse({ error: String(e?.message || e), blocked: true }, 403);
@@ -590,13 +605,13 @@ export async function handlePlaywrightJobApi(request, env, url) {
         if (!targetUrl) return jsonResponse({ error: 'url required' }, 400);
 
         try {
-            await assertBrowserTrustedOrigin(env, {
+            await assertBrowserRunTargetAllowed(env, {
                 userId: String(authUser.id),
                 workspaceId:
                     body.workspace_id != null && String(body.workspace_id).trim()
                         ? String(body.workspace_id).trim()
-                        : null,
-                origin: targetUrl,
+                        : request.headers.get('x-iam-workspace-id') || null,
+                url: targetUrl,
             });
         } catch (e) {
             return jsonResponse({ error: String(e?.message || e) }, 403);

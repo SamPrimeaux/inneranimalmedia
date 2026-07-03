@@ -2,6 +2,7 @@
  * GET/POST/DELETE /api/agentsam/browser/trust — per-user browser origin trust gate (D1).
  */
 import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { lookupBrowserTrustedOrigin } from '../core/browser-trust-resolve.js';
 
 export async function handleBrowserTrust(request, env) {
   const user = await getAuthUser(request, env);
@@ -33,12 +34,12 @@ export async function handleBrowserTrust(request, env) {
   if (method === 'GET') {
     const origin = url.searchParams.get('origin');
     if (!origin) return jsonResponse({ trusted: false, trust_scope: null });
-    const row = await env.DB.prepare(
-      'SELECT trust_scope FROM agentsam_browser_trusted_origin WHERE workspace_id = ? AND user_id = ? AND origin = ?',
-    )
-      .bind(workspaceId, userId, origin)
-      .first();
-    return jsonResponse({ trusted: !!row, trust_scope: row?.trust_scope ?? null });
+    const row = await lookupBrowserTrustedOrigin(env, { userId, workspaceId, origin });
+    return jsonResponse({
+      trusted: !!row,
+      trust_scope: row?.trust_scope ?? null,
+      skip_approval: row != null && String(row.trust_scope || '').toLowerCase() === 'persistent',
+    });
   }
 
   if (method === 'POST') {
@@ -48,9 +49,15 @@ export async function handleBrowserTrust(request, env) {
     } catch (_) {
       body = {};
     }
-    const origin = body.origin != null ? String(body.origin).trim() : '';
+    const originRaw = body.origin != null ? String(body.origin).trim() : '';
     const trust_scope = body.trust_scope != null ? String(body.trust_scope) : (body.scope != null ? String(body.scope) : 'persistent');
-    if (!origin) return jsonResponse({ error: 'origin required' }, 400);
+    if (!originRaw) return jsonResponse({ error: 'origin required' }, 400);
+    let origin = originRaw;
+    try {
+      origin = new URL(originRaw.startsWith('http') ? originRaw : `https://${originRaw}`).origin;
+    } catch {
+      /* keep raw */
+    }
     await env.DB.prepare(
       `INSERT INTO agentsam_browser_trusted_origin
         (workspace_id, user_id, origin, trust_scope, created_at, updated_at)
@@ -61,7 +68,7 @@ export async function handleBrowserTrust(request, env) {
     )
       .bind(workspaceId, userId, origin, trust_scope)
       .run();
-    return jsonResponse({ ok: true });
+    return jsonResponse({ ok: true, origin, trust_scope });
   }
 
   if (method === 'DELETE') {

@@ -32,6 +32,7 @@ import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
 import { BrowserLiveTimeline } from './BrowserLiveTimeline';
 import { useAgentLiveBrowserWs } from '../hooks/useAgentLiveBrowserWs';
 import { applyBrowserRunLiveViewMode, resolveLiveViewMode } from '../lib/browserLiveViewUrl';
+import { originRequiresBrowserRunEmbed } from '../src/lib/browserEmbedPolicy';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -229,17 +230,32 @@ function browserTrustHeaders(workspaceId?: string | null): Record<string, string
   return headers;
 }
 
-async function checkTrust(origin: string, workspaceId?: string | null): Promise<boolean> {
+type TrustCheckResult = {
+  trusted: boolean;
+  trust_scope: string | null;
+  skip_approval: boolean;
+};
+
+async function checkTrust(origin: string, workspaceId?: string | null): Promise<TrustCheckResult> {
   try {
     const r = await fetch(`/api/agentsam/browser/trust?origin=${encodeURIComponent(origin)}`, {
       credentials: 'same-origin',
       headers: browserTrustHeaders(workspaceId),
     });
-    if (!r.ok) return false;
-    const d = await r.json().catch(() => ({}));
-    return !!d.trusted;
+    if (!r.ok) return { trusted: false, trust_scope: null, skip_approval: false };
+    const d = await r.json().catch(() => ({})) as {
+      trusted?: boolean;
+      trust_scope?: string | null;
+      skip_approval?: boolean;
+    };
+    const trusted = !!d.trusted;
+    const trust_scope = d.trust_scope ?? null;
+    const skip_approval =
+      d.skip_approval === true ||
+      (trusted && String(trust_scope || '').toLowerCase() === 'persistent');
+    return { trusted, trust_scope, skip_approval };
   } catch {
-    return false;
+    return { trusted: false, trust_scope: null, skip_approval: false };
   }
 }
 
@@ -1940,11 +1956,17 @@ const BrowserPane: React.FC<PaneProps> = ({
       const d = (e as CustomEvent<{ origin?: string; url?: string }>).detail;
       const raw = d?.url || d?.origin;
       if (!raw || typeof raw !== 'string') return;
-      void requestTrust(raw).then((scope) => {
-        if (!scope) return;
-        const o = originOf(raw);
-        if (scope === 'persistent') void writeTrust(o, 'persistent', trustWorkspaceId);
-        setSessionTrusted((prev) => new Set([...prev, o]));
+      const o = originOf(raw);
+      void checkTrust(o, trustWorkspaceId).then((trust) => {
+        if (trust.skip_approval || trust.trusted) {
+          setSessionTrusted((prev) => new Set([...prev, o]));
+          return;
+        }
+        void requestTrust(raw).then((scope) => {
+          if (!scope) return;
+          if (scope === 'persistent') void writeTrust(o, 'persistent', trustWorkspaceId);
+          setSessionTrusted((prev) => new Set([...prev, o]));
+        });
       });
     };
     window.addEventListener('iam-browser-trust-required', onTrustRequired);
@@ -2261,8 +2283,8 @@ const BrowserPane: React.FC<PaneProps> = ({
       const n = normalize(url);
       const origin = originOf(n);
       if (sessionTrusted.has(origin)) return true;
-      const trusted = await checkTrust(origin, trustWorkspaceId);
-      if (trusted) {
+      const trust = await checkTrust(origin, trustWorkspaceId);
+      if (trust.skip_approval || trust.trusted) {
         setSessionTrusted((prev) => new Set([...prev, origin]));
         return true;
       }
@@ -2285,13 +2307,19 @@ const BrowserPane: React.FC<PaneProps> = ({
       await loadRegistryPickersIfNeeded();
       const n = normalize(s);
       if (!(await ensureOriginTrust(n))) return;
+      const requiresBrowserRun = originRequiresBrowserRunEmbed(n);
       const isPassiveEditorUrl =
-        previewSource === 'editor' ||
+        !requiresBrowserRun &&
+        (previewSource === 'editor' ||
         /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i.test(n) ||
-        n.startsWith('blob:');
-      if (opts?.agentLive === false && opts?.automation === false) {
+        n.startsWith('blob:'));
+      if (opts?.agentLive === false && opts?.automation === false && !requiresBrowserRun) {
         setViewSurface('preview');
         await openPassiveIframeView(raw);
+        return;
+      }
+      if (requiresBrowserRun && opts?.agentLive !== false && opts?.automation !== true) {
+        await openBrowserRunLiveView(n);
         return;
       }
       const useAgentLive =
@@ -2317,6 +2345,7 @@ const BrowserPane: React.FC<PaneProps> = ({
       loadAutomationPreview,
       loadRegistryPickersIfNeeded,
       openAgentLiveSession,
+      openBrowserRunLiveView,
       openPassiveIframeView,
       previewSource,
     ],
@@ -2329,18 +2358,24 @@ const BrowserPane: React.FC<PaneProps> = ({
     if (!initialUrl?.trim()) return;
     const n = normalize(initialUrl);
     if (n === currentUrlRef.current) return;
+    const requiresBrowserRun = originRequiresBrowserRunEmbed(n);
     const passiveEditor =
-      previewSource === 'editor' ||
+      !requiresBrowserRun &&
+      (previewSource === 'editor' ||
       /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i.test(n) ||
-      n.startsWith('blob:');
+      n.startsWith('blob:'));
     void navigateRef.current(n, {
       preview: initialPreview?.screenshot_url ? initialPreview : null,
-      automation: passiveEditor
+      automation: requiresBrowserRun
         ? false
-        : initialAutomation === true || Boolean(initialPreview?.screenshot_url),
-      agentLive: passiveEditor
-        ? false
-        : initialAgentLive === true || Boolean(agentRunId?.trim()),
+        : passiveEditor
+          ? false
+          : initialAutomation === true || Boolean(initialPreview?.screenshot_url),
+      agentLive: requiresBrowserRun
+        ? true
+        : passiveEditor
+          ? false
+          : initialAgentLive === true || Boolean(agentRunId?.trim()),
     });
   }, [initialUrl, initialPreview, initialAutomation, initialAgentLive, previewSource, agentRunId]);
 

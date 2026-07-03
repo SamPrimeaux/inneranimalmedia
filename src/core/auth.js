@@ -38,6 +38,7 @@ import {
   invalidateFeatureFlagsCache,
   invalidateGlobalFeatureFlagsCache,
 } from './auth/feature-flags-cache.js';
+import { lookupBrowserTrustedOrigin } from './browser-trust-resolve.js';
 
 export {
   buildSessionSetCookieHeader,
@@ -377,7 +378,11 @@ export async function assertBrowserOriginTrusted(env, opts) {
   const trusted = rows.results || [];
   if (trusted.length === 0) return;
 
-  const match = trusted.find((r) => String(r.origin || '') === parsedOrigin);
+  const match = await lookupBrowserTrustedOrigin(env, {
+    userId,
+    workspaceId: ws,
+    origin: parsedOrigin,
+  });
 
   if (!match) {
     throw new Error(
