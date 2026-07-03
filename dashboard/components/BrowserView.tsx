@@ -2237,7 +2237,7 @@ const BrowserPane: React.FC<PaneProps> = ({
           setScreenshotUrl(screenshot_url);
         } else {
           setNavigateError('Automation finished but no screenshot_url was returned');
-          await openPassiveIframeView(resolvedUrl);
+          await fallbackFromAutomation(resolvedUrl);
         }
       } catch (e) {
         setNavigateError(String(e));
