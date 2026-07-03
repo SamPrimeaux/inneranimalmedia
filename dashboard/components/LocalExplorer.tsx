@@ -254,6 +254,8 @@ export type LocalExplorerProps = {
     onClose?: () => void;
     /** Accordion (legacy) vs unified AgentSamFilesystem tabs. Default unified on agent editor. */
     presentation?: 'accordion' | 'unified';
+    /** Workspace-linked GitHub repo for React source tab. */
+    pinnedGithubRepo?: string | null;
 };
 
 export const LocalExplorer: React.FC<LocalExplorerProps> = ({
@@ -265,6 +267,7 @@ export const LocalExplorer: React.FC<LocalExplorerProps> = ({
     user_id = null,
     onClose,
     presentation = 'unified',
+    pinnedGithubRepo = null,
 }) => {
     const [rootDir, setRootDir] = useState<LocalFileNode | null>(null);
     /**
@@ -1055,6 +1058,7 @@ export const LocalExplorer: React.FC<LocalExplorerProps> = ({
                 r2UploadRef={r2UploadRef}
                 setR2UploadTargetBucket={setR2UploadTargetBucket}
                 onSourceActivated={setUnifiedSource}
+                pinnedGithubRepo={pinnedGithubRepo}
             />
         );
     }

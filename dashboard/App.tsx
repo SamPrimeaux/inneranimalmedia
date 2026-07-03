@@ -4512,6 +4512,7 @@ const App: React.FC = () => {
                           onFileSelect={openInEditorFromExplorer}
                           onOpenInEditor={openInEditorFromExplorer}
                           onClose={() => setActiveActivity(null)}
+                          pinnedGithubRepo={activeWorkspaceRow?.github_repo ?? gitRepoFullName ?? null}
                         />
                       </Suspense>
                   ) : activeActivity === 'mcps' ? (

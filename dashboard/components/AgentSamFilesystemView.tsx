@@ -1,14 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ChevronRight,
-  Cloud,
   FilePlus,
   Folder,
-  FolderOpen,
   FolderPlus,
-  Github,
   GripVertical,
-  HardDrive,
   Loader2,
   PanelLeftClose,
   Plus,
@@ -18,12 +14,15 @@ import {
   Upload,
 } from 'lucide-react';
 import type { ActiveFile } from '../types';
+import { ContainerExplorer } from './ContainerExplorer';
 import { GitHubExplorer } from './GitHubExplorer';
 import { GoogleDriveExplorer } from './GoogleDriveExplorer';
 import { VirtualizedFileTree } from './VirtualizedFileTree';
 import { SetiFileIcon } from '../src/components/SetiFileIcon';
+import { FsSourceIcon } from '../src/components/FsSourceIcon';
 import {
   AGENT_SAM_FS_SOURCES,
+  fsSourceIconId,
   loadPersistedAgentSamFsSource,
   persistAgentSamFsSource,
   type AgentSamFsSource,
@@ -84,13 +83,8 @@ export type AgentSamFilesystemViewProps = {
   r2UploadRef: React.RefObject<HTMLInputElement>;
   setR2UploadTargetBucket: React.Dispatch<React.SetStateAction<string | null>>;
   onSourceActivated?: (source: AgentSamFsSource) => void;
-};
-
-const SOURCE_ICON: Record<AgentSamFsSource, React.ReactNode> = {
-  local: <HardDrive size={13} className="shrink-0" />,
-  r2: <Cloud size={13} className="shrink-0" />,
-  github: <Github size={13} className="shrink-0" />,
-  drive: <FolderOpen size={13} className="shrink-0" />,
+  /** Workspace-linked GitHub repo for React tab (e.g. SamPrimeaux/inneranimalmedia). */
+  pinnedGithubRepo?: string | null;
 };
 
 export const AgentSamFilesystemView: React.FC<AgentSamFilesystemViewProps> = (props) => {
@@ -145,6 +139,7 @@ export const AgentSamFilesystemView: React.FC<AgentSamFilesystemViewProps> = (pr
     r2UploadRef,
     setR2UploadTargetBucket,
     onSourceActivated,
+    pinnedGithubRepo = null,
   } = props;
 
   const [activeSource, setActiveSource] = useState<AgentSamFsSource>(
@@ -173,9 +168,13 @@ export const AgentSamFilesystemView: React.FC<AgentSamFilesystemViewProps> = (pr
       return prefix ? `${selectedR2Bucket} / ${prefix}` : selectedR2Bucket;
     }
     if (activeSource === 'github') return 'GitHub repositories';
+    if (activeSource === 'react') {
+      return pinnedGithubRepo?.trim() ? pinnedGithubRepo.trim() : 'React repo (link workspace GitHub repo)';
+    }
     if (activeSource === 'drive') return 'Google Drive';
+    if (activeSource === 'container') return 'Sandbox workspace';
     return 'Files';
-  }, [activeSource, rootDir, selectedR2Bucket, r2PrefixByBucket]);
+  }, [activeSource, rootDir, selectedR2Bucket, r2PrefixByBucket, pinnedGithubRepo]);
 
   const r2Bucket = selectedR2Bucket;
   const r2Prefix = r2Bucket ? (r2PrefixByBucket[r2Bucket] ?? '') : '';
@@ -187,7 +186,7 @@ export const AgentSamFilesystemView: React.FC<AgentSamFilesystemViewProps> = (pr
     r2Prefix && full.startsWith(r2Prefix) ? full.slice(r2Prefix.length) : full;
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-[var(--bg-panel)] overflow-hidden text-main">
+    <div className="flex flex-col h-full min-h-0 bg-[var(--bg-filetree,#0d1117)] overflow-hidden text-main">
       <div className="flex items-center justify-between px-3 py-2 shrink-0 border-b border-[var(--border-subtle)]/40 gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
           <GripVertical size={12} className="text-muted/50 shrink-0 hidden md:block" aria-hidden />
@@ -210,11 +209,11 @@ export const AgentSamFilesystemView: React.FC<AgentSamFilesystemViewProps> = (pr
       </div>
 
       <div
-        className="shrink-0 flex items-center gap-0.5 px-2 py-1.5 border-b border-[var(--border-subtle)]/30 overflow-x-auto"
+        className="shrink-0 flex items-center justify-around gap-0.5 px-1.5 py-1.5 border-b border-[var(--border-subtle)]/30 bg-[var(--bg-panel)]"
         role="tablist"
         aria-label="File sources"
       >
-        {AGENT_SAM_FS_SOURCES.map(({ id, label }) => {
+        {AGENT_SAM_FS_SOURCES.map(({ id, title }) => {
           const active = activeSource === id;
           return (
             <button
@@ -222,15 +221,16 @@ export const AgentSamFilesystemView: React.FC<AgentSamFilesystemViewProps> = (pr
               type="button"
               role="tab"
               aria-selected={active}
+              aria-label={title}
+              title={title}
               onClick={() => selectSource(id)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap transition-colors ${
+              className={`flex items-center justify-center rounded-lg transition-all h-11 w-11 min-w-[44px] shrink-0 ${
                 active
-                  ? 'bg-[var(--bg-hover)] text-[var(--solar-cyan)] shadow-sm'
-                  : 'text-muted hover:text-main hover:bg-[var(--bg-hover)]/60'
+                  ? 'bg-[var(--bg-hover)] ring-1 ring-[var(--solar-cyan)]/45 shadow-sm'
+                  : 'opacity-85 hover:opacity-100 hover:bg-[var(--bg-hover)]/60'
               }`}
             >
-              {SOURCE_ICON[id]}
-              {label}
+              <FsSourceIcon id={fsSourceIconId(id)} active={active} size={20} />
             </button>
           );
         })}
@@ -548,6 +548,32 @@ export const AgentSamFilesystemView: React.FC<AgentSamFilesystemViewProps> = (pr
         {activeSource === 'github' ? (
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             <GitHubExplorer embedded workspace_id={workspace_id} onOpenInEditor={onOpenInEditor} />
+          </div>
+        ) : null}
+
+        {activeSource === 'react' ? (
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            {pinnedGithubRepo?.trim() ? (
+              <GitHubExplorer
+                embedded
+                workspace_id={workspace_id}
+                expandRepoFullName={pinnedGithubRepo.trim()}
+                onOpenInEditor={onOpenInEditor}
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
+                <FsSourceIcon id="react" size={28} active />
+                <p className="text-[11px] text-muted leading-relaxed max-w-[220px]">
+                  Link a GitHub repo on this workspace (Settings → Workspace) to open your React app tree here.
+                </p>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {activeSource === 'container' ? (
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <ContainerExplorer embedded />
           </div>
         ) : null}
 
