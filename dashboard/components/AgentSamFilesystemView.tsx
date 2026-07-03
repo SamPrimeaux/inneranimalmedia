@@ -191,7 +191,10 @@ export const AgentSamFilesystemView: React.FC<AgentSamFilesystemViewProps> = (pr
       <div className="flex items-center justify-between px-3 py-2 shrink-0 border-b border-[var(--border-subtle)]/40 gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
           <GripVertical size={12} className="text-muted/50 shrink-0 hidden md:block" aria-hidden />
-          <span className="text-[11px] font-semibold tracking-wide text-main truncate">Files</span>
+          <span className="text-[11px] font-semibold tracking-wide text-main truncate">
+            Files
+            <span className="ml-1.5 text-[9px] font-normal text-muted/80">v1</span>
+          </span>
         </div>
         {onClose ? (
           <button

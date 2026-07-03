@@ -200,9 +200,6 @@ const BrowserView = lazy(() =>
 );
 
 /** Activity drawer + agent-only tools — not on critical path for /dashboard/artifacts etc. */
-const LocalExplorer = lazy(() =>
-  import('./components/LocalExplorer').then((m) => ({ default: m.LocalExplorer })),
-);
 const AgentSamFilesystem = lazy(() =>
   import('./components/AgentSamFilesystem').then((m) => ({ default: m.AgentSamFilesystem })),
 );

@@ -252,7 +252,7 @@ export type LocalExplorerProps = {
     workspace_id?: string | null;
     user_id?: string | null;
     onClose?: () => void;
-    /** Accordion (legacy) vs unified AgentSamFilesystem tabs. */
+    /** Accordion (legacy) vs unified AgentSamFilesystem tabs. Default unified on agent editor. */
     presentation?: 'accordion' | 'unified';
 };
 
@@ -264,7 +264,7 @@ export const LocalExplorer: React.FC<LocalExplorerProps> = ({
     workspace_id = null,
     user_id = null,
     onClose,
-    presentation = 'accordion',
+    presentation = 'unified',
 }) => {
     const [rootDir, setRootDir] = useState<LocalFileNode | null>(null);
     /**
