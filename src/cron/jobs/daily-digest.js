@@ -114,13 +114,12 @@ export async function sendDailyDigest(env) {
          ORDER BY cost_usd DESC
          LIMIT 3`
       ).all()),
-      // roadmap_steps dead — use agentsam_todo for open work items
+      // platform-wide open todos — no workspace filter, Sam owns all workspaces
       safe(env.DB.prepare(
-        `SELECT id, title, status, priority FROM agentsam_todo
-         WHERE workspace_id = 'ws_inneranimalmedia'
-           AND status NOT IN ('done','completed','cancelled')
+        `SELECT id, title, status, priority, workspace_id FROM agentsam_todo
+         WHERE status NOT IN ('done','completed','cancelled')
          ORDER BY priority DESC, created_at DESC
-         LIMIT 10`
+         LIMIT 15`
       ).all()),
       // notification_outbox dead
       Promise.resolve(null),
