@@ -1066,7 +1066,7 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
       return withBrowserPage(env, params, async ({ page }) => {
         const result = await page.evaluate((s) => {
           // eslint-disable-next-line no-eval
-          return eval(s);
+          return (0, eval)(s);
         }, script);
         return { ok: true, result, url: page.url() };
       }, withOpts);
