@@ -18,7 +18,13 @@ export function resolveWorkflowRunPresence(
   if (status === 'idle' || !runId) return null;
 
   const progress =
-    stepsTotal > 0 ? `${stepsCompleted} / ${stepsTotal} steps` : `${stepsCompleted} steps`;
+    status === 'running' && stepsCompleted === 0
+      ? currentNodeKey
+        ? `Running ${currentNodeKey}…`
+        : 'Running…'
+      : stepsTotal > 0
+        ? `${stepsCompleted} / ${stepsTotal} steps`
+        : `${stepsCompleted} steps`;
 
   if (status === 'awaiting_approval') {
     return {

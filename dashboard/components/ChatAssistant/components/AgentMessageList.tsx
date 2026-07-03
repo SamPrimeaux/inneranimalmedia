@@ -4,7 +4,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { User, Bot, ChevronRight, FileText, ShieldAlert, Sparkles } from 'lucide-react';
+import { User, ChevronRight, FileText, ShieldAlert, Sparkles } from 'lucide-react';
 import { SetiFileIcon } from '../../../src/components/SetiFileIcon';
 import type { ActiveFile } from '../../../types';
 import type {
@@ -37,6 +37,15 @@ import { AgentImageGenerationCard } from '../../../components/AgentImageGenerati
 import { EmailArtifactCard } from '../artifacts/EmailArtifactCard';
 import { ToolApprovalCard } from './ToolApprovalCard';
 import type { ToolApprovalPayload } from '../types';
+
+const ASSISTANT_AVATAR_DARK =
+  'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/dbb316af-9c97-4959-f09f-bf58b2783d00/avatar';
+const ASSISTANT_AVATAR_LIGHT =
+  'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/11f6af46-0a3c-482a-abe8-83edc5a8a200/avatar';
+
+function assistantAvatarUrl(isDarkTheme: boolean): string {
+  return isDarkTheme ? ASSISTANT_AVATAR_DARK : ASSISTANT_AVATAR_LIGHT;
+}
 
 const LANG_TO_EXT: Record<string, string> = {
   sql: 'sql',
@@ -538,12 +547,8 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
       {showEmptyThreadPlaceholder && !suppressEmptyPlaceholder ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 px-6">
           <img
-            src={
-              isDarkTheme
-                ? 'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/dbb316af-9c97-4959-f09f-bf58b2783d00/avatar'
-                : 'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/11f6af46-0a3c-482a-abe8-83edc5a8a200/avatar'
-            }
-            alt="Inner Animal Media"
+            src={assistantAvatarUrl(!!isDarkTheme)}
+            alt="Agent Sam"
             width={100}
             height={100}
             style={{ objectFit: 'contain' }}
@@ -610,16 +615,23 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
               }`}
             >
               <div
-                className={`flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center mt-1 ${
+                className={`flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center mt-1 overflow-hidden ${
                   msg.role === 'user'
                     ? 'bg-[var(--dashboard-border)]'
-                    : 'bg-[var(--solar-cyan)]/20 border border-[var(--solar-cyan)]/30'
+                    : 'bg-[var(--solar-cyan)]/10 border border-[var(--solar-cyan)]/25'
                 }`}
               >
                 {msg.role === 'user' ? (
                   <User size={11} className="text-[var(--dashboard-muted)]" />
                 ) : (
-                  <Bot size={11} className="text-[var(--solar-cyan)]" />
+                  <img
+                    src={assistantAvatarUrl(!!isDarkTheme)}
+                    alt=""
+                    width={24}
+                    height={24}
+                    className="w-full h-full object-contain"
+                    aria-hidden
+                  />
                 )}
               </div>
               {msg.role === 'assistant' ? (

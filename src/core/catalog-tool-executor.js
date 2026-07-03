@@ -8,7 +8,6 @@ import { resolveCredential, parseHandlerConfig, normalizeAuthSource } from './re
 export { resolveCredential, parseHandlerConfig, normalizeAuthSource };
 import { d1_query, d1_write } from './d1.js';
 import { handlers as dbToolHandlers } from '../tools/db.js';
-import { handlers as termHandlers } from '../tools/terminal.js';
 import { handlers as storageHandlers } from '../tools/builtin/storage.js';
 import { handlers as aiOpsHandlers } from '../tools/builtin/ai-ops.js';
 import { runHyperdriveQuery, isHyperdriveUsable } from './hyperdrive-query.js';
@@ -1514,18 +1513,32 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       const responseWorkspaceRoot = gcpExec
         ? (await import('./host-workspace-paths.js')).IAM_GCP_OPERATOR_REPO
         : workspaceRoot;
-      const out = await termHandlers.run_command(
-        {
-          command: cmd,
-          session_id: params.session_id,
-          workspace_id: workspaceId,
-          request: runContext?.request,
-          tool_name: toolKey,
-          ...(remoteTargetId ? { target_id: remoteTargetId } : {}),
-          ...(routing.target_type ? { target_type: routing.target_type } : {}),
-        },
-        env,
-      );
+      // In-process control plane — never HTTP loopback to /api/agent/terminal/run during chat SSE (Worker deadlock).
+      let out;
+      try {
+        const { runTerminalCommand } = await import('./terminal.js');
+        const runRes = await runTerminalCommand(
+          env,
+          runContext?.request ?? null,
+          cmd,
+          params.session_id ?? runContext?.sessionId ?? runContext?.session_id ?? null,
+          {
+            execution_mode: 'pty',
+            workspace_id: workspaceId,
+            tool_name: toolKey,
+            ...(remoteTargetId ? { target_id: remoteTargetId } : {}),
+            ...(routing.target_type ? { target_type: routing.target_type } : {}),
+          },
+        );
+        out = {
+          output: runRes.output,
+          command: runRes.command || cmd,
+          exit_code: runRes.exitCode ?? runRes.exit_code ?? 0,
+          status: 'success',
+        };
+      } catch (termErr) {
+        out = { error: `Terminal Error: ${termErr?.message || termErr}` };
+      }
       if (out?.error) {
         const errText = String(out.error);
         result = {

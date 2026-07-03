@@ -2209,6 +2209,9 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               isSql,
             },
           ]);
+          if (tn) {
+            setWorkflowLedger((prev) => (prev.runId ? { ...prev, currentNodeKey: tn } : prev));
+          }
           continue;
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'tool_error') {

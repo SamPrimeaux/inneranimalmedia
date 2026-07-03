@@ -1154,6 +1154,14 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
                 selectedGithubRepoContext: mcpCtx.selectedGithubRepoContext ?? mcpCtx.github_repo_context ?? null,
                 github_repo_context: mcpCtx.github_repo_context ?? mcpCtx.selectedGithubRepoContext ?? null,
                 userMessage: mcpCtx.userMessage ?? mcpCtx.message ?? null,
+                client_surface: mcpCtx.client_surface ?? mcpCtx.clientSurface ?? null,
+                clientSurface: mcpCtx.clientSurface ?? mcpCtx.client_surface ?? null,
+                exec_lane: mcpCtx.exec_lane ?? mcpCtx.execLane ?? null,
+                execLane: mcpCtx.execLane ?? mcpCtx.exec_lane ?? null,
+                platform_operator_lane:
+                  mcpCtx.platform_operator_lane === true || mcpCtx.platformOperatorLane === true,
+                platformOperatorLane:
+                  mcpCtx.platformOperatorLane === true || mcpCtx.platform_operator_lane === true,
                 ...(mcpCtx.mcp_panel_slug != null && String(mcpCtx.mcp_panel_slug).trim() !== ''
                   ? { mcp_panel_slug: String(mcpCtx.mcp_panel_slug).trim() }
                   : {}),

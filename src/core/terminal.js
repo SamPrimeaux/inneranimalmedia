@@ -1174,6 +1174,7 @@ export async function runTerminalCommandViaControlPlane(env, request, command, e
       tool_name: extra.tool_name,
       target_id: extra.target_id || extra.ssh_target_id,
       target_type: extra.target_type,
+      user_id: userId,
     });
     if (routing.target_type) doUrl.searchParams.set('target_type', routing.target_type);
     const puuid = authUser.person_uuid != null && String(authUser.person_uuid).trim() !== '' ? String(authUser.person_uuid).trim() : '';
@@ -1269,10 +1270,12 @@ async function writeTerminalHistory(env, request, sessionId, commandText, output
  */
 export async function resolveTerminalExecTargetId(env, request, executionCtx = null) {
   const ctx = executionCtx || {};
+  const ctxUserId = ctx.user_id ?? ctx.userId ?? null;
   const routing = resolveTerminalExecRouting({
     tool_name: ctx.tool_name,
     target_id: ctx.target_id ?? ctx.ssh_target_id,
     target_type: ctx.target_type,
+    user_id: ctxUserId,
   });
   const explicit = routing.target_id || null;
   if (explicit) return explicit;

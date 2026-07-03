@@ -16,7 +16,8 @@ import { assertWorkspaceTokenForPty } from "../core/workspace-tokens.js";
 import {
   resolveTerminalCwd,
 } from "../core/pty-workspace-paths.js";
-import { resolveTerminalExecRouting } from "../core/terminal-routing-policy.js";
+import { resolveTerminalExecRouting, TERMINAL_GCP_CONNECTION_ID } from "../core/terminal-routing-policy.js";
+import { isSamOperatorLaneUserId } from "../core/platform-operator-policy.js";
 import {
   computeTerminalSessionAuthTokenHash,
   isShellHistorySeedLine,
@@ -170,6 +171,7 @@ export class AgentChatSqlV1 extends DurableObject {
     /** Target routing from /terminal/ws query params. */
     this.requestedTargetType = "platform_vm";
     this.requestedConnectionId = "";
+    this.requestedToolName = "";
     /** Selected terminal_connections row for current session. */
     this.selectedTerminalConnection = null;
     this.selectedTargetType = "platform_vm";
@@ -1117,19 +1119,27 @@ export class AgentChatSqlV1 extends DurableObject {
       tool_name: body?.tool_name,
       target_id: targetId,
       target_type: body?.target_type || url.searchParams.get("target_type"),
+      user_id: uid || this.ptSessionUserId,
     });
     if (routing.target_type) {
       this.requestedTargetType = routing.target_type;
       this.selectedTargetType = routing.target_type;
     }
     const pinnedConnectionId = routing.target_id || targetId;
+    this.requestedToolName = String(body?.tool_name || "").trim();
     if (pinnedConnectionId) {
       this.requestedConnectionId = pinnedConnectionId;
       this.selectedTerminalConnection = null;
     }
     await this.ensureWorkspaceSettingsLoaded(workspaceId, { allowPlatformFallback: false });
 
-    if (executionMode === "pty" && this.env?.DB) {
+    const execUidForGate = String(this.ptSessionUserId || url.searchParams.get("user_id") || "").trim();
+    const gcpOperatorPtyBypass =
+      routing.lane === "gcp_primary" &&
+      isSamOperatorLaneUserId(execUidForGate) &&
+      (!pinnedConnectionId || pinnedConnectionId === TERMINAL_GCP_CONNECTION_ID);
+
+    if (executionMode === "pty" && this.env?.DB && !gcpOperatorPtyBypass) {
       let tidEx = await this.resolvePtyTenantForSession(this.ptSessionUserId);
       tidEx = tidEx != null ? String(tidEx).trim() : "";
       if (!tidEx) {
@@ -1650,6 +1660,8 @@ export class AgentChatSqlV1 extends DurableObject {
     const routing = resolveTerminalExecRouting({
       target_id: this.requestedConnectionId,
       target_type: this.requestedTargetType,
+      tool_name: this.requestedToolName || null,
+      user_id: execUid,
     });
     const execTarget =
       String(this.selectedTargetType || this.requestedTargetType || routing.target_type || "").trim() ||
@@ -1690,6 +1702,7 @@ export class AgentChatSqlV1 extends DurableObject {
             method: "POST",
             headers: execHeaders,
             body: JSON.stringify(execPayload),
+            signal: AbortSignal.timeout(120_000),
           }),
         );
         const data = await res.json().catch(() => ({}));
@@ -1754,6 +1767,7 @@ export class AgentChatSqlV1 extends DurableObject {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(execPayload),
+        signal: AbortSignal.timeout(120_000),
       });
       lastStatus = res.status;
       if (res.status === 401 && i < tokens.length - 1) continue;

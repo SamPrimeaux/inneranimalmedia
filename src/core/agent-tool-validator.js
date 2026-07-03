@@ -636,7 +636,7 @@ export function resolveToolExecutionBudgetMs(toolName, input) {
     'run_command',
     'bash',
   ]);
-  if (terminalNames.has(n)) {
+  if (n.startsWith('agentsam_terminal_') || terminalNames.has(n)) {
     if (Number.isFinite(rawTimeout) && rawTimeout > 0) {
       return Math.min(600_000, Math.max(60_000, Math.floor(rawTimeout)));
     }
