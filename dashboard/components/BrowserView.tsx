@@ -2220,7 +2220,7 @@ const BrowserPane: React.FC<PaneProps> = ({
         });
         if (data.error) {
           setNavigateError(String(data.error));
-          await openPassiveIframeView(n);
+          await fallbackFromAutomation(n);
           return;
         }
         const { screenshot_url } = pickNavigatePreview(data);
