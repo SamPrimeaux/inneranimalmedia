@@ -1,37 +1,39 @@
-/** File source rail icons — `/public/icons/fs-sources/` (Simple Icons + local.svg). */
+/** File source rail icons — `public/icons/fs-sources/` → R2 `/static/dashboard/app/icons/fs-sources/`. */
 export type FsSourceIconId = 'local' | 'react' | 'r2' | 'github' | 'drive' | 'container';
+
+const FS_SOURCES_DIR = `${import.meta.env.BASE_URL}icons/fs-sources/`;
 
 export const FS_SOURCE_ICON_META: Record<
   FsSourceIconId,
   { src: string; label: string; title: string }
 > = {
   local: {
-    src: '/icons/fs-sources/local.svg',
+    src: `${FS_SOURCES_DIR}local.svg`,
     label: 'Local',
     title: 'Local folder (native File System Access)',
   },
   react: {
-    src: '/icons/fs-sources/react.svg',
+    src: `${FS_SOURCES_DIR}react.svg`,
     label: 'React',
     title: 'Workspace React repo (GitHub tree)',
   },
   r2: {
-    src: '/icons/fs-sources/r2.svg',
+    src: `${FS_SOURCES_DIR}r2.svg`,
     label: 'R2',
     title: 'Cloudflare R2 object storage',
   },
   github: {
-    src: '/icons/fs-sources/github.svg',
+    src: `${FS_SOURCES_DIR}github.svg`,
     label: 'GitHub',
     title: 'GitHub repositories',
   },
   drive: {
-    src: '/icons/fs-sources/googledrive.svg',
+    src: `${FS_SOURCES_DIR}googledrive.svg`,
     label: 'Drive',
     title: 'Google Drive',
   },
   container: {
-    src: '/icons/fs-sources/container.svg',
+    src: `${FS_SOURCES_DIR}container.svg`,
     label: 'Sandbox',
     title: 'CF container sandbox workspace',
   },

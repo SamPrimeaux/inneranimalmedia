@@ -304,12 +304,13 @@ export function IntegrationsSection({
                 const slug = String(
                   item.connection?.provider_key || item.catalog?.slug || idx,
                 );
+                const tileKey = `${slug}-${idx}`;
                 const catalogSlug = catalogSlugForRegistry(slug);
                 const title = String(item.catalog?.name || item.connection?.display_name || slug);
                 const isSelected = selectedSlug === slug;
                 return (
                   <IntegrationIconTile
-                    key={slug}
+                    key={tileKey}
                     title={title}
                     iconSlug={item.catalog?.icon_slug || catalogSlug}
                     imageUrl={item.catalog?.icon_url}
