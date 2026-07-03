@@ -14,9 +14,31 @@ const DEFAULT_TENANT = 'system';
 export async function pragmaTableInfo(db, tableName) {
   const safe = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(String(tableName || '')) ? String(tableName) : '';
   if (!safe || !db) return new Set();
+  // PRAGMA table_info is blocked on some D1 binding paths (MCP tool lane, restricted SELECT).
+  // Fall back to sqlite_master column parse which is always allowed.
   try {
     const { results } = await db.prepare(`PRAGMA table_info(${safe})`).all();
-    return new Set((results || []).map((r) => String(r.name || '').toLowerCase()));
+    if (results && results.length > 0) {
+      return new Set(results.map((r) => String(r.name || '').toLowerCase()));
+    }
+  } catch {
+    // PRAGMA blocked — fall through to sqlite_master
+  }
+  try {
+    const row = await db.prepare(
+      `SELECT sql FROM sqlite_master WHERE type='table' AND name=? LIMIT 1`
+    ).bind(safe).first();
+    if (!row?.sql) return new Set();
+    // Parse column names from CREATE TABLE statement
+    const inner = row.sql.replace(/^[^(]+\(/, '').replace(/\)[^)]*$/, '');
+    const cols = new Set();
+    for (const part of inner.split(',')) {
+      const colName = part.trim().split(/\s+/)[0].replace(/["`[\]]/g, '').toLowerCase();
+      if (colName && colName !== 'primary' && colName !== 'foreign' && colName !== 'unique' && colName !== 'check') {
+        cols.add(colName);
+      }
+    }
+    return cols;
   } catch {
     return new Set();
   }
