@@ -288,11 +288,10 @@ ${hookHtml}
   const textBody = [
     digestText,
     '',
-    `AI spend today: $${tt.cost_usd} (${tt.calls} calls, tokens ${tt.tokens_in}/${tt.tokens_out})`,
+    `AI spend today: ${tt.cost_usd} (${tt.calls} calls, tokens ${tt.tokens_in}/${tt.tokens_out})`,
     `Deploys: total ${dt.total} prod ${dt.prod} failed ${dt.failed}`,
-    `MCP: ${mcpToday?.calls} calls`,
-    `RAG queries: ${ragToday?.queries}`,
-    `Archived convos: ${archiveStatus?.archived_convos}; D1 messages: ${msgTableSize?.total_msgs}`,
+    `MCP: ${mcpToday?.calls} calls across ${mcpToday?.unique_tools} tools`,
+    `Open todos: ${todoItems.length}`,
   ].join('\n');
 
   const toEmail = typeof env.RESEND_TO === 'string' && env.RESEND_TO.trim() ? env.RESEND_TO.trim() : '';
