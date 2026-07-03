@@ -366,7 +366,7 @@ ${hookHtml}
           active_workflows, digest_text, created_at, updated_at
         ) VALUES (
           date('now'), ?, ?, ?, ?,
-          15, ?, unixepoch(), unixepoch()
+          (SELECT COUNT(*) FROM agentsam_workflows WHERE is_active = 1), ?, unixepoch(), unixepoch()
         )`
       ).bind(
         dt.total ?? 0,
