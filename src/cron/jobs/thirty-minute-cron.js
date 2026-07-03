@@ -190,7 +190,7 @@ async function sweepStaleAgentRuns(env) {
     const cutoff = Math.floor(Date.now() / 1000) - 35 * 60;
     const result = await env.DB.prepare(`
       UPDATE agentsam_agent_run
-      SET status = 'failed_stale',
+      SET status = 'failed',
           error_message = 'run exceeded 35min without terminal status — swept by cron',
           completed_at = datetime('now'),
           updated_at_unix = strftime('%s','now')
