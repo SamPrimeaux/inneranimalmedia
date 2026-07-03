@@ -2667,7 +2667,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         ...(attachmentPreviews.length ? { attachmentPreviews } : {}),
       },
     ];
-    setMessages(newMessages);
+    // Pre-seed the assistant bubble before SSE starts — eliminates the empty-flash
+    // race where the UI clears input, renders nothing, then re-renders on first SSE chunk.
+    setMessages([...newMessages, { role: 'assistant', content: '' }]);
     setIsLoading(true);
     setMentionOpen(false);
     setSlashOpen(false);
