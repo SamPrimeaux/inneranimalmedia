@@ -142,12 +142,11 @@ export async function sendDailyDigest(env) {
 
   const tt = telemetryToday || {};
   const dt = deploysToday || {};
-  const steps = roadmap?.results ?? [];
-  const done = steps.filter((r) => r.status === 'completed').length;
-  const total = steps.length || 1;
-  const pct = total ? Math.round((done / total) * 100) : 0;
-  const inProgressTitles = steps.filter((r) => r.status === 'in_progress').map((r) => r.title).join(', ');
-  const notStartedTitles = steps.filter((r) => r.status === 'not_started').map((r) => r.title).join(', ');
+  // roadmap replaced with open todos
+  const todoItems = roadmap?.results ?? [];
+  const todoHtml = todoItems.length
+    ? todoItems.map((r) => `<li>[P${esc(r.priority ?? '?')}] ${esc(r.title)} <em>(${esc(r.status)})</em></li>`).join('')
+    : '<li>No open todos.</li>';
   const pendingCount = pending?.results?.[0]?.count ?? 0;
 
   const liveJson = JSON.stringify({
