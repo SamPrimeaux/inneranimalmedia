@@ -17,7 +17,7 @@ export function originRequiresBrowserRunEmbed(urlOrOrigin: string): boolean {
   try {
     const host = new URL(raw.startsWith('http') ? raw : `https://${raw}`).hostname.toLowerCase();
     return BROWSER_RUN_REQUIRED_HOST_SUFFIXES.some(
-      (suffix) => host === suffix.slice(1) || host.endsWith(suffix),
+      (suffix) => host === suffix || host.endsWith(`.${suffix}`),
     );
   } catch {
     return false;
