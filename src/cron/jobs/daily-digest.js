@@ -281,17 +281,8 @@ ${projHtml}
 <h2>Hook Health (last 7 days)</h2>
 ${hookHtml}
 
-<h2>8. Tomorrow priorities</h2>
-<ul>
-<li>P1: Anthropic tools SSE (chatWithToolsAnthropic stream:true)</li>
-<li>P1: spend_ledger INSERT in streamDoneDbWrites</li>
-<li>P2: Workers AI stream:true + async iterator</li>
-<li>P2: Gemini input_tokens fallback</li>
-<li>Run: scripts/model-smoke-test.sh and scripts/batch-api-test.sh</li>
-</ul>
-
-<h2>Roadmap snapshot</h2>
-<p>${done}/${total} steps (${pct}%). In progress: ${esc(inProgressTitles || 'none')}. Not started: ${esc(notStartedTitles || 'none')}. Pending notifications: ${esc(pendingCount)}</p>
+<h2>8. Open work (agentsam_todo)</h2>
+<ul>${todoHtml}</ul>
 </body></html>`;
 
   const textBody = [
