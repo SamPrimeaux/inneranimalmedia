@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { DashboardSidebar } from './DashboardSidebar';
 
 type MobileNavDrawerProps = {
@@ -30,6 +30,19 @@ export function MobileNavDrawer({
   avatarUrl,
   workspaceSubtitle,
 }: MobileNavDrawerProps) {
+  const panelRef = useRef<HTMLElement>(null);
+
+  const restoreFocusAndClose = useCallback(() => {
+    const panel = panelRef.current;
+    const active = document.activeElement;
+    if (panel && active instanceof HTMLElement && panel.contains(active)) {
+      active.blur();
+    }
+    const trigger = document.querySelector<HTMLButtonElement>('.iam-mobile-nav-hamburger');
+    trigger?.focus({ preventScroll: true });
+    onClose();
+  }, [onClose]);
+
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -42,11 +55,11 @@ export function MobileNavDrawer({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') restoreFocusAndClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open, restoreFocusAndClose]);
 
   return (
     <>
@@ -55,19 +68,21 @@ export function MobileNavDrawer({
           type="button"
           className="iam-mobile-nav-drawer-overlay hidden max-phone:block"
           aria-label="Close navigation menu"
-          onClick={onClose}
+          onClick={restoreFocusAndClose}
         />
       ) : null}
       <nav
+        ref={panelRef}
         className="iam-mobile-nav-drawer-panel hidden max-phone:block"
         data-open={open ? 'true' : 'false'}
         aria-label="Primary navigation"
-        aria-hidden={!open}
+        aria-hidden={open ? undefined : true}
+        {...(!open ? { inert: true } : {})}
         style={open ? undefined : { pointerEvents: 'none' }}
       >
         <DashboardSidebar
           expanded
-          onItemActivate={onClose}
+          onItemActivate={restoreFocusAndClose}
           onNewChat={onNewChat}
           onOpenChats={onOpenChats}
           onOpenMovieMode={onOpenMovieMode}
