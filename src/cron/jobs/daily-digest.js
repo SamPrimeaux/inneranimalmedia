@@ -369,17 +369,26 @@ ${hookHtml}
       }
       const today = new Date().toISOString().slice(0, 10);
       await env.R2.put('memory/daily/' + today + '.md', textBody).catch(() => { });
-      const memFacts = [
-        { key: 'active_priorities', value: 'Last digest: ' + today + '. ' + textBody.slice(0, 400), score: 0.9, type: 'user_context' },
-        { key: 'what_works_today', value: textBody.slice(0, 600), score: 1.0, type: 'execution_outcome' },
-      ];
+      // Write digest snapshot to memory with correct schema (workspace_id scoped, no legacy columns)
       const digestMemTid = cronTenantId(env);
-      if (digestMemTid) {
-        for (const f of memFacts) {
-          await env.DB.prepare(
-            'INSERT INTO agentsam_memory (tenant_id, agent_config_id, memory_type, key, value, importance_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, unixepoch(), unixepoch()) ON CONFLICT(key) DO UPDATE SET value=excluded.value, importance_score=excluded.importance_score, updated_at=unixepoch()'
-          ).bind(digestMemTid, 'agent-sam-primary', f.type, f.key, f.value, f.score).run().catch(() => { });
-        }
+      const digestMemWs = 'ws_inneranimalmedia';
+      const digestMemUid = 'au_871d920d1233cbd1';
+      if (digestMemTid && env.DB) {
+        await env.DB.prepare(
+          `INSERT INTO agentsam_memory
+            (id, tenant_id, user_id, workspace_id, memory_type, key, value, importance, is_pinned, decay_score, source, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'fact', ?, ?, 5, 0, 1.0, 'daily_digest_cron', unixepoch(), unixepoch())
+           ON CONFLICT(key) DO UPDATE SET
+             value = excluded.value,
+             updated_at = unixepoch()`
+        ).bind(
+          'mem_digest_' + today.replace(/-/g, ''),
+          digestMemTid,
+          digestMemUid,
+          digestMemWs,
+          'daily_digest_' + today,
+          textBody.slice(0, 800),
+        ).run().catch(() => { });
       }
       const { purgeStaleAgentBootstrapCache } = await import('../../core/agent-bootstrap-project-context.js');
       await purgeStaleAgentBootstrapCache(env.DB, { maxAgeSec: 0 });
