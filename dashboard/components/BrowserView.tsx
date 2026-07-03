@@ -2455,7 +2455,7 @@ const BrowserPane: React.FC<PaneProps> = ({
 
   // ── Hard reload ─────────────────────────────────────────────────────────────
   const hardReload = useCallback(() => {
-    if (browserRunSessionRef.current) {
+    if (browserRunSessionRef.current || originRequiresBrowserRunEmbed(currentUrl)) {
       void openBrowserRunLiveView(currentUrl);
     } else if (iframeUrl?.trim()) {
       setLoading(true);
