@@ -1417,6 +1417,8 @@ const BrowserPane: React.FC<PaneProps> = ({
   const [liveUrlCommitted, setLiveUrlCommitted] = useState<string | null>(null);
   const [liveSessionReady, setLiveSessionReady] = useState(false);
   const browserRunSessionRef = useRef<string | null>(null);
+  /** Populated after openBrowserRunLiveView declaration — lets earlier callbacks (loadAutomationPreview) route XFO hosts to Browser Run without reordering. */
+  const openBrowserRunLiveViewRef = useRef<((raw: string) => Promise<void>) | null>(null);
   const liveViewModeRef = useRef<'tab' | 'devtools'>('tab');
   const setAgentLiveIframeUrl = useCallback((url: string | null | undefined, mode?: 'tab' | 'devtools') => {
     const trimmed = String(url || '').trim();
