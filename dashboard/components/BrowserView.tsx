@@ -2291,6 +2291,7 @@ const BrowserPane: React.FC<PaneProps> = ({
     },
     [addressDisplay, onUrlCommitted, trustWorkspaceId],
   );
+  openBrowserRunLiveViewRef.current = openBrowserRunLiveView;
 
   const ensureOriginTrust = useCallback(
     async (url: string): Promise<boolean> => {
