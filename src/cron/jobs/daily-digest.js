@@ -96,40 +96,13 @@ export async function sendDailyDigest(env) {
          ORDER BY c DESC
          LIMIT 3`
       ).all()),
-      safe(env.DB.prepare(
-        `SELECT COUNT(*) AS queries, AVG(top_score) AS avg_score
-         FROM rag_query_log
-         WHERE date(created_at) = date('now')`
-      ).first()),
-      safe(env.DB.prepare(
-        `SELECT memory_key, memory_value
-         FROM agent_platform_context
-         WHERE memory_key LIKE 'sse_audit_%'
-         ORDER BY updated_at DESC
-         LIMIT 20`
-      ).all()),
-      safe(env.DB.prepare(
-        `SELECT check_name, severity, details
-         FROM quality_checks
-         WHERE status IN ('fail', 'failed', 'warn', 'warning') AND automated = 1
-         ORDER BY
-           CASE severity WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
-           checked_at DESC
-         LIMIT 10`
-      ).all()),
-      safe(env.DB.prepare(
-        `SELECT COUNT(*) AS archived_convos FROM agent_conversations WHERE is_archived = 1`
-      ).first()),
-      safe(env.DB.prepare(
-        `SELECT COUNT(*) AS total_msgs,
-          ROUND(SUM(LENGTH(COALESCE(content, ''))) / 1024.0 / 1024.0, 2) AS size_mb,
-          COUNT(DISTINCT conversation_id) AS convos
-         FROM agent_messages`
-      ).first()),
-      safe(env.DB.prepare(
-        `SELECT COUNT(*) AS ready FROM agent_conversations
-         WHERE is_archived = 1 AND r2_context_key IS NOT NULL AND r2_context_key != ''`
-      ).first()),
+      // rag_query_log, agent_platform_context, quality_checks, agent_conversations, agent_messages — dead tables, removed
+      Promise.resolve(null),
+      Promise.resolve(null),
+      Promise.resolve(null),
+      Promise.resolve(null),
+      Promise.resolve(null),
+      Promise.resolve(null),
       safe(env.DB.prepare(
         `SELECT j.key AS provider,
                 ROUND(SUM(CAST(json_extract(j.value, '$.cost_usd') AS REAL)), 4) AS cost_usd
