@@ -4,6 +4,10 @@
 import { getUserGithubToken, githubCommitHandshake } from '../../integrations/github.js';
 import { resolveIntegrationUserId } from '../../core/integration-user-id.js';
 import {
+  readGithubSearchCache,
+  writeGithubSearchCache,
+} from '../../core/github-search-cache.js';
+import {
   filterGithubReposListForUser,
   GITHUB_USER_REPOS_AFFILIATION,
 } from '../../core/github-repos-list-filter.js';
@@ -166,6 +170,36 @@ function buildGithubSearchQuery(params) {
     );
   }
   return { success: true, q };
+}
+
+/**
+ * @param {Record<string, unknown>} params
+ * @param {'code'|'issues'} kind
+ * @param {any} env
+ * @param {string} query
+ * @param {() => Promise<Record<string, unknown>>} fetchFresh
+ */
+async function githubSearchWithCache(params, kind, env, query, fetchFresh) {
+  const userId = trim(params.user_id);
+  const cached = await readGithubSearchCache(env, userId, kind, query);
+  if (cached) {
+    if (cached.error && typeof cached.error === 'object') {
+      return { ...cached.error, ...toolMeta(params), query, cache_hit: true };
+    }
+    if (cached.results !== undefined) {
+      return { success: true, query, results: cached.results, cache_hit: true };
+    }
+  }
+
+  const out = await fetchFresh();
+  if (out?.success === true && out.results !== undefined) {
+    await writeGithubSearchCache(env, userId, kind, query, { success: true, results: out.results });
+    return { ...out, cache_hit: false };
+  }
+  if (out?.error === 'github_rate_limit_exceeded') {
+    await writeGithubSearchCache(env, userId, kind, query, { error: out });
+  }
+  return { ...out, cache_hit: false };
 }
 
 async function ghText(token, method, path, accept) {
@@ -709,14 +743,16 @@ export const handlers = {
     if (built.success === false || built.error) return { ...built, ...toolMeta(params) };
     const t = await ghGetToken(env, params);
     if (t.success === false || t.error) return t;
-    const res = await ghJson(
-      t.token,
-      'GET',
-      `/search/code?q=${encodeURIComponent(built.q)}`,
-      null,
-    );
-    if (res?.success === false) return { ...res, ...toolMeta(params), query: built.q };
-    return { success: true, query: built.q, results: res.data };
+    return githubSearchWithCache(params, 'code', env, built.q, async () => {
+      const res = await ghJson(
+        t.token,
+        'GET',
+        `/search/code?q=${encodeURIComponent(built.q)}`,
+        null,
+      );
+      if (res?.success === false) return { ...res, ...toolMeta(params), query: built.q };
+      return { success: true, query: built.q, results: res.data };
+    });
   },
 
   async github_search_issues_prs(params, env) {
@@ -726,14 +762,16 @@ export const handlers = {
     if (built.success === false || built.error) return { ...built, ...toolMeta(params) };
     const t = await ghGetToken(env, params);
     if (t.success === false || t.error) return t;
-    const res = await ghJson(
-      t.token,
-      'GET',
-      `/search/issues?q=${encodeURIComponent(built.q)}`,
-      null,
-    );
-    if (res?.success === false) return { ...res, ...toolMeta(params), query: built.q };
-    return { success: true, query: built.q, results: res.data };
+    return githubSearchWithCache(params, 'issues', env, built.q, async () => {
+      const res = await ghJson(
+        t.token,
+        'GET',
+        `/search/issues?q=${encodeURIComponent(built.q)}`,
+        null,
+      );
+      if (res?.success === false) return { ...res, ...toolMeta(params), query: built.q };
+      return { success: true, query: built.q, results: res.data };
+    });
   },
 
   async github_list_branches(params, env) {
