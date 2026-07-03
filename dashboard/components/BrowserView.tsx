@@ -2375,31 +2375,38 @@ const BrowserPane: React.FC<PaneProps> = ({
   );
 
   // ── Sync parent/agent URL → iframe or MYBROWSER preview (not URL-bar keystrokes) ─
+  // Uses resolveEmbedModeRemote so probed-only XFO hosts (discovered via D1/probe, not in
+  // the hardcoded seed list) get the correct Browser Run route on mount, not just on user
+  // URL-bar entry. Falls back to the seed check synchronously inside resolveEmbedModeRemote
+  // before hitting the network, so stripe.com / dash.cloudflare.com still resolve instantly.
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
   useEffect(() => {
     if (!initialUrl?.trim()) return;
     const n = normalize(initialUrl);
     if (n === currentUrlRef.current) return;
-    const requiresBrowserRun = originRequiresBrowserRunEmbed(n);
-    const passiveEditor =
-      !requiresBrowserRun &&
-      (previewSource === 'editor' ||
-      /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i.test(n) ||
-      n.startsWith('blob:'));
-    void navigateRef.current(n, {
-      preview: initialPreview?.screenshot_url ? initialPreview : null,
-      automation: requiresBrowserRun
-        ? false
-        : passiveEditor
+    void (async () => {
+      const embedMode = await resolveEmbedModeRemote(n);
+      const requiresBrowserRun = embedMode === 'browser_run';
+      const passiveEditor =
+        !requiresBrowserRun &&
+        (previewSource === 'editor' ||
+        /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i.test(n) ||
+        n.startsWith('blob:'));
+      void navigateRef.current(n, {
+        preview: initialPreview?.screenshot_url ? initialPreview : null,
+        automation: requiresBrowserRun
           ? false
-          : initialAutomation === true || Boolean(initialPreview?.screenshot_url),
-      agentLive: requiresBrowserRun
-        ? true
-        : passiveEditor
-          ? false
-          : initialAgentLive === true || Boolean(agentRunId?.trim()),
-    });
+          : passiveEditor
+            ? false
+            : initialAutomation === true || Boolean(initialPreview?.screenshot_url),
+        agentLive: requiresBrowserRun
+          ? true
+          : passiveEditor
+            ? false
+            : initialAgentLive === true || Boolean(agentRunId?.trim()),
+      });
+    })();
   }, [initialUrl, initialPreview, initialAutomation, initialAgentLive, previewSource, agentRunId]);
 
   // ── Screenshot (Playwright) ─────────────────────────────────────────────────
@@ -2476,18 +2483,28 @@ const BrowserPane: React.FC<PaneProps> = ({
   }, [currentUrl, agentRunId, loadRegistryPickersIfNeeded]);
 
   // ── Hard reload ─────────────────────────────────────────────────────────────
+  // Async: consults resolveEmbedModeRemote so probed-only XFO hosts discovered
+  // via D1/probe (not in the seed list) also route to Browser Run on reload,
+  // consistent with navigate() and fallbackFromAutomation().
   const hardReload = useCallback(() => {
-    if (browserRunSessionRef.current || originRequiresBrowserRunEmbed(currentUrl)) {
-      void openBrowserRunLiveView(currentUrl);
-    } else if (iframeUrl?.trim()) {
-      setLoading(true);
-      const u = currentUrl;
-      setIframeUrl('');
-      window.requestAnimationFrame(() => setIframeUrl(u));
-    } else {
-      void openPassiveIframeView(currentUrl);
-    }
     setMenuOpen(false);
+    void (async () => {
+      if (browserRunSessionRef.current) {
+        void openBrowserRunLiveView(currentUrl);
+        return;
+      }
+      const embedMode = await resolveEmbedModeRemote(currentUrl);
+      if (embedMode === 'browser_run') {
+        void openBrowserRunLiveView(currentUrl);
+      } else if (iframeUrl?.trim()) {
+        setLoading(true);
+        const u = currentUrl;
+        setIframeUrl('');
+        window.requestAnimationFrame(() => setIframeUrl(u));
+      } else {
+        void openPassiveIframeView(currentUrl);
+      }
+    })();
   }, [currentUrl, iframeUrl, openBrowserRunLiveView, openPassiveIframeView]);
 
   // ── Clear helpers ───────────────────────────────────────────────────────────
