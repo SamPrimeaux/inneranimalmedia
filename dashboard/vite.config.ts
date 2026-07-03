@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'node:fs';
+import { execSync } from 'node:child_process';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
@@ -75,9 +76,18 @@ export default defineConfig(({ mode }) => {
     ...loadEnv(mode, __dirname, ''),
   };
   const { url: supabaseUrl, anonKey: supabaseAnonKey } = pickSupabaseEnv(env);
+  let buildGitSha = String(process.env.IAM_BUILD_GIT_SHA || '').trim();
+  if (!buildGitSha) {
+    try {
+      buildGitSha = execSync('git rev-parse HEAD', { cwd: repoRoot, encoding: 'utf8' }).trim();
+    } catch {
+      buildGitSha = 'dev';
+    }
+  }
   return {
     base: '/static/dashboard/app/',
     define: {
+      __IAM_BUILD_GIT_SHA__: JSON.stringify(buildGitSha),
       'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
       'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(supabaseAnonKey),
     },
@@ -193,7 +203,7 @@ export default defineConfig(({ mode }) => {
                 url.pathname.startsWith('/static/dashboard/app/') && url.pathname.endsWith('.js'),
               handler: 'NetworkFirst',
               options: {
-                cacheName: 'iam-dashboard-js-v2',
+                cacheName: 'iam-dashboard-js-v3',
                 networkTimeoutSeconds: 4,
                 expiration: { maxEntries: 64, maxAgeSeconds: 7 * 24 * 60 * 60 },
                 cacheableResponse: { statuses: [0, 200] },

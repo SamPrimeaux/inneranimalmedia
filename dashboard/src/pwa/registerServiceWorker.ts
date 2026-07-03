@@ -2,6 +2,8 @@
  * Register dashboard PWA service worker after session is confirmed (not on /auth/*).
  */
 
+import { ensureFreshDashboardBundle } from './ensureFreshDashboardBundle';
+
 const SW_URL = '/sw.js';
 const SERVICES_MANIFEST_URL = 'https://services.inneranimalmedia.com/sw/manifest.json';
 const CACHE_BUST_STORAGE_KEY = 'iam_sw_cache_bust';
@@ -83,7 +85,7 @@ function triggerTier1Warm(): void {
 async function purgeLegacyDashboardJsCaches(): Promise<void> {
   if (typeof caches === 'undefined') return;
   await Promise.all(
-    ['iam-dashboard-js-v1', 'iam-dashboard-js-v2'].map((name) => caches.delete(name)),
+    ['iam-dashboard-js-v1', 'iam-dashboard-js-v2', 'iam-dashboard-js-v3'].map((name) => caches.delete(name)),
   );
 }
 
@@ -118,6 +120,11 @@ export async function registerIamServiceWorker(): Promise<void> {
     });
 
     attachSwUpdatePoll(registration);
+
+    void ensureFreshDashboardBundle();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') void ensureFreshDashboardBundle();
+    });
 
     void pollServicesManifest();
     triggerTier1Warm();

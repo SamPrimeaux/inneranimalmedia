@@ -39,6 +39,7 @@ import { ToolApprovalCard } from './ToolApprovalCard';
 import type { ToolApprovalPayload } from '../types';
 import { AgentMobileFilesChangedEnvelope } from './AgentMobileFilesChangedEnvelope';
 import { collectDiffArtifactsFromMessages } from '../lib/collectChatDiffArtifacts';
+import { MobileCodeSnippetRow } from './MobileCodeSnippetRow';
 
 const ASSISTANT_AVATAR_DARK =
   'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/dbb316af-9c97-4959-f09f-bf58b2783d00/avatar';
@@ -161,6 +162,7 @@ function renderMessageContent(
   /** Assistant replies often use headings/lists; user paste may need literal newlines. */
   renderTextAsMarkdown = false,
   onImagePreview?: AgentMessageListProps['onImagePreview'],
+  mobileCompactCode = false,
 ): React.ReactNode {
   const imgHandler =
     onImagePreview ?? ((u: string) => window.open(u, '_blank', 'noopener,noreferrer'));
@@ -209,8 +211,22 @@ function renderMessageContent(
     const langLower = lang.toLowerCase();
     const isLarge = code.split('\n').length > 5 || code.length > 200;
     const useFencePreview = !isShell && (isLarge || PREVIEW_LANGS.has(langLower));
+    const fileName = `agent_output_${msgIndex}_${codeCount}.${ext}`;
 
-    if (isShell && isLarge) {
+    if (mobileCompactCode && (isLarge || useFencePreview)) {
+      parts.push(
+        <MobileCodeSnippetRow
+          key={`code-${match.index}`}
+          fileName={fileName}
+          lang={isShell ? 'shell' : lang}
+          lineCount={code.split('\n').length}
+          code={code}
+          isShell={isShell}
+          onOpenMonaco={() => onFileSelect?.({ name: fileName, content: code })}
+          onRunInTerminal={isShell ? () => onRunInTerminal?.(code) : undefined}
+        />,
+      );
+    } else if (isShell && isLarge) {
       parts.push(
         <div
           key={`code-${match.index}`}
@@ -681,7 +697,15 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                   ) : null}
                   {assistantContent.trim() ? (
                     <div className="agent-content text-[0.8125rem] leading-relaxed min-w-0 break-words [overflow-wrap:anywhere] text-[var(--dashboard-text)] w-full">
-                      {renderMessageContent(assistantContent, i, onFileSelect, onRunInTerminal, true, onImagePreview)}
+                      {renderMessageContent(
+                        assistantContent,
+                        i,
+                        onFileSelect,
+                        onRunInTerminal,
+                        true,
+                        onImagePreview,
+                        mobileEnvelopeDiffs,
+                      )}
                     </div>
                   ) : null}
                   {isLastAssistant && toolTraceRows.length > 0 ? (

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { purgeDashboardJsCaches } from './ensureFreshDashboardBundle';
 
 const PWA_UPDATE_EVENT = 'iam-pwa-update-available';
 
@@ -42,7 +43,9 @@ export function PwaUpdateBanner() {
       <span>Update available — Reload</span>
       <button
         type="button"
-        onClick={() => window.location.reload()}
+        onClick={() => {
+          void purgeDashboardJsCaches().finally(() => window.location.reload());
+        }}
         style={{
           border: '1px solid rgba(0, 33, 43, 0.35)',
           background: '#00212b',

@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { registerIamServiceWorker, subscribeIamWebPush } from "../pwa/registerServiceWorker";
+import { ensureFreshDashboardBundle } from '../pwa/ensureFreshDashboardBundle';
 import {
   prepareRecentWorkspacesForSession,
   persistRecentWorkspaceSwitch,
@@ -446,7 +447,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       prepareRecentWorkspacesForSession(userId);
 
       if (userId) {
-        void registerIamServiceWorker().then(() => subscribeIamWebPush().catch(() => false));
+        void registerIamServiceWorker()
+          .then(() => {
+            void ensureFreshDashboardBundle();
+            return subscribeIamWebPush().catch(() => false);
+          });
       }
 
       const cached = readIamWorkspaceSession(userId);
