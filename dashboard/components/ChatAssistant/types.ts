@@ -150,7 +150,7 @@ export type PlanIntakeQuestion = {
   multi_select?: boolean;
 };
 
-/** Cursor-style batched plan questions (SSE plan_questions_batch). */
+/** Cursor-style batched plan questions (Continue / Skip). */
 export type PlanQuestionsBatchPayload = {
   batch_id: string;
   phase: 'pre_plan' | 'mid_plan' | 'roadblock';
@@ -412,7 +412,16 @@ export type ChatModelRow = {
   billing_key_source?: 'byok' | 'platform' | string;
 };
 
-export const MENTION_CONTEXT_HEADER = '\n\n--- On-demand context (this message only) ---\n';
+/**
+ * Separator injected between the user's visible message and silent context blocks.
+ * The suppression instruction is critical — without it the model treats the injected
+ * blocks as conversation content and echoes or comments on them in its reply.
+ */
+export const MENTION_CONTEXT_HEADER =
+  '\n\n--- On-demand context (this message only) ---\n' +
+  'IMPORTANT: Do not repeat, reference, summarize, or acknowledge the blocks below. ' +
+  'Use them silently as reference only. Begin your reply to the user message above directly.\n';
+
 export const MENTION_FILE_MAX_CHARS = 8000;
 export const MENTION_R2_LIST_MAX_ROWS = 250;
 /** Worker request body cap (inform UI); combined files rejected above CHAT_ATTACH_MAX_TOTAL_BYTES in worker.js */
