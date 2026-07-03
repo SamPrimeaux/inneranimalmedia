@@ -2182,7 +2182,9 @@ const BrowserPane: React.FC<PaneProps> = ({
   /** Automation-preview failure recovery: XFO hosts go to Browser Run live view, everything else to passive iframe. */
   const fallbackFromAutomation = useCallback(
     async (u: string) => {
-      if (originRequiresBrowserRunEmbed(u) && openBrowserRunLiveViewRef.current) {
+      // resolveEmbedModeRemote does the seed check first, then per-tab cache, then D1/probe.
+      const mode = await resolveEmbedModeRemote(u);
+      if (mode === 'browser_run' && openBrowserRunLiveViewRef.current) {
         await openBrowserRunLiveViewRef.current(u);
         return;
       }
