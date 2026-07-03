@@ -2179,6 +2179,18 @@ const BrowserPane: React.FC<PaneProps> = ({
     [addressDisplay, onUrlCommitted, releaseBrowserRunSession],
   );
 
+  /** Automation-preview failure recovery: XFO hosts go to Browser Run live view, everything else to passive iframe. */
+  const fallbackFromAutomation = useCallback(
+    async (u: string) => {
+      if (originRequiresBrowserRunEmbed(u) && openBrowserRunLiveViewRef.current) {
+        await openBrowserRunLiveViewRef.current(u);
+        return;
+      }
+      await openPassiveIframeView(u);
+    },
+    [openPassiveIframeView],
+  );
+
   /** MYBROWSER / CDT automation preview — explicit screenshot path only (not agent live default). */
   const loadAutomationPreview = useCallback(
     async (targetUrl: string, preview?: BrowserPreviewPayload | null) => {
