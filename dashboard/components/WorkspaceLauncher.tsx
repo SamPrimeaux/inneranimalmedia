@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { persistRecentWorkspaceSwitch } from '../src/recentWorkspacesStorage';
+import { loadPrefsForWorkspace } from '../hooks/useTerminalWorkspace';
+import { WorkspaceTerminalTile } from './WorkspaceTerminalTile';
 import {
   FolderOpen,
   Github,
@@ -685,26 +687,19 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                               Linked workspaces
                             </p>
                             {filtered.map((w) => (
-                              <div
+                              <WorkspaceTerminalTile
                                 key={w.id}
-                                className="flex flex-col sm:flex-row items-stretch gap-2 p-2.5 sm:p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]/40 hover:bg-[var(--bg-hover)]/50 transition-colors"
-                              >
-                                <div className="flex-1 min-w-0">
-                                  <div className="font-bold text-[var(--text-heading)] truncate text-[13px] sm:text-sm">
-                                    {w.display_name || w.slug}
-                                  </div>
-                                  <div className="text-[10px] sm:text-[11px] text-muted mt-1 truncate">
-                                    GH: {w.github_repo}
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => void activateWorkspace(w)}
-                                  className="shrink-0 w-full sm:w-auto px-4 py-2 sm:py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] text-xs font-bold hover:bg-[var(--solar-cyan)]/30"
-                                >
-                                  Open
-                                </button>
-                              </div>
+                                workspaceId={w.id}
+                                displayName={w.display_name || w.slug || w.id}
+                                slug={w.slug}
+                                githubRepo={w.github_repo}
+                                prefs={loadPrefsForWorkspace(w.id)}
+                                isActive={w.id === authWorkspaceId}
+                                onOpen={(id) => {
+                                  const row = rows.find((r) => r.id === id);
+                                  if (row) void activateWorkspace(row);
+                                }}
+                              />
                             ))}
                           </div>
                         ) : null}
@@ -730,38 +725,20 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                     </div>
                   ) : (
                     filtered.map((w) => (
-                      <div
+                      <WorkspaceTerminalTile
                         key={w.id}
-                        className="flex flex-col sm:flex-row items-stretch gap-2 p-2.5 sm:p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]/40 hover:bg-[var(--bg-hover)]/50 transition-colors"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="font-bold text-[var(--text-heading)] truncate text-[13px] sm:text-sm min-w-0">
-                              {w.slug || w.display_name || w.id}
-                            </span>
-                            {w.workspace_type &&
-                            !['main', 'entry', 'empty'].includes(String(w.workspace_type).toLowerCase()) ? (
-                              <span className="text-[9px] sm:text-[10px] uppercase font-bold px-1.5 sm:px-2 py-0.5 rounded-full bg-[var(--solar-cyan)]/15 text-[var(--solar-cyan)] shrink-0">
-                                {w.workspace_type}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="text-[10px] sm:text-[11px] text-muted mt-1 flex flex-col sm:flex-row sm:flex-wrap gap-x-3 gap-y-0.5 min-w-0">
-                            {w.r2_prefix ? <span className="truncate">R2: {w.r2_prefix}</span> : null}
-                            {w.github_repo ? <span className="truncate">GH: {w.github_repo}</span> : null}
-                            <span className="flex items-center gap-1 shrink-0">
-                              <Clock size={10} /> {formatRelativeTime(w.updated_at)}
-                            </span>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => void activateWorkspace(w)}
-                          className="shrink-0 w-full sm:w-auto px-4 py-2 sm:py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] text-xs font-bold hover:bg-[var(--solar-cyan)]/30"
-                        >
-                          Open
-                        </button>
-                      </div>
+                        workspaceId={w.id}
+                        displayName={w.display_name || w.slug || w.id}
+                        slug={w.slug}
+                        githubRepo={w.github_repo}
+                        updatedAt={w.updated_at}
+                        prefs={loadPrefsForWorkspace(w.id)}
+                        isActive={w.id === authWorkspaceId}
+                        onOpen={(id) => {
+                          const row = rows.find((r) => r.id === id);
+                          if (row) void activateWorkspace(row);
+                        }}
+                      />
                     ))
                   )}
                 </div>

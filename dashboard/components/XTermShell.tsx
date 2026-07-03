@@ -29,6 +29,7 @@ import {
   IAM_TERMINAL_SETUP_WIZARD,
 } from '../src/lib/openCommandPalette';
 import { TerminalWelcomeSplash, type SplashAction } from './TerminalWelcomeSplash';
+import type { TerminalSplashStatus } from '../src/lib/terminalSplashStatus';
 import { fetchTerminalSplashStatus } from '../src/lib/terminalSplashStatus';
 import {
   getTerminalWorkspacePref,
@@ -72,6 +73,8 @@ export interface XTermShellHandle {
   writeToTerminal: (text: string) => void;
   runCommand: (cmd: string) => void;
   setActiveTab: (t: ShellTab) => void;
+  /** Close PTY session without reconnect (workspace switch). */
+  disconnect: () => void;
 }
 
 interface XTermShellProps {
@@ -87,6 +90,11 @@ interface XTermShellProps {
   showIamWelcomeBar?: boolean;
   workspaceLabel?: string;
   workspaceId?: string;
+  /** When set, parent drives lane selection (useTerminalWorkspace). */
+  targetType?: TerminalTarget;
+  splashStatus?: TerminalSplashStatus | null;
+  splashStatusLoading?: boolean;
+  onConnected?: (cwd: string | null) => void;
   productLabel?: string;
   layout?: 'page' | 'drawer';
   workspaceContext?: AgentWorkspaceContextPacket | null;
@@ -116,6 +124,10 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       showIamWelcomeBar = true,
       workspaceLabel = '',
       workspaceId,
+      targetType: targetTypeProp,
+      splashStatus: splashStatusProp,
+      splashStatusLoading = false,
+      onConnected,
       productLabel = DEFAULT_PRODUCT,
       layout = 'page',
       workspaceContext: _workspaceContext = null,
@@ -374,6 +386,28 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     }, []);
 
     useEffect(() => {
+      if (targetTypeProp != null) setTerminalTarget(targetTypeProp);
+    }, [targetTypeProp]);
+
+    useEffect(() => {
+      if (splashStatusProp === undefined) return;
+      const cd = splashStatusProp?.workspaceMeta?.cd_command;
+      if (cd) setResolvedCdCmd(cd);
+      else if (splashStatusProp?.workspaceMeta?.cwd) {
+        setResolvedCdCmd(`cd ${JSON.stringify(splashStatusProp.workspaceMeta.cwd)}`);
+      }
+    }, [splashStatusProp]);
+
+    useEffect(() => {
+      if (primaryStatus !== 'connected' || !onConnected) return;
+      const cwd =
+        splashStatusProp?.workspaceMeta?.cwd ??
+        splashStatusProp?.workspace.cwd ??
+        null;
+      onConnected(cwd);
+    }, [primaryStatus, onConnected, splashStatusProp]);
+
+    useEffect(() => {
       const wid = workspaceId?.trim() || '';
       const prev = prevWorkspaceIdRef.current?.trim() || '';
 
@@ -398,25 +432,27 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       }
 
       const pref = getTerminalWorkspacePref(wid);
-      setTerminalTarget(pref.targetType);
+      setTerminalTarget(targetTypeProp ?? pref.targetType);
       setShowSplash(!pref.splashDismissed);
 
-      void fetchTerminalSplashStatus(wid, workspaceLabel).then((splash) => {
-        if (splash.workspaceMeta?.cd_command) {
-          setResolvedCdCmd(splash.workspaceMeta.cd_command);
-        }
-        persistWorkspaceTerminalPref(wid, {
-          workspaceName: splash.workspace.name ?? workspaceLabel,
-          cwd: splash.workspaceMeta?.cwd ?? null,
+      if (splashStatusProp === undefined) {
+        void fetchTerminalSplashStatus(wid, workspaceLabel).then((splash) => {
+          if (splash.workspaceMeta?.cd_command) {
+            setResolvedCdCmd(splash.workspaceMeta.cd_command);
+          }
+          persistWorkspaceTerminalPref(wid, {
+            workspaceName: splash.workspace.name ?? workspaceLabel,
+            cwd: splash.workspaceMeta?.cwd ?? null,
+          });
         });
-      });
+      }
 
       if (pref.splashDismissed) {
         window.setTimeout(() => {
           primaryPaneRef.current?.reconnectClean();
         }, 100);
       }
-    }, [workspaceId, persistWorkspaceTerminalPref, splitEnabled]);
+    }, [workspaceId, persistWorkspaceTerminalPref, splitEnabled, targetTypeProp, splashStatusProp, workspaceLabel]);
 
     useEffect(() => {
       const wid = workspaceId?.trim();
@@ -614,6 +650,15 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       setActiveTab: (t: ShellTab) => {
         setActiveTab(t);
         setIsCollapsed(false);
+      },
+      disconnect: () => {
+        primaryPaneRef.current?.disconnectQuiet();
+        if (splitEnabled) secondaryPaneRef.current?.disconnectQuiet();
+        setPrimaryStatus('disconnected');
+        setSecondaryStatus('disconnected');
+        setShowSplash(true);
+        const wid = workspaceId?.trim();
+        if (wid) patchTerminalWorkspacePref(wid, { splashDismissed: false });
       },
     }));
 
@@ -1044,6 +1089,8 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                     <TerminalWelcomeSplash
                       workspaceId={workspaceId}
                       workspaceLabel={workspaceLabel}
+                      splashStatus={splashStatusProp}
+                      splashStatusLoading={splashStatusLoading}
                       onAction={handleSplashAction}
                     />
                   )}

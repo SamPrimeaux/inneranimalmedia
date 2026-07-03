@@ -1,98 +1,82 @@
 /**
- * @file dashboard/hooks/useTerminalWorkspace.ts
- *
  * Bridges workspace activation → terminal panel.
  *
  * When the user switches workspace (WorkspaceLauncher → onWorkspaceActivated),
- * this hook:
- *   1. Updates the active terminal workspace_id
- *   2. Fetches /api/terminal/splash-status?workspace_id=NEW_ID
- *   3. Signals XTermShell to disconnect current session + reconnect scoped to new workspace
- *   4. Persists per-workspace terminal prefs (lane, cwd, lastConnectedAt) in localStorage
- *
- * Usage in the shell/app root:
- *   const termWs = useTerminalWorkspace({ authWorkspaceId, onStatusReady });
- *   // Pass termWs.workspaceId + termWs.splashStatus to XTermShell
+ * this hook fetches /api/terminal/splash-status, recommends a lane, and signals
+ * XTermShell to disconnect/reconnect scoped to the new workspace.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { TerminalTarget } from '../components/LocalTerminalSetup';
+import {
+  fetchTerminalSplashStatus,
+  type TerminalSplashStatus,
+} from '../src/lib/terminalSplashStatus';
+import {
+  getTerminalWorkspacePref,
+  patchTerminalWorkspacePref,
+  type TerminalWorkspacePref,
+} from '../src/lib/terminalWorkspacePrefs';
 
-export type LaneStatus = 'ready' | 'offline' | 'pending' | 'error' | 'checking';
+export type { TerminalSplashStatus };
+export type WorkspaceTerminalPrefs = TerminalWorkspacePref;
 
-export type TerminalSplashStatus = {
-  workspace_id: string;
-  workspace_label: string;
-  can_run_pty: boolean;
-  pty_service_bound: boolean;
-  workspace: { status: LaneStatus; label: string };
-  runtime:   { status: LaneStatus; label: string; via_pty_service?: boolean };
-  tunnel:    { status: LaneStatus; label: string; platform?: string | null; shell?: string | null };
-  agent:     { status: LaneStatus; label: string };
-  lanes: {
-    local:   { target_type: string; ready: boolean; configured: boolean; shell?: string | null; platform?: string | null; error_code?: string | null };
-    cloud:   { target_type: string; ready: boolean; configured: boolean; via_pty_service?: boolean; error_code?: string | null };
-    sandbox: { target_type: string; ready: boolean; configured: boolean; error_code?: string | null };
-  };
-};
-
-export type WorkspaceTerminalPrefs = {
-  targetType: 'user_hosted_tunnel' | 'platform_vm' | 'sandbox';
-  splashDismissed: boolean;
-  workspaceName: string;
-  cwd: string | null;
-  lastConnectedAt: number | null;
-};
-
-const PREFS_KEY = 'iam_terminal_ws_prefs_v1';
-const DEFAULT_PREFS: WorkspaceTerminalPrefs = {
+const DEFAULT_PREFS: TerminalWorkspacePref = {
   targetType: 'platform_vm',
   splashDismissed: false,
-  workspaceName: '',
-  cwd: null,
-  lastConnectedAt: null,
 };
 
-// ─── localStorage helpers ─────────────────────────────────────────────────────
-
-function loadAllPrefs(): Record<string, WorkspaceTerminalPrefs> {
-  try {
-    const raw = localStorage.getItem(PREFS_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as Record<string, WorkspaceTerminalPrefs>;
-  } catch {
-    return {};
-  }
-}
-
-function savePrefsForWorkspace(workspaceId: string, prefs: Partial<WorkspaceTerminalPrefs>) {
-  try {
-    const all = loadAllPrefs();
-    all[workspaceId] = { ...DEFAULT_PREFS, ...(all[workspaceId] ?? {}), ...prefs };
-    localStorage.setItem(PREFS_KEY, JSON.stringify(all));
-  } catch {}
-}
-
+/** @deprecated alias — use getTerminalWorkspacePref */
 export function loadPrefsForWorkspace(workspaceId: string): WorkspaceTerminalPrefs {
-  const all = loadAllPrefs();
-  return { ...DEFAULT_PREFS, ...(all[workspaceId] ?? {}) };
+  return getTerminalWorkspacePref(workspaceId);
 }
 
 export function listRecentTerminalWorkspaces(): Array<{ workspaceId: string } & WorkspaceTerminalPrefs> {
-  const all = loadAllPrefs();
-  return Object.entries(all)
-    .filter(([, p]) => p.lastConnectedAt != null)
-    .sort(([, a], [, b]) => (b.lastConnectedAt ?? 0) - (a.lastConnectedAt ?? 0))
-    .map(([workspaceId, prefs]) => ({ workspaceId, ...prefs }));
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('iam_terminal_ws_prefs_v1');
+    if (!raw) return [];
+    const all = JSON.parse(raw) as Record<string, WorkspaceTerminalPrefs>;
+    return Object.entries(all)
+      .filter(([, p]) => p.lastConnectedAt != null)
+      .sort(([, a], [, b]) => (b.lastConnectedAt ?? 0) - (a.lastConnectedAt ?? 0))
+      .map(([workspaceId, prefs]) => ({ workspaceId, ...DEFAULT_PREFS, ...prefs }));
+  } catch {
+    return [];
+  }
 }
 
-// ─── Hook ─────────────────────────────────────────────────────────────────────
+function recommendTarget(
+  status: TerminalSplashStatus,
+  prefs: TerminalWorkspacePref,
+): TerminalTarget {
+  if (prefs.splashDismissed && prefs.targetType) return prefs.targetType;
+  const t = status.targets;
+  if (t?.local?.ready) return 'user_hosted_tunnel';
+  if (t?.cloud?.ready) return 'platform_vm';
+  if (t?.sandbox?.ready) return 'sandbox';
+  if (t?.local?.configured) return 'user_hosted_tunnel';
+  if (t?.cloud?.configured) return 'platform_vm';
+  return status.preferredLane === 'local'
+    ? 'user_hosted_tunnel'
+    : status.preferredLane === 'sandbox'
+      ? 'sandbox'
+      : 'platform_vm';
+}
+
+export function laneReadyFromStatus(status: TerminalSplashStatus | null): boolean {
+  if (!status?.targets) return false;
+  if (status.targets.can_run_pty === false) return false;
+  return (
+    status.targets.local?.ready === true ||
+    status.targets.cloud?.ready === true ||
+    status.targets.sandbox?.ready === true
+  );
+}
 
 type UseTerminalWorkspaceOpts = {
-  /** Currently authenticated workspace_id from app state */
   authWorkspaceId: string | null | undefined;
-  /** Called when splash-status resolves for a workspace */
   onStatusReady?: (workspaceId: string, status: TerminalSplashStatus) => void;
-  /** Called when workspace changes — use to signal XTermShell to disconnect */
   onWorkspaceChange?: (newWorkspaceId: string, prevWorkspaceId: string | null) => void;
 };
 
@@ -101,116 +85,130 @@ export function useTerminalWorkspace({
   onStatusReady,
   onWorkspaceChange,
 }: UseTerminalWorkspaceOpts) {
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(
-    authWorkspaceId?.trim() || null,
-  );
   const [splashStatus, setSplashStatus] = useState<TerminalSplashStatus | null>(null);
+  const [recommendedTargetType, setRecommendedTargetType] = useState<TerminalTarget>('platform_vm');
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
-  const prevWorkspaceRef = useRef<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
 
-  // Fetch splash-status for a workspace
+  const onWorkspaceChangeRef = useRef(onWorkspaceChange);
+  const onStatusReadyRef = useRef(onStatusReady);
+  useEffect(() => {
+    onWorkspaceChangeRef.current = onWorkspaceChange;
+  }, [onWorkspaceChange]);
+  useEffect(() => {
+    onStatusReadyRef.current = onStatusReady;
+  }, [onStatusReady]);
+
+  const prevWorkspaceRef = useRef<string | null>(null);
+  const activeWorkspaceId = authWorkspaceId?.trim() || '';
+
   const fetchStatus = useCallback(async (workspaceId: string) => {
-    abortRef.current?.abort();
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
+    const wid = workspaceId.trim();
+    if (!wid) {
+      setSplashStatus(null);
+      return null;
+    }
 
     setStatusLoading(true);
     setStatusError(null);
 
     try {
-      const res = await fetch(
-        `/api/terminal/splash-status?workspace_id=${encodeURIComponent(workspaceId)}`,
-        { credentials: 'same-origin', signal: ctrl.signal },
-      );
-      if (!res.ok) throw new Error(`splash-status ${res.status}`);
-      const data = (await res.json()) as TerminalSplashStatus;
-      setSplashStatus(data);
-      onStatusReady?.(workspaceId, data);
+      const status = await fetchTerminalSplashStatus(wid);
+      setSplashStatus(status);
+      const prefs = getTerminalWorkspacePref(wid);
+      setRecommendedTargetType(recommendTarget(status, prefs));
+      onStatusReadyRef.current?.(wid, status);
 
-      // Persist workspace name + cwd from status
-      savePrefsForWorkspace(workspaceId, {
-        workspaceName: data.workspace_label ?? '',
-        cwd: null, // updated on actual connect
-      });
+      if (status.workspaceMeta?.name) {
+        patchTerminalWorkspacePref(wid, { workspaceName: status.workspaceMeta.name });
+      }
+
+      return status;
     } catch (err) {
-      if ((err as Error).name === 'AbortError') return;
       setStatusError((err as Error).message);
       setSplashStatus(null);
+      return null;
     } finally {
       setStatusLoading(false);
     }
-  }, [onStatusReady]);
+  }, []);
 
-  // React to authWorkspaceId changes (workspace switch from WorkspaceLauncher)
   useEffect(() => {
-    const next = authWorkspaceId?.trim() || null;
-    if (!next || next === prevWorkspaceRef.current) return;
-
+    const wid = activeWorkspaceId;
     const prev = prevWorkspaceRef.current;
-    prevWorkspaceRef.current = next;
-    setActiveWorkspaceId(next);
-    onWorkspaceChange?.(next, prev);
-    void fetchStatus(next);
-  }, [authWorkspaceId, fetchStatus, onWorkspaceChange]);
 
-  // Manual switch (e.g. "Also open" footer click)
+    if (wid && prev && prev !== wid) {
+      onWorkspaceChangeRef.current?.(wid, prev);
+    }
+    prevWorkspaceRef.current = wid || null;
+
+    if (!wid) {
+      setSplashStatus(null);
+      setRecommendedTargetType('platform_vm');
+      return;
+    }
+
+    let cancelled = false;
+    setStatusLoading(true);
+    void fetchTerminalSplashStatus(wid).then((status) => {
+      if (cancelled) return;
+      setSplashStatus(status);
+      const prefs = getTerminalWorkspacePref(wid);
+      setRecommendedTargetType(recommendTarget(status, prefs));
+      onStatusReadyRef.current?.(wid, status);
+      if (status.workspaceMeta?.name) {
+        patchTerminalWorkspacePref(wid, { workspaceName: status.workspaceMeta.name });
+      }
+      setStatusLoading(false);
+    }).catch((err) => {
+      if (cancelled) return;
+      setStatusError((err as Error).message);
+      setSplashStatus(null);
+      setStatusLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceId]);
+
   const switchToWorkspace = useCallback(
     (workspaceId: string) => {
       const wid = workspaceId.trim();
       if (!wid || wid === prevWorkspaceRef.current) return;
       const prev = prevWorkspaceRef.current;
       prevWorkspaceRef.current = wid;
-      setActiveWorkspaceId(wid);
-      onWorkspaceChange?.(wid, prev);
+      onWorkspaceChangeRef.current?.(wid, prev);
       void fetchStatus(wid);
     },
-    [fetchStatus, onWorkspaceChange],
+    [fetchStatus],
   );
 
-  // Persist lane preference for active workspace
-  const saveTargetType = useCallback(
-    (targetType: WorkspaceTerminalPrefs['targetType']) => {
-      if (!activeWorkspaceId) return;
-      savePrefsForWorkspace(activeWorkspaceId, { targetType });
-    },
-    [activeWorkspaceId],
-  );
+  const saveTargetType = useCallback((targetType: TerminalTarget) => {
+    const wid = activeWorkspaceId.trim();
+    if (!wid) return;
+    setRecommendedTargetType(targetType);
+    patchTerminalWorkspacePref(wid, { targetType });
+  }, [activeWorkspaceId]);
 
-  // Mark as connected (updates lastConnectedAt + splashDismissed)
   const markConnected = useCallback(
-    (cwd?: string) => {
-      if (!activeWorkspaceId) return;
-      savePrefsForWorkspace(activeWorkspaceId, {
-        lastConnectedAt: Date.now(),
+    (cwd?: string | null, targetType?: TerminalTarget) => {
+      const wid = activeWorkspaceId.trim();
+      if (!wid) return;
+      patchTerminalWorkspacePref(wid, {
         splashDismissed: true,
-        ...(cwd ? { cwd } : {}),
+        targetType: targetType ?? recommendedTargetType,
+        cwd: cwd ?? null,
+        lastConnectedAt: Date.now(),
+        workspaceName: splashStatus?.workspaceMeta?.name ?? undefined,
       });
     },
-    [activeWorkspaceId],
+    [activeWorkspaceId, recommendedTargetType, splashStatus?.workspaceMeta?.name],
   );
 
-  // Get prefs for current workspace
   const currentPrefs = activeWorkspaceId
-    ? loadPrefsForWorkspace(activeWorkspaceId)
+    ? getTerminalWorkspacePref(activeWorkspaceId)
     : DEFAULT_PREFS;
-
-  // Best available lane from splash-status (respects saved preference)
-  const recommendedTargetType = ((): WorkspaceTerminalPrefs['targetType'] => {
-    if (!splashStatus) return currentPrefs.targetType;
-    // Honor saved preference if that lane is ready
-    const saved = currentPrefs.targetType;
-    const lanes = splashStatus.lanes;
-    if (saved === 'platform_vm' && lanes.cloud.ready) return 'platform_vm';
-    if (saved === 'user_hosted_tunnel' && lanes.local.ready) return 'user_hosted_tunnel';
-    if (saved === 'sandbox' && lanes.sandbox.ready) return 'sandbox';
-    // Fall through to best available
-    if (lanes.local.ready) return 'user_hosted_tunnel';
-    if (lanes.cloud.ready) return 'platform_vm';
-    if (lanes.sandbox.ready) return 'sandbox';
-    return 'platform_vm'; // default even if not ready
-  })();
 
   return {
     activeWorkspaceId,
@@ -219,9 +217,12 @@ export function useTerminalWorkspace({
     statusError,
     currentPrefs,
     recommendedTargetType,
+    ptyReady: laneReadyFromStatus(splashStatus),
     switchToWorkspace,
     saveTargetType,
+    setRecommendedTargetType: saveTargetType,
     markConnected,
+    refreshStatus: () => (activeWorkspaceId ? fetchStatus(activeWorkspaceId) : Promise.resolve(null)),
     refetchStatus: () => activeWorkspaceId && fetchStatus(activeWorkspaceId),
   };
 }

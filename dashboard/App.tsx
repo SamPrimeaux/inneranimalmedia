@@ -68,7 +68,9 @@ import {
 } from './src/lib/openCommandPalette';
 import { type ConnectionMenuAction } from './components/ConnectionMenuPanel';
 import { WorkspaceLauncher } from './components/WorkspaceLauncher';
+import { WorkspaceTerminalTile } from './components/WorkspaceTerminalTile';
 import type { XTermShellHandle, ShellTab } from './components/XTermShell';
+import { useTerminalWorkspace } from './hooks/useTerminalWorkspace';
 import { SecurityShieldBanner } from './components/SecurityShieldBanner';
 import { mapProblemsApiPayload, countProblemSeverities } from './src/lib/mapAgentProblems';
 import { buildPlatformHealthIssues, localTunnelVerificationStale } from './src/lib/platformHealth';
@@ -543,6 +545,13 @@ const App: React.FC = () => {
   const terminalRef = useRef<XTermShellHandle>(null);
   const collabWsRef = useRef<WebSocket | null>(null);
 
+  const termWs = useTerminalWorkspace({
+    authWorkspaceId,
+    onWorkspaceChange: () => {
+      terminalRef.current?.disconnect();
+    },
+  });
+
   useEffect(() => {
     if (!sessionUserId) return;
     persistLastSessionSnapshot({
@@ -704,6 +713,12 @@ const App: React.FC = () => {
   const [tunnelStale, setTunnelStale] = useState(false);
   const [tunnelLabel, setTunnelLabel] = useState<string | null>(null);
   const [terminalOk, setTerminalOk] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (termWs.splashStatus == null && !termWs.statusLoading) return;
+    if (termWs.ptyReady) setTerminalOk(true);
+    else if (!termWs.statusLoading) setTerminalOk(false);
+  }, [termWs.splashStatus, termWs.ptyReady, termWs.statusLoading]);
   const [editorMeta, setEditorMeta] = useState<EditorModelMeta>({
     tabSize: 2,
     insertSpaces: true,
@@ -5102,7 +5117,11 @@ const App: React.FC = () => {
                           onProblemsTabOpen={() => void fetchGitAndProblems()}
                           iamOrigin={typeof window !== 'undefined' ? window.location.origin : 'https://inneranimalmedia.com'}
                           workspaceLabel={workspaceDisplayLine}
-                          workspaceId={authWorkspaceId || undefined}
+                          workspaceId={termWs.activeWorkspaceId || undefined}
+                          targetType={termWs.recommendedTargetType}
+                          splashStatus={termWs.splashStatus}
+                          splashStatusLoading={termWs.statusLoading}
+                          onConnected={(cwd) => termWs.markConnected(cwd, termWs.recommendedTargetType)}
                           productLabel={PRODUCT_NAME}
                           layout="page"
                           outputLines={shellOutputLines}
@@ -5153,7 +5172,11 @@ const App: React.FC = () => {
                       ref={terminalRef}
                       iamOrigin={window.location.origin}
                       workspaceLabel={workspaceContextLabel || ''}
-                      workspaceId={authWorkspaceId || ''}
+                      workspaceId={termWs.activeWorkspaceId || ''}
+                      targetType={termWs.recommendedTargetType}
+                      splashStatus={termWs.splashStatus}
+                      splashStatusLoading={termWs.statusLoading}
+                      onConnected={(cwd) => termWs.markConnected(cwd, termWs.recommendedTargetType)}
                       productLabel="IAM"
                       layout="drawer"
                       outputLines={shellOutputLines}

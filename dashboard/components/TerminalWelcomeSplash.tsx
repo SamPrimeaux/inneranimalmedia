@@ -110,23 +110,29 @@ function StatusCell({
 export interface TerminalWelcomeSplashProps {
   workspaceId?: string;
   workspaceLabel?: string;
+  splashStatus?: TerminalSplashStatus | null;
+  splashStatusLoading?: boolean;
   onAction: (action: SplashAction) => void;
 }
 
 export function TerminalWelcomeSplash({
   workspaceId,
   workspaceLabel = '',
+  splashStatus: splashStatusProp,
+  splashStatusLoading = false,
   onAction,
 }: TerminalWelcomeSplashProps) {
+  const controlled = splashStatusProp !== undefined;
   const [status, setStatus] = useState<TerminalSplashStatus | null>(null);
   const [showLanes, setShowLanes] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!controlled);
 
   const [otherSessions, setOtherSessions] = useState(() =>
     listTerminalWorkspaceSessions(workspaceId),
   );
 
   const refresh = useCallback(async () => {
+    if (controlled) return;
     setLoading(true);
     try {
       const next = await fetchTerminalSplashStatus(workspaceId, workspaceLabel);
@@ -135,22 +141,27 @@ export function TerminalWelcomeSplash({
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, workspaceLabel]);
+  }, [controlled, workspaceId, workspaceLabel]);
 
   useEffect(() => {
+    if (controlled) {
+      setOtherSessions(listTerminalWorkspaceSessions(workspaceId));
+      return;
+    }
     void refresh();
     const id = window.setInterval(() => void refresh(), 20_000);
     return () => window.clearInterval(id);
-  }, [refresh]);
+  }, [controlled, refresh, workspaceId]);
 
   const handleStart = useCallback(() => {
-    const preferred = status?.preferredLane;
+    const activeStatus = controlled ? splashStatusProp : status;
+    const preferred = activeStatus?.preferredLane;
     if (preferred === 'local' || preferred === 'cloud' || preferred === 'sandbox') {
       onAction(preferred);
       return;
     }
     setShowLanes(true);
-  }, [onAction, status?.preferredLane]);
+  }, [controlled, onAction, splashStatusProp, status]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -170,8 +181,12 @@ export function TerminalWelcomeSplash({
     return () => window.removeEventListener('keydown', handler);
   }, [handleStart, onAction, showLanes]);
 
-  const lanes = status ?? {
-    workspace: { label: 'Workspace', value: loading ? '…' : '—', tone: 'loading' as const },
+  const lanes = (controlled ? splashStatusProp : status) ?? {
+    workspace: {
+      label: 'Workspace',
+      value: (controlled ? splashStatusLoading : loading) ? '…' : '—',
+      tone: 'loading' as const,
+    },
     runtime: { label: 'Runtime', value: loading ? '…' : '—', tone: 'loading' as const },
     tunnel: { label: 'Tunnel', value: loading ? '…' : '—', tone: 'loading' as const },
     agent: { label: 'Agent', value: loading ? '…' : '—', tone: 'loading' as const },
