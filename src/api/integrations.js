@@ -700,6 +700,23 @@ async function runProviderHealthCheck(env, authUser, provider) {
     }
     if (provider === 'hyperdrive') return { ok: !!env.HYPERDRIVE, status: env.HYPERDRIVE ? 'ok' : 'error', error: env.HYPERDRIVE ? null : 'HYPERDRIVE binding not configured', account_info: { binding: 'HYPERDRIVE' } };
     if (provider === 'browser_rendering') return { ok: !!env.MYBROWSER, status: env.MYBROWSER ? 'ok' : 'error', error: env.MYBROWSER ? null : 'MYBROWSER binding not configured' };
+    if (provider === 'stripe') {
+        const token = await getIntegrationToken(env, userId, 'stripe', '');
+        if (!token) return { ok: false, status: 'error', error: 'Stripe OAuth token not found' };
+        const stripeToken = await resolveOAuthAccessToken(env, token);
+        if (!stripeToken) return { ok: false, status: 'error', error: 'Stripe token unavailable — please reconnect' };
+        const res = await fetch('https://api.stripe.com/v1/account', {
+            headers: { Authorization: `Bearer ${stripeToken}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        return {
+            ok: res.ok,
+            status: res.ok ? 'ok' : 'error',
+            error: res.ok ? null : data.error?.message || res.statusText,
+            account_info: data.id ? { id: data.id, display_name: data.display_name || data.email } : null,
+            response_preview: JSON.stringify({ id: data.id, display_name: data.display_name }).slice(0, 500),
+        };
+    }
     return { ok: true, status: 'ok', account_info: { configured: true } };
 }
 

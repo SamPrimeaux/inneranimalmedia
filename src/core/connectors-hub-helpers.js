@@ -12,6 +12,7 @@ export const AGENT_HUB_REGISTRY_KEYS = [
   'anthropic',
   'resend',
   'cloudflare_r2',
+  'stripe',
 ];
 
 /**
@@ -22,6 +23,7 @@ export function connectorKindForProvider(providerKey) {
   if (pk === 'inneranimalmedia-mcp-server' || pk === 'iam_mcp_platform') return 'mcp_remote';
   if (pk === 'web_search' || pk === 'sandbox_agent') return 'capability';
   if (pk === 'mcp_servers') return 'mcp_custom';
+  if (pk === 'stripe') return 'mcp_remote';
   return 'oauth_api';
 }
 
@@ -44,6 +46,7 @@ export function connectUrlForAgentHub(providerKey, returnTo = '/dashboard/agent'
   if (pk === 'supabase_oauth' || pk === 'supabase') {
     return `/api/oauth/supabase/start?return_to=${rt}`;
   }
+  if (pk === 'stripe') return `/api/oauth/stripe/start?return_to=${rt}`;
   if (pk === 'mcp_servers') return `/dashboard/settings?section=integrations&focus=mcp_servers`;
   return `/api/integrations/${encodeURIComponent(pk)}/connect?return_to=${rt}`;
 }

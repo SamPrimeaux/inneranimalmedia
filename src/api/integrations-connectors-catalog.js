@@ -147,6 +147,8 @@ export async function countToolsForProvider(db, providerKey) {
     where += `tool_key LIKE '%gmail%' OR tool_key LIKE '%mail%'`;
   } else if (pk === 'supabase_oauth' || pk === 'supabase') {
     where += `tool_key LIKE '%supabase%' OR tool_key LIKE 'agentsam_pg%'`;
+  } else if (pk === 'stripe') {
+    where += `tool_key LIKE 'stripe_%' OR lower(tool_category) = 'payment'`;
   } else {
     where += `lower(tool_category) = 'integrations'`;
   }
@@ -192,6 +194,7 @@ export function connectUrlForAgentHub(providerKey, returnTo = '/dashboard/agent'
     return `/api/oauth/supabase/start?return_to=${rt}`;
   }
   if (pk === 'mcp_servers') return `/dashboard/settings?section=integrations&focus=mcp_servers`;
+  if (pk === 'stripe') return `/api/oauth/stripe/start?return_to=${rt}`;
   const slug = catalogSlugForRegistry(pk);
   return `/api/integrations/${encodeURIComponent(slug || pk)}/connect?return_to=${rt}`;
 }

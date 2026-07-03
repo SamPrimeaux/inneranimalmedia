@@ -1347,6 +1347,15 @@ export async function handleOAuthApi(request, env, ctx) {
     return gmailOAuthCallback(request, url, env);
   }
 
+  if (pathLower === '/api/oauth/stripe/start' && method === 'GET') {
+    const { handleStripeOAuthStart } = await import('./oauth/stripe.js');
+    return handleStripeOAuthStart(request, env);
+  }
+  if (pathLower === '/api/oauth/stripe/callback' && method === 'GET') {
+    const { handleStripeOAuthCallback } = await import('./oauth/stripe.js');
+    return handleStripeOAuthCallback(request, env);
+  }
+
   const startMatch = pathLower.match(/^\/api\/oauth\/([^/]+)\/start$/);
   const cbMatch = pathLower.match(/^\/api\/oauth\/([^/]+)\/callback$/);
   const apiKeyMatch = pathLower.match(/^\/api\/oauth\/apikey\/([^/]+)$/);

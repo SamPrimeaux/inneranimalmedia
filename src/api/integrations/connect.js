@@ -39,6 +39,7 @@ function oauthStartPathForSlug(slugRaw) {
   }
   if (s === 'cloudflare' || s === 'cloudflare_oauth') return 'cloudflare';
   if (s === 'supabase_oauth' || s === 'supabase') return 'supabase';
+  if (s === 'stripe') return 'stripe';
   return null;
 }
 
@@ -51,6 +52,7 @@ function apiKeyOAuthPathForSlug(slug) {
     resend: 'resend',
     cursor: 'cursor',
     supabase: 'supabase',
+    stripe: 'stripe',
   };
   return map[s] || null;
 }
@@ -280,6 +282,8 @@ async function deleteOauthTokensForSlug(DB, userId, slug) {
   } else if (s === 'supabase_oauth' || s === 'supabase') {
     providers.add('supabase_management');
     providers.add('supabase');
+  } else if (s === 'stripe') {
+    providers.add('stripe');
   } else {
     providers.add(s);
   }
@@ -389,6 +393,88 @@ async function handleGithubPatConnect(env, authUser, body) {
 /**
  * @returns {Promise<Response|null>}
  */
+/**
+ * POST /api/integrations/stripe/connect — body { api_key }
+ * Accepts a Stripe restricted API key (sk_live_... or rk_live_...).
+ * Validates against Stripe's /v1/account endpoint, then persists to
+ * user_oauth_tokens (provider='stripe') + integration_registry config.
+ */
+async function handleStripeConnect(env, authUser, body) {
+  if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+  const key = normalizeApiKeySecret(body.api_key || body.token || '');
+  if (!key) return jsonResponse({ error: 'api_key required (Stripe restricted or secret key)' }, 400);
+  if (!key.startsWith('sk_') && !key.startsWith('rk_')) {
+    return jsonResponse({ error: 'Invalid Stripe key format. Expected sk_... or rk_...' }, 400);
+  }
+
+  // Validate key against Stripe API
+  let accountId = 'stripe';
+  let displayName = 'Stripe';
+  try {
+    const res = await fetch('https://api.stripe.com/v1/account', {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return jsonResponse({ error: err?.error?.message || 'Invalid Stripe API key' }, 400);
+    }
+    const acct = await res.json().catch(() => ({}));
+    accountId = acct?.id || 'stripe';
+    displayName = acct?.display_name || acct?.email || accountId;
+  } catch {
+    return jsonResponse({ error: 'Could not reach Stripe API' }, 503);
+  }
+
+  const userId = await resolveIntegrationUserId(env, authUser);
+  if (!userId) return jsonResponse({ error: 'User id required' }, 400);
+  const tenantId = tenantIdFromAuth(authUser, env);
+
+  await upsertOauthToken(env, {
+    user_id: userId,
+    tenant_id: tenantId,
+    provider: 'stripe',
+    access_token: key,
+    refresh_token: null,
+    scope: 'read_write',
+    expires_at: null,
+    account_identifier: accountId,
+    account_email: authUser?.email ? String(authUser.email) : null,
+    account_display: displayName,
+    workspace_id: authUser?.active_workspace_id || authUser?.default_workspace_id || null,
+    metadata_json: JSON.stringify({ auth_method: 'restricted_key', mcp_server_url: 'https://mcp.stripe.com' }),
+  }, { skipRegistry: false });
+
+  // Upsert registry with mcp_server_url in config_json
+  const configJson = JSON.stringify({
+    mcp_server_url: 'https://mcp.stripe.com',
+    auth_method: 'bearer_key',
+    account_id: accountId,
+  });
+  try {
+    await env.DB.prepare(
+      `INSERT INTO integration_registry (
+         id, tenant_id, provider_key, display_name, category, auth_type, status,
+         config_json, account_display, sort_order, updated_at
+       ) VALUES (?, ?, 'stripe', 'Stripe', 'payment', 'api_key', 'connected', ?, ?, 40, datetime('now'))
+       ON CONFLICT(tenant_id, provider_key) DO UPDATE SET
+         status = 'connected',
+         config_json = excluded.config_json,
+         account_display = excluded.account_display,
+         updated_at = datetime('now')`,
+    ).bind(
+      `int_stripe_${crypto.randomUUID().replace(/-/g,'').slice(0,12)}`,
+      tenantId,
+      configJson,
+      displayName,
+    ).run();
+  } catch (e) {
+    console.warn('[integrations/connect] stripe registry upsert', e?.message || e);
+  }
+
+  return jsonResponse({ success: true, provider: 'stripe', account_display: displayName, mcp_server_url: 'https://mcp.stripe.com' });
+}
+
+
 export async function handleIntegrationsConnectRoutes(request, env, ctx, authUser, url, pathLower, method) {
   const origin = url.origin;
   const returnToRaw = url.searchParams.get('return_to') || '';
@@ -484,6 +570,9 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
       }
       if (slugNorm === 'github') {
         return handleGithubPatConnect(env, authUser, body);
+      }
+      if (slugNorm === 'stripe') {
+        return handleStripeConnect(env, authUser, body);
       }
       if (!body.api_key || typeof body.api_key !== 'string') {
         return jsonResponse({ error: 'api_key required' }, 400);
