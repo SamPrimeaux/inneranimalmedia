@@ -2318,7 +2318,8 @@ const BrowserPane: React.FC<PaneProps> = ({
         await openPassiveIframeView(raw);
         return;
       }
-      if (requiresBrowserRun && opts?.agentLive !== false && opts?.automation !== true) {
+      if (requiresBrowserRun && opts?.automation !== true) {
+        // Embed policy overrides agentLive:false hints (URL bar) — XFO hosts can never passive-iframe.
         await openBrowserRunLiveView(n);
         return;
       }
