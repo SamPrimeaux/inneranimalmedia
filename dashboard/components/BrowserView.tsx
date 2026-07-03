@@ -2322,7 +2322,12 @@ const BrowserPane: React.FC<PaneProps> = ({
       await loadRegistryPickersIfNeeded();
       const n = normalize(s);
       if (!(await ensureOriginTrust(n))) return;
-      const requiresBrowserRun = originRequiresBrowserRunEmbed(n);
+      const embedMode = await resolveEmbedModeRemote(n);
+      if (embedMode === 'blocked') {
+        setNavigateError(`Embed policy blocks navigation to ${originOf(n)}`);
+        return;
+      }
+      const requiresBrowserRun = embedMode === 'browser_run';
       const isPassiveEditorUrl =
         !requiresBrowserRun &&
         (previewSource === 'editor' ||
