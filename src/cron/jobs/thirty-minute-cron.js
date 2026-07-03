@@ -183,10 +183,34 @@ export async function sweepStaleTerminalSessions(env) {
   }
 }
 
+/** Mark agent_run rows stuck in 'running' for > 35 min as failed_stale. */
+async function sweepStaleAgentRuns(env) {
+  if (!env?.DB) return;
+  try {
+    const cutoff = Math.floor(Date.now() / 1000) - 35 * 60;
+    const result = await env.DB.prepare(`
+      UPDATE agentsam_agent_run
+      SET status = 'failed_stale',
+          error_message = 'run exceeded 35min without terminal status — swept by cron',
+          completed_at = datetime('now'),
+          updated_at_unix = strftime('%s','now')
+      WHERE status = 'running'
+        AND created_at_unix < ?
+        AND created_at_unix > 0
+    `).bind(cutoff).run();
+    if (result?.meta?.changes > 0) {
+      console.log('[cron] sweepStaleAgentRuns: marked', result.meta.changes, 'runs as failed_stale');
+    }
+  } catch (e) {
+    console.warn('[cron] sweepStaleAgentRuns', e?.message ?? e);
+  }
+}
+
 export async function runThirtyMinuteJobs(env, ctx) {
   // Stuck sweep + overnight progress moved to daily (midnight UTC) — was 48×/day with 0 writes.
   ctx.waitUntil(sweepExpiredApprovalQueue(env));
   ctx.waitUntil(sweepStaleTerminalSessions(env));
+  ctx.waitUntil(sweepStaleAgentRuns(env));
   ctx.waitUntil(
     import('../../core/keys-security.js')
       .then(({ runSecurityShieldPulseCron }) => runSecurityShieldPulseCron(env))
