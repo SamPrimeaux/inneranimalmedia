@@ -69,6 +69,11 @@ function isLocalHost(host: string): boolean {
  * (D1 row, else live XFO/frame-ancestors probe, self-healing upsert).
  * Fails open to 'passive' — never blocks navigation on endpoint trouble.
  */
+/** Async: true when embed policy requires Browser Run (not passive iframe). */
+export async function requiresBrowserRunEmbed(urlOrOrigin: string): Promise<boolean> {
+  return (await resolveEmbedModeRemote(urlOrOrigin)) === 'browser_run';
+}
+
 export async function resolveEmbedModeRemote(urlOrOrigin: string): Promise<EmbedMode> {
   if (originRequiresBrowserRunEmbed(urlOrOrigin)) return 'browser_run';
   const host = hostFromUrl(urlOrOrigin);

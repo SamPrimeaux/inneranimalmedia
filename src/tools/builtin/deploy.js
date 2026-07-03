@@ -1,7 +1,10 @@
 /**
  * Tool: Deploy (Cloudflare Workers / CI/CD)
- * Implements 5 tools for infrastructure management and pipeline automation.
+ * Implements worker inventory + deployment via Workers Builds deploy hook (no wrangler token)
+ * with terminal wrangler fallback when hook is not configured.
  */
+
+import { postWorkersDeployHook, redactDeployHookUrl } from '../../core/workers-deploy-hook.js';
 
 async function invokeCfApi(env, path, method = 'GET', body = null) {
     const accountId = env.CLOUDFLARE_ACCOUNT_ID;
@@ -25,6 +28,38 @@ async function invokeCfApi(env, path, method = 'GET', body = null) {
     }
 }
 
+/**
+ * Prefer Workers Builds deploy hook — no CLOUDFLARE_API_TOKEN or local wrangler required.
+ * @param {any} env
+ * @param {{ workspaceId?: string|null, workerName?: string|null }} [opts]
+ */
+async function triggerWorkersBuildDeploy(env, opts = {}) {
+    const workspaceId =
+        opts.workspaceId != null && String(opts.workspaceId).trim()
+            ? String(opts.workspaceId).trim()
+            : 'ws_inneranimalmedia';
+    const result = await postWorkersDeployHook(env, {
+        workspaceId,
+        workerName: opts.workerName ?? null,
+    });
+    if (result.error === 'deploy_hook_url not configured') {
+        return { ok: false, hook_missing: true, error: result.error, workspace_id: workspaceId };
+    }
+    const buildUuid = result.json?.result?.build_uuid ?? result.json?.build_uuid ?? null;
+    return {
+        ok: result.ok,
+        method: 'workers_build_hook',
+        workspace_id: workspaceId,
+        build_uuid: buildUuid,
+        deploy_hook_url_redacted: redactDeployHookUrl(result.deploy_hook_url),
+        deploy_hook_source: result.source ?? null,
+        http_status: result.status,
+        cloudflare: result.json ?? null,
+        detail: result.raw ?? null,
+        error: result.error ?? null,
+    };
+}
+
 export const handlers = {
     // ── Worker Inventory ──────────────────────────────────────────────────
     async list_workers(params, env) { return await invokeCfApi(env, '/workers/services'); },
@@ -32,20 +67,45 @@ export const handlers = {
 
     // ── Deployment Control ────────────────────────────────────────────────
     async worker_deploy(params, env) {
-        // Bridges to the terminal execute tool to run 'wrangler deploy'
+        const workspaceId = params.workspace_id ?? params.workspaceId ?? params.session?.workspace_id ?? null;
+        const workerName = params.worker_name ?? params.workerName ?? null;
+        const hook = await triggerWorkersBuildDeploy(env, { workspaceId, workerName });
+        if (hook.ok || !hook.hook_missing) {
+            return hook;
+        }
+
+        // Legacy fallback: terminal wrangler (requires PTY + CLOUDFLARE_API_TOKEN on host)
         const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
         const res = await fetch(`${origin}/api/agent/terminal/run`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                command: `cd ${params.repo || '.'} && wrangler deploy --branch ${params.branch || 'main'}` 
+            body: JSON.stringify({
+                command: `cd ${params.repo || '.'} && wrangler deploy --branch ${params.branch || 'main'}`
             }),
         });
-        return await res.json();
+        const body = await res.json().catch(() => ({}));
+        return {
+            ...body,
+            method: 'terminal_wrangler',
+            hint: hook.error || 'Workers Builds hook not configured; attempted terminal wrangler fallback',
+        };
     },
 
     async get_deploy_command(params, env) {
-        return { command: `wrangler deploy` };
+        const workspaceId = params?.workspace_id ?? params?.workspaceId ?? 'ws_inneranimalmedia';
+        const hook = await triggerWorkersBuildDeploy(env, { workspaceId });
+        if (!hook.hook_missing) {
+            return {
+                command: 'POST /api/agent/git/publish (Workers Builds deploy hook)',
+                method: 'workers_build_hook',
+                deploy_hook_url_redacted: hook.deploy_hook_url_redacted,
+            };
+        }
+        return {
+            command: 'npm run deploy:full',
+            method: 'terminal',
+            hint: 'Configure deploy_hook_url in workspace metadata or AGENT_SAM_DEPLOY_HOOK_URL',
+        };
     },
 
     // ── Workflow Pipelines ───────────────────────────────────────────────
@@ -53,3 +113,5 @@ export const handlers = {
         return { status: 'workflow_initiated', message: 'Deployment pipeline started', pipeline: params.name };
     }
 };
+
+export { triggerWorkersBuildDeploy };

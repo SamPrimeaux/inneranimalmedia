@@ -1,9 +1,9 @@
 /**
  * POST /api/internal/trigger-workers-build
  * Triggers per-workspace Workers Builds Deploy Hook URL.
- * Auth: INTERNAL_API_SECRET (X-Internal-Secret or Bearer), or Bearer AGENTSAM_BRIDGE_KEY.
+ * Auth: INTERNAL_API_SECRET, AGENTSAM_BRIDGE_KEY, or MCP OAuth / session bearer (same as /api/agent/git/publish).
  */
-import { verifyInternalApiSecret, jsonResponse } from '../core/auth.js';
+import { authUserFromRequest, verifyInternalApiSecret, jsonResponse } from '../core/auth.js';
 import { postWorkersDeployHook, redactDeployHookUrl } from '../core/workers-deploy-hook.js';
 
 function trim(v) {
@@ -23,9 +23,6 @@ export async function handleTriggerWorkersBuild(request, env, ctx) {
   if (request.method !== 'POST') {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }
-  if (!verifyBridgeOrInternal(request, env)) {
-    return jsonResponse({ error: 'Unauthorized' }, 401);
-  }
 
   let body = {};
   try {
@@ -34,8 +31,38 @@ export async function handleTriggerWorkersBuild(request, env, ctx) {
     body = {};
   }
 
+  const internalOk = verifyBridgeOrInternal(request, env);
+  let authUser = null;
+  if (!internalOk) {
+    authUser = await authUserFromRequest(request, env);
+    if (!authUser?.id) {
+      return jsonResponse(
+        {
+          error: 'Unauthorized',
+          hint: 'Use X-Internal-Secret, AGENTSAM_BRIDGE_KEY, MCP OAuth bearer, or POST /api/agent/git/publish with session',
+        },
+        401,
+      );
+    }
+  }
+
   const workspaceId = trim(body.workspace_id) || trim(body.workspaceId) || 'ws_inneranimalmedia';
   const workerName = trim(body.worker_name) || trim(body.workerName) || null;
+
+  if (authUser?.id && env?.DB) {
+    try {
+      const row = await env.DB.prepare(
+        'SELECT id FROM agentsam_workspace WHERE id = ? LIMIT 1',
+      )
+        .bind(workspaceId)
+        .first();
+      if (!row) {
+        return jsonResponse({ error: 'workspace not found', workspace_id: workspaceId }, 404);
+      }
+    } catch {
+      /* non-fatal */
+    }
+  }
 
   const result = await postWorkersDeployHook(env, { workspaceId, workerName });
   if (result.error === 'deploy_hook_url not configured') {

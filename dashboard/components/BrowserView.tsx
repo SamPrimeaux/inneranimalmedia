@@ -32,7 +32,11 @@ import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
 import { BrowserLiveTimeline } from './BrowserLiveTimeline';
 import { useAgentLiveBrowserWs } from '../hooks/useAgentLiveBrowserWs';
 import { applyBrowserRunLiveViewMode, resolveLiveViewMode } from '../lib/browserLiveViewUrl';
-import { originRequiresBrowserRunEmbed, resolveEmbedModeRemote } from '../src/lib/browserEmbedPolicy';
+import {
+  originRequiresBrowserRunEmbed,
+  requiresBrowserRunEmbed,
+  resolveEmbedModeRemote,
+} from '../src/lib/browserEmbedPolicy';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -2158,6 +2162,13 @@ const BrowserPane: React.FC<PaneProps> = ({
       const s = raw.trim();
       if (!s || isVirtual(s)) return;
       const n = normalize(s);
+      if (await requiresBrowserRunEmbed(n)) {
+        const openLive = openBrowserRunLiveViewRef.current;
+        if (openLive) {
+          await openLive(n);
+          return;
+        }
+      }
       console.log('[browser] passive_iframe', JSON.stringify({ url: n.slice(0, 240) }));
 
       setNavigateError(null);
@@ -2617,7 +2628,7 @@ const BrowserPane: React.FC<PaneProps> = ({
           onKeyDown={e => {
             if (e.key !== 'Enter') return;
             const n = normalizeUrl(inputVal);
-            if (n) void navigate(n, { automation: false, agentLive: false });
+            if (n) void navigate(n, { automation: false, agentLive: true });
           }}
           placeholder={
             viewSurface === 'agentLive' && !liveSessionReady

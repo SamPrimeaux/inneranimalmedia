@@ -2351,6 +2351,55 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
 
     case 'deploy': {
       const commandSource = String(config.command_source || 'workspace_settings.deploy_command').trim();
+      const preferHook =
+        commandSource === 'workers_build_hook' ||
+        config.prefer_build_hook === true ||
+        config.prefer_build_hook === 'true';
+
+      if (preferHook || commandSource !== 'workspace_settings.deploy_command') {
+        const { postWorkersDeployHook, redactDeployHookUrl } = await import('./workers-deploy-hook.js');
+        const hook = await postWorkersDeployHook(env, { workspaceId });
+        if (hook.error !== 'deploy_hook_url not configured') {
+          const buildUuid = hook.json?.result?.build_uuid ?? hook.json?.build_uuid ?? null;
+          result = hook.ok
+            ? {
+                ok: true,
+                body: {
+                  method: 'workers_build_hook',
+                  workspace_id: workspaceId,
+                  build_uuid: buildUuid,
+                  deploy_hook_url_redacted: redactDeployHookUrl(hook.deploy_hook_url),
+                  deploy_hook_source: hook.source ?? null,
+                  http_status: hook.status,
+                  cloudflare: hook.json ?? null,
+                },
+              }
+            : {
+                ok: false,
+                error: hook.error || `Workers Builds hook HTTP ${hook.status}`,
+                body: {
+                  method: 'workers_build_hook',
+                  workspace_id: workspaceId,
+                  http_status: hook.status,
+                  detail: hook.raw ?? null,
+                },
+              };
+          break;
+        }
+        if (preferHook) {
+          result = {
+            ok: false,
+            error: 'deploy_hook_url not configured',
+            body: {
+              action: 'Set agentsam_workspace.metadata_json.deploy_hook_url or AGENT_SAM_DEPLOY_HOOK_URL',
+              workspace_id: workspaceId || 'unknown',
+              tool_key: toolKey,
+            },
+          };
+          break;
+        }
+      }
+
       let deployCommand = '';
       let settingsJson = null;
       if (workspaceId && env?.DB) {
@@ -2365,7 +2414,30 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           deployCommand = resolveWorkspaceDeployCommand(settingsJson, commandSource);
         }
       }
+
       if (!deployCommand) {
+        const { postWorkersDeployHook, redactDeployHookUrl } = await import('./workers-deploy-hook.js');
+        const hook = await postWorkersDeployHook(env, { workspaceId });
+        if (hook.error !== 'deploy_hook_url not configured') {
+          const buildUuid = hook.json?.result?.build_uuid ?? hook.json?.build_uuid ?? null;
+          result = hook.ok
+            ? {
+                ok: true,
+                body: {
+                  method: 'workers_build_hook',
+                  workspace_id: workspaceId,
+                  build_uuid: buildUuid,
+                  deploy_hook_url_redacted: redactDeployHookUrl(hook.deploy_hook_url),
+                  deploy_hook_source: hook.source ?? null,
+                },
+              }
+            : {
+                ok: false,
+                error: hook.error || `Workers Builds hook HTTP ${hook.status}`,
+                body: { method: 'workers_build_hook', workspace_id: workspaceId },
+              };
+          break;
+        }
         const settingsKey = commandSource.startsWith('workspace_settings.')
           ? commandSource.slice('workspace_settings.'.length)
           : 'deploy_command';
@@ -2373,7 +2445,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           ok: false,
           error: `${settingsKey} not configured for this workspace`,
           body: {
-            action: `Set workspace_settings.settings_json.${settingsKey} (or deploy_command fallback) for this workspace before deploying.`,
+            action: `Set workspace_settings.settings_json.${settingsKey}, workspace deploy_hook_url, or AGENT_SAM_DEPLOY_HOOK_URL before deploying.`,
             workspace_id: workspaceId || 'unknown',
             command_source: commandSource,
             tool_key: toolKey,
