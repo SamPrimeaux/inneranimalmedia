@@ -1442,6 +1442,7 @@ const BrowserPane: React.FC<PaneProps> = ({
   }, [currentUrl]);
 
   const hasLiveView = Boolean(iframeUrl?.trim());
+  const isBrowserRunEmbed = iframeUrl.includes('live.browser.run');
 
   const {
     connected: liveWsConnected,
@@ -1655,6 +1656,8 @@ const BrowserPane: React.FC<PaneProps> = ({
   }, [tryInjectScriptInIframe]);
 
   const injectNavigationBridge = useCallback(() => {
+    const src = iframeRef.current?.src || iframeUrl || '';
+    if (src.includes('live.browser.run')) return;
     tryInjectScriptInIframe(NAVIGATION_SYNC_SCRIPT);
     try {
       const href = iframeRef.current?.contentWindow?.location?.href;
@@ -1662,7 +1665,7 @@ const BrowserPane: React.FC<PaneProps> = ({
     } catch {
       /* cross-origin */
     }
-  }, [tryInjectScriptInIframe, commitNavigationFromIframe]);
+  }, [iframeUrl, tryInjectScriptInIframe, commitNavigationFromIframe]);
 
   const syncUrlFromIframe = useCallback(() => {
     try {
@@ -2293,6 +2296,8 @@ const BrowserPane: React.FC<PaneProps> = ({
         browserRunSessionRef.current = data.session_id || browserRunSessionRef.current;
         const destUrl = data.url?.trim() || n;
         setAgentLiveIframeUrl(data.devtools_frontend_url);
+        setLiveSessionReady(true);
+        setLiveUrlCommitted(destUrl);
         setCurrentUrl(destUrl);
         setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(destUrl) ? addressDisplay : destUrl);
         onUrlCommitted?.(destUrl);
@@ -2356,6 +2361,11 @@ const BrowserPane: React.FC<PaneProps> = ({
         await openBrowserRunLiveView(n);
         return;
       }
+      // Manual URL bar (no agent run): always Browser Run live view, not passive iframe.
+      if (opts?.agentLive === true && !agentRunId?.trim() && opts?.automation !== true) {
+        await openBrowserRunLiveView(n);
+        return;
+      }
       const useAgentLive =
         !isPassiveEditorUrl &&
         (opts?.agentLive === true ||
@@ -2392,10 +2402,15 @@ const BrowserPane: React.FC<PaneProps> = ({
   // before hitting the network, so stripe.com / dash.cloudflare.com still resolve instantly.
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
+  const lastInitialNavigateRef = useRef('');
   useEffect(() => {
     if (!initialUrl?.trim()) return;
     const n = normalize(initialUrl);
-    if (n === currentUrlRef.current) return;
+    if (n === currentUrlRef.current) {
+      lastInitialNavigateRef.current = n;
+      return;
+    }
+    if (n === lastInitialNavigateRef.current) return;
     void (async () => {
       const embedMode = await resolveEmbedModeRemote(n);
       const requiresBrowserRun = embedMode === 'browser_run';
@@ -2417,6 +2432,7 @@ const BrowserPane: React.FC<PaneProps> = ({
             ? false
             : initialAgentLive === true || Boolean(agentRunId?.trim()),
       });
+      lastInitialNavigateRef.current = n;
     })();
   }, [initialUrl, initialPreview, initialAutomation, initialAgentLive, previewSource, agentRunId]);
 
@@ -2867,8 +2883,13 @@ const BrowserPane: React.FC<PaneProps> = ({
                   key={iframeUrl}
                   src={iframeUrl}
                   title="Browser Run live view"
-                  allow="clipboard-read; clipboard-write"
-                  sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-downloads allow-modals"
+                  allow="clipboard-read; clipboard-write; fullscreen"
+                  {...(isBrowserRunEmbed
+                    ? {}
+                    : {
+                        sandbox:
+                          'allow-same-origin allow-scripts allow-popups allow-forms allow-downloads allow-modals',
+                      })}
                   style={{ zoom: zoom !== 100 ? zoom / 100 : undefined }}
                   className={`w-full flex-1 min-h-0 border-0 bg-white transition-opacity duration-150 ${
                     (mode === 'browse' || mode === 'picker' || mode === 'area') && !iframeBlocked && !screenshotUrl
@@ -3136,7 +3157,6 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
   const commitUrlToParent = useCallback(
     (url: string) => {
       setPrimaryAutomation(false);
-      setPrimaryAgentLive(false);
       setPrimaryPreview(null);
       onUrlCommitted?.(url);
     },

@@ -77,7 +77,7 @@ export function MobileNavDrawer({
         data-open={open ? 'true' : 'false'}
         aria-label="Primary navigation"
         aria-hidden={open ? undefined : true}
-        {...(!open ? { inert: true } : {})}
+        {...(!open ? { inert: '' as const } : {})}
         style={open ? undefined : { pointerEvents: 'none' }}
       >
         <DashboardSidebar
