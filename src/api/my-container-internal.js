@@ -15,8 +15,9 @@ export async function handleMyContainerExec(request, env) {
   }
 
   const internal = verifyInternalApiSecret(request, env);
+  let authUser = null;
   if (!internal) {
-    const authUser = await getAuthUser(request, env);
+    authUser = await getAuthUser(request, env);
     if (!authUser || !(await isSamOnlyUser(env, authUser))) {
       return jsonResponse({ error: 'Unauthorized' }, 401);
     }
@@ -38,6 +39,7 @@ export async function handleMyContainerExec(request, env) {
     command,
     cwd: body.cwd,
     timeout_ms: body.timeout_ms,
+    authUser,
   });
 
   return jsonResponse(out, out.ok ? 200 : 502);

@@ -137,7 +137,7 @@ import { PlanStartOverBar } from './components/PlanStartOverBar';
 import { suggestPlanMode, nextAgentMode, isPlanSlashMessage } from '../../lib/plan-mode-utils';
 import { AgentMobileHomePanel } from './components/AgentMobileHomePanel';
 import { AgentChatThreadHeader, findSessionRow } from './components/AgentChatThreadHeader';
-import { AgentMobileDiffPanel } from './components/AgentMobileDiffPanel';
+import { AgentMobileContextPanel } from './components/AgentMobileContextPanel';
 import { AgentChatFilesPanel } from './components/AgentChatFilesPanel';
 import type { AgentChatProjectOption } from '../../hooks/useAgentChatSessions';
 import { AgentComposerSourceChips } from './composer/AgentComposerSourceChips';
@@ -456,8 +456,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [planSuggestDismissed, setPlanSuggestDismissed] = useState(false);
   const [activePlanTitle, setActivePlanTitle] = useState<string | null>(null);
   const [mobileHubTab, setMobileHubTab] = useState<'agents' | 'automations' | 'dashboard'>('agents');
-  const [mobileThreadTab, setMobileThreadTab] = useState<'chat' | 'diff'>('chat');
-  const [mobileDiffFocusId, setMobileDiffFocusId] = useState<string | null>(null);
+  const [mobileThreadTab, setMobileThreadTab] = useState<'chat' | 'context'>('chat');
+  const [mobileContextFocusId, setMobileContextFocusId] = useState<string | null>(null);
   const [repoDrawerOpen, setRepoDrawerOpen] = useState(false);
   const [contextHubOpen, setContextHubOpen] = useState(false);
   const [contextHubInitialLane, setContextHubInitialLane] = useState<ContextHubLane>('hub');
@@ -471,13 +471,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [chatGithubContentTruncated, setChatGithubContentTruncated] = useState(false);
   const [chatGithubContentSha, setChatGithubContentSha] = useState<string | null>(null);
   const [runtimeChecks, setRuntimeChecks] = useState<
-    { id: string; ok: boolean; label: string; detail?: string }[]
+    { id: string; ok: boolean; label: string; providerKey?: string; iconSlug?: string }[]
   >([]);
   const [runtimeChecksLoading, setRuntimeChecksLoading] = useState(false);
 
   const refreshRuntimeChecks = useCallback(async () => {
     setRuntimeChecksLoading(true);
-    const rows: { id: string; ok: boolean; label: string; detail?: string }[] = [];
+    const rows: { id: string; ok: boolean; label: string; providerKey?: string; iconSlug?: string }[] =
+      [];
     try {
       const [wr, sr, gr, wg] = await Promise.all([
         fetch('/api/health', { credentials: 'same-origin' }),
@@ -490,33 +491,23 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         id: 'worker',
         ok: wr.ok && wj.status === 'ok',
         label: 'Worker',
-        detail: wr.ok ? 'inneranimalmedia.com' : 'Unreachable',
+        iconSlug: 'cloudflare',
       });
       const sj = await sr.json().catch(() => ({}));
-      const fuseMounted = sj.r2_fuse?.mounted === true;
-      const fuseNeedsRemount =
-        sj.r2_fuse_configured === true && !fuseMounted;
-      // FUSE stays wired in the container — only surface detail when something needs attention.
-      const sandboxDetail =
-        sj.probe?.error ||
-        sj.exec_smoke?.error ||
-        (fuseNeedsRemount
-          ? 'R2 FUSE configured — remount after container rebuild'
-          : undefined) ||
-        (!fuseMounted && sj.exec_smoke?.stdout?.trim()) ||
-        undefined;
       rows.push({
         id: 'sandbox',
         ok: sr.ok && sj.ok === true,
         label: 'CF sandbox',
-        detail: sandboxDetail,
+        providerKey: 'cloudflare_oauth',
+        iconSlug: 'cloudflare',
       });
       const gj = await gr.json().catch(() => ({}));
       rows.push({
         id: 'gmail',
         ok: gr.ok && !!gj.connected,
         label: 'Gmail',
-        detail: gj.email || (gj.connected ? 'Connected' : 'Not connected'),
+        providerKey: 'gmail',
+        iconSlug: 'gmail',
       });
       const wgj = await wg.json().catch(() => ({}));
       const whoamiOk =
@@ -528,15 +519,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       rows.push({
         id: 'wrangler',
         ok: whoamiOk,
-        label: 'Wrangler (sandbox)',
-        detail:
-          wgj.guide?.summary ||
-          wgj.wrangler_whoami?.stdout?.trim()?.slice(0, 120) ||
-          wgj.wrangler_whoami?.error ||
-          (wg.ok ? 'Use wrangler whoami — not login OAuth in container' : 'Guide unavailable'),
+        label: 'Wrangler',
+        providerKey: 'cloudflare_oauth',
+        iconSlug: 'cloudflare',
       });
     } catch {
-      rows.push({ id: 'worker', ok: false, label: 'Worker', detail: 'Check failed' });
+      rows.push({ id: 'worker', ok: false, label: 'Worker', iconSlug: 'cloudflare' });
     }
     setRuntimeChecks(rows);
     setRuntimeChecksLoading(false);
@@ -799,7 +787,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   useEffect(() => {
     setMobileThreadTab('chat');
-    setMobileDiffFocusId(null);
+    setMobileContextFocusId(null);
   }, [conversationId]);
 
   useEffect(() => {
@@ -3196,8 +3184,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const messagesVisible =
     !mobileAgentHomeMode &&
     (!isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat'));
-  const diffTabVisible =
-    isNarrow && mobileHubTab === 'agents' && mobileThreadTab === 'diff';
+  const contextTabVisible =
+    isNarrow && mobileHubTab === 'agents' && mobileThreadTab === 'context';
 
   const composerVisible =
     !isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat');
@@ -3449,14 +3437,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setMobileThreadTab('diff')}
+                onClick={() => setMobileThreadTab('context')}
                 className={`flex-1 min-w-0 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
-                  mobileThreadTab === 'diff'
+                  mobileThreadTab === 'context'
                     ? 'bg-[var(--scene-bg)] text-[var(--dashboard-text)] border border-[var(--dashboard-border)]'
                     : 'text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] border border-transparent'
                 }`}
               >
-                Diff
+                Context
               </button>
             </div>
             {showHeaderPresence ? (
@@ -3605,12 +3593,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             onDenyPendingTool={() => void handleDenyPendingTool()}
             mobileEnvelopeDiffs={isNarrow && mobileAgentsThread}
             onOpenDiffTab={() => {
-              setMobileDiffFocusId(null);
-              setMobileThreadTab('diff');
+              setMobileContextFocusId(null);
+              setMobileThreadTab('context');
             }}
             onOpenDiffFile={(entryId) => {
-              setMobileDiffFocusId(entryId);
-              setMobileThreadTab('diff');
+              setMobileContextFocusId(entryId);
+              setMobileThreadTab('context');
             }}
           />
           </>
@@ -3641,11 +3629,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           </div>
         ) : null}
 
-        {diffTabVisible ? (
+        {contextTabVisible ? (
           <div className="order-4 flex flex-col flex-1 min-h-0 overflow-hidden border-t border-[var(--dashboard-border)]">
-            <AgentMobileDiffPanel
+            <AgentMobileContextPanel
               messages={displayMessages}
-              initialExpandedId={mobileDiffFocusId}
+              githubRepoContext={githubRepoContext}
+              runtimeChecks={runtimeChecks}
+              runtimeChecksLoading={runtimeChecksLoading}
+              onRefreshRuntime={() => void refreshRuntimeChecks()}
+              onChooseRepo={() => openRepoPicker()}
+              initialExpandedId={mobileContextFocusId}
               onOpenInEditor={(file) => onFileSelect?.(file)}
             />
           </div>

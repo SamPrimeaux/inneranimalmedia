@@ -1289,10 +1289,23 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
             ? Number(params.timeoutMs)
             : undefined;
 
+      const rawAuth = runContext.authUser ?? runContext.user ?? null;
+      const authUser = rawAuth
+        ? {
+            ...rawAuth,
+            id: rawAuth.id ?? rawAuth.user_id ?? userId,
+            tenant_id: rawAuth.tenant_id ?? tenantId,
+            workspace_id: rawAuth.workspace_id ?? workspaceId,
+          }
+        : userId
+          ? { id: userId, tenant_id: tenantId, workspace_id: workspaceId }
+          : null;
+
       const execOut = await tryContainerExec(env, {
         command: cmd,
         cwd: cwd || undefined,
         timeout_ms: Number.isFinite(timeoutMs) ? timeoutMs : undefined,
+        authUser,
       });
 
       if (!execOut?.ok) {

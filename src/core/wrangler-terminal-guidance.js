@@ -105,7 +105,7 @@ export function wranglerAuthGuideForLane(lane) {
     lane: 'sandbox',
     title: 'Wrangler in CF container sandbox',
     summary:
-      'Agent Sam injects platform CLOUDFLARE_API_TOKEN for operator sandbox exec. Use wrangler whoami — not wrangler login OAuth.',
+      'Agent Sam injects your Cloudflare credentials (OAuth, BYOK, or platform fallback for operators). Use wrangler whoami — not wrangler login OAuth.',
     recommended: [
       'wrangler whoami --json',
       'wrangler auth token --json',
@@ -150,24 +150,28 @@ export function normalizeWranglerCommandForLane(command, lane) {
 }
 
 /**
- * Prefix shell exports for headless wrangler in container (platform operator only).
+ * Prefix shell exports for headless wrangler in container (per-user CF credentials).
  * @param {any} env
- * @param {{ role?: string, is_superadmin?: boolean|number }|null} authUser
+ * @param {{ id?: string, user_id?: string, auth_id?: string, tenant_id?: string, workspace_id?: string }|null} authUser
  */
-export function buildContainerWranglerEnvPrefix(env, authUser) {
-  const isOp =
-    authUser?.role === 'superadmin' ||
-    authUser?.is_superadmin === true ||
-    authUser?.is_superadmin === 1;
-  if (!isOp) return '';
+export async function buildContainerWranglerEnvPrefix(env, authUser) {
+  const userId = authUser?.id || authUser?.user_id || authUser?.auth_id;
+  const tenantId = authUser?.tenant_id;
+  const workspaceId = authUser?.workspace_id;
+  if (!userId) return '';
 
-  const token = String(env?.CLOUDFLARE_API_TOKEN || '').trim();
-  const accountId = String(env?.CLOUDFLARE_ACCOUNT_ID || '').trim();
-  if (!token) return '';
+  const { resolvePtySessionCloudflareEnv } = await import('./pty-session-cloudflare-env.js');
+  const creds = await resolvePtySessionCloudflareEnv(env, { userId, tenantId, workspaceId });
 
-  const parts = [`export CLOUDFLARE_API_TOKEN=${shellQuote(token)}`];
-  if (accountId) parts.push(`export CLOUDFLARE_ACCOUNT_ID=${shellQuote(accountId)}`);
-  parts.push('export WRANGLER_SEND_METRICS=false');
+  if (!creds.ok || !creds.cloudflare_api_token) return '';
+
+  const parts = [
+    `export CLOUDFLARE_API_TOKEN=${shellQuote(creds.cloudflare_api_token)}`,
+    'export WRANGLER_SEND_METRICS=false',
+  ];
+  if (creds.cloudflare_account_id) {
+    parts.push(`export CLOUDFLARE_ACCOUNT_ID=${shellQuote(creds.cloudflare_account_id)}`);
+  }
   return parts.join(' && ');
 }
 
@@ -183,16 +187,16 @@ function shellQuote(raw) {
 /**
  * Apply env prefix + lane normalization to a container exec command.
  * @param {any} env
- * @param {{ role?: string, is_superadmin?: boolean|number }|null} authUser
+ * @param {{ id?: string, user_id?: string, auth_id?: string, tenant_id?: string, workspace_id?: string }|null} authUser
  * @param {string} command
  * @param {TerminalAuthLane} [lane]
  */
-export function prepareContainerShellCommand(env, authUser, command, lane = 'sandbox') {
+export async function prepareContainerShellCommand(env, authUser, command, lane = 'sandbox') {
   const norm = normalizeWranglerCommandForLane(command, lane);
   if (!norm.ok) {
     return { ok: false, error: norm.error, guidance: norm.guidance };
   }
-  const prefix = buildContainerWranglerEnvPrefix(env, authUser);
+  const prefix = await buildContainerWranglerEnvPrefix(env, authUser);
   const cmd = norm.command;
   if (!prefix) return { ok: true, command: cmd };
   return { ok: true, command: `${prefix} && ${cmd}` };
@@ -210,7 +214,7 @@ export function wranglerTerminalRecoveryHints(opts = {}) {
     hints.push({
       code: 'wrangler_auth_missing',
       action:
-        'Sandbox: use wrangler whoami after platform token injection. Local: wrangler login. Remote: sync-vm-env-cloudflare.sh.',
+        'Sandbox: connect Cloudflare OAuth or BYOK, then wrangler whoami. Local: wrangler login. Remote: sync-vm-env-cloudflare.sh.',
     });
   }
   if (/callback|8976|ECONNREFUSED.*8976/i.test(text) && isWranglerLoginCommand(opts.command || text)) {

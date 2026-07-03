@@ -47,7 +47,7 @@ export const AgentMobileFilesChangedEnvelope: React.FC<Props> = ({
             onClick={() => onOpenDiffTab()}
             className="text-[11px] font-medium text-[var(--solar-cyan)] hover:underline shrink-0"
           >
-            Diff
+            Context
           </button>
         ) : null}
       </div>

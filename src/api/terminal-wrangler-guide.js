@@ -34,7 +34,7 @@ export async function handleTerminalWranglerGuide(request, url, env) {
   if (probe.ok && lane === 'sandbox') {
     const { prepareContainerShellCommand } = await import('../core/wrangler-terminal-guidance.js');
     const { tryContainerExec } = await import('../core/my-container.js');
-    const prep = prepareContainerShellCommand(
+    const prep = await prepareContainerShellCommand(
       env,
       authUser,
       'wrangler whoami --json 2>&1 || wrangler whoami 2>&1',

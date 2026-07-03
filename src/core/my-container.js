@@ -206,7 +206,7 @@ export async function tryContainerExec(env, opts) {
 
   if (!opts?.skip_wrangler_normalize) {
     const { prepareContainerShellCommand } = await import('./wrangler-terminal-guidance.js');
-    const prep = prepareContainerShellCommand(env, opts?.authUser ?? null, command, 'sandbox');
+    const prep = await prepareContainerShellCommand(env, opts?.authUser ?? null, command, 'sandbox');
     if (!prep.ok) {
       return {
         ok: false,
