@@ -234,7 +234,7 @@ export async function syncCicdDeployEventsBatchToSupabase(env) {
     const deployStatus =
       String(r.event_type || '').includes('fail') || String(r.event_type || '').includes('error')
         ? 'failed'
-        : 'passed';
+        : 'success';
     return {
       d1_cicd_id: String(r.id),
       worker_name: r.worker_name != null ? String(r.worker_name) : 'inneranimalmedia',

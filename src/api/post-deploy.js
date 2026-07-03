@@ -266,7 +266,7 @@ export async function handlePostDeploy(request, env, ctx) {
         workspace_id: workspaceId,
         worker_name: 'inneranimalmedia',
         worker_version: workerVersion,
-        deploy_status: 'passed',
+        deploy_status: 'success',
         commit_sha: gitHash,
         notes: `post-deploy ${environment} v${version}`,
         metadata: {

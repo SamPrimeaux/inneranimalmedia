@@ -207,11 +207,8 @@ func handleExec(w http.ResponseWriter, r *http.Request) {
 		timeoutMs = 120000
 	}
 	result := runCommand(command, cwd, time.Duration(timeoutMs)*time.Millisecond)
-	status := http.StatusOK
-	if !result.OK {
-		status = http.StatusInternalServerError
-	}
-	writeJSON(w, status, result)
+	// HTTP 200 when the exec API handled the request; non-zero exit codes live in the JSON body.
+	writeJSON(w, http.StatusOK, result)
 }
 
 func runCommand(command, cwd string, timeout time.Duration) execResult {

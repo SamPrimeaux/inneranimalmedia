@@ -252,6 +252,16 @@ export function scheduleMirrorToolCallEventToSupabase(env, ctx, params) {
   else void write();
 }
 
+function normalizeDeployStatus(raw) {
+  const s = String(raw || 'success').trim().toLowerCase();
+  if (s === 'success' || s === 'ok' || s === 'passed' || s === 'complete' || s === 'completed') {
+    return 'success';
+  }
+  if (s === 'rollback' || s === 'rolled_back') return 'rollback';
+  if (s === 'failed' || s === 'failure' || s === 'error' || s === 'fail') return 'failed';
+  return 'success';
+}
+
 /**
  * @param {any} env
  * @param {any} ctx
@@ -295,7 +305,7 @@ export function scheduleMirrorDeployEventToSupabase(env, ctx, params) {
         workspaceUuid,
         workerName,
         params.worker_version != null ? String(params.worker_version) : null,
-        params.deploy_status != null ? String(params.deploy_status) : 'passed',
+        normalizeDeployStatus(params.deploy_status),
         params.commit_sha != null ? String(params.commit_sha) : null,
         params.notes != null ? String(params.notes).slice(0, 500) : null,
         metadata,
