@@ -132,6 +132,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleBrowserTrust(request, env);
   }
 
+  if (pathLower.startsWith('/api/agentsam/browser/embed-policy')) {
+    const { handleBrowserEmbedPolicy } = await import('../api/browser-embed-policy.js');
+    return handleBrowserEmbedPolicy(request, env);
+  }
+
   if (pathLower.startsWith('/api/agentsam/time')) {
     return handleTimeDispatch(request, env, ctx, authUser);
   }
