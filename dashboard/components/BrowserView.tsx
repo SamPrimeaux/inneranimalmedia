@@ -2241,12 +2241,12 @@ const BrowserPane: React.FC<PaneProps> = ({
         }
       } catch (e) {
         setNavigateError(String(e));
-        await openPassiveIframeView(n);
+        await fallbackFromAutomation(n);
       } finally {
         setLoading(false);
       }
     },
-    [addressDisplay, agentRunId, onUrlCommitted, openPassiveIframeView],
+    [addressDisplay, agentRunId, onUrlCommitted, fallbackFromAutomation],
   );
 
   /** Browser Run Live View (live.browser.run) — tab-mode page watch; agent-only / explicit fallback. */
