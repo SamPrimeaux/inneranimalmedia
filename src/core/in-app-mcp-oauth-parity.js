@@ -8,12 +8,12 @@ import {
   EXECUTABLE_HANDLER_TYPES,
   inputSchemaFromAgentsamToolRow,
   loadExecutableHandlerTypes,
-  parseHandlerConfig,
   rowMatchesMode,
   rowMatchesWorkspaceScope,
   rowWithinRiskCap,
   validateHandlerConfigForExecution,
 } from './agentsam-tools-catalog.js';
+import { parseHandlerConfig } from './resolve-credential.js';
 import { collectAllowlistToolKeysForScope } from './agent-policy.js';
 export const IN_APP_MCP_PARITY_TOOL_LIMIT = 128;
 
