@@ -38,6 +38,7 @@ export const AgentChatThreadHeader: FC<Props> = ({
   onNewChat,
   onToggleScratchpad,
   scratchpadOpen = false,
+  scratchpadFileCount = 0,
   compact = false,
   embedded = false,
   mobileThreadChrome = false,
