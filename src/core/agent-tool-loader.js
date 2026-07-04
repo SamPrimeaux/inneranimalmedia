@@ -28,6 +28,10 @@ import {
   selectAgentsamToolsForChatRuntime,
 } from './agentsam-tools-catalog.js';
 import {
+  IN_APP_MCP_PARITY_TOOL_LIMIT,
+  selectOAuthMcpParityToolsForAgentChat,
+} from './in-app-mcp-oauth-parity.js';
+import {
   resolveAgentChatRouteToolRequirements,
   effectiveAgentChatToolCap,
 } from './agentsam-route-tool-resolver.js';
@@ -804,52 +808,72 @@ export async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
       taskType: opts.taskType,
       modeSlug,
     });
-    const modelCap = maxModelToolsForAgentTask(opts.taskType, modeSlug);
+    const useOAuthParity = opts.mcpOAuthParity !== false;
+    const parityCap = Math.min(
+      IN_APP_MCP_PARITY_TOOL_LIMIT,
+      Math.max(lim, Number(opts.catalogLimit) || IN_APP_MCP_PARITY_TOOL_LIMIT),
+    );
+    const modelCap = useOAuthParity
+      ? parityCap
+      : maxModelToolsForAgentTask(opts.taskType, modeSlug);
     const prMax =
       opts.promptRouteMaxTools != null && Number.isFinite(Number(opts.promptRouteMaxTools))
         ? Number(opts.promptRouteMaxTools)
         : null;
-    const mergedMax = effectiveAgentChatToolCap({
-      promptRouteMax: prMax,
-      routeReqMax: routeToolRequirements?.max_tools,
-      modelCap,
-      requestLimit: lim,
-    });
+    const mergedMax = useOAuthParity
+      ? parityCap
+      : effectiveAgentChatToolCap({
+          promptRouteMax: prMax,
+          routeReqMax: routeToolRequirements?.max_tools,
+          modelCap,
+          requestLimit: lim,
+        });
     routeToolRequirements = {
       ...routeToolRequirements,
       max_tools: mergedMax,
+      source: useOAuthParity ? 'oauth_mcp_parity' : routeToolRequirements?.source,
     };
     if (mergedMax === 0) {
       return { tools: [], toolRoutingError: null, routeToolRequirements };
     }
-    const det = await selectAgentsamToolsForAgentChat(env.DB, mcpScope, {
-      routeToolRequirements,
-      message: opts.message,
-      taskType: opts.taskType,
-      modeSlug,
-      catalogLimit,
-      outputLimit: mergedMax,
-      allowlistKeys,
-      mcpServerKeys,
-    });
-    if (det.missingRequiredCapabilities?.length) {
-      const miss = det.missingRequiredCapabilities;
-      console.error(
-        '[agent] tool_routing_missing_required',
-        JSON.stringify({
-          missing: miss,
-          route_key: routeToolRequirements.route_key,
-          task_type: routeToolRequirements.task_type,
-        }),
-      );
-      toolRoutingError = {
-        code: 'MISSING_REQUIRED_CAPABILITY',
-        message: `Missing required tool capabilities for this route: ${miss.join(', ')}`,
-        missing: miss,
-      };
-      rows = [];
+
+    if (useOAuthParity && wsId) {
+      const det = await selectOAuthMcpParityToolsForAgentChat(env.DB, mcpScope, {
+        outputLimit: mergedMax,
+        modeSlug,
+        isSuperadmin: opts.isSuperadmin === true,
+      });
+      rows = det.rows || [];
     } else {
-      rows = det.rows;
+      const det = await selectAgentsamToolsForAgentChat(env.DB, mcpScope, {
+        routeToolRequirements,
+        message: opts.message,
+        taskType: opts.taskType,
+        modeSlug,
+        catalogLimit,
+        outputLimit: mergedMax,
+        allowlistKeys,
+        mcpServerKeys,
+      });
+      if (det.missingRequiredCapabilities?.length) {
+        const miss = det.missingRequiredCapabilities;
+        console.error(
+          '[agent] tool_routing_missing_required',
+          JSON.stringify({
+            missing: miss,
+            route_key: routeToolRequirements.route_key,
+            task_type: routeToolRequirements.task_type,
+          }),
+        );
+        toolRoutingError = {
+          code: 'MISSING_REQUIRED_CAPABILITY',
+          message: `Missing required tool capabilities for this route: ${miss.join(', ')}`,
+          missing: miss,
+        };
+        rows = [];
+      } else {
+        rows = det.rows;
+      }
     }
   } else if (useBranded) {
     rows = await selectAgentsamToolsForChatRuntime(env.DB, mcpScope, {
@@ -905,7 +929,7 @@ export async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
     rows = [...preferred, ...rest];
   }
   const tools = rows.map((r) => ({
-    name: String(r.tool_name || r.name || ''),
+    name: String(r.name || r.tool_key || r.tool_name || ''),
     description: String(r.description || ''),
     input_schema: parseJsonSafe(r.input_schema, { type: 'object', properties: {} }),
     tool_category: String(r.tool_category || 'builtin'),

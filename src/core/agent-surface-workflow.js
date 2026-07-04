@@ -732,6 +732,11 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
 
   const effectiveMaxTools = Math.max(1, Math.min(200, Number(modeConfig.max_tool_calls || 20) || 20));
 
+  const panelIsSuperadmin =
+    panel.isSuperadmin === true ||
+    String(panel.authUser?.role ?? '').trim().toLowerCase() === 'superadmin' ||
+    Number(panel.authUser?.is_superadmin) === 1;
+
   const lastUserMsg =
     messages.length && String(messages[messages.length - 1]?.role || '') === 'user'
       ? String(messages[messages.length - 1]?.content || '')
@@ -750,6 +755,7 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
     taskType: 'agent',
     agentChat: true,
     routeKey: 'mcp_panel',
+    isSuperadmin: panelIsSuperadmin,
   });
   if (panelToolRoutingError) {
     return jsonResponse(
@@ -778,11 +784,6 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
     `Tenant: ${tenantId}\n` +
     `Workspace: ${workspaceId}\n` +
     `Date: ${new Date().toISOString()}\n`;
-
-  const panelIsSuperadmin =
-    panel.isSuperadmin === true ||
-    String(panel.authUser?.role ?? '').trim().toLowerCase() === 'superadmin' ||
-    Number(panel.authUser?.is_superadmin) === 1;
 
   const mcpRuntimeContext = {
     userId,

@@ -297,6 +297,13 @@ export async function isToolAllowedByAllowlist(env, policy, scope, toolName, mcp
     }
   }
 
+  try {
+    const { isOAuthMcpParityToolAllowed } = await import('./in-app-mcp-oauth-parity.js');
+    if (await isOAuthMcpParityToolAllowed(env, name, scope)) {
+      return { allowed: true, reason: 'oauth_mcp_parity', path: 'oauth_mcp_parity' };
+    }
+  } catch (_) {}
+
   const ws = trimId(scope?.workspaceId);
   const tid = trimId(scope?.tenantId);
   if (!ws || !tid) {

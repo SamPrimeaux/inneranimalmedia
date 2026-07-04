@@ -23,6 +23,7 @@ import {
 } from './readonly-repo-audit-tools.js';
 import { RUNTIME_PROFILE_VERSION } from './runtime-profile.types.js';
 import { messageHasBrowserUrlNavigation } from '../api/agent/classify-intent.js';
+import { IN_APP_MCP_PARITY_TOOL_LIMIT } from './in-app-mcp-oauth-parity.js';
 
 const TERMINAL_TOOL_NAMES = ['terminal_run', 'terminal_execute', 'run_command', 'bash'];
 
@@ -561,6 +562,25 @@ async function hashRuntimeProfile(profile) {
  * @param {{ message: string, mode: string, taskType: string, tenantId?: string|null, workspaceId: string, userId: string, maxTools: number }} p
  */
 async function compileCatalogToolsForModeFallback(env, p) {
+  const useOAuthParity = p.mcpOAuthParity !== false;
+  if (useOAuthParity) {
+    const { selectOAuthMcpParityToolsForAgentChat } = await import('./in-app-mcp-oauth-parity.js');
+    const det = await selectOAuthMcpParityToolsForAgentChat(
+      env.DB,
+      {
+        userId: p.userId,
+        tenantId: p.tenantId,
+        workspaceId: p.workspaceId,
+        isSuperadmin: p.isSuperadmin === true,
+      },
+      {
+        outputLimit: Math.max(1, Math.min(IN_APP_MCP_PARITY_TOOL_LIMIT, p.maxTools || IN_APP_MCP_PARITY_TOOL_LIMIT)),
+        modeSlug: p.mode,
+        isSuperadmin: p.isSuperadmin === true,
+      },
+    );
+    return det.rows || [];
+  }
   const { resolveAgentChatRouteToolRequirements } = await import('./agentsam-route-tool-resolver.js');
   const { selectAgentsamToolsForAgentChat } = await import('./agentsam-tools-catalog.js');
   const { augmentAskRouteRequirements } = await import('./ask-evidence-tools.js');
@@ -622,6 +642,8 @@ export async function compileModeProfile(env, input) {
   const workspaceId = input.workspaceId != null ? String(input.workspaceId).trim() : null;
   const userId = input.userId != null ? String(input.userId).trim() : null;
   const compileLane = input.compile_lane === 'live' ? 'live' : 'shadow';
+  const useOAuthParity = input.mcpOAuthParity !== false;
+  const isSuperadmin = input.isSuperadmin === true;
 
   const { row: promptRouteRow, refinedRouteKey } = await resolvePromptRouteForCompile(env, {
     tenantId,
@@ -690,13 +712,17 @@ export async function compileModeProfile(env, input) {
     promptRouteRow?.max_tools != null && String(promptRouteRow.max_tools).trim() !== ''
       ? Number(promptRouteRow.max_tools)
       : null;
-  const modelCap = maxModelToolsForAgentTask(taskType, mode);
-  const maxTools = effectiveAgentChatToolCap({
-    promptRouteMax,
-    routeReqMax: effectiveRouteReq?.max_tools ?? routeToolRequirements?.max_tools,
-    modelCap,
-    requestLimit: 20,
-  });
+  const modelCap = useOAuthParity
+    ? IN_APP_MCP_PARITY_TOOL_LIMIT
+    : maxModelToolsForAgentTask(taskType, mode);
+  const maxTools = useOAuthParity
+    ? IN_APP_MCP_PARITY_TOOL_LIMIT
+    : effectiveAgentChatToolCap({
+        promptRouteMax,
+        routeReqMax: effectiveRouteReq?.max_tools ?? routeToolRequirements?.max_tools,
+        modelCap,
+        requestLimit: 20,
+      });
 
   /** @type {string[]} */
   let toolAllowlist = [];
@@ -714,6 +740,20 @@ export async function compileModeProfile(env, input) {
     maxTools > 0
   ) {
     const { selectAgentsamToolsForAgentChat } = await import('./agentsam-tools-catalog.js');
+    let scoredRows = [];
+    if (useOAuthParity) {
+      const { selectOAuthMcpParityToolsForAgentChat } = await import('./in-app-mcp-oauth-parity.js');
+      const det = await selectOAuthMcpParityToolsForAgentChat(
+        env.DB,
+        { userId, tenantId, workspaceId, isSuperadmin },
+        {
+          outputLimit: maxTools,
+          modeSlug: mode,
+          isSuperadmin,
+        },
+      );
+      scoredRows = det.rows || [];
+    } else {
     const exemptAllowlistKey = AUGMENTATION_EXEMPT_ROUTES.has(routeKey)
       ? routeKey
       : AUGMENTATION_EXEMPT_ROUTES.has(taskType)
@@ -761,7 +801,7 @@ export async function compileModeProfile(env, input) {
       catalogLimit: Math.min(96, maxTools * 4),
       outputLimit: maxTools,
     });
-    let scoredRows = det.rows || [];
+    let scoredRowsLegacy = det.rows || [];
     missingRequiredCapabilities = det.missingRequiredCapabilities || [];
     allowedDomains = det.allowedDomains || [];
     if (det.droppedUnknownLanes?.length) {
@@ -769,6 +809,8 @@ export async function compileModeProfile(env, input) {
         route_key: routeKey,
         lanes: det.droppedUnknownLanes,
       });
+    }
+    scoredRows = scoredRowsLegacy;
     }
     const readonlyAuditCompile =
       isReadonlyRepoAuditContext(message) ||
@@ -795,7 +837,7 @@ export async function compileModeProfile(env, input) {
       scoredRows = pinned.mergedRows;
     }
     compiledToolRows = scoredRows;
-    toolAllowlist = compiledToolRows.map((r) => String(r.name || r.tool_name || '').trim()).filter(Boolean);
+    toolAllowlist = compiledToolRows.map((r) => String(r.name || r.tool_key || r.tool_name || '').trim()).filter(Boolean);
   }
 
   const denySet = new Set((modeToolPolicy.denyTools || []).map((t) => String(t)));
@@ -804,7 +846,7 @@ export async function compileModeProfile(env, input) {
     // Ask/readonly audit should not lose tool capability; it should lose *unsafe execution* by policy.
     // Orchestration tools are still removed here (child fanout / pipeline controls).
     compiledToolRows = filterReportChildOrchestrationTools(compiledToolRows);
-    toolAllowlist = compiledToolRows.map((r) => String(r.name || r.tool_name || '').trim()).filter(Boolean);
+    toolAllowlist = compiledToolRows.map((r) => String(r.name || r.tool_key || r.tool_name || '').trim()).filter(Boolean);
   }
 
   const modesWithCatalogFallback =
@@ -818,11 +860,13 @@ export async function compileModeProfile(env, input) {
       userId,
       workspaceId,
       maxTools,
+      mcpOAuthParity: useOAuthParity,
+      isSuperadmin,
     });
     if (fallbackRows.length) {
       compiledToolRows = fallbackRows;
       toolAllowlist = compiledToolRows
-        .map((r) => String(r.name || r.tool_name || '').trim())
+        .map((r) => String(r.name || r.tool_key || r.tool_name || '').trim())
         .filter(Boolean);
     }
   }
@@ -1014,6 +1058,14 @@ export async function resolveRuntimeProfile(env, input) {
     taskType,
     routeKeyPin: overrides.route_key,
     compile_lane: input.compile_lane || 'shadow',
+    mcpOAuthParity: input.mcpOAuthParity,
+    isSuperadmin:
+      session.isSuperadmin === true ||
+      session.is_superadmin === true ||
+      String(session.role || session.authUser?.role || '')
+        .trim()
+        .toLowerCase() === 'superadmin' ||
+      Number(session.authUser?.is_superadmin) === 1,
   });
 
   if (session.userId && session.workspaceId) {

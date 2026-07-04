@@ -96,7 +96,7 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
       resolveRuntimeProfile(env, {
         mode: requestedMode,
         message,
-        session: { userId, workspaceId, tenantId, conversationId: sessionId },
+        session: { userId, workspaceId, tenantId, conversationId: sessionId, authUser },
         overrides: {
           model_key: modelOverride,
           subagent_slug: body.subagent_slug ?? body.subagentSlug ?? null,

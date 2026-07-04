@@ -29,7 +29,7 @@ function inferLaneFromMessage(message, modeSlug) {
 
 export const CATALOG_ACTIVE_TOOL_COUNT = 76;
 export const DEFAULT_AGENT_TOOL_LIST_LIMIT = 8;
-export const MAX_AGENT_TOOL_LIST_LIMIT = 50;
+export const MAX_AGENT_TOOL_LIST_LIMIT = 128;
 
 // ─── Dynamic handler type resolution ──────────────────────────────────────────
 // Never hardcode this list as the single source of truth. Load from D1, cache 5 min in KV.
@@ -745,7 +745,7 @@ export function validateHandlerConfigForExecution(row, config, executableTypes =
   return { ok: true };
 }
 
-function rowMatchesWorkspaceScope(row, workspaceId) {
+export function rowMatchesWorkspaceScope(row, workspaceId) {
   const ws = trim(workspaceId);
   const scope = parseJsonSafe(row?.workspace_scope, ['*']);
   const arr = Array.isArray(scope) ? scope : ['*'];
@@ -754,7 +754,7 @@ function rowMatchesWorkspaceScope(row, workspaceId) {
   return arr.some((x) => trim(x) === ws);
 }
 
-function rowMatchesMode(row, modeSlug) {
+export function rowMatchesMode(row, modeSlug) {
   const mode = trim(modeSlug).toLowerCase();
   if (!mode) return true;
   const modes = parseJsonSafe(row?.modes_json, []);
@@ -762,7 +762,7 @@ function rowMatchesMode(row, modeSlug) {
   return modes.map((m) => trim(m).toLowerCase()).includes(mode);
 }
 
-function rowWithinRiskCap(row, maxRisk) {
+export function rowWithinRiskCap(row, maxRisk) {
   const cap = trim(maxRisk).toLowerCase();
   if (!cap) return true;
   const capN = RISK_ORDER[cap];
