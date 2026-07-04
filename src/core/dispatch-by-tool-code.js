@@ -6,10 +6,14 @@ import { parseHandlerConfig, resolveCredential, userHasSuperadminRole } from './
 import { executeCatalogTool } from './catalog-tool-executor.js';
 import { assertTenantSpendPolicy } from './tenant-spend-policy.js';
 import {
-  loadAgentsamToolRow,
   validateHandlerConfigForExecution,
 } from './agentsam-tools-catalog.js';
 import { resolveIntegrationUserId } from './integration-user-id.js';
+import {
+  LEGACY_TERMINAL_TOOL_REDIRECT,
+  resolveCatalogDispatchToolKey,
+  loadCatalogToolRowForDispatch,
+} from './catalog-tool-key-resolve.js';
 
 function parseInput(input) {
   if (input == null) return {};
@@ -24,29 +28,14 @@ function normalizeAuthSourceForSpend(raw) {
   return s;
 }
 
-/** Legacy terminal tool names → canonical sandbox catalog row. */
-const LEGACY_TERMINAL_TOOL_REDIRECT = Object.freeze({
-  terminal_execute: 'agentsam_terminal_sandbox',
-  terminal_run: 'agentsam_terminal_sandbox',
-  terminal_wrangler: 'agentsam_terminal_sandbox',
-  run_command: 'agentsam_terminal_sandbox',
-  bash: 'agentsam_terminal_sandbox',
-});
-
-/** Public / UI aliases → canonical agentsam_tools.tool_key */
-const LEGACY_TOOL_KEY_REDIRECT = Object.freeze({});
-
 /**
  * @param {any} env
  * @param {string} toolCodeOrKey
  */
 export async function dispatchByToolCode(env, toolCodeOrKey, input, runContext = {}) {
   const rawKey = String(toolCodeOrKey ?? '').trim();
-  const resolvedKey =
-    LEGACY_TERMINAL_TOOL_REDIRECT[rawKey] ||
-    LEGACY_TOOL_KEY_REDIRECT[rawKey] ||
-    rawKey;
-  const row = await loadAgentsamToolRow(env, resolvedKey);
+  const resolvedKey = resolveCatalogDispatchToolKey(rawKey);
+  const row = await loadCatalogToolRowForDispatch(env, rawKey);
   if (!row) {
     return { ok: false, error: `agentsam_tools not found: ${toolCodeOrKey}` };
   }
