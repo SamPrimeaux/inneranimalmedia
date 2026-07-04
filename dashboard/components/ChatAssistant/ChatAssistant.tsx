@@ -275,6 +275,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   composerPlaceholder: composerPlaceholderOverride,
   onToggleScratchpad,
   scratchpadOpen: scratchpadOpenProp = false,
+  scratchpadFileCount = 0,
   availableConnectors = [],
   availableConnectorsLoading = false,
   onOpenEditor,
