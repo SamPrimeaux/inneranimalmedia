@@ -20,9 +20,9 @@ export function ComposerStartupChips({
       className={className}
       ariaLabel="Quick actions"
       chips={[
-        { id: 'image',  label: 'Create an image', icon: ImageIcon, onClick: onCreateImage },
-        { id: 'web',    label: 'Web search',       icon: Globe,      onClick: onWebSearch },
-        { id: 'editor', label: 'Open editor',      icon: CodeXml,    onClick: onOpenEditor },
+        { id: 'image', label: 'Create an image', icon: ImageIcon, onClick: onCreateImage },
+        { id: 'web', label: 'Web search', icon: Globe, onClick: onWebSearch },
+        { id: 'editor', label: 'Open editor', icon: CodeXml, onClick: onOpenEditor },
       ]}
     />
   );

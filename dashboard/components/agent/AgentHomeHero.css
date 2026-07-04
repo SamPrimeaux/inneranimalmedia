@@ -45,23 +45,33 @@
 .agent-pill {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 9px 16px;
+  gap: 8px;
+  padding: 10px 16px;
   border-radius: var(--agent-radius-pill);
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
+  border: 1px solid color-mix(in srgb, var(--glass-border) 90%, var(--agent-text-primary) 10%);
+  background: color-mix(in srgb, var(--glass-bg) 85%, var(--agent-bg-deep) 15%);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
   color: var(--agent-text-secondary);
   font-family: var(--font-sans);
   font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    transform 0.1s ease,
+    box-shadow 0.15s ease;
 }
 
 .agent-pill:hover {
   color: var(--agent-text-primary);
   border-color: var(--agent-accent-soft);
+  background: color-mix(in srgb, var(--glass-bg-strong) 90%, transparent);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--agent-text-primary) 8%, transparent);
 }
 
 .agent-pill:active {

@@ -4,16 +4,8 @@
  * Agent, Draw, Design Studio, and Editor all use .iam-chat-startup-chip
  * from chat-startup-center.css. This component owns the chip rendering so
  * there's one place to change layout, spacing, or accessibility.
- *
- * Usage:
- *   import { StartupChipRow } from '@/components/shell/chat-startup/StartupChipRow';
- *
- *   <StartupChipRow chips={[
- *     { id: 'image', label: 'Create an image', icon: ImageIcon, onClick: onCreateImage },
- *     { id: 'web',   label: 'Web search',      icon: Globe,      onClick: onWebSearch },
- *   ]} />
  */
-import React, { type ElementType } from 'react';
+import type { ElementType } from 'react';
 
 export type StartupChip = {
   /** Stable key — used as React key and data-chip-id. */
@@ -25,16 +17,24 @@ export type StartupChip = {
   onClick: () => void;
 };
 
-type Props = {
+type StartupChipRowProps = {
   chips: StartupChip[];
   /** Additional class on the wrapper div. */
   className?: string;
   /** aria-label on the role="group" wrapper. Defaults to "Quick actions". */
   ariaLabel?: string;
+  /** When true, every chip in the row is disabled. */
+  disabled?: boolean;
 };
 
-export function StartupChipRow({ chips, className, ariaLabel = 'Quick actions' }: Props) {
+export function StartupChipRow({
+  chips,
+  className,
+  ariaLabel = 'Quick actions',
+  disabled = false,
+}: StartupChipRowProps) {
   if (!chips.length) return null;
+
   return (
     <div
       className={`iam-chat-startup-chips${className ? ` ${className}` : ''}`}
@@ -43,12 +43,13 @@ export function StartupChipRow({ chips, className, ariaLabel = 'Quick actions' }
     >
       {chips.map((chip) => {
         const Icon = chip.icon;
+        const isDisabled = disabled || chip.disabled;
         return (
           <button
             key={chip.id}
             type="button"
             className="iam-chat-startup-chip"
-            disabled={chip.disabled}
+            disabled={isDisabled}
             onClick={chip.onClick}
             data-chip-id={chip.id}
           >

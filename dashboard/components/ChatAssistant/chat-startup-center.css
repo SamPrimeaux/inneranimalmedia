@@ -34,7 +34,7 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .iam-chat-startup-chip {
@@ -49,18 +49,18 @@
   font-size: 0.8125rem;
   font-weight: 500;
   line-height: 1.4;
-  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
   white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
-.iam-chat-startup-chip:hover {
+.iam-chat-startup-chip:hover:not(:disabled) {
   background: var(--bg-hover);
   border-color: color-mix(in srgb, var(--dashboard-text) 18%, var(--dashboard-border));
   box-shadow: 0 1px 3px color-mix(in srgb, var(--dashboard-text) 8%, transparent);
-  color: var(--dashboard-text);
 }
 
-.iam-chat-startup-chip:active {
+.iam-chat-startup-chip:active:not(:disabled) {
   transform: scale(0.98);
   box-shadow: none;
 }

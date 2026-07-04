@@ -21,10 +21,11 @@ export function DrawStartupChips({
     <StartupChipRow
       className={className}
       ariaLabel="Draw quick actions"
+      disabled={disabled}
       chips={[
-        { id: 'canvas',    label: 'Open canvas',      icon: Pencil,    disabled, onClick: onOpenCanvas },
-        { id: 'libraries', label: 'Browse libraries', icon: FolderOpen, disabled, onClick: onBrowseLibraries },
-        { id: 'sketch',    label: 'New sketch',       icon: Sparkles,  disabled, onClick: onNewSketch },
+        { id: 'canvas', label: 'Open canvas', icon: Pencil, onClick: onOpenCanvas },
+        { id: 'libraries', label: 'Browse libraries', icon: FolderOpen, onClick: onBrowseLibraries },
+        { id: 'sketch', label: 'New sketch', icon: Sparkles, onClick: onNewSketch },
       ]}
     />
   );

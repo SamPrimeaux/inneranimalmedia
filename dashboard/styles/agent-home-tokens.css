@@ -24,7 +24,7 @@
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
   --agent-radius-bar: 28px;
-  --agent-radius-pill: 999px;
+  --agent-radius-pill: 10px;
 }
 
 .agent-home__composer-host .iam-chat-composer-glass--atmospheric {

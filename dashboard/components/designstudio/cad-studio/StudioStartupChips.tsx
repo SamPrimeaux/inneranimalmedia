@@ -1,6 +1,6 @@
 import React from 'react';
 import { FolderOpen, LayoutGrid, Upload } from 'lucide-react';
-import { StartupChipRow } from '../../../shell/chat-startup/StartupChipRow';
+import { StartupChipRow } from '../../shell/chat-startup/StartupChipRow';
 
 export type StudioStartupChipsProps = {
   className?: string;
@@ -21,10 +21,11 @@ export function StudioStartupChips({
     <StartupChipRow
       className={className}
       ariaLabel="Design Studio quick actions"
+      disabled={disabled}
       chips={[
-        { id: 'studio',  label: 'Open studio',    icon: LayoutGrid, disabled, onClick: onOpenStudio },
-        { id: 'import',  label: 'Import GLB',     icon: Upload,     disabled, onClick: onImportGlb },
-        { id: 'library', label: 'Browse library', icon: FolderOpen, disabled, onClick: onBrowseLibrary },
+        { id: 'studio', label: 'Open studio', icon: LayoutGrid, onClick: onOpenStudio },
+        { id: 'import', label: 'Import GLB', icon: Upload, onClick: onImportGlb },
+        { id: 'library', label: 'Browse library', icon: FolderOpen, onClick: onBrowseLibrary },
       ]}
     />
   );
