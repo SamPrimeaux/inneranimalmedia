@@ -1,4 +1,4 @@
-import { useCallback, useState, type ComponentProps, type PointerEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from 'react';
 import { ChatAssistantWithStudioContext } from '../designstudio/ChatAssistantWithStudioContext';
 import { ChatScratchpadRail } from '../ChatAssistant/components/ChatScratchpadRail';
 import type { AgentGeneratedFile } from '../ChatAssistant/types';
