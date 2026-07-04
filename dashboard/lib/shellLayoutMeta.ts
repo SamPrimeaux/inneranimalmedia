@@ -22,9 +22,13 @@ export function resolveAgentChatLayout(opts: {
   const centerChat = isAgentCenterChatHome(pathname, search);
   const editorRoute = isAgentEditorPath(pathname);
 
-  // Center-chat routes (/dashboard/agent, /new, /c/*) always use center layout.
-  // agentPosition must not flip layout to a side rail — that remounts ChatAssistant.
+  // Center-chat routes (/dashboard/agent, /new, /c/*) use center layout when browsing.
+  // When a code file is open, move chat to a side rail so Monaco is usable.
   if (centerChat && !editorRoute) {
+    if (hasActiveFile) {
+      if (agentPosition === 'left') return 'left-rail';
+      return 'right-rail';
+    }
     return 'center';
   }
 

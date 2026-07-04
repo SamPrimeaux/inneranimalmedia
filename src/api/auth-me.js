@@ -53,6 +53,11 @@ export async function buildCanonicalAuthMe(env, request, authUser) {
 
   const integrations_summary = await buildIntegrationsSummary(env, authUser);
 
+  const capabilities =
+    authUser?.capabilities && typeof authUser.capabilities === 'object'
+      ? authUser.capabilities
+      : null;
+
   return {
     authenticated: true,
     user: {
@@ -67,6 +72,7 @@ export async function buildCanonicalAuthMe(env, request, authUser) {
       ? { id: primary.id, name: primary.name, slug: primary.slug, role: primary.role }
       : null,
     workspaces,
+    capabilities,
     integrations_summary,
     session: { expires_at: expiresAt },
   };

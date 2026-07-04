@@ -884,7 +884,16 @@ function jsonLoginSessionResponse(request, loginResult, redirectPath) {
     sanitizeBrowserNextPath(
       redirectPath && redirectPath.startsWith('/') ? redirectPath : DASHBOARD_AFTER_LOGIN_PATH,
     ) ?? DASHBOARD_AFTER_LOGIN_PATH;
-  const response = new Response(JSON.stringify({ ok: true, redirect: next }), {
+  const payload = {
+    ok: true,
+    redirect: next,
+    workspace_id: loginResult.workspaceId ?? null,
+    tenant_id: loginResult.tenantId ?? null,
+    capabilities: loginResult.capabilities ?? null,
+    terminal: loginResult.terminal ?? null,
+    github_repo: loginResult.github_repo ?? null,
+  };
+  const response = new Response(JSON.stringify(payload), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });
@@ -954,9 +963,9 @@ async function finishLogin(request, url, env, userId, redirectPath) {
 
   const loginSession = await createLoginSession(request, env, userId, 'email');
   const { sessionId, sessionToken } = normalizeLoginSessionResult(loginSession);
-  const tenantId = await resolveTenantAtLogin(env, userId).catch(() => null);
+  const tenantId = loginSession.tenantId ?? (await resolveTenantAtLogin(env, userId).catch(() => null));
+  const wsForSession = loginSession.workspaceId ?? (await resolveCanonicalWorkspace(env, userId));
   try {
-    const wsForSession = await resolveCanonicalWorkspace(env, userId);
     await env.DB.prepare(`
       INSERT OR IGNORE INTO work_sessions (
         session_id, user_id, tenant_id, workspace_id,
@@ -977,7 +986,16 @@ async function finishLogin(request, url, env, userId, redirectPath) {
     sanitizeBrowserNextPath(
       redirectPath && redirectPath.startsWith('/') ? redirectPath : DASHBOARD_AFTER_LOGIN_PATH,
     ) ?? DASHBOARD_AFTER_LOGIN_PATH;
-  const response = new Response(JSON.stringify({ ok: true, redirect: next }), {
+  const loginPayload = {
+    ok: true,
+    redirect: next,
+    workspace_id: loginSession.workspaceId ?? wsForSession ?? null,
+    tenant_id: tenantId ?? null,
+    capabilities: loginSession.capabilities ?? null,
+    terminal: loginSession.terminal ?? null,
+    github_repo: loginSession.github_repo ?? null,
+  };
+  const response = new Response(JSON.stringify(loginPayload), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });

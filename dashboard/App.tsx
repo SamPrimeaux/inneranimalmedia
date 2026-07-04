@@ -136,7 +136,6 @@ import AuthOAuthConsentPage from './components/auth/AuthOAuthConsentPage';
 import MountIamMcpConsent from './components/auth/MountIamMcpConsent';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
 import { DashboardSidebar } from './components/shell/DashboardSidebar';
-import { CodeToolsSidebar } from './components/shell/CodeToolsSidebar';
 import { AgentSamChatHost } from './components/shell/AgentSamChatHost';
 import { MobileNavShell } from './components/shell/MobileNavShell';
 import {
@@ -724,9 +723,14 @@ const App: React.FC = () => {
   const [terminalOk, setTerminalOk] = useState<boolean | null>(null);
 
   useEffect(() => {
+    if (termWs.ptyReady) {
+      setTerminalOk(true);
+      return;
+    }
+    const boot = readDashboardBootstrapCache();
+    if (boot?.status?.terminal?.ready === true) return;
     if (termWs.splashStatus == null && !termWs.statusLoading) return;
-    if (termWs.ptyReady) setTerminalOk(true);
-    else if (!termWs.statusLoading) setTerminalOk(false);
+    if (!termWs.statusLoading) setTerminalOk(false);
   }, [termWs.splashStatus, termWs.ptyReady, termWs.statusLoading]);
   const [editorMeta, setEditorMeta] = useState<EditorModelMeta>({
     tabSize: 2,
@@ -3362,8 +3366,12 @@ const App: React.FC = () => {
         const ts = st.tunnel.status != null ? String(st.tunnel.status) : '';
         setTunnelLabel(ts === 'connected' ? 'connected' : ts || null);
       }
-      if (st.terminal?.status) {
-        setTerminalOk(String(st.terminal.status) === 'connected');
+      if (st.terminal) {
+        if (typeof st.terminal.ready === 'boolean') {
+          setTerminalOk(st.terminal.ready);
+        } else if (st.terminal.status) {
+          setTerminalOk(String(st.terminal.status) === 'connected');
+        }
       }
     }
   }, [applyProblemsPayload]);
@@ -4456,47 +4464,27 @@ const App: React.FC = () => {
           {/* Activity bar: icon rail (width toggled via ☰ — localStorage iam_sidebar_expanded) */}
           {!isCmsFullscreen ? (
           <div
-            className={`iam-chrome-sidebar hidden tablet-up:flex flex-col h-full min-h-0 border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out ${
-              isAgentEditorPath(location.pathname) ? 'py-0 px-0' : 'py-3 gap-1 px-1'
-            }`}
-            style={{
-              width: isAgentEditorPath(location.pathname) ? 240 : sidebarRailExpanded ? 200 : 48,
-            }}
+            className="iam-chrome-sidebar hidden tablet-up:flex flex-col h-full min-h-0 py-3 gap-1 px-1 border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out"
+            style={{ width: sidebarRailExpanded ? 200 : 48 }}
           >
-              {isAgentEditorPath(location.pathname) ? (
-                <CodeToolsSidebar
-                  workspaceId={authWorkspaceId}
-                  userId={sessionUserId}
-                  activeConversationId={activeAgentConversationId}
-                  nativeFolderOpenSignal={nativeFolderOpenSignal}
-                  pinnedGithubRepo={activeWorkspaceRow?.github_repo ?? gitRepoFullName ?? null}
-                  onNewChat={shellNewChat}
-                  onSelectChat={shellSelectChat}
-                  onDeleteActiveChat={shellDeleteActiveChat}
-                  onFileSelect={openInEditorFromExplorer}
-                  onWorkspaceRootChange={onExplorerWorkspaceRootChange}
-                  onSearchFiles={() => setSearchOpen(true)}
-                />
-              ) : (
-                <DashboardSidebar
-                  expanded={sidebarRailExpanded}
-                  onToggleExpanded={toggleSidebarRail}
-                  onNewChat={shellNewChat}
-                  onOpenChats={shellOpenChats}
-                  onOpenMovieMode={shellOpenMovieMode}
-                  onSelectChat={shellSelectChat}
-                  onDeleteActiveChat={shellDeleteActiveChat}
-                  activeConversationId={activeAgentConversationId}
-                  workspaceLabel={workspaceContextLabel}
-                  avatarUrl={sessionAvatarUrl}
-                  avatarInitial={
-                    sessionUserName?.trim()?.charAt(0)?.toUpperCase() ||
-                    sessionUserId?.charAt(0)?.toUpperCase() ||
-                    undefined
-                  }
-                  workspaceSubtitle={gitBranch?.trim() ? gitBranch.trim() : undefined}
-                />
-              )}
+              <DashboardSidebar
+                expanded={sidebarRailExpanded}
+                onToggleExpanded={toggleSidebarRail}
+                onNewChat={shellNewChat}
+                onOpenChats={shellOpenChats}
+                onOpenMovieMode={shellOpenMovieMode}
+                onSelectChat={shellSelectChat}
+                onDeleteActiveChat={shellDeleteActiveChat}
+                activeConversationId={activeAgentConversationId}
+                workspaceLabel={workspaceContextLabel}
+                avatarUrl={sessionAvatarUrl}
+                avatarInitial={
+                  sessionUserName?.trim()?.charAt(0)?.toUpperCase() ||
+                  sessionUserId?.charAt(0)?.toUpperCase() ||
+                  undefined
+                }
+                workspaceSubtitle={gitBranch?.trim() ? gitBranch.trim() : undefined}
+              />
           </div>
           ) : null}
 

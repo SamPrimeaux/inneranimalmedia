@@ -20,6 +20,21 @@ export type DashboardBootstrapPayload = {
   me?: {
     user?: { id?: string | null; name?: string | null; email?: string | null; avatar_url?: string | null };
     workspace?: { id?: string; name?: string; slug?: string } | null;
+    capabilities?: {
+      canRunPty?: boolean;
+      canRunMcp?: boolean;
+      canDeploy?: boolean;
+    } | null;
+  };
+  identity?: {
+    workspace_id?: string | null;
+    tenant_id?: string | null;
+    github_repo?: string | null;
+    capabilities?: {
+      canRunPty?: boolean;
+      canRunMcp?: boolean;
+      canDeploy?: boolean;
+    } | null;
   };
   workspaces?: {
     data?: Array<{
@@ -32,6 +47,7 @@ export type DashboardBootstrapPayload = {
       handle?: string;
     }>;
     current?: string | null;
+    current_source?: string | null;
   };
   status?: {
     health?: { status?: string };
@@ -45,7 +61,14 @@ export type DashboardBootstrapPayload = {
       checked_at?: string;
     };
     tunnel?: { healthy?: boolean; status?: string };
-    terminal?: { status?: string };
+    terminal?: {
+      ready?: boolean;
+      lane?: 'local' | 'cloud' | 'sandbox' | null;
+      connection_id?: string | null;
+      cwd?: string | null;
+      status?: string;
+      can_run_pty?: boolean;
+    };
   };
   theme?: CmsActiveThemePayload | null;
   client?: {

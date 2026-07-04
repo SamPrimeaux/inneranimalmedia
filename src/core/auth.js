@@ -475,6 +475,12 @@ export async function resolveWorkspaceIdAtLogin(env, userRow, opts = {}) {
   const explicit = trimSessionField(opts.workspaceId);
   if (explicit) return explicit;
 
+  const isSuper = Number(userRow?.is_superadmin) === 1;
+  if (isSuper) {
+    const platformWs = getPlatformWorkspaceEnvId(env);
+    if (platformWs) return platformWs;
+  }
+
   const tenantId =
     trimSessionField(userRow?.active_tenant_id) || trimSessionField(userRow?.tenant_id) || null;
 
@@ -494,11 +500,6 @@ export async function resolveWorkspaceIdAtLogin(env, userRow, opts = {}) {
 
   if (!candidate && userId && env?.DB) {
     candidate = await resolveFirstMembershipWorkspaceId(env, userId);
-  }
-
-  const isSuper = Number(userRow?.is_superadmin) === 1;
-  if (!candidate && isSuper) {
-    candidate = getPlatformWorkspaceEnvId(env) || null;
   }
 
   if (!candidate && userId && !isSuper) {
@@ -1248,6 +1249,12 @@ export async function resolveAuth(request, env, opts = {}) {
     workspaceId = workspaceSlugFromTenantId(tenantId);
   }
 
+  /** Superadmin platform operator — pin env.WORKSPACE_ID unless client explicitly overrides. */
+  if (isSuperadmin && !overrideWs && !headerWs) {
+    const platformWs = getPlatformWorkspaceEnvId(env);
+    if (platformWs) workspaceId = platformWs;
+  }
+
   let membership;
   let policy;
   let capabilities;
@@ -1749,12 +1756,31 @@ export async function createLoginSession(request, env, userId, sessionProvider =
   });
   await syncAuthRevCache(env, userId, authRev);
 
+  let operational = null;
+  if (sessionFields.workspaceId) {
+    try {
+      const { buildOperationalIdentitySnapshot } = await import('./operational-identity.js');
+      operational = await buildOperationalIdentitySnapshot(env, {
+        userId,
+        tenantId: sessionFields.tenantId,
+        workspaceId: sessionFields.workspaceId,
+        isSuperadmin,
+        capabilities,
+      });
+    } catch (e) {
+      console.warn('[createLoginSession] operational identity', e?.message ?? e);
+    }
+  }
+
   return {
     sessionId,
     sessionToken,
     tenantId: sessionFields.tenantId,
     workspaceId: sessionFields.workspaceId,
     d1SessionPersisted,
+    capabilities,
+    github_repo: operational?.github_repo ?? null,
+    terminal: operational?.terminal ?? null,
   };
 }
 

@@ -3,12 +3,13 @@
  * L1 envelope only: session, workspaces, status bar, theme, client config.
  * Agent domain (policy, models) → L2 endpoints under /api/agent/* and /api/settings/*.
  */
-import { jsonResponse, authContextToLegacyUser } from '../core/auth.js';
+import { jsonResponse, authContextToLegacyUser, syncSessionWorkspaceId } from '../core/auth.js';
 import { buildCanonicalAuthMe } from './auth-me.js';
 import { fetchSandboxRuntimeSummary } from './sandbox-api.js';
 import { gitStatusFromWorkspaceMetadata } from '../core/workspace-git-meta.js';
 import { pingTunnelHealth } from '../core/status-bar-runtime.js';
 import { resolveDashboardBootstrapTheme } from '../core/cms-theme-bootstrap-payload.js';
+import { buildOperationalIdentitySnapshot } from '../core/operational-identity.js';
 
 /** @type {readonly string[]} */
 export const DASHBOARD_BOOTSTRAP_L1_KEYS = Object.freeze([
@@ -16,6 +17,7 @@ export const DASHBOARD_BOOTSTRAP_L1_KEYS = Object.freeze([
   'fetched_at',
   'me',
   'workspaces',
+  'identity',
   'status',
   'theme',
   'client',
@@ -36,12 +38,35 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
   if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
 
   const userId = String(authUser.id);
-  const workspaceId =
-    authCtx?.workspaceId != null && String(authCtx.workspaceId).trim()
-      ? String(authCtx.workspaceId).trim()
-      : authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim()
-        ? String(authUser.active_workspace_id).trim()
-        : null;
+
+  const identitySnapshot = await buildOperationalIdentitySnapshot(env, authCtx);
+  const workspaceId = identitySnapshot.workspace_id;
+
+  const sessionWs =
+    authCtx?.sessionRaw?.workspace_id != null
+      ? String(authCtx.sessionRaw.workspace_id).trim()
+      : null;
+  if (
+    workspaceId &&
+    sessionWs &&
+    sessionWs !== workspaceId &&
+    authCtx?.sessionId &&
+    authCtx?.authType === 'session'
+  ) {
+    try {
+      await syncSessionWorkspaceId(env, request, userId, workspaceId);
+      if (env?.DB) {
+        await env.DB.prepare(
+          `UPDATE auth_users SET active_workspace_id = ?, updated_at = datetime('now') WHERE id = ?`,
+        )
+          .bind(workspaceId, userId)
+          .run()
+          .catch(() => null);
+      }
+    } catch (e) {
+      console.warn('[dashboard/bootstrap] session workspace sync', e?.message ?? e);
+    }
+  }
 
   const supabaseUrl = env?.SUPABASE_URL != null ? String(env.SUPABASE_URL).trim().replace(/\/$/, '') : '';
   const supabaseAnonKey =
@@ -54,11 +79,15 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
     gitSettled,
     problemsSettled,
     tunnelSettled,
-    terminalSettled,
     sandboxSettled,
     themeSettled,
   ] = await Promise.allSettled([
-    buildCanonicalAuthMe(env, request, authUser),
+    buildCanonicalAuthMe(env, request, {
+      ...authUser,
+      active_workspace_id: workspaceId,
+      workspace_id: workspaceId,
+      capabilities: identitySnapshot.capabilities,
+    }),
 
     env?.DB
       ? env.DB.prepare(
@@ -119,18 +148,6 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
 
     pingTunnelHealth(env).catch(() => ({ healthy: false, status: 'unknown' })),
 
-    env?.DB
-      ? env.DB.prepare(
-          `SELECT id, status FROM terminal_sessions
-            WHERE user_id = ? AND status = 'active'
-            ORDER BY created_at DESC LIMIT 1`,
-        )
-          .bind(userId)
-          .first()
-          .then((row) => ({ status: row?.status === 'active' ? 'connected' : 'disconnected' }))
-          .catch(() => ({ status: 'disconnected' }))
-      : Promise.resolve({ status: 'disconnected' }),
-
     fetchSandboxRuntimeSummary(env),
 
     resolveDashboardBootstrapTheme(env, authUser, workspaceId).catch(() => null),
@@ -143,26 +160,37 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
   const git = gitSettled.status === 'fulfilled' ? gitSettled.value : null;
   const problems = problemsSettled.status === 'fulfilled' ? problemsSettled.value : [];
   const tunnel = tunnelSettled.status === 'fulfilled' ? tunnelSettled.value : null;
-  const terminal = terminalSettled.status === 'fulfilled' ? terminalSettled.value : null;
   const sandbox = sandboxSettled.status === 'fulfilled' ? sandboxSettled.value : null;
   const theme = themeSettled.status === 'fulfilled' ? themeSettled.value : null;
 
-  const parallelQueries = 8;
+  const terminal = identitySnapshot.terminal;
+  const parallelQueries = 7;
+
+  const gitWithRepo =
+    git && identitySnapshot.github_repo && !git.repo_full_name
+      ? { ...git, repo_full_name: identitySnapshot.github_repo }
+      : git;
 
   return jsonResponse({
     ok: true,
     fetched_at: Date.now(),
     me,
+    identity: {
+      workspace_id: workspaceId,
+      tenant_id: identitySnapshot.tenant_id,
+      github_repo: identitySnapshot.github_repo,
+      capabilities: identitySnapshot.capabilities,
+    },
     workspaces: {
       data: workspaceRows,
       current: workspaceId,
-      current_source: workspaceId ? 'auth_context.workspace_id' : null,
+      current_source: workspaceId ? 'operational_identity.workspace_id' : null,
     },
     status: {
       health: { status: 'ok', worker: 'inneranimalmedia' },
       sandbox: sandbox || { ok: false },
       notifications,
-      git,
+      git: gitWithRepo,
       problems: {
         worker_errors: problems,
         mcp_tool_errors: [],
@@ -178,7 +206,7 @@ export async function handleDashboardBootstrap(request, env, authCtx) {
         ? { supabaseUrl, supabaseAnonKey, supabase_url: supabaseUrl, supabase_anon_key: supabaseAnonKey }
         : null,
     _meta: {
-      l1_version: 2,
+      l1_version: 3,
       parallel_queries: parallelQueries,
       l2_excluded: ['agent_policy', 'agent_models', 'default_model'],
     },
