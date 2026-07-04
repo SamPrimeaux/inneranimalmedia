@@ -639,6 +639,8 @@ const App: React.FC = () => {
       const path = window.location.pathname;
       const search = window.location.search;
       if (isAgentCenterChatHome(path, search) && !isAgentEditorPath(path)) return 'off';
+      // Editor landing always starts with agentPosition='off' so center layout wins until a file opens.
+      if (isAgentEditorPath(path)) return 'off';
     }
     try {
       const v = localStorage.getItem(LS_AGENT_POSITION);
