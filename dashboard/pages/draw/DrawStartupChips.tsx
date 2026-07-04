@@ -1,5 +1,6 @@
 import React from 'react';
 import { FolderOpen, Pencil, Sparkles } from 'lucide-react';
+import { StartupChipRow } from '../../components/shell/chat-startup/StartupChipRow';
 
 export type DrawStartupChipsProps = {
   className?: string;
@@ -17,23 +18,14 @@ export function DrawStartupChips({
   onNewSketch,
 }: DrawStartupChipsProps) {
   return (
-    <div
-      className={`iam-chat-startup-chips${className ? ` ${className}` : ''}`}
-      role="group"
-      aria-label="Draw quick actions"
-    >
-      <button type="button" className="iam-chat-startup-chip" disabled={disabled} onClick={onOpenCanvas}>
-        <Pencil size={14} aria-hidden />
-        Open canvas
-      </button>
-      <button type="button" className="iam-chat-startup-chip" disabled={disabled} onClick={onBrowseLibraries}>
-        <FolderOpen size={14} aria-hidden />
-        Browse libraries
-      </button>
-      <button type="button" className="iam-chat-startup-chip" disabled={disabled} onClick={onNewSketch}>
-        <Sparkles size={14} aria-hidden />
-        New sketch
-      </button>
-    </div>
+    <StartupChipRow
+      className={className}
+      ariaLabel="Draw quick actions"
+      chips={[
+        { id: 'canvas',    label: 'Open canvas',      icon: Pencil,    disabled, onClick: onOpenCanvas },
+        { id: 'libraries', label: 'Browse libraries', icon: FolderOpen, disabled, onClick: onBrowseLibraries },
+        { id: 'sketch',    label: 'New sketch',       icon: Sparkles,  disabled, onClick: onNewSketch },
+      ]}
+    />
   );
 }
