@@ -19,7 +19,7 @@ const IMAGE_EXT = new Set([
 const VIDEO_EXT = new Set(['mp4', 'mov', 'webm', 'm4v', 'avi', 'mkv']);
 const AUDIO_EXT = new Set(['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac']);
 const TEXT_EXT = new Set([
-  'txt', 'md', 'markdown', 'json', 'jsonl', 'js', 'jsx', 'ts', 'tsx', 'css', 'html', 'htm', 'xml',
+  'txt', 'text', 'md', 'markdown', 'json', 'jsonl', 'js', 'jsx', 'ts', 'tsx', 'css', 'html', 'htm', 'xml',
   'yml', 'yaml', 'sql', 'py', 'sh', 'env', 'toml', 'ini', 'csv', 'tsv', 'liquid',
   'mjs', 'cjs', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'vue', 'svelte', 'graphql', 'gql',
   'wrangler',

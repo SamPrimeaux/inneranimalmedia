@@ -122,7 +122,7 @@ function truncateLines(text: string, maxLines: number): { head: string; truncate
   return { head: lines.slice(0, maxLines).join('\n'), truncated: true, total: lines.length };
 }
 
-function truncateCodeFencesForChat(text: string, maxLines = 10): string {
+function truncateCodeFencesForChat(text: string, maxLines = 200): string {
   const src = String(text || '');
   const re = /```(\w+)?\n([\s\S]*?)\n```/g;
   return src.replace(re, (_full, lang, body) => {
@@ -538,7 +538,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
     }
 
     assistantStreamBuf = nextBuf;
-    assistantContent = truncateCodeFencesForChat(nextVisible, 10);
+    assistantContent = truncateCodeFencesForChat(nextVisible, 200);
     setMessages((prev) => upsertAssistantTail(prev, { content: assistantContent, executionPlan }));
   };
 
@@ -2591,7 +2591,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         }
 
         if (!fileEchoSuppress) {
-          assistantContent = truncateCodeFencesForChat(nextVisible, 10);
+          assistantContent = truncateCodeFencesForChat(nextVisible, 200);
           setMessages((prev) => {
             const last = [...prev];
             last[last.length - 1] = { role: 'assistant', content: assistantContent };
@@ -2633,7 +2633,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   const artifactExtractionSource = fileEchoSuppress ? fullStreamText : assistantContent;
 
   if (fileEchoSuppress) {
-    const preview = truncateCodeFencesForChat(fullStreamText, 10);
+    const preview = truncateCodeFencesForChat(fullStreamText, 200);
     assistantContent =
       preview.trim() ||
       'Writing file… (full content opens in the editor or artifacts when the stream completes.)';
@@ -2647,7 +2647,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
 
   // Enforce chat preview rule: cap code fences to ~10 lines.
   // Full content is still opened via monaco invokes / monaco_file_generated / code-block extraction below.
-  const truncatedForChat = truncateCodeFencesForChat(assistantContent, 10);
+  const truncatedForChat = truncateCodeFencesForChat(assistantContent, 200);
   if (truncatedForChat !== assistantContent) {
     assistantContent = truncatedForChat;
     setMessages((prev) => {
