@@ -2822,14 +2822,16 @@ const App: React.FC = () => {
   );
 
   useEffect(() => {
+    // Editor mount: do NOT force Monaco or the files activity panel on landing.
+    // Chat-first layout — user navigates to /editor and sees center chat, just like /agent/new.
+    // Monaco + file panel open naturally when a file is selected (openInEditorFromExplorer → openFile → openTab('code')).
     if (!isAgentEditorPath(location.pathname)) return;
     if (isNarrowViewport) {
+      // Mobile still gets code context focus since it uses a different layout.
       focusMobileCodeContext();
-      return;
     }
-    focusCodeEditorFromChat();
-    setActiveActivity('files');
-  }, [location.pathname, focusCodeEditorFromChat, focusMobileCodeContext, isNarrowViewport]);
+    // Desktop: intentionally no-op — center chat takes over on landing.
+  }, [location.pathname, focusMobileCodeContext, isNarrowViewport]);
 
   /**
    * Tracks which editor pathname we've already attempted an auto-open for, so
