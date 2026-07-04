@@ -152,6 +152,70 @@ function summarizeOutput(output) {
   return String(text || '').slice(0, 1000) || null;
 }
 
+/** Parse wrangler-style D1 hints when the model omits sql. */
+function parseD1DatabaseHint(params) {
+  const p = params && typeof params === 'object' ? params : {};
+  const directId = String(p.database_id || p.databaseId || '').trim();
+  const directName = String(p.database_name || p.databaseName || '').trim();
+  if (directId || directName) {
+    return { database_id: directId || null, database_name: directName || null, binding: null };
+  }
+  let raw = p.d1_databases;
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      const m = String(raw).match(/database_id["'\s:]+\s*["']?([0-9a-f-]{36})/i);
+      if (m?.[1]) {
+        const nameM = String(p.d1_databases || raw).match(/database_name["'\s:]+\s*["']?([^"',\]]+)/i);
+        return {
+          database_id: m[1],
+          database_name: nameM?.[1]?.trim() || null,
+          binding: null,
+        };
+      }
+    }
+  }
+  if (Array.isArray(raw) && raw[0] && typeof raw[0] === 'object') {
+    return {
+      database_id: String(raw[0].database_id || '').trim() || null,
+      database_name: String(raw[0].database_name || '').trim() || null,
+      binding: String(raw[0].binding || '').trim() || null,
+    };
+  }
+  return null;
+}
+
+async function runCatalogD1SchemaIntrospect(env, d1Ctx, params) {
+  const resolved = await resolveWorkspaceD1Execution(env, d1Ctx);
+  if (!resolved.ok) {
+    return {
+      ok: false,
+      error: resolved.error,
+      user_message: resolved.user_message,
+    };
+  }
+  if (resolved.mode === 'remote') {
+    const tbl = params.table != null ? String(params.table).trim() : '';
+    const sql = tbl
+      ? `PRAGMA table_info(${tbl})`
+      : `SELECT name, type, sql FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name ASC LIMIT 500`;
+    const out = await executeWorkspaceD1Query(env, d1Ctx, sql);
+    return out.ok
+      ? {
+          ok: true,
+          body: {
+            ...(tbl ? { table: tbl, columns: out.rows } : { objects: out.rows }),
+            database_id: resolved.database_id ?? null,
+            mode: out.mode ?? resolved.mode,
+          },
+        }
+      : { ok: false, error: out.error, user_message: out.user_message };
+  }
+  const out = await dbToolHandlers.d1_schema_introspect(params, env);
+  return out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+}
+
 /** Cloudflare lane: D1 query/write/migrate (handler_type cf; legacy d1 alias). */
 function isCatalogCfD1Operation(toolKey, config) {
   const key = String(toolKey || '').trim();
@@ -248,31 +312,24 @@ async function executeCatalogCfD1(env, config, params, runContext) {
   const op = normalizeCatalogCfD1Op(config, runContext.agentsam_tool_key ?? params.tool_key);
   try {
     if (op === 'introspect' || op === 'schema') {
-      const resolved = await resolveWorkspaceD1Execution(env, d1Ctx);
-      if (!resolved.ok) {
-        return {
-          ok: false,
-          error: resolved.error,
-          user_message: resolved.user_message,
-        };
-      }
-      if (resolved.mode === 'remote') {
-        const tbl = params.table != null ? String(params.table).trim() : '';
-        const sql = tbl
-          ? `PRAGMA table_info(${tbl})`
-          : `SELECT name, type, sql FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name ASC LIMIT 500`;
-        const out = await executeWorkspaceD1Query(env, d1Ctx, sql);
-        return out.ok
-          ? { ok: true, body: tbl ? { table: tbl, columns: out.rows } : { objects: out.rows } }
-          : { ok: false, error: out.error, user_message: out.user_message };
-      }
-      const out = await dbToolHandlers.d1_schema_introspect(params, env);
-      return out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+      return runCatalogD1SchemaIntrospect(env, d1Ctx, params);
     }
 
     const sql = String(params.sql || params.query || '').trim();
+    const d1Hint = parseD1DatabaseHint(params);
     if (!sql) {
-      return { ok: false, error: `cf d1 tool requires sql in input (operation=${op})` };
+      if (params.table != null && String(params.table).trim() !== '') {
+        return runCatalogD1SchemaIntrospect(env, d1Ctx, params);
+      }
+      if (d1Hint?.database_id || d1Hint?.database_name || op === 'query') {
+        return runCatalogD1SchemaIntrospect(env, d1Ctx, params);
+      }
+      return {
+        ok: false,
+        error: `cf d1 tool requires sql in input (operation=${op})`,
+        user_message:
+          'Pass sql for a query, or omit sql (or pass database_id / d1_databases) to list tables and schema.',
+      };
     }
 
     if (op === 'execute' || op === 'write' || op === 'migrate') {

@@ -2,6 +2,7 @@ import { dispatchByToolCode } from './dispatch-by-tool-code.js';
 import {
   tryReadAgentsamToolCache,
   writeAgentsamToolCacheAfterSuccess,
+  isSubstantiveToolOutput,
 } from './mcp-tool-execution.js';
 import {
   loadAgentSamUserPolicy,
@@ -603,6 +604,13 @@ export async function dispatchToolCall(env, toolName, input, context = {}) {
     catalogOut?.ok === false
       ? { error: catalogOut.error ?? 'dispatch_failed' }
       : catalogOut?.result ?? catalogOut;
+  if (out && typeof out === 'object' && !isSubstantiveToolOutput(toolName, out)) {
+    throw new Error(
+      typeof out.error === 'string'
+        ? out.error
+        : 'Tool returned no usable payload (empty or stale envelope). Retry the call.',
+    );
+  }
   if (out && typeof out === 'object' && out.error) {
     throw new Error(typeof out.error === 'string' ? out.error : JSON.stringify(out.error));
   }

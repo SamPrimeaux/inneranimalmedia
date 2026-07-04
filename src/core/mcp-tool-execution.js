@@ -34,9 +34,38 @@ const NON_CACHEABLE_TOOLS_FALLBACK = new Set([
   'illustration_create',
 ]);
 
+function trimTool(v) {
+  return v == null ? '' : String(v).trim();
+}
+
+/** Reject stale dispatch envelopes and empty GitHub payloads (pre-4b2d1aa4 cache poison). */
+export function isSubstantiveToolOutput(toolName, value) {
+  if (value == null) return false;
+  if (typeof value !== 'object' || Array.isArray(value)) return true;
+  const n = trimTool(toolName).toLowerCase();
+  const keys = Object.keys(value);
+  if (value.tool_key && keys.length <= 4 && !value.tree && !value.rows && !value.text) {
+    return false;
+  }
+  if (n.includes('github') && (n.includes('tree') || n.includes('get_tree'))) {
+    return Array.isArray(value.tree) && value.tree.length > 0;
+  }
+  if (n.includes('github') && n.includes('search')) {
+    return Array.isArray(value.items) && value.items.length > 0;
+  }
+  if (n.includes('github') && (n.includes('read') || n.includes('file'))) {
+    return typeof value.text === 'string' && value.text.length > 0;
+  }
+  return true;
+}
+
+const toolCacheOutputIsUsable = isSubstantiveToolOutput;
+
 async function toolExecutionIsCacheable(env, toolName) {
   const n = String(toolName || '').trim();
   if (!n) return false;
+  const lower = n.toLowerCase();
+  if (lower.startsWith('agentsam_github_') || lower.startsWith('github_')) return false;
   const deny = await loadAgentsamToolPolicyKeySet(env, 'non_cacheable', NON_CACHEABLE_TOOLS_FALLBACK);
   if (deny.has(n)) return false;
   return true;
@@ -81,7 +110,15 @@ export async function tryReadAgentsamToolCache(env, o) {
       .bind(cacheKey, ws)
       .run()
       .catch(() => {});
-    return { hit: true, value: JSON.parse(out) };
+    const parsed = JSON.parse(out);
+    if (!toolCacheOutputIsUsable(toolName, parsed)) {
+      await env.DB.prepare(`DELETE FROM agentsam_tool_cache WHERE cache_key = ? AND workspace_id = ?`)
+        .bind(cacheKey, ws)
+        .run()
+        .catch(() => {});
+      return { hit: false };
+    }
+    return { hit: true, value: parsed };
   } catch {
     return { hit: false };
   }
@@ -102,6 +139,7 @@ export async function tryReadAgentsamToolCache(env, o) {
 export async function writeAgentsamToolCacheAfterSuccess(env, o) {
   if (!env?.DB || !(await toolExecutionIsCacheable(env, o?.toolName))) return;
   if (o?.execErr) return;
+  if (!toolCacheOutputIsUsable(o?.toolName, o?.toolOutput)) return;
   const ws =
     o.workspaceId != null && String(o.workspaceId).trim() !== ''
       ? String(o.workspaceId).trim()
