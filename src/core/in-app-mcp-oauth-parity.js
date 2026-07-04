@@ -15,6 +15,8 @@ import {
 } from './agentsam-tools-catalog.js';
 import { parseHandlerConfig } from './resolve-credential.js';
 import { collectAllowlistToolKeysForScope } from './agent-policy.js';
+
+export const IN_APP_MCP_OAUTH_CLIENT_ID = MCP_CANONICAL_CLIENT_ID;
 export const IN_APP_MCP_PARITY_TOOL_LIMIT = 128;
 
 const OPERATOR_ONLY_OAUTH_TOOLS = new Set(['agentsam_terminal_remote']);
