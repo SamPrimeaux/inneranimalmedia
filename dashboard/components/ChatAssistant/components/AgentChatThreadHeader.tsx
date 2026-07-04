@@ -193,15 +193,22 @@ export const AgentChatThreadHeader: FC<Props> = ({
         <button
           type="button"
           onClick={onToggleScratchpad}
-          className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
+          className={`relative flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
             scratchpadOpen
               ? 'bg-[var(--bg-hover)] text-[var(--solar-cyan)]'
-              : 'text-[var(--dashboard-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--dashboard-text)]'
+              : scratchpadFileCount > 0
+                ? 'text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)]'
+                : 'text-[var(--dashboard-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--dashboard-text)]'
           }`}
-          title="Scratchpad"
+          title={scratchpadFileCount > 0 ? `Scratchpad · ${scratchpadFileCount} file${scratchpadFileCount === 1 ? '' : 's'}` : 'Scratchpad'}
           aria-label="Toggle scratchpad"
         >
-          <StickyNote size={16} strokeWidth={1.75} />
+          <Files size={16} strokeWidth={1.75} />
+          {scratchpadFileCount > 0 ? (
+            <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-[3px] rounded-full bg-[var(--solar-cyan)] text-[var(--dashboard-panel)] text-[9px] font-bold leading-[14px] text-center pointer-events-none select-none">
+              {scratchpadFileCount > 99 ? '99+' : scratchpadFileCount}
+            </span>
+          ) : null}
         </button>
 
         {!mobileThreadChrome ? (
