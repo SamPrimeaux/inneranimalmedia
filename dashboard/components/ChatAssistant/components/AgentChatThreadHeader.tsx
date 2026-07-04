@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
-import { StickyNote, FolderKanban, MoreHorizontal, Pencil, Plus, Star, Trash2 } from 'lucide-react';
+import { Files, FolderKanban, MoreHorizontal, Pencil, Plus, Star, Trash2 } from 'lucide-react';
 import type { AgentSessionRow } from '../../../agentSessionsCatalog';
 import { conversationIdFromSession, sessionDisplayTitle } from '../../../agentSessionsCatalog';
 import type { AgentChatProjectOption } from '../../../hooks/useAgentChatSessions';
