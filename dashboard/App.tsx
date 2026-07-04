@@ -878,8 +878,8 @@ const App: React.FC = () => {
   }, [isCenterAgentDesktop]);
 
   const showAgentWorkbenchTabs = useMemo(
-    () => shouldShowAgentWorkbenchTabs({ pathname: location.pathname, search: location.search }),
-    [location.pathname, location.search],
+    () => shouldShowAgentWorkbenchTabs({ pathname: location.pathname, search: location.search, hasActiveFile: !!activeFile }),
+    [location.pathname, location.search, activeFile],
   );
 
   useEffect(() => {
