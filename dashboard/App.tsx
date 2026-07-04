@@ -848,6 +848,7 @@ const App: React.FC = () => {
       agentPosition,
       isNarrow: isNarrowViewport,
       isCmsFullscreen,
+      hasActiveFile: !!activeFile,
     });
   }, [
     location.pathname,
