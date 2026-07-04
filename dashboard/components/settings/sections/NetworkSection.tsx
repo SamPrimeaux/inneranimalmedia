@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { LocalTerminalSettingsPanel } from '../../LocalTerminalSetup';
 import type { SettingsPanelModel } from '../hooks/useSettingsData';
 import { useSettingsSectionStatus } from '../hooks/useSettingsSectionStatus';
@@ -24,21 +24,23 @@ type DomainRow = {
 
 type AllowlistRow = {
   host?: string;
-  notes?: string | null;
+  risk_level?: string | null;
   created_at?: string | number | null;
 };
 
 type TrustedOriginRow = {
   origin?: string;
-  notes?: string | null;
+  scope?: string;
   created_at?: string | number | null;
 };
 
 type IntegrationEndpointRow = {
+  slug?: string;
   display_name?: string;
-  base_url?: string;
+  base_url?: string | null;
   auth_type?: string;
   is_active?: number;
+  status?: string;
 };
 
 type NetworkSummary = {
@@ -57,83 +59,91 @@ type NetworkExtra = {
 
 export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
   const worker = data.workerBaseUrl?.trim() || '';
+  const ws = workspaceId?.trim() || '';
   const { data: section, loading, error, reload } = useSettingsSectionStatus<DomainRow>({
     endpoint: '/api/settings/network',
+    workspaceId: ws || null,
   });
+
+  const [showAddDomain, setShowAddDomain] = useState(false);
+  const [newDomain, setNewDomain] = useState('');
+  const [domainActionError, setDomainActionError] = useState<string | null>(null);
+  const [domainActionBusy, setDomainActionBusy] = useState(false);
+  const [domainActionSuccess, setDomainActionSuccess] = useState<string | null>(null);
 
   const summary = (section?.summary || {}) as NetworkSummary;
   const extra = (section?.extra || {}) as NetworkExtra;
 
-  // ── Add domain state ────────────────────────────────────────────────────
-  const [showAddDomain, setShowAddDomain] = useState(false);
-  const [domainInput, setDomainInput] = useState('');
-  const [domainSaving, setDomainSaving] = useState(false);
-  const [domainError, setDomainError] = useState<string | null>(null);
-  const [domainSuccess, setDomainSuccess] = useState<string | null>(null);
+  const domainsEndpoint = useCallback(() => {
+    const base = '/api/settings/network/domains';
+    return ws ? `${base}?workspace_id=${encodeURIComponent(ws)}` : base;
+  }, [ws]);
 
-  // ── Remove domain state ─────────────────────────────────────────────────
-  const [removingDomain, setRemovingDomain] = useState<string | null>(null);
-  const [removeError, setRemoveError] = useState<string | null>(null);
-
-  async function handleAddDomain() {
-    const domain = domainInput.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const submitAddDomain = useCallback(async () => {
+    const domain = newDomain.trim().toLowerCase();
     if (!domain) {
-      setDomainError('Enter a domain name.');
+      setDomainActionError('Enter a domain hostname');
       return;
     }
-    if (!workspaceId) {
-      setDomainError('No workspace selected.');
+    if (!ws) {
+      setDomainActionError('Select a workspace first');
       return;
     }
-    setDomainSaving(true);
-    setDomainError(null);
-    setDomainSuccess(null);
+    setDomainActionBusy(true);
+    setDomainActionError(null);
+    setDomainActionSuccess(null);
     try {
-      const res = await fetch('/api/settings/network/domains', {
+      const r = await fetch(domainsEndpoint(), {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ domain, workspace_id: workspaceId }),
+        body: JSON.stringify({ domain, workspace_id: ws }),
       });
-      const json = await res.json() as { ok: boolean; error?: string; domain?: string };
-      if (!json.ok) {
-        setDomainError(json.error || 'Failed to add domain.');
-      } else {
-        setDomainSuccess(`${json.domain} added.`);
-        setDomainInput('');
-        setShowAddDomain(false);
-        reload();
+      const j = (await r.json().catch(() => ({}))) as { error?: string; ok?: boolean };
+      if (!r.ok || j.ok === false) {
+        throw new Error(typeof j.error === 'string' ? j.error : `Add failed (${r.status})`);
       }
-    } catch (e: unknown) {
-      setDomainError(e instanceof Error ? e.message : 'Network error.');
+      setNewDomain('');
+      setShowAddDomain(false);
+      setDomainActionSuccess(`Added ${domain}`);
+      await reload();
+    } catch (e) {
+      setDomainActionError(e instanceof Error ? e.message : 'Failed to add domain');
     } finally {
-      setDomainSaving(false);
+      setDomainActionBusy(false);
     }
-  }
+  }, [domainsEndpoint, newDomain, reload, ws]);
 
-  async function handleRemoveDomain(domain: string) {
-    if (!workspaceId) return;
-    setRemovingDomain(domain);
-    setRemoveError(null);
-    try {
-      const res = await fetch('/api/settings/network/domains', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ domain, workspace_id: workspaceId }),
-      });
-      const json = await res.json() as { ok: boolean; error?: string };
-      if (!json.ok) {
-        setRemoveError(json.error || 'Failed to remove domain.');
-      } else {
-        reload();
+  const removeDomain = useCallback(
+    async (domain: string) => {
+      if (!ws) {
+        setDomainActionError('Select a workspace first');
+        return;
       }
-    } catch (e: unknown) {
-      setRemoveError(e instanceof Error ? e.message : 'Network error.');
-    } finally {
-      setRemovingDomain(null);
-    }
-  }
+      setDomainActionBusy(true);
+      setDomainActionError(null);
+      setDomainActionSuccess(null);
+      try {
+        const r = await fetch(domainsEndpoint(), {
+          method: 'DELETE',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ domain, workspace_id: ws }),
+        });
+        const j = (await r.json().catch(() => ({}))) as { error?: string; ok?: boolean };
+        if (!r.ok || j.ok === false) {
+          throw new Error(typeof j.error === 'string' ? j.error : `Remove failed (${r.status})`);
+        }
+        setDomainActionSuccess(`Removed ${domain}`);
+        await reload();
+      } catch (e) {
+        setDomainActionError(e instanceof Error ? e.message : 'Failed to remove domain');
+      } finally {
+        setDomainActionBusy(false);
+      }
+    },
+    [domainsEndpoint, reload, ws],
+  );
 
   return (
     <div className="flex flex-col gap-4 max-w-4xl">
@@ -183,64 +193,75 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
 
           <WarningStrip warnings={section.warnings} />
 
-          {/* ── Workspace Domains ───────────────────────────────────────── */}
+          {domainActionError ? (
+            <div className="text-[11px] text-[var(--color-danger)] border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/5 rounded-xl px-3 py-2">
+              {domainActionError}
+            </div>
+          ) : null}
+          {domainActionSuccess ? (
+            <div className="text-[11px] text-[var(--color-success)] border border-[var(--color-success)]/30 bg-[var(--color-success)]/5 rounded-xl px-3 py-2">
+              {domainActionSuccess}
+            </div>
+          ) : null}
+
           <section className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div className="text-[10px] font-black uppercase tracking-widest text-muted">
                 Workspace domains
               </div>
-              {workspaceId ? (
-                <button
-                  type="button"
-                  onClick={() => { setShowAddDomain((v) => !v); setDomainError(null); setDomainSuccess(null); }}
-                  className="text-[11px] px-2.5 py-1 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main"
-                >
-                  {showAddDomain ? 'Cancel' : '+ Add domain'}
-                </button>
-              ) : (
-                <span className="text-[10px] text-muted italic">Select a workspace to add domains</span>
-              )}
+              <button
+                type="button"
+                disabled={!ws || domainActionBusy}
+                onClick={() => {
+                  setShowAddDomain((v) => !v);
+                  setDomainActionError(null);
+                  setDomainActionSuccess(null);
+                }}
+                className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main disabled:opacity-50"
+                title={ws ? 'Add a workspace domain' : 'Select a workspace to add domains'}
+              >
+                {ws ? '+ Add domain' : 'Select a workspace to add domains'}
+              </button>
             </div>
 
-            {showAddDomain && (
-              <div className="flex flex-col gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3">
-                <div className="text-[11px] text-muted">
-                  Enter a bare hostname (e.g. <code>example.com</code>). No protocol or trailing slash.
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={domainInput}
-                    onChange={(e) => setDomainInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddDomain(); }}
-                    placeholder="example.com"
-                    className="flex-1 text-[12px] font-mono bg-[var(--bg-input,var(--bg-app))] border border-[var(--border-subtle)] rounded-lg px-3 py-1.5 text-main placeholder:text-muted outline-none focus:border-[var(--solar-blue)]"
-                    disabled={domainSaving}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddDomain}
-                    disabled={domainSaving || !domainInput.trim()}
-                    className="text-[11px] px-3 py-1.5 rounded-lg bg-[var(--solar-blue)] text-white disabled:opacity-50"
-                  >
-                    {domainSaving ? 'Adding…' : 'Add'}
-                  </button>
-                </div>
-                {domainError && (
-                  <div className="text-[11px] text-[var(--color-danger)]">{domainError}</div>
-                )}
-                {domainSuccess && (
-                  <div className="text-[11px] text-[var(--color-success,#22c55e)]">{domainSuccess}</div>
-                )}
+            {showAddDomain && ws ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3">
+                <input
+                  type="text"
+                  value={newDomain}
+                  onChange={(e) => setNewDomain(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void submitAddDomain();
+                  }}
+                  placeholder="example.com"
+                  className="flex-1 min-w-[180px] text-[12px] px-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] text-main"
+                  disabled={domainActionBusy}
+                />
+                <button
+                  type="button"
+                  onClick={() => void submitAddDomain()}
+                  disabled={domainActionBusy || !newDomain.trim()}
+                  className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--solar-blue)]/40 text-[var(--solar-blue)] hover:bg-[var(--solar-blue)]/10 disabled:opacity-50"
+                >
+                  {domainActionBusy ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddDomain(false);
+                    setNewDomain('');
+                    setDomainActionError(null);
+                  }}
+                  disabled={domainActionBusy}
+                  className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main disabled:opacity-50"
+                >
+                  Cancel
+                </button>
               </div>
-            )}
-
-            {removeError && (
-              <div className="text-[11px] text-[var(--color-danger)] px-1">{removeError}</div>
-            )}
+            ) : null}
 
             {(section.rows || []).length === 0 ? (
-              <EmptyState message="No workspace domains registered." />
+              <EmptyState message="No rows in workspace_domains for this workspace." />
             ) : (
               <DataTable<DomainRow>
                 emptyMessage="No domains."
@@ -261,18 +282,18 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
                     render: (row) => <RelTime value={row.created_at ?? null} />,
                   },
                   {
-                    key: 'domain',
+                    key: 'actions',
                     label: '',
-                    widthClass: 'minmax(0, 0.4fr)',
+                    widthClass: 'minmax(0, 0.5fr)',
                     render: (row) =>
-                      workspaceId ? (
+                      row.domain ? (
                         <button
                           type="button"
-                          onClick={() => row.domain && handleRemoveDomain(row.domain)}
-                          disabled={removingDomain === row.domain}
-                          className="text-[10px] text-[var(--color-danger)] opacity-60 hover:opacity-100 disabled:opacity-30"
+                          disabled={!ws || domainActionBusy}
+                          onClick={() => void removeDomain(String(row.domain))}
+                          className="text-[10px] px-2 py-1 rounded border border-[var(--color-danger)]/30 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/5 disabled:opacity-50"
                         >
-                          {removingDomain === row.domain ? 'Removing…' : 'Remove'}
+                          Remove
                         </button>
                       ) : null,
                   },
@@ -281,7 +302,6 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
             )}
           </section>
 
-          {/* ── Trusted origins + Fetch allowlist ──────────────────────── */}
           <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="flex flex-col gap-2">
               <div className="text-[10px] font-black uppercase tracking-widest text-muted">
@@ -295,7 +315,7 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
                   rows={extra.trusted_origins || []}
                   columns={[
                     { key: 'origin', label: 'Origin' },
-                    { key: 'notes', label: 'Notes' },
+                    { key: 'scope', label: 'Trust scope' },
                   ]}
                 />
               )}
@@ -313,14 +333,13 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
                   rows={extra.fetch_allowlist || []}
                   columns={[
                     { key: 'host', label: 'Host' },
-                    { key: 'notes', label: 'Notes' },
+                    { key: 'risk_level', label: 'Risk' },
                   ]}
                 />
               )}
             </div>
           </section>
 
-          {/* ── Integration endpoints ───────────────────────────────────── */}
           <section className="flex flex-col gap-2">
             <div className="text-[10px] font-black uppercase tracking-widest text-muted">
               Integration endpoints (registry)
@@ -333,11 +352,11 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
                 rows={extra.integration_endpoints || []}
                 columns={[
                   { key: 'display_name', label: 'Provider', widthClass: 'minmax(0, 1fr)' },
-                  { key: 'base_url', label: 'Base URL', widthClass: 'minmax(0, 1.5fr)' },
+                  { key: 'base_url', label: 'Account', widthClass: 'minmax(0, 1.5fr)' },
                   { key: 'auth_type', label: 'Auth', widthClass: 'minmax(0, 0.5fr)' },
                   {
                     key: 'is_active',
-                    label: 'Active',
+                    label: 'Enabled',
                     widthClass: 'minmax(0, 0.4fr)',
                     render: (row) => (Number(row.is_active) === 1 ? 'yes' : 'no'),
                   },
