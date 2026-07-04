@@ -42,6 +42,9 @@ export function isBinaryFile(filename, fileSize) {
 
 function extFromName(name, key) {
   const raw = String(name || key || '').split(/[?#]/)[0];
+  // Dotfiles with no further extension (.gitignore, .env, .cursorrules, etc.) are text
+  const basename = raw.split('/').pop() || raw;
+  if (basename.startsWith('.') && basename.indexOf('.', 1) < 0) return 'txt';
   const dot = raw.lastIndexOf('.');
   if (dot < 0) return '';
   return raw.slice(dot + 1).toLowerCase();
