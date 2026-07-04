@@ -1505,6 +1505,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           onNewChat={handleNewChat}
           onToggleScratchpad={handleToggleScratchpad}
           scratchpadOpen={scratchpadOpen}
+          scratchpadFileCount={scratchpadFileCount}
           compact={compact}
           embedded={embedded}
           mobileThreadChrome={mobileThreadChrome}
