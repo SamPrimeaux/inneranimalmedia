@@ -1,5 +1,6 @@
 import React from 'react';
 import { FolderOpen, LayoutGrid, Upload } from 'lucide-react';
+import { StartupChipRow } from '../../../shell/chat-startup/StartupChipRow';
 
 export type StudioStartupChipsProps = {
   className?: string;
@@ -17,38 +18,14 @@ export function StudioStartupChips({
   onBrowseLibrary,
 }: StudioStartupChipsProps) {
   return (
-    <div
-      className={`iam-chat-startup-chips${className ? ` ${className}` : ''}`}
-      role="group"
-      aria-label="Design Studio quick actions"
-    >
-      <button
-        type="button"
-        className="iam-chat-startup-chip"
-        disabled={disabled}
-        onClick={onOpenStudio}
-      >
-        <LayoutGrid size={14} aria-hidden />
-        Open studio
-      </button>
-      <button
-        type="button"
-        className="iam-chat-startup-chip"
-        disabled={disabled}
-        onClick={onImportGlb}
-      >
-        <Upload size={14} aria-hidden />
-        Import GLB
-      </button>
-      <button
-        type="button"
-        className="iam-chat-startup-chip"
-        disabled={disabled}
-        onClick={onBrowseLibrary}
-      >
-        <FolderOpen size={14} aria-hidden />
-        Browse library
-      </button>
-    </div>
+    <StartupChipRow
+      className={className}
+      ariaLabel="Design Studio quick actions"
+      chips={[
+        { id: 'studio',  label: 'Open studio',    icon: LayoutGrid, disabled, onClick: onOpenStudio },
+        { id: 'import',  label: 'Import GLB',     icon: Upload,     disabled, onClick: onImportGlb },
+        { id: 'library', label: 'Browse library', icon: FolderOpen, disabled, onClick: onBrowseLibrary },
+      ]}
+    />
   );
 }
