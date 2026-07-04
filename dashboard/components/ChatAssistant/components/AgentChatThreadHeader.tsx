@@ -17,6 +17,8 @@ type Props = {
   onNewChat: () => void;
   onToggleScratchpad: () => void;
   scratchpadOpen?: boolean;
+  /** Total file count (uploaded + agent-generated) — shows badge on the icon. */
+  scratchpadFileCount?: number;
   compact?: boolean;
   /** When embedded in a merged shell row, omit bottom border. */
   embedded?: boolean;
