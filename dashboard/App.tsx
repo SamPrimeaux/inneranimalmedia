@@ -136,6 +136,7 @@ import AuthOAuthConsentPage from './components/auth/AuthOAuthConsentPage';
 import MountIamMcpConsent from './components/auth/MountIamMcpConsent';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
 import { DashboardSidebar } from './components/shell/DashboardSidebar';
+import { CodeToolsSidebar } from './components/shell/CodeToolsSidebar';
 import { AgentSamChatHost } from './components/shell/AgentSamChatHost';
 import { MobileNavShell } from './components/shell/MobileNavShell';
 import {
@@ -460,6 +461,7 @@ function persistRecentFileToLocalStorage(entry: RecentFileEntry): void {
 
 const App: React.FC = () => {
   const { tabs, activeTabId, openFile, updateActiveContent, saveActiveFile } = useEditor();
+  const activeFile = tabs.find((t) => t.id === activeTabId) || null;
   const {
     sessionUserId,
     sessionUserName,
@@ -511,6 +513,12 @@ const App: React.FC = () => {
     () => isAgentAtmosphericHome(location.pathname, location.search) || isAgentNewChatPath(location.pathname),
     [location.pathname, location.search],
   );
+  /** Editor landing — center chat like /agent/new until a file is opened. */
+  const isEditorCenterChatLanding = useMemo(
+    () => isAgentEditorPath(location.pathname) && !activeFile,
+    [location.pathname, activeFile],
+  );
+  const isCenterChatAtmospheric = isAgentHomeAtmospheric || isEditorCenterChatLanding;
   const isMovieModeRoute = location.pathname.startsWith('/dashboard/moviemode');
   const showStatusBar = showDashboardStatusBar(location.pathname, isNarrowViewport);
   const mobileTabBarBottom = mobileTabBarBottomOffset(showStatusBar);
@@ -860,6 +868,7 @@ const App: React.FC = () => {
     isCmsFullscreen,
     designStudioEntryPhase,
     drawEntryPhase,
+    activeFile,
   ]);
 
   /** Desktop center-chat routes keep layout=center — do not flip agentPosition to open a side rail. */
@@ -1131,9 +1140,6 @@ const App: React.FC = () => {
     [isAgentBareHeroHome, activeTab, agentChatLayout],
   );
   
-  // Derived from EditorContext to minimize massive refactor breakage
-  const activeFile = tabs.find(t => t.id === activeTabId) || null;
-
   const activePlanIdForChat = useMemo(() => {
     const st = workspaceSamState;
     if (!st || typeof st !== 'object') return null;
@@ -1232,7 +1238,8 @@ const App: React.FC = () => {
   const isDesignStudioRoute = location.pathname.startsWith('/dashboard/designstudio');
   const designStudioEntryAtmospheric = isDesignStudioRoute && designStudioEntryPhase;
   const drawEntryAtmospheric = isDrawRoute && drawEntryPhase;
-  const routeEntryAtmospheric = designStudioEntryAtmospheric || drawEntryAtmospheric;
+  const routeEntryAtmospheric =
+    designStudioEntryAtmospheric || drawEntryAtmospheric || isEditorCenterChatLanding;
 
   useEffect(() => {
     if (!isDesignStudioRoute) {
@@ -1267,6 +1274,15 @@ const App: React.FC = () => {
       ensureAgentSidePanel();
     }
   }, [isDrawRoute, drawEntryPhase, isNarrowViewport, ensureAgentSidePanel]);
+
+  useEffect(() => {
+    if (!isAgentEditorPath(location.pathname) || isNarrowViewport) return;
+    if (isEditorCenterChatLanding) {
+      setAgentPosition('off');
+    } else if (activeFile) {
+      ensureAgentSidePanel();
+    }
+  }, [location.pathname, isNarrowViewport, isEditorCenterChatLanding, activeFile, ensureAgentSidePanel]);
 
   const agentWorkspaceContext = useMemo<AgentWorkspaceContextPacket>(() => {
     const routeCtx = resolveDashboardRouteAgentContext({
@@ -2542,10 +2558,7 @@ const App: React.FC = () => {
   const focusMobileCodeContext = useCallback(() => {
     if (agentPosition === 'off') setAgentPosition('right');
     window.dispatchEvent(new CustomEvent(IAM_AGENT_MOBILE_CODE_FOCUS));
-    if (isAgentEditorPath(location.pathname)) {
-      navigate(AGENT_HOME_PATH, { replace: true });
-    }
-  }, [agentPosition, location.pathname, navigate]);
+  }, [agentPosition]);
 
   const focusCodeEditorFromChat = useCallback(() => {
     if (isNarrowViewport) {
@@ -2561,8 +2574,10 @@ const App: React.FC = () => {
       navigate(AGENT_EDITOR_PATH);
     }
     focusCodeEditorFromChat();
-    setActiveActivity('files');
-  }, [location.pathname, navigate, focusCodeEditorFromChat]);
+    if (isNarrowViewport) {
+      setActiveActivity('files');
+    }
+  }, [location.pathname, navigate, focusCodeEditorFromChat, isNarrowViewport]);
 
   const openInEditorFromExplorer = useCallback(
     (file: ActiveFile) => {
@@ -4441,27 +4456,47 @@ const App: React.FC = () => {
           {/* Activity bar: icon rail (width toggled via ☰ — localStorage iam_sidebar_expanded) */}
           {!isCmsFullscreen ? (
           <div
-            className="iam-chrome-sidebar hidden tablet-up:flex flex-col h-full min-h-0 py-3 gap-1 px-1 border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out"
-            style={{ width: sidebarRailExpanded ? 200 : 48 }}
+            className={`iam-chrome-sidebar hidden tablet-up:flex flex-col h-full min-h-0 border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out ${
+              isAgentEditorPath(location.pathname) ? 'py-0 px-0' : 'py-3 gap-1 px-1'
+            }`}
+            style={{
+              width: isAgentEditorPath(location.pathname) ? 240 : sidebarRailExpanded ? 200 : 48,
+            }}
           >
-              <DashboardSidebar
-                expanded={sidebarRailExpanded}
-                onToggleExpanded={toggleSidebarRail}
-                onNewChat={shellNewChat}
-                onOpenChats={shellOpenChats}
-                onOpenMovieMode={shellOpenMovieMode}
-                onSelectChat={shellSelectChat}
-                onDeleteActiveChat={shellDeleteActiveChat}
-                activeConversationId={activeAgentConversationId}
-                workspaceLabel={workspaceContextLabel}
-                avatarUrl={sessionAvatarUrl}
-                avatarInitial={
-                  sessionUserName?.trim()?.charAt(0)?.toUpperCase() ||
-                  sessionUserId?.charAt(0)?.toUpperCase() ||
-                  undefined
-                }
-                workspaceSubtitle={gitBranch?.trim() ? gitBranch.trim() : undefined}
-              />
+              {isAgentEditorPath(location.pathname) ? (
+                <CodeToolsSidebar
+                  workspaceId={authWorkspaceId}
+                  userId={sessionUserId}
+                  activeConversationId={activeAgentConversationId}
+                  nativeFolderOpenSignal={nativeFolderOpenSignal}
+                  pinnedGithubRepo={activeWorkspaceRow?.github_repo ?? gitRepoFullName ?? null}
+                  onNewChat={shellNewChat}
+                  onSelectChat={shellSelectChat}
+                  onDeleteActiveChat={shellDeleteActiveChat}
+                  onFileSelect={openInEditorFromExplorer}
+                  onWorkspaceRootChange={onExplorerWorkspaceRootChange}
+                  onSearchFiles={() => setSearchOpen(true)}
+                />
+              ) : (
+                <DashboardSidebar
+                  expanded={sidebarRailExpanded}
+                  onToggleExpanded={toggleSidebarRail}
+                  onNewChat={shellNewChat}
+                  onOpenChats={shellOpenChats}
+                  onOpenMovieMode={shellOpenMovieMode}
+                  onSelectChat={shellSelectChat}
+                  onDeleteActiveChat={shellDeleteActiveChat}
+                  activeConversationId={activeAgentConversationId}
+                  workspaceLabel={workspaceContextLabel}
+                  avatarUrl={sessionAvatarUrl}
+                  avatarInitial={
+                    sessionUserName?.trim()?.charAt(0)?.toUpperCase() ||
+                    sessionUserId?.charAt(0)?.toUpperCase() ||
+                    undefined
+                  }
+                  workspaceSubtitle={gitBranch?.trim() ? gitBranch.trim() : undefined}
+                />
+              )}
           </div>
           ) : null}
 
@@ -4608,7 +4643,7 @@ const App: React.FC = () => {
 
           {/* 4. MAIN EDITOR AREA */}
           <main 
-              className={`flex-1 flex flex-col min-w-0 min-h-0 relative max-phone:overflow-x-hidden ${narrowBlocksCenter && !isCmsFullscreen ? 'max-phone:hidden' : ''} ${isCmsFullscreen ? 'fixed inset-0 z-[120] w-full h-full max-w-none' : ''} ${isAgentHomeAtmospheric ? 'bg-transparent' : 'bg-[var(--dashboard-canvas)]'}`}
+              className={`flex-1 flex flex-col min-w-0 min-h-0 relative max-phone:overflow-x-hidden ${narrowBlocksCenter && !isCmsFullscreen ? 'max-phone:hidden' : ''} ${isCmsFullscreen ? 'fixed inset-0 z-[120] w-full h-full max-w-none' : ''} ${isCenterChatAtmospheric ? 'bg-transparent' : 'bg-[var(--dashboard-canvas)]'}`}
               onDrop={handleMainFileDrop}
               onDragOver={handleMainDragOver}
           >
@@ -4781,7 +4816,7 @@ const App: React.FC = () => {
               ) : (
               <>
               {/* Editor Tabs — lazy, closeable (hidden on atmospheric /agent home) */}
-              {!isAgentHomeAtmospheric && (
+              {!isCenterChatAtmospheric && (
               <div className="h-10 flex items-center shrink-0 pl-0 relative z-10 overflow-x-auto overflow-y-hidden no-scrollbar">
                   {openTabs.includes('Workspace') && (
                       <Tab
@@ -4925,9 +4960,9 @@ const App: React.FC = () => {
                       </div>
                   )}
 
-                  {(isAgentWorkspaceBrowser || isAgentEditorPath(location.pathname)) &&
+                  {isAgentWorkspaceBrowser &&
                     activeTab === 'Workspace' &&
-                    !isAgentHomeAtmospheric && (
+                    !isCenterChatAtmospheric && (
                       <div className="absolute inset-0 z-10">
                           <WorkspaceDashboardV2 
                             onOpenFolder={() => {
