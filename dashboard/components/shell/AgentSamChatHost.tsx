@@ -138,6 +138,7 @@ export function AgentSamChatHost({
       messagesPortalTarget={messagesPortalTarget}
       onToggleScratchpad={() => setScratchpadOpen((v) => !v)}
       scratchpadOpen={scratchpadOpen}
+      scratchpadFileCount={scratchpadFileCount}
     />
   );
 
