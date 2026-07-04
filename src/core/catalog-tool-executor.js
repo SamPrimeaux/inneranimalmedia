@@ -2032,6 +2032,12 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       ) {
         handlerName = 'github_search_issues_prs';
       }
+      if (
+        !handlerName &&
+        (toolKey === 'agentsam_github_tree' || toolKey === 'agentsam_github_get_tree')
+      ) {
+        handlerName = 'github_get_tree';
+      }
       if (!handlerName) {
         result = {
           ok: false,
@@ -2169,8 +2175,23 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
               ref: out.ref ?? ghParamsWithMeta.sha ?? ghParamsWithMeta.ref ?? ghParamsWithMeta.branch ?? null,
               commits: out.commits || [],
             };
-          case 'get_tree':
-            return { ok: true, repo: ghParamsWithMeta.repo ?? null, branch: out.branch ?? ghParamsWithMeta.branch ?? null, tree: out.tree || [] };
+          case 'get_tree': {
+            const tree = out.tree || [];
+            const sample = tree.slice(0, 200).map((e) => ({
+              path: e.path,
+              type: e.type,
+              size: e.size ?? null,
+            }));
+            return {
+              ok: true,
+              repo: ghParamsWithMeta.repo ?? null,
+              branch: out.branch ?? ghParamsWithMeta.branch ?? null,
+              sha: out.sha ?? null,
+              tree_count: tree.length,
+              truncated: tree.length > 200,
+              tree: sample,
+            };
+          }
           case 'read_dir':
             return { ok: true, repo: ghParamsWithMeta.repo ?? null, path: ghParamsWithMeta.path ?? null, entries: out.entries || [] };
           case 'batch_read':

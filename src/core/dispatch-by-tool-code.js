@@ -33,13 +33,22 @@ const LEGACY_TERMINAL_TOOL_REDIRECT = Object.freeze({
   bash: 'agentsam_terminal_sandbox',
 });
 
+/** Public / UI aliases → canonical agentsam_tools.tool_key */
+const LEGACY_TOOL_KEY_REDIRECT = Object.freeze({
+  agentsam_github_tree: 'agentsam_github_get_tree',
+  github_get_tree: 'agentsam_github_get_tree',
+});
+
 /**
  * @param {any} env
  * @param {string} toolCodeOrKey
  */
 export async function dispatchByToolCode(env, toolCodeOrKey, input, runContext = {}) {
   const rawKey = String(toolCodeOrKey ?? '').trim();
-  const resolvedKey = LEGACY_TERMINAL_TOOL_REDIRECT[rawKey] || rawKey;
+  const resolvedKey =
+    LEGACY_TERMINAL_TOOL_REDIRECT[rawKey] ||
+    LEGACY_TOOL_KEY_REDIRECT[rawKey] ||
+    rawKey;
   const row = await loadAgentsamToolRow(env, resolvedKey);
   if (!row) {
     return { ok: false, error: `agentsam_tools not found: ${toolCodeOrKey}` };
@@ -156,7 +165,8 @@ export async function dispatchByToolCode(env, toolCodeOrKey, input, runContext =
     tool_key: row.tool_key,
     auth_source: credentials.auth_source,
     status: out.status,
-    result: out.body,
+    /** GitHub normalize paths return payload at top level (no .body) — fall back to full result. */
+    result: out.body != null ? out.body : out,
   };
 }
 
