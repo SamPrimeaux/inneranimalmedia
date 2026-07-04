@@ -107,18 +107,32 @@ async function listScopedConnections(db, q) {
   const { userId, workspaceId, tenantId, targetTypes } = q;
   if (!targetTypes.length) return [];
   const placeholders = targetTypes.map(() => '?').join(', ');
-  let sql = `SELECT ${TERMINAL_CONN_SELECT}
+
+  const runQuery = (workspaceFilter) => {
+    let sql = `SELECT ${TERMINAL_CONN_SELECT}
      FROM terminal_connections
-     WHERE user_id = ? AND workspace_id = ? AND is_active = 1
+     WHERE user_id = ? AND is_active = 1
        AND target_type IN (${placeholders})`;
-  const binds = [userId, workspaceId, ...targetTypes];
-  if (tenantId) {
-    sql += " AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')";
-    binds.push(tenantId);
+    const binds = [userId, ...targetTypes];
+    if (workspaceFilter) {
+      sql += ' AND workspace_id = ?';
+      binds.push(workspaceFilter);
+    }
+    if (tenantId) {
+      sql += " AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')";
+      binds.push(tenantId);
+    }
+    sql += ' ORDER BY is_default DESC, target_priority ASC, updated_at DESC LIMIT 8';
+    return db.prepare(sql).bind(...binds).all().then((r) => r?.results || []);
+  };
+
+  const wid = String(workspaceId || '').trim();
+  if (wid) {
+    const scoped = await runQuery(wid);
+    if (scoped.length) return scoped;
   }
-  sql += ' ORDER BY is_default DESC, target_priority ASC, updated_at DESC LIMIT 8';
-  const r = await db.prepare(sql).bind(...binds).all();
-  return r?.results || [];
+  /** PTY is user-scoped — workspace switch must not kill a healthy lane. */
+  return runQuery(null);
 }
 
 /**

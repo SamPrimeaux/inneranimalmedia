@@ -1,9 +1,8 @@
 /**
  * Bridges workspace activation → terminal panel.
  *
- * When the user switches workspace (WorkspaceLauncher → onWorkspaceActivated),
- * this hook fetches /api/terminal/splash-status, recommends a lane, and signals
- * XTermShell to disconnect/reconnect scoped to the new workspace.
+ * Workspace changes update repo/cwd context only. PTY readiness is user-scoped
+ * (same physical connection regardless of which workspace is active).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';

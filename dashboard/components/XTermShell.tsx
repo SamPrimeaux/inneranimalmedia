@@ -418,10 +418,30 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
           lastConnectedAt:
             primaryStatusRef.current === 'connected' ? Date.now() : undefined,
         });
-        primaryPaneRef.current?.disconnectQuiet();
-        if (splitEnabled) secondaryPaneRef.current?.disconnectQuiet();
-        setPrimaryStatus('disconnected');
-        setSecondaryStatus('disconnected');
+
+        if (primaryStatusRef.current === 'connected') {
+          /** PTY is user-scoped — keep session alive; only change cwd for the new workspace. */
+          void fetchTerminalSplashStatus(wid, workspaceLabel).then((splash) => {
+            const cd =
+              splash.workspaceMeta?.cd_command ??
+              (splash.workspaceMeta?.cwd
+                ? `cd ${JSON.stringify(splash.workspaceMeta.cwd)}`
+                : null);
+            if (cd) {
+              setResolvedCdCmd(cd);
+              primaryPaneRef.current?.runCommand(cd);
+            }
+            persistWorkspaceTerminalPref(wid, {
+              workspaceName: splash.workspace.name ?? workspaceLabel,
+              cwd: splash.workspaceMeta?.cwd ?? null,
+            });
+          });
+        } else {
+          primaryPaneRef.current?.disconnectQuiet();
+          if (splitEnabled) secondaryPaneRef.current?.disconnectQuiet();
+          setPrimaryStatus('disconnected');
+          setSecondaryStatus('disconnected');
+        }
       }
 
       prevWorkspaceIdRef.current = workspaceId;
@@ -447,7 +467,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
         });
       }
 
-      if (pref.splashDismissed) {
+      if (pref.splashDismissed && primaryStatusRef.current !== 'connected') {
         window.setTimeout(() => {
           primaryPaneRef.current?.reconnectClean();
         }, 100);

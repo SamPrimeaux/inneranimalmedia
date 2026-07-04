@@ -112,18 +112,32 @@ export async function ptyBackendBearerValid(env, token, userId = '', workspaceId
 }
 
 export async function getUserHostedTunnelConnection(db, userId, workspaceId) {
-  if (!db || !userId || !workspaceId) return null;
-  try {
-    return await db
-      .prepare(
-        `SELECT id, workspace_id, tenant_id, user_id, name, ws_url, target_type,
+  if (!db || !userId) return null;
+  const uid = String(userId).trim();
+  const wid = workspaceId != null ? String(workspaceId).trim() : '';
+  const selectSql = `SELECT id, workspace_id, tenant_id, user_id, name, ws_url, target_type,
                 platform, shell, is_active, is_default, cwd_strategy, updated_at
          FROM terminal_connections
-         WHERE user_id = ? AND workspace_id = ? AND target_type = 'user_hosted_tunnel'
-         ORDER BY updated_at DESC
+         WHERE user_id = ? AND target_type = 'user_hosted_tunnel'`;
+  try {
+    if (wid) {
+      const scoped = await db
+        .prepare(
+          `${selectSql} AND workspace_id = ?
+         ORDER BY is_active DESC, is_default DESC, target_priority ASC, updated_at DESC
+         LIMIT 1`,
+        )
+        .bind(uid, wid)
+        .first();
+      if (scoped) return scoped;
+    }
+    return await db
+      .prepare(
+        `${selectSql} AND is_active = 1
+         ORDER BY is_default DESC, target_priority ASC, updated_at DESC
          LIMIT 1`,
       )
-      .bind(String(userId).trim(), String(workspaceId).trim())
+      .bind(uid)
       .first();
   } catch (_) {
     return null;
@@ -493,6 +507,24 @@ export async function getSelectedTerminalConnection(db, opts = {}) {
          FROM terminal_connections
          WHERE user_id = ? AND workspace_id = ? AND is_active = 1`;
       const binds = [uid, wid];
+      if (tt) {
+        sql += ' AND target_type = ?';
+        binds.push(tt);
+      }
+      if (tid) {
+        sql += " AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')";
+        binds.push(tid);
+      }
+      sql += ' ORDER BY is_default DESC, target_priority ASC, updated_at DESC LIMIT 1';
+      const row = await db.prepare(sql).bind(...binds).first();
+      if (row) return { connection: row, error: null };
+    }
+
+    if (uid) {
+      let sql = `SELECT ${TERMINAL_CONN_SELECT}
+         FROM terminal_connections
+         WHERE user_id = ? AND is_active = 1`;
+      const binds = [uid];
       if (tt) {
         sql += ' AND target_type = ?';
         binds.push(tt);
@@ -1006,12 +1038,24 @@ export async function sha256HexUtf8(token) {
  * @param {string} workspaceId
  */
 export async function userCanRunPtyFromPolicy(env, userId, workspaceId) {
-  if (!env?.DB || !userId || !workspaceId) return false;
+  if (!env?.DB || !userId) return false;
+  const uid = String(userId).trim();
+  try {
+    const au = await env.DB.prepare(
+      `SELECT is_superadmin FROM auth_users WHERE id = ? LIMIT 1`,
+    )
+      .bind(uid)
+      .first();
+    if (Number(au?.is_superadmin) === 1) return true;
+  } catch (_) {
+    /* fall through */
+  }
+  if (!workspaceId) return false;
   try {
     const policy = await env.DB.prepare(
       'SELECT can_run_pty FROM agentsam_user_policy WHERE user_id = ? AND workspace_id = ? LIMIT 1',
     )
-      .bind(String(userId).trim(), String(workspaceId).trim())
+      .bind(uid, String(workspaceId).trim())
       .first();
     return Number(policy?.can_run_pty) === 1;
   } catch (_) {

@@ -553,9 +553,6 @@ const App: React.FC = () => {
 
   const termWs = useTerminalWorkspace({
     authWorkspaceId,
-    onWorkspaceChange: () => {
-      terminalRef.current?.disconnect();
-    },
   });
 
   useEffect(() => {
