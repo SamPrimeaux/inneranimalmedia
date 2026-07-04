@@ -40,26 +40,41 @@
 .iam-chat-startup-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: 999px;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: 10px;
   border: 1px solid var(--dashboard-border);
-  background: color-mix(in srgb, var(--dashboard-panel) 72%, transparent);
+  background: color-mix(in srgb, var(--dashboard-panel) 80%, transparent);
   color: var(--dashboard-text);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  line-height: 1.4;
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+  white-space: nowrap;
 }
 
 .iam-chat-startup-chip:hover {
   background: var(--bg-hover);
-  border-color: color-mix(in srgb, var(--accent, var(--accent-secondary, var(--solar-cyan))) 35%, var(--dashboard-border));
+  border-color: color-mix(in srgb, var(--dashboard-text) 18%, var(--dashboard-border));
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--dashboard-text) 8%, transparent);
   color: var(--dashboard-text);
+}
+
+.iam-chat-startup-chip:active {
+  transform: scale(0.98);
+  box-shadow: none;
+}
+
+.iam-chat-startup-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .iam-chat-startup-chip svg {
   flex-shrink: 0;
   color: var(--dashboard-muted);
+  opacity: 0.8;
 }
 
 .iam-chat-startup-center .iam-chat-composer-shell {
