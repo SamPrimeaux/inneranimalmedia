@@ -34,10 +34,7 @@ const LEGACY_TERMINAL_TOOL_REDIRECT = Object.freeze({
 });
 
 /** Public / UI aliases → canonical agentsam_tools.tool_key */
-const LEGACY_TOOL_KEY_REDIRECT = Object.freeze({
-  agentsam_github_tree: 'agentsam_github_get_tree',
-  github_get_tree: 'agentsam_github_get_tree',
-});
+const LEGACY_TOOL_KEY_REDIRECT = Object.freeze({});
 
 /**
  * @param {any} env
