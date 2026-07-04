@@ -1,5 +1,6 @@
 import React from 'react';
 import { CodeXml, Globe, Image as ImageIcon } from 'lucide-react';
+import { StartupChipRow } from '../../shell/chat-startup/StartupChipRow';
 
 export type ComposerStartupChipsProps = {
   className?: string;
@@ -15,24 +16,15 @@ export function ComposerStartupChips({
   onOpenEditor,
 }: ComposerStartupChipsProps) {
   return (
-    <div
-      className={`iam-chat-startup-chips${className ? ` ${className}` : ''}`}
-      role="group"
-      aria-label="Quick actions"
-    >
-      <button type="button" className="iam-chat-startup-chip" onClick={onCreateImage}>
-        <ImageIcon size={14} aria-hidden />
-        Create an image
-      </button>
-      <button type="button" className="iam-chat-startup-chip" onClick={onWebSearch}>
-        <Globe size={14} aria-hidden />
-        Web search
-      </button>
-      <button type="button" className="iam-chat-startup-chip" onClick={onOpenEditor}>
-        <CodeXml size={14} aria-hidden />
-        Open editor
-      </button>
-    </div>
+    <StartupChipRow
+      className={className}
+      ariaLabel="Quick actions"
+      chips={[
+        { id: 'image',  label: 'Create an image', icon: ImageIcon, onClick: onCreateImage },
+        { id: 'web',    label: 'Web search',       icon: Globe,      onClick: onWebSearch },
+        { id: 'editor', label: 'Open editor',      icon: CodeXml,    onClick: onOpenEditor },
+      ]}
+    />
   );
 }
 
