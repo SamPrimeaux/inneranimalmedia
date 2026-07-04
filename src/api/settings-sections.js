@@ -267,8 +267,8 @@ async function getNetwork(env, authUser, workspaceId) {
     db,
     'agentsam_fetch_domain_allowlist',
     wsId
-      ? `SELECT host, scope, notes, created_at FROM agentsam_fetch_domain_allowlist WHERE workspace_id = ? OR workspace_id IS NULL ORDER BY host`
-      : `SELECT host, scope, notes, created_at FROM agentsam_fetch_domain_allowlist ORDER BY host LIMIT 200`,
+      ? `SELECT host, notes, created_at FROM agentsam_fetch_domain_allowlist WHERE workspace_id = ? OR workspace_id IS NULL ORDER BY host`
+      : `SELECT host, notes, created_at FROM agentsam_fetch_domain_allowlist ORDER BY host LIMIT 200`,
     wsId ? [wsId] : [],
     warnings,
     cache,
@@ -277,7 +277,7 @@ async function getNetwork(env, authUser, workspaceId) {
   const trustedOrigins = await safeQueryAll(
     db,
     'agentsam_browser_trusted_origin',
-    `SELECT origin, scope, notes, created_at FROM agentsam_browser_trusted_origin ORDER BY origin LIMIT 200`,
+    `SELECT origin, notes, created_at FROM agentsam_browser_trusted_origin ORDER BY origin LIMIT 200`,
     [],
     warnings,
     cache,
@@ -297,7 +297,7 @@ async function getNetwork(env, authUser, workspaceId) {
   const integrationEndpoints = await safeQueryAll(
     db,
     'integration_registry',
-    `SELECT slug, display_name, base_url, auth_type, is_active FROM integration_registry ORDER BY display_name LIMIT 200`,
+    `SELECT display_name, base_url, auth_type, is_active FROM integration_registry ORDER BY display_name LIMIT 200`,
     [],
     warnings,
     cache,
@@ -317,9 +317,7 @@ async function getNetwork(env, authUser, workspaceId) {
       {
         key: 'add_domain',
         label: 'Add workspace domain',
-        enabled: false,
-        reasonDisabled:
-          'Add domain is disabled because no validated /api/settings/network/domains endpoint is wired yet.',
+        enabled: true,
       },
       {
         key: 'add_trusted_origin',
@@ -335,6 +333,92 @@ async function getNetwork(env, authUser, workspaceId) {
       integration_endpoints: integrationEndpoints,
     },
   });
+}
+
+// ─── Mutation: POST /api/settings/network/domains ────────────────────────────
+async function addWorkspaceDomain(env, authUser, workspaceId, body) {
+  const db = env.DB;
+  const domain = String(body?.domain || '').trim().toLowerCase();
+
+  if (!domain) {
+    return jsonResponse({ ok: false, error: 'domain is required' }, 400);
+  }
+
+  // Basic domain format validation — no protocol, no path, no spaces
+  if (!/^[a-z0-9]([a-z0-9\-\.]{0,251}[a-z0-9])?$/.test(domain)) {
+    return jsonResponse({ ok: false, error: 'Invalid domain format. Use bare hostname e.g. example.com' }, 400);
+  }
+
+  if (!workspaceId) {
+    return jsonResponse({ ok: false, error: 'workspace_id is required' }, 400);
+  }
+
+  const cache = new Map();
+  const exists = await tableExists(db, 'workspace_domains', cache);
+  if (!exists) {
+    return jsonResponse({ ok: false, error: 'workspace_domains table not found' }, 500);
+  }
+
+  // Duplicate check
+  try {
+    const existing = await db
+      .prepare(`SELECT domain FROM workspace_domains WHERE workspace_id = ? AND domain = ? LIMIT 1`)
+      .bind(workspaceId, domain)
+      .first();
+    if (existing) {
+      return jsonResponse({ ok: false, error: `Domain ${domain} already registered for this workspace` }, 409);
+    }
+  } catch (e) {
+    return jsonResponse({ ok: false, error: `Duplicate check failed: ${e?.message}` }, 500);
+  }
+
+  try {
+    await db
+      .prepare(
+        `INSERT INTO workspace_domains (workspace_id, domain, status, created_at)
+         VALUES (?, ?, 'active', ?)`,
+      )
+      .bind(workspaceId, domain, new Date().toISOString())
+      .run();
+  } catch (e) {
+    return jsonResponse({ ok: false, error: `Insert failed: ${e?.message}` }, 500);
+  }
+
+  return jsonResponse({ ok: true, domain, workspace_id: workspaceId, status: 'active' }, 201);
+}
+
+// ─── Mutation: DELETE /api/settings/network/domains ──────────────────────────
+async function removeWorkspaceDomain(env, authUser, workspaceId, body) {
+  const db = env.DB;
+  const domain = String(body?.domain || '').trim().toLowerCase();
+
+  if (!domain) {
+    return jsonResponse({ ok: false, error: 'domain is required' }, 400);
+  }
+  if (!workspaceId) {
+    return jsonResponse({ ok: false, error: 'workspace_id is required' }, 400);
+  }
+
+  const cache = new Map();
+  const exists = await tableExists(db, 'workspace_domains', cache);
+  if (!exists) {
+    return jsonResponse({ ok: false, error: 'workspace_domains table not found' }, 500);
+  }
+
+  try {
+    const result = await db
+      .prepare(`DELETE FROM workspace_domains WHERE workspace_id = ? AND domain = ?`)
+      .bind(workspaceId, domain)
+      .run();
+    const deleted = result?.meta?.changes ?? result?.changes ?? 0;
+    if (!deleted) {
+      return jsonResponse({ ok: false, error: `Domain ${domain} not found for this workspace` }, 404);
+    }
+  } catch (e) {
+    return jsonResponse({ ok: false, error: `Delete failed: ${e?.message}` }, 500);
+  }
+
+  return jsonResponse({ ok: true, domain, workspace_id: workspaceId, deleted: true });
 }
 
 // ─── Section: Notifications ──────────────────────────────────────────────────
@@ -892,7 +976,7 @@ async function getToolsStatus(env, authUser, workspaceId) {
   const fetchAllow = await safeQueryAll(
     db,
     'agentsam_fetch_domain_allowlist',
-    `SELECT host, scope, notes FROM agentsam_fetch_domain_allowlist ORDER BY host LIMIT 100`,
+    `SELECT host, notes FROM agentsam_fetch_domain_allowlist ORDER BY host LIMIT 100`,
     [],
     warnings,
     cache,
@@ -1191,14 +1275,38 @@ async function getIntegrationsStatus(env, authUser) {
 /**
  * Dispatcher for normalized data-backed status endpoints under /api/settings/*.
  * Returns null if the path is not handled, so the legacy dispatcher continues.
+ *
+ * Handles:
+ *   GET    /api/settings/network
+ *   POST   /api/settings/network/domains   { domain, workspace_id? }
+ *   DELETE /api/settings/network/domains   { domain, workspace_id? }
  */
 export async function handleSettingsSectionStatusApi(request, env, authUser, url, pathLower, method) {
-  if (method !== 'GET') return null;
   if (!env?.DB) return null;
   if (!authUser) return null;
 
   const wsParam = url.searchParams.get('workspace_id');
   const workspaceId = wsParam != null && String(wsParam).trim() !== '' ? String(wsParam).trim() : null;
+
+  // ── Network domain mutations (POST / DELETE) ──────────────────────────────
+  if (pathLower === '/api/settings/network/domains') {
+    if (method !== 'POST' && method !== 'DELETE') {
+      return jsonResponse({ ok: false, error: 'Method not allowed' }, 405);
+    }
+    let body = {};
+    try {
+      body = await request.json();
+    } catch (_) {
+      return jsonResponse({ ok: false, error: 'Invalid JSON body' }, 400);
+    }
+    // workspace_id from body takes precedence over query param
+    const wsId = String(body?.workspace_id || workspaceId || '').trim() || null;
+    if (method === 'POST') return addWorkspaceDomain(env, authUser, wsId, body);
+    return removeWorkspaceDomain(env, authUser, wsId, body);
+  }
+
+  // ── Read-only GET endpoints ───────────────────────────────────────────────
+  if (method !== 'GET') return null;
 
   try {
     if (pathLower === '/api/settings/cicd') return jsonResponse(await getCicd(env, authUser, workspaceId));
