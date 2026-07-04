@@ -864,9 +864,12 @@ const App: React.FC = () => {
   const isCenterAgentDesktop = useMemo(
     () =>
       !isNarrowViewport &&
-      isAgentCenterChatHome(location.pathname, location.search) &&
-      !isAgentEditorPath(location.pathname),
-    [isNarrowViewport, location.pathname, location.search],
+      (
+        (isAgentCenterChatHome(location.pathname, location.search) && !isAgentEditorPath(location.pathname)) ||
+        // Editor with no file open uses center layout — treat same as home so side rail doesn't open.
+        (isAgentEditorPath(location.pathname) && !activeFile)
+      ),
+    [isNarrowViewport, location.pathname, location.search, activeFile],
   );
 
   const ensureAgentSidePanel = useCallback(() => {
