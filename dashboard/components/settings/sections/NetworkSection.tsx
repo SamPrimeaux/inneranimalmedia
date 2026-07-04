@@ -1,9 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { LocalTerminalSettingsPanel } from '../../LocalTerminalSetup';
 import type { SettingsPanelModel } from '../hooks/useSettingsData';
 import { useSettingsSectionStatus } from '../hooks/useSettingsSectionStatus';
 import {
-  ActionRow,
   DataTable,
   EmptyState,
   LoadingRow,
@@ -25,20 +24,17 @@ type DomainRow = {
 
 type AllowlistRow = {
   host?: string;
-  scope?: string;
   notes?: string | null;
   created_at?: string | number | null;
 };
 
 type TrustedOriginRow = {
   origin?: string;
-  scope?: string;
   notes?: string | null;
   created_at?: string | number | null;
 };
 
 type IntegrationEndpointRow = {
-  slug?: string;
   display_name?: string;
   base_url?: string;
   auth_type?: string;
@@ -68,13 +64,84 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
   const summary = (section?.summary || {}) as NetworkSummary;
   const extra = (section?.extra || {}) as NetworkExtra;
 
+  // ── Add domain state ────────────────────────────────────────────────────
+  const [showAddDomain, setShowAddDomain] = useState(false);
+  const [domainInput, setDomainInput] = useState('');
+  const [domainSaving, setDomainSaving] = useState(false);
+  const [domainError, setDomainError] = useState<string | null>(null);
+  const [domainSuccess, setDomainSuccess] = useState<string | null>(null);
+
+  // ── Remove domain state ─────────────────────────────────────────────────
+  const [removingDomain, setRemovingDomain] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+
+  async function handleAddDomain() {
+    const domain = domainInput.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    if (!domain) {
+      setDomainError('Enter a domain name.');
+      return;
+    }
+    if (!workspaceId) {
+      setDomainError('No workspace selected.');
+      return;
+    }
+    setDomainSaving(true);
+    setDomainError(null);
+    setDomainSuccess(null);
+    try {
+      const res = await fetch('/api/settings/network/domains', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ domain, workspace_id: workspaceId }),
+      });
+      const json = await res.json() as { ok: boolean; error?: string; domain?: string };
+      if (!json.ok) {
+        setDomainError(json.error || 'Failed to add domain.');
+      } else {
+        setDomainSuccess(`${json.domain} added.`);
+        setDomainInput('');
+        setShowAddDomain(false);
+        reload();
+      }
+    } catch (e: unknown) {
+      setDomainError(e instanceof Error ? e.message : 'Network error.');
+    } finally {
+      setDomainSaving(false);
+    }
+  }
+
+  async function handleRemoveDomain(domain: string) {
+    if (!workspaceId) return;
+    setRemovingDomain(domain);
+    setRemoveError(null);
+    try {
+      const res = await fetch('/api/settings/network/domains', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ domain, workspace_id: workspaceId }),
+      });
+      const json = await res.json() as { ok: boolean; error?: string };
+      if (!json.ok) {
+        setRemoveError(json.error || 'Failed to remove domain.');
+      } else {
+        reload();
+      }
+    } catch (e: unknown) {
+      setRemoveError(e instanceof Error ? e.message : 'Network error.');
+    } finally {
+      setRemovingDomain(null);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4 max-w-4xl">
       <LocalTerminalSettingsPanel workspaceId={workspaceId ?? undefined} />
 
       <SectionHeader
         title="Network"
-        description="Workspace domains, fetch/origin allowlists, and integration endpoint registry. Add/remove actions are disabled until validation endpoints are wired."
+        description="Workspace domains, fetch/origin allowlists, and integration endpoint registry."
         right={
           <button
             type="button"
@@ -116,14 +183,64 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
 
           <WarningStrip warnings={section.warnings} />
 
-          <ActionRow actions={section.actions} />
-
+          {/* ── Workspace Domains ───────────────────────────────────────── */}
           <section className="flex flex-col gap-2">
-            <div className="text-[10px] font-black uppercase tracking-widest text-muted">
-              Workspace domains
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] font-black uppercase tracking-widest text-muted">
+                Workspace domains
+              </div>
+              {workspaceId ? (
+                <button
+                  type="button"
+                  onClick={() => { setShowAddDomain((v) => !v); setDomainError(null); setDomainSuccess(null); }}
+                  className="text-[11px] px-2.5 py-1 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main"
+                >
+                  {showAddDomain ? 'Cancel' : '+ Add domain'}
+                </button>
+              ) : (
+                <span className="text-[10px] text-muted italic">Select a workspace to add domains</span>
+              )}
             </div>
+
+            {showAddDomain && (
+              <div className="flex flex-col gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3">
+                <div className="text-[11px] text-muted">
+                  Enter a bare hostname (e.g. <code>example.com</code>). No protocol or trailing slash.
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={domainInput}
+                    onChange={(e) => setDomainInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddDomain(); }}
+                    placeholder="example.com"
+                    className="flex-1 text-[12px] font-mono bg-[var(--bg-input,var(--bg-app))] border border-[var(--border-subtle)] rounded-lg px-3 py-1.5 text-main placeholder:text-muted outline-none focus:border-[var(--solar-blue)]"
+                    disabled={domainSaving}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddDomain}
+                    disabled={domainSaving || !domainInput.trim()}
+                    className="text-[11px] px-3 py-1.5 rounded-lg bg-[var(--solar-blue)] text-white disabled:opacity-50"
+                  >
+                    {domainSaving ? 'Adding…' : 'Add'}
+                  </button>
+                </div>
+                {domainError && (
+                  <div className="text-[11px] text-[var(--color-danger)]">{domainError}</div>
+                )}
+                {domainSuccess && (
+                  <div className="text-[11px] text-[var(--color-success,#22c55e)]">{domainSuccess}</div>
+                )}
+              </div>
+            )}
+
+            {removeError && (
+              <div className="text-[11px] text-[var(--color-danger)] px-1">{removeError}</div>
+            )}
+
             {(section.rows || []).length === 0 ? (
-              <EmptyState message="No rows in workspace_domains for this workspace." />
+              <EmptyState message="No workspace domains registered." />
             ) : (
               <DataTable<DomainRow>
                 emptyMessage="No domains."
@@ -143,11 +260,28 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
                     widthClass: 'minmax(0, 0.7fr)',
                     render: (row) => <RelTime value={row.created_at ?? null} />,
                   },
+                  {
+                    key: 'domain',
+                    label: '',
+                    widthClass: 'minmax(0, 0.4fr)',
+                    render: (row) =>
+                      workspaceId ? (
+                        <button
+                          type="button"
+                          onClick={() => row.domain && handleRemoveDomain(row.domain)}
+                          disabled={removingDomain === row.domain}
+                          className="text-[10px] text-[var(--color-danger)] opacity-60 hover:opacity-100 disabled:opacity-30"
+                        >
+                          {removingDomain === row.domain ? 'Removing…' : 'Remove'}
+                        </button>
+                      ) : null,
+                  },
                 ]}
               />
             )}
           </section>
 
+          {/* ── Trusted origins + Fetch allowlist ──────────────────────── */}
           <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="flex flex-col gap-2">
               <div className="text-[10px] font-black uppercase tracking-widest text-muted">
@@ -161,7 +295,7 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
                   rows={extra.trusted_origins || []}
                   columns={[
                     { key: 'origin', label: 'Origin' },
-                    { key: 'scope', label: 'Scope' },
+                    { key: 'notes', label: 'Notes' },
                   ]}
                 />
               )}
@@ -179,13 +313,14 @@ export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
                   rows={extra.fetch_allowlist || []}
                   columns={[
                     { key: 'host', label: 'Host' },
-                    { key: 'scope', label: 'Scope' },
+                    { key: 'notes', label: 'Notes' },
                   ]}
                 />
               )}
             </div>
           </section>
 
+          {/* ── Integration endpoints ───────────────────────────────────── */}
           <section className="flex flex-col gap-2">
             <div className="text-[10px] font-black uppercase tracking-widest text-muted">
               Integration endpoints (registry)
