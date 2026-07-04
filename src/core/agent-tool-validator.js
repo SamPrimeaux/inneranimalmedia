@@ -12,6 +12,7 @@ import {
   collectAllowlistToolKeysForScope,
 } from './agent-policy.js';
 import { loadAgentsamToolRow } from './agentsam-tools-catalog.js';
+import { resolveCatalogDispatchToolKey, loadCatalogToolRowForDispatch } from './catalog-tool-key-resolve.js';
 import { normalizeToolName } from '../tools/ai-dispatch.js';
 import { toolLogFieldsFromValidation } from './agent-prompt-builder.js';
 import {
@@ -471,8 +472,9 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
     }
   }
   let row = null;
+  const resolvedToolKey = resolveCatalogDispatchToolKey(name);
   if (env.DB) {
-    row = await loadAgentsamToolRow(env, name);
+    row = await loadCatalogToolRowForDispatch(env, name);
     if (!row) {
       return {
         allowed: false,
@@ -480,7 +482,7 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
         riskLevel: 'blocked',
         requiresConfirmation: false,
         mcpToolId: null,
-        toolKey: name,
+        toolKey: resolvedToolKey || name,
         capabilityKey: null,
         handlerKey: null,
         routeKey: routeKeyOut(null),
@@ -599,12 +601,33 @@ export async function dispatchToolCall(env, toolName, input, context = {}) {
       input?.conversationId ??
       null,
   };
-  const catalogOut = await dispatchByToolCode(env, toolName, params, context);
+  const catalogOut = await dispatchByToolCode(env, resolveCatalogDispatchToolKey(toolName), params, context);
   let out =
     catalogOut?.ok === false
       ? { error: catalogOut.error ?? 'dispatch_failed' }
       : catalogOut?.result ?? catalogOut;
-  if (out && typeof out === 'object' && !isSubstantiveToolOutput(toolName, out)) {
+
+  /** MCP tools/call has no envelope gate — skip for oauth_visible + allowlist tools (Phase 3.1). */
+  let skipOAuthEnvelopeGate = false;
+  if (env?.DB && context.workspaceId) {
+    try {
+      const { isOAuthMcpParityToolAllowed } = await import('./in-app-mcp-oauth-parity.js');
+      skipOAuthEnvelopeGate = await isOAuthMcpParityToolAllowed(env, toolName, {
+        isSuperadmin: context.isSuperadmin === true || context.is_superadmin === true,
+        userId: context.userId ?? context.user_id ?? null,
+        workspaceId: context.workspaceId ?? context.workspace_id ?? null,
+        tenantId: context.tenantId ?? context.tenant_id ?? null,
+        personUuid: context.personUuid ?? context.person_uuid ?? null,
+      });
+    } catch (_) {}
+  }
+
+  if (
+    !skipOAuthEnvelopeGate &&
+    out &&
+    typeof out === 'object' &&
+    !isSubstantiveToolOutput(toolName, out)
+  ) {
     throw new Error(
       typeof out.error === 'string'
         ? out.error

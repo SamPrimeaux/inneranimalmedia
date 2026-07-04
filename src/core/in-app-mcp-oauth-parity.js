@@ -1,28 +1,40 @@
 /**
  * In-app Agent Sam ↔ MCP OAuth tool parity (Claude.ai / ChatGPT / Cursor).
- * Same agentsam_tools.oauth_visible catalog + iam_mcp_inneranimalmedia allowlist;
- * execution stays on main worker via dispatchByToolCode (never proxy through MCP host).
+ * tools/list: all agentsam_tools.oauth_visible (same as MCP buildOAuthMcpToolsListFromAgentsamTools).
+ * tools/call: iam_mcp_inneranimalmedia allowlist gate only (same as MCP enforceOAuthToolGuards).
+ * Execution stays on main worker via dispatchByToolCode (never proxy through MCP host).
  */
 import { MCP_CANONICAL_CLIENT_ID } from '../api/mcp-oauth-shared.js';
 import {
-  EXECUTABLE_HANDLER_TYPES,
   inputSchemaFromAgentsamToolRow,
-  loadExecutableHandlerTypes,
-  rowMatchesMode,
   rowMatchesWorkspaceScope,
-  rowWithinRiskCap,
-  validateHandlerConfigForExecution,
 } from './agentsam-tools-catalog.js';
-import { parseHandlerConfig } from './resolve-credential.js';
 import { collectAllowlistToolKeysForScope } from './agent-policy.js';
+import {
+  expandOAuthAllowlistKeysToCatalogKeys,
+  loadCatalogToolRowForDispatch,
+  resolveCatalogDispatchToolKey,
+} from './catalog-tool-key-resolve.js';
 
 export const IN_APP_MCP_OAUTH_CLIENT_ID = MCP_CANONICAL_CLIENT_ID;
-export const IN_APP_MCP_PARITY_TOOL_LIMIT = 128;
+/** Match MCP oauth surface — do not truncate list below live oauth_visible count. */
+export const IN_APP_MCP_PARITY_TOOL_LIMIT = 256;
 
 const OPERATOR_ONLY_OAUTH_TOOLS = new Set(['agentsam_terminal_remote']);
 
+/** Legacy OAuth allowlist aliases (MCP mcp-oauth-allowlist-merge.js). */
+export const OAUTH_EMAIL_TOOL_ALIASES = Object.freeze({
+  agentsam_email_send: 'agentsam_send_email',
+});
+
 function trim(v) {
   return v == null ? '' : String(v).trim();
+}
+
+export function normalizeOAuthAllowlistKey(key) {
+  const k = trim(key).toLowerCase();
+  if (!k) return '';
+  return OAUTH_EMAIL_TOOL_ALIASES[k] || k;
 }
 
 /** Live OAuth surface allowlist (same SSOT as MCP worker tools/call). */
@@ -33,12 +45,12 @@ export async function loadLiveOAuthToolAllowlistKeys(env, clientId = IN_APP_MCP_
       `SELECT tool_key FROM agentsam_mcp_oauth_tool_allowlist
        WHERE client_id = ?
          AND COALESCE(is_active, 1) = 1
-       ORDER BY COALESCE(connector_priority, 50) ASC, tool_key ASC`,
+       ORDER BY COALESCE(sort_order, 50) ASC, tool_key ASC`,
     )
       .bind(trim(clientId) || IN_APP_MCP_OAUTH_CLIENT_ID)
       .all();
     return (results || [])
-      .map((r) => trim(r?.tool_key).toLowerCase())
+      .map((r) => normalizeOAuthAllowlistKey(r?.tool_key))
       .filter(Boolean);
   } catch (e) {
     console.warn('[in-app-mcp-oauth-parity] loadLiveOAuthToolAllowlistKeys', e?.message ?? e);
@@ -47,7 +59,7 @@ export async function loadLiveOAuthToolAllowlistKeys(env, clientId = IN_APP_MCP_
 }
 
 /**
- * Effective tool_key set for in-app agent chat (mirrors MCP OAuth superadmin / allowlist merge).
+ * Call-time allowlist keys (mirrors MCP mergeLiveOAuthAllowlistTools / resolveOAuthAllowlistKeys).
  * @param {any} env
  * @param {{ userId?: string, workspaceId?: string, tenantId?: string, personUuid?: string, isSuperadmin?: boolean }} scope
  */
@@ -94,8 +106,7 @@ export function mapCatalogRowsToMcpParityAgentTools(rows) {
   return (rows || []).map((r) => {
     const key = trim(r.tool_key) || trim(r.tool_name);
     const desc =
-      [trim(r.display_name), trim(r.description), trim(r.tool_name)].filter(Boolean).join(' — ') ||
-      key;
+      trim(r.description) || trim(r.display_name) || trim(r.tool_name) || key;
     return {
       name: key,
       description: desc.slice(0, 4000),
@@ -109,13 +120,25 @@ export function mapCatalogRowsToMcpParityAgentTools(rows) {
   });
 }
 
+function dedupeMcpParityToolsByName(tools) {
+  const out = [];
+  const seen = new Set();
+  for (const t of tools || []) {
+    const key = trim(t?.name || t?.tool_key).toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
+}
+
 /**
+ * In-app tools/list — mirrors MCP buildOAuthMcpToolsListFromAgentsamTools (no allowlist at list time).
  * @param {import('@cloudflare/workers-types').D1Database} db
  * @param {{ userId?: string, tenantId?: string, workspaceId?: string, personUuid?: string, isSuperadmin?: boolean }} runtimeCtx
- * @param {{ outputLimit?: number, modeSlug?: string, riskLevelMax?: string|null, isSuperadmin?: boolean }} opts
+ * @param {{ outputLimit?: number, modeSlug?: string, isSuperadmin?: boolean }} opts
  */
 export async function selectOAuthMcpParityToolsForAgentChat(db, runtimeCtx, opts = {}) {
-  const env = { DB: db };
   const ws = trim(runtimeCtx?.workspaceId);
   const outputLimit = Math.max(
     1,
@@ -124,11 +147,6 @@ export async function selectOAuthMcpParityToolsForAgentChat(db, runtimeCtx, opts
   const isSuperadmin = opts.isSuperadmin === true || runtimeCtx?.isSuperadmin === true;
 
   if (!db || !ws) {
-    return { rows: [], source: 'oauth_mcp_parity', tool_count: 0 };
-  }
-
-  const allowedKeys = await collectInAppOAuthMcpToolKeys(env, runtimeCtx, { isSuperadmin });
-  if (!allowedKeys.size) {
     return { rows: [], source: 'oauth_mcp_parity', tool_count: 0 };
   }
 
@@ -159,71 +177,64 @@ export async function selectOAuthMcpParityToolsForAgentChat(db, runtimeCtx, opts
     return { rows: [], source: 'oauth_mcp_parity', tool_count: 0 };
   }
 
-  const executableTypes = await loadExecutableHandlerTypes(env);
-  const out = [];
+  const mapped = [];
   for (const row of catalogRows) {
     const key = trim(row.tool_key).toLowerCase();
-    if (!key || !allowedKeys.has(key)) continue;
+    if (!key) continue;
     if (!isSuperadmin && OPERATOR_ONLY_OAUTH_TOOLS.has(key)) continue;
     if (!rowMatchesWorkspaceScope(row, ws)) continue;
-    if (!rowMatchesMode(row, opts.modeSlug)) continue;
-    if (!rowWithinRiskCap(row, opts.riskLevelMax)) continue;
-
-    const cfg = parseHandlerConfig(row.handler_config);
-    const v = validateHandlerConfigForExecution(row, cfg, executableTypes || EXECUTABLE_HANDLER_TYPES);
-    if (!v.ok) {
-      console.warn('[in-app-mcp-oauth-parity] skip_invalid', key, v.error);
-      continue;
-    }
-    out.push(mapCatalogRowsToMcpParityAgentTools([row])[0]);
-    if (out.length >= outputLimit) break;
+    mapped.push(mapCatalogRowsToMcpParityAgentTools([row])[0]);
   }
+
+  const deduped = dedupeMcpParityToolsByName(mapped);
+  const rows = deduped.slice(0, outputLimit);
 
   console.info(
     '[in-app-mcp-oauth-parity] selected',
     JSON.stringify({
       workspace_id: ws,
       is_superadmin: isSuperadmin,
-      allowlist_size: allowedKeys.size,
       oauth_visible_candidates: catalogRows.length,
-      selected: out.length,
+      selected: rows.length,
+      list_policy: 'oauth_visible_only',
     }),
   );
 
-  return { rows: out, source: 'oauth_mcp_parity', tool_count: out.length };
+  return { rows, source: 'oauth_mcp_parity', tool_count: rows.length };
 }
 
 /**
- * Call-time gate: oauth_visible tool allowed when on live OAuth allowlist (in-app parity).
+ * Call-time gate: oauth_visible + allowlist (MCP tools/call parity).
+ * Superadmin: any oauth_visible catalog tool (MCP allowed_tools = null).
  * @param {any} env
  * @param {string} toolKey
  * @param {{ isSuperadmin?: boolean, userId?: string, workspaceId?: string, tenantId?: string, personUuid?: string }} scope
  */
 export async function isOAuthMcpParityToolAllowed(env, toolKey, scope = {}) {
-  const key = trim(toolKey).toLowerCase();
-  if (!key || !env?.DB) return false;
+  const raw = trim(toolKey);
+  if (!raw || !env?.DB) return false;
 
-  const row = await env.DB.prepare(
-    `SELECT tool_key, oauth_visible, COALESCE(is_active, 1) AS is_active
-     FROM agentsam_tools
-     WHERE tool_key = ? OR tool_name = ?
-     LIMIT 1`,
-  )
-    .bind(key, key)
-    .first()
-    .catch(() => null);
-
-  if (!row || Number(row.is_active) !== 1 || Number(row.oauth_visible) !== 1) {
+  const row = await loadCatalogToolRowForDispatch(env, raw);
+  if (!row || Number(row.is_active ?? 1) !== 1 || Number(row.oauth_visible) !== 1) {
     return false;
   }
 
-  const resolvedKey = trim(row.tool_key).toLowerCase() || key;
+  const resolvedKey = trim(row.tool_key).toLowerCase() || resolveCatalogDispatchToolKey(raw).toLowerCase();
+  const aliases = new Set([raw.toLowerCase(), resolvedKey, resolveCatalogDispatchToolKey(raw).toLowerCase()]);
+
   if (!scope.isSuperadmin && OPERATOR_ONLY_OAUTH_TOOLS.has(resolvedKey)) {
     return false;
   }
 
-  const allowed = await collectInAppOAuthMcpToolKeys(env, scope, {
-    isSuperadmin: scope.isSuperadmin === true,
-  });
-  return allowed.has(resolvedKey);
+  // MCP superadmin bypass at tools/call — full oauth_visible surface.
+  if (scope.isSuperadmin === true) {
+    return true;
+  }
+
+  const allowed = await collectInAppOAuthMcpToolKeys(env, scope, { isSuperadmin: false });
+  const expanded = await expandOAuthAllowlistKeysToCatalogKeys(env, allowed);
+  for (const a of aliases) {
+    if (expanded.has(a)) return true;
+  }
+  return false;
 }

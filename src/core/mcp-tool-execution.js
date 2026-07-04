@@ -44,14 +44,33 @@ export function isSubstantiveToolOutput(toolName, value) {
   if (typeof value !== 'object' || Array.isArray(value)) return true;
   const n = trimTool(toolName).toLowerCase();
   const keys = Object.keys(value);
-  if (value.tool_key && keys.length <= 4 && !value.tree && !value.rows && !value.text) {
+  if (
+    value.tool_key &&
+    keys.length <= 4 &&
+    !value.tree &&
+    !value.rows &&
+    !value.text &&
+    !value.files
+  ) {
     return false;
   }
   if (n.includes('github') && (n.includes('tree') || n.includes('get_tree'))) {
-    return Array.isArray(value.tree) && value.tree.length > 0;
+    return (
+      (Array.isArray(value.tree) && value.tree.length > 0) ||
+      (typeof value.tree_count === 'number' && value.tree_count > 0)
+    );
   }
   if (n.includes('github') && n.includes('search')) {
     return Array.isArray(value.items) && value.items.length > 0;
+  }
+  if (
+    n.includes('github') &&
+    (n.includes('read_many') || n.includes('batch_read'))
+  ) {
+    return (
+      Array.isArray(value.files) &&
+      value.files.some((f) => typeof f?.text === 'string' && f.text.length > 0)
+    );
   }
   if (n.includes('github') && (n.includes('read') || n.includes('file'))) {
     return typeof value.text === 'string' && value.text.length > 0;
