@@ -92,6 +92,37 @@ export function AgentSamChatHost({
   ...chatProps
 }: AgentSamChatHostProps) {
   const [scratchpadOpen, setScratchpadOpen] = useState(false);
+  const autoOpenedRef = useRef(false);
+
+  // Total files across all messages (uploaded attachments + agent-generated).
+  const scratchpadFileCount = useMemo(() => {
+    if (!messages) return 0;
+    let n = 0;
+    for (const m of messages) {
+      n += (m.attachmentPreviews ?? []).length;
+      n += (m.agentFiles ?? []).length;
+    }
+    return n;
+  }, [messages]);
+
+  // Auto-open the scratchpad the first time a file appears in the conversation.
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    if (scratchpadFileCount > 0 && !isNarrowViewport && !atmosphericHomeMode) {
+      setScratchpadOpen(true);
+      autoOpenedRef.current = true;
+    }
+  }, [scratchpadFileCount, isNarrowViewport, atmosphericHomeMode]);
+
+  // Reset auto-open guard when conversation changes (new chat).
+  const prevFileCount = useRef(scratchpadFileCount);
+  useEffect(() => {
+    if (scratchpadFileCount === 0 && prevFileCount.current > 0) {
+      autoOpenedRef.current = false;
+      setScratchpadOpen(false);
+    }
+    prevFileCount.current = scratchpadFileCount;
+  }, [scratchpadFileCount]);
 
   if (layout === 'hidden') return null;
 
