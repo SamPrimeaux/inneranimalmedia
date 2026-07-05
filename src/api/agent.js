@@ -1152,48 +1152,27 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         }
         body.activeFileEnvelope = activeFileEnvelope;
       }
-      let githubRepoContext = String(body.github_repo_context || body.githubRepoContext || '').trim();
-      if (githubRepoContext && userId && workspaceId && tenantId) {
-        try {
-          const { sanitizeGithubRepoContextForChat } = await import('../core/github-repo-scope.js');
-          const safe = await sanitizeGithubRepoContextForChat(env, {
-            userId: String(userId),
-            tenantId: String(tenantId),
-            workspaceId: String(workspaceId),
-            clientRepo: githubRepoContext,
-          });
-          githubRepoContext = safe || '';
-        } catch (e) {
-          console.warn('[agent] github_repo_context_sanitize', e?.message ?? e);
-          githubRepoContext = '';
-        }
-      }
-      if (!githubRepoContext && workspaceId && env?.DB) {
-        try {
-          const { resolveGithubRepoForChatSession } = await import('../core/agentsam-chat-sessions.js');
-          const fromWorkspace = await resolveGithubRepoForChatSession(env, {
-            workspaceId: String(workspaceId),
-            activeFileEnvelope,
-            body: null,
-          });
-          if (fromWorkspace) {
-            if (userId && tenantId) {
-              const { sanitizeGithubRepoContextForChat } = await import('../core/github-repo-scope.js');
-              githubRepoContext =
-                (await sanitizeGithubRepoContextForChat(env, {
-                  userId: String(userId),
-                  tenantId: String(tenantId),
-                  workspaceId: String(workspaceId),
-                  clientRepo: fromWorkspace,
-                })) || '';
-            } else {
-              githubRepoContext = fromWorkspace;
-            }
-          }
-        } catch (e) {
-          console.warn('[agent] workspace_github_repo_fallback', e?.message ?? e);
-        }
-      }
+      const {
+        parseProjectContextFromBody,
+        resolveChatGithubRepoContext,
+      } = await import('../core/user-app-runtime.js');
+      const projectContext = parseProjectContextFromBody(body);
+      if (projectContext) body.projectContext = projectContext;
+
+      const githubRepoContext = await resolveChatGithubRepoContext(env, {
+        body,
+        projectContext,
+        activeFileEnvelope,
+        userId: userId != null ? String(userId) : null,
+        tenantId: tenantId != null ? String(tenantId) : null,
+        workspaceId: workspaceId != null ? String(workspaceId) : null,
+        isSuperadmin:
+          chatAuthUser?.isSuperadmin === true ||
+          chatAuthUser?.is_superadmin === true ||
+          String(chatAuthUser?.role || '')
+            .trim()
+            .toLowerCase() === 'superadmin',
+      });
       if (githubRepoContext) body.selectedGithubRepoContext = githubRepoContext;
       if (activeFileEnvelope?.github_repo && userId && workspaceId && tenantId) {
         try {
@@ -1215,12 +1194,23 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       }
       const localBufferOpen = activeFileIsLocalWorkspaceBuffer(activeFileEnvelope);
       if (githubRepoContext && !localBufferOpen) {
+        const projectBranch =
+          projectContext?.branch != null && String(projectContext.branch).trim()
+            ? String(projectContext.branch).trim()
+            : 'main';
+        const projectPath =
+          projectContext?.active_file != null ? String(projectContext.active_file).trim() : '';
         if (activeFileEnvelope) {
           if (!activeFileEnvelope.github_repo) activeFileEnvelope.github_repo = githubRepoContext;
+          if (!activeFileEnvelope.github_branch) activeFileEnvelope.github_branch = projectBranch;
+          if (projectPath && !activeFileEnvelope.github_path) activeFileEnvelope.github_path = projectPath;
+          body.activeFileEnvelope = activeFileEnvelope;
         } else {
           activeFileEnvelope = parseActiveFileEnvelope({
             active_file_source: 'github',
             active_file_github_repo: githubRepoContext,
+            active_file_github_branch: projectBranch,
+            ...(projectPath ? { active_file_github_path: projectPath } : {}),
           });
           if (activeFileEnvelope) body.activeFileEnvelope = activeFileEnvelope;
         }
@@ -1370,6 +1360,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         });
 
     const { executeAgentChatSpine } = await import('./agent-chat-spine.js');
+    const { resolveRuntimeLane } = await import('../core/user-app-runtime.js');
     return executeAgentChatSpine(env, request, ctx, {
       body,
       message,
@@ -1388,6 +1379,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       quickstartBatch,
       streamLifecycle,
       chatTurnMeta,
+      projectContext: body.projectContext ?? null,
+      runtimeLane: resolveRuntimeLane(body),
     });
     } finally {
       stopHeartbeat();

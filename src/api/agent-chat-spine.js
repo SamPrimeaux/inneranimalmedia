@@ -29,6 +29,11 @@ import {
 } from '../core/agentsam-chat-sessions.js';
 import { loadProjectContextSystemBlock } from '../core/project-context-budget.js';
 import { normalizePlanModeMessage } from '../core/plan-mode-utils.js';
+import {
+  shouldUseUserAppRuntimeLane,
+  compileUserAppRuntimeProfile,
+  parseProjectContextFromBody,
+} from '../core/user-app-runtime.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -91,21 +96,43 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
   const visionUploadFiles = collectChatVisionUploadFiles(body);
   const requireVision = visionUploadFiles.length > 0;
 
+  const projectContext =
+    pre.projectContext ?? parseProjectContextFromBody(body) ?? null;
+  const userAppLane = shouldUseUserAppRuntimeLane(body, pre);
+
   const profile = await withD1Retry(
     () =>
-      resolveRuntimeProfile(env, {
-        mode: requestedMode,
-        message,
-        session: { userId, workspaceId, tenantId, conversationId: sessionId, authUser },
-        overrides: {
-          model_key: modelOverride,
-          subagent_slug: body.subagent_slug ?? body.subagentSlug ?? null,
-          route_key: body.route_key ?? body.routeKey ?? null,
-          task_type: body.task_type ?? body.taskType ?? null,
-        },
-        compile_lane: 'live',
-        requireVision,
-      }),
+      userAppLane
+        ? compileUserAppRuntimeProfile(env, {
+            mode: requestedMode,
+            message,
+            session: { userId, workspaceId, tenantId, conversationId: sessionId, authUser },
+            overrides: {
+              model_key: modelOverride,
+              subagent_slug: body.subagent_slug ?? body.subagentSlug ?? null,
+            },
+            projectContext,
+            requireVision,
+            isSuperadmin:
+              authUser?.isSuperadmin === true ||
+              authUser?.is_superadmin === true ||
+              String(authUser?.role || '')
+                .trim()
+                .toLowerCase() === 'superadmin',
+          })
+        : resolveRuntimeProfile(env, {
+            mode: requestedMode,
+            message,
+            session: { userId, workspaceId, tenantId, conversationId: sessionId, authUser },
+            overrides: {
+              model_key: modelOverride,
+              subagent_slug: body.subagent_slug ?? body.subagentSlug ?? null,
+              route_key: body.route_key ?? body.routeKey ?? null,
+              task_type: body.task_type ?? body.taskType ?? null,
+            },
+            compile_lane: 'live',
+            requireVision,
+          }),
     { maxAttempts: 2, delays: [40, 120] },
   );
 
@@ -135,9 +162,10 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
 
   const { isSimpleAskMessage } = await import('../core/runtime-profile.js');
   const casualChatTurn = isSimpleAskMessage(message) && !activeFileEnvelope && !requireVision;
-  const projectContextBlock = casualChatTurn
-    ? ''
-    : await loadProjectContextSystemBlock(env, workspaceId);
+  const projectContextBlock =
+    casualChatTurn || userAppLane
+      ? ''
+      : await loadProjectContextSystemBlock(env, workspaceId);
 
   const skillRoute = await resolveSkillSpawnRouting(env, message, body, {
     sessionId,
@@ -190,17 +218,28 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
   if (skillRoute) {
     let agentProfile = profile;
     if (profile.execution_kind !== 'agent_tool_loop' || profile.routing_task_type !== 'agent') {
-      agentProfile = await resolveRuntimeProfile(env, {
-        mode: 'agent',
-        message,
-        session: { userId, workspaceId, tenantId, conversationId: sessionId },
-        overrides: {
-          model_key: modelOverride,
-          task_type: 'agent',
-          subagent_slug: body.subagent_slug ?? body.subagentSlug ?? null,
-        },
-        compile_lane: 'live',
-      });
+      agentProfile = userAppLane
+        ? await compileUserAppRuntimeProfile(env, {
+            mode: 'agent',
+            message,
+            session: { userId, workspaceId, tenantId, conversationId: sessionId, authUser },
+            overrides: {
+              model_key: modelOverride,
+              subagent_slug: body.subagent_slug ?? body.subagentSlug ?? null,
+            },
+            projectContext,
+          })
+        : await resolveRuntimeProfile(env, {
+            mode: 'agent',
+            message,
+            session: { userId, workspaceId, tenantId, conversationId: sessionId },
+            overrides: {
+              model_key: modelOverride,
+              task_type: 'agent',
+              subagent_slug: body.subagent_slug ?? body.subagentSlug ?? null,
+            },
+            compile_lane: 'live',
+          });
     }
     return executeAgentTurn(env, ctx, { ...controllerInput, profile: agentProfile, skillRoute });
   }

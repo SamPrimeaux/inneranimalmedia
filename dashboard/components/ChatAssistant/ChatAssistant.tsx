@@ -55,6 +55,10 @@ import {
   type AgentChatComposeDetail,
   type QuickstartThreadDetail,
 } from '../../agentChatConstants';
+import {
+  buildChatProjectContext,
+  CHAT_RUNTIME_LANE_USER_APP,
+} from '../../lib/chatProjectContext';
 import { notifyAgentChatSessionsRefresh } from '../../lib/openAgentConversation';
 import { replaceAgentConversationUrl, isAgentCenterChatHome } from '../../lib/agentRoutes';
 import type { AgentSessionRow } from '../../agentSessionsCatalog';
@@ -2937,6 +2941,18 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
     const ghCtxForm = githubRepoContext?.trim();
     if (ghCtxForm) form.append('github_repo_context', ghCtxForm);
+
+    const activePathForProject =
+      (activeFile ? getEditorLightweightPath(activeFile) || activeFile.name || '' : '').trim() ||
+      chatGithubFilePath?.trim() ||
+      '';
+    const projectPayload = buildChatProjectContext({
+      githubRepo: ghCtxForm || activeFile?.githubRepo || null,
+      branch: activeFile?.githubBranch || chatGithubBranch || 'main',
+      activeFilePath: activePathForProject || null,
+    });
+    form.append('project', JSON.stringify(projectPayload));
+    form.append('runtime_lane', CHAT_RUNTIME_LANE_USER_APP);
 
     const contextEnvelopePayload = buildGithubContextEnvelope({
       conversationId: effectiveConvId,
