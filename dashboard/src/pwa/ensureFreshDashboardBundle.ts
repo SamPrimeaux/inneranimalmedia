@@ -51,6 +51,7 @@ export async function ensureFreshDashboardBundle(): Promise<void> {
     }
 
     sessionStorage.setItem(SESSION_SHA_KEY, remoteSha);
+    await purgeDashboardJsCaches();
     notifyPwaUpdateAvailable({ reason: 'bundle_stale', remoteSha });
   } catch {
     /* non-fatal */

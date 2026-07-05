@@ -41,6 +41,7 @@ function checkCacheBustAndNotify(manifest: ServicesSwManifest): void {
   try {
     const prev = localStorage.getItem(CACHE_BUST_STORAGE_KEY);
     if (prev && prev !== next) {
+      void purgeLegacyDashboardJsCaches();
       notifyPwaUpdateAvailable({ reason: 'cache_bust' });
     }
     localStorage.setItem(CACHE_BUST_STORAGE_KEY, next);

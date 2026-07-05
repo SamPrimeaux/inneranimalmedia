@@ -19,6 +19,13 @@ html = html.replace(
   `$1?v=${stamp}`
 );
 
+const metaTag = `<meta name="iam-cache-bust" content="${stamp}" />`;
+if (html.includes('<meta name="iam-cache-bust"')) {
+  html = html.replace(/<meta name="iam-cache-bust" content="[^"]*" \/>/g, metaTag);
+} else {
+  html = html.replace('<head>', `<head>\n  ${metaTag}`);
+}
+
 fs.writeFileSync(indexPath, html);
 
 console.log("[bump-cache] Updated:", indexPath);

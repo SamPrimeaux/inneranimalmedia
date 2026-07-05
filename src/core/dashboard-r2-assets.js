@@ -8,6 +8,24 @@ export const DASHBOARD_STATIC_AGENT_PREFIX = 'static/dashboard/agent/';
 export const DASHBOARD_STATIC_APP_PREFIX = 'static/dashboard/app/';
 
 /**
+ * Stable deploy paths (no content hash in URL) must not use immutable long TTL.
+ * @param {string} assetKey
+ */
+export function dashboardR2CacheControl(assetKey) {
+  const key = String(assetKey || '').toLowerCase();
+  if (
+    key.startsWith(DASHBOARD_STATIC_APP_PREFIX) &&
+    (key.endsWith('.js') || key.endsWith('.css'))
+  ) {
+    return 'public, max-age=0, must-revalidate';
+  }
+  if (key === 'static/dashboard/shell.css') {
+    return 'public, max-age=300, must-revalidate';
+  }
+  return 'public, max-age=31536000, immutable';
+}
+
+/**
  * @param {{ get: (key: string) => Promise<{ body: ReadableStream | null, httpMetadata?: { contentType?: string } } | null> }} bucket
  * @param {string} assetKey Path after hostname (no leading slash), e.g. static/dashboard/app/learn.js
  */

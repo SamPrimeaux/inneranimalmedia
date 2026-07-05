@@ -144,7 +144,7 @@
             >Sign in</a
           >
           <a
-            href="/static/dashboard/app/pwa-recovery.html"
+            href="/pwa-recovery.html"
             style="
               display: block;
               padding: 10px 16px;
@@ -181,14 +181,28 @@
         if (signIn && next && next.indexOf('/dashboard') === 0) {
           signIn.href = '/auth/login?next=' + encodeURIComponent(next);
         }
-        function showRecovery() {
+        function showRecovery(force) {
           var root = document.getElementById('root');
           var panel = document.getElementById('iam-boot-recovery');
           if (!panel) return;
-          if (root && root.childElementCount === 0) panel.hidden = false;
+          if (force || (root && root.childElementCount === 0)) panel.hidden = false;
         }
-        window.addEventListener('error', function () {
-          window.setTimeout(showRecovery, 500);
+        function isChunkDriftMessage(msg) {
+          return /does not provide an export named/i.test(String(msg || ''));
+        }
+        window.addEventListener('error', function (ev) {
+          if (isChunkDriftMessage(ev && ev.message)) {
+            showRecovery(true);
+            return;
+          }
+          window.setTimeout(function () {
+            showRecovery(false);
+          }, 500);
+        });
+        window.addEventListener('unhandledrejection', function (ev) {
+          var reason = ev && ev.reason;
+          var msg = reason && reason.message ? reason.message : reason;
+          if (isChunkDriftMessage(msg)) showRecovery(true);
         });
         window.setTimeout(showRecovery, 18000);
       })();

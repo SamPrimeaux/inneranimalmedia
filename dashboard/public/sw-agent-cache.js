@@ -1,7 +1,7 @@
 /* Agent chunk precache — imported by Workbox-generated /sw.js */
 const SERVICES_MANIFEST_URL = 'https://services.inneranimalmedia.com/sw/manifest.json';
 const JS_CACHE_NAME = 'iam-dashboard-js-v2';
-const LEGACY_JS_CACHE_NAMES = ['iam-dashboard-js-v1'];
+const LEGACY_JS_CACHE_NAMES = ['iam-dashboard-js-v1', 'iam-dashboard-js-v2', 'iam-dashboard-js-v3'];
 
 /**
  * Optional control-plane manifest (services.inneranimalmedia.com).

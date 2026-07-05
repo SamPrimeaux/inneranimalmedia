@@ -81,7 +81,7 @@ import { handleStreamLiveWebhook, handleStreamVodWebhook } from './api/webhooks/
 import { handleCloudConvertWebhook } from './api/webhooks/cloudconvert.js';
 import { handleMeshyWebhook } from './api/webhooks/meshy.js';
 import { recordAgentsamWebhookEvent } from './core/webhook-events-writer.js';
-import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
+import { getDashboardR2Object, getDashboardSpaHtmlShell, dashboardR2CacheControl } from './core/dashboard-r2-assets.js';
 import { isDashboardSpaShellPath, withDashboardEarlyHints } from './core/dashboard-early-hints.js';
 import { resolveGitHubToken } from './core/github-token.js';
 import { handleSitemapPage, handleSitemapXml } from './public-pages/sitemap-route.js';
@@ -1262,7 +1262,14 @@ export default {
 
           if (env.ASSETS) {
             const obj = await getDashboardR2Object(env.ASSETS, assetKey);
-            if (obj) return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || getMimeType(assetKey), 'Cache-Control': 'public, max-age=31536000, immutable' } });
+            if (obj) {
+              return new Response(obj.body, {
+                headers: {
+                  'Content-Type': obj.httpMetadata?.contentType || getMimeType(assetKey),
+                  'Cache-Control': dashboardR2CacheControl(assetKey),
+                },
+              });
+            }
 
             if (isDashboardSpaShellPath(pathLower) || pathLower === '/oauth/mcp/consent') {
               const index = await getDashboardSpaHtmlShell(env.ASSETS);

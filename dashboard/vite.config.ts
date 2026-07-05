@@ -159,10 +159,7 @@ export default defineConfig(({ mode }) => {
           globDirectory: 'dist',
           globPatterns: [
             'index.html',
-            'dashboard.js',
             'dashboard.css',
-            'vendor-react.js',
-            'vendor-icons.js',
             'pwa/*.png',
           ],
           globIgnores: [
@@ -203,15 +200,10 @@ export default defineConfig(({ mode }) => {
               handler: 'NetworkOnly',
             },
             {
+              /** Stable chunk URLs (XTermShell.js, etc.) — never serve stale JS from runtime cache. */
               urlPattern: ({ url }) =>
                 url.pathname.startsWith('/static/dashboard/app/') && url.pathname.endsWith('.js'),
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'iam-dashboard-js-v3',
-                networkTimeoutSeconds: 4,
-                expiration: { maxEntries: 64, maxAgeSeconds: 7 * 24 * 60 * 60 },
-                cacheableResponse: { statuses: [0, 200] },
-              },
+              handler: 'NetworkOnly',
             },
             {
               urlPattern: ({ url }) => url.origin.includes('fonts.gstatic.com'),
@@ -290,7 +282,7 @@ export default defineConfig(({ mode }) => {
         transformIndexHtml(html) {
           if (html.includes('iam-purge-stale-dashboard-js-cache')) return html;
           const purge =
-            '<script id="iam-purge-stale-dashboard-js-cache">try{if("caches"in window){caches.delete("iam-dashboard-js-v1");}}catch(e){}</script>';
+            '<script id="iam-purge-stale-dashboard-js-cache">try{var m=document.querySelector(\'meta[name="iam-cache-bust"]\');var n=m&&m.getAttribute("content");var k="iam_sw_cache_bust";var p=localStorage.getItem(k);if(n&&p&&p!==n&&"caches"in window){caches.keys().then(function(ns){return Promise.all(ns.map(function(name){if(/^iam-dashboard-js-v/.test(name)||/^workbox-precache-/.test(name))return caches.delete(name);}));});}if(n)localStorage.setItem(k,n);}catch(e){}</script>';
           return html.replace(
             /<script type="module" crossorigin src="\/static\/dashboard\/app\/dashboard\.js/,
             `${purge}\n  <script type="module" crossorigin src="/static/dashboard/app/dashboard.js`,
