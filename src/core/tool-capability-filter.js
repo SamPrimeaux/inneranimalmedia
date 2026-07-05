@@ -23,6 +23,11 @@ import {
   pickCreateSubagentTools,
   resolveCreateSubagentFlow,
 } from './create-subagent-flow.js';
+import {
+  isArtifactOrR2ToolName,
+  isGithubToolName,
+  isTerminalToolName,
+} from './tool-capability-matchers.js';
 
 function parseJsonSafe(value, fallback = null) {
   if (value == null || value === '') return fallback;
@@ -151,38 +156,6 @@ function isBrowserToolName(name) {
   return isBrowserInspectToolName(String(name || ''));
 }
 
-// Matches active catalog: agentsam_github_* and agentsam_github_mcp_*
-function isGithubToolName(name) {
-  const n = String(name || '');
-  return n.startsWith('agentsam_github_') || n.startsWith('github_');
-}
-
-// Matches active catalog: agentsam_terminal_local, agentsam_terminal_remote, agentsam_terminal_sandbox
-function isTerminalToolName(name) {
-  const n = String(name || '');
-  return (
-    n.startsWith('agentsam_terminal_') ||
-    n === 'agentsam_container_exec' ||
-    n === 'terminal_run' ||
-    n === 'terminal_execute' ||
-    n === 'run_command' ||
-    n === 'bash' ||
-    n === 'python_execute'
-  );
-}
-
-// Matches active catalog: agentsam_r2_*, workspace_*
-function isArtifactOrR2ToolName(name) {
-  const n = String(name || '');
-  return (
-    n.startsWith('agentsam_r2_') ||
-    n.startsWith('r2_') ||
-    n.startsWith('workspace_') ||
-    n === 'get_r2_url' ||
-    n.includes('artifact')
-  );
-}
-
 function isAgentSamAgentToolName(name) {
   const n = String(name || '');
   return (
@@ -283,7 +256,11 @@ export async function filterToolsForCapabilityDecision(env, tools, capabilityDec
   } else if (wantsD1 && d1ReadOnly) {
     next = await narrowToToolNames(env, tools, ['agentsam_d1_query']);
   } else if (wantsD1 && !d1ReadOnly) {
-    next = await narrowToToolNames(env, tools, ['agentsam_d1_query', 'agentsam_d1_write', 'agentsam_d1_migrate']);
+    next = await narrowToToolNames(env, tools, [
+      'agentsam_d1_query',
+      'agentsam_d1_write',
+      'agentsam_d1_migrate',
+    ]);
   } else if (messageRequestsWorkspaceGrep(msg)) {
     next = tools.filter(
       (t) => isWorkspaceGrepToolName(t.name) || isCodeImplementationToolName(t.name),
