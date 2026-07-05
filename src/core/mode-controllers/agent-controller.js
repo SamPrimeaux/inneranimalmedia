@@ -457,6 +457,8 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       '\n\n## Tool execution (required)\nWhen the user asks you to run shell commands, spin up containers, ' +
       'read or write GitHub files, deploy Workers, or query databases — call the matching catalog tool immediately. ' +
       'Do not tell the user to run commands manually unless a tool call already failed with a specific error. ' +
+      'If agentsam_terminal_local fails (403, tunnel down), the platform automatically retries agentsam_terminal_sandbox ' +
+      '(and agentsam_terminal_remote for platform operators) before returning failure — use the successful lane output. ' +
       'On mobile prefer agentsam_terminal_sandbox (or agentsam_terminal_remote for platform operators); on desktop prefer agentsam_terminal_local when available.';
   }
 

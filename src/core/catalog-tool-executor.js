@@ -1431,35 +1431,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       }
 
       if (toolKey === 'agentsam_terminal_local') {
-        const { validateUserLocalTerminalAccess } = await import('./terminal-routing-policy.js');
-        const { shouldSkipLocalTerminalTunnel } = await import('./mobile-exec-profile.js');
-        const clientSurface = String(runContext?.client_surface ?? runContext?.clientSurface ?? '').trim();
-        const execLane = String(runContext?.exec_lane ?? runContext?.execLane ?? 'auto').trim().toLowerCase();
-        if (shouldSkipLocalTerminalTunnel(clientSurface, execLane)) {
-          const { parsePlatformOperatorLane } = await import('./mobile-exec-profile.js');
-          const isOp =
-            parsePlatformOperatorLane(runContext) ||
-            (await userIsPlatformOperator(env, runContext?.authUser, workspaceId));
-          result = {
-            ok: false,
-            error: 'mobile_local_forbidden',
-            body: {
-              user_message: isOp
-                ? 'agentsam_terminal_local is unavailable on mobile. Use agentsam_terminal_remote (GCP cloud desk) — Mac not required.'
-                : 'agentsam_terminal_local is unavailable on mobile. Use agentsam_terminal_sandbox for cloud shell work or GitHub tools for file edits.',
-            },
-          };
-          break;
-        }
-        const localGate = await validateUserLocalTerminalAccess(env.DB, userId, workspaceId);
-        if (!localGate.ok) {
-          result = {
-            ok: false,
-            error: localGate.error,
-            body: { user_message: localGate.user_message },
-          };
-          break;
-        }
+        const { assertTerminalLocalArgs } = await import('./mcp-terminal-contract.js');
         const localArgErr = assertTerminalLocalArgs(params);
         if (localArgErr) {
           result = { ok: false, error: localArgErr };
@@ -1528,8 +1500,8 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         break;
       }
 
-      let cmd = String(params.command || params.cmd || config.command_template || '').trim();
-      if (!cmd) {
+      const rawCommand = String(params.command || params.cmd || config.command_template || '').trim();
+      if (!rawCommand) {
         result = { ok: false, error: 'terminal tool requires command in input' };
         break;
       }
@@ -1539,9 +1511,6 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           : params.cwd != null
             ? String(params.cwd).trim()
             : '';
-      if (explicitPath) {
-        cmd = wrapShellCommandWithPath(explicitPath, cmd);
-      }
       let settingsJson = null;
       let workspaceRoot = null;
       let parsedSettings = null;
@@ -1577,64 +1546,27 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         terminalToolPrefersGcpLane(toolKey) ||
         routing.lane === 'gcp_primary' ||
         (remoteTargetId && /gcp|iam_tunnel|platform_vm/i.test(remoteTargetId));
-      if (settingsJson) {
-        cmd = wrapWorkspaceShellCommand(settingsJson, cmd, { gcpExec });
-      }
       const responseWorkspaceRoot = gcpExec
         ? (await import('./host-workspace-paths.js')).IAM_GCP_OPERATOR_REPO
         : workspaceRoot;
-      // In-process control plane — shared terminal handler (no Worker HTTP loopback).
-      const out = await (
-        await import('./terminal-handler-run.js')
-      ).executeTerminalHandlerRun(
-        env,
-        {
-          command: cmd,
-          request: runContext?.request ?? null,
-          session_id: params.session_id ?? runContext?.sessionId ?? runContext?.session_id ?? null,
-          workspace_id: workspaceId,
-          tool_name: toolKey,
-          user_id: userId,
-          client_surface: runContext?.client_surface ?? runContext?.clientSurface ?? null,
-          exec_lane: runContext?.exec_lane ?? runContext?.execLane ?? null,
-          ...(remoteTargetId ? { target_id: remoteTargetId } : {}),
-          ...(routing.target_type ? { target_type: routing.target_type } : {}),
-        },
+
+      const { executeTerminalCatalogWithFallback } = await import('./terminal-exec-fallback.js');
+      result = await executeTerminalCatalogWithFallback(env, {
+        toolKey,
+        rawCommand,
+        params,
         runContext,
-      );
-      if (out?.error) {
-        const errText = String(out.error);
-        result = {
-          ok: false,
-          error: errText,
-          body: {
-            cwd: explicitPath || responseWorkspaceRoot || null,
-            cwd_source: explicitPath ? 'path' : responseWorkspaceRoot ? 'workspace_root' : 'pty_session_default',
-            exit_code: null,
-            stdout: '',
-            stderr: errText,
-            output: '',
-            command: cmd,
-            recovery_hints: terminalRecoveryHints({ stdout: '', stderr: errText }),
-          },
-        };
-        break;
-      }
-      const exitCode = out.exit_code ?? out.exitCode ?? null;
-      const stdout = typeof out.output === 'string' ? out.output : '';
-      const stderr = typeof out.stderr === 'string' ? out.stderr : '';
-      result = {
-        ok: true,
-        body: buildTerminalToolResponseBody({
-          explicitPath: explicitPath || null,
-          workspaceRoot: responseWorkspaceRoot,
-          executedCommand: out.command || cmd,
-          stdout,
-          stderr,
-          exitCode,
-          status: out.status || 'success',
-        }),
-      };
+        config,
+        workspaceId,
+        userId,
+        tenantId,
+        agentRunId,
+        explicitPath,
+        settingsJson,
+        parsedSettings,
+        workspaceRoot,
+        responseWorkspaceRoot,
+      });
       break;
     }
 
