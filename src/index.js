@@ -1256,12 +1256,9 @@ export default {
           const assetKey = path.slice(1) || 'index.html';
 
           if (env.ASSETS) {
-            const obj = await env.ASSETS.get(assetKey);
-            if (obj) return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || getMimeType(assetKey) } });
-          }
-
-          if (env.ASSETS) {
-            const obj = await getDashboardR2Object(env.ASSETS, assetKey);
+            const obj = assetKey.startsWith('static/dashboard/')
+              ? await getDashboardR2Object(env.ASSETS, assetKey)
+              : await env.ASSETS.get(assetKey);
             if (obj) {
               return new Response(obj.body, {
                 headers: {

@@ -190,9 +190,37 @@
         function isChunkDriftMessage(msg) {
           return /does not provide an export named/i.test(String(msg || ''));
         }
+        function recoverFromChunkDrift() {
+          var key = 'iam_chunk_drift_reload';
+          try {
+            if (sessionStorage.getItem(key)) {
+              showRecovery(true);
+              return;
+            }
+            sessionStorage.setItem(key, '1');
+          } catch (e) {}
+          if ('caches' in window) {
+            caches
+              .keys()
+              .then(function (ns) {
+                return Promise.all(
+                  ns.map(function (name) {
+                    if (/^iam-dashboard-js-v/.test(name) || /^workbox-precache-/.test(name)) {
+                      return caches.delete(name);
+                    }
+                  }),
+                );
+              })
+              .finally(function () {
+                location.reload();
+              });
+            return;
+          }
+          location.reload();
+        }
         window.addEventListener('error', function (ev) {
           if (isChunkDriftMessage(ev && ev.message)) {
-            showRecovery(true);
+            recoverFromChunkDrift();
             return;
           }
           window.setTimeout(function () {
@@ -202,7 +230,7 @@
         window.addEventListener('unhandledrejection', function (ev) {
           var reason = ev && ev.reason;
           var msg = reason && reason.message ? reason.message : reason;
-          if (isChunkDriftMessage(msg)) showRecovery(true);
+          if (isChunkDriftMessage(msg)) recoverFromChunkDrift();
         });
         window.setTimeout(showRecovery, 18000);
       })();

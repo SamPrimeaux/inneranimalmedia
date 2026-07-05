@@ -282,7 +282,7 @@ export default defineConfig(({ mode }) => {
         transformIndexHtml(html) {
           if (html.includes('iam-purge-stale-dashboard-js-cache')) return html;
           const purge =
-            '<script id="iam-purge-stale-dashboard-js-cache">try{var m=document.querySelector(\'meta[name="iam-cache-bust"]\');var n=m&&m.getAttribute("content");var k="iam_sw_cache_bust";var p=localStorage.getItem(k);if(n&&p&&p!==n&&"caches"in window){caches.keys().then(function(ns){return Promise.all(ns.map(function(name){if(/^iam-dashboard-js-v/.test(name)||/^workbox-precache-/.test(name))return caches.delete(name);}));});}if(n)localStorage.setItem(k,n);}catch(e){}</script>';
+            '<script id="iam-purge-stale-dashboard-js-cache">try{var m=document.querySelector(\'meta[name="iam-cache-bust"]\');var n=m&&m.getAttribute("content");var k="iam_sw_cache_bust";var p=localStorage.getItem(k);if(n&&p&&p!==n&&"caches"in window){sessionStorage.removeItem("iam_chunk_drift_reload");caches.keys().then(function(ns){return Promise.all(ns.map(function(name){if(/^iam-dashboard-js-v/.test(name)||/^workbox-precache-/.test(name))return caches.delete(name);}));});}if(n)localStorage.setItem(k,n);}catch(e){}</script>';
           return html.replace(
             /<script type="module" crossorigin src="\/static\/dashboard\/app\/dashboard\.js/,
             `${purge}\n  <script type="module" crossorigin src="/static/dashboard/app/dashboard.js`,
