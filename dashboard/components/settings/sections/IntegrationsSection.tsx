@@ -1,4 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  oauthConnectReturnTo,
+  openIntegrationOAuthPopup,
+} from '../../../src/lib/integrationOAuthPopup';
 import { IntegrationCard, type CatalogRow, type ConnectionRow } from '../components/IntegrationCard';
 import { IntegrationIconTile } from '../components/IntegrationIconTile';
 import { catalogSlugForRegistry, isSlugConnected, registrySlugForCatalog } from '../../../lib/integrationSlugAliases';
@@ -182,9 +186,17 @@ export function IntegrationsSection({
 
   const cfStackConfigured = Boolean(cfStackConfig?.cf_stack_configured_at);
 
-  const onConnectOAuth = useCallback((slug: string) => {
-    window.location.href = `/api/integrations/${encodeURIComponent(slug)}/connect`;
-  }, []);
+  const onConnectOAuth = useCallback(
+    async (slug: string) => {
+      const returnTo = encodeURIComponent(oauthConnectReturnTo());
+      const connectUrl = `/api/integrations/${encodeURIComponent(slug)}/connect?return_to=${returnTo}`;
+      const result = await openIntegrationOAuthPopup(connectUrl, slug);
+      if (result.ok) {
+        await Promise.all([loadConnected(), loadCfStackConfig()]);
+      }
+    },
+    [loadCfStackConfig, loadConnected],
+  );
 
   const onConnectApiKey = useCallback(async (slug: string, apiKey: string) => {
     await fetchJson(`/api/integrations/${encodeURIComponent(slug)}/connect`, {

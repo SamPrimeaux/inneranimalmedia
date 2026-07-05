@@ -554,6 +554,9 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
         }
       }
 
+      if (url.searchParams.get('popup') === '1') {
+        extra += '&popup=1';
+      }
       return Response.redirect(`${origin}/api/oauth/${start}/start?return_to=${returnTo}${extra}`, 302);
     }
 

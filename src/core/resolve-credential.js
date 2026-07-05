@@ -443,6 +443,15 @@ export async function resolveCredential(env, workspaceId, tenantId, handlerConfi
       config.account_identifier != null ? String(config.account_identifier) : opts.account_identifier ?? '';
     const row = await getIntegrationOAuthRow(env, uid, provider, accountId);
     if (!row?.access_token) {
+      const platformBypass = maybeSuperadminPlatformCredential(
+        env,
+        workspaceId,
+        tenantId,
+        config,
+        opts,
+        authUser,
+      );
+      if (platformBypass) return platformBypass;
       throw new Error(`[resolveCredential] no OAuth token for provider=${provider}`);
     }
     if (row.tenant_id != null && String(row.tenant_id).trim() !== '' && String(row.tenant_id) !== tid) {
