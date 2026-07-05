@@ -1128,29 +1128,15 @@ export async function resolveProfileModel(env, profile, opts) {
         console.warn('[runtime-profile] pinned model lacks vision, re-routing', e?.message ?? e);
       }
     }
-    let workspaceDefaultModel = null;
-    if (env?.DB) {
-      try {
-        const wsRow = await env.DB.prepare(
-          `SELECT default_model_id FROM agentsam_workspace WHERE id = ? LIMIT 1`,
-        )
-          .bind(ws)
-          .first();
-        workspaceDefaultModel =
-          wsRow?.default_model_id != null ? String(wsRow.default_model_id).trim() : '';
-        if (!workspaceDefaultModel) workspaceDefaultModel = null;
-      } catch {
-        workspaceDefaultModel = null;
-      }
-    }
+    const taskType = normalizeCanonicalTaskType(profile.routing_task_type || profile.mode);
     const resolved = await resolveModelForTask(env, {
-      task_type: normalizeCanonicalTaskType(profile.routing_task_type || profile.mode),
+      task_type: taskType,
       mode: profile.mode,
       workspace_id: ws,
       tenant_id: opts.tenantId != null ? String(opts.tenantId).trim() : undefined,
       require_tools: toolCapableRequired,
       require_vision: requireVision,
-      requested_model_key: workspaceDefaultModel,
+      requested_model_key: isAuto ? null : raw,
     });
     profile.model_key = resolved.model_key;
     profile.routing_arm_id =
@@ -1162,9 +1148,23 @@ export async function resolveProfileModel(env, profile, opts) {
     console.warn('[runtime-profile] resolveProfileModel', e?.message ?? e);
   }
   if (!profile.model_key) {
-    profile.model_key = 'gpt-5.4-nano';
-    profile.selected_provider = profile.selected_provider || 'openai';
-    console.warn('[runtime-profile] resolveProfileModel using platform fallback gpt-5.4-nano');
+    try {
+      const { queryGlobalPolicyArm, normalizeCanonicalTaskType } = await import('./resolveModel.js');
+      const taskType = normalizeCanonicalTaskType(profile.routing_task_type || profile.mode);
+      const globalArm = await queryGlobalPolicyArm(env.DB, {
+        task_type: taskType,
+        mode: profile.mode,
+        workspace_id: ws,
+        require_tools: toolCapableRequired,
+      });
+      if (globalArm?.model_key) {
+        profile.model_key = String(globalArm.model_key);
+        profile.routing_arm_id = globalArm.id != null ? String(globalArm.id) : null;
+        console.warn('[runtime-profile] resolveProfileModel global policy fallback', profile.model_key);
+      }
+    } catch (fb) {
+      console.warn('[runtime-profile] resolveProfileModel fallback', fb?.message ?? fb);
+    }
   }
   return profile;
 }

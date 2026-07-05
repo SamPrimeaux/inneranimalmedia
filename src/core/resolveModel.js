@@ -497,7 +497,7 @@ async function _selectThompsonArmOnce(db, {
 //    No hardcoded model strings here — this is entirely data-driven.
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function queryGlobalPolicyArm(db, { task_type, mode, workspace_id, require_tools }) {
+export async function queryGlobalPolicyArm(db, { task_type, mode, workspace_id, require_tools }) {
   const wsId = String(workspace_id || '').trim();
   const modesToTry = [...new Set([mode, 'auto', 'agent', 'ask', null])];
   const taskTypesToTry = routingTaskTypeCandidates(task_type, mode);

@@ -291,6 +291,27 @@ const SIMPLE_TOOL_TASKS = new Set([
   'chat',
 ]);
 
+/** Routes/tasks that need sandbox/code-interpreter SKUs — not generic MCP/agent tools. */
+const CODE_EXECUTION_ROUTE_KEYS = new Set([
+  'code_sandbox',
+  'python_execute',
+  'cdt_evaluate_script',
+  'code_interpreter',
+]);
+
+const CODE_EXECUTION_TASK_TYPES = new Set([
+  'python_execute',
+  'code_sandbox',
+  'cdt_evaluate_script',
+]);
+
+function routingRequiresCodeExecution(routeKey, taskType) {
+  const rk = routeKey != null ? String(routeKey).trim().toLowerCase() : '';
+  if (rk && CODE_EXECUTION_ROUTE_KEYS.has(rk)) return true;
+  const tt = taskType != null ? String(taskType).trim().toLowerCase() : '';
+  return CODE_EXECUTION_TASK_TYPES.has(tt);
+}
+
 /**
  * Nano complexity gate: Nano can use tools, but we escalate for complex/risky tasks.
  */
@@ -364,16 +385,22 @@ export async function queryRoutingArmsCandidates(env, q) {
   const hasAgentSlug = armCols.has('agent_slug');
 
   const catalogCols = await pragmaTableInfo(db, 'agentsam_model_catalog');
-  const builderToolGate =
-    toolReq && catalogCols.has('supports_code_execution')
+  const needCodeExec = toolReq && routingRequiresCodeExecution(routeKey, tt);
+  const catalogOk =
+    needCodeExec && catalogCols.has('supports_code_execution')
       ? ` AND EXISTS (
            SELECT 1 FROM agentsam_model_catalog mc
            WHERE mc.model_key = ra.model_key AND mc.is_active = 1
              AND COALESCE(mc.supports_tools, 0) = 1
              AND COALESCE(mc.supports_code_execution, 0) = 1
          )`
-      : ` AND EXISTS (SELECT 1 FROM agentsam_model_catalog mc WHERE mc.model_key = ra.model_key AND mc.is_active = 1)`;
-  const catalogOk = builderToolGate;
+      : toolReq
+        ? ` AND EXISTS (
+           SELECT 1 FROM agentsam_model_catalog mc
+           WHERE mc.model_key = ra.model_key AND mc.is_active = 1
+             AND COALESCE(mc.supports_tools, 0) = 1
+         )`
+        : ` AND EXISTS (SELECT 1 FROM agentsam_model_catalog mc WHERE mc.model_key = ra.model_key AND mc.is_active = 1)`;
   /** Base-only ban; `gpt-5.5-pro` is allowed through only when catalog marks it active. */
   const blockGpt55Base = ` AND lower(trim(ra.model_key)) != 'gpt-5.5'`;
   const baseWhere = `ra.task_type = ? AND ra.mode = ? AND ra.is_active = 1 AND ra.is_eligible = 1 AND ra.is_paused = 0 AND ra.budget_exhausted = 0${toolsClause}${catalogOk}${blockGpt55Base}`;
