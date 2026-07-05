@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Offline — Inner Animal Media</title>
+    <title>Recover — Inner Animal Media</title>
     <link rel="stylesheet" href="/static/dashboard/shell.css" />
     <style>
       body {
@@ -20,7 +20,7 @@
       .card {
         max-width: 420px;
         padding: 28px 24px;
-        border-radius: 12px;
+        border-radius: 14px;
         border: 1px solid var(--border-subtle, #1e3e4a);
         background: var(--bg-panel, #0a2d38);
         text-align: center;
@@ -32,7 +32,7 @@
       }
       p {
         margin: 0 0 16px;
-        line-height: 1.5;
+        line-height: 1.55;
         font-size: 14px;
       }
       .actions {
@@ -46,9 +46,9 @@
         width: 100%;
         box-sizing: border-box;
         border-radius: 10px;
-        padding: 10px 16px;
+        padding: 12px 16px;
         font: inherit;
-        font-weight: 600;
+        font-weight: 700;
         font-size: 14px;
         text-decoration: none;
         cursor: pointer;
@@ -67,13 +67,24 @@
   </head>
   <body>
     <div class="card">
-      <h1>You are offline</h1>
-      <p>Inner Animal Media shell is cached on this device. Live Agent Sam, APIs, and meetings need a connection.</p>
+      <h1>App needs a refresh</h1>
+      <p>
+        After an update, the home-screen app may show a blank screen until you sign in again or reload.
+        You do <strong>not</strong> need to delete and reinstall the app.
+      </p>
       <div class="actions">
-        <button type="button" class="secondary" onclick="location.reload()">Try again</button>
-        <a class="primary" href="/auth/login">Sign in</a>
-        <a class="secondary" href="/static/dashboard/app/pwa-recovery.html">App stuck after update?</a>
+        <a class="primary" id="sign-in" href="/auth/login">Sign in</a>
+        <button type="button" class="secondary" onclick="location.reload()">Reload</button>
       </div>
     </div>
+    <script>
+      (function () {
+        var next = location.pathname + location.search + location.hash;
+        if (next && next !== '/') {
+          document.getElementById('sign-in').href =
+            '/auth/login?next=' + encodeURIComponent(next.startsWith('/dashboard') ? next : '/dashboard/agent');
+        }
+      })();
+    </script>
   </body>
 </html>

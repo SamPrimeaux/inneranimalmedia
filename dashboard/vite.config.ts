@@ -60,7 +60,10 @@ function manualChunkForNodeModule(id: string): string | undefined {
   if (id.includes('/recharts/') || /node_modules[/\\]recharts[/\\]/.test(id)) return 'vendor-charts';
   if (/node_modules[/\\]d3-[^/\\]+[/\\]/.test(id)) return 'vendor-charts';
   if (id.includes('lucide-react')) return 'vendor-icons';
-  if (id.includes('framer-motion')) return 'vendor-motion';
+  // Keep motion in vendor-react — isolated chunk resolves `react` to jsx export `h`, breaking createContext.
+  if (id.includes('framer-motion') || id.includes('motion-dom') || id.includes('motion-utils')) {
+    return 'vendor-react';
+  }
   if (id.includes('@cloudflare/realtimekit') || id.includes('realtimekit')) return 'vendor-realtimekit';
 
   return undefined;
@@ -107,7 +110,7 @@ export default defineConfig(({ mode }) => {
         strategies: 'generateSW',
         filename: 'sw.js',
         manifestFilename: 'manifest.webmanifest',
-        includeAssets: ['offline.html'],
+        includeAssets: ['offline.html', 'pwa-recovery.html'],
         manifest: {
           name: 'IAM',
           short_name: 'IAM',
@@ -149,7 +152,7 @@ export default defineConfig(({ mode }) => {
           /** Single-file SW at /sw.js — no hashed workbox-*.js deploy drift. */
           inlineWorkboxRuntime: true,
           importScripts: ['push-handler.js', 'sw-agent-cache.js'],
-          skipWaiting: true,
+          skipWaiting: false,
           clientsClaim: true,
           /** HTML loads dashboard.js?v=… — must match precache entries without falling through to stale runtime cache. */
           ignoreURLParametersMatching: [/^v$/],
@@ -181,7 +184,8 @@ export default defineConfig(({ mode }) => {
           navigateFallbackAllowlist: [/^\/dashboard\//],
           navigateFallbackDenylist: [
             /^\/api\//,
-            /^\/auth/,
+            /^\/auth(?:\/|$)/,
+            /^\/auth\/login(?:\/|$)/,
             /^\/oauth\//,
             /^\/onboarding/,
           ],

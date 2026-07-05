@@ -13,6 +13,11 @@ import {
   isDashboardBootstrapPath,
   readDashboardBootstrapCache,
 } from './src/loadDashboardBootstrap';
+import { installAuthSessionFetchGuard } from './src/pwa/authSessionState';
+import { SessionExpiredGate } from './src/pwa/SessionExpiredGate';
+import { isPhoneViewport } from './lib/breakpoints';
+
+installAuthSessionFetchGuard();
 
 async function mountDashboard() {
   if (isDashboardBootstrapPath()) {
@@ -28,6 +33,30 @@ async function mountDashboard() {
 
   const rootElement = document.getElementById('root');
   if (!rootElement) throw new Error('Could not find root element to mount to');
+
+  const bootUser = readDashboardBootstrapCache(60_000)?.me?.user?.id;
+  if (isDashboardBootstrapPath() && !bootUser && isPhoneViewport()) {
+    try {
+      const probe = await fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' });
+      if (probe.status === 401) {
+        type DashboardRoot = ReturnType<typeof ReactDOM.createRoot>;
+        const w = window as Window & { __IAM_DASHBOARD_ROOT__?: DashboardRoot };
+        if (!w.__IAM_DASHBOARD_ROOT__) {
+          w.__IAM_DASHBOARD_ROOT__ = ReactDOM.createRoot(rootElement);
+        }
+        w.__IAM_DASHBOARD_ROOT__.render(
+          <React.StrictMode>
+            <SessionExpiredGate forced />
+          </React.StrictMode>,
+        );
+        const recovery = document.getElementById('iam-boot-recovery');
+        if (recovery) recovery.hidden = true;
+        return;
+      }
+    } catch {
+      /* mount full app */
+    }
+  }
 
   type DashboardRoot = ReturnType<typeof ReactDOM.createRoot>;
   const w = window as Window & { __IAM_DASHBOARD_ROOT__?: DashboardRoot };
@@ -45,6 +74,9 @@ async function mountDashboard() {
       </BrowserRouter>
     </React.StrictMode>,
   );
+
+  const recovery = document.getElementById('iam-boot-recovery');
+  if (recovery) recovery.hidden = true;
 }
 
 void mountDashboard();

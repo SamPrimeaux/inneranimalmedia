@@ -66,5 +66,10 @@ self.addEventListener('message', (event) => {
 
   if (data.type === 'IAM_TIER1_WARM') {
     event.waitUntil(warmTier1FromManifest());
+    return;
+  }
+
+  if (data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
   }
 });

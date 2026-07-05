@@ -9,6 +9,7 @@ import './chat-startup-center.css';
 import React, { useState, useEffect, useRef, useLayoutEffect, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { PHONE_MQ } from '../../lib/breakpoints';
+import { setChatActivityBusy } from '../../src/pwa/chatActivityGate';
 import { preserveLiveCadTraceRows } from '../../lib/cadToolTrace';
 import { useEditor } from '../../src/EditorContext';
 import { createPortal } from 'react-dom';
@@ -298,6 +299,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   const [isLoading, setIsLoading] = useState(false);
   useEffect(() => { onLoadingChange?.(isLoading); }, [isLoading, onLoadingChange]);
+  useEffect(() => {
+    setChatActivityBusy(isLoading);
+    return () => setChatActivityBusy(false);
+  }, [isLoading]);
   const [thinkingState, setThinkingState] =
     useState<ThinkingCardState | null>(null);
   const [loadingStartedAt, setLoadingStartedAt] = useState<number | null>(null);

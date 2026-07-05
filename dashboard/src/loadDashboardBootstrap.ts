@@ -13,6 +13,7 @@ import {
   activePayloadFromFields,
   readThemeDraftMatchingActive,
 } from '../components/themes/themeTweaksModel';
+import { handleAuthHttpStatus } from './pwa/authSessionState';
 
 export type DashboardBootstrapPayload = {
   ok?: boolean;
@@ -165,6 +166,10 @@ export async function loadDashboardBootstrap(opts?: {
         credentials: 'same-origin',
         headers: { Accept: 'application/json' },
       });
+      if (r.status === 401) {
+        handleAuthHttpStatus(401, '/api/dashboard/bootstrap');
+        return null;
+      }
       if (!r.ok) return null;
       const body = (await r.json()) as DashboardBootstrapPayload;
       return publishDashboardBootstrap(body);

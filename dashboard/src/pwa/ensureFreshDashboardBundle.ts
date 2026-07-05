@@ -1,14 +1,14 @@
 /**
- * Detect stale dashboard JS (PWA / runtime cache) and reload once after purge.
+ * Detect stale dashboard JS (PWA / runtime cache).
+ * Never hard-reloads on phone — surfaces banner via iam-pwa-update-available.
  * Bundled sha comes from Vite `__IAM_BUILD_GIT_SHA__`; remote from /pwa-build-meta.json.
  */
 
-import { isPhoneViewport } from '../../lib/breakpoints';
+import { notifyPwaUpdateAvailable } from './pwaUpdateEvents';
 
 declare const __IAM_BUILD_GIT_SHA__: string;
 
 const SESSION_SHA_KEY = 'iam_dashboard_git_sha';
-const RELOAD_GUARD_KEY = 'iam_dashboard_reload_guard';
 
 function normalizeSha(raw: string): string {
   return String(raw || '').trim().slice(0, 12);
@@ -30,11 +30,10 @@ export async function purgeDashboardJsCaches(): Promise<void> {
   );
 }
 
-/** Call once on dashboard boot (phone viewports reload aggressively). */
+/** Compare bundled vs deployed sha; notify when stale (banner-only — user chooses reload). */
 export async function ensureFreshDashboardBundle(): Promise<void> {
   if (typeof window === 'undefined') return;
 
-  const isNarrow = isPhoneViewport();
   const bundledSha =
     typeof __IAM_BUILD_GIT_SHA__ !== 'undefined' ? normalizeSha(__IAM_BUILD_GIT_SHA__) : '';
 
@@ -48,23 +47,11 @@ export async function ensureFreshDashboardBundle(): Promise<void> {
 
     if (shasMatch(bundledSha, remoteSha)) {
       sessionStorage.setItem(SESSION_SHA_KEY, remoteSha);
-      sessionStorage.removeItem(RELOAD_GUARD_KEY);
       return;
     }
 
-    const prevSha = sessionStorage.getItem(SESSION_SHA_KEY);
     sessionStorage.setItem(SESSION_SHA_KEY, remoteSha);
-
-    const stale = bundledSha && !shasMatch(bundledSha, remoteSha);
-    const remoteChanged = prevSha && prevSha !== remoteSha;
-    const shouldReload = stale || (isNarrow && remoteChanged);
-
-    if (!shouldReload) return;
-    if (sessionStorage.getItem(RELOAD_GUARD_KEY) === remoteSha) return;
-
-    sessionStorage.setItem(RELOAD_GUARD_KEY, remoteSha);
-    await purgeDashboardJsCaches();
-    window.location.reload();
+    notifyPwaUpdateAvailable({ reason: 'bundle_stale', remoteSha });
   } catch {
     /* non-fatal */
   }

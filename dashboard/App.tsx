@@ -117,6 +117,7 @@ import { useWorkspace } from './src/context/WorkspaceContext';
 import { OfflineReconnectBanner, persistLastSessionSnapshot } from './src/pwa/OfflineReconnectBanner';
 import { InstallCoach } from './src/pwa/InstallCoach';
 import { PwaUpdateBanner } from './src/pwa/PwaUpdateBanner';
+import { SessionExpiredGate } from './src/pwa/SessionExpiredGate';
 import { warmAgentChunksForTab } from './src/pwa/warmAgentChunks';
 import {
   readIamGitStatusCache,
@@ -4244,6 +4245,7 @@ const App: React.FC = () => {
     <div className="w-full h-[100dvh] bg-[var(--dashboard-canvas)] overflow-hidden text-[var(--dashboard-text)] font-sans flex flex-col">
       {!isCmsFullscreen ? <OfflineReconnectBanner /> : null}
       {!isCmsFullscreen ? <PwaUpdateBanner /> : null}
+      {!isCmsFullscreen ? <SessionExpiredGate /> : null}
       {!isCmsFullscreen ? <InstallCoach /> : null}
       <div
         className="iam-agent-browser-live-vignette"

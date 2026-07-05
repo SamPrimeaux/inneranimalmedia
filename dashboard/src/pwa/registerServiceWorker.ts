@@ -3,6 +3,7 @@
  */
 
 import { ensureFreshDashboardBundle } from './ensureFreshDashboardBundle';
+import { notifyPwaUpdateAvailable } from './pwaUpdateEvents';
 
 const SW_URL = '/sw.js';
 const SERVICES_MANIFEST_URL = 'https://services.inneranimalmedia.com/sw/manifest.json';
@@ -40,7 +41,7 @@ function checkCacheBustAndNotify(manifest: ServicesSwManifest): void {
   try {
     const prev = localStorage.getItem(CACHE_BUST_STORAGE_KEY);
     if (prev && prev !== next) {
-      window.dispatchEvent(new CustomEvent('iam-pwa-update-available'));
+      notifyPwaUpdateAvailable({ reason: 'cache_bust' });
     }
     localStorage.setItem(CACHE_BUST_STORAGE_KEY, next);
   } catch {
@@ -114,7 +115,7 @@ export async function registerIamServiceWorker(): Promise<void> {
       if (!installing) return;
       installing.addEventListener('statechange', () => {
         if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-          window.dispatchEvent(new CustomEvent('iam-pwa-update-available'));
+          notifyPwaUpdateAvailable({ reason: 'service_worker' });
         }
       });
     });

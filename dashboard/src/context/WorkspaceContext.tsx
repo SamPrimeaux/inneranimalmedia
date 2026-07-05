@@ -19,6 +19,7 @@ import { normalizeGithubRepo } from "../normalizeGithubRepo";
 import { isDashboardBootstrapPath, loadDashboardBootstrap, refreshDashboardBootstrap } from "../loadDashboardBootstrap";
 import { invalidateAgentDomainCache } from "../agentDomainFetch";
 import { coalesceLabel } from "../lib/coalesceLabel";
+import { handleAuthHttpStatus } from "../pwa/authSessionState";
 
 export type WorkspaceRow = {
   id: string;
@@ -415,7 +416,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       if (!userId) {
         try {
           const meRes = await fetch("/api/auth/me", { credentials: "same-origin" });
-          if (meRes.ok) {
+          if (meRes.status === 401) {
+            handleAuthHttpStatus(401, "/api/auth/me");
+          } else if (meRes.ok) {
             const me = (await meRes.json()) as {
               id?: string | null;
               avatar_url?: string | null;
