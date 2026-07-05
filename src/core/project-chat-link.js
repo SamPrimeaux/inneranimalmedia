@@ -49,37 +49,47 @@ export async function resolveChatProjectId(env, projectRef, workspaceId = null) 
   const ref = String(projectRef || '').trim();
   if (!ref) return null;
 
+  /** @type {string|null} */
+  let resolved = null;
+
   try {
     const direct = await env.DB.prepare(`SELECT id FROM workspace_projects WHERE id = ? LIMIT 1`)
       .bind(ref)
       .first();
-    if (direct?.id) return String(direct.id);
+    if (direct?.id) resolved = String(direct.id);
   } catch {
     /* optional table */
   }
 
-  try {
-    let sql = `SELECT id FROM workspace_projects WHERE json_extract(metadata_json, '$.projects_table_id') = ?`;
-    const binds = [ref];
-    if (workspaceId) {
-      sql += ` AND workspace_id = ?`;
-      binds.push(String(workspaceId));
+  if (!resolved) {
+    try {
+      let sql = `SELECT id FROM workspace_projects WHERE json_extract(metadata_json, '$.projects_table_id') = ?`;
+      const binds = [ref];
+      if (workspaceId) {
+        sql += ` AND workspace_id = ?`;
+        binds.push(String(workspaceId));
+      }
+      sql += ` LIMIT 1`;
+      const linked = await env.DB.prepare(sql).bind(...binds).first();
+      if (linked?.id) resolved = String(linked.id);
+    } catch {
+      /* */
     }
-    sql += ` LIMIT 1`;
-    const linked = await env.DB.prepare(sql).bind(...binds).first();
-    if (linked?.id) return String(linked.id);
-  } catch {
-    /* */
   }
 
-  try {
-    const proj = await env.DB.prepare(`SELECT id FROM projects WHERE id = ? LIMIT 1`).bind(ref).first();
-    if (proj?.id) return ref;
-  } catch {
-    /* */
+  if (!resolved) {
+    try {
+      const proj = await env.DB.prepare(`SELECT id FROM projects WHERE id = ? LIMIT 1`).bind(ref).first();
+      if (proj?.id) resolved = ref;
+    } catch {
+      /* */
+    }
   }
 
-  return ref;
+  if (!resolved) resolved = ref;
+
+  const projectsId = await resolveProjectsTableId(env, resolved);
+  return projectsId || resolved;
 }
 
 /**

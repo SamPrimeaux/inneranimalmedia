@@ -784,7 +784,8 @@ async function handleGetOne(env, authUser, id) {
   if (authUser.tenant_id && row.tenant_id && String(row.tenant_id) !== String(authUser.tenant_id) && !authUser.is_superadmin) {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   }
-  return jsonResponse({ ok: true, project: row });
+  const [project] = await attachChatProjectIds(env, [row]);
+  return jsonResponse({ ok: true, project: project || row });
 }
 
 async function handlePatch(request, env, authUser, id, ctx) {

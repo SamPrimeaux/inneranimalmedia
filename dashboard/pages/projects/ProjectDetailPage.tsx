@@ -5,6 +5,7 @@ import {
   CheckSquare,
   ChevronDown,
   ChevronRight,
+  Paperclip,
   ExternalLink,
   FolderOpen,
   Image as ImageIcon,
@@ -22,6 +23,8 @@ import { ProjectShareModal } from '../../components/projects/ProjectShareModal';
 import { uploadProjectR2File } from '../../src/lib/projectR2Upload';
 import { cfImageVariants } from '../../src/lib/projectBranding';
 import { useWorkspace } from '../../src/context/WorkspaceContext';
+import { useComposerConnectorSheet } from '../../hooks/useComposerConnectorSheet';
+import { AgentComposerSourceChips } from '../../components/ChatAssistant/composer/AgentComposerSourceChips';
 import {
   coverFromMeta,
   isProjectImageFile,
@@ -29,8 +32,13 @@ import {
   projectFilesFromMeta,
   type ProjectFileRef,
 } from './projectDetailMeta';
-import { resumeAgentChatSession, startProjectAgentChat } from '../../lib/openAgentConversation';
-import { writeSessionProject } from '../../src/lib/freshChatSession';
+import { resumeAgentChatSession } from '../../lib/openAgentConversation';
+import {
+  loadProjectThreadMessages,
+  sendProjectComposerChat,
+  type ProjectThreadMessage,
+} from '../../lib/projectComposerChat';
+import { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../../agentChatConstants';
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -144,7 +152,7 @@ function RailSection({
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const { workspaceId } = useWorkspace();
+  const { workspaceId, sessionUserId } = useWorkspace();
   const isMobile = useIsMobile();
 
   const [project, setProject] = useState<Project | null>(null);
@@ -152,10 +160,43 @@ export default function ProjectDetailPage() {
   const [loadingProject, setLoadingProject] = useState(true);
   const [loadingChats, setLoadingChats] = useState(true);
 
-  // composer
+  // composer + inline thread
   const [draft, setDraft] = useState('');
   const [sendBusy, setSendBusy] = useState(false);
+  const [composerAttachments, setComposerAttachments] = useState<File[]>([]);
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [threadMessages, setThreadMessages] = useState<ProjectThreadMessage[]>([]);
+  const [threadLoading, setThreadLoading] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerAttachRef = useRef<HTMLInputElement>(null);
+  const threadScrollRef = useRef<HTMLDivElement>(null);
+  const sendAbortRef = useRef<AbortController | null>(null);
+
+  const {
+    composerRef,
+    attachButtonRef,
+    composerSources,
+    attachMenuOpen,
+    toggleAttachMenu,
+    removeComposerSource,
+    renderAttachMenuPortal,
+  } = useComposerConnectorSheet({
+    workspaceId,
+    sessionUserId,
+    onAttachFiles: () => composerAttachRef.current?.click(),
+    onCreateImage: () => {
+      setDraft((prev) => (prev.trim() ? prev : 'Generate an image of '));
+      textareaRef.current?.focus();
+    },
+    onWebSearch: () => {
+      setDraft((prev) => (prev.trim() ? prev : 'Search the web for: '));
+      textareaRef.current?.focus();
+    },
+    onDeepResearch: () => {
+      setDraft((prev) => (prev.trim() ? prev : 'Research in depth: '));
+      textareaRef.current?.focus();
+    },
+  });
 
   // rename
   const [renaming, setRenaming] = useState(false);
@@ -232,6 +273,22 @@ export default function ProjectDetailPage() {
 
   useEffect(() => { void loadProject(); }, [loadProject]);
   useEffect(() => { void loadChats(); }, [loadChats]);
+
+  useEffect(() => {
+    const onConv = () => {
+      void loadChats();
+      window.setTimeout(() => void loadChats(), 1200);
+      window.setTimeout(() => void loadChats(), 3200);
+    };
+    window.addEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onConv);
+    return () => window.removeEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onConv);
+  }, [loadChats]);
+
+  useEffect(() => {
+    const el = threadScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [threadMessages, sendBusy]);
 
   const loadMemory = useCallback(async () => {
     if (!projectId) return;
@@ -438,31 +495,92 @@ export default function ProjectDetailPage() {
     }
   };
 
-  // ── start new chat ──
-  const startNewChat = async () => {
-    if (!project || sendBusy) return;
-    setSendBusy(true);
+  // ── project-scoped chat (stay on page — context via attachments + project memory) ──
+  const projectChatId = project?.id || projectId || '';
+
+  const openThread = useCallback(async (conversationId: string) => {
+    const id = String(conversationId || '').trim();
+    if (!id) return;
+    setActiveConvId(id);
+    setThreadLoading(true);
     try {
-      const message = draft.trim();
-      setDraft('');
-      startProjectAgentChat({
-        projectId: project.chat_project_id || project.id,
-        projectName: project.name,
-        message: message || undefined,
-      });
+      const rows = await loadProjectThreadMessages(id);
+      setThreadMessages(rows.length ? rows : []);
     } finally {
+      setThreadLoading(false);
+    }
+  }, []);
+
+  const startNewThread = useCallback(() => {
+    sendAbortRef.current?.abort();
+    setActiveConvId(null);
+    setThreadMessages([]);
+    setDraft('');
+    setComposerAttachments([]);
+  }, []);
+
+  const sendProjectChat = async () => {
+    if (!project || sendBusy) return;
+    const message = draft.trim();
+    const hasFiles = composerAttachments.length > 0;
+    if (!message && !hasFiles) return;
+
+    setSendBusy(true);
+    sendAbortRef.current?.abort();
+    const ac = new AbortController();
+    sendAbortRef.current = ac;
+
+    const userVisible =
+      message ||
+      (hasFiles
+        ? `Review ${composerAttachments.length} attached file${composerAttachments.length === 1 ? '' : 's'}.`
+        : '');
+
+    try {
+      const convId = await sendProjectComposerChat({
+        projectId: projectChatId,
+        workspaceId: project.workspace_id || workspaceId || null,
+        conversationId: activeConvId,
+        message: userVisible,
+        files: composerAttachments,
+        memory,
+        instructions,
+        composerSources,
+        signal: ac.signal,
+        onConversationId: (id) => setActiveConvId(id),
+        setMessages: setThreadMessages,
+        setStreaming: setSendBusy,
+      });
+      setActiveConvId(convId);
+      setDraft('');
+      setComposerAttachments([]);
+      void loadChats();
+      window.setTimeout(() => void loadChats(), 1500);
+    } catch (e) {
+      if (ac.signal.aborted) return;
+      setToast(e instanceof Error ? e.message : 'Chat failed');
+    } finally {
+      if (sendAbortRef.current === ac) sendAbortRef.current = null;
       setSendBusy(false);
     }
   };
 
   const resumeChat = (s: ChatSession) => {
     const id = s.conversation_id ?? s.id ?? '';
-    if (!id || !project) return;
-    writeSessionProject({
-      id: project.chat_project_id || project.id,
-      name: project.name,
-    });
-    resumeAgentChatSession({ id, title: s.title || 'Chat', force: true });
+    if (!id) return;
+    void openThread(id);
+  };
+
+  const openInAgent = () => {
+    if (!activeConvId || !project) return;
+    resumeAgentChatSession({ id: activeConvId, title: chats.find((c) => (c.conversation_id ?? c.id) === activeConvId)?.title || 'Chat', force: true });
+  };
+
+  const onComposerFiles = (files: FileList | File[] | null) => {
+    if (!files) return;
+    const next = Array.from(files);
+    if (!next.length) return;
+    setComposerAttachments((prev) => [...prev, ...next].slice(0, 12));
   };
 
   const imageFiles = useMemo(
@@ -811,42 +929,108 @@ export default function ProjectDetailPage() {
 
         <div className="cpd-left-scroll">
         {/* composer */}
-        <div className="cpd-composer">
+        <div className="cpd-composer" ref={composerRef}>
+          <AgentComposerSourceChips
+            sources={composerSources}
+            onRemove={removeComposerSource}
+            className="cpd-composer-source-chips"
+          />
+          {composerAttachments.length > 0 ? (
+            <div className="cpd-composer-attachments">
+              {composerAttachments.map((f, i) => (
+                <span key={`${f.name}-${i}`} className="cpd-composer-attach-chip">
+                  <Paperclip size={11} aria-hidden />
+                  <span className="cpd-composer-attach-name">{f.name}</span>
+                  <button
+                    type="button"
+                    className="cpd-composer-attach-remove"
+                    aria-label={`Remove ${f.name}`}
+                    onClick={() =>
+                      setComposerAttachments((prev) => prev.filter((_, idx) => idx !== i))
+                    }
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
           <textarea
             ref={textareaRef}
             className="cpd-composer-input"
             placeholder="How can I help you today?"
             value={draft}
             rows={1}
+            disabled={sendBusy}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                void startNewChat();
+                void sendProjectChat();
               }
             }}
           />
           <div className="cpd-composer-footer">
             <button
               type="button"
+              ref={attachButtonRef}
               className="cpd-composer-new"
-              onClick={() => void startNewChat()}
+              title="Add files, tools, or connections"
               disabled={sendBusy}
+              aria-expanded={attachMenuOpen}
+              onClick={toggleAttachMenu}
             >
               <Plus size={14} />
             </button>
+            {activeConvId ? (
+              <button
+                type="button"
+                className="cpd-composer-link"
+                onClick={openInAgent}
+                title="Open full Agent Sam view"
+              >
+                Open in Agent
+              </button>
+            ) : null}
             <div className="cpd-composer-spacer" />
             <button
               type="button"
               className="cpd-composer-send"
-              onClick={() => void startNewChat()}
-              disabled={sendBusy || !draft.trim()}
+              onClick={() => void sendProjectChat()}
+              disabled={sendBusy || (!draft.trim() && composerAttachments.length === 0)}
               aria-label="Send"
             >
               <Send size={14} />
             </button>
           </div>
         </div>
+
+        {(activeConvId || threadMessages.length > 0) && (
+          <div className="cpd-thread" ref={threadScrollRef}>
+            <div className="cpd-thread-header">
+              <span className="cpd-thread-label">
+                {activeConvId ? 'Project chat' : 'New chat'}
+              </span>
+              <button type="button" className="cpd-thread-new" onClick={startNewThread}>
+                New chat
+              </button>
+            </div>
+            {threadLoading ? (
+              <div className="cpd-thread-loading">Loading messages…</div>
+            ) : (
+              <div className="cpd-thread-messages">
+                {threadMessages.map((m, i) => (
+                  <div
+                    key={`${m.id || i}-${m.role}`}
+                    className={`cpd-thread-bubble cpd-thread-bubble--${m.role}`}
+                  >
+                    {m.content || (m.role === 'assistant' && sendBusy ? '…' : '')}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* chat list */}
         <div className="cpd-chat-section">
@@ -1003,6 +1187,18 @@ export default function ProjectDetailPage() {
       ) : null}
 
       {toast && <div className="cpd-toast" role="status">{toast}</div>}
+      {renderAttachMenuPortal()}
+      <input
+        ref={composerAttachRef}
+        type="file"
+        multiple
+        accept="image/*,.pdf,.doc,.docx,.txt,.md,.csv,.json"
+        hidden
+        onChange={(e) => {
+          onComposerFiles(e.target.files);
+          if (composerAttachRef.current) composerAttachRef.current.value = '';
+        }}
+      />
       <input
         ref={coverInputRef}
         type="file"
@@ -1292,6 +1488,117 @@ const CSS = `
   transition: opacity 0.1s;
 }
 .cpd-composer-send:disabled { opacity: 0.3; cursor: default; }
+
+.cpd-composer-source-chips {
+  padding: 0 2px 8px;
+}
+
+.cpd-composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 2px 8px;
+}
+.cpd-composer-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--dashboard-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-muted, #94a3b8);
+}
+.cpd-composer-attach-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cpd-composer-attach-remove {
+  display: flex;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.cpd-composer-attach-remove:hover { opacity: 1; }
+.cpd-composer-link {
+  font-size: 11px;
+  color: var(--solar-cyan, #22d3ee);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+.cpd-composer-link:hover { text-decoration: underline; }
+
+.cpd-thread {
+  margin: 0 0 16px;
+  max-height: min(420px, 42vh);
+  overflow-y: auto;
+  border: 1px solid var(--dashboard-border);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.15);
+}
+.cpd-thread-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--dashboard-border);
+  position: sticky;
+  top: 0;
+  background: var(--bg-elevated, #1a1d2e);
+  z-index: 1;
+}
+.cpd-thread-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-muted, #94a3b8);
+}
+.cpd-thread-new {
+  font-size: 11px;
+  color: var(--solar-cyan, #22d3ee);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.cpd-thread-loading {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: var(--color-muted, #94a3b8);
+}
+.cpd-thread-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+.cpd-thread-bubble {
+  max-width: 92%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cpd-thread-bubble--user {
+  align-self: flex-end;
+  background: rgba(34, 211, 238, 0.12);
+  border: 1px solid rgba(34, 211, 238, 0.25);
+}
+.cpd-thread-bubble--assistant {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--dashboard-border);
+}
 
 /* ── chat list ── */
 .cpd-chat-section {

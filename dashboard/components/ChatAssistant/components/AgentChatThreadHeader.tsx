@@ -5,6 +5,8 @@ import { conversationIdFromSession, sessionDisplayTitle } from '../../../agentSe
 import type { AgentChatProjectOption } from '../../../hooks/useAgentChatSessions';
 import { deleteAgentSession, patchAgentSession } from '../../../hooks/useAgentChatSessions';
 import { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../../../agentChatConstants';
+import { notifyAgentChatSessionsRefresh } from '../../../lib/openAgentConversation';
+import { useWorkspace } from '../../../src/context/WorkspaceContext';
 
 type Props = {
   conversationId: string;
@@ -44,6 +46,7 @@ export const AgentChatThreadHeader: FC<Props> = ({
   mobileThreadChrome = false,
   onView,
 }) => {
+  const { workspaceId } = useWorkspace();
   const convId = String(conversationId || '').trim();
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
@@ -111,9 +114,15 @@ export const AgentChatThreadHeader: FC<Props> = ({
 
   const assignProject = (projectId: string | null) =>
     void run(async () => {
-      const p = projects.find((x) => x.id === projectId);
-      const resolved = p?.chat_project_id || projectId;
-      await patchAgentSession(convId, { project_id: resolved });
+      const patch: Record<string, unknown> = {};
+      if (workspaceId?.trim()) patch.workspace_id = workspaceId.trim();
+      if (!projectId) {
+        patch.project_id = null;
+      } else {
+        patch.project_id = projectId;
+      }
+      await patchAgentSession(convId, patch);
+      notifyAgentChatSessionsRefresh(convId);
     });
 
   const deleteChat = () => {

@@ -1134,7 +1134,40 @@ export async function patchUserChatSession(env, input) {
     )
       .bind(...binds)
       .run();
-    const changed = Number(r.meta?.changes ?? r.changes ?? 0);
+    let changed = Number(r.meta?.changes ?? r.changes ?? 0);
+    if (!changed && typeof patch.project_id === 'string' && patch.project_id.trim()) {
+      const resolvedProjectId = await resolveChatProjectId(
+        env,
+        patch.project_id.trim(),
+        patch.workspace_id || null,
+      );
+      const title =
+        typeof patch.title === 'string' && patch.title.trim()
+          ? patch.title.trim().slice(0, 200)
+          : 'Chat';
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO agentsam_chat_sessions (
+           conversation_id, tenant_id, user_id, workspace_id, title, project_id,
+           message_count, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, 1, unixepoch(), unixepoch())`,
+      )
+        .bind(
+          conversationId,
+          tenantId,
+          userId,
+          patch.workspace_id != null ? String(patch.workspace_id).trim() || null : null,
+          title,
+          resolvedProjectId || patch.project_id.trim(),
+        )
+        .run();
+      const r2 = await env.DB.prepare(
+        `UPDATE agentsam_chat_sessions SET ${sets.join(', ')}
+         WHERE conversation_id = ? AND user_id = ? AND tenant_id = ?`,
+      )
+        .bind(...binds)
+        .run();
+      changed = Number(r2.meta?.changes ?? r2.changes ?? 0);
+    }
     if (!changed) return { ok: false, error: 'not_found' };
     return { ok: true };
   } catch (e) {
