@@ -9,6 +9,7 @@ import {
   validateHandlerConfigForExecution,
 } from './agentsam-tools-catalog.js';
 import { resolveIntegrationUserId } from './integration-user-id.js';
+import { executeFindToolsMetaTool } from './find-tools-meta-tool.js';
 import {
   LEGACY_TERMINAL_TOOL_REDIRECT,
   resolveCatalogDispatchToolKey,
@@ -28,12 +29,42 @@ function normalizeAuthSourceForSpend(raw) {
   return s;
 }
 
+function isFindToolsMetaTool(rawKey) {
+  const key = String(rawKey || '').trim().toLowerCase();
+  return key === 'find_tools' || key === 'find-tools' || key === 'agentsam_find_tools';
+}
+
 /**
  * @param {any} env
  * @param {string} toolCodeOrKey
  */
 export async function dispatchByToolCode(env, toolCodeOrKey, input, runContext = {}) {
   const rawKey = String(toolCodeOrKey ?? '').trim();
+
+  // Core meta-tool: discover catalog capabilities before normal row dispatch.
+  // This intentionally bypasses agentsam_tools lookup so discovery cannot fail
+  // just because the catalog row has not been seeded yet. Risk/approval remains
+  // enforced when the selected catalog tool is executed later.
+  if (isFindToolsMetaTool(rawKey)) {
+    const out = await executeFindToolsMetaTool(env, parseInput(input), runContext);
+    if (out?.ok === false) {
+      return {
+        ok: false,
+        error: out.error || 'find_tools_failed',
+        tool_key: 'find_tools',
+        status: out.status,
+        body: out.body,
+      };
+    }
+    return {
+      ok: true,
+      tool_key: 'find_tools',
+      auth_source: 'none',
+      status: 200,
+      result: out.result ?? out,
+    };
+  }
+
   const resolvedKey = resolveCatalogDispatchToolKey(rawKey);
   const row = await loadCatalogToolRowForDispatch(env, rawKey);
   if (!row) {
