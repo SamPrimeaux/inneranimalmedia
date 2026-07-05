@@ -4,6 +4,7 @@
 
 import { ensureFreshDashboardBundle } from './ensureFreshDashboardBundle';
 import { notifyPwaUpdateAvailable } from './pwaUpdateEvents';
+import { activateWaitingServiceWorker, purgeDashboardJsCaches } from './purgePwaCaches';
 
 const SW_URL = '/sw.js';
 const SERVICES_MANIFEST_URL = 'https://services.inneranimalmedia.com/sw/manifest.json';
@@ -41,7 +42,7 @@ function checkCacheBustAndNotify(manifest: ServicesSwManifest): void {
   try {
     const prev = localStorage.getItem(CACHE_BUST_STORAGE_KEY);
     if (prev && prev !== next) {
-      void purgeLegacyDashboardJsCaches();
+      void purgeDashboardJsCaches().then(() => activateWaitingServiceWorker());
       notifyPwaUpdateAvailable({ reason: 'cache_bust' });
     }
     localStorage.setItem(CACHE_BUST_STORAGE_KEY, next);
@@ -84,11 +85,9 @@ function triggerTier1Warm(): void {
   }
 }
 
-async function purgeLegacyDashboardJsCaches(): Promise<void> {
-  if (typeof caches === 'undefined') return;
-  await Promise.all(
-    ['iam-dashboard-js-v1', 'iam-dashboard-js-v2', 'iam-dashboard-js-v3'].map((name) => caches.delete(name)),
-  );
+async function purgeBootCachesOnDeployChange(): Promise<void> {
+  await purgeDashboardJsCaches();
+  await activateWaitingServiceWorker();
 }
 
 const SW_UPDATE_INTERVAL_MS = 30 * 60 * 1000;
@@ -108,8 +107,9 @@ export async function registerIamServiceWorker(): Promise<void> {
   if (onAuthSurface()) return;
 
   try {
-    await purgeLegacyDashboardJsCaches();
+    await purgeBootCachesOnDeployChange();
     const registration = await navigator.serviceWorker.register(SW_URL, { scope: '/' });
+    void registration.update();
 
     registration.addEventListener('updatefound', () => {
       const installing = registration.installing;

@@ -191,9 +191,16 @@
           return /does not provide an export named/i.test(String(msg || ''));
         }
         function recoverFromChunkDrift() {
-          var key = 'iam_chunk_drift_reload';
+          var bustMeta = document.querySelector('meta[name="iam-cache-bust"]');
+          var bust = (bustMeta && bustMeta.getAttribute('content')) || 'unknown';
+          var key = 'iam_chunk_drift_reload_' + bust;
           try {
             if (sessionStorage.getItem(key)) {
+              if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistration('/').then(function (reg) {
+                  if (reg) return reg.unregister();
+                });
+              }
               showRecovery(true);
               return;
             }
@@ -201,13 +208,24 @@
           } catch (e) {}
           function hardReload() {
             try {
-              var bust = Date.now();
+              var reloadBust = Date.now();
               var u = new URL(location.href);
-              u.searchParams.set('_iam_chunk_reload', String(bust));
+              u.searchParams.set('_iam_chunk_reload', String(reloadBust));
               location.replace(u.toString());
             } catch (e2) {
               location.reload();
             }
+          }
+          function afterPurge() {
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistration('/').then(function (reg) {
+                if (reg && reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                if (reg) reg.update();
+                hardReload();
+              });
+              return;
+            }
+            hardReload();
           }
           if ('caches' in window) {
             caches
@@ -215,16 +233,20 @@
               .then(function (ns) {
                 return Promise.all(
                   ns.map(function (name) {
-                    if (/^iam-dashboard-js-v/.test(name) || /^workbox-precache-/.test(name)) {
+                    if (
+                      /^iam-dashboard-js-v/.test(name) ||
+                      /^workbox-precache-/.test(name) ||
+                      /^workbox-precache-v/.test(name)
+                    ) {
                       return caches.delete(name);
                     }
                   }),
                 );
               })
-              .finally(hardReload);
+              .finally(afterPurge);
             return;
           }
-          hardReload();
+          afterPurge();
         }
         window.addEventListener('error', function (ev) {
           if (isChunkDriftMessage(ev && ev.message)) {

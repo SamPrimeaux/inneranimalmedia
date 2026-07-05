@@ -5,10 +5,13 @@
  */
 
 import { notifyPwaUpdateAvailable } from './pwaUpdateEvents';
+import { activateWaitingServiceWorker, purgeDashboardJsCaches } from './purgePwaCaches';
 
 declare const __IAM_BUILD_GIT_SHA__: string;
 
 const SESSION_SHA_KEY = 'iam_dashboard_git_sha';
+
+export { purgeDashboardJsCaches } from './purgePwaCaches';
 
 function normalizeSha(raw: string): string {
   return String(raw || '').trim().slice(0, 12);
@@ -19,15 +22,6 @@ function shasMatch(a: string, b: string): boolean {
   const y = normalizeSha(b);
   if (!x || !y) return true;
   return x === y || x.startsWith(y.slice(0, 7)) || y.startsWith(x.slice(0, 7));
-}
-
-export async function purgeDashboardJsCaches(): Promise<void> {
-  if (typeof caches === 'undefined') return;
-  await Promise.all(
-    ['iam-dashboard-js-v1', 'iam-dashboard-js-v2', 'iam-dashboard-js-v3'].map((name) =>
-      caches.delete(name),
-    ),
-  );
 }
 
 /** Compare bundled vs deployed sha; notify when stale (banner-only — user chooses reload). */
@@ -52,6 +46,7 @@ export async function ensureFreshDashboardBundle(): Promise<void> {
 
     sessionStorage.setItem(SESSION_SHA_KEY, remoteSha);
     await purgeDashboardJsCaches();
+    await activateWaitingServiceWorker();
     notifyPwaUpdateAvailable({ reason: 'bundle_stale', remoteSha });
   } catch {
     /* non-fatal */

@@ -152,7 +152,7 @@ export default defineConfig(({ mode }) => {
           /** Single-file SW at /sw.js — no hashed workbox-*.js deploy drift. */
           inlineWorkboxRuntime: true,
           importScripts: ['push-handler.js', 'sw-agent-cache.js'],
-          skipWaiting: false,
+          skipWaiting: true,
           clientsClaim: true,
           /** HTML loads dashboard.js?v=… — must match precache entries without falling through to stale runtime cache. */
           ignoreURLParametersMatching: [/^v$/],
@@ -282,7 +282,7 @@ export default defineConfig(({ mode }) => {
         transformIndexHtml(html) {
           if (html.includes('iam-purge-stale-dashboard-js-cache')) return html;
           const purge =
-            '<script id="iam-purge-stale-dashboard-js-cache">try{var m=document.querySelector(\'meta[name="iam-cache-bust"]\');var n=m&&m.getAttribute("content");var k="iam_sw_cache_bust";var p=localStorage.getItem(k);if(n&&p&&p!==n&&"caches"in window){sessionStorage.removeItem("iam_chunk_drift_reload");caches.keys().then(function(ns){return Promise.all(ns.map(function(name){if(/^iam-dashboard-js-v/.test(name)||/^workbox-precache-/.test(name))return caches.delete(name);}));});}if(n)localStorage.setItem(k,n);}catch(e){}</script>';
+            '<script id="iam-purge-stale-dashboard-js-cache">try{var m=document.querySelector(\'meta[name="iam-cache-bust"]\');var n=m&&m.getAttribute("content");var k="iam_sw_cache_bust";var p=localStorage.getItem(k);if(n&&p&&p!==n&&"caches"in window){sessionStorage.removeItem("iam_chunk_drift_reload");if(n){try{sessionStorage.removeItem("iam_chunk_drift_reload_"+n);}catch(e0){}}caches.keys().then(function(ns){return Promise.all(ns.map(function(name){if(/^iam-dashboard-js-v/.test(name)||/^workbox-precache-/.test(name)||/^workbox-precache-v/.test(name))return caches.delete(name);}));}).then(function(){if("serviceWorker"in navigator){navigator.serviceWorker.getRegistration("/").then(function(reg){if(reg&&reg.waiting)reg.waiting.postMessage({type:"SKIP_WAITING"});if(reg)reg.update();});}});}if(n)localStorage.setItem(k,n);}catch(e){}</script>';
           return html.replace(
             /<script type="module" crossorigin src="\/static\/dashboard\/app\/dashboard\.js/,
             `${purge}\n  <script type="module" crossorigin src="/static/dashboard/app/dashboard.js`,

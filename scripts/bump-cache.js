@@ -28,25 +28,31 @@ if (html.includes('<meta name="iam-cache-bust"')) {
 
 fs.writeFileSync(indexPath, html);
 
-/** Lazy route chunks import ./dashboard.js — must share the same ?v= as index.html or browsers reuse a stale entry module. */
-const DASHBOARD_IMPORT_RE = /\.\/dashboard\.js(?:\?v=[^"'<> ]+)?/g;
-let chunkFiles = 0;
+const SKIP_JS = new Set(["sw.js", "push-handler.js", "sw-agent-cache.js"]);
+const DYNAMIC_IMPORT_RE = /import\("(\.\/[^"?]+\.js)(?:\?v=[^"'<> ]+)?"\)/g;
+const STATIC_IMPORT_RE = /from"(\.\/[^"?]+\.js)(?:\?v=[^"'<> ]+)?"/g;
+
+function stampRelativeJsImports(raw) {
+  return raw
+    .replace(DYNAMIC_IMPORT_RE, (_, rel) => `import("${rel}?v=${stamp}")`)
+    .replace(STATIC_IMPORT_RE, (_, rel) => `from"${rel}?v=${stamp}"`);
+}
+
+/** Stamp deploy ?v= on every relative ./ chunk import so lazy routes cannot cross-deploy. */
+let stampedFiles = 0;
 for (const name of fs.readdirSync(distDir)) {
-  if (!name.endsWith(".js") || name === "sw.js" || name === "push-handler.js" || name === "sw-agent-cache.js") {
-    continue;
-  }
+  if (!name.endsWith(".js") || SKIP_JS.has(name)) continue;
   const filePath = path.join(distDir, name);
   const raw = fs.readFileSync(filePath, "utf8");
-  if (!raw.includes("./dashboard.js")) continue;
-  const next = raw.replace(DASHBOARD_IMPORT_RE, `./dashboard.js?v=${stamp}`);
+  const next = stampRelativeJsImports(raw);
   if (next !== raw) {
     fs.writeFileSync(filePath, next);
-    chunkFiles += 1;
+    stampedFiles += 1;
   }
 }
 
 console.log("[bump-cache] Updated:", indexPath);
 console.log("[bump-cache] v=", stamp);
-if (chunkFiles) {
-  console.log(`[bump-cache] Stamped ./dashboard.js imports in ${chunkFiles} chunk file(s)`);
+if (stampedFiles) {
+  console.log(`[bump-cache] Stamped relative ./ imports in ${stampedFiles} JS file(s)`);
 }

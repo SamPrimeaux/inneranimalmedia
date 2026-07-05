@@ -1,4 +1,4 @@
-import { purgeDashboardJsCaches } from './ensureFreshDashboardBundle';
+import { activateWaitingServiceWorker, purgeDashboardJsCaches } from './purgePwaCaches';
 
 export const PWA_UPDATE_EVENT = 'iam-pwa-update-available';
 
@@ -17,24 +17,20 @@ export async function applyPwaUpdateAndReload(): Promise<void> {
   if (typeof window === 'undefined') return;
 
   await purgeDashboardJsCaches();
+  await activateWaitingServiceWorker();
 
   try {
-    const registration = await navigator.serviceWorker?.getRegistration?.();
-    const waiting = registration?.waiting;
-    if (waiting) {
-      waiting.postMessage({ type: 'SKIP_WAITING' });
-      await new Promise<void>((resolve) => {
-        const timeout = window.setTimeout(resolve, 2500);
-        navigator.serviceWorker?.addEventListener(
-          'controllerchange',
-          () => {
-            window.clearTimeout(timeout);
-            resolve();
-          },
-          { once: true },
-        );
-      });
-    }
+    await new Promise<void>((resolve) => {
+      const timeout = window.setTimeout(resolve, 2500);
+      navigator.serviceWorker?.addEventListener(
+        'controllerchange',
+        () => {
+          window.clearTimeout(timeout);
+          resolve();
+        },
+        { once: true },
+      );
+    });
   } catch {
     /* reload anyway */
   }

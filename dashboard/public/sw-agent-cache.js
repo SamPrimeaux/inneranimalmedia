@@ -48,7 +48,19 @@ async function warmTier1FromManifest() {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
-      await Promise.all(LEGACY_JS_CACHE_NAMES.map((name) => caches.delete(name)));
+      if (typeof caches !== 'undefined') {
+        const keys = await caches.keys();
+        await Promise.all(
+          keys
+            .filter(
+              (name) =>
+                LEGACY_JS_CACHE_NAMES.includes(name) ||
+                /^workbox-precache-/.test(name) ||
+                name.startsWith('workbox-precache-v'),
+            )
+            .map((name) => caches.delete(name)),
+        );
+      }
       await warmTier1FromManifest();
     })(),
   );
