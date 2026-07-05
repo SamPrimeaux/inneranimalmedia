@@ -199,6 +199,16 @@
             }
             sessionStorage.setItem(key, '1');
           } catch (e) {}
+          function hardReload() {
+            try {
+              var bust = Date.now();
+              var u = new URL(location.href);
+              u.searchParams.set('_iam_chunk_reload', String(bust));
+              location.replace(u.toString());
+            } catch (e2) {
+              location.reload();
+            }
+          }
           if ('caches' in window) {
             caches
               .keys()
@@ -211,12 +221,10 @@
                   }),
                 );
               })
-              .finally(function () {
-                location.reload();
-              });
+              .finally(hardReload);
             return;
           }
-          location.reload();
+          hardReload();
         }
         window.addEventListener('error', function (ev) {
           if (isChunkDriftMessage(ev && ev.message)) {
