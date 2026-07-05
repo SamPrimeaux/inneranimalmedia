@@ -57,8 +57,8 @@ export async function finalizeMoviemodeOutput(env, buffer, meta) {
   const workspaceId = String(meta.workspaceId || '').trim();
   const tenantId = String(meta.tenantId || '').trim();
   const userId = String(meta.userId || '').trim();
-  if (!workspaceId || !tenantId) {
-    throw new Error('workspace_id and tenant_id required');
+  if (!workspaceId || !tenantId || !userId) {
+    throw new Error('workspace_id, tenant_id, and user_id required');
   }
 
   const bucketName = defaultArtifactBucket();
@@ -69,8 +69,7 @@ export async function finalizeMoviemodeOutput(env, buffer, meta) {
   const contentType = meta.contentType || mimeFromFilename(filename);
   const artifactId = newArtifactId();
   const r2Key = buildArtifactR2Key({
-    scope: 'workspace',
-    workspaceId,
+    userId,
     kind: 'export',
     artifactId,
     format: 'video',

@@ -100,32 +100,30 @@ export function defaultArtifactBucket(_opts = {}) {
 }
 
 /**
- * Canonical key for new artifacts (artifacts bucket lane).
- *   artifacts/{scope}/{workspace_id}/{kind}/{artifact_id}.{ext}
+ * Canonical key for new artifacts (ARTIFACTS bucket lane).
+ *   user/{user_id}/{kind}/{artifact_id}.{ext}
+ *
+ * User owns storage — workspace_id lives in D1 only, never in the R2 path.
  *
  * @param {{
- *   scope?: string,
- *   workspaceId: string,
+ *   userId: string,
  *   kind?: string,
  *   artifactId: string,
  *   format?: string,
  * }} p
  */
 export function buildArtifactR2Key(p) {
-  const scope = ARTIFACT_SCOPES.includes(String(p.scope || '').trim())
-    ? String(p.scope).trim()
-    : 'user';
-  const wid = safeSegment(p.workspaceId);
+  const uid = safeSegment(p.userId);
   const id = safeSegment(p.artifactId);
-  if (!wid || !id) return null;
+  if (!uid || !id) return null;
   const kind = normalizeArtifactKind(p.kind);
   const format = normalizeArtifactFormat(p.format || kind);
   const ext = ARTIFACT_EXT[format] || ARTIFACT_EXT.other;
-  return `artifacts/${scope}/${wid}/${kind}/${id}.${ext}`;
+  return `user/${uid}/${kind}/${id}.${ext}`;
 }
 
 /**
- * Workspace-scoped autorag lane (existing artifact-r2-store contract).
+ * @deprecated Legacy autorag lane — reads only. New writes use buildArtifactR2Key (user/ prefix).
  * @param {{ userId: string, workspaceId: string, format?: string, artifactId: string }} p
  */
 export function buildWorkspaceAutoragArtifactKey(p) {
@@ -145,6 +143,7 @@ export function buildWorkspaceAutoragArtifactKey(p) {
 export function inferLegacyArtifactBucket(r2Key) {
   const key = String(r2Key || '').trim();
   if (!key || key.includes('missing-r2-key')) return BUCKET_ARTIFACTS;
+  if (key.startsWith('user/')) return BUCKET_ARTIFACTS;
   if (key.startsWith('artifacts/')) return BUCKET_ARTIFACTS;
   if (key.startsWith('workspaces/') || key.startsWith('agentsam/plans/')) return BUCKET_AUTORAG;
   if (key.startsWith('agentsam/')) return BUCKET_AUTORAG;

@@ -1,6 +1,6 @@
 /**
  * Persist plan artifacts (Excalidraw JSON, Markdown) in ARTIFACTS bucket + agentsam_artifacts (D1).
- * Keys: artifacts/workspace/{workspace_id}/plan/{artifact_id}.{ext}
+ * Keys: user/{user_id}/plan/{artifact_id}.{ext}
  */
 
 import { writeWorkspaceArtifact, ARTIFACT_WRITE_USER_ERROR } from './artifact-r2-store.js';
@@ -57,7 +57,7 @@ async function putR2AndInsertPlanArtifact(env, ctx, row) {
     description: row.description,
     source: 'agentsam_plan',
     kind: 'plan',
-    scope: 'workspace',
+    scope: 'user',
     sourceRunId: row.sourceRunId ?? null,
     sourceSessionId: row.sourceSessionId ?? null,
     tags: row.tags,

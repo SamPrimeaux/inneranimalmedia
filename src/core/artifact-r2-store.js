@@ -2,8 +2,8 @@
  * Agent Sam artifact store — dedicated `artifacts` R2 bucket via env.ARTIFACTS.
  * Legacy rows may still reference inneranimalmedia-autorag / inneranimalmedia (migration 593 backfill).
  *
- * New key schema (artifacts bucket):
- *   artifacts/{scope}/{workspace_id}/{kind}/{artifact_id}.{ext}
+ * New key schema (ARTIFACTS bucket):
+ *   user/{user_id}/{kind}/{artifact_id}.{ext}
  */
 
 import {
@@ -21,7 +21,6 @@ import { r2PutViaBindingOrS3 } from './r2.js';
 import {
   ARTIFACT_EXT,
   buildArtifactR2Key,
-  buildWorkspaceAutoragArtifactKey,
   defaultArtifactBucket,
   inferLegacyArtifactBucket,
   normalizeArtifactFormat,
@@ -87,11 +86,11 @@ export function newArtifactId() {
  * @param {{ userId: string, workspaceId: string, artifactType: string, artifactId: string }} p
  */
 export function buildWorkspaceArtifactR2Key(p) {
-  return buildWorkspaceAutoragArtifactKey({
+  return buildArtifactR2Key({
     userId: p.userId,
-    workspaceId: p.workspaceId,
     format: p.artifactType,
     artifactId: p.artifactId,
+    kind: 'generated',
   });
 }
 
@@ -264,17 +263,15 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
   const artifactType = String(opts.artifactType || 'other').toLowerCase().slice(0, 64);
   const source = String(opts.source || 'agent_response').slice(0, 120);
   let artifactKind = opts.kind != null ? String(opts.kind) : 'generated';
-  let artifactScope = opts.scope != null ? String(opts.scope) : 'user';
+  const artifactScope = 'user';
   if (source === 'agentsam_plan') {
     artifactKind = 'plan';
-    artifactScope = 'workspace';
   }
   const r2Key =
     opts.r2Key != null
       ? String(opts.r2Key).trim()
       : buildArtifactR2Key({
-          scope: artifactScope,
-          workspaceId,
+          userId,
           kind: artifactKind,
           artifactId,
           format: artifactType,

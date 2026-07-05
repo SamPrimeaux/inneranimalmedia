@@ -115,7 +115,7 @@ async function routeIllustrationExcalidraw(env, ctx, envelope, runContext) {
     description: trim(envelope.brief).slice(0, 500) || `iam.illustration.v1 ${trim(envelope.intent)}`,
     source: 'illustration_create',
     kind: 'canvas',
-    scope: 'workspace',
+    scope: 'user',
     sourceRunId: runContext.agent_run_id ?? runContext.run_id ?? null,
     sourceSessionId: runContext.conversation_id ?? runContext.session_id ?? null,
     tags: ['illustration', 'excalidraw', trim(envelope.intent)].filter(Boolean),
