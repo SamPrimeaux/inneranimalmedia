@@ -34,6 +34,8 @@ import {
   compileUserAppRuntimeProfile,
   parseProjectContextFromBody,
 } from '../core/user-app-runtime.js';
+import { parseSessionProjectIdFromChatBody } from '../core/project-chat-link.js';
+import { loadSessionProjectContextSystemBlock } from '../core/project-session-context.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -162,6 +164,11 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
 
   const { isSimpleAskMessage } = await import('../core/runtime-profile.js');
   const casualChatTurn = isSimpleAskMessage(message) && !activeFileEnvelope && !requireVision;
+  const sessionProjectRef = parseSessionProjectIdFromChatBody(body);
+  const sessionProjectContextBlock =
+    sessionProjectRef && !casualChatTurn
+      ? await loadSessionProjectContextSystemBlock(env, sessionProjectRef, workspaceId)
+      : '';
   const projectContextBlock =
     casualChatTurn || userAppLane
       ? ''
@@ -212,6 +219,7 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     handoffResume,
     agentChatResolvedContext,
     projectContextBlock,
+    sessionProjectContextBlock,
     chatTurnMeta: pre.chatTurnMeta ?? null,
   };
 

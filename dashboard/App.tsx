@@ -53,7 +53,7 @@ import {
   type ArtifactOpenBuilderDetail,
   type QuickstartThreadDetail,
 } from './agentChatConstants';
-import { IAM_AGENT_ENSURE_PANEL, IAM_AGENT_RESUME_CHAT, IAM_AGENT_START_NEW_CHAT, IAM_AGENT_START_PROJECT_CHAT, openAgentConversation, resumeAgentChatSession, type StartNewAgentChatDetail, type StartProjectAgentChatDetail } from './lib/openAgentConversation';
+import { IAM_AGENT_ENSURE_PANEL, IAM_AGENT_RESUME_CHAT, IAM_AGENT_START_NEW_CHAT, IAM_AGENT_START_PROJECT_CHAT, buildProjectChatFirstMessage, openAgentConversation, resumeAgentChatSession, type StartNewAgentChatDetail, type StartProjectAgentChatDetail } from './lib/openAgentConversation';
 import { writeSessionProject } from './src/lib/freshChatSession';
 import { resolveWorkspaceContextLabel } from './src/workspaceContextLabel';
 import { coalesceLabel } from './src/lib/coalesceLabel';
@@ -2315,8 +2315,23 @@ const App: React.FC = () => {
         id: projectId,
         name: detail?.projectName?.trim() || 'Project',
       });
+
+      const message = buildProjectChatFirstMessage(
+        detail?.message,
+        detail?.memory,
+        detail?.instructions,
+      );
+
+      if (detail?.stayOnPage) {
+        createNewAgentChatTabRef.current?.();
+        if (agentPosition === 'off') setAgentPosition('right');
+        if (message) {
+          startAgentNewThreadWithMessage({ message });
+        }
+        return;
+      }
+
       navigate(AGENT_HOME_PATH);
-      const message = detail?.message?.trim();
       requestAnimationFrame(() => {
         if (message) {
           startAgentNewThreadWithMessage({ message });
@@ -2327,7 +2342,7 @@ const App: React.FC = () => {
     };
     window.addEventListener(IAM_AGENT_START_PROJECT_CHAT, onProjectChat);
     return () => window.removeEventListener(IAM_AGENT_START_PROJECT_CHAT, onProjectChat);
-  }, [navigate, shellNewChat, startAgentNewThreadWithMessage]);
+  }, [navigate, shellNewChat, startAgentNewThreadWithMessage, agentPosition]);
 
   useEffect(() => {
     const pending = pendingNewThreadMessageRef.current;

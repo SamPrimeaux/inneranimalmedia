@@ -32,12 +32,8 @@ import {
   projectFilesFromMeta,
   type ProjectFileRef,
 } from './projectDetailMeta';
-import { resumeAgentChatSession } from '../../lib/openAgentConversation';
-import {
-  loadProjectThreadMessages,
-  sendProjectComposerChat,
-  type ProjectThreadMessage,
-} from '../../lib/projectComposerChat';
+import { resumeAgentChatSession, startProjectAgentChat } from '../../lib/openAgentConversation';
+import { writeSessionProject } from '../../src/lib/freshChatSession';
 import { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../../agentChatConstants';
 
 // ─── types ───────────────────────────────────────────────────────────────────
@@ -160,17 +156,11 @@ export default function ProjectDetailPage() {
   const [loadingProject, setLoadingProject] = useState(true);
   const [loadingChats, setLoadingChats] = useState(true);
 
-  // composer + inline thread
+  // composer → Agent Sam panel (project linked via session project)
   const [draft, setDraft] = useState('');
-  const [sendBusy, setSendBusy] = useState(false);
   const [composerAttachments, setComposerAttachments] = useState<File[]>([]);
-  const [activeConvId, setActiveConvId] = useState<string | null>(null);
-  const [threadMessages, setThreadMessages] = useState<ProjectThreadMessage[]>([]);
-  const [threadLoading, setThreadLoading] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerAttachRef = useRef<HTMLInputElement>(null);
-  const threadScrollRef = useRef<HTMLDivElement>(null);
-  const sendAbortRef = useRef<AbortController | null>(null);
 
   const {
     composerRef,
@@ -283,12 +273,6 @@ export default function ProjectDetailPage() {
     window.addEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onConv);
     return () => window.removeEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onConv);
   }, [loadChats]);
-
-  useEffect(() => {
-    const el = threadScrollRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [threadMessages, sendBusy]);
 
   const loadMemory = useCallback(async () => {
     if (!projectId) return;
@@ -498,37 +482,11 @@ export default function ProjectDetailPage() {
   // ── project-scoped chat (stay on page — context via attachments + project memory) ──
   const projectChatId = project?.id || projectId || '';
 
-  const openThread = useCallback(async (conversationId: string) => {
-    const id = String(conversationId || '').trim();
-    if (!id) return;
-    setActiveConvId(id);
-    setThreadLoading(true);
-    try {
-      const rows = await loadProjectThreadMessages(id);
-      setThreadMessages(rows.length ? rows : []);
-    } finally {
-      setThreadLoading(false);
-    }
-  }, []);
-
-  const startNewThread = useCallback(() => {
-    sendAbortRef.current?.abort();
-    setActiveConvId(null);
-    setThreadMessages([]);
-    setDraft('');
-    setComposerAttachments([]);
-  }, []);
-
-  const sendProjectChat = async () => {
-    if (!project || sendBusy) return;
+  const sendProjectChat = () => {
+    if (!project) return;
     const message = draft.trim();
     const hasFiles = composerAttachments.length > 0;
     if (!message && !hasFiles) return;
-
-    setSendBusy(true);
-    sendAbortRef.current?.abort();
-    const ac = new AbortController();
-    sendAbortRef.current = ac;
 
     const userVisible =
       message ||
@@ -536,44 +494,24 @@ export default function ProjectDetailPage() {
         ? `Review ${composerAttachments.length} attached file${composerAttachments.length === 1 ? '' : 's'}.`
         : '');
 
-    try {
-      const convId = await sendProjectComposerChat({
-        projectId: projectChatId,
-        workspaceId: project.workspace_id || workspaceId || null,
-        conversationId: activeConvId,
-        message: userVisible,
-        files: composerAttachments,
-        memory,
-        instructions,
-        composerSources,
-        signal: ac.signal,
-        onConversationId: (id) => setActiveConvId(id),
-        setMessages: setThreadMessages,
-        setStreaming: setSendBusy,
-      });
-      setActiveConvId(convId);
-      setDraft('');
-      setComposerAttachments([]);
-      void loadChats();
-      window.setTimeout(() => void loadChats(), 1500);
-    } catch (e) {
-      if (ac.signal.aborted) return;
-      setToast(e instanceof Error ? e.message : 'Chat failed');
-    } finally {
-      if (sendAbortRef.current === ac) sendAbortRef.current = null;
-      setSendBusy(false);
-    }
+    startProjectAgentChat({
+      projectId: projectChatId,
+      projectName: project.name,
+      message: userVisible,
+      memory,
+      instructions,
+      stayOnPage: true,
+    });
+    setDraft('');
+    setComposerAttachments([]);
+    window.setTimeout(() => void loadChats(), 1500);
   };
 
   const resumeChat = (s: ChatSession) => {
     const id = s.conversation_id ?? s.id ?? '';
-    if (!id) return;
-    void openThread(id);
-  };
-
-  const openInAgent = () => {
-    if (!activeConvId || !project) return;
-    resumeAgentChatSession({ id: activeConvId, title: chats.find((c) => (c.conversation_id ?? c.id) === activeConvId)?.title || 'Chat', force: true });
+    if (!id || !project) return;
+    writeSessionProject({ id: projectChatId, name: project.name });
+    resumeAgentChatSession({ id, title: s.title || 'Chat', force: true });
   };
 
   const onComposerFiles = (files: FileList | File[] | null) => {
@@ -961,12 +899,12 @@ export default function ProjectDetailPage() {
             placeholder="How can I help you today?"
             value={draft}
             rows={1}
-            disabled={sendBusy}
+            disabled={false}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                void sendProjectChat();
+                sendProjectChat();
               }
             }}
           />
@@ -976,61 +914,23 @@ export default function ProjectDetailPage() {
               ref={attachButtonRef}
               className="cpd-composer-new"
               title="Add files, tools, or connections"
-              disabled={sendBusy}
               aria-expanded={attachMenuOpen}
               onClick={toggleAttachMenu}
             >
               <Plus size={14} />
             </button>
-            {activeConvId ? (
-              <button
-                type="button"
-                className="cpd-composer-link"
-                onClick={openInAgent}
-                title="Open full Agent Sam view"
-              >
-                Open in Agent
-              </button>
-            ) : null}
             <div className="cpd-composer-spacer" />
             <button
               type="button"
               className="cpd-composer-send"
-              onClick={() => void sendProjectChat()}
-              disabled={sendBusy || (!draft.trim() && composerAttachments.length === 0)}
+              onClick={() => sendProjectChat()}
+              disabled={!draft.trim() && composerAttachments.length === 0}
               aria-label="Send"
             >
               <Send size={14} />
             </button>
           </div>
         </div>
-
-        {(activeConvId || threadMessages.length > 0) && (
-          <div className="cpd-thread" ref={threadScrollRef}>
-            <div className="cpd-thread-header">
-              <span className="cpd-thread-label">
-                {activeConvId ? 'Project chat' : 'New chat'}
-              </span>
-              <button type="button" className="cpd-thread-new" onClick={startNewThread}>
-                New chat
-              </button>
-            </div>
-            {threadLoading ? (
-              <div className="cpd-thread-loading">Loading messages…</div>
-            ) : (
-              <div className="cpd-thread-messages">
-                {threadMessages.map((m, i) => (
-                  <div
-                    key={`${m.id || i}-${m.role}`}
-                    className={`cpd-thread-bubble cpd-thread-bubble--${m.role}`}
-                  >
-                    {m.content || (m.role === 'assistant' && sendBusy ? '…' : '')}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* chat list */}
         <div className="cpd-chat-section">
@@ -1042,7 +942,7 @@ export default function ProjectDetailPage() {
             </>
           ) : chats.length === 0 ? (
             <div className="cpd-chat-empty">
-              No chats in this project yet. Start one above.
+              No chats in this project yet. Start one above — Agent Sam opens in the panel with this project linked.
             </div>
           ) : (
             <ul className="cpd-chat-list">

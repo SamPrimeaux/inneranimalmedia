@@ -328,6 +328,12 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     systemPrompt = `${systemPrompt}\n\n${projectContextBlock}`;
   }
 
+  const sessionProjectContextBlock =
+    input.sessionProjectContextBlock != null ? String(input.sessionProjectContextBlock).trim() : '';
+  if (sessionProjectContextBlock && !systemPrompt.includes(sessionProjectContextBlock.slice(0, 40))) {
+    systemPrompt = `${systemPrompt}\n\n${sessionProjectContextBlock}`;
+  }
+
   try {
     const { extractCmsAgentContext, formatCmsContextForAgent } = await import('../cms-agent-context.js');
     const { appendAmbientWorkspaceContextToPrompt } = await import('../workspace-studio-context.js');
@@ -446,6 +452,12 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       '\n\n## Ask mode (read-only)\nAnswer directly. Use read-only evidence tools when the question ' +
       'needs codebase, D1, or project context. Never mutate files, run terminal commands, deploy, or write to D1. ' +
       'If the user asks you to fix or implement something, explain the likely approach and suggest switching to Agent or Debug.';
+  } else if (profile.mode === 'agent' || profile.mode === 'debug' || profile.mode === 'multitask') {
+    systemPrompt +=
+      '\n\n## Tool execution (required)\nWhen the user asks you to run shell commands, spin up containers, ' +
+      'read or write GitHub files, deploy Workers, or query databases — call the matching catalog tool immediately. ' +
+      'Do not tell the user to run commands manually unless a tool call already failed with a specific error. ' +
+      'On mobile prefer agentsam_terminal_sandbox (or agentsam_terminal_remote for platform operators); on desktop prefer agentsam_terminal_local when available.';
   }
 
   if (visionUploadActive) {

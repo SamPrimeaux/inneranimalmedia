@@ -14,7 +14,7 @@ import {
 import { parseHandlerConfig } from './resolve-credential.js';
 import { mapCatalogRowsToMcpParityAgentTools } from './in-app-mcp-oauth-parity.js';
 
-/** Curated in-app bundle — repo read path + D1 only. Add tools here after they pass smoke. */
+/** Curated in-app bundle for read-only / ask lane. Agent/debug use OAuth parity catalog. */
 export const IN_APP_AGENT_SPINE_TOOL_KEYS = Object.freeze([
   'agentsam_github_tree',
   'agentsam_github_read',

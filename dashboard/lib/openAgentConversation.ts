@@ -72,7 +72,27 @@ export type StartProjectAgentChatDetail = {
   projectId: string;
   projectName: string;
   message?: string;
+  memory?: string;
+  instructions?: string;
+  /** When true, open Agent Sam panel on the current page instead of navigating away. */
+  stayOnPage?: boolean;
 };
+
+export function buildProjectChatFirstMessage(
+  raw: string,
+  memory?: string,
+  instructions?: string,
+): string {
+  const base = String(raw || '').trim();
+  const parts: string[] = [];
+  const mem = String(memory || '').trim();
+  const instr = String(instructions || '').trim();
+  if (mem) parts.push(`Project memory:\n${mem}`);
+  if (instr) parts.push(`Project instructions:\n${instr}`);
+  if (!parts.length) return base;
+  if (!base) return parts.join('\n\n');
+  return `${parts.join('\n\n')}\n\n---\n\n${base}`;
+}
 
 export function startProjectAgentChat(detail: StartProjectAgentChatDetail): void {
   if (typeof window === 'undefined') return;

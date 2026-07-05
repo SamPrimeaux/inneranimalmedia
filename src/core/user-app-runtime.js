@@ -217,12 +217,29 @@ export async function compileUserAppRuntimeProfile(env, input) {
   let toolAllowlist = [];
 
   if (env?.DB && workspaceId && userId) {
-    const spine = await selectInAppAgentSpineToolsForAgentChat(
-      env.DB,
-      { userId, tenantId, workspaceId, isSuperadmin },
-      { modeSlug: mode, outputLimit: 8 },
-    );
-    compiledToolRows = spine.rows || [];
+    const executionMode = mode === 'agent' || mode === 'debug' || mode === 'multitask';
+    if (executionMode) {
+      const { selectOAuthMcpParityToolsForAgentChat, IN_APP_MCP_PARITY_TOOL_LIMIT } = await import(
+        './in-app-mcp-oauth-parity.js'
+      );
+      const det = await selectOAuthMcpParityToolsForAgentChat(
+        env.DB,
+        { userId, tenantId, workspaceId, isSuperadmin },
+        {
+          modeSlug: mode,
+          outputLimit: IN_APP_MCP_PARITY_TOOL_LIMIT,
+          isSuperadmin,
+        },
+      );
+      compiledToolRows = det.rows || [];
+    } else {
+      const spine = await selectInAppAgentSpineToolsForAgentChat(
+        env.DB,
+        { userId, tenantId, workspaceId, isSuperadmin },
+        { modeSlug: mode, outputLimit: 8 },
+      );
+      compiledToolRows = spine.rows || [];
+    }
     toolAllowlist = compiledToolRows
       .map((r) => trim(r?.name || r?.tool_key || r?.tool_name))
       .filter(Boolean);
