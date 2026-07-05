@@ -1,23 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  BookOpen,
-  Code2,
-  FileText,
   FolderOpen,
-  Globe,
-  Layers,
-  MessageSquare,
+  ImagePlus,
   MoreHorizontal,
   Pencil,
   Plus,
   Search,
   Share2,
-  SlidersHorizontal,
   Star,
   Trash2,
   X,
-  Zap,
 } from 'lucide-react';
 import {
   deleteProject,
@@ -64,7 +57,6 @@ function fromOverviewRow(p: OverviewProject): Project {
     progress: p.progress,
     activeTasks: p.activeTasks,
     totalTasks: p.totalTasks,
-    completedTasks: p.completedTasks,
     chat_project_id: p.chat_project_id,
     cover_image_url: p.cover_image_url,
     dueDate: p.dueDate,
@@ -76,17 +68,17 @@ function fromOverviewRow(p: OverviewProject): Project {
 // ─── constants ────────────────────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<string, string> = {
-  production: 'var(--solar-green, #4ade80)',
-  active:     'var(--solar-green, #4ade80)',
-  development:'var(--solar-cyan, #22d3ee)',
-  design:     'var(--solar-cyan, #22d3ee)',
-  staging:    'var(--solar-yellow, #fbbf24)',
-  review:     'var(--solar-yellow, #fbbf24)',
-  discovery:  'var(--color-muted, #94a3b8)',
-  planning:   'var(--color-muted, #94a3b8)',
+  production: '#4ade80',
+  active:     '#4ade80',
+  development:'#22d3ee',
+  design:     '#22d3ee',
+  staging:    '#fbbf24',
+  review:     '#fbbf24',
+  discovery:  '#94a3b8',
+  planning:   '#94a3b8',
   blocked:    '#f87171',
-  archived:   'var(--color-muted, #94a3b8)',
-  complete:   'var(--color-muted, #94a3b8)',
+  archived:   '#475569',
+  complete:   '#475569',
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -103,189 +95,54 @@ const STATUS_LABELS: Record<string, string> = {
   complete:   'Complete',
 };
 
-const TYPE_ICONS: Record<string, React.ReactNode> = {
-  'saas-product':   <Zap size={13} />,
-  'internal-tool':  <Layers size={13} />,
-  'dashboard':      <SlidersHorizontal size={13} />,
-  'landing-page':   <Globe size={13} />,
-  'e-commerce':     <Globe size={13} />,
-};
+type TabFilter = 'mine' | 'recent' | 'shared' | 'archived' | 'starred';
+
+const TABS: { key: TabFilter; label: string }[] = [
+  { key: 'mine',     label: 'My Projects' },
+  { key: 'recent',   label: 'Recent' },
+  { key: 'shared',   label: 'Shared' },
+  { key: 'archived', label: 'Archived' },
+  { key: 'starred',  label: 'Starred' },
+];
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-function relativeDate(raw?: string): string {
-  if (!raw) return '';
-  const ts = Date.parse(raw);
-  if (Number.isNaN(ts)) return raw;
-  const diff = Date.now() - ts;
-  const d = Math.floor(diff / 86_400_000);
-  if (d === 0) return 'Today';
-  if (d === 1) return 'Yesterday';
-  if (d < 30) return `${d}d ago`;
-  const mo = Math.floor(d / 30);
-  return mo === 1 ? '1 month ago' : `${mo} months ago`;
+function avatarInitials(name: string): string {
+  const parts = name.trim().split(/[\s_-]+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function priorityColor(p?: string): string {
-  if (p === 'P0') return '#f87171';
-  if (p === 'P1') return 'var(--solar-yellow, #fbbf24)';
-  if (p === 'P2') return 'var(--solar-cyan, #22d3ee)';
-  return 'var(--color-muted, #94a3b8)';
+function avatarColor(id: string): string {
+  const colors = ['#6366f1','#8b5cf6','#ec4899','#22d3ee','#10b981','#f59e0b','#ef4444'];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = ((hash << 5) - hash) + id.charCodeAt(i);
+  return colors[Math.abs(hash) % colors.length];
 }
 
 // ─── skeleton ─────────────────────────────────────────────────────────────────
 
 function SkeletonCard() {
   return (
-    <div className="proj-card proj-card--skeleton">
-      <div className="proj-card-header">
+    <div className="pj-card pj-card--skeleton" aria-hidden="true">
+      <div className="pj-card-cover pj-card-cover--skel" />
+      <div className="pj-card-body">
         <div className="skel skel-title" />
-        <div className="skel skel-badge" />
-      </div>
-      <div className="skel skel-desc" />
-      <div className="skel skel-desc skel-desc--short" />
-      <div className="proj-card-footer">
-        <div className="skel skel-chip" />
-        <div className="skel skel-time" />
+        <div className="skel skel-sub" />
+        <div className="pj-card-progress-wrap">
+          <div className="skel skel-bar" />
+        </div>
+        <div className="pj-card-foot">
+          <div className="skel skel-avatar" />
+        </div>
       </div>
     </div>
   );
 }
 
-// ─── side panel ──────────────────────────────────────────────────────────────
-
-function ProjectSidePanel({
-  project,
-  onClose,
-  onChat,
-  allProjects,
-}: {
-  project: Project;
-  onClose: () => void;
-  onChat: (p: Project) => void;
-  allProjects: Project[];
-}) {
-  const statusColor = STATUS_COLORS[project.status ?? ''] ?? 'var(--color-muted)';
-  const pct = Math.min(100, Math.max(0, project.progress ?? 0));
-
-  return (
-    <aside className="proj-panel" role="complementary" aria-label="Project details">
-      <div className="proj-panel-header">
-        <div className="proj-panel-title-row">
-          <h2 className="proj-panel-title">{project.name}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close panel"
-            className="proj-panel-close"
-          >
-            <X size={16} />
-          </button>
-        </div>
-        <div className="proj-panel-meta">
-          <span className="proj-panel-status" style={{ color: statusColor }}>
-            <span className="proj-status-dot" style={{ background: statusColor }} />
-            {STATUS_LABELS[project.status ?? ''] ?? project.status_raw ?? 'Unknown'}
-          </span>
-          {project.priority && (
-            <span className="proj-panel-badge" style={{ color: priorityColor(project.priority) }}>
-              {project.priority}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="proj-panel-body">
-        {/* description */}
-        {project.description && (
-          <section className="proj-panel-section">
-            <p className="proj-panel-desc">{project.description}</p>
-          </section>
-        )}
-
-        {/* progress */}
-        {(project.totalTasks ?? 0) > 0 && (
-          <section className="proj-panel-section">
-            <div className="proj-panel-label">Progress</div>
-            <div className="proj-progress-wrap">
-              <div className="proj-progress-bar" style={{ width: `${pct}%` }} />
-            </div>
-            <div className="proj-progress-text">
-              {project.activeTasks ?? 0} open · {project.totalTasks ?? 0} total
-            </div>
-          </section>
-        )}
-
-        {/* quick actions */}
-        <section className="proj-panel-section">
-          <div className="proj-panel-label">Quick actions</div>
-          <div className="proj-panel-actions">
-            <button
-              type="button"
-              className="proj-action-btn"
-              onClick={() => onChat(project)}
-            >
-              <MessageSquare size={14} />
-              Open in Agent
-            </button>
-            <button type="button" className="proj-action-btn">
-              <FileText size={14} />
-              Instructions
-            </button>
-            <button type="button" className="proj-action-btn">
-              <BookOpen size={14} />
-              Memory
-            </button>
-            <button type="button" className="proj-action-btn">
-              <FolderOpen size={14} />
-              Files
-            </button>
-          </div>
-        </section>
-
-        {/* type / workspace */}
-        <section className="proj-panel-section">
-          <div className="proj-panel-kv">
-            {project.project_type && (
-              <div className="proj-panel-kv-row">
-                <span className="proj-panel-kv-key">Type</span>
-                <span className="proj-panel-kv-val">{project.project_type}</span>
-              </div>
-            )}
-            {project.dueDate && project.dueDate !== '—' && (
-              <div className="proj-panel-kv-row">
-                <span className="proj-panel-kv-key">Due</span>
-                <span className="proj-panel-kv-val">{project.dueDate}</span>
-              </div>
-            )}
-            {project.health != null && (
-              <div className="proj-panel-kv-row">
-                <span className="proj-panel-kv-key">Health</span>
-                <span
-                  className="proj-panel-kv-val"
-                  style={{
-                    color:
-                      project.health >= 70
-                        ? 'var(--solar-green, #4ade80)'
-                        : project.health >= 40
-                          ? 'var(--solar-yellow, #fbbf24)'
-                          : '#f87171',
-                  }}
-                >
-                  {project.health}%
-                </span>
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
-    </aside>
-  );
-}
-
 // ─── card menu ───────────────────────────────────────────────────────────────
 
-function ProjectCardMenu({
+function CardMenu({
   project,
   isOpen,
   onToggle,
@@ -311,9 +168,7 @@ function ProjectCardMenu({
     const onDoc = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
     return () => {
@@ -323,41 +178,31 @@ function ProjectCardMenu({
   }, [isOpen, onClose]);
 
   return (
-    <div className="proj-card-menu" ref={ref}>
+    <div className="pj-menu" ref={ref}>
       <button
         type="button"
-        className="proj-card-menu-trigger"
-        aria-label={`Settings for ${project.name}`}
+        className="pj-menu-btn"
+        aria-label={`Options for ${project.name}`}
         aria-expanded={isOpen}
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggle();
-        }}
+        onClick={(e) => { e.stopPropagation(); onToggle(); }}
       >
-        <MoreHorizontal size={16} />
+        <MoreHorizontal size={15} />
       </button>
       {isOpen && (
-        <div className="proj-card-menu-dropdown" role="menu">
-          <button type="button" className="proj-card-menu-item" role="menuitem" onClick={(e) => { e.stopPropagation(); onStar(); }}>
-            <Star size={14} fill={project.is_pinned ? 'currentColor' : 'none'} />
+        <div className="pj-menu-drop" role="menu">
+          <button type="button" role="menuitem" className="pj-menu-item" onClick={(e) => { e.stopPropagation(); onStar(); }}>
+            <Star size={13} fill={project.is_pinned ? 'currentColor' : 'none'} />
             {project.is_pinned ? 'Unstar' : 'Star'}
           </button>
-          <button type="button" className="proj-card-menu-item" role="menuitem" onClick={(e) => { e.stopPropagation(); onRename(); }}>
-            <Pencil size={14} />
-            Rename
+          <button type="button" role="menuitem" className="pj-menu-item" onClick={(e) => { e.stopPropagation(); onRename(); }}>
+            <Pencil size={13} /> Rename
           </button>
-          <button type="button" className="proj-card-menu-item" role="menuitem" onClick={(e) => { e.stopPropagation(); onShare(); }}>
-            <Share2 size={14} />
-            Share
+          <button type="button" role="menuitem" className="pj-menu-item" onClick={(e) => { e.stopPropagation(); onShare(); }}>
+            <Share2 size={13} /> Share / Invite
           </button>
-          <button
-            type="button"
-            className="proj-card-menu-item proj-card-menu-item--danger"
-            role="menuitem"
-            onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          >
-            <Trash2 size={14} />
-            Delete
+          <div className="pj-menu-divider" />
+          <button type="button" role="menuitem" className="pj-menu-item pj-menu-item--danger" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
+            <Trash2 size={13} /> Delete
           </button>
         </div>
       )}
@@ -369,7 +214,6 @@ function ProjectCardMenu({
 
 function ProjectCard({
   project,
-  isActive,
   menuOpen,
   onOpen,
   onMenuToggle,
@@ -380,7 +224,6 @@ function ProjectCard({
   onDelete,
 }: {
   project: Project;
-  isActive: boolean;
   menuOpen: boolean;
   onOpen: () => void;
   onMenuToggle: () => void;
@@ -390,62 +233,84 @@ function ProjectCard({
   onShare: () => void;
   onDelete: () => void;
 }) {
-  const statusColor = STATUS_COLORS[project.status ?? ''] ?? 'var(--color-muted)';
+  const statusColor = STATUS_COLORS[project.status ?? ''] ?? '#94a3b8';
+  const pct = Math.min(100, Math.max(0, project.progress ?? 0));
+  const initials = avatarInitials(project.workspace_id?.replace(/^ws_/, '') || project.name);
+  const avatarBg = avatarColor(project.id);
 
   return (
-    <div className={`proj-card-wrap${isActive ? ' proj-card-wrap--active' : ''}${project.status === 'archived' ? ' proj-card-wrap--archived' : ''}`}>
-      <ProjectCardMenu
-        project={project}
-        isOpen={menuOpen}
-        onToggle={onMenuToggle}
-        onClose={onMenuClose}
-        onStar={onStar}
-        onRename={onRename}
-        onShare={onShare}
-        onDelete={onDelete}
-      />
+    <div className={`pj-card${project.status === 'archived' ? ' pj-card--archived' : ''}${project.is_pinned ? ' pj-card--pinned' : ''}`}>
+      {/* cover image */}
       <div
-        className={`proj-card${isActive ? ' proj-card--active' : ''}${project.is_pinned ? ' proj-card--pinned' : ''}`}
+        className="pj-card-cover"
         role="button"
         tabIndex={0}
-        aria-pressed={isActive}
         onClick={onOpen}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onOpen();
-          }
-        }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); }}}
+        aria-label={`Open ${project.name}`}
       >
-        <div className="proj-card-header">
-          <span className="proj-card-name">
-            {project.is_pinned && (
-              <Star size={12} className="proj-card-star" fill="currentColor" aria-hidden />
-            )}
-            {project.name}
+        {project.cover_image_url ? (
+          <img src={project.cover_image_url} alt="" className="pj-card-cover-img" draggable={false} />
+        ) : (
+          <div className="pj-card-cover-placeholder">
+            <ImagePlus size={20} className="pj-card-cover-icon" />
+          </div>
+        )}
+        {/* status strip */}
+        <div className="pj-card-status-strip" style={{ background: statusColor }} />
+        {/* three-dot menu */}
+        <CardMenu
+          project={project}
+          isOpen={menuOpen}
+          onToggle={onMenuToggle}
+          onClose={onMenuClose}
+          onStar={onStar}
+          onRename={onRename}
+          onShare={onShare}
+          onDelete={onDelete}
+        />
+        {project.is_pinned && (
+          <span className="pj-card-star-badge" aria-label="Starred">
+            <Star size={11} fill="currentColor" />
           </span>
-          <span className="proj-card-status" style={{ color: statusColor }}>
-            <span className="proj-status-dot" style={{ background: statusColor }} />
+        )}
+      </div>
+
+      {/* card body */}
+      <div
+        className="pj-card-body"
+        role="button"
+        tabIndex={-1}
+        onClick={onOpen}
+        onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}
+      >
+        <div className="pj-card-name">{project.name}</div>
+        <div className="pj-card-type">{project.project_type || 'project'}</div>
+
+        <div className="pj-card-progress-wrap">
+          <div className="pj-card-progress-track">
+            <div
+              className="pj-card-progress-fill"
+              style={{ width: pct > 0 ? `${pct}%` : '0%' }}
+            />
+          </div>
+          <span className="pj-card-progress-pct">{pct}%</span>
+        </div>
+
+        <div className="pj-card-foot">
+          <div className="pj-avatar-cluster">
+            <div
+              className="pj-avatar"
+              style={{ background: avatarBg }}
+              title={project.workspace_id?.replace(/^ws_/, '') || project.name}
+            >
+              {initials}
+            </div>
+          </div>
+          <span className="pj-card-status-label" style={{ color: statusColor }}>
             {STATUS_LABELS[project.status ?? ''] ?? project.status_raw ?? ''}
           </span>
         </div>
-        <p className="proj-card-desc">{project.description || 'No description'}</p>
-        <div className="proj-card-footer">
-          <span className="proj-card-type">
-            {TYPE_ICONS[project.project_type ?? ''] ?? <Code2 size={12} />}
-            {project.project_type ?? 'project'}
-          </span>
-          {project.priority && (
-            <span className="proj-card-priority" style={{ color: priorityColor(project.priority) }}>
-              {project.priority}
-            </span>
-          )}
-        </div>
-        {project.workspace_id && (
-          <span className="proj-card-workspace" title={project.workspace_id}>
-            {project.workspace_id.replace(/^ws_/, '')}
-          </span>
-        )}
       </div>
     </div>
   );
@@ -458,15 +323,11 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TabFilter>('mine');
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newBusy, setNewBusy] = useState(false);
-  const [sortBy, setSortBy] = useState<'priority' | 'updated' | 'name'>('priority');
-  /** Default tenant-wide + archived so cleanup grid shows every row immediately. */
-  const [workspaceOnly, setWorkspaceOnly] = useState(false);
-  const [hideArchived, setHideArchived] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<Project | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -481,20 +342,17 @@ export default function ProjectsPage() {
     setLoading(true);
     try {
       const res = await fetchProjectsList({
-        scope: workspaceOnly ? 'workspace' : 'tenant',
-        includeArchived: !hideArchived,
+        scope: 'tenant',
+        includeArchived: true,
       });
-      if (!res.ok) {
-        setProjects([]);
-        return;
-      }
+      if (!res.ok) { setProjects([]); return; }
       setProjects(res.projects.map(fromOverviewRow));
     } catch {
       setProjects([]);
     } finally {
       setLoading(false);
     }
-  }, [workspaceOnly, hideArchived]);
+  }, []);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -504,37 +362,30 @@ export default function ProjectsPage() {
     return () => window.clearTimeout(t);
   }, [toast]);
 
-  const activeProject = useMemo(
-    () => (activeId ? projects.find((p) => p.id === activeId) ?? null : null),
-    [activeId, projects],
-  );
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = q
-      ? projects.filter(
-          (p) =>
-            p.name.toLowerCase().includes(q) ||
-            (p.description ?? '').toLowerCase().includes(q) ||
-            (p.project_type ?? '').toLowerCase().includes(q) ||
-            (p.workspace_id ?? '').toLowerCase().includes(q),
-        )
-      : [...projects];
+    let list = [...projects];
+
+    if (activeTab === 'starred')  list = list.filter((p) => p.is_pinned);
+    if (activeTab === 'archived') list = list.filter((p) => p.status === 'archived' || p.status_raw === 'archived');
+    if (activeTab === 'mine')     list = list.filter((p) => p.status !== 'archived' && p.status_raw !== 'archived');
+
+    if (q) {
+      list = list.filter((p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.description ?? '').toLowerCase().includes(q) ||
+        (p.project_type ?? '').toLowerCase().includes(q) ||
+        (p.workspace_id ?? '').toLowerCase().includes(q),
+      );
+    }
 
     list.sort((a, b) => {
       if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
-      if (sortBy === 'priority') return (b.priority_num ?? 0) - (a.priority_num ?? 0);
-      if (sortBy === 'name') return a.name.localeCompare(b.name);
-      return 0;
+      return (b.priority_num ?? 0) - (a.priority_num ?? 0);
     });
 
     return list;
-  }, [projects, query, sortBy]);
-
-  const openChat = (p: Project) => {
-    const cid = p.chat_project_id || p.id;
-    window.location.href = `/dashboard/chats?project=${encodeURIComponent(cid)}`;
-  };
+  }, [projects, query, activeTab]);
 
   const createProject = async () => {
     const name = newName.trim();
@@ -547,15 +398,8 @@ export default function ProjectsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, description: newDesc.trim() || null }),
       });
-      if (r.ok) {
-        setCreating(false);
-        setNewName('');
-        setNewDesc('');
-        await load();
-      }
-    } finally {
-      setNewBusy(false);
-    }
+      if (r.ok) { setCreating(false); setNewName(''); setNewDesc(''); await load(); }
+    } finally { setNewBusy(false); }
   };
 
   const handleStar = async (p: Project) => {
@@ -563,17 +407,10 @@ export default function ProjectsPage() {
     const next = !p.is_pinned;
     setProjects((prev) => prev.map((row) => (row.id === p.id ? { ...row, is_pinned: next } : row)));
     const res = await setProjectPinned(p.id, next);
-    if (!res.ok) {
-      setToast(res.error || 'Failed to update star');
-      await load();
-    }
+    if (!res.ok) { setToast(res.error || 'Failed to update star'); await load(); }
   };
 
-  const openRename = (p: Project) => {
-    setMenuOpenId(null);
-    setRenameTarget(p);
-    setRenameValue(p.name);
-  };
+  const openRename = (p: Project) => { setMenuOpenId(null); setRenameTarget(p); setRenameValue(p.name); };
 
   const submitRename = async () => {
     if (!renameTarget || renameBusy) return;
@@ -582,250 +419,207 @@ export default function ProjectsPage() {
     setRenameBusy(true);
     try {
       const res = await updateProject(renameTarget.id, { name });
-      if (res.ok) {
-        setRenameTarget(null);
-        setRenameValue('');
-        await load();
-        setToast('Project renamed');
-      } else {
-        setToast(res.error || 'Rename failed');
-      }
-    } finally {
-      setRenameBusy(false);
-    }
+      if (res.ok) { setRenameTarget(null); setRenameValue(''); await load(); setToast('Project renamed'); }
+      else setToast(res.error || 'Rename failed');
+    } finally { setRenameBusy(false); }
   };
 
-  const openShare = (p: Project) => {
-    setMenuOpenId(null);
-    setShareTarget(p);
-  };
-
-  const openDelete = (p: Project) => {
-    setMenuOpenId(null);
-    setDeleteTarget(p);
-  };
+  const openShare  = (p: Project) => { setMenuOpenId(null); setShareTarget(p); };
+  const openDelete = (p: Project) => { setMenuOpenId(null); setDeleteTarget(p); };
 
   const submitDelete = async () => {
     if (!deleteTarget || deleteBusy) return;
     setDeleteBusy(true);
     try {
       const res = await deleteProject(deleteTarget.id);
-      if (res.ok) {
-        setDeleteTarget(null);
-        if (activeId === deleteTarget.id) setActiveId(null);
-        await load();
-        setToast('Project deleted');
-      } else {
-        setToast(res.error || 'Delete failed');
-      }
-    } finally {
-      setDeleteBusy(false);
-    }
+      if (res.ok) { setDeleteTarget(null); await load(); setToast('Project deleted'); }
+      else setToast(res.error || 'Delete failed');
+    } finally { setDeleteBusy(false); }
   };
 
   return (
-    <div className="proj-root">
+    <div className="pj-root">
       <style>{PROJECTS_CSS}</style>
 
-      {/* ── main column ── */}
-      <div className={`proj-main${activeProject ? ' proj-main--narrow' : ''}`}>
-        {/* header */}
-        <header className="proj-header">
-          <div className="proj-header-top">
-            <h1 className="proj-header-title">
-              Projects
-              {!loading && (
-                <span className="proj-header-count">{filtered.length}</span>
-              )}
-            </h1>
-            <div className="proj-header-actions">
-              <button
-                type="button"
-                className={`proj-btn proj-filter-toggle${workspaceOnly ? ' proj-filter-toggle--on' : ''}`}
-                onClick={() => setWorkspaceOnly((v) => !v)}
-                title="Limit to active workspace only"
-              >
-                This workspace only
-              </button>
-              <button
-                type="button"
-                className={`proj-btn proj-filter-toggle${hideArchived ? ' proj-filter-toggle--on' : ''}`}
-                onClick={() => setHideArchived((v) => !v)}
-              >
-                Hide archived
-              </button>
-
-              {/* sort */}
-              <select
-                className="proj-btn proj-sort-select"
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-                aria-label="Sort projects"
-              >
-                <option value="priority">Sort by Priority</option>
-                <option value="name">Sort by Name</option>
-                <option value="updated">Sort by Updated</option>
-              </select>
-
-              <button
-                type="button"
-                className="proj-btn proj-btn--primary"
-                onClick={() => setCreating(true)}
-              >
-                <Plus size={14} />
-                New project
-              </button>
-            </div>
-          </div>
-
-          {/* search */}
-          <div className="proj-search-wrap">
-            <Search size={15} className="proj-search-icon" />
-            <input
-              ref={searchRef}
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search projects..."
-              className="proj-search-input"
-            />
-          </div>
-        </header>
-
-        {/* new project inline form */}
-        {creating && (
-          <div className="proj-create-form">
-            <input
-              autoFocus
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="Project name"
-              className="proj-create-input"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void createProject();
-                if (e.key === 'Escape') { setCreating(false); setNewName(''); setNewDesc(''); }
+      <header className="pj-header">
+        <div className="pj-header-top">
+          <h1 className="pj-title">Projects</h1>
+          <div className="pj-header-actions">
+            <button
+              type="button"
+              className="pj-search-btn"
+              aria-label="Search projects"
+              onClick={() => {
+                const wrap = searchRef.current?.parentElement;
+                if (wrap) wrap.classList.add('pj-search-wrap--visible');
+                searchRef.current?.focus();
               }}
-            />
-            <input
-              type="text"
-              value={newDesc}
-              onChange={(e) => setNewDesc(e.target.value)}
-              placeholder="Description (optional)"
-              className="proj-create-input"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void createProject();
-                if (e.key === 'Escape') { setCreating(false); setNewName(''); setNewDesc(''); }
-              }}
-            />
-            <div className="proj-create-actions">
-              <button
-                type="button"
-                className="proj-btn proj-btn--primary"
-                disabled={!newName.trim() || newBusy}
-                onClick={() => void createProject()}
-              >
-                {newBusy ? 'Creating…' : 'Create project'}
-              </button>
-              <button
-                type="button"
-                className="proj-btn"
-                onClick={() => { setCreating(false); setNewName(''); setNewDesc(''); }}
-              >
-                Cancel
-              </button>
-            </div>
+            >
+              <Search size={16} />
+            </button>
+            <button type="button" className="pj-new-btn" onClick={() => setCreating(true)}>
+              <Plus size={16} />
+            </button>
           </div>
-        )}
+        </div>
 
-        {/* grid */}
-        <div className="proj-body">
-          {loading ? (
-            <div className="proj-grid">
-              {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
-            </div>
-          ) : !filtered.length ? (
-            <div className="proj-empty">
-              <FolderOpen size={36} className="proj-empty-icon" />
-              <p className="proj-empty-text">
-                {query ? 'No projects match your search.' : 'No projects yet. Create one to get started.'}
-              </p>
-            </div>
-          ) : (
-            <div className="proj-grid">
-              {filtered.map((p) => (
-                <ProjectCard
-                  key={p.id}
-                  project={p}
-                  isActive={false}
-                  menuOpen={menuOpenId === p.id}
-                  onOpen={() => navigate(`/dashboard/projects/${encodeURIComponent(p.id)}`)}
-                  onMenuToggle={() => setMenuOpenId((cur) => (cur === p.id ? null : p.id))}
-                  onMenuClose={() => setMenuOpenId(null)}
-                  onStar={() => void handleStar(p)}
-                  onRename={() => openRename(p)}
-                  onShare={() => openShare(p)}
-                  onDelete={() => openDelete(p)}
-                />
-              ))}
-            </div>
+        <div className="pj-tabs" role="tablist">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === t.key}
+              className={`pj-tab${activeTab === t.key ? ' pj-tab--active' : ''}`}
+              onClick={() => setActiveTab(t.key)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div className={`pj-search-wrap${query ? ' pj-search-wrap--visible' : ''}`}>
+          <Search size={14} className="pj-search-icon" />
+          <input
+            ref={searchRef}
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search projects..."
+            className="pj-search-input"
+            onFocus={(e) => e.currentTarget.parentElement?.classList.add('pj-search-wrap--visible')}
+            onBlur={(e) => {
+              if (!query) e.currentTarget.parentElement?.classList.remove('pj-search-wrap--visible');
+            }}
+          />
+          {query && (
+            <button type="button" className="pj-search-clear" onClick={() => setQuery('')} aria-label="Clear search">
+              <X size={13} />
+            </button>
           )}
         </div>
-      </div>
+      </header>
 
-      {/* ── side panel ── */}
-      {activeProject && (
-        <ProjectSidePanel
-          project={activeProject}
-          onClose={() => setActiveId(null)}
-          onChat={openChat}
-          allProjects={projects}
-        />
+      {creating && (
+        <div className="pj-create-bar">
+          <input
+            autoFocus
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="Project name"
+            className="pj-create-input"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void createProject();
+              if (e.key === 'Escape') { setCreating(false); setNewName(''); setNewDesc(''); }
+            }}
+          />
+          <input
+            type="text"
+            value={newDesc}
+            onChange={(e) => setNewDesc(e.target.value)}
+            placeholder="Description (optional)"
+            className="pj-create-input"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void createProject();
+              if (e.key === 'Escape') { setCreating(false); setNewName(''); setNewDesc(''); }
+            }}
+          />
+          <div className="pj-create-actions">
+            <button
+              type="button"
+              className="pj-btn pj-btn--primary"
+              disabled={!newName.trim() || newBusy}
+              onClick={() => void createProject()}
+            >
+              {newBusy ? 'Creating…' : 'Create'}
+            </button>
+            <button
+              type="button"
+              className="pj-btn"
+              onClick={() => { setCreating(false); setNewName(''); setNewDesc(''); }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
 
+      <div className="pj-body">
+        {loading ? (
+          <div className="pj-grid">
+            {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+          </div>
+        ) : !filtered.length ? (
+          <div className="pj-empty">
+            <FolderOpen size={32} className="pj-empty-icon" />
+            <p className="pj-empty-text">
+              {query
+                ? 'No projects match your search.'
+                : activeTab === 'starred'
+                  ? 'Star a project to see it here.'
+                  : activeTab === 'archived'
+                    ? 'No archived projects.'
+                    : 'No projects yet.'}
+            </p>
+            {!query && activeTab === 'mine' && (
+              <button type="button" className="pj-btn pj-btn--primary" onClick={() => setCreating(true)}>
+                <Plus size={14} /> New project
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="pj-grid">
+            {filtered.map((p) => (
+              <ProjectCard
+                key={p.id}
+                project={p}
+                menuOpen={menuOpenId === p.id}
+                onOpen={() => navigate(`/dashboard/projects/${encodeURIComponent(p.id)}`)}
+                onMenuToggle={() => setMenuOpenId((cur) => (cur === p.id ? null : p.id))}
+                onMenuClose={() => setMenuOpenId(null)}
+                onStar={() => void handleStar(p)}
+                onRename={() => openRename(p)}
+                onShare={() => openShare(p)}
+                onDelete={() => openDelete(p)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
       {renameTarget && (
-        <div className="proj-modal-backdrop" role="presentation" onClick={() => !renameBusy && setRenameTarget(null)}>
-          <div className="proj-modal" role="dialog" aria-labelledby="proj-rename-title" onClick={(e) => e.stopPropagation()}>
-            <h2 id="proj-rename-title" className="proj-modal-title">Rename project</h2>
+        <div className="pj-modal-backdrop" role="presentation" onClick={() => !renameBusy && setRenameTarget(null)}>
+          <div className="pj-modal" role="dialog" aria-labelledby="pj-rename-title" onClick={(e) => e.stopPropagation()}>
+            <h2 id="pj-rename-title" className="pj-modal-title">Rename project</h2>
             <input
               autoFocus
               type="text"
-              className="proj-create-input"
+              className="pj-create-input"
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void submitRename();
-                if (e.key === 'Escape') setRenameTarget(null);
-              }}
+              onKeyDown={(e) => { if (e.key === 'Enter') void submitRename(); if (e.key === 'Escape') setRenameTarget(null); }}
             />
-            <div className="proj-create-actions">
-              <button type="button" className="proj-btn proj-btn--primary" disabled={!renameValue.trim() || renameBusy} onClick={() => void submitRename()}>
+            <div className="pj-create-actions">
+              <button type="button" className="pj-btn pj-btn--primary" disabled={!renameValue.trim() || renameBusy} onClick={() => void submitRename()}>
                 {renameBusy ? 'Saving…' : 'Save'}
               </button>
-              <button type="button" className="proj-btn" disabled={renameBusy} onClick={() => setRenameTarget(null)}>Cancel</button>
+              <button type="button" className="pj-btn" disabled={renameBusy} onClick={() => setRenameTarget(null)}>Cancel</button>
             </div>
           </div>
         </div>
       )}
 
       {deleteTarget && (
-        <div className="proj-modal-backdrop" role="presentation" onClick={() => !deleteBusy && setDeleteTarget(null)}>
-          <div className="proj-modal" role="dialog" aria-labelledby="proj-delete-title" onClick={(e) => e.stopPropagation()}>
-            <h2 id="proj-delete-title" className="proj-modal-title">Delete project</h2>
-            <p className="proj-modal-body">
-              <strong>{deleteTarget.name}</strong>
-              {deleteTarget.workspace_id && (
-                <span className="proj-modal-meta"> · {deleteTarget.workspace_id}</span>
-              )}
-            </p>
-            <p className="proj-modal-hint">
-              This permanently removes the project from D1 and Supabase. This cannot be undone.
-            </p>
-            <div className="proj-create-actions">
-              <button type="button" className="proj-btn proj-btn--danger" disabled={deleteBusy} onClick={() => void submitDelete()}>
+        <div className="pj-modal-backdrop" role="presentation" onClick={() => !deleteBusy && setDeleteTarget(null)}>
+          <div className="pj-modal" role="dialog" aria-labelledby="pj-delete-title" onClick={(e) => e.stopPropagation()}>
+            <h2 id="pj-delete-title" className="pj-modal-title">Delete "{deleteTarget.name}"?</h2>
+            <p className="pj-modal-hint">This permanently removes the project and all associated data. This cannot be undone.</p>
+            <div className="pj-create-actions">
+              <button type="button" className="pj-btn pj-btn--danger" disabled={deleteBusy} onClick={() => void submitDelete()}>
                 {deleteBusy ? 'Deleting…' : 'Delete project'}
               </button>
-              <button type="button" className="proj-btn" disabled={deleteBusy} onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button type="button" className="pj-btn" disabled={deleteBusy} onClick={() => setDeleteTarget(null)}>Cancel</button>
             </div>
           </div>
         </div>
@@ -837,7 +631,7 @@ export default function ProjectsPage() {
         onToast={setToast}
       />
 
-      {toast && <div className="proj-toast" role="status">{toast}</div>}
+      {toast && <div className="pj-toast" role="status">{toast}</div>}
     </div>
   );
 }
@@ -845,155 +639,188 @@ export default function ProjectsPage() {
 // ─── scoped CSS ───────────────────────────────────────────────────────────────
 
 const PROJECTS_CSS = `
-/* root layout */
-.proj-root {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-  background: var(--dashboard-canvas);
-  color: var(--color-main, #e2e8f0);
-  overflow: hidden;
-}
-
-/* main column */
-.proj-main {
+.pj-root {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
   min-width: 0;
+  background: var(--dashboard-canvas);
+  color: var(--color-main, #e2e8f0);
   overflow-y: auto;
 }
-.proj-main--narrow {
-  /* panel visible — body keeps scrolling */
-}
 
-/* centered column like chats */
-.proj-header,
-.proj-create-form,
-.proj-body {
-  max-width: 1180px;
-  margin-left: auto;
-  margin-right: auto;
-  width: 100%;
-}
-.proj-header-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.5rem;
-  margin-left: 8px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-muted, #94a3b8);
-  border: 1px solid var(--dashboard-border);
-  vertical-align: middle;
-}
-
-/* header */
-.proj-header {
+.pj-header {
   flex-shrink: 0;
-  padding: 32px 24px 0;
+  padding: 28px 16px 0;
+  max-width: 980px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
-.proj-header-top {
+
+.pj-header-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
-.proj-header-title {
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+
+.pj-title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   margin: 0;
+  line-height: 1;
 }
-.proj-header-actions {
+
+.pj-header-actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-/* buttons */
-.proj-btn {
-  display: inline-flex;
+.pj-search-btn,
+.pj-new-btn {
+  display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 12px;
-  border-radius: 8px;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
   border: 1px solid var(--dashboard-border);
   background: transparent;
-  color: inherit;
-  font-size: 13px;
+  color: var(--color-main, #e2e8f0);
   cursor: pointer;
-  transition: background 0.12s;
-  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s;
 }
-.proj-btn:hover:not(:disabled) { background: var(--bg-hover); }
-.proj-btn:disabled { opacity: 0.4; cursor: default; }
-.proj-btn--primary {
-  background: var(--bg-elevated, rgba(255,255,255,0.08));
-  border-color: transparent;
-  font-weight: 500;
-}
-.proj-btn--primary:hover:not(:disabled) { background: var(--bg-hover); }
-.proj-sort-select {
-  background: transparent;
-  padding: 5px 10px;
-  font-size: 12px;
-  color: var(--color-muted, #94a3b8);
-  border-radius: 8px;
-  border: 1px solid var(--dashboard-border);
-  cursor: pointer;
-  outline: none;
-}
-.proj-sort-select option { background: var(--bg-elevated, #1e2130); }
 
-/* search */
-.proj-search-wrap {
-  position: relative;
-  padding-bottom: 20px;
+.pj-search-btn:hover,
+.pj-new-btn:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.08));
+  border-color: rgba(255,255,255,0.18);
 }
-.proj-search-icon {
+
+.pj-new-btn {
+  background: var(--color-main, #e2e8f0);
+  color: var(--dashboard-canvas, #0d1117);
+  border-color: transparent;
+}
+
+.pj-new-btn:hover {
+  background: #fff;
+  color: #0d1117;
+}
+
+.pj-tabs {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin-bottom: 16px;
+  padding-bottom: 2px;
+}
+
+.pj-tabs::-webkit-scrollbar { display: none; }
+
+.pj-tab {
+  flex-shrink: 0;
+  padding: 7px 14px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-muted, #94a3b8);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.pj-tab:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.06));
+  color: var(--color-main, #e2e8f0);
+}
+
+.pj-tab--active {
+  background: var(--bg-elevated, rgba(255,255,255,0.1));
+  border-color: rgba(255,255,255,0.14);
+  color: var(--color-main, #e2e8f0);
+  font-weight: 600;
+}
+
+.pj-search-wrap {
+  position: relative;
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.2s ease, opacity 0.15s ease, margin 0.2s ease;
+  margin-bottom: 0;
+}
+
+.pj-search-wrap--visible {
+  max-height: 48px;
+  opacity: 1;
+  margin-bottom: 12px;
+}
+
+.pj-search-icon {
   position: absolute;
   left: 12px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--color-muted, #94a3b8);
   pointer-events: none;
-  margin-top: -10px;
 }
-.proj-search-input {
+
+.pj-search-input {
   width: 100%;
-  padding: 8px 12px 8px 36px;
+  padding: 9px 36px 9px 34px;
   border-radius: 10px;
   border: 1px solid var(--dashboard-border);
   background: var(--dashboard-panel, rgba(255,255,255,0.04));
   color: inherit;
   font-size: 14px;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
   box-sizing: border-box;
+  transition: border-color 0.15s;
 }
-.proj-search-input:focus {
-  border-color: var(--solar-cyan, #22d3ee);
-  box-shadow: 0 0 0 3px rgba(34,211,238,0.15);
-}
-.proj-search-input::placeholder { color: var(--color-muted, #94a3b8); }
 
-/* create form */
-.proj-create-form {
-  padding: 0 24px 20px;
+.pj-search-input:focus { border-color: rgba(255,255,255,0.25); }
+.pj-search-input::placeholder { color: var(--color-muted, #94a3b8); }
+
+.pj-search-clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: var(--bg-hover, rgba(255,255,255,0.1));
+  color: var(--color-muted, #94a3b8);
+  cursor: pointer;
+}
+
+.pj-create-bar {
+  max-width: 980px;
+  margin: 0 auto 16px;
+  padding: 0 16px;
+  width: 100%;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.proj-create-input {
-  padding: 8px 12px;
-  border-radius: 8px;
+
+.pj-create-input {
+  padding: 9px 12px;
+  border-radius: 9px;
   border: 1px solid var(--dashboard-border);
   background: var(--dashboard-panel, rgba(255,255,255,0.04));
   color: inherit;
@@ -1003,82 +830,272 @@ const PROJECTS_CSS = `
   box-sizing: border-box;
   transition: border-color 0.15s;
 }
-.proj-create-input:focus { border-color: var(--solar-cyan, #22d3ee); }
-.proj-create-input::placeholder { color: var(--color-muted, #94a3b8); }
-.proj-create-actions { display: flex; gap: 8px; }
 
-/* body */
-.proj-body {
+.pj-create-input:focus { border-color: rgba(255,255,255,0.3); }
+.pj-create-input::placeholder { color: var(--color-muted, #94a3b8); }
+.pj-create-actions { display: flex; gap: 8px; }
+
+.pj-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--dashboard-border);
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.12s;
+  white-space: nowrap;
+}
+
+.pj-btn:hover:not(:disabled) { background: var(--bg-hover); }
+.pj-btn:disabled { opacity: 0.4; cursor: default; }
+
+.pj-btn--primary {
+  background: var(--color-main, #e2e8f0);
+  color: var(--dashboard-canvas, #0d1117);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.pj-btn--primary:hover:not(:disabled) { background: #fff; }
+
+.pj-btn--danger {
+  border-color: rgba(248,113,113,0.4);
+  color: #f87171;
+}
+
+.pj-btn--danger:hover:not(:disabled) { background: rgba(248,113,113,0.12); }
+
+.pj-body {
   flex: 1;
-  padding: 4px 24px 40px;
+  padding: 0 16px 40px;
+  max-width: 980px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 
-/* grid — equal-height cards */
-.proj-grid {
+.pj-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  grid-auto-rows: 176px;
-  gap: 12px;
-}
-@media (max-width: 620px) {
-  .proj-grid {
-    grid-template-columns: 1fr;
-    grid-auto-rows: 168px;
-  }
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
 }
 
-/* card wrap + menu (always visible) */
-.proj-card-wrap {
+@media (max-width: 540px) {
+  .pj-grid { grid-template-columns: 1fr; }
+}
+
+.pj-card {
+  border-radius: 14px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--dashboard-panel, rgba(255,255,255,0.03));
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.pj-card:hover {
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+}
+
+.pj-card--archived { opacity: 0.65; }
+.pj-card--pinned { border-color: rgba(251,191,36,0.28); }
+
+.pj-card-cover {
   position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: var(--bg-elevated, rgba(255,255,255,0.04));
+  cursor: pointer;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.pj-card-cover:focus-visible {
+  outline: 2px solid rgba(255,255,255,0.4);
+  outline-offset: -2px;
+}
+
+.pj-card-cover-img {
+  width: 100%;
   height: 100%;
-  min-height: 0;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.3s ease;
 }
-.proj-card-wrap--archived .proj-card {
-  opacity: 0.72;
-}
-.proj-card-wrap--archived .proj-card-desc {
-  color: var(--color-muted, #64748b);
-}
-.proj-card-menu {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 5;
-}
-.proj-card-menu-trigger {
+
+.pj-card:hover .pj-card-cover-img { transform: scale(1.02); }
+
+.pj-card-cover-placeholder {
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  border: 1px solid var(--dashboard-border);
-  background: var(--bg-elevated, rgba(15, 23, 42, 0.92));
-  color: var(--color-main, #e2e8f0);
+}
+
+.pj-card-cover-icon {
+  color: var(--color-muted, #94a3b8);
+  opacity: 0.3;
+}
+
+.pj-card-status-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  opacity: 0.8;
+}
+
+.pj-card-star-badge {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.5);
+  color: #fbbf24;
+  backdrop-filter: blur(4px);
+}
+
+.pj-card-body {
+  padding: 12px 14px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   cursor: pointer;
-  opacity: 1;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
-  transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
-.proj-card-menu-trigger:hover,
-.proj-card-menu-trigger[aria-expanded="true"] {
-  background: var(--bg-hover, rgba(255,255,255,0.12));
-  color: inherit;
-  border-color: rgba(255,255,255,0.18);
+
+.pj-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.proj-card-menu-dropdown {
+
+.pj-card-type {
+  font-size: 11px;
+  color: var(--color-muted, #94a3b8);
+  letter-spacing: 0.01em;
+  margin-bottom: 4px;
+}
+
+.pj-card-progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pj-card-progress-track {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+}
+
+.pj-card-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.35);
+  transition: width 0.4s ease;
+}
+
+.pj-card-progress-pct {
+  font-size: 11px;
+  color: var(--color-muted, #94a3b8);
+  flex-shrink: 0;
+  min-width: 26px;
+  text-align: right;
+}
+
+.pj-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.pj-avatar-cluster {
+  display: flex;
+  align-items: center;
+}
+
+.pj-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #fff;
+  border: 1.5px solid var(--dashboard-canvas, #0d1117);
+  flex-shrink: 0;
+  cursor: default;
+  user-select: none;
+}
+
+.pj-card-status-label {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.pj-menu {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+}
+
+.pj-menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 0.12s;
+}
+
+.pj-menu-btn:hover,
+.pj-menu-btn[aria-expanded="true"] {
+  background: rgba(0,0,0,0.75);
+}
+
+.pj-menu-drop {
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
-  min-width: 156px;
+  min-width: 162px;
   padding: 4px;
-  border-radius: 10px;
+  border-radius: 11px;
   border: 1px solid var(--dashboard-border);
-  background: var(--bg-elevated, #1a1f2e);
-  box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+  background: var(--bg-elevated, #151b27);
+  box-shadow: 0 16px 40px rgba(0,0,0,0.5);
   z-index: 20;
 }
-.proj-card-menu-item {
+
+.pj-menu-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1091,39 +1108,59 @@ const PROJECTS_CSS = `
   font-size: 13px;
   text-align: left;
   cursor: pointer;
+  transition: background 0.1s;
 }
-.proj-card-menu-item:hover { background: var(--bg-hover); }
-.proj-card-menu-item--danger { color: #f87171; }
-.proj-card-menu-item--danger:hover { background: rgba(248,113,113,0.12); }
-.proj-card-star {
-  display: inline-block;
-  vertical-align: -2px;
-  margin-right: 4px;
-  color: var(--solar-yellow, #fbbf24);
-}
-.proj-card-workspace {
-  display: block;
-  margin-top: 2px;
-  font-size: 10px;
-  color: var(--color-muted, #94a3b8);
-  opacity: 0.55;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.proj-filter-toggle--on {
-  border-color: var(--solar-cyan, #22d3ee);
-  color: var(--solar-cyan, #22d3ee);
-  background: rgba(34,211,238,0.08);
-}
-.proj-btn--danger {
-  border-color: rgba(248,113,113,0.35);
-  color: #f87171;
-}
-.proj-btn--danger:hover:not(:disabled) { background: rgba(248,113,113,0.12); }
 
-/* modals + toast */
-.proj-modal-backdrop {
+.pj-menu-item:hover { background: var(--bg-hover); }
+.pj-menu-item--danger { color: #f87171; }
+.pj-menu-item--danger:hover { background: rgba(248,113,113,0.12); }
+
+.pj-menu-divider {
+  height: 1px;
+  background: var(--dashboard-border);
+  margin: 3px 6px;
+}
+
+.pj-card--skeleton { pointer-events: none; }
+
+.pj-card-cover--skel {
+  aspect-ratio: 16/9;
+  background: linear-gradient(90deg, var(--dashboard-border) 25%, rgba(255,255,255,0.06) 50%, var(--dashboard-border) 75%);
+  background-size: 200% 100%;
+  animation: pj-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes pj-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skel {
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--dashboard-border) 25%, rgba(255,255,255,0.06) 50%, var(--dashboard-border) 75%);
+  background-size: 200% 100%;
+  animation: pj-shimmer 1.4s ease-in-out infinite;
+}
+
+.skel-title { height: 14px; width: 55%; }
+.skel-sub   { height: 11px; width: 35%; margin-bottom: 6px; }
+.skel-bar   { height: 3px; width: 100%; border-radius: 2px; }
+.skel-avatar { height: 24px; width: 24px; border-radius: 50%; }
+
+.pj-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 72px 24px;
+  text-align: center;
+}
+
+.pj-empty-icon { color: var(--color-muted, #94a3b8); opacity: 0.3; }
+.pj-empty-text { font-size: 14px; color: var(--color-muted, #94a3b8); max-width: 240px; line-height: 1.5; }
+
+.pj-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 1200;
@@ -1131,370 +1168,57 @@ const PROJECTS_CSS = `
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(0,0,0,0.55);
+  background: rgba(0,0,0,0.6);
 }
-.proj-modal {
-  width: min(420px, 100%);
-  padding: 20px;
-  border-radius: 12px;
+
+.pj-modal {
+  width: min(400px, 100%);
+  padding: 22px;
+  border-radius: 14px;
   border: 1px solid var(--dashboard-border);
-  background: var(--bg-elevated, #1a1f2e);
-  box-shadow: 0 20px 48px rgba(0,0,0,0.45);
+  background: var(--bg-elevated, #151b27);
+  box-shadow: 0 24px 56px rgba(0,0,0,0.5);
 }
-.proj-modal-title {
-  margin: 0 0 12px;
+
+.pj-modal-title {
+  margin: 0 0 14px;
   font-size: 16px;
   font-weight: 600;
 }
-.proj-modal-body {
-  margin: 0 0 8px;
-  font-size: 14px;
-}
-.proj-modal-meta {
+
+.pj-modal-hint {
+  margin: 0 0 18px;
+  font-size: 13px;
   color: var(--color-muted, #94a3b8);
-  font-size: 12px;
+  line-height: 1.55;
 }
-.proj-modal-hint {
-  margin: 0 0 16px;
-  font-size: 12px;
-  color: var(--color-muted, #94a3b8);
-  line-height: 1.5;
-}
-.proj-toast {
+
+.pj-toast {
   position: fixed;
-  bottom: 72px;
+  bottom: 80px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1300;
-  padding: 10px 16px;
+  padding: 10px 18px;
   border-radius: 999px;
   border: 1px solid var(--dashboard-border);
-  background: var(--bg-elevated, #1a1f2e);
+  background: var(--bg-elevated, #151b27);
   font-size: 13px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
   pointer-events: none;
-}
-
-/* share modal */
-.proj-share-modal { max-width: 520px; }
-.proj-share-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-.proj-share-label {
-  display: block;
-  margin: 14px 0 6px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-muted, #94a3b8);
-}
-.proj-share-link-row,
-.proj-share-invite-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.proj-share-link-row .proj-create-input { flex: 1; }
-.proj-share-invite-row .proj-create-input { flex: 1; }
-.proj-share-message { margin-top: 8px; resize: vertical; min-height: 72px; }
-.proj-share-collab-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.proj-share-collab-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--dashboard-border);
-  font-size: 13px;
-}
-.proj-share-role {
-  margin-left: 8px;
-  font-size: 11px;
-  color: var(--color-muted, #94a3b8);
-  text-transform: uppercase;
-}
-.proj-share-remove {
-  padding: 4px 8px;
-  font-size: 11px;
-}
-
-/* card */
-.proj-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  height: 100%;
-  padding: 14px 44px 12px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--dashboard-border);
-  background: var(--dashboard-panel, rgba(255,255,255,0.03));
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
-  color: inherit;
-  box-sizing: border-box;
-  outline: none;
-}
-.proj-card:hover {
-  background: var(--bg-hover, rgba(255,255,255,0.06));
-  border-color: rgba(255,255,255,0.12);
-}
-.proj-card:focus-visible {
-  border-color: var(--solar-cyan, #22d3ee);
-  box-shadow: 0 0 0 2px rgba(34,211,238,0.25);
-}
-.proj-card-wrap--active .proj-card {
-  border-color: var(--solar-cyan, #22d3ee) !important;
-  box-shadow: 0 0 0 1px var(--solar-cyan, #22d3ee);
-  background: rgba(34,211,238,0.04) !important;
-}
-@media (max-width: 620px) {
-  .proj-card-menu-trigger { opacity: 1; }
-}
-.proj-card--active {
-  border-color: var(--solar-cyan, #22d3ee) !important;
-  box-shadow: 0 0 0 1px var(--solar-cyan, #22d3ee);
-  background: rgba(34,211,238,0.04) !important;
-}
-.proj-card--pinned {
-  border-color: rgba(251, 191, 36, 0.25);
-}
-.proj-card-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-}
-.proj-card-name {
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.3;
-  flex: 1;
-  min-width: 0;
-}
-.proj-card-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
   white-space: nowrap;
-  flex-shrink: 0;
-}
-.proj-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.proj-card-desc {
-  font-size: 12px;
-  color: var(--color-muted, #94a3b8);
-  line-height: 1.45;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin: 0;
-  flex: 1;
-  min-height: 2.9em;
-}
-.proj-card-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: auto;
-  padding-top: 4px;
-}
-.proj-card-type {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--color-muted, #94a3b8);
-}
-.proj-card-priority {
-  font-size: 11px;
-  font-weight: 600;
 }
 
-/* skeleton */
-.proj-card--skeleton {
-  cursor: default;
-  pointer-events: none;
+@media (min-width: 768px) {
+  .pj-header { padding: 36px 24px 0; }
+  .pj-body { padding: 0 24px 48px; }
+  .pj-create-bar {
+    padding: 0 24px;
+    flex-direction: row;
+    align-items: flex-start;
+  }
+  .pj-create-bar .pj-create-input { flex: 1; }
+  .pj-create-bar .pj-create-actions { flex-shrink: 0; }
+  .pj-title { font-size: 32px; }
 }
-.skel {
-  border-radius: 4px;
-  background: linear-gradient(
-    90deg,
-    var(--dashboard-border) 25%,
-    rgba(255,255,255,0.06) 50%,
-    var(--dashboard-border) 75%
-  );
-  background-size: 200% 100%;
-  animation: proj-shimmer 1.4s ease-in-out infinite;
-}
-@keyframes proj-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-.skel-title { height: 14px; width: 60%; margin-bottom: 4px; }
-.skel-badge { height: 12px; width: 24%; }
-.skel-desc { height: 11px; width: 90%; margin-top: 8px; }
-.skel-desc--short { width: 65%; }
-.skel-chip { height: 11px; width: 22%; margin-top: 12px; }
-.skel-time { height: 11px; width: 18%; margin-top: 12px; }
-
-/* empty */
-.proj-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 64px 24px;
-  text-align: center;
-}
-.proj-empty-icon { color: var(--color-muted, #94a3b8); opacity: 0.4; }
-.proj-empty-text { font-size: 14px; color: var(--color-muted, #94a3b8); max-width: 280px; }
-
-/* ── side panel ── */
-.proj-panel {
-  width: 300px;
-  min-width: 300px;
-  max-width: 300px;
-  border-left: 1px solid var(--dashboard-border);
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  background: var(--dashboard-panel, rgba(255,255,255,0.02));
-  flex-shrink: 0;
-}
-.proj-panel-header {
-  padding: 20px 18px 14px;
-  border-bottom: 1px solid var(--dashboard-border);
-  flex-shrink: 0;
-}
-.proj-panel-title-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.proj-panel-title {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0;
-  line-height: 1.3;
-}
-.proj-panel-close {
-  flex-shrink: 0;
-  padding: 4px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: var(--color-muted, #94a3b8);
-  cursor: pointer;
-  transition: background 0.1s;
-}
-.proj-panel-close:hover { background: var(--bg-hover); color: inherit; }
-.proj-panel-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.proj-panel-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-}
-.proj-panel-badge {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 4px;
-  border: 1px solid currentColor;
-  opacity: 0.8;
-}
-.proj-panel-body {
-  flex: 1;
-  overflow-y: auto;
-  padding-bottom: 24px;
-}
-.proj-panel-section {
-  padding: 14px 18px 0;
-}
-.proj-panel-desc {
-  font-size: 13px;
-  color: var(--color-muted, #94a3b8);
-  line-height: 1.6;
-  margin: 0;
-}
-.proj-panel-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-muted, #94a3b8);
-  opacity: 0.6;
-  margin-bottom: 8px;
-}
-/* progress */
-.proj-progress-wrap {
-  height: 4px;
-  border-radius: 2px;
-  background: var(--dashboard-border);
-  overflow: hidden;
-  margin-bottom: 4px;
-}
-.proj-progress-bar {
-  height: 100%;
-  border-radius: 2px;
-  background: var(--solar-cyan, #22d3ee);
-  transition: width 0.3s;
-}
-.proj-progress-text {
-  font-size: 11px;
-  color: var(--color-muted, #94a3b8);
-}
-/* actions */
-.proj-panel-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-.proj-action-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--dashboard-border);
-  background: transparent;
-  color: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.1s;
-  text-align: left;
-}
-.proj-action-btn:hover { background: var(--bg-hover); }
-/* kv */
-.proj-panel-kv { display: flex; flex-direction: column; gap: 8px; }
-.proj-panel-kv-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.proj-panel-kv-key { font-size: 12px; color: var(--color-muted, #94a3b8); }
-.proj-panel-kv-val { font-size: 12px; text-align: right; }
 `;
