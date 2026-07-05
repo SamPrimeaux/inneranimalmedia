@@ -2783,6 +2783,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       form.append('provider', selectedModelProvider);
     }
     form.append('conversationId', effectiveConvId);
+    const sessionProject = readSessionProject();
+    if (sessionProject?.id) form.append('project_id', sessionProject.id);
     form.append('contextMode', String(activeProject));
     if (designStudioSceneId?.trim()) form.append('scene_snapshot_id', designStudioSceneId.trim());
     if (designStudioBlueprintId?.trim()) form.append('blueprint_id', designStudioBlueprintId.trim());

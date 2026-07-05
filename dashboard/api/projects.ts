@@ -39,6 +39,8 @@ export type OverviewProject = {
   cover_image_url?: string | null;
   chat_project_id?: string | null;
   is_pinned?: boolean;
+  owner_user_id?: string | null;
+  updated_at?: string | null;
 };
 
 export type OverviewMilestone = {
@@ -122,6 +124,8 @@ export type ProjectListRow = {
   chat_project_id?: string | null;
   launch_date?: string | null;
   estimated_completion_date?: number | null;
+  owner_user_id?: string | null;
+  updated_at?: string | null;
 };
 
 function priorityToLabel(n: number) {
@@ -187,6 +191,8 @@ export function mapListRowToOverview(row: ProjectListRow): OverviewProject {
     tenant_id: row.tenant_id || null,
     cover_image_url: row.cover_image_url || null,
     chat_project_id: row.chat_project_id || null,
+    owner_user_id: row.owner_user_id ?? null,
+    updated_at: row.updated_at ?? null,
     is_pinned: row.is_pinned === true,
   };
 }

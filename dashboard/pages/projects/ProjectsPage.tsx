@@ -20,6 +20,8 @@ import {
   type OverviewProject,
 } from '../../api/projects';
 import { ProjectShareModal } from '../../components/projects/ProjectShareModal';
+import { cfImageVariants } from '../../src/lib/projectBranding';
+import { useWorkspace } from '../../src/context/WorkspaceContext';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -40,10 +42,12 @@ interface Project {
   cover_image_url?: string | null;
   dueDate?: string;
   workspace_id?: string | null;
+  owner_user_id?: string | null;
+  updated_at?: string | null;
   is_pinned?: boolean;
 }
 
-function fromOverviewRow(p: OverviewProject): Project {
+function fromOverviewRow(p: OverviewProject & { owner_user_id?: string | null; updated_at?: string | null }): Project {
   return {
     id: p.id,
     name: p.name,
@@ -61,6 +65,8 @@ function fromOverviewRow(p: OverviewProject): Project {
     cover_image_url: p.cover_image_url,
     dueDate: p.dueDate,
     workspace_id: p.workspace_id,
+    owner_user_id: p.owner_user_id ?? null,
+    updated_at: p.updated_at ?? null,
     is_pinned: p.is_pinned === true,
   };
 }
@@ -95,15 +101,27 @@ const STATUS_LABELS: Record<string, string> = {
   complete:   'Complete',
 };
 
-type TabFilter = 'mine' | 'recent' | 'shared' | 'archived' | 'starred';
+type TabFilter = 'recent' | 'shared' | 'starred' | 'completed';
 
 const TABS: { key: TabFilter; label: string }[] = [
-  { key: 'mine',     label: 'My Projects' },
-  { key: 'recent',   label: 'Recent' },
-  { key: 'shared',   label: 'Shared' },
-  { key: 'archived', label: 'Archived' },
-  { key: 'starred',  label: 'Starred' },
+  { key: 'recent',    label: 'Recent' },
+  { key: 'shared',    label: 'Shared' },
+  { key: 'starred',   label: 'Starred' },
+  { key: 'completed', label: 'Completed' },
 ];
+
+function isCompletedStatus(p: Project): boolean {
+  const s = String(p.status_raw || p.status || '').toLowerCase();
+  return s === 'complete' || s === 'archived';
+}
+
+function parseUpdatedTs(raw?: string | null): number {
+  if (!raw) return 0;
+  const n = Number(raw);
+  if (Number.isFinite(n) && n > 0) return n < 1e12 ? n * 1000 : n;
+  const ms = Date.parse(String(raw));
+  return Number.isNaN(ms) ? 0 : ms;
+}
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -250,7 +268,14 @@ function ProjectCard({
         aria-label={`Open ${project.name}`}
       >
         {project.cover_image_url ? (
-          <img src={project.cover_image_url} alt="" className="pj-card-cover-img" draggable={false} />
+          <img
+            src={cfImageVariants(project.cover_image_url).src}
+            srcSet={cfImageVariants(project.cover_image_url).srcSet}
+            alt=""
+            className="pj-card-cover-img"
+            draggable={false}
+            loading="lazy"
+          />
         ) : (
           <div className="pj-card-cover-placeholder">
             <ImagePlus size={20} className="pj-card-cover-icon" />
@@ -323,7 +348,8 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<TabFilter>('mine');
+  const { sessionUserId } = useWorkspace();
+  const [activeTab, setActiveTab] = useState<TabFilter>('recent');
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -366,9 +392,18 @@ export default function ProjectsPage() {
     const q = query.trim().toLowerCase();
     let list = [...projects];
 
-    if (activeTab === 'starred')  list = list.filter((p) => p.is_pinned);
-    if (activeTab === 'archived') list = list.filter((p) => p.status === 'archived' || p.status_raw === 'archived');
-    if (activeTab === 'mine')     list = list.filter((p) => p.status !== 'archived' && p.status_raw !== 'archived');
+    if (activeTab === 'starred') {
+      list = list.filter((p) => p.is_pinned);
+    } else if (activeTab === 'completed') {
+      list = list.filter((p) => isCompletedStatus(p));
+    } else if (activeTab === 'shared') {
+      list = list.filter((p) => {
+        const owner = p.owner_user_id ? String(p.owner_user_id).trim() : '';
+        return owner && sessionUserId && owner !== sessionUserId;
+      });
+    } else {
+      list = list.filter((p) => !isCompletedStatus(p));
+    }
 
     if (q) {
       list = list.filter((p) =>
@@ -380,12 +415,17 @@ export default function ProjectsPage() {
     }
 
     list.sort((a, b) => {
+      if (activeTab === 'recent') {
+        const tb = parseUpdatedTs(b.updated_at);
+        const ta = parseUpdatedTs(a.updated_at);
+        if (tb !== ta) return tb - ta;
+      }
       if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
       return (b.priority_num ?? 0) - (a.priority_num ?? 0);
     });
 
     return list;
-  }, [projects, query, activeTab]);
+  }, [projects, query, activeTab, sessionUserId]);
 
   const createProject = async () => {
     const name = newName.trim();
@@ -558,11 +598,13 @@ export default function ProjectsPage() {
                 ? 'No projects match your search.'
                 : activeTab === 'starred'
                   ? 'Star a project to see it here.'
-                  : activeTab === 'archived'
-                    ? 'No archived projects.'
-                    : 'No projects yet.'}
+                  : activeTab === 'completed'
+                    ? 'No completed projects yet.'
+                    : activeTab === 'shared'
+                      ? 'No shared projects yet.'
+                      : 'No projects yet.'}
             </p>
-            {!query && activeTab === 'mine' && (
+            {!query && activeTab === 'recent' && (
               <button type="button" className="pj-btn pj-btn--primary" onClick={() => setCreating(true)}>
                 <Plus size={14} /> New project
               </button>

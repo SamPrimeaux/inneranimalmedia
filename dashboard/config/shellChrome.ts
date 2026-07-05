@@ -2,7 +2,7 @@
  * Dashboard chrome visibility — status bar, mobile nav offsets.
  * Create surfaces (Design Studio, CMS, Movie Mode, …) hide the dev status lip.
  */
-import { isAgentShellPath } from '../lib/agentRoutes';
+import { isAgentEditorPath, normalizePath } from '../lib/agentRoutes';
 import { SHELL_PRODUCTS } from './shellNav';
 
 /** Routes under the Create product menu — no git/notifications status bar. */
@@ -21,9 +21,9 @@ export function isCreateSurfaceRoute(pathname: string): boolean {
   return false;
 }
 
-export function showDashboardStatusBar(pathname: string, isNarrow = false): boolean {
-  if (isNarrow && isAgentShellPath(pathname)) return false;
-  return !isCreateSurfaceRoute(pathname);
+/** Dev status lip (git, tunnel, PTY) — Agent editor only. */
+export function showDashboardStatusBar(pathname: string, _isNarrow = false): boolean {
+  return isAgentEditorPath(normalizePath(pathname));
 }
 
 /** Fixed dashboard status lip height (matches StatusBar row). */

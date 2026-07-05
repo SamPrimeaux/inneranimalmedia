@@ -16,7 +16,11 @@ import {
   CHAT_COMPACT_TOKEN_THRESHOLD,
   writeR2Text,
 } from './exec-context-tier.js';
-import { expandChatProjectRefs, resolveChatProjectId } from './project-chat-link.js';
+import {
+  expandChatProjectRefs,
+  parseSessionProjectIdFromChatBody,
+  resolveChatProjectId,
+} from './project-chat-link.js';
 import { isD1OverloadError, withD1Retry } from './d1-retry.js';
 
 function getAgentSessionStub(env, conversationId) {
@@ -855,11 +859,16 @@ export function scheduleChatSessionTitleInsert(env, ctx, input) {
         body: input.body ?? null,
       });
 
+      const projectRef = parseSessionProjectIdFromChatBody(input.body ?? null);
+      const resolvedProjectId = projectRef
+        ? await resolveChatProjectId(env, projectRef, workspaceId)
+        : null;
+
       const ins = await env.DB.prepare(
         `INSERT OR IGNORE INTO agentsam_chat_sessions (
            conversation_id, tenant_id, user_id, workspace_id, title, github_repo, model_key,
-           message_count, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), unixepoch())`,
+           project_id, message_count, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), unixepoch())`,
       )
         .bind(
           conversationId,
@@ -869,6 +878,7 @@ export function scheduleChatSessionTitleInsert(env, ctx, input) {
           title,
           githubRepo,
           modelKey,
+          resolvedProjectId,
         )
         .run();
 
@@ -894,10 +904,11 @@ export function scheduleChatSessionTitleInsert(env, ctx, input) {
          SET updated_at = unixepoch(),
              message_count = COALESCE(message_count, 0) + 1,
              model_key = COALESCE(?, model_key),
-             github_repo = COALESCE(?, github_repo)
+             github_repo = COALESCE(?, github_repo),
+             project_id = COALESCE(project_id, ?)
          WHERE conversation_id = ? AND user_id = ? AND tenant_id = ?`,
       )
-        .bind(modelKey, githubRepo, conversationId, userId, tenantId)
+        .bind(modelKey, githubRepo, resolvedProjectId, conversationId, userId, tenantId)
         .run();
     } catch (e) {
       console.warn('[agentsam_chat_sessions] title insert', e?.message ?? e);

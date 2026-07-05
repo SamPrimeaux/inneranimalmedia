@@ -3,6 +3,41 @@
  * Chat sessions store workspace_projects.id; dashboard projects UI uses projects.id.
  */
 
+function trim(v) {
+  return v == null ? '' : String(v).trim();
+}
+
+/**
+ * Project ref from chat POST body — explicit project_id or sessionStorage mirror in workspaceContext.
+ * @param {Record<string, unknown>|null|undefined} body
+ * @returns {string|null}
+ */
+export function parseSessionProjectIdFromChatBody(body) {
+  if (!body || typeof body !== 'object') return null;
+  const direct = trim(body.project_id ?? body.projectId);
+  if (direct) return direct;
+
+  const wsRaw = body.workspaceContext ?? body.workspace_context;
+  if (wsRaw == null || wsRaw === '') return null;
+
+  /** @type {Record<string, unknown>|null} */
+  let ws = null;
+  if (typeof wsRaw === 'string') {
+    try {
+      const parsed = JSON.parse(wsRaw);
+      ws = parsed && typeof parsed === 'object' ? /** @type {Record<string, unknown>} */ (parsed) : null;
+    } catch {
+      return null;
+    }
+  } else if (typeof wsRaw === 'object') {
+    ws = /** @type {Record<string, unknown>} */ (wsRaw);
+  }
+  if (!ws) return null;
+
+  const fromWs = trim(ws.session_project_id ?? ws.sessionProjectId);
+  return fromWs || null;
+}
+
 /**
  * @param {any} env
  * @param {string|null|undefined} projectRef

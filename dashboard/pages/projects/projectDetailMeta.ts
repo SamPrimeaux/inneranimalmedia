@@ -2,7 +2,14 @@ export type ProjectFileRef = {
   name: string;
   url: string;
   uploaded_at?: number;
+  kind?: 'image' | 'document';
 };
+
+export function isProjectImageFile(ref: ProjectFileRef): boolean {
+  if (ref.kind === 'image') return true;
+  if (ref.kind === 'document') return false;
+  return /\.(png|jpe?g|gif|webp|avif|svg|heic)$/i.test(ref.name) || ref.url.includes('imagedelivery.net');
+}
 
 export type ProjectMeta = {
   cover_image_url?: string;

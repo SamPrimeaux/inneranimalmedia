@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -24,6 +24,7 @@ import { cfImageVariants } from '../../src/lib/projectBranding';
 import { useWorkspace } from '../../src/context/WorkspaceContext';
 import {
   coverFromMeta,
+  isProjectImageFile,
   parseProjectMeta,
   projectFilesFromMeta,
   type ProjectFileRef,
@@ -184,6 +185,7 @@ export default function ProjectDetailPage() {
   const [fileUploading, setFileUploading] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
   const [fileDragOver, setFileDragOver] = useState(false);
+  const [previewImage, setPreviewImage] = useState<ProjectFileRef | null>(null);
   const fileDragDepthRef = useRef(0);
   const coverInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -215,9 +217,12 @@ export default function ProjectDetailPage() {
     if (!projectId) return;
     setLoadingChats(true);
     try {
-      const r = await fetch('/api/agent/sessions?limit=200', { credentials: 'same-origin' });
+      const r = await fetch(
+        `/api/agent/sessions?limit=200&project_id=${encodeURIComponent(projectId)}`,
+        { credentials: 'same-origin' },
+      );
       const rows: ChatSession[] = r.ok ? await r.json() : [];
-      setChats(rows.filter((s) => s.project_id === projectId));
+      setChats(rows);
     } catch {
       setChats([]);
     } finally {
@@ -260,6 +265,15 @@ export default function ProjectDetailPage() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!previewImage) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPreviewImage(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [previewImage]);
 
   // lock body scroll when mobile rail sheet is open
   useEffect(() => {
@@ -383,7 +397,12 @@ export default function ProjectDetailPage() {
           setToast(out.error || `Upload failed: ${file.name}`);
           break;
         }
-        added.push({ name: file.name, url: out.url, uploaded_at: Date.now() });
+        added.push({
+          name: file.name,
+          url: out.url,
+          uploaded_at: Date.now(),
+          kind: file.type.startsWith('image/') ? 'image' : 'document',
+        });
       }
       if (!added.length) return;
       const next = [...added, ...projectFiles];
@@ -445,6 +464,15 @@ export default function ProjectDetailPage() {
     });
     resumeAgentChatSession({ id, title: s.title || 'Chat', force: true });
   };
+
+  const imageFiles = useMemo(
+    () => projectFiles.filter((f) => isProjectImageFile(f)),
+    [projectFiles],
+  );
+  const documentFiles = useMemo(
+    () => projectFiles.filter((f) => !isProjectImageFile(f)),
+    [projectFiles],
+  );
 
   // ── rail content (shared between desktop aside and mobile sheet) ──
   const railContent = (
@@ -583,7 +611,7 @@ export default function ProjectDetailPage() {
         >
           <FolderOpen size={24} strokeWidth={1} className="cpd-files-icon" />
           <p className="cpd-files-text">
-            Drop PDFs, docs, or images here — stored in project R2 under <code>projects/{project?.id}/files/</code>
+            Drop images, PDFs, or docs here — attached to this project for Agent Sam and your team.
           </p>
           <button
             type="button"
@@ -594,9 +622,34 @@ export default function ProjectDetailPage() {
             {fileUploading ? 'Uploading…' : 'Choose files'}
           </button>
         </div>
-        {projectFiles.length > 0 ? (
+        {imageFiles.length > 0 ? (
+          <div className="cpd-files-gallery" role="list" aria-label="Project images">
+            {imageFiles.map((f) => {
+              const variants = cfImageVariants(f.url);
+              return (
+                <button
+                  key={`${f.url}-${f.name}`}
+                  type="button"
+                  className="cpd-files-thumb"
+                  role="listitem"
+                  title={f.name}
+                  onClick={() => setPreviewImage(f)}
+                >
+                  <img
+                    src={variants.src}
+                    srcSet={variants.srcSet}
+                    alt={f.name}
+                    loading="lazy"
+                    draggable={false}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+        {documentFiles.length > 0 ? (
           <ul className="cpd-files-list">
-            {projectFiles.map((f) => (
+            {documentFiles.map((f) => (
               <li key={`${f.url}-${f.name}`}>
                 <a href={f.url} target="_blank" rel="noreferrer noopener">
                   {f.name}
@@ -923,6 +976,31 @@ export default function ProjectDetailPage() {
           </div>
         </div>
       )}
+
+      {previewImage ? (
+        <div
+          className="cpd-lightbox"
+          role="dialog"
+          aria-label={previewImage.name}
+          onClick={() => setPreviewImage(null)}
+        >
+          <button
+            type="button"
+            className="cpd-lightbox-close"
+            aria-label="Close"
+            onClick={() => setPreviewImage(null)}
+          >
+            <X size={20} />
+          </button>
+          <img
+            src={cfImageVariants(previewImage.url).src}
+            alt={previewImage.name}
+            className="cpd-lightbox-img"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <p className="cpd-lightbox-caption">{previewImage.name}</p>
+        </div>
+      ) : null}
 
       {toast && <div className="cpd-toast" role="status">{toast}</div>}
       <input
@@ -1426,6 +1504,32 @@ const CSS = `
   line-height: 1.5;
 }
 .cpd-files-text code { font-size: 10px; }
+.cpd-files-gallery {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 12px;
+}
+.cpd-files-thumb {
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid var(--dashboard-border);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.2);
+  transition: border-color 0.12s, transform 0.12s;
+}
+.cpd-files-thumb:hover {
+  border-color: var(--solar-cyan, #22d3ee);
+  transform: scale(1.02);
+}
+.cpd-files-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 .cpd-files-list {
   list-style: none;
   margin: 12px 0 0;
@@ -1451,6 +1555,52 @@ const CSS = `
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.cpd-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.88);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.cpd-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  cursor: pointer;
+}
+.cpd-lightbox-img {
+  max-width: min(960px, 92vw);
+  max-height: 80vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.cpd-lightbox-caption {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+  text-align: center;
+  max-width: 480px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cpd-cover-preview {
   display: flex;
   flex-direction: column;
