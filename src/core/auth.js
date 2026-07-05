@@ -1482,14 +1482,7 @@ export async function establishIamSession(request, env, userId, bodyObj = { ok: 
     expiresAtIso,
   });
 
-  await withD1Retry(() =>
-    env.DB.batch([
-      env.DB.prepare(
-        `UPDATE auth_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`,
-      ).bind(userId),
-      insertStmt,
-    ]),
-  );
+  await withD1Retry(() => insertStmt.run());
 
   if (sessionFields.workspaceId) {
     try {
