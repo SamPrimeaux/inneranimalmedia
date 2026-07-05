@@ -400,7 +400,7 @@ function googleAuthUrl(env, state, oauthScopeString) {
 
 const CLOUDFLARE_OAUTH_REDIRECT_URI = 'https://inneranimalmedia.com/api/oauth/cloudflare/callback';
 const CLOUDFLARE_OAUTH_SCOPES =
-  'account-settings.read zone.read workers-scripts.write d1.read workers-r2.read';
+  'account-settings.read zone.read workers-scripts.read workers-scripts.write d1.read d1.write workers-r2.read workers-kv-storage.read workers-kv-storage.write';
 
 function cloudflareAuthUrl(env, state, oauthScopeString) {
   if (!env.CLOUDFLARE_OAUTH_CLIENT_ID) return null;

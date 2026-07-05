@@ -293,11 +293,39 @@ async function executeCatalogInlineAgentSql(env, config, params, runContext) {
 
 /**
  * @param {any} env
+ * @param {Record<string, unknown>} row agentsam_tools row (dispatch_target, handler_config)
  * @param {Record<string, unknown>} config
  * @param {Record<string, unknown>} params
  * @param {Record<string, unknown>} runContext
  */
-async function executeCatalogCfD1(env, config, params, runContext) {
+async function executeCatalogCfD1(env, row, config, params, runContext) {
+  const toolKey = String(
+    runContext.agentsam_tool_key ?? row?.tool_key ?? params.tool_key ?? '',
+  ).trim();
+  const cfRouteRow = {
+    ...row,
+    tool_key: toolKey,
+    handler_type: row?.handler_type || 'cf',
+    dispatch_target: row?.dispatch_target ?? config?.dispatch_target,
+    handler_config: row?.handler_config ?? config,
+  };
+  const { resolveCfMcpCatalogRoute, normalizeCfMcpToolResultBody } = await import('./cf-mcp-proxy.js');
+  const cfRoute = resolveCfMcpCatalogRoute(cfRouteRow, config);
+  if (cfRoute) {
+    const mcpOut = await executeMcpCatalogRow(env, cfRoute.mcpRow, params, runContext);
+    if (mcpOut.ok) {
+      return { ok: true, body: normalizeCfMcpToolResultBody(mcpOut.body) };
+    }
+    if (cfRoute.route === 'mcp_only') {
+      return {
+        ok: false,
+        error: mcpOut.error,
+        user_message: mcpOut.body?.user_message,
+        body: mcpOut.body,
+      };
+    }
+  }
+
   const { resolveWorkspaceD1Execution, executeWorkspaceD1Query } = await import(
     './workspace-d1-execution.js'
   );
@@ -309,7 +337,7 @@ async function executeCatalogCfD1(env, config, params, runContext) {
     authUser,
   };
 
-  const op = normalizeCatalogCfD1Op(config, runContext.agentsam_tool_key ?? params.tool_key);
+  const op = normalizeCatalogCfD1Op(config, toolKey);
   try {
     if (op === 'introspect' || op === 'schema') {
       return runCatalogD1SchemaIntrospect(env, d1Ctx, params);
@@ -529,7 +557,7 @@ function trimMcpValue(v) {
 export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
   const config = parseHandlerConfig(mcpRow.handler_config);
   const toolKey = trimMcpValue(mcpRow.tool_key || mcpRow.tool_name);
-  const mcpCallName = resolveMcpRemoteToolName(mcpRow, config) || toolKey;
+  let mcpCallName = resolveMcpRemoteToolName(mcpRow, config) || toolKey;
   const tenantId = trimMcpValue(runContext.tenantId ?? runContext.tenant_id);
   const userId = trimMcpValue(runContext.userId ?? runContext.user_id);
   const workspaceId = trimMcpValue(runContext.workspaceId ?? runContext.workspace_id);
@@ -553,6 +581,12 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
       authType === 'user_oauth_github' ||
       authSource === 'user_oauth_github' ||
       (authSource === 'user_oauth_tokens' && provider === 'github');
+    const serverKey = trimMcpValue(serverRow?.server_key || toolForResolve.server_key || config.server_key);
+    const needsCloudflareUserToken =
+      authType === 'user_oauth_cloudflare' ||
+      (authSource === 'user_oauth_tokens' && provider === 'cloudflare') ||
+      serverKey === 'cloudflare-bindings' ||
+      String(url || '').includes('bindings.mcp.cloudflare.com');
 
     if (needsGithubUserToken) {
       if (!userId) {
@@ -579,6 +613,27 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
         };
       }
       headers.Authorization = `Bearer ${accessToken}`;
+    } else if (needsCloudflareUserToken) {
+      const { resolveCfMcpBearerToken, mapAgentsamParamsToCfMcp, resolveCfMcpRemoteToolName } =
+        await import('./cf-mcp-proxy.js');
+      const tok = await resolveCfMcpBearerToken(env, {
+        userId,
+        workspaceId,
+        tenantId,
+        authUser: runContext?.authUser ?? runContext?.user ?? null,
+      });
+      if (!tok.ok || !tok.token) {
+        return {
+          ok: false,
+          error: tok.error || 'cloudflare_not_connected',
+          failed_tool: toolKey,
+          reauth_required: tok.reauth_required === true,
+          body: { user_message: tok.user_message || 'Connect Cloudflare in Integrations.' },
+        };
+      }
+      headers.Authorization = `Bearer ${tok.token}`;
+      mcpCallName = resolveCfMcpRemoteToolName(config, params) || mcpCallName;
+      params = mapAgentsamParamsToCfMcp(mcpCallName, params, config, env);
     } else {
       const mcpToken = env?.MCP_AUTH_TOKEN != null ? String(env.MCP_AUTH_TOKEN).trim() : '';
       const internalSecret = env?.INTERNAL_API_SECRET != null ? String(env.INTERNAL_API_SECRET).trim() : '';
@@ -613,6 +668,18 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
           failed_tool: toolKey,
           reauth_required: true,
           body: { user_message: 'GitHub token expired or was revoked. Reconnect GitHub in Integrations.' },
+        };
+      }
+      if (status === 401 && needsCloudflareUserToken) {
+        return {
+          ok: false,
+          error: 'cloudflare_reauth_required',
+          failed_tool: toolKey,
+          reauth_required: true,
+          body: {
+            user_message:
+              'Cloudflare OAuth token expired or was revoked. Reconnect Cloudflare Developer Platform in Integrations.',
+          },
         };
       }
       if (
@@ -652,6 +719,10 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
       };
     }
     const body = await res.json().catch(() => ({}));
+    if (needsCloudflareUserToken) {
+      const { normalizeCfMcpToolResultBody } = await import('./cf-mcp-proxy.js');
+      return { ok: true, body: normalizeCfMcpToolResultBody(body) };
+    }
     return { ok: true, body };
   }
 
@@ -1147,11 +1218,27 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     }
   };
 
+  {
+    const { resolveCfMcpCatalogRoute } = await import('./cf-mcp-proxy.js');
+    const cfRoute = resolveCfMcpCatalogRoute(row, config);
+    if (cfRoute) {
+      const mcpResult = await executeMcpCatalogRow(env, cfRoute.mcpRow, params, runContext);
+      if (cfRoute.route === 'mcp_only' || mcpResult?.ok === true) {
+        await finalizeTelemetry(
+          mcpResult?.ok === true,
+          mcpResult?.body ?? mcpResult,
+          mcpResult?.ok === true ? null : mcpResult?.error || null,
+        );
+        return mcpResult;
+      }
+    }
+  }
+
   switch (handlerType) {
     case 'd1':
     case 'cf': {
       if (handlerType === 'd1' || isCatalogCfD1Operation(toolKey, config)) {
-        result = await executeCatalogCfD1(env, config, params, {
+        result = await executeCatalogCfD1(env, row, config, params, {
           ...runContext,
           agentsam_tool_key: toolKey,
         });
