@@ -1,6 +1,10 @@
 # Inner Animal Media — Cursor
 
-**Single always-on rule:** `.cursor/rules/iam-core.mdc` (includes **no test/smoke in deploy** unless you explicitly ask)
+**Always-on rules:** `.cursor/rules/iam-core.mdc` · `.cursor/rules/iam-ship-gate.mdc` (local → git → full deploy — required for PWA/phone updates) · `.cursor/rules/iam-agent-delivery-workflow.mdc`
+
+**Ship gate:** every deploy must pass local, stage/commit/push, then `npm run deploy:full` — no partial handoffs.
+
+**No test/smoke in deploy** unless you explicitly ask (see iam-core).
 
 **Optional (agent loads when relevant):** other files in `.cursor/rules/` with `alwaysApply: false`.
 

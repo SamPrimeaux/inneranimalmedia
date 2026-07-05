@@ -1221,6 +1221,10 @@ export default {
               contentType: 'application/manifest+json; charset=utf-8',
             },
             '/offline.html': { key: 'static/dashboard/offline.html', contentType: 'text/html; charset=utf-8' },
+            '/pwa-recovery.html': {
+              key: 'static/dashboard/pwa-recovery.html',
+              contentType: 'text/html; charset=utf-8',
+            },
             '/pwa-build-meta.json': {
               key: 'static/dashboard/pwa-build-meta.json',
               contentType: 'application/json; charset=utf-8',

@@ -35,6 +35,11 @@ export const PWA_FIXED_ROOT_FILES = [
     contentType: 'text/html; charset=utf-8',
     noCache: false,
   },
+  {
+    file: 'pwa-recovery.html',
+    contentType: 'text/html; charset=utf-8',
+    noCache: false,
+  },
 ];
 
 const WORKBOX_BASENAME_RE = /^workbox-[a-f0-9]+\.js$/i;
