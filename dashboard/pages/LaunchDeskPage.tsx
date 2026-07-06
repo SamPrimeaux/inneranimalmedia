@@ -59,6 +59,8 @@ import {
 const HOUR_START = 2;
 const HOUR_COUNT = 22;
 const HOUR_HEIGHT = 52;
+const DAY_VIEW_HOUR_HEIGHT = 64;
+const MOBILE_DAY_HOUR_HEIGHT = 72;
 const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 const HOURS = Array.from({ length: HOUR_COUNT }, (_, i) => i + HOUR_START);
 
@@ -96,6 +98,15 @@ type EditorState = {
   withMeet: boolean;
 };
 
+function initialCalView(): CollaborateCalView {
+  if (typeof window === 'undefined') return 'week';
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('view') === 'month') return 'month';
+  if (params.get('view') === 'day') return 'day';
+  if (params.get('view') === 'week') return 'week';
+  return window.matchMedia('(max-width: 760px)').matches ? 'day' : 'week';
+}
+
 function cleanTitle(title: string | null | undefined) {
   return String(title || '').trim() || 'Untitled';
 }
@@ -112,7 +123,7 @@ function minutesSinceGridStart(d: Date) {
   return (d.getHours() - HOUR_START) * 60 + d.getMinutes();
 }
 
-function eventLayout(ev: CalEvent, day: Date) {
+function eventLayout(ev: CalEvent, day: Date, hourHeight = HOUR_HEIGHT) {
   const start = parseEventDate(ev.start_datetime);
   const end = parseEventDate(ev.end_datetime);
   if (Number.isNaN(start.getTime()) || !sameDay(start, day)) return null;
@@ -120,8 +131,8 @@ function eventLayout(ev: CalEvent, day: Date) {
   const endMin = Number.isNaN(end.getTime()) ? topMin + 30 : minutesSinceGridStart(end);
   const heightMin = Math.max(18, endMin - topMin);
   return {
-    top: (topMin / 60) * HOUR_HEIGHT,
-    height: (heightMin / 60) * HOUR_HEIGHT,
+    top: (topMin / 60) * hourHeight,
+    height: (heightMin / 60) * hourHeight,
   };
 }
 
@@ -171,7 +182,7 @@ export function LaunchDeskPage() {
 
   const [anchor, setAnchor] = useState(() => new Date());
   const [mainSeg, setMainSeg] = useState<MainSeg>('calendar');
-  const [calView, setCalView] = useState<CollaborateCalView>('week');
+  const [calView, setCalView] = useState<CollaborateCalView>(initialCalView);
   const [tasksNavView, setTasksNavView] = useState<TasksNavView>('list');
   const [tasksActiveList, setTasksActiveList] = useState('My Tasks');
   const [tasksComposing, setTasksComposing] = useState(false);
@@ -238,6 +249,23 @@ export function LaunchDeskPage() {
     [searchParams, setSearchParams],
   );
 
+  const selectTask = useCallback(
+    (id: string | null) => {
+      setSelectedTaskId(id);
+      pushCollaborateUrl({ task: id, seg: id ? 'tasks' : null });
+    },
+    [pushCollaborateUrl],
+  );
+
+  const openDayView = useCallback(
+    (day: Date) => {
+      setAnchor(new Date(day));
+      setCalView('day');
+      pushCollaborateUrl({ seg: 'calendar', view: 'day' });
+    },
+    [pushCollaborateUrl],
+  );
+
   useEffect(() => {
     if (clientFilterId || projectFilterId) setTasksNavView('client');
   }, [clientFilterId, projectFilterId]);
@@ -290,9 +318,17 @@ export function LaunchDeskPage() {
       calView: view,
       clientId,
       clientWork,
+      taskId,
     } = parseCollaborateSearchParams(searchParams);
     setMainSeg(seg);
-    setCalView(view);
+    const viewParam = searchParams.get('view');
+    if (viewParam === 'month') setCalView('month');
+    else if (viewParam === 'day') setCalView('day');
+    else if (viewParam === 'week') setCalView('week');
+    if (taskId) {
+      setSelectedTaskId(taskId);
+      setMainSeg('tasks');
+    }
     if (seg === 'tasks') {
       if (clientId || clientWork) {
         setTasksNavView('client');
@@ -321,6 +357,7 @@ export function LaunchDeskPage() {
   const stepAnchor = useCallback(
     (delta: number) => {
       setAnchor((prev) => {
+        if (calView === 'day') return addDays(prev, delta);
         if (calView === 'month') {
           const d = new Date(prev);
           d.setMonth(d.getMonth() + delta);
@@ -334,7 +371,8 @@ export function LaunchDeskPage() {
 
   const openCalendarSeg = useCallback(() => {
     setMainSeg('calendar');
-    pushCollaborateUrl({ seg: 'calendar', view: calView });
+    setSelectedTaskId(null);
+    pushCollaborateUrl({ seg: 'calendar', view: calView, task: null });
   }, [calView, pushCollaborateUrl]);
 
   const openTasksSeg = useCallback(() => {
@@ -351,6 +389,19 @@ export function LaunchDeskPage() {
     },
     [pushCollaborateUrl],
   );
+
+  const displayDays = calView === 'day' ? [anchor] : weekDays;
+  const dayHourHeight =
+    calView === 'day'
+      ? typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches
+        ? MOBILE_DAY_HOUR_HEIGHT
+        : DAY_VIEW_HOUR_HEIGHT
+      : HOUR_HEIGHT;
+  const gridHourHeight = calView === 'day' ? dayHourHeight : HOUR_HEIGHT;
+  const calendarHeadTitle =
+    calView === 'day'
+      ? anchor.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+      : monthTitle;
 
   useEffect(() => {
     const t = window.setTimeout(async () => {
@@ -596,9 +647,11 @@ export function LaunchDeskPage() {
 
   const currentLineTop = useMemo(() => {
     const now = new Date();
-    if (!weekDays.some((d) => sameDay(d, now))) return null;
-    return (minutesSinceGridStart(now) / 60) * HOUR_HEIGHT;
-  }, [weekDays]);
+    const visibleDays = calView === 'day' ? [anchor] : weekDays;
+    if (!visibleDays.some((d) => sameDay(d, now))) return null;
+    const hourPx = calView === 'day' ? dayHourHeight : HOUR_HEIGHT;
+    return (minutesSinceGridStart(now) / 60) * hourPx;
+  }, [weekDays, calView, anchor, dayHourHeight]);
 
   useEffect(() => {
     if (mainSeg !== 'tasks' && mainSeg !== 'calendar') return undefined;
@@ -685,7 +738,7 @@ export function LaunchDeskPage() {
           <button type="button" className="colab-cal-circle-btn" aria-label="Next" onClick={() => stepAnchor(1)}>
             ›
           </button>
-          <h1 className="colab-cal-month-title">{monthTitle}</h1>
+          <h1 className="colab-cal-month-title">{calendarHeadTitle}</h1>
             </>
           ) : (
             <h1 className="colab-cal-month-title">Tasks</h1>
@@ -700,6 +753,7 @@ export function LaunchDeskPage() {
                 onChange={(e) => setCalendarView(e.target.value as CollaborateCalView)}
                 aria-label="Calendar view"
               >
+                <option value="day">Day</option>
                 <option value="week">Week</option>
                 <option value="month">Month</option>
               </select>
@@ -957,7 +1011,8 @@ export function LaunchDeskPage() {
                         .join(' ')}
                       onClick={() => {
                         setAnchor(new Date(d));
-                        setCalendarView('week');
+                        if (window.innerWidth <= 760) openDayView(d);
+                        else setCalendarView('week');
                       }}
                     >
                       <span className="colab-cal-month-cell-date">{d.getDate()}</span>
@@ -981,15 +1036,26 @@ export function LaunchDeskPage() {
               </div>
             </section>
           ) : (
-          <section className="colab-cal-center">
+          <section className={`colab-cal-center${calView === 'day' ? ' colab-cal-center--day' : ''}`}>
+            {calView === 'day' ? (
+              <div className="colab-cal-day-focus-bar">
+                <button type="button" className="colab-cal-text-btn" onClick={() => setCalendarView('week')}>
+                  ← Week
+                </button>
+                <span className="colab-cal-day-focus-label">Single day — tap times to add events</span>
+              </div>
+            ) : null}
             <div className="colab-cal-head-row">
               <div />
-              {weekDays.map((d) => (
+              {displayDays.map((d) => (
                 <button
                   key={d.toISOString()}
                   type="button"
                   className={`colab-cal-day-head${sameDay(d, today) ? ' today' : ''}`}
-                  onClick={() => setAnchor(new Date(d))}
+                  onClick={() => {
+                    if (calView === 'week') openDayView(d);
+                    else setAnchor(new Date(d));
+                  }}
                 >
                   <span className="colab-cal-day-label">{WEEKDAYS[d.getDay()]}</span>
                   <span className="colab-cal-date-label">{d.getDate()}</span>
@@ -999,7 +1065,7 @@ export function LaunchDeskPage() {
 
             <div className="colab-cal-all-day-row">
               <div />
-              {weekDays.map((d) => {
+              {displayDays.map((d) => {
                 const key = anchorIso(d);
                 const allDay = eventsByDay.get(key)?.allDay || [];
                 return (
@@ -1020,13 +1086,13 @@ export function LaunchDeskPage() {
             </div>
 
             <div className="colab-cal-week-scroll" ref={weekScrollRef}>
-              <div className="colab-cal-week-grid" style={{ ['--hour' as string]: `${HOUR_HEIGHT}px` }}>
+              <div className="colab-cal-week-grid" style={{ ['--hour' as string]: `${gridHourHeight}px` }}>
                 {HOURS.map((h) => (
                   <React.Fragment key={h}>
                     <div className="colab-cal-hour-label">
                       {h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`}
                     </div>
-                    {weekDays.map((d) => (
+                    {displayDays.map((d) => (
                       <button
                         key={`${anchorIso(d)}-${h}`}
                         type="button"
@@ -1042,13 +1108,13 @@ export function LaunchDeskPage() {
                 )}
 
                 <div className="colab-cal-events-layer">
-                  {weekDays.map((d) => {
+                  {displayDays.map((d) => {
                     const key = anchorIso(d);
                     const timed = eventsByDay.get(key)?.timed || [];
                     return (
                       <div key={key} className="colab-cal-events-col">
                         {timed.map((ev) => {
-                          const layout = eventLayout(ev, d);
+                          const layout = eventLayout(ev, d, gridHourHeight);
                           if (!layout) return null;
                           return (
                             <button
@@ -1097,7 +1163,7 @@ export function LaunchDeskPage() {
             }
             projects={projects}
             selectedTaskId={selectedTaskId}
-            onSelectedTaskChange={setSelectedTaskId}
+            onSelectedTaskChange={selectTask}
             clientListTitle={clientListTitle}
           />
         )}

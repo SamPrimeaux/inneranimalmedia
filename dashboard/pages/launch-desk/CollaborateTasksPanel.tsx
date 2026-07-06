@@ -10,7 +10,6 @@ import {
   MoreVertical,
   PlusCircle,
   Star,
-  Trash2,
 } from 'lucide-react';
 import type { ClientWorkNavItem } from '../../src/lib/collaborate/clientWorkNav';
 import { loadUserTaskLists, saveUserTaskList } from '../../src/lib/collaborate/userTaskLists';
@@ -26,6 +25,7 @@ import {
   toSqlDatetime,
   todoListName,
 } from './ops-desk-types';
+import { CollaborateTaskFocus } from './CollaborateTaskFocus';
 
 export type TasksNavView = 'starred' | 'list' | 'client';
 
@@ -342,9 +342,6 @@ export function CollaborateTasksMain({
   const [dueEditId, setDueEditId] = useState<string | null>(null);
   const [dueDraft, setDueDraft] = useState('');
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
-  const [editTitle, setEditTitle] = useState('');
-  const [editNotes, setEditNotes] = useState('');
-  const [editProjectId, setEditProjectId] = useState('');
 
   const openTodos = useMemo(() => todos.filter(isOpen), [todos]);
 
@@ -356,21 +353,9 @@ export function CollaborateTasksMain({
   }, [openTodos, navView, activeList]);
 
   const selectedTask = useMemo(
-    () => (selectedTaskId ? openTodos.find((t) => t.id === selectedTaskId) || null : null),
-    [openTodos, selectedTaskId],
+    () => (selectedTaskId ? todos.find((t) => t.id === selectedTaskId) || null : null),
+    [todos, selectedTaskId],
   );
-
-  useEffect(() => {
-    if (!selectedTask) {
-      setEditTitle('');
-      setEditNotes('');
-      setEditProjectId('');
-      return;
-    }
-    setEditTitle(selectedTask.title || '');
-    setEditNotes(selectedTask.description || selectedTask.notes || '');
-    setEditProjectId(selectedTask.project_id || selectedTask.project_key || '');
-  }, [selectedTask]);
 
   const listTitle =
     navView === 'client'
@@ -445,18 +430,23 @@ export function CollaborateTasksMain({
     }
   };
 
-  const saveSelectedTask = async () => {
+  const saveSelectedTask = async (payload: {
+    title: string;
+    description: string | null;
+    project_id: string | null;
+    due_date: string | null;
+  }) => {
     if (!selectedTask) return;
-    const title = editTitle.trim();
-    if (!title) return;
     setSaving(true);
     setComposeError(null);
     try {
       await patchTodo(selectedTask.id, {
-        title,
-        description: editNotes.trim() || null,
-        ...(editProjectId
-          ? { project_id: editProjectId, project_key: editProjectId }
+        title: payload.title,
+        description: payload.description,
+        notes: null,
+        due_date: payload.due_date,
+        ...(payload.project_id
+          ? { project_id: payload.project_id, project_key: payload.project_id }
           : { project_id: null, project_key: null }),
       });
       await onReload();
@@ -595,12 +585,16 @@ export function CollaborateTasksMain({
               <div
                 key={todo.id}
                 className={`colab-tasks-item${selected ? ' selected' : ''}`}
-                onClick={() => onSelectedTaskChange?.(selected ? null : todo.id)}
+                onClick={() => onSelectedTaskChange?.(todo.id)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') onSelectedTaskChange?.(selected ? null : todo.id);
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelectedTaskChange?.(todo.id);
+                  }
                 }}
                 role="button"
                 tabIndex={0}
+                aria-label={`Open task: ${todo.title}`}
               >
                 <div className="colab-tasks-check-wrap" onClick={(e) => e.stopPropagation()}>
                   <button
@@ -624,6 +618,7 @@ export function CollaborateTasksMain({
                 <div>
                   <div className="colab-tasks-item-title">{todo.title}</div>
                   {body ? <div className="colab-tasks-item-desc">{body}</div> : null}
+                  <div className="colab-tasks-item-open-hint">Tap for full details</div>
                   {proj ? <div className="colab-tasks-project-tag">{proj}</div> : null}
                   {dueEditId === todo.id ? (
                     <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
@@ -688,53 +683,17 @@ export function CollaborateTasksMain({
         )}
 
         {selectedTask ? (
-          <div className="colab-tasks-detail">
-            <div className="colab-tasks-detail-head">
-              <h3>Task details</h3>
-              <button type="button" className="colab-cal-text-btn" onClick={() => onSelectedTaskChange?.(null)}>
-                Close
-              </button>
-            </div>
-            <input
-              className="colab-tasks-detail-input"
-              value={editTitle}
-              onChange={(e) => setEditTitle(e.target.value)}
-              placeholder="Title"
-            />
-            <textarea
-              className="colab-tasks-detail-textarea"
-              value={editNotes}
-              onChange={(e) => setEditNotes(e.target.value)}
-              placeholder="Details"
-            />
-            <label className="colab-tasks-detail-label">
-              Project
-              <select
-                className="colab-tasks-project-select"
-                value={editProjectId}
-                onChange={(e) => setEditProjectId(e.target.value)}
-              >
-                <option value="">No project</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="colab-tasks-detail-actions">
-              <button type="button" className="colab-cal-save-btn" disabled={saving} onClick={() => void saveSelectedTask()}>
-                Save changes
-              </button>
-              <button type="button" className="colab-cal-outline-btn" disabled={saving} onClick={() => void completeTask(selectedTask)}>
-                Mark complete
-              </button>
-              <button type="button" className="colab-cal-outline-btn danger" disabled={saving} onClick={() => void removeTask(selectedTask)}>
-                <Trash2 size={14} strokeWidth={1.75} aria-hidden />
-                Delete
-              </button>
-            </div>
-          </div>
+          <CollaborateTaskFocus
+            task={selectedTask}
+            projects={projects}
+            saving={saving}
+            onClose={() => onSelectedTaskChange?.(null)}
+            onSave={saveSelectedTask}
+            onComplete={() => completeTask(selectedTask)}
+            onDelete={() => removeTask(selectedTask)}
+            onSchedule={onSchedule ? () => void onSchedule(selectedTask) : undefined}
+            onToggleStar={() => toggleStar(selectedTask)}
+          />
         ) : null}
       </div>
     </section>

@@ -2,7 +2,7 @@ export type CollaborateRailPanel = 'calendar' | 'keep' | 'notes' | 'contacts';
 
 export type CollaborateMainSeg = 'calendar' | 'tasks';
 
-export type CollaborateCalView = 'week' | 'month';
+export type CollaborateCalView = 'week' | 'month' | 'day';
 
 /** Deep-link into the live /dashboard/collaborate surface (or related routes). */
 export function collaborateDeepLink(panel: CollaborateRailPanel): string {
@@ -28,6 +28,7 @@ export function parseCollaborateSearchParams(params: URLSearchParams): {
   clientId: string | null;
   clientWork: boolean;
   calView: CollaborateCalView;
+  taskId: string | null;
 } {
   const seg = params.get('seg');
   const mainSeg = seg === 'tasks' ? 'tasks' : 'calendar';
@@ -36,8 +37,11 @@ export function parseCollaborateSearchParams(params: URLSearchParams): {
   const projectId = params.get('project')?.trim() || null;
   const clientId = params.get('client')?.trim() || null;
   const clientWork = params.get('client_work') === '1';
-  const calView = params.get('view') === 'month' ? 'month' : 'week';
-  return { mainSeg, tasksList, focusPeople, projectId, clientId, clientWork, calView };
+  const viewParam = params.get('view');
+  const calView: CollaborateCalView =
+    viewParam === 'month' ? 'month' : viewParam === 'day' ? 'day' : 'week';
+  const taskId = params.get('task')?.trim() || null;
+  return { mainSeg, tasksList, focusPeople, projectId, clientId, clientWork, calView, taskId };
 }
 
 /** Merge collaborate URL params (omit null/empty to delete keys). */
@@ -51,6 +55,7 @@ export function patchCollaborateSearchParams(
     client_work?: string | null;
     list?: string | null;
     panel?: string | null;
+    task?: string | null;
   },
 ): URLSearchParams {
   const next = new URLSearchParams(current);
@@ -62,8 +67,10 @@ export function patchCollaborateSearchParams(
     apply('seg', patch.seg === 'tasks' ? 'tasks' : null);
   }
   if ('view' in patch) {
-    apply('view', patch.view === 'month' ? 'month' : null);
+    const v = patch.view;
+    apply('view', v === 'month' ? 'month' : v === 'day' ? 'day' : v === 'week' ? null : null);
   }
+  if ('task' in patch) apply('task', patch.task ?? null);
   if ('project' in patch) apply('project', patch.project ?? null);
   if ('client' in patch) apply('client', patch.client ?? null);
   if ('client_work' in patch) apply('client_work', patch.client_work ?? null);
