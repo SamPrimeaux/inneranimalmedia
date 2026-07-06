@@ -15,7 +15,7 @@ function trim(v) {
 const PLATFORM_WORKER_NAME = 'inneranimalmedia';
 
 const DEFAULT_WORKER_BASE = {
-  companionscpas: 'https://companionscpas.meauxbility.workers.dev',
+  companionscpas: 'https://companionsofcaddo.org',
   fuelnfreetime: 'https://fuelnfreetime.meauxbility.workers.dev',
   inneranimalmedia: 'https://inneranimalmedia.meauxbility.workers.dev',
   meauxbility: 'https://meauxbility.meauxbility.workers.dev',
