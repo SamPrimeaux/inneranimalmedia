@@ -21,6 +21,7 @@ type Props = {
   todos?: AgentTodo[];
   selectedTaskId?: string | null;
   onTimeLogged?: () => void | Promise<void>;
+  onClose?: () => void;
 };
 
 export function CollaborateTasksInsights({
@@ -36,6 +37,7 @@ export function CollaborateTasksInsights({
   todos = [],
   selectedTaskId = null,
   onTimeLogged,
+  onClose,
 }: Props) {
   const breakdown = insights?.insights.breakdown_minutes || {};
   const trackedToday = tasksInsights?.today_minutes || 0;
@@ -112,11 +114,18 @@ export function CollaborateTasksInsights({
           <div className="colab-cal-insights-date">{weekLabel}</div>
           <div className="colab-cal-insights-title">Time insights</div>
         </div>
-        {trackingActive ? (
-          <span className="colab-tasks-tracking-pill" title="Tracking active time while you work">
-            Live
-          </span>
-        ) : null}
+        <div className="colab-cal-insights-head-actions">
+          {trackingActive ? (
+            <span className="colab-tasks-tracking-pill" title="Tracking active time while you work">
+              Live
+            </span>
+          ) : null}
+          {onClose ? (
+            <button type="button" className="colab-cal-icon-btn colab-cal-insights-close" aria-label="Close insights" onClick={onClose}>
+              ×
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="colab-cal-switch">

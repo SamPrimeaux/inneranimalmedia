@@ -203,6 +203,7 @@ export function LaunchDeskPage() {
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [insightsMode, setInsightsMode] = useState<'week' | 'month'>('week');
   const [insightsOpen, setInsightsOpen] = useState(false);
+  const closeInsights = useCallback(() => setInsightsOpen(false), []);
   const [leftNavOpen, setLeftNavOpen] = useState(true);
 
   const [sources, setSources] = useState({
@@ -1113,6 +1114,7 @@ export function LaunchDeskPage() {
             todos={todos}
             selectedTaskId={selectedTaskId}
             onTimeLogged={reload}
+            onClose={closeInsights}
           />
         ) : mainSeg === 'calendar' && insightsOpen ? (
         <aside className="colab-cal-right">
@@ -1124,6 +1126,9 @@ export function LaunchDeskPage() {
               </div>
               <div className="colab-cal-insights-title">Time insights</div>
             </div>
+            <button type="button" className="colab-cal-icon-btn colab-cal-insights-close" aria-label="Close insights" onClick={closeInsights}>
+              ×
+            </button>
           </div>
 
           <div className="colab-cal-switch">

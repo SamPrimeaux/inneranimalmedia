@@ -21,7 +21,6 @@
   --focus-ring: 0 0 0 2px var(--panel-raised), 0 0 0 4px var(--blue);
   --topbar: 64px;
   --left: 268px;
-  --right: 0px;
   --right-open: 318px;
   --rail: 54px;
   --hour: 52px;
@@ -88,7 +87,6 @@
 .colab-cal-hamb-icon.is-open .colab-cal-hamb-bar-top { transform: translateY(5px) rotate(45deg); }
 .colab-cal-hamb-icon.is-open .colab-cal-hamb-bar-mid { opacity: 0; }
 .colab-cal-hamb-icon.is-open .colab-cal-hamb-bar-bottom { transform: translateY(-5px) rotate(-45deg); }
-.colab-cal.insights-open { --right: var(--right-open); }
 .colab-cal.left-nav-closed { --left: 0px; }
 .colab-cal.left-nav-closed .colab-cal-left { display: none; }
 .colab-cal-brand-mark {
@@ -233,9 +231,17 @@
 .colab-cal-layout {
   flex: 1; min-height: 0;
   display: grid;
-  grid-template-columns: var(--left) minmax(520px, 1fr) var(--right) var(--rail);
+  grid-template-columns: var(--left) minmax(520px, 1fr) var(--rail);
   background: var(--bg);
 }
+.colab-cal.insights-open .colab-cal-layout {
+  grid-template-columns: var(--left) minmax(520px, 1fr) var(--right-open) var(--rail);
+}
+.colab-cal-left { grid-column: 1; min-width: 0; }
+.colab-cal-center,
+.colab-tasks-main { grid-column: 2; min-width: 0; }
+.colab-cal-right { grid-column: 3; min-width: 0; }
+.colab-cal-rail { grid-column: -1; min-width: 0; }
 .colab-cal-left {
   min-height: 0; overflow: auto; padding: 18px 16px; background: var(--panel);
   border-right: 1px solid var(--line-soft);
@@ -369,8 +375,15 @@
   min-height: 0; overflow: auto; background: var(--panel); border-left: 1px solid var(--line); padding: 14px 22px;
 }
 .colab-cal-insights-head {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
   border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 20px;
+}
+.colab-cal-insights-close {
+  flex-shrink: 0;
+  width: 36px; height: 36px;
+}
+.colab-cal-insights-head-actions {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
 }
 .colab-cal-insights-date { font-size: 12px; color: var(--muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.04em; }
 .colab-cal-insights-title { font-size: 20px; line-height: 1.1; font-weight: 600; color: var(--text); }
@@ -434,7 +447,10 @@
 
 /* Google Tasks parity */
 .colab-cal-layout.tasks-mode {
-  grid-template-columns: var(--left) minmax(400px, 1fr) var(--right) var(--rail);
+  grid-template-columns: var(--left) minmax(400px, 1fr) var(--rail);
+}
+.colab-cal.insights-open .colab-cal-layout.tasks-mode {
+  grid-template-columns: var(--left) minmax(400px, 1fr) var(--right-open) var(--rail);
 }
 
 .colab-tasks-insights .colab-tasks-insights-today {
@@ -817,9 +833,14 @@
 .colab-cal-error { color: var(--red); font-size: 13px; font-weight: 600; margin: 8px 0; }
 
 @media (max-width: 1100px) {
-  .colab-cal { --left: 238px; --right: 0px; --rail: 0px; }
+  .colab-cal { --left: 238px; --rail: 0px; }
   .colab-cal-right, .colab-cal-rail { display: none; }
-  .colab-cal-layout { grid-template-columns: var(--left) 1fr; }
+  .colab-cal-layout,
+  .colab-cal.insights-open .colab-cal-layout,
+  .colab-cal-layout.tasks-mode,
+  .colab-cal.insights-open .colab-cal-layout.tasks-mode {
+    grid-template-columns: var(--left) 1fr;
+  }
 }
 @media (max-width: 760px) {
   .colab-cal { --left: 0px; }
