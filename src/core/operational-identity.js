@@ -56,17 +56,28 @@ export function summarizeTerminalLaneTargets(targets) {
 }
 
 /**
- * Resolve operational workspace for superadmin (platform pin) or return ctx workspace.
+ * Resolve operational workspace for bootstrap / terminal lane.
+ * User-scoped active workspace (incl. project activation) wins over platform pin.
  * @param {*} env
- * @param {{ isSuperadmin?: boolean, workspaceId?: string|null }} authCtx
+ * @param {{ isSuperadmin?: boolean, workspaceId?: string|null, storedActiveWorkspaceId?: string|null, active_workspace_id?: string|null }} authCtx
  */
 export function resolveOperationalWorkspaceId(env, authCtx) {
   const fromCtx = authCtx?.workspaceId != null ? String(authCtx.workspaceId).trim() : '';
+  if (fromCtx) return fromCtx;
+
+  const fromStored =
+    authCtx?.storedActiveWorkspaceId != null
+      ? String(authCtx.storedActiveWorkspaceId).trim()
+      : authCtx?.active_workspace_id != null
+        ? String(authCtx.active_workspace_id).trim()
+        : '';
+  if (fromStored) return fromStored;
+
   if (authCtx?.isSuperadmin) {
     const platformWs = getPlatformWorkspaceEnvId(env);
     if (platformWs) return platformWs;
   }
-  return fromCtx || null;
+  return null;
 }
 
 /**

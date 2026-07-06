@@ -2,9 +2,11 @@
  * Projects API — /api/projects* (D1 canonical; Supabase mirror on every write).
  * Dispatched from src/api/finance.js after auth + DB checks.
  */
-import { jsonResponse } from '../core/auth.js';
+import { jsonResponse, syncSessionWorkspaceId } from '../core/auth.js';
 import { withD1Retry } from '../core/d1-retry.js';
 import { scheduleSyncProjectToSupabase } from '../core/agentsam-projects-supabase-sync.js';
+import { resolveWorkspaceBindings, normalizeWorkspaceBindings } from '../core/agentsam-workspace.js';
+import { userCanAccessWorkspace } from '../core/workspace-access.js';
 import {
   readProjectDashboardMemory,
   upsertProjectDashboardMemory,
@@ -1333,6 +1335,113 @@ async function deleteProjectDependents(env, projectId) {
   await runOptional(`UPDATE agentsam_workspace SET project_id = NULL WHERE project_id = ?`, pid);
 }
 
+async function handleProjectActivate(request, env, authUser, projectId, ctx) {
+  const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(projectId).first();
+  if (!row) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+  if (
+    authUser.tenant_id &&
+    row.tenant_id &&
+    String(row.tenant_id) !== String(authUser.tenant_id) &&
+    !authUser.is_superadmin
+  ) {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+
+  const bindings = normalizeWorkspaceBindings(await resolveWorkspaceBindings(env, projectId));
+  const executionWorkspaceId =
+    bindings?.workspaceId ||
+    (row.workspace_id != null ? String(row.workspace_id).trim() : null) ||
+    null;
+
+  let workspaceActivated = false;
+  if (executionWorkspaceId && authUser?.id) {
+    const isSuper = Number(authUser.is_superadmin) === 1;
+    const allowed = isSuper || (await userCanAccessWorkspace(env, authUser, executionWorkspaceId));
+    if (allowed) {
+      const { userCanActivatePlatformWorkspace } = await import('../core/platform-operator-policy.js');
+      if (await userCanActivatePlatformWorkspace(env, authUser, executionWorkspaceId)) {
+        await env.DB.prepare(
+          `UPDATE auth_users SET active_workspace_id = ?, updated_at = datetime('now') WHERE id = ?`,
+        )
+          .bind(executionWorkspaceId, String(authUser.id))
+          .run()
+          .catch(() => null);
+        try {
+          await syncSessionWorkspaceId(env, request, String(authUser.id), executionWorkspaceId);
+        } catch {
+          /* auth_users is SSOT */
+        }
+        workspaceActivated = true;
+
+        if (bindings?.githubRepo) {
+          await env.DB.prepare(
+            `UPDATE workspaces SET github_repo = ?, updated_at = datetime('now') WHERE id = ?`,
+          )
+            .bind(String(bindings.githubRepo).trim(), executionWorkspaceId)
+            .run()
+            .catch(() => null);
+        }
+      }
+    }
+  }
+
+  if (env?.SESSION_CACHE && authUser?.id) {
+    await env.SESSION_CACHE.put(
+      `iam:active_project:${String(authUser.id)}`,
+      JSON.stringify({
+        project_id: String(projectId),
+        project_name: String(row.name || projectId),
+        execution_workspace_id: executionWorkspaceId,
+        github_repo: bindings?.githubRepo ?? null,
+        activated_at: Date.now(),
+      }),
+      { expirationTtl: 86400 * 14 },
+    ).catch(() => null);
+  }
+
+  return jsonResponse({
+    ok: true,
+    project: {
+      id: row.id,
+      name: row.name,
+      client_id: row.client_id ?? null,
+      workspace_id: row.workspace_id ?? null,
+      status: row.status ?? null,
+    },
+    execution_workspace_id: executionWorkspaceId,
+    bindings,
+    workspace_activated: workspaceActivated,
+  });
+}
+
+async function handleProjectWorkContext(env, authUser, projectId) {
+  const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(projectId).first();
+  if (!row) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+  if (
+    authUser.tenant_id &&
+    row.tenant_id &&
+    String(row.tenant_id) !== String(authUser.tenant_id) &&
+    !authUser.is_superadmin
+  ) {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const bindings = normalizeWorkspaceBindings(await resolveWorkspaceBindings(env, projectId));
+  return jsonResponse({
+    ok: true,
+    project: {
+      id: row.id,
+      name: row.name,
+      client_id: row.client_id ?? null,
+      workspace_id: row.workspace_id ?? null,
+    },
+    execution_workspace_id:
+      bindings?.workspaceId ||
+      (row.workspace_id != null ? String(row.workspace_id).trim() : null) ||
+      null,
+    bindings,
+  });
+}
+
 async function detectProjectDeleteBlockers(env, projectId) {
   const pid = String(projectId);
   const tables = [
@@ -1443,6 +1552,12 @@ export async function handleProjectsApi(request, url, env, authUser, ctx = null)
   }
 
   const seg = sub.split('/').filter(Boolean);
+  if (seg.length === 2 && seg[1] === 'activate' && method === 'POST') {
+    return handleProjectActivate(request, env, authUser, seg[0], ctx);
+  }
+  if (seg.length === 2 && seg[1] === 'work-context' && method === 'GET') {
+    return handleProjectWorkContext(env, authUser, seg[0]);
+  }
   if (seg.length === 2 && seg[1] === 'memory') {
     if (method === 'GET') return handleProjectMemoryGet(env, authUser, seg[0]);
     if (method === 'PATCH' || method === 'PUT') return handleProjectMemoryPatch(request, env, authUser, seg[0]);
