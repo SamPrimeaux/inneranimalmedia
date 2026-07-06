@@ -171,7 +171,20 @@ async function upsertDocumentRow(client, row) {
       JSON.stringify(row.metadata || {}),
     ],
   );
-  return result.rows[0];
+  if (result.rows[0]) return result.rows[0];
+  const fallback = await client.query(
+    `SELECT id, source_ref, title, embedding
+       FROM agentsam.agentsam_documents_oai3large_1536
+      WHERE workspace_id = $1 AND source_path = $2 AND chunk_index = $3
+      LIMIT 1`,
+    [row.workspace_id, row.source_path, row.chunk_index],
+  );
+  const existing = fallback.rows[0];
+  if (!existing) return null;
+  return {
+    ...existing,
+    embedding: row.embedding || existing.embedding,
+  };
 }
 
 async function openaiEmbed(texts) {
@@ -285,7 +298,11 @@ async function ingestOneFile({ root, rel, workspaceUuid, d1Key, gitSha, dryRun, 
     const vecs = await openaiEmbed(batch.map((r) => r.content));
     for (let j = 0; j < batch.length; j++) {
       batch[j].embedding = vecs[j];
+      if (!Array.isArray(batch[j].embedding)) {
+        die(`OpenAI returned no embedding for ${batch[j].source_ref}`);
+      }
       const saved = await upsertDocumentRow(client, batch[j]);
+      if (!saved?.id) die(`Upsert returned no row for ${batch[j].source_ref}`);
       savedRows.push(saved);
     }
     console.log(`   ✓ Supabase ${batch.length} (${Math.min(i + batch.length, pending.length)}/${pending.length})`);
@@ -295,6 +312,7 @@ async function ingestOneFile({ root, rel, workspaceUuid, d1Key, gitSha, dryRun, 
   for (let i = 0; i < savedRows.length; i += VECTORIZE_BATCH) {
     const batch = savedRows.slice(i, i + VECTORIZE_BATCH);
     const vectors = batch
+      .filter(Boolean)
       .map((row) => {
         const emb = parseEmbedding(row.embedding);
         if (!emb || emb.length !== EMBED_DIMS) return null;
@@ -405,7 +423,19 @@ async function main() {
       });
       totalChunks += result.chunks;
     }
+
+    const countRes = await client.query(
+      `SELECT COUNT(*)::int AS c
+         FROM agentsam.agentsam_documents_oai3large_1536
+        WHERE workspace_id = $1
+          AND metadata->>'project_key' = $2`,
+      [workspaceUuid, defaultProjectKey],
+    );
+    const projectRows = countRes.rows[0]?.c ?? 0;
+
     console.log(`\nDone — ${totalChunks} chunks across ${files.length} file(s) → agentsam.${TABLE} + ${VECTORIZE_INDEX}`);
+    console.log(`Supabase row count (project_key=${defaultProjectKey}): ${projectRows}`);
+    console.log(`Receipt: .scratch/vectorize-sync/${SCRIPT_KEY}/run:${SCRIPT_KEY}:* (see latest under repo .scratch/)`);
   } finally {
     await client.end().catch(() => {});
   }
