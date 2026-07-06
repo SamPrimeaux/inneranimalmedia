@@ -161,14 +161,24 @@ export const handlers = {
 
     /**
      * iam.illustration.v1 SSOT — route sketch/diagram → Excalidraw, CAD brief → Design Studio.
+     * ctx is passed through so ctx.waitUntil fires auto-execute for CAD jobs.
      */
-    async illustration_create(params, env, runContext = {}) {
+    async illustration_create(params, env, runContext = {}, ctx = null) {
         const {
             parseIllustrationEnvelope,
             normalizeIllustrationEnvelope,
             validateIllustrationEnvelope,
         } = await import('../../core/iam-illustration-v1.js');
         const { routeIllustration } = await import('../../core/iam-illustration-router.js');
+
+        // Pull identity from resolvedContext (same pattern as meshyToolAuth) so
+        // workspace_id/tenant_id/user_id are always populated even when the agent
+        // doesn't explicitly pass them in the tool call input.
+        const session = params?.session && typeof params.session === 'object' ? params.session : {};
+        const resolved =
+            runContext.resolvedContext && typeof runContext.resolvedContext === 'object'
+                ? runContext.resolvedContext
+                : {};
 
         let envelope = parseIllustrationEnvelope(params);
         if (!envelope && params && typeof params === 'object') {
@@ -190,23 +200,25 @@ export const handlers = {
         }
         if (!envelope) return { error: 'iam.illustration.v1 envelope required' };
 
-        const session = params?.session && typeof params.session === 'object' ? params.session : {};
         envelope = normalizeIllustrationEnvelope(envelope, {
             workspaceId:
                 runContext.workspaceId ??
                 runContext.workspace_id ??
+                resolved.workspace_id ??
                 params.workspace_id ??
                 session.workspace_id ??
                 null,
             tenantId:
                 runContext.tenantId ??
                 runContext.tenant_id ??
+                resolved.tenant_id ??
                 params.tenant_id ??
                 session.tenant_id ??
                 null,
             userId:
                 runContext.userId ??
                 runContext.user_id ??
+                resolved.user_id ??
                 params.user_id ??
                 session.user_id ??
                 null,
@@ -216,7 +228,9 @@ export const handlers = {
         const valid = validateIllustrationEnvelope(envelope);
         if (!valid.ok) return { error: valid.errors.join('; ') };
 
-        return routeIllustration(env, null, envelope, {
+        // Pass real ctx so ctx.waitUntil fires auto-execute in routeIllustrationCad
+        const workerCtx = ctx ?? runContext.ctx ?? null;
+        return routeIllustration(env, workerCtx, envelope, {
             ...runContext,
             authUser: runContext.authUser ?? null,
         });
