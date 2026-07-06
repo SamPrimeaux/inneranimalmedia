@@ -891,7 +891,23 @@ const PROJECTS_CSS = `
 }
 
 @media (max-width: 540px) {
-  .pj-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .pj-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .pj-header { padding: 16px 12px 0; }
+  .pj-body { padding: 0 12px 32px; }
+  .pj-title { font-size: 24px; }
+  .pj-card--visual { min-height: 170px; aspect-ratio: 3 / 4; }
+  .pj-card-media { min-height: 170px; }
+  .pj-card-name { font-size: 13px; }
+  .pj-card-type { font-size: 10px; margin-bottom: 6px; }
+  .pj-card-status-pill { font-size: 9px; padding: 2px 6px; }
+  .pj-card-media-initials { font-size: 1.8rem; }
+  .pj-card-overlay { padding: 8px; }
+  .pj-card-overlay-top { top: 8px; left: 8px; right: 38px; }
+  .pj-menu-btn { width: 24px; height: 24px; }
+  .pj-tabs { gap: 4px; margin-bottom: 10px; }
+  .pj-tab { padding: 5px 10px; font-size: 12px; }
+  .pj-card-progress-track { height: 3px; }
+  .pj-card-progress-pct { font-size: 10px; min-width: 24px; }
 }
 
 .pj-card {
