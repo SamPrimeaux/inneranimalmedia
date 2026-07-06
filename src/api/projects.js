@@ -738,7 +738,7 @@ async function handleClientProjectsList(env, authUser) {
   const tenantId = authUser.tenant_id ? String(authUser.tenant_id) : null;
   try {
     let sql = `SELECT id, client_name, project_name, project_id, client_id, status,
-                      cloudflare_worker_url, payments_received, total_invoiced
+                      cloudflare_worker_url, payments_received, total_invoiced, payment_notes
                FROM client_projects
                WHERE COALESCE(status, 'active') NOT IN ('archived', 'cancelled')`;
     const binds = [];

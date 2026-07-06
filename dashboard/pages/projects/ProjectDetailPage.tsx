@@ -2,16 +2,20 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
+  Calendar,
   CheckSquare,
   ChevronDown,
   ChevronRight,
+  Clock,
   Paperclip,
   ExternalLink,
   FolderOpen,
   Image as ImageIcon,
   MoreHorizontal,
+  Palette,
   Pencil,
   Plus,
+  RefreshCw,
   Send,
   Share2,
   Star,
@@ -21,8 +25,15 @@ import {
 } from 'lucide-react';
 import { deleteProject, fetchProjectMemory, updateProject, updateProjectMemory } from '../../api/projects';
 import { ProjectShareModal } from '../../components/projects/ProjectShareModal';
-import { uploadProjectR2File } from '../../src/lib/projectR2Upload';
-import { cfImageVariants } from '../../src/lib/projectBranding';
+import { uploadProjectBrandAsset, uploadProjectR2File } from '../../src/lib/projectR2Upload';
+import { cfImageVariants, projectAccentHue } from '../../src/lib/projectBranding';
+import {
+  fetchClientProjects,
+  fetchTasksInsights,
+  fmtMinutes,
+  postActivityHeartbeat,
+  postProjectTimer,
+} from '../launch-desk/ops-desk-types';
 import { useWorkspace } from '../../src/context/WorkspaceContext';
 import {
   activateProjectWorkContext,
@@ -32,11 +43,19 @@ import { chatGithubContextStorageKey } from '../../components/ChatAssistant/type
 import { useComposerConnectorSheet } from '../../hooks/useComposerConnectorSheet';
 import { AgentComposerSourceChips } from '../../components/ChatAssistant/composer/AgentComposerSourceChips';
 import {
+  brandAssetBrowserUrl,
+  brandAssetsFromMeta,
+  brandTokensFromMeta,
   coverFromMeta,
   isProjectImageFile,
+  listProjectBrandAssetsFromR2,
+  mergeBrandAssetLists,
   parseProjectMeta,
   projectFilesFromMeta,
+  resolveProjectStorageScope,
+  type BrandTokens,
   type ProjectFileRef,
+  type ProjectStorageScope,
 } from './projectDetailMeta';
 import { resumeAgentChatSession, startProjectAgentChat } from '../../lib/openAgentConversation';
 import { writeSessionProject } from '../../src/lib/freshChatSession';
@@ -65,6 +84,20 @@ interface Project {
   worker_id?: string | null;
   metadata_json?: string | null;
   cover_image_url?: string | null;
+  r2_buckets?: string | null;
+}
+
+interface ProjectTimerState {
+  loading: boolean;
+  running: boolean;
+  minutesToday: number;
+  busy: boolean;
+}
+
+interface ClientContactRow {
+  client_name?: string | null;
+  payment_notes?: string | null;
+  client_id?: string | null;
 }
 
 interface ProjectTaskStats {
@@ -104,7 +137,7 @@ function truncatePreview(text: string, max = 220): string {
   return `${t.slice(0, max).trim()}…`;
 }
 
-type RailEditorKind = 'memory' | 'instructions' | 'cover' | 'files' | 'stats';
+type RailEditorKind = 'memory' | 'instructions' | 'cover' | 'files' | 'stats' | 'brand';
 
 function RailEditorModal({
   open,
@@ -386,9 +419,25 @@ export default function ProjectDetailPage() {
   const [fileDragOver, setFileDragOver] = useState(false);
   const [previewImage, setPreviewImage] = useState<ProjectFileRef | null>(null);
   const [taskStats, setTaskStats] = useState<ProjectTaskStats>({ open: 0, loading: true });
+  const [timerState, setTimerState] = useState<ProjectTimerState>({
+    loading: true,
+    running: false,
+    minutesToday: 0,
+    busy: false,
+  });
+  const [brandAssets, setBrandAssets] = useState<ProjectFileRef[]>([]);
+  const [brandTokens, setBrandTokens] = useState<BrandTokens>({});
+  const [brandLoading, setBrandLoading] = useState(false);
+  const [brandUploading, setBrandUploading] = useState(false);
+  const [brandDragOver, setBrandDragOver] = useState(false);
+  const [storageScope, setStorageScope] = useState<ProjectStorageScope | null>(null);
+  const [clientContact, setClientContact] = useState<ClientContactRow | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [railEditor, setRailEditor] = useState<RailEditorKind | null>(null);
   const [memDraft, setMemDraft] = useState('');
   const [instrDraft, setInstrDraft] = useState('');
+  const brandDragDepthRef = useRef(0);
+  const brandInputRef = useRef<HTMLInputElement>(null);
   const fileDragDepthRef = useRef(0);
   const coverInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -408,6 +457,8 @@ export default function ProjectDetailPage() {
       setRenameDraft(p.name ?? '');
       setProjectFiles(projectFilesFromMeta(p.metadata_json));
       setCoverUrl(p.cover_image_url || coverFromMeta(p.metadata_json));
+      setBrandTokens(brandTokensFromMeta(p.metadata_json));
+      setStorageScope(resolveProjectStorageScope(p));
 
       if (activateRef.current !== projectId) {
         activateRef.current = projectId;
@@ -509,6 +560,120 @@ export default function ProjectDetailPage() {
     if (!project) return;
     void loadTaskStats();
   }, [project, loadTaskStats]);
+
+  const loadTimerState = useCallback(async () => {
+    if (!projectId) return;
+    setTimerState((s) => ({ ...s, loading: true }));
+    try {
+      const data = await fetchTasksInsights(new Date(), projectId);
+      setTimerState({
+        loading: false,
+        running: Boolean(data.project_active_tracking),
+        minutesToday: Number(data.project_today_minutes || 0),
+        busy: false,
+      });
+    } catch {
+      setTimerState((s) => ({ ...s, loading: false }));
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void loadTimerState();
+  }, [loadTimerState]);
+
+  useEffect(() => {
+    if (!timerState.running || !projectId) return;
+    const tick = window.setInterval(() => {
+      void postActivityHeartbeat({ project_id: projectId, surface: 'project_detail' }).catch(() => null);
+      void loadTimerState();
+    }, 60_000);
+    return () => window.clearInterval(tick);
+  }, [timerState.running, projectId, loadTimerState]);
+
+  const loadBrandAssets = useCallback(async () => {
+    if (!project) return;
+    setBrandLoading(true);
+    try {
+      const scope = resolveProjectStorageScope(project);
+      setStorageScope(scope);
+      const fromR2 = await listProjectBrandAssetsFromR2(scope);
+      const fromMeta = brandAssetsFromMeta(project.metadata_json);
+      setBrandAssets(mergeBrandAssetLists(fromR2, fromMeta));
+    } catch {
+      setBrandAssets(brandAssetsFromMeta(project.metadata_json));
+    } finally {
+      setBrandLoading(false);
+    }
+  }, [project]);
+
+  useEffect(() => {
+    if (!project) return;
+    void loadBrandAssets();
+  }, [project, loadBrandAssets]);
+
+  const loadClientContact = useCallback(async () => {
+    const clientId = project?.client_id?.trim();
+    if (!clientId) {
+      setClientContact(null);
+      return;
+    }
+    try {
+      const clients = await fetchClientProjects();
+      const row = clients.find((c) => String(c.client_id || '') === clientId);
+      setClientContact(
+        row
+          ? {
+              client_name: row.client_name,
+              payment_notes: row.payment_notes,
+              client_id: row.client_id,
+            }
+          : { client_id: clientId },
+      );
+    } catch {
+      setClientContact({ client_id: clientId });
+    }
+  }, [project?.client_id]);
+
+  useEffect(() => {
+    void loadClientContact();
+  }, [loadClientContact]);
+
+  const refreshProjectContext = async () => {
+    if (!project || refreshing) return;
+    setRefreshing(true);
+    try {
+      activateRef.current = null;
+      await Promise.all([
+        loadProject(),
+        loadMemory(),
+        loadChats(),
+        loadTaskStats(),
+        loadTimerState(),
+        loadBrandAssets(),
+        loadClientContact(),
+      ]);
+      setToast('Project context refreshed');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const toggleProjectTimer = async () => {
+    if (!project || timerState.busy) return;
+    setTimerState((s) => ({ ...s, busy: true }));
+    try {
+      const action = timerState.running ? 'stop' : 'start';
+      const res = await postProjectTimer({ action, project_id: project.id });
+      if (!res.ok) {
+        setToast(res.error || 'Timer update failed');
+        return;
+      }
+      await loadTimerState();
+      setToast(action === 'start' ? 'Timer started' : 'Timer stopped');
+    } finally {
+      setTimerState((s) => ({ ...s, busy: false }));
+    }
+  };
 
   useEffect(() => {
     if (!toast) return;
@@ -678,11 +843,17 @@ export default function ProjectDetailPage() {
     const list = files ? Array.from(files) : [];
     if (!list.length) return;
     const wsForUpload = (project.workspace_id || workspaceId || '').trim() || null;
+    const scope = resolveProjectStorageScope(project);
+    const useClientStorage = scope.source === 'client_r2';
     setFileUploading(true);
     try {
       const added: ProjectFileRef[] = [];
       for (const file of list) {
-        const out = await uploadProjectR2File(project.id, file, 'files', wsForUpload);
+        const out = await uploadProjectR2File(project.id, file, 'files', wsForUpload, {
+          bucket: useClientStorage ? scope.bucket : undefined,
+          keyPrefix: useClientStorage ? `projects/${project.id}/files/` : undefined,
+          forceR2: useClientStorage,
+        });
         if (!out.ok || !out.url) {
           setToast(out.error || `Upload failed: ${file.name}`);
           break;
@@ -692,6 +863,8 @@ export default function ProjectDetailPage() {
           url: out.url,
           uploaded_at: Date.now(),
           kind: file.type.startsWith('image/') ? 'image' : 'document',
+          r2_bucket: out.key ? scope.bucket : undefined,
+          r2_key: out.key,
         });
       }
       if (!added.length) return;
@@ -715,6 +888,62 @@ export default function ProjectDetailPage() {
       return;
     }
     navigate(`/dashboard/collaborate?seg=tasks&project=${encodeURIComponent(project.id)}`);
+  };
+
+  const openProjectCalendar = () => {
+    if (!project) return;
+    const clientId = project.client_id?.trim();
+    if (clientId) {
+      navigate(`/dashboard/collaborate?seg=calendar&client=${encodeURIComponent(clientId)}`);
+      return;
+    }
+    navigate(`/dashboard/collaborate?seg=calendar&project=${encodeURIComponent(project.id)}`);
+  };
+
+  const openBrandAssetBrowser = () => {
+    if (!project) return;
+    const scope = storageScope || resolveProjectStorageScope(project);
+    navigate(brandAssetBrowserUrl(scope));
+  };
+
+  const appendBrandAssets = async (files: FileList | File[] | null) => {
+    if (!project) return;
+    const list = files ? Array.from(files) : [];
+    if (!list.length) return;
+    const scope = storageScope || resolveProjectStorageScope(project);
+    setBrandUploading(true);
+    try {
+      const added: ProjectFileRef[] = [];
+      for (const file of list) {
+        if (!file.type.startsWith('image/')) {
+          setToast('Brand assets must be images (PNG, SVG, WebP…)');
+          continue;
+        }
+        const out = await uploadProjectBrandAsset(file, scope);
+        if (!out.ok || !out.url) {
+          setToast(out.error || `Upload failed: ${file.name}`);
+          break;
+        }
+        added.push({
+          name: file.name,
+          url: out.url,
+          uploaded_at: Date.now(),
+          kind: 'image',
+          r2_bucket: scope.bucket,
+          r2_key: out.key,
+        });
+      }
+      if (!added.length) return;
+      const metaAssets = brandAssetsFromMeta(project.metadata_json);
+      const nextMetaAssets = [...added, ...metaAssets].slice(0, 24);
+      await persistProjectMeta({ brand_assets: nextMetaAssets });
+      setBrandAssets(mergeBrandAssetLists([...added, ...brandAssets], nextMetaAssets));
+      setToast(added.length === 1 ? 'Brand asset added' : `${added.length} brand assets added`);
+      void loadBrandAssets();
+    } finally {
+      setBrandUploading(false);
+      if (brandInputRef.current) brandInputRef.current.value = '';
+    }
   };
 
   const submitDelete = async () => {
@@ -861,6 +1090,69 @@ export default function ProjectDetailPage() {
     </ul>
   ) : null;
 
+  const brandPrimary = brandTokens.primary_color?.trim();
+  const brandAccent = brandTokens.accent_color?.trim() || `hsl(${projectAccentHue(project?.id || '')} 62% 48%)`;
+
+  const brandDropZone = (className = '') => (
+    <div
+      className={`cpd-files-drop cpd-brand-drop${brandDragOver ? ' cpd-files-drop--over' : ''}${className ? ` ${className}` : ''}`}
+      onDragEnter={(e) => {
+        e.preventDefault();
+        brandDragDepthRef.current += 1;
+        setBrandDragOver(true);
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }}
+      onDragLeave={() => {
+        brandDragDepthRef.current = Math.max(0, brandDragDepthRef.current - 1);
+        if (brandDragDepthRef.current === 0) setBrandDragOver(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        brandDragDepthRef.current = 0;
+        setBrandDragOver(false);
+        void appendBrandAssets(e.dataTransfer.files);
+      }}
+    >
+      <Palette size={24} strokeWidth={1} className="cpd-files-icon" />
+      <p className="cpd-files-text">
+        Drop logos, icons, or color swatches — stored in{' '}
+        <span className="cpd-quick-stat-mono">{storageScope?.bucket || 'project R2'}</span>
+        {storageScope?.prefix ? ` · ${storageScope.prefix}` : ''}.
+      </p>
+      <button
+        type="button"
+        className="cpd-rail-empty-btn"
+        disabled={brandUploading}
+        onClick={() => brandInputRef.current?.click()}
+      >
+        {brandUploading ? 'Uploading…' : 'Choose brand images'}
+      </button>
+    </div>
+  );
+
+  const brandGallery = brandAssets.length > 0 ? (
+    <div className="cpd-files-gallery cpd-brand-gallery" role="list" aria-label="Brand assets">
+      {brandAssets.map((f) => {
+        const variants = cfImageVariants(f.url);
+        return (
+          <button
+            key={`${f.url}-${f.name}`}
+            type="button"
+            className="cpd-files-thumb"
+            role="listitem"
+            title={f.name}
+            onClick={() => setPreviewImage(f)}
+          >
+            <img src={variants.src} srcSet={variants.srcSet} alt={f.name} loading="lazy" draggable={false} />
+          </button>
+        );
+      })}
+    </div>
+  ) : null;
+
   // ── rail content (shared between desktop aside and mobile sheet) ──
   const railDefaultOpen = !isMobile;
   const railContent = (
@@ -869,28 +1161,119 @@ export default function ProjectDetailPage() {
         title="Quick stats"
         defaultOpen={railDefaultOpen}
         action={
-          <button
-            type="button"
-            className="cpd-icon-btn"
-            title="Expand stats"
-            onClick={() => openRailEditor('stats')}
-          >
-            <ExternalLink size={13} strokeWidth={1.5} />
-          </button>
+          <div className="cpd-rail-actions">
+            <button
+              type="button"
+              className="cpd-icon-btn"
+              title="Refresh project context"
+              disabled={refreshing}
+              onClick={() => void refreshProjectContext()}
+            >
+              <RefreshCw size={13} strokeWidth={1.5} className={refreshing ? 'cpd-spin' : undefined} />
+            </button>
+            <button
+              type="button"
+              className="cpd-icon-btn"
+              title="Expand stats"
+              onClick={() => openRailEditor('stats')}
+            >
+              <ExternalLink size={13} strokeWidth={1.5} />
+            </button>
+          </div>
         }
       >
-        <button type="button" className="cpd-rail-preview cpd-rail-preview--stats" onClick={() => openRailEditor('stats')}>
-          <dl className="cpd-quick-stats cpd-quick-stats--compact">
-            <div className="cpd-quick-stat">
-              <dt>Open tasks</dt>
-              <dd>{taskStats.loading ? '…' : taskStats.open}</dd>
+        <div className="cpd-rail-preview cpd-rail-preview--stats">
+          <div
+            className={`cpd-timer-widget${timerState.running ? ' cpd-timer-widget--running' : ''}`}
+            role="group"
+            aria-label="Project timer"
+          >
+            <button
+              type="button"
+              className={`cpd-timer-btn${timerState.running ? ' cpd-timer-btn--stop' : ' cpd-timer-btn--start'}`}
+              disabled={timerState.busy || timerState.loading}
+              onClick={() => void toggleProjectTimer()}
+            >
+              <Clock size={14} strokeWidth={1.75} aria-hidden />
+              {timerState.busy
+                ? '…'
+                : timerState.running
+                  ? 'Stop'
+                  : 'Start'}
+            </button>
+            <span className="cpd-timer-label">
+              {timerState.running
+                ? 'Running'
+                : timerState.loading
+                  ? '…'
+                  : 'Timer idle'}
+            </span>
+            <span className="cpd-timer-mins">
+              {timerState.loading ? '…' : fmtMinutes(timerState.minutesToday)} today
+            </span>
+          </div>
+          <button type="button" className="cpd-rail-preview-inner" onClick={() => openRailEditor('stats')}>
+            <dl className="cpd-quick-stats cpd-quick-stats--compact">
+              <div className="cpd-quick-stat">
+                <dt>Open tasks</dt>
+                <dd>{taskStats.loading ? '…' : taskStats.open}</dd>
+              </div>
+              <div className="cpd-quick-stat">
+                <dt>Chats</dt>
+                <dd>{loadingChats ? '…' : chats.length}</dd>
+              </div>
+            </dl>
+            <span className="cpd-rail-preview-foot">Tasks · calendar · client contact</span>
+          </button>
+        </div>
+      </RailSection>
+
+      <RailSection
+        title="Brand assets"
+        defaultOpen={false}
+        action={
+          <div className="cpd-rail-actions">
+            <button
+              type="button"
+              className="cpd-icon-btn"
+              title="Open asset browser"
+              onClick={openBrandAssetBrowser}
+            >
+              <ExternalLink size={13} strokeWidth={1.5} />
+            </button>
+            <button
+              type="button"
+              className="cpd-icon-btn"
+              title="Manage brand assets"
+              disabled={brandUploading}
+              onClick={() => openRailEditor('brand')}
+            >
+              <Plus size={14} strokeWidth={1.5} />
+            </button>
+          </div>
+        }
+      >
+        <button type="button" className="cpd-rail-preview cpd-rail-preview--brand" onClick={() => openRailEditor('brand')}>
+          <div className="cpd-brand-swatches" aria-hidden>
+            <span className="cpd-brand-swatch" style={{ background: brandPrimary || brandAccent }} />
+            <span className="cpd-brand-swatch cpd-brand-swatch--muted" style={{ background: brandAccent }} />
+          </div>
+          {brandLoading ? (
+            <p className="cpd-rail-preview-empty">Loading brand assets…</p>
+          ) : brandAssets.length > 0 ? (
+            <div className="cpd-rail-files-mini">
+              {brandAssets.slice(0, 3).map((f) => (
+                <img key={f.url} src={cfImageVariants(f.url).src} alt="" />
+              ))}
             </div>
-            <div className="cpd-quick-stat">
-              <dt>Chats</dt>
-              <dd>{loadingChats ? '…' : chats.length}</dd>
-            </div>
-          </dl>
-          <span className="cpd-rail-preview-foot">Click for full stats & tasks link</span>
+          ) : (
+            <p className="cpd-rail-preview-empty">Drop logos & icons — client R2 when configured</p>
+          )}
+          <span className="cpd-rail-preview-foot">
+            {storageScope?.source === 'client_r2'
+              ? `${storageScope.bucket} · verified at a glance`
+              : 'Platform storage · set r2_buckets for client bucket'}
+          </span>
         </button>
       </RailSection>
 
@@ -1087,6 +1470,15 @@ export default function ProjectDetailPage() {
             <div className="cpd-title-row">
               <h1 className="cpd-title">{project.name}</h1>
               <div className="cpd-title-actions">
+                <button
+                  type="button"
+                  className="cpd-icon-btn"
+                  title="Refresh project context (memory, tasks, assets)"
+                  disabled={refreshing}
+                  onClick={() => void refreshProjectContext()}
+                >
+                  <RefreshCw size={15} strokeWidth={1.5} className={refreshing ? 'cpd-spin' : undefined} />
+                </button>
                 <div ref={menuRef} style={{ position: 'relative' }}>
                   <button
                     type="button"
@@ -1390,6 +1782,27 @@ export default function ProjectDetailPage() {
         showSave={false}
         onClose={closeRailEditor}
       >
+        <div
+          className={`cpd-timer-widget cpd-timer-widget--modal${timerState.running ? ' cpd-timer-widget--running' : ''}`}
+          role="group"
+          aria-label="Project timer"
+        >
+          <button
+            type="button"
+            className={`cpd-timer-btn${timerState.running ? ' cpd-timer-btn--stop' : ' cpd-timer-btn--start'}`}
+            disabled={timerState.busy || timerState.loading}
+            onClick={() => void toggleProjectTimer()}
+          >
+            <Clock size={16} strokeWidth={1.75} aria-hidden />
+            {timerState.busy ? 'Updating…' : timerState.running ? 'Stop timer' : 'Start timer'}
+          </button>
+          <span className="cpd-timer-label">
+            {timerState.running ? 'Timer running on this project' : 'Not tracking time'}
+          </span>
+          <span className="cpd-timer-mins">
+            {timerState.loading ? '…' : `${fmtMinutes(timerState.minutesToday)} logged today`}
+          </span>
+        </div>
         <dl className="cpd-quick-stats cpd-quick-stats--modal">
           <div className="cpd-quick-stat">
             <dt>Open tasks</dt>
@@ -1415,17 +1828,101 @@ export default function ProjectDetailPage() {
             <dt>Chats</dt>
             <dd>{loadingChats ? '…' : chats.length}</dd>
           </div>
+          {storageScope ? (
+            <div className="cpd-quick-stat cpd-quick-stat--wide">
+              <dt>Storage</dt>
+              <dd className="cpd-quick-stat-mono">
+                {storageScope.bucket}/{storageScope.prefix}
+              </dd>
+            </div>
+          ) : null}
           {project?.client_id ? (
             <div className="cpd-quick-stat cpd-quick-stat--wide">
               <dt>Client</dt>
-              <dd className="cpd-quick-stat-mono">{project.client_id}</dd>
+              <dd className="cpd-quick-stat-mono">
+                {clientContact?.client_name || project.client_id}
+              </dd>
+            </div>
+          ) : null}
+          {clientContact?.payment_notes ? (
+            <div className="cpd-quick-stat cpd-quick-stat--wide">
+              <dt>Contact / notes</dt>
+              <dd>{clientContact.payment_notes}</dd>
             </div>
           ) : null}
         </dl>
-        <button type="button" className="cpd-btn cpd-btn--primary" onClick={() => { closeRailEditor(); openProjectTasks(); }}>
-          View tasks in Collaborate
+        <div className="cpd-stats-links">
+          <button type="button" className="cpd-btn cpd-btn--primary" onClick={() => { closeRailEditor(); openProjectTasks(); }}>
+            <CheckSquare size={14} strokeWidth={1.75} aria-hidden />
+            Tasks in Collaborate
+          </button>
+          <button type="button" className="cpd-btn cpd-btn--ghost" onClick={() => { closeRailEditor(); openProjectCalendar(); }}>
+            <Calendar size={14} strokeWidth={1.75} aria-hidden />
+            Calendar
+          </button>
+        </div>
+      </RailEditorModal>
+
+      <RailEditorModal
+        open={railEditor === 'brand'}
+        isMobile={isMobile}
+        title="Brand assets"
+        mobileTitle="Brand"
+        subtitle={
+          storageScope
+            ? `Uploads go to ${storageScope.bucket} · ${storageScope.prefix} — not platform inneranimalmedia when client bucket is set.`
+            : 'Logos, icons, and color references for this client.'
+        }
+        showSave={false}
+        onClose={closeRailEditor}
+      >
+        <div className="cpd-brand-token-row">
+          <label className="cpd-brand-token-field">
+            <span>Primary</span>
+            <input
+              type="color"
+              value={brandTokens.primary_color || '#22d3ee'}
+              onChange={(e) => setBrandTokens((t) => ({ ...t, primary_color: e.target.value }))}
+            />
+          </label>
+          <label className="cpd-brand-token-field">
+            <span>Accent</span>
+            <input
+              type="color"
+              value={brandTokens.accent_color || '#6366f1'}
+              onChange={(e) => setBrandTokens((t) => ({ ...t, accent_color: e.target.value }))}
+            />
+          </label>
+          <button
+            type="button"
+            className="cpd-btn cpd-btn--ghost sm"
+            onClick={async () => {
+              if (!project) return;
+              const ok = await persistProjectMeta({
+                brand_tokens: { ...brandTokens, verified_at: Date.now() },
+              });
+              if (ok) setToast('Brand colors saved');
+            }}
+          >
+            Save colors
+          </button>
+        </div>
+        {brandDropZone('cpd-files-drop--modal')}
+        {brandGallery}
+        <button type="button" className="cpd-btn cpd-btn--ghost cpd-brand-browser-link" onClick={openBrandAssetBrowser}>
+          <ExternalLink size={14} strokeWidth={1.75} aria-hidden />
+          Open full asset browser
         </button>
       </RailEditorModal>
+
+      <input
+        ref={brandInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="cpd-hidden-input"
+        onChange={(e) => void appendBrandAssets(e.target.files)}
+      />
 
       {deleteOpen && project && (
         <div
@@ -1803,6 +2300,102 @@ const CSS = `
   border: 1px solid var(--dashboard-border);
 }
 .cpd-quick-stats--compact { margin: 0; }
+.cpd-rail-actions { display: flex; align-items: center; gap: 2px; }
+.cpd-rail-preview-inner {
+  display: block;
+  width: 100%;
+  padding: 0;
+  margin: 8px 0 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cpd-rail-preview--stats { cursor: default; }
+.cpd-spin { animation: cpd-spin 0.85s linear infinite; }
+@keyframes cpd-spin { to { transform: rotate(360deg); } }
+.cpd-timer-widget {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  border: 1px solid var(--dashboard-border);
+  background: rgba(255,255,255,0.02);
+}
+.cpd-timer-widget--running {
+  border-color: rgba(34, 197, 94, 0.45);
+  background: rgba(34, 197, 94, 0.08);
+}
+.cpd-timer-widget--modal { margin-bottom: 14px; }
+.cpd-timer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cpd-timer-btn--start {
+  background: rgba(34, 211, 238, 0.15);
+  border-color: rgba(34, 211, 238, 0.35);
+  color: #67e8f9;
+}
+.cpd-timer-btn--stop {
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #fca5a5;
+}
+.cpd-timer-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.cpd-timer-label { font-size: 11px; color: var(--color-muted, #94a3b8); }
+.cpd-timer-mins { font-size: 11px; font-weight: 600; margin-left: auto; }
+.cpd-brand-swatches { display: flex; gap: 6px; margin-bottom: 6px; }
+.cpd-brand-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+.cpd-brand-swatch--muted { opacity: 0.72; }
+.cpd-brand-drop .cpd-files-text { font-size: 12px; }
+.cpd-brand-token-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.cpd-brand-token-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-muted, #94a3b8);
+}
+.cpd-brand-token-field input[type="color"] {
+  width: 44px;
+  height: 32px;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid var(--dashboard-border);
+  background: transparent;
+  cursor: pointer;
+}
+.cpd-brand-browser-link { margin-top: 12px; display: inline-flex; align-items: center; gap: 6px; }
+.cpd-stats-links { display: flex; flex-wrap: wrap; gap: 10px; }
+.cpd-btn--ghost {
+  background: transparent;
+  border: 1px solid var(--dashboard-border);
+  color: inherit;
+}
+.cpd-btn--ghost.sm { padding: 6px 10px; font-size: 12px; }
+.cpd-hidden-input { display: none; }
 
 /* ── editor modals (large read/edit) ── */
 .cpd-editor-backdrop { z-index: 520; }

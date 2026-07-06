@@ -173,6 +173,17 @@ export function useLibraryWorkspace() {
   }, [r2Bucket]);
 
   useEffect(() => {
+    const rail = searchParams.get('rail');
+    const bucket = searchParams.get('bucket')?.trim();
+    const prefix = searchParams.get('prefix');
+    if (rail === 'r2' && bucket) {
+      setFilters((f) => ({ ...f, rail: 'r2', source: 'r2' }));
+      setR2Bucket(bucket);
+      if (prefix != null) setR2Prefix(prefix);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     void (async () => {
       const handle = await loadPersistedLocalDirectoryHandle();
       if (handle) {

@@ -498,6 +498,42 @@ export async function handleCalendarApi(request, url, env, ctx) {
       }))
       .sort((a, b) => b.minutes - a.minutes);
 
+    const focusProjectId = url.searchParams.get('project_id')?.trim() || null;
+    let project_active_tracking = false;
+    let project_today_minutes = 0;
+    let active_entry = null;
+    if (focusProjectId) {
+      try {
+        const placeholders = userIds.map(() => '?').join(',');
+        const { results: focusRows } = await env.DB.prepare(
+          `SELECT id, project_id, duration_seconds, is_active, description, start_time
+           FROM project_time_entries
+           WHERE user_id IN (${placeholders})
+             AND project_id = ?
+             AND date(start_time) >= date(?)
+             AND date(start_time) <= date(?)
+           ORDER BY start_time DESC`,
+        )
+          .bind(...userIds, focusProjectId, dayWindow.from.slice(0, 10), dayWindow.to.slice(0, 10))
+          .all();
+        for (const row of focusRows || []) {
+          const secs = Number(row.duration_seconds || 0);
+          project_today_minutes += Math.round(secs / 60);
+          if (Number(row.is_active) === 1) {
+            project_active_tracking = true;
+            active_entry = {
+              id: String(row.id),
+              project_id: String(row.project_id),
+              start_time: row.start_time,
+              duration_seconds: secs,
+            };
+          }
+        }
+      } catch {
+        /* non-fatal */
+      }
+    }
+
     return jsonResponse(
       {
         today_minutes: todayMinutes,
@@ -505,9 +541,80 @@ export async function handleCalendarApi(request, url, env, ctx) {
         by_project,
         by_task,
         window: dayWindow,
+        project_id: focusProjectId,
+        project_active_tracking,
+        project_today_minutes,
+        active_entry,
       },
       200,
     );
+  }
+
+  // POST /api/calendar/project-timer — explicit start/stop for project detail page
+  if (parts[0] === 'project-timer' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const action = String(body.action || '').trim().toLowerCase();
+    const projectId = String(body.project_id || '').trim().slice(0, 120);
+    if (!projectId) return jsonResponse({ ok: false, error: 'project_id_required' }, 400);
+    if (action !== 'start' && action !== 'stop') {
+      return jsonResponse({ ok: false, error: 'action_must_be_start_or_stop' }, 400);
+    }
+
+    const now = toSqlDateTime(new Date());
+    const userIds = [...new Set([userId, userId ? `user_${userId}` : null].filter(Boolean))];
+
+    try {
+      if (action === 'start') {
+        for (const uid of userIds) {
+          await env.DB.prepare(
+            `UPDATE project_time_entries
+             SET is_active = 0
+             WHERE user_id = ? AND is_active = 1`,
+          )
+            .bind(uid)
+            .run();
+        }
+        const entryId = `pte_${userId || 'user'}_${Date.now()}`;
+        await env.DB.prepare(
+          `INSERT INTO project_time_entries
+            (id, user_id, project_id, start_time, duration_seconds, is_active, description)
+           VALUES (?, ?, ?, ?, ?, 1, ?)`,
+        )
+          .bind(entryId, userId, projectId, now, 0, `project_detail · ${projectId}`)
+          .run();
+        return jsonResponse({ ok: true, action: 'start', entry_id: entryId, project_id: projectId }, 201);
+      }
+
+      let stopped = null;
+      for (const uid of userIds) {
+        const activeRow = await env.DB.prepare(
+          `SELECT id, duration_seconds, start_time FROM project_time_entries
+           WHERE user_id = ? AND is_active = 1 AND project_id = ?
+           ORDER BY start_time DESC LIMIT 1`,
+        )
+          .bind(uid, projectId)
+          .first();
+        if (activeRow?.id) {
+          await env.DB.prepare(
+            `UPDATE project_time_entries SET is_active = 0 WHERE id = ?`,
+          )
+            .bind(activeRow.id)
+            .run();
+          stopped = {
+            id: String(activeRow.id),
+            duration_seconds: Number(activeRow.duration_seconds || 0),
+          };
+          break;
+        }
+      }
+      if (!stopped) {
+        return jsonResponse({ ok: false, error: 'no_active_timer', project_id: projectId }, 404);
+      }
+      return jsonResponse({ ok: true, action: 'stop', entry: stopped, project_id: projectId }, 200);
+    } catch (e) {
+      console.warn('[calendar/project-timer]', e?.message ?? e);
+      return jsonResponse({ ok: false, error: 'project_timer_failed' }, 500);
+    }
   }
 
   // POST /api/calendar/time-entry — manual time log fallback

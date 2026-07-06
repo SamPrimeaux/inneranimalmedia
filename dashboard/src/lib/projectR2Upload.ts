@@ -1,7 +1,17 @@
 import { uploadDashboardImage } from '../../api/uploadImage';
+import type { ProjectStorageScope } from '../../pages/projects/projectDetailMeta';
+import { r2ObjectUrl } from '../../pages/projects/projectDetailMeta';
 
 /** Platform ASSETS bucket — non-image project files only. */
 const PLATFORM_ASSETS_BUCKET = 'inneranimalmedia';
+
+export type ProjectStorageUploadOpts = {
+  bucket?: string;
+  keyPrefix?: string;
+  workspaceId?: string | null;
+  /** When true, always write to R2 (skip Cloudflare Images). */
+  forceR2?: boolean;
+};
 
 function isImageFile(file: File): boolean {
   return file.type.startsWith('image/');
@@ -18,27 +28,13 @@ export async function uploadProjectCoverImage(
   return uploadDashboardImage(file, workspaceId);
 }
 
-export async function uploadProjectR2File(
-  projectId: string,
+async function uploadR2Object(
+  bucket: string,
+  key: string,
   file: File,
-  subpath: 'files' | 'cover' = 'files',
-  workspaceId?: string | null,
 ): Promise<{ ok: boolean; url?: string; key?: string; error?: string }> {
-  // Images → CF Images (covers + gallery). Other files → workspace/project storage lane.
-  if (isImageFile(file)) {
-    const cf = await uploadProjectCoverImage(file, workspaceId);
-    if (!cf.ok) return cf;
-    return { ok: true, url: cf.url };
-  }
-
-  const safeName = file.name.replace(/[^\w.\-()+ ]+/g, '_').slice(0, 120) || 'upload';
-  const key =
-    subpath === 'cover'
-      ? `projects/${projectId}/cover/${Date.now()}-${safeName}`
-      : `projects/${projectId}/files/${Date.now()}-${safeName}`;
-
   const fd = new FormData();
-  fd.append('bucket', PLATFORM_ASSETS_BUCKET);
+  fd.append('bucket', bucket);
   fd.append('key', key);
   fd.append('file', file);
 
@@ -52,15 +48,50 @@ export async function uploadProjectR2File(
       error?: string;
     };
     if (!res.ok) return { ok: false, error: String(data.error || `Upload failed (${res.status})`) };
-    const resolvedUrl =
-      data.url ||
-      (data.bucket && data.key
-        ? `/api/r2/buckets/${encodeURIComponent(data.bucket)}/object/${encodeURIComponent(data.key)}`
-        : undefined);
-    return { ok: true, url: resolvedUrl, key: data.key };
+    const resolvedBucket = data.bucket || bucket;
+    const resolvedKey = data.key || key;
+    const resolvedUrl = data.url || r2ObjectUrl(resolvedBucket, resolvedKey);
+    return { ok: true, url: resolvedUrl, key: resolvedKey };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Upload failed' };
   }
+}
+
+export async function uploadProjectBrandAsset(
+  file: File,
+  scope: ProjectStorageScope,
+): Promise<{ ok: boolean; url?: string; key?: string; error?: string }> {
+  const safeName = file.name.replace(/[^\w.\-()+ ]+/g, '_').slice(0, 120) || 'upload';
+  const key = `${scope.prefix}${Date.now()}-${safeName}`;
+  return uploadR2Object(scope.bucket, key, file);
+}
+
+export async function uploadProjectR2File(
+  projectId: string,
+  file: File,
+  subpath: 'files' | 'cover' = 'files',
+  workspaceId?: string | null,
+  opts?: ProjectStorageUploadOpts,
+): Promise<{ ok: boolean; url?: string; key?: string; error?: string }> {
+  const bucket = opts?.bucket?.trim() || PLATFORM_ASSETS_BUCKET;
+  const useClientBucket = bucket !== PLATFORM_ASSETS_BUCKET || opts?.forceR2;
+
+  // Images → CF Images for platform lane only. Client buckets always use R2.
+  if (isImageFile(file) && !useClientBucket && !opts?.forceR2) {
+    const cf = await uploadProjectCoverImage(file, workspaceId ?? opts?.workspaceId);
+    if (!cf.ok) return cf;
+    return { ok: true, url: cf.url };
+  }
+
+  const safeName = file.name.replace(/[^\w.\-()+ ]+/g, '_').slice(0, 120) || 'upload';
+  const keyPrefix = opts?.keyPrefix?.replace(/^\/*/, '').replace(/\/?$/, '/');
+  const key = keyPrefix
+    ? `${keyPrefix}${Date.now()}-${safeName}`
+    : subpath === 'cover'
+      ? `projects/${projectId}/cover/${Date.now()}-${safeName}`
+      : `projects/${projectId}/files/${Date.now()}-${safeName}`;
+
+  return uploadR2Object(bucket, key, file);
 }
 
 export async function uploadProjectTextFile(

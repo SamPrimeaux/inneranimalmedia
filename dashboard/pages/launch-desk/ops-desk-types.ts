@@ -92,6 +92,7 @@ export interface ClientProjectRow {
   project_id?: string | null;
   client_id?: string | null;
   status?: string | null;
+  payment_notes?: string | null;
 }
 
 export interface TasksInsightsPayload {
@@ -99,6 +100,15 @@ export interface TasksInsightsPayload {
   active_tracking: boolean;
   by_project: { project_id: string; name: string; minutes: number }[];
   by_task: { todo_id: string | null; title: string; minutes: number }[];
+  project_id?: string | null;
+  project_active_tracking?: boolean;
+  project_today_minutes?: number;
+  active_entry?: {
+    id: string;
+    project_id: string;
+    start_time?: string;
+    duration_seconds?: number;
+  } | null;
 }
 
 export function parseTodoTags(raw: string | null | undefined): string[] {
@@ -364,9 +374,27 @@ export async function fetchClientProjects() {
   return data.clients ?? [];
 }
 
-export async function fetchTasksInsights(anchor: Date) {
+export async function fetchTasksInsights(anchor: Date, projectId?: string | null) {
   const q = new URLSearchParams({ anchor: anchorIso(anchor) });
+  if (projectId?.trim()) q.set('project_id', projectId.trim());
   return apiJson<TasksInsightsPayload>(`/api/calendar/tasks-insights?${q}`);
+}
+
+export async function postProjectTimer(payload: {
+  action: 'start' | 'stop';
+  project_id: string;
+}) {
+  return apiJson<{
+    ok?: boolean;
+    action?: string;
+    entry_id?: string;
+    entry?: { id: string; duration_seconds?: number };
+    error?: string;
+  }>('/api/calendar/project-timer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function postActivityHeartbeat(payload: {
