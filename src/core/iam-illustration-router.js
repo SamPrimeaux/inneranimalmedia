@@ -9,6 +9,7 @@ import {
 } from './collab-broadcast.js';
 import { resolveCadJobScope } from './cad-job-scope.js';
 import { cadEngineSystemPrompt, generateCadScriptJob } from '../api/cad.js';
+import { dispatchCadJob } from './cad-dispatch.js';
 import { meshyGenerateInProcess } from '../api/cad-meshy.js';
 import { createPlanExcalidrawArtifact } from './agentsam-plan-excalidraw-artifact.js';
 import { buildIllustrationExcalidrawScene } from './iam-illustration-excalidraw-scene.js';
@@ -49,7 +50,7 @@ export async function routeIllustration(env, ctx, envelope, runContext = {}) {
     const out = await routeIllustrationMeshy(env, envelope, runContext);
     return { ...base, ...out };
   }
-  const out = await routeIllustrationCad(env, envelope, route.engine, runContext);
+  const out = await routeIllustrationCad(env, ctx, envelope, route.engine, runContext);
   return { ...base, ...out };
 }
 
@@ -160,10 +161,12 @@ async function routeIllustrationExcalidraw(env, ctx, envelope, runContext) {
 
 /**
  * @param {any} env
+ * @param {any} ctx
  * @param {Record<string, unknown>} envelope
+ * @param {string} engine
  * @param {Record<string, unknown>} runContext
  */
-async function routeIllustrationCad(env, envelope, engine, runContext) {
+async function routeIllustrationCad(env, ctx, envelope, engine, runContext) {
   const authUser = {
     id: trim(envelope.user_id),
     tenant_id: trim(envelope.tenant_id) || null,
@@ -203,15 +206,34 @@ async function routeIllustrationCad(env, envelope, engine, runContext) {
     return { ok: false, error: String(generated.error) };
   }
 
+  // Auto-execute: fire dispatch non-blocking so agent response returns immediately.
+  // cad_glb_ready SSE will surface the GLB in the viewer when done.
+  const execAuth = {
+    userId: authUser.id,
+    tenantId: authUser.tenant_id ?? null,
+    workspaceId: scope.workspaceId,
+  };
+  const execFn = async () => {
+    try {
+      await dispatchCadJob(env, ctx, generated.jobId, execAuth);
+    } catch (e) {
+      console.warn('[illustration-router] cad auto-execute failed:', generated.jobId, e?.message ?? e);
+    }
+  };
+  if (ctx?.waitUntil) {
+    ctx.waitUntil(execFn());
+  } else {
+    execFn().catch((e) => console.warn('[illustration-router] cad execFn error:', e?.message ?? e));
+  }
+
   return {
     ok: true,
     job_id: generated.jobId,
     cad_job_id: generated.jobId,
-    status: 'script_ready',
+    status: 'running',
     engine: cadEngine,
     model_key: generated.model_key ?? null,
     routing_arm_id: generated.routing_arm_id ?? null,
-    next_step: `POST /api/cad/jobs/${generated.jobId}/execute`,
     open_designstudio: envelope.open_after_create !== false && envelope.open_after_create !== 0,
   };
 }
