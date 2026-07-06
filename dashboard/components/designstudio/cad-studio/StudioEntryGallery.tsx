@@ -4,6 +4,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
+import { designStudioBimGalleryItem } from '../../../lib/designStudioBimExample';
 import { useStudioGallery, resolveGalleryCadJobId } from './useStudioGallery';
 import type { GalleryItem } from './cadStudioTypes';
 import { GlbAssetThumb } from './editors/GlbAssetThumb';
@@ -101,6 +102,8 @@ export function StudioEntryGallery({
   const setLibraryOpen = onLibraryOpenChange ?? setLibraryOpenInternal;
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
+  const bimExample = useMemo(() => designStudioBimGalleryItem(), []);
+
   const stockItems = useMemo(
     () => gallery.items.filter((i) => i.source === 'stock' || i.source === 'mine'),
     [gallery.items],
@@ -128,7 +131,9 @@ export function StudioEntryGallery({
 
   const handleSpawn = (item: GalleryItem) => {
     if (!item.url) return;
-    onSpawnStock?.(item.name, item.url, item.scale ?? 1);
+    const scale =
+      item.scale != null && Number.isFinite(item.scale) ? item.scale : 1;
+    onSpawnStock?.(item.name, item.url, scale);
   };
 
   const handleCancel = async (item: GalleryItem) => {
@@ -148,6 +153,16 @@ export function StudioEntryGallery({
 
   return (
     <div className="studio-entry__gallery" aria-label="Design Studio jobs and assets">
+      <div className="studio-entry__gallery-section">
+        <p className="studio-entry__gallery-label">Proof models</p>
+        <div className="studio-entry__gallery-grid">
+          <div className="studio-entry__gallery-card-wrap studio-entry__gallery-card-wrap--featured">
+            <GalleryCard item={bimExample} onSpawn={handleSpawn} />
+            <span className="studio-entry__gallery-badge">FreeCAD · BIM</span>
+          </div>
+        </div>
+      </div>
+
       {hasCreating ? (
         <div className="studio-entry__gallery-section">
           <p className="studio-entry__gallery-label">Creating</p>

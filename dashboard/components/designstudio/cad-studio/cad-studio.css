@@ -3590,6 +3590,27 @@
   width: 100%;
 }
 
+.studio-entry__gallery-card-wrap--featured .studio-entry__gallery-card {
+  border-color: color-mix(in srgb, var(--dashboard-accent, #3b82f6) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dashboard-accent, #3b82f6) 35%, transparent);
+}
+
+.studio-entry__gallery-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #e8f0ff;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  pointer-events: none;
+}
+
 .studio-entry__library-toggle-row {
   margin-top: 1.25rem;
   display: flex;

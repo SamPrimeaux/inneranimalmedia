@@ -23,6 +23,7 @@ export type StudioEntryScreenProps = {
   jobReady?: boolean;
   onSpawnStock?: (name: string, url: string, scale: number) => void;
   onCancelJob?: (cadJobId: string) => void;
+  onLoadBimExample?: () => void;
   activeProgressPct?: number;
   activeJobId?: string | null;
   onComposerHost?: (el: HTMLDivElement | null) => void;
@@ -40,6 +41,7 @@ export function StudioEntryScreen({
   jobReady = false,
   onSpawnStock,
   onCancelJob,
+  onLoadBimExample,
   activeProgressPct,
   activeJobId,
   onComposerHost,
@@ -83,6 +85,7 @@ export function StudioEntryScreen({
           onOpenStudio={onOpenStudio}
           onImportGlb={() => fileRef.current?.click()}
           onBrowseLibrary={() => setLibraryOpen(true)}
+          onLoadBimExample={onLoadBimExample}
         />
 
         <input

@@ -526,7 +526,11 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   const handleSpawnGalleryItem = useCallback(
     (item: GalleryItem) => {
       void (async () => {
-        const ok = (await onSpawnModel?.(item.name, item.url, item.scale ?? 1)) ?? false;
+        const ok = (await onSpawnModel?.(
+          item.name,
+          item.url,
+          item.scale != null && Number.isFinite(item.scale) ? item.scale : 1,
+        )) ?? false;
         if (!ok) {
           protocol.toast('Could not add asset', `Failed to load ${item.name}. Check the browser console.`);
           return;

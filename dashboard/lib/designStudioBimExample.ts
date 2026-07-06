@@ -1,0 +1,37 @@
+/**
+ * Design Studio — BIMExample.FCStd showcase (FreeCAD → GLB on R2).
+ * SSOT for UI spawn + D1 stock row `ds_stock_bim_example` (migration 772).
+ */
+import { normalizeGlbUrl } from './glbAssets';
+import type { GalleryItem } from '../components/designstudio/cad-studio/cadStudioTypes';
+
+export const DESIGN_STUDIO_BIM_EXAMPLE = {
+  id: 'ds_stock_bim_example',
+  name: 'BIM Example (FreeCAD)',
+  url: '/assets/cad/exports/tenant_sam_primeaux/ws_inneranimalmedia/cadj_bimexample311065.glb',
+  /** 0 = auto-fit to viewport in AgentSamEngine.spawnEntity */
+  scale: 0,
+  cadJobId: 'cadj_bimexample311065',
+  sourceFile: 'BIMExample.FCStd',
+  engine: 'freecad',
+  tags: 'designstudio,stock,bim,freecad,featured',
+} as const;
+
+export function designStudioBimGalleryItem(): GalleryItem {
+  const url = normalizeGlbUrl(DESIGN_STUDIO_BIM_EXAMPLE.url) ?? DESIGN_STUDIO_BIM_EXAMPLE.url;
+  return {
+    id: DESIGN_STUDIO_BIM_EXAMPLE.id,
+    cadJobId: DESIGN_STUDIO_BIM_EXAMPLE.cadJobId,
+    name: DESIGN_STUDIO_BIM_EXAMPLE.name,
+    url,
+    source: 'stock',
+    scale: DESIGN_STUDIO_BIM_EXAMPLE.scale,
+    status: 'done',
+  };
+}
+
+export function isDesignStudioBimExampleUrl(url: string | null | undefined): boolean {
+  const raw = String(url || '').trim().toLowerCase();
+  if (!raw) return false;
+  return raw.includes('cadj_bimexample311065') || raw.includes('ds_stock_bim_example');
+}

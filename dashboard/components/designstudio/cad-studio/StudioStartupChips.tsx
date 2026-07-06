@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderOpen, LayoutGrid, Upload } from 'lucide-react';
+import { Building2, FolderOpen, LayoutGrid, Upload } from 'lucide-react';
 import { StartupChipRow } from '../../shell/chat-startup/StartupChipRow';
 
 export type StudioStartupChipsProps = {
@@ -8,6 +8,7 @@ export type StudioStartupChipsProps = {
   onOpenStudio: () => void;
   onImportGlb: () => void;
   onBrowseLibrary: () => void;
+  onLoadBimExample?: () => void;
 };
 
 export function StudioStartupChips({
@@ -16,6 +17,7 @@ export function StudioStartupChips({
   onOpenStudio,
   onImportGlb,
   onBrowseLibrary,
+  onLoadBimExample,
 }: StudioStartupChipsProps) {
   return (
     <StartupChipRow
@@ -24,6 +26,9 @@ export function StudioStartupChips({
       disabled={disabled}
       chips={[
         { id: 'studio', label: 'Open studio', icon: LayoutGrid, onClick: onOpenStudio },
+        ...(onLoadBimExample
+          ? [{ id: 'bim', label: 'BIM example', icon: Building2, onClick: onLoadBimExample }]
+          : []),
         { id: 'import', label: 'Import GLB', icon: Upload, onClick: onImportGlb },
         { id: 'library', label: 'Browse library', icon: FolderOpen, onClick: onBrowseLibrary },
       ]}

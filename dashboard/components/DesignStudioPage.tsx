@@ -11,6 +11,7 @@ import {
 } from '../agentChatConstants';
 import { publishDesignStudioSurfaceContext } from '../src/lib/designStudioEvents';
 import { normalizeGlbUrl } from '../lib/glbAssets';
+import { DESIGN_STUDIO_BIM_EXAMPLE, isDesignStudioBimExampleUrl } from '../lib/designStudioBimExample';
 import { useDesignStudioCad } from './designstudio/hooks/useDesignStudioCad';
 import { spawnGlbInEngine } from './designstudio/spawnGlb';
 import { useDesignStudioContext } from './designstudio/DesignStudioContext';
@@ -578,9 +579,14 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
           name,
           type: 'prop',
           modelUrl: normalized,
-          scale,
-          position: { x: 0, y: 1, z: 0 },
-          behavior: { type: 'static' },
+          scale: scale > 0 ? scale : undefined,
+          position: { x: 0, y: 0, z: 0 },
+          behavior: {
+            type: 'static',
+            metadata: isDesignStudioBimExampleUrl(normalized)
+              ? { proof_lane: 'bim', engine: 'freecad', source_fcstd: DESIGN_STUDIO_BIM_EXAMPLE.sourceFile }
+              : undefined,
+          },
         });
         // Phase 1C: select spawned entity and frame camera on it
         setSelectedEntityId(entityId);
@@ -957,10 +963,20 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
 
   const handleEntrySpawnStock = useCallback(
     (name: string, url: string, scale: number) => {
+      setStudioPhase('studio');
       void handleSpawnModel(name, url, scale);
     },
     [handleSpawnModel],
   );
+
+  const handleLoadBimExample = useCallback(() => {
+    setStudioPhase('studio');
+    void handleSpawnModel(
+      DESIGN_STUDIO_BIM_EXAMPLE.name,
+      DESIGN_STUDIO_BIM_EXAMPLE.url,
+      DESIGN_STUDIO_BIM_EXAMPLE.scale,
+    );
+  }, [handleSpawnModel]);
 
   const handleEntryImportGlb = useCallback(
     (file: File) => {
@@ -1007,6 +1023,7 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
           onImportGlb={handleEntryImportGlb}
           onSpawnStock={handleEntrySpawnStock}
           onCancelJob={handleCancelCadJob}
+          onLoadBimExample={handleLoadBimExample}
           onComposerHost={onComposerHost}
           onMessagesHost={onMessagesHost}
           generating={cad.isGenerating}

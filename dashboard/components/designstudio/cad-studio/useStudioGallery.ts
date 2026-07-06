@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { normalizeGlbUrl } from '../../../lib/glbAssets';
 import { cancelCadJob, deleteMeshyCadTask } from '../api';
+import { designStudioBimGalleryItem } from '../../../lib/designStudioBimExample';
 import type { GalleryItem } from './cadStudioTypes';
 
 type AssetRow = {
@@ -117,6 +118,16 @@ function dedupeGallery(items: GalleryItem[]): GalleryItem[] {
   return out.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
 }
 
+function prependFeaturedStock(items: GalleryItem[]): GalleryItem[] {
+  const featured = designStudioBimGalleryItem();
+  const withoutDup = items.filter(
+    (item) =>
+      item.id !== featured.id &&
+      !String(item.url || '').includes('cadj_bimexample311065'),
+  );
+  return dedupeGallery([featured, ...withoutDup]);
+}
+
 export type GallerySourceFilter = 'all' | 'stock' | 'mine' | 'job' | 'meshy';
 
 export function resolveGalleryCadJobId(item: GalleryItem): string | null {
@@ -214,7 +225,7 @@ export function useStudioGallery(opts: UseStudioGalleryOpts = {}) {
     ]);
     if (stockRes.ok) merged.push(...parseAssets(await stockRes.json(), 'stock'));
     if (userRes.ok) merged.push(...parseAssets(await userRes.json(), 'mine'));
-    return merged;
+    return prependFeaturedStock(merged);
   }, [parseAssets]);
 
   const refreshJobs = useCallback(async () => {
