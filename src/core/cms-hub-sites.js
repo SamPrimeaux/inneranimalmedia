@@ -142,7 +142,7 @@ export async function mergeOperatorHubSites(env, workspaceId, bySlug) {
       source: prev.source || 'cms_hub',
       target_workspace_id: CMS_SLUG_RUNTIME_WORKSPACE[slug] || null,
       is_featured: true,
-      cms_hosting: slug === 'inneranimalmedia' ? 'platform' : 'client_worker',
+      cms_hosting: 'platform',
     });
   }
 }

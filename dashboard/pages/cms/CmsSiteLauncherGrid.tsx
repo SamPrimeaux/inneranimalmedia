@@ -33,7 +33,6 @@ function sortFeaturedSites(sites: CmsWorkspaceSite[]): CmsWorkspaceSite[] {
 function siteSubtitle(site: CmsWorkspaceSite): string {
   const domain = site.domain?.trim();
   if (domain) return domain.replace(/^https?:\/\//, '');
-  if (site.cms_hosting === 'client_worker') return 'Client worker CMS';
   return site.slug;
 }
 
@@ -71,9 +70,6 @@ export function CmsSiteLauncherGrid({
                 size="lg"
                 onPress={() => onSelectSite(site)}
               />
-              {site.cms_hosting === 'client_worker' ? (
-                <span className="cms-site-launcher__badge">Client</span>
-              ) : null}
             </div>
           );
         })}

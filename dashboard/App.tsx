@@ -235,7 +235,6 @@ const XTermShell = lazy(() =>
 const CmsStudioEditor = lazy(() =>
   import('../src/dashboard/cms/CmsStudioEditor').then((m) => ({ default: m.CmsStudioEditor })),
 );
-const ClientWorkerCmsStudio = lazy(() => import('./pages/cms/ClientWorkerCmsStudio'));
 
 function ActivityPanelFallback() {
   return (
@@ -5177,25 +5176,16 @@ const App: React.FC = () => {
                               </div>
                             }
                           >
-                            {cmsWorkspaceContext?.cms_hosting === 'client_worker' ? (
-                              <ClientWorkerCmsStudio
-                                workspaceId={authWorkspaceId || undefined}
-                                projectSlug={cmsWorkbenchContext?.project_slug ?? null}
-                                projectName={cmsWorkspaceContext?.project_name ?? null}
-                                studioUrl={cmsWorkspaceContext?.studio_url ?? null}
-                                publicDomain={cmsWorkspaceContext?.public_domain ?? null}
-                                bridgeSupported={cmsWorkspaceContext?.bridge_supported}
-                                apiProfile={cmsWorkspaceContext?.api_profile ?? null}
-                              />
-                            ) : (
-                              <CmsStudioEditor
-                                projectSlug={cmsWorkbenchContext?.project_slug ?? null}
-                                pageId={cmsWorkbenchContext?.page_id ?? null}
-                                panel={cmsWorkbenchContext?.studio_panel ?? 'pages'}
-                                workspaceId={authWorkspaceId || ''}
-                                workspaceLabel={workspaceDisplayLine}
-                              />
-                            )}
+                            <CmsStudioEditor
+                              projectSlug={cmsWorkbenchContext?.project_slug ?? null}
+                              pageId={cmsWorkbenchContext?.page_id ?? null}
+                              panel={cmsWorkbenchContext?.studio_panel ?? 'pages'}
+                              agentSamCmsShell
+                              workspaceId={authWorkspaceId || ''}
+                              workspaceLabel={workspaceDisplayLine}
+                              publicDomain={cmsWorkspaceContext?.public_domain ?? null}
+                              studioUrl={cmsWorkspaceContext?.studio_url ?? null}
+                            />
                           </Suspense>
                       </div>
                   )}

@@ -4,7 +4,7 @@
  */
 import { getAgentsamWorkspace, parseWorkspaceMetadata } from './agentsam-workspace.js';
 import { hasRegisteredCmsSiteContext } from './cms-workspace-resolve.js';
-import { resolveRuntimeWorkspaceForCmsSlug } from './cms-hub-sites.js';
+import { CMS_SLUG_RUNTIME_WORKSPACE, resolveRuntimeWorkspaceForCmsSlug } from './cms-hub-sites.js';
 import { resolvePlatformCmsStudioUrl } from './cms-studio-lane.js';
 import { resolveCmsPublicDomain } from './cms-storefront-url.js';
 
@@ -13,6 +13,7 @@ function trim(v) {
 }
 
 const PLATFORM_WORKER_NAME = 'inneranimalmedia';
+const OPERATOR_HUB_WORKSPACE = 'ws_inneranimalmedia';
 
 const DEFAULT_WORKER_BASE = {
   companionscpas: 'https://companionsofcaddo.org',
@@ -93,24 +94,46 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
     };
   }
 
-  const runtimeWorkspaceId = await resolveRuntimeWorkspaceForCmsSlug(env, ws, slug);
+  /** Operator hub: one IAM CMS shell; site slug selects backend, not a separate embed. */
+  const isOperatorHubPick =
+    ws === OPERATOR_HUB_WORKSPACE && slug && Object.prototype.hasOwnProperty.call(CMS_SLUG_RUNTIME_WORKSPACE, slug);
+
+  const runtimeWorkspaceId = isOperatorHubPick
+    ? ws
+    : await resolveRuntimeWorkspaceForCmsSlug(env, ws, slug);
   const effectiveWs = runtimeWorkspaceId || ws;
+  const clientRuntimeWs = isOperatorHubPick ? trim(CMS_SLUG_RUNTIME_WORKSPACE[slug]) || null : effectiveWs;
 
   const wsRow = await getAgentsamWorkspace(env, effectiveWs);
   const meta = parseWorkspaceMetadata(wsRow?.metadata_json);
-  const hasRegistry = await hasRegisteredCmsSiteContext(env, effectiveWs);
-  const isClientWorker = isClientWorkerCms(wsRow, hasRegistry);
-  const cmsHosting = isClientWorker ? 'client_worker' : 'platform';
-  const apiProfile = isClientWorker ? deriveApiProfile(wsRow?.worker_name) : 'primetch';
+  const clientWsRow =
+    isOperatorHubPick && clientRuntimeWs && clientRuntimeWs !== effectiveWs
+      ? await getAgentsamWorkspace(env, clientRuntimeWs)
+      : wsRow;
+  const clientMeta = parseWorkspaceMetadata(clientWsRow?.metadata_json);
 
-  const workerBaseUrl = resolveWorkerBaseUrl(meta, wsRow);
-  const studioPath = resolveStudioPath(apiProfile, meta);
+  const hasRegistry = isOperatorHubPick
+    ? true
+    : await hasRegisteredCmsSiteContext(env, effectiveWs);
+  const isClientWorker = isOperatorHubPick ? false : isClientWorkerCms(wsRow, hasRegistry);
+  const cmsHosting = isClientWorker ? 'client_worker' : 'platform';
+  const apiProfile = isOperatorHubPick
+    ? deriveApiProfile(clientWsRow?.worker_name || slug)
+    : isClientWorker
+      ? deriveApiProfile(wsRow?.worker_name)
+      : 'primetch';
+
+  const workerBaseUrl = isOperatorHubPick
+    ? resolveWorkerBaseUrl(clientMeta, clientWsRow)
+    : resolveWorkerBaseUrl(meta, wsRow);
+  const studioPath = resolveStudioPath(apiProfile, isOperatorHubPick ? clientMeta : meta);
   const studioUrl = isClientWorker
     ? workerBaseUrl
       ? `${workerBaseUrl}${studioPath}`
       : null
     : resolvePlatformCmsStudioUrl(meta);
-  const bridgeSupported = isClientWorker && Boolean(workerBaseUrl);
+  const bridgeSupported =
+    (isClientWorker || isOperatorHubPick) && Boolean(workerBaseUrl) && slug !== 'inneranimalmedia';
 
   let publicDomain = trim(meta.public_domain) || null;
   if (!publicDomain && slug && env?.DB) {
@@ -132,19 +155,27 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
 
   return {
     workspace_id: ws,
-    runtime_workspace_id: effectiveWs,
+    runtime_workspace_id: isOperatorHubPick ? clientRuntimeWs || effectiveWs : effectiveWs,
+    client_runtime_workspace_id: clientRuntimeWs,
     project_slug: slug || trim(wsRow?.workspace_slug) || null,
     cms_hosting: cmsHosting,
+    cms_shell: isOperatorHubPick || !isClientWorker ? 'iam_unified' : 'client_worker_legacy',
     api_profile: apiProfile,
-    worker_name: trim(wsRow?.worker_name) || null,
+    worker_name: trim(isOperatorHubPick ? clientWsRow?.worker_name : wsRow?.worker_name) || null,
     worker_base_url: workerBaseUrl,
     public_domain: publicDomain,
     studio_path: studioPath,
     studio_url: studioUrl,
     bridge_supported: bridgeSupported,
-    deploy_hook_url: trim(meta.deploy_hook_url) || null,
-    d1_database_id: trim(wsRow?.d1_database_id) || trim(meta.d1_database_id) || null,
-    r2_bucket: trim(wsRow?.r2_bucket) || trim(meta.r2_bucket) || null,
-    kv_namespace: trim(meta.kv_namespace) || null,
+    deploy_hook_url: trim(isOperatorHubPick ? clientMeta.deploy_hook_url : meta.deploy_hook_url) || null,
+    d1_database_id:
+      trim(isOperatorHubPick ? clientWsRow?.d1_database_id : wsRow?.d1_database_id) ||
+      trim(isOperatorHubPick ? clientMeta.d1_database_id : meta.d1_database_id) ||
+      null,
+    r2_bucket:
+      trim(isOperatorHubPick ? clientWsRow?.r2_bucket : wsRow?.r2_bucket) ||
+      trim(isOperatorHubPick ? clientMeta.r2_bucket : meta.r2_bucket) ||
+      null,
+    kv_namespace: trim(isOperatorHubPick ? clientMeta.kv_namespace : meta.kv_namespace) || null,
   };
 }

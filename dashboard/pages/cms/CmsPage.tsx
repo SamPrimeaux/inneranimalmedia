@@ -3,9 +3,10 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useCmsWorkspaceContext } from '../../hooks/useCmsWorkspaceContext';
 import { buildCmsPath, parseCmsRoute, readStoredCmsProjectSlug, type CmsView } from './cmsRoute';
 import { SiteDeployWizard } from './SiteDeployWizard';
-import ClientWorkerCmsStudio from './ClientWorkerCmsStudio';
 import { CmsSiteLauncherGrid } from './CmsSiteLauncherGrid';
 import { useWorkspace } from '../../src/context/WorkspaceContext';
+
+const OPERATOR_HUB_WORKSPACE = 'ws_inneranimalmedia';
 
 const CmsRoot = lazy(() =>
   import('../../../src/dashboard/cms/CmsRoot').then((m) => ({
@@ -93,11 +94,14 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
     () => readStoredCmsProjectSlug(workspaceId),
     [workspaceId],
   );
-  const effectiveSiteSlug = parsed.siteSlug || storedSiteSlug;
+  /** Hub (/dashboard/cms) must not inherit persisted site — only explicit ?site= in URL. */
+  const contextSiteSlug =
+    parsed.view === 'sites' ? parsed.siteSlug || null : parsed.siteSlug || storedSiteSlug;
+  const effectiveSiteSlug = contextSiteSlug;
 
   const { context, loading, error, persistSite, reload: load } = useCmsWorkspaceContext({
     workspaceId,
-    siteSlug: effectiveSiteSlug,
+    siteSlug: contextSiteSlug,
     enabled: true,
   });
 
@@ -118,7 +122,10 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
     [load, navigate, persistSite],
   );
 
-  const isClientWorker = context?.cms_hosting === 'client_worker';
+  const isOperatorHub =
+    (workspaceId || context?.workspace_id) === OPERATOR_HUB_WORKSPACE ||
+    context?.workspace_slug === 'inneranimalmedia';
+  const isHubSitesView = parsed.view === 'sites';
 
   useEffect(() => {
     if (parsed.legacy && parsed.legacyTarget) {
@@ -127,7 +134,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   }, [parsed, navigate]);
 
   useEffect(() => {
-    if (parsed.view === 'sites' || loading || !context?.project_slug || parsed.siteSlug) return;
+    if (isHubSitesView || loading || !context?.project_slug || parsed.siteSlug) return;
     navigate(
       buildCmsPath({
         panel: parsed.panel,
@@ -136,7 +143,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
       }),
       { replace: true },
     );
-  }, [parsed.view, parsed.panel, parsed.pageId, parsed.siteSlug, loading, context?.project_slug, navigate]);
+  }, [isHubSitesView, parsed.panel, parsed.pageId, parsed.siteSlug, loading, context?.project_slug, navigate]);
 
   const cmsNavigate = useCallback(
     (target: string) => {
@@ -164,13 +171,14 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
     async (slug: string, path: string) => {
       const site = context?.sites?.find((s) => s.slug === slug);
       const targetWs = site?.target_workspace_id?.trim();
-      if (targetWs && targetWs !== (workspaceId || context?.workspace_id)) {
+      const stayOnOperatorHub = isOperatorHub && targetWs && targetWs !== OPERATOR_HUB_WORKSPACE;
+      if (targetWs && targetWs !== (workspaceId || context?.workspace_id) && !stayOnOperatorHub) {
         await switchWorkspace(targetWs);
       }
       await persistSite(slug);
       navigate(path, { replace: true });
     },
-    [context?.sites, context?.workspace_id, navigate, persistSite, switchWorkspace, workspaceId],
+    [context?.sites, context?.workspace_id, isOperatorHub, navigate, persistSite, switchWorkspace, workspaceId],
   );
 
   const cmsNavigatePath = useCallback(
@@ -257,33 +265,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           </div>
         </div>
       ) : null}
-      {!needsSitePick && isClientWorker && context?.project_slug ? (
-        <ClientWorkerCmsStudio
-          workspaceId={workspaceId}
-          projectSlug={context.project_slug}
-          projectName={context.project_name}
-          studioUrl={context.studio_url}
-          publicDomain={context.public_domain}
-          bridgeSupported={context.bridge_supported}
-          apiProfile={context.api_profile}
-        />
-      ) : null}
-      {!needsSitePick && !isClientWorker && isStudioEditorRoute && studioProjectSlug ? (
-        <Suspense fallback={<StudioShellFallback themeEditor={studioPanel === 'theme-editor'} />}>
-          <CmsStudioEditor
-            projectSlug={studioProjectSlug}
-            pageId={parsed.pageId}
-            panel={studioPanel}
-            agentSamCmsShell
-            workspaceId={workspaceId || context?.workspace_id || ''}
-            workspaceLabel={context?.ui_label || context?.workspace_name || null}
-            publicDomain={context?.public_domain || null}
-            studioUrl={context?.studio_url || null}
-            onNavigatePath={cmsNavigatePath}
-          />
-        </Suspense>
-      ) : null}
-      {!needsSitePick && !isClientWorker && parsed.view === 'sites' ? (
+      {!needsSitePick && isHubSitesView ? (
         <Suspense
           fallback={
             <div className="flex flex-1 items-center justify-center text-sm text-muted">
@@ -297,23 +279,38 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
             workspaceSlug={context?.workspace_slug || null}
             publicDomain={context?.public_domain || null}
             sites={context?.sites || []}
-            primaryProjectSlug={context?.project_slug || null}
-            loadingSites={loading && parsed.view === 'sites'}
-            sitesError={parsed.view === 'sites' ? error : null}
+            primaryProjectSlug={isOperatorHub ? null : context?.project_slug || null}
+            loadingSites={loading && isHubSitesView}
+            sitesError={isHubSitesView ? error : null}
             onRetrySites={() => {
               void load();
             }}
             view={viewForRoot}
-            projectSlug={context?.project_slug || effectiveSiteSlug}
+            projectSlug={parsed.siteSlug || null}
             pageId={parsed.pageId}
             studioPanel={parsed.panel}
             addToPageId={searchParams.get('add_to_page')}
-            loadingProject={loading && parsed.view !== 'sites'}
+            loadingProject={loading && !isHubSitesView}
             projectError={error}
             onNavigate={cmsNavigate}
             onNavigatePath={cmsNavigatePath}
             onOpenDeployWizard={() => setWizardOpen(true)}
             onSelectSite={handleSelectSite}
+          />
+        </Suspense>
+      ) : null}
+      {!needsSitePick && !isHubSitesView && isStudioEditorRoute && studioProjectSlug ? (
+        <Suspense fallback={<StudioShellFallback themeEditor={studioPanel === 'theme-editor'} />}>
+          <CmsStudioEditor
+            projectSlug={studioProjectSlug}
+            pageId={parsed.pageId}
+            panel={studioPanel}
+            agentSamCmsShell
+            workspaceId={workspaceId || context?.workspace_id || ''}
+            workspaceLabel={context?.ui_label || context?.workspace_name || null}
+            publicDomain={context?.public_domain || null}
+            studioUrl={context?.studio_url || null}
+            onNavigatePath={cmsNavigatePath}
           />
         </Suspense>
       ) : null}
