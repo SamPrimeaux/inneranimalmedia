@@ -275,7 +275,26 @@ async function processJob(job) {
     if (engine === 'openscad') {
       const scadPath = join(tmpDir, 'model.scad');
       const stlPath = join(tmpDir, 'model.stl');
-      writeFileSync(scadPath, script, 'utf8');
+      const trimmed = String(script || '').trim();
+      const isOpenPyScad =
+        /^\s*#!.*python/i.test(trimmed) ||
+        /^\s*(import|from)\s+openpyscad\b/m.test(trimmed) ||
+        /\bopenpyscad\b/.test(trimmed);
+      if (isOpenPyScad) {
+        const pyPath = join(tmpDir, 'build_model.py');
+        writeFileSync(pyPath, script, 'utf8');
+        await patchProgress(job.id, 20);
+        const rPy = spawnSync('python3', [pyPath], {
+          cwd: tmpDir,
+          encoding: 'utf8',
+          env: process.env,
+        });
+        if (rPy.status !== 0 || !existsSync(scadPath)) {
+          throw new Error(rPy.stderr || rPy.stdout || 'openpyscad_build_failed');
+        }
+      } else {
+        writeFileSync(scadPath, script, 'utf8');
+      }
       await patchProgress(job.id, 28);
       runOpenscadPipeline(tmpDir, scadPath, stlPath, glbPath);
       await patchProgress(job.id, 58);

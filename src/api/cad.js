@@ -51,10 +51,15 @@ function cadJobRowResponse(row) {
   };
 }
 
-const OPENSCAD_SYSTEM_PROMPT = `You are an OpenSCAD expert. Output ONLY valid OpenSCAD code.
-No markdown fences, no explanation, no comments unless they are OpenSCAD inline comments.
-The code must be immediately runnable with: openscad -o output.stl input.scad
-Use parametric variables at the top. Make the model well-structured and printable.`;
+const OPENSCAD_SYSTEM_PROMPT = `You are a parametric 3D modeling expert using OpenPySCAD (Python library: openpyscad).
+Output ONLY valid Python 3 code — no markdown fences, no explanation.
+Requirements:
+- import openpyscad as ops (alias ops)
+- Use ops.Cube, ops.Cylinder, ops.Sphere, ops.translate, etc.; combine with + (union) and - (difference)
+- Define parametric variables at the top for all dimensions
+- MUST end with: (your_final_shape).write("model.scad") — filename exactly model.scad in the current working directory
+- Model must be watertight and suitable for 3D printing
+Do NOT output raw .scad unless OpenPySCAD cannot express the shape.`;
 
 const FREECAD_SYSTEM_PROMPT = `You are a FreeCAD Python API expert. Output ONLY a valid FreeCAD Python script for headless FreeCADCmd.
 The script must:

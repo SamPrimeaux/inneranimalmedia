@@ -3318,6 +3318,35 @@
   z-index: 1;
 }
 
+/* Active thread: chat-first layout (hero/chips recede; messages grow). */
+.studio-entry:has(.studio-entry__messages-host:not(:empty)) {
+  align-items: stretch;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
+.studio-entry:has(.studio-entry__messages-host:not(:empty)) .studio-entry__stack {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.studio-entry:has(.studio-entry__messages-host:not(:empty)) .studio-entry__hero {
+  display: none;
+}
+
+.studio-entry:has(.studio-entry__messages-host:not(:empty)) .studio-entry__messages-host {
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 120px;
+  overflow-y: auto;
+}
+
+.studio-entry:has(.studio-entry__messages-host:not(:empty)) .iam-chat-startup-chips,
+.studio-entry:has(.studio-entry__messages-host:not(:empty)) .studio-entry__gallery {
+  display: none;
+}
+
 .studio-entry__stack {
   flex: 0 1 auto;
 }
