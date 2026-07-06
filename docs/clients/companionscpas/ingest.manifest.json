@@ -7,6 +7,12 @@
   "note": "Documents ingest under IAM workspace UUID; filter retrieval by project_key companionscpas",
   "entries": [
     {
+      "file": "docs/clients/companionscpas/AGENTSAM.md",
+      "topic": "companionscpas_agentsam",
+      "lane_key": "client_project_semantic_search",
+      "priority": 110
+    },
+    {
       "file": "docs/clients/companionscpas/project-brief.md",
       "topic": "companionscpas",
       "lane_key": "client_project_semantic_search",

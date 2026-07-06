@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "description": "Fuel N Free Time client docs for client_project_semantic_search — ingest via npm run run:ingest_client_fuelnfreetime",
+  "workspace_key": "ws_inneranimalmedia",
+  "project_key": "fuelnfreetime",
+  "d1_context_id": "ctx_fuelnfreetime",
+  "note": "Documents ingest under IAM workspace UUID; filter retrieval by project_key fuelnfreetime",
+  "entries": [
+    {
+      "file": "docs/clients/fuelnfreetime/AGENTSAM.md",
+      "topic": "fuelnfreetime_agentsam",
+      "lane_key": "client_project_semantic_search",
+      "priority": 110
+    },
+    {
+      "file": "docs/clients/fuelnfreetime/project-brief.md",
+      "topic": "fuelnfreetime",
+      "lane_key": "client_project_semantic_search",
+      "priority": 100
+    },
+    {
+      "file": "docs/clients/fuelnfreetime/mcp-oauth-collab.md",
+      "topic": "fuelnfreetime_mcp",
+      "lane_key": "client_project_semantic_search",
+      "priority": 90
+    }
+  ]
+}

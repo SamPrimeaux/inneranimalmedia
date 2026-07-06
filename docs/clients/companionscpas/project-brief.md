@@ -146,6 +146,7 @@ Stripe Elements in-modal on `/donate`; webhook `POST /api/webhooks/stripe`. **Te
 
 | Store | Where | Role |
 |---|---|---|
+| `AGENTSAM.md` | IAM `docs/clients/companionscpas/AGENTSAM.md` | **Human SSOT — wins over DB** |
 | `ctx_companionscpas` | IAM D1 `agentsam_project_context` | Platform Agent Sam client compass |
 | `agentsam_project_context` | CPAS D1 | Worker-local Layer 0 |
 | This brief + patterns | IAM Vectorize documents | `client_project_semantic_search` |
