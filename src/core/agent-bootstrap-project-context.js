@@ -1,6 +1,5 @@
 /**
- * Agent bootstrap snapshot cache — stored in agentsam_project_context (replaces ai_compiled_context_cache).
- * project_key=agent_bootstrap, project_type=bootstrap_cache, payload JSON in notes.
+ * Agent bootstrap snapshot cache — SESSION_CACHE KV (replaces agentsam_project_context hack).
  */
 
 export const AGENT_BOOTSTRAP_PROJECT_KEY = 'agent_bootstrap';
@@ -8,100 +7,81 @@ export const AGENT_BOOTSTRAP_PROJECT_TYPE = 'bootstrap_cache';
 /** TTL for GET /api/agent/bootstrap cache hits (seconds). */
 export const AGENT_BOOTSTRAP_TTL_SEC = 1800;
 
+function trim(v) {
+  return v == null ? '' : String(v).trim();
+}
+
 /**
  * @param {string} userId
- * @returns {string}
+ * @param {string} [workspaceId]
  */
-export function agentBootstrapContextRowId(userId) {
-  const u = String(userId || 'system').trim() || 'system';
-  const safe = u.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
-  return `ctx_bootstrap_${safe}`;
+export function agentBootstrapCacheKey(userId, workspaceId = '') {
+  const uid = trim(userId) || 'system';
+  const ws = trim(workspaceId) || 'default';
+  return `agentsam:bootstrap:${uid}:${ws}`;
 }
 
 /**
- * @param {import('@cloudflare/workers-types').D1Database} db
- * @param {{ tenantId: string, userId: string, ttlSec?: number }} opts
+ * @param {any} env
+ * @param {{ tenantId?: string, userId: string, workspaceId?: string|null, ttlSec?: number }} opts
  * @returns {Promise<string|null>} cached JSON body
  */
-export async function readAgentBootstrapCache(db, { tenantId, userId, ttlSec = AGENT_BOOTSTRAP_TTL_SEC }) {
-  const tid = String(tenantId || '').trim();
-  if (!db || !tid) return null;
-  const id = agentBootstrapContextRowId(userId);
-  const row = await db
-    .prepare(
-      `SELECT notes FROM agentsam_project_context
-       WHERE id = ?
-         AND tenant_id = ?
-         AND project_key = ?
-         AND project_type = ?
-         AND updated_at > unixepoch() - ?
-       LIMIT 1`,
-    )
-    .bind(id, tid, AGENT_BOOTSTRAP_PROJECT_KEY, AGENT_BOOTSTRAP_PROJECT_TYPE, Math.max(60, Number(ttlSec) || AGENT_BOOTSTRAP_TTL_SEC))
-    .first()
-    .catch(() => null);
-  const notes = row?.notes;
-  return notes != null && String(notes).trim() !== '' ? String(notes) : null;
+export async function readAgentBootstrapCache(env, { userId, workspaceId = null, ttlSec = AGENT_BOOTSTRAP_TTL_SEC }) {
+  const kv = env?.SESSION_CACHE;
+  const uid = trim(userId);
+  if (!kv || !uid) return null;
+  const key = agentBootstrapCacheKey(uid, workspaceId);
+  try {
+    const hit = await kv.get(key, { type: 'text', cacheTtl: Math.max(60, Number(ttlSec) || AGENT_BOOTSTRAP_TTL_SEC) });
+    return hit != null && String(hit).trim() !== '' ? String(hit) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
- * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {any} env
  * @param {{
- *   tenantId: string,
+ *   tenantId?: string,
  *   workspaceId?: string|null,
  *   userId: string,
  *   payload: Record<string, unknown>,
  *   createdBy?: string|null,
  * }} opts
  */
-export async function writeAgentBootstrapCache(db, { tenantId, workspaceId, userId, payload, createdBy }) {
-  const tid = String(tenantId || '').trim();
-  if (!db || !tid) return;
-  const id = agentBootstrapContextRowId(userId);
-  const notes = JSON.stringify(payload ?? {});
-  const ws = workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : null;
-  const uid = String(userId || 'system').trim() || 'system';
-  const by = createdBy != null && String(createdBy).trim() !== '' ? String(createdBy).trim() : uid;
+export async function writeAgentBootstrapCache(env, { workspaceId, userId, payload }) {
+  const kv = env?.SESSION_CACHE;
+  const uid = trim(userId);
+  if (!kv || !uid) return;
+  const key = agentBootstrapCacheKey(uid, workspaceId);
+  try {
+    await kv.put(key, JSON.stringify(payload ?? {}), {
+      expirationTtl: AGENT_BOOTSTRAP_TTL_SEC,
+    });
+  } catch (e) {
+    console.warn('[agent-bootstrap-cache] kv put failed:', e?.message ?? e);
+  }
+}
 
+/**
+ * Purge stale bootstrap cache keys — no-op for KV TTL; kept for API compat.
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ */
+export async function purgeStaleAgentBootstrapCache(db) {
+  if (!db) return;
   await db
     .prepare(
-      `INSERT INTO agentsam_project_context (
-         id, tenant_id, workspace_id, project_key, project_name, project_type,
-         status, priority, description, notes, session_id, agent_id, cost_usd,
-         created_at, updated_at
-       ) VALUES (
-         ?, ?, ?, ?, 'Agent bootstrap snapshot', ?, 'active', 0,
-         'Ephemeral R2 daily log + schema memory snapshot for GET /api/agent/bootstrap',
-         ?, ?, 'agent-sam', 0, unixepoch(), unixepoch()
-       )
-       ON CONFLICT(id) DO UPDATE SET
-         tenant_id = excluded.tenant_id,
-         workspace_id = excluded.workspace_id,
-         notes = excluded.notes,
-         session_id = excluded.session_id,
-         updated_at = unixepoch()`,
+      `DELETE FROM agentsam_project_context
+       WHERE project_key = ? AND project_type = ?`,
     )
-    .bind(id, tid, ws, AGENT_BOOTSTRAP_PROJECT_KEY, AGENT_BOOTSTRAP_PROJECT_TYPE, notes, uid, by)
+    .bind(AGENT_BOOTSTRAP_PROJECT_KEY, AGENT_BOOTSTRAP_PROJECT_TYPE)
     .run()
     .catch(() => {});
 }
 
-/**
- * Purge stale bootstrap cache rows (daily digest invalidation).
- * @param {import('@cloudflare/workers-types').D1Database} db
- * @param {{ maxAgeSec?: number }} [opts]
- */
-export async function purgeStaleAgentBootstrapCache(db, { maxAgeSec = 86400 } = {}) {
-  if (!db) return;
-  const age = Math.max(300, Number(maxAgeSec) || 86400);
-  await db
-    .prepare(
-      `DELETE FROM agentsam_project_context
-       WHERE project_key = ?
-         AND project_type = ?
-         AND updated_at < unixepoch() - ?`,
-    )
-    .bind(AGENT_BOOTSTRAP_PROJECT_KEY, AGENT_BOOTSTRAP_PROJECT_TYPE, age)
-    .run()
-    .catch(() => {});
+/** @deprecated Legacy row id — D1 cache retired. */
+export function agentBootstrapContextRowId(userId) {
+  const u = trim(userId) || 'system';
+  const safe = u.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+  return `ctx_bootstrap_${safe}`;
 }

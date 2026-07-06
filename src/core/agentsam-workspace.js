@@ -109,20 +109,65 @@ export async function getWorkspaceDeployUrl(env, workspaceId) {
  * @param {any} env
  * @param {string} workspaceId
  */
+const AGENTSAM_WORKSPACE_SELECT = `
+  SELECT id, workspace_slug, tenant_id, project_id, name, display_name, description,
+         root_path, r2_bucket, r2_prefix, status, metadata_json,
+         github_repo, default_model_id, primary_subagent_id,
+         d1_database_id, d1_binding, worker_name, workspace_ref_id,
+         cloudflare_account_id, byok_r2_bucket, deploy_url, kv_namespace_id,
+         created_at, updated_at
+    FROM agentsam_workspace`;
+
+/**
+ * Normalize agentsam_workspace row → CF execution targets for Agent Sam.
+ * @param {Record<string, unknown>|null|undefined} row
+ * @param {any} [env]
+ */
+export function normalizeWorkspaceBindings(row, env = null) {
+  if (!row) return null;
+  return {
+    workspaceId: trim(row.id) || null,
+    slug: trim(row.workspace_slug) || null,
+    name: trim(row.display_name) || trim(row.name) || null,
+    projectId: trim(row.project_id) || null,
+    accountId: trim(row.cloudflare_account_id) || trim(env?.CLOUDFLARE_ACCOUNT_ID) || null,
+    d1DatabaseId: trim(row.d1_database_id) || null,
+    d1Binding: trim(row.d1_binding) || 'DB',
+    workerName: trim(row.worker_name) || null,
+    r2Bucket: trim(row.r2_bucket) || null,
+    r2Prefix: trim(row.r2_prefix) || null,
+    kvNamespaceId: trim(row.kv_namespace_id) || null,
+    githubRepo: trim(row.github_repo) || null,
+    rootPath: trim(row.root_path) || null,
+    deployUrl: trim(row.deploy_url) || null,
+  };
+}
+
+/**
+ * Resolve full CF bindings by workspace id, slug, or project_id.
+ * @param {any} env
+ * @param {string|null|undefined} identifier
+ */
+export async function resolveWorkspaceBindings(env, identifier) {
+  const id = trim(identifier);
+  if (!env?.DB || !id) return null;
+  const row = await env.DB.prepare(
+    `${AGENTSAM_WORKSPACE_SELECT}
+      WHERE status = 'active'
+        AND (id = ? OR workspace_slug = ? OR project_id = ?)
+      ORDER BY updated_at DESC
+      LIMIT 1`,
+  )
+    .bind(id, id, id)
+    .first()
+    .catch(() => null);
+  return normalizeWorkspaceBindings(row, env);
+}
+
 export async function getAgentsamWorkspace(env, workspaceId) {
   const wid = trim(workspaceId);
   if (!env?.DB || !wid) return null;
-  return env.DB.prepare(
-    `SELECT id, workspace_slug, tenant_id, name, display_name, description,
-            root_path, r2_bucket, r2_prefix, status, metadata_json,
-            github_repo, default_model_id, primary_subagent_id,
-            d1_database_id, d1_binding, worker_name, workspace_ref_id,
-            cloudflare_account_id, byok_r2_bucket, deploy_url,
-            created_at, updated_at
-       FROM agentsam_workspace
-      WHERE id = ?
-      LIMIT 1`,
-  )
+  return env.DB.prepare(`${AGENTSAM_WORKSPACE_SELECT} WHERE id = ? LIMIT 1`)
     .bind(wid)
     .first()
     .catch(() => null);

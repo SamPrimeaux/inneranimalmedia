@@ -4,12 +4,54 @@
  * with explicit precedence for per-turn overrides (open file, context envelope, client repo pick).
  */
 
-import { getWorkspaceGithubRepo } from './agentsam-workspace.js';
+import {
+  getWorkspaceGithubRepo,
+  resolveWorkspaceBindings,
+} from './agentsam-workspace.js';
 import { resolveWorkspaceR2Prefix } from './sandbox-r2-fuse-env.js';
 
 function trim(v) {
   if (v == null) return '';
   return String(v).trim();
+}
+
+/**
+ * Full CF binding block for system prompt (D1/R2/KV/worker/deploy targets).
+ * @param {ReturnType<typeof normalizeWorkspaceBindings>} bindings
+ */
+export function formatWorkspaceBindingBlock(bindings) {
+  if (!bindings) return '';
+  return [
+    `## Active build: ${bindings.name || bindings.slug || bindings.workspaceId}`,
+    `workspace_id: ${bindings.workspaceId}`,
+    bindings.workerName
+      ? `worker: ${bindings.workerName} → ${bindings.deployUrl || '(no deploy_url)'}`
+      : null,
+    bindings.d1DatabaseId ? `d1_database_id: ${bindings.d1DatabaseId}` : null,
+    bindings.r2Bucket
+      ? `r2_bucket: ${bindings.r2Bucket}${bindings.r2Prefix ? ` (prefix: ${bindings.r2Prefix})` : ''}`
+      : null,
+    bindings.kvNamespaceId ? `kv_namespace_id: ${bindings.kvNamespaceId}` : null,
+    bindings.githubRepo ? `github_repo: ${bindings.githubRepo}` : null,
+    bindings.rootPath ? `root_path: ${bindings.rootPath}` : null,
+    bindings.accountId ? `cf_account_id: ${bindings.accountId}` : null,
+    '',
+    'Use these IDs with CF API tools. Never guess or hardcode.',
+  ]
+    .filter((line) => line !== null)
+    .join('\n');
+}
+
+/**
+ * @param {string} systemPrompt
+ * @param {ReturnType<typeof normalizeWorkspaceBindings>} bindings
+ */
+export function appendWorkspaceBindingBlockToPrompt(systemPrompt, bindings) {
+  const block = formatWorkspaceBindingBlock(bindings);
+  if (!block) return String(systemPrompt || '');
+  const out = String(systemPrompt || '');
+  if (out.includes('## Active build:')) return out;
+  return `${out}\n\n${block}`;
 }
 
 /**
@@ -78,17 +120,18 @@ export async function fetchWorkspaceChatBinding(env, workspaceId) {
   if (!row) {
     const github_repo = (await getWorkspaceGithubRepo(env, wid)) || null;
     const r2_prefix = (await resolveWorkspaceR2Prefix(env, wid)) || null;
-    if (!github_repo && !r2_prefix) return null;
-    const binding = {
+    const cf_bindings = await resolveWorkspaceBindings(env, wid);
+    if (!github_repo && !r2_prefix && !cf_bindings) return null;
+    return {
       workspace_id: wid,
       github_repo: github_repo && github_repo.includes('/') ? github_repo : null,
       r2_prefix: r2_prefix || null,
-      r2_bucket: null,
-      root_path: null,
+      r2_bucket: cf_bindings?.r2Bucket || null,
+      root_path: cf_bindings?.rootPath || null,
       workspace_type: null,
       source_lane: inferWorkspaceSourceLane({ github_repo, r2_prefix }),
+      cf_bindings,
     };
-    return binding;
   }
 
   const github_repo = trim(row.github_repo);
@@ -96,6 +139,7 @@ export async function fetchWorkspaceChatBinding(env, workspaceId) {
   const root_path = trim(row.root_path);
   const r2_bucket = trim(row.r2_bucket || row.aw_r2_bucket) || null;
   const workspace_type = trim(row.workspace_type) || null;
+  const cf_bindings = await resolveWorkspaceBindings(env, wid);
 
   return {
     workspace_id: wid,
@@ -110,6 +154,7 @@ export async function fetchWorkspaceChatBinding(env, workspaceId) {
       root_path,
       workspace_type,
     }),
+    cf_bindings,
   };
 }
 
@@ -179,9 +224,13 @@ export function formatWorkspaceBindingForAgent(binding, opts = {}) {
  * @param {{ explicitGithubRepo?: string|null, activeFileRepo?: string|null, activeFileR2Key?: string|null }} [opts]
  */
 export function appendWorkspaceBindingToPrompt(systemPrompt, binding, opts = {}) {
+  const cfBindings = opts.cfBindings ?? binding?.cf_bindings ?? null;
+  let out = String(systemPrompt || '');
+  if (cfBindings) {
+    out = appendWorkspaceBindingBlockToPrompt(out, cfBindings);
+  }
   const block = formatWorkspaceBindingForAgent(binding, opts);
-  if (!block) return String(systemPrompt || '');
-  const out = String(systemPrompt || '');
+  if (!block) return out;
   if (out.includes('[Workspace binding')) return out;
   return `${out}\n\n## Workspace binding\n${block}`;
 }

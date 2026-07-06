@@ -36,6 +36,7 @@ import {
 } from '../core/user-app-runtime.js';
 import { parseSessionProjectIdFromChatBody } from '../core/project-chat-link.js';
 import { loadSessionProjectContextSystemBlock } from '../core/project-session-context.js';
+import { resolveWorkspaceBindings } from '../core/agentsam-workspace.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -43,6 +44,11 @@ const SSE_HEADERS = {
   Connection: 'keep-alive',
   'Access-Control-Allow-Origin': '*',
 };
+
+function trimIdentifier(value) {
+  if (value == null) return '';
+  return String(value).trim();
+}
 
 /**
  * @param {any} env
@@ -176,6 +182,18 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
   const { isSimpleAskMessage } = await import('../core/runtime-profile.js');
   const casualChatTurn = isSimpleAskMessage(message) && !activeFileEnvelope && !requireVision;
   const sessionProjectRef = parseSessionProjectIdFromChatBody(body);
+  const workspaceBindingIdentifier = trimIdentifier(
+    sessionProjectRef ||
+      body.project_id ||
+      body.projectId ||
+      body.workspace_id ||
+      body.workspaceId ||
+      workspaceId,
+  );
+  const workspaceBindings =
+    casualChatTurn || !workspaceBindingIdentifier
+      ? null
+      : await resolveWorkspaceBindings(env, workspaceBindingIdentifier);
   const sessionProjectContextBlock =
     sessionProjectRef && !casualChatTurn
       ? await loadSessionProjectContextSystemBlock(env, sessionProjectRef, workspaceId)
@@ -231,6 +249,7 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     agentChatResolvedContext,
     projectContextBlock,
     sessionProjectContextBlock,
+    workspaceBindings,
     chatTurnMeta: pre.chatTurnMeta ?? null,
   };
 

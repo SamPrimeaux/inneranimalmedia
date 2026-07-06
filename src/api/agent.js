@@ -5113,8 +5113,8 @@ async function handleAgentBootstrapRequest(request, env, ctx, identity) {
       bootstrapRow,
     });
 
-    if (env.DB && tenantId && userId !== 'system') {
-      const cached = await readAgentBootstrapCache(env.DB, { tenantId, userId });
+    if (env.SESSION_CACHE && tenantId && userId !== 'system') {
+      const cached = await readAgentBootstrapCache(env, { tenantId, userId, workspaceId });
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
@@ -5123,7 +5123,7 @@ async function handleAgentBootstrapRequest(request, env, ctx, identity) {
               headers: {
                 'Content-Type': 'application/json',
                 'X-Cache': 'HIT',
-                'X-Context-Store': 'agentsam_project_context',
+                'X-Context-Store': 'session_cache',
               },
             });
           }
@@ -5184,9 +5184,9 @@ async function handleAgentBootstrapRequest(request, env, ctx, identity) {
       date: today,
     };
 
-    if (env.DB && ctx?.waitUntil && tenantId && userId !== 'system') {
+    if (env.SESSION_CACHE && ctx?.waitUntil && tenantId && userId !== 'system') {
       ctx.waitUntil(
-        writeAgentBootstrapCache(env.DB, {
+        writeAgentBootstrapCache(env, {
           tenantId,
           workspaceId,
           userId,
@@ -5195,7 +5195,7 @@ async function handleAgentBootstrapRequest(request, env, ctx, identity) {
         }),
       );
     }
-    return jsonResponse(context, 200, { 'X-Context-Store': 'agentsam_project_context' });
+    return jsonResponse(context, 200, { 'X-Context-Store': 'session_cache' });
   } catch (e) {
     return jsonResponse({ error: String(e.message || e) }, 500);
   }

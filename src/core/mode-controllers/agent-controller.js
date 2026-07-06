@@ -439,6 +439,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
             : envelope?.path != null && String(envelope.path).startsWith('r2://')
               ? String(envelope.path).trim()
               : null,
+        cfBindings: input.workspaceBindings ?? binding?.cf_bindings ?? null,
       });
     } catch (e) {
       console.warn('[agent-controller] workspace_binding_prompt', e?.message ?? e);
