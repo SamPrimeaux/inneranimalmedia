@@ -127,6 +127,8 @@ function normalizeRulesApplyMode(raw) {
   return 'always';
 }
 
+const RULES_DOC_ORDER_BY = 'COALESCE(sort_order, 0) ASC, COALESCE(updated_at_epoch, 0) DESC';
+
 async function insertAgentsamRulesDocument(env, row) {
   const {
     id,
@@ -142,8 +144,8 @@ async function insertAgentsamRulesDocument(env, row) {
     await env.DB.prepare(
       `INSERT INTO agentsam_rules_document (
         id, user_id, workspace_id, title, body_markdown, version, is_active,
-        apply_mode, globs, source, sort_order, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, 'dashboard', ?, datetime('now'), datetime('now'))`,
+        apply_mode, globs, sort_order, created_at_epoch, updated_at_epoch, source_stored
+      ) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?, unixepoch(), unixepoch(), 'dashboard')`,
     )
       .bind(id, userId, workspaceId, title, bodyMarkdown, applyMode, globs, sortOrder ?? 0)
       .run();
@@ -151,14 +153,28 @@ async function insertAgentsamRulesDocument(env, row) {
   } catch (e) {
     const msg = String(e?.message || e);
     if (!msg.includes('no such column')) throw e;
-    await env.DB.prepare(
-      `INSERT INTO agentsam_rules_document (
-        id, user_id, workspace_id, title, body_markdown, version, is_active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 1, 1, datetime('now'), datetime('now'))`,
-    )
-      .bind(id, userId, workspaceId, title, bodyMarkdown)
-      .run();
-    return { ok: true, extended: false };
+    try {
+      await env.DB.prepare(
+        `INSERT INTO agentsam_rules_document (
+          id, user_id, workspace_id, title, body_markdown, version, is_active,
+          apply_mode, globs, source, sort_order, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, 'dashboard', ?, datetime('now'), datetime('now'))`,
+      )
+        .bind(id, userId, workspaceId, title, bodyMarkdown, applyMode, globs, sortOrder ?? 0)
+        .run();
+      return { ok: true, extended: true };
+    } catch (e2) {
+      const msg2 = String(e2?.message || e2);
+      if (!msg2.includes('no such column')) throw e2;
+      await env.DB.prepare(
+        `INSERT INTO agentsam_rules_document (
+          id, user_id, workspace_id, title, body_markdown, version, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 1, 1, datetime('now'), datetime('now'))`,
+      )
+        .bind(id, userId, workspaceId, title, bodyMarkdown)
+        .run();
+      return { ok: true, extended: false };
+    }
   }
 }
 
@@ -3421,7 +3437,7 @@ export async function handleSettingsRequest(request, env, ctx) {
              OR workspace_id IS NULL
              OR TRIM(COALESCE(workspace_id, '')) = ''
            )
-         ORDER BY COALESCE(sort_order, 0) ASC, datetime(updated_at) DESC`,
+         ORDER BY ${RULES_DOC_ORDER_BY}`,
       )
         .bind(rulesUserId, rulesWsKey)
         .all();
@@ -3540,16 +3556,26 @@ export async function handleSettingsRequest(request, env, ctx) {
       if (keys.includes('body_markdown')) {
         sets.push('version = COALESCE(version, 1) + 1');
       }
-      sets.push("updated_at = datetime('now')");
-
       try {
         await env.DB.prepare(
-          `UPDATE agentsam_rules_document SET ${sets.join(', ')} WHERE id = ?`,
+          `UPDATE agentsam_rules_document SET ${sets.join(', ')}, updated_at_epoch = unixepoch() WHERE id = ?`,
         )
           .bind(...vals, id)
           .run();
       } catch (e) {
-        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+        const msg = String(e?.message || e);
+        if (!msg.includes('no such column')) {
+          return jsonResponse({ error: e?.message ?? String(e) }, 500);
+        }
+        try {
+          await env.DB.prepare(
+            `UPDATE agentsam_rules_document SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = ?`,
+          )
+            .bind(...vals, id)
+            .run();
+        } catch (e2) {
+          return jsonResponse({ error: e2?.message ?? String(e2) }, 500);
+        }
       }
 
       if (keys.includes('body_markdown')) {
@@ -3589,11 +3615,23 @@ export async function handleSettingsRequest(request, env, ctx) {
       if (existing.user_id != null && String(existing.user_id) !== rulesUserId) {
         return jsonResponse({ error: 'Forbidden' }, 403);
       }
-      await env.DB.prepare(
-        `UPDATE agentsam_rules_document SET is_active = 0, updated_at = datetime('now') WHERE id = ?`,
-      )
-        .bind(id)
-        .run();
+      try {
+        await env.DB.prepare(
+          `UPDATE agentsam_rules_document SET is_active = 0, updated_at_epoch = unixepoch() WHERE id = ?`,
+        )
+          .bind(id)
+          .run();
+      } catch (e) {
+        const msg = String(e?.message || e);
+        if (!msg.includes('no such column')) {
+          return jsonResponse({ error: e?.message ?? String(e) }, 500);
+        }
+        await env.DB.prepare(
+          `UPDATE agentsam_rules_document SET is_active = 0, updated_at = datetime('now') WHERE id = ?`,
+        )
+          .bind(id)
+          .run();
+      }
       return jsonResponse({ ok: true });
     }
   }

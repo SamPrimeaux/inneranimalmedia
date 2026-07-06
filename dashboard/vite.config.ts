@@ -31,6 +31,9 @@ function manualChunkForNodeModule(id: string): string | undefined {
   // Keep Vite's dynamic-import helper out of vendor-* chunks (otherwise entry imports a 3MB+ file at boot).
   if (id.includes('vite/preload-helper')) return 'vite-preload';
 
+  // React context modules — single chunk so lazy routes (Settings, XTermShell) share Provider context.
+  if (id.includes('/src/context/WorkspaceContext')) return 'workspace-context';
+
   // Shared integration helpers — must not live in dashboard.js or lazy IntegrationsSection imports the entry (cycle → crash).
   if (id.includes('integrationOAuthPopup')) return 'integration-oauth';
   if (id.includes('resolveIntegrationIconUrl')) return 'integration-icons';
