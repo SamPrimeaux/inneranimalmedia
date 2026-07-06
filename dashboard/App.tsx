@@ -1323,7 +1323,7 @@ const App: React.FC = () => {
       return 'general';
     })();
     return {
-      activeTab: String(activeTab),
+      activeTab: isDesignStudioRoute ? 'designstudio' : String(activeTab),
       browserUrl: browserUrl?.trim() || null,
       openFiles: agentWorkbenchOpenFiles,
       plan_id: activePlanIdForChat,
@@ -1347,6 +1347,7 @@ const App: React.FC = () => {
     location.search,
     authWorkspaceId,
     cmsWorkspaceContext,
+    isDesignStudioRoute,
     activeTab,
     browserUrl,
     agentWorkbenchOpenFiles,
@@ -4187,6 +4188,8 @@ const App: React.FC = () => {
       onAgentRunContext: setActiveAgentRunId,
       activeWorkbenchTab: isMovieModeRoute
         ? 'moviemode'
+        : isDesignStudioRoute
+          ? 'designstudio'
         : isCmsRoute
           ? 'cms'
           : activeTab === 'cms'

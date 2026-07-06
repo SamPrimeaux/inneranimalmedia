@@ -346,6 +346,15 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     if (cmsBlock && !systemPrompt.includes('## CMS context')) {
       systemPrompt = `${systemPrompt}\n\n${cmsBlock}`;
     }
+    const { extractDesignStudioContext, formatDesignStudioContextForAgent } = await import(
+      '../design-studio-context.js'
+    );
+    const dsBlock = formatDesignStudioContextForAgent(
+      extractDesignStudioContext(browserContextPayload, body),
+    );
+    if (dsBlock && !systemPrompt.includes('[Design Studio — live viewport context')) {
+      systemPrompt = `${systemPrompt}\n\n## Design Studio\n${dsBlock}`;
+    }
     const lockedEnvelope = body.activeFileEnvelope;
     if (lockedEnvelope) {
       const { formatActiveFileForAgent } = await import('../active-file-envelope.js');

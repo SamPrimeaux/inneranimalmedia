@@ -407,6 +407,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const browserSurfaceRef = useRef<Record<string, unknown> | null>(null);
   /** Latest `iam-database-surface-context` from DatabasePage. */
   const databaseSurfaceRef = useRef<Record<string, unknown> | null>(null);
+  /** Latest `iam-designstudio-surface-context` from DesignStudioPage. */
+  const designStudioSurfaceRef = useRef<Record<string, unknown> | null>(null);
   const messagesRef = useRef<Message[]>(messages);
   messagesRef.current = messages;
   /** Optional workflow run stream (`agent_universal_autonomous_run` / graph SSE). */
@@ -670,11 +672,20 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       const d = (ev as CustomEvent<Record<string, unknown>>).detail;
       if (d && typeof d === 'object') databaseSurfaceRef.current = d;
     };
+    const onDesignStudioSurface = (ev: Event) => {
+      const d = (ev as CustomEvent<Record<string, unknown>>).detail;
+      if (d && typeof d === 'object') designStudioSurfaceRef.current = d;
+    };
     window.addEventListener('iam-browser-surface-context', onSurface as EventListener);
     window.addEventListener('iam-database-surface-context', onDatabaseSurface as EventListener);
+    window.addEventListener('iam-designstudio-surface-context', onDesignStudioSurface as EventListener);
     return () => {
       window.removeEventListener('iam-browser-surface-context', onSurface as EventListener);
       window.removeEventListener('iam-database-surface-context', onDatabaseSurface as EventListener);
+      window.removeEventListener(
+        'iam-designstudio-surface-context',
+        onDesignStudioSurface as EventListener,
+      );
     };
   }, []);
 
@@ -2829,6 +2840,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       if (databaseSurfaceRef.current && typeof databaseSurfaceRef.current === 'object') {
         browserCtxPayload.databaseContext = databaseSurfaceRef.current;
       }
+      if (designStudioSurfaceRef.current && typeof designStudioSurfaceRef.current === 'object') {
+        browserCtxPayload.designStudioContext = designStudioSurfaceRef.current;
+      }
       const browserUrlFromSurface =
         typeof browserSurfaceRef.current?.url === 'string'
           ? String(browserSurfaceRef.current.url).trim()
@@ -2885,6 +2899,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         enabled_connectors: readSessionEnabledConnectors(),
         enabled_tools: flattenSessionEnabledTools(),
         session_project_id: readSessionProject()?.id || null,
+        designStudioContext:
+          designStudioSurfaceRef.current && typeof designStudioSurfaceRef.current === 'object'
+            ? designStudioSurfaceRef.current
+            : null,
       };
       browserCtxPayload.workspaceContext = workspaceContextPacket;
       form.append('workspaceContext', JSON.stringify(workspaceContextPacket));

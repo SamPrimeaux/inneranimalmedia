@@ -9,6 +9,7 @@ import {
   IAM_DESIGNSTUDIO_CAD_JOB,
   LS_AGENT_CHAT_CONVERSATION_ID,
 } from '../agentChatConstants';
+import { publishDesignStudioSurfaceContext } from '../src/lib/designStudioEvents';
 import { normalizeGlbUrl } from '../lib/glbAssets';
 import { useDesignStudioCad } from './designstudio/hooks/useDesignStudioCad';
 import { spawnGlbInEngine } from './designstudio/spawnGlb';
@@ -346,6 +347,8 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
       sessionId: agentSessionId,
       runId: agentRunId,
       computeStatus: cad.isGenerating ? 'running' : computeHealth,
+      selectedObjectId: selectedEntityId,
+      workspaceMode: studioPhase,
     });
   }, [
     currentSceneId,
@@ -356,7 +359,70 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
     agentSessionId,
     agentRunId,
     computeHealth,
+    selectedEntityId,
+    studioPhase,
     setStudioContext,
+  ]);
+
+  useEffect(() => {
+    const selected = selectedEntityId
+      ? entities.find((e) => e.id === selectedEntityId) ?? null
+      : null;
+    const polled = cad.polledJob;
+    publishDesignStudioSurfaceContext({
+      surface: 'design_studio',
+      route: typeof window !== 'undefined' ? window.location.pathname : '/dashboard/designstudio',
+      phase: studioPhase,
+      scene_id: currentSceneId,
+      scene_name: sceneName.trim() || null,
+      cad_job_id: cad.activeJobId || linkedCadJobId,
+      blueprint_id: cad.activeBlueprintId,
+      entity_count: entityCount || entities.length,
+      selected_entity_id: selectedEntityId,
+      selected_entity: selected
+        ? {
+            id: selected.id,
+            name: selected.name,
+            type: selected.type,
+            modelUrl: selected.modelUrl ?? null,
+            scale: selected.scale ?? null,
+          }
+        : null,
+      entities: entities.slice(0, 16).map((e) => ({
+        id: e.id,
+        name: e.name,
+        type: e.type,
+        modelUrl: e.modelUrl ?? null,
+      })),
+      compute_status: cad.isGenerating ? 'running' : computeHealth,
+      cad_job_status: polled?.status != null ? String(polled.status) : null,
+      cad_job_progress_pct:
+        polled?.progress_pct != null
+          ? Number(polled.progress_pct)
+          : polled?.progress != null
+            ? Number(polled.progress)
+            : null,
+      cad_public_url:
+        polled?.public_url != null
+          ? String(polled.public_url)
+          : polled?.result_url != null
+            ? String(polled.result_url)
+            : null,
+      engine: polled?.engine != null ? String(polled.engine) : null,
+    });
+  }, [
+    studioPhase,
+    currentSceneId,
+    sceneName,
+    cad.activeJobId,
+    cad.activeBlueprintId,
+    cad.isGenerating,
+    cad.polledJob,
+    linkedCadJobId,
+    entityCount,
+    entities,
+    selectedEntityId,
+    computeHealth,
   ]);
 
   useEffect(() => {
