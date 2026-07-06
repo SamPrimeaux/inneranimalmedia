@@ -17,6 +17,7 @@ import {
   Star,
   Trash2,
   X,
+  Check,
 } from 'lucide-react';
 import { deleteProject, fetchProjectMemory, updateProject, updateProjectMemory } from '../../api/projects';
 import { ProjectShareModal } from '../../components/projects/ProjectShareModal';
@@ -49,7 +50,7 @@ interface Project {
   description?: string;
   status?: string;
   status_raw?: string;
-  priority?: string;
+  priority?: number;
   priority_num?: number;
   project_type?: string;
   health?: number;
@@ -59,8 +60,16 @@ interface Project {
   completedTasks?: number;
   chat_project_id?: string | null;
   workspace_id?: string | null;
+  client_id?: string | null;
+  domain?: string | null;
+  worker_id?: string | null;
   metadata_json?: string | null;
   cover_image_url?: string | null;
+}
+
+interface ProjectTaskStats {
+  open: number;
+  loading: boolean;
 }
 
 interface ChatSession {
@@ -86,6 +95,153 @@ function relTime(raw?: number | string): string {
   const mo = Math.floor(d / 30);
   if (mo < 1) return `${Math.floor(d / 7)}w ago`;
   return mo === 1 ? '1 month ago' : `${mo} months ago`;
+}
+
+function truncatePreview(text: string, max = 220): string {
+  const t = String(text || '').trim();
+  if (!t) return '';
+  if (t.length <= max) return t;
+  return `${t.slice(0, max).trim()}…`;
+}
+
+type RailEditorKind = 'memory' | 'instructions' | 'cover' | 'files' | 'stats';
+
+function RailEditorModal({
+  open,
+  title,
+  mobileTitle,
+  subtitle,
+  onClose,
+  onSave,
+  saving,
+  saveLabel,
+  showSave = true,
+  isMobile = false,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  mobileTitle?: string;
+  subtitle?: string;
+  onClose: () => void;
+  onSave?: () => void;
+  saving?: boolean;
+  saveLabel?: string;
+  showSave?: boolean;
+  isMobile?: boolean;
+  children: React.ReactNode;
+}) {
+  if (!open) return null;
+
+  const sheetTitle = mobileTitle || title.replace(/^Set project /i, '');
+
+  if (isMobile) {
+    return (
+      <div
+        className="cpd-editor-sheet-backdrop"
+        role="presentation"
+        onClick={onClose}
+      >
+        <div
+          className="cpd-editor-sheet"
+          role="dialog"
+          aria-labelledby="cpd-editor-title"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="cpd-editor-sheet-grab" aria-hidden />
+          <div className="cpd-editor-sheet-toolbar">
+            <button
+              type="button"
+              className="cpd-editor-sheet-icon"
+              aria-label="Close"
+              disabled={saving}
+              onClick={onClose}
+            >
+              <X size={20} strokeWidth={1.75} />
+            </button>
+            <h2 id="cpd-editor-title" className="cpd-editor-sheet-title">{sheetTitle}</h2>
+            {showSave && onSave ? (
+              <button
+                type="button"
+                className="cpd-editor-sheet-icon cpd-editor-sheet-icon--save"
+                aria-label={saveLabel || 'Save'}
+                disabled={saving}
+                onClick={onSave}
+              >
+                <Check size={20} strokeWidth={2} />
+              </button>
+            ) : (
+              <span className="cpd-editor-sheet-icon-spacer" aria-hidden />
+            )}
+          </div>
+          <div className="cpd-editor-sheet-scroll">
+            <div className="cpd-editor-sheet-body">{children}</div>
+            {subtitle ? <p className="cpd-editor-sheet-subtitle">{subtitle}</p> : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="cpd-modal-backdrop cpd-editor-backdrop"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        className="cpd-editor-modal"
+        role="dialog"
+        aria-labelledby="cpd-editor-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id="cpd-editor-title" className="cpd-editor-modal-title">{title}</h2>
+        {subtitle ? <p className="cpd-editor-modal-subtitle">{subtitle}</p> : null}
+        <div className="cpd-editor-modal-body">{children}</div>
+        <div className="cpd-editor-modal-actions">
+          <button type="button" className="cpd-btn" disabled={saving} onClick={onClose}>
+            Cancel
+          </button>
+          {showSave && onSave ? (
+            <button
+              type="button"
+              className="cpd-btn cpd-btn--primary"
+              disabled={saving}
+              onClick={onSave}
+            >
+              {saving ? 'Saving…' : saveLabel || 'Save'}
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RailPreviewCard({
+  emptyLabel,
+  preview,
+  saved,
+  onOpen,
+}: {
+  emptyLabel: string;
+  preview: string;
+  saved?: boolean;
+  onOpen: () => void;
+}) {
+  const hasContent = Boolean(preview.trim());
+  return (
+    <button type="button" className="cpd-rail-preview" onClick={onOpen}>
+      {hasContent ? (
+        <p className="cpd-rail-preview-text">{truncatePreview(preview, 280)}</p>
+      ) : (
+        <p className="cpd-rail-preview-empty">{emptyLabel}</p>
+      )}
+      <span className="cpd-rail-preview-foot">
+        {hasContent ? (saved ? 'Saved · Click to edit' : 'Unsaved · Click to edit') : 'Click to add'}
+      </span>
+    </button>
+  );
 }
 
 function useIsMobile(breakpoint = 768) {
@@ -133,17 +289,22 @@ function RailSection({
         <button
           type="button"
           className="cpd-rail-section-title"
+          aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
         >
           {title}
           {badge}
-          <span className="cpd-rail-chevron">
+          <span className="cpd-rail-chevron" aria-hidden>
             {open ? <ChevronDown size={12} strokeWidth={2} /> : <ChevronRight size={12} strokeWidth={2} />}
           </span>
         </button>
-        {action && <div className="cpd-rail-section-action">{action}</div>}
+        {action ? (
+          <div className="cpd-rail-section-action" onClick={(e) => e.stopPropagation()}>
+            {action}
+          </div>
+        ) : null}
       </div>
-      {open && <div className="cpd-rail-section-body">{children}</div>}
+      {open ? <div className="cpd-rail-section-body">{children}</div> : null}
     </div>
   );
 }
@@ -224,6 +385,10 @@ export default function ProjectDetailPage() {
   const [coverUploading, setCoverUploading] = useState(false);
   const [fileDragOver, setFileDragOver] = useState(false);
   const [previewImage, setPreviewImage] = useState<ProjectFileRef | null>(null);
+  const [taskStats, setTaskStats] = useState<ProjectTaskStats>({ open: 0, loading: true });
+  const [railEditor, setRailEditor] = useState<RailEditorKind | null>(null);
+  const [memDraft, setMemDraft] = useState('');
+  const [instrDraft, setInstrDraft] = useState('');
   const fileDragDepthRef = useRef(0);
   const coverInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -320,6 +485,31 @@ export default function ProjectDetailPage() {
 
   useEffect(() => { void loadMemory(); }, [loadMemory]);
 
+  const loadTaskStats = useCallback(async () => {
+    if (!projectId) return;
+    setTaskStats((s) => ({ ...s, loading: true }));
+    try {
+      const params = new URLSearchParams({ project_id: projectId });
+      const clientId = project?.client_id?.trim();
+      if (clientId) params.set('client_id', clientId);
+      const r = await fetch(`/api/agent/todo?${params}`, { credentials: 'same-origin' });
+      if (!r.ok) {
+        setTaskStats({ open: 0, loading: false });
+        return;
+      }
+      const data = await r.json();
+      const todos = Array.isArray(data?.todos) ? data.todos : [];
+      setTaskStats({ open: todos.length, loading: false });
+    } catch {
+      setTaskStats({ open: 0, loading: false });
+    }
+  }, [projectId, project?.client_id]);
+
+  useEffect(() => {
+    if (!project) return;
+    void loadTaskStats();
+  }, [project, loadTaskStats]);
+
   useEffect(() => {
     if (!toast) return;
     const t = window.setTimeout(() => setToast(null), 2800);
@@ -337,23 +527,31 @@ export default function ProjectDetailPage() {
   }, [menuOpen]);
 
   useEffect(() => {
-    if (!previewImage) return;
+    if (!previewImage && !railEditor) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setPreviewImage(null);
+      if (e.key === 'Escape') {
+        if (previewImage) setPreviewImage(null);
+        else if (railEditor) setRailEditor(null);
+      }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [previewImage]);
+  }, [previewImage, railEditor]);
 
-  // lock body scroll when mobile rail sheet is open
   useEffect(() => {
-    if (isMobile && railOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
+    const lockScroll = Boolean(railEditor || (isMobile && railOpen));
+    document.body.style.overflow = lockScroll ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
-  }, [isMobile, railOpen]);
+  }, [railEditor, isMobile, railOpen]);
+
+  const openRailEditor = (kind: RailEditorKind) => {
+    if (kind === 'memory') setMemDraft(memory);
+    if (kind === 'instructions') setInstrDraft(instructions);
+    setRailEditor(kind);
+    if (isMobile) setRailOpen(false);
+  };
+
+  const closeRailEditor = () => setRailEditor(null);
 
   // auto-grow textarea
   useEffect(() => {
@@ -383,28 +581,50 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const saveMemory = async () => {
-    if (!project || memBusy) return;
+  const saveMemory = async (nextMemory?: string) => {
+    if (!project || memBusy) return false;
+    const value = nextMemory !== undefined ? nextMemory : memory;
     setMemBusy(true);
     try {
-      const res = await updateProjectMemory(project.id, { memory });
-      setMemSaved(res.ok);
-      if (!res.ok) setToast(res.error || 'Failed to save memory');
+      const res = await updateProjectMemory(project.id, { memory: value });
+      if (res.ok) {
+        setMemory(value);
+        setMemSaved(true);
+        return true;
+      }
+      setToast(res.error || 'Failed to save memory');
+      return false;
     } finally {
       setMemBusy(false);
     }
   };
 
-  const saveInstructions = async () => {
-    if (!project || instrBusy) return;
+  const saveInstructions = async (nextInstructions?: string) => {
+    if (!project || instrBusy) return false;
+    const value = nextInstructions !== undefined ? nextInstructions : instructions;
     setInstrBusy(true);
     try {
-      const res = await updateProjectMemory(project.id, { instructions });
-      setInstrSaved(res.ok);
-      if (!res.ok) setToast(res.error || 'Failed to save instructions');
+      const res = await updateProjectMemory(project.id, { instructions: value });
+      if (res.ok) {
+        setInstructions(value);
+        setInstrSaved(true);
+        return true;
+      }
+      setToast(res.error || 'Failed to save instructions');
+      return false;
     } finally {
       setInstrBusy(false);
     }
+  };
+
+  const saveMemoryFromModal = async () => {
+    const ok = await saveMemory(memDraft);
+    if (ok) closeRailEditor();
+  };
+
+  const saveInstructionsFromModal = async () => {
+    const ok = await saveInstructions(instrDraft);
+    if (ok) closeRailEditor();
   };
 
   const persistProjectMeta = async (patch: Record<string, unknown>) => {
@@ -489,6 +709,11 @@ export default function ProjectDetailPage() {
 
   const openProjectTasks = () => {
     if (!project) return;
+    const clientId = project.client_id?.trim();
+    if (clientId) {
+      navigate(`/dashboard/collaborate?seg=tasks&client=${encodeURIComponent(clientId)}`);
+      return;
+    }
     navigate(`/dashboard/collaborate?seg=tasks&project=${encodeURIComponent(project.id)}`);
   };
 
@@ -559,191 +784,221 @@ export default function ProjectDetailPage() {
     [projectFiles],
   );
 
+  const filesDropZone = (className = '') => (
+    <div
+      className={`cpd-files-drop${fileDragOver ? ' cpd-files-drop--over' : ''}${className ? ` ${className}` : ''}`}
+      onDragEnter={(e) => {
+        e.preventDefault();
+        fileDragDepthRef.current += 1;
+        setFileDragOver(true);
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }}
+      onDragLeave={() => {
+        fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+        if (fileDragDepthRef.current === 0) setFileDragOver(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        fileDragDepthRef.current = 0;
+        setFileDragOver(false);
+        void appendProjectFiles(e.dataTransfer.files);
+      }}
+    >
+      <FolderOpen size={24} strokeWidth={1} className="cpd-files-icon" />
+      <p className="cpd-files-text">
+        Drop images, PDFs, or docs here — attached to this project for Agent Sam and your team.
+      </p>
+      <button
+        type="button"
+        className="cpd-rail-empty-btn"
+        disabled={fileUploading}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        {fileUploading ? 'Uploading…' : 'Choose files'}
+      </button>
+    </div>
+  );
+
+  const filesGallery = imageFiles.length > 0 ? (
+    <div className="cpd-files-gallery" role="list" aria-label="Project images">
+      {imageFiles.map((f) => {
+        const variants = cfImageVariants(f.url);
+        return (
+          <button
+            key={`${f.url}-${f.name}`}
+            type="button"
+            className="cpd-files-thumb"
+            role="listitem"
+            title={f.name}
+            onClick={() => setPreviewImage(f)}
+          >
+            <img
+              src={variants.src}
+              srcSet={variants.srcSet}
+              alt={f.name}
+              loading="lazy"
+              draggable={false}
+            />
+          </button>
+        );
+      })}
+    </div>
+  ) : null;
+
+  const filesDocList = documentFiles.length > 0 ? (
+    <ul className="cpd-files-list">
+      {documentFiles.map((f) => (
+        <li key={`${f.url}-${f.name}`}>
+          <a href={f.url} target="_blank" rel="noreferrer noopener">
+            {f.name}
+          </a>
+          <ExternalLink size={12} aria-hidden />
+        </li>
+      ))}
+    </ul>
+  ) : null;
+
   // ── rail content (shared between desktop aside and mobile sheet) ──
+  const railDefaultOpen = !isMobile;
   const railContent = (
     <>
       <RailSection
+        title="Quick stats"
+        defaultOpen={railDefaultOpen}
+        action={
+          <button
+            type="button"
+            className="cpd-icon-btn"
+            title="Expand stats"
+            onClick={() => openRailEditor('stats')}
+          >
+            <ExternalLink size={13} strokeWidth={1.5} />
+          </button>
+        }
+      >
+        <button type="button" className="cpd-rail-preview cpd-rail-preview--stats" onClick={() => openRailEditor('stats')}>
+          <dl className="cpd-quick-stats cpd-quick-stats--compact">
+            <div className="cpd-quick-stat">
+              <dt>Open tasks</dt>
+              <dd>{taskStats.loading ? '…' : taskStats.open}</dd>
+            </div>
+            <div className="cpd-quick-stat">
+              <dt>Chats</dt>
+              <dd>{loadingChats ? '…' : chats.length}</dd>
+            </div>
+          </dl>
+          <span className="cpd-rail-preview-foot">Click for full stats & tasks link</span>
+        </button>
+      </RailSection>
+
+      <RailSection
         title="Cover"
-        defaultOpen={!isMobile}
+        defaultOpen={false}
         action={
           <button
             type="button"
             className="cpd-icon-btn"
             title="Set cover photo"
             disabled={coverUploading}
-            onClick={() => coverInputRef.current?.click()}
+            onClick={() => openRailEditor('cover')}
           >
             <ImageIcon size={14} strokeWidth={1.5} />
           </button>
         }
       >
-        {coverUrl ? (
-          <div className="cpd-cover-preview">
-            <img src={cfImageVariants(coverUrl).src} alt="" />
-            <button
-              type="button"
-              className="cpd-rail-empty-btn"
-              disabled={coverUploading}
-              onClick={() => coverInputRef.current?.click()}
-            >
-              {coverUploading ? 'Uploading…' : 'Change cover photo'}
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="cpd-rail-empty-btn"
-            disabled={coverUploading}
-            onClick={() => coverInputRef.current?.click()}
-          >
-            {coverUploading ? 'Uploading…' : 'Set cover for home & grid previews'}
-          </button>
-        )}
+        <button type="button" className="cpd-rail-preview cpd-rail-preview--cover" onClick={() => openRailEditor('cover')}>
+          {coverUrl ? (
+            <img src={cfImageVariants(coverUrl).src} alt="" className="cpd-rail-cover-thumb" />
+          ) : (
+            <p className="cpd-rail-preview-empty">Set cover for home & grid previews</p>
+          )}
+          <span className="cpd-rail-preview-foot">{coverUrl ? 'Click to preview & change' : 'Click to add cover'}</span>
+        </button>
       </RailSection>
 
       <RailSection
         title="Memory"
-        defaultOpen={!isMobile}
+        defaultOpen={railDefaultOpen}
         badge={<span className="cpd-rail-badge">Only you</span>}
-        action={
-          <button type="button" className="cpd-icon-btn" title="Edit memory" onClick={() => {}}>
-            <Pencil size={13} strokeWidth={1.5} />
-          </button>
-        }
-      >
-        <textarea
-          className="cpd-rail-textarea"
-          rows={4}
-          value={memory}
-          onChange={(e) => { setMemory(e.target.value); setMemSaved(false); }}
-          placeholder="Key context Agent Sam should always know about this project..."
-        />
-        {memory && (
-          <button type="button" className="cpd-rail-save" disabled={memBusy} onClick={() => void saveMemory()}>
-            {memBusy ? 'Saving…' : memSaved ? 'Saved' : 'Save memory'}
-          </button>
-        )}
-      </RailSection>
-
-      <RailSection
-        title="Instructions"
-        defaultOpen={!isMobile}
-        action={
-          <button type="button" className="cpd-icon-btn" title="Add instructions" onClick={() => {}}>
-            <Plus size={14} strokeWidth={1.5} />
-          </button>
-        }
-      >
-        {instructions ? (
-          <>
-            <textarea
-              className="cpd-rail-textarea"
-              rows={4}
-              value={instructions}
-              onChange={(e) => { setInstructions(e.target.value); setInstrSaved(false); }}
-            />
-            <button type="button" className="cpd-rail-save" disabled={instrBusy} onClick={() => void saveInstructions()}>
-              {instrBusy ? 'Saving…' : instrSaved ? 'Saved' : 'Save instructions'}
-            </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            className="cpd-rail-empty-btn"
-            onClick={() => setInstructions(' ')}
-          >
-            Add instructions to tailor Agent Sam responses
-          </button>
-        )}
-      </RailSection>
-
-      <RailSection
-        title="Files"
-        defaultOpen={!isMobile}
         action={
           <button
             type="button"
             className="cpd-icon-btn"
-            title="Add file"
+            title="Edit memory"
+            onClick={() => openRailEditor('memory')}
+          >
+            <Pencil size={13} strokeWidth={1.5} />
+          </button>
+        }
+      >
+        <RailPreviewCard
+          emptyLabel="Key context Agent Sam should always know about this project…"
+          preview={memory}
+          saved={memSaved}
+          onOpen={() => openRailEditor('memory')}
+        />
+      </RailSection>
+
+      <RailSection
+        title="Instructions"
+        defaultOpen={railDefaultOpen}
+        action={
+          <button
+            type="button"
+            className="cpd-icon-btn"
+            title="Edit instructions"
+            onClick={() => openRailEditor('instructions')}
+          >
+            <Pencil size={14} strokeWidth={1.5} />
+          </button>
+        }
+      >
+        <RailPreviewCard
+          emptyLabel="Add instructions to tailor Agent Sam responses…"
+          preview={instructions}
+          saved={instrSaved}
+          onOpen={() => openRailEditor('instructions')}
+        />
+      </RailSection>
+
+      <RailSection
+        title="Files"
+        defaultOpen={false}
+        action={
+          <button
+            type="button"
+            className="cpd-icon-btn"
+            title="Manage files"
             disabled={fileUploading}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => openRailEditor('files')}
           >
             <Plus size={14} strokeWidth={1.5} />
           </button>
         }
       >
-        <div
-          className={`cpd-files-drop${fileDragOver ? ' cpd-files-drop--over' : ''}`}
-          onDragEnter={(e) => {
-            e.preventDefault();
-            fileDragDepthRef.current += 1;
-            setFileDragOver(true);
-          }}
-          onDragOver={(e) => {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'copy';
-          }}
-          onDragLeave={() => {
-            fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
-            if (fileDragDepthRef.current === 0) setFileDragOver(false);
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            fileDragDepthRef.current = 0;
-            setFileDragOver(false);
-            void appendProjectFiles(e.dataTransfer.files);
-          }}
-        >
-          <FolderOpen size={24} strokeWidth={1} className="cpd-files-icon" />
-          <p className="cpd-files-text">
-            Drop images, PDFs, or docs here — attached to this project for Agent Sam and your team.
-          </p>
-          <button
-            type="button"
-            className="cpd-rail-empty-btn"
-            disabled={fileUploading}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {fileUploading ? 'Uploading…' : 'Choose files'}
-          </button>
-        </div>
-        {imageFiles.length > 0 ? (
-          <div className="cpd-files-gallery" role="list" aria-label="Project images">
-            {imageFiles.map((f) => {
-              const variants = cfImageVariants(f.url);
-              return (
-                <button
-                  key={`${f.url}-${f.name}`}
-                  type="button"
-                  className="cpd-files-thumb"
-                  role="listitem"
-                  title={f.name}
-                  onClick={() => setPreviewImage(f)}
-                >
-                  <img
-                    src={variants.src}
-                    srcSet={variants.srcSet}
-                    alt={f.name}
-                    loading="lazy"
-                    draggable={false}
-                  />
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
-        {documentFiles.length > 0 ? (
-          <ul className="cpd-files-list">
-            {documentFiles.map((f) => (
-              <li key={`${f.url}-${f.name}`}>
-                <a href={f.url} target="_blank" rel="noreferrer noopener">
-                  {f.name}
-                </a>
-                <ExternalLink size={12} aria-hidden />
-              </li>
-            ))}
-          </ul>
-        ) : null}
+        <button type="button" className="cpd-rail-preview" onClick={() => openRailEditor('files')}>
+          {projectFiles.length > 0 ? (
+            <>
+              <p className="cpd-rail-preview-text">
+                {projectFiles.length} file{projectFiles.length === 1 ? '' : 's'} attached
+                {imageFiles.length > 0 ? ` · ${imageFiles.length} image${imageFiles.length === 1 ? '' : 's'}` : ''}
+              </p>
+              {imageFiles.length > 0 ? (
+                <div className="cpd-rail-files-mini">
+                  {imageFiles.slice(0, 4).map((f) => (
+                    <img key={f.url} src={cfImageVariants(f.url).src} alt="" />
+                  ))}
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <p className="cpd-rail-preview-empty">Drop images, PDFs, or docs for Agent Sam…</p>
+          )}
+          <span className="cpd-rail-preview-foot">Click to manage files</span>
+        </button>
       </RailSection>
     </>
   );
@@ -1045,6 +1300,132 @@ export default function ProjectDetailPage() {
         onClose={() => setShareOpen(false)}
         onToast={setToast}
       />
+
+      <RailEditorModal
+        open={railEditor === 'memory'}
+        isMobile={isMobile}
+        title="Set project memory"
+        mobileTitle="Memory"
+        subtitle="Key context Agent Sam should always know about this project. Only you can see this on the project page."
+        saving={memBusy}
+        saveLabel="Save memory"
+        onClose={closeRailEditor}
+        onSave={() => void saveMemoryFromModal()}
+      >
+        <textarea
+          className={`cpd-editor-textarea${isMobile ? ' cpd-editor-textarea--sheet' : ''}`}
+          autoFocus
+          value={memDraft}
+          onChange={(e) => setMemDraft(e.target.value)}
+          placeholder="Companions of CPAS — nonprofit rescue, companionsofcaddo.org, worker companionscpas…"
+        />
+      </RailEditorModal>
+
+      <RailEditorModal
+        open={railEditor === 'instructions'}
+        isMobile={isMobile}
+        title="Set project instructions"
+        mobileTitle="Instructions"
+        subtitle="Tailor how Agent Sam responds on this project. Require AGENTSAM.md sync, deploy rules, and binding format here."
+        saving={instrBusy}
+        saveLabel="Save instructions"
+        onClose={closeRailEditor}
+        onSave={() => void saveInstructionsFromModal()}
+      >
+        <textarea
+          className={`cpd-editor-textarea${isMobile ? ' cpd-editor-textarea--sheet' : ''}`}
+          autoFocus
+          value={instrDraft}
+          onChange={(e) => setInstrDraft(e.target.value)}
+          placeholder="AGENTSAM.md required — read before any code, CMS, or deploy work…"
+        />
+      </RailEditorModal>
+
+      <RailEditorModal
+        open={railEditor === 'cover'}
+        isMobile={isMobile}
+        title="Project cover"
+        mobileTitle="Cover"
+        subtitle="Shown on the projects grid and home preview for this build."
+        showSave={false}
+        onClose={closeRailEditor}
+      >
+        <div className="cpd-editor-cover">
+          {coverUrl ? (
+            <img src={cfImageVariants(coverUrl).src} alt="" className="cpd-editor-cover-img" />
+          ) : (
+            <div className="cpd-editor-cover-empty">No cover image yet</div>
+          )}
+          <button
+            type="button"
+            className="cpd-btn cpd-btn--primary"
+            disabled={coverUploading}
+            onClick={() => coverInputRef.current?.click()}
+          >
+            {coverUploading ? 'Uploading…' : coverUrl ? 'Change cover photo' : 'Upload cover photo'}
+          </button>
+        </div>
+      </RailEditorModal>
+
+      <RailEditorModal
+        open={railEditor === 'files'}
+        isMobile={isMobile}
+        title="Project files"
+        mobileTitle="Files"
+        subtitle="Images, PDFs, and docs attached for Agent Sam and your team."
+        showSave={false}
+        onClose={closeRailEditor}
+      >
+        {filesDropZone('cpd-files-drop--modal')}
+        {filesGallery}
+        {filesDocList}
+      </RailEditorModal>
+
+      <RailEditorModal
+        open={railEditor === 'stats'}
+        isMobile={isMobile}
+        title="Quick stats"
+        mobileTitle="Stats"
+        subtitle={`Snapshot for ${project?.name || 'this project'}.`}
+        showSave={false}
+        onClose={closeRailEditor}
+      >
+        <dl className="cpd-quick-stats cpd-quick-stats--modal">
+          <div className="cpd-quick-stat">
+            <dt>Open tasks</dt>
+            <dd>{taskStats.loading ? '…' : taskStats.open}</dd>
+          </div>
+          <div className="cpd-quick-stat">
+            <dt>Status</dt>
+            <dd>{project?.status?.replace(/_/g, ' ') || '—'}</dd>
+          </div>
+          {project?.domain ? (
+            <div className="cpd-quick-stat">
+              <dt>Domain</dt>
+              <dd className="cpd-quick-stat-mono">{project.domain}</dd>
+            </div>
+          ) : null}
+          {project?.worker_id ? (
+            <div className="cpd-quick-stat">
+              <dt>Worker</dt>
+              <dd className="cpd-quick-stat-mono">{project.worker_id}</dd>
+            </div>
+          ) : null}
+          <div className="cpd-quick-stat">
+            <dt>Chats</dt>
+            <dd>{loadingChats ? '…' : chats.length}</dd>
+          </div>
+          {project?.client_id ? (
+            <div className="cpd-quick-stat cpd-quick-stat--wide">
+              <dt>Client</dt>
+              <dd className="cpd-quick-stat-mono">{project.client_id}</dd>
+            </div>
+          ) : null}
+        </dl>
+        <button type="button" className="cpd-btn cpd-btn--primary" onClick={() => { closeRailEditor(); openProjectTasks(); }}>
+          View tasks in Collaborate
+        </button>
+      </RailEditorModal>
 
       {deleteOpen && project && (
         <div
@@ -1351,7 +1732,268 @@ const CSS = `
   background: rgba(248, 113, 113, 0.14);
   color: #fca5a5;
 }
+.cpd-btn--primary {
+  border-color: rgba(34, 211, 238, 0.35);
+  background: rgba(34, 211, 238, 0.18);
+  color: var(--color-main, #e2e8f0);
+}
+.cpd-btn--primary:hover:not(:disabled) {
+  background: rgba(34, 211, 238, 0.28);
+}
 .cpd-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* ── rail preview cards (Claude-style — click to expand) ── */
+.cpd-rail-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--dashboard-panel, rgba(255,255,255,0.03));
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.cpd-rail-preview:hover {
+  border-color: rgba(34, 211, 238, 0.35);
+  background: rgba(34, 211, 238, 0.06);
+}
+.cpd-rail-preview-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--color-main, #e2e8f0);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 5.5em;
+  overflow: hidden;
+}
+.cpd-rail-preview-empty {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-muted, #94a3b8);
+}
+.cpd-rail-preview-foot {
+  font-size: 10px;
+  color: var(--color-muted, #94a3b8);
+}
+.cpd-rail-preview--cover { padding: 8px; }
+.cpd-rail-cover-thumb {
+  width: 100%;
+  max-height: 88px;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+}
+.cpd-rail-files-mini {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.cpd-rail-files-mini img {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--dashboard-border);
+}
+.cpd-quick-stats--compact { margin: 0; }
+
+/* ── editor modals (large read/edit) ── */
+.cpd-editor-backdrop { z-index: 520; }
+.cpd-editor-modal {
+  width: min(640px, 100%);
+  max-height: min(88vh, 720px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--bg-elevated, #1e2130);
+  padding: 22px 24px 20px;
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.5);
+}
+.cpd-editor-modal-title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.cpd-editor-modal-subtitle {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-muted, #94a3b8);
+}
+.cpd-editor-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-bottom: 16px;
+}
+.cpd-editor-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+  padding-top: 4px;
+}
+.cpd-editor-textarea {
+  width: 100%;
+  min-height: min(360px, 50vh);
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--dashboard-canvas, rgba(0,0,0,0.2));
+  color: inherit;
+  font-size: 14px;
+  line-height: 1.65;
+  outline: none;
+  resize: vertical;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+.cpd-editor-textarea:focus {
+  border-color: var(--solar-cyan, #22d3ee);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.2);
+}
+.cpd-editor-cover {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.cpd-editor-cover-img {
+  width: 100%;
+  max-height: min(420px, 55vh);
+  object-fit: contain;
+  border-radius: 10px;
+  border: 1px solid var(--dashboard-border);
+  background: rgba(0,0,0,0.2);
+}
+.cpd-editor-cover-empty {
+  width: 100%;
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px dashed var(--dashboard-border);
+  color: var(--color-muted, #94a3b8);
+  font-size: 13px;
+}
+.cpd-files-drop--modal { min-height: 140px; }
+.cpd-quick-stats--modal { margin-bottom: 16px; }
+.cpd-quick-stat--wide { grid-column: 1 / -1; }
+
+/* ── mobile editor bottom sheet (Claude-style) ── */
+.cpd-editor-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 560;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.cpd-editor-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 561;
+  display: flex;
+  flex-direction: column;
+  max-height: min(92dvh, 720px);
+  border-radius: 20px 20px 0 0;
+  border-top: 1px solid var(--dashboard-border);
+  background: var(--bg-elevated, #1a1d2e);
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.45);
+  animation: cpd-sheet-in 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.cpd-editor-sheet-grab {
+  flex-shrink: 0;
+  width: 36px;
+  height: 4px;
+  margin: 10px auto 4px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.45);
+}
+.cpd-editor-sheet-toolbar {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 12px;
+  flex-shrink: 0;
+}
+.cpd-editor-sheet-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cpd-editor-sheet-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-main, #e2e8f0);
+  cursor: pointer;
+}
+.cpd-editor-sheet-icon:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.cpd-editor-sheet-icon--save {
+  background: rgba(34, 211, 238, 0.16);
+  color: var(--solar-cyan, #22d3ee);
+}
+.cpd-editor-sheet-icon-spacer {
+  width: 40px;
+  height: 40px;
+}
+.cpd-editor-sheet-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cpd-editor-sheet-body {
+  flex: 1;
+  min-height: 0;
+}
+.cpd-editor-sheet-subtitle {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-muted, #94a3b8);
+  flex-shrink: 0;
+}
+.cpd-editor-textarea--sheet {
+  min-height: 200px;
+  height: 100%;
+  font-size: 16px;
+  line-height: 1.6;
+  border-radius: 12px;
+  padding: 16px;
+}
 
 /* ── composer ── */
 .cpd-composer {
@@ -1668,6 +2310,48 @@ const CSS = `
   flex-direction: column;
   gap: 10px;
 }
+
+.cpd-quick-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin: 0;
+}
+.cpd-quick-stat { margin: 0; min-width: 0; }
+.cpd-quick-stat dt {
+  margin: 0 0 2px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted, #94a3b8);
+}
+.cpd-quick-stat dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-main, #e2e8f0);
+}
+.cpd-quick-stat-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  word-break: break-all;
+}
+.cpd-rail-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: var(--solar-cyan, #22d3ee);
+  cursor: pointer;
+  text-align: left;
+}
+.cpd-rail-link-btn:hover { text-decoration: underline; }
 
 .cpd-rail-textarea {
   width: 100%;
