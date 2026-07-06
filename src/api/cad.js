@@ -211,12 +211,24 @@ export async function generateCadScriptJob(env, opts) {
     return { error: 'model_resolve_empty', status: 503 };
   }
 
+  // Resolve relevant library imports from D1 based on prompt keywords.
+  // Returns a compact fragment (3-6 import lines) — not a full doc dump.
+  let enrichedSystemPrompt = systemPrompt;
+  if (String(engine || '').toLowerCase() === 'openscad') {
+    try {
+      const libFragment = await resolveLibraryFragment(env, prompt);
+      if (libFragment) enrichedSystemPrompt = systemPrompt + libFragment;
+    } catch (e) {
+      console.warn('[generateCadScriptJob] library resolver failed (non-fatal):', e?.message ?? e);
+    }
+  }
+
   let result;
   try {
     result = await dispatchComplete(env, {
       modelKey: resolved.model_key,
       taskType: CAD_SCRIPT_TASK_TYPE,
-      systemPrompt,
+      systemPrompt: enrichedSystemPrompt,
       messages: [{ role: 'user', content: userContent }],
       userId: authUser.id,
       options: { maxOutputTokens: 4096, reasoningEffort: 'medium', verbosity: 'low' },
