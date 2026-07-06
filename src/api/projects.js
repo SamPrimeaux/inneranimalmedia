@@ -732,6 +732,27 @@ async function attachChatProjectIds(env, rows, chatProjectIdByProjectsId = null)
   }));
 }
 
+async function handleClientProjectsList(env, authUser) {
+  const tenantId = authUser.tenant_id ? String(authUser.tenant_id) : null;
+  try {
+    let sql = `SELECT id, client_name, project_name, project_id, client_id, status,
+                      cloudflare_worker_url, payments_received, total_invoiced
+               FROM client_projects
+               WHERE COALESCE(status, 'active') NOT IN ('archived', 'cancelled')`;
+    const binds = [];
+    if (tenantId && !authUser.is_superadmin) {
+      sql += ` AND (tenant_id = ? OR tenant_id IS NULL)`;
+      binds.push(tenantId);
+    }
+    sql += ` ORDER BY client_name ASC, project_name ASC`;
+    const { results } = await withD1Retry(() => env.DB.prepare(sql).bind(...binds).all());
+    return projectsJsonResponse({ ok: true, clients: results || [] }, 200, 'private, no-store');
+  } catch (e) {
+    console.warn('[projects/clients]', e?.message ?? e);
+    return projectsJsonResponse({ ok: true, clients: [] }, 200, 'private, no-store');
+  }
+}
+
 async function handleList(env, authUser, url) {
   const tenantId = authUser.tenant_id ? String(authUser.tenant_id) : null;
   const workspaceId =
@@ -751,6 +772,16 @@ async function handleList(env, authUser, url) {
   }
   if (!includeArchived) {
     whereSql += ` AND COALESCE(p.status, '') != 'archived'`;
+  }
+  const clientId = url.searchParams.get('client_id')?.trim() || null;
+  const clientWork =
+    url.searchParams.get('client_work') === '1' || url.searchParams.get('client_work') === 'true';
+  if (clientId) {
+    whereSql += ` AND p.client_id = ?`;
+    whereBinds.push(clientId);
+  } else if (clientWork) {
+    whereSql += ` AND p.client_id IS NOT NULL AND TRIM(p.client_id) != ''
+      AND p.client_id NOT IN ('client_sam_primeaux', 'client_meauxbility')`;
   }
   const { results } = await withD1Retry(() =>
     env.DB.prepare(`SELECT p.* FROM projects p WHERE ${whereSql} ORDER BY COALESCE(p.priority,0) DESC, p.name ASC`).bind(...whereBinds).all(),
@@ -1342,6 +1373,10 @@ export async function handleProjectsApi(request, url, env, authUser, ctx = null)
 
   if (pathLower === '/api/projects' && method === 'GET') {
     return handleList(env, authUser, url);
+  }
+
+  if (pathLower === '/api/projects/clients' && method === 'GET') {
+    return handleClientProjectsList(env, authUser);
   }
 
   if (pathLower === '/api/projects' && method === 'POST') {

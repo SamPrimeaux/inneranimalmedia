@@ -2023,6 +2023,10 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     set('title', body.title != null ? String(body.title).trim().slice(0, 500) : undefined);
     set('description', body.description != null ? String(body.description).slice(0, 4000) : undefined);
     set('notes', body.notes != null ? String(body.notes).slice(0, 4000) : undefined);
+    set(
+      'agent_instructions',
+      body.agent_instructions != null ? String(body.agent_instructions).slice(0, 8000) : undefined,
+    );
     set('due_date', body.due_date != null ? String(body.due_date).trim().slice(0, 40) : undefined);
     set('category', body.category != null ? String(body.category).trim().slice(0, 120) : undefined);
     set(
@@ -2088,13 +2092,29 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       body.project_key != null && String(body.project_key).trim()
         ? String(body.project_key).trim().slice(0, 120)
         : projectId;
+    let clientId =
+      body.client_id != null && String(body.client_id).trim()
+        ? String(body.client_id).trim().slice(0, 120)
+        : null;
+    if (!clientId && projectId) {
+      try {
+        const prow = await env.DB.prepare(`SELECT client_id FROM projects WHERE id = ? LIMIT 1`)
+          .bind(projectId)
+          .first();
+        if (prow?.client_id) clientId = String(prow.client_id).trim();
+      } catch {
+        /* non-fatal */
+      }
+    }
+    const agentInstructions =
+      body.agent_instructions != null ? String(body.agent_instructions).slice(0, 8000) : null;
     const tags = body.starred ? JSON.stringify(['starred']) : JSON.stringify(body.tags || []);
     await env.DB.prepare(
       `INSERT INTO agentsam_todo (
         id, tenant_id, workspace_id, title, description, status, priority, category, tags,
-        due_date, notes, created_by, sort_order, task_type, execution_status,
-        project_id, project_key, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'open', 'medium', ?, ?, ?, ?, ?, 50, 'execute', 'queued', ?, ?, datetime('now'), datetime('now'))`,
+        due_date, notes, agent_instructions, created_by, sort_order, task_type, execution_status,
+        project_id, project_key, client_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 'open', 'medium', ?, ?, ?, ?, ?, ?, 50, 'execute', 'queued', ?, ?, ?, datetime('now'), datetime('now'))`,
     )
       .bind(
         id,
@@ -2106,9 +2126,11 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         tags,
         body.due_date != null ? String(body.due_date).trim().slice(0, 40) : null,
         body.notes != null ? String(body.notes).slice(0, 4000) : null,
+        agentInstructions,
         userId,
         projectId,
         projectKey,
+        clientId,
       )
       .run();
     const todo = await env.DB.prepare(`SELECT * FROM agentsam_todo WHERE id = ?`).bind(id).first();
@@ -2125,6 +2147,8 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     if (!scope.workspaceId) return jsonResponse({ todos: [] });
     const reqUrl = new URL(request.url);
     const projectId = reqUrl.searchParams.get('project_id')?.trim() || null;
+    const clientId = reqUrl.searchParams.get('client_id')?.trim() || null;
+    const clientWork = reqUrl.searchParams.get('client_work') === '1';
     const category = reqUrl.searchParams.get('category')?.trim() || null;
     const includeLegacy = reqUrl.searchParams.get('include_legacy') === '1';
     try {
@@ -2144,6 +2168,13 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       if (projectId) {
         sql += ` AND (project_id = ? OR project_key = ?)`;
         binds.push(projectId, projectId);
+      }
+      if (clientId) {
+        sql += ` AND client_id = ?`;
+        binds.push(clientId);
+      } else if (clientWork) {
+        sql += ` AND client_id IS NOT NULL AND TRIM(client_id) != ''
+           AND client_id NOT IN ('client_sam_primeaux', 'client_meauxbility')`;
       }
       if (category) {
         sql += ` AND LOWER(TRIM(COALESCE(category, ''))) = LOWER(TRIM(?))`;

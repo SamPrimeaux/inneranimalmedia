@@ -390,6 +390,177 @@ export async function handleCalendarApi(request, url, env, ctx) {
     return jsonResponse({ window: { from, to }, insights, weeks, working_hours: workingHours }, 200);
   }
 
+  // GET /api/calendar/tasks-insights — today/week time by project + task
+  if (parts[0] === 'tasks-insights' && method === 'GET') {
+    const anchor = url.searchParams.get('anchor');
+    const dayWindow = computeWindow('day', url, anchor);
+    const weekWindow = computeWindow('week', url, anchor);
+    const userIds = [...new Set([userId, userId ? `user_${userId}` : null].filter(Boolean))];
+
+    let todayMinutes = 0;
+    let activeTracking = false;
+    const byProjectMap = new Map();
+    const byTaskMap = new Map();
+
+    try {
+      const placeholders = userIds.map(() => '?').join(',');
+      const { results: entries } = await env.DB.prepare(
+        `SELECT id, project_id, duration_seconds, is_active, description, start_time
+         FROM project_time_entries
+         WHERE user_id IN (${placeholders})
+           AND date(start_time) >= date(?)
+           AND date(start_time) <= date(?)
+         ORDER BY start_time DESC`,
+      )
+        .bind(...userIds, dayWindow.from.slice(0, 10), dayWindow.to.slice(0, 10))
+        .all();
+
+      for (const row of entries || []) {
+        const secs = Number(row.duration_seconds || 0);
+        const mins = Math.round(secs / 60);
+        todayMinutes += mins;
+        if (Number(row.is_active) === 1) activeTracking = true;
+        const pid = String(row.project_id || 'inneranimalmedia');
+        byProjectMap.set(pid, (byProjectMap.get(pid) || 0) + mins);
+        const desc = String(row.description || '');
+        const todoMatch = desc.match(/todo_[a-z0-9]+/i);
+        if (todoMatch) {
+          const tid = todoMatch[0];
+          byTaskMap.set(tid, (byTaskMap.get(tid) || 0) + mins);
+        }
+      }
+    } catch {
+      /* project_time_entries may be absent or schema variant */
+    }
+
+    // Calendar task events for the week add scheduled task minutes
+    try {
+      let taskEvents = [];
+      if (tenantId) {
+        taskEvents = await fetchTaskCalendarEvents(env, workspaceId, tenantId, weekWindow.from, weekWindow.to);
+      }
+      for (const ev of taskEvents) {
+        const mins = eventDurationMinutes(ev);
+        const tid = ev.todo_id || String(ev.id || '').replace(/^task_/, '');
+        if (tid.startsWith('todo_')) {
+          byTaskMap.set(tid, (byTaskMap.get(tid) || 0) + mins);
+        }
+      }
+    } catch {
+      /* non-fatal */
+    }
+
+    const projectIds = [...byProjectMap.keys()];
+    const projectNames = new Map();
+    if (projectIds.length) {
+      try {
+        const placeholders = projectIds.map(() => '?').join(',');
+        const { results: prows } = await env.DB.prepare(
+          `SELECT id, name FROM projects WHERE id IN (${placeholders})`,
+        )
+          .bind(...projectIds)
+          .all();
+        for (const p of prows || []) projectNames.set(String(p.id), String(p.name || p.id));
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const todoIds = [...byTaskMap.keys()].filter((id) => id.startsWith('todo_'));
+    const todoTitles = new Map();
+    if (todoIds.length) {
+      try {
+        const placeholders = todoIds.map(() => '?').join(',');
+        const { results: todos } = await env.DB.prepare(
+          `SELECT id, title FROM agentsam_todo WHERE id IN (${placeholders})`,
+        )
+          .bind(...todoIds)
+          .all();
+        for (const t of todos || []) todoTitles.set(String(t.id), String(t.title || t.id));
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const by_project = [...byProjectMap.entries()]
+      .map(([project_id, minutes]) => ({
+        project_id,
+        name: projectNames.get(project_id) || project_id,
+        minutes,
+      }))
+      .sort((a, b) => b.minutes - a.minutes);
+
+    const by_task = [...byTaskMap.entries()]
+      .map(([todo_id, minutes]) => ({
+        todo_id,
+        title: todoTitles.get(todo_id) || todo_id,
+        minutes,
+      }))
+      .sort((a, b) => b.minutes - a.minutes);
+
+    return jsonResponse(
+      {
+        today_minutes: todayMinutes,
+        active_tracking: activeTracking,
+        by_project,
+        by_task,
+        window: dayWindow,
+      },
+      200,
+    );
+  }
+
+  // POST /api/calendar/activity/heartbeat — autonomous active time while on collaborate
+  if (parts[0] === 'activity' && parts[1] === 'heartbeat' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const projectId = String(body.project_id || 'inneranimalmedia').trim().slice(0, 120) || 'inneranimalmedia';
+    const todoId = body.todo_id ? String(body.todo_id).trim().slice(0, 64) : null;
+    const surface = String(body.surface || 'collaborate').trim().slice(0, 64);
+    const beatSeconds = 60;
+    const now = toSqlDateTime(new Date());
+    const description = `${surface}${todoId ? ` · ${todoId}` : ''} · ${projectId}`;
+
+    try {
+      const userIds = [...new Set([userId, userId ? `user_${userId}` : null].filter(Boolean))];
+      let activeRow = null;
+      for (const uid of userIds) {
+        activeRow = await env.DB.prepare(
+          `SELECT id FROM project_time_entries
+           WHERE user_id = ? AND is_active = 1
+           ORDER BY start_time DESC LIMIT 1`,
+        )
+          .bind(uid)
+          .first();
+        if (activeRow) break;
+      }
+
+      if (activeRow?.id) {
+        await env.DB.prepare(
+          `UPDATE project_time_entries
+           SET duration_seconds = COALESCE(duration_seconds, 0) + ?,
+               description = ?,
+               project_id = ?
+           WHERE id = ?`,
+        )
+          .bind(beatSeconds, description, projectId, activeRow.id)
+          .run();
+      } else {
+        const entryId = `pte_${userId || 'user'}_${Date.now()}`;
+        await env.DB.prepare(
+          `INSERT INTO project_time_entries
+            (id, user_id, project_id, start_time, duration_seconds, is_active, description)
+           VALUES (?, ?, ?, ?, ?, 1, ?)`,
+        )
+          .bind(entryId, userId, projectId, now, beatSeconds, description)
+          .run();
+      }
+      return jsonResponse({ ok: true, tracked_seconds: beatSeconds }, 200);
+    } catch (e) {
+      console.warn('[calendar/activity/heartbeat]', e?.message ?? e);
+      return jsonResponse({ ok: false, error: 'activity_unavailable' }, 200);
+    }
+  }
+
   // GET /api/calendar/people?q=
   if (parts[0] === 'people' && method === 'GET') {
     const q = String(url.searchParams.get('q') || '').trim().toLowerCase();
