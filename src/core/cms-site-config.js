@@ -4,6 +4,7 @@
  */
 import { getAgentsamWorkspace, parseWorkspaceMetadata } from './agentsam-workspace.js';
 import { hasRegisteredCmsSiteContext } from './cms-workspace-resolve.js';
+import { resolveRuntimeWorkspaceForCmsSlug } from './cms-hub-sites.js';
 import { resolvePlatformCmsStudioUrl } from './cms-studio-lane.js';
 import { resolveCmsPublicDomain } from './cms-storefront-url.js';
 
@@ -92,9 +93,12 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
     };
   }
 
-  const wsRow = await getAgentsamWorkspace(env, ws);
+  const runtimeWorkspaceId = await resolveRuntimeWorkspaceForCmsSlug(env, ws, slug);
+  const effectiveWs = runtimeWorkspaceId || ws;
+
+  const wsRow = await getAgentsamWorkspace(env, effectiveWs);
   const meta = parseWorkspaceMetadata(wsRow?.metadata_json);
-  const hasRegistry = await hasRegisteredCmsSiteContext(env, ws);
+  const hasRegistry = await hasRegisteredCmsSiteContext(env, effectiveWs);
   const isClientWorker = isClientWorkerCms(wsRow, hasRegistry);
   const cmsHosting = isClientWorker ? 'client_worker' : 'platform';
   const apiProfile = isClientWorker ? deriveApiProfile(wsRow?.worker_name) : 'primetch';
@@ -128,6 +132,7 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
 
   return {
     workspace_id: ws,
+    runtime_workspace_id: effectiveWs,
     project_slug: slug || trim(wsRow?.workspace_slug) || null,
     cms_hosting: cmsHosting,
     api_profile: apiProfile,

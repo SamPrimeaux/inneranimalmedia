@@ -4,6 +4,8 @@ import { useCmsWorkspaceContext } from '../../hooks/useCmsWorkspaceContext';
 import { buildCmsPath, parseCmsRoute, readStoredCmsProjectSlug, type CmsView } from './cmsRoute';
 import { SiteDeployWizard } from './SiteDeployWizard';
 import ClientWorkerCmsStudio from './ClientWorkerCmsStudio';
+import { CmsSiteLauncherGrid } from './CmsSiteLauncherGrid';
+import { useWorkspace } from '../../src/context/WorkspaceContext';
 
 const CmsRoot = lazy(() =>
   import('../../../src/dashboard/cms/CmsRoot').then((m) => ({
@@ -80,6 +82,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [wizardOpen, setWizardOpen] = useState(false);
+  const { switchWorkspace } = useWorkspace();
 
   const parsed = useMemo(
     () => parseCmsRoute(location.pathname, searchParams),
@@ -157,6 +160,19 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
     [navigate, parsed.siteSlug, context?.project_slug],
   );
 
+  const handleSelectSite = useCallback(
+    async (slug: string, path: string) => {
+      const site = context?.sites?.find((s) => s.slug === slug);
+      const targetWs = site?.target_workspace_id?.trim();
+      if (targetWs && targetWs !== (workspaceId || context?.workspace_id)) {
+        await switchWorkspace(targetWs);
+      }
+      await persistSite(slug);
+      navigate(path, { replace: true });
+    },
+    [context?.sites, context?.workspace_id, navigate, persistSite, switchWorkspace, workspaceId],
+  );
+
   const cmsNavigatePath = useCallback(
     (path: string, opts?: { replace?: boolean }) => {
       navigate(path, opts);
@@ -198,53 +214,46 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   return (
     <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden bg-[#F9F7F2] iam-agentsam-cms-host h-full">
       {needsSitePick ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
-          <h2 className="text-lg font-semibold text-[var(--text-heading)]">Choose a CMS site</h2>
-          <p className="max-w-md text-sm text-muted">
-            {loading
-              ? 'Loading sites for this workspace…'
-              : error
-                ? `Could not load CMS sites (${error}). Retry or pick a site below if listed.`
-                : siteCount > 1
-                  ? `${context?.ui_label || 'This workspace'} has ${siteCount} sites. Pick one to open CMS.`
-                  : siteCount === 0
-                    ? `No CMS sites are configured for ${context?.ui_label || 'this workspace'} yet.`
-                    : `${context?.ui_label || 'This workspace'} has multiple sites. Pick one to open CMS.`}
-          </p>
-          {error ? (
-            <button
-              type="button"
-              className="rounded-md border border-[var(--dashboard-border)] px-3 py-2 text-sm hover:bg-[var(--bg-hover)]"
-              onClick={() => {
-                void load();
-              }}
-            >
-              Retry
-            </button>
-          ) : null}
-          <div className="flex flex-wrap justify-center gap-2">
-            {(context?.sites || []).map((site) => (
+        <div className="flex flex-1 flex-col items-center justify-center gap-6 p-8 text-center overflow-auto">
+          <div className="max-w-lg w-full">
+            <h2 className="text-lg font-semibold text-[var(--text-heading)]">Choose a CMS site</h2>
+            <p className="mt-2 text-sm text-muted">
+              {loading
+                ? 'Loading sites for this workspace…'
+                : error
+                  ? `Could not load CMS sites (${error}). Retry or pick a site below if listed.`
+                  : siteCount > 0
+                    ? `${context?.ui_label || 'Your workspace'} — pick a site to open the CMS editor.`
+                    : `No CMS sites are configured for ${context?.ui_label || 'this workspace'} yet.`}
+            </p>
+            {error ? (
               <button
-                key={site.slug}
                 type="button"
-                className="rounded-md border border-[var(--dashboard-border)] px-3 py-2 text-sm hover:bg-[var(--bg-hover)]"
+                className="mt-4 rounded-md border border-[var(--dashboard-border)] px-3 py-2 text-sm hover:bg-[var(--bg-hover)]"
                 onClick={() => {
-                  void persistSite(site.slug).then(() => {
-                    navigate(
+                  void load();
+                }}
+              >
+                Retry
+              </button>
+            ) : null}
+            {(context?.sites?.length || 0) > 0 ? (
+              <div className="mt-6 flex justify-center">
+                <CmsSiteLauncherGrid
+                  sites={context?.sites || []}
+                  onSelectSite={(site) => {
+                    void handleSelectSite(
+                      site.slug,
                       buildCmsPath({
                         panel: parsed.panel,
                         pageId: parsed.pageId,
                         siteSlug: site.slug,
                       }),
-                      { replace: true },
                     );
-                  });
-                }}
-              >
-                {site.name || site.slug}
-                {context?.sites?.length === 1 ? null : null}
-              </button>
-            ))}
+                  }}
+                />
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -304,6 +313,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
             onNavigate={cmsNavigate}
             onNavigatePath={cmsNavigatePath}
             onOpenDeployWizard={() => setWizardOpen(true)}
+            onSelectSite={handleSelectSite}
           />
         </Suspense>
       ) : null}

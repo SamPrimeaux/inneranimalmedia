@@ -84,4 +84,5 @@ export type PrimeTechCmsLiteProps = {
   projectError?: string | null;
   onNavigatePath?: (path: string) => void;
   onOpenDeployWizard?: () => void;
+  onSelectSite?: (slug: string, path: string) => void | Promise<void>;
 };

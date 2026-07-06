@@ -8,6 +8,7 @@ import type {
   CmsSiteRow,
   PrimeTechCmsLiteProps,
 } from './cmsTypes';
+import { CmsSiteLauncherGrid } from '../../../dashboard/pages/cms/CmsSiteLauncherGrid';
 
 const api = cmsApi;
 
@@ -115,6 +116,7 @@ function SitesView({
   onNavigatePath,
   onRetry,
   onOpenDeployWizard,
+  onSelectSite,
 }: {
   sites?: CmsSiteRow[];
   primaryProjectSlug?: string | null;
@@ -125,12 +127,21 @@ function SitesView({
   onNavigatePath: (path: string) => void;
   onRetry?: () => void;
   onOpenDeployWizard?: () => void;
+  onSelectSite?: (slug: string, path: string) => void | Promise<void>;
 }) {
   const rows = sites || [];
   const featured = rows.find((s) => s.slug === primaryProjectSlug)
     || rows.find((s) => s.slug === workspaceSlug)
     || rows[0];
-  const otherSites = featured ? rows.filter((s) => s.slug !== featured.slug) : rows;
+  const otherSites = featured ? rows.filter((s) => s.slug !== featured.slug && !s.is_featured) : rows.filter((s) => !s.is_featured);
+  const openSite = (site: CmsSiteRow, panel: 'pages' | 'online-store' = 'pages') => {
+    const path = buildPath(panel, site.slug);
+    if (onSelectSite) {
+      void Promise.resolve(onSelectSite(site.slug, path)).catch(() => onNavigatePath(path));
+      return;
+    }
+    onNavigatePath(path);
+  };
   const metricsSummary = useMemo(() => {
     const totalPages = rows.reduce((n, s) => n + (Number(s.page_count) || 0), 0);
     return { totalPages, published: null, drafts: null, themes: null, assets: null, imports: null };
@@ -176,13 +187,20 @@ function SitesView({
               {featured ? (
                 <button type="button" className="pt-btn" onClick={() => onNavigatePath(buildPath('online-store', featured.slug))}>Online store</button>
               ) : null}
-              <button type="button" className="pt-btn primary" disabled={!featured} onClick={() => featured && onNavigatePath(buildPath('pages', featured.slug))}>Open pages</button>
+              <button type="button" className="pt-btn primary" disabled={!featured} onClick={() => featured && openSite(featured, 'pages')}>Open pages</button>
             </>
           }
         />
         {sitesError ? <ErrorBox error={sitesError} onRetry={onRetry} /> : null}
         {loadingSites ? <Loading label="Loading connected sites..." /> : (
           <>
+            {rows.length ? (
+              <CmsSiteLauncherGrid
+                sites={rows}
+                activeSlug={primaryProjectSlug}
+                onSelectSite={(site) => openSite(site, 'pages')}
+              />
+            ) : null}
             <CmsMetrics summary={{ ...metricsSummary, published: 0, drafts: 0, themes: 0, assets: 0, imports: 0 }} />
             {featured ? (
               <section className="pt-card pt-feature">
@@ -205,8 +223,8 @@ function SitesView({
                     <div className="pt-mini-stat"><span>Surface</span><strong>CMS Suite</strong></div>
                   </div>
                   <div className="pt-actions" style={{ justifyContent: 'flex-start' }}>
-                    <button type="button" className="pt-btn primary" onClick={() => onNavigatePath(buildPath('online-store', featured.slug))}>Customize</button>
-                    <button type="button" className="pt-btn" onClick={() => onNavigatePath(buildPath('pages', featured.slug))}>Pages</button>
+                    <button type="button" className="pt-btn primary" onClick={() => openSite(featured, 'online-store')}>Customize</button>
+                    <button type="button" className="pt-btn" onClick={() => openSite(featured, 'pages')}>Pages</button>
                     <button type="button" className="pt-btn" onClick={() => onNavigatePath(buildPath('theme-editor', featured.slug))}>Theme editor</button>
                   </div>
                 </aside>
@@ -251,8 +269,8 @@ function SitesView({
                         </div>
                       </div>
                       <div className="pt-row-actions">
-                        <button type="button" className="pt-btn primary" onClick={() => onNavigatePath(buildPath('online-store', site.slug))}>Customize</button>
-                        <button type="button" className="pt-btn" onClick={() => onNavigatePath(buildPath('pages', site.slug))}>Pages</button>
+                        <button type="button" className="pt-btn primary" onClick={() => openSite(site, 'online-store')}>Customize</button>
+                        <button type="button" className="pt-btn" onClick={() => openSite(site, 'pages')}>Pages</button>
                         <button type="button" className="pt-btn" onClick={() => window.open(siteUrl(site), '_blank', 'noopener')}>View</button>
                       </div>
                     </article>
@@ -479,6 +497,7 @@ export function PrimeTechCmsLite({
   projectError = '',
   onNavigatePath = () => {},
   onOpenDeployWizard,
+  onSelectSite,
 }: PrimeTechCmsLiteProps) {
   useStyle();
   if (loadingProject && view !== 'sites') return <div className="pt-cms-lite"><Loading label="Loading…" /></div>;
@@ -496,6 +515,7 @@ export function PrimeTechCmsLite({
           onNavigatePath={onNavigatePath}
           onRetry={onRetrySites}
           onOpenDeployWizard={onOpenDeployWizard}
+          onSelectSite={onSelectSite}
         />
       ) : null}
       {view === 'online-store' ? (

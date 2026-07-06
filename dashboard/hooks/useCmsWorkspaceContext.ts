@@ -5,8 +5,14 @@ export type CmsWorkspaceSite = {
   slug: string;
   name?: string;
   domain?: string | null;
+  logo_url?: string | null;
+  primary_color?: string | null;
   page_count?: number;
   source?: string;
+  target_workspace_id?: string | null;
+  is_featured?: boolean;
+  cms_hosting?: 'platform' | 'client_worker' | null;
+  updated_at?: string | number | null;
 };
 
 export type CmsWorkspaceContext = {

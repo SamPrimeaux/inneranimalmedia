@@ -5,6 +5,7 @@
 import { resolveActiveBootstrap, resolveBootstrapWorkspaceContext } from './bootstrap.js';
 import { ensureUserBootstrapRow } from './bootstrap-scoped-context.js';
 import { cmsBootstrapKey } from './cms-kv-cache.js';
+import { mergeOperatorHubSites, sortCmsHubSites } from './cms-hub-sites.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -74,9 +75,14 @@ export async function listCmsSitesForScope(env, { tenantId, workspaceId }) {
       slug: key,
       name: trim(meta.name) || trim(meta.project_name) || key,
       domain: trim(meta.domain) || null,
+      logo_url: trim(meta.logo_url) || trim(prev.logo_url) || null,
+      primary_color: trim(meta.primary_color) || trim(prev.primary_color) || null,
       page_count: Number(meta.page_count) || prev.page_count || 0,
       updated_at: meta.updated_at || prev.updated_at || null,
       source: meta.source || prev.source || 'unknown',
+      target_workspace_id: trim(meta.target_workspace_id) || trim(prev.target_workspace_id) || null,
+      is_featured: meta.is_featured ?? prev.is_featured ?? false,
+      cms_hosting: trim(meta.cms_hosting) || trim(prev.cms_hosting) || null,
     });
   };
 
@@ -158,6 +164,8 @@ export async function listCmsSitesForScope(env, { tenantId, workspaceId }) {
     } catch (_) {}
   }
 
+  await mergeOperatorHubSites(env, ws, bySlug);
+
   const sites = [...bySlug.values()];
   const slugsNeedingCounts = sites.filter((s) => !(Number(s.page_count) > 0)).map((s) => s.slug);
   if (slugsNeedingCounts.length > 0) {
@@ -210,25 +218,30 @@ async function hydrateSiteDomainsFromTenants(env, sites) {
   try {
     const placeholders = lookupSlugs.map(() => '?').join(',');
     const { results } = await env.DB.prepare(
-      `SELECT slug, domain
+      `SELECT slug, domain, logo_url, primary_color
          FROM cms_tenants
         WHERE slug IN (${placeholders})
           AND COALESCE(is_active, 1) = 1`,
     )
       .bind(...lookupSlugs)
       .all();
-    const domainBySlug = new Map(
-      (results || []).map((r) => [trim(r.slug), trim(r.domain) || null]),
+    const tenantBySlug = new Map(
+      (results || []).map((r) => [trim(r.slug), r]),
     );
     for (const site of sites) {
-      if (trim(site.domain)) continue;
       const slug = trim(site.slug);
       const alias = CMS_TENANT_SLUG_ALIASES[slug];
-      site.domain =
-        domainBySlug.get(slug) ||
-        (alias ? domainBySlug.get(alias) : null) ||
-        site.domain ||
-        null;
+      const tenant = tenantBySlug.get(slug) || (alias ? tenantBySlug.get(alias) : null);
+      if (!tenant) continue;
+      if (!trim(site.domain)) {
+        site.domain = trim(tenant.domain) || site.domain || null;
+      }
+      if (!trim(site.logo_url)) {
+        site.logo_url = trim(tenant.logo_url) || site.logo_url || null;
+      }
+      if (!trim(site.primary_color)) {
+        site.primary_color = trim(tenant.primary_color) || site.primary_color || null;
+      }
     }
   } catch (_) {}
 }
@@ -241,6 +254,10 @@ async function hydrateSiteDomainsFromTenants(env, sites) {
 export function sortSitesForWorkspace(sites, opts = {}) {
   const primary = trim(opts.primarySlug);
   const wsSlug = trim(opts.workspaceSlug);
+  const workspaceId = trim(opts.workspaceId);
+  if (workspaceId === 'ws_inneranimalmedia' || wsSlug === 'inneranimalmedia') {
+    return sortCmsHubSites(sites, { primarySlug: primary });
+  }
   const score = (site) => {
     const slug = trim(site?.slug);
     if (!slug) return 99;
@@ -396,7 +413,7 @@ export async function resolveCmsWorkspaceContext(env, request, authUser, cache =
     });
 
     const projectSlug = project.project_slug;
-    sites = sortSitesForWorkspace(sites, { primarySlug: projectSlug, workspaceSlug });
+    sites = sortSitesForWorkspace(sites, { primarySlug: projectSlug, workspaceSlug, workspaceId });
     return {
       error: null,
       user_id: userId,
