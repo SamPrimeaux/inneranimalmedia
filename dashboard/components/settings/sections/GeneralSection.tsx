@@ -5,6 +5,7 @@ import { Toggle, formatVaultCreated } from '../settingsUi';
 import type { SettingsPanelModel } from '../hooks/useSettingsData';
 import { parsePolicySettingsJson } from '../components/agentsSectionHelpers';
 import type { AgentsamUserPolicy } from '../types';
+import { notifyShellPrefChange } from '../../../config/shellChrome';
 
 const PREF_KEYS = {
   sync_layouts: 'iam_pref_sync_layouts',
@@ -105,7 +106,7 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
   const [language, setLanguage] = useState('en');
 
   const [syncLayouts, setSyncLayouts] = useState(true);
-  const [showStatusBar, setShowStatusBar] = useState(true);
+  const [showStatusBar, setShowStatusBar] = useState(false);
   const [autohideEditor, setAutohideEditor] = useState(false);
   const [autoinjectCode, setAutoinjectCode] = useState(true);
 
@@ -156,7 +157,7 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
   useEffect(() => {
     void loadProfile();
     setSyncLayouts(readStoredBool(PREF_KEYS.sync_layouts, true));
-    setShowStatusBar(readStoredBool(PREF_KEYS.show_status_bar, true));
+    setShowStatusBar(readStoredBool(PREF_KEYS.show_status_bar, false));
     setAutohideEditor(readStoredBool(PREF_KEYS.autohide_editor, false));
     setAutoinjectCode(readStoredBool(PREF_KEYS.autoinject_code, true));
   }, [loadProfile]);
@@ -216,6 +217,7 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
     } catch {
       /* ignore */
     }
+    notifyShellPrefChange(storageKey);
     patchUserPolicyFireAndForget({ [apiKey]: value ? 1 : 0 });
   };
 
@@ -314,7 +316,7 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
     },
     {
       label: 'Show Status Bar',
-      desc: 'Show context bar at the bottom of the editor',
+      desc: 'Git and editor context bar at the bottom when a file is open in Agent editor',
       on: showStatusBar,
       setOn: setShowStatusBar,
       storageKey: PREF_KEYS.show_status_bar,

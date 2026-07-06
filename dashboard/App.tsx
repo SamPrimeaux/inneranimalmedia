@@ -91,7 +91,15 @@ import type { DatabaseExplorerJump } from './types/databaseExplorer';
 import { prepareActiveFileForEditor } from './src/lib/prepareActiveFileForEditor';
 import { databaseStudioPathForWorkspace } from './src/lib/databaseStudioRoute';
 import { SHELL_VERSION } from './src/shellVersion';
-import { mobileTabBarBottomOffset, showDashboardStatusBar } from './config/shellChrome';
+import {
+  DASHBOARD_STATUS_BAR_INSET,
+  isAgentEditorDevContext,
+  mobileTabBarBottomOffset,
+  PREF_SHOW_STATUS_BAR,
+  readShellBoolPref,
+  showDashboardStatusBar,
+  SHELL_PREF_CHANGE_EVENT,
+} from './config/shellChrome';
 import {
   fetchAndApplyActiveCmsTheme,
   applyCmsThemeToDocument,
@@ -518,9 +526,43 @@ const App: React.FC = () => {
     () => isAgentEditorPath(location.pathname) && !activeFile,
     [location.pathname, activeFile],
   );
+  const editorDevContext = useMemo(
+    () => isAgentEditorDevContext(location.pathname, !!activeFile),
+    [location.pathname, activeFile],
+  );
+  const [prefShowStatusBar, setPrefShowStatusBar] = useState(() =>
+    readShellBoolPref(PREF_SHOW_STATUS_BAR, false),
+  );
+  useEffect(() => {
+    const syncPref = () => setPrefShowStatusBar(readShellBoolPref(PREF_SHOW_STATUS_BAR, false));
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === PREF_SHOW_STATUS_BAR) syncPref();
+    };
+    const onShellPref = (e: Event) => {
+      const key = (e as CustomEvent<{ key?: string }>).detail?.key;
+      if (!key || key === PREF_SHOW_STATUS_BAR) syncPref();
+    };
+    window.addEventListener('storage', onStorage);
+    window.addEventListener(SHELL_PREF_CHANGE_EVENT, onShellPref);
+    window.addEventListener('focus', syncPref);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(SHELL_PREF_CHANGE_EVENT, onShellPref);
+      window.removeEventListener('focus', syncPref);
+    };
+  }, []);
+  const showStatusBar = showDashboardStatusBar(location.pathname, {
+    editorDevContext,
+    userPrefShow: prefShowStatusBar,
+  });
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      '--iam-status-bar-inset',
+      showStatusBar ? DASHBOARD_STATUS_BAR_INSET : '0px',
+    );
+  }, [showStatusBar]);
   const isCenterChatAtmospheric = isAgentHomeAtmospheric || isEditorCenterChatLanding;
   const isMovieModeRoute = location.pathname.startsWith('/dashboard/moviemode');
-  const showStatusBar = showDashboardStatusBar(location.pathname, isNarrowViewport);
   const mobileTabBarBottom = mobileTabBarBottomOffset(showStatusBar);
   /** TODO: Movie Mode right rail — split Media bin + ChatAssistant (dual panel). */
   const isDrawRoute = location.pathname.startsWith('/dashboard/draw');
@@ -939,6 +981,13 @@ const App: React.FC = () => {
       }),
     [activeWorkspaceRow, authWorkspaceId, ideWorkspace, gitRepoFullName],
   );
+
+  const userProfileLabel = useMemo(() => {
+    const name = sessionUserName?.trim();
+    if (name) return name;
+    const id = sessionUserId?.trim();
+    return id || 'Account';
+  }, [sessionUserName, sessionUserId]);
 
   const workspaceDisplayLine = coalesceLabel(workspaceContextLabel || workspaceDisplayFallback, 'No workspace');
 
@@ -4295,8 +4344,9 @@ const App: React.FC = () => {
           {/* Unified search (Cmd+K) — desktop center; mobile lives in right cluster */}
           <div className="iam-topbar-desktop-only flex-1 flex justify-center items-center min-w-0 px-2 gap-2 overflow-visible max-phone:hidden">
               <UnifiedSearchBar
-                workspaceLabel={workspaceDisplayLine}
-                gitBranch={gitBranch}
+                workspaceLabel={editorDevContext ? workspaceDisplayLine : userProfileLabel}
+                gitBranch={editorDevContext ? gitBranch : undefined}
+                hideWorkspaceSegment={isAgentEditorPath(location.pathname) && !editorDevContext}
                 activeWorkspaceId={authWorkspaceId}
                 workspaceRepoHint={activeWorkspaceRow?.github_repo ?? null}
                 onGitBranchSelect={handleStatusBarBranchSelect}
@@ -4323,8 +4373,8 @@ const App: React.FC = () => {
           <div className="flex gap-0.5 items-center mr-1 shrink-0 max-phone:ml-auto">
               <div className="iam-topbar-mobile-only hidden max-phone:block shrink-0">
                 <UnifiedSearchBar
-                  workspaceLabel={workspaceDisplayLine}
-                  gitBranch={gitBranch}
+                  workspaceLabel={editorDevContext ? workspaceDisplayLine : userProfileLabel}
+                  gitBranch={editorDevContext ? gitBranch : undefined}
                   activeWorkspaceId={authWorkspaceId}
                   workspaceRepoHint={activeWorkspaceRow?.github_repo ?? null}
                   onGitBranchSelect={handleStatusBarBranchSelect}
@@ -4455,14 +4505,16 @@ const App: React.FC = () => {
         onSelectChat={shellSelectChat}
         onDeleteActiveChat={shellDeleteActiveChat}
         activeConversationId={activeAgentConversationId}
-        workspaceLabel={workspaceContextLabel}
+        workspaceLabel={userProfileLabel}
         avatarUrl={sessionAvatarUrl}
         avatarInitial={
           sessionUserName?.trim()?.charAt(0)?.toUpperCase() ||
           sessionUserId?.charAt(0)?.toUpperCase() ||
           undefined
         }
-        workspaceSubtitle={gitBranch?.trim() ? gitBranch.trim() : undefined}
+        workspaceSubtitle={
+          editorDevContext && gitBranch?.trim() ? gitBranch.trim() : undefined
+        }
       />
       ) : null}
 
@@ -4493,14 +4545,16 @@ const App: React.FC = () => {
                 onSelectChat={shellSelectChat}
                 onDeleteActiveChat={shellDeleteActiveChat}
                 activeConversationId={activeAgentConversationId}
-                workspaceLabel={workspaceContextLabel}
+                workspaceLabel={userProfileLabel}
                 avatarUrl={sessionAvatarUrl}
                 avatarInitial={
                   sessionUserName?.trim()?.charAt(0)?.toUpperCase() ||
                   sessionUserId?.charAt(0)?.toUpperCase() ||
                   undefined
                 }
-                workspaceSubtitle={gitBranch?.trim() ? gitBranch.trim() : undefined}
+                workspaceSubtitle={
+                  editorDevContext && gitBranch?.trim() ? gitBranch.trim() : undefined
+                }
               />
           </div>
           ) : null}
@@ -5344,7 +5398,7 @@ const App: React.FC = () => {
       <StatusBar 
         branch={gitBranch}
         gitHash={gitHash}
-        workspace={workspaceContextLabel || authWorkspaceId?.trim() || ''}
+        workspace={workspaceContextLabel}
         workspaceMenuItems={statusBarWorkspaceItems.length > 0 ? statusBarWorkspaceItems : undefined}
         activeWorkspaceId={authWorkspaceId}
         onWorkspaceMenuSelect={handleStatusBarWorkspacePick}

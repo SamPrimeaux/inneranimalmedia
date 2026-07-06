@@ -376,7 +376,7 @@ export function DashboardSidebar({
         >
           <div
             className={`flex items-center min-w-0 ${expanded ? 'gap-2.5 flex-1' : 'justify-center'}`}
-            title={workspaceLabel?.trim() || 'Workspace'}
+            title={workspaceLabel?.trim() || 'Account'}
           >
             <div
               className="shrink-0 w-7 h-7 rounded-full bg-[var(--bg-hover)] border border-[var(--dashboard-border)] flex items-center justify-center text-[11px] font-semibold text-main overflow-hidden"
@@ -391,7 +391,7 @@ export function DashboardSidebar({
             {expanded ? (
               <div className="min-w-0 text-left">
                 <div className="text-[12px] font-medium text-main truncate font-mono">
-                  {workspaceLabel?.trim() || 'No workspace'}
+                  {workspaceLabel?.trim() || 'Account'}
                 </div>
                 {workspaceSubtitle?.trim() ? (
                   <div className="text-[10px] text-muted truncate">{workspaceSubtitle}</div>
