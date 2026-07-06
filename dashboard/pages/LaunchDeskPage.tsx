@@ -869,10 +869,10 @@ export function LaunchDeskPage() {
               <span>Booking pages</span>
             </div>
             {bookingPages.length === 0 ? (
-              <p style={{ fontSize: 13, color: '#5f6368' }}>No booking pages yet.</p>
+              <p className="colab-cal-booking-empty">No booking pages yet.</p>
             ) : (
               bookingPages.map((p) => (
-                <div key={p.id} className="colab-cal-cal-row" style={{ marginBottom: 8 }}>
+                <div key={p.id} className="colab-cal-cal-row colab-cal-booking-row">
                   <span>{p.title}</span>
                   <button type="button" className="colab-cal-outline-btn" onClick={() => copyBookingLink(p.slug)}>
                     Share
@@ -1248,7 +1248,7 @@ export function LaunchDeskPage() {
                   value={popoverDraft.startLocal}
                   onChange={(e) => setPopoverDraft((d) => ({ ...d, startLocal: e.target.value }))}
                 />
-                <div style={{ marginTop: 6 }}>
+                <div className="colab-cal-datetime-gap">
                   <input
                     type="datetime-local"
                     value={popoverDraft.endLocal}
@@ -1265,7 +1265,6 @@ export function LaunchDeskPage() {
                 placeholder="Add guests (emails)"
                 value={popoverDraft.attendeesRaw}
                 onChange={(e) => setPopoverDraft((d) => ({ ...d, attendeesRaw: e.target.value }))}
-                style={{ flex: 1, border: 0, background: '#edf1f7', borderRadius: 6, padding: '10px 12px' }}
               />
             </div>
             <label className="colab-cal-quick-field">
@@ -1321,7 +1320,7 @@ export function LaunchDeskPage() {
             <button type="button" className="colab-cal-icon-btn" onClick={() => setEditor(null)}>
               ×
             </button>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div className="colab-cal-editor-top-actions">
               {editor.mode === 'edit' && editor.event && !isSyntheticEvent(editor.event) && (
                 <button type="button" className="colab-cal-text-btn" onClick={() => deleteEvent(editor.event!)}>
                   Delete
@@ -1359,7 +1358,7 @@ export function LaunchDeskPage() {
                 value={editor.title}
                 onChange={(e) => setEditor({ ...editor, title: e.target.value })}
               />
-              <div className="colab-cal-quick-tabs" style={{ marginTop: 16 }}>
+              <div className="colab-cal-quick-tabs">
                 {(['event', 'task', 'focus', 'meeting', 'out_of_office', 'working_location'] as QuickEventType[]).map((t) => (
                   <button
                     key={t}
@@ -1375,8 +1374,8 @@ export function LaunchDeskPage() {
                 <span className="colab-cal-quick-icon" aria-hidden>
                   <Clock size={16} strokeWidth={1.75} />
                 </span>
-                <div style={{ flex: 1 }}>
-                  <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                <div className="colab-cal-quick-field-stack">
+                  <label>
                     <input
                       type="checkbox"
                       checked={editor.allDay}
@@ -1388,13 +1387,11 @@ export function LaunchDeskPage() {
                     type="datetime-local"
                     value={editor.startLocal}
                     onChange={(e) => setEditor({ ...editor, startLocal: e.target.value })}
-                    style={{ width: '100%', marginBottom: 8 }}
                   />
                   <input
                     type="datetime-local"
                     value={editor.endLocal}
                     onChange={(e) => setEditor({ ...editor, endLocal: e.target.value })}
-                    style={{ width: '100%' }}
                   />
                 </div>
               </div>
@@ -1406,11 +1403,10 @@ export function LaunchDeskPage() {
                   placeholder="Add location"
                   value={editor.location}
                   onChange={(e) => setEditor({ ...editor, location: e.target.value })}
-                  style={{ flex: 1, border: 0, background: '#edf1f7', borderRadius: 6, padding: '10px 12px' }}
                 />
               </div>
               <div className="colab-cal-editor-panel">
-                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Description</label>
+                <label className="colab-cal-editor-panel-label">Description</label>
                 <textarea
                   rows={4}
                   value={editor.description}
@@ -1428,10 +1424,10 @@ export function LaunchDeskPage() {
                 </button>
               </div>
               <input
+                className="colab-cal-editor-guest-input"
                 placeholder="Add guests (comma-separated emails)"
                 value={editor.attendeesRaw}
                 onChange={(e) => setEditor({ ...editor, attendeesRaw: e.target.value })}
-                style={{ width: '100%', marginBottom: 12 }}
               />
               <label className="colab-cal-quick-field">
                 <input
@@ -1443,7 +1439,7 @@ export function LaunchDeskPage() {
               </label>
               {editor.event && meetRoomId(editor.event) && (
                 <div className="colab-cal-editor-panel">
-                  <div style={{ fontSize: 13, color: '#5f6368' }}>Meet room</div>
+                  <div className="colab-cal-muted-caption">Meet room</div>
                   <button type="button" className="colab-cal-outline-btn" onClick={() => navigate(`/dashboard/meet?room=${meetRoomId(editor.event!)}`)}>
                     Join meeting
                   </button>
