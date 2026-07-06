@@ -19,6 +19,7 @@ import {
   fetchCalendarViewEvents,
   fetchInsights,
   fetchPeople,
+  fetchClientProjects,
   fetchProjects,
   fetchTasksInsights,
   fetchTodos,
@@ -48,6 +49,12 @@ import {
   TasksNavView,
 } from './launch-desk/CollaborateTasksPanel';
 import { CollaborateTasksInsights } from './launch-desk/CollaborateTasksInsights';
+import {
+  clientDisplayName,
+  clientWorkTaskCounts,
+  groupClientWorkNav,
+  type ClientWorkNavItem,
+} from '../src/lib/collaborate/clientWorkNav';
 
 const HOUR_START = 2;
 const HOUR_COUNT = 22;
@@ -170,6 +177,8 @@ export function LaunchDeskPage() {
   const [tasksComposing, setTasksComposing] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectRow[]>([]);
+  const [clientNavItems, setClientNavItems] = useState<ClientWorkNavItem[]>([]);
+  const [clientWorkTodos, setClientWorkTodos] = useState<AgentTodo[]>([]);
   const [tasksInsights, setTasksInsights] = useState<TasksInsightsPayload | null>(null);
   const [trackingActive, setTrackingActive] = useState(false);
   const [events, setEvents] = useState<CalEvent[]>([]);
@@ -230,7 +239,7 @@ export function LaunchDeskPage() {
     setLoading(true);
     setError(null);
     try {
-      const [ev, ins, pages, taskList, projectList, taskIns] = await Promise.all([
+      const [ev, ins, pages, taskList, projectList, taskIns, clientRows, allClientTodos] = await Promise.all([
         fetchCalendarViewEvents(anchor, calView, sources),
         fetchInsights(anchor),
         fetchBookingPages(),
@@ -243,6 +252,8 @@ export function LaunchDeskPage() {
               : undefined,
         ).catch(() => []),
         fetchTasksInsights(anchor).catch(() => null),
+        fetchClientProjects().catch(() => []),
+        fetchTodos({ clientWork: true }).catch(() => []),
       ]);
       setEvents(ev);
       setInsights(ins);
@@ -250,6 +261,8 @@ export function LaunchDeskPage() {
       setTodos(taskList);
       setProjects(projectList);
       setTasksInsights(taskIns);
+      setClientNavItems(groupClientWorkNav(clientRows));
+      setClientWorkTodos(allClientTodos);
       setTrackingActive(Boolean(taskIns?.active_tracking));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load calendar');
@@ -263,11 +276,20 @@ export function LaunchDeskPage() {
   }, [reload]);
 
   useEffect(() => {
-    const { mainSeg: seg, tasksList, focusPeople, calView: view } = parseCollaborateSearchParams(searchParams);
+    const {
+      mainSeg: seg,
+      tasksList,
+      focusPeople,
+      calView: view,
+      clientId,
+      clientWork,
+    } = parseCollaborateSearchParams(searchParams);
     setMainSeg(seg);
     setCalView(view);
     if (seg === 'tasks') {
-      if (tasksList) {
+      if (clientId || clientWork) {
+        setTasksNavView('client');
+      } else if (tasksList) {
         setTasksActiveList(tasksList);
         setTasksNavView('list');
       } else {
@@ -280,6 +302,14 @@ export function LaunchDeskPage() {
       window.setTimeout(() => peopleSearchRef.current?.focus(), 120);
     }
   }, [searchParams]);
+
+  const clientTaskCounts = useMemo(() => clientWorkTaskCounts(clientWorkTodos), [clientWorkTodos]);
+
+  const clientListTitle = useMemo(() => {
+    if (clientFilterId) return clientDisplayName(clientFilterId, clientNavItems);
+    if (clientWorkFilter) return 'All client work';
+    return null;
+  }, [clientFilterId, clientWorkFilter, clientNavItems]);
 
   const stepAnchor = useCallback(
     (delta: number) => {
@@ -701,7 +731,7 @@ export function LaunchDeskPage() {
       ) : clientFilterId && mainSeg === 'tasks' ? (
         <div className="colab-cal-project-banner">
           <span>
-            Client filter <strong>{clientFilterId}</strong>
+            Tasks for <strong>{clientDisplayName(clientFilterId, clientNavItems)}</strong>
           </span>
           <button
             type="button"
@@ -730,8 +760,17 @@ export function LaunchDeskPage() {
                 }
                 setTasksComposing(true);
               }}
-              onClientWorkClick={() => {
+              clients={clientNavItems}
+              clientFilterId={clientFilterId}
+              clientWorkFilter={clientWorkFilter}
+              clientTaskCounts={clientTaskCounts}
+              onSelectAllClientWork={() => {
+                setTasksNavView('client');
                 pushCollaborateUrl({ client_work: '1', project: null, client: null, seg: 'tasks' });
+              }}
+              onSelectClient={(clientId) => {
+                setTasksNavView('client');
+                pushCollaborateUrl({ client: clientId, client_work: null, project: null, seg: 'tasks' });
               }}
             />
           ) : (
@@ -1018,10 +1057,16 @@ export function LaunchDeskPage() {
             onSchedule={scheduleTaskOnCalendar}
             composing={tasksComposing}
             onComposingChange={setTasksComposing}
-            projectId={projectFilterId}
+            projectId={
+              projectFilterId ||
+              (clientFilterId
+                ? clientNavItems.find((c) => c.client_id === clientFilterId)?.project_id || null
+                : null)
+            }
             projects={projects}
             selectedTaskId={selectedTaskId}
             onSelectedTaskChange={setSelectedTaskId}
+            clientListTitle={clientListTitle}
           />
         )}
 
@@ -1035,6 +1080,10 @@ export function LaunchDeskPage() {
             donutGradient={donutGradient}
             remainingMins={remainingMins}
             trackingActive={trackingActive}
+            projects={projects}
+            todos={todos}
+            selectedTaskId={selectedTaskId}
+            onTimeLogged={reload}
           />
         ) : mainSeg === 'calendar' ? (
         <aside className="colab-cal-right">

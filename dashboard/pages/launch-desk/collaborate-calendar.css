@@ -547,6 +547,52 @@
   display: flex; align-items: center; gap: 8px; padding: 16px 20px 8px;
   color: #3c4043; font-size: 14px; font-weight: 500;
 }
+.colab-tasks-client-head {
+  width: calc(100% - 16px);
+  margin: 4px 8px 0;
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.colab-tasks-client-head:hover { background: #f1f3f4; }
+.colab-tasks-client-head.active { background: #e8f0fe; color: #174ea6; }
+.colab-tasks-client-subnav { padding: 0 0 8px 8px; }
+.colab-tasks-nav-item--sub {
+  padding-left: 36px;
+  font-size: 13px;
+}
+.colab-tasks-manual-time { margin: 0 0 16px; }
+.colab-tasks-manual-time-btn { width: 100%; justify-content: center; }
+.colab-tasks-manual-time-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line-soft, #e8eaed);
+  border-radius: 12px;
+  background: #f8f9fa;
+}
+.colab-tasks-manual-time-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+.colab-tasks-manual-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5f6368;
+}
+.colab-tasks-manual-ok {
+  margin: 0;
+  font-size: 12px;
+  color: #188038;
+}
 .colab-tasks-new-list {
   width: calc(100% - 32px); margin: 8px 16px 16px; text-align: left; border: 0;
   background: transparent; color: #3c4043; font-size: 14px; padding: 10px 14px;

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckSquare,
   ChevronDown,
+  ChevronRight,
   Clock,
   ExternalLink,
   FolderKanban,
@@ -11,6 +12,7 @@ import {
   Star,
   Trash2,
 } from 'lucide-react';
+import type { ClientWorkNavItem } from '../../src/lib/collaborate/clientWorkNav';
 import { loadUserTaskLists, saveUserTaskList } from '../../src/lib/collaborate/userTaskLists';
 import {
   AgentTodo,
@@ -25,7 +27,7 @@ import {
   todoListName,
 } from './ops-desk-types';
 
-export type TasksNavView = 'starred' | 'list';
+export type TasksNavView = 'starred' | 'list' | 'client';
 
 type Props = {
   todos: AgentTodo[];
@@ -42,6 +44,7 @@ type Props = {
   projects?: ProjectRow[];
   selectedTaskId?: string | null;
   onSelectedTaskChange?: (id: string | null) => void;
+  clientListTitle?: string | null;
 };
 
 function isOpen(todo: AgentTodo) {
@@ -56,19 +59,34 @@ export function CollaborateTasksSidebar({
   onNavViewChange,
   onActiveListChange,
   onCreateClick,
-  onClientWorkClick,
+  clients = [],
+  clientFilterId = null,
+  clientWorkFilter = false,
+  clientTaskCounts,
+  onSelectClient,
+  onSelectAllClientWork,
 }: Pick<Props, 'todos' | 'navView' | 'activeList' | 'onNavViewChange' | 'onActiveListChange'> & {
   onReload?: () => Promise<void>;
   onCreateClick?: () => void;
-  onClientWorkClick?: () => void;
+  clients?: ClientWorkNavItem[];
+  clientFilterId?: string | null;
+  clientWorkFilter?: boolean;
+  clientTaskCounts?: Map<string, number>;
+  onSelectClient?: (clientId: string) => void;
+  onSelectAllClientWork?: () => void;
 }) {
   const [newListName, setNewListName] = useState('');
   const [showNewList, setShowNewList] = useState(false);
+  const [clientWorkOpen, setClientWorkOpen] = useState(true);
   const [userLists, setUserLists] = useState<string[]>(() => loadUserTaskLists());
 
   useEffect(() => {
     setUserLists(loadUserTaskLists());
   }, [todos.length, activeList]);
+
+  useEffect(() => {
+    if (clientFilterId || clientWorkFilter) setClientWorkOpen(true);
+  }, [clientFilterId, clientWorkFilter]);
 
   const openTodos = useMemo(() => todos.filter(isOpen), [todos]);
   const starredCount = useMemo(() => openTodos.filter(isTodoStarred).length, [openTodos]);
@@ -143,13 +161,62 @@ export function CollaborateTasksSidebar({
         {starredCount > 0 && <span className="colab-tasks-nav-count">{starredCount}</span>}
       </button>
 
-      {onClientWorkClick ? (
-        <button type="button" className="colab-tasks-nav-item" onClick={onClientWorkClick}>
-          <span className="colab-tasks-nav-icon" aria-hidden>
-            <FolderKanban size={16} strokeWidth={1.75} />
-          </span>
-          <span>Client work</span>
-        </button>
+      {onSelectAllClientWork ? (
+        <>
+          <button
+            type="button"
+            className={`colab-tasks-lists-head colab-tasks-client-head${
+              navView === 'client' ? ' active' : ''
+            }`}
+            onClick={() => setClientWorkOpen((open) => !open)}
+            aria-expanded={clientWorkOpen}
+          >
+            {clientWorkOpen ? (
+              <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
+            ) : (
+              <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
+            )}
+            <FolderKanban size={16} strokeWidth={1.75} aria-hidden />
+            <span>Client work</span>
+          </button>
+          {clientWorkOpen ? (
+            <div className="colab-tasks-client-subnav">
+              <button
+                type="button"
+                className={`colab-tasks-nav-item colab-tasks-nav-item--sub${
+                  navView === 'client' && clientWorkFilter && !clientFilterId ? ' active' : ''
+                }`}
+                onClick={onSelectAllClientWork}
+              >
+                <span className="colab-tasks-nav-icon" aria-hidden>
+                  <List size={15} strokeWidth={1.75} />
+                </span>
+                <span>All clients</span>
+                <span className="colab-tasks-nav-count">
+                  {[...clientTaskCounts?.values() || []].reduce((a, b) => a + b, 0)}
+                </span>
+              </button>
+              {clients.map((client) => {
+                const count = clientTaskCounts?.get(client.client_id) || 0;
+                const active = navView === 'client' && clientFilterId === client.client_id;
+                return (
+                  <button
+                    key={client.client_id}
+                    type="button"
+                    className={`colab-tasks-nav-item colab-tasks-nav-item--sub${active ? ' active' : ''}`}
+                    onClick={() => onSelectClient?.(client.client_id)}
+                  >
+                    <span className="colab-tasks-nav-icon" aria-hidden>
+                      <FolderKanban size={15} strokeWidth={1.75} />
+                    </span>
+                    <span>{client.client_name}</span>
+                    <span className="colab-tasks-nav-count">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       {userLists.length > 0 ? (
@@ -264,6 +331,7 @@ export function CollaborateTasksMain({
   projects = [],
   selectedTaskId = null,
   onSelectedTaskChange,
+  clientListTitle = null,
 }: Props) {
   const [draftTitle, setDraftTitle] = useState('');
   const [draftNotes, setDraftNotes] = useState('');
@@ -281,6 +349,7 @@ export function CollaborateTasksMain({
   const openTodos = useMemo(() => todos.filter(isOpen), [todos]);
 
   const filtered = useMemo(() => {
+    if (navView === 'client') return openTodos;
     if (navView === 'starred') return openTodos.filter(isTodoStarred);
     if (activeList === 'My Tasks') return openTodos.filter(isMyTasksTodo);
     return openTodos.filter((t) => todoListName(t) === activeList);
@@ -303,7 +372,12 @@ export function CollaborateTasksMain({
     setEditProjectId(selectedTask.project_id || selectedTask.project_key || '');
   }, [selectedTask]);
 
-  const listTitle = navView === 'starred' ? 'Starred' : activeList;
+  const listTitle =
+    navView === 'client'
+      ? clientListTitle || 'Client work'
+      : navView === 'starred'
+        ? 'Starred'
+        : activeList;
 
   const completeTask = async (todo: AgentTodo) => {
     setSaving(true);

@@ -381,6 +381,20 @@ export async function postActivityHeartbeat(payload: {
   });
 }
 
+export async function postManualTimeEntry(payload: {
+  project_id: string;
+  todo_id?: string | null;
+  minutes: number;
+  note?: string | null;
+  entry_date?: string | null;
+}) {
+  return apiJson<{ ok?: boolean; entry_id?: string; minutes?: number }>('/api/calendar/time-entry', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function fetchTodos(opts?: {
   projectId?: string | null;
   category?: string | null;

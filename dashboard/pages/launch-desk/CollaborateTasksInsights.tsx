@@ -1,5 +1,12 @@
-import React from 'react';
-import { CalendarInsightsPayload, TasksInsightsPayload, fmtMinutes } from './ops-desk-types';
+import React, { useMemo, useState } from 'react';
+import {
+  AgentTodo,
+  CalendarInsightsPayload,
+  ProjectRow,
+  TasksInsightsPayload,
+  fmtMinutes,
+  postManualTimeEntry,
+} from './ops-desk-types';
 
 type Props = {
   insights: CalendarInsightsPayload | null;
@@ -10,6 +17,10 @@ type Props = {
   donutGradient: (breakdown: Record<string, number>) => string;
   remainingMins: number;
   trackingActive?: boolean;
+  projects?: ProjectRow[];
+  todos?: AgentTodo[];
+  selectedTaskId?: string | null;
+  onTimeLogged?: () => void | Promise<void>;
 };
 
 export function CollaborateTasksInsights({
@@ -21,11 +32,78 @@ export function CollaborateTasksInsights({
   donutGradient,
   remainingMins,
   trackingActive = false,
+  projects = [],
+  todos = [],
+  selectedTaskId = null,
+  onTimeLogged,
 }: Props) {
   const breakdown = insights?.insights.breakdown_minutes || {};
   const trackedToday = tasksInsights?.today_minutes || 0;
   const byProject = tasksInsights?.by_project || [];
   const byTask = tasksInsights?.by_task || [];
+
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualProjectId, setManualProjectId] = useState('');
+  const [manualTodoId, setManualTodoId] = useState('');
+  const [manualMinutes, setManualMinutes] = useState('30');
+  const [manualNote, setManualNote] = useState('');
+  const [manualSaving, setManualSaving] = useState(false);
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [manualOk, setManualOk] = useState<string | null>(null);
+
+  const openTodos = useMemo(
+    () =>
+      todos.filter((t) => {
+        const s = String(t.status || '').toLowerCase();
+        return s !== 'done' && s !== 'completed' && s !== 'cancelled';
+      }),
+    [todos],
+  );
+
+  const submitManualTime = async () => {
+    const projectId = manualProjectId.trim();
+    const minutes = Math.round(Number(manualMinutes));
+    if (!projectId) {
+      setManualError('Pick a project');
+      return;
+    }
+    if (!Number.isFinite(minutes) || minutes < 1 || minutes > 480) {
+      setManualError('Enter 1–480 minutes');
+      return;
+    }
+    setManualSaving(true);
+    setManualError(null);
+    setManualOk(null);
+    try {
+      await postManualTimeEntry({
+        project_id: projectId,
+        todo_id: manualTodoId.trim() || null,
+        minutes,
+        note: manualNote.trim() || null,
+      });
+      setManualOk(`Logged ${fmtMinutes(minutes)}`);
+      setManualMinutes('30');
+      setManualNote('');
+      await onTimeLogged?.();
+    } catch (e) {
+      setManualError(e instanceof Error ? e.message : 'Could not log time');
+    } finally {
+      setManualSaving(false);
+    }
+  };
+
+  const openManualForm = () => {
+    const defaultProject =
+      projects.find((p) => p.id === manualProjectId)?.id ||
+      projects[0]?.id ||
+      '';
+    const defaultTodo = selectedTaskId || openTodos[0]?.id || '';
+    setManualProjectId(defaultProject);
+    setManualTodoId(defaultTodo);
+    setManualOpen(true);
+    setManualError(null);
+    setManualOk(null);
+  };
 
   return (
     <aside className="colab-cal-right colab-tasks-insights">
@@ -53,6 +131,83 @@ export function CollaborateTasksInsights({
       <div className="colab-tasks-insights-today">
         <span>Today tracked</span>
         <strong>{fmtMinutes(trackedToday)}</strong>
+      </div>
+
+      <div className="colab-tasks-manual-time">
+        {!manualOpen ? (
+          <button type="button" className="colab-cal-outline-btn colab-tasks-manual-time-btn" onClick={openManualForm}>
+            Log time manually
+          </button>
+        ) : (
+          <div className="colab-tasks-manual-time-form">
+            <div className="colab-tasks-manual-time-head">
+              <strong>Manual time entry</strong>
+              <button type="button" className="colab-cal-text-btn" onClick={() => setManualOpen(false)}>
+                Close
+              </button>
+            </div>
+            <label className="colab-tasks-manual-label">
+              Project
+              <select
+                className="colab-tasks-project-select"
+                value={manualProjectId}
+                onChange={(e) => setManualProjectId(e.target.value)}
+              >
+                <option value="">Select project</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="colab-tasks-manual-label">
+              Task (optional)
+              <select
+                className="colab-tasks-project-select"
+                value={manualTodoId}
+                onChange={(e) => setManualTodoId(e.target.value)}
+              >
+                <option value="">No task</option>
+                {openTodos.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="colab-tasks-manual-label">
+              Minutes
+              <input
+                type="number"
+                min={1}
+                max={480}
+                className="colab-tasks-inline-due"
+                value={manualMinutes}
+                onChange={(e) => setManualMinutes(e.target.value)}
+              />
+            </label>
+            <label className="colab-tasks-manual-label">
+              Note (optional)
+              <input
+                className="colab-tasks-inline-due"
+                value={manualNote}
+                onChange={(e) => setManualNote(e.target.value)}
+                placeholder="What did you work on?"
+              />
+            </label>
+            {manualError ? <p className="colab-tasks-compose-error">{manualError}</p> : null}
+            {manualOk ? <p className="colab-tasks-manual-ok">{manualOk}</p> : null}
+            <button
+              type="button"
+              className="colab-cal-save-btn"
+              disabled={manualSaving}
+              onClick={() => void submitManualTime()}
+            >
+              {manualSaving ? 'Saving…' : 'Log time'}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="colab-cal-donut" style={{ background: donutGradient(breakdown) }} />

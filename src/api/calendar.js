@@ -510,6 +510,43 @@ export async function handleCalendarApi(request, url, env, ctx) {
     );
   }
 
+  // POST /api/calendar/time-entry — manual time log fallback
+  if (parts[0] === 'time-entry' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const projectId = String(body.project_id || '').trim().slice(0, 120);
+    const todoId = body.todo_id ? String(body.todo_id).trim().slice(0, 64) : null;
+    const minutes = Math.min(Math.max(Math.round(Number(body.minutes) || 0), 1), 480);
+    const note = body.note ? String(body.note).trim().slice(0, 500) : null;
+    if (!projectId) return jsonResponse({ ok: false, error: 'project_id_required' }, 400);
+
+    const now = toSqlDateTime(new Date());
+    const entryDateRaw = body.entry_date ? String(body.entry_date).trim().slice(0, 10) : null;
+    const startTime =
+      entryDateRaw && /^\d{4}-\d{2}-\d{2}$/.test(entryDateRaw)
+        ? `${entryDateRaw} 12:00:00`
+        : now;
+    const descriptionParts = ['manual'];
+    if (note) descriptionParts.push(note);
+    if (todoId) descriptionParts.push(todoId);
+    descriptionParts.push(projectId);
+    const description = descriptionParts.join(' · ').slice(0, 500);
+    const entryId = `pte_${userId || 'user'}_${Date.now()}`;
+
+    try {
+      await env.DB.prepare(
+        `INSERT INTO project_time_entries
+          (id, user_id, project_id, start_time, duration_seconds, is_active, description)
+         VALUES (?, ?, ?, ?, ?, 0, ?)`,
+      )
+        .bind(entryId, userId, projectId, startTime, minutes * 60, description)
+        .run();
+      return jsonResponse({ ok: true, entry_id: entryId, minutes }, 201);
+    } catch (e) {
+      console.warn('[calendar/time-entry]', e?.message ?? e);
+      return jsonResponse({ ok: false, error: 'time_entry_failed' }, 500);
+    }
+  }
+
   // POST /api/calendar/activity/heartbeat — autonomous active time while on collaborate
   if (parts[0] === 'activity' && parts[1] === 'heartbeat' && method === 'POST') {
     const body = await request.json().catch(() => ({}));
