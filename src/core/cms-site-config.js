@@ -94,7 +94,7 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
     };
   }
 
-  /** Operator hub: one IAM CMS shell; site slug selects backend, not a separate embed. */
+  /** Operator hub: one IAM CMS shell; site slug selects backend via bridge/proxy — not IAM D1 copy. */
   const isOperatorHubPick =
     ws === OPERATOR_HUB_WORKSPACE && slug && Object.prototype.hasOwnProperty.call(CMS_SLUG_RUNTIME_WORKSPACE, slug);
 
