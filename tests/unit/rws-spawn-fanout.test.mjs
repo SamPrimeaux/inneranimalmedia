@@ -57,6 +57,25 @@ test('shouldRunRwsFanout is multitask-only with policy execution enabled', () =>
       parallel_policy: { enabled: true, execution_enabled: false },
     }),
     false,
+    'RWS requires execution_enabled',
+  );
+  assert.equal(
+    shouldRunRwsFanout({
+      mode: 'multitask',
+      parallel_policy: { enabled: true, execution_enabled: true },
+      skip_rws_fanout: true,
+    }),
+    false,
+    'Design Studio surface skips RWS fanout',
+  );
+  assert.equal(
+    shouldRunRwsFanout({
+      mode: 'multitask',
+      parallel_policy: { enabled: true, execution_enabled: true },
+      refined_route_key: 'design_studio',
+    }),
+    false,
+    'design_studio route skips RWS fanout',
   );
   for (const mode of ['agent', 'debug', 'plan', 'ask']) {
     assert.equal(

@@ -1003,6 +1003,9 @@ function applyOverridesToProfile(profile, overrides) {
   if (overrides.model_key != null && String(overrides.model_key).trim() !== '') {
     profile.model_key = String(overrides.model_key).trim();
   }
+  if (overrides.skip_rws_fanout === true) {
+    profile.skip_rws_fanout = true;
+  }
   return profile;
 }
 

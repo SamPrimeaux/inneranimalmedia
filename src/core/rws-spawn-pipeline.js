@@ -10,6 +10,11 @@ export const RWS_SPAWN_MODES = new Set(['multitask']);
  */
 export function shouldRunRwsFanout(profile) {
   if (!profile || profile.mode !== 'multitask') return false;
+  if (profile.skip_rws_fanout === true) return false;
+  const routeKey = String(profile.refined_route_key || '').trim().toLowerCase();
+  const taskType = String(profile.routing_task_type || '').trim().toLowerCase();
+  if (routeKey === 'design_studio' || routeKey === 'cad_generation') return false;
+  if (taskType === 'design_studio' || taskType === 'cad_generation') return false;
   return (
     profile.parallel_policy?.enabled === true && profile.parallel_policy?.execution_enabled === true
   );

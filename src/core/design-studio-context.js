@@ -4,6 +4,60 @@
 
 /**
  * @param {Record<string, unknown>|null|undefined} raw
+ * @returns {boolean}
+ */
+export function isDesignStudioSurfaceContext(raw) {
+  return !!(raw && typeof raw === 'object' && String(raw.surface || '') === 'design_studio');
+}
+
+/**
+ * @param {unknown} message
+ * @returns {boolean}
+ */
+export function isDesignStudioCadCreateIntent(message) {
+  const m = String(message || '').trim();
+  if (!m) return false;
+  if (/\billustration_create\b/i.test(m)) return true;
+  if (/\b(openscad|freecad|openpyscad|model_3d|text-to-3d|text to 3d)\b/i.test(m)) return true;
+  if (
+    /\b(generate|create|make|build)\b.*\b(chair|model|mesh|glb|3d|object|cube|table|desk|sofa|fixture)\b/i.test(
+      m,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(chair|model|mesh|glb|3d object|openscad)\b.*\b(generate|create|make|show in viewer)\b/i.test(
+      m,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Pin design_studio route + CAD tools when the live viewport context is present.
+ *
+ * @param {unknown} browserContext
+ * @param {unknown} body
+ * @param {unknown} message
+ * @returns {{ route_key: string, task_type: string, subagent_slug: string, skip_rws_fanout: true }|null}
+ */
+export function resolveDesignStudioChatOverrides(browserContext, body, message) {
+  const raw = extractDesignStudioContext(browserContext, body);
+  if (!isDesignStudioSurfaceContext(raw)) return null;
+  const cadIntent = isDesignStudioCadCreateIntent(message);
+  return {
+    route_key: 'design_studio',
+    task_type: cadIntent ? 'cad_generation' : 'design_studio',
+    subagent_slug: 'cadcreator',
+    skip_rws_fanout: true,
+  };
+}
+
+/**
+ * @param {Record<string, unknown>|null|undefined} raw
  * @returns {string|null}
  */
 export function formatDesignStudioContextForAgent(raw) {
@@ -12,8 +66,7 @@ export function formatDesignStudioContextForAgent(raw) {
   const route = String(raw.route || raw.dashboard_route || '');
   const isDesignStudio =
     surface === 'design_studio' ||
-    route.includes('/dashboard/designstudio') ||
-    route.includes('/dashboard/agent/');
+    route.includes('/dashboard/designstudio');
   if (!isDesignStudio && !raw.scene_id && !raw.entity_count) return null;
 
   const lines = [

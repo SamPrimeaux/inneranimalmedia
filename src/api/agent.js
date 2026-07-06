@@ -1306,6 +1306,17 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     } catch (_) {
       browserContextPayload = null;
     }
+    try {
+      const { resolveDesignStudioChatOverrides } = await import('../core/design-studio-context.js');
+      const dsRouteOverrides = resolveDesignStudioChatOverrides(browserContextPayload, body, message);
+      if (dsRouteOverrides?.route_key) body.route_key = dsRouteOverrides.route_key;
+      if (dsRouteOverrides?.task_type) body.task_type = dsRouteOverrides.task_type;
+      if (dsRouteOverrides?.subagent_slug && !body.subagent_slug && !body.subagentSlug) {
+        body.subagent_slug = dsRouteOverrides.subagent_slug;
+      }
+    } catch (_) {
+      /* ignore */
+    }
     const cmsRaw = body.cms_context ?? body.cmsContext;
     if (cmsRaw && typeof cmsRaw === 'object') {
       browserContextPayload = browserContextPayload && typeof browserContextPayload === 'object'

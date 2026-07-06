@@ -2802,9 +2802,23 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     if (designStudioCadJobId?.trim()) form.append('cad_job_id', designStudioCadJobId.trim());
     if (sendWorkspaceId) form.append('workspace_id', sendWorkspaceId);
     if (sendOpts?.task_type?.trim()) form.append('task_type', sendOpts.task_type.trim());
+    else if (
+      designStudioSurfaceRef.current?.surface === 'design_studio' &&
+      /\billustration_create\b|\b(openscad|freecad|model_3d)\b|\b(make|create|generate)\b.*\b(chair|model|glb|3d|object|cube)\b/i.test(
+        messageForApi,
+      )
+    ) {
+      form.append('task_type', 'cad_generation');
+    }
     if (sendOpts?.route_key?.trim()) form.append('route_key', sendOpts.route_key.trim());
-    else if (dashboardRouteKey?.trim()) form.append('route_key', dashboardRouteKey.trim());
-    const effectiveSubagentSlug = sendOpts?.subagent_slug?.trim() || defaultSubagentSlug?.trim() || '';
+    else if (designStudioSurfaceRef.current?.surface === 'design_studio') {
+      form.append('route_key', 'design_studio');
+    } else if (dashboardRouteKey?.trim()) form.append('route_key', dashboardRouteKey.trim());
+    const effectiveSubagentSlug =
+      sendOpts?.subagent_slug?.trim() ||
+      defaultSubagentSlug?.trim() ||
+      (designStudioSurfaceRef.current?.surface === 'design_studio' ? 'cadcreator' : '') ||
+      '';
     if (effectiveSubagentSlug) form.append('subagent_slug', effectiveSubagentSlug);
     if (sendOpts?.quickstart_batch?.trim()) {
       form.append('quickstart_batch', sendOpts.quickstart_batch.trim());

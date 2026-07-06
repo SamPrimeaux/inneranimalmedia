@@ -102,6 +102,22 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     pre.projectContext ?? parseProjectContextFromBody(body) ?? null;
   const userAppLane = shouldUseUserAppRuntimeLane(body, pre);
 
+  const { resolveDesignStudioChatOverrides } = await import('../core/design-studio-context.js');
+  const designStudioOverrides = resolveDesignStudioChatOverrides(browserContextPayload, body, message);
+  const runtimeOverrides = {
+    model_key: modelOverride,
+    subagent_slug:
+      body.subagent_slug ??
+      body.subagentSlug ??
+      designStudioOverrides?.subagent_slug ??
+      null,
+    route_key:
+      designStudioOverrides?.route_key ?? body.route_key ?? body.routeKey ?? null,
+    task_type:
+      designStudioOverrides?.task_type ?? body.task_type ?? body.taskType ?? null,
+    skip_rws_fanout: designStudioOverrides?.skip_rws_fanout === true,
+  };
+
   const profile = await withD1Retry(
     () =>
       userAppLane
@@ -110,8 +126,8 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
             message,
             session: { userId, workspaceId, tenantId, conversationId: sessionId, authUser },
             overrides: {
-              model_key: modelOverride,
-              subagent_slug: body.subagent_slug ?? body.subagentSlug ?? null,
+              model_key: runtimeOverrides.model_key,
+              subagent_slug: runtimeOverrides.subagent_slug,
             },
             projectContext,
             requireVision,
@@ -126,12 +142,7 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
             mode: requestedMode,
             message,
             session: { userId, workspaceId, tenantId, conversationId: sessionId, authUser },
-            overrides: {
-              model_key: modelOverride,
-              subagent_slug: body.subagent_slug ?? body.subagentSlug ?? null,
-              route_key: body.route_key ?? body.routeKey ?? null,
-              task_type: body.task_type ?? body.taskType ?? null,
-            },
+            overrides: runtimeOverrides,
             compile_lane: 'live',
             requireVision,
           }),
