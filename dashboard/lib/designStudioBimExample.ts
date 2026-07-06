@@ -9,8 +9,10 @@ export const DESIGN_STUDIO_BIM_EXAMPLE = {
   id: 'ds_stock_bim_example',
   name: 'BIM Example (FreeCAD)',
   url: '/assets/cad/exports/tenant_sam_primeaux/ws_inneranimalmedia/cadj_bimexample311065.glb',
-  /** 0 = auto-fit to viewport in AgentSamEngine.spawnEntity */
-  scale: 0,
+  /** BIM profile: true scale (mm→m); sidecar drives orientation + fit_to_viewport */
+  scale: 1,
+  placementSidecarUrl:
+    '/assets/cad/exports/tenant_sam_primeaux/ws_inneranimalmedia/cadj_bimexample311065.placement.json',
   cadJobId: 'cadj_bimexample311065',
   sourceFile: 'BIMExample.FCStd',
   engine: 'freecad',

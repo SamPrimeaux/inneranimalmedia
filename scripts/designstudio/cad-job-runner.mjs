@@ -213,6 +213,10 @@ function buildR2Key(job) {
   return `cad/exports/${t}/${w}/${j}.glb`;
 }
 
+function placementR2KeyFromGlb(glbR2Key) {
+  return String(glbR2Key || '').replace(/\.glb$/i, '.placement.json');
+}
+
 function uploadGlb(localPath, r2Key) {
   spawnSync(
     'bash',
@@ -226,6 +230,40 @@ function uploadGlb(localPath, r2Key) {
     ],
     { cwd: REPO_ROOT, encoding: 'utf8', stdio: 'pipe' },
   );
+}
+
+function uploadPlacementSidecar(localPath, r2Key) {
+  spawnSync(
+    'bash',
+    [join(REPO_ROOT, 'scripts/with-cloudflare-env.sh'), 'npx', 'wrangler', 'r2', 'object', 'put',
+      `inneranimalmedia/${r2Key}`,
+      `--file=${localPath}`,
+      '--content-type=application/json',
+      '--remote',
+      '-c',
+      'wrangler.jsonc',
+    ],
+    { cwd: REPO_ROOT, encoding: 'utf8', stdio: 'pipe' },
+  );
+}
+
+function readPlacementSidecar(tmpDir) {
+  const candidates = [
+    join(tmpDir, 'placement_sidecar.json'),
+    join(tmpDir, 'output.placement.json'),
+  ];
+  for (const p of candidates) {
+    if (!existsSync(p)) continue;
+    try {
+      const raw = JSON.parse(readFileSync(p, 'utf8'));
+      if (raw && typeof raw === 'object' && String(raw.schema || '') === 'iam.cad.placement.v1') {
+        return raw;
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
 }
 
 async function callJobComplete(payload) {
@@ -339,6 +377,17 @@ async function processJob(job) {
     const publicUrl = `/assets/${r2Key}`;
     const sizeBytes = statSync(glbPath).size;
 
+    const placementSidecar = readPlacementSidecar(tmpDir);
+    let placementSidecarUrl = null;
+    if (placementSidecar) {
+      const sidecarLocal = join(tmpDir, 'upload.placement.json');
+      writeFileSync(sidecarLocal, JSON.stringify(placementSidecar, null, 2), 'utf8');
+      const sidecarR2Key = placementR2KeyFromGlb(r2Key);
+      uploadPlacementSidecar(sidecarLocal, sidecarR2Key);
+      placementSidecarUrl = `/assets/${sidecarR2Key}`;
+      if (!placementSidecar.cad_job_id) placementSidecar.cad_job_id = String(job.id || '');
+    }
+
     const result = await callJobComplete({
       job_id: job.id,
       status: 'done',
@@ -348,6 +397,13 @@ async function processJob(job) {
       size_bytes: sizeBytes,
       duration_ms: Date.now() - started,
       runner_host: RUNNER_HOST,
+      ...(placementSidecar
+        ? {
+            placement_sidecar: placementSidecar,
+            placement_sidecar_url: placementSidecarUrl,
+            spawn_profile: placementSidecar.spawn?.profile ?? 'bim',
+          }
+        : {}),
     });
 
     if (!result) {

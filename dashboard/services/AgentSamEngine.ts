@@ -20,6 +20,17 @@ import {
 import { parseFenPlacement, positionToSquare, squareToPosition } from '../lib/chessSquares';
 import { createChessBoard } from '../lib/chessBoard';
 import { applyChessPieceMaterials, setupChessEnvironment } from '../lib/chessMaterials';
+import {
+  applySourceOrientation,
+  bottomCenterModel,
+  buildSpatialSnapshot,
+  createAxesHelper,
+  resolveSpawnProfile,
+  worldBoxFromObject,
+  eulerDegFromObject,
+  boxToSnapshot,
+} from './agentSamSpatial';
+import type { EntitySpatialSnapshot } from '../lib/cadPlacement';
 
 const CHESS_PIECES = ['bishop', 'king', 'knight', 'pawn', 'queen', 'rook'] as const;
 
@@ -72,6 +83,10 @@ export class AgentSamEngine {
   private raycaster = new THREE.Raycaster();
   private mouse = new THREE.Vector2();
   private gridHelper: THREE.GridHelper | null = null;
+  private worldSpatialAxes: THREE.Group | null = null;
+  private modelSpatialAxes: THREE.Group | null = null;
+  private spatialOverlaysEnabled = true;
+  private selectedSpatialEntityId: string | null = null;
   private drawingPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private startPoint: THREE.Vector3 | null = null;
   private previewMesh: THREE.InstancedMesh | null = null;
@@ -340,13 +355,50 @@ export class AgentSamEngine {
     const grid = new THREE.GridHelper(100, 100, 0x666688, 0x222233);
     grid.position.y = -0.01;
     this.gridHelper = grid;
-    
-    // Add a stronger origin axis lines
-    const axesHelper = new THREE.AxesHelper(5);
-    axesHelper.position.y = -0.005;
-    this.scene.add(axesHelper);
-    
     this.scene.add(grid);
+
+    this.worldSpatialAxes = createAxesHelper(3, 0.9);
+    this.worldSpatialAxes.name = 'iam_world_axes';
+    this.worldSpatialAxes.position.set(0, 0.001, 0);
+    this.scene.add(this.worldSpatialAxes);
+
+    this.modelSpatialAxes = createAxesHelper(2, 1);
+    this.modelSpatialAxes.name = 'iam_model_axes';
+    this.modelSpatialAxes.visible = false;
+    this.scene.add(this.modelSpatialAxes);
+  }
+
+  public setSpatialOverlaysEnabled(enabled: boolean) {
+    this.spatialOverlaysEnabled = enabled;
+    if (this.worldSpatialAxes) this.worldSpatialAxes.visible = enabled;
+    this.syncModelSpatialAxes();
+  }
+
+  private syncModelSpatialAxes() {
+    if (!this.modelSpatialAxes) return;
+    if (!this.spatialOverlaysEnabled || !this.selectedSpatialEntityId) {
+      this.modelSpatialAxes.visible = false;
+      return;
+    }
+    const ent = this.entities.get(this.selectedSpatialEntityId);
+    const visual = ent?.model || ent?.mesh;
+    if (!visual) {
+      this.modelSpatialAxes.visible = false;
+      return;
+    }
+    const box = worldBoxFromObject(visual);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const axisLen = Math.max(0.5, Math.min(12, Math.max(size.x, size.y, size.z) * 0.35));
+    this.modelSpatialAxes.clear();
+    this.modelSpatialAxes.add(createAxesHelper(axisLen, 1));
+    this.modelSpatialAxes.position.set(visual.position.x, visual.position.y, visual.position.z);
+    this.modelSpatialAxes.visible = true;
+  }
+
+  public setSelectedSpatialEntity(id: string | null) {
+    this.selectedSpatialEntityId = id;
+    this.syncModelSpatialAxes();
   }
 
   /** Raycast targets for CAD voxel/paint — grid + voxel meshes only (never deep GLB hierarchies). */
@@ -786,21 +838,30 @@ export class AgentSamEngine {
       try {
         const gltf = await this.loadModel(entity.modelUrl);
         const model = cloneGltfScene(gltf);
-        
-        // Correct normalization: Align bottom center of model to local origin
-        const box = new THREE.Box3().setFromObject(model);
-        const size = new THREE.Vector3();
-        box.getSize(size);
-        const center = new THREE.Vector3();
-        box.getCenter(center);
-        
-        // Pivot group to handle centering and scaling correctly
+        const { profile, sidecar, fitToViewport, unitScale } = resolveSpawnProfile(entity);
+
+        applySourceOrientation(model, sidecar);
+
+        const boxBeforeScale = new THREE.Box3().setFromObject(model);
+        const sizeBefore = new THREE.Vector3();
+        boxBeforeScale.getSize(sizeBefore);
+        bottomCenterModel(model);
+
         const pivot = new THREE.Group();
-        model.position.set(-center.x, -box.min.y, -center.z); // Move bottom of model to 0,0,0
         pivot.add(model);
-        
-        const autoScale = entity.scale || (5 / Math.max(size.x, size.y, size.z));
-        pivot.scale.set(autoScale, autoScale, autoScale);
+
+        let appliedScale: number;
+        if (fitToViewport) {
+          appliedScale =
+            entity.scale && entity.scale > 0
+              ? entity.scale
+              : 5 / Math.max(sizeBefore.x, sizeBefore.y, sizeBefore.z, 0.001);
+        } else if (entity.scale && entity.scale > 0) {
+          appliedScale = entity.scale * unitScale;
+        } else {
+          appliedScale = unitScale;
+        }
+        pivot.scale.set(appliedScale, appliedScale, appliedScale);
 
         const pieceColor = (entity.behavior.metadata?.color as 'white' | 'black' | undefined)
           ?? (entity.name?.toLowerCase().startsWith('white')
@@ -819,9 +880,17 @@ export class AgentSamEngine {
         
         visual = pivot;
         this.scene.add(visual);
+        const meta = { ...(entity.behavior.metadata ?? {}) } as Record<string, unknown>;
+        meta.spawn_profile = profile;
+        meta.visual_scale = appliedScale;
+        entity.behavior = { ...entity.behavior, metadata: meta };
         this.entities.set(entity.id, { model: pivot, data: entity });
-        
-        console.log(`Successfully spawned model: ${entity.name} at scale ${autoScale}`);
+
+        const spatial = buildSpatialSnapshot(entity, pivot, profile, meta);
+        meta.spatial = spatial;
+        entity.behavior.metadata = meta;
+
+        console.log(`Successfully spawned model: ${entity.name} profile=${profile} scale=${appliedScale}`);
         this.frameCameraOnObject(visual);
       } catch (err) {
         console.error(`Failed to load model: ${entity.modelUrl}`, err);
@@ -842,6 +911,13 @@ export class AgentSamEngine {
 
     if (visual) {
       visual.position.set(entity.position.x, entity.position.y, entity.position.z);
+      if (entity.rotation) {
+        visual.rotation.set(
+          THREE.MathUtils.degToRad(entity.rotation.x ?? 0),
+          THREE.MathUtils.degToRad(entity.rotation.y ?? 0),
+          THREE.MathUtils.degToRad(entity.rotation.z ?? 0),
+        );
+      }
       if (entity.behavior.type === 'dynamic') {
         const box = new THREE.Box3().setFromObject(visual);
         const size = new THREE.Vector3();
@@ -962,6 +1038,10 @@ export class AgentSamEngine {
       if (ent.model) this.scene.remove(ent.model);
       if (ent.body) this.world.removeBody(ent.body);
       this.entities.delete(id);
+      if (this.selectedSpatialEntityId === id) {
+        this.selectedSpatialEntityId = null;
+        this.syncModelSpatialAxes();
+      }
       this.updateEntityCount();
     }
   }
@@ -1227,6 +1307,57 @@ export class AgentSamEngine {
     });
     const faces = Math.round(tris);
     return { verts, edges: faces * 2, faces, tris: Math.round(tris) };
+  }
+
+  private refreshEntitySpatialMetadata(id: string) {
+    const ent = this.entities.get(id);
+    const visual = ent?.model || ent?.mesh;
+    if (!ent || !visual) return null;
+    const meta = { ...(ent.data.behavior.metadata ?? {}) } as Record<string, unknown>;
+    const profile = meta.spawn_profile === 'bim' ? 'bim' : 'preview';
+    const spatial = buildSpatialSnapshot(ent.data, visual, profile, meta);
+    meta.spatial = spatial;
+    ent.data.behavior = { ...ent.data.behavior, metadata: meta };
+    return spatial;
+  }
+
+  public getEntitySpatialInfo(id: string): EntitySpatialSnapshot | null {
+    const ent = this.entities.get(id);
+    const cached = ent?.data.behavior.metadata?.spatial as EntitySpatialSnapshot | undefined;
+    if (cached) return cached;
+    return this.refreshEntitySpatialMetadata(id);
+  }
+
+  public snapEntityToGridOrigin(id: string) {
+    const ent = this.entities.get(id);
+    const visual = ent?.model || ent?.mesh;
+    if (!ent || !visual) return;
+    const box = worldBoxFromObject(visual);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    ent.data.position = {
+      x: ent.data.position.x - center.x,
+      y: ent.data.position.y - box.min.y,
+      z: ent.data.position.z - center.z,
+    };
+    visual.position.set(ent.data.position.x, ent.data.position.y, ent.data.position.z);
+    this.refreshEntitySpatialMetadata(id);
+    this.syncModelSpatialAxes();
+  }
+
+  public setEntityGroundY(id: string, groundY: number) {
+    const ent = this.entities.get(id);
+    const visual = ent?.model || ent?.mesh;
+    if (!ent || !visual) return;
+    const box = worldBoxFromObject(visual);
+    const delta = groundY - box.min.y;
+    ent.data.position = {
+      ...ent.data.position,
+      y: ent.data.position.y + delta,
+    };
+    visual.position.y = ent.data.position.y;
+    this.refreshEntitySpatialMetadata(id);
+    this.syncModelSpatialAxes();
   }
 
   public patchEntityDimensions(id: string, dims: { w?: number; h?: number; d?: number }) {

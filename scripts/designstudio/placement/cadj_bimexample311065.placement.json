@@ -1,0 +1,20 @@
+{
+  "schema": "iam.cad.placement.v1",
+  "units": "mm",
+  "up_axis": "Z",
+  "bbox_mm": {
+    "min": [-15000, -8000, 0],
+    "max": [15000, 8000, 12000]
+  },
+  "placement": {
+    "position_mm": [0, 0, 0],
+    "rotation_euler_deg": [0, 0, 0]
+  },
+  "spawn": {
+    "profile": "bim",
+    "fit_to_viewport": false
+  },
+  "source_fcstd": "BIMExample.FCStd",
+  "cad_job_id": "cadj_bimexample311065",
+  "note": "bbox_mm from FreeCAD export; world_bbox in viewport is recomputed after GLB load."
+}

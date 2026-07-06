@@ -67,6 +67,7 @@ export interface GameEntity {
   voxels?: VoxelData[];
   modelUrl?: string;
   scale?: number;
+  rotation?: { x: number; y: number; z: number };
   position: { x: number, y: number, z: number };
   behavior: EntityBehavior;
 }

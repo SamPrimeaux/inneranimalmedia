@@ -12,6 +12,12 @@ import {
 import { publishDesignStudioSurfaceContext } from '../src/lib/designStudioEvents';
 import { normalizeGlbUrl } from '../lib/glbAssets';
 import { DESIGN_STUDIO_BIM_EXAMPLE, isDesignStudioBimExampleUrl } from '../lib/designStudioBimExample';
+import {
+  fetchPlacementSidecarForGlb,
+  sidecarUrlForGlb,
+  spawnMetadataFromSidecar,
+  type EntitySpatialSnapshot,
+} from '../lib/cadPlacement';
 import { useDesignStudioCad } from './designstudio/hooks/useDesignStudioCad';
 import { spawnGlbInEngine } from './designstudio/spawnGlb';
 import { useDesignStudioContext } from './designstudio/DesignStudioContext';
@@ -118,6 +124,8 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
 
   const [entities, setEntities] = useState<GameEntity[]>([]);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const [spatialOverlaysEnabled, setSpatialOverlaysEnabled] = useState(true);
+  const [entitySpatialTick, setEntitySpatialTick] = useState(0);
 
   const [genConfig, setGenConfig] = useState<GenerationConfig>({
     style: ArtStyle.CYBERPUNK,
@@ -365,10 +373,20 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
     setStudioContext,
   ]);
 
+  const getEntitySpatialInfo = useCallback(
+    (id: string): EntitySpatialSnapshot | null => {
+      void entitySpatialTick;
+      if (!isAgentSamEngine(engineRef.current)) return null;
+      return engineRef.current.getEntitySpatialInfo(id);
+    },
+    [entitySpatialTick],
+  );
+
   useEffect(() => {
     const selected = selectedEntityId
       ? entities.find((e) => e.id === selectedEntityId) ?? null
       : null;
+    const spatial = selectedEntityId ? getEntitySpatialInfo(selectedEntityId) : null;
     const polled = cad.polledJob;
     publishDesignStudioSurfaceContext({
       surface: 'design_studio',
@@ -387,6 +405,17 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
             type: selected.type,
             modelUrl: selected.modelUrl ?? null,
             scale: selected.scale ?? null,
+          }
+        : null,
+      spatial: spatial
+        ? {
+            units: spatial.units,
+            source_units: spatial.source_units ?? null,
+            spawn_profile: spatial.spawn_profile,
+            up_axis: spatial.up_axis ?? null,
+            ground_y: spatial.ground_y,
+            rotation_euler_deg: spatial.rotation_euler_deg,
+            world_bbox: spatial.world_bbox,
           }
         : null,
       entities: entities.slice(0, 16).map((e) => ({
@@ -424,6 +453,8 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
     entities,
     selectedEntityId,
     computeHealth,
+    getEntitySpatialInfo,
+    entitySpatialTick,
   ]);
 
   useEffect(() => {
@@ -567,6 +598,24 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
         console.warn('[DesignStudio] spawn: could not resolve URL for', name, url);
         return false;
       }
+      let placementMeta: Record<string, unknown> = {};
+      if (isDesignStudioBimExampleUrl(normalized)) {
+        placementMeta = {
+          spawn_profile: 'bim',
+          source_units: 'mm',
+          up_axis: 'Z',
+          fit_to_viewport: false,
+          proof_lane: 'bim',
+          engine: 'freecad',
+          source_fcstd: DESIGN_STUDIO_BIM_EXAMPLE.sourceFile,
+          cad_job_id: DESIGN_STUDIO_BIM_EXAMPLE.cadJobId,
+          placement_sidecar_url: sidecarUrlForGlb(normalized),
+        };
+      }
+      const sidecar = await fetchPlacementSidecarForGlb(normalized);
+      if (sidecar) {
+        placementMeta = { ...placementMeta, ...spawnMetadataFromSidecar(sidecar) };
+      }
       if (!isAgentSamEngine(engineRef.current)) {
         pendingSpawnRef.current = { name, url: normalized, scale };
         setStudioPhase('studio');
@@ -583,13 +632,13 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
           position: { x: 0, y: 0, z: 0 },
           behavior: {
             type: 'static',
-            metadata: isDesignStudioBimExampleUrl(normalized)
-              ? { proof_lane: 'bim', engine: 'freecad', source_fcstd: DESIGN_STUDIO_BIM_EXAMPLE.sourceFile }
-              : undefined,
+            metadata: Object.keys(placementMeta).length ? placementMeta : undefined,
           },
         });
-        // Phase 1C: select spawned entity and frame camera on it
         setSelectedEntityId(entityId);
+        engineRef.current.setSelectedSpatialEntity(entityId);
+        engineRef.current.setSpatialOverlaysEnabled(spatialOverlaysEnabled);
+        setEntitySpatialTick((n) => n + 1);
         requestAnimationFrame(() => engineRef.current?.frameCameraOnObject());
         return true;
       } catch (err) {
@@ -597,7 +646,7 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
         return false;
       }
     },
-    [],
+    [spatialOverlaysEnabled],
   );
 
   // Phase 1A: coordinated pending-spawn effect — fires after engineReady.
@@ -849,9 +898,14 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
         ) return prev;
         return list;
       });
-      setSelectedEntityId((sel) =>
-        sel && !list.some((e) => e.id === sel) ? (list[0]?.id ?? null) : sel
-      );
+      setSelectedEntityId((sel) => {
+        const next =
+          sel && !list.some((e) => e.id === sel) ? (list[0]?.id ?? null) : sel;
+        if (isAgentSamEngine(engineRef.current)) {
+          engineRef.current.setSelectedSpatialEntity(next);
+        }
+        return next;
+      });
     };
     sync();
     const id = window.setInterval(sync, 500);
@@ -978,6 +1032,32 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
     );
   }, [handleSpawnModel]);
 
+  const handleSelectEntity = useCallback((id: string | null) => {
+    setSelectedEntityId(id);
+    if (isAgentSamEngine(engineRef.current)) {
+      engineRef.current.setSelectedSpatialEntity(id);
+    }
+  }, []);
+
+  const handleSnapEntityToGrid = useCallback((id: string) => {
+    if (!isAgentSamEngine(engineRef.current)) return;
+    engineRef.current.snapEntityToGridOrigin(id);
+    setEntitySpatialTick((n) => n + 1);
+  }, []);
+
+  const handleSetEntityGroundY = useCallback((id: string, y: number) => {
+    if (!isAgentSamEngine(engineRef.current)) return;
+    engineRef.current.setEntityGroundY(id, y);
+    setEntitySpatialTick((n) => n + 1);
+  }, []);
+
+  const handleSpatialOverlaysChange = useCallback((enabled: boolean) => {
+    setSpatialOverlaysEnabled(enabled);
+    if (isAgentSamEngine(engineRef.current)) {
+      engineRef.current.setSpatialOverlaysEnabled(enabled);
+    }
+  }, []);
+
   const handleEntryImportGlb = useCallback(
     (file: File) => {
       handleImportGlbFile(file);
@@ -1052,7 +1132,7 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
         entities={entities}
         entityCount={entityCount}
         selectedId={selectedEntityId}
-        onSelectEntity={setSelectedEntityId}
+        onSelectEntity={handleSelectEntity}
         onClear={onClear}
         onUndo={handleUndo}
         onRedo={handleRedo}
@@ -1108,6 +1188,11 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
             ? engineRef.current.getEntityMeshStats(id)
             : { verts: 0, edges: 0, faces: 0, tris: 0 }
         }
+        getEntitySpatialInfo={getEntitySpatialInfo}
+        onSnapEntityToGrid={handleSnapEntityToGrid}
+        onSetEntityGroundY={handleSetEntityGroundY}
+        spatialOverlaysEnabled={spatialOverlaysEnabled}
+        onSpatialOverlaysChange={handleSpatialOverlaysChange}
         onFrameAll={handleFrameAll}
         onViewportZoom={handleViewportZoom}
         onViewportPanMode={handleViewportPanMode}

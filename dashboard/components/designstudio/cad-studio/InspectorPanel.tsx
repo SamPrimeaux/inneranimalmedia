@@ -7,6 +7,7 @@ import type { GameEntity, SceneConfig } from '../../../../types';
 import type { EntityMaterialPatch, StudioSceneEnvConfig, StudioSceneEnvPatch } from './studioEnvironment';
 import { STUDIO_CANVAS_PRESETS, STUDIO_WORLD_PRESETS } from './studioEnvironment';
 import type { MeshStats } from './cadStudioTypes';
+import type { EntitySpatialSnapshot } from '../../../../lib/cadPlacement';
 import { OutlinerEditor } from './editors/OutlinerEditor';
 import type { ProtocolArtifact } from './useCadStudioProtocol';
 
@@ -41,6 +42,11 @@ export type InspectorPanelProps = {
   onPatchDimensions?: (entityId: string, dims: { w?: number; h?: number; d?: number }) => void;
   onRunBlenderJob?: (prompt: string) => void | Promise<void>;
   meshStats?: MeshStats;
+  entitySpatial?: EntitySpatialSnapshot | null;
+  onSnapEntityToGrid?: (id: string) => void;
+  onSetEntityGroundY?: (id: string, y: number) => void;
+  spatialOverlaysEnabled?: boolean;
+  onSpatialOverlaysChange?: (enabled: boolean) => void;
 };
 
 function SectionHead({ label }: { label: string }) {
@@ -326,6 +332,11 @@ function ObjectInspector({
   onPatchDimensions,
   onRunBlenderJob,
   meshStats,
+  entitySpatial,
+  onSnapEntityToGrid,
+  onSetEntityGroundY,
+  spatialOverlaysEnabled = true,
+  onSpatialOverlaysChange,
 }: {
   entity: GameEntity;
   onEntityNameChange?: (id: string, name: string) => void;
@@ -335,10 +346,18 @@ function ObjectInspector({
   onPatchDimensions?: (entityId: string, dims: { w?: number; h?: number; d?: number }) => void;
   onRunBlenderJob?: (prompt: string) => void | Promise<void>;
   meshStats?: MeshStats;
+  entitySpatial?: EntitySpatialSnapshot | null;
+  onSnapEntityToGrid?: (id: string) => void;
+  onSetEntityGroundY?: (id: string, y: number) => void;
+  spatialOverlaysEnabled?: boolean;
+  onSpatialOverlaysChange?: (enabled: boolean) => void;
 }) {
   const pos = entity.position ?? { x: 0, y: 0, z: 0 };
-  const scale = entity.scale ?? 1;
+  const scale = entity.scale ?? entitySpatial?.visual_scale ?? 1;
+  const rot = entitySpatial?.rotation_euler_deg ?? entity.rotation ?? { x: 0, y: 0, z: 0 };
   const stats = meshStats ?? { verts: 0, edges: 0, faces: 0, tris: 0 };
+  const bbox = entitySpatial?.world_bbox;
+  const unitsLabel = entitySpatial?.units ?? 'scene';
   const [matColor, setMatColor] = useState('#8a8a8a');
   const [roughness, setRoughness] = useState(0.45);
   const [metalness, setMetalness] = useState(0.1);
@@ -400,6 +419,55 @@ function ObjectInspector({
             Reset Transform
           </button>
         </div>
+      </div>
+
+      <div className="ip__section">
+        <SectionHead label="PLANS / GYRO" />
+        <Row label="Units">
+          <span className="ip__value">{unitsLabel}{entitySpatial?.source_units ? ` (source ${entitySpatial.source_units})` : ''}</span>
+        </Row>
+        <Row label="Profile">
+          <span className="ip__value">{entitySpatial?.spawn_profile ?? 'preview'}</span>
+        </Row>
+        {bbox ? (
+          <>
+            <div className="ip__section-title" style={{ marginTop: 8, marginBottom: 4 }}>WORLD BBOX ({unitsLabel})</div>
+            <div className="ip__stats ip__stats--spatial">
+              <span>W <b>{bbox.size.x.toFixed(3)}</b></span>
+              <span>H <b>{bbox.size.y.toFixed(3)}</b></span>
+              <span>D <b>{bbox.size.z.toFixed(3)}</b></span>
+            </div>
+            <div className="ip__stats ip__stats--spatial">
+              <span>min Y <b>{bbox.min.y.toFixed(3)}</b></span>
+              <span>ground <b>{entitySpatial?.ground_y.toFixed(3) ?? '—'}</b></span>
+            </div>
+          </>
+        ) : null}
+        <div className="ip__section-title" style={{ marginTop: 8, marginBottom: 4 }}>ROTATION (°)</div>
+        <div className="ip__xyz-row">
+          {(['x', 'y', 'z'] as const).map((axis) => (
+            <div key={axis} className="ip__xyz-field">
+              <span className={`ip__xyz-label ip__xyz-label--${axis}`}>{axis.toUpperCase()}</span>
+              <span className="ip__value ip__value--readonly">{(rot[axis] ?? 0).toFixed(1)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="ip__chip-grid" style={{ marginTop: 8 }}>
+          <button type="button" className="ip__chip" onClick={() => onSnapEntityToGrid?.(entity.id)}>
+            Snap to grid origin
+          </button>
+          <button type="button" className="ip__chip" onClick={() => onSetEntityGroundY?.(entity.id, 0)}>
+            Set ground Y=0
+          </button>
+        </div>
+        <label className="ip__toggle-row" style={{ marginTop: 8 }}>
+          <input
+            type="checkbox"
+            checked={spatialOverlaysEnabled}
+            onChange={(e) => onSpatialOverlaysChange?.(e.target.checked)}
+          />
+          Show world + model axis triads
+        </label>
       </div>
 
       <div className="ip__section">
@@ -530,6 +598,11 @@ export function InspectorPanel({
   onPatchDimensions,
   onRunBlenderJob,
   meshStats,
+  entitySpatial,
+  onSnapEntityToGrid,
+  onSetEntityGroundY,
+  spatialOverlaysEnabled,
+  onSpatialOverlaysChange,
 }: InspectorPanelProps) {
   const panelRef = React.useRef<HTMLDivElement>(null);
   const dragStart = React.useRef<{ y: number; h: number } | null>(null);
@@ -625,6 +698,11 @@ export function InspectorPanel({
             onPatchDimensions={onPatchDimensions}
             onRunBlenderJob={onRunBlenderJob}
             meshStats={meshStats}
+            entitySpatial={entitySpatial}
+            onSnapEntityToGrid={onSnapEntityToGrid}
+            onSetEntityGroundY={onSetEntityGroundY}
+            spatialOverlaysEnabled={spatialOverlaysEnabled}
+            onSpatialOverlaysChange={onSpatialOverlaysChange}
           />
         ) : (
           <SceneInspector

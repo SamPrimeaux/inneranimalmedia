@@ -30,6 +30,19 @@ export type DesignStudioSurfaceContext = {
   cad_job_progress_pct?: number | null;
   cad_public_url?: string | null;
   engine?: string | null;
+  spatial?: {
+    units?: string;
+    source_units?: string | null;
+    spawn_profile?: string;
+    up_axis?: string | null;
+    ground_y?: number;
+    rotation_euler_deg?: { x: number; y: number; z: number };
+    world_bbox?: {
+      min: { x: number; y: number; z: number };
+      max: { x: number; y: number; z: number };
+      size: { x: number; y: number; z: number };
+    };
+  } | null;
 };
 
 /** Publish live Design Studio viewport context for Agent Sam chat payload. */

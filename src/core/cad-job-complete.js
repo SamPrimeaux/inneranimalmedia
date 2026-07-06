@@ -66,9 +66,10 @@ export async function ingestRemoteGlbToR2(env, p) {
 /**
  * @param {any} env
  * @param {Record<string, unknown>} job
- * @param {{ r2_key: string, public_url: string }} asset
+ * @param {{ r2_key: string, public_url: string, size_bytes?: number }} asset
+ * @param {Record<string, unknown>} [body]
  */
-export async function registerCadGlbCmsAsset(env, job, asset) {
+export async function registerCadGlbCmsAsset(env, job, asset, body = {}) {
   if (!env?.DB) return null;
   const userId = String(job.user_id || '').trim();
   const tenantId = String(job.tenant_id || '').trim();
@@ -82,11 +83,22 @@ export async function registerCadGlbCmsAsset(env, job, asset) {
     `${String(job.engine || 'cad')} export`;
 
   const pathValue = publicUrl.startsWith('/assets/') ? publicUrl : r2Key;
+  const placementSidecar =
+    body.placement_sidecar && typeof body.placement_sidecar === 'object'
+      ? body.placement_sidecar
+      : null;
+  const placementSidecarUrl =
+    body.placement_sidecar_url != null ? String(body.placement_sidecar_url).trim() : '';
   const metadata = JSON.stringify({
     label,
     cad_job_id: job.id,
     engine: job.engine,
     project_id: job.project_id ?? null,
+    ...(placementSidecarUrl ? { placement_sidecar_url: placementSidecarUrl } : {}),
+    ...(placementSidecar ? { placement_sidecar: placementSidecar } : {}),
+    ...(placementSidecar?.spawn?.profile === 'bim' || body.spawn_profile === 'bim'
+      ? { spawn_profile: 'bim', fit_to_viewport: false, source_units: placementSidecar?.units ?? 'mm' }
+      : {}),
   });
 
   await env.DB.prepare(
@@ -321,7 +333,7 @@ export async function finalizeCadJobComplete(env, ctx, body) {
         r2_key: r2Key,
         public_url: publicUrl,
         size_bytes: body.size_bytes,
-      });
+      }, body);
     }
     await linkCadJobToScene(env, job, { r2_key: r2Key, public_url: publicUrl });
   }

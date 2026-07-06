@@ -40,3 +40,22 @@ test('resolveDesignStudioChatOverrides pins route and skips RWS', () => {
     skip_rws_fanout: true,
   });
 });
+
+test('formatDesignStudioContextForAgent includes spatial block', async () => {
+  const { formatDesignStudioContextForAgent } = await import('../../src/core/design-studio-context.js');
+  const text = formatDesignStudioContextForAgent({
+    surface: 'design_studio',
+    entity_count: 1,
+    spatial: {
+      units: 'm',
+      spawn_profile: 'bim',
+      up_axis: 'Z',
+      ground_y: 0,
+      rotation_euler_deg: { x: 0, y: 90, z: 0 },
+      world_bbox: { size: { x: 30, y: 12, z: 24 } },
+    },
+  });
+  assert.match(text, /spatial_world_bbox: W=30\.000 H=12\.000 D=24\.000/);
+  assert.match(text, /spatial_rotation_deg: x=0\.0 y=90\.0 z=0\.0/);
+  assert.match(text, /spatial_ground_y: 0/);
+});

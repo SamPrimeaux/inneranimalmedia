@@ -100,6 +100,44 @@ export function formatDesignStudioContextForAgent(raw) {
     );
   }
 
+  const spatial =
+    raw.spatial && typeof raw.spatial === 'object'
+      ? /** @type {Record<string, unknown>} */ (raw.spatial)
+      : null;
+  if (spatial) {
+    const bbox =
+      spatial.world_bbox && typeof spatial.world_bbox === 'object'
+        ? /** @type {Record<string, unknown>} */ (spatial.world_bbox)
+        : null;
+    const size =
+      bbox?.size && typeof bbox.size === 'object'
+        ? /** @type {Record<string, unknown>} */ (bbox.size)
+        : null;
+    const rot =
+      spatial.rotation_euler_deg && typeof spatial.rotation_euler_deg === 'object'
+        ? /** @type {Record<string, unknown>} */ (spatial.rotation_euler_deg)
+        : null;
+    lines.push(
+      `spatial_units: ${spatial.units != null ? String(spatial.units) : 'scene'}`,
+      `spatial_profile: ${spatial.spawn_profile != null ? String(spatial.spawn_profile) : 'preview'}`,
+      `spatial_up_axis: ${spatial.up_axis != null ? String(spatial.up_axis) : '(unknown)'}`,
+      `spatial_ground_y: ${spatial.ground_y != null ? String(spatial.ground_y) : '—'}`,
+    );
+    if (size) {
+      lines.push(
+        `spatial_world_bbox: W=${Number(size.x ?? 0).toFixed(3)} H=${Number(size.y ?? 0).toFixed(3)} D=${Number(size.z ?? 0).toFixed(3)} (${spatial.units ?? 'scene'})`,
+      );
+    }
+    if (rot) {
+      lines.push(
+        `spatial_rotation_deg: x=${Number(rot.x ?? 0).toFixed(1)} y=${Number(rot.y ?? 0).toFixed(1)} z=${Number(rot.z ?? 0).toFixed(1)}`,
+      );
+    }
+    lines.push(
+      'spatial_actions: User can Snap to grid origin or Set ground Y=0 in inspector; axis triads show model pivot vs world origin.',
+    );
+  }
+
   const entities = Array.isArray(raw.entities) ? raw.entities : [];
   if (entities.length) {
     const preview = entities

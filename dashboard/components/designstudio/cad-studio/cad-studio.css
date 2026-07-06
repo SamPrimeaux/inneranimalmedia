@@ -3209,6 +3209,23 @@
   color: var(--cs-text-0);
 }
 
+.ip__stats--spatial {
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.ip__value--readonly {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-1);
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--cs-bg-2);
+  border: 1px solid var(--cs-line-1);
+  min-width: 48px;
+  text-align: right;
+}
+
 /* Modifier/action chips */
 .ip__chip-grid {
   display: flex;

@@ -36,6 +36,7 @@ import {
   type MeshStats,
   type GalleryItem,
 } from './cadStudioTypes';
+import type { EntitySpatialSnapshot } from '../../../lib/cadPlacement';
 import { IAM_AGENT_CHAT_COMPOSE } from '../../../agentChatConstants';
 import { useDesignStudioContext } from '../DesignStudioContext';
 import type { CustomAsset, GenerationConfig, SceneConfig, GameEntity } from '../../../types';
@@ -99,6 +100,11 @@ export type CadStudioShellProps = {
   onPatchEntityDimensions?: (id: string, dims: { w?: number; h?: number; d?: number }) => void;
   onRunBlenderJob?: (prompt: string) => void | Promise<void>;
   getEntityMeshStats?: (id: string) => MeshStats;
+  getEntitySpatialInfo?: (id: string) => EntitySpatialSnapshot | null;
+  onSnapEntityToGrid?: (id: string) => void;
+  onSetEntityGroundY?: (id: string, y: number) => void;
+  spatialOverlaysEnabled?: boolean;
+  onSpatialOverlaysChange?: (enabled: boolean) => void;
   onFrameAll?: () => void;
   onViewportZoom?: (factor: number) => void;
   onViewportPanMode?: (active: boolean) => void;
@@ -171,6 +177,11 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   onPatchEntityDimensions,
   onRunBlenderJob,
   getEntityMeshStats,
+  getEntitySpatialInfo,
+  onSnapEntityToGrid,
+  onSetEntityGroundY,
+  spatialOverlaysEnabled = true,
+  onSpatialOverlaysChange,
   onFrameAll,
   onViewportZoom,
   onViewportPanMode,
@@ -254,6 +265,11 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     if (selectedId && getEntityMeshStats) return getEntityMeshStats(selectedId);
     return computeMeshStats(selectedEntity);
   }, [selectedId, selectedEntity, getEntityMeshStats]);
+
+  const entitySpatial = useMemo(() => {
+    if (!selectedId || !getEntitySpatialInfo) return null;
+    return getEntitySpatialInfo(selectedId);
+  }, [selectedId, getEntitySpatialInfo, entities]);
 
   useEffect(() => {
     if (!engineReady) return;
@@ -1134,6 +1150,11 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           onPatchDimensions={onPatchEntityDimensions}
           onRunBlenderJob={handleRunBlenderJob}
           meshStats={meshStats}
+          entitySpatial={entitySpatial}
+          onSnapEntityToGrid={onSnapEntityToGrid}
+          onSetEntityGroundY={onSetEntityGroundY}
+          spatialOverlaysEnabled={spatialOverlaysEnabled}
+          onSpatialOverlaysChange={onSpatialOverlaysChange}
         />
       </div>
 
