@@ -16,6 +16,7 @@ import {
   resolveCadDispatchTarget,
 } from '../core/cad-dispatch.js';
 import { handleCadMeshyApi } from './cad-meshy.js';
+import { resolveLibraryFragment } from '../core/openscad-library-resolver.js';
 import { resolveModelForTask } from '../core/resolveModel.js';
 import { dispatchComplete } from '../core/provider.js';
 import { deleteMeshyTask } from '../core/meshy-api.js';
