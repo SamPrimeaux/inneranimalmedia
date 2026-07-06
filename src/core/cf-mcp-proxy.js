@@ -16,21 +16,35 @@ function trim(v) {
 }
 
 /**
+ * A tool routes through CF Bindings MCP only when explicitly opted in via:
+ *   - server_key = 'cloudflare-bindings', OR
+ *   - mcp_service_url contains 'bindings.mcp.cloudflare.com', OR
+ *   - auth_source = 'user_oauth_cloudflare', OR
+ *   - dispatch_target = 'mcp_proxy' AND an explicit remote_tool in handler_config
+ *
+ * provider=cloudflare alone is NOT sufficient — that flag predates CF MCP and
+ * is set on all internal CF tools (D1, KV, R2 internal lanes). Without an
+ * explicit remote_tool in handler_config, we never route to Bindings MCP.
+ *
  * @param {Record<string, unknown>} row
  * @param {Record<string, unknown>} config
  */
 export function isCfMcpCatalogTool(row, config) {
   const serverKey = trim(row?.server_key || config?.server_key);
   const mcpUrl = trim(row?.mcp_service_url || config?.mcp_service_url);
-  const provider = trim(config?.provider).toLowerCase();
   const authSource = trim(config?.auth_source).toLowerCase();
   const dispatchTarget = trim(row?.dispatch_target || config?.dispatch_target).toLowerCase();
-  const remoteTool = trim(config?.remote_tool || config?.operation);
+  // explicit remote_tool in handler_config — not derived from operation
+  const explicitRemoteTool = trim(config?.remote_tool);
+
   if (serverKey === CF_BINDINGS_MCP_SERVER_KEY) return true;
   if (mcpUrl.includes('bindings.mcp.cloudflare.com')) return true;
-  if (provider === 'cloudflare' && remoteTool) return true;
   if (authSource === 'user_oauth_cloudflare') return true;
-  if ((dispatchTarget === 'mcp_proxy' || dispatchTarget === 'both') && remoteTool) return true;
+  // mcp_proxy dispatch requires explicit remote_tool — never infer from operation
+  if (dispatchTarget === 'mcp_proxy' && explicitRemoteTool) return true;
+
+  // provider=cloudflare alone does NOT qualify — it is set on internal lanes too.
+  // dispatch_target=both with no explicit remote_tool stays internal.
   return false;
 }
 
@@ -59,15 +73,14 @@ export function resolveCfMcpRemoteToolName(config, params = {}) {
 /**
  * @param {Record<string, unknown>} row
  * @param {Record<string, unknown>} config
- * @returns {{ route: 'none'|'mcp_only'|'mcp_first', remoteTool: string, mcpRow: Record<string, unknown> }|null}
- */
+ * @returns {{ route: 'none'|'mcp_only'|'mcp_first', remoteTool: string, mcpRow: Record<string, unknown> }|null}\n */
 export function resolveCfMcpCatalogRoute(row, config) {
   if (!isCfMcpCatalogTool(row, config)) return null;
 
   const dispatchTarget = trim(row?.dispatch_target || config?.dispatch_target || 'internal').toLowerCase();
   const handlerType = trim(row?.handler_type).toLowerCase();
   const remoteTool = resolveCfMcpRemoteToolName(config, {});
-  if (!remoteTool || /^d1\./i.test(remoteTool)) return null;
+  if (!remoteTool) return null;
 
   if (dispatchTarget === 'internal' && handlerType !== 'mcp') return null;
 
