@@ -23,6 +23,11 @@ import { ProjectShareModal } from '../../components/projects/ProjectShareModal';
 import { uploadProjectR2File } from '../../src/lib/projectR2Upload';
 import { cfImageVariants } from '../../src/lib/projectBranding';
 import { useWorkspace } from '../../src/context/WorkspaceContext';
+import {
+  activateProjectWorkContext,
+  readExecutionWorkspaceId,
+} from '../../src/lib/activateProjectWorkContext';
+import { chatGithubContextStorageKey } from '../../components/ChatAssistant/types';
 import { useComposerConnectorSheet } from '../../hooks/useComposerConnectorSheet';
 import { AgentComposerSourceChips } from '../../components/ChatAssistant/composer/AgentComposerSourceChips';
 import {
@@ -148,7 +153,9 @@ function RailSection({
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const { workspaceId, sessionUserId } = useWorkspace();
+  const { workspaceId, sessionUserId, switchWorkspace, persistGithubRepo } = useWorkspace();
+  const [executionWorkspaceId, setExecutionWorkspaceId] = useState<string | null>(() => readExecutionWorkspaceId());
+  const activateRef = useRef<string | null>(null);
   const isMobile = useIsMobile();
 
   const [project, setProject] = useState<Project | null>(null);
@@ -236,22 +243,44 @@ export default function ProjectDetailPage() {
       setRenameDraft(p.name ?? '');
       setProjectFiles(projectFilesFromMeta(p.metadata_json));
       setCoverUrl(p.cover_image_url || coverFromMeta(p.metadata_json));
+
+      if (activateRef.current !== projectId) {
+        activateRef.current = projectId;
+        void activateProjectWorkContext(p.id, p.name || p.id, {
+          switchWorkspace,
+          persistGithubRepo,
+          currentWorkspaceId: workspaceId,
+          githubContextStorageKey: chatGithubContextStorageKey(
+            sessionUserId,
+            p.workspace_id || workspaceId,
+            '',
+          ),
+        }).then((res) => {
+          if (res.ok && res.executionWorkspaceId) {
+            setExecutionWorkspaceId(res.executionWorkspaceId);
+          }
+        });
+      }
     } catch {
       navigate('/dashboard/projects', { replace: true });
     } finally {
       setLoadingProject(false);
     }
-  }, [projectId, navigate]);
+  }, [projectId, navigate, switchWorkspace, persistGithubRepo, workspaceId, sessionUserId]);
 
   // ── load chats ──
   const loadChats = useCallback(async () => {
     if (!projectId) return;
     setLoadingChats(true);
     try {
-      const r = await fetch(
-        `/api/agent/sessions?limit=200&project_id=${encodeURIComponent(projectId)}`,
-        { credentials: 'same-origin' },
-      );
+      const ws =
+        executionWorkspaceId ||
+        project?.workspace_id ||
+        workspaceId ||
+        readExecutionWorkspaceId();
+      const params = new URLSearchParams({ limit: '200', project_id: projectId });
+      if (ws) params.set('workspace_id', ws);
+      const r = await fetch(`/api/agent/sessions?${params}`, { credentials: 'same-origin' });
       const rows: ChatSession[] = r.ok ? await r.json() : [];
       setChats(rows);
     } catch {
@@ -259,7 +288,7 @@ export default function ProjectDetailPage() {
     } finally {
       setLoadingChats(false);
     }
-  }, [projectId]);
+  }, [projectId, executionWorkspaceId, project?.workspace_id, workspaceId]);
 
   useEffect(() => { void loadProject(); }, [loadProject]);
   useEffect(() => { void loadChats(); }, [loadChats]);

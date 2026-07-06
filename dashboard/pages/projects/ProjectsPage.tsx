@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import {
   FolderOpen,
-  ImagePlus,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -20,7 +19,7 @@ import {
   type OverviewProject,
 } from '../../api/projects';
 import { ProjectShareModal } from '../../components/projects/ProjectShareModal';
-import { cfImageVariants } from '../../src/lib/projectBranding';
+import { cfImageVariants, projectAccentHue, projectInitials } from '../../src/lib/projectBranding';
 import { useWorkspace } from '../../src/context/WorkspaceContext';
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -125,35 +124,12 @@ function parseUpdatedTs(raw?: string | null): number {
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-function avatarInitials(name: string): string {
-  const parts = name.trim().split(/[\s_-]+/).filter(Boolean);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function avatarColor(id: string): string {
-  const colors = ['#6366f1','#8b5cf6','#ec4899','#22d3ee','#10b981','#f59e0b','#ef4444'];
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = ((hash << 5) - hash) + id.charCodeAt(i);
-  return colors[Math.abs(hash) % colors.length];
-}
-
 // ─── skeleton ─────────────────────────────────────────────────────────────────
 
 function SkeletonCard() {
   return (
-    <div className="pj-card pj-card--skeleton" aria-hidden="true">
-      <div className="pj-card-cover pj-card-cover--skel" />
-      <div className="pj-card-body">
-        <div className="skel skel-title" />
-        <div className="skel skel-sub" />
-        <div className="pj-card-progress-wrap">
-          <div className="skel skel-bar" />
-        </div>
-        <div className="pj-card-foot">
-          <div className="skel skel-avatar" />
-        </div>
-      </div>
+    <div className="pj-card pj-card--visual pj-card--skeleton" aria-hidden="true">
+      <div className="pj-card-media pj-card-media--skel" />
     </div>
   );
 }
@@ -253,37 +229,67 @@ function ProjectCard({
 }) {
   const statusColor = STATUS_COLORS[project.status ?? ''] ?? '#94a3b8';
   const pct = Math.min(100, Math.max(0, project.progress ?? 0));
-  const initials = avatarInitials(project.workspace_id?.replace(/^ws_/, '') || project.name);
-  const avatarBg = avatarColor(project.id);
+  const cover = cfImageVariants(project.cover_image_url);
+  const accentHue = projectAccentHue(project.id);
+  const initials = projectInitials(project.name);
 
   return (
-    <div className={`pj-card${project.status === 'archived' ? ' pj-card--archived' : ''}${project.is_pinned ? ' pj-card--pinned' : ''}`}>
-      {/* cover image */}
+    <div
+      className={`pj-card pj-card--visual${project.status === 'archived' ? ' pj-card--archived' : ''}${project.is_pinned ? ' pj-card--pinned' : ''}`}
+    >
       <div
-        className="pj-card-cover"
+        className="pj-card-media"
         role="button"
         tabIndex={0}
         onClick={onOpen}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); }}}
         aria-label={`Open ${project.name}`}
+        style={!cover.src ? { background: `linear-gradient(145deg, hsl(${accentHue} 42% 22%), hsl(${accentHue} 28% 12%))` } : undefined}
       >
-        {project.cover_image_url ? (
+        {cover.src ? (
           <img
-            src={cfImageVariants(project.cover_image_url).src}
-            srcSet={cfImageVariants(project.cover_image_url).srcSet}
+            src={cover.src}
+            srcSet={cover.srcSet}
             alt=""
-            className="pj-card-cover-img"
+            className="pj-card-media-img"
             draggable={false}
             loading="lazy"
           />
         ) : (
-          <div className="pj-card-cover-placeholder">
-            <ImagePlus size={20} className="pj-card-cover-icon" />
+          <div className="pj-card-media-fallback" aria-hidden>
+            <span className="pj-card-media-initials">{initials}</span>
           </div>
         )}
-        {/* status strip */}
-        <div className="pj-card-status-strip" style={{ background: statusColor }} />
-        {/* three-dot menu */}
+
+        <div className="pj-card-scrim" aria-hidden />
+
+        <div className="pj-card-overlay">
+          <div className="pj-card-overlay-top">
+            <span className="pj-card-status-pill" style={{ borderColor: statusColor, color: statusColor }}>
+              {STATUS_LABELS[project.status ?? ''] ?? project.status_raw ?? 'Project'}
+            </span>
+            {project.is_pinned ? (
+              <span className="pj-card-star-badge" aria-label="Starred">
+                <Star size={11} fill="currentColor" />
+              </span>
+            ) : null}
+          </div>
+
+          <div className="pj-card-overlay-body">
+            <div className="pj-card-name">{project.name}</div>
+            <div className="pj-card-type">{project.project_type || 'project'}</div>
+            <div className="pj-card-progress-wrap">
+              <div className="pj-card-progress-track">
+                <div
+                  className="pj-card-progress-fill"
+                  style={{ width: pct > 0 ? `${pct}%` : '0%' }}
+                />
+              </div>
+              <span className="pj-card-progress-pct">{pct}%</span>
+            </div>
+          </div>
+        </div>
+
         <CardMenu
           project={project}
           isOpen={menuOpen}
@@ -294,48 +300,6 @@ function ProjectCard({
           onShare={onShare}
           onDelete={onDelete}
         />
-        {project.is_pinned && (
-          <span className="pj-card-star-badge" aria-label="Starred">
-            <Star size={11} fill="currentColor" />
-          </span>
-        )}
-      </div>
-
-      {/* card body */}
-      <div
-        className="pj-card-body"
-        role="button"
-        tabIndex={-1}
-        onClick={onOpen}
-        onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}
-      >
-        <div className="pj-card-name">{project.name}</div>
-        <div className="pj-card-type">{project.project_type || 'project'}</div>
-
-        <div className="pj-card-progress-wrap">
-          <div className="pj-card-progress-track">
-            <div
-              className="pj-card-progress-fill"
-              style={{ width: pct > 0 ? `${pct}%` : '0%' }}
-            />
-          </div>
-          <span className="pj-card-progress-pct">{pct}%</span>
-        </div>
-
-        <div className="pj-card-foot">
-          <div className="pj-avatar-cluster">
-            <div
-              className="pj-avatar"
-              style={{ background: avatarBg }}
-              title={project.workspace_id?.replace(/^ws_/, '') || project.name}
-            >
-              {initials}
-            </div>
-          </div>
-          <span className="pj-card-status-label" style={{ color: statusColor }}>
-            {STATUS_LABELS[project.status ?? ''] ?? project.status_raw ?? ''}
-          </span>
-        </div>
       </div>
     </div>
   );
@@ -922,83 +886,168 @@ const PROJECTS_CSS = `
 
 .pj-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
 }
 
 @media (max-width: 540px) {
-  .pj-grid { grid-template-columns: 1fr; }
+  .pj-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 }
 
 .pj-card {
-  border-radius: 14px;
+  border-radius: 16px;
   border: 1px solid var(--dashboard-border);
   background: var(--dashboard-panel, rgba(255,255,255,0.03));
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
 }
 
-.pj-card:hover {
-  border-color: rgba(255,255,255,0.14);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+.pj-card--visual {
+  aspect-ratio: 4 / 5;
+  min-height: 240px;
+}
+
+.pj-card--visual:hover,
+.pj-card--visual:focus-within {
+  border-color: rgba(255,255,255,0.18);
+  box-shadow: 0 10px 32px rgba(0,0,0,0.35);
+  transform: translateY(-2px);
 }
 
 .pj-card--archived { opacity: 0.65; }
-.pj-card--pinned { border-color: rgba(251,191,36,0.28); }
+.pj-card--pinned { border-color: rgba(251,191,36,0.35); }
 
-.pj-card-cover {
+.pj-card-media {
   position: relative;
   width: 100%;
-  aspect-ratio: 16/9;
-  background: var(--bg-elevated, rgba(255,255,255,0.04));
+  height: 100%;
+  min-height: 240px;
   cursor: pointer;
   overflow: hidden;
-  flex-shrink: 0;
+  display: block;
 }
 
-.pj-card-cover:focus-visible {
-  outline: 2px solid rgba(255,255,255,0.4);
+.pj-card-media:focus-visible {
+  outline: 2px solid rgba(255,255,255,0.45);
   outline-offset: -2px;
 }
 
-.pj-card-cover-img {
+.pj-card-media--skel {
+  min-height: 280px;
+  background: linear-gradient(110deg, rgba(255,255,255,0.04) 8%, rgba(255,255,255,0.09) 18%, rgba(255,255,255,0.04) 33%);
+  background-size: 200% 100%;
+  animation: pj-shimmer 1.4s ease-in-out infinite;
+}
+
+.pj-card-media-img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
-  transition: transform 0.3s ease;
+  transition: transform 0.45s ease;
 }
 
-.pj-card:hover .pj-card-cover-img { transform: scale(1.02); }
+.pj-card--visual:hover .pj-card-media-img,
+.pj-card--visual:focus-within .pj-card-media-img {
+  transform: scale(1.05);
+}
 
-.pj-card-cover-placeholder {
-  width: 100%;
-  height: 100%;
+.pj-card-media-fallback {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.pj-card-cover-icon {
-  color: var(--color-muted, #94a3b8);
-  opacity: 0.3;
+.pj-card-media-initials {
+  font-size: 2.4rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.82);
+  text-shadow: 0 2px 24px rgba(0,0,0,0.35);
 }
 
-.pj-card-status-strip {
+.pj-card-scrim {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  opacity: 0.8;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(0,0,0,0.08) 0%,
+    rgba(0,0,0,0.02) 38%,
+    rgba(0,0,0,0.55) 100%
+  );
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.pj-card-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 12px;
+  pointer-events: none;
+}
+
+.pj-card-overlay-top {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.pj-card-overlay-body {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.pj-card--visual:hover .pj-card-overlay-top,
+.pj-card--visual:focus-within .pj-card-overlay-top,
+.pj-card--visual:hover .pj-card-overlay-body,
+.pj-card--visual:focus-within .pj-card-overlay-body {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (hover: none) {
+  .pj-card-overlay-top,
+  .pj-card-overlay-body {
+    opacity: 1;
+    transform: none;
+  }
+  .pj-card-scrim {
+    background: linear-gradient(180deg, transparent 40%, rgba(0,0,0,0.72) 100%);
+  }
+}
+
+.pj-card-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(6px);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .pj-card-star-badge {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1010,28 +1059,32 @@ const PROJECTS_CSS = `
   backdrop-filter: blur(4px);
 }
 
-.pj-card-body {
-  padding: 12px 14px 13px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  cursor: pointer;
+.pj-card .pj-menu {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  pointer-events: auto;
 }
 
 .pj-card-name {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.3;
-  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.25;
+  color: #fff;
+  text-shadow: 0 1px 12px rgba(0,0,0,0.45);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .pj-card-type {
   font-size: 11px;
-  color: var(--color-muted, #94a3b8);
-  letter-spacing: 0.01em;
-  margin-bottom: 4px;
+  color: rgba(255,255,255,0.78);
+  letter-spacing: 0.02em;
+  margin: 2px 0 8px;
+  text-transform: capitalize;
 }
 
 .pj-card-progress-wrap {
@@ -1042,59 +1095,26 @@ const PROJECTS_CSS = `
 
 .pj-card-progress-track {
   flex: 1;
-  height: 3px;
-  border-radius: 2px;
-  background: rgba(255,255,255,0.08);
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.18);
   overflow: hidden;
 }
 
 .pj-card-progress-fill {
   height: 100%;
-  border-radius: 2px;
-  background: rgba(255,255,255,0.35);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.88);
   transition: width 0.4s ease;
 }
 
 .pj-card-progress-pct {
   font-size: 11px;
-  color: var(--color-muted, #94a3b8);
-  flex-shrink: 0;
-  min-width: 26px;
+  color: rgba(255,255,255,0.85);
+  font-variant-numeric: tabular-nums;
+  min-width: 28px;
   text-align: right;
-}
-
-.pj-card-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 4px;
-}
-
-.pj-avatar-cluster {
-  display: flex;
-  align-items: center;
-}
-
-.pj-avatar {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: #fff;
-  border: 1.5px solid var(--dashboard-canvas, #0d1117);
   flex-shrink: 0;
-  cursor: default;
-  user-select: none;
-}
-
-.pj-card-status-label {
-  font-size: 11px;
-  font-weight: 500;
 }
 
 .pj-menu {
