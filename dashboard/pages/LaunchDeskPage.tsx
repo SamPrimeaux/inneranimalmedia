@@ -887,6 +887,7 @@ export function LaunchDeskPage() {
             <div className="colab-cal-section-head">
               <span>My calendars</span>
             </div>
+            <div className="colab-cal-calendars">
             <button
               type="button"
               className="colab-cal-cal-row colab-cal-checkbox"
@@ -919,6 +920,7 @@ export function LaunchDeskPage() {
               <span className="colab-cal-box green">{sources.birthdays ? '✓' : ''}</span>
               <span>Birthdays</span>
             </button>
+            </div>
           </div>
             </>
           )}

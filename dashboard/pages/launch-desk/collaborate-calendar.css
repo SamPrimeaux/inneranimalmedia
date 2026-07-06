@@ -48,7 +48,7 @@
 .colab-cal input[type="time"],
 .colab-cal input[type="email"],
 .colab-cal input[type="search"],
-.colab-cal input:not([type="checkbox"]):not([type="radio"]):not(.colab-cal-title-input):not(.colab-cal-editor-title):not(.colab-cal-view-select-input) {
+.colab-cal input:not([type="checkbox"]):not([type="radio"]):not(.colab-cal-title-input):not(.colab-cal-editor-title):not(.colab-cal-view-select-input):not(.colab-cal-people-search) {
   border: 1px solid var(--input-border);
   background: var(--input-bg);
   color: var(--text);
@@ -231,17 +231,23 @@
 .colab-cal-layout {
   flex: 1; min-height: 0;
   display: grid;
-  grid-template-columns: var(--left) minmax(520px, 1fr) var(--rail);
+  grid-template-columns: var(--left) minmax(0, 1fr) var(--rail);
   background: var(--bg);
+  overflow: hidden;
 }
 .colab-cal.insights-open .colab-cal-layout {
-  grid-template-columns: var(--left) minmax(520px, 1fr) var(--right-open) var(--rail);
+  grid-template-columns: var(--left) minmax(0, 1fr) var(--right-open) var(--rail);
 }
-.colab-cal-left { grid-column: 1; min-width: 0; }
-.colab-cal-center,
-.colab-tasks-main { grid-column: 2; min-width: 0; }
-.colab-cal-right { grid-column: 3; min-width: 0; }
-.colab-cal-rail { grid-column: -1; min-width: 0; }
+.colab-cal-layout > .colab-cal-left { grid-column: 1; grid-row: 1; min-width: 0; }
+.colab-cal-layout > .colab-cal-center,
+.colab-cal-layout > .colab-tasks-main { grid-column: 2; grid-row: 1; min-width: 0; }
+.colab-cal.insights-open .colab-cal-layout > .colab-cal-right { grid-column: 3; grid-row: 1; min-width: 0; }
+.colab-cal-layout > .colab-cal-rail {
+  grid-column: -1; grid-row: 1; min-width: 0;
+  width: var(--rail);
+  position: relative;
+  z-index: 2;
+}
 .colab-cal-left {
   min-height: 0; overflow: auto; padding: 18px 16px; background: var(--panel);
   border-right: 1px solid var(--line-soft);
@@ -281,6 +287,7 @@
 .colab-cal-search-wrap::before {
   content: ''; position: absolute; left: 16px; top: 50%; width: 13px; height: 13px;
   border: 2px solid var(--muted); border-radius: 50%; transform: translateY(-50%);
+  pointer-events: none; z-index: 1;
 }
 .colab-cal-people-results { margin-top: 8px; display: grid; gap: 4px; }
 .colab-cal-people-row {
@@ -288,8 +295,24 @@
   border-radius: 8px; color: var(--text-secondary); font-size: 13px;
 }
 .colab-cal-people-row:hover { background: var(--panel-soft); }
-.colab-cal-cal-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 30px; color: var(--text-secondary); font-size: 14px; }
-.colab-cal-checkbox { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+.colab-cal-cal-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: 30px; color: var(--text-secondary); font-size: 14px;
+}
+.colab-cal-cal-row.colab-cal-checkbox {
+  display: flex;
+  width: 100%;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.colab-cal-checkbox { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.colab-cal-calendars { display: flex; flex-direction: column; gap: 2px; }
 .colab-cal-box {
   width: 16px; height: 16px; border-radius: 2px; display: grid; place-items: center;
   color: #fff; font-size: 12px; font-weight: 900;
@@ -307,7 +330,7 @@
 .colab-cal-center {
   min-width: 0; min-height: 0; display: flex; flex-direction: column;
   background: var(--panel-raised); border-radius: 28px 28px 0 0; overflow: hidden;
-  border: 1px solid var(--line-soft); border-bottom: 0;
+  border: 1px solid var(--line-soft); border-right: 0; border-bottom: 0;
   box-shadow: 0 -1px 0 var(--line-soft) inset;
 }
 .colab-cal-head-row {
@@ -327,14 +350,20 @@
 .colab-cal-day-head.today .day-label, .colab-cal-day-head.today .colab-cal-day-label { color: var(--blue); }
 .colab-cal-day-head.today .colab-cal-date-label { background: var(--blue); color: #fff; }
 .colab-cal-all-day-row {
-  height: 28px; display: grid; grid-template-columns: 64px repeat(7, 1fr);
+  min-height: 28px; display: grid; grid-template-columns: 64px repeat(7, 1fr);
   border-bottom: 1px solid var(--line); background: var(--panel-raised); flex-shrink: 0;
 }
-.colab-cal-all-day-cell { position: relative; border-left: 1px solid var(--line-soft); }
+.colab-cal-all-day-cell {
+  position: relative; border-left: 1px solid var(--line-soft);
+  display: flex; flex-direction: column; gap: 2px; padding: 2px 6px 4px;
+  justify-content: flex-start;
+}
 .colab-cal-all-day-event {
-  position: absolute; left: 8px; right: 10px; top: 4px; height: 20px; border-radius: 4px;
+  position: relative; left: auto; right: auto; top: auto;
+  width: 100%; min-height: 20px; height: auto; border-radius: 4px;
   background: var(--green); color: #fff; font-size: 12px; font-weight: 600; padding: 2px 10px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 0; text-align: left;
+  flex-shrink: 0;
 }
 .colab-cal-week-scroll { flex: 1; min-height: 0; overflow: auto; background: var(--panel-raised); position: relative; }
 .colab-cal-week-grid {
@@ -356,9 +385,11 @@
 }
 .colab-cal-events-col { position: relative; pointer-events: none; }
 .colab-cal-event-block {
-  position: absolute; left: 8px; right: 8px; border-radius: 8px; background: var(--blue-soft);
-  border-left: 4px solid var(--blue); color: var(--blue-text); padding: 6px 8px; font-size: 12px; font-weight: 600;
-  overflow: hidden; pointer-events: auto; cursor: pointer; text-align: left; border-top: 0; border-right: 0; border-bottom: 0;
+  position: absolute; left: 8px; right: 8px; border-radius: 6px; background: var(--blue-soft);
+  border: 0; border-left: 4px solid var(--blue); color: var(--blue-text); padding: 6px 8px 6px 10px;
+  font-size: 12px; font-weight: 600;
+  overflow: hidden; pointer-events: auto; cursor: pointer; text-align: left;
+  box-sizing: border-box;
 }
 .colab-cal-event-block.meeting { background: #ccefdc; border-left-color: var(--green); color: #0d652d; }
 .colab-cal-event-block.task { background: var(--blue-soft); border-left-color: #4285f4; color: var(--blue-text); }
@@ -424,6 +455,7 @@
 .colab-cal-rail {
   border-left: 1px solid var(--line); background: var(--panel);
   display: flex; flex-direction: column; align-items: center; gap: 20px; padding-top: 18px;
+  box-shadow: -1px 0 0 var(--line-soft);
 }
 .colab-cal-rail-icon {
   width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent;
@@ -447,10 +479,10 @@
 
 /* Google Tasks parity */
 .colab-cal-layout.tasks-mode {
-  grid-template-columns: var(--left) minmax(400px, 1fr) var(--rail);
+  grid-template-columns: var(--left) minmax(0, 1fr) var(--rail);
 }
 .colab-cal.insights-open .colab-cal-layout.tasks-mode {
-  grid-template-columns: var(--left) minmax(400px, 1fr) var(--right-open) var(--rail);
+  grid-template-columns: var(--left) minmax(0, 1fr) var(--right-open) var(--rail);
 }
 
 .colab-tasks-insights .colab-tasks-insights-today {
