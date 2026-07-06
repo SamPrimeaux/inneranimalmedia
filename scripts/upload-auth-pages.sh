@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Upload version-controlled public auth shells to production R2 (ASSETS binding).
-# Source of truth: static/pages/auth/{login,signup}.html
-# Worker serves: pages/auth/login.html, pages/auth/signup.html (no Worker redeploy needed).
+# Source of truth: static/pages/auth/{login,signup,reset}.html
+# Worker serves: pages/auth/login.html, pages/auth/signup.html, pages/auth/reset.html (no Worker redeploy needed).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,5 +27,6 @@ upload_one() {
 
 upload_one "pages/auth/login.html" "static/pages/auth/login.html"
 upload_one "pages/auth/signup.html" "static/pages/auth/signup.html"
+upload_one "pages/auth/reset.html" "static/pages/auth/reset.html"
 
-echo "✓ Auth pages uploaded to R2 (live immediately at /auth/login and /auth/signup)"
+echo "✓ Auth pages uploaded to R2 (live immediately at /auth/login, /auth/signup, /auth/reset)"

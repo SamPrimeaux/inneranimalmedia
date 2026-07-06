@@ -269,6 +269,7 @@
     <h1>Instant Access</h1>
     <p class="subtitle">Sign in to Inner Animal Media</p>
     <p id="registeredMsg" class="subtitle" style="color: #10B981; display: none; margin-top: -16px; margin-bottom: 16px;">Account created. Sign in below.</p>
+    <p id="resetMsg" class="subtitle" style="color: #10B981; display: none; margin-top: -16px; margin-bottom: 16px;">Password updated. Sign in with your new password.</p>
     <p id="oauthErrorMsg" class="subtitle" style="color: #FF3B30; display: none; margin-top: -16px; margin-bottom: 16px;"></p>
     <p id="cfConnectNotice" class="subtitle" style="color: #fdba74; display: none; margin-top: -12px; margin-bottom: 12px; font-size: 12px; line-height: 1.45; text-align: center; max-width: 320px;">Sign in with Google, GitHub, or Supabase first, then connect Cloudflare from Integrations.</p>
 
@@ -387,6 +388,10 @@
     if (new URLSearchParams(window.location.search).get('registered') === '1') {
         var el = document.getElementById('registeredMsg');
         if (el) el.style.display = 'block';
+    }
+    if (new URLSearchParams(window.location.search).get('reset') === '1') {
+        var resetEl = document.getElementById('resetMsg');
+        if (resetEl) resetEl.style.display = 'block';
     }
     var err = new URLSearchParams(window.location.search).get('error');
     if (err) {

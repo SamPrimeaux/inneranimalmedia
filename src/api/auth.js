@@ -125,10 +125,19 @@ export async function handleAuthApi(request, url, env) {
   if (path === '/api/auth/logout' && method === 'POST') {
     return handleLogout(request, url, env);
   }
-  if (path === '/api/auth/password-reset/request' && method === 'POST') {
+  if (
+    (path === '/api/auth/password-reset/request'
+      || path === '/api/auth/reset/request'
+      || path === '/api/auth/forgot-password')
+    && method === 'POST'
+  ) {
     return handlePasswordResetRequest(request, env);
   }
-  if (path === '/api/auth/password-reset/confirm' && method === 'POST') {
+  if (
+    (path === '/api/auth/password-reset/confirm'
+      || path === '/api/auth/reset/confirm')
+    && method === 'POST'
+  ) {
     return handlePasswordResetConfirm(request, env);
   }
   if (path === '/api/settings/profile' && method === 'GET') {
@@ -1246,7 +1255,7 @@ async function handlePasswordResetConfirm(request, env) {
   const email = (body.email || '').toString().toLowerCase().trim();
   const code = (body.code || '').toString().replace(/\s/g, '');
   const password = (body.password || '').toString();
-  const confirm = (body.confirm_password ?? body.confirmPassword ?? '').toString();
+  const confirm = (body.confirm_password ?? body.confirmPassword ?? body.confirm ?? password).toString();
   if (!email || !code || !password) {
     return jsonResponse({ error: 'Email, code, and password required' }, 400);
   }
