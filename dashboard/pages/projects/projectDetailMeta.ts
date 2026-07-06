@@ -86,16 +86,34 @@ function isImageKey(key: string): boolean {
   return /\.(png|jpe?g|gif|webp|avif|svg|heic)$/i.test(key);
 }
 
+function parseR2BucketName(raw: string | null | undefined): string | null {
+  const t = raw?.trim();
+  if (!t) return null;
+  if (t.startsWith('{')) {
+    try {
+      const o = JSON.parse(t) as { bucket_name?: string; bucket?: string };
+      return String(o.bucket_name || o.bucket || '').trim() || null;
+    } catch {
+      return null;
+    }
+  }
+  return t.split(/[,;]/)[0]?.trim() || null;
+}
+
 export function resolveProjectStorageScope(project: {
   id: string;
   r2_buckets?: string | null;
   metadata_json?: string | null;
+  worker_id?: string | null;
 }): ProjectStorageScope {
   const meta = parseProjectMeta(project.metadata_json);
   const explicitBucket = meta.storage_bucket?.trim();
-  const rowBucket = project.r2_buckets?.split(/[,;]/)[0]?.trim();
+  const rowBucket = parseR2BucketName(project.r2_buckets);
   const bucket = explicitBucket || rowBucket || 'inneranimalmedia';
-  const rawPrefix = meta.storage_prefix || meta.brand_r2_prefix || `brand/${project.id}/`;
+  const rawPrefix =
+    meta.storage_prefix ||
+    meta.brand_r2_prefix ||
+    (bucket !== 'inneranimalmedia' ? 'brand/' : `brand/${project.id}/`);
   const prefix = rawPrefix.replace(/^\/*/, '');
   const normalizedPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
   const isPlatformDefault = bucket === 'inneranimalmedia' && !rowBucket && !explicitBucket;
@@ -105,6 +123,13 @@ export function resolveProjectStorageScope(project: {
     source: isPlatformDefault ? 'platform_r2' : 'client_r2',
     publicBaseUrl: meta.storage_public_url || null,
   };
+}
+
+function brandListPrefixes(scope: ProjectStorageScope): string[] {
+  if (scope.source === 'client_r2') {
+    return [...new Set([scope.prefix, 'brand/', 'assets/', 'images/', 'logos/'])];
+  }
+  return [scope.prefix];
 }
 
 export function r2ObjectUrl(bucket: string, key: string): string {
@@ -123,28 +148,37 @@ export function brandAssetBrowserUrl(scope: ProjectStorageScope): string {
 export async function listProjectBrandAssetsFromR2(
   scope: ProjectStorageScope,
 ): Promise<ProjectFileRef[]> {
-  const q = new URLSearchParams({
-    bucket: scope.bucket,
-    prefix: scope.prefix,
-    recursive: '1',
-    limit: '60',
-  });
-  const r = await fetch(`/api/r2/list?${q}`, { credentials: 'same-origin' });
-  if (!r.ok) return [];
-  const data = (await r.json().catch(() => ({}))) as {
-    objects?: { key: string; last_modified?: string | null }[];
-  };
-  const objects = Array.isArray(data.objects) ? data.objects : [];
-  return objects
-    .filter((o) => o?.key && isImageKey(o.key))
-    .map((o) => ({
-      name: o.key.split('/').pop() || o.key,
-      url: r2ObjectUrl(scope.bucket, o.key),
-      uploaded_at: o.last_modified ? Date.parse(o.last_modified) : undefined,
-      kind: 'image' as const,
-      r2_bucket: scope.bucket,
-      r2_key: o.key,
-    }));
+  const prefixes = brandListPrefixes(scope);
+  const seen = new Set<string>();
+  const out: ProjectFileRef[] = [];
+
+  for (const prefix of prefixes) {
+    const q = new URLSearchParams({
+      bucket: scope.bucket,
+      prefix,
+      recursive: '1',
+      limit: '40',
+    });
+    const r = await fetch(`/api/r2/list?${q}`, { credentials: 'same-origin' });
+    if (!r.ok) continue;
+    const data = (await r.json().catch(() => ({}))) as {
+      objects?: { key: string; last_modified?: string | null }[];
+    };
+    for (const o of data.objects || []) {
+      if (!o?.key || !isImageKey(o.key) || seen.has(o.key)) continue;
+      seen.add(o.key);
+      out.push({
+        name: o.key.split('/').pop() || o.key,
+        url: r2ObjectUrl(scope.bucket, o.key),
+        uploaded_at: o.last_modified ? Date.parse(o.last_modified) : undefined,
+        kind: 'image' as const,
+        r2_bucket: scope.bucket,
+        r2_key: o.key,
+      });
+      if (out.length >= 12) return out;
+    }
+  }
+  return out;
 }
 
 export function mergeBrandAssetLists(

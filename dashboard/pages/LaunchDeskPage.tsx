@@ -235,6 +235,10 @@ export function LaunchDeskPage() {
     [searchParams, setSearchParams],
   );
 
+  useEffect(() => {
+    if (clientFilterId || projectFilterId) setTasksNavView('client');
+  }, [clientFilterId, projectFilterId]);
+
   const reload = useCallback(async () => {
     setLoading(true);
     setError(null);

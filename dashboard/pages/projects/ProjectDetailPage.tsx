@@ -30,10 +30,14 @@ import { cfImageVariants, projectAccentHue } from '../../src/lib/projectBranding
 import {
   fetchClientProjects,
   fetchTasksInsights,
+  fetchTodos,
   fmtMinutes,
   postActivityHeartbeat,
   postProjectTimer,
+  type AgentTodo,
+  type TasksInsightsPayload,
 } from '../launch-desk/ops-desk-types';
+import { ProjectQuickStats, type ProjectStatsMetric, type ProjectStatsPeriod } from './ProjectQuickStats';
 import { useWorkspace } from '../../src/context/WorkspaceContext';
 import {
   activateProjectWorkContext,
@@ -102,6 +106,11 @@ interface ClientContactRow {
 
 interface ProjectTaskStats {
   open: number;
+  loading: boolean;
+}
+
+interface ProjectTodosState {
+  items: AgentTodo[];
   loading: boolean;
 }
 
@@ -419,6 +428,10 @@ export default function ProjectDetailPage() {
   const [fileDragOver, setFileDragOver] = useState(false);
   const [previewImage, setPreviewImage] = useState<ProjectFileRef | null>(null);
   const [taskStats, setTaskStats] = useState<ProjectTaskStats>({ open: 0, loading: true });
+  const [projectTodos, setProjectTodos] = useState<ProjectTodosState>({ items: [], loading: true });
+  const [tasksInsights, setTasksInsights] = useState<TasksInsightsPayload | null>(null);
+  const [statsMetric, setStatsMetric] = useState<ProjectStatsMetric>('time');
+  const [statsPeriod, setStatsPeriod] = useState<ProjectStatsPeriod>('week');
   const [timerState, setTimerState] = useState<ProjectTimerState>({
     loading: true,
     running: false,
@@ -539,27 +552,23 @@ export default function ProjectDetailPage() {
   const loadTaskStats = useCallback(async () => {
     if (!projectId) return;
     setTaskStats((s) => ({ ...s, loading: true }));
+    setProjectTodos((s) => ({ ...s, loading: true }));
     try {
-      const params = new URLSearchParams({ project_id: projectId });
-      const clientId = project?.client_id?.trim();
-      if (clientId) params.set('client_id', clientId);
-      const r = await fetch(`/api/agent/todo?${params}`, { credentials: 'same-origin' });
-      if (!r.ok) {
-        setTaskStats({ open: 0, loading: false });
-        return;
-      }
-      const data = await r.json();
-      const todos = Array.isArray(data?.todos) ? data.todos : [];
+      const todos = await fetchTodos({ projectId });
+      setProjectTodos({ items: todos, loading: false });
       setTaskStats({ open: todos.length, loading: false });
+      const insights = await fetchTasksInsights(new Date(), projectId);
+      setTasksInsights(insights);
     } catch {
+      setProjectTodos({ items: [], loading: false });
       setTaskStats({ open: 0, loading: false });
     }
-  }, [projectId, project?.client_id]);
+  }, [projectId]);
 
   useEffect(() => {
-    if (!project) return;
+    if (!projectId) return;
     void loadTaskStats();
-  }, [project, loadTaskStats]);
+  }, [projectId, loadTaskStats]);
 
   const loadTimerState = useCallback(async () => {
     if (!projectId) return;
@@ -1182,50 +1191,22 @@ export default function ProjectDetailPage() {
           </div>
         }
       >
-        <div className="cpd-rail-preview cpd-rail-preview--stats">
-          <div
-            className={`cpd-timer-widget${timerState.running ? ' cpd-timer-widget--running' : ''}`}
-            role="group"
-            aria-label="Project timer"
-          >
-            <button
-              type="button"
-              className={`cpd-timer-btn${timerState.running ? ' cpd-timer-btn--stop' : ' cpd-timer-btn--start'}`}
-              disabled={timerState.busy || timerState.loading}
-              onClick={() => void toggleProjectTimer()}
-            >
-              <Clock size={14} strokeWidth={1.75} aria-hidden />
-              {timerState.busy
-                ? '…'
-                : timerState.running
-                  ? 'Stop'
-                  : 'Start'}
-            </button>
-            <span className="cpd-timer-label">
-              {timerState.running
-                ? 'Running'
-                : timerState.loading
-                  ? '…'
-                  : 'Timer idle'}
-            </span>
-            <span className="cpd-timer-mins">
-              {timerState.loading ? '…' : fmtMinutes(timerState.minutesToday)} today
-            </span>
-          </div>
-          <button type="button" className="cpd-rail-preview-inner" onClick={() => openRailEditor('stats')}>
-            <dl className="cpd-quick-stats cpd-quick-stats--compact">
-              <div className="cpd-quick-stat">
-                <dt>Open tasks</dt>
-                <dd>{taskStats.loading ? '…' : taskStats.open}</dd>
-              </div>
-              <div className="cpd-quick-stat">
-                <dt>Chats</dt>
-                <dd>{loadingChats ? '…' : chats.length}</dd>
-              </div>
-            </dl>
-            <span className="cpd-rail-preview-foot">Tasks · calendar · client contact</span>
-          </button>
-        </div>
+        <ProjectQuickStats
+          compact
+          todos={projectTodos.items}
+          todosLoading={projectTodos.loading}
+          tasksInsights={tasksInsights}
+          timerRunning={timerState.running}
+          timerBusy={timerState.busy}
+          timerMinutesToday={timerState.minutesToday}
+          onToggleTimer={() => void toggleProjectTimer()}
+          onOpenTasks={openProjectTasks}
+          onOpenCalendar={openProjectCalendar}
+          metric={statsMetric}
+          onMetricChange={setStatsMetric}
+          period={statsPeriod}
+          onPeriodChange={setStatsPeriod}
+        />
       </RailSection>
 
       <RailSection
@@ -1246,35 +1227,58 @@ export default function ProjectDetailPage() {
               className="cpd-icon-btn"
               title="Manage brand assets"
               disabled={brandUploading}
-              onClick={() => openRailEditor('brand')}
+              onClick={() => brandInputRef.current?.click()}
             >
               <Plus size={14} strokeWidth={1.5} />
             </button>
           </div>
         }
       >
-        <button type="button" className="cpd-rail-preview cpd-rail-preview--brand" onClick={() => openRailEditor('brand')}>
+        <div
+          className={`cpd-brand-rail${brandDragOver ? ' cpd-brand-rail--over' : ''}`}
+          onDragEnter={(e) => {
+            e.preventDefault();
+            brandDragDepthRef.current += 1;
+            setBrandDragOver(true);
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+          }}
+          onDragLeave={() => {
+            brandDragDepthRef.current = Math.max(0, brandDragDepthRef.current - 1);
+            if (brandDragDepthRef.current === 0) setBrandDragOver(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            brandDragDepthRef.current = 0;
+            setBrandDragOver(false);
+            void appendBrandAssets(e.dataTransfer.files);
+          }}
+        >
           <div className="cpd-brand-swatches" aria-hidden>
             <span className="cpd-brand-swatch" style={{ background: brandPrimary || brandAccent }} />
             <span className="cpd-brand-swatch cpd-brand-swatch--muted" style={{ background: brandAccent }} />
           </div>
           {brandLoading ? (
-            <p className="cpd-rail-preview-empty">Loading brand assets…</p>
+            <p className="cpd-rail-preview-empty">Loading…</p>
           ) : brandAssets.length > 0 ? (
-            <div className="cpd-rail-files-mini">
-              {brandAssets.slice(0, 3).map((f) => (
-                <img key={f.url} src={cfImageVariants(f.url).src} alt="" />
+            <div className="cpd-rail-files-mini cpd-brand-rail-grid">
+              {brandAssets.slice(0, 6).map((f) => (
+                <button key={f.url} type="button" className="cpd-brand-rail-thumb" onClick={() => setPreviewImage(f)}>
+                  <img src={cfImageVariants(f.url).src} alt={f.name} />
+                </button>
               ))}
             </div>
           ) : (
-            <p className="cpd-rail-preview-empty">Drop logos & icons — client R2 when configured</p>
+            <p className="cpd-rail-preview-empty">Drop logos & icons here</p>
           )}
           <span className="cpd-rail-preview-foot">
             {storageScope?.source === 'client_r2'
-              ? `${storageScope.bucket} · verified at a glance`
-              : 'Platform storage · set r2_buckets for client bucket'}
+              ? `${storageScope.bucket} · drop to upload`
+              : 'Set client R2 bucket on project for client storage'}
           </span>
-        </button>
+        </div>
       </RailSection>
 
       <RailSection
@@ -1778,89 +1782,28 @@ export default function ProjectDetailPage() {
         isMobile={isMobile}
         title="Quick stats"
         mobileTitle="Stats"
-        subtitle={`Snapshot for ${project?.name || 'this project'}.`}
+        subtitle={`${project?.name || 'Project'} · ${clientContact?.client_name || project?.client_id || ''}`}
         showSave={false}
         onClose={closeRailEditor}
       >
-        <div
-          className={`cpd-timer-widget cpd-timer-widget--modal${timerState.running ? ' cpd-timer-widget--running' : ''}`}
-          role="group"
-          aria-label="Project timer"
-        >
-          <button
-            type="button"
-            className={`cpd-timer-btn${timerState.running ? ' cpd-timer-btn--stop' : ' cpd-timer-btn--start'}`}
-            disabled={timerState.busy || timerState.loading}
-            onClick={() => void toggleProjectTimer()}
-          >
-            <Clock size={16} strokeWidth={1.75} aria-hidden />
-            {timerState.busy ? 'Updating…' : timerState.running ? 'Stop timer' : 'Start timer'}
-          </button>
-          <span className="cpd-timer-label">
-            {timerState.running ? 'Timer running on this project' : 'Not tracking time'}
-          </span>
-          <span className="cpd-timer-mins">
-            {timerState.loading ? '…' : `${fmtMinutes(timerState.minutesToday)} logged today`}
-          </span>
-        </div>
-        <dl className="cpd-quick-stats cpd-quick-stats--modal">
-          <div className="cpd-quick-stat">
-            <dt>Open tasks</dt>
-            <dd>{taskStats.loading ? '…' : taskStats.open}</dd>
-          </div>
-          <div className="cpd-quick-stat">
-            <dt>Status</dt>
-            <dd>{project?.status?.replace(/_/g, ' ') || '—'}</dd>
-          </div>
-          {project?.domain ? (
-            <div className="cpd-quick-stat">
-              <dt>Domain</dt>
-              <dd className="cpd-quick-stat-mono">{project.domain}</dd>
-            </div>
-          ) : null}
-          {project?.worker_id ? (
-            <div className="cpd-quick-stat">
-              <dt>Worker</dt>
-              <dd className="cpd-quick-stat-mono">{project.worker_id}</dd>
-            </div>
-          ) : null}
-          <div className="cpd-quick-stat">
-            <dt>Chats</dt>
-            <dd>{loadingChats ? '…' : chats.length}</dd>
-          </div>
-          {storageScope ? (
-            <div className="cpd-quick-stat cpd-quick-stat--wide">
-              <dt>Storage</dt>
-              <dd className="cpd-quick-stat-mono">
-                {storageScope.bucket}/{storageScope.prefix}
-              </dd>
-            </div>
-          ) : null}
-          {project?.client_id ? (
-            <div className="cpd-quick-stat cpd-quick-stat--wide">
-              <dt>Client</dt>
-              <dd className="cpd-quick-stat-mono">
-                {clientContact?.client_name || project.client_id}
-              </dd>
-            </div>
-          ) : null}
-          {clientContact?.payment_notes ? (
-            <div className="cpd-quick-stat cpd-quick-stat--wide">
-              <dt>Contact / notes</dt>
-              <dd>{clientContact.payment_notes}</dd>
-            </div>
-          ) : null}
-        </dl>
-        <div className="cpd-stats-links">
-          <button type="button" className="cpd-btn cpd-btn--primary" onClick={() => { closeRailEditor(); openProjectTasks(); }}>
-            <CheckSquare size={14} strokeWidth={1.75} aria-hidden />
-            Tasks in Collaborate
-          </button>
-          <button type="button" className="cpd-btn cpd-btn--ghost" onClick={() => { closeRailEditor(); openProjectCalendar(); }}>
-            <Calendar size={14} strokeWidth={1.75} aria-hidden />
-            Calendar
-          </button>
-        </div>
+        <ProjectQuickStats
+          todos={projectTodos.items}
+          todosLoading={projectTodos.loading}
+          tasksInsights={tasksInsights}
+          timerRunning={timerState.running}
+          timerBusy={timerState.busy}
+          timerMinutesToday={timerState.minutesToday}
+          onToggleTimer={() => void toggleProjectTimer()}
+          onOpenTasks={() => { closeRailEditor(); openProjectTasks(); }}
+          onOpenCalendar={() => { closeRailEditor(); openProjectCalendar(); }}
+          metric={statsMetric}
+          onMetricChange={setStatsMetric}
+          period={statsPeriod}
+          onPeriodChange={setStatsPeriod}
+        />
+        {clientContact?.payment_notes ? (
+          <p className="cpd-insights-contact">{clientContact.payment_notes}</p>
+        ) : null}
       </RailEditorModal>
 
       <RailEditorModal
@@ -2396,6 +2339,86 @@ const CSS = `
 }
 .cpd-btn--ghost.sm { padding: 6px 10px; font-size: 12px; }
 .cpd-hidden-input { display: none; }
+
+/* ── project insights (Collaborate Time insights parity, dark rail) ── */
+.cpd-insights { padding: 2px 0 4px; }
+.cpd-insights--compact .cpd-insights-donut { width: 88px; height: 88px; margin: 8px auto 10px; }
+.cpd-insights--compact .cpd-insights-subhead h3 { font-size: 11px; }
+.cpd-insights-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 8px;
+}
+.cpd-insights-kicker { font-size: 10px; color: var(--color-muted, #94a3b8); text-transform: uppercase; letter-spacing: 0.06em; }
+.cpd-insights-title { font-size: 13px; font-weight: 600; color: var(--color-main, #e2e8f0); }
+.cpd-insights-live {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: #86efac; background: rgba(34, 197, 94, 0.15); border-radius: 999px; padding: 3px 8px;
+}
+.cpd-insights-switch, .cpd-insights-metric-switch {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 8px;
+  border: 1px solid var(--dashboard-border); border-radius: 10px; padding: 3px; background: rgba(255,255,255,0.02);
+}
+.cpd-insights-metric-switch { grid-template-columns: repeat(3, 1fr); margin-bottom: 10px; }
+.cpd-insights-switch button, .cpd-insights-metric-switch button {
+  border: 0; background: transparent; color: var(--color-muted, #94a3b8);
+  font-size: 11px; font-weight: 600; padding: 6px 8px; border-radius: 8px; cursor: pointer;
+}
+.cpd-insights-switch button.active, .cpd-insights-metric-switch button.active {
+  background: rgba(34, 211, 238, 0.14); color: #67e8f9;
+}
+.cpd-insights-timer-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px;
+}
+.cpd-insights-today { font-size: 12px; color: var(--color-muted, #94a3b8); }
+.cpd-insights-today strong { color: #93c5fd; font-size: 13px; margin-left: 4px; }
+.cpd-insights-donut {
+  width: 112px; height: 112px; border-radius: 50%; margin: 4px auto 12px; position: relative;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+}
+.cpd-insights-donut::after {
+  content: ''; position: absolute; inset: 22%; border-radius: 50%;
+  background: var(--bg-elevated, #1e2130); box-shadow: inset 0 0 0 1px var(--dashboard-border);
+}
+.cpd-insights-breakdown { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.cpd-insights-break-row {
+  display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--color-muted, #94a3b8);
+}
+.cpd-insights-break-row strong { color: var(--color-main, #e2e8f0); font-size: 11px; }
+.cpd-insights-dot { width: 8px; height: 8px; border-radius: 50%; }
+.cpd-insights-dot--open { background: #4285f4; }
+.cpd-insights-dot--done { background: #34a853; }
+.cpd-insights-dot--pct { background: #039be5; }
+.cpd-insights-rule { height: 1px; background: var(--dashboard-border); margin: 10px 0; }
+.cpd-insights-subhead {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;
+}
+.cpd-insights-subhead h3 { margin: 0; font-size: 12px; font-weight: 600; color: var(--color-main, #e2e8f0); }
+.cpd-insights-subhead span { font-size: 12px; color: #93c5fd; font-weight: 700; }
+.cpd-insights-empty { margin: 0 0 8px; font-size: 11px; color: var(--color-muted, #94a3b8); line-height: 1.45; }
+.cpd-insights-task-list { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.cpd-insights-task-btn {
+  width: 100%; text-align: left; border: 1px solid var(--dashboard-border); background: rgba(255,255,255,0.02);
+  border-radius: 8px; padding: 7px 9px; cursor: pointer; color: inherit;
+}
+.cpd-insights-task-btn:hover { border-color: rgba(34, 211, 238, 0.35); background: rgba(34, 211, 238, 0.06); }
+.cpd-insights-task-title { display: block; font-size: 11px; font-weight: 600; color: var(--color-main, #e2e8f0); }
+.cpd-insights-task-cat { display: block; margin-top: 2px; font-size: 10px; color: var(--color-muted, #94a3b8); }
+.cpd-insights-links { display: flex; flex-wrap: wrap; gap: 6px; }
+.cpd-insights-contact {
+  margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--dashboard-border);
+  font-size: 12px; line-height: 1.55; color: var(--color-muted, #94a3b8);
+}
+.cpd-brand-rail {
+  border: 1px dashed var(--dashboard-border); border-radius: 10px; padding: 10px;
+  transition: border-color 0.12s, background 0.12s;
+}
+.cpd-brand-rail--over { border-color: rgba(34, 211, 238, 0.55); background: rgba(34, 211, 238, 0.08); }
+.cpd-brand-rail-grid { margin: 6px 0; }
+.cpd-brand-rail-thumb {
+  width: 40px; height: 40px; padding: 0; border: 1px solid var(--dashboard-border);
+  border-radius: 8px; overflow: hidden; background: rgba(255,255,255,0.03); cursor: pointer;
+}
+.cpd-brand-rail-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* ── editor modals (large read/edit) ── */
 .cpd-editor-backdrop { z-index: 520; }

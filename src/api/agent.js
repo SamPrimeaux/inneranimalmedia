@@ -2152,7 +2152,35 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     const category = reqUrl.searchParams.get('category')?.trim() || null;
     const includeLegacy = reqUrl.searchParams.get('include_legacy') === '1';
     try {
-      const binds = [scope.tenantId, scope.workspaceId];
+      let queryWorkspaceId = scope.workspaceId;
+      const projectKeys = new Set();
+      if (projectId) {
+        const prow = await env.DB.prepare(
+          `SELECT id, workspace_id, worker_id FROM projects WHERE id = ? LIMIT 1`,
+        )
+          .bind(projectId)
+          .first();
+        if (prow?.workspace_id) queryWorkspaceId = String(prow.workspace_id).trim();
+        projectKeys.add(projectId);
+        if (prow?.worker_id) projectKeys.add(String(prow.worker_id).trim());
+        if (prow?.id) projectKeys.add(String(prow.id).trim());
+      } else if (clientId) {
+        const cpRow = await env.DB.prepare(
+          `SELECT p.id, p.workspace_id, p.worker_id
+           FROM client_projects cp
+           INNER JOIN projects p ON p.id = cp.project_id
+           WHERE cp.client_id = ?
+           ORDER BY cp.updated_at DESC
+           LIMIT 1`,
+        )
+          .bind(clientId)
+          .first();
+        if (cpRow?.workspace_id) queryWorkspaceId = String(cpRow.workspace_id).trim();
+        if (cpRow?.id) projectKeys.add(String(cpRow.id).trim());
+        if (cpRow?.worker_id) projectKeys.add(String(cpRow.worker_id).trim());
+      }
+
+      const binds = [scope.tenantId, queryWorkspaceId];
       let sql = `SELECT * FROM agentsam_todo
          WHERE tenant_id = ? AND workspace_id = ?
            AND (status IS NULL OR LOWER(TRIM(status)) NOT IN ('done', 'completed', 'cancelled'))`;
@@ -2166,8 +2194,11 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
            )`;
       }
       if (projectId) {
-        sql += ` AND (project_id = ? OR project_key = ?)`;
-        binds.push(projectId, projectId);
+        const keys = [...projectKeys];
+        if (!keys.includes(projectId)) keys.unshift(projectId);
+        const ph = keys.map(() => '?').join(', ');
+        sql += ` AND (project_id IN (${ph}) OR project_key IN (${ph}))`;
+        binds.push(...keys, ...keys);
       }
       if (clientId) {
         sql += ` AND client_id = ?`;
