@@ -891,23 +891,174 @@ const PROJECTS_CSS = `
 }
 
 @media (max-width: 540px) {
-  .pj-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .pj-grid { grid-template-columns: 1fr; gap: 12px; }
   .pj-header { padding: 16px 12px 0; }
-  .pj-body { padding: 0 12px 32px; }
-  .pj-title { font-size: 24px; }
-  .pj-card--visual { min-height: 170px; aspect-ratio: 3 / 4; }
-  .pj-card-media { min-height: 170px; }
-  .pj-card-name { font-size: 13px; }
-  .pj-card-type { font-size: 10px; margin-bottom: 6px; }
-  .pj-card-status-pill { font-size: 9px; padding: 2px 6px; }
-  .pj-card-media-initials { font-size: 1.8rem; }
-  .pj-card-overlay { padding: 8px; }
-  .pj-card-overlay-top { top: 8px; left: 8px; right: 38px; }
-  .pj-menu-btn { width: 24px; height: 24px; }
-  .pj-tabs { gap: 4px; margin-bottom: 10px; }
-  .pj-tab { padding: 5px 10px; font-size: 12px; }
-  .pj-card-progress-track { height: 3px; }
-  .pj-card-progress-pct { font-size: 10px; min-width: 24px; }
+  .pj-body { padding: 0 12px 32px; max-width: none; }
+  .pj-title { font-size: 26px; }
+  .pj-tabs { gap: 6px; margin-bottom: 12px; }
+  .pj-tab { padding: 6px 12px; font-size: 13px; }
+
+  /* List-row cards (mockup: thumb | meta | menu) */
+  .pj-card--visual {
+    aspect-ratio: auto;
+    min-height: 0;
+    border-radius: 14px;
+  }
+
+  .pj-card--visual:hover,
+  .pj-card--visual:focus-within {
+    transform: none;
+    box-shadow: none;
+  }
+
+  .pj-card-media {
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr) 36px;
+    grid-template-rows: auto;
+    gap: 0 12px;
+    align-items: center;
+    min-height: 0;
+    height: auto;
+    padding: 12px;
+    background: var(--dashboard-panel, rgba(255,255,255,0.04));
+  }
+
+  .pj-card-media-img {
+    position: relative;
+    inset: auto;
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    width: 84px;
+    height: 84px;
+    border-radius: 12px;
+    object-fit: cover;
+    align-self: center;
+  }
+
+  .pj-card-media-fallback {
+    position: relative;
+    inset: auto;
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    width: 84px;
+    height: 84px;
+    border-radius: 12px;
+    align-self: center;
+  }
+
+  .pj-card-media-initials { font-size: 1.35rem; }
+
+  .pj-card--visual:hover .pj-card-media-img,
+  .pj-card--visual:focus-within .pj-card-media-img {
+    transform: none;
+  }
+
+  .pj-card-scrim { display: none; }
+
+  .pj-card-overlay {
+    position: relative;
+    inset: auto;
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0;
+    min-width: 0;
+  }
+
+  .pj-card-overlay-top {
+    position: relative;
+    top: auto;
+    left: auto;
+    right: auto;
+    margin-bottom: 4px;
+    opacity: 1;
+    transform: none;
+  }
+
+  .pj-card-overlay-body {
+    opacity: 1;
+    transform: none;
+  }
+
+  .pj-card-status-pill {
+    font-size: 9px;
+    padding: 2px 7px;
+    background: rgba(255,255,255,0.06);
+  }
+
+  .pj-card-star-badge { display: none; }
+
+  .pj-card-name {
+    font-size: 16px;
+    font-weight: 650;
+    color: inherit;
+    text-shadow: none;
+    -webkit-line-clamp: 2;
+  }
+
+  .pj-card-type {
+    font-size: 13px;
+    color: var(--color-muted, #94a3b8);
+    margin: 2px 0 10px;
+    text-transform: none;
+  }
+
+  .pj-card-progress-wrap { gap: 10px; }
+
+  .pj-card-progress-track {
+    height: 4px;
+    background: rgba(148,163,184,0.22);
+  }
+
+  .pj-card-progress-fill {
+    background: #fb7185;
+  }
+
+  .pj-card-progress-pct {
+    font-size: 13px;
+    color: var(--color-muted, #94a3b8);
+    min-width: 36px;
+  }
+
+  .pj-card .pj-menu {
+    position: relative;
+    top: auto;
+    right: auto;
+    grid-column: 3;
+    grid-row: 1;
+    align-self: start;
+    justify-self: end;
+    pointer-events: auto;
+  }
+
+  .pj-menu-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    border: 1px solid var(--dashboard-border);
+    background: transparent;
+    color: inherit;
+    backdrop-filter: none;
+  }
+
+  .pj-menu-btn:hover,
+  .pj-menu-btn[aria-expanded="true"] {
+    background: var(--bg-hover);
+  }
+
+  .pj-card--skeleton .pj-card-media {
+    display: block;
+    min-height: 108px;
+    padding: 0;
+  }
+
+  .pj-card--skeleton .pj-card-media--skel {
+    min-height: 108px;
+    width: 100%;
+    border-radius: 14px;
+  }
 }
 
 .pj-card {
