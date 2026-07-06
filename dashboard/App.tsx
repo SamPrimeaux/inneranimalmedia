@@ -5171,6 +5171,7 @@ const App: React.FC = () => {
                           outputLines={shellOutputLines}
                           onOutputLine={handleTerminalOutputLine}
                           workspaceContext={agentWorkspaceContext}
+                          sessionUserId={sessionUserId}
                         />
                       </Suspense>
                   )}
@@ -5228,6 +5229,7 @@ const App: React.FC = () => {
                       problems={systemProblems ?? []}
                       onProblemsTabOpen={() => void fetchGitAndProblems()}
                       onClose={() => setIsTerminalOpen(false)}
+                      sessionUserId={sessionUserId}
                     />
                   </Suspense>
                 </div>

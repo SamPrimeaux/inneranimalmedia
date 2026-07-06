@@ -17,7 +17,6 @@ import {
 } from './TerminalSessionPane';
 import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
 import { fetchLocalTerminalConnection, fetchTerminalTargets, type TerminalTarget } from './LocalTerminalSetup';
-import { useWorkspace } from '../src/context/WorkspaceContext';
 import {
   cloudflareOAuthStartUrl,
   hasCloudflareTerminalAccess,
@@ -98,6 +97,8 @@ interface XTermShellProps {
   productLabel?: string;
   layout?: 'page' | 'drawer';
   workspaceContext?: AgentWorkspaceContextPacket | null;
+  /** Passed from App — lazy XTermShell chunk must not import WorkspaceContext (duplicate React context). */
+  sessionUserId?: string | null;
 }
 
 const MIN_HEIGHT = 140;
@@ -132,6 +133,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       layout = 'page',
       workspaceContext: _workspaceContext = null,
       onOutputLine,
+      sessionUserId: sessionUserIdProp,
     },
     ref,
   ) => {
@@ -239,7 +241,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       const wid = workspaceId?.trim() || '';
       return wid ? getTerminalWorkspacePref(wid).targetType : 'platform_vm';
     });
-    const { sessionUserId } = useWorkspace();
+    const sessionUserId = sessionUserIdProp?.trim() || null;
 
     useEffect(() => {
       terminalTargetRef.current = terminalTarget;
