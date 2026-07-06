@@ -202,6 +202,8 @@ export function LaunchDeskPage() {
   });
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [insightsMode, setInsightsMode] = useState<'week' | 'month'>('week');
+  const [insightsOpen, setInsightsOpen] = useState(false);
+  const [leftNavOpen, setLeftNavOpen] = useState(true);
 
   const [sources, setSources] = useState({
     primary: true,
@@ -641,11 +643,34 @@ export function LaunchDeskPage() {
   const remainingMins = Math.max(0, workMins * 5 - scheduledMins);
 
   return (
-    <div className="colab-cal">
+    <div
+      className={[
+        'colab-cal',
+        insightsOpen ? 'insights-open' : '',
+        leftNavOpen ? 'left-nav-open' : 'left-nav-closed',
+      ].filter(Boolean).join(' ')}
+    >
       <header className="colab-cal-topbar">
+        <button
+          type="button"
+          className="colab-cal-hamb"
+          aria-label={leftNavOpen ? 'Close task navigation' : 'Open task navigation'}
+          aria-expanded={leftNavOpen}
+          onClick={() => setLeftNavOpen((v) => !v)}
+        >
+          <svg
+            className={`colab-cal-hamb-icon${leftNavOpen ? ' is-open' : ''}`}
+            viewBox="0 0 20 20"
+            aria-hidden
+          >
+            <line className="colab-cal-hamb-bar colab-cal-hamb-bar-top" x1="3" y1="5" x2="17" y2="5" />
+            <line className="colab-cal-hamb-bar colab-cal-hamb-bar-mid" x1="3" y1="10" x2="17" y2="10" />
+            <line className="colab-cal-hamb-bar colab-cal-hamb-bar-bottom" x1="3" y1="15" x2="17" y2="15" />
+          </svg>
+        </button>
         <div className="colab-cal-brand">
           <div className="colab-cal-brand-mark">C</div>
-          <div className="colab-cal-brand-title">Calendar</div>
+          <div className="colab-cal-brand-title">{mainSeg === 'tasks' ? 'Tasks' : 'Calendar'}</div>
         </div>
         <div className="colab-cal-top-center">
           {mainSeg === 'calendar' ? (
@@ -1074,7 +1099,7 @@ export function LaunchDeskPage() {
           />
         )}
 
-        {mainSeg === 'tasks' ? (
+        {mainSeg === 'tasks' && insightsOpen ? (
           <CollaborateTasksInsights
             insights={insights}
             tasksInsights={tasksInsights}
@@ -1089,7 +1114,7 @@ export function LaunchDeskPage() {
             selectedTaskId={selectedTaskId}
             onTimeLogged={reload}
           />
-        ) : mainSeg === 'calendar' ? (
+        ) : mainSeg === 'calendar' && insightsOpen ? (
         <aside className="colab-cal-right">
           <div className="colab-cal-insights-head">
             <div>
@@ -1167,6 +1192,8 @@ export function LaunchDeskPage() {
         ) : null}
 
         <CollaboratePageRail
+          insightsOpen={insightsOpen}
+          onInsightsToggle={() => setInsightsOpen((v) => !v)}
           onTasksClick={() => {
             setMainSeg('tasks');
             setTasksNavView('list');

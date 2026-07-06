@@ -13,7 +13,8 @@
   --shadow: 0 6px 18px rgba(60, 64, 67, 0.18), 0 1px 3px rgba(60, 64, 67, 0.22);
   --topbar: 64px;
   --left: 268px;
-  --right: 318px;
+  --right: 0px;
+  --right-open: 318px;
   --rail: 54px;
   --hour: 52px;
   height: 100%;
@@ -40,6 +41,23 @@
   flex-shrink: 0;
 }
 .colab-cal-brand { display: flex; align-items: center; gap: 10px; margin-right: 12px; min-width: 140px; }
+.colab-cal-hamb {
+  width: 40px; height: 40px; border: 0; border-radius: 50%; background: transparent;
+  display: grid; place-items: center; color: #5f6368; flex-shrink: 0;
+}
+.colab-cal-hamb:hover { background: var(--panel-soft); }
+.colab-cal-hamb-icon { width: 20px; height: 20px; display: block; }
+.colab-cal-hamb-bar {
+  stroke: currentColor; stroke-width: 1.8; stroke-linecap: round;
+  transform-box: fill-box; transform-origin: center;
+  transition: transform 0.22s ease, opacity 0.18s ease;
+}
+.colab-cal-hamb-icon.is-open .colab-cal-hamb-bar-top { transform: translateY(5px) rotate(45deg); }
+.colab-cal-hamb-icon.is-open .colab-cal-hamb-bar-mid { opacity: 0; }
+.colab-cal-hamb-icon.is-open .colab-cal-hamb-bar-bottom { transform: translateY(-5px) rotate(-45deg); }
+.colab-cal.insights-open { --right: var(--right-open); }
+.colab-cal.left-nav-closed { --left: 0px; }
+.colab-cal.left-nav-closed .colab-cal-left { display: none; }
 .colab-cal-brand-mark {
   width: 34px; height: 34px; border-radius: 8px;
   background: linear-gradient(135deg, #8ab4f8, #1a73e8);
@@ -362,6 +380,7 @@
 }
 .colab-cal-rail-icon svg { display: block; }
 .colab-cal-rail-icon:hover { background: var(--panel-soft); }
+.colab-cal-rail-icon.active { background: #fef7e0; box-shadow: inset 0 0 0 1px rgba(251, 188, 4, 0.45); }
 .colab-cal-rail-icon.yellow { color: #fbbc04; }
 .colab-cal-rail-icon.blue { color: #4285f4; }
 .colab-cal-rail-icon.green { color: #34a853; }
