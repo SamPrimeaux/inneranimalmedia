@@ -38,6 +38,8 @@ export const PUBLIC_OAUTH_PATHS = [
   '/api/auth/backup-code',
   '/api/auth/recovery',
   '/api/auth/password-reset',
+  '/api/auth/reset',
+  '/api/auth/forgot-password',
   '/api/auth/verify-email',
   '/api/auth/resend-verification',
   '/api/auth-hooks',
