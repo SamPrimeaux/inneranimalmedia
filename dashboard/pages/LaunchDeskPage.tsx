@@ -160,6 +160,7 @@ export function LaunchDeskPage() {
     [projectFilterId, clientFilterId, clientWorkFilter],
   );
   const peopleSearchRef = useRef<HTMLInputElement>(null);
+  const weekScrollRef = useRef<HTMLDivElement>(null);
 
   const [anchor, setAnchor] = useState(() => new Date());
   const [mainSeg, setMainSeg] = useState<MainSeg>('calendar');
