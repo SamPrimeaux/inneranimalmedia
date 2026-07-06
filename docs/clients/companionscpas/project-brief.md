@@ -9,8 +9,10 @@ project_key: companionscpas
 tenant_id: tenant_companionscpas
 workspace_id: ws_companionscpas
 public_domain: companionsofcaddo.org
+admin_domain: admin.companionsofcaddo.org
 worker_name: companionscpas
-worker_url: https://companionscpas.meauxbility.workers.dev
+public_url: https://companionsofcaddo.org
+admin_route: admin.companionsofcaddo.org/*
 github_repo: SamPrimeaux/companionscpas
 local_repo_path: /Users/samprimeaux/companionscpas
 d1_database_id: fd6dd6fb-156b-4b6a-8ff0-505422652391

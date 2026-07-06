@@ -31,9 +31,10 @@ Use this runbook when working on **Companions of CPAS** from the IAM dashboard (
 |-------|-------|
 | Client | Companions of CPAS (nonprofit dog rescue, Caddo Parish LA) |
 | Public site | https://companionsofcaddo.org |
+| Admin route | `admin.companionsofcaddo.org/*` |
 | Assets CDN | https://assets.companionsofcaddo.org |
 | Worker | `companionscpas` |
-| Worker URL | https://companionscpas.meauxbility.workers.dev |
+| Custom domains | Production only — no workers.dev |
 | GitHub | SamPrimeaux/companionscpas (branch `main`) |
 | CF account | `ede6590ac0d2fb7daf155b35653457b2` |
 | IAM tenant | `tenant_companionscpas` |
@@ -45,14 +46,16 @@ Use this runbook when working on **Companions of CPAS** from the IAM dashboard (
 
 ## Cloudflare bindings (client worker — dashboard SSOT)
 
-Matches Workers & Pages → **companionscpas** → Bindings:
+Matches Workers & Pages → **companionscpas** → Settings → **Bindings** (Type / Name / Value — verbatim):
 
-| Binding | Type | Cloudflare name / ID |
-|---------|------|----------------------|
-| `DB` | D1 | `companionscpas` — `fd6dd6fb-156b-4b6a-8ff0-505422652391` |
-| `WEBSITE_ASSETS` | R2 | `companionscpas` |
-| `CMS_CACHE` | KV | `companionscpas-cache` — `0b410337a8494fc982ea04c5bde1eab4` |
-| `AGENTSAM_WAI` | Workers AI | Catalog |
+| Type | Name | Value |
+|------|------|-------|
+| Workers AI | AGENTSAM_WAI | Workers AI Catalog |
+| KV namespace | CMS_CACHE | companionscpas-cache |
+| D1 database | DB | companionscpas |
+| R2 bucket | WEBSITE_ASSETS | companionscpas |
+
+_D1 database ID: `fd6dd6fb-156b-4b6a-8ff0-505422652391` · KV namespace ID: `0b410337a8494fc982ea04c5bde1eab4`_
 
 IAM does **not** bind client D1 in wrangler. Database work uses **client repo migrations** or D1 REST with platform token.
 
@@ -100,7 +103,7 @@ R2 file picker scopes to bucket **`companionscpas`** when this workspace is acti
 
 Open directly (iframe embed pending):
 
-https://companionscpas.meauxbility.workers.dev/dashboard/cms/website
+https://companionsofcaddo.org/dashboard/cms/website
 
 **Path B — IAM bridge proxy:**
 

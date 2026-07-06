@@ -1,4 +1,5 @@
 # AGENTSAM.md
+> **Project README for any fresh agent** — read this first to align on structure, bindings, deploy, and non-negotiables before touching code or D1.
 > Runtime rules and context for Agent Sam.
 > This file is the human-readable source of truth.
 > Fill this in at project conception. Keep it current. Commit every change.
@@ -29,18 +30,34 @@ Location:
 
 ```
 Primary worker:         
+Custom domains:         
+Workers.dev:            
 Worker deploy command:  
-Database:               
-Database ID:            
 Frontend:               
 Frontend deploy:        
 MCP server:             
 MCP server URL:         
-Storage:                
-KV namespaces:          
-Other bindings:         
+Worker binding names:   <!-- env.* names in code — e.g. DB · WEBSITE_ASSETS · CMS_CACHE · AGENTSAM_WAI -->
 Account ID:             
+GitHub:                 
+Local path:             
 ```
+
+---
+
+## Worker bindings (Cloudflare dashboard)
+
+Document bindings **exactly** as shown in Cloudflare → Workers & Pages → **[worker name]** → Settings → **Bindings**. Three columns — **Type**, **Name**, **Value** — copied verbatim from the dashboard. **Keep binding Names** (`DB`, `WEBSITE_ASSETS`, etc.); they are how the Worker code references `env.*`.
+
+| Type | Name | Value |
+|------|------|-------|
+|      |      |       |
+
+Optional wrangler IDs (not shown in dashboard Value column) go in a footnote line below the table.
+
+The **Worker binding names** line in The Stack must list every **Name** from this table so agents see `env.DB` / `env.WEBSITE_ASSETS` at a glance.
+
+**Secrets and plain `[vars]` are not bindings** — document them in Deploy Rules or a separate secrets checklist, not in this table.
 
 ---
 
@@ -173,6 +190,8 @@ Dead/unwired code:      <!-- list anything that exists but isn't called -->
 3. If this file has a blank or placeholder — ask Sam to fill it in, do not assume
 4. If this file and any database conflict — trust this file, flag the conflict
 5. If uncertain about anything — ask, do not invent
+6. Worker bindings must match the Cloudflare dashboard table in this file — Type / Name / Value verbatim; **Name** = `env.*` in code
+7. Every IAM project must have a synced AGENTSAM.md pair (IAM docs + client repo when applicable); seed dashboard Instructions on the project detail page
 ```
 
 ---

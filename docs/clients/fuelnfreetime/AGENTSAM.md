@@ -1,5 +1,6 @@
 # AGENTSAM.md — Fuel N Free Time (fuelnfreetime.com)
 
+> **Project README for any fresh agent** — structure, bindings, deploy, tables, and non-negotiables in one place.
 > Runtime rules and context for Agent Sam on **Fuel & Free Time**.
 > Human-readable source of truth. If this file conflicts with any database row — **this file wins** for agent behavior.
 > IAM copy: `docs/clients/fuelnfreetime/AGENTSAM.md` · Client repo: `fuelnfreetime/AGENTSAM.md`
@@ -32,22 +33,38 @@ E-commerce storefront and admin for **Fuel & Free Time** — apparel/lifestyle b
 
 ```
 Primary worker:         fuelnfreetime
-Worker URL:             https://fuelnfreetime.meauxbility.workers.dev
-Public domain:          https://fuelnfreetime.com
+Custom domains:         https://fuelnfreetime.com · https://www.fuelnfreetime.com
+Workers.dev:            https://fuelnfreetime.meauxbility.workers.dev (preview / fallback — production is custom domains)
 Worker deploy command:  npm run deploy (admin SPA build + wrangler deploy) — from fuelnfreetime repo only
-Database:               D1 fuelnfreetime
-Database ID:            9fd6ff92-e407-4b51-8b01-3c93f3845bb2
 Frontend:               Admin SPA (admin-ui/) + static storefront in public/
 Frontend deploy:        Bundled in npm run deploy
 MCP server:             mcp.inneranimalmedia.com
 MCP server URL:         https://mcp.inneranimalmedia.com/mcp
-Storage:                R2 fuelnfreetime (/media/*, agentsam/skills/*)
-KV namespaces:          CMS_CACHE (bc3b4e3f272e4b46b3c92df6dff85bff)
-Other bindings:         CMS_EDITOR (DO), AGENTSAM_WAI, FNF_VECTORIZE, ASSETS
+Worker binding names:   DB · WEBSITE_ASSETS · CMS_CACHE · AGENTSAM_WAI · FNF_VECTORIZE · CMS_EDITOR · ASSETS
 Account ID:             IAM Cloudflare account
 GitHub:                 github.com/SamPrimeaux/fuelnfreetime
 Local path:             /Users/samprimeaux/fuelnfreetime
 ```
+
+---
+
+## Worker bindings (Cloudflare dashboard)
+
+SSOT: Cloudflare → Workers & Pages → **fuelnfreetime** → Settings → **Bindings**. Copy **Type**, **Name**, and **Value** verbatim — do not paraphrase. **Name** is the `env.*` key in Worker code.
+
+| Type | Name | Value |
+|------|------|-------|
+| D1 database | DB | fuelnfreetime |
+| Workers AI | AGENTSAM_WAI | Workers AI Catalog |
+| R2 bucket | WEBSITE_ASSETS | fuelnfreetime |
+| KV namespace | CMS_CACHE | fuelnfreetime-cache |
+| Vectorize index | FNF_VECTORIZE | fnf-agentsam-bge-m3-1024 |
+| Durable Object | CMS_EDITOR | CmsEditorRoom |
+| Static assets | ASSETS | public |
+
+_D1 database ID: `9fd6ff92-e407-4b51-8b01-3c93f3845bb2` · KV namespace ID: `bc3b4e3f272e4b46b3c92df6dff85bff`_
+
+**Not bindings** (wrangler secrets / `[vars]`): `CMS_WARM_SECRET`, `CMS_DEPLOY_HOOK_URL`, `STRIPE_*`, `RESEND_*`, `OPENAI_API_KEY`, GitHub OAuth secrets
 
 ---
 
@@ -180,9 +197,10 @@ Dead/unwired code:      Stripe checkout capture (contract written, not implement
 1. Read this file before fuelnfreetime repo or fuel D1 changes
 2. Read AGENTS.md + relevant RUNTIME-CONTRACTS-* in client repo for implementation detail
 3. Non-negotiable violation → stop and explain
-4. Connor: no MCP D1 — terminal sandbox with workspace_slug fuelnfreetime
-5. Sam superadmin: agentsam_d1_query with workspace_slug fuelnfreetime
-6. IAM RAG: client_project_semantic_search project_key fuelnfreetime
+4. Worker bindings must match the Cloudflare dashboard table — Type / Name / Value verbatim; **Name** = `env.*` in code
+5. Connor: no MCP D1 — terminal sandbox with workspace_slug fuelnfreetime
+6. Sam superadmin: agentsam_d1_query with workspace_slug fuelnfreetime
+7. IAM RAG: client_project_semantic_search project_key fuelnfreetime
 ```
 
 ---
@@ -209,5 +227,5 @@ Dead/unwired code:      Stripe checkout capture (contract written, not implement
 ---
 
 *Created: 2026-07-06*
-*Last updated: 2026-07-06*
+*Last updated: 2026-07-06 (bindings table — CF dashboard Type/Name/Value)*
 *Edit directly. Commit every change. If it's not in this file, it doesn't exist.*

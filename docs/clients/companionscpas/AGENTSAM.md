@@ -1,5 +1,6 @@
 # AGENTSAM.md — Companions of Caddo (companionsofcaddo.org)
 
+> **Project README for any fresh agent** — structure, bindings, deploy, tables, and non-negotiables in one place.
 > Runtime rules and context for Agent Sam on **CompanionsCPAS**.
 > Human-readable source of truth. If this file conflicts with any database row — **this file wins** for agent behavior.
 > IAM copy: `docs/clients/companionscpas/AGENTSAM.md` · Client repo: `companionscpas/AGENTSAM.md`
@@ -31,22 +32,37 @@ Production website and admin dashboard for **Companions of CPAS**, a nonprofit d
 
 ```
 Primary worker:         companionscpas
-Worker URL:             https://companionscpas.meauxbility.workers.dev
-Public domain:          https://companionsofcaddo.org
+Custom domains:         https://companionsofcaddo.org (public site + /dashboard)
+                        admin.companionsofcaddo.org/* (admin route — wrangler [[routes]])
+Workers.dev:            Not used — production traffic is custom domains only
 Worker deploy command:  npm run deploy:full (R2 sync + wrangler deploy) — from companionscpas repo only
-Database:               D1 companionscpas
-Database ID:            fd6dd6fb-156b-4b6a-8ff0-505422652391
 Frontend:               React dashboard (Babel CDN, no Vite) + sectional CMS HTML in R2
 Frontend deploy:        Included in deploy:full (R2 sync)
 MCP server:             mcp.inneranimalmedia.com (IAM platform — D1 via workspace_slug companionscpas / ws_companionscpas)
 MCP server URL:         https://mcp.inneranimalmedia.com/mcp
-Storage:                R2 companionscpas · CDN assets.companionsofcaddo.org
-KV namespaces:          CMS_CACHE (companionscpas-cache)
-Other bindings:         AGENTSAM_WAI (Workers AI), AGENTSAM_BRIDGE_KEY (IAM CMS bridge)
-Account ID:             IAM Cloudflare account (client worker under Meauxbility workers.dev zone)
+Worker binding names:   DB · CMS_CACHE · WEBSITE_ASSETS · AGENTSAM_WAI
+Assets CDN:             https://assets.companionsofcaddo.org (R2 custom domain — not a Worker binding)
+Account ID:             IAM Cloudflare account (companionsofcaddo.org zone)
 GitHub:                 github.com/SamPrimeaux/companionscpas
 Local path:             /Users/samprimeaux/companionscpas
 ```
+
+---
+
+## Worker bindings (Cloudflare dashboard)
+
+SSOT: Cloudflare → Workers & Pages → **companionscpas** → Settings → **Bindings**. Copy **Type**, **Name**, and **Value** verbatim — do not paraphrase. **Name** is the `env.*` key in Worker code.
+
+| Type | Name | Value |
+|------|------|-------|
+| Workers AI | AGENTSAM_WAI | Workers AI Catalog |
+| KV namespace | CMS_CACHE | companionscpas-cache |
+| D1 database | DB | companionscpas |
+| R2 bucket | WEBSITE_ASSETS | companionscpas |
+
+_D1 database ID: `fd6dd6fb-156b-4b6a-8ff0-505422652391` · KV namespace ID: `0b410337a8494fc982ea04c5bde1eab4`_
+
+**Not bindings** (wrangler secrets — see `runbook.md`): `AGENTSAM_BRIDGE_KEY`, `STRIPE_*`, `RESEND_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_CLIENT_*`, `IAM_TELEMETRY_URL`, `INTERNAL_PUBLISH_KEY`
 
 ---
 
@@ -126,7 +142,7 @@ IAM CMS hub:        ws_inneranimalmedia → /dashboard/cms → Companions tile �
 
 ```
 Who can deploy to production:   Sam (IAM superadmin) · client approval for account transfer later
-Who can deploy to staging:      Sam · preview via workers.dev
+Who can deploy to staging:      Sam · local wrangler dev or branch preview (no workers.dev production URL)
 Who can touch env vars/secrets: wrangler secret put on companionscpas worker only
 Deploy process:                 cd companionscpas && npm run deploy:full
 Rollback process:               git revert + redeploy; KV bust via CMS republish
@@ -179,9 +195,10 @@ Dead/unwired code:      Lane B social publish stubs (501 until client approval)
 1. Read this file completely before touching companionscpas repo or CPAS D1
 2. If a proposed change violates a non-negotiable — stop and say so explicitly
 3. If blank or placeholder — ask Sam; do not assume bindings or table names
-4. If this file and CPAS D1 agentsam_project_context conflict — trust this file, flag conflict
-5. Platform patterns (CMS pipeline, email): docs/patterns/* via docs_knowledge_search on IAM
-6. Client scope questions: client_project_semantic_search with project_key companionscpas
+4. Worker bindings must match the Cloudflare dashboard table in this file — Type / Name / Value verbatim; **Name** = `env.*` in code; secrets are not bindings
+5. If this file and CPAS D1 agentsam_project_context conflict — trust this file, flag conflict
+6. Platform patterns (CMS pipeline, email): docs/patterns/* via docs_knowledge_search on IAM
+7. Client scope questions: client_project_semantic_search with project_key companionscpas
 ```
 
 ---
@@ -208,5 +225,5 @@ Dead/unwired code:      Lane B social publish stubs (501 until client approval)
 ---
 
 *Created: 2026-07-06*
-*Last updated: 2026-07-06*
+*Last updated: 2026-07-06 (bindings table — CF dashboard Type/Name/Value)*
 *Edit directly. Commit every change. If it's not in this file, it doesn't exist.*
