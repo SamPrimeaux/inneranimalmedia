@@ -65,12 +65,40 @@ export interface AgentTodo {
   due_date?: string | null;
   tags?: string | null;
   category?: string | null;
+  project_id?: string | null;
   project_key?: string | null;
+  client_id?: string | null;
+  agent_instructions?: string | null;
   notes?: string | null;
   linked_route?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   sort_order?: number | null;
+}
+
+export interface ProjectRow {
+  id: string;
+  name: string;
+  status?: string | null;
+  client_id?: string | null;
+  client_name?: string | null;
+  domain?: string | null;
+}
+
+export interface ClientProjectRow {
+  id: string;
+  client_name?: string | null;
+  project_name?: string | null;
+  project_id?: string | null;
+  client_id?: string | null;
+  status?: string | null;
+}
+
+export interface TasksInsightsPayload {
+  today_minutes: number;
+  active_tracking: boolean;
+  by_project: { project_id: string; name: string; minutes: number }[];
+  by_task: { todo_id: string | null; title: string; minutes: number }[];
 }
 
 export function parseTodoTags(raw: string | null | undefined): string[] {
@@ -88,8 +116,20 @@ export function isTodoStarred(todo: AgentTodo) {
 }
 
 export function todoListName(todo: AgentTodo) {
-  const name = String(todo.category || todo.project_key || '').trim();
+  const name = String(todo.category || '').trim();
   return name || 'My Tasks';
+}
+
+export function isMyTasksTodo(todo: AgentTodo) {
+  const cat = String(todo.category || '').trim();
+  return !cat || cat === 'My Tasks';
+}
+
+export function fmtMinutes(m: number) {
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r ? `${h}h ${r}m` : `${h}h`;
 }
 
 export function formatTodoDue(raw: string | null | undefined) {
@@ -310,14 +350,49 @@ export async function fetchPeople(q: string) {
   return data.people ?? [];
 }
 
+export async function fetchProjects(opts?: { clientId?: string | null; clientWork?: boolean }) {
+  const params = new URLSearchParams();
+  if (opts?.clientId?.trim()) params.set('client_id', opts.clientId.trim());
+  if (opts?.clientWork) params.set('client_work', '1');
+  const qs = params.toString();
+  const data = await apiJson<{ projects?: ProjectRow[] }>(`/api/projects${qs ? `?${qs}` : ''}`);
+  return data.projects ?? [];
+}
+
+export async function fetchClientProjects() {
+  const data = await apiJson<{ clients?: ClientProjectRow[] }>('/api/projects/clients');
+  return data.clients ?? [];
+}
+
+export async function fetchTasksInsights(anchor: Date) {
+  const q = new URLSearchParams({ anchor: anchorIso(anchor) });
+  return apiJson<TasksInsightsPayload>(`/api/calendar/tasks-insights?${q}`);
+}
+
+export async function postActivityHeartbeat(payload: {
+  project_id?: string | null;
+  todo_id?: string | null;
+  surface?: string;
+}) {
+  return apiJson<{ ok?: boolean }>('/api/calendar/activity/heartbeat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function fetchTodos(opts?: {
   projectId?: string | null;
   category?: string | null;
+  clientId?: string | null;
+  clientWork?: boolean;
   includeLegacy?: boolean;
 }) {
   const params = new URLSearchParams();
   if (opts?.projectId?.trim()) params.set('project_id', opts.projectId.trim());
   if (opts?.category?.trim()) params.set('category', opts.category.trim());
+  if (opts?.clientId?.trim()) params.set('client_id', opts.clientId.trim());
+  if (opts?.clientWork) params.set('client_work', '1');
   if (opts?.includeLegacy) params.set('include_legacy', '1');
   const qs = params.toString();
   const data = await apiJson<{ todos?: AgentTodo[] }>(`/api/agent/todo${qs ? `?${qs}` : ''}`);

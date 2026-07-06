@@ -200,6 +200,54 @@ export function resolveDashboardRouteAgentContext(opts: {
     };
   }
 
+  if (path.startsWith('/dashboard/collaborate')) {
+    const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+    const seg = params.get('seg');
+    const list = params.get('list');
+    const project = params.get('project');
+    const contextBits = [
+      seg === 'tasks' ? 'Tasks workspace' : 'Calendar workspace',
+      list ? `list:${list}` : null,
+      project ? `project:${project}` : null,
+    ].filter(Boolean);
+    return {
+      route_key: seg === 'tasks' ? 'collaborate_tasks' : 'collaborate_calendar',
+      context_label: contextBits.join(' · ') || 'Collaborate',
+      contextMode: 'collaborate',
+      workspaceContext: {
+        ...basePacket,
+        linked_route: path + (search || ''),
+        capabilities: ['tasks', 'calendar', 'time_insights'],
+      },
+      quickActions: [
+        {
+          id: 'colab-idea-to-task',
+          label: 'Turn idea into task',
+          message:
+            'I have a rough idea for work today. Help me turn it into a clear, actionable task with a title, details, and optional due date. Use agentsam_todo_add when ready.',
+          route_key: 'collaborate_tasks',
+          task_type: 'operate',
+        },
+        {
+          id: 'colab-plan-today',
+          label: "Plan today's tasks",
+          message:
+            "Help me plan today's work: break my goals into 3–5 concrete tasks in My Tasks, suggest projects to link, and note what to time-box on the calendar.",
+          route_key: 'collaborate_tasks',
+          task_type: 'operate',
+        },
+        {
+          id: 'colab-breakdown',
+          label: 'Break down a goal',
+          message:
+            'Break this goal into subtasks I can track in collaborate tasks. Ask what project they belong to if unclear.',
+          route_key: 'collaborate_tasks',
+          task_type: 'operate',
+        },
+      ],
+    };
+  }
+
   return {
     route_key: 'dashboard',
     context_label: 'Dashboard',

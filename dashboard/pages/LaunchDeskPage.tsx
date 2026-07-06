@@ -19,7 +19,10 @@ import {
   fetchCalendarViewEvents,
   fetchInsights,
   fetchPeople,
+  fetchProjects,
+  fetchTasksInsights,
   fetchTodos,
+  fmtMinutes,
   fmtTime,
   isAllDay,
   isSyntheticEvent,
@@ -27,13 +30,16 @@ import {
   parseAttendees,
   parseEventDate,
   parseInviteEmails,
+  postActivityHeartbeat,
   publicBookingPageUrl,
   QuickEventType,
   sameDay,
   startOfWeek,
+  TasksInsightsPayload,
   toDatetimeLocalValue,
   toSqlDatetime,
   AgentTodo,
+  ProjectRow,
 } from './launch-desk/ops-desk-types';
 import './launch-desk/collaborate-calendar.css';
 import {
@@ -41,6 +47,7 @@ import {
   CollaborateTasksSidebar,
   TasksNavView,
 } from './launch-desk/CollaborateTasksPanel';
+import { CollaborateTasksInsights } from './launch-desk/CollaborateTasksInsights';
 
 const HOUR_START = 2;
 const HOUR_COUNT = 22;
@@ -119,13 +126,6 @@ function defaultSlot(day: Date, hour: number) {
   return { start, end };
 }
 
-function fmtMinutes(m: number) {
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  const r = m % 60;
-  return r ? `${h}h ${r}m` : `${h}h`;
-}
-
 function donutGradient(breakdown: Record<string, number>) {
   const slices = [
     { key: 'focus', color: '#039be5', val: breakdown.focus || 0 },
@@ -149,15 +149,28 @@ export function LaunchDeskPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const projectFilterId = searchParams.get('project')?.trim() || null;
-  const weekScrollRef = useRef<HTMLDivElement>(null);
+  const clientFilterId = searchParams.get('client')?.trim() || null;
+  const clientWorkFilter = searchParams.get('client_work') === '1';
+  const todoFetchOpts = useMemo(
+    () => ({
+      projectId: projectFilterId,
+      clientId: clientFilterId,
+      clientWork: clientWorkFilter && !projectFilterId && !clientFilterId,
+    }),
+    [projectFilterId, clientFilterId, clientWorkFilter],
+  );
   const peopleSearchRef = useRef<HTMLInputElement>(null);
 
   const [anchor, setAnchor] = useState(() => new Date());
   const [mainSeg, setMainSeg] = useState<MainSeg>('calendar');
   const [calView, setCalView] = useState<CollaborateCalView>('week');
-  const [tasksNavView, setTasksNavView] = useState<TasksNavView>('all');
+  const [tasksNavView, setTasksNavView] = useState<TasksNavView>('list');
   const [tasksActiveList, setTasksActiveList] = useState('My Tasks');
   const [tasksComposing, setTasksComposing] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [projects, setProjects] = useState<ProjectRow[]>([]);
+  const [tasksInsights, setTasksInsights] = useState<TasksInsightsPayload | null>(null);
+  const [trackingActive, setTrackingActive] = useState(false);
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [insights, setInsights] = useState<CalendarInsightsPayload | null>(null);
   const [bookingPages, setBookingPages] = useState<BookingPage[]>([]);
@@ -216,22 +229,33 @@ export function LaunchDeskPage() {
     setLoading(true);
     setError(null);
     try {
-      const [ev, ins, pages, taskList] = await Promise.all([
+      const [ev, ins, pages, taskList, projectList, taskIns] = await Promise.all([
         fetchCalendarViewEvents(anchor, calView, sources),
         fetchInsights(anchor),
         fetchBookingPages(),
-        fetchTodos(projectFilterId ? { projectId: projectFilterId } : undefined),
+        fetchTodos(todoFetchOpts),
+        fetchProjects(
+          clientFilterId
+            ? { clientId: clientFilterId }
+            : clientWorkFilter
+              ? { clientWork: true }
+              : undefined,
+        ).catch(() => []),
+        fetchTasksInsights(anchor).catch(() => null),
       ]);
       setEvents(ev);
       setInsights(ins);
       setBookingPages(pages);
       setTodos(taskList);
+      setProjects(projectList);
+      setTasksInsights(taskIns);
+      setTrackingActive(Boolean(taskIns?.active_tracking));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load calendar');
     } finally {
       setLoading(false);
     }
-  }, [anchor, calView, sources, projectFilterId]);
+  }, [anchor, calView, sources, todoFetchOpts, clientFilterId, clientWorkFilter]);
 
   useEffect(() => {
     reload();
@@ -245,6 +269,9 @@ export function LaunchDeskPage() {
       if (tasksList) {
         setTasksActiveList(tasksList);
         setTasksNavView('list');
+      } else {
+        setTasksNavView('list');
+        setTasksActiveList('My Tasks');
       }
     }
     if (focusPeople) {
@@ -514,12 +541,12 @@ export function LaunchDeskPage() {
 
   const reloadTodos = useCallback(async () => {
     try {
-      const taskList = await fetchTodos(projectFilterId ? { projectId: projectFilterId } : undefined);
+      const taskList = await fetchTodos(todoFetchOpts);
       setTodos(taskList);
     } catch {
       /* parent reload handles errors */
     }
-  }, [projectFilterId]);
+  }, [todoFetchOpts]);
 
   const copyBookingLink = (slug: string) => {
     const url = publicBookingPageUrl(slug);
@@ -534,6 +561,44 @@ export function LaunchDeskPage() {
     if (!weekDays.some((d) => sameDay(d, now))) return null;
     return (minutesSinceGridStart(now) / 60) * HOUR_HEIGHT;
   }, [weekDays]);
+
+  useEffect(() => {
+    if (mainSeg !== 'tasks' && mainSeg !== 'calendar') return undefined;
+    let cancelled = false;
+
+    const beat = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const activeTodo = selectedTaskId || null;
+        const activeProject =
+          projectFilterId ||
+          (activeTodo ? todos.find((t) => t.id === activeTodo)?.project_id || todos.find((t) => t.id === activeTodo)?.project_key : null) ||
+          null;
+        await postActivityHeartbeat({
+          project_id: activeProject,
+          todo_id: activeTodo,
+          surface: mainSeg === 'tasks' ? 'collaborate_tasks' : 'collaborate_calendar',
+        });
+        if (!cancelled) setTrackingActive(true);
+      } catch {
+        if (!cancelled) setTrackingActive(false);
+      }
+    };
+
+    void beat();
+    const id = window.setInterval(() => void beat(), 60_000);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void beat();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [mainSeg, projectFilterId, selectedTaskId, todos]);
+
+  const weekLabel = `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${addDays(weekStart, 6).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
 
   const breakdown = insights?.insights.breakdown_minutes || {};
   const workMins = insights?.insights.working_minutes_per_day || 480;
@@ -608,13 +673,39 @@ export function LaunchDeskPage() {
 
       {projectFilterId && mainSeg === 'tasks' ? (
         <div className="colab-cal-project-banner">
-          <span>Tasks filtered to project <strong>{projectFilterId}</strong></span>
+          <span>
+            Tasks filtered to project <strong>{projects.find((p) => p.id === projectFilterId)?.name || projectFilterId}</strong>
+          </span>
           <button
             type="button"
             className="colab-cal-outline-btn"
             onClick={() => {
               pushCollaborateUrl({ project: null, seg: 'tasks' });
             }}
+          >
+            Clear filter
+          </button>
+        </div>
+      ) : clientWorkFilter && mainSeg === 'tasks' ? (
+        <div className="colab-cal-project-banner">
+          <span>Showing <strong>client work</strong> tasks only</span>
+          <button
+            type="button"
+            className="colab-cal-outline-btn"
+            onClick={() => pushCollaborateUrl({ client_work: null, seg: 'tasks' })}
+          >
+            Clear filter
+          </button>
+        </div>
+      ) : clientFilterId && mainSeg === 'tasks' ? (
+        <div className="colab-cal-project-banner">
+          <span>
+            Client filter <strong>{clientFilterId}</strong>
+          </span>
+          <button
+            type="button"
+            className="colab-cal-outline-btn"
+            onClick={() => pushCollaborateUrl({ client: null, seg: 'tasks' })}
           >
             Clear filter
           </button>
@@ -632,8 +723,14 @@ export function LaunchDeskPage() {
               onActiveListChange={setTasksActiveList}
               onReload={reloadTodos}
               onCreateClick={() => {
-                if (tasksNavView === 'starred') setTasksNavView('all');
+                if (tasksNavView === 'starred') {
+                  setTasksNavView('list');
+                  setTasksActiveList('My Tasks');
+                }
                 setTasksComposing(true);
+              }}
+              onClientWorkClick={() => {
+                pushCollaborateUrl({ client_work: '1', project: null, client: null, seg: 'tasks' });
               }}
             />
           ) : (
@@ -921,10 +1018,24 @@ export function LaunchDeskPage() {
             composing={tasksComposing}
             onComposingChange={setTasksComposing}
             projectId={projectFilterId}
+            projects={projects}
+            selectedTaskId={selectedTaskId}
+            onSelectedTaskChange={setSelectedTaskId}
           />
         )}
 
-        {mainSeg === 'calendar' && (
+        {mainSeg === 'tasks' ? (
+          <CollaborateTasksInsights
+            insights={insights}
+            tasksInsights={tasksInsights}
+            insightsMode={insightsMode}
+            onInsightsModeChange={setInsightsMode}
+            weekLabel={weekLabel}
+            donutGradient={donutGradient}
+            remainingMins={remainingMins}
+            trackingActive={trackingActive}
+          />
+        ) : mainSeg === 'calendar' ? (
         <aside className="colab-cal-right">
           <div className="colab-cal-insights-head">
             <div>
@@ -999,7 +1110,7 @@ export function LaunchDeskPage() {
             </div>
           ))}
         </aside>
-        )}
+        ) : null}
 
         <CollaboratePageRail
           onTasksClick={() => {

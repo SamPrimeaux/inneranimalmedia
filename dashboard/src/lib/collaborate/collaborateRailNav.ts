@@ -25,6 +25,8 @@ export function parseCollaborateSearchParams(params: URLSearchParams): {
   tasksList: string | null;
   focusPeople: boolean;
   projectId: string | null;
+  clientId: string | null;
+  clientWork: boolean;
   calView: CollaborateCalView;
 } {
   const seg = params.get('seg');
@@ -32,8 +34,10 @@ export function parseCollaborateSearchParams(params: URLSearchParams): {
   const tasksList = params.get('list')?.trim() || null;
   const focusPeople = params.get('panel') === 'people';
   const projectId = params.get('project')?.trim() || null;
+  const clientId = params.get('client')?.trim() || null;
+  const clientWork = params.get('client_work') === '1';
   const calView = params.get('view') === 'month' ? 'month' : 'week';
-  return { mainSeg, tasksList, focusPeople, projectId, calView };
+  return { mainSeg, tasksList, focusPeople, projectId, clientId, clientWork, calView };
 }
 
 /** Merge collaborate URL params (omit null/empty to delete keys). */
@@ -43,6 +47,8 @@ export function patchCollaborateSearchParams(
     seg?: CollaborateMainSeg | null;
     view?: CollaborateCalView | null;
     project?: string | null;
+    client?: string | null;
+    client_work?: string | null;
     list?: string | null;
     panel?: string | null;
   },
@@ -59,6 +65,8 @@ export function patchCollaborateSearchParams(
     apply('view', patch.view === 'month' ? 'month' : null);
   }
   if ('project' in patch) apply('project', patch.project ?? null);
+  if ('client' in patch) apply('client', patch.client ?? null);
+  if ('client_work' in patch) apply('client_work', patch.client_work ?? null);
   if ('list' in patch) apply('list', patch.list ?? null);
   if ('panel' in patch) apply('panel', patch.panel ?? null);
   return next;

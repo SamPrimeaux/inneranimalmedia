@@ -376,9 +376,159 @@
 
 /* Google Tasks parity */
 .colab-cal-layout.tasks-mode {
-  grid-template-columns: var(--left) minmax(520px, 1fr) var(--rail);
+  grid-template-columns: var(--left) minmax(400px, 1fr) var(--right) var(--rail);
 }
-.colab-cal-layout.tasks-mode .colab-cal-right { display: none; }
+
+.colab-tasks-insights .colab-tasks-insights-today {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0 14px;
+  font-size: 13px;
+  color: #3c4043;
+}
+.colab-tasks-insights-today strong { font-size: 15px; color: #174ea6; }
+
+.colab-tasks-tracking-pill {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #137333;
+  background: #e6f4ea;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.colab-tasks-insights-empty {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #5f6368;
+  line-height: 1.45;
+}
+
+.colab-tasks-section {
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.colab-tasks-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #3c4043;
+  margin-bottom: 6px;
+}
+.colab-tasks-section-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #5f6368;
+  line-height: 1.45;
+}
+.colab-tasks-project-select {
+  width: 100%;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  background: #fff;
+  color: #202124;
+}
+.colab-tasks-project-tag {
+  display: inline-flex;
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e8f0fe;
+  color: #174ea6;
+  font-size: 11px;
+  font-weight: 600;
+}
+.colab-tasks-meta-pill.muted { color: #80868b; }
+
+.colab-tasks-item {
+  cursor: pointer;
+  border-radius: 8px;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.colab-tasks-item:hover { background: #f8f9fa; }
+.colab-tasks-item.selected { background: #e8f0fe; }
+
+.colab-tasks-check-wrap { position: relative; }
+
+.colab-tasks-action-menu {
+  position: absolute;
+  top: 28px;
+  left: 0;
+  z-index: 20;
+  min-width: 180px;
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(60, 64, 67, 0.18);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.colab-tasks-action-menu button {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #3c4043;
+}
+.colab-tasks-action-menu button:hover { background: #f1f3f4; }
+.colab-tasks-action-menu button.danger { color: #c5221f; }
+
+.colab-tasks-detail {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: #f8f9fa;
+}
+.colab-tasks-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.colab-tasks-detail-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #3c4043;
+}
+.colab-tasks-detail-input,
+.colab-tasks-detail-textarea {
+  width: 100%;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin-bottom: 10px;
+  background: #fff;
+}
+.colab-tasks-detail-textarea { min-height: 88px; resize: vertical; }
+.colab-tasks-detail-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5f6368;
+  margin-bottom: 12px;
+}
+.colab-tasks-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.colab-cal-outline-btn.danger { color: #c5221f; border-color: #f6aea9; }
 
 .colab-tasks-nav-item {
   width: 100%; text-align: left; border: 0; background: transparent;
