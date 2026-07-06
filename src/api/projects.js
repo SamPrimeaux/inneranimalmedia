@@ -1276,27 +1276,40 @@ async function handleProjectSharePost(request, env, authUser, projectId) {
 
 async function deleteProjectDependents(env, projectId) {
   const pid = String(projectId);
-  const optional = async (sql, bind = pid) => {
+  const runOptional = async (sql, ...binds) => {
     try {
-      await env.DB.prepare(sql).bind(bind).run();
+      await env.DB.prepare(sql).bind(...binds).run();
     } catch {
       /* optional table / legacy schema */
     }
   };
 
-  await optional(`DELETE FROM project_collaborators WHERE project_id = ?`);
-  await optional(`DELETE FROM project_memory WHERE project_id = ?`);
-  await optional(`DELETE FROM project_goals WHERE project_id = ?`);
-  await optional(`DELETE FROM project_capability_constraints WHERE project_id = ?`);
-  await optional(`DELETE FROM project_permissions WHERE project_id = ?`);
-  await optional(`UPDATE cicd_events SET project_id = NULL WHERE project_id = ?`);
-  await optional(`UPDATE cicd_runs SET project_id = NULL WHERE project_id = ?`);
-  await optional(`UPDATE pipelines SET project_id = NULL WHERE project_id = ?`);
-  await optional(`UPDATE calendar_events SET project_id = NULL WHERE project_id = ?`);
+  // Todos before kanban (agentsam_todo → kanban_tasks / kanban_boards FKs).
+  await runOptional(
+    `DELETE FROM agentsam_todo WHERE project_id = ? OR project_key = ?`,
+    pid,
+    pid,
+  );
+  await runOptional(
+    `DELETE FROM kanban_tasks WHERE board_id IN (SELECT id FROM kanban_boards WHERE project_id = ?)`,
+    pid,
+  );
+  await runOptional(`DELETE FROM kanban_boards WHERE project_id = ?`, pid);
+
+  // FK RESTRICT (no ON DELETE) — must clear before projects row delete.
+  await runOptional(`DELETE FROM project_costs WHERE CAST(project_id AS TEXT) = ?`, pid);
+  await runOptional(`DELETE FROM project_metrics WHERE CAST(project_id AS TEXT) = ?`, pid);
+  await runOptional(`UPDATE worker_registry SET project_id = NULL WHERE project_id = ?`, pid);
+
+  await runOptional(`DELETE FROM project_collaborators WHERE project_id = ?`, pid);
+  await runOptional(`DELETE FROM project_memory WHERE project_id = ?`, pid);
+  await runOptional(`DELETE FROM project_capability_constraints WHERE project_id = ?`, pid);
+  await runOptional(`DELETE FROM project_permissions WHERE project_id = ?`, pid);
 
   // Legacy FKs on project_execution_audit point at dropped agent_configs / agent_command_executions (417).
-  await optional(
+  await runOptional(
     `UPDATE project_execution_audit SET agent_config_id = NULL, execution_id = NULL WHERE project_id = ?`,
+    pid,
   );
   try {
     await env.DB.prepare(`DELETE FROM project_execution_audit WHERE project_id = ?`).bind(pid).run();
@@ -1307,6 +1320,40 @@ async function deleteProjectDependents(env, projectId) {
       env.DB.prepare(`PRAGMA foreign_keys = ON`),
     ]);
   }
+  await runOptional(`DELETE FROM project_goals WHERE project_id = ?`, pid);
+
+  // FK ON DELETE SET NULL — explicit for legacy rows.
+  await runOptional(`UPDATE client_workflows SET project_id = NULL WHERE CAST(project_id AS TEXT) = ?`, pid);
+  await runOptional(`UPDATE cicd_events SET project_id = NULL WHERE project_id = ?`, pid);
+  await runOptional(`UPDATE cicd_runs SET project_id = NULL WHERE project_id = ?`, pid);
+  await runOptional(`UPDATE pipelines SET project_id = NULL WHERE project_id = ?`, pid);
+  await runOptional(`UPDATE calendar_events SET project_id = NULL WHERE project_id = ?`, pid);
+  await runOptional(`UPDATE client_projects SET project_id = NULL WHERE project_id = ?`, pid);
+  await runOptional(`UPDATE time_projects SET projects_id = NULL WHERE projects_id = ?`, pid);
+  await runOptional(`UPDATE agentsam_workspace SET project_id = NULL WHERE project_id = ?`, pid);
+}
+
+async function detectProjectDeleteBlockers(env, projectId) {
+  const pid = String(projectId);
+  const tables = [
+    ['worker_registry', `SELECT COUNT(*) AS c FROM worker_registry WHERE project_id = ?`],
+    ['project_costs', `SELECT COUNT(*) AS c FROM project_costs WHERE CAST(project_id AS TEXT) = ?`],
+    ['project_metrics', `SELECT COUNT(*) AS c FROM project_metrics WHERE CAST(project_id AS TEXT) = ?`],
+    ['project_goals', `SELECT COUNT(*) AS c FROM project_goals WHERE project_id = ?`],
+    ['project_memory', `SELECT COUNT(*) AS c FROM project_memory WHERE project_id = ?`],
+    ['client_projects', `SELECT COUNT(*) AS c FROM client_projects WHERE project_id = ?`],
+  ];
+  const blockers = [];
+  for (const [table, sql] of tables) {
+    try {
+      const row = await env.DB.prepare(sql).bind(pid).first();
+      const count = Number(row?.c ?? 0);
+      if (count > 0) blockers.push({ table, count });
+    } catch {
+      /* optional */
+    }
+  }
+  return blockers;
 }
 
 async function handleDelete(request, env, authUser, id, url, ctx) {
@@ -1321,7 +1368,19 @@ async function handleDelete(request, env, authUser, id, url, ctx) {
   try {
     await env.DB.prepare(`DELETE FROM projects WHERE id = ?`).bind(id).run();
   } catch (e) {
-    return jsonResponse({ ok: false, error: `db_delete_failed: ${e?.message || e}` }, 500);
+    const blockers = await detectProjectDeleteBlockers(env, id).catch(() => []);
+    return jsonResponse(
+      {
+        ok: false,
+        error: `db_delete_failed: ${e?.message || e}`,
+        blockers,
+        hint:
+          blockers.length > 0
+            ? 'Dependent rows still reference this project; retry after cleanup or archive instead.'
+            : 'Foreign key constraint — contact support with project id.',
+      },
+      500,
+    );
   }
   try {
     await env.DB.prepare(
