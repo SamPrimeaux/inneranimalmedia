@@ -187,6 +187,9 @@ function parseD1DatabaseHint(params) {
 }
 
 async function runCatalogD1SchemaIntrospect(env, d1Ctx, params) {
+  const { resolveWorkspaceD1Execution, executeWorkspaceD1Query } = await import(
+    './workspace-d1-execution.js'
+  );
   const resolved = await resolveWorkspaceD1Execution(env, d1Ctx);
   if (!resolved.ok) {
     return {
@@ -535,17 +538,17 @@ function bindingBucket(env, bindingName) {
  * @param {Record<string, unknown>} mcpRow
  * @param {Record<string, unknown>} config
  */
-function resolveMcpRemoteToolName(mcpRow, config) {
-  const remote = trim(config?.remote_tool || config?.operation);
-  if (remote) return remote;
-  const toolName = trim(mcpRow.tool_name || mcpRow.tool_key);
-  if (/^agentsam_(gh_|github_mcp_)/i.test(toolName)) return '';
-  return toolName;
-}
-
 function trimMcpValue(v) {
   if (v == null) return '';
   return String(v).trim();
+}
+
+function resolveMcpRemoteToolName(mcpRow, config) {
+  const remote = trimMcpValue(config?.remote_tool || config?.operation);
+  if (remote) return remote;
+  const toolName = trimMcpValue(mcpRow.tool_name || mcpRow.tool_key);
+  if (/^agentsam_(gh_|github_mcp_)/i.test(toolName)) return '';
+  return toolName;
 }
 
 /**
