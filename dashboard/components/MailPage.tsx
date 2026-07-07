@@ -534,6 +534,7 @@ export function MailPage() {
   return (
     <CollaborateWorkShell surface="mail">
     <div className="mail-work-surface">
+    <div className="mail-work-surface-main">
 
       {/* ── LEFT SIDEBAR ────────────────────────────────────────────────── */}
       <div className="mail-sidebar" style={{ width: sidebarW, minWidth: SIDEBAR_MIN, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -848,7 +849,11 @@ export function MailPage() {
         </>
       )}
 
-      <MailTimeInsightsPanel />
+    </div>
+
+      <div className="mail-time-insights-rail">
+        <MailTimeInsightsPanel />
+      </div>
 
       {/* ── COMPOSE MODAL ──────────────────────────────────────────────── */}
       {composing && (

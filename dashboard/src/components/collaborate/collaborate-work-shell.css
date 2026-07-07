@@ -141,11 +141,7 @@
   overflow: hidden;
 }
 
-.mail-time-insights {
-  width: 280px;
-  min-width: 240px;
-  flex-shrink: 0;
-  border-left: 1px solid var(--colab-shell-border);
-  background: #fff;
-  overflow-y: auto;
+.mail-time-insights-rail {
+  min-height: 0;
+  overflow: hidden;
 }
