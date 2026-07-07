@@ -954,6 +954,11 @@ const App: React.FC = () => {
   );
 
   useEffect(() => {
+    if (!isCmsFullscreen || isNarrowViewport) return;
+    ensureAgentSidePanel();
+  }, [isCmsFullscreen, isNarrowViewport, ensureAgentSidePanel]);
+
+  useEffect(() => {
     if (isNarrowViewport) return;
     if (!isAgentCenterChatHome(location.pathname, location.search)) return;
     if (isAgentEditorPath(location.pathname)) return;
@@ -2422,7 +2427,10 @@ const App: React.FC = () => {
   useEffect(() => {
     const onComposeRequest = (e: Event) => {
       const detail = (e as CustomEvent<AgentChatComposeDetail>).detail;
-      if (!detail?.message) return;
+      if (detail?.ensureAgentPanel !== false && agentPosition === 'off') {
+        setAgentPosition('right');
+      }
+      if (!detail?.message?.trim()) return;
       if (detail.ensureAgentPanel === false) return;
       if (isAgentHomeAtmospheric && !isNarrowViewport) return;
       if (agentPosition !== 'off') return;
@@ -4264,7 +4272,9 @@ const App: React.FC = () => {
       workspaceId: authWorkspaceId,
       defaultSubagentSlug: isDesignStudioRoute ? ('cadcreator' as const) : undefined,
       composerPlaceholder:
-        designStudioEntryAtmospheric
+        isCmsRoute
+          ? 'Update a page, publish changes, or ask Agent Sam to edit this CMS site…'
+          : designStudioEntryAtmospheric
           ? 'Describe a 3D model, import a GLB, or ask Agent Sam to create…'
           : drawEntryAtmospheric
             ? 'Sketch a diagram, wireframe, or plan map with Agent Sam…'
@@ -4628,7 +4638,7 @@ const App: React.FC = () => {
           ) : null}
 
           {/* Optional Left Agent Panel */}
-          {!isCmsFullscreen && agentChatLayout === 'left-rail' ? (
+          {agentChatLayout === 'left-rail' ? (
             <AgentSamChatHost
               {...agentSamChatHostProps}
               layout="left-rail"
@@ -4770,7 +4780,7 @@ const App: React.FC = () => {
 
           {/* 4. MAIN EDITOR AREA */}
           <main 
-              className={`flex-1 flex flex-col min-w-0 min-h-0 relative max-phone:overflow-x-hidden ${narrowBlocksCenter && !isCmsFullscreen ? 'max-phone:hidden' : ''} ${isCmsFullscreen ? 'fixed inset-0 z-[120] w-full h-full max-w-none' : ''} ${isCenterChatAtmospheric ? 'bg-transparent' : 'bg-[var(--dashboard-canvas)]'}`}
+              className={`flex-1 flex flex-col min-w-0 min-h-0 relative max-phone:overflow-x-hidden ${narrowBlocksCenter && !isCmsFullscreen ? 'max-phone:hidden' : ''} ${isCmsFullscreen ? 'min-w-0 z-[10]' : ''} ${isCenterChatAtmospheric ? 'bg-transparent' : 'bg-[var(--dashboard-canvas)]'}`}
               onDrop={handleMainFileDrop}
               onDragOver={handleMainDragOver}
           >
@@ -5386,7 +5396,7 @@ const App: React.FC = () => {
           </div>
 
           {/* 6. Optional Right Agent Panel */}
-          {!isCmsFullscreen && agentChatLayout === 'right-rail' ? (
+          {agentChatLayout === 'right-rail' ? (
             <AgentSamChatHost
               {...agentSamChatHostProps}
               layout="right-rail"

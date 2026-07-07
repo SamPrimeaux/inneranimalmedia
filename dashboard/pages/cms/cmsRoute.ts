@@ -41,7 +41,7 @@ const CMS_RESERVED = new Set([
   'theme-editor',
 ]);
 
-export type CmsView = 'sites' | 'pages' | 'templates' | 'imports' | 'online-store' | 'theme-editor';
+export type CmsView = 'sites' | 'hub' | 'pages' | 'templates' | 'imports' | 'online-store' | 'theme-editor';
 
 export type ParsedCmsRoute = {
   view: CmsView;
@@ -52,6 +52,12 @@ export type ParsedCmsRoute = {
   legacy: boolean;
   legacyTarget: string | null;
 };
+
+/** Command center for a selected site — progressive discovery step 1. */
+export function buildCmsHubPath(siteSlug?: string | null): string {
+  const site = siteSlug ? String(siteSlug).trim() : '';
+  return site ? `/dashboard/cms?site=${encodeURIComponent(site)}` : '/dashboard/cms';
+}
 
 export function buildCmsPath(opts: {
   panel?: 'pages' | 'templates' | 'imports' | 'online-store' | 'theme-editor';
@@ -71,12 +77,15 @@ export function buildCmsPath(opts: {
   return `/dashboard/cms/pages${siteQs}`;
 }
 
-/** Site-scoped CMS editor routes (pages, theme editor, etc.) — not the sites hub. */
+/** Immersive CMS shell (hub + editor lanes) — hides dashboard chrome; Agent Sam uses side rail. */
 export function isCmsEditorFullscreenRoute(
   pathname: string,
   searchParams: URLSearchParams,
 ): boolean {
-  return parseCmsRoute(pathname, searchParams).view !== 'sites';
+  const parsed = parseCmsRoute(pathname, searchParams);
+  if (parsed.view === 'hub') return true;
+  if (parsed.view === 'sites' && parsed.siteSlug) return true;
+  return parsed.view !== 'sites';
 }
 
 export function parseCmsRoute(pathname: string, searchParams: URLSearchParams): ParsedCmsRoute {
@@ -87,7 +96,15 @@ export function parseCmsRoute(pathname: string, searchParams: URLSearchParams): 
     searchParams.get('site') || searchParams.get('project') || searchParams.get('project_slug');
 
   if (rest.length === 0 || rest[0] === 'sites' || rest[0] === 'websites') {
-    return { view: 'sites', siteSlug: siteFromQuery, pageId: null, panel: 'pages', legacy: false, legacyTarget: null };
+    const site = siteFromQuery;
+    return {
+      view: site ? 'hub' : 'sites',
+      siteSlug: site,
+      pageId: null,
+      panel: 'pages',
+      legacy: false,
+      legacyTarget: null,
+    };
   }
 
   // Legacy: /dashboard/cms/editor?project=&page=

@@ -17,7 +17,11 @@ export function resolveAgentChatLayout(opts: {
   hasActiveFile?: boolean;
 }): AgentChatLayout {
   const { pathname, search, agentPosition, isNarrow, isCmsFullscreen, hasActiveFile } = opts;
-  if (isCmsFullscreen) return 'hidden';
+  if (isCmsFullscreen) {
+    if (isNarrow) return 'right-rail';
+    if (agentPosition === 'left') return 'left-rail';
+    return 'right-rail';
+  }
 
   const centerChat = isAgentCenterChatHome(pathname, search);
   const editorRoute = isAgentEditorPath(pathname);
