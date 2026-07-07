@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Check, Copy, Mail, UserPlus, X } from 'lucide-react';
+import './ProjectShareModal.css';
 import {
   fetchProjectCollaborators,
   inviteProjectCollaborator,
