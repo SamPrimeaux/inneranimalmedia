@@ -347,18 +347,15 @@ async function persistMemoryArtifacts(env, p) {
   }
 
   try {
+    const memId = `mem_daily_${dateIso.replace(/-/g, '')}`;
     await env.DB.prepare(
-      `INSERT INTO agentsam_memory (
+      `INSERT OR REPLACE INTO agentsam_memory (
         id, tenant_id, user_id, workspace_id, memory_type, key, value, importance, is_pinned, decay_score, source, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'state', ?, ?, 8, 1, 1.0, 'daily_memory_pipeline', unixepoch(), unixepoch())
-      ON CONFLICT(key) DO UPDATE SET
-        value = excluded.value,
-        importance = excluded.importance,
-        updated_at = unixepoch()`,
+      ) VALUES (?, ?, ?, ?, 'state', ?, ?, 8, 1, 1.0, 'daily_memory_pipeline', unixepoch(), unixepoch())`,
     ).bind(
-      `mem_daily_${dateIso.replace(/-/g, '')}`,
+      memId,
       tenantId,
-      userId || 'system',
+      userId || null,
       ws,
       `daily_memory_${dateIso}`,
       md.slice(0, 4000),
@@ -374,7 +371,7 @@ async function persistMemoryArtifacts(env, p) {
         id, tenant_id, workspace_id, user_id, compaction_type, compaction_scope, compaction_strategy,
         source_kind, source_table, source_row_count, summary_text, summary_json, metrics_json,
         provider, model_key, status, source_url, compacted_at_epoch, created_at_epoch, updated_at_epoch
-      ) VALUES (?, ?, ?, ?, 'daily_memory_digest', 'workspace', 'gemini_flash_pro', 'cron', 'gmail_inbox',
+      ) VALUES (?, ?, ?, ?, 'data_summary', 'workspace', 'gemini_flash_pro', 'cron', 'gmail_inbox',
         ?, ?, ?, ?, 'google', ?, 'completed', ?, unixepoch(), unixepoch(), unixepoch())`,
     ).bind(
       compactionId,
@@ -398,7 +395,7 @@ async function persistMemoryArtifacts(env, p) {
     try {
       await writeMemoryLane(env, {
         workspace_id: ws,
-        user_id: userId || null,
+        user_id: null,
         memory_key: `daily_memory/${dateIso}#${i}`,
         title: `Daily Memory ${dateIso} (${mode}) #${i}`,
         content: chunks[i],
