@@ -124,7 +124,9 @@ elif [[ -d "\$REPO_DIR/.git" ]]; then
   fi
   git_as_bootstrap fetch origin main
   git_as_bootstrap checkout main
-  git_as_bootstrap merge --ff-only origin/main
+  # Operator VM is a sync mirror — discard root drift (e.g. npm install touching package.json
+  # outside the sparse cone) so post-deploy pull never blocks on dirty files.
+  git_as_bootstrap reset --hard origin/main
   repo_git_finalize
 elif [[ -d "\$REPO_DIR" ]]; then
   echo "→ repairing non-git directory at \$REPO_DIR"
