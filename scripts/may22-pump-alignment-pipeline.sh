@@ -41,13 +41,13 @@ if command -v curl >/dev/null 2>&1 && [[ -n "${INTERNAL_API_SECRET:-}" ]]; then
 fi
 
 if curl -sfS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
-  echo "→ Local Ollama: embed_supabase_semantic.py"
-  ./scripts/with-cloudflare-env.sh python3 scripts/embed_supabase_semantic.py || true
   echo "→ Local Ollama: batch_embed_all.py (D1 + Supabase → Vectorize)"
   ./scripts/with-cloudflare-env.sh python3 scripts/batch_embed_all.py --all --push || true
 else
-  echo "[skip] Ollama not reachable at :11434 — run embed_supabase_semantic.py / batch_embed_all.py locally when available"
+  echo "[skip] Ollama not reachable at :11434 — run batch_embed_all.py locally when available"
 fi
+
+echo "[note] agentsam.agentsam_projects / agentsam_memory: use scripts/embed_agentsam_schema.py (OpenAI 1536, not Ollama)"
 
 echo "━━ Pipeline complete ━━"
 echo "Active plan: plan_may22_2026_agent_sam"
