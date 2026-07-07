@@ -10,6 +10,7 @@ import {
   defaultWritePolicyForMode,
   defaultParallelPolicyForMode,
   hashRuntimeProfile,
+  stripCasualIntentMessage,
 } from './runtime-profile.js';
 import { RUNTIME_PROFILE_VERSION } from './runtime-profile.types.js';
 import { selectInAppAgentSpineToolsForAgentChat } from './in-app-agent-spine.js';
@@ -18,8 +19,25 @@ import { authUserIsSuperadmin } from './auth.js';
 import { parseSessionProjectIdFromChatBody } from './project-chat-link.js';
 import { askDataPlaneIntent, codeContextIntent } from './ask-evidence-tools.js';
 
-/** Read-only project Q&A — memory + Vectorize, no D1 tool fanout. */
+/** Project-scoped read-only Q&A — memory + Vectorize inline; keeps composer mode (Agent/Ask). */
 export const USER_APP_PROJECT_QNA_ROUTE = 'project_qna_fast';
+
+/**
+ * Classify intent on the user's turn only — ignore client-prepended project memory/instructions.
+ * @param {string} message
+ */
+export function stripProjectScopedIntentMessage(message) {
+  let s = stripCasualIntentMessage(message);
+  const parts = s.split(/\r?\n\r?\n---\r?\n\r?\n/);
+  if (parts.length > 1) {
+    s = parts[parts.length - 1].trim();
+  }
+  s = s
+    .replace(/^Project memory:\s*[\s\S]*?(?=\n\nProject instructions:|\n\n---\n\n|$)/i, '')
+    .replace(/^Project instructions:\s*[\s\S]*?(?=\n\n---\n\n|$)/i, '')
+    .trim();
+  return s;
+}
 
 export const RUNTIME_LANE_USER_APP = 'user_app';
 export const RUNTIME_LANE_TENANT_SAAS = 'tenant_saas';
@@ -111,21 +129,21 @@ export function hasUserAppProjectScope(body, projectContext) {
 }
 
 /**
- * Trivial / read-only project questions — answer from injected memory + RAG, not agentsam_d1_query.
+ * Read-only project questions — answer from injected memory + RAG, not agentsam_d1_query fanout.
+ * Uses the user's turn text only so prepended project memory cannot trigger data-plane tools.
  * @param {string} message
  */
 export function isProjectReadOnlyChatMessage(message) {
-  const t = String(message || '');
-  if (!t.trim()) return false;
+  const t = stripProjectScopedIntentMessage(message);
+  if (!t) return true;
   const mutationIntent =
     /\b(fix|patch|edit|implement|deploy|run|execute|write|create|add|update|migrate|refactor|change)\b/i.test(
       t,
     );
-  const hasCodeContext = codeContextIntent(t);
-  if (mutationIntent && !hasCodeContext) return false;
+  if (mutationIntent && !codeContextIntent(t)) return false;
   if (askDataPlaneIntent(t)) return false;
   if (codeContextIntent(t)) return false;
-  if (/\b(terminal|sandbox|wrangler|github_write|commit|push)\b/i.test(t)) return false;
+  if (/\b(terminal|sandbox|wrangler deploy|github_write|commit|push)\b/i.test(t)) return false;
   return true;
 }
 
@@ -274,9 +292,6 @@ export async function compileUserAppRuntimeProfile(env, input) {
     mode,
     message,
   );
-  if (projectQnaFastLane && (mode === 'agent' || mode === 'auto')) {
-    mode = 'ask';
-  }
 
   const modelOverrideRaw = trim(overrides.model_key);
   const isAutoModel = !modelOverrideRaw || modelOverrideRaw.toLowerCase() === 'auto';
@@ -349,7 +364,7 @@ export async function compileUserAppRuntimeProfile(env, input) {
       include_workspace: hasProjectScope,
       fresh_thread_recommended: false,
     },
-    routing_task_type: mode,
+    routing_task_type: projectQnaFastLane ? 'chat' : mode,
     model_key: null,
     routing_arm_id: null,
     temperature: 0.7,

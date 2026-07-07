@@ -470,8 +470,8 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     profile._project_qna_fast_lane === true
   ) {
     systemPrompt +=
-      '\n\n## Project Q&A (fast lane)\nAnswer from the Project session context and any retrieved semantic context above. ' +
-      'Do not call agentsam_d1_query or other database tools unless the user explicitly asks for live SQL, row counts, or schema inspection.';
+      '\n\n## Project context (inline)\nAnswer immediately from the Project session context and any retrieved semantic context above. ' +
+      'This turn is routed as read-only project Q&A — respond in one pass without calling tools unless the user\'s latest message explicitly requires live SQL, row counts, code search, or a mutation.';
   } else if (profile.mode === 'agent' || profile.mode === 'debug' || profile.mode === 'multitask') {
     systemPrompt +=
       '\n\n## Tool execution (required)\nWhen the user asks you to run shell commands, spin up containers, ' +
