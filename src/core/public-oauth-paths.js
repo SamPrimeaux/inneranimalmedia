@@ -157,5 +157,6 @@ export function isAutomationApiPath(pathname, method = 'GET') {
   if (p === '/api/sdk/auth/start' && m === 'POST') return true;
   if (p === '/api/sdk/auth/exchange' && m === 'POST') return true;
   if (p === '/api/sdk/auth/authorize' && m === 'GET') return true;
+  if (p === '/api/test/code-execution-e2e' && m === 'POST') return true;
   return false;
 }
