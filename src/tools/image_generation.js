@@ -540,17 +540,50 @@ async function generateOpenAI(env, opts) {
 }
 
 /**
- * @param {unknown} env
- * @param {{ model?: string; prompt: string; size?: string; userId?: string | null }} opts
+ * Gemini multimodal image generation via /generateContent (gemini-* models).
+ * @param {string} apiKey
+ * @param {string} modelKey
+ * @param {string} prompt
  */
-async function generateGoogle(env, opts) {
-  const modelKey = String(opts.model || '').trim();
-  if (!modelKey) throw new Error('Google image model required');
-  const dims = parseImageDimensions(opts.size);
-  const apiKey = await resolveModelApiKey(env, 'google', modelKey, opts.userId);
-  if (!apiKey) throw new Error('Google AI API key not configured');
+async function generateGeminiContent(apiKey, modelKey, prompt) {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelKey)}:generateContent`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+      }),
+    },
+  );
+  if (!res.ok) {
+    const err = await res.text().catch(() => '');
+    throw new Error(`Gemini image error ${res.status}: ${err.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  // Extract inline image from parts
+  const parts = data?.candidates?.[0]?.content?.parts ?? [];
+  for (const part of parts) {
+    if (part?.inlineData?.data && part?.inlineData?.mimeType) {
+      const bytes = Uint8Array.from(atob(part.inlineData.data), (c) => c.charCodeAt(0));
+      return { bytes, contentType: part.inlineData.mimeType };
+    }
+  }
+  throw new Error('Gemini image generation returned no inline image');
+}
 
-  const aspect = dims.width > dims.height ? '16:9' : dims.height > dims.width ? '9:16' : '1:1';
+/**
+ * Imagen image generation via /predict (imagen-* models).
+ * @param {string} apiKey
+ * @param {string} modelKey
+ * @param {string} prompt
+ * @param {string} aspectRatio
+ */
+async function generateImagenPredict(apiKey, modelKey, prompt, aspectRatio) {
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelKey)}:predict`,
     {
@@ -560,8 +593,8 @@ async function generateGoogle(env, opts) {
         'x-goog-api-key': apiKey,
       },
       body: JSON.stringify({
-        instances: [{ prompt: opts.prompt }],
-        parameters: { sampleCount: 1, aspectRatio: aspect },
+        instances: [{ prompt }],
+        parameters: { sampleCount: 1, aspectRatio },
       }),
     },
   );
@@ -577,12 +610,33 @@ async function generateGoogle(env, opts) {
     pred?.b64_json ||
     data?.bytesBase64Encoded;
   if (!b64 || typeof b64 !== 'string') throw new Error('Imagen returned no image bytes');
-  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return { bytes: Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), contentType: 'image/png' };
+}
+
+/**
+ * @param {unknown} env
+ * @param {{ model?: string; prompt: string; size?: string; userId?: string | null }} opts
+ */
+async function generateGoogle(env, opts) {
+  const modelKey = String(opts.model || '').trim();
+  if (!modelKey) throw new Error('Google image model required');
+  const dims = parseImageDimensions(opts.size);
+  const apiKey = await resolveModelApiKey(env, 'google', modelKey, opts.userId);
+  if (!apiKey) throw new Error('Google AI API key not configured');
+
+  const aspect = dims.width > dims.height ? '16:9' : dims.height > dims.width ? '9:16' : '1:1';
+
+  // Gemini multimodal models use generateContent; Imagen models use predict
+  const isGeminiModel = modelKey.startsWith('gemini-');
+  const { bytes, contentType } = isGeminiModel
+    ? await generateGeminiContent(apiKey, modelKey, opts.prompt)
+    : await generateImagenPredict(apiKey, modelKey, opts.prompt, aspect);
+
   return {
     provider: 'google',
     model: modelKey,
     bytes,
-    contentType: 'image/png',
+    contentType,
     preview_urls: [],
     metadata: {},
   };
