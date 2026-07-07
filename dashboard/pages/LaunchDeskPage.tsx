@@ -7,6 +7,7 @@ import {
   parseCollaborateSearchParams,
   patchCollaborateSearchParams,
   type CollaborateCalView,
+  type CollaborateCalendarRightPanel,
 } from '../src/lib/collaborate/collaborateRailNav';
 import {
   addDays,
@@ -60,6 +61,8 @@ import {
   TasksNavView,
 } from './launch-desk/CollaborateTasksPanel';
 import { CollaborateTasksInsights } from './launch-desk/CollaborateTasksInsights';
+import { CollaborateCalendarSetupPanel } from './launch-desk/CollaborateCalendarSetupPanel';
+import { CollaborateActiveTasksPanel } from './launch-desk/CollaborateActiveTasksPanel';
 import {
   clientDisplayName,
   clientWorkTaskCounts,
@@ -236,13 +239,16 @@ export function LaunchDeskPage() {
   });
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [insightsMode, setInsightsMode] = useState<'week' | 'month'>('week');
-  const [insightsOpen, setInsightsOpen] = useState(false);
-  const closeInsights = useCallback(() => setInsightsOpen(false), []);
+  const [rightPanel, setRightPanel] = useState<CollaborateCalendarRightPanel | null>(null);
+  const closeRightPanel = useCallback(() => setRightPanel(null), []);
+  const toggleRightPanel = useCallback((panel: CollaborateCalendarRightPanel) => {
+    setRightPanel((prev) => (prev === panel ? null : panel));
+  }, []);
   const [leftNavOpen, setLeftNavOpen] = useState(true);
 
   const [sources, setSources] = useState({
     primary: true,
-    tasks: true,
+    tasks: false,
     holidays: true,
     birthdays: true,
     google_calendar: true,
@@ -839,7 +845,21 @@ export function LaunchDeskPage() {
     };
   }, [mainSeg, projectFilterId, selectedTaskId, todos]);
 
+  useEffect(() => {
+    if (mainSeg === 'calendar') return;
+    setRightPanel((prev) =>
+      prev === 'calendar-setup' || prev === 'active-tasks' ? null : prev,
+    );
+  }, [mainSeg]);
+
   const weekLabel = `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${addDays(weekStart, 6).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+
+  const openActiveTasksCount = useMemo(() => {
+    return todos.filter((todo) => {
+      const s = String(todo.status || '').toLowerCase();
+      return s !== 'done' && s !== 'completed' && s !== 'cancelled';
+    }).length;
+  }, [todos]);
 
   const breakdown = insights?.insights.breakdown_minutes || {};
   const workMins = insights?.insights.working_minutes_per_day || 480;
@@ -904,7 +924,7 @@ export function LaunchDeskPage() {
     <div
       className={[
         'colab-cal',
-        insightsOpen ? 'insights-open' : '',
+        rightPanel ? 'right-panel-open insights-open' : '',
         leftNavOpen ? 'left-nav-open' : 'left-nav-closed',
       ].filter(Boolean).join(' ')}
     >
@@ -1039,165 +1059,6 @@ export function LaunchDeskPage() {
                 ))}
               </div>
             )}
-          </div>
-
-          <div className="colab-cal-section">
-            <div className="colab-cal-section-head">
-              <span>Working hours</span>
-            </div>
-            <div className="colab-cal-hours-form">
-              <label>
-                <span>Timezone</span>
-                <input
-                  value={workingHoursForm.timezone}
-                  onChange={(e) => setWorkingHoursForm((f) => ({ ...f, timezone: e.target.value }))}
-                />
-              </label>
-              <label>
-                <span>Start</span>
-                <input
-                  type="time"
-                  value={workingHoursForm.start}
-                  onChange={(e) => setWorkingHoursForm((f) => ({ ...f, start: e.target.value }))}
-                />
-              </label>
-              <label>
-                <span>End</span>
-                <input
-                  type="time"
-                  value={workingHoursForm.end}
-                  onChange={(e) => setWorkingHoursForm((f) => ({ ...f, end: e.target.value }))}
-                />
-              </label>
-              <button type="button" className="colab-cal-outline-btn" disabled={hoursSaving} onClick={() => void saveWorkingHours()}>
-                Save hours
-              </button>
-            </div>
-          </div>
-
-          <div className="colab-cal-section">
-            <div className="colab-cal-section-head">
-              <span>Booking pages</span>
-            </div>
-            <div className="colab-cal-booking-form">
-              <input
-                placeholder="Page title"
-                value={bookingDraft.title}
-                onChange={(e) => setBookingDraft((d) => ({ ...d, title: e.target.value }))}
-              />
-              <input
-                placeholder="slug (optional)"
-                value={bookingDraft.slug}
-                onChange={(e) => setBookingDraft((d) => ({ ...d, slug: e.target.value }))}
-              />
-              <input
-                type="number"
-                min={5}
-                max={480}
-                value={bookingDraft.duration_min}
-                onChange={(e) => setBookingDraft((d) => ({ ...d, duration_min: Number(e.target.value) || 30 }))}
-              />
-              <button type="button" className="colab-cal-outline-btn" disabled={bookingSaving} onClick={() => void submitBookingPage()}>
-                Create page
-              </button>
-            </div>
-            {bookingPages.length === 0 ? (
-              <p className="colab-cal-booking-empty">No booking pages yet.</p>
-            ) : (
-              bookingPages.map((p) => (
-                <div key={p.id} className="colab-cal-cal-row colab-cal-booking-row">
-                  <span>{p.title}</span>
-                  <div className="colab-cal-booking-actions">
-                    <button type="button" className="colab-cal-outline-btn" onClick={() => copyBookingLink(p.slug)}>
-                      Share
-                    </button>
-                    <button type="button" className="colab-cal-text-btn" onClick={() => void deactivateBookingPage(p)}>
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="colab-cal-section">
-            <div className="colab-cal-section-head">
-              <span>My calendars</span>
-            </div>
-            <div className="colab-cal-calendars">
-            <button
-              type="button"
-              className="colab-cal-cal-row colab-cal-checkbox"
-              onClick={() => setSources((s) => ({ ...s, primary: !s.primary }))}
-            >
-              <span className="colab-cal-box blue">{sources.primary ? '✓' : ''}</span>
-              <span>Inner Animal Media</span>
-            </button>
-            <button
-              type="button"
-              className="colab-cal-cal-row colab-cal-checkbox"
-              onClick={() => setSources((s) => ({ ...s, tasks: !s.tasks }))}
-            >
-              <span className="colab-cal-box task">{sources.tasks ? '✓' : ''}</span>
-              <span>Tasks</span>
-            </button>
-            <button
-              type="button"
-              className="colab-cal-cal-row colab-cal-checkbox"
-              onClick={() => setSources((s) => ({ ...s, holidays: !s.holidays }))}
-            >
-              <span className="colab-cal-box holiday">{sources.holidays ? '✓' : ''}</span>
-              <span>Holidays</span>
-            </button>
-            <button
-              type="button"
-              className="colab-cal-cal-row colab-cal-checkbox"
-              onClick={() => setSources((s) => ({ ...s, birthdays: !s.birthdays }))}
-            >
-              <span className="colab-cal-box green">{sources.birthdays ? '✓' : ''}</span>
-              <span>Birthdays</span>
-            </button>
-            <button
-              type="button"
-              className="colab-cal-cal-row colab-cal-checkbox"
-              onClick={() => setSources((s) => ({ ...s, google_calendar: !s.google_calendar }))}
-            >
-              <span className="colab-cal-box gcal">{sources.google_calendar ? '✓' : ''}</span>
-              <span>Google Calendar</span>
-            </button>
-            {gcalStatus?.connected ? (
-              <div className="colab-cal-gcal-actions">
-                <span className="colab-cal-gcal-meta">
-                  {gcalStatus.accounts.map((a) => a.account).join(', ')}
-                  {' · '}
-                  {gcalStatus.accounts.some((a) => a.needs_reconnect) ? 'Reconnect for write access' : 'Write sync enabled'}
-                </span>
-                {gcalStatus.accounts.some((a) => a.needs_reconnect) && (
-                  <a className="colab-cal-outline-btn" href="/api/integrations/google-calendar/connect?return_to=/dashboard/collaborate">
-                    Reconnect Google
-                  </a>
-                )}
-                <span className="colab-cal-gcal-meta">
-                  {(gcalStatus.accounts.reduce((n, a) => n + (a.event_count || 0), 0) || 0)} events synced
-                </span>
-                <button
-                  type="button"
-                  className="colab-cal-outline-btn"
-                  disabled={gcalSyncing}
-                  onClick={() => syncGoogleCalendar()}
-                >
-                  {gcalSyncing ? 'Syncing…' : 'Sync now'}
-                </button>
-              </div>
-            ) : (
-              <a
-                className="colab-cal-gcal-connect"
-                href="/api/integrations/google-calendar/connect?return_to=/dashboard/collaborate"
-              >
-                Connect Google Calendar
-              </a>
-            )}
-            </div>
           </div>
             </>
           )}
@@ -1393,7 +1254,7 @@ export function LaunchDeskPage() {
           />
         )}
 
-        {mainSeg === 'tasks' && insightsOpen ? (
+        {mainSeg === 'tasks' && rightPanel === 'insights' ? (
           <CollaborateTasksInsights
             insights={insights}
             tasksInsights={tasksInsights}
@@ -1407,9 +1268,9 @@ export function LaunchDeskPage() {
             todos={todos}
             selectedTaskId={selectedTaskId}
             onTimeLogged={reload}
-            onClose={closeInsights}
+            onClose={closeRightPanel}
           />
-        ) : mainSeg === 'calendar' && insightsOpen ? (
+        ) : mainSeg === 'calendar' && rightPanel === 'insights' ? (
         <aside className="colab-cal-right">
           <div className="colab-cal-insights-head">
             <div>
@@ -1419,7 +1280,7 @@ export function LaunchDeskPage() {
               </div>
               <div className="colab-cal-insights-title">Time insights</div>
             </div>
-            <button type="button" className="colab-cal-icon-btn colab-cal-insights-close" aria-label="Close insights" onClick={closeInsights}>
+            <button type="button" className="colab-cal-icon-btn colab-cal-insights-close" aria-label="Close insights" onClick={closeRightPanel}>
               ×
             </button>
           </div>
@@ -1487,12 +1348,49 @@ export function LaunchDeskPage() {
             </div>
           ))}
         </aside>
+        ) : mainSeg === 'calendar' && rightPanel === 'calendar-setup' ? (
+          <CollaborateCalendarSetupPanel
+            workingHoursForm={workingHoursForm}
+            onWorkingHoursChange={setWorkingHoursForm}
+            hoursSaving={hoursSaving}
+            onSaveWorkingHours={saveWorkingHours}
+            bookingDraft={bookingDraft}
+            onBookingDraftChange={setBookingDraft}
+            bookingSaving={bookingSaving}
+            onCreateBookingPage={submitBookingPage}
+            bookingPages={bookingPages}
+            onCopyBookingLink={copyBookingLink}
+            onDeactivateBookingPage={deactivateBookingPage}
+            sources={sources}
+            onSourcesChange={setSources}
+            gcalStatus={gcalStatus}
+            gcalSyncing={gcalSyncing}
+            onSyncGoogleCalendar={syncGoogleCalendar}
+            onClose={closeRightPanel}
+          />
+        ) : mainSeg === 'calendar' && rightPanel === 'active-tasks' ? (
+          <CollaborateActiveTasksPanel
+            todos={todos}
+            projects={projects}
+            onSelectTask={(id) => {
+              openTasksSeg();
+              selectTask(id);
+            }}
+            onScheduleTask={scheduleTaskOnCalendar}
+            onOpenTasksView={openTasksSeg}
+            onClose={closeRightPanel}
+          />
         ) : null}
 
         <CollaboratePageRail
-          activeSurface={mainSeg === 'tasks' ? 'tasks' : undefined}
-          insightsOpen={insightsOpen}
-          onInsightsToggle={() => setInsightsOpen((v) => !v)}
+          activeSurface={mainSeg === 'tasks' ? 'tasks' : mainSeg === 'calendar' ? 'calendar' : undefined}
+          showCalendarPanels={mainSeg === 'calendar'}
+          rightPanel={rightPanel}
+          insightsOpen={rightPanel === 'insights'}
+          onInsightsToggle={() => toggleRightPanel('insights')}
+          onCalendarSetupToggle={() => toggleRightPanel('calendar-setup')}
+          onActiveTasksToggle={() => toggleRightPanel('active-tasks')}
+          activeTasksCount={openActiveTasksCount}
           onTasksClick={() => {
             setMainSeg('tasks');
             setTasksNavView('list');

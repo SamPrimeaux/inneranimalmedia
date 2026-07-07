@@ -1,5 +1,7 @@
 export type CollaborateRailPanel = 'calendar' | 'keep' | 'notes' | 'contacts';
 
+export type CollaborateCalendarRightPanel = 'insights' | 'calendar-setup' | 'active-tasks';
+
 export type CollaborateMainSeg = 'calendar' | 'tasks';
 
 export type CollaborateCalView = 'week' | 'month' | 'day';

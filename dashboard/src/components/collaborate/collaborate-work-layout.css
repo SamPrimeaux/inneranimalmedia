@@ -100,11 +100,12 @@
 }
 
 /* Calendar main — square right edge so rail sits flush (no bg gutter) */
-.colab-cal:not(.insights-open) .colab-cal-center {
+.colab-cal:not(.right-panel-open):not(.insights-open) .colab-cal-center {
   border-top-right-radius: 0;
   border-right: none;
 }
 
+.colab-cal.right-panel-open .colab-cal-center,
 .colab-cal.insights-open .colab-cal-center {
   border-top-right-radius: 0;
   border-right: none;

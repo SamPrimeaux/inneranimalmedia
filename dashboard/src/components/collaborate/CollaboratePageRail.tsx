@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, CheckSquare, Lightbulb, Mail, Video } from 'lucide-react';
+import { BookOpen, CalendarCog, CheckSquare, Lightbulb, ListTodo, Mail, Video } from 'lucide-react';
+import type { CollaborateCalendarRightPanel } from '../../lib/collaborate/collaborateRailNav';
 
 type ActiveSurface = 'calendar' | 'tasks' | 'mail';
 
@@ -7,6 +8,11 @@ type Props = {
   onTasksClick: () => void;
   insightsOpen?: boolean;
   onInsightsToggle?: () => void;
+  rightPanel?: CollaborateCalendarRightPanel | null;
+  onCalendarSetupToggle?: () => void;
+  onActiveTasksToggle?: () => void;
+  activeTasksCount?: number;
+  showCalendarPanels?: boolean;
   /** Highlights the current work surface on the rail (e.g. mail when on /dashboard/mail). */
   activeSurface?: ActiveSurface;
 };
@@ -16,22 +22,55 @@ export function CollaboratePageRail({
   onTasksClick,
   insightsOpen = false,
   onInsightsToggle,
+  rightPanel = null,
+  onCalendarSetupToggle,
+  onActiveTasksToggle,
+  activeTasksCount = 0,
+  showCalendarPanels = false,
   activeSurface,
 }: Props) {
   const navigate = useNavigate();
+  const insightsActive = rightPanel ? rightPanel === 'insights' : insightsOpen;
+  const setupActive = rightPanel === 'calendar-setup';
+  const activeTasksActive = rightPanel === 'active-tasks';
 
   return (
     <aside className="colab-cal-rail" aria-label="Collaborate apps">
       <button
         type="button"
-        className={`colab-cal-rail-icon yellow${insightsOpen ? ' active' : ''}`}
+        className={`colab-cal-rail-icon yellow${insightsActive ? ' active' : ''}`}
         title="Insights"
         aria-label="Insights"
-        aria-pressed={insightsOpen}
+        aria-pressed={insightsActive}
         onClick={() => onInsightsToggle?.()}
       >
         <Lightbulb size={20} strokeWidth={1.75} />
       </button>
+      {showCalendarPanels ? (
+        <>
+          <button
+            type="button"
+            className={`colab-cal-rail-icon teal${activeTasksActive ? ' active' : ''}`}
+            title="Active tasks"
+            aria-label={`Active tasks${activeTasksCount ? `, ${activeTasksCount} open` : ''}`}
+            aria-pressed={activeTasksActive}
+            onClick={() => onActiveTasksToggle?.()}
+          >
+            <ListTodo size={20} strokeWidth={1.75} />
+            {activeTasksCount > 0 ? <span className="colab-cal-rail-badge">{activeTasksCount > 99 ? '99+' : activeTasksCount}</span> : null}
+          </button>
+          <button
+            type="button"
+            className={`colab-cal-rail-icon slate${setupActive ? ' active' : ''}`}
+            title="Calendar setup"
+            aria-label="Calendar setup and booking"
+            aria-pressed={setupActive}
+            onClick={() => onCalendarSetupToggle?.()}
+          >
+            <CalendarCog size={20} strokeWidth={1.75} />
+          </button>
+        </>
+      ) : null}
       <button
         type="button"
         className={`colab-cal-rail-icon blue${activeSurface === 'tasks' ? ' active' : ''}`}
