@@ -218,7 +218,7 @@ export async function pickImageModelFromDb(env, workspaceId) {
        mc.api_platform,
        mc.google_model_id,
        mc.openai_model_id,
-       COALESCE(ai.api_platform, mc.api_platform)    AS resolved_platform,
+       COALESCE(NULLIF(ai.api_platform,'unknown'), mc.api_platform) AS resolved_platform,
        COALESCE(ai.secret_key_name, '')              AS secret_key_name
      FROM agentsam_routing_arms ra
      INNER JOIN agentsam_model_catalog mc
