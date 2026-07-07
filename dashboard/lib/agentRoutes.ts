@@ -1,4 +1,6 @@
 /** Agent IDE shell routes (ChatAssistant + workspace stay mounted). */
+import { IAM_AGENT_SYNC_CONVERSATION_URL } from '../agentChatConstants';
+
 export const AGENT_HOME_PATH = '/dashboard/agent';
 /** Composer-only fresh thread — no persisted session id in URL until first send. */
 export const AGENT_NEW_CHAT_PATH = '/dashboard/agent/new';
@@ -117,14 +119,29 @@ export function agentConversationPath(conversationId: string): string {
   return id ? `${AGENT_HOME_PATH}/${encodeURIComponent(id)}` : AGENT_NEW_CHAT_PATH;
 }
 
-export function replaceAgentConversationUrl(conversationId: string): void {
+/** Parse `/dashboard/agent/{uuid}` from pathname — SSOT for deep-link hydration. */
+export function parseAgentConversationIdFromPath(pathname: string): string | null {
+  if (!isAgentConversationPath(pathname)) return null;
+  const p = normalizePath(pathname);
+  const tail = p.slice(`${AGENT_HOME_PATH}/`.length);
+  try {
+    return decodeURIComponent(tail).trim() || null;
+  } catch {
+    return tail.trim() || null;
+  }
+}
+
+/** Ask App (React Router) to sync URL — avoids replaceState / router desync. */
+export function requestAgentConversationUrlSync(conversationId: string): void {
   if (typeof window === 'undefined') return;
   const id = String(conversationId || '').trim();
   if (!id) return;
-  const next = agentConversationPath(id);
-  const current = normalizePath(window.location.pathname);
-  if (current === normalizePath(next)) return;
-  window.history.replaceState(window.history.state, '', next);
+  window.dispatchEvent(new CustomEvent(IAM_AGENT_SYNC_CONVERSATION_URL, { detail: { id } }));
+}
+
+/** @deprecated Use {@link requestAgentConversationUrlSync} — kept for callers not yet migrated. */
+export function replaceAgentConversationUrl(conversationId: string): void {
+  requestAgentConversationUrlSync(conversationId);
 }
 
 export function isAgentQuickstartPath(pathname: string): boolean {

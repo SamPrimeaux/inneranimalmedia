@@ -1,3 +1,11 @@
+/**
+ * Project composer → Agent Sam direct POST (inline thread variant).
+ *
+ * **Canonical path (P0):** {@link openAgentThreadFullScreen} in `openAgentConversation.ts`
+ * → full-screen ChatAssistant → `/api/agent/chat` with the same FormData shape below.
+ *
+ * `loadProjectThreadMessages` remains useful for inline/hydration helpers.
+ */
 import type { Dispatch, SetStateAction } from 'react';
 import { consumeAgentChatSseBody } from '../components/ChatAssistant/hooks/useAgentChatStream';
 import type { ChatComposerSource } from '../components/ChatAssistant/composer/types';

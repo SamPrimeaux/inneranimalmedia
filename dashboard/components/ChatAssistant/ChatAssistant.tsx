@@ -51,6 +51,7 @@ import {
   IAM_AGENT_CHAT_CONVERSATION_CHANGE,
   IAM_AGENT_CHAT_NEW_THREAD,
   IAM_AGENT_CHAT_COMPOSE,
+  IAM_AGENT_CHAT_READY,
   IAM_AGENT_MOBILE_CODE_FOCUS,
   LS_AGENT_CHAT_CONVERSATION_ID,
   type AgentChatComposeDetail,
@@ -62,6 +63,7 @@ import {
 } from '../../lib/chatProjectContext';
 import { notifyAgentChatSessionsRefresh } from '../../lib/openAgentConversation';
 import { replaceAgentConversationUrl, isAgentCenterChatHome } from '../../lib/agentRoutes';
+import { takeProjectChatFiles } from '../../lib/projectChatHandoff';
 import type { AgentSessionRow } from '../../agentSessionsCatalog';
 import { sessionDisplayTitle } from '../../agentSessionsCatalog';
 import type {
@@ -874,6 +876,13 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, [onAgentChatShellNewTab, resetFreshChatContext]);
 
   useEffect(() => {
+    window.dispatchEvent(new CustomEvent(IAM_AGENT_CHAT_READY));
+    return () => {
+      window.dispatchEvent(new CustomEvent('iam-agent-chat-unmount'));
+    };
+  }, []);
+
+  useEffect(() => {
     const onExternal = (e: Event) => {
       const raw = (e as CustomEvent<{ id?: string | null }>).detail?.id;
       if (raw === null || raw === undefined) {
@@ -915,6 +924,20 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       const msg = detail?.message?.trim();
       if (!msg) return;
       if (detail.ensureAgentPanel !== false) return;
+      const handoffFiles = takeProjectChatFiles();
+      if (handoffFiles.length) {
+        setAttachments(
+          handoffFiles.map((file) => {
+            const isImg = isImageAttachmentFile(file);
+            return {
+              id: crypto.randomUUID(),
+              file,
+              type: isImg ? ('image' as const) : ('file' as const),
+              previewUrl: isImg ? URL.createObjectURL(file) : null,
+            };
+          }),
+        );
+      }
       setMobileThreadTab('chat');
       setThreadTitle('New Chat');
       setPythonDraftHint(null);

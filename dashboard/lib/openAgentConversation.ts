@@ -1,7 +1,10 @@
 import {
   IAM_AGENT_CHAT_CONVERSATION_CHANGE,
+  IAM_AGENT_SYNC_CONVERSATION_URL,
   LS_AGENT_CHAT_CONVERSATION_ID,
 } from '../agentChatConstants';
+import { AGENT_HOME_PATH, AGENT_NEW_CHAT_PATH, agentConversationPath, isAgentConversationPath } from './agentRoutes';
+import { stashProjectChatFiles } from './projectChatHandoff';
 
 export type OpenAgentConversationDetail = {
   id: string;
@@ -14,7 +17,22 @@ export type OpenAgentConversationDetail = {
 
 export const IAM_AGENT_ENSURE_PANEL = 'iam-agent-ensure-panel';
 
-/** App listens — navigate to Agent + open panel, then load the thread. */
+/** App listens — navigate to Agent full-screen thread (SSOT entry). */
+export const IAM_AGENT_OPEN_THREAD = 'iam-agent-open-thread';
+
+export type OpenAgentThreadDetail = {
+  conversationId?: string;
+  projectId?: string;
+  projectName?: string;
+  title?: string;
+  firstMessage?: string;
+  memory?: string;
+  instructions?: string;
+  files?: File[];
+  force?: boolean;
+};
+
+/** App listens — navigate to Agent + open panel, then load the thread. @deprecated Prefer {@link openAgentThreadFullScreen} */
 export const IAM_AGENT_RESUME_CHAT = 'iam-agent-resume-chat';
 
 /** Sidebar + session list hooks listen for this to reload /api/agent/sessions. */
@@ -74,7 +92,9 @@ export type StartProjectAgentChatDetail = {
   message?: string;
   memory?: string;
   instructions?: string;
-  /** When true, open Agent Sam panel on the current page instead of navigating away. */
+  /** Optional file attachments from project composer. */
+  files?: File[];
+  /** When true, open Agent Sam panel on the current page instead of navigating away. @deprecated Always full-screen from project. */
   stayOnPage?: boolean;
 };
 
@@ -95,19 +115,14 @@ export function buildProjectChatFirstMessage(
 }
 
 export function startProjectAgentChat(detail: StartProjectAgentChatDetail): void {
-  if (typeof window === 'undefined') return;
-  const projectId = String(detail.projectId || '').trim();
-  if (!projectId) return;
-  const message = String(detail.message || '').trim();
-  window.dispatchEvent(
-    new CustomEvent(IAM_AGENT_START_PROJECT_CHAT, {
-      detail: {
-        projectId,
-        projectName: String(detail.projectName || '').trim() || 'Project',
-        message: message || undefined,
-      },
-    }),
-  );
+  openAgentThreadFullScreen({
+    projectId: detail.projectId,
+    projectName: detail.projectName,
+    firstMessage: detail.message,
+    memory: detail.memory,
+    instructions: detail.instructions,
+    files: detail.files,
+  });
 }
 
 export function startNewAgentChat(detail?: StartNewAgentChatDetail): void {
@@ -115,13 +130,41 @@ export function startNewAgentChat(detail?: StartNewAgentChatDetail): void {
   window.dispatchEvent(new CustomEvent(IAM_AGENT_START_NEW_CHAT, { detail: detail ?? {} }));
 }
 
-/** Sidebar / Chats list — route to Agent Sam and restore the full thread. */
-export function resumeAgentChatSession(detail: OpenAgentConversationDetail): void {
-  const id = detail.id?.trim();
-  if (!id) return;
+/** Open Agent Sam full-screen — new thread or resume existing (project pages, chats list, deep links). */
+export function openAgentThreadFullScreen(detail: OpenAgentThreadDetail): void {
+  if (typeof window === 'undefined') return;
+  const projectId = String(detail.projectId || '').trim();
+  const conversationId = String(detail.conversationId || '').trim();
+  if (!projectId && !conversationId && !String(detail.firstMessage || '').trim()) return;
+
+  if (detail.files?.length) stashProjectChatFiles(detail.files);
+
   window.dispatchEvent(
-    new CustomEvent(IAM_AGENT_RESUME_CHAT, {
-      detail: { ...detail, id, force: detail.force !== false },
+    new CustomEvent(IAM_AGENT_OPEN_THREAD, {
+      detail: {
+        ...detail,
+        projectId: projectId || undefined,
+        projectName: String(detail.projectName || '').trim() || undefined,
+        conversationId: conversationId || undefined,
+        title: detail.title?.trim() || undefined,
+        firstMessage: String(detail.firstMessage || '').trim() || undefined,
+        memory: detail.memory,
+        instructions: detail.instructions,
+        force: detail.force !== false,
+      },
     }),
   );
+}
+
+/** Sidebar / Chats list / project linked chat — full-screen Agent Sam with history. */
+export function resumeAgentChatSession(
+  detail: OpenAgentConversationDetail & { projectId?: string; projectName?: string },
+): void {
+  openAgentThreadFullScreen({
+    conversationId: detail.id,
+    title: detail.title,
+    force: detail.force,
+    projectId: detail.projectId,
+    projectName: detail.projectName,
+  });
 }

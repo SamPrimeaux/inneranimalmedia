@@ -62,7 +62,7 @@ import {
   type ProjectFileRef,
   type ProjectStorageScope,
 } from './projectDetailMeta';
-import { resumeAgentChatSession, startProjectAgentChat } from '../../lib/openAgentConversation';
+import { openAgentThreadFullScreen, resumeAgentChatSession } from '../../lib/openAgentConversation';
 import { writeSessionProject } from '../../src/lib/freshChatSession';
 import { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../../agentChatConstants';
 
@@ -987,13 +987,13 @@ export default function ProjectDetailPage() {
         ? `Review ${composerAttachments.length} attached file${composerAttachments.length === 1 ? '' : 's'}.`
         : '');
 
-    startProjectAgentChat({
+    openAgentThreadFullScreen({
       projectId: projectChatId,
       projectName: project.name,
-      message: userVisible,
+      firstMessage: userVisible,
       memory,
       instructions,
-      stayOnPage: true,
+      files: composerAttachments,
     });
     setDraft('');
     setComposerAttachments([]);
@@ -1625,7 +1625,7 @@ export default function ProjectDetailPage() {
             </>
           ) : chats.length === 0 ? (
             <div className="cpd-chat-empty">
-              No chats in this project yet. Start one above — Agent Sam opens in the panel with this project linked.
+              No chats in this project yet. Start one above — Agent Sam opens full-screen with this project linked.
             </div>
           ) : (
             <ul className="cpd-chat-list">

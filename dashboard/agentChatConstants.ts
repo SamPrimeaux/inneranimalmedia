@@ -41,6 +41,12 @@ export type QuickstartThreadDetail = {
 /** Window event: App created a new shell tab; ChatAssistant should send detail in that thread. */
 export const IAM_AGENT_CHAT_NEW_THREAD = 'iam-agent-chat-new-thread';
 
+/** ChatAssistant mounted and listening for pending App sends. */
+export const IAM_AGENT_CHAT_READY = 'iam-agent-chat-ready';
+
+/** App should navigate to `/dashboard/agent/{id}` (React Router — not replaceState). */
+export const IAM_AGENT_SYNC_CONVERSATION_URL = 'iam-agent-sync-conversation-url';
+
 export const CREATE_SKILL_SEED_MESSAGE =
   'I want to create a new Agent Sam skill. Please start with an intake interview (do not auto-run a multi-step plan yet): what should it do, when should it trigger, and is it a Cursor skill or a Worker/D1 skill?';
 

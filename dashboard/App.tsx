@@ -20,10 +20,10 @@ import {
   AGENT_TAB_QUERY,
   AGENT_QUICKSTART_PATH,
   agentHomeWithTab,
+  agentConversationPath,
   getAgentTabFromSearch,
   isAgentAtmosphericHome,
   isAgentCenterChatHome,
-  isAgentNewChatPath,
   isAgentEditorPath,
   isAgentWorkspaceBrowserPath,
   resolveAgentWorkspaceTab,
@@ -32,6 +32,8 @@ import {
   isAgentExamplesPath,
   isAgentShellPath,
   isLibraryShellPath,
+  normalizePath,
+  parseAgentConversationIdFromPath,
   type AgentHomeTab,
 } from './lib/agentRoutes';
 import { AgentHome } from './components/agent/AgentHome';
@@ -44,6 +46,8 @@ import {
   IAM_AGENT_CHAT_CONVERSATION_CHANGE,
   IAM_AGENT_CHAT_NEW_THREAD,
   IAM_AGENT_CHAT_COMPOSE,
+  IAM_AGENT_CHAT_READY,
+  IAM_AGENT_SYNC_CONVERSATION_URL,
   IAM_AGENT_MOBILE_CODE_FOCUS,
   IAM_ARTIFACT_OPEN_BUILDER,
   LS_AGENT_CHAT_CONVERSATION_ID,
@@ -53,7 +57,16 @@ import {
   type ArtifactOpenBuilderDetail,
   type QuickstartThreadDetail,
 } from './agentChatConstants';
-import { IAM_AGENT_ENSURE_PANEL, IAM_AGENT_RESUME_CHAT, IAM_AGENT_START_NEW_CHAT, IAM_AGENT_START_PROJECT_CHAT, buildProjectChatFirstMessage, openAgentConversation, resumeAgentChatSession, type StartNewAgentChatDetail, type StartProjectAgentChatDetail } from './lib/openAgentConversation';
+import {
+  IAM_AGENT_ENSURE_PANEL,
+  IAM_AGENT_OPEN_THREAD,
+  IAM_AGENT_START_NEW_CHAT,
+  buildProjectChatFirstMessage,
+  openAgentConversation,
+  persistAgentConversationId,
+  type OpenAgentThreadDetail,
+  type StartNewAgentChatDetail,
+} from './lib/openAgentConversation';
 import {
   agentTabMessagesNeedHydration,
   fetchAgentSessionMessages,
@@ -1648,6 +1661,10 @@ const App: React.FC = () => {
   }, [sessionUserName, workspaceDisplayName]);
 
   const createNewAgentChatTabRef = useRef<(() => void) | null>(null);
+  const chatAssistantReadyRef = useRef(false);
+  const pendingNewThreadMessageRef = useRef<QuickstartThreadDetail | null>(null);
+  const flushPendingNewThreadRef = useRef<(() => void) | null>(null);
+  const pathHydratedConvRef = useRef<string | null>(null);
 
   const shellNewChat = useCallback(() => {
     createNewAgentChatTabRef.current?.();
@@ -2128,28 +2145,76 @@ const App: React.FC = () => {
   );
 
   useEffect(() => {
-    const onResumeChat = (e: Event) => {
-      const detail = (e as CustomEvent<{ id?: string; force?: boolean; title?: string }>).detail;
-      const id = detail?.id?.trim();
-      if (!id) return;
-      const stayOnToolRoute = !isAgentShellPath(location.pathname);
-      if (!stayOnToolRoute) {
-        navigate(AGENT_HOME_PATH);
-        setActiveTab('Workspace');
-        setOpenTabs((prev) => (prev.includes('Workspace') ? prev : [...prev, 'Workspace']));
+    const onOpenThread = (e: Event) => {
+      const detail = (e as CustomEvent<OpenAgentThreadDetail>).detail;
+      const projectId = detail?.projectId?.trim();
+      const conversationId = detail?.conversationId?.trim();
+      if (projectId) {
+        writeSessionProject({
+          id: projectId,
+          name: detail?.projectName?.trim() || 'Project',
+        });
       }
-      if (!(isAgentHomeAtmospheric && !isNarrowViewport)) {
-        setAgentPosition((p) => (p === 'off' ? 'right' : p));
+
+      setAgentPosition('off');
+      setActiveTab('Workspace');
+      setOpenTabs((prev) => (prev.includes('Workspace') ? prev : [...prev, 'Workspace']));
+
+      const message = buildProjectChatFirstMessage(
+        detail?.firstMessage,
+        detail?.memory,
+        detail?.instructions,
+      );
+
+      if (conversationId) {
+        persistAgentConversationId(conversationId);
+        navigate(agentConversationPath(conversationId));
+        requestAnimationFrame(() => {
+          openAgentConversation({
+            id: conversationId,
+            title: detail?.title,
+            force: detail?.force !== false,
+            ensureAgentPanel: false,
+          });
+        });
+        return;
       }
-      openAgentConversation({
-        id,
-        title: detail.title,
-        force: detail.force !== false,
-      });
+
+      navigate(projectId ? `${AGENT_NEW_CHAT_PATH}?project_id=${encodeURIComponent(projectId)}` : AGENT_NEW_CHAT_PATH);
+      createNewAgentChatTabRef.current?.();
+      if (message) {
+        pendingNewThreadMessageRef.current = { message, ensureAgentPanel: false };
+        flushPendingNewThreadRef.current?.();
+      }
     };
-    window.addEventListener(IAM_AGENT_RESUME_CHAT, onResumeChat);
-    return () => window.removeEventListener(IAM_AGENT_RESUME_CHAT, onResumeChat);
-  }, [navigate, isAgentHomeAtmospheric, isNarrowViewport, location.pathname]);
+    window.addEventListener(IAM_AGENT_OPEN_THREAD, onOpenThread);
+    return () => window.removeEventListener(IAM_AGENT_OPEN_THREAD, onOpenThread);
+  }, [navigate]);
+
+  useEffect(() => {
+    const convId = parseAgentConversationIdFromPath(location.pathname);
+    if (!convId || !isAgentShellPath(location.pathname)) {
+      pathHydratedConvRef.current = null;
+      return;
+    }
+    if (pathHydratedConvRef.current === convId) return;
+    pathHydratedConvRef.current = convId;
+    setAgentPosition('off');
+    persistAgentConversationId(convId);
+    openAgentConversation({ id: convId, force: true, ensureAgentPanel: false });
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const onSyncUrl = (e: Event) => {
+      const id = (e as CustomEvent<{ id?: string }>).detail?.id?.trim();
+      if (!id) return;
+      const next = agentConversationPath(id);
+      if (normalizePath(location.pathname) === normalizePath(next)) return;
+      navigate(next, { replace: true });
+    };
+    window.addEventListener(IAM_AGENT_SYNC_CONVERSATION_URL, onSyncUrl);
+    return () => window.removeEventListener(IAM_AGENT_SYNC_CONVERSATION_URL, onSyncUrl);
+  }, [navigate, location.pathname]);
 
   useEffect(() => {
     const onConv = (e: Event) => {
@@ -2268,7 +2333,6 @@ const App: React.FC = () => {
     return () => window.removeEventListener(IAM_AGENT_START_NEW_CHAT, onStartNewChat);
   }, [shellNewChat, agentPosition]);
 
-  const pendingNewThreadMessageRef = useRef<QuickstartThreadDetail | null>(null);
   const pendingAgentChatComposeRef = useRef<AgentChatComposeDetail | null>(null);
 
   const dispatchAgentChatCompose = useCallback((detail: AgentChatComposeDetail) => {
@@ -2281,7 +2345,6 @@ const App: React.FC = () => {
     const message = detail.message?.trim();
     if (!message) return;
     requestAnimationFrame(() => {
-      // ChatAssistant sends only when ensureAgentPanel === false (App already opened the panel).
       window.dispatchEvent(
         new CustomEvent(IAM_AGENT_CHAT_NEW_THREAD, {
           detail: { ...detail, message, ensureAgentPanel: false },
@@ -2289,6 +2352,32 @@ const App: React.FC = () => {
       );
     });
   }, []);
+
+  const flushPendingNewThread = useCallback(() => {
+    if (!chatAssistantReadyRef.current) return;
+    const pending = pendingNewThreadMessageRef.current;
+    if (!pending?.message?.trim()) return;
+    pendingNewThreadMessageRef.current = null;
+    dispatchNewThreadMessage(pending);
+  }, [dispatchNewThreadMessage]);
+
+  flushPendingNewThreadRef.current = flushPendingNewThread;
+
+  useEffect(() => {
+    const onReady = () => {
+      chatAssistantReadyRef.current = true;
+      flushPendingNewThread();
+    };
+    const onUnmount = () => {
+      chatAssistantReadyRef.current = false;
+    };
+    window.addEventListener(IAM_AGENT_CHAT_READY, onReady);
+    window.addEventListener('iam-agent-chat-unmount', onUnmount);
+    return () => {
+      window.removeEventListener(IAM_AGENT_CHAT_READY, onReady);
+      window.removeEventListener('iam-agent-chat-unmount', onUnmount);
+    };
+  }, [flushPendingNewThread]);
 
   const startAgentNewThreadWithMessage = useCallback(
     (detail: QuickstartThreadDetail | string) => {
@@ -2317,52 +2406,6 @@ const App: React.FC = () => {
     },
     [agentPosition, createNewAgentChatTab, dispatchNewThreadMessage, isAgentHomeAtmospheric, isNarrowViewport],
   );
-
-  useEffect(() => {
-    const onProjectChat = (e: Event) => {
-      const detail = (e as CustomEvent<StartProjectAgentChatDetail>).detail;
-      const projectId = detail?.projectId?.trim();
-      if (!projectId) return;
-      writeSessionProject({
-        id: projectId,
-        name: detail?.projectName?.trim() || 'Project',
-      });
-
-      const message = buildProjectChatFirstMessage(
-        detail?.message,
-        detail?.memory,
-        detail?.instructions,
-      );
-
-      if (detail?.stayOnPage) {
-        createNewAgentChatTabRef.current?.();
-        if (agentPosition === 'off') setAgentPosition('right');
-        if (message) {
-          startAgentNewThreadWithMessage({ message });
-        }
-        return;
-      }
-
-      navigate(AGENT_HOME_PATH);
-      requestAnimationFrame(() => {
-        if (message) {
-          startAgentNewThreadWithMessage({ message });
-        } else {
-          shellNewChat();
-        }
-      });
-    };
-    window.addEventListener(IAM_AGENT_START_PROJECT_CHAT, onProjectChat);
-    return () => window.removeEventListener(IAM_AGENT_START_PROJECT_CHAT, onProjectChat);
-  }, [navigate, shellNewChat, startAgentNewThreadWithMessage, agentPosition]);
-
-  useEffect(() => {
-    const pending = pendingNewThreadMessageRef.current;
-    if (!pending || agentPosition === 'off') return;
-    pendingNewThreadMessageRef.current = null;
-    createNewAgentChatTab();
-    dispatchNewThreadMessage(pending);
-  }, [agentPosition, createNewAgentChatTab, dispatchNewThreadMessage]);
 
   useEffect(() => {
     const onNewThreadRequest = (e: Event) => {
