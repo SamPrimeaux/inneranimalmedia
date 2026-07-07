@@ -199,7 +199,7 @@ async function handlePostSandbox(p, env) {
 }
 
 async function handleSessionStart(p, env) {
-  const entryId = `pte-${p.user_id}-${Math.floor(Date.now()/1000)}`;
+  const entryId = `te_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const tenantRow =
     p.tenant_id != null && String(p.tenant_id).trim() !== ''
       ? String(p.tenant_id).trim()
@@ -208,11 +208,20 @@ async function handleSessionStart(p, env) {
     (typeof p?.user_id === 'string' && p.user_id.trim()) ||
     (typeof env?.SYSTEM_ACTOR_ID === 'string' && env.SYSTEM_ACTOR_ID.trim()) ||
     null;
+  const now = Math.floor(Date.now() / 1000);
   await env.DB.prepare(`
-    INSERT INTO project_time_entries
-      (id, project_id, tenant_id, user_id, date, hours, description, created_at)
-    VALUES (?, 'inneranimalmedia', ?, ?, date('now'), 0, ?, unixepoch())
-  `).bind(entryId, tenantRow, systemActor, `Session started — ${p.context || 'agent session'}`).run();
+    INSERT INTO time_entries
+      (id, user_id, tenant_id, workspace_id, project_id, project_name, description,
+       hours, started_at, ended_at, source, billable, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'inneranimalmedia', 'Inner Animal Media Platform', ?, 0, ?, NULL, 'auto', 0, unixepoch(), unixepoch())
+  `).bind(
+    entryId,
+    systemActor,
+    tenantRow,
+    p.workspace_id ?? null,
+    `Session started — ${p.context || 'agent session'}`,
+    now,
+  ).run();
 
   await env.KV.put(`session_time_entry:${p.session_id}`, entryId, { expirationTtl: 86400 });
   return Response.json({ ok: true, entry_id: entryId });
@@ -444,9 +453,12 @@ async function handleSessionEnd(p, env, ctx) {
   if (!entryId) return Response.json({ ok: false, reason: 'no open entry' });
 
   const hours = parseFloat(((p.duration_ms || 0) / 3600000).toFixed(2));
+  const endedAt = Math.floor(Date.now() / 1000);
   await env.DB.prepare(`
-    UPDATE project_time_entries SET hours = ?, description = ? WHERE id = ?
-  `).bind(hours, p.summary || 'Agent session', entryId).run();
+    UPDATE time_entries
+    SET hours = ?, description = ?, ended_at = ?, updated_at = unixepoch()
+    WHERE id = ?
+  `).bind(hours, p.summary || 'Agent session', endedAt, entryId).run();
 
   await env.KV.delete(`session_time_entry:${p.session_id}`);
 

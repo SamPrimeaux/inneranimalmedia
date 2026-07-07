@@ -410,9 +410,14 @@ export async function gatherMorningPlanContext(env, tenantId, owner) {
       tenantId),
 
     d1First(env,
-      `SELECT ROUND(COALESCE(SUM(duration_seconds), 0) / 60.0) as minutes
-       FROM project_time_entries
-       WHERE date(start_time) = date('now')`),
+      `SELECT ROUND(COALESCE(SUM(
+         CASE
+           WHEN ended_at IS NULL THEN MAX(0, (unixepoch() - COALESCE(started_at, created_at))) / 60.0
+           ELSE COALESCE(hours * 60, MAX(0, ended_at - COALESCE(started_at, created_at)) / 60.0)
+         END
+       ), 0)) as minutes
+       FROM time_entries
+       WHERE date(datetime(COALESCE(started_at, created_at), 'unixepoch')) = date('now')`),
   ]);
 
   let gitLog = '';

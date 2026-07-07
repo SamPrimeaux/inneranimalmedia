@@ -4,6 +4,13 @@
 import { jsonResponse, getAuthUser } from '../core/auth.js';
 import { usHolidaysInWindow } from '../core/calendar-holidays.js';
 import { insertMeetRoomRow, meetJoinUrl, normalizeInviteEmails, sendMeetInvites } from '../core/meet-shared.js';
+import {
+  heartbeatActiveTimer,
+  insertManualTimeEntry,
+  startProjectTimer,
+  stopActiveTimer,
+  summarizeUserTime,
+} from '../core/time-tracking-spine.js';
 
 function resolveWorkspaceIdLoose(authUser, env, url) {
   const fromSession = authUser?.workspace_id ?? authUser?.workspaceId ?? null;
@@ -473,43 +480,20 @@ export async function handleCalendarApi(request, url, env, ctx) {
     const anchor = url.searchParams.get('anchor');
     const dayWindow = computeWindow('day', url, anchor);
     const weekWindow = computeWindow('week', url, anchor);
-    const userIds = [...new Set([userId, userId ? `user_${userId}` : null].filter(Boolean))];
 
-    let todayMinutes = 0;
-    let activeTracking = false;
-    const byProjectMap = new Map();
-    const byTaskMap = new Map();
+    const summary = await summarizeUserTime(env, userId, {
+      fromIso: dayWindow.from.slice(0, 10),
+      toIso: dayWindow.to.slice(0, 10),
+      projectRef: url.searchParams.get('project_id')?.trim() || null,
+    });
 
-    try {
-      const placeholders = userIds.map(() => '?').join(',');
-      const { results: entries } = await env.DB.prepare(
-        `SELECT id, project_id, duration_seconds, is_active, description, start_time
-         FROM project_time_entries
-         WHERE user_id IN (${placeholders})
-           AND date(start_time) >= date(?)
-           AND date(start_time) <= date(?)
-         ORDER BY start_time DESC`,
-      )
-        .bind(...userIds, dayWindow.from.slice(0, 10), dayWindow.to.slice(0, 10))
-        .all();
-
-      for (const row of entries || []) {
-        const secs = Number(row.duration_seconds || 0);
-        const mins = Math.round(secs / 60);
-        todayMinutes += mins;
-        if (Number(row.is_active) === 1) activeTracking = true;
-        const pid = String(row.project_id || 'inneranimalmedia');
-        byProjectMap.set(pid, (byProjectMap.get(pid) || 0) + mins);
-        const desc = String(row.description || '');
-        const todoMatch = desc.match(/todo_[a-z0-9]+/i);
-        if (todoMatch) {
-          const tid = todoMatch[0];
-          byTaskMap.set(tid, (byTaskMap.get(tid) || 0) + mins);
-        }
-      }
-    } catch {
-      /* project_time_entries may be absent or schema variant */
-    }
+    let todayMinutes = summary.todayMinutes;
+    let activeTracking = summary.activeTracking;
+    const byProjectMap = new Map(summary.byProject.map((r) => [r.project_id, r.minutes]));
+    const byTaskMap = new Map(summary.byTask.map((r) => [r.todo_id, r.minutes]));
+    let project_active_tracking = summary.projectActiveTracking;
+    let project_today_minutes = summary.projectTodayMinutes;
+    let active_entry = summary.projectActiveEntry;
 
     // Calendar task events for the week add scheduled task minutes
     try {
@@ -539,6 +523,16 @@ export async function handleCalendarApi(request, url, env, ctx) {
           .bind(...projectIds)
           .all();
         for (const p of prows || []) projectNames.set(String(p.id), String(p.name || p.id));
+        const { results: tprows } = await env.DB.prepare(
+          `SELECT project_key, label, projects_id FROM time_projects
+           WHERE project_key IN (${placeholders}) OR projects_id IN (${placeholders})`,
+        )
+          .bind(...projectIds, ...projectIds)
+          .all();
+        for (const tp of tprows || []) {
+          if (tp.project_key) projectNames.set(String(tp.project_key), String(tp.label || tp.project_key));
+          if (tp.projects_id) projectNames.set(String(tp.projects_id), String(tp.label || tp.projects_id));
+        }
       } catch {
         /* ignore */
       }
@@ -577,40 +571,6 @@ export async function handleCalendarApi(request, url, env, ctx) {
       .sort((a, b) => b.minutes - a.minutes);
 
     const focusProjectId = url.searchParams.get('project_id')?.trim() || null;
-    let project_active_tracking = false;
-    let project_today_minutes = 0;
-    let active_entry = null;
-    if (focusProjectId) {
-      try {
-        const placeholders = userIds.map(() => '?').join(',');
-        const { results: focusRows } = await env.DB.prepare(
-          `SELECT id, project_id, duration_seconds, is_active, description, start_time
-           FROM project_time_entries
-           WHERE user_id IN (${placeholders})
-             AND project_id = ?
-             AND date(start_time) >= date(?)
-             AND date(start_time) <= date(?)
-           ORDER BY start_time DESC`,
-        )
-          .bind(...userIds, focusProjectId, dayWindow.from.slice(0, 10), dayWindow.to.slice(0, 10))
-          .all();
-        for (const row of focusRows || []) {
-          const secs = Number(row.duration_seconds || 0);
-          project_today_minutes += Math.round(secs / 60);
-          if (Number(row.is_active) === 1) {
-            project_active_tracking = true;
-            active_entry = {
-              id: String(row.id),
-              project_id: String(row.project_id),
-              start_time: row.start_time,
-              duration_seconds: secs,
-            };
-          }
-        }
-      } catch {
-        /* non-fatal */
-      }
-    }
 
     let agentInferredMinutes = 0;
     let usageRollup = null;
@@ -697,64 +657,41 @@ export async function handleCalendarApi(request, url, env, ctx) {
       return jsonResponse({ ok: false, error: 'action_must_be_start_or_stop' }, 400);
     }
 
-    const now = toSqlDateTime(new Date());
-    const userIds = [...new Set([userId, userId ? `user_${userId}` : null].filter(Boolean))];
-
     try {
       if (action === 'start') {
-        for (const uid of userIds) {
-          await env.DB.prepare(
-            `UPDATE project_time_entries
-             SET is_active = 0
-             WHERE user_id = ? AND is_active = 1`,
-          )
-            .bind(uid)
-            .run();
-        }
-        const entryId = `pte_${userId || 'user'}_${Date.now()}`;
-        await env.DB.prepare(
-          `INSERT INTO project_time_entries
-            (id, user_id, project_id, start_time, duration_seconds, is_active, description)
-           VALUES (?, ?, ?, ?, ?, 1, ?)`,
-        )
-          .bind(entryId, userId, projectId, now, 0, `project_detail · ${projectId}`)
-          .run();
-        return jsonResponse({ ok: true, action: 'start', entry_id: entryId, project_id: projectId }, 201);
+        const out = await startProjectTimer(env, {
+          userId,
+          tenantId,
+          workspaceId,
+          projectRef: projectId,
+          source: 'timer',
+        });
+        if (!out.ok) return jsonResponse(out, 400);
+        return jsonResponse({
+          ok: true,
+          action: 'start',
+          entry_id: out.entry_id,
+          project_id: out.project_id,
+        }, 201);
       }
 
-      let stopped = null;
-      for (const uid of userIds) {
-        const activeRow = await env.DB.prepare(
-          `SELECT id, duration_seconds, start_time FROM project_time_entries
-           WHERE user_id = ? AND is_active = 1 AND project_id = ?
-           ORDER BY start_time DESC LIMIT 1`,
-        )
-          .bind(uid, projectId)
-          .first();
-        if (activeRow?.id) {
-          await env.DB.prepare(
-            `UPDATE project_time_entries SET is_active = 0 WHERE id = ?`,
-          )
-            .bind(activeRow.id)
-            .run();
-          stopped = {
-            id: String(activeRow.id),
-            duration_seconds: Number(activeRow.duration_seconds || 0),
-          };
-          break;
-        }
+      const out = await stopActiveTimer(env, userId, { projectRef: projectId });
+      if (!out.ok) {
+        return jsonResponse({ ok: false, error: out.error || 'no_active_timer', project_id: projectId }, 404);
       }
-      if (!stopped) {
-        return jsonResponse({ ok: false, error: 'no_active_timer', project_id: projectId }, 404);
-      }
-      return jsonResponse({ ok: true, action: 'stop', entry: stopped, project_id: projectId }, 200);
+      return jsonResponse({
+        ok: true,
+        action: 'stop',
+        entry: out.entry,
+        project_id: projectId,
+      }, 200);
     } catch (e) {
       console.warn('[calendar/project-timer]', e?.message ?? e);
       return jsonResponse({ ok: false, error: 'project_timer_failed' }, 500);
     }
   }
 
-  // POST /api/calendar/time-entry — manual time log fallback
+  // POST /api/calendar/time-entry — manual time log
   if (parts[0] === 'time-entry' && method === 'POST') {
     const body = await request.json().catch(() => ({}));
     const projectId = String(body.project_id || '').trim().slice(0, 120);
@@ -763,56 +700,30 @@ export async function handleCalendarApi(request, url, env, ctx) {
     const note = body.note ? String(body.note).trim().slice(0, 500) : null;
     if (!projectId) return jsonResponse({ ok: false, error: 'project_id_required' }, 400);
 
-    const now = toSqlDateTime(new Date());
-    const entryDateRaw = body.entry_date ? String(body.entry_date).trim().slice(0, 10) : null;
-    const startTime =
-      entryDateRaw && /^\d{4}-\d{2}-\d{2}$/.test(entryDateRaw)
-        ? `${entryDateRaw} 12:00:00`
-        : now;
-    const descriptionParts = ['manual'];
-    if (note) descriptionParts.push(note);
-    if (todoId) descriptionParts.push(todoId);
-    descriptionParts.push(projectId);
-    const description = descriptionParts.join(' · ').slice(0, 500);
-    const entryId = `pte_${userId || 'user'}_${Date.now()}`;
-
     try {
-      await env.DB.prepare(
-        `INSERT INTO project_time_entries
-          (id, user_id, project_id, start_time, duration_seconds, is_active, description)
-         VALUES (?, ?, ?, ?, ?, 0, ?)`,
-      )
-        .bind(entryId, userId, projectId, startTime, minutes * 60, description)
-        .run();
-      return jsonResponse({ ok: true, entry_id: entryId, minutes }, 201);
+      const out = await insertManualTimeEntry(env, {
+        userId,
+        tenantId,
+        workspaceId,
+        projectRef: projectId,
+        minutes,
+        todoId,
+        note,
+        entryDate: body.entry_date ? String(body.entry_date).trim().slice(0, 10) : null,
+      });
+      if (!out.ok) return jsonResponse(out, 400);
+      return jsonResponse({ ok: true, entry_id: out.entry_id, minutes: out.minutes }, 201);
     } catch (e) {
       console.warn('[calendar/time-entry]', e?.message ?? e);
       return jsonResponse({ ok: false, error: 'time_entry_failed' }, 500);
     }
   }
 
-  // POST /api/calendar/activity/stop — close active project_time_entries row
+  // POST /api/calendar/activity/stop — close active timer row
   if (parts[0] === 'activity' && parts[1] === 'stop' && method === 'POST') {
     try {
-      const userIds = [...new Set([userId, userId ? `user_${userId}` : null].filter(Boolean))];
-      for (const uid of userIds) {
-        const active = await env.DB.prepare(
-          `SELECT id FROM project_time_entries
-           WHERE user_id = ? AND is_active = 1
-           ORDER BY start_time DESC LIMIT 1`,
-        )
-          .bind(uid)
-          .first();
-        if (active?.id) {
-          await env.DB.prepare(
-            `UPDATE project_time_entries SET is_active = 0 WHERE id = ?`,
-          )
-            .bind(active.id)
-            .run();
-          return jsonResponse({ ok: true, stopped: true, entry_id: active.id }, 200);
-        }
-      }
-      return jsonResponse({ ok: true, stopped: false }, 200);
+      const out = await stopActiveTimer(env, userId);
+      return jsonResponse({ ok: true, stopped: !!out.ok, entry: out.entry || null }, 200);
     } catch (e) {
       console.warn('[calendar/activity/stop]', e?.message ?? e);
       return jsonResponse({ ok: false, error: 'activity_stop_failed' }, 200);
@@ -826,62 +737,17 @@ export async function handleCalendarApi(request, url, env, ctx) {
     const projectId = projectIdRaw || '_session';
     const todoId = body.todo_id ? String(body.todo_id).trim().slice(0, 64) : null;
     const surface = String(body.surface || 'collaborate').trim().slice(0, 64);
-    const beatSeconds = 60;
-    const now = toSqlDateTime(new Date());
-    const description = `${surface}${todoId ? ` · ${todoId}` : ''} · ${projectId}`;
-
-    const extractTodoFromDescription = (desc) => {
-      const m = String(desc || '').match(/todo_[a-z0-9]+/i);
-      return m ? m[0] : null;
-    };
 
     try {
-      const userIds = [...new Set([userId, userId ? `user_${userId}` : null].filter(Boolean))];
-      let activeRow = null;
-      for (const uid of userIds) {
-        activeRow = await env.DB.prepare(
-          `SELECT id, project_id, description FROM project_time_entries
-           WHERE user_id = ? AND is_active = 1
-           ORDER BY start_time DESC LIMIT 1`,
-        )
-          .bind(uid)
-          .first();
-        if (activeRow) break;
-      }
-
-      const prevProject = String(activeRow?.project_id || '');
-      const prevTodo = extractTodoFromDescription(activeRow?.description);
-      const contextChanged =
-        activeRow?.id &&
-        (prevProject !== projectId || String(prevTodo || '') !== String(todoId || ''));
-
-      if (contextChanged) {
-        await env.DB.prepare(`UPDATE project_time_entries SET is_active = 0 WHERE id = ?`)
-          .bind(activeRow.id)
-          .run();
-        activeRow = null;
-      }
-
-      if (activeRow?.id) {
-        await env.DB.prepare(
-          `UPDATE project_time_entries
-           SET duration_seconds = COALESCE(duration_seconds, 0) + ?,
-               description = ?
-           WHERE id = ?`,
-        )
-          .bind(beatSeconds, description, activeRow.id)
-          .run();
-      } else {
-        const entryId = `pte_${userId || 'user'}_${Date.now()}`;
-        await env.DB.prepare(
-          `INSERT INTO project_time_entries
-            (id, user_id, project_id, start_time, duration_seconds, is_active, description)
-           VALUES (?, ?, ?, ?, ?, 1, ?)`,
-        )
-          .bind(entryId, userId, projectId, now, beatSeconds, description)
-          .run();
-      }
-      return jsonResponse({ ok: true, tracked_seconds: beatSeconds }, 200);
+      const out = await heartbeatActiveTimer(env, {
+        userId,
+        tenantId,
+        workspaceId,
+        projectRef: projectId,
+        todoId,
+        surface,
+      });
+      return jsonResponse({ ok: true, tracked_seconds: 60, ...out }, 200);
     } catch (e) {
       console.warn('[calendar/activity/heartbeat]', e?.message ?? e);
       return jsonResponse({ ok: false, error: 'activity_unavailable' }, 200);

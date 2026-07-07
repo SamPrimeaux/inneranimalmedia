@@ -193,9 +193,14 @@ export async function runVelocityDailyRollup(env) {
     ).first().catch(() => null);
 
     const timeRow = await env.DB.prepare(
-      `SELECT ROUND(COALESCE(SUM(duration_seconds), 0) / 60.0) as minutes
-       FROM project_time_entries
-       WHERE date(start_time) = date(?)`,
+      `SELECT ROUND(COALESCE(SUM(
+         CASE
+           WHEN ended_at IS NULL THEN MAX(0, (unixepoch() - COALESCE(started_at, created_at))) / 60.0
+           ELSE COALESCE(hours * 60, MAX(0, ended_at - COALESCE(started_at, created_at)) / 60.0)
+         END
+       ), 0)) as minutes
+       FROM time_entries
+       WHERE date(datetime(COALESCE(started_at, created_at), 'unixepoch')) = date(?)`,
     ).bind(yesterday).first().catch(() => null);
 
     // Last week's velocity score for WoW delta

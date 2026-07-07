@@ -61,7 +61,12 @@ async function handleHubTasks(env, authUser) {
 
 async function handleHubStats(env) {
     const [hoursRow, spendRow, callsRow] = await Promise.all([
-        env.DB.prepare(`SELECT COALESCE(SUM(duration_seconds),0)/3600.0 as h FROM project_time_entries WHERE date(start_time) = date('now')`).first(),
+        env.DB.prepare(`SELECT COALESCE(SUM(
+          CASE
+            WHEN ended_at IS NULL THEN MAX(0, (unixepoch() - COALESCE(started_at, created_at))) / 3600.0
+            ELSE COALESCE(hours, MAX(0, ended_at - COALESCE(started_at, created_at)) / 3600.0)
+          END
+        ),0) as h FROM time_entries WHERE date(datetime(COALESCE(started_at, created_at), 'unixepoch')) = date('now')`).first(),
         env.DB.prepare(`SELECT COALESCE(SUM(amount_usd), 0) as s FROM spend_ledger WHERE occurred_at >= unixepoch('now', '-7 days')`).first(),
         env.DB.prepare(`SELECT COUNT(*) as c FROM agentsam_usage_events WHERE created_at >= unixepoch('now', 'start of day')`).first(),
     ]);

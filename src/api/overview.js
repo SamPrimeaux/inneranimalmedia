@@ -4,6 +4,7 @@
  */
 import { getAuthUser, jsonResponse } from '../core/auth.js';
 import { handleOverviewDashboardBundle } from './overview-bundle.js';
+import { sumUserHours } from '../core/time-tracking-spine.js';
 
 /** @param {import('@cloudflare/workers-types').D1Database} db */
 async function pragmaColumnSet(db, tableName) {
@@ -291,12 +292,6 @@ async function handleOverviewGoalsLaunch(authUser, env) {
 
 async function handleOverviewActivityStrip(authUser, env) {
   const userId = authUser.id || 'anonymous';
-  const userIdVariants = [
-    userId,
-    userId.replace(/^user_/, ''),
-    'user_' + userId.replace(/^user_/, ''),
-  ].filter(Boolean);
-  const userList = userIdVariants.map(() => '?').join(',');
   const safe = (p) => (p ? p.catch(() => null) : Promise.resolve(null));
   const num = (r, k) => (r != null && r[k] != null ? Number(r[k]) : r?.c != null ? Number(r.c) : 0);
 
@@ -306,8 +301,8 @@ async function handleOverviewActivityStrip(authUser, env) {
     deployCountWeek,
     agentCallsWeek,
     taskCountWeek,
-    timeWeekRow,
-    timeTodayRow,
+    hoursThisWeek,
+    hoursToday,
     dailyRows,
     projectsActiveRow,
     projectsTopRows,
@@ -321,24 +316,22 @@ async function handleOverviewActivityStrip(authUser, env) {
     safe(env.DB.prepare(
       `SELECT COUNT(*) as c FROM cicd_pipeline_runs WHERE created_at >= unixepoch(?) AND status = 'success'`
     ).bind(sevenDaysAgo).first()),
+    sumUserHours(env, userId, { weekStart: true }),
+    sumUserHours(env, userId, { dayStart: true }),
     safe(env.DB.prepare(
-      `SELECT (COUNT(DISTINCT strftime('%Y-%m-%d %H', datetime(created_at, 'unixepoch'))) +
-               COALESCE((SELECT SUM(total_active_seconds)/3600.0 FROM work_sessions WHERE started_at >= date('now','weekday 1')), 0)
-              ) as h FROM agentsam_usage_events WHERE created_at >= unixepoch(date('now','weekday 1'))`
-    ).first()),
-    safe(env.DB.prepare(
-      `SELECT (COUNT(DISTINCT strftime('%Y-%m-%d %H', datetime(created_at, 'unixepoch'))) +
-               COALESCE((SELECT SUM(total_active_seconds)/3600.0 FROM work_sessions WHERE date(started_at) = date('now')), 0)
-              ) as h FROM agentsam_usage_events WHERE date(datetime(created_at, 'unixepoch')) = date('now')`
-    ).first()),
-    safe(env.DB.prepare(
-      `SELECT date(datetime(created_at, 'unixepoch')) as d,
-              COUNT(DISTINCT strftime('%Y-%m-%d %H', datetime(created_at, 'unixepoch'))) as h
-       FROM agentsam_usage_events
-       WHERE created_at >= unixepoch(date('now','weekday 1'))
-       GROUP BY date(datetime(created_at, 'unixepoch'))
+      `SELECT date(datetime(COALESCE(started_at, created_at), 'unixepoch')) as d,
+              ROUND(SUM(
+                CASE
+                  WHEN ended_at IS NULL THEN MAX(0, (unixepoch() - COALESCE(started_at, created_at))) / 3600.0
+                  ELSE COALESCE(hours, MAX(0, ended_at - COALESCE(started_at, created_at)) / 3600.0)
+                END
+              ), 2) as h
+       FROM time_entries
+       WHERE user_id = ?
+         AND COALESCE(started_at, created_at) >= unixepoch(date('now','weekday 1'))
+       GROUP BY date(datetime(COALESCE(started_at, created_at), 'unixepoch'))
        ORDER BY d ASC`
-    ).all()),
+    ).bind(userId).all()),
     safe(env.DB.prepare(
       `SELECT COUNT(*) as c FROM projects WHERE status NOT IN ('archived','maintenance')`
     ).first()),
@@ -354,8 +347,8 @@ async function handleOverviewActivityStrip(authUser, env) {
       agent_calls: num(agentCallsWeek),
     },
     worked_this_week: {
-      hours_this_week: Math.round(num(timeWeekRow, 'h') * 100) / 100,
-      hours_today: Math.round(num(timeTodayRow, 'h') * 100) / 100,
+      hours_this_week: hoursThisWeek,
+      hours_today: hoursToday,
     },
     projects: {
       active: num(projectsActiveRow),
