@@ -16,7 +16,10 @@ import {
   CalEvent,
   CalendarInsightsPayload,
   CalendarPerson,
+  createBookingPage,
+  deleteBookingPage,
   fetchBookingPages,
+  fetchCalendarPreferences,
   fetchCalendarViewEvents,
   fetchGoogleCalendarStatus,
   fetchInsights,
@@ -39,6 +42,8 @@ import {
   postActivityStop,
   postGoogleCalendarSync,
   publicBookingPageUrl,
+  saveCalendarPreferences,
+  updateBookingPage,
   QuickEventType,
   sameDay,
   startOfWeek,
@@ -115,6 +120,17 @@ function initialCalView(): CollaborateCalView {
 
 function cleanTitle(title: string | null | undefined) {
   return String(title || '').trim() || 'Untitled';
+}
+
+function minutesToTimeInput(m: number) {
+  const h = Math.floor(Math.max(0, m) / 60);
+  const min = Math.max(0, m) % 60;
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
+function timeInputToMinutes(v: string) {
+  const [h, m] = String(v || '0:0').split(':').map((x) => Number(x));
+  return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
 }
 
 function eventCssClass(ev: CalEvent) {
@@ -231,9 +247,17 @@ export function LaunchDeskPage() {
     birthdays: true,
     google_calendar: true,
   });
-  const [gcalStatus, setGcalStatus] = useState<{ connected: boolean; accounts: { account: string; event_count: number }[] } | null>(null);
+  const [gcalStatus, setGcalStatus] = useState<Awaited<ReturnType<typeof fetchGoogleCalendarStatus>> | null>(null);
   const [gcalSyncing, setGcalSyncing] = useState(false);
   const [gcalBanner, setGcalBanner] = useState<string | null>(null);
+  const [workingHoursForm, setWorkingHoursForm] = useState({
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago',
+    start: '09:00',
+    end: '17:00',
+  });
+  const [hoursSaving, setHoursSaving] = useState(false);
+  const [bookingDraft, setBookingDraft] = useState({ title: '', slug: '', duration_min: 30 });
+  const [bookingSaving, setBookingSaving] = useState(false);
 
   const weekStart = useMemo(() => startOfWeek(anchor), [anchor]);
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
@@ -285,10 +309,11 @@ export function LaunchDeskPage() {
     setLoading(true);
     setError(null);
     try {
-      const [ev, ins, pages, taskList, projectList, taskIns, clientRows, allClientTodos] = await Promise.all([
+      const [ev, ins, pages, prefs, taskList, projectList, taskIns, clientRows, allClientTodos] = await Promise.all([
         fetchCalendarViewEvents(anchor, calView, sources),
         fetchInsights(anchor),
         fetchBookingPages(),
+        fetchCalendarPreferences().catch(() => null),
         fetchTodos(todoFetchOpts),
         fetchProjects(
           clientFilterId
@@ -303,7 +328,14 @@ export function LaunchDeskPage() {
       ]);
       setEvents(ev);
       setInsights(ins);
-      setBookingPages(pages);
+      setBookingPages(pages.filter((p) => p.is_active !== 0));
+      if (prefs?.working_hours) {
+        setWorkingHoursForm({
+          timezone: prefs.working_hours.timezone || workingHoursForm.timezone,
+          start: minutesToTimeInput(Number(prefs.working_hours.start_minutes ?? 540)),
+          end: minutesToTimeInput(Number(prefs.working_hours.end_minutes ?? 1020)),
+        });
+      }
       setTodos(taskList);
       setProjects(projectList);
       setTasksInsights(taskIns);
@@ -707,6 +739,56 @@ export function LaunchDeskPage() {
     );
   };
 
+  const saveWorkingHours = async () => {
+    setHoursSaving(true);
+    try {
+      await saveCalendarPreferences({
+        timezone: workingHoursForm.timezone,
+        start_minutes: timeInputToMinutes(workingHoursForm.start),
+        end_minutes: timeInputToMinutes(workingHoursForm.end),
+        work_days_json: '[1,2,3,4,5]',
+      });
+      showToast('Working hours saved');
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save working hours');
+    } finally {
+      setHoursSaving(false);
+    }
+  };
+
+  const submitBookingPage = async () => {
+    const title = bookingDraft.title.trim();
+    if (!title || bookingSaving) return;
+    setBookingSaving(true);
+    try {
+      const res = await createBookingPage({
+        title,
+        slug: bookingDraft.slug.trim() || undefined,
+        duration_min: Number(bookingDraft.duration_min) || 30,
+      });
+      if (!res.success) throw new Error(res.error || 'Create failed');
+      setBookingDraft({ title: '', slug: '', duration_min: 30 });
+      showToast('Booking page created');
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not create booking page');
+    } finally {
+      setBookingSaving(false);
+    }
+  };
+
+  const deactivateBookingPage = async (page: BookingPage) => {
+    if (!window.confirm(`Deactivate booking page "${page.title}"?`)) return;
+    const res = await deleteBookingPage(page.id);
+    if (!res.success) {
+      setError(res.error || 'Could not deactivate booking page');
+      return;
+    }
+    showToast('Booking page deactivated');
+    await reload();
+  };
+
   const currentLineTop = useMemo(() => {
     const now = new Date();
     const visibleDays = calView === 'day' ? [anchor] : weekDays;
@@ -961,7 +1043,63 @@ export function LaunchDeskPage() {
 
           <div className="colab-cal-section">
             <div className="colab-cal-section-head">
+              <span>Working hours</span>
+            </div>
+            <div className="colab-cal-hours-form">
+              <label>
+                <span>Timezone</span>
+                <input
+                  value={workingHoursForm.timezone}
+                  onChange={(e) => setWorkingHoursForm((f) => ({ ...f, timezone: e.target.value }))}
+                />
+              </label>
+              <label>
+                <span>Start</span>
+                <input
+                  type="time"
+                  value={workingHoursForm.start}
+                  onChange={(e) => setWorkingHoursForm((f) => ({ ...f, start: e.target.value }))}
+                />
+              </label>
+              <label>
+                <span>End</span>
+                <input
+                  type="time"
+                  value={workingHoursForm.end}
+                  onChange={(e) => setWorkingHoursForm((f) => ({ ...f, end: e.target.value }))}
+                />
+              </label>
+              <button type="button" className="colab-cal-outline-btn" disabled={hoursSaving} onClick={() => void saveWorkingHours()}>
+                Save hours
+              </button>
+            </div>
+          </div>
+
+          <div className="colab-cal-section">
+            <div className="colab-cal-section-head">
               <span>Booking pages</span>
+            </div>
+            <div className="colab-cal-booking-form">
+              <input
+                placeholder="Page title"
+                value={bookingDraft.title}
+                onChange={(e) => setBookingDraft((d) => ({ ...d, title: e.target.value }))}
+              />
+              <input
+                placeholder="slug (optional)"
+                value={bookingDraft.slug}
+                onChange={(e) => setBookingDraft((d) => ({ ...d, slug: e.target.value }))}
+              />
+              <input
+                type="number"
+                min={5}
+                max={480}
+                value={bookingDraft.duration_min}
+                onChange={(e) => setBookingDraft((d) => ({ ...d, duration_min: Number(e.target.value) || 30 }))}
+              />
+              <button type="button" className="colab-cal-outline-btn" disabled={bookingSaving} onClick={() => void submitBookingPage()}>
+                Create page
+              </button>
             </div>
             {bookingPages.length === 0 ? (
               <p className="colab-cal-booking-empty">No booking pages yet.</p>
@@ -969,9 +1107,14 @@ export function LaunchDeskPage() {
               bookingPages.map((p) => (
                 <div key={p.id} className="colab-cal-cal-row colab-cal-booking-row">
                   <span>{p.title}</span>
-                  <button type="button" className="colab-cal-outline-btn" onClick={() => copyBookingLink(p.slug)}>
-                    Share
-                  </button>
+                  <div className="colab-cal-booking-actions">
+                    <button type="button" className="colab-cal-outline-btn" onClick={() => copyBookingLink(p.slug)}>
+                      Share
+                    </button>
+                    <button type="button" className="colab-cal-text-btn" onClick={() => void deactivateBookingPage(p)}>
+                      Delete
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -1027,7 +1170,15 @@ export function LaunchDeskPage() {
                 <span className="colab-cal-gcal-meta">
                   {gcalStatus.accounts.map((a) => a.account).join(', ')}
                   {' · '}
-                  {(gcalStatus.accounts.reduce((n, a) => n + (a.event_count || 0), 0) || 0)} events
+                  {gcalStatus.accounts.some((a) => a.needs_reconnect) ? 'Reconnect for write access' : 'Write sync enabled'}
+                </span>
+                {gcalStatus.accounts.some((a) => a.needs_reconnect) && (
+                  <a className="colab-cal-outline-btn" href="/api/integrations/google-calendar/connect?return_to=/dashboard/collaborate">
+                    Reconnect Google
+                  </a>
+                )}
+                <span className="colab-cal-gcal-meta">
+                  {(gcalStatus.accounts.reduce((n, a) => n + (a.event_count || 0), 0) || 0)} events synced
                 </span>
                 <button
                   type="button"

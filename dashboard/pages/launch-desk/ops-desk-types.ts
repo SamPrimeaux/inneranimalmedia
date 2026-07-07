@@ -378,6 +378,70 @@ export async function fetchBookingPages() {
   return data.pages ?? [];
 }
 
+export async function createBookingPage(payload: {
+  title: string;
+  slug?: string;
+  duration_min?: number;
+  description?: string;
+  location?: string;
+}) {
+  return apiJson<{ success?: boolean; id?: string; slug?: string; error?: string }>(
+    '/api/calendar/booking-pages',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function updateBookingPage(
+  id: string,
+  payload: Partial<Pick<BookingPage, 'title' | 'slug' | 'duration_min' | 'description' | 'location'>> & {
+    is_active?: boolean;
+  },
+) {
+  return apiJson<{ success?: boolean; page?: BookingPage; error?: string }>(
+    `/api/calendar/booking-pages/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function deleteBookingPage(id: string) {
+  return apiJson<{ success?: boolean; deactivated?: boolean; error?: string }>(
+    `/api/calendar/booking-pages/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+  );
+}
+
+export type CalendarPreferencesPayload = {
+  working_hours: {
+    timezone: string;
+    start_minutes: number;
+    end_minutes: number;
+    work_days_json?: string;
+  };
+};
+
+export async function fetchCalendarPreferences() {
+  return apiJson<CalendarPreferencesPayload>('/api/calendar/preferences');
+}
+
+export async function saveCalendarPreferences(working_hours: CalendarPreferencesPayload['working_hours']) {
+  return apiJson<{ working_hours?: CalendarPreferencesPayload['working_hours'] }>(
+    '/api/calendar/preferences',
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ working_hours }),
+    },
+  );
+}
+
 export async function fetchPeople(q: string) {
   const data = await apiJson<{ people?: CalendarPerson[] }>(
     `/api/calendar/people?q=${encodeURIComponent(q)}`,
@@ -407,7 +471,14 @@ export async function fetchTasksInsights(anchor: Date, projectId?: string | null
 
 export type GoogleCalendarStatusPayload = {
   connected: boolean;
-  accounts: { account: string; last_sync_at?: string | null; last_sync_count?: number; event_count?: number }[];
+  accounts: {
+    account: string;
+    last_sync_at?: string | null;
+    last_sync_count?: number;
+    event_count?: number;
+    write_scope?: boolean;
+    needs_reconnect?: boolean;
+  }[];
 };
 
 export async function fetchGoogleCalendarStatus() {

@@ -10,6 +10,7 @@ import { handlers as contextHandlers } from './builtin/context.js';
 import { handlers as deployHandlers } from './builtin/deploy.js';
 import { handlers as telemetryHandlers } from './builtin/telemetry.js';
 import { handlers as integrationsHandlers } from './builtin/integrations.js';
+import { handlers as gcalHandlers } from './builtin/google-calendar.js';
 import { handlers as storageHandlers } from './builtin/storage.js';
 import { handlers as platformHandlers } from './builtin/platform.js';
 import { handlers as agentHandlers } from './builtin/agent.js';
@@ -227,6 +228,9 @@ export async function runBuiltinTool(env, toolName, params, runContext = {}) {
         // ── CATEGORY: email / imessage / integrations / conversion (18 Tools) ──
         case toolName.startsWith('github_'):
             return await githubWorkerHandlers[toolName]?.(params, env);
+
+        case toolName.startsWith('gcal_'):
+            return await gcalHandlers[toolName]?.(params, env, runContext);
 
         case toolName.startsWith('resend_'):
         case toolName.startsWith('imessage.'):

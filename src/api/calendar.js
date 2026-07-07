@@ -835,6 +835,57 @@ export async function handleCalendarApi(request, url, env, ctx) {
     }
   }
 
+  // PATCH|DELETE /api/calendar/booking-pages/:id
+  if (parts[0] === 'booking-pages' && parts[1]) {
+    const pageId = String(parts[1]).trim();
+    const existing = await env.DB.prepare(
+      `SELECT * FROM calendar_booking_pages WHERE id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(pageId, workspaceId)
+      .first();
+    if (!existing) return jsonResponse({ error: 'Not found' }, 404);
+
+    if (method === 'PATCH' || method === 'PUT') {
+      const body = await request.json().catch(() => ({}));
+      const fields = [];
+      const binds = [];
+      const set = (col, val) => {
+        if (val !== undefined) {
+          fields.push(`${col} = ?`);
+          binds.push(val);
+        }
+      };
+      set('title', body.title != null ? String(body.title).trim().slice(0, 200) : undefined);
+      set('slug', body.slug != null ? String(body.slug).trim().slice(0, 80) : undefined);
+      set('duration_min', body.duration_min != null ? Number(body.duration_min) : undefined);
+      set('description', body.description != null ? String(body.description).slice(0, 2000) : undefined);
+      set('location', body.location != null ? String(body.location).slice(0, 400) : undefined);
+      set('is_active', body.is_active != null ? (body.is_active ? 1 : 0) : undefined);
+      if (!fields.length) return jsonResponse({ error: 'No fields to update' }, 400);
+      binds.push(pageId, workspaceId);
+      await env.DB.prepare(
+        `UPDATE calendar_booking_pages SET ${fields.join(', ')} WHERE id = ? AND workspace_id = ?`,
+      )
+        .bind(...binds)
+        .run();
+      const row = await env.DB.prepare(
+        `SELECT id, slug, title, duration_min, description, location, is_active FROM calendar_booking_pages WHERE id = ?`,
+      )
+        .bind(pageId)
+        .first();
+      return jsonResponse({ success: true, page: row }, 200);
+    }
+
+    if (method === 'DELETE') {
+      await env.DB.prepare(
+        `UPDATE calendar_booking_pages SET is_active = 0 WHERE id = ? AND workspace_id = ?`,
+      )
+        .bind(pageId, workspaceId)
+        .run();
+      return jsonResponse({ success: true, deactivated: true, id: pageId }, 200);
+    }
+  }
+
   // POST /api/calendar/book/:slug — public book flow (auth required)
   if (parts[0] === 'book' && parts[1] && method === 'POST') {
     const slug = String(parts[1]).trim();

@@ -851,6 +851,36 @@
   color: var(--muted, #64748b);
   background: color-mix(in srgb, var(--blue, #2563eb) 8%, transparent);
 }
+.colab-cal-booking-form,
+.colab-cal-hours-form {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.colab-cal-booking-form input,
+.colab-cal-hours-form input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--border, #cbd5e1) 80%, transparent);
+  border-radius: 8px;
+  background: var(--panel, #fff);
+  color: var(--text);
+}
+.colab-cal-hours-form label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted, #64748b);
+}
+.colab-cal-booking-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.colab-cal-booking-row {
+  justify-content: space-between;
+  gap: 8px;
+}
 .colab-cal-quick-tabs { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
 .colab-cal-quick-tabs button {
   height: 34px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); padding: 0 12px;
