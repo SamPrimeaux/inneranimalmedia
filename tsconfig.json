@@ -1,0 +1,16 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./dashboard" }
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "dashboard/dist",
+    ".wrangler",
+    "src",
+    "migrations",
+    "scripts",
+    "tests"
+  ]
+}

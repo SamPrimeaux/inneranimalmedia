@@ -178,7 +178,7 @@ export async function handleScheduled(event, env, ctx) {
       break;
 
     case '30 13 * * *':
-      ctx.waitUntil(sendDailyPlanEmail(env));
+      ctx.waitUntil(sendDailyPlanEmail(env, ctx));
       break;
 
     case '0 0 1 * *':
