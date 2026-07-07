@@ -202,6 +202,7 @@ export async function classifyIntent(_env, lastMessageText) {
     explain: 'explain',
     recall: 'recall',
     chat: 'chat',
+    project_question: 'project_qna_fast',
   };
   return { intent: intentRouteMap[taskType] ?? taskType, taskType, mode: mode || 'agent' };
 }
