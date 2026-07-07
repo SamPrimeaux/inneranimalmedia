@@ -4,7 +4,9 @@
  */
 import { jsonResponse, verifyInternalApiSecret } from '../core/auth.js';
 import { handleScheduled } from '../cron/scheduled.js';
-import { sendDailyPlanEmail } from '../cron/jobs/daily-plan-email.js';
+import {
+  runDailyMemoryPipeline,
+} from '../cron/jobs/daily-memory-pipeline.js';
 
 /**
  * @param {Request} request
@@ -27,19 +29,40 @@ export async function handleCronSelfTest(request, env, ctx) {
   }
 
   const cron = typeof body.cron === 'string' ? body.cron.trim() : '';
-  if (!cron) {
-    return jsonResponse({ error: 'cron_required', detail: 'POST JSON body: { "cron": "30 13 * * *" }' }, 400);
+  const mode = body.mode === 'morning' || body.mode === 'evening' ? body.mode : null;
+  const forceEmail = body.force === true || body.forceEmail === true;
+
+  if (!cron && !mode) {
+    return jsonResponse({
+      error: 'cron_or_mode_required',
+      detail: 'POST JSON: { "cron": "0 0 * * *" } or { "mode": "evening"|"morning", "force": true }',
+    }, 400);
   }
 
   const startedAt = Date.now();
   try {
-    if (cron === '30 13 * * *') {
-      await sendDailyPlanEmail(env);
+    if (mode === 'evening' || cron === '0 0 * * *') {
+      const out = await runDailyMemoryPipeline(env, { mode: 'evening', ctx, forceEmail });
       return jsonResponse({
         ok: true,
-        cron,
-        job: 'daily_plan_email',
+        cron: cron || '0 0 * * *',
+        job: 'evening_memory_email',
         mode: 'direct',
+        forceEmail,
+        result: out,
+        duration_ms: Date.now() - startedAt,
+      });
+    }
+
+    if (mode === 'morning' || cron === '30 13 * * *') {
+      const out = await runDailyMemoryPipeline(env, { mode: 'morning', ctx, forceEmail });
+      return jsonResponse({
+        ok: true,
+        cron: cron || '30 13 * * *',
+        job: 'morning_focus_email',
+        mode: 'direct',
+        forceEmail,
+        result: out,
         duration_ms: Date.now() - startedAt,
       });
     }
@@ -55,7 +78,7 @@ export async function handleCronSelfTest(request, env, ctx) {
     return jsonResponse(
       {
         ok: false,
-        cron,
+        cron: cron || mode,
         error: e?.message != null ? String(e.message) : String(e),
         duration_ms: Date.now() - startedAt,
       },
@@ -63,3 +86,5 @@ export async function handleCronSelfTest(request, env, ctx) {
     );
   }
 }
+
+export { sendEveningMemoryEmail, sendMorningFocusEmail } from '../cron/jobs/daily-memory-pipeline.js';

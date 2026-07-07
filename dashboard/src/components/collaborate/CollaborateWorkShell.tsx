@@ -4,6 +4,7 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import './collaborate-work-shell.css';
+import './collaborate-work-layout.css';
 
 export type WorkSurface = 'calendar' | 'tasks' | 'mail';
 

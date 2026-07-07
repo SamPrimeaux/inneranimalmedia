@@ -5204,17 +5204,26 @@ async function handleAgentBootstrapRequest(request, env, ctx, identity) {
     let schemaMemory = '';
     let todayTodo = '';
 
-    if (env.R2 && isSuper) {
-      const fetchR2 = async (k) => {
+    if (env.AUTORAG_BUCKET || env.R2) {
+      const fetchMem = async (k) => {
+        const bucket = env.AUTORAG_BUCKET || env.R2;
+        if (!bucket?.get) return '';
+        const o = await bucket.get(k);
+        return o ? await o.text() : '';
+      };
+      const legacyFetch = async (k) => {
+        if (!env.R2?.get) return '';
         const o = await env.R2.get(k);
         return o ? await o.text() : '';
       };
-      [dailyLog, yesterdayLog, schemaMemory, todayTodo] = await Promise.all([
-        fetchR2(`memory/daily/${today}.md`),
-        fetchR2(`memory/daily/${yesterday}.md`),
-        fetchR2('memory/schema-and-records.md'),
-        fetchR2('memory/today-todo.md'),
+      [dailyLog, yesterdayLog] = await Promise.all([
+        fetchMem(`memory/${today}.md`).then((t) => t || legacyFetch(`memory/daily/${today}.md`)),
+        fetchMem(`memory/${yesterday}.md`).then((t) => t || legacyFetch(`memory/daily/${yesterday}.md`)),
       ]);
+      if (isSuper && env.R2) {
+        schemaMemory = await legacyFetch('memory/schema-and-records.md');
+        todayTodo = await legacyFetch('memory/today-todo.md');
+      }
     } else if (env.R2 && userId !== 'system') {
       const fetchR2 = async (k) => {
         const o = await env.R2.get(k);

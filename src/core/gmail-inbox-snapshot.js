@@ -8,6 +8,29 @@ import { listGmailTokenRowsForUser } from './gmail-user-tokens.js';
 
 const DEFAULT_MAX = 25;
 
+/**
+ * @param {{ hoursBack?: number, sinceMidnightChicago?: boolean }} opts
+ */
+function buildGmailListQuery(opts = {}) {
+  if (opts.sinceMidnightChicago) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Chicago',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+    }).formatToParts(new Date());
+    const y = parts.find((p) => p.type === 'year')?.value;
+    const m = parts.find((p) => p.type === 'month')?.value;
+    const d = parts.find((p) => p.type === 'day')?.value;
+    if (y && m && d) return `after:${y}/${m}/${d}`;
+  }
+  const hours = Number(opts.hoursBack);
+  if (hours > 0 && hours <= 24) return 'newer_than:1d';
+  if (hours > 24 && hours <= 48) return 'newer_than:2d';
+  if (hours > 48) return `newer_than:${Math.ceil(hours / 24)}d`;
+  return 'newer_than:2d';
+}
+
 function firstHeader(msg, name) {
   const want = String(name || '').toLowerCase();
   const headers = msg?.payload?.headers;
@@ -66,12 +89,14 @@ async function gmailFetchJson(env, tokenRow, url, init) {
 
 /**
  * @param {*} env
- * @param {{ email?: string, userId?: string, maxPerAccount?: number }} opts
+ * @param {{ email?: string, userId?: string, maxPerAccount?: number, hoursBack?: number, sinceMidnightChicago?: boolean, gmailQuery?: string }} opts
  */
 export async function snapshotGmailInboxForUser(env, opts = {}) {
   const userId = opts.userId ? String(opts.userId).trim() : '';
   const email = opts.email ? String(opts.email).trim().toLowerCase() : '';
   const max = Number(opts.maxPerAccount) > 0 ? Number(opts.maxPerAccount) : DEFAULT_MAX;
+  const listQuery = opts.gmailQuery?.trim()
+    || buildGmailListQuery({ hoursBack: opts.hoursBack, sinceMidnightChicago: opts.sinceMidnightChicago });
   const authUser = userId || email ? { id: userId || undefined, email: email || undefined } : null;
   if (!authUser) return { emails: [], accounts: [], source: 'none' };
 
@@ -90,7 +115,7 @@ export async function snapshotGmailInboxForUser(env, opts = {}) {
     const u = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages');
     u.searchParams.set('maxResults', String(max));
     u.searchParams.append('labelIds', 'INBOX');
-    u.searchParams.set('q', 'newer_than:2d');
+    u.searchParams.set('q', listQuery);
     const list = await gmailFetchJson(env, tokenRow, u.toString());
     if (!list.ok) continue;
 

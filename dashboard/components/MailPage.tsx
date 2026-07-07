@@ -192,7 +192,7 @@ function UrgencyBadge({ urgency }: { urgency: string }) {
 
 export function MailPage() {
   const navigate = useNavigate();
-  const [insightsOpen, setInsightsOpen] = useState(true);
+  const [insightsOpen, setInsightsOpen] = useState(false);
 
   // Panels
   const [sidebarW, setSidebarW] = useState(() => {

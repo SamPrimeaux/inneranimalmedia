@@ -29,7 +29,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--panel-raised);
   color: var(--text);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
 }
@@ -228,35 +228,7 @@
 .colab-cal-seg button:last-child { border-right: 0; }
 .colab-cal-seg button.active { background: var(--blue-soft); color: var(--blue-text); font-weight: 600; }
 
-.colab-cal-layout {
-  flex: 1; min-height: 0; min-width: 0; width: 100%;
-  display: grid;
-  grid-template-columns: var(--left) minmax(0, 1fr) var(--rail);
-  background: var(--bg);
-  overflow: hidden;
-  gap: 0;
-  column-gap: 0;
-}
-.colab-cal:not(.insights-open) .colab-cal-layout {
-  background: var(--panel-raised);
-}
-.colab-cal.insights-open .colab-cal-layout {
-  grid-template-columns: var(--left) minmax(0, 1fr) var(--right-open) var(--rail);
-}
-.colab-cal:not(.insights-open) .colab-cal-center {
-  border-top-right-radius: 0;
-  border-right: 1px solid var(--line-soft);
-}
-.colab-cal-layout > .colab-cal-left { grid-column: 1; grid-row: 1; min-width: 0; }
-.colab-cal-layout > .colab-cal-center,
-.colab-cal-layout > .colab-tasks-main { grid-column: 2; grid-row: 1; min-width: 0; }
-.colab-cal.insights-open .colab-cal-layout > .colab-cal-right { grid-column: 3; grid-row: 1; min-width: 0; }
-.colab-cal-layout > .colab-cal-rail {
-  grid-column: -1; grid-row: 1; min-width: 0;
-  width: var(--rail);
-  position: relative;
-  z-index: 2;
-}
+/* Layout: collaborate-work-layout.css */
 .colab-cal-left {
   min-height: 0; overflow: auto; padding: 18px 16px; background: var(--panel);
   border-right: 1px solid var(--line-soft);
@@ -500,11 +472,7 @@
 }
 .colab-cal-meeting-bars.active { color: #0288d1; font-weight: 700; }
 
-.colab-cal-rail {
-  border-left: 1px solid var(--line); background: var(--panel);
-  display: flex; flex-direction: column; align-items: center; gap: 20px; padding-top: 18px;
-  box-shadow: -1px 0 0 var(--line-soft);
-}
+/* Rail shell: collaborate-work-layout.css */
 .colab-cal-rail-icon {
   width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent;
   display: grid; place-items: center; color: var(--muted); font-size: 18px;
@@ -523,14 +491,6 @@
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 12px; margin-bottom: 8px;
   background: var(--panel-raised);
-}
-
-/* Google Tasks parity */
-.colab-cal-layout.tasks-mode {
-  grid-template-columns: var(--left) minmax(0, 1fr) var(--rail);
-}
-.colab-cal.insights-open .colab-cal-layout.tasks-mode {
-  grid-template-columns: var(--left) minmax(0, 1fr) var(--right-open) var(--rail);
 }
 
 .colab-tasks-insights .colab-tasks-insights-today {
@@ -797,10 +757,11 @@
 
 .colab-tasks-main {
   flex: 1; min-height: 0; overflow: auto; background: var(--panel-raised);
-  display: flex; flex-direction: column; align-items: center; padding: 28px 24px 48px;
+  display: flex; flex-direction: column; padding: 28px 24px 48px;
   border-left: 1px solid var(--line-soft);
 }
-.colab-tasks-main-inner { width: 100%; max-width: 720px; }
+/* tasks width: collaborate-work-layout.css */
+.colab-tasks-main-inner { width: 100%; }
 .colab-tasks-list-title { margin: 0; font-size: 18px; font-weight: 600; color: var(--text); }
 .colab-tasks-add-row {
   display: flex; align-items: center; gap: 12px; padding: 8px 0 18px;
@@ -1081,34 +1042,15 @@
   .colab-cal { --right-open: 280px; }
 }
 
-@media (max-width: 1100px) {
-  .colab-cal { --left: 238px; --rail: 0px; }
-  .colab-cal-right, .colab-cal-rail { display: none; }
-  .colab-cal-layout,
-  .colab-cal.insights-open .colab-cal-layout,
-  .colab-cal-layout.tasks-mode,
-  .colab-cal.insights-open .colab-cal-layout.tasks-mode {
-    grid-template-columns: var(--left) 1fr;
-  }
-}
 @media (max-width: 760px) {
-  .colab-cal { --left: 0px; --rail: 0px; }
-  .colab-cal-left { display: none; }
-  .colab-cal-layout,
-  .colab-cal.insights-open .colab-cal-layout,
-  .colab-cal-layout.tasks-mode,
-  .colab-cal.insights-open .colab-cal-layout.tasks-mode {
-    grid-template-columns: 1fr;
-  }
-  .colab-cal-center { border-radius: 0; border-right: 1px solid var(--line-soft); }
+  .colab-cal-center { border-radius: 0; }
   .colab-cal-popover-body { padding-left: 20px; }
   .colab-cal-editor-shell { grid-template-columns: 1fr; padding: 20px; }
   .colab-cal-topbar { padding: 0 10px; gap: 8px; }
   .colab-cal-month-title { font-size: 15px; margin: 0 6px; white-space: normal; line-height: 1.2; }
   .colab-cal-pill-btn { height: 36px; padding: 0 12px; font-size: 13px; }
   .colab-cal-view-select { height: 36px; }
-  .colab-tasks-main { padding: 16px 12px 32px; align-items: stretch; }
-  .colab-tasks-main-inner { max-width: none; }
+  .colab-tasks-main { padding: 16px 12px 32px; }
   .colab-tasks-item {
     min-height: 56px; padding: 16px 0;
     grid-template-columns: 32px 1fr auto; gap: 12px;
@@ -1131,24 +1073,5 @@
   .colab-cal-popover {
     inset: auto !important; left: 8px !important; right: 8px !important;
     top: auto !important; bottom: 8px !important; width: auto !important; max-width: none;
-  }
-}
-
-/* ── Rail gap fix: ensure grid never leaves orphaned columns at mid-widths ── */
-@media (min-width: 1087px) and (max-width: 1300px) {
-  .colab-cal:not(.insights-open) .colab-cal-layout {
-    grid-template-columns: var(--left) minmax(0, 1fr) var(--rail); /* --colab-gap-fix */
-    overflow: hidden;
-    width: 100%;
-  }
-  .colab-cal.insights-open .colab-cal-layout {
-    grid-template-columns: var(--left) minmax(0, 1fr) var(--right-open) var(--rail);
-    overflow: hidden;
-    width: 100%;
-  }
-  .colab-cal-layout > .colab-cal-rail {
-    width: var(--rail);
-    min-width: var(--rail);
-    max-width: var(--rail);
   }
 }
