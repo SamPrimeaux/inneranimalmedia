@@ -1067,9 +1067,10 @@ export async function resolveRuntimeProfile(env, input) {
     workspaceId: session.userId ? session.workspaceId : session.workspaceId,
     userId: session.userId,
     taskType,
-    routeKeyPin: overrides.route_key,
+    routeKeyPin: isProjectQnaFast ? 'project_qna_fast' : overrides.route_key,
     compile_lane: input.compile_lane || 'shadow',
     mcpOAuthParity: input.mcpOAuthParity,
+    isProjectQnaFast,
     isSuperadmin:
       session.isSuperadmin === true ||
       session.is_superadmin === true ||
