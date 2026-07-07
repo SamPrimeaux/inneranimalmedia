@@ -1,5 +1,9 @@
 /**
- * Platform email (Resend or delegated Gmail) vs user Gmail (OAuth tokens).
+ * Platform email (Resend or delegated Gmail service account) vs user Gmail (OAuth tokens).
+ *
+ * GMAIL_DELEGATED_USER / GOOGLE_SERVICE_ACCOUNT_JSON: platform automation ONLY
+ * (deploy hooks, internal notifications). Never used for per-user agent/MCP Gmail —
+ * those resolve google_gmail rows in user_oauth_tokens (multi-account, au_* scoped).
  */
 import { getVaultSecrets, getPublicConfig, secretFromVault } from '../core/vault.js';
 import { getGmailTokenRowForUser } from '../core/gmail-user-tokens.js';
@@ -28,6 +32,7 @@ async function getGmailPlatformAccessToken(env, vault) {
   const sa = JSON.parse(raw);
   const now = Math.floor(Date.now() / 1000);
   const header = b64UrlEncodeUtf8(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  // Optional single Workspace user impersonation for platform sends only — not multi-tenant user mail.
   const deleg =
     (env.GMAIL_DELEGATED_USER && String(env.GMAIL_DELEGATED_USER).trim()) ||
     (env.GMAIL_IMPERSONATE_USER && String(env.GMAIL_IMPERSONATE_USER).trim()) ||

@@ -8,7 +8,8 @@
  * git_branch, environment, deployed_by, duration_ms, started_at, and optional AI cost fields.
  *
  * Primary: Resend. Fallback: Gmail API via GOOGLE_SERVICE_ACCOUNT_JSON JWT
- * (domain-wide delegation: set GMAIL_DELEGATED_USER to the Workspace user to impersonate).
+ * (optional domain-wide delegation: GMAIL_DELEGATED_USER impersonates ONE Workspace
+ * mailbox for platform automation — not per-user OAuth / MCP / agent mail).
  */
 import { verifyInternalApiSecret, jsonResponse } from '../core/auth.js';
 

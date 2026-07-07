@@ -25,10 +25,23 @@ export async function handleGoogleTokenRefresh(env, request) {
     return jsonResponse({ ok: false, error: 'missing user_id or tenant_id' }, 400);
   }
 
-  const row = await getIntegrationOAuthRow(env, user_id, provider, '');
+  const accountParam =
+    body.account_identifier != null
+      ? String(body.account_identifier).trim()
+      : body.account != null
+        ? String(body.account).trim()
+        : '';
+
+  const row = await getIntegrationOAuthRow(env, user_id, provider, accountParam);
   if (!row?.refresh_token) {
+    const label =
+      provider === 'google_gmail' || provider === 'gmail'
+        ? 'Gmail'
+        : provider === 'google_calendar'
+          ? 'Google Calendar'
+          : 'Google Drive';
     return jsonResponse(
-      { ok: false, error: 'no refresh token found — reconnect Google Drive in IAM' },
+      { ok: false, error: `no refresh token found — reconnect ${label} in IAM` },
       404,
     );
   }

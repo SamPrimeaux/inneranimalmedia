@@ -21,6 +21,7 @@ function mapIncomingProvider(provider) {
   const raw = String(provider || '').trim();
   const p = raw.toLowerCase();
   if (p === 'google' || p === 'gdrive' || p === 'google_drive') return 'google_drive';
+  if (p === 'gmail' || p === 'google_gmail') return 'google_gmail';
   if (p === 'github') return 'github';
   return raw;
 }
@@ -115,6 +116,25 @@ async function fetchOAuthRow(env, userId, provider, accountIdentifier) {
        LIMIT 1`,
     )
       .bind(String(userId))
+      .first();
+  } else if ((prov === 'google_gmail' || prov === 'gmail') && aid === '') {
+    row = await DB.prepare(
+      `SELECT ${parts.join(', ')} FROM user_oauth_tokens
+       WHERE user_id = ? AND lower(provider) IN ('google_gmail','gmail')
+       ORDER BY COALESCE(updated_at, 0) DESC
+       LIMIT 1`,
+    )
+      .bind(String(userId))
+      .first();
+  } else if (prov === 'google_gmail' || prov === 'gmail') {
+    row = await DB.prepare(
+      `SELECT ${parts.join(', ')} FROM user_oauth_tokens
+       WHERE user_id = ? AND lower(provider) IN ('google_gmail','gmail')
+         AND lower(account_identifier) = lower(?)
+       ORDER BY COALESCE(updated_at, 0) DESC
+       LIMIT 1`,
+    )
+      .bind(String(userId), aid)
       .first();
   } else {
     row = await DB.prepare(

@@ -547,7 +547,7 @@ function resolveMcpRemoteToolName(mcpRow, config) {
   const remote = trimMcpValue(config?.remote_tool || config?.operation);
   if (remote) return remote;
   const toolName = trimMcpValue(mcpRow.tool_name || mcpRow.tool_key);
-  if (/^agentsam_(gh_|github_mcp_)/i.test(toolName)) return '';
+  if (/^agentsam_(gh_|github_mcp_|gmail_mcp_)/i.test(toolName)) return '';
   return toolName;
 }
 
@@ -584,6 +584,12 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
       authType === 'user_oauth_github' ||
       authSource === 'user_oauth_github' ||
       (authSource === 'user_oauth_tokens' && provider === 'github');
+    const needsGmailUserToken =
+      authType === 'user_oauth_gmail' ||
+      authSource === 'user_oauth_gmail' ||
+      (authSource === 'user_oauth_tokens' &&
+        (provider === 'google_gmail' || provider === 'gmail')) ||
+      String(url || '').includes('gmailmcp.googleapis.com');
     const serverKey = trimMcpValue(serverRow?.server_key || toolForResolve.server_key || config.server_key);
     const needsCloudflareUserToken =
       authType === 'user_oauth_cloudflare' ||
@@ -616,6 +622,49 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
         };
       }
       headers.Authorization = `Bearer ${accessToken}`;
+    } else if (needsGmailUserToken) {
+      if (!userId) {
+        return {
+          ok: false,
+          error: 'user_oauth_required',
+          failed_tool: toolKey,
+          body: {
+            user_message: 'This Gmail tool requires an authenticated user session.',
+            connect_url: '/api/integrations/gmail/connect?return_to=/dashboard/settings/integrations',
+          },
+        };
+      }
+      const { getGmailTokenRowForUser } = await import('./gmail-user-tokens.js');
+      const { resolveOAuthAccessToken } = await import('../api/oauth.js');
+      const account = trimMcpValue(
+        params.account_identifier ?? params.account ?? params.provider_account_id,
+      );
+      const authUser = {
+        id: userId,
+        email: trimMcpValue(runContext?.userEmail ?? runContext?.email),
+      };
+      const gmailRow = await getGmailTokenRowForUser(env, authUser, account || null);
+      let accessToken = gmailRow ? await resolveOAuthAccessToken(env, gmailRow) : '';
+      accessToken = accessToken ? String(accessToken).trim() : '';
+      if (!accessToken && gmailRow) {
+        const { getIntegrationOAuthRow } = await import('./user-oauth-token.js');
+        const refreshed = await getIntegrationOAuthRow(env, userId, 'google_gmail', account);
+        accessToken = refreshed?.access_token ? String(refreshed.access_token).trim() : '';
+      }
+      if (!accessToken) {
+        return {
+          ok: false,
+          error: 'gmail_not_connected',
+          failed_tool: toolKey,
+          reauth_required: true,
+          body: {
+            user_message: 'Connect Gmail in Integrations before using Gmail MCP tools.',
+            connect_url: '/api/integrations/gmail/connect?return_to=/dashboard/settings/integrations',
+          },
+        };
+      }
+      headers.Authorization = `Bearer ${accessToken}`;
+      headers.Accept = 'application/json, text/event-stream';
     } else if (needsCloudflareUserToken) {
       const { resolveCfMcpBearerToken, mapAgentsamParamsToCfMcp, resolveCfMcpRemoteToolName } =
         await import('./cf-mcp-proxy.js');
@@ -671,6 +720,18 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
           failed_tool: toolKey,
           reauth_required: true,
           body: { user_message: 'GitHub token expired or was revoked. Reconnect GitHub in Integrations.' },
+        };
+      }
+      if (status === 401 && needsGmailUserToken) {
+        return {
+          ok: false,
+          error: 'gmail_reauth_required',
+          failed_tool: toolKey,
+          reauth_required: true,
+          body: {
+            user_message: 'Gmail token expired or was revoked. Reconnect Gmail in Integrations.',
+            connect_url: '/api/integrations/gmail/connect?return_to=/dashboard/settings/integrations',
+          },
         };
       }
       if (status === 401 && needsCloudflareUserToken) {
