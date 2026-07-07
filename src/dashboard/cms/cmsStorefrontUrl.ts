@@ -1,13 +1,7 @@
 /**
- * Dashboard storefront URL helpers — delegates to core TypeScript module.
+ * Dashboard storefront URL helpers — domain must come from /api/cms/workspace-context or bootstrap.
  */
-import {
-  CMS_TENANT_SLUG_ALIASES,
-  resolveCmsPublicDomain,
-  resolveCmsStorefrontUrl,
-} from '../../core/cms-storefront-url';
-
-export { CMS_TENANT_SLUG_ALIASES, resolveCmsPublicDomain };
+import { resolveCmsStorefrontUrl } from '../../core/cms-storefront-url';
 
 export type StorefrontUrlInput = {
   projectSlug?: string | null;
@@ -23,8 +17,8 @@ function normalizePath(path?: string): string {
   return path.startsWith('/') ? path : `/${path}`;
 }
 
-/** Resolve the live public storefront URL — never a fake workers.dev placeholder for known tenants */
-export function resolveStorefrontUrl(input: StorefrontUrlInput): string {
+/** Resolve the live public storefront URL from API-provided domains only. */
+export function resolveStorefrontUrl(input: StorefrontUrlInput): string | null {
   const path = normalizePath(input.path);
   for (const candidate of [input.siteDomain, input.publicDomain, input.tenantDomain]) {
     if (!candidate?.trim()) continue;
@@ -34,10 +28,11 @@ export function resolveStorefrontUrl(input: StorefrontUrlInput): string {
     }
     return `https://${trimmed.replace(/^\/\//, '')}${path}`;
   }
-  return resolveCmsStorefrontUrl(input.projectSlug, null, path || '/');
+  return resolveCmsStorefrontUrl(null, path || '/');
 }
 
-export function storefrontDisplayHost(url: string): string {
+export function storefrontDisplayHost(url: string | null | undefined): string {
+  if (!url) return 'Domain not configured';
   try {
     return new URL(url).host;
   } catch {

@@ -5,7 +5,7 @@
 import { getCmsDraftCache } from './cms-kv-cache.js';
 import { mergeCmsDraftSections } from './cms-edit-safety.js';
 import { normalizeCmsRoutePath } from './cms-page-hydrate-dispatch.js';
-import { resolveCmsPublicDomain } from './cms-storefront-url.js';
+import { normalizeCmsPublicHost } from './cms-storefront-url.js';
 
 /**
  * CMS editor embed / draft preview on the live storefront must bypass session gate
@@ -223,8 +223,17 @@ export function buildCmsPageUrls(page, opts = {}) {
     String(page.route_path || '').trim() ||
       (page.slug && String(page.slug) !== 'home' ? `/${page.slug}` : '/'),
   );
-  const project = String(opts.projectSlug || page.project_slug || page.project_id || 'inneranimalmedia').trim();
-  const host = resolveCmsPublicDomain(project, opts.domain);
+  const host = normalizeCmsPublicHost(opts.domain);
+  if (!host) {
+    return {
+      route_path: route,
+      live_url: null,
+      embed_url: null,
+      preview_draft_url: null,
+      preview_published_url: null,
+      page_id: String(page.id || ''),
+    };
+  }
   const origin = `https://${host}`;
   const base = `${origin}${route}`;
 

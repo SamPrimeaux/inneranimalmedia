@@ -37,7 +37,7 @@ function isFullHtmlDocument(html) {
 function readCtx() {
   const p = new URLSearchParams(location.search);
   return {
-    project: p.get('project') || 'inneranimalmedia',
+    project: p.get('project') || p.get('site') || '',
     pageId: p.get('page') || '',
     workspaceId: p.get('workspace_id') || '',
     publicDomain: p.get('public_domain') || '',
@@ -47,21 +47,14 @@ function readCtx() {
 }
 
 function cmsDashboardPath(project, segment, pageId = null) {
-  const site = encodeURIComponent(project || 'inneranimalmedia');
+  if (!project) return `/dashboard/cms/${segment}`;
+  const site = encodeURIComponent(project);
   const base = `/dashboard/cms/${segment}?site=${site}`;
   if (pageId && segment === 'pages') {
     return `/dashboard/cms/pages/${encodeURIComponent(pageId)}?site=${site}`;
   }
   return base;
 }
-
-const STOREFRONT_APEX = {
-  inneranimalmedia: 'inneranimalmedia.com',
-  fuelnfreetime: 'fuelnfreetime.com',
-  meauxbility: 'meauxbility.org',
-  newiberiachurchofchrist: 'newiberiachurchofchrist.com',
-  nicoc: 'newiberiachurchofchrist.com',
-};
 
 function pagePath(page) {
   const route = String(page?.route_path || '').trim();
@@ -72,21 +65,23 @@ function pagePath(page) {
 }
 
 function resolvePreviewHost(boot = null, ctx = readCtx()) {
-  const project = ctx.project || boot?.project_slug || 'inneranimalmedia';
   const tenantDomain = String(boot?.tenant?.domain || boot?.public_domain || ctx.publicDomain || '')
     .replace(/^https?:\/\//, '')
     .replace(/\/$/, '')
     .trim();
-  if (tenantDomain) return tenantDomain;
-  return STOREFRONT_APEX[project] || `${project}.meauxbility.workers.dev`;
+  return tenantDomain || null;
 }
 
 /** @param {'live'|'embed'|'preview-draft'|'preview-published'} mode */
 function pageToUrl(page, boot = null, mode = 'embed') {
   if (!page) return null;
-  const ctx = readCtx();
+  if (mode === 'embed' && page.embed_url) return page.embed_url;
+  if (mode === 'preview-draft' && page.preview_draft_url) return page.preview_draft_url;
+  if (mode === 'preview-published' && page.preview_published_url) return page.preview_published_url;
+  if (mode === 'live' && page.live_url) return page.live_url;
   const path = pagePath(page);
-  const host = resolvePreviewHost(boot, ctx);
+  const host = resolvePreviewHost(boot, readCtx());
+  if (!host) return null;
   const base = `https://${host}${path}`;
   try {
     const url = new URL(base);

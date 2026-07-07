@@ -10,7 +10,7 @@ import {
   resolveTargetWorkspaceIdForCmsSlug,
 } from './cms-hub-sites.js';
 import { resolvePlatformCmsStudioUrl } from './cms-studio-lane.js';
-import { resolveCmsPublicDomain } from './cms-storefront-url.js';
+import { resolveCmsSitePublicDomain } from './cms-public-domain.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -51,8 +51,6 @@ function resolveWorkerBaseUrl(meta, wsRow) {
     const url = trim(candidate);
     if (url) return url.replace(/\/$/, '');
   }
-  const slug = trim(wsRow?.workspace_slug);
-  if (slug) return `https://${slug}.meauxbility.workers.dev`;
   return null;
 }
 
@@ -63,6 +61,16 @@ function resolveStudioPath(meta) {
   const fromMeta = trim(meta?.studio_path);
   if (fromMeta) return fromMeta.startsWith('/') ? fromMeta : `/${fromMeta}`;
   return '/dashboard/cms';
+}
+
+function hostnameFromDeployUrl(raw) {
+  const url = trim(raw);
+  if (!url) return null;
+  try {
+    return new URL(url.startsWith('http') ? url : `https://${url}`).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -127,21 +135,15 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
     trim(isOperatorHubPick ? clientWsRow?.worker_name : wsRow?.worker_name) !== PLATFORM_WORKER_NAME;
 
   let publicDomain = trim(isOperatorHubPick ? clientMeta.public_domain : meta.public_domain) || null;
-  if (!publicDomain && slug && env?.DB) {
-    try {
-      const tenant = await env.DB.prepare(
-        `SELECT domain FROM cms_tenants WHERE slug = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
-      )
-        .bind(slug)
-        .first();
-      publicDomain = trim(tenant?.domain) || null;
-    } catch (_) {}
-  }
   if (!publicDomain && slug) {
-    publicDomain = resolveCmsPublicDomain(slug, null);
+    const resolved = await resolveCmsSitePublicDomain(env, slug, {
+      workspaceId: ws,
+      workerName: trim(isOperatorHubPick ? clientWsRow?.worker_name : wsRow?.worker_name) || null,
+    });
+    publicDomain = trim(resolved?.domain) || null;
   }
-  if (!publicDomain && trim(wsRow?.worker_name) === PLATFORM_WORKER_NAME) {
-    publicDomain = trim(meta.public_domain) || 'inneranimalmedia.com';
+  if (!publicDomain) {
+    publicDomain = hostnameFromDeployUrl(workerBaseUrl);
   }
 
   return {

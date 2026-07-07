@@ -153,20 +153,6 @@ function SitesView({
       publicDomain: site.slug === primaryProjectSlug ? publicDomain : null,
     });
   const featuredUrl = featured ? siteUrl(featured) : resolveStorefrontUrl({ projectSlug: primaryProjectSlug, publicDomain });
-  useEffect(() => {
-    for (const slug of ['anythingfloorsandmore', 'meauxbility', 'nicoc'] as const) {
-      const site = rows.find((s) => s.slug === slug);
-      if (!site) continue;
-      const url = siteUrl(site);
-      console.info('[CMS Sites] storefront preview URL', {
-        slug: site.slug,
-        domain: site.domain ?? null,
-        source: site.source ?? null,
-        url,
-        fallback: url.includes('.meauxbility.workers.dev') ? 'workers.dev guess' : 'domain map or tenant',
-      });
-    }
-  }, [rows, primaryProjectSlug, workspaceSlug, publicDomain]);
   return (
     <div className="pt-page">
       <div className="pt-page-inner">
@@ -430,7 +416,7 @@ function OnlineStoreView({
           actions={
             <>
               <span className="pt-badge">Public</span>
-              <button type="button" className="pt-btn" onClick={() => window.open(publicUrl, '_blank', 'noopener')}>View store</button>
+              <button type="button" className="pt-btn" disabled={!publicUrl} onClick={() => publicUrl && window.open(publicUrl, '_blank', 'noopener')}>View store</button>
               <button type="button" className="pt-btn primary" onClick={() => onNavigatePath(buildPath('theme-editor', projectSlug))}>Edit theme</button>
             </>
           }

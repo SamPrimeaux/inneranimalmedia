@@ -86,8 +86,10 @@ import {
   readSiteShellPart,
   writeSiteShellDraft,
 } from '../core/cms-site-shell.js';
+import { isOperatorCmsHubWorkspace } from '../core/cms-hub-sites.js';
 import { resolveCmsSiteConfig } from '../core/cms-site-config.js';
-import { resolveCmsPublicDomain } from '../core/cms-storefront-url.js';
+import { resolveCmsSitePublicDomain } from '../core/cms-public-domain.js';
+import { resolveCmsTenantByProjectSlug } from '../core/cms-tenant-resolve.js';
 import { mintCmsEmbedSession, proxyCmsBridgeRequest } from '../core/cms-client-bridge.js';
 import {
   isFullHtmlDocument,
@@ -270,7 +272,8 @@ export async function handleCmsApi(request, url, env, ctx) {
         return jsonResponse({ error: wsCtx.error, sites: wsCtx.sites || [] }, 400);
       }
       const siteConfig = await resolveCmsSiteConfig(env, workspaceId, wsCtx.project_slug);
-      return jsonResponse({ ...wsCtx, ...siteConfig });
+      const is_operator_hub = await isOperatorCmsHubWorkspace(env, wsCtx.workspace_id);
+      return jsonResponse({ ...wsCtx, ...siteConfig, is_operator_hub });
     } catch (e) {
       console.warn('[cms] workspace-context GET', e?.message || e);
       let sites = [];
@@ -340,7 +343,8 @@ export async function handleCmsApi(request, url, env, ctx) {
         explicitProjectSlug: projectSlug,
       });
       const siteConfig = await resolveCmsSiteConfig(env, workspaceId, next.project_slug);
-      return jsonResponse({ ok: true, ...next, ...siteConfig });
+      const is_operator_hub = await isOperatorCmsHubWorkspace(env, next.workspace_id);
+      return jsonResponse({ ok: true, ...next, ...siteConfig, is_operator_hub });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
@@ -438,17 +442,14 @@ export async function handleCmsApi(request, url, env, ctx) {
     try {
       const page = await fetchCmsPageInScope(env, pageId, cmsScope);
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
-      const tenantRow = await env.DB.prepare(
-        `SELECT domain FROM cms_tenants WHERE slug = ? LIMIT 1`,
-      )
-        .bind(String(page.project_slug || page.project_id || '').trim())
-        .first()
-        .catch(() => null);
+      const projectSlug = String(page.project_slug || page.project_id || '').trim();
+      const resolved = await resolveCmsSitePublicDomain(env, projectSlug, { workspaceId });
       return jsonResponse({
         page_id: pageId,
+        public_domain: resolved?.domain || null,
+        domain_source: resolved?.source || null,
         ...buildCmsPageUrls(page, {
-          domain: tenantRow?.domain || null,
-          projectSlug: page.project_slug || page.project_id || null,
+          domain: resolved?.domain || null,
         }),
       });
     } catch (e) {
@@ -2172,6 +2173,20 @@ export async function handleCmsApi(request, url, env, ctx) {
 
       const siteConfig = await resolveCmsSiteConfig(env, workspaceId, projectSlug);
       const site_shell = await listSiteShellPartsMeta(env, projectSlug);
+      const tenantResolved = await resolveCmsTenantByProjectSlug(env, projectSlug);
+      const domainResolved = await resolveCmsSitePublicDomain(env, projectSlug, {
+        workspaceId,
+        workerName: siteConfig.worker_name,
+      });
+      const publicHost =
+        String(domainResolved?.domain || '').trim() ||
+        String(siteConfig.public_domain || '').trim() ||
+        String(tenantResolved?.domain || '').trim() ||
+        null;
+      const pagesWithUrls = pages.map((page) => ({
+        ...page,
+        ...buildCmsPageUrls(page, { domain: publicHost }),
+      }));
 
       const payload = {
         project_slug: projectSlug,
@@ -2180,17 +2195,21 @@ export async function handleCmsApi(request, url, env, ctx) {
         workspace_label: resolved.context?.ui_label || resolved.context?.workspace_name || null,
         resolved_from: resolved.context?.resolved_from || null,
         cms_hosting: siteConfig.cms_hosting || 'platform',
-        tenant: tenantRow
+        worker_name: siteConfig.worker_name || null,
+        worker_base_url: siteConfig.worker_base_url || null,
+        studio_url: siteConfig.studio_url || null,
+        tenant: tenantResolved
           ? {
-              ...tenantRow,
-              domain: resolveCmsPublicDomain(projectSlug, tenantRow.domain),
+              ...tenantResolved,
+              domain: publicHost,
             }
           : {
               slug: projectSlug,
-              domain: resolveCmsPublicDomain(projectSlug, null),
+              domain: publicHost,
             },
-        public_domain: resolveCmsPublicDomain(projectSlug, tenantRow?.domain),
-        pages,
+        public_domain: publicHost,
+        domain_source: domainResolved?.source || (siteConfig.public_domain ? 'cms_site_config' : null),
+        pages: pagesWithUrls,
         sections_by_page: sectionsByPage,
         components_by_section: componentsBySection,
         active_theme: active_theme,

@@ -143,20 +143,6 @@ function SitesView({
   const featuredUrl = featured
     ? resolveStorefrontUrl({ projectSlug: featured.slug, siteDomain: featured.domain, publicDomain })
     : resolveStorefrontUrl({ projectSlug: primaryProjectSlug, publicDomain });
-  useEffect(() => {
-    for (const slug of ['anythingfloorsandmore', 'meauxbility', 'nicoc'] as const) {
-      const site = rows.find((s) => s.slug === slug);
-      if (!site) continue;
-      const url = siteUrl(site);
-      console.info('[CMS Sites] storefront preview URL', {
-        slug: site.slug,
-        domain: site.domain ?? null,
-        source: site.source ?? null,
-        url,
-        fallback: url.includes('.meauxbility.workers.dev') ? 'workers.dev guess' : 'domain map or tenant',
-      });
-    }
-  }, [rows, primaryProjectSlug, workspaceSlug, publicDomain]);
   return (
     <div className="pt-page">
       <div className="pt-page-inner">

@@ -2,7 +2,10 @@
  * Dashboard project session context — memory + instructions + client execution bindings.
  */
 import { readProjectDashboardMemory } from './project-dashboard-memory.js';
-import { resolveWorkspaceBindings } from './agentsam-workspace.js';
+import {
+  parseWorkspaceMetadata,
+  resolveWorkspaceBindings,
+} from './agentsam-workspace.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -31,10 +34,48 @@ export async function resolveProjectExecutionBindings(env, projectRef, workspace
 }
 
 /**
+ * Full execution row + parsed metadata for project-scoped chat.
+ * @param {any} env
+ * @param {string|null|undefined} projectRef
+ * @param {string|null|undefined} [workspaceId]
+ */
+export async function resolveProjectExecutionContext(env, projectRef, workspaceId = null) {
+  const ref = trim(projectRef);
+  if (!env?.DB || !ref) return { bindings: null, metadata: {} };
+
+  let lookupRef = ref;
+  try {
+    const { resolveChatProjectId } = await import('./project-chat-link.js');
+    const linked = await resolveChatProjectId(env, ref, workspaceId);
+    if (linked) lookupRef = linked;
+  } catch {
+    /* use ref */
+  }
+
+  const bindings = await resolveWorkspaceBindings(env, lookupRef);
+  if (!bindings?.workspaceId) return { bindings, metadata: {} };
+
+  let metadata = {};
+  try {
+    const wsRow = await env.DB.prepare(
+      `SELECT metadata_json FROM agentsam_workspace WHERE id = ? LIMIT 1`,
+    )
+      .bind(bindings.workspaceId)
+      .first();
+    metadata = parseWorkspaceMetadata(wsRow?.metadata_json);
+  } catch {
+    /* optional */
+  }
+
+  return { bindings, metadata, lookupRef };
+}
+
+/**
  * Execution bindings for the active project (from agentsam_workspace via project_id).
  * @param {Awaited<ReturnType<typeof resolveWorkspaceBindings>>} bindings
+ * @param {Record<string, unknown>} [metadata]
  */
-export function formatProjectClientBindingsBlock(bindings) {
+export function formatProjectClientBindingsBlock(bindings, metadata = {}) {
   if (!bindings) return '';
   const isPlatformProject =
     bindings.workerName === 'inneranimalmedia' ||

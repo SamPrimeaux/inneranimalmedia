@@ -33,6 +33,7 @@ export type CmsWorkspaceContext = {
   bridge_supported?: boolean;
   worker_base_url?: string | null;
   public_domain?: string | null;
+  is_operator_hub?: boolean;
   error?: string | null;
 };
 

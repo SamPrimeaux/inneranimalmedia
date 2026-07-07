@@ -25,7 +25,7 @@ import {
   publishSiteShellPart,
   writeSiteShellDraft,
 } from '../../core/cms-site-shell.js';
-import { resolveCmsPublicDomain } from '../../core/cms-storefront-url.js';
+import { resolveCmsSitePublicDomain } from '../../core/cms-public-domain.js';
 import { pipelineHandlers } from './cms-pipeline.js';
 import { sitePackageHandlers } from './cms-site-package.js';
 
@@ -428,8 +428,10 @@ async function cmsSaveSiteShell(params, env, runContext) {
       },
     });
 
-    const domain = resolveCmsPublicDomain(projectSlug, null);
-    const previewDraftUrl = `https://${domain}/?preview=draft&cms=1`;
+    const domain = await resolveCmsSitePublicDomain(env, projectSlug, { workspaceId });
+    const previewDraftUrl = domain?.domain
+      ? `https://${domain.domain}/?preview=draft&cms=1`
+      : null;
 
     return {
       ok: true,
@@ -500,8 +502,8 @@ async function cmsPublishSiteShell(params, env, runContext) {
       },
     });
 
-    const domain = resolveCmsPublicDomain(projectSlug, null);
-    const liveUrl = `https://${domain}/`;
+    const domain = await resolveCmsSitePublicDomain(env, projectSlug, { workspaceId });
+    const liveUrl = domain?.domain ? `https://${domain.domain}/` : null;
 
     return {
       ok: true,

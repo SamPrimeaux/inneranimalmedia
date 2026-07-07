@@ -6,8 +6,6 @@ import { SiteDeployWizard } from './SiteDeployWizard';
 import { CmsSiteLauncherGrid } from './CmsSiteLauncherGrid';
 import { useWorkspace } from '../../src/context/WorkspaceContext';
 
-const OPERATOR_HUB_WORKSPACE = 'ws_inneranimalmedia';
-
 const CmsRoot = lazy(() =>
   import('../../../src/dashboard/cms/CmsRoot').then((m) => ({
     default: m.CmsRoot ?? m.default,
@@ -123,9 +121,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
     [load, navigate, persistSite],
   );
 
-  const isOperatorHub =
-    (activeWorkspaceId || context?.workspace_id) === OPERATOR_HUB_WORKSPACE ||
-    context?.workspace_slug === 'inneranimalmedia';
+  const isOperatorHub = context?.is_operator_hub === true;
   const isHubSitesView = parsed.view === 'sites';
 
   useEffect(() => {

@@ -1,35 +1,33 @@
 /**
- * Canonical public storefront hostnames for CMS tenants.
- * TypeScript source — Worker and dashboard import this module.
- * Domain SSOT: cms_tenants.domain (pass tenantDomain) — no hardcoded slug→host maps.
+ * CMS storefront URL helpers — callers must supply tenant domain from API/D1/Cloudflare resolution.
+ * No slug maps or workers.dev guesses.
  */
 
-/** Optional slug aliases resolved via cms_tenants lookup upstream (e.g. nicoc → newiberiachurchofchrist). */
-export const CMS_TENANT_SLUG_ALIASES: Record<string, string> = {
-  nicoc: 'newiberiachurchofchrist',
-};
-
-export function resolveCmsPublicDomain(
-  projectSlug?: string | null,
-  tenantDomain?: string | null,
-): string {
-  const fromTenant = String(tenantDomain || '')
+export function normalizeCmsPublicHost(raw?: string | null): string | null {
+  const host = String(raw || '')
     .replace(/^https?:\/\//, '')
     .replace(/\/$/, '')
-    .trim();
-  if (fromTenant) return fromTenant;
+    .split('/')[0]
+    .trim()
+    .toLowerCase();
+  return host || null;
+}
 
-  const slug = String(projectSlug || '').trim();
-  if (slug) return `${slug}.meauxbility.workers.dev`;
-  return 'inneranimalmedia.com';
+/** @deprecated Pass domain from /api/cms/bootstrap or workspace-context — never infer from slug. */
+export function resolveCmsPublicDomain(
+  _projectSlug?: string | null,
+  tenantDomain?: string | null,
+): string | null {
+  return normalizeCmsPublicHost(tenantDomain);
 }
 
 export function resolveCmsStorefrontUrl(
-  projectSlug?: string | null,
   tenantDomain?: string | null,
   path = '/',
-): string {
-  const host = resolveCmsPublicDomain(projectSlug, tenantDomain);
+  _projectSlug?: string | null,
+): string | null {
+  const host = normalizeCmsPublicHost(tenantDomain);
+  if (!host) return null;
   let route = String(path || '/').trim() || '/';
   if (!route.startsWith('/')) route = `/${route}`;
   return `https://${host}${route}`;

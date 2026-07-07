@@ -203,56 +203,31 @@ export async function listCmsSitesForScope(env, { tenantId, workspaceId }) {
   return sites;
 }
 
-const CMS_TENANT_SLUG_ALIASES = {
-  nicoc: 'newiberiachurchofchrist',
-};
-
 /**
- * Registry rows from agentsam_project_context often lack domain — hydrate from cms_tenants.
+ * Registry rows from agentsam_project_context often lack domain — hydrate from cms_tenants (D1).
  * @param {any} env
  * @param {Array<{ slug: string, domain?: string|null, source?: string }>} sites
  */
 async function hydrateSiteDomainsFromTenants(env, sites) {
   if (!env?.DB || !sites?.length) return;
-  const lookupSlugs = [
-    ...new Set(
-      sites.flatMap((s) => {
-        const slug = trim(s.slug);
-        const alias = CMS_TENANT_SLUG_ALIASES[slug];
-        return alias ? [slug, alias] : [slug];
-      }),
-    ),
-  ].filter(Boolean);
-  if (!lookupSlugs.length) return;
-  try {
-    const placeholders = lookupSlugs.map(() => '?').join(',');
-    const { results } = await env.DB.prepare(
-      `SELECT slug, domain, logo_url, primary_color
-         FROM cms_tenants
-        WHERE slug IN (${placeholders})
-          AND COALESCE(is_active, 1) = 1`,
-    )
-      .bind(...lookupSlugs)
-      .all();
-    const tenantBySlug = new Map(
-      (results || []).map((r) => [trim(r.slug), r]),
-    );
-    for (const site of sites) {
-      const slug = trim(site.slug);
-      const alias = CMS_TENANT_SLUG_ALIASES[slug];
-      const tenant = tenantBySlug.get(slug) || (alias ? tenantBySlug.get(alias) : null);
-      if (!tenant) continue;
-      if (!trim(site.domain)) {
-        site.domain = trim(tenant.domain) || site.domain || null;
-      }
-      if (!trim(site.logo_url)) {
-        site.logo_url = trim(tenant.logo_url) || site.logo_url || null;
-      }
-      if (!trim(site.primary_color)) {
-        site.primary_color = trim(tenant.primary_color) || site.primary_color || null;
-      }
+  const { loadCmsTenantIndex, resolveCmsTenantByProjectSlug } = await import('./cms-tenant-resolve.js');
+  const index = await loadCmsTenantIndex(env);
+
+  for (const site of sites) {
+    const slug = trim(site.slug);
+    if (!slug) continue;
+    const tenant = await resolveCmsTenantByProjectSlug(env, slug, index);
+    if (!tenant) continue;
+    if (!trim(site.domain)) {
+      site.domain = trim(tenant.domain) || site.domain || null;
     }
-  } catch (_) {}
+    if (!trim(site.logo_url)) {
+      site.logo_url = trim(tenant.logo_url) || site.logo_url || null;
+    }
+    if (!trim(site.primary_color)) {
+      site.primary_color = trim(tenant.primary_color) || site.primary_color || null;
+    }
+  }
 }
 
 /**
