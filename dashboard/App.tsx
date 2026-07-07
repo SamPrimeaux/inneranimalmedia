@@ -4331,22 +4331,20 @@ const App: React.FC = () => {
                   onClick={mobileHamburgerConversationBack && narrowBackToAgentHome ? narrowBackToAgentHome : () => setMobileNavOpen(v => !v)}
                 />
               </div>
-              <img
-                src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail"
-                alt=""
-                className="w-7 h-7 object-contain drop-shadow shrink-0 cursor-pointer opacity-80"
-                title={workspaceDisplayLine}
-                onClick={() => setActiveTab('Workspace')}
-              />
-              {/* Workspace context pill — always visible, one-tap switcher */}
+              {/* IAM logo — tap to open workspace/store switcher (Shopify-style) */}
               <button
                 type="button"
-                title={`Current workspace: ${workspaceDisplayLine} — click to switch`}
+                title={`${workspaceDisplayLine} — tap to switch workspace`}
                 onClick={() => setWorkspaceLauncherOpen(true)}
-                className="hidden tablet-up:inline-flex items-center gap-1 max-w-[160px] px-2 py-0.5 rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[11px] text-muted hover:text-main hover:border-[rgba(34,211,238,0.35)] hover:bg-[var(--bg-hover)] transition-colors shrink-0 select-none"
+                className="flex items-center gap-1.5 rounded-md px-1 py-0.5 hover:bg-[var(--bg-hover)] transition-colors group shrink-0"
+                aria-label="Switch workspace"
               >
-                <span className="truncate max-w-[120px] font-medium">{workspaceDisplayLine.length > 22 ? `${workspaceDisplayLine.slice(0, 20)}…` : workspaceDisplayLine}</span>
-                <ChevronLeft size={10} strokeWidth={2} className="rotate-[270deg] shrink-0 opacity-60" />
+                <img
+                  src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail"
+                  alt=""
+                  className="w-7 h-7 object-contain drop-shadow shrink-0 opacity-80 group-hover:opacity-100 transition-opacity"
+                />
+                <ChevronLeft size={10} strokeWidth={2.5} className="rotate-[270deg] text-muted group-hover:text-main transition-colors shrink-0 hidden tablet-up:block" />
               </button>
           </div>
 
