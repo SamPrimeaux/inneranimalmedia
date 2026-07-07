@@ -18,6 +18,7 @@ import {
   CalendarPerson,
   fetchBookingPages,
   fetchCalendarViewEvents,
+  fetchGoogleCalendarStatus,
   fetchInsights,
   fetchPeople,
   fetchClientProjects,
@@ -34,6 +35,7 @@ import {
   parseInviteEmails,
   postActivityHeartbeat,
   postActivityStop,
+  postGoogleCalendarSync,
   publicBookingPageUrl,
   QuickEventType,
   sameDay,
@@ -115,6 +117,7 @@ function cleanTitle(title: string | null | undefined) {
 
 function eventCssClass(ev: CalEvent) {
   const t = String(ev.event_type || '').toLowerCase();
+  if (ev.calendar_source === 'google_calendar') return 'gcal';
   if (t === 'meeting' || t === 'client_call' || meetRoomId(ev)) return 'meeting';
   if (t === 'task' || ev.calendar_source === 'tasks') return 'task';
   if (t === 'focus') return 'focus';
@@ -224,7 +227,11 @@ export function LaunchDeskPage() {
     tasks: true,
     holidays: true,
     birthdays: true,
+    google_calendar: true,
   });
+  const [gcalStatus, setGcalStatus] = useState<{ connected: boolean; accounts: { account: string; event_count: number }[] } | null>(null);
+  const [gcalSyncing, setGcalSyncing] = useState(false);
+  const [gcalBanner, setGcalBanner] = useState<string | null>(null);
 
   const weekStart = useMemo(() => startOfWeek(anchor), [anchor]);
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
@@ -311,6 +318,47 @@ export function LaunchDeskPage() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  const refreshGcalStatus = useCallback(async () => {
+    try {
+      const st = await fetchGoogleCalendarStatus();
+      setGcalStatus(st);
+    } catch {
+      setGcalStatus(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshGcalStatus();
+  }, [refreshGcalStatus]);
+
+  useEffect(() => {
+    if (searchParams.get('gcal_connected') === '1') {
+      const acct = searchParams.get('account') || 'Google Calendar';
+      setGcalBanner(`Connected ${acct} — syncing events…`);
+      refreshGcalStatus().then(() => reload());
+      const next = new URLSearchParams(searchParams);
+      next.delete('gcal_connected');
+      next.delete('account');
+      navigate({ search: next.toString() ? `?${next}` : '' }, { replace: true });
+      window.setTimeout(() => setGcalBanner(null), 8000);
+    }
+  }, [searchParams, refreshGcalStatus, reload, navigate]);
+
+  const syncGoogleCalendar = useCallback(async () => {
+    setGcalSyncing(true);
+    try {
+      const out = await postGoogleCalendarSync();
+      setGcalBanner(`Synced ${out.synced ?? 0} Google Calendar events`);
+      await refreshGcalStatus();
+      await reload();
+    } catch (e) {
+      setGcalBanner(e instanceof Error ? e.message : 'Calendar sync failed');
+    } finally {
+      setGcalSyncing(false);
+      window.setTimeout(() => setGcalBanner(null), 6000);
+    }
+  }, [refreshGcalStatus, reload]);
 
   useEffect(() => {
     const {
@@ -960,11 +1008,45 @@ export function LaunchDeskPage() {
               <span className="colab-cal-box green">{sources.birthdays ? '✓' : ''}</span>
               <span>Birthdays</span>
             </button>
+            <button
+              type="button"
+              className="colab-cal-cal-row colab-cal-checkbox"
+              onClick={() => setSources((s) => ({ ...s, google_calendar: !s.google_calendar }))}
+            >
+              <span className="colab-cal-box gcal">{sources.google_calendar ? '✓' : ''}</span>
+              <span>Google Calendar</span>
+            </button>
+            {gcalStatus?.connected ? (
+              <div className="colab-cal-gcal-actions">
+                <span className="colab-cal-gcal-meta">
+                  {gcalStatus.accounts.map((a) => a.account).join(', ')}
+                  {' · '}
+                  {(gcalStatus.accounts.reduce((n, a) => n + (a.event_count || 0), 0) || 0)} events
+                </span>
+                <button
+                  type="button"
+                  className="colab-cal-outline-btn"
+                  disabled={gcalSyncing}
+                  onClick={() => syncGoogleCalendar()}
+                >
+                  {gcalSyncing ? 'Syncing…' : 'Sync now'}
+                </button>
+              </div>
+            ) : (
+              <a
+                className="colab-cal-gcal-connect"
+                href="/api/integrations/google-calendar/connect?return_to=/dashboard/collaborate"
+              >
+                Connect Google Calendar
+              </a>
+            )}
             </div>
           </div>
             </>
           )}
         </aside>
+
+        {gcalBanner ? <div className="colab-cal-gcal-banner">{gcalBanner}</div> : null}
 
         {mainSeg === 'calendar' ? (
           calView === 'month' ? (

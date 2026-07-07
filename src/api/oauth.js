@@ -1347,6 +1347,11 @@ export async function handleOAuthApi(request, env, ctx) {
     if (url.searchParams.get('popup') === '1') target.searchParams.set('popup', '1');
     return Response.redirect(target.toString(), 302);
   }
+  if (pathLower === '/api/oauth/google-calendar/callback' && method === 'GET') {
+    const { handleGoogleCalendarConnectCallback } = await import('./integrations/google-calendar-connect.js');
+    return handleGoogleCalendarConnectCallback(request, url, env, ctx);
+  }
+
   if (pathLower === '/api/oauth/gmail/callback' && method === 'GET') {
     const { handleGmailConnectCallback } = await import('./integrations/gmail-connect.js');
     return handleGmailConnectCallback(request, url, env);

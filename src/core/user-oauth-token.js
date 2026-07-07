@@ -22,6 +22,7 @@ function mapIncomingProvider(provider) {
   const p = raw.toLowerCase();
   if (p === 'google' || p === 'gdrive' || p === 'google_drive') return 'google_drive';
   if (p === 'gmail' || p === 'google_gmail') return 'google_gmail';
+  if (p === 'google_calendar' || p === 'gcal') return 'google_calendar';
   if (p === 'github') return 'github';
   return raw;
 }

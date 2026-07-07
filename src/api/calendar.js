@@ -79,7 +79,7 @@ function newId(prefix) {
 }
 
 function parseSourcesParam(raw) {
-  const all = new Set(['primary', 'tasks', 'holidays', 'birthdays']);
+  const all = new Set(['primary', 'tasks', 'holidays', 'birthdays', 'google_calendar']);
   if (!raw || raw === 'all') return all;
   return new Set(
     String(raw)
@@ -297,6 +297,68 @@ export async function handleCalendarApi(request, url, env, ctx) {
       : null;
   const userId = String(authUser?.id || authUser?.user_id || authUser?.email || '').trim();
 
+  // GET /api/calendar/google/status
+  if (parts[0] === 'google' && parts[1] === 'status' && method === 'GET') {
+    const { listGoogleCalendarTokenRowsForUser } = await import('../core/google-calendar-user-tokens.js');
+    const rows = await listGoogleCalendarTokenRowsForUser(env, authUser);
+    const accounts = [];
+    for (const row of rows) {
+      let last_sync_at = null;
+      let last_sync_count = 0;
+      try {
+        const meta = row.metadata_json ? JSON.parse(row.metadata_json) : {};
+        last_sync_at = meta.last_sync_at || null;
+        last_sync_count = Number(meta.last_sync_count) || 0;
+      } catch {
+        /* ignore */
+      }
+      const countRow = await env.DB.prepare(
+        `SELECT COUNT(*) as cnt FROM calendar_events
+         WHERE workspace_id = ? AND calendar_source = 'google_calendar'
+           AND lower(sync_account) = ?`,
+      )
+        .bind(workspaceId, String(row.account_identifier || '').toLowerCase())
+        .first()
+        .catch(() => null);
+      accounts.push({
+        account: row.account_identifier || row.account_email,
+        last_sync_at,
+        last_sync_count,
+        event_count: Number(countRow?.cnt) || 0,
+      });
+    }
+    return jsonResponse({ connected: accounts.length > 0, accounts }, 200);
+  }
+
+  // POST /api/calendar/google/sync — on-demand sync for demo
+  if (parts[0] === 'google' && parts[1] === 'sync' && method === 'POST') {
+    const { listGoogleCalendarTokenRowsForUser } = await import('../core/google-calendar-user-tokens.js');
+    const { syncGoogleCalendarForTokenRow } = await import('../core/google-calendar-sync.js');
+    const rows = await listGoogleCalendarTokenRowsForUser(env, authUser);
+    if (!rows.length) {
+      return jsonResponse(
+        {
+          ok: false,
+          error: 'google_calendar_not_connected',
+          connect_url: '/api/integrations/google-calendar/connect?return_to=/dashboard/collaborate',
+        },
+        404,
+      );
+    }
+    let synced = 0;
+    for (const row of rows) {
+      const out = await syncGoogleCalendarForTokenRow(env, {
+        user_id: row.user_id,
+        tenant_id: tenantId || row.tenant_id,
+        workspace_id: workspaceId,
+        account_identifier: row.account_identifier,
+        account_email: row.account_email,
+      });
+      if (out.ok) synced += out.synced || 0;
+    }
+    return jsonResponse({ ok: true, synced, accounts: rows.length }, 200);
+  }
+
   if (!workspaceId && parts[0] !== 'book') {
     return jsonResponse({ events: [] }, 200);
   }
@@ -333,6 +395,22 @@ export async function handleCalendarApi(request, url, env, ctx) {
     }
     if (sources.has('birthdays')) {
       events = events.concat(await fetchBirthdayEvents(env, workspaceId));
+    }
+    if (sources.has('google_calendar')) {
+      const { results: gcalRows } = await env.DB.prepare(
+        `SELECT ce.*, mr.id AS room_id, mr.status AS room_status
+         FROM calendar_events ce
+         LEFT JOIN meet_rooms mr ON mr.id = ce.meet_room_id
+         WHERE ce.workspace_id = ?
+           AND ce.calendar_source = 'google_calendar'
+           AND ce.start_datetime >= ?
+           AND ce.start_datetime <= ?
+         ORDER BY ce.start_datetime ASC`,
+      )
+        .bind(workspaceId, from, to)
+        .all()
+        .catch(() => ({ results: [] }));
+      events = events.concat(gcalRows || []);
     }
 
     return jsonResponse({ events, window: { from, to }, view }, 200);

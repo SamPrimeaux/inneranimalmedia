@@ -240,7 +240,14 @@ export function meetRoomId(ev: CalEvent) {
 export function isSyntheticEvent(ev: CalEvent) {
   const id = String(ev.id || '');
   const src = String(ev.calendar_source || '').toLowerCase();
-  return id.startsWith('task_') || id.startsWith('bday_') || id.startsWith('hol_') || src === 'holidays';
+  return (
+    id.startsWith('task_') ||
+    id.startsWith('bday_') ||
+    id.startsWith('hol_') ||
+    id.startsWith('gce_') ||
+    src === 'holidays' ||
+    src === 'google_calendar'
+  );
 }
 
 export function isAllDay(ev: CalEvent) {
@@ -387,6 +394,22 @@ export async function fetchTasksInsights(anchor: Date, projectId?: string | null
   const q = new URLSearchParams({ anchor: anchorIso(anchor) });
   if (projectId?.trim()) q.set('project_id', projectId.trim());
   return apiJson<TasksInsightsPayload>(`/api/calendar/tasks-insights?${q}`);
+}
+
+export type GoogleCalendarStatusPayload = {
+  connected: boolean;
+  accounts: { account: string; last_sync_at?: string | null; last_sync_count?: number; event_count?: number }[];
+};
+
+export async function fetchGoogleCalendarStatus() {
+  return apiJson<GoogleCalendarStatusPayload>('/api/calendar/google/status');
+}
+
+export async function postGoogleCalendarSync() {
+  return apiJson<{ ok: boolean; synced?: number; accounts?: number; error?: string }>(
+    '/api/calendar/google/sync',
+    { method: 'POST' },
+  );
 }
 
 export async function postProjectTimer(payload: {

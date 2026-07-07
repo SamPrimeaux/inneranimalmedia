@@ -218,6 +218,11 @@ export async function runThirtyMinuteJobs(env, ctx) {
   );
   ctx.waitUntil(runMcpServerHealthCron(env).catch((e) => console.warn('[cron] mcp_server_health', e?.message ?? e)));
   ctx.waitUntil(
+    import('./google-calendar-sync-cron.js')
+      .then(({ runGoogleCalendarSyncJob }) => runGoogleCalendarSyncJob(env))
+      .catch((e) => console.warn('[cron] google_calendar_sync', e?.message ?? e)),
+  );
+  ctx.waitUntil(
     import('../../core/moviemode-veo-poll.js')
       .then(({ pollPendingVeoJobs }) => pollPendingVeoJobs(env))
       .catch((e) => console.warn('[cron] moviemode_veo_poll', e?.message ?? e)),

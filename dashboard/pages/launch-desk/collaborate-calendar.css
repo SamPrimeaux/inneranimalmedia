@@ -321,6 +321,43 @@
 .colab-cal-box.green { background: #33a852; }
 .colab-cal-box.task { background: #4285f4; }
 .colab-cal-box.holiday { background: #188038; }
+.colab-cal-box.gcal { background: #039be5; }
+
+.colab-cal-gcal-connect {
+  display: block;
+  margin-top: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--blue-text);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: center;
+}
+.colab-cal-gcal-connect:hover { background: var(--blue-soft); }
+
+.colab-cal-gcal-actions {
+  margin-top: 8px;
+  padding: 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.colab-cal-gcal-meta {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.colab-cal-gcal-banner {
+  grid-column: 1 / -1;
+  margin: 0 12px 8px;
+  padding: 10px 14px;
+  background: #e8f0fe;
+  color: #174ea6;
+  border-radius: 8px;
+  font-size: 13px;
+}
 .colab-cal-outline-btn {
   height: 36px; border: 1px solid var(--line); background: var(--panel-raised); border-radius: 999px;
   padding: 0 16px; color: var(--blue); font-weight: 600;
@@ -394,6 +431,8 @@
 .colab-cal-event-block.meeting { background: #ccefdc; border-left-color: var(--green); color: #0d652d; }
 .colab-cal-event-block.task { background: var(--blue-soft); border-left-color: #4285f4; color: var(--blue-text); }
 .colab-cal-event-block.focus { background: #f9dedc; border-left-color: var(--red); color: #a50e0e; }
+.colab-cal-event-block.gcal { background: #e8f0fe; border-left-color: #039be5; color: #174ea6; }
+.colab-cal-month-chip.gcal { background: #e8f0fe; color: #174ea6; }
 .colab-cal-current-line {
   position: absolute; left: 64px; right: 0; height: 2px; background: var(--red); z-index: 4; pointer-events: none;
 }

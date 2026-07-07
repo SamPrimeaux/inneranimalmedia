@@ -32,7 +32,7 @@ const MCP_OAUTH_REDIRECT =
 function oauthStartPathForSlug(slugRaw) {
   const s = normalizeSlug(slugRaw).replace(/-/g, '_');
   if (s === 'github') return 'github';
-  if (['google_drive', 'google_calendar', 'google_ai'].includes(s)) {
+  if (['google_drive', 'google_ai'].includes(s)) {
     return 'google';
   }
   if (s === 'cloudflare' || s === 'cloudflare_oauth') return 'cloudflare';
@@ -482,6 +482,11 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
     return handleGmailConnectCallback(request, url, env);
   }
 
+  if (pathLower === '/api/integrations/google-calendar/callback' && method === 'GET') {
+    const { handleGoogleCalendarConnectCallback } = await import('./google-calendar-connect.js');
+    return handleGoogleCalendarConnectCallback(request, url, env, ctx);
+  }
+
   const origin = url.origin;
   const returnToRaw = url.searchParams.get('return_to') || '';
   const safeReturn =
@@ -508,6 +513,10 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
       if (slugNorm === 'gmail' || slugNorm === 'google_gmail') {
         const { startGmailConnect } = await import('./gmail-connect.js');
         return startGmailConnect(request, url, env, authUser);
+      }
+      if (slugNorm === 'google_calendar') {
+        const { startGoogleCalendarConnect } = await import('./google-calendar-connect.js');
+        return startGoogleCalendarConnect(request, url, env, authUser);
       }
       if (
         slugNorm === 'custom_mcp' ||
@@ -654,6 +663,27 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
       return jsonResponse({
         disconnected: true,
         provider_key: 'google_gmail',
+        account: String(accountParam).trim().toLowerCase(),
+      });
+    }
+
+    if (slugNormDisconnect === 'google_calendar' && accountParam) {
+      const { disconnectGoogleCalendarAccount } = await import('./google-calendar-connect.js');
+      await disconnectGoogleCalendarAccount(env, authUser, accountParam);
+      try {
+        await env.DB.prepare(
+          `UPDATE integration_registry SET status = 'disconnected', account_display = NULL, updated_at = datetime('now')
+           WHERE tenant_id = ? AND lower(provider_key) = 'google_calendar'`,
+        )
+          .bind(tenantId)
+          .run();
+      } catch (e) {
+        console.warn('[integrations/connect] gcal registry update', e?.message || e);
+      }
+      await touchUserIntegrationsDisconnected(env.DB, String(authUser.email || '').trim(), slugRaw);
+      return jsonResponse({
+        disconnected: true,
+        provider_key: 'google_calendar',
         account: String(accountParam).trim().toLowerCase(),
       });
     }

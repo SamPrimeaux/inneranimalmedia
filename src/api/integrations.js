@@ -136,6 +136,11 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
         return handleGmailConnectCallback(request, url, env);
     }
 
+    if (pathLower === '/api/integrations/google-calendar/callback' && method === 'GET') {
+        const { handleGoogleCalendarConnectCallback } = await import('./integrations/google-calendar-connect.js');
+        return handleGoogleCalendarConnectCallback(request, url, env, ctx);
+    }
+
     const authUser =
       providedAuthUser ||
       (await import('../core/auth.js').then((m) => m.authUserFromRequest(request, env)));

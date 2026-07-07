@@ -128,6 +128,7 @@
     "smoke:code-execution-e2e": "node scripts/test-code-execution-e2e.mjs",
     "smoke:database-sql-safety": "node scripts/database-sql-safety-smoke.mjs",
     "smoke:database-table-filters": "node scripts/database-table-filters-smoke.mjs",
+    "smoke:google-integrations": "node scripts/google-integrations-smoke.mjs",
     "audit:tools": "REMOTE=1 node scripts/audit/oauth-allowlist-catalog-alignment.mjs",
     "guard:identity": "./scripts/guard-no-hardcoded-identity.sh",
     "guard:identity:all": "./scripts/guard-no-hardcoded-identity.sh --tier all",
