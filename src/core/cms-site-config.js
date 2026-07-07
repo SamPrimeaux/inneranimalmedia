@@ -4,7 +4,11 @@
  */
 import { getAgentsamWorkspace, parseWorkspaceMetadata } from './agentsam-workspace.js';
 import { hasRegisteredCmsSiteContext } from './cms-workspace-resolve.js';
-import { CMS_SLUG_RUNTIME_WORKSPACE, resolveRuntimeWorkspaceForCmsSlug } from './cms-hub-sites.js';
+import {
+  isOperatorHubSitePick,
+  resolveRuntimeWorkspaceForCmsSlug,
+  resolveTargetWorkspaceIdForCmsSlug,
+} from './cms-hub-sites.js';
 import { resolvePlatformCmsStudioUrl } from './cms-studio-lane.js';
 import { resolveCmsPublicDomain } from './cms-storefront-url.js';
 
@@ -13,26 +17,6 @@ function trim(v) {
 }
 
 const PLATFORM_WORKER_NAME = 'inneranimalmedia';
-const OPERATOR_HUB_WORKSPACE = 'ws_inneranimalmedia';
-
-const DEFAULT_WORKER_BASE = {
-  companionscpas: 'https://companionsofcaddo.org',
-  fuelnfreetime: 'https://fuelnfreetime.meauxbility.workers.dev',
-  inneranimalmedia: 'https://inneranimalmedia.meauxbility.workers.dev',
-  meauxbility: 'https://meauxbility.meauxbility.workers.dev',
-};
-
-const DEFAULT_STUDIO_PATH = {
-  cpas_fragment: '/dashboard/cms/website',
-  fuel_admin: '/admin/cms',
-  primetch: '/dashboard/cms/pages',
-};
-
-const API_PROFILE_BY_WORKER = {
-  companionscpas: 'cpas_fragment',
-  fuelnfreetime: 'fuel_admin',
-  meauxbility: 'cpas_fragment',
-};
 
 /**
  * Client-worker CMS = dedicated worker + registered cms_site context (not IAM platform worker).
@@ -44,10 +28,12 @@ export function isClientWorkerCms(workspaceRow, hasRegistry) {
   return Boolean(worker && worker !== PLATFORM_WORKER_NAME && hasRegistry);
 }
 
-/** @param {string|null|undefined} workerName */
-function deriveApiProfile(workerName) {
-  const worker = trim(workerName).toLowerCase();
-  if (worker && API_PROFILE_BY_WORKER[worker]) return API_PROFILE_BY_WORKER[worker];
+/** @param {Record<string, unknown>|null|undefined} meta */
+function deriveApiProfile(meta, workerName) {
+  const fromMeta = trim(meta?.api_profile);
+  if (fromMeta) return fromMeta;
+  const profile = trim(meta?.cms_api_profile);
+  if (profile) return profile;
   return 'primetch';
 }
 
@@ -56,24 +42,27 @@ function deriveApiProfile(workerName) {
  * @param {Record<string, unknown>|null|undefined} wsRow
  */
 function resolveWorkerBaseUrl(meta, wsRow) {
-  const fromMeta = trim(meta?.worker_base_url);
-  if (fromMeta) return fromMeta.replace(/\/$/, '');
-  const worker = trim(wsRow?.worker_name);
-  if (worker && DEFAULT_WORKER_BASE[worker]) return DEFAULT_WORKER_BASE[worker];
+  for (const candidate of [
+    meta?.worker_base_url,
+    meta?.public_domain ? `https://${String(meta.public_domain).replace(/^https?:\/\//, '')}` : null,
+    wsRow?.deploy_url,
+    meta?.deploy_url,
+  ]) {
+    const url = trim(candidate);
+    if (url) return url.replace(/\/$/, '');
+  }
   const slug = trim(wsRow?.workspace_slug);
   if (slug) return `https://${slug}.meauxbility.workers.dev`;
   return null;
 }
 
 /**
- * @param {string|null|undefined} apiProfile
- * @param {Record<string, unknown>} meta
+ * @param {Record<string, unknown>|null|undefined} meta
  */
-function resolveStudioPath(apiProfile, meta) {
+function resolveStudioPath(meta) {
   const fromMeta = trim(meta?.studio_path);
   if (fromMeta) return fromMeta.startsWith('/') ? fromMeta : `/${fromMeta}`;
-  const profile = trim(apiProfile).toLowerCase();
-  return DEFAULT_STUDIO_PATH[profile] || '/dashboard/cms';
+  return '/dashboard/cms';
 }
 
 /**
@@ -94,15 +83,15 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
     };
   }
 
-  /** Operator hub: one IAM CMS shell; site slug selects backend via bridge/proxy — not IAM D1 copy. */
-  const isOperatorHubPick =
-    ws === OPERATOR_HUB_WORKSPACE && slug && Object.prototype.hasOwnProperty.call(CMS_SLUG_RUNTIME_WORKSPACE, slug);
+  const isOperatorHubPick = await isOperatorHubSitePick(env, ws, slug);
 
   const runtimeWorkspaceId = isOperatorHubPick
     ? ws
     : await resolveRuntimeWorkspaceForCmsSlug(env, ws, slug);
   const effectiveWs = runtimeWorkspaceId || ws;
-  const clientRuntimeWs = isOperatorHubPick ? trim(CMS_SLUG_RUNTIME_WORKSPACE[slug]) || null : effectiveWs;
+  const clientRuntimeWs = isOperatorHubPick
+    ? trim(await resolveTargetWorkspaceIdForCmsSlug(env, ws, slug)) || null
+    : effectiveWs;
 
   const wsRow = await getAgentsamWorkspace(env, effectiveWs);
   const meta = parseWorkspaceMetadata(wsRow?.metadata_json);
@@ -118,24 +107,26 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
   const isClientWorker = isOperatorHubPick ? false : isClientWorkerCms(wsRow, hasRegistry);
   const cmsHosting = isClientWorker ? 'client_worker' : 'platform';
   const apiProfile = isOperatorHubPick
-    ? deriveApiProfile(clientWsRow?.worker_name || slug)
+    ? deriveApiProfile(clientMeta, clientWsRow?.worker_name)
     : isClientWorker
-      ? deriveApiProfile(wsRow?.worker_name)
+      ? deriveApiProfile(meta, wsRow?.worker_name)
       : 'primetch';
 
   const workerBaseUrl = isOperatorHubPick
     ? resolveWorkerBaseUrl(clientMeta, clientWsRow)
     : resolveWorkerBaseUrl(meta, wsRow);
-  const studioPath = resolveStudioPath(apiProfile, isOperatorHubPick ? clientMeta : meta);
+  const studioPath = resolveStudioPath(isOperatorHubPick ? clientMeta : meta);
   const studioUrl = isClientWorker
     ? workerBaseUrl
       ? `${workerBaseUrl}${studioPath}`
       : null
     : resolvePlatformCmsStudioUrl(meta);
   const bridgeSupported =
-    (isClientWorker || isOperatorHubPick) && Boolean(workerBaseUrl) && slug !== 'inneranimalmedia';
+    (isClientWorker || isOperatorHubPick) &&
+    Boolean(workerBaseUrl) &&
+    trim(isOperatorHubPick ? clientWsRow?.worker_name : wsRow?.worker_name) !== PLATFORM_WORKER_NAME;
 
-  let publicDomain = trim(meta.public_domain) || null;
+  let publicDomain = trim(isOperatorHubPick ? clientMeta.public_domain : meta.public_domain) || null;
   if (!publicDomain && slug && env?.DB) {
     try {
       const tenant = await env.DB.prepare(
@@ -150,7 +141,7 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
     publicDomain = resolveCmsPublicDomain(slug, null);
   }
   if (!publicDomain && trim(wsRow?.worker_name) === PLATFORM_WORKER_NAME) {
-    publicDomain = 'inneranimalmedia.com';
+    publicDomain = trim(meta.public_domain) || 'inneranimalmedia.com';
   }
 
   return {

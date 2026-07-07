@@ -1,18 +1,12 @@
 /**
  * Canonical public storefront hostnames for CMS tenants.
  * TypeScript source — Worker and dashboard import this module.
+ * Domain SSOT: cms_tenants.domain (pass tenantDomain) — no hardcoded slug→host maps.
  */
 
+/** Optional slug aliases resolved via cms_tenants lookup upstream (e.g. nicoc → newiberiachurchofchrist). */
 export const CMS_TENANT_SLUG_ALIASES: Record<string, string> = {
   nicoc: 'newiberiachurchofchrist',
-};
-
-export const CMS_PRODUCTION_APEX_HOST: Record<string, string> = {
-  inneranimalmedia: 'inneranimalmedia.com',
-  fuelnfreetime: 'fuelnfreetime.com',
-  meauxbility: 'meauxbility.org',
-  newiberiachurchofchrist: 'newiberiachurchofchrist.com',
-  companionscpas: 'companionscpas.com',
 };
 
 export function resolveCmsPublicDomain(
@@ -26,13 +20,6 @@ export function resolveCmsPublicDomain(
   if (fromTenant) return fromTenant;
 
   const slug = String(projectSlug || '').trim();
-  const apexSlug = CMS_TENANT_SLUG_ALIASES[slug] || slug;
-  const apex =
-    (apexSlug && CMS_PRODUCTION_APEX_HOST[apexSlug]) ||
-    (slug && CMS_PRODUCTION_APEX_HOST[slug]) ||
-    null;
-  if (apex) return apex;
-
   if (slug) return `${slug}.meauxbility.workers.dev`;
   return 'inneranimalmedia.com';
 }

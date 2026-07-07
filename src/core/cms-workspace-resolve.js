@@ -5,7 +5,7 @@
 import { resolveActiveBootstrap, resolveBootstrapWorkspaceContext } from './bootstrap.js';
 import { ensureUserBootstrapRow } from './bootstrap-scoped-context.js';
 import { cmsBootstrapKey } from './cms-kv-cache.js';
-import { mergeOperatorHubSites, sortCmsHubSites } from './cms-hub-sites.js';
+import { mergeOperatorHubSites, sortCmsHubSites, isOperatorCmsHubWorkspace } from './cms-hub-sites.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -82,6 +82,7 @@ export async function listCmsSitesForScope(env, { tenantId, workspaceId }) {
       source: meta.source || prev.source || 'unknown',
       target_workspace_id: trim(meta.target_workspace_id) || trim(prev.target_workspace_id) || null,
       is_featured: meta.is_featured ?? prev.is_featured ?? false,
+      hub_priority: Number(meta.hub_priority) || Number(prev.hub_priority) || 0,
       cms_hosting: trim(meta.cms_hosting) || trim(prev.cms_hosting) || null,
     });
   };
@@ -89,16 +90,24 @@ export async function listCmsSitesForScope(env, { tenantId, workspaceId }) {
   let hasWorkspaceRegistry = false;
   try {
     const { results: ctxRows } = await env.DB.prepare(
-      `SELECT project_key, project_name
+      `SELECT project_key, project_name, priority, notes
          FROM agentsam_project_context
         WHERE workspace_id = ? AND project_type = 'cms_site' AND COALESCE(status, 'active') = 'active'
-        ORDER BY project_name, project_key`,
+        ORDER BY COALESCE(priority, 0) DESC, project_name, project_key`,
     )
       .bind(ws)
       .all();
     hasWorkspaceRegistry = (ctxRows || []).length > 0;
     for (const row of ctxRows || []) {
-      addSite(row.project_key, { name: row.project_name, source: 'agentsam_project_context' });
+      const notes = parseJsonSafe(row.notes, {});
+      addSite(row.project_key, {
+        name: row.project_name,
+        source: 'agentsam_project_context',
+        target_workspace_id: trim(notes.target_workspace_id) || null,
+        cms_hosting: trim(notes.cms_hosting) || null,
+        hub_priority: Number(row.priority) || 0,
+        is_featured: notes.hub_launcher === true,
+      });
     }
   } catch (_) {}
 
@@ -251,11 +260,14 @@ async function hydrateSiteDomainsFromTenants(env, sites) {
  * @param {Array<{ slug: string, name?: string, source?: string }>} sites
  * @param {{ primarySlug?: string|null, workspaceSlug?: string|null }} opts
  */
-export function sortSitesForWorkspace(sites, opts = {}) {
+export async function sortSitesForWorkspace(env, sites, opts = {}) {
   const primary = trim(opts.primarySlug);
   const wsSlug = trim(opts.workspaceSlug);
   const workspaceId = trim(opts.workspaceId);
-  if (workspaceId === 'ws_inneranimalmedia' || wsSlug === 'inneranimalmedia') {
+  if (env && workspaceId && (await isOperatorCmsHubWorkspace(env, workspaceId))) {
+    return sortCmsHubSites(sites, { primarySlug: primary });
+  }
+  if (!env && (workspaceId === 'ws_inneranimalmedia' || wsSlug === 'inneranimalmedia')) {
     return sortCmsHubSites(sites, { primarySlug: primary });
   }
   const score = (site) => {
@@ -413,7 +425,7 @@ export async function resolveCmsWorkspaceContext(env, request, authUser, cache =
     });
 
     const projectSlug = project.project_slug;
-    sites = sortSitesForWorkspace(sites, { primarySlug: projectSlug, workspaceSlug, workspaceId });
+    sites = sortSitesForWorkspace(env, sites, { primarySlug: projectSlug, workspaceSlug, workspaceId });
     return {
       error: null,
       user_id: userId,

@@ -3,13 +3,6 @@ import { AppIcon } from '../../components/ui/AppIcon';
 import { projectAccentHue } from '../../src/lib/projectBranding';
 import type { CmsWorkspaceSite } from '../../hooks/useCmsWorkspaceContext';
 
-const FEATURED_SLUG_ORDER = [
-  'inneranimalmedia',
-  'companionscpas',
-  'fuelnfreetime',
-  'meauxbility',
-];
-
 export type CmsSiteLauncherGridProps = {
   sites: CmsWorkspaceSite[];
   activeSlug?: string | null;
@@ -18,16 +11,15 @@ export type CmsSiteLauncherGridProps = {
 };
 
 function sortFeaturedSites(sites: CmsWorkspaceSite[]): CmsWorkspaceSite[] {
-  const bySlug = new Map(sites.map((s) => [s.slug, s]));
-  const featured: CmsWorkspaceSite[] = [];
-  for (const slug of FEATURED_SLUG_ORDER) {
-    const row = bySlug.get(slug);
-    if (row) featured.push(row);
-  }
-  for (const site of sites) {
-    if (!FEATURED_SLUG_ORDER.includes(site.slug)) featured.push(site);
-  }
-  return featured;
+  return [...sites].sort((a, b) => {
+    const priA = Number(a.hub_priority) || 0;
+    const priB = Number(b.hub_priority) || 0;
+    if (priA !== priB) return priB - priA;
+    const fa = a.is_featured ? 1 : 0;
+    const fb = b.is_featured ? 1 : 0;
+    if (fa !== fb) return fb - fa;
+    return String(a.name || a.slug).localeCompare(String(b.name || b.slug));
+  });
 }
 
 function siteSubtitle(site: CmsWorkspaceSite): string {

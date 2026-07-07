@@ -1,5 +1,6 @@
 /**
- * Operator CMS hub — featured client builds visible from ws_inneranimalmedia /dashboard/cms.
+ * Operator CMS hub — featured client builds from D1 (agentsam_project_context + cms_tenants).
+ * No hardcoded client slug maps — registry rows drive launcher, routing, and sort order.
  */
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -15,50 +16,139 @@ function parseJsonSafe(raw, fallback = {}) {
   }
 }
 
-/** Featured order on IAM operator CMS setup (inneranimalmedia first). */
-export const CMS_OPERATOR_HUB_SLUGS = [
-  'inneranimalmedia',
-  'companionscpas',
-  'fuelnfreetime',
-  'meauxbility',
-];
+/**
+ * Workspace hosts the operator CMS hub launcher grid (hub_launcher rows in D1).
+ * @param {any} env
+ * @param {string|null|undefined} workspaceId
+ */
+export async function isOperatorCmsHubWorkspace(env, workspaceId) {
+  const ws = trim(workspaceId);
+  if (!env?.DB || !ws) return false;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT 1 AS ok
+         FROM agentsam_project_context
+        WHERE workspace_id = ?
+          AND project_type = 'cms_site'
+          AND COALESCE(status, 'active') = 'active'
+          AND json_extract(notes, '$.hub_launcher') = 1
+        LIMIT 1`,
+    )
+      .bind(ws)
+      .first();
+    return !!row?.ok;
+  } catch (_) {
+    return false;
+  }
+}
 
-/** CMS slug → runtime workspace for client-worker CMS. */
-export const CMS_SLUG_RUNTIME_WORKSPACE = {
-  inneranimalmedia: 'ws_inneranimalmedia',
-  companionscpas: 'ws_companionscpas',
-  fuelnfreetime: 'ws_fuelnfreetime',
-  meauxbility: 'ws_meauxbility',
-};
+/**
+ * Hub launcher sites for operator CMS setup — from agentsam_project_context + cms_tenants.
+ * @param {any} env
+ * @param {string|null|undefined} operatorWorkspaceId
+ */
+export async function loadOperatorHubLauncherRows(env, operatorWorkspaceId) {
+  const ws = trim(operatorWorkspaceId);
+  if (!env?.DB || !ws) return [];
 
-export const CMS_HUB_BRAND_DEFAULTS = {
-  inneranimalmedia: {
-    name: 'Inner Animal Media',
-    domain: 'inneranimalmedia.com',
-    logo_url:
-      'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/avatar',
-    primary_color: '#007AFF',
-  },
-  companionscpas: {
-    name: 'Companions of Caddo',
-    domain: 'companionsofcaddo.org',
-    logo_url:
-      'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/17381bd3-ef22-4668-dd97-78fa7211b700/avatar',
-    primary_color: '#2f7bff',
-  },
-  fuelnfreetime: {
-    name: 'Fuel N Free Time',
-    domain: 'fuelnfreetime.com',
-    logo_url: null,
-    primary_color: '#c45c26',
-  },
-  meauxbility: {
-    name: 'Meauxbility',
-    domain: 'meauxbility.org',
-    logo_url: null,
-    primary_color: '#10B981',
-  },
-};
+  let ctxRows = [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT project_key, project_name, priority, notes
+         FROM agentsam_project_context
+        WHERE workspace_id = ?
+          AND project_type = 'cms_site'
+          AND COALESCE(status, 'active') = 'active'
+          AND json_extract(notes, '$.hub_launcher') = 1
+        ORDER BY COALESCE(priority, 0) DESC, project_name ASC, project_key ASC`,
+    )
+      .bind(ws)
+      .all();
+    ctxRows = results || [];
+  } catch (_) {
+    return [];
+  }
+
+  const slugs = ctxRows.map((r) => trim(r.project_key)).filter(Boolean);
+  const tenantBySlug = new Map();
+  if (slugs.length) {
+    try {
+      const placeholders = slugs.map(() => '?').join(',');
+      const { results: tenants } = await env.DB.prepare(
+        `SELECT slug, name, domain, logo_url, primary_color
+           FROM cms_tenants
+          WHERE slug IN (${placeholders}) AND COALESCE(is_active, 1) = 1`,
+      )
+        .bind(...slugs)
+        .all();
+      for (const t of tenants || []) {
+        tenantBySlug.set(trim(t.slug), t);
+      }
+    } catch (_) {}
+  }
+
+  return ctxRows.map((row) => {
+    const slug = trim(row.project_key);
+    const notes = parseJsonSafe(row.notes, {});
+    const tenant = tenantBySlug.get(slug);
+    const priority = Number(row.priority) || 0;
+    return {
+      slug,
+      name: trim(tenant?.name) || trim(row.project_name) || slug,
+      domain: trim(tenant?.domain) || null,
+      logo_url: trim(tenant?.logo_url) || null,
+      primary_color: trim(tenant?.primary_color) || null,
+      target_workspace_id: trim(notes.target_workspace_id) || null,
+      cms_hosting: trim(notes.cms_hosting) || 'client_worker',
+      hub_priority: priority,
+      is_featured: true,
+      source: 'cms_hub',
+    };
+  });
+}
+
+/**
+ * Resolve client/runtime workspace for a CMS site slug (D1 only).
+ * @param {any} env
+ * @param {string|null|undefined} scopeWorkspaceId
+ * @param {string|null|undefined} projectSlug
+ */
+export async function resolveTargetWorkspaceIdForCmsSlug(env, scopeWorkspaceId, projectSlug) {
+  const slug = trim(projectSlug);
+  const scopeWs = trim(scopeWorkspaceId);
+  if (!env?.DB || !slug) return null;
+
+  if (scopeWs) {
+    try {
+      const hub = await env.DB.prepare(
+        `SELECT notes FROM agentsam_project_context
+          WHERE workspace_id = ? AND project_key = ? AND project_type = 'cms_site'
+            AND COALESCE(status, 'active') = 'active'
+          LIMIT 1`,
+      )
+        .bind(scopeWs, slug)
+        .first();
+      const notes = parseJsonSafe(hub?.notes, {});
+      const target = trim(notes.target_workspace_id);
+      if (target) return target;
+    } catch (_) {}
+  }
+
+  try {
+    const row = await env.DB.prepare(
+      `SELECT id FROM agentsam_workspace
+        WHERE status = 'active'
+          AND (workspace_slug = ? OR id = ? OR project_id = ?)
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+    )
+      .bind(slug, slug.startsWith('ws_') ? slug : `ws_${slug}`, slug)
+      .first();
+    if (row?.id) return String(row.id);
+  } catch (_) {}
+
+  return null;
+}
 
 /**
  * Resolve which workspace should run CMS for a site slug (client workers vs platform).
@@ -70,98 +160,97 @@ export async function resolveRuntimeWorkspaceForCmsSlug(env, activeWorkspaceId, 
   const active = trim(activeWorkspaceId);
   const slug = trim(projectSlug);
   if (!slug) return active;
-  const mapped = CMS_SLUG_RUNTIME_WORKSPACE[slug];
-  if (mapped && mapped !== active) {
+
+  const target = await resolveTargetWorkspaceIdForCmsSlug(env, active, slug);
+  if (target && target !== active) {
     if (env?.DB) {
       try {
-        const row = await env.DB.prepare(
-          `SELECT id FROM agentsam_workspace WHERE id = ? LIMIT 1`,
-        )
-          .bind(mapped)
+        const row = await env.DB.prepare(`SELECT id FROM agentsam_workspace WHERE id = ? LIMIT 1`)
+          .bind(target)
           .first();
-        if (row?.id) return mapped;
+        if (row?.id) return target;
       } catch (_) {}
     } else {
-      return mapped;
+      return target;
     }
   }
-  if (env?.DB && active) {
-    try {
-      const hub = await env.DB.prepare(
-        `SELECT notes FROM agentsam_project_context
-          WHERE workspace_id = ? AND project_key = ? AND project_type = 'cms_site'
-          LIMIT 1`,
-      )
-        .bind(active, slug)
-        .first();
-      const notes = parseJsonSafe(hub?.notes, {});
-      const target = trim(notes.target_workspace_id);
-      if (target) return target;
-    } catch (_) {}
-  }
+
   return active;
 }
 
 /**
- * Merge featured hub sites into operator workspace site list.
+ * True when operator hub picks a site slug that routes through a client runtime workspace.
+ * @param {any} env
+ * @param {string} operatorWorkspaceId
+ * @param {string|null|undefined} projectSlug
+ */
+export async function isOperatorHubSitePick(env, operatorWorkspaceId, projectSlug) {
+  const ws = trim(operatorWorkspaceId);
+  const slug = trim(projectSlug);
+  if (!env?.DB || !ws || !slug) return false;
+  if (!(await isOperatorCmsHubWorkspace(env, ws))) return false;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT notes FROM agentsam_project_context
+        WHERE workspace_id = ? AND project_key = ? AND project_type = 'cms_site'
+          AND COALESCE(status, 'active') = 'active'
+          AND json_extract(notes, '$.hub_launcher') = 1
+        LIMIT 1`,
+    )
+      .bind(ws, slug)
+      .first();
+    return !!row;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Merge featured hub sites into operator workspace site list (D1 registry).
  * @param {any} env
  * @param {string} workspaceId
  * @param {Map<string, object>} bySlug
  */
 export async function mergeOperatorHubSites(env, workspaceId, bySlug) {
-  if (trim(workspaceId) !== 'ws_inneranimalmedia' || !env?.DB) return;
+  const ws = trim(workspaceId);
+  if (!env?.DB || !ws || !(await isOperatorCmsHubWorkspace(env, ws))) return;
 
-  let tenantRows = [];
-  try {
-    const placeholders = CMS_OPERATOR_HUB_SLUGS.map(() => '?').join(',');
-    const { results } = await env.DB.prepare(
-      `SELECT slug, name, domain, logo_url, primary_color
-         FROM cms_tenants
-        WHERE slug IN (${placeholders}) AND COALESCE(is_active, 1) = 1`,
-    )
-      .bind(...CMS_OPERATOR_HUB_SLUGS)
-      .all();
-    tenantRows = results || [];
-  } catch (_) {}
-
-  const tenantBySlug = new Map(tenantRows.map((r) => [trim(r.slug), r]));
-
-  for (const slug of CMS_OPERATOR_HUB_SLUGS) {
-    const defaults = CMS_HUB_BRAND_DEFAULTS[slug] || {};
-    const tenant = tenantBySlug.get(slug);
+  const hubRows = await loadOperatorHubLauncherRows(env, ws);
+  for (const hub of hubRows) {
+    const slug = trim(hub.slug);
+    if (!slug) continue;
     const prev = bySlug.get(slug) || {};
     bySlug.set(slug, {
       slug,
-      name: trim(tenant?.name) || trim(prev.name) || defaults.name || slug,
-      domain: trim(tenant?.domain) || trim(prev.domain) || defaults.domain || null,
-      logo_url: trim(tenant?.logo_url) || trim(prev.logo_url) || defaults.logo_url || null,
-      primary_color:
-        trim(tenant?.primary_color) || trim(prev.primary_color) || defaults.primary_color || null,
+      name: trim(hub.name) || trim(prev.name) || slug,
+      domain: trim(hub.domain) || trim(prev.domain) || null,
+      logo_url: trim(hub.logo_url) || trim(prev.logo_url) || null,
+      primary_color: trim(hub.primary_color) || trim(prev.primary_color) || null,
       page_count: Number(prev.page_count) || 0,
       updated_at: prev.updated_at || null,
-      source: prev.source || 'cms_hub',
-      target_workspace_id: CMS_SLUG_RUNTIME_WORKSPACE[slug] || null,
-      is_featured: true,
-      cms_hosting: 'platform',
+      source: prev.source || hub.source || 'cms_hub',
+      target_workspace_id: trim(hub.target_workspace_id) || trim(prev.target_workspace_id) || null,
+      cms_hosting: trim(hub.cms_hosting) || trim(prev.cms_hosting) || null,
+      hub_priority: Number(hub.hub_priority) || Number(prev.hub_priority) || 0,
+      is_featured: hub.is_featured === true || prev.is_featured === true,
     });
   }
 }
 
-/** Sort hub sites: featured order first, then name. */
+/** Sort hub sites: primary slug, then hub_priority desc, featured, then name. */
 export function sortCmsHubSites(sites, opts = {}) {
   const primary = trim(opts.primarySlug);
-  const hubIndex = (slug) => {
-    const i = CMS_OPERATOR_HUB_SLUGS.indexOf(trim(slug));
-    return i >= 0 ? i : 99;
-  };
   return [...(sites || [])].sort((a, b) => {
     const pa = trim(a?.slug);
     const pb = trim(b?.slug);
     if (primary && pa === primary) return -1;
     if (primary && pb === primary) return 1;
-    const ha = a.is_featured ? hubIndex(pa) : 50 + hubIndex(pa);
-    const hb = b.is_featured ? hubIndex(pb) : 50 + hubIndex(pb);
-    if (ha !== hb) return ha - hb;
-    return String(a.name || a.slug).localeCompare(String(b.name || b.slug));
+    const priA = Number(a?.hub_priority) || 0;
+    const priB = Number(b?.hub_priority) || 0;
+    if (priA !== priB) return priB - priA;
+    const fa = a?.is_featured ? 1 : 0;
+    const fb = b?.is_featured ? 1 : 0;
+    if (fa !== fb) return fb - fa;
+    return String(a?.name || a?.slug).localeCompare(String(b?.name || b?.slug));
   });
 }

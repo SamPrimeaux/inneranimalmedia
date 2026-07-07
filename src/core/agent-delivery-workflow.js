@@ -9,8 +9,7 @@ function trim(v) {
   return v == null ? '' : String(v).trim();
 }
 
-/** Collab / client IAM build lanes (not main platform or MCP). */
-const IAM_COLLAB_SHIP_SLUGS = new Set(['fuelnfreetime', 'companionscpas']);
+/** Collab / client IAM build lanes — metadata-driven (no slug allowlist). */
 
 const MCP_REPO = 'SamPrimeaux/inneranimalmedia-mcp-server';
 const MCP_ROOT_DEFAULT = '/Users/samprimeaux/inneranimalmedia-mcp-server';
@@ -60,9 +59,9 @@ export function isMainIamPlatformWorkspace(row) {
 export function workspaceHasShipProfile(row) {
   if (!row) return false;
   if (isMcpServerWorkspace(row) || isMainIamPlatformWorkspace(row)) return true;
-  const slug = workspaceSlugFromRow(row);
-  if (slug && IAM_COLLAB_SHIP_SLUGS.has(slug)) return true;
   const meta = parseWorkspaceMetadata(row.metadata_json);
+  const kind = trim(meta.workspace_kind).toLowerCase();
+  if (kind === 'client_saas' || kind === 'collab' || kind === 'client_worker') return true;
   if (meta.delivery_workflow === true || meta.ship_workflow === true) return true;
   return false;
 }

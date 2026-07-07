@@ -11,6 +11,7 @@ export type CmsWorkspaceSite = {
   source?: string;
   target_workspace_id?: string | null;
   is_featured?: boolean;
+  hub_priority?: number;
   cms_hosting?: 'platform' | 'client_worker' | null;
   updated_at?: string | number | null;
 };

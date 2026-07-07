@@ -2,13 +2,12 @@
  * Dashboard storefront URL helpers — delegates to core TypeScript module.
  */
 import {
-  CMS_PRODUCTION_APEX_HOST,
   CMS_TENANT_SLUG_ALIASES,
   resolveCmsPublicDomain,
   resolveCmsStorefrontUrl,
 } from '../../core/cms-storefront-url';
 
-export { CMS_PRODUCTION_APEX_HOST, CMS_TENANT_SLUG_ALIASES, resolveCmsPublicDomain };
+export { CMS_TENANT_SLUG_ALIASES, resolveCmsPublicDomain };
 
 export type StorefrontUrlInput = {
   projectSlug?: string | null;

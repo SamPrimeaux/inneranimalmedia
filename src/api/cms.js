@@ -1583,9 +1583,10 @@ export async function handleCmsApi(request, url, env, ctx) {
   if (path === '/api/cms/websites' && method === 'GET') {
     try {
       const wsCtx = await resolveCmsWorkspaceContext(env, request, authUser, requestCache);
-      const sorted = sortSitesForWorkspace(wsCtx.sites || [], {
+      const sorted = await sortSitesForWorkspace(env, wsCtx.sites || [], {
         primarySlug: wsCtx.project_slug,
         workspaceSlug: wsCtx.workspace_slug,
+        workspaceId: wsCtx.workspace_id,
       });
       return jsonResponse({
         primary_project_slug: wsCtx.project_slug || null,
