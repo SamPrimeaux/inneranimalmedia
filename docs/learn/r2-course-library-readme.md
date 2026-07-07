@@ -22,6 +22,7 @@ Current course folders:
 learn/
   connor-platform-operator/
   software-engineering-builder-os/
+  agentsam-cad-engineering/          # source: docs/learn/courses/agentsam-cad-engineering/
 ```
 
 This README exists so Agent Sam, Cursor, and future maintainers can understand the course storage plan immediately without guessing.

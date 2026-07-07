@@ -13,4 +13,9 @@ OUT="$2"
 os=$(resolve_openscad)
 [[ -n "$os" ]] || { echo "openscad not found; set OPENSCAD_BIN or install OpenSCAD" >&2; exit 1; }
 
+openscadpath="$(resolve_openscadpath || true)"
+if [[ -n "$openscadpath" ]]; then
+  export OPENSCADPATH="$openscadpath"
+fi
+
 exec "$os" -o "$OUT" "$IN"

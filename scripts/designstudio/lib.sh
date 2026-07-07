@@ -9,6 +9,24 @@ REPO_ROOT="$(cd "$DESIGNSTUDIO_SCRIPT_DIR/../.." && pwd)"
 : "${OPENSCAD_BIN:=}"
 : "${BLENDER_BIN:=}"
 : "${FREECAD_BIN:=}"
+: "${OPENSCADPATH:=}"
+
+resolve_openscadpath() {
+  if [[ -n "${OPENSCADPATH}" ]]; then echo "${OPENSCADPATH}"; return; fi
+  local candidates=(
+    "${REPO_ROOT}/vendor/openscad-libs"
+    "/opt/openscad-libs"
+    "/opt/openscad-libs/BOSL2"
+  )
+  local parts=()
+  for c in "${candidates[@]}"; do
+    [[ -d "$c" ]] && parts+=("$c")
+  done
+  if ((${#parts[@]})); then
+    local IFS=:
+    echo "${parts[*]}"
+  fi
+}
 
 resolve_openscad() {
   if [[ -n "${OPENSCAD_BIN}" && -x "${OPENSCAD_BIN}" ]]; then echo "${OPENSCAD_BIN}"; return; fi

@@ -17,6 +17,5 @@
   },
   "source_fcstd": "BIMExample.FCStd",
   "cad_job_id": "cadj_bimexample311065",
-  "glb_up_axis": "Y",
   "note": "bbox_mm from FreeCAD export; glb_up_axis Y after STL→Blender→GLB pipeline."
 }

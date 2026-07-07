@@ -75,6 +75,25 @@ export function resolveSpawnProfile(entity: GameEntity): {
   return { profile, sidecar, fitToViewport, unitScale };
 }
 
+/** Resolve GLB file up-axis (after export). Defaults Y for BIM pipeline (STL→Blender→GLB). */
+export function resolveGlbUpAxis(
+  sidecar: CadPlacementSidecar | null,
+  meta?: Record<string, unknown> | null,
+): 'Y' | 'Z' | null {
+  if (sidecar?.glb_up_axis === 'Y' || sidecar?.glb_up_axis === 'Z') return sidecar.glb_up_axis;
+  const raw = meta?.glb_up_axis;
+  if (raw === 'Y' || raw === 'Z') return raw;
+  if (
+    sidecar?.up_axis === 'Z' ||
+    meta?.up_axis === 'Z' ||
+    meta?.spawn_profile === 'bim' ||
+    sidecar?.spawn?.profile === 'bim'
+  ) {
+    return 'Y';
+  }
+  return null;
+}
+
 /** Resolve CAD up-axis from sidecar and/or spawn metadata. */
 export function resolveModelUpAxis(
   sidecar: CadPlacementSidecar | null,
@@ -97,7 +116,10 @@ export function applySourceOrientation(
   sidecar: CadPlacementSidecar | null,
   meta?: Record<string, unknown> | null,
 ) {
-  if (resolveModelUpAxis(sidecar, meta) === 'Z') {
+  const sourceUp = resolveModelUpAxis(sidecar, meta);
+  const glbUp = resolveGlbUpAxis(sidecar, meta);
+  // Only rotate when source is Z-up AND GLB was not already converted to Y-up in export.
+  if (sourceUp === 'Z' && glbUp !== 'Y') {
     applyZUpModelCorrection(model);
   }
   if (sidecar?.placement?.rotation_euler_deg) {

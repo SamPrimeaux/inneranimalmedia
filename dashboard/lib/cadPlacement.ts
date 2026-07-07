@@ -10,7 +10,10 @@ export type CadSpawnProfile = 'preview' | 'bim';
 export type CadPlacementSidecar = {
   schema: typeof PLACEMENT_SIDECAR_SCHEMA;
   units: 'mm' | 'm' | 'in';
+  /** Source CAD document up axis (FreeCAD/OpenSCAD). */
   up_axis: 'Y' | 'Z';
+  /** GLB file up axis after export pipeline (Blender glTF is typically Y). */
+  glb_up_axis?: 'Y' | 'Z';
   bbox_mm: {
     min: [number, number, number];
     max: [number, number, number];
@@ -56,6 +59,8 @@ export function parsePlacementSidecar(raw: unknown): CadPlacementSidecar | null 
   const units = String(o.units || 'mm').toLowerCase();
   if (units !== 'mm' && units !== 'm' && units !== 'in') return null;
   const up = String(o.up_axis || 'Z').toUpperCase();
+  const glbUpRaw = String(o.glb_up_axis || '').toUpperCase();
+  const glbUp = glbUpRaw === 'Y' || glbUpRaw === 'Z' ? glbUpRaw : undefined;
   const bbox = o.bbox_mm as Record<string, unknown> | undefined;
   const placement = o.placement as Record<string, unknown> | undefined;
   if (!bbox || !placement) return null;
@@ -69,6 +74,7 @@ export function parsePlacementSidecar(raw: unknown): CadPlacementSidecar | null 
     schema: PLACEMENT_SIDECAR_SCHEMA,
     units: units as CadPlacementSidecar['units'],
     up_axis: up === 'Y' ? 'Y' : 'Z',
+    glb_up_axis: glbUp === 'Y' || glbUp === 'Z' ? glbUp : undefined,
     bbox_mm: {
       min: [Number(min[0]) || 0, Number(min[1]) || 0, Number(min[2]) || 0],
       max: [Number(max[0]) || 0, Number(max[1]) || 0, Number(max[2]) || 0],
@@ -106,6 +112,7 @@ export function spawnMetadataFromSidecar(sidecar: CadPlacementSidecar): Record<s
     placement_sidecar: sidecar,
     source_units: sidecar.units,
     up_axis: sidecar.up_axis,
+    glb_up_axis: sidecar.glb_up_axis,
     fit_to_viewport: sidecar.spawn?.fit_to_viewport === true,
     proof_lane: profile === 'bim' ? 'bim' : undefined,
     source_fcstd: sidecar.source_fcstd,

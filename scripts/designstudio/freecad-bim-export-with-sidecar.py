@@ -97,6 +97,7 @@ def main():
             "profile": "bim",
             "fit_to_viewport": False,
         },
+        "glb_up_axis": "Y",
         "source_fcstd": os.path.basename(input_fcstd),
     }
 

@@ -3,6 +3,7 @@
  * Phases 0–9: layout engine, editor primitives, full workspace parity, Chat-only agentic ops.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PanelLeftOpen, PanelRightOpen } from 'lucide-react';
 import type { CadJobRow } from '../api';
 import { fetchCadJob, fetchMeshyAnimationLibrary } from '../api';
@@ -192,6 +193,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   engineLoading = false,
   viewCubeOrientation,
 }) => {
+  const navigate = useNavigate();
   const protocol = useCadStudioProtocol();
   const { setStudioContext } = useDesignStudioContext();
   const importRef = useRef<HTMLInputElement>(null);
@@ -1028,7 +1030,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         animateOpen={animLibVisible}
         onToggleAnimate={() => { if (animLibVisible) closeAnimLib(); else openAnimLib(); }}
         planOpen={false}
-        onTogglePlan={() => protocol.toast('Plan', '2D floor plan mode coming — routes to Excalidraw canvas.')}
+        onTogglePlan={() => navigate('/dashboard/draw?from=designstudio&mode=plan')}
         adjustOpen={inspectorOpen && inspectorTab === 'scene'}
         onToggleAdjust={() => {
           if (inspectorOpen && inspectorTab === 'scene') closeInspector();

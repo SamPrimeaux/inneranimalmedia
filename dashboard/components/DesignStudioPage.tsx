@@ -605,6 +605,7 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
           spawn_profile: 'bim',
           source_units: 'mm',
           up_axis: 'Z',
+          glb_up_axis: 'Y',
           fit_to_viewport: false,
           proof_lane: 'bim',
           engine: 'freecad',

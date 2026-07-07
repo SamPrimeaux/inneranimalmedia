@@ -10,6 +10,8 @@ Production traffic stays on **ExecOS GCP** until smoke is green and `CAD_DISPATC
 |----------|--------|
 | Base | Ubuntu 22.04 |
 | Toolchain | `openscad`, `blender`, `freecad` (apt) |
+| OpenSCAD libs | BOSL2 + gridfinity-rebuilt-openscad at `/opt/openscad-libs` (`OPENSCADPATH`) |
+| Templates | `scripts/designstudio/templates/gridfinity-bin/` (IAM v1) |
 | Instance type | `standard-2` (6 GiB RAM) recommended |
 | Registry tag | `meauxcontainer-cad-worker:cad-v1` |
 | Binding | `env.IAM_CAD_WORKER` → DO `IamCadWorkerContainer` |

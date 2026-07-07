@@ -1,0 +1,129 @@
+{
+  "course_id": "course_agentsam_cad_engineering",
+  "course_slug": "agentsam-cad-engineering",
+  "course_title": "AgentSam CAD Engineering",
+  "r2_bucket": "inneranimalmedia",
+  "r2_prefix": "learn/agentsam-cad-engineering/",
+  "public_base_url": "https://assets.inneranimalmedia.com/learn/agentsam-cad-engineering/",
+  "generated_at": "2026-07-07",
+  "lesson_count": 13,
+  "lessons": [
+    {
+      "lesson_id": "lesson_cad_000_platform_inventory",
+      "module_id": "module_cad_foundations",
+      "title": "IAM platform inventory",
+      "slug": "iam-platform-inventory",
+      "estimated_minutes": 45,
+      "markdown_path": "lessons/00-iam-platform-inventory.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/agentsam-cad-engineering/lessons/00-iam-platform-inventory.md"
+    },
+    {
+      "lesson_id": "lesson_cad_001_bosl2",
+      "module_id": "module_cad_openscad",
+      "title": "BOSL2 — default OpenSCAD abstraction",
+      "slug": "openscad-bosl2",
+      "estimated_minutes": 60,
+      "markdown_path": "lessons/01-openscad-bosl2.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/agentsam-cad-engineering/lessons/01-openscad-bosl2.md"
+    },
+    {
+      "lesson_id": "lesson_cad_002_ecosystem",
+      "module_id": "module_cad_openscad",
+      "title": "OpenSCAD ecosystem reference",
+      "slug": "openscad-ecosystem-reference",
+      "estimated_minutes": 30,
+      "markdown_path": "lessons/02-openscad-ecosystem-reference.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/agentsam-cad-engineering/lessons/02-openscad-ecosystem-reference.md"
+    },
+    {
+      "lesson_id": "lesson_cad_003_gridfinity",
+      "module_id": "module_cad_openscad",
+      "title": "Gridfinity parametric generators",
+      "slug": "gridfinity-parametric-generators",
+      "estimated_minutes": 90,
+      "markdown_path": "lessons/03-gridfinity-parametric-generators.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/agentsam-cad-engineering/lessons/03-gridfinity-parametric-generators.md"
+    },
+    {
+      "lesson_id": "lesson_cad_004_domain",
+      "module_id": "module_cad_openscad",
+      "title": "Domain-specific generators",
+      "slug": "domain-specific-generators",
+      "estimated_minutes": 30,
+      "markdown_path": "lessons/04-domain-specific-generators.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/agentsam-cad-engineering/lessons/04-domain-specific-generators.md"
+    },
+    {
+      "lesson_id": "lesson_cad_005_freecad",
+      "module_id": "module_cad_freecad",
+      "title": "FreeCAD foundation",
+      "slug": "freecad-foundation",
+      "estimated_minutes": 45,
+      "markdown_path": "lessons/05-freecad-foundation.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/agentsam-cad-engineering/lessons/05-freecad-foundation.md"
+    },
+    {
+      "lesson_id": "lesson_cad_006_macros",
+      "module_id": "module_cad_freecad",
+      "title": "FreeCAD library and macros",
+      "slug": "freecad-library-and-macros",
+      "estimated_minutes": 60,
+      "markdown_path": "lessons/06-freecad-library-and-macros.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/agentsam-cad-engineering/lessons/06-freecad-library-and-macros.md"
+    },
+    {
+      "lesson_id": "lesson_cad_007_bim",
+      "module_id": "module_cad_freecad",
+      "title": "FreeCAD BIM / architecture",
+      "slug": "freecad-bim-architecture",
+      "estimated_minutes": 45,
+      "markdown_path": "lessons/07-freecad-bim-architecture.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/agentsam-cad-engineering/lessons/07-freecad-bim-architecture.md"
+    },
+    {
+      "lesson_id": "lesson_cad_008_assemblies",
+      "module_id": "module_cad_freecad",
+      "title": "FreeCAD assemblies",
+      "slug": "freecad-assemblies",
+      "estimated_minutes": 45,
+      "markdown_path": "lessons/08-freecad-assemblies.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/agentsam-cad-engineering/lessons/08-freecad-assemblies.md"
+    },
+    {
+      "lesson_id": "lesson_cad_009_python",
+      "module_id": "module_cad_python",
+      "title": "CadQuery + build123d",
+      "slug": "python-cad-cadquery-build123d",
+      "estimated_minutes": 90,
+      "markdown_path": "lessons/09-python-cad-cadquery-build123d.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/agentsam-cad-engineering/lessons/09-python-cad-cadquery-build123d.md"
+    },
+    {
+      "lesson_id": "lesson_cad_010_preview_ux",
+      "module_id": "module_cad_python",
+      "title": "Code preview UX",
+      "slug": "code-preview-ux",
+      "estimated_minutes": 30,
+      "markdown_path": "lessons/10-code-preview-ux.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/agentsam-cad-engineering/lessons/10-code-preview-ux.md"
+    },
+    {
+      "lesson_id": "lesson_cad_011_integration",
+      "module_id": "module_cad_iam",
+      "title": "IAM integration blueprint",
+      "slug": "iam-integration-blueprint",
+      "estimated_minutes": 45,
+      "markdown_path": "lessons/11-iam-integration-blueprint.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/agentsam-cad-engineering/lessons/11-iam-integration-blueprint.md"
+    },
+    {
+      "lesson_id": "lesson_cad_012_clone",
+      "module_id": "module_cad_iam",
+      "title": "Clone-first checklist",
+      "slug": "clone-setup-checklist",
+      "estimated_minutes": 120,
+      "markdown_path": "lessons/12-clone-setup-checklist.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/agentsam-cad-engineering/lessons/12-clone-setup-checklist.md"
+    }
+  ]
+}

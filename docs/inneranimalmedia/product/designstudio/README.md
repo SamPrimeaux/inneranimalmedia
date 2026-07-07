@@ -6,200 +6,124 @@
 | **Internal codename** | MeauxCAD Design Lab |
 | **Platform** | Inner Animal Media Dashboard |
 | **Route** | `/dashboard/designstudio` |
+| **2D sketch route** | `/dashboard/draw` (Excalidraw) |
 
-**Related files (this folder)**
+**Start here (2026-07):** [`TRUTH-2026-07.md`](TRUTH-2026-07.md) — code-aligned status (replaces stale sections below).  
+**Agent Sam:** [`AGENTSAM.md`](AGENTSAM.md)  
+**Inventory + gaps:** [`docs/platform/design-cad-draw-inventory-2026-07.md`](../../../platform/design-cad-draw-inventory-2026-07.md)
 
-- `E2E-COMPLETE-PLAN-2026-06.md` — **execution plan (no stubs)**: full E2E, Supabase map, runner, UI, Meaux Games, agent delegation.
-- `PIPELINE.md` — **implementation plan**: remote runner, Worker APIs, UI, VoxelEngine gaps, phases.
-- `E2E-TEST-PIPELINE.md` — **Meshy/Spline-free** E2E: blueprint → OpenSCAD → STL → GLB → R2 → D1 → Design Studio; test cases + iPhone proof.
-- `design-blueprints-schema.sql` — DDL for `designstudio_design_blueprints` (mirror of `migrations/247_*`).
-- `companion-tables.md` — suggested `agentsam_*` tables and how they connect.
+---
 
-Parent product docs: `../roadmap.md`, `../goals.md`, `../page-quality-standards.md`, `../known-bugs.md`.
+## Related files
+
+| File | Purpose |
+|------|---------|
+| `TRUTH-2026-07.md` | What works / partial / stub — sign-off gaps |
+| `AGENTSAM.md` | Agent compass for CAD + Draw lanes |
+| `PIPELINE.md` | Runner architecture (off-edge execution) |
+| `E2E-TEST-PIPELINE.md` | Meshy-free E2E test matrix |
+| `E2E-COMPLETE-PLAN-2026-06.md` | Full execution plan |
+| `projects/sams-house-plan.md` | Sam Sketch house plan — data model |
+| `design-blueprints-schema.sql` | Blueprint DDL |
+| `companion-tables.md` | Suggested companion tables |
+
+Study course: `learn/agentsam-cad-engineering/` · D1 migration `799_*`
 
 ---
 
 ## 1. Product definition
 
-Design Studio is an **AI-assisted, local-first 3D creation environment** that combines:
+Design Studio is an **AI-assisted 3D creation environment**:
 
-- Voxel modeling  
-- Parametric CAD direction (OpenSCAD / FreeCAD — target architecture)  
-- AI-assisted design workflows (Agent Sam)  
-- GLB-based real-time rendering (Three.js)  
-- Physics simulation (cannon-es)  
+- **Preview:** Three.js viewport (`AgentSamEngine`) — GLB spawn, Meshy assets, games/chess  
+- **Execution:** OpenSCAD, FreeCAD, Blender, Meshy via off-edge runners — **not** in-browser CAD  
+- **Sketch:** Excalidraw on `/dashboard/draw` for 2D plans and wireframes  
+- **Agent:** `illustration_create` SSOT router  
 
----
-
-## 2. Current state (implementation truth)
-
-### What exists
-
-- Three.js scene and camera system  
-- Voxel-based modeling  
-- CAD-like plane drawing (XZ / XY / YZ)  
-- GLB import and drag/drop  
-- Basic physics (cannon-es)  
-- UI: left panel, HUD, bottom tool bar  
-- Modes: **Games**, **Agent Sam (CAD)**, **Sandbox**  
-
-### Partially implemented
-
-- CAD tools: **circle, sphere, cone** not implemented in `VoxelEngine`  
-- Undo/redo: basic entity stack only  
-- Export: **JSON** download only (“Blender Bridge”), not GLB/STL  
-- Assets: mix of hardcoded URLs and **D1** (`cms_assets` for chess via `/api/games/pieces`)  
-
-### Missing (critical gaps)
-
-- No end-to-end **AI → CAD** pipeline in product code  
-- No **structured design intent** layer in DB (see `design-blueprints-schema.sql`)  
-- No **OpenSCAD / FreeCAD** integration in the live app  
-- No **persistent project** system for studio sessions  
-- **Generation** UI (style / density / physics toggles) largely **not wired** to `VoxelEngine`  
-- No **metrics → learning** loop for this surface  
+Design Studio is **not** a web clone of FreeCAD/Blender. It is a calm frontend over real engines, templates, and export pipelines.
 
 ---
 
-## 3. Core vision
+## 2. Current state (summary — see TRUTH doc for detail)
 
-**From idea → structured plan → CAD → asset → refinement → learning loop.**
+### Production-ready
+- Draw (Excalidraw), libraries, save/export, agent tools  
+- CAD job APIs + runner pipeline (GCP + container path)  
+- Meshy text/image → GLB loop (~complete; animation UI polishing)  
+- `illustration_create` multi-engine router  
+- OpenSCAD library registry (D1 775) + intent resolver  
+- Sam Sketch project (`proj_mrb5shkc_3kos2c`) — dynamic cover + files in D1  
 
-Design Studio is **not** only a 3D editor. It is an **AI-assisted design system with memory and metrics**.
+### In progress (valid, not signed off)
+- Blueprint-driven phase router (sketch → massing → render)  
+- Template families (Gridfinity v1 scaffold + BOSL2 on worker image)  
+- BIM spawn orientation (fixed 2026-07 — deploy to verify)  
+- Mobile UX polish  
+- Learn course in `/dashboard/learn`  
+
+### Not real / stubs
+- Spline import button  
+- Legacy `designstudio_*` tool names without handlers  
+- In-browser parametric CAD editing  
+- CadQuery/build123d runners (planned)  
 
 ---
 
-## 4. Architecture direction (layers)
+## 3. Architecture (layers)
 
 | Layer | Contents |
 |--------|-----------|
-| **1 — UI / interaction** | React SPA, Three.js viewport, tool overlays; optional Excalidraw concept layer |
-| **2 — Engine** | `VoxelEngine` (existing); CAD engine abstraction (new); parametric engine (OpenSCAD bridge, target) |
-| **3 — AI orchestration** | Agent Sam, tool system (`agentsam_*`), planning and workflows |
-| **4 — Data + learning** | D1 / SQLite / Supabase; token and latency tracking; outcome scoring |
+| **UI** | React — entry screen, CadStudioShell, Creation lane, Draw |
+| **Viewport** | `AgentSamEngine.ts` (Three.js + cannon-es) |
+| **API** | `src/api/cad.js`, `designstudio/index.js`, `draw.js` |
+| **Execution** | `cad-job-runner.mjs`, `iam-cad-worker` container, ExecOS |
+| **Agent** | `illustration_create` → `iam-illustration-router.js` |
+| **Data** | D1: jobs, blueprints, libraries, projects, cms_assets |
 
 ---
 
-## 5. Product modes (refined)
+## 4. Key routes & APIs
 
-### Games mode
+```txt
+/dashboard/designstudio     — 3D studio
+/dashboard/draw             — Excalidraw sketch
+/dashboard/projects/:id     — project chat + files (Sam Sketch)
 
-- **Purpose:** Interactive physics and gameplay.  
-- **Enhancements:** Multiplayer, physics constraints, scriptable entities.  
-
-### Agent Sam mode (core) — internal name: **Blueprint mode**
-
-- **Purpose:** AI-assisted CAD and structured modeling.  
-- **Enhancements:** OpenSCAD generation, parametric constraints, design intent tracking, AI suggestions.  
-
-### Sandbox mode
-
-- **Purpose:** Free experimentation.  
-- **Enhancements:** Full physics controls, stress testing, debug visualization.  
+POST /api/cad/openscad/generate
+POST /api/cad/freecad/script
+POST /api/cad/meshy/*
+GET  /api/designstudio/blueprints
+illustration_create         — agent SSOT
+```
 
 ---
 
-## 6. Phase roadmap
+## 5. Engine matrix (north star)
 
-### Phase 1 — Foundation (now)
-
-**Goal:** Stabilize and wire real functionality.
-
-- OpenSCAD CLI → export pipeline (where approved for runtime).  
-- `.scad` generation path and tooling.  
-- Implement missing CAD tools (circle, sphere, cone) in `VoxelEngine`.  
-- Replace JSON-only export with STL / GLB path (e.g. Blender batch) as infrastructure allows.  
-- Normalize asset system (DB-backed catalog).  
-
-### Phase 2 — AI integration
-
-**Goal:** Make Agent Sam materially useful on this route.
-
-- `designstudio_design_blueprints` + intent JSON workflow.  
-- Prompt → structured plan → CAD code.  
-- Excalidraw sketch pipeline.  
-- Model providers (e.g. OpenAI / local Ollama) per org policy.  
-
-### Phase 3 — Parametric CAD
-
-**Goal:** True CAD-style behavior.
-
-- OpenSCAD integration as core path.  
-- FreeCAD scripting bridge (optional).  
-- Constraint system: dimensions, relationships, regeneration.  
-
-### Phase 4 — Asset pipeline
-
-**Goal:** Production-ready assets.
-
-- GLB optimization, R2 storage, versioning, metadata.  
-
-### Phase 5 — Learning system
-
-**Goal:** Self-improving loop.
-
-- Token and cost tracking per tool, success/failure scoring, optimization hints.  
+| Engine | Role | Status |
+|--------|------|--------|
+| excalidraw | 2D sketch / wireframe | ✅ |
+| openscad + BOSL2 | STL generators | ✅ runner |
+| freecad | FCStd / BIM / STEP | ✅ partial |
+| blender | GLB convert / scripts | ✅ runner |
+| meshy | Cloud 3D + anim | ✅ ~complete |
+| cadquery / build123d | Python CAD | 🔲 planned |
 
 ---
 
-## 7. Key data systems
+## 6. Deprecated doc claims
 
-### Design blueprint (new, critical)
+The following in older revisions of this README are **wrong** — use `TRUTH-2026-07.md` instead:
 
-Sits between **user idea** and **CAD code**. Schema: `design-blueprints-schema.sql`.
-
-### Tool execution tracking
-
-Existing: `agentsam_tool_call_log`, `agentsam_tool_chain`. Extend with latency, tokens, cost where missing.
-
-### Asset tracking
-
-`cms_3d_assets` and aligned catalog tables (see `companion-tables.md`).
+- "VoxelEngine" → **`AgentSamEngine`**
+- "No OpenSCAD integration" → jobs + runner exist
+- "JSON-only export" → GLB via runner; JSON is debug/bridge only
+- "No AI → CAD pipeline" → `illustration_create` + jobs exist; missing **guided UX**
 
 ---
 
-## 8. Target AI workflow (illustrative)
+## 7. Standalone product path
 
-1. User: “Build a parametric chess board.”  
-2. Agent Sam creates / updates a blueprint row (`intent_json`).  
-3. Generate OpenSCAD (or target CAD script) → `cad_script`.  
-4. CLI export → STL; optional conversion → GLB.  
-5. Load into scene; attach `latest_asset_id`.  
-6. Log metrics; update quality / success fields over time.  
+Design Studio + Draw + project system (`projects`, blueprints, assets) is the progression toward a standalone creativity product. Sam Sketch (`proj_mrb5shkc_3kos2c`) is the reference project — data in D1, not hardcoded dashboard constants.
 
----
-
-## 9. UX direction
-
-**Strengths:** Clear layout, mode switching, solid viewport.
-
-**Gaps:** Remove or wire dead controls; contextual tools; design timeline; history panel; constraints panel.
-
----
-
-## 10. Non-negotiables
-
-- Traceability: tokens, latency, cost where applicable.  
-- **Local-first** and **offline-capable** where product allows.  
-- **AI optional** — core editing must work without model calls.  
-
----
-
-## 11. Success criteria
-
-Design Studio becomes: **CAD system + design assistant + learning engine + production pipeline**.
-
-**Final statement:** Built correctly, Design Studio plus Agent Sam is a platform that **designs, builds, learns, and improves** — not a single feature.
-
----
-
-## Source code pointers (repo)
-
-| Area | Location |
-|------|-----------|
-| Page | `agent-dashboard/agent-dashboard/components/DesignStudioPage.tsx` |
-| Engine | `agent-dashboard/agent-dashboard/services/VoxelEngine.ts` |
-| HUD / CAD chrome | `agent-dashboard/agent-dashboard/components/UIOverlay.tsx` |
-| Types | `agent-dashboard/agent-dashboard/types.ts` |
-| Games API (pieces) | `src/api/games.js` — `GET /api/games/pieces` |
-| Worker SPA segment | `worker.js` — `SPA_ROUTES` includes `designstudio` |
+Parent platform context: `ctx_designstudio_games_remaster_2026_06` (migration 681).

@@ -1,0 +1,16 @@
+{
+  "slug": "gridfinity-bin",
+  "engine": "openscad",
+  "display_name": "Gridfinity bin (IAM v1)",
+  "description": "Parametric organizer bin — BOSL2 body; gridfinity-rebuilt on OPENSCADPATH in iam-cad-worker.",
+  "libraries": ["bosl2"],
+  "params": {
+    "grid_x": { "type": "int", "min": 1, "max": 6, "default": 2 },
+    "grid_y": { "type": "int", "min": 1, "max": 6, "default": 2 },
+    "height_mm": { "type": "number", "min": 20, "max": 120, "default": 42 },
+    "wall_mm": { "type": "number", "min": 1, "max": 4, "default": 1.2 }
+  },
+  "openscad_defines": ["grid_x", "grid_y", "height_mm", "wall_mm"],
+  "source_scad": "gridfinity-bin.scad",
+  "license_note": "BOSL2 BSD-2-Clause; study gridfinity-rebuilt-openscad upstream separately for full Gridfinity compliance."
+}

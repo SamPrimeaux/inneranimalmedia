@@ -6,10 +6,17 @@ ENV PORT=8080
 ENV IAM_IMAGE_TAG=cad-v1
 ENV QT_QPA_PLATFORM=offscreen
 ENV HOME=/tmp
+ENV OPENSCADPATH=/opt/openscad-libs/BOSL2:/opt/openscad-libs/gridfinity-rebuilt-openscad
+
+# Vendor OpenSCAD libraries for agent-generated scripts (BOSL2 + Gridfinity study template).
+RUN mkdir -p /opt/openscad-libs \
+  && git clone --depth 1 https://github.com/BelfrySCAD/BOSL2.git /opt/openscad-libs/BOSL2 \
+  && git clone --depth 1 https://github.com/kennetek/gridfinity-rebuilt-openscad.git /opt/openscad-libs/gridfinity-rebuilt-openscad
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    git \
     python3 \
     python3-pip \
     openscad \
@@ -51,6 +58,7 @@ COPY scripts/designstudio/run-openscad.sh ./scripts/designstudio/run-openscad.sh
 COPY scripts/designstudio/run-freecad.sh ./scripts/designstudio/run-freecad.sh
 COPY scripts/designstudio/lib.sh ./scripts/designstudio/lib.sh
 COPY scripts/designstudio/stl-to-glb.py ./scripts/designstudio/stl-to-glb.py
+COPY scripts/designstudio/templates ./scripts/designstudio/templates
 COPY scripts/lib/glb-optimize.mjs ./scripts/lib/glb-optimize.mjs
 
 RUN chmod +x ./scripts/designstudio/*.sh \
