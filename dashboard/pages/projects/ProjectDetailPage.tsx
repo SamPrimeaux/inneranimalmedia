@@ -9,6 +9,7 @@ import {
   Clock,
   Paperclip,
   ExternalLink,
+  FileText,
   FolderOpen,
   Image as ImageIcon,
   MoreHorizontal,
@@ -1090,6 +1091,7 @@ export default function ProjectDetailPage() {
     <ul className="cpd-files-list">
       {documentFiles.map((f) => (
         <li key={`${f.url}-${f.name}`}>
+          <FileText size={14} strokeWidth={1.75} aria-hidden className="cpd-files-doc-icon" />
           <a href={f.url} target="_blank" rel="noreferrer noopener">
             {f.name}
           </a>
@@ -1371,6 +1373,7 @@ export default function ProjectDetailPage() {
             <>
               <p className="cpd-rail-preview-text">
                 {projectFiles.length} file{projectFiles.length === 1 ? '' : 's'} attached
+                {documentFiles.length > 0 ? ` · ${documentFiles.length} doc${documentFiles.length === 1 ? '' : 's'}` : ''}
                 {imageFiles.length > 0 ? ` · ${imageFiles.length} image${imageFiles.length === 1 ? '' : 's'}` : ''}
               </p>
               {imageFiles.length > 0 ? (
@@ -3077,14 +3080,21 @@ const CSS = `
 .cpd-files-list li {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   font-size: 12px;
   padding: 6px 8px;
   border-radius: 8px;
   border: 1px solid var(--dashboard-border);
 }
+.cpd-files-doc-icon {
+  flex-shrink: 0;
+  color: var(--color-muted, #94a3b8);
+  opacity: 0.85;
+}
 .cpd-files-list a {
+  flex: 1;
+  min-width: 0;
   color: var(--solar-cyan, #22d3ee);
   text-decoration: none;
   overflow: hidden;
