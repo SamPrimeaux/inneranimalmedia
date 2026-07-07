@@ -15,6 +15,11 @@ import { RUNTIME_PROFILE_VERSION } from './runtime-profile.types.js';
 import { selectInAppAgentSpineToolsForAgentChat } from './in-app-agent-spine.js';
 import { sanitizeGithubRepoContextForChat } from './github-repo-scope.js';
 import { authUserIsSuperadmin } from './auth.js';
+import { parseSessionProjectIdFromChatBody } from './project-chat-link.js';
+import { askDataPlaneIntent, codeContextIntent } from './ask-evidence-tools.js';
+
+/** Read-only project Q&A — memory + Vectorize, no D1 tool fanout. */
+export const USER_APP_PROJECT_QNA_ROUTE = 'project_qna_fast';
 
 export const RUNTIME_LANE_USER_APP = 'user_app';
 export const RUNTIME_LANE_TENANT_SAAS = 'tenant_saas';
@@ -83,6 +88,58 @@ export function resolveRuntimeLane(body, pre = {}) {
  */
 export function shouldUseUserAppRuntimeLane(body, pre = {}) {
   return resolveRuntimeLane(body, pre) === RUNTIME_LANE_USER_APP;
+}
+
+/**
+ * @param {Record<string, unknown>|null|undefined} body
+ * @param {ProjectContext|null|undefined} projectContext
+ * @returns {string|null}
+ */
+export function resolveUserAppProjectScopeRef(body, projectContext) {
+  const fromBody = parseSessionProjectIdFromChatBody(body);
+  if (fromBody) return fromBody;
+  const direct = trim(body?.project_id ?? body?.projectId);
+  return direct || null;
+}
+
+/**
+ * @param {Record<string, unknown>|null|undefined} body
+ * @param {ProjectContext|null|undefined} projectContext
+ */
+export function hasUserAppProjectScope(body, projectContext) {
+  return !!(resolveUserAppProjectScopeRef(body, projectContext) || projectContext?.github_repo);
+}
+
+/**
+ * Trivial / read-only project questions — answer from injected memory + RAG, not agentsam_d1_query.
+ * @param {string} message
+ */
+export function isProjectReadOnlyChatMessage(message) {
+  const t = String(message || '');
+  if (!t.trim()) return false;
+  const mutationIntent =
+    /\b(fix|patch|edit|implement|deploy|run|execute|write|create|add|update|migrate|refactor|change)\b/i.test(
+      t,
+    );
+  const hasCodeContext = codeContextIntent(t);
+  if (mutationIntent && !hasCodeContext) return false;
+  if (askDataPlaneIntent(t)) return false;
+  if (codeContextIntent(t)) return false;
+  if (/\b(terminal|sandbox|wrangler|github_write|commit|push)\b/i.test(t)) return false;
+  return true;
+}
+
+/**
+ * @param {Record<string, unknown>|null|undefined} body
+ * @param {ProjectContext|null|undefined} projectContext
+ * @param {string} mode
+ * @param {string} message
+ */
+export function shouldUseProjectQnaFastLane(body, projectContext, mode, message) {
+  if (!hasUserAppProjectScope(body, projectContext)) return false;
+  const normalized = normalizeAgentRuntimeMode(mode);
+  if (normalized === 'debug' || normalized === 'multitask' || normalized === 'plan') return false;
+  return isProjectReadOnlyChatMessage(message);
 }
 
 /**
@@ -196,10 +253,11 @@ async function loadWorkspaceDefaultModel(env, workspaceId) {
  * }} input
  */
 export async function compileUserAppRuntimeProfile(env, input) {
-  const mode = /** @type {Exclude<import('./agent-mode.js').AgentMode, 'auto'>} */ (
+  let mode = /** @type {Exclude<import('./agent-mode.js').AgentMode, 'auto'>} */ (
     normalizeAgentRuntimeMode(input.mode) === 'auto' ? 'agent' : normalizeAgentRuntimeMode(input.mode)
   );
   const message = trim(input.message);
+  const body = input.body && typeof input.body === 'object' ? input.body : null;
   const session = input.session || {};
   const workspaceId = trim(session.workspaceId);
   const userId = trim(session.userId);
@@ -209,6 +267,16 @@ export async function compileUserAppRuntimeProfile(env, input) {
     input.isSuperadmin === true ||
     session.isSuperadmin === true ||
     authUserIsSuperadmin(session.authUser);
+  const hasProjectScope = hasUserAppProjectScope(body, input.projectContext ?? null);
+  const projectQnaFastLane = shouldUseProjectQnaFastLane(
+    body,
+    input.projectContext ?? null,
+    mode,
+    message,
+  );
+  if (projectQnaFastLane && (mode === 'agent' || mode === 'auto')) {
+    mode = 'ask';
+  }
 
   const modelOverrideRaw = trim(overrides.model_key);
   const isAutoModel = !modelOverrideRaw || modelOverrideRaw.toLowerCase() === 'auto';
@@ -216,7 +284,7 @@ export async function compileUserAppRuntimeProfile(env, input) {
   let compiledToolRows = [];
   let toolAllowlist = [];
 
-  if (env?.DB && workspaceId && userId) {
+  if (env?.DB && workspaceId && userId && !projectQnaFastLane) {
     const executionMode = mode === 'agent' || mode === 'debug' || mode === 'multitask';
     if (executionMode) {
       const { selectOAuthMcpParityToolsForAgentChat, IN_APP_MCP_PARITY_TOOL_LIMIT } = await import(
@@ -246,7 +314,7 @@ export async function compileUserAppRuntimeProfile(env, input) {
   }
 
   const modeContract = AGENT_MODE_CONTRACT[mode] || AGENT_MODE_CONTRACT.agent;
-  const routeKey = 'user_app';
+  const routeKey = projectQnaFastLane ? USER_APP_PROJECT_QNA_ROUTE : 'user_app';
 
   /** @type {import('./runtime-profile.types.js').RuntimeProfile} */
   const profile = {
@@ -265,20 +333,20 @@ export async function compileUserAppRuntimeProfile(env, input) {
       allowlist: toolAllowlist,
       denylist: [],
       require_approval: [],
-      max_tool_calls: 15,
-      max_runtime_ms: 90000,
+      max_tool_calls: projectQnaFastLane ? 0 : 15,
+      max_runtime_ms: projectQnaFastLane ? 45000 : 90000,
     },
-    max_tools: toolAllowlist.length,
-    max_tool_calls: 15,
-    max_turns: 6,
-    max_runtime_ms: 90000,
+    max_tools: projectQnaFastLane ? 0 : toolAllowlist.length,
+    max_tool_calls: projectQnaFastLane ? 0 : 15,
+    max_turns: projectQnaFastLane ? 1 : 6,
+    max_runtime_ms: projectQnaFastLane ? 45000 : 90000,
     write_policy: defaultWritePolicyForMode(mode),
     workflow_key: null,
     execution_kind: resolveExecutionKind(mode),
     context_policy: {
-      include_rag: false,
-      include_memory: false,
-      include_workspace: false,
+      include_rag: hasProjectScope,
+      include_memory: hasProjectScope,
+      include_workspace: hasProjectScope,
       fresh_thread_recommended: false,
     },
     routing_task_type: mode,
@@ -296,11 +364,12 @@ export async function compileUserAppRuntimeProfile(env, input) {
     refined_route_key: routeKey,
     color: modeContract.color || 'blue',
     tool_profile: 'execution',
-    tool_capable_required: toolAllowlist.length > 0,
+    tool_capable_required: projectQnaFastLane ? false : toolAllowlist.length > 0,
     selected_provider: null,
     _compiled_tool_rows: compiledToolRows,
     _runtime_lane: RUNTIME_LANE_USER_APP,
     _project_context: input.projectContext ?? null,
+    _project_qna_fast_lane: projectQnaFastLane,
   };
 
   let modelKey = isAutoModel ? null : modelOverrideRaw;
@@ -328,6 +397,8 @@ export async function compileUserAppRuntimeProfile(env, input) {
       model_key: profile.model_key,
       tool_count: toolAllowlist.length,
       project_repo: input.projectContext?.github_repo ?? null,
+      project_qna_fast_lane: projectQnaFastLane,
+      has_project_scope: hasProjectScope,
       message_len: message.length,
     }),
   );

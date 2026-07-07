@@ -130,6 +130,7 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
         ? compileUserAppRuntimeProfile(env, {
             mode: requestedMode,
             message,
+            body,
             session: { userId, workspaceId, tenantId, conversationId: sessionId, authUser },
             overrides: {
               model_key: runtimeOverrides.model_key,
@@ -194,10 +195,9 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     casualChatTurn || !workspaceBindingIdentifier
       ? null
       : await resolveWorkspaceBindings(env, workspaceBindingIdentifier);
-  const sessionProjectContextBlock =
-    sessionProjectRef && !casualChatTurn
-      ? await loadSessionProjectContextSystemBlock(env, sessionProjectRef, workspaceId)
-      : '';
+  const sessionProjectContextBlock = sessionProjectRef
+    ? await loadSessionProjectContextSystemBlock(env, sessionProjectRef, workspaceId)
+    : '';
   const projectContextBlock =
     casualChatTurn || userAppLane
       ? ''
@@ -260,6 +260,7 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
         ? await compileUserAppRuntimeProfile(env, {
             mode: 'agent',
             message,
+            body,
             session: { userId, workspaceId, tenantId, conversationId: sessionId, authUser },
             overrides: {
               model_key: modelOverride,

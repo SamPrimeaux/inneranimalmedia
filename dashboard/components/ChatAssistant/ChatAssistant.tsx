@@ -52,6 +52,7 @@ import {
   IAM_AGENT_CHAT_NEW_THREAD,
   IAM_AGENT_CHAT_COMPOSE,
   IAM_AGENT_CHAT_READY,
+  IAM_AGENT_PROJECT_CHAT_START,
   IAM_AGENT_MOBILE_CODE_FOCUS,
   LS_AGENT_CHAT_CONVERSATION_ID,
   type AgentChatComposeDetail,
@@ -1306,6 +1307,19 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       /* ignore */
     }
   }, [mode]);
+
+  useEffect(() => {
+    const onProjectChatStart = (e: Event) => {
+      const preferred = (e as CustomEvent<{ mode?: string }>).detail?.mode;
+      if (preferred === 'ask' || preferred === 'agent') {
+        setMode(preferred);
+      } else {
+        setMode('ask');
+      }
+    };
+    window.addEventListener(IAM_AGENT_PROJECT_CHAT_START, onProjectChatStart);
+    return () => window.removeEventListener(IAM_AGENT_PROJECT_CHAT_START, onProjectChatStart);
+  }, []);
 
   useEffect(() => {
     try {

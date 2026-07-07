@@ -47,6 +47,7 @@ import {
   IAM_AGENT_CHAT_NEW_THREAD,
   IAM_AGENT_CHAT_COMPOSE,
   IAM_AGENT_CHAT_READY,
+  IAM_AGENT_PROJECT_CHAT_START,
   IAM_AGENT_SYNC_CONVERSATION_URL,
   IAM_AGENT_MOBILE_CODE_FOCUS,
   IAM_ARTIFACT_OPEN_BUILDER,
@@ -2154,6 +2155,9 @@ const App: React.FC = () => {
           id: projectId,
           name: detail?.projectName?.trim() || 'Project',
         });
+        window.dispatchEvent(
+          new CustomEvent(IAM_AGENT_PROJECT_CHAT_START, { detail: { mode: 'ask' } }),
+        );
       }
 
       setAgentPosition('off');

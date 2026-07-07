@@ -44,6 +44,13 @@ export const IAM_AGENT_CHAT_NEW_THREAD = 'iam-agent-chat-new-thread';
 /** ChatAssistant mounted and listening for pending App sends. */
 export const IAM_AGENT_CHAT_READY = 'iam-agent-chat-ready';
 
+/** App opened project-scoped chat — ChatAssistant should prefer Ask mode for fast Q&A. */
+export const IAM_AGENT_PROJECT_CHAT_START = 'iam-agent-project-chat-start';
+
+export type AgentProjectChatStartDetail = {
+  mode?: 'ask' | 'agent';
+};
+
 /** App should navigate to `/dashboard/agent/{id}` (React Router — not replaceState). */
 export const IAM_AGENT_SYNC_CONVERSATION_URL = 'iam-agent-sync-conversation-url';
 

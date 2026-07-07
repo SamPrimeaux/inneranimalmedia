@@ -187,6 +187,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   const createSubagentFlow = resolveCreateSubagentFlow(chatMessages);
 
   const skipHeavyContext =
+    !profile.context_policy?.include_rag &&
     !visionUploadActive &&
     !createSubagentFlow.active &&
     !activeFileEnvelope &&
@@ -462,6 +463,15 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       '\n\n## Ask mode (read-only)\nAnswer directly. Use read-only evidence tools when the question ' +
       'needs codebase, D1, or project context. Never mutate files, run terminal commands, deploy, or write to D1. ' +
       'If the user asks you to fix or implement something, explain the likely approach and suggest switching to Agent or Debug.';
+  }
+
+  if (
+    profile.refined_route_key === 'project_qna_fast' ||
+    profile._project_qna_fast_lane === true
+  ) {
+    systemPrompt +=
+      '\n\n## Project Q&A (fast lane)\nAnswer from the Project session context and any retrieved semantic context above. ' +
+      'Do not call agentsam_d1_query or other database tools unless the user explicitly asks for live SQL, row counts, or schema inspection.';
   } else if (profile.mode === 'agent' || profile.mode === 'debug' || profile.mode === 'multitask') {
     systemPrompt +=
       '\n\n## Tool execution (required)\nWhen the user asks you to run shell commands, spin up containers, ' +
