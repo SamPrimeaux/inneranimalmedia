@@ -4,6 +4,20 @@
 import { dispatchCatalogToolResult } from '../dispatch-by-tool-code.js';
 import { loadAvailableToolsForCapability, toolRequiresApproval } from '../tool-registry.js';
 
+import { buildWireframeExcalidrawScene } from '../../core/iam-wireframe-excalidraw-scene.js';
+
+function buildScene(message) {
+  const msg = String(message || '').trim();
+  if (/\bwireframe\b/i.test(msg) || /\b(lo-?fi|sketch).*(flow|screen|ui|ux)\b/i.test(msg)) {
+    return buildWireframeExcalidrawScene({
+      title: msg.slice(0, 80) || 'Wireframe',
+      brief: msg,
+      intent: 'wireframe',
+    });
+  }
+  return buildSimpleScene(message);
+}
+
 function buildSimpleScene(message) {
   const idBase = () => `cap_${Math.random().toString(36).slice(2, 10)}`;
   const title = String(message || '').slice(0, 80) || 'Workspace diagram';
@@ -100,7 +114,7 @@ export async function runExcalidrawCapabilityAction(p) {
   emit('surface_open', { surface: 'excalidraw', reason: 'workspace_capability_excalidraw' });
   emit('agent_surface_open', { surface: 'excalidraw', reason: 'workspace_capability_excalidraw' });
 
-  const scene = buildSimpleScene(message);
+  const scene = buildScene(message);
   const registry = await loadAvailableToolsForCapability(env, tenantId, workspaceId, userId, 'excalidraw');
 
   const has = (n) => registry.some((r) => r.tool_name === n);

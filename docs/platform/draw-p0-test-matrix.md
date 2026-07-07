@@ -1,6 +1,6 @@
 # Draw P0 — test matrix (Agent Sam / Excalidraw)
 
-Run each prompt in **Draw** (`/dashboard/draw`) or via Agent Sam with `excalidraw_load_library` + `excalidraw_add_elements` / `illustration_create`.  
+Run each prompt in **Draw** (`/dashboard/draw`) or via Agent Sam with **`illustration_create`** (intent `wireframe`, engine `excalidraw`) — not ASCII text in chat.  
 P0 libraries must be uploaded (`node scripts/publish-draw-p0-libraries.mjs`) and migration **783** applied first.
 
 ## Auto-load wireframe set (default canvas)

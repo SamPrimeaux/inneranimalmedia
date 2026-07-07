@@ -1,6 +1,4 @@
-/**
- * Minimal Excalidraw scene from iam.illustration.v1 brief (no AI).
- */
+import { buildWireframeExcalidrawScene } from './iam-wireframe-excalidraw-scene.js';
 
 const SOURCE = 'https://inneranimalmedia.com/dashboard/draw';
 
@@ -101,6 +99,11 @@ export function buildIllustrationExcalidrawScene(p) {
   const title = String(p.title || 'Illustration').slice(0, 200);
   const brief = String(p.brief || '').slice(0, 4000);
   const intent = String(p.intent || 'sketch').slice(0, 80);
+
+  if (intent === 'wireframe' || /\bwireframe\b/i.test(brief) || /\blo-?fi\b/i.test(brief)) {
+    return buildWireframeExcalidrawScene({ title, brief, intent });
+  }
+
   const elements = [];
   const cardW = 920;
   const M = 48;
