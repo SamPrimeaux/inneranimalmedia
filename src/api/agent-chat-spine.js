@@ -192,9 +192,15 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
       workspaceId,
   );
   const workspaceBindings =
-    casualChatTurn || !workspaceBindingIdentifier
+    !workspaceBindingIdentifier
       ? null
       : await resolveWorkspaceBindings(env, workspaceBindingIdentifier);
+  const projectExecutionBindings =
+    sessionProjectRef && workspaceBindings
+      ? workspaceBindings
+      : sessionProjectRef
+        ? await resolveWorkspaceBindings(env, sessionProjectRef)
+        : null;
   const sessionProjectContextBlock = sessionProjectRef
     ? await loadSessionProjectContextSystemBlock(env, sessionProjectRef, workspaceId)
     : '';
@@ -249,6 +255,8 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     agentChatResolvedContext,
     projectContextBlock,
     sessionProjectContextBlock,
+    sessionProjectRef: sessionProjectRef || null,
+    projectExecutionBindings,
     workspaceBindings,
     chatTurnMeta: pre.chatTurnMeta ?? null,
   };

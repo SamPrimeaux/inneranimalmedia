@@ -419,7 +419,18 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     }
   }
 
-  if (workspaceId && !createSubagentFlow.active && !skipHeavyContext) {
+  const sessionProjectRef =
+    input.sessionProjectRef != null ? String(input.sessionProjectRef).trim() : '';
+  const projectExecBindings = input.projectExecutionBindings ?? null;
+
+  if (sessionProjectRef && projectExecBindings && !createSubagentFlow.active) {
+    try {
+      const { appendWorkspaceBindingBlockToPrompt } = await import('../workspace-chat-scope.js');
+      systemPrompt = appendWorkspaceBindingBlockToPrompt(systemPrompt, projectExecBindings);
+    } catch (e) {
+      console.warn('[agent-controller] project_execution_bindings', e?.message ?? e);
+    }
+  } else if (workspaceId && !createSubagentFlow.active && !skipHeavyContext && !sessionProjectRef) {
     try {
       const {
         fetchWorkspaceChatBinding,

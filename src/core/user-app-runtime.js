@@ -144,6 +144,7 @@ export function isProjectReadOnlyChatMessage(message) {
   if (askDataPlaneIntent(t)) return false;
   if (codeContextIntent(t)) return false;
   if (/\b(terminal|sandbox|wrangler deploy|github_write|commit|push)\b/i.test(t)) return false;
+  if (/\bbinding(s)?\b/i.test(t) && !/\b(iam|inneranimalmedia|platform)\b/i.test(t)) return true;
   return true;
 }
 
