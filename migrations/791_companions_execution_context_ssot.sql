@@ -27,7 +27,7 @@ SET
         'kv_binding_name', 'CMS_CACHE',
         'workers_ai_binding', 'AGENTSAM_WAI',
         'bridge_telemetry_url_secret', 'IAM_TELEMETRY_URL',
-        'secrets_needed', json('[\"GOOGLE_CLIENT_ID\",\"GOOGLE_CLIENT_SECRET\",\"META_APP_ID\",\"META_APP_SECRET\"]')
+        'secrets_needed', json_array('GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','META_APP_ID','META_APP_SECRET')
       )
     ),
     json_object(
