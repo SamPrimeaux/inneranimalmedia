@@ -4338,6 +4338,16 @@ const App: React.FC = () => {
                 title={workspaceDisplayLine}
                 onClick={() => setActiveTab('Workspace')}
               />
+              {/* Workspace context pill — always visible, one-tap switcher */}
+              <button
+                type="button"
+                title={`Current workspace: ${workspaceDisplayLine} — click to switch`}
+                onClick={() => setWorkspaceLauncherOpen(true)}
+                className="hidden tablet-up:inline-flex items-center gap-1 max-w-[160px] px-2 py-0.5 rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[11px] text-muted hover:text-main hover:border-[rgba(34,211,238,0.35)] hover:bg-[var(--bg-hover)] transition-colors shrink-0 select-none"
+              >
+                <span className="truncate max-w-[120px] font-medium">{workspaceDisplayLine.length > 22 ? `${workspaceDisplayLine.slice(0, 20)}…` : workspaceDisplayLine}</span>
+                <ChevronLeft size={10} strokeWidth={2} className="rotate-[270deg] shrink-0 opacity-60" />
+              </button>
           </div>
 
           {/* Unified search (Cmd+K) — desktop center; mobile lives in right cluster */}
