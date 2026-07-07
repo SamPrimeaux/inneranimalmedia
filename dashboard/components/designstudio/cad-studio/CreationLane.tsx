@@ -1,6 +1,6 @@
 /**
  * Creation Lane — left slide panel with 3 tabs:
- * MODEL  (Meshy text→3D, Meshy image→3D, Spline import)
+ * MODEL  (Meshy text→3D, Meshy image→3D)
  * BUILD  (Blender · OpenSCAD · FreeCAD — describe → script → run)
  * SCENE  (primitives, environment presets, import GLB)
  *
@@ -10,7 +10,7 @@ import React, { useRef, useState } from 'react';
 import {
   Sparkles, Image, Box, Cpu, Ruler, Home,
   Play, Download, RefreshCw, ChevronDown, ChevronRight,
-  Layers, Sun, Globe, Camera, Plus,
+  Layers, Sun, Camera, Plus,
 } from 'lucide-react';
 import { dispatchGenerateCadObject } from './dispatchCadChat';
 import {
@@ -109,7 +109,7 @@ function ModelTab({
   const [count, setCount] = useState('1');
   const [imageEnhance, setImageEnhance] = useState(true);
   const [multiView, setMultiView] = useState(false);
-  const [source, setSource] = useState<'text' | 'image' | 'spline'>('text');
+  const [source, setSource] = useState<'text' | 'image'>('text');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const poseModeMap: Record<string, MeshyPoseMode> = {
@@ -146,14 +146,14 @@ function ModelTab({
     <div className="cl__tab-body">
       {/* Source toggle */}
       <div className="cl__source-toggle">
-        {(['text', 'image', 'spline'] as const).map(s => (
+        {(['text', 'image'] as const).map(s => (
           <button
             key={s}
             type="button"
             className={['cl__source-btn', source === s ? 'active' : ''].filter(Boolean).join(' ')}
             onClick={() => setSource(s)}
           >
-            {s === 'text' ? 'Text' : s === 'image' ? 'Image' : 'Spline'}
+            {s === 'text' ? 'Text' : 'Image'}
           </button>
         ))}
       </div>
@@ -247,19 +247,6 @@ function ModelTab({
             </label>
           </div>
           <ActionBtn label="✦ Generate from Image" onClick={() => {}} accent />
-        </>
-      )}
-
-      {source === 'spline' && (
-        <>
-          <SectionHead label="SPLINE — Import Scene" icon={Globe} />
-          <input
-            className="cl__input"
-            type="url"
-            placeholder="Paste Spline scene URL or .splinescene link…"
-          />
-          <p className="cl__hint">Spline scenes are exported as GLB and imported into the viewport.</p>
-          <ActionBtn label="Import Spline Scene" onClick={() => {}} accent />
         </>
       )}
     </div>

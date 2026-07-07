@@ -62,7 +62,7 @@ Design Studio is **not** a web clone of FreeCAD/Blender. It is a calm frontend o
 - Learn course in `/dashboard/learn`  
 
 ### Not real / stubs
-- Spline import button  
+- Spline import (removed from Creation lane)  
 - Legacy `designstudio_*` tool names without handlers  
 - In-browser parametric CAD editing  
 - CadQuery/build123d runners (planned)  

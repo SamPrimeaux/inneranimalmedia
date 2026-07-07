@@ -55,7 +55,7 @@ Do **not** rely on legacy `designstudio_*` or `meauxcad_*` catalog names unless 
 
 | Real | Cosmetic / stub |
 |------|------------------|
-| Meshy text/image → GLB loop | Spline import button |
+| Meshy text/image → GLB loop | Spline import (removed 2026-07 — out of scope) |
 | OpenSCAD/FreeCAD/Blender job APIs | Blender-style menus implying in-browser modeling |
 | GLB viewport (`AgentSamEngine`) | Full CAD feature parity with desktop apps |
 | Draw + libraries + save | Plan button was toast — now routes to Draw (deploy pending) |
