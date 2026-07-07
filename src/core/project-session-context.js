@@ -31,31 +31,64 @@ export async function resolveProjectExecutionBindings(env, projectRef, workspace
 }
 
 /**
- * Client Worker binding block — NOT IAM platform inneranimalmedia bindings.
+ * Execution bindings for the active project (from agentsam_workspace via project_id).
  * @param {Awaited<ReturnType<typeof resolveWorkspaceBindings>>} bindings
  */
 export function formatProjectClientBindingsBlock(bindings) {
   if (!bindings) return '';
+  const isPlatformProject =
+    bindings.workerName === 'inneranimalmedia' ||
+    bindings.workspaceId === 'ws_inneranimalmedia' ||
+    bindings.slug === 'inneranimalmedia';
+
+  const heading = isPlatformProject
+    ? '## IAM platform Worker bindings (this project)'
+    : '## Client Worker bindings (this project)';
+
+  const d1Line =
+    bindings.d1Binding && bindings.d1DatabaseId
+      ? isPlatformProject
+        ? `D1 **${bindings.d1Binding}**: \`inneranimalmedia-business\` (\`${bindings.d1DatabaseId}\`)`
+        : `D1 **${bindings.d1Binding}**: database id \`${bindings.d1DatabaseId}\` (client D1 — not inneranimalmedia-business)`
+      : bindings.d1DatabaseId
+        ? `D1: \`${bindings.d1DatabaseId}\``
+        : null;
+
   const lines = [
-    '## Client Worker bindings (this project — not IAM platform)',
+    heading,
     bindings.workerName
       ? `Worker: **${bindings.workerName}**${bindings.deployUrl ? ` → ${bindings.deployUrl}` : ''}`
       : null,
     bindings.workspaceId ? `execution_workspace_id: ${bindings.workspaceId}` : null,
     bindings.slug ? `workspace_slug: ${bindings.slug}` : null,
-    bindings.d1Binding && bindings.d1DatabaseId
-      ? `D1 **${bindings.d1Binding}**: database id \`${bindings.d1DatabaseId}\` (client D1 — not inneranimalmedia-business)`
-      : bindings.d1DatabaseId
-        ? `D1: \`${bindings.d1DatabaseId}\``
-        : null,
-    bindings.r2Bucket ? `R2 **WEBSITE_ASSETS**: \`${bindings.r2Bucket}\`` : null,
-    bindings.kvNamespaceId ? `KV **CMS_CACHE**: \`${bindings.kvNamespaceId}\`` : null,
+    d1Line,
+    bindings.r2Bucket
+      ? isPlatformProject
+        ? `R2 **ASSETS**: \`${bindings.r2Bucket}\` (+ AUTORAG_BUCKET, ARTIFACTS per wrangler.production.toml)`
+        : `R2 **WEBSITE_ASSETS**: \`${bindings.r2Bucket}\``
+      : null,
+    bindings.kvNamespaceId
+      ? isPlatformProject
+        ? `KV **SESSION_CACHE**: \`${bindings.kvNamespaceId}\``
+        : `KV **CMS_CACHE**: \`${bindings.kvNamespaceId}\``
+      : null,
     bindings.githubRepo ? `github_repo: ${bindings.githubRepo}` : null,
     bindings.rootPath ? `root_path: ${bindings.rootPath}` : null,
-    '',
-    'Workers AI binding name in client wrangler: **AGENTSAM_WAI**.',
-    'Do NOT cite inneranimalmedia platform bindings (inneranimalmedia-business D1, AUTORAG_BUCKET, IAM Vectorize indexes, HYPERDRIVE, MOVIEMODE_SERVICE, etc.) for this project unless the user explicitly asks about the IAM platform worker.',
   ].filter((line) => line !== null);
+
+  if (isPlatformProject) {
+    lines.push(
+      '',
+      'Full platform surface includes Vectorize lanes, HYPERDRIVE, Durable Objects, and worker services — cite wrangler.production.toml / docs/platform/worker-env-production when the user asks for complete IAM bindings.',
+    );
+  } else {
+    lines.push(
+      '',
+      'Workers AI binding name in client wrangler: **AGENTSAM_WAI**.',
+      'Do NOT substitute inneranimalmedia platform bindings (inneranimalmedia-business, AUTORAG_BUCKET, IAM Vectorize indexes) for this client project unless the user explicitly asks about the IAM platform worker.',
+    );
+  }
+
   return lines.join('\n');
 }
 
