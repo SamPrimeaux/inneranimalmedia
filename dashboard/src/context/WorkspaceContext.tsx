@@ -9,7 +9,8 @@ import {
   clearIamWorkspaceSession,
   patchIamWorkspaceSessionCurrent,
   readIamWorkspaceSession,
-  readLatestIamWorkspaceSession,
+  readUserPinnedWorkspace,
+  writeUserPinnedWorkspace,
   writeIamWorkspaceSession,
   type IamWorkspaceSessionPayload,
   type IamWorkspaceSettingsRow,
@@ -46,7 +47,7 @@ type WorkspaceContextValue = {
   refreshWorkspaces: (opts?: { force?: boolean }) => Promise<void>;
   /** Server SSOT from auth_users.active_workspace_id (last GET /api/settings/workspaces). */
   canonicalWorkspaceId: string | null;
-  /** True when UI workspaceId differs from server canonical (should self-heal on refresh). */
+  /** True when UI workspaceId differs from server canonical (informational only — no auto snap-back). */
   workspaceDrift: boolean;
   /** Switch active workspace: updates context, sessionStorage, and optionally syncs server. */
   switchWorkspace: (
@@ -184,7 +185,15 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   }, [workspaceId]);
 
   const hydrateFromPayload = useCallback((payload: IamWorkspaceSessionPayload) => {
-    const applied = applySessionPayload(payload);
+    const userId = sessionUserIdRef.current;
+    const pinned = readUserPinnedWorkspace(userId);
+    const pick =
+      userPickedWorkspaceRef.current ||
+      pendingWorkspaceIdRef.current ||
+      pinned ||
+      null;
+    const merged = pick ? applyInSessionWorkspacePick(payload, pick) : payload;
+    const applied = applySessionPayload(merged);
     setWorkspaces(applied.workspaceRows);
     setCanonicalWorkspaceId(applied.canonicalWorkspaceId);
 
@@ -274,6 +283,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         updated_at: Math.floor(Date.now() / 1000),
       });
 
+      writeUserPinnedWorkspace(userId, trimmed);
+
       const shouldSync = meta?.sync !== false;
       if (shouldSync) {
         try {
@@ -302,9 +313,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             if (data.workspace.display_name?.trim()) {
               setDisplayName(data.workspace.display_name.trim());
             }
-            userPickedWorkspaceRef.current = null;
-            pendingWorkspaceIdRef.current = null;
-            setPendingWorkspaceId(null);
+            writeUserPinnedWorkspace(userId, trimmed);
             if (isDashboardBootstrapPath()) {
               invalidateAgentDomainCache(trimmed);
               void refreshDashboardBootstrap();
@@ -364,19 +373,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     void (async () => {
-      const early = readLatestIamWorkspaceSession();
-      if (early?.payload?.data?.length) {
-        hydrateFromPayload(
-          { ...early.payload, sessionUserId: early.userId ?? early.payload.sessionUserId },
-        );
-        if (early.userId) {
-          sessionUserIdRef.current = early.userId;
-          setSessionUserId(early.userId);
-        }
-        setLoading(false);
-      } else {
-        setLoading(true);
-      }
+      setLoading(true);
       let userId: string | null = null;
       const useBootstrap = isDashboardBootstrapPath();
       if (useBootstrap) {
@@ -514,16 +511,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     if (!canonicalWorkspaceId || !workspaceId) return false;
     return workspaceId !== canonicalWorkspaceId;
   }, [canonicalWorkspaceId, workspaceId, pendingWorkspaceId]);
-
-  useEffect(() => {
-    if (!workspaceDrift || !canonicalWorkspaceId) return;
-    userPickedWorkspaceRef.current = null;
-    pendingWorkspaceIdRef.current = null;
-    setPendingWorkspaceId(null);
-    setWorkspaceIdState(canonicalWorkspaceId);
-    patchIamWorkspaceSessionCurrent(canonicalWorkspaceId, undefined, sessionUserIdRef.current);
-    void refreshWorkspaces({ force: true });
-  }, [workspaceDrift, canonicalWorkspaceId, refreshWorkspaces]);
 
   const value = useMemo(
     () => ({

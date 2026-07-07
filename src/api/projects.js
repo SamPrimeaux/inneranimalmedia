@@ -1358,29 +1358,17 @@ async function handleProjectActivate(request, env, authUser, projectId, ctx) {
     const isSuper = Number(authUser.is_superadmin) === 1;
     const allowed = isSuper || (await userCanAccessWorkspace(env, authUser, executionWorkspaceId));
     if (allowed) {
-      const { userCanActivatePlatformWorkspace } = await import('../core/platform-operator-policy.js');
-      if (await userCanActivatePlatformWorkspace(env, authUser, executionWorkspaceId)) {
+      // Project activate scopes execution context (KV + client sessionStorage) only.
+      // auth_users.active_workspace_id changes only via WorkspaceLauncher / settings switcher.
+      workspaceActivated = true;
+
+      if (bindings?.githubRepo) {
         await env.DB.prepare(
-          `UPDATE auth_users SET active_workspace_id = ?, updated_at = datetime('now') WHERE id = ?`,
+          `UPDATE workspaces SET github_repo = ?, updated_at = datetime('now') WHERE id = ?`,
         )
-          .bind(executionWorkspaceId, String(authUser.id))
+          .bind(String(bindings.githubRepo).trim(), executionWorkspaceId)
           .run()
           .catch(() => null);
-        try {
-          await syncSessionWorkspaceId(env, request, String(authUser.id), executionWorkspaceId);
-        } catch {
-          /* auth_users is SSOT */
-        }
-        workspaceActivated = true;
-
-        if (bindings?.githubRepo) {
-          await env.DB.prepare(
-            `UPDATE workspaces SET github_repo = ?, updated_at = datetime('now') WHERE id = ?`,
-          )
-            .bind(String(bindings.githubRepo).trim(), executionWorkspaceId)
-            .run()
-            .catch(() => null);
-        }
       }
     }
   }

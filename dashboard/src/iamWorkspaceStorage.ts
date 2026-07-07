@@ -4,6 +4,8 @@
  */
 export const IAM_WORKSPACE_SESSION_KEY = 'iam_workspace';
 export const IAM_WORKSPACE_LS_PREFIX = 'iam_workspace_v1';
+/** Explicit user choice from WorkspaceLauncher — survives refresh until next switch. */
+export const IAM_WORKSPACE_USER_PIN_PREFIX = 'iam_workspace_user_pin';
 
 export type IamWorkspaceSettingsRow = {
   id: string;
@@ -151,6 +153,36 @@ export function clearIamWorkspaceSession(userId?: string | null): void {
   try {
     localStorage.removeItem(storageKeyForUser(userId));
     sessionStorage.removeItem(IAM_WORKSPACE_SESSION_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function userPinKey(userId: string | null | undefined): string | null {
+  const uid = typeof userId === 'string' ? userId.trim() : '';
+  return uid ? `${IAM_WORKSPACE_USER_PIN_PREFIX}:${uid}` : null;
+}
+
+/** Last workspace explicitly chosen in WorkspaceLauncher / status bar (not route-derived). */
+export function readUserPinnedWorkspace(userId?: string | null): string | null {
+  if (typeof window === 'undefined') return null;
+  const key = userPinKey(userId);
+  if (!key) return null;
+  try {
+    return localStorage.getItem(key)?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeUserPinnedWorkspace(userId: string | null | undefined, workspaceId: string | null): void {
+  if (typeof window === 'undefined') return;
+  const key = userPinKey(userId);
+  if (!key) return;
+  try {
+    const id = workspaceId?.trim();
+    if (id) localStorage.setItem(key, id);
+    else localStorage.removeItem(key);
   } catch {
     /* ignore */
   }

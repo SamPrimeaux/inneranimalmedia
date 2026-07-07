@@ -119,14 +119,8 @@ export async function activateProjectWorkContext(
   writeSessionProject({ id: pid, name: displayName });
   writeExecutionWorkspaceId(executionWorkspaceId);
 
-  if (executionWorkspaceId && executionWorkspaceId !== (opts.currentWorkspaceId || '').trim()) {
-    await opts.switchWorkspace(executionWorkspaceId, {
-      displayName: bindings?.name || displayName,
-      slug: bindings?.slug || undefined,
-      github_repo: bindings?.githubRepo || null,
-      sync: false,
-    });
-  }
+  // Do not change global workspace — only the launcher/status bar may switch workspace.
+  // executionWorkspaceId is scoped to project/agent work via sessionStorage + KV cache.
 
   if (bindings?.githubRepo && opts.persistGithubRepo && executionWorkspaceId) {
     await opts.persistGithubRepo(bindings.githubRepo, executionWorkspaceId);

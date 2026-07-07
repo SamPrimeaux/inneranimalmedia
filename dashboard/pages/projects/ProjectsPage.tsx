@@ -19,6 +19,7 @@ import {
   type OverviewProject,
 } from '../../api/projects';
 import { ProjectShareModal } from '../../components/projects/ProjectShareModal';
+import { AppIcon } from '../../components/ui/AppIcon';
 import { cfImageVariants, projectAccentHue, projectInitials } from '../../src/lib/projectBranding';
 import { useWorkspace } from '../../src/context/WorkspaceContext';
 
@@ -204,8 +205,70 @@ function CardMenu({
   );
 }
 
-// ─── project card ─────────────────────────────────────────────────────────────
+// ─── project app icon tile (floating icon — not a cover card) ─────────────────
 
+function ProjectAppIconTile({
+  project,
+  menuOpen,
+  onOpen,
+  onMenuToggle,
+  onMenuClose,
+  onStar,
+  onRename,
+  onShare,
+  onDelete,
+}: {
+  project: Project;
+  menuOpen: boolean;
+  onOpen: () => void;
+  onMenuToggle: () => void;
+  onMenuClose: () => void;
+  onStar: () => void;
+  onRename: () => void;
+  onShare: () => void;
+  onDelete: () => void;
+}) {
+  const cover = cfImageVariants(project.cover_image_url);
+  const accentHue = projectAccentHue(project.id);
+  const fallbackBg = `hsl(${accentHue} 52% 42%)`;
+  const subtitle =
+    STATUS_LABELS[project.status ?? ''] ??
+    project.project_type ??
+    'project';
+
+  return (
+    <div
+      className={`pj-app-icon-cell${project.status === 'archived' ? ' pj-app-icon-cell--archived' : ''}`}
+    >
+      <AppIcon
+        title={project.name}
+        subtitle={subtitle}
+        imageUrl={cover.src}
+        backgroundColor={fallbackBg}
+        presentation="app"
+        size="lg"
+        onPress={onOpen}
+      />
+      {project.is_pinned ? (
+        <span className="pj-app-icon-pin" aria-label="Starred">
+          <Star size={10} fill="currentColor" />
+        </span>
+      ) : null}
+      <CardMenu
+        project={project}
+        isOpen={menuOpen}
+        onToggle={onMenuToggle}
+        onClose={onMenuClose}
+        onStar={onStar}
+        onRename={onRename}
+        onShare={onShare}
+        onDelete={onDelete}
+      />
+    </div>
+  );
+}
+
+// Legacy visual card — kept for reference; grid uses ProjectAppIconTile.
 function ProjectCard({
   project,
   menuOpen,
@@ -575,9 +638,9 @@ export default function ProjectsPage() {
             )}
           </div>
         ) : (
-          <div className="pj-grid">
+          <div className="pj-app-icon-grid iam-app-icon-grid">
             {filtered.map((p) => (
-              <ProjectCard
+              <ProjectAppIconTile
                 key={p.id}
                 project={p}
                 menuOpen={menuOpenId === p.id}
@@ -888,6 +951,40 @@ const PROJECTS_CSS = `
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 16px;
+}
+
+.pj-app-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: 20px 16px;
+  max-width: 720px;
+}
+
+.pj-app-icon-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.pj-app-icon-cell--archived {
+  opacity: 0.55;
+}
+
+.pj-app-icon-cell .pj-menu {
+  position: absolute;
+  top: -4px;
+  right: -2px;
+  z-index: 2;
+}
+
+.pj-app-icon-pin {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  margin-left: 28px;
+  color: var(--solar-cyan, #38bdf8);
+  pointer-events: none;
 }
 
 @media (max-width: 540px) {

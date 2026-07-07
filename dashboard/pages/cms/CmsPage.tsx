@@ -83,7 +83,8 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [wizardOpen, setWizardOpen] = useState(false);
-  const { switchWorkspace } = useWorkspace();
+  const { workspaceId: ctxWorkspaceId } = useWorkspace();
+  const activeWorkspaceId = workspaceId || ctxWorkspaceId || null;
 
   const parsed = useMemo(
     () => parseCmsRoute(location.pathname, searchParams),
@@ -91,8 +92,8 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   );
 
   const storedSiteSlug = useMemo(
-    () => readStoredCmsProjectSlug(workspaceId),
-    [workspaceId],
+    () => readStoredCmsProjectSlug(activeWorkspaceId),
+    [activeWorkspaceId],
   );
   /** Hub (/dashboard/cms) must not inherit persisted site — only explicit ?site= in URL. */
   const contextSiteSlug =
@@ -100,7 +101,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   const effectiveSiteSlug = contextSiteSlug;
 
   const { context, loading, error, persistSite, reload: load } = useCmsWorkspaceContext({
-    workspaceId,
+    workspaceId: activeWorkspaceId,
     siteSlug: contextSiteSlug,
     enabled: true,
   });
@@ -123,7 +124,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   );
 
   const isOperatorHub =
-    (workspaceId || context?.workspace_id) === OPERATOR_HUB_WORKSPACE ||
+    (activeWorkspaceId || context?.workspace_id) === OPERATOR_HUB_WORKSPACE ||
     context?.workspace_slug === 'inneranimalmedia';
   const isHubSitesView = parsed.view === 'sites';
 
@@ -169,16 +170,11 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
 
   const handleSelectSite = useCallback(
     async (slug: string, path: string) => {
-      const site = context?.sites?.find((s) => s.slug === slug);
-      const targetWs = site?.target_workspace_id?.trim();
-      const stayOnOperatorHub = isOperatorHub && targetWs && targetWs !== OPERATOR_HUB_WORKSPACE;
-      if (targetWs && targetWs !== (workspaceId || context?.workspace_id) && !stayOnOperatorHub) {
-        await switchWorkspace(targetWs);
-      }
+      // CMS site pick updates CMS project context only — never the global workspace.
       await persistSite(slug);
       navigate(path, { replace: true });
     },
-    [context?.sites, context?.workspace_id, isOperatorHub, navigate, persistSite, switchWorkspace, workspaceId],
+    [navigate, persistSite],
   );
 
   const cmsNavigatePath = useCallback(
@@ -274,7 +270,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           }
         >
           <CmsRoot
-            workspaceId={workspaceId}
+            workspaceId={activeWorkspaceId}
             workspaceLabel={context?.ui_label || context?.workspace_name || null}
             workspaceSlug={context?.workspace_slug || null}
             publicDomain={context?.public_domain || null}
@@ -306,7 +302,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
             pageId={parsed.pageId}
             panel={studioPanel}
             agentSamCmsShell
-            workspaceId={workspaceId || context?.workspace_id || ''}
+            workspaceId={activeWorkspaceId || context?.workspace_id || ''}
             workspaceLabel={context?.ui_label || context?.workspace_name || null}
             publicDomain={context?.public_domain || null}
             studioUrl={context?.studio_url || null}
@@ -318,7 +314,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-xl h-[min(80vh,820px)] rounded-2xl overflow-hidden shadow-2xl bg-[#fafaf7] ring-1 ring-stone-300/80">
             <SiteDeployWizard
-              workspaceId={workspaceId || context?.workspace_id || ''}
+              workspaceId={activeWorkspaceId || context?.workspace_id || ''}
               onClose={() => setWizardOpen(false)}
               onDeployed={handleDeployed}
             />

@@ -80,7 +80,7 @@ export function CmsSiteLauncherGrid({
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
           gap: 20px 16px;
-          max-width: 560px;
+          max-width: 100%;
         }
         .cms-site-launcher__cell {
           position: relative;
