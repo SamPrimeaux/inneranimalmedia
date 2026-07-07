@@ -1,5 +1,11 @@
 /* Mail — light GCP tokens inside CollaborateWorkShell (overrides dashboard dark vars) */
 .colab-work-shell .mail-work-surface {
+  --bg: #dfe5ee;
+  --panel: #eef2f7;
+  --panel-raised: #f8fafc;
+  --panel-soft: #e4e9f1;
+  --line: #b8bec8;
+  --line-soft: #cdd3dc;
   --text-main: #1a1c1e;
   --text-muted: #5f6368;
   --bg-app: #ffffff;
@@ -11,9 +17,10 @@
   --solar-yellow: #f9ab00;
   --solar-orange: #ea4335;
   --mail-insights-w: 318px;
+  --mail-rail-w: 54px;
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--mail-insights-w);
+  grid-template-columns: minmax(0, 1fr) var(--mail-rail-w);
   width: 100%;
   min-width: 0;
   min-height: 0;
@@ -25,11 +32,36 @@
   column-gap: 0;
 }
 
+.colab-work-shell .mail-work-surface.insights-open {
+  grid-template-columns: minmax(0, 1fr) var(--mail-insights-w) var(--mail-rail-w);
+}
+
 .colab-work-shell .mail-work-surface-main {
   display: flex;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.colab-work-shell .mail-work-surface .mail-time-insights-rail {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.colab-work-shell .mail-work-surface .colab-cal-rail {
+  grid-column: -1;
+  grid-row: 1;
+  min-width: 0;
+  width: var(--mail-rail-w);
+  position: relative;
+  z-index: 2;
 }
 
 .colab-work-shell .mail-work-surface .colab-cal-right.colab-tasks-insights {
@@ -93,12 +125,14 @@
   background: #e8edf4;
 }
 
-@media (max-width: 1200px) {
-  .colab-work-shell .mail-work-surface {
+@media (max-width: 1100px) {
+  .colab-work-shell .mail-work-surface,
+  .colab-work-shell .mail-work-surface.insights-open {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .colab-work-shell .mail-work-surface .mail-time-insights-rail {
+  .colab-work-shell .mail-work-surface .mail-time-insights-rail,
+  .colab-work-shell .mail-work-surface .colab-cal-rail {
     display: none;
   }
 }

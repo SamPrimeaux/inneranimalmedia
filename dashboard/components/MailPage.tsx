@@ -5,8 +5,11 @@
 import React, {
   useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CollaborateWorkShell } from '../src/components/collaborate/CollaborateWorkShell';
+import { CollaboratePageRail } from '../src/components/collaborate/CollaboratePageRail';
 import { MailTimeInsightsPanel } from '../src/components/collaborate/MailTimeInsightsPanel';
+import '../pages/launch-desk/collaborate-calendar.css';
 import '../src/components/collaborate/mail-work-surface.css';
 import {
   Archive, Bot, ChevronLeft, ChevronRight, Circle, Clock,
@@ -188,6 +191,9 @@ function UrgencyBadge({ urgency }: { urgency: string }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function MailPage() {
+  const navigate = useNavigate();
+  const [insightsOpen, setInsightsOpen] = useState(true);
+
   // Panels
   const [sidebarW, setSidebarW] = useState(() => {
     try { return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Number(localStorage.getItem('mail_sidebar_w') || 220))); } catch { return 220; }
@@ -533,7 +539,7 @@ export function MailPage() {
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <CollaborateWorkShell surface="mail">
-    <div className="mail-work-surface">
+    <div className={`mail-work-surface${insightsOpen ? ' insights-open' : ''}`}>
     <div className="mail-work-surface-main">
 
       {/* ── LEFT SIDEBAR ────────────────────────────────────────────────── */}
@@ -851,9 +857,18 @@ export function MailPage() {
 
     </div>
 
-      <div className="mail-time-insights-rail">
-        <MailTimeInsightsPanel />
-      </div>
+      {insightsOpen ? (
+        <div className="mail-time-insights-rail">
+          <MailTimeInsightsPanel />
+        </div>
+      ) : null}
+
+      <CollaboratePageRail
+        activeSurface="mail"
+        insightsOpen={insightsOpen}
+        onInsightsToggle={() => setInsightsOpen((v) => !v)}
+        onTasksClick={() => navigate('/dashboard/collaborate?seg=tasks')}
+      />
 
       {/* ── COMPOSE MODAL ──────────────────────────────────────────────── */}
       {composing && (

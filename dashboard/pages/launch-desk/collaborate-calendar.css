@@ -992,17 +992,19 @@
   background: var(--panel-soft); border: 1px solid var(--line-soft);
 }
 .colab-task-focus-label {
-  display: block; font-size: 15px; font-weight: 700; color: var(--text);
+  display: block; font-size: 13px; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--muted-light);
   margin-bottom: 6px;
 }
 .colab-task-focus-hint {
-  margin: 0 0 10px; font-size: 13px; color: var(--muted); line-height: 1.45;
+  margin: 0 0 10px; font-size: 12px; color: var(--muted-light); line-height: 1.5;
 }
 .colab-task-focus-body {
-  width: 100%; min-height: 280px; resize: vertical;
+  width: 100%; min-height: 200px; resize: vertical;
   border: 1px solid var(--input-border); border-radius: 12px;
   background: var(--input-bg); color: var(--text);
-  padding: 14px 16px; font-size: 16px; line-height: 1.55;
+  padding: 14px 16px; font-size: 14px; line-height: 1.65;
+  font-family: inherit;
 }
 .colab-task-focus-pre {
   margin: 0; white-space: pre-wrap; word-break: break-word;
@@ -1019,9 +1021,23 @@
   padding-top: 8px; border-top: 1px solid var(--line-soft);
 }
 .colab-task-focus-actions {
-  display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px;
-  padding-top: 16px; border-top: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 28px; padding: 14px 16px;
+  border: 1px solid var(--line-soft); border-radius: 14px;
+  background: var(--panel-raised);
 }
+.colab-task-focus-actions .colab-cal-outline-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 40px; padding: 0 18px; font-size: 14px; font-weight: 600; line-height: 1;
+  white-space: nowrap;
+}
+.colab-task-focus-actions .colab-cal-outline-btn svg { flex-shrink: 0; }
+.colab-task-focus-actions .colab-cal-outline-btn.danger { margin-left: auto; }
+.colab-task-focus-actions .colab-cal-outline-btn:not(.danger):hover {
+  background: var(--panel-soft); border-color: var(--line);
+}
+.colab-task-focus-fields .colab-tasks-inline-due { width: 100%; margin-top: 0; height: 42px; }
+.colab-task-focus-fields .colab-tasks-project-select { margin-top: 0; height: 42px; }
 .colab-tasks-item-open-hint {
   margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--blue);
   display: none;
@@ -1101,10 +1117,13 @@
   .colab-tasks-item-desc { font-size: 14px; -webkit-line-clamp: 3; }
   .colab-tasks-check { width: 26px; height: 26px; }
   .colab-task-focus-inner { padding: 16px 14px 40px; }
-  .colab-task-focus-body { min-height: 220px; font-size: 17px; }
-  .colab-task-focus-actions .colab-cal-outline-btn,
-  .colab-task-focus-actions .colab-cal-save-btn {
-    flex: 1 1 calc(50% - 5px); min-height: 44px; justify-content: center;
+  .colab-task-focus-body { min-height: 180px; font-size: 15px; }
+  .colab-task-focus-actions { padding: 12px; gap: 8px; }
+  .colab-task-focus-actions .colab-cal-outline-btn {
+    flex: 1 1 calc(50% - 4px); min-height: 44px;
+  }
+  .colab-task-focus-actions .colab-cal-outline-btn.danger {
+    flex: 1 1 100%; margin-left: 0; order: 3;
   }
   .colab-cal-center--day { --hour: 72px; }
   .colab-cal-day-focus-bar { flex-direction: column; align-items: stretch; }

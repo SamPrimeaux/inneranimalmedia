@@ -1327,6 +1327,7 @@ export function LaunchDeskPage() {
         ) : null}
 
         <CollaboratePageRail
+          activeSurface={mainSeg === 'tasks' ? 'tasks' : undefined}
           insightsOpen={insightsOpen}
           onInsightsToggle={() => setInsightsOpen((v) => !v)}
           onTasksClick={() => {

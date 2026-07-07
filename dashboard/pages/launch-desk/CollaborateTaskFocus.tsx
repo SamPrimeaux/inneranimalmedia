@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Calendar, Clock, ExternalLink, FolderKanban, Star, Trash2, X } from 'lucide-react';
+import { Calendar, CheckCircle, Clock, ExternalLink, FolderKanban, Star, Trash2, X } from 'lucide-react';
 import {
   AgentTodo,
   ProjectRow,
@@ -234,6 +234,7 @@ export function CollaborateTaskFocus({
               </button>
             ) : null}
             <button type="button" className="colab-cal-outline-btn" disabled={saving} onClick={() => void onComplete()}>
+              <CheckCircle size={16} strokeWidth={1.75} aria-hidden />
               Mark complete
             </button>
             <button type="button" className="colab-cal-outline-btn danger" disabled={saving} onClick={() => void onDelete()}>
