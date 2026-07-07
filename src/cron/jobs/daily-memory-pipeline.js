@@ -4,7 +4,7 @@
  */
 
 import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
-import { cronTenantId } from '../cron-tenant.js';
+import { resolveCronTenantId } from '../cron-tenant.js';
 import { snapshotGmailInboxForUser } from '../../core/gmail-inbox-snapshot.js';
 import { chunkMarkdown } from '../chunk-markdown.js';
 import { writeMemoryLane } from '../../core/rag-lanes.js';
@@ -495,10 +495,12 @@ export async function runDailyMemoryPipeline(env, opts) {
   if (!env.RESEND_FROM?.trim() || !env.RESEND_TO?.trim()) {
     return { ok: false, skipped: true, reason: 'missing_resend_addresses' };
   }
-  const tid = cronTenantId(env);
-  if (!tid) return { ok: false, skipped: true, reason: 'missing_tenant' };
-
   const owner = await resolveDailyPlanNotifyUser(env);
+  const tid = await resolveCronTenantId(env, owner);
+  if (!tid) {
+    return { ok: false, skipped: true, reason: 'missing_tenant' };
+  }
+
   const cronExpr = mode === 'evening' ? '0 0 * * *' : '30 13 * * *';
   const jobName = mode === 'evening' ? 'evening_memory_email' : 'morning_focus_email';
 
