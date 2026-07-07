@@ -1088,6 +1088,7 @@ export async function resolveRuntimeProfile(env, input) {
 
   profile = applyOverridesToProfile(profile, overrides);
   if (classifiedIntent) profile._classified_intent = classifiedIntent;
+  if (isProjectQnaFast) profile._project_qna_fast_lane = true;
   profile = await resolveProfileModel(env, profile, {
     workspaceId: session.workspaceId,
     tenantId: session.tenantId,
