@@ -6,7 +6,9 @@ import { jsonResponse, verifyInternalApiSecret } from '../core/auth.js';
 import { handleScheduled } from '../cron/scheduled.js';
 import {
   runDailyMemoryPipeline,
+  runDailyMemoryPipelineAllRecipients,
 } from '../cron/jobs/daily-memory-pipeline.js';
+import { listDailyMemoryRecipients } from '../cron/jobs/daily-plan-support.js';
 
 /**
  * @param {Request} request
@@ -31,23 +33,58 @@ export async function handleCronSelfTest(request, env, ctx) {
   const cron = typeof body.cron === 'string' ? body.cron.trim() : '';
   const mode = body.mode === 'morning' || body.mode === 'evening' ? body.mode : null;
   const forceEmail = body.force === true || body.forceEmail === true;
+  const recipientUserId = typeof body.userId === 'string' ? body.userId.trim() : '';
+  const recipientEmail = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const allRecipients = body.allRecipients !== false && !recipientUserId && !recipientEmail;
 
   if (!cron && !mode) {
     return jsonResponse({
       error: 'cron_or_mode_required',
-      detail: 'POST JSON: { "cron": "0 0 * * *" } or { "mode": "evening"|"morning", "force": true }',
+      detail: 'POST JSON: { "cron": "0 0 * * *" } or { "mode": "evening"|"morning", "force": true, "userId": "au_..." }',
     }, 400);
   }
 
   const startedAt = Date.now();
   try {
+    const runPipeline = async (pipelineMode) => {
+      if (allRecipients) {
+        return runDailyMemoryPipelineAllRecipients(env, { mode: pipelineMode, ctx, forceEmail });
+      }
+      let recipient = null;
+      if (recipientUserId || recipientEmail) {
+        const list = await listDailyMemoryRecipients(env);
+        recipient = list.find((r) => (
+          (recipientUserId && r.userId === recipientUserId)
+          || (recipientEmail && r.email === recipientEmail)
+        )) || null;
+        if (!recipient && recipientUserId) {
+          const row = await env.DB.prepare(
+            `SELECT id AS user_id, lower(trim(email)) AS email,
+              COALESCE(NULLIF(trim(active_tenant_id), ''), NULLIF(trim(tenant_id), '')) AS tenant_id
+             FROM auth_users WHERE id = ? LIMIT 1`,
+          ).bind(recipientUserId).first().catch(() => null);
+          if (row?.user_id && row?.email) {
+            recipient = {
+              userId: String(row.user_id),
+              email: String(row.email),
+              tenantId: row.tenant_id ? String(row.tenant_id) : null,
+            };
+          }
+        }
+        if (!recipient) {
+          return { ok: false, skipped: true, reason: 'recipient_not_found' };
+        }
+      }
+      return runDailyMemoryPipeline(env, { mode: pipelineMode, ctx, forceEmail, recipient: recipient || undefined });
+    };
+
     if (mode === 'evening' || cron === '0 0 * * *') {
-      const out = await runDailyMemoryPipeline(env, { mode: 'evening', ctx, forceEmail });
+      const out = await runPipeline('evening');
       return jsonResponse({
         ok: true,
         cron: cron || '0 0 * * *',
         job: 'evening_memory_email',
-        mode: 'direct',
+        mode: allRecipients ? 'all_recipients' : 'single',
         forceEmail,
         result: out,
         duration_ms: Date.now() - startedAt,
@@ -55,12 +92,12 @@ export async function handleCronSelfTest(request, env, ctx) {
     }
 
     if (mode === 'morning' || cron === '30 13 * * *') {
-      const out = await runDailyMemoryPipeline(env, { mode: 'morning', ctx, forceEmail });
+      const out = await runPipeline('morning');
       return jsonResponse({
         ok: true,
         cron: cron || '30 13 * * *',
         job: 'morning_focus_email',
-        mode: 'direct',
+        mode: allRecipients ? 'all_recipients' : 'single',
         forceEmail,
         result: out,
         duration_ms: Date.now() - startedAt,

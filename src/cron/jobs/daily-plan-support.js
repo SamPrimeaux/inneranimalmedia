@@ -42,6 +42,63 @@ export async function resolveDailyPlanNotifyUser(env) {
   return { userId, email };
 }
 
+/**
+ * Users who should receive daily memory email + Gmail triage.
+ * Primary: active google_gmail OAuth linked to auth_users.email.
+ * Fallback: platform notify user (RESEND_TO / superadmin) if not already listed.
+ * @param {*} env
+ * @returns {Promise<Array<{ userId: string, email: string, tenantId?: string|null, hasGmail?: boolean }>>}
+ */
+export async function listDailyMemoryRecipients(env) {
+  if (!env?.DB) return [];
+  const seen = new Map();
+
+  const { results } = await env.DB.prepare(
+    `SELECT DISTINCT
+       u.id AS user_id,
+       lower(trim(u.email)) AS email,
+       COALESCE(NULLIF(trim(u.active_tenant_id), ''), NULLIF(trim(u.tenant_id), '')) AS tenant_id
+     FROM user_oauth_tokens t
+     INNER JOIN auth_users u ON u.id = t.user_id
+     WHERE lower(t.provider) IN ('google_gmail', 'gmail')
+       AND u.email IS NOT NULL AND trim(u.email) != ''
+       AND (
+         COALESCE(trim(t.refresh_token), '') != ''
+         OR COALESCE(trim(t.refresh_token_encrypted), '') != ''
+         OR COALESCE(trim(t.access_token), '') != ''
+         OR COALESCE(trim(t.access_token_encrypted), '') != ''
+       )`,
+  ).all().catch(() => ({ results: [] }));
+
+  for (const row of results || []) {
+    const userId = String(row.user_id || '').trim();
+    const email = String(row.email || '').trim().toLowerCase();
+    if (!userId || !email.includes('@')) continue;
+    seen.set(userId, {
+      userId,
+      email,
+      tenantId: row.tenant_id ? String(row.tenant_id).trim() : null,
+      hasGmail: true,
+    });
+  }
+
+  const platform = await resolveDailyPlanNotifyUser(env);
+  if (platform?.userId && platform?.email) {
+    const userId = String(platform.userId).trim();
+    const email = String(platform.email).trim().toLowerCase();
+    if (userId && email.includes('@') && !seen.has(userId)) {
+      seen.set(userId, {
+        userId,
+        email,
+        tenantId: null,
+        hasGmail: false,
+      });
+    }
+  }
+
+  return [...seen.values()];
+}
+
 /** @param {*} env @param {string} sql @param  {...*} bind */
 async function d1All(env, sql, ...bind) {
   if (!env?.DB) return { results: [] };
@@ -194,7 +251,9 @@ export async function gatherMorningPlanContext(env, tenantId, owner) {
     snapshotGmailInboxForUser(env, {
       email: owner.email || undefined,
       userId: owner.userId || undefined,
-      maxPerAccount: 25,
+      maxPerAccount: 100,
+      searchAnywhere: true,
+      hoursBack: 24,
     }),
 
     d1First(env,

@@ -440,6 +440,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleCronSelfTest(request, env, ctx);
   }
 
+  if (pathLower === '/api/internal/chat-sessions/purge-archived' && methodUpper === 'POST') {
+    const { handleChatSessionPurgeArchivedInternal } = await import('../api/chat-session-purge-internal.js');
+    return handleChatSessionPurgeArchivedInternal(request, env);
+  }
+
   if (pathLower === '/api/internal/exec-identity-alert' && methodUpper === 'POST') {
     const { handleExecIdentityAlert } = await import('../api/internal-exec-identity-alert.js');
     return handleExecIdentityAlert(request, env, ctx);

@@ -1111,8 +1111,11 @@ export async function patchUserChatSession(env, input) {
     sets.push('is_starred = 0');
   }
   if (patch.is_archived === true || patch.is_archived === 1 || patch.is_archived === '1') {
-    sets.push('is_archived = 1');
-  } else if (patch.is_archived === false || patch.is_archived === 0 || patch.is_archived === '0') {
+    const del = await deleteUserChatSession(env, { conversationId, userId, tenantId });
+    if (!del.ok) return del;
+    return { ok: true, deleted: true };
+  }
+  if (patch.is_archived === false || patch.is_archived === 0 || patch.is_archived === '0') {
     sets.push('is_archived = 0');
   }
   if (patch.project_id === null || patch.project_id === '') {

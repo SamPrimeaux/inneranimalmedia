@@ -6,12 +6,14 @@
 import { resolveOAuthAccessToken, resolveOAuthRefreshToken } from '../api/oauth.js';
 import { listGmailTokenRowsForUser } from './gmail-user-tokens.js';
 
-const DEFAULT_MAX = 25;
+const DEFAULT_MAX = 50;
+const MAX_PER_ACCOUNT_CAP = 120;
 
 /**
- * @param {{ hoursBack?: number, sinceMidnightChicago?: boolean }} opts
+ * @param {{ hoursBack?: number, sinceMidnightChicago?: boolean, searchAnywhere?: boolean }} opts
  */
 function buildGmailListQuery(opts = {}) {
+  const anywhere = opts.searchAnywhere ? 'in:anywhere ' : '';
   if (opts.sinceMidnightChicago) {
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Chicago',
@@ -22,13 +24,13 @@ function buildGmailListQuery(opts = {}) {
     const y = parts.find((p) => p.type === 'year')?.value;
     const m = parts.find((p) => p.type === 'month')?.value;
     const d = parts.find((p) => p.type === 'day')?.value;
-    if (y && m && d) return `after:${y}/${m}/${d}`;
+    if (y && m && d) return `${anywhere}after:${y}/${m}/${d}`.trim();
   }
   const hours = Number(opts.hoursBack);
-  if (hours > 0 && hours <= 24) return 'newer_than:1d';
-  if (hours > 24 && hours <= 48) return 'newer_than:2d';
-  if (hours > 48) return `newer_than:${Math.ceil(hours / 24)}d`;
-  return 'newer_than:2d';
+  if (hours > 0 && hours <= 24) return `${anywhere}newer_than:1d`.trim();
+  if (hours > 24 && hours <= 48) return `${anywhere}newer_than:2d`.trim();
+  if (hours > 48) return `${anywhere}newer_than:${Math.ceil(hours / 24)}d`.trim();
+  return `${anywhere}newer_than:2d`.trim();
 }
 
 function firstHeader(msg, name) {
@@ -89,14 +91,21 @@ async function gmailFetchJson(env, tokenRow, url, init) {
 
 /**
  * @param {*} env
- * @param {{ email?: string, userId?: string, maxPerAccount?: number, hoursBack?: number, sinceMidnightChicago?: boolean, gmailQuery?: string }} opts
+ * @param {{ email?: string, userId?: string, maxPerAccount?: number, hoursBack?: number, sinceMidnightChicago?: boolean, gmailQuery?: string, searchAnywhere?: boolean }} opts
  */
 export async function snapshotGmailInboxForUser(env, opts = {}) {
   const userId = opts.userId ? String(opts.userId).trim() : '';
   const email = opts.email ? String(opts.email).trim().toLowerCase() : '';
-  const max = Number(opts.maxPerAccount) > 0 ? Number(opts.maxPerAccount) : DEFAULT_MAX;
+  const maxRaw = Number(opts.maxPerAccount) > 0 ? Number(opts.maxPerAccount) : DEFAULT_MAX;
+  const max = Math.min(maxRaw, MAX_PER_ACCOUNT_CAP);
+  const searchAnywhere = opts.searchAnywhere === true
+    || String(opts.gmailQuery || '').includes('in:anywhere');
   const listQuery = opts.gmailQuery?.trim()
-    || buildGmailListQuery({ hoursBack: opts.hoursBack, sinceMidnightChicago: opts.sinceMidnightChicago });
+    || buildGmailListQuery({
+      hoursBack: opts.hoursBack,
+      sinceMidnightChicago: opts.sinceMidnightChicago,
+      searchAnywhere,
+    });
   const authUser = userId || email ? { id: userId || undefined, email: email || undefined } : null;
   if (!authUser) return { emails: [], accounts: [], source: 'none' };
 
@@ -114,7 +123,9 @@ export async function snapshotGmailInboxForUser(env, opts = {}) {
 
     const u = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages');
     u.searchParams.set('maxResults', String(max));
-    u.searchParams.append('labelIds', 'INBOX');
+    if (!searchAnywhere) {
+      u.searchParams.append('labelIds', 'INBOX');
+    }
     u.searchParams.set('q', listQuery);
     const list = await gmailFetchJson(env, tokenRow, u.toString());
     if (!list.ok) continue;
@@ -145,9 +156,11 @@ export async function snapshotGmailInboxForUser(env, opts = {}) {
   }
 
   emails.sort((a, b) => new Date(b.date_received).getTime() - new Date(a.date_received).getTime());
+  const cap = max * Math.max(accounts.length, 1);
   return {
-    emails: emails.slice(0, max * Math.max(accounts.length, 1)),
+    emails: emails.slice(0, cap),
     accounts,
     source: accounts.length ? 'gmail' : 'none',
+    query: listQuery,
   };
 }

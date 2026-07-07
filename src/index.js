@@ -185,6 +185,10 @@ export default {
         const { handleArtifactPurgeInternal } = await import('./api/artifact-purge-internal.js');
         return handleArtifactPurgeInternal(request, env);
       }
+      if (pathLower === '/api/internal/chat-sessions/purge-archived' && methodUpper === 'POST') {
+        const { handleChatSessionPurgeArchivedInternal } = await import('./api/chat-session-purge-internal.js');
+        return handleChatSessionPurgeArchivedInternal(request, env);
+      }
 
       const isDashboardHtmlNav =
         (methodUpper === 'GET' || methodUpper === 'HEAD') && isDashboardSpaShellPath(pathLower);

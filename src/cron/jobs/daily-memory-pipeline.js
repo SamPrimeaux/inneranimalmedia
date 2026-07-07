@@ -14,6 +14,7 @@ import {
   DailyPlanError,
   gatherMorningPlanContext,
   generateWithGemini,
+  listDailyMemoryRecipients,
   resolveDailyPlanNotifyUser,
 } from './daily-plan-support.js';
 
@@ -29,9 +30,19 @@ export function chicagoDateIso(d = new Date()) {
   return d.toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 }
 
-/** @param {string} dateIso */
-export function memoryR2Key(dateIso) {
+const GMAIL_MAX_PER_ACCOUNT = 100;
+
+/** @param {string} dateIso @param {string|null|undefined} [userId] */
+export function memoryR2Key(dateIso, userId = null) {
+  const uid = userId ? String(userId).trim() : '';
+  if (uid) return `${MEMORY_R2_PREFIX}users/${uid}/${dateIso}.md`;
   return `${MEMORY_R2_PREFIX}${dateIso}.md`;
+}
+
+/** @param {string|null|undefined} userId */
+function userIdSuffix(userId) {
+  if (!userId) return '';
+  return `_${String(userId).replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 48)}`;
 }
 
 function escHtml(s) {
@@ -291,29 +302,33 @@ function brandedEmailHtml({ variant, title, subtitle, md }) {
 async function persistMemoryArtifacts(env, p) {
   const { mode, md, dateIso, tenantId, userId, r2Key, triageBatch, models } = p;
   const ws = WORKSPACE_ID;
-  const planId = `plan_daily_${dateIso.replace(/-/g, '')}`;
+  const uidSuffix = userIdSuffix(userId);
+  const planId = `plan_daily${uidSuffix}_${dateIso.replace(/-/g, '')}`;
   const r2Url = `${AUTORAG_PUBLIC}/${r2Key}`;
   const errors = [];
+  const isPlatformMemory = !userId || !String(r2Key).includes('/users/');
 
   await putAutoragText(env, r2Key, md);
 
-  try {
-    const snap = await env.DB.prepare(
-      'SELECT snapshot_date FROM daily_snapshots WHERE snapshot_date = ? LIMIT 1',
-    ).bind(dateIso).first();
-    if (snap?.snapshot_date) {
-      await env.DB.prepare(
-        'UPDATE daily_snapshots SET digest_text = ?, updated_at = unixepoch() WHERE snapshot_date = ?',
-      ).bind(md, dateIso).run();
-    } else {
-      await env.DB.prepare(
-        `INSERT INTO daily_snapshots (
-          snapshot_date, deploy_count, tokens_in, tokens_out, cost_usd, active_workflows, digest_text, created_at, updated_at
-        ) VALUES (?, 0, 0, 0, 0, 0, ?, unixepoch(), unixepoch())`,
-      ).bind(dateIso, md).run();
+  if (isPlatformMemory) {
+    try {
+      const snap = await env.DB.prepare(
+        'SELECT snapshot_date FROM daily_snapshots WHERE snapshot_date = ? LIMIT 1',
+      ).bind(dateIso).first();
+      if (snap?.snapshot_date) {
+        await env.DB.prepare(
+          'UPDATE daily_snapshots SET digest_text = ?, updated_at = unixepoch() WHERE snapshot_date = ?',
+        ).bind(md, dateIso).run();
+      } else {
+        await env.DB.prepare(
+          `INSERT INTO daily_snapshots (
+            snapshot_date, deploy_count, tokens_in, tokens_out, cost_usd, active_workflows, digest_text, created_at, updated_at
+          ) VALUES (?, 0, 0, 0, 0, 0, ?, unixepoch(), unixepoch())`,
+        ).bind(dateIso, md).run();
+      }
+    } catch (e) {
+      errors.push(`daily_snapshots:${e?.message}`);
     }
-  } catch (e) {
-    errors.push(`daily_snapshots:${e?.message}`);
   }
 
   const eveningBody = md.match(/## Evening\s*\n+([\s\S]*?)(?=^## Morning|\Z)/m)?.[1]?.trim() || '';
@@ -347,7 +362,7 @@ async function persistMemoryArtifacts(env, p) {
   }
 
   try {
-    const memId = `mem_daily_${dateIso.replace(/-/g, '')}`;
+    const memId = `mem_daily${uidSuffix}_${dateIso.replace(/-/g, '')}`;
     await env.DB.prepare(
       `INSERT OR REPLACE INTO agentsam_memory (
         id, tenant_id, user_id, workspace_id, memory_type, key, value, importance, is_pinned, decay_score, source, created_at, updated_at
@@ -357,14 +372,14 @@ async function persistMemoryArtifacts(env, p) {
       tenantId,
       userId || null,
       ws,
-      `daily_memory_${dateIso}`,
+      userId ? `daily_memory_${userId}_${dateIso}` : `daily_memory_${dateIso}`,
       md.slice(0, 4000),
     ).run();
   } catch (e) {
     errors.push(`agentsam_memory:${e?.message}`);
   }
 
-  const compactionId = `cmp_daily_${mode}_${dateIso.replace(/-/g, '')}_${Date.now()}`;
+  const compactionId = `cmp_daily${uidSuffix}_${mode}_${dateIso.replace(/-/g, '')}_${Date.now()}`;
   try {
     await env.DB.prepare(
       `INSERT INTO agentsam_compaction_events (
@@ -389,19 +404,20 @@ async function persistMemoryArtifacts(env, p) {
     errors.push(`agentsam_compaction_events:${e?.message}`);
   }
 
+  const memoryKeyBase = userId ? `daily_memory/${userId}/${dateIso}` : `daily_memory/${dateIso}`;
   const chunks = chunkMarkdown(md, 900, 100);
   let embedded = 0;
   for (let i = 0; i < chunks.length; i++) {
     try {
       await writeMemoryLane(env, {
         workspace_id: ws,
-        user_id: null,
-        memory_key: `daily_memory/${dateIso}#${i}`,
+        user_id: userId || null,
+        memory_key: `${memoryKeyBase}#${i}`,
         title: `Daily Memory ${dateIso} (${mode}) #${i}`,
         content: chunks[i],
         source: 'daily_memory_pipeline',
         source_type: 'daily_digest',
-        metadata: { date: dateIso, pass: mode, chunk: i, r2_key: r2Key },
+        metadata: { date: dateIso, pass: mode, chunk: i, r2_key: r2Key, user_id: userId || null },
       });
       embedded += 1;
     } catch (e) {
@@ -421,7 +437,7 @@ async function persistMemoryArtifacts(env, p) {
         indexed_at = excluded.indexed_at,
         is_current = 1`,
     ).bind(
-      `vid_daily_${dateIso.replace(/-/g, '')}`,
+      `vid_daily${uidSuffix}_${dateIso.replace(/-/g, '')}`,
       tenantId,
       r2Key,
       embedded,
@@ -482,27 +498,37 @@ async function sendResendEmail(env, p) {
 
 /**
  * @param {*} env
- * @param {{ mode: 'evening'|'morning', ctx?: ExecutionContext|null, forceEmail?: boolean }} opts
+ * @param {{ mode: 'evening'|'morning', ctx?: ExecutionContext|null, forceEmail?: boolean, recipient?: { userId?: string, email?: string, tenantId?: string|null, hasGmail?: boolean } }} opts
  */
 export async function runDailyMemoryPipeline(env, opts) {
   const mode = opts.mode === 'morning' ? 'morning' : 'evening';
   if (!env?.DB || !env?.RESEND_API_KEY) {
     return { ok: false, skipped: true, reason: 'missing_db_or_resend' };
   }
-  if (!env.RESEND_FROM?.trim() || !env.RESEND_TO?.trim()) {
-    return { ok: false, skipped: true, reason: 'missing_resend_addresses' };
+  if (!env.RESEND_FROM?.trim()) {
+    return { ok: false, skipped: true, reason: 'missing_resend_from' };
   }
-  const owner = await resolveDailyPlanNotifyUser(env);
-  const tid = await resolveCronTenantId(env, owner);
+
+  const fallback = await resolveDailyPlanNotifyUser(env);
+  const recipient = opts.recipient || fallback;
+  const userId = recipient?.userId ? String(recipient.userId).trim() : '';
+  const deliverTo = recipient?.email ? String(recipient.email).trim().toLowerCase() : '';
+  if (!userId || !deliverTo.includes('@')) {
+    return { ok: false, skipped: true, reason: 'missing_recipient' };
+  }
+
+  const owner = { userId, email: deliverTo };
+  const tid = recipient?.tenantId || await resolveCronTenantId(env, owner);
   if (!tid) {
     return { ok: false, skipped: true, reason: 'missing_tenant' };
   }
 
   const cronExpr = mode === 'evening' ? '0 0 * * *' : '30 13 * * *';
   const jobName = mode === 'evening' ? 'evening_memory_email' : 'morning_focus_email';
+  const jobNameScoped = `${jobName}:${userId}`;
 
   const begun = await startCronRun(env, {
-    jobName,
+    jobName: jobNameScoped,
     cronExpression: cronExpr,
     tenantId: tid,
     workspaceId: WORKSPACE_ID,
@@ -518,14 +544,15 @@ export async function runDailyMemoryPipeline(env, opts) {
     year: 'numeric',
     timeZone: 'America/Chicago',
   });
-  const r2Key = memoryR2Key(dateIso);
+  const r2Key = memoryR2Key(dateIso, userId);
   const partial = { r2: false, d1: false, embed: false, email: false };
 
   try {
     const gmailSnapshot = await snapshotGmailInboxForUser(env, {
-      email: owner.email || undefined,
-      userId: owner.userId || undefined,
-      maxPerAccount: 50,
+      email: owner.email,
+      userId: owner.userId,
+      maxPerAccount: GMAIL_MAX_PER_ACCOUNT,
+      searchAnywhere: true,
       hoursBack: mode === 'evening' ? 24 : undefined,
       sinceMidnightChicago: mode === 'morning',
     });
@@ -535,7 +562,7 @@ export async function runDailyMemoryPipeline(env, opts) {
 
     const existingMd = await readAutoragText(env, r2Key);
     const yesterdayIso = chicagoDateIso(new Date(Date.now() - 86400000));
-    const yesterdayMd = await readAutoragText(env, memoryR2Key(yesterdayIso));
+    const yesterdayMd = await readAutoragText(env, memoryR2Key(yesterdayIso, userId));
 
     const sectionBody = mode === 'evening'
       ? await synthesizeEveningMd(env, { triageBatch, ctxData, dateIso, dateDisplay })
@@ -568,21 +595,27 @@ export async function runDailyMemoryPipeline(env, opts) {
       ? `IAM Daily Memory — ${dateDisplay}`
       : `Agent Sam — ${dateDisplay}`;
 
-    let emailSent = false;
     if (!opts.forceEmail) {
       const dup = await env.DB.prepare(
-        `SELECT id FROM email_logs WHERE subject = ? AND status = 'sent'
+        `SELECT id FROM email_logs WHERE subject = ? AND lower(to_email) = ? AND status = 'sent'
          AND datetime(created_at) >= datetime('now', '-20 hours') LIMIT 1`,
-      ).bind(subject).first().catch(() => null);
+      ).bind(subject, deliverTo).first().catch(() => null);
       if (dup?.id) {
         if (runId) {
           await completeCronRun(env, runId, startedAt, {
             rowsRead: triageBatch.items?.length || 0,
             rowsWritten: persist.embedded,
-            metadata: { sent: false, skipped_duplicate: true, r2Key, partial },
+            metadata: {
+              sent: false,
+              skipped_duplicate: true,
+              r2Key,
+              to_email: deliverTo,
+              user_id: userId,
+              partial,
+            },
           });
         }
-        return { ok: true, skipped_email: true, r2Key, md: fullMd, persist };
+        return { ok: true, skipped_email: true, r2Key, md: fullMd, persist, userId, toEmail: deliverTo };
       }
     }
 
@@ -597,7 +630,7 @@ export async function runDailyMemoryPipeline(env, opts) {
       subject,
       textBody: fullMd,
       htmlBody,
-      toEmail: env.RESEND_TO.trim(),
+      toEmail: deliverTo,
       fromEmail: env.RESEND_FROM.trim(),
     });
     partial.email = true;
@@ -610,6 +643,9 @@ export async function runDailyMemoryPipeline(env, opts) {
           sent: true,
           mode,
           r2Key,
+          to_email: deliverTo,
+          user_id: userId,
+          gmail_query: gmailSnapshot.query || null,
           gmail_accounts: gmailSnapshot.accounts?.length || 0,
           inbox_count: gmailSnapshot.emails?.length || 0,
           embed_chunks: persist.embedded,
@@ -621,13 +657,24 @@ export async function runDailyMemoryPipeline(env, opts) {
     await alertDailyPlan(env, {
       ok: true,
       title: mode === 'evening' ? 'Evening memory sent' : 'Morning brief sent',
-      body: `${subject} · R2 ${r2Key}`,
+      body: `${subject} → ${deliverTo} · R2 ${r2Key}`,
       userId: owner.userId,
       tenantId: tid,
       tag: mode === 'evening' ? 'evening-memory-ok' : 'morning-focus-ok',
     }, opts.ctx ?? null);
 
-    return { ok: true, sent: true, mode, r2Key, md: fullMd, persist, partial };
+    return {
+      ok: true,
+      sent: true,
+      mode,
+      r2Key,
+      md: fullMd,
+      persist,
+      partial,
+      userId,
+      toEmail: deliverTo,
+      gmail_count: gmailSnapshot.emails?.length || 0,
+    };
   } catch (err) {
     if (runId) await failCronRun(env, runId, startedAt, err);
     const stage = err instanceof DailyPlanError ? err.stage : 'daily_memory_pipeline';
@@ -651,14 +698,44 @@ export async function runDailyMemoryPipeline(env, opts) {
   }
 }
 
+/** @param {*} env @param {{ mode: 'evening'|'morning', ctx?: ExecutionContext|null, forceEmail?: boolean }} opts */
+export async function runDailyMemoryPipelineAllRecipients(env, opts) {
+  const recipients = await listDailyMemoryRecipients(env);
+  if (!recipients.length) {
+    return { ok: false, skipped: true, reason: 'no_recipients' };
+  }
+
+  const results = [];
+  for (const recipient of recipients) {
+    try {
+      const out = await runDailyMemoryPipeline(env, { ...opts, recipient });
+      results.push({ userId: recipient.userId, email: recipient.email, ...out });
+    } catch (err) {
+      results.push({
+        userId: recipient.userId,
+        email: recipient.email,
+        ok: false,
+        error: String(err?.message || err),
+      });
+    }
+  }
+
+  const sent = results.filter((r) => r.sent).length;
+  return { ok: true, recipients: results.length, sent, results };
+}
+
 /** @param {*} env @param {ExecutionContext|null} [ctx] */
 export async function sendEveningMemoryEmail(env, ctx = null) {
-  return runDailyMemoryPipeline(env, { mode: 'evening', ctx, forceEmail: false });
+  return runDailyMemoryPipelineAllRecipients(env, { mode: 'evening', ctx, forceEmail: false });
 }
 
 /** @param {*} env @param {ExecutionContext|null} [ctx] @param {{ forceEmail?: boolean }} [opts] */
 export async function sendMorningFocusEmail(env, ctx = null, opts = {}) {
-  return runDailyMemoryPipeline(env, { mode: 'morning', ctx, forceEmail: !!opts.forceEmail });
+  return runDailyMemoryPipelineAllRecipients(env, {
+    mode: 'morning',
+    ctx,
+    forceEmail: !!opts.forceEmail,
+  });
 }
 
 /** Back-compat midnight cron entry */

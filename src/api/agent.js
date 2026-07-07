@@ -3676,12 +3676,6 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         const status = deleteResult.error === 'not_found' ? 404 : 400;
         return jsonResponse({ error: deleteResult.error || 'delete_failed' }, status);
       }
-      await env.DB.prepare(
-        `UPDATE mcp_agent_sessions SET status = 'deleted', updated_at = unixepoch() WHERE conversation_id = ?`,
-      )
-        .bind(convId)
-        .run()
-        .catch(() => {});
       return jsonResponse({ success: true, deleted: true });
     }
 
@@ -3696,12 +3690,9 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       const status = patchResult.error === 'not_found' ? 404 : 400;
       return jsonResponse({ error: patchResult.error || 'patch_failed' }, status);
     }
-    await env.DB.prepare(
-      `UPDATE mcp_agent_sessions SET status = ?, last_activity = ?, updated_at = unixepoch() WHERE conversation_id = ?`,
-    )
-      .bind(String(body.status || 'completed'), new Date().toISOString(), convId)
-      .run()
-      .catch(() => {});
+    if (patchResult.deleted) {
+      return jsonResponse({ success: true, deleted: true });
+    }
     return jsonResponse({ success: true });
   }
 
@@ -5217,8 +5208,10 @@ async function handleAgentBootstrapRequest(request, env, ctx, identity) {
         return o ? await o.text() : '';
       };
       [dailyLog, yesterdayLog] = await Promise.all([
-        fetchMem(`memory/${today}.md`).then((t) => t || legacyFetch(`memory/daily/${today}.md`)),
-        fetchMem(`memory/${yesterday}.md`).then((t) => t || legacyFetch(`memory/daily/${yesterday}.md`)),
+        fetchMem(userId && userId !== 'system' ? `memory/users/${userId}/${today}.md` : `memory/${today}.md`)
+          .then((t) => t || fetchMem(`memory/${today}.md`) || legacyFetch(`memory/daily/${today}.md`)),
+        fetchMem(userId && userId !== 'system' ? `memory/users/${userId}/${yesterday}.md` : `memory/${yesterday}.md`)
+          .then((t) => t || fetchMem(`memory/${yesterday}.md`) || legacyFetch(`memory/daily/${yesterday}.md`)),
       ]);
       if (isSuper && env.R2) {
         schemaMemory = await legacyFetch('memory/schema-and-records.md');
