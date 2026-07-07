@@ -272,21 +272,115 @@ async function getOauthUserKey(authUser) {
   return id || null;
 }
 
-async function getGmailTokenRow(env, authUser) {
+async function getGmailTokenRow(env, authUser, accountIdentifier = null) {
   if (!env?.DB) return null;
   const userKey = await getOauthUserKey(authUser);
   if (!userKey) return null;
+  const acct = accountIdentifier ? String(accountIdentifier).trim().toLowerCase() : '';
+  if (acct) {
+    const row = await env.DB.prepare(
+      `SELECT user_id, provider, account_identifier,
+              access_token, access_token_encrypted,
+              refresh_token, refresh_token_encrypted,
+              expires_at, scope, updated_at
+       FROM user_oauth_tokens
+       WHERE user_id = ? AND provider = ? AND lower(account_identifier) = ?
+       LIMIT 1`
+    ).bind(userKey, GMAIL_PROVIDER, acct).first().catch(() => null);
+    if (row) return row;
+  }
   const row = await env.DB.prepare(
     `SELECT user_id, provider, account_identifier,
             access_token, access_token_encrypted,
             refresh_token, refresh_token_encrypted,
-            expires_at, scope
+            expires_at, scope, updated_at
      FROM user_oauth_tokens
      WHERE user_id = ? AND provider = ?
      ORDER BY updated_at DESC
      LIMIT 1`
   ).bind(userKey, GMAIL_PROVIDER).first().catch(() => null);
   return row || null;
+}
+
+async function listGmailTokenRows(env, authUser) {
+  if (!env?.DB) return [];
+  const userKey = await getOauthUserKey(authUser);
+  if (!userKey) return [];
+  const { results } = await env.DB.prepare(
+    `SELECT user_id, provider, account_identifier,
+            access_token, access_token_encrypted,
+            refresh_token, refresh_token_encrypted,
+            expires_at, scope, updated_at
+     FROM user_oauth_tokens
+     WHERE user_id = ? AND provider = ?
+     ORDER BY updated_at DESC`
+  ).bind(userKey, GMAIL_PROVIDER).all().catch(() => ({ results: [] }));
+  return results || [];
+}
+
+async function resolveGmailTokensForRequest(env, authUser, accountParam) {
+  const raw = accountParam ? String(accountParam).trim() : '';
+  if (!raw || raw === 'all') {
+    const rows = await listGmailTokenRows(env, authUser);
+    const out = [];
+    for (const row of rows) {
+      const tok = await resolveOAuthAccessToken(env, row);
+      if (tok) out.push(row);
+    }
+    return out;
+  }
+  const row = await getGmailTokenRow(env, authUser, raw);
+  if (!row) return [];
+  const tok = await resolveOAuthAccessToken(env, row);
+  return tok ? [row] : [];
+}
+
+function mapGmailMetadataToEmail(msg, accountIdentifier = '') {
+  const labelIds = Array.isArray(msg?.labelIds) ? msg.labelIds : [];
+  const unread = labelIds.includes('UNREAD') ? 0 : 1;
+  const starred = labelIds.includes('STARRED') ? 1 : 0;
+  const archived = labelIds.includes('INBOX') ? 0 : 1;
+  const subject = firstHeader(msg, 'Subject') || '(no subject)';
+  const from = firstHeader(msg, 'From') || '';
+  const to = firstHeader(msg, 'To') || '';
+  const dt = msg?.internalDate ? new Date(Number(msg.internalDate)) : null;
+  const date_received = dt && !Number.isNaN(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
+  return {
+    id: String(msg.id),
+    from_address: from,
+    to_address: to,
+    subject,
+    date_received,
+    is_read: unread,
+    is_starred: starred,
+    is_archived: archived,
+    category: parseGmailCategories(labelIds),
+    has_attachments: hasGmailAttachments(msg) ? 1 : 0,
+    account: accountIdentifier ? String(accountIdentifier) : '',
+  };
+}
+
+async function fetchGmailFolderEmails(env, tokenRows, folder) {
+  const allEmails = [];
+  for (const tokenRow of tokenRows) {
+    const acct = String(tokenRow.account_identifier || '').trim();
+    let list;
+    if (folder === 'archived') {
+      list = await gmailListMessagesQuery(env, tokenRow, 'in:all -in:inbox -in:trash -in:spam -in:drafts');
+    } else if (folder === 'starred') {
+      list = await gmailListMessages(env, tokenRow, ['STARRED']);
+    } else {
+      list = await gmailListMessages(env, tokenRow, ['INBOX']);
+    }
+    if (!list.ok) return { ok: false, status: list.status, error: list.error, emails: [] };
+    const ids = (list.messages || []).map((m) => String(m?.id || '')).filter(Boolean);
+    for (const id of ids) {
+      const m = await gmailGetMessage(env, tokenRow, id, 'metadata');
+      if (m.ok && m.msg) allEmails.push(mapGmailMetadataToEmail(m.msg, acct));
+    }
+  }
+  allEmails.sort((a, b) => new Date(b.date_received).getTime() - new Date(a.date_received).getTime());
+  return { ok: true, emails: allEmails.slice(0, PAGE_SIZE) };
 }
 
 async function refreshGoogleAccessToken(env, tokenRow) {
@@ -353,6 +447,53 @@ async function gmailListMessages(env, tokenRow, labelIds) {
   return { ok: true, messages: Array.isArray(out.json?.messages) ? out.json.messages : [] };
 }
 
+async function gmailListMessagesQuery(env, tokenRow, query) {
+  const u = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages');
+  u.searchParams.set('maxResults', String(PAGE_SIZE));
+  if (query) u.searchParams.set('q', String(query));
+  const out = await gmailFetchJson(env, tokenRow, u.toString());
+  if (!out.ok) return { ok: false, status: out.status, error: out.json?.error?.message || 'gmail list failed', messages: [] };
+  return { ok: true, messages: Array.isArray(out.json?.messages) ? out.json.messages : [] };
+}
+
+async function gmailModifyMessage(env, tokenRow, messageId, { addLabelIds = [], removeLabelIds = [] } = {}) {
+  const add = (Array.isArray(addLabelIds) ? addLabelIds : []).map(String).filter(Boolean);
+  const remove = (Array.isArray(removeLabelIds) ? removeLabelIds : []).map(String).filter(Boolean);
+  if (!add.length && !remove.length) return { ok: true };
+  const u = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}/modify`;
+  const body = {};
+  if (add.length) body.addLabelIds = add;
+  if (remove.length) body.removeLabelIds = remove;
+  const out = await gmailFetchJson(env, tokenRow, u, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!out.ok) return { ok: false, status: out.status, error: out.json?.error?.message || 'gmail modify failed' };
+  return { ok: true, json: out.json };
+}
+
+async function applyGmailEmailPatch(env, tokenRow, messageId, patch) {
+  const add = [];
+  const remove = [];
+  if ('is_read' in patch) {
+    if (patch.is_read) remove.push('UNREAD');
+    else add.push('UNREAD');
+  }
+  if ('is_starred' in patch) {
+    if (patch.is_starred) add.push('STARRED');
+    else remove.push('STARRED');
+  }
+  if ('is_archived' in patch && patch.is_archived) {
+    remove.push('INBOX');
+  }
+  return gmailModifyMessage(env, tokenRow, messageId, { addLabelIds: add, removeLabelIds: remove });
+}
+
+async function trashGmailMessage(env, tokenRow, messageId) {
+  return gmailModifyMessage(env, tokenRow, messageId, { addLabelIds: ['TRASH'], removeLabelIds: ['INBOX'] });
+}
+
 async function gmailGetMessage(env, tokenRow, id, format = 'metadata') {
   const u = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(id)}`);
   u.searchParams.set('format', format);
@@ -396,13 +537,58 @@ export async function handleMailApi(request, url, env, ctx) {
     // Gmail OAuth connect (real)
     // GET /api/mail/gmail/status
     if (method === 'GET' && p === '/api/mail/gmail/status') {
-      const tok = await getGmailTokenRow(env, authUser);
+      const rows = await listGmailTokenRows(env, authUser);
+      const accounts = [];
+      for (const tok of rows) {
+        const refresh = await resolveOAuthRefreshToken(env, tok);
+        const access = await resolveOAuthAccessToken(env, tok);
+        if (!refresh && !access) continue;
+        accounts.push({
+          id: String(tok.account_identifier || ''),
+          address: String(tok.account_identifier || ''),
+          expires_at: tok?.expires_at != null ? Number(tok.expires_at) : null,
+          scope: tok?.scope ? String(tok.scope) : null,
+        });
+      }
+      const primary = accounts[0] || null;
       return jsonResponse({
-        connected: !!(tok?.refresh_token || tok?.access_token),
-        account: tok?.account_identifier ? String(tok.account_identifier) : null,
-        expires_at: tok?.expires_at != null ? Number(tok.expires_at) : null,
-        scope: tok?.scope ? String(tok.scope) : null,
+        connected: accounts.length > 0,
+        account: primary?.address || null,
+        accounts,
+        expires_at: primary?.expires_at ?? null,
+        scope: primary?.scope ?? null,
       });
+    }
+
+    // GET /api/mail/gmail/accounts
+    if (method === 'GET' && p === '/api/mail/gmail/accounts') {
+      const rows = await listGmailTokenRows(env, authUser);
+      const accounts = [];
+      for (const tok of rows) {
+        const refresh = await resolveOAuthRefreshToken(env, tok);
+        const access = await resolveOAuthAccessToken(env, tok);
+        if (!refresh && !access) continue;
+        accounts.push({
+          id: String(tok.account_identifier || ''),
+          address: String(tok.account_identifier || ''),
+          label: 'Gmail',
+          provider: 'gmail',
+          connected: true,
+        });
+      }
+      return jsonResponse({ accounts });
+    }
+
+    // DELETE /api/mail/gmail/disconnect?account=email@domain.com
+    if (method === 'DELETE' && p === '/api/mail/gmail/disconnect') {
+      const userKey = await getOauthUserKey(authUser);
+      const acct = url.searchParams.get('account') ? String(url.searchParams.get('account')).trim().toLowerCase() : '';
+      if (!userKey || !acct) return jsonResponse({ error: 'account required' }, 400);
+      await env.DB.prepare(
+        `DELETE FROM user_oauth_tokens
+         WHERE user_id = ? AND provider = ? AND lower(account_identifier) = ?`
+      ).bind(userKey, GMAIL_PROVIDER, acct).run();
+      return jsonResponse({ ok: true });
     }
 
     // GET /api/mail/gmail/start -> redirect to Google OAuth consent
@@ -507,41 +693,12 @@ export async function handleMailApi(request, url, env, ctx) {
 
     // GET /api/mail/inbox
     if (method === 'GET' && p === '/api/mail/inbox') {
-      // If Gmail is connected, use Gmail as source-of-truth for Inbox.
-      const gmailTok = await getGmailTokenRow(env, authUser);
-      const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
-      if (gmailAccessToken) {
-        const list = await gmailListMessages(env, gmailTok, ['INBOX']);
-        if (!list.ok) return jsonResponse({ error: list.error }, list.status || 502);
-        const ids = (list.messages || []).map((m) => String(m?.id || '')).filter(Boolean);
-        const metas = [];
-        for (const id of ids) {
-          const m = await gmailGetMessage(env, gmailTok, id, 'metadata');
-          if (m.ok && m.msg) metas.push(m.msg);
-        }
-        const emails = metas.map((msg) => {
-          const labelIds = Array.isArray(msg?.labelIds) ? msg.labelIds : [];
-          const unread = labelIds.includes('UNREAD') ? 0 : 1;
-          const starred = labelIds.includes('STARRED') ? 1 : 0;
-          const archived = labelIds.includes('INBOX') ? 0 : 1;
-          const subject = firstHeader(msg, 'Subject') || '(no subject)';
-          const from = firstHeader(msg, 'From') || '';
-          const to = firstHeader(msg, 'To') || '';
-          const dt = msg?.internalDate ? new Date(Number(msg.internalDate)) : null;
-          const date_received = dt && !Number.isNaN(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
-          return {
-            id: String(msg.id),
-            from_address: from,
-            to_address: to,
-            subject,
-            date_received,
-            is_read: unread,
-            is_starred: starred,
-            is_archived: archived,
-            category: parseGmailCategories(labelIds),
-            has_attachments: hasGmailAttachments(msg) ? 1 : 0,
-          };
-        });
+      const accountParam = url.searchParams.get('account');
+      const gmailTokens = await resolveGmailTokensForRequest(env, authUser, accountParam);
+      if (gmailTokens.length > 0) {
+        const fetched = await fetchGmailFolderEmails(env, gmailTokens, 'inbox');
+        if (!fetched.ok) return jsonResponse({ error: fetched.error }, fetched.status || 502);
+        const emails = fetched.emails;
         return jsonResponse({
           emails,
           total: emails.length,
@@ -592,39 +749,12 @@ export async function handleMailApi(request, url, env, ctx) {
 
     // GET /api/mail/starred
     if (method === 'GET' && p === '/api/mail/starred') {
-      const gmailTok = await getGmailTokenRow(env, authUser);
-      const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
-      if (gmailAccessToken) {
-        const list = await gmailListMessages(env, gmailTok, ['STARRED']);
-        if (!list.ok) return jsonResponse({ error: list.error }, list.status || 502);
-        const ids = (list.messages || []).map((m) => String(m?.id || '')).filter(Boolean);
-        const metas = [];
-        for (const id of ids) {
-          const m = await gmailGetMessage(env, gmailTok, id, 'metadata');
-          if (m.ok && m.msg) metas.push(m.msg);
-        }
-        const emails = metas.map((msg) => {
-          const labelIds = Array.isArray(msg?.labelIds) ? msg.labelIds : [];
-          const unread = labelIds.includes('UNREAD') ? 0 : 1;
-          const subject = firstHeader(msg, 'Subject') || '(no subject)';
-          const from = firstHeader(msg, 'From') || '';
-          const to = firstHeader(msg, 'To') || '';
-          const dt = msg?.internalDate ? new Date(Number(msg.internalDate)) : null;
-          const date_received = dt && !Number.isNaN(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
-          return {
-            id: String(msg.id),
-            from_address: from,
-            to_address: to,
-            subject,
-            date_received,
-            is_read: unread,
-            is_starred: 1,
-            is_archived: labelIds.includes('INBOX') ? 0 : 1,
-            category: parseGmailCategories(labelIds),
-            has_attachments: hasGmailAttachments(msg) ? 1 : 0,
-          };
-        });
-        return jsonResponse({ emails, source: 'gmail' });
+      const accountParam = url.searchParams.get('account');
+      const gmailTokens = await resolveGmailTokensForRequest(env, authUser, accountParam);
+      if (gmailTokens.length > 0) {
+        const fetched = await fetchGmailFolderEmails(env, gmailTokens, 'starred');
+        if (!fetched.ok) return jsonResponse({ error: fetched.error }, fetched.status || 502);
+        return jsonResponse({ emails: fetched.emails, source: 'gmail' });
       }
       const { results } = await env.DB.prepare(
         `SELECT id, from_address, to_address, subject, date_received, is_read, is_starred, is_archived, category, has_attachments
@@ -638,39 +768,12 @@ export async function handleMailApi(request, url, env, ctx) {
 
     // GET /api/mail/archived
     if (method === 'GET' && p === '/api/mail/archived') {
-      const gmailTok = await getGmailTokenRow(env, authUser);
-      const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
-      if (gmailAccessToken) {
-        // Archived ~= All mail minus inbox (use label ALL_MAIL and then filter client for INBOX off by Gmail)
-        const list = await gmailListMessages(env, gmailTok, ['TRASH']); // not perfect, but avoids "empty archived" when using Gmail.
-        if (!list.ok) return jsonResponse({ error: list.error }, list.status || 502);
-        const ids = (list.messages || []).map((m) => String(m?.id || '')).filter(Boolean);
-        const metas = [];
-        for (const id of ids) {
-          const m = await gmailGetMessage(env, gmailTok, id, 'metadata');
-          if (m.ok && m.msg) metas.push(m.msg);
-        }
-        const emails = metas.map((msg) => {
-          const labelIds = Array.isArray(msg?.labelIds) ? msg.labelIds : [];
-          const unread = labelIds.includes('UNREAD') ? 0 : 1;
-          const subject = firstHeader(msg, 'Subject') || '(no subject)';
-          const from = firstHeader(msg, 'From') || '';
-          const to = firstHeader(msg, 'To') || '';
-          const dt = msg?.internalDate ? new Date(Number(msg.internalDate)) : null;
-          const date_received = dt && !Number.isNaN(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
-          return {
-            id: String(msg.id),
-            from_address: from,
-            to_address: to,
-            subject,
-            date_received,
-            is_read: unread,
-            is_starred: labelIds.includes('STARRED') ? 1 : 0,
-            is_archived: 1,
-            category: parseGmailCategories(labelIds),
-            has_attachments: hasGmailAttachments(msg) ? 1 : 0,
-          };
-        });
+      const accountParam = url.searchParams.get('account');
+      const gmailTokens = await resolveGmailTokensForRequest(env, authUser, accountParam);
+      if (gmailTokens.length > 0) {
+        const fetched = await fetchGmailFolderEmails(env, gmailTokens, 'archived');
+        if (!fetched.ok) return jsonResponse({ error: fetched.error }, fetched.status || 502);
+        const emails = fetched.emails;
         return jsonResponse({ emails, total: emails.length, page: 1, source: 'gmail' });
       }
       const page = parsePage(url);
@@ -739,12 +842,18 @@ export async function handleMailApi(request, url, env, ctx) {
         });
       }
 
-      const gmailTok = await getGmailTokenRow(env, authUser);
-      const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
-      if (gmailAccessToken) {
-        const got = await gmailGetMessage(env, gmailTok, id, 'full');
-        if (!got.ok || !got.msg) return jsonResponse({ error: got.error || 'Email not found' }, got.status || 404);
-        const msg = got.msg;
+      const gmailAccount = url.searchParams.get('account');
+      if (looksLikeGmailMessageId(id)) {
+        const tokenCandidates = gmailAccount
+          ? [await getGmailTokenRow(env, authUser, gmailAccount)]
+          : await listGmailTokenRows(env, authUser);
+        for (const gmailTok of tokenCandidates) {
+          if (!gmailTok) continue;
+          const gmailAccessToken = await resolveOAuthAccessToken(env, gmailTok);
+          if (!gmailAccessToken) continue;
+          const got = await gmailGetMessage(env, gmailTok, id, 'full');
+          if (!got.ok || !got.msg) continue;
+          const msg = got.msg;
         const labelIds = Array.isArray(msg?.labelIds) ? msg.labelIds : [];
         const dt = msg?.internalDate ? new Date(Number(msg.internalDate)) : null;
         const date_received = dt && !Number.isNaN(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
@@ -759,6 +868,7 @@ export async function handleMailApi(request, url, env, ctx) {
           is_archived: labelIds.includes('INBOX') ? 0 : 1,
           category: parseGmailCategories(labelIds),
           has_attachments: hasGmailAttachments(msg) ? 1 : 0,
+          account: gmailTok?.account_identifier ? String(gmailTok.account_identifier) : '',
           metadata: {
             message_id: firstHeader(msg, 'Message-Id') || '',
             in_reply_to: firstHeader(msg, 'In-Reply-To') || '',
@@ -781,6 +891,8 @@ export async function handleMailApi(request, url, env, ctx) {
           metadata: email.metadata,
           source: 'gmail',
         });
+        }
+        return jsonResponse({ error: 'Email not found' }, 404);
       }
 
       const email = await env.DB.prepare(
@@ -848,7 +960,8 @@ export async function handleMailApi(request, url, env, ctx) {
       const msgId = parts[3] ? decodeURIComponent(parts[3]) : '';
       const attachmentId = parts[4] ? decodeURIComponent(parts[4]) : '';
       if (!msgId || !attachmentId) return jsonResponse({ error: 'Not found' }, 404);
-      const gmailTok = await getGmailTokenRow(env, authUser);
+      const accountParam = url.searchParams.get('account');
+      const gmailTok = await getGmailTokenRow(env, authUser, accountParam || null);
       const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
       if (!gmailAccessToken) return jsonResponse({ error: 'Gmail not connected' }, 403);
       const got = await gmailGetAttachment(env, gmailTok, msgId, attachmentId);
@@ -878,23 +991,22 @@ export async function handleMailApi(request, url, env, ctx) {
 
     // GET /api/mail/senders
     if (method === 'GET' && p === '/api/mail/senders') {
-      const gmailTok = await getGmailTokenRow(env, authUser);
-      const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
-      const gmailRefreshResolved = gmailTok ? await resolveOAuthRefreshToken(env, gmailTok) : null;
-      if (gmailTok && (gmailRefreshResolved || gmailAccessToken)) {
+      const rows = await listGmailTokenRows(env, authUser);
+      const senders = [];
+      for (const gmailTok of rows) {
+        const gmailAccessToken = await resolveOAuthAccessToken(env, gmailTok);
+        const gmailRefreshResolved = await resolveOAuthRefreshToken(env, gmailTok);
+        if (!gmailAccessToken && !gmailRefreshResolved) continue;
         const account_identifier = String(gmailTok.account_identifier || '');
-        return jsonResponse({
-          senders: [
-            {
-              id: 'gmail',
-              address: account_identifier,
-              display_name: account_identifier,
-              label: 'Gmail',
-              purpose: 'gmail',
-            },
-          ],
+        senders.push({
+          id: `gmail:${account_identifier}`,
+          address: account_identifier,
+          display_name: account_identifier,
+          label: 'Gmail',
+          purpose: 'gmail',
         });
       }
+      if (senders.length > 0) return jsonResponse({ senders });
       const { results } = await env.DB.prepare(
         `SELECT id, address, display_name, label, purpose
          FROM resend_emails
@@ -917,6 +1029,23 @@ export async function handleMailApi(request, url, env, ctx) {
 
     // GET /api/mail/stats
     if (method === 'GET' && p === '/api/mail/stats') {
+      const accountParam = url.searchParams.get('account');
+      const gmailTokens = await resolveGmailTokensForRequest(env, authUser, accountParam);
+      if (gmailTokens.length > 0) {
+        const fetched = await fetchGmailFolderEmails(env, gmailTokens, 'inbox');
+        if (fetched.ok) {
+          const emails = fetched.emails;
+          const starredFetched = await fetchGmailFolderEmails(env, gmailTokens, 'starred');
+          return jsonResponse({
+            total: emails.length,
+            unread: emails.filter((e) => e.is_read === 0).length,
+            starred: starredFetched.ok ? starredFetched.emails.length : 0,
+            categories: [],
+            source: 'gmail',
+          });
+        }
+      }
+
       const safeFirst = (q) => env.DB.prepare(q).first().catch(() => null);
       const safeAll = (q) => env.DB.prepare(q).all().catch(() => ({ results: [] }));
 
@@ -947,6 +1076,21 @@ export async function handleMailApi(request, url, env, ctx) {
 
       const body = await readJsonBody(request);
       if (!body || typeof body !== 'object') return jsonResponse({ error: 'Invalid JSON body' }, 400);
+
+      if (looksLikeGmailMessageId(id)) {
+        const accountParam = body.account || url.searchParams.get('account');
+        const gmailTok = await getGmailTokenRow(env, authUser, accountParam || null);
+        const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
+        if (gmailAccessToken) {
+          const patch = {};
+          if ('is_read' in body) patch.is_read = body.is_read ? 1 : 0;
+          if ('is_starred' in body) patch.is_starred = body.is_starred ? 1 : 0;
+          if ('is_archived' in body) patch.is_archived = body.is_archived ? 1 : 0;
+          const mod = await applyGmailEmailPatch(env, gmailTok, id, patch);
+          if (!mod.ok) return jsonResponse({ error: mod.error || 'gmail modify failed' }, mod.status || 502);
+          return jsonResponse({ ok: true, source: 'gmail' });
+        }
+      }
 
       const allowed = ['is_read', 'is_starred', 'is_archived', 'category'];
       const sets = [];
@@ -1200,10 +1344,21 @@ export async function handleMailApi(request, url, env, ctx) {
       return jsonResponse({ ok: true, id });
     }
 
-    // DELETE /api/mail/email/:id (soft delete -> archive)
+    // DELETE /api/mail/email/:id (Gmail trash or D1 soft-delete)
     if (method === 'DELETE' && p.startsWith('/api/mail/email/')) {
       const id = decodeURIComponent(url.pathname.split('/').pop() || '').trim();
       if (!id) return jsonResponse({ error: 'Not found' }, 404);
+
+      if (looksLikeGmailMessageId(id)) {
+        const accountParam = url.searchParams.get('account');
+        const gmailTok = await getGmailTokenRow(env, authUser, accountParam || null);
+        const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
+        if (gmailAccessToken) {
+          const mod = await trashGmailMessage(env, gmailTok, id);
+          if (!mod.ok) return jsonResponse({ error: mod.error || 'gmail trash failed' }, mod.status || 502);
+          return jsonResponse({ ok: true, source: 'gmail' });
+        }
+      }
 
       await env.DB.prepare(
         `UPDATE received_emails
@@ -1240,7 +1395,11 @@ export async function handleMailApi(request, url, env, ctx) {
       } catch { /* non-fatal */ }
 
       // Resolve google_model_id from catalog
-      let googleModelId = 'models/gemini-3.5-flash';
+      const defaultModelKey =
+        (action === 'draft_reply' || action === 'draft_new')
+          ? 'gemini-3.5-flash'
+          : 'gemini-3.1-flash-lite';
+      let googleModelId = `models/${defaultModelKey}`;
       if (profile?.default_model_id) {
         try {
           const cat = await env.DB.prepare(

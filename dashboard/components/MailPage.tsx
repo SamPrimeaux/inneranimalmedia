@@ -33,6 +33,7 @@ interface Email {
   is_archived: number;
   category?: string;
   has_attachments: number;
+  account?: string;
 }
 
 interface EmailDetail {
@@ -102,6 +103,44 @@ function fmtSize(bytes: number) {
 function isHtml(body: string) {
   const s = body.trim();
   return s.startsWith('<') || /<html[\s>]|<body[\s>]|<div[\s>]/i.test(s);
+}
+
+function accountQuery(activeAccount: string) {
+  if (!activeAccount || activeAccount === 'all') return '';
+  const acct = activeAccount.startsWith('gmail:') ? activeAccount.slice(6) : activeAccount;
+  return `?account=${encodeURIComponent(acct)}`;
+}
+
+function EmailHtmlPreview({ html }: { html: string }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const resize = useCallback(() => {
+    const frame = iframeRef.current;
+    if (!frame?.contentDocument?.body) return;
+    frame.style.height = `${Math.max(frame.contentDocument.body.scrollHeight + 24, 320)}px`;
+  }, []);
+  useEffect(() => {
+    resize();
+    const t = window.setTimeout(resize, 120);
+    return () => window.clearTimeout(t);
+  }, [html, resize]);
+  return (
+    <iframe
+      ref={iframeRef}
+      srcDoc={html}
+      sandbox="allow-same-origin"
+      onLoad={resize}
+      title="email-body"
+      style={{
+        width: '100%',
+        minHeight: 320,
+        flex: 1,
+        border: 'none',
+        background: '#fff',
+        borderRadius: 8,
+        display: 'block',
+      }}
+    />
+  );
 }
 
 const SIDEBAR_MIN = 160; const SIDEBAR_MAX = 340;
@@ -186,16 +225,39 @@ export function MailPage() {
   const loadAccounts = useCallback(async () => {
     const accs: Account[] = [];
     try {
-      const gmailRes = await fetch('/api/mail/gmail/status', { credentials: 'same-origin' });
+      const gmailRes = await fetch('/api/mail/gmail/accounts', { credentials: 'same-origin' });
       if (gmailRes.ok) {
         const gd = await gmailRes.json();
-        if (gd.connected && gd.account) {
-          accs.push({ id: 'gmail', label: 'Gmail', address: gd.account, provider: 'gmail', connected: true });
-        } else {
-          accs.push({ id: 'gmail', label: 'Gmail', address: '', provider: 'gmail', connected: false });
+        for (const g of gd.accounts || []) {
+          const addr = String(g.address || g.id || '').trim();
+          if (!addr) continue;
+          accs.push({
+            id: `gmail:${addr}`,
+            label: 'Gmail',
+            address: addr,
+            provider: 'gmail',
+            connected: true,
+          });
         }
       }
     } catch { /* skip */ }
+    if (accs.length === 0) {
+      try {
+        const statusRes = await fetch('/api/mail/gmail/status', { credentials: 'same-origin' });
+        if (statusRes.ok) {
+          const gd = await statusRes.json();
+          if (gd.connected && gd.account) {
+            accs.push({
+              id: `gmail:${gd.account}`,
+              label: 'Gmail',
+              address: gd.account,
+              provider: 'gmail',
+              connected: true,
+            });
+          }
+        }
+      } catch { /* skip */ }
+    }
     try {
       const sRes = await fetch('/api/mail/senders', { credentials: 'same-origin' });
       if (sRes.ok) {
@@ -218,8 +280,9 @@ export function MailPage() {
   const loadEmails = useCallback(async () => {
     setLoadingList(true);
     try {
+      const qs = accountQuery(activeAccount);
       const endpoint = folder === 'sent' ? '/api/mail/sent' : `/api/mail/${folder}`;
-      const res = await fetch(endpoint, { credentials: 'same-origin' });
+      const res = await fetch(`${endpoint}${qs}`, { credentials: 'same-origin' });
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
       const list: Email[] = data.emails || [];
@@ -227,17 +290,17 @@ export function MailPage() {
       setStats(s => ({ ...s, total: data.total ?? list.length, unread: data.unread_count ?? s.unread }));
     } catch { setEmails([]); }
     finally { setLoadingList(false); }
-  }, [folder]);
+  }, [folder, activeAccount]);
 
   const loadStats = useCallback(async () => {
     try {
-      const res = await fetch('/api/mail/stats', { credentials: 'same-origin' });
+      const res = await fetch(`/api/mail/stats${accountQuery(activeAccount)}`, { credentials: 'same-origin' });
       if (res.ok) { const d = await res.json(); setStats({ total: d.total, unread: d.unread, starred: d.starred }); }
     } catch { /* skip */ }
-  }, []);
+  }, [activeAccount]);
 
   useEffect(() => { loadAccounts(); }, [loadAccounts]);
-  useEffect(() => { loadEmails(); loadStats(); setSelected(null); setDetail(null); }, [folder]);
+  useEffect(() => { loadEmails(); loadStats(); setSelected(null); setDetail(null); }, [folder, activeAccount, loadEmails, loadStats]);
 
   // ── Load email detail ──────────────────────────────────────────────────────
   const openEmail = useCallback(async (email: Email) => {
@@ -246,40 +309,53 @@ export function MailPage() {
     setAgent(a => ({ ...a, result: null, error: null }));
     setLoadingDetail(true);
     try {
-      const res = await fetch(`/api/mail/email/${encodeURIComponent(email.id)}`, { credentials: 'same-origin' });
+      const acctQs = email.account ? `?account=${encodeURIComponent(email.account)}` : accountQuery(activeAccount);
+      const res = await fetch(`/api/mail/email/${encodeURIComponent(email.id)}${acctQs}`, { credentials: 'same-origin' });
       if (!res.ok) throw new Error(`${res.status}`);
       const d = await res.json();
       setDetail(d);
-      // Mark read locally
-      if (!email.is_read) setEmails(prev => prev.map(e => e.id === email.id ? { ...e, is_read: 1 } : e));
+      if (!email.is_read) {
+        setEmails(prev => prev.map(e => e.id === email.id ? { ...e, is_read: 1 } : e));
+        const patchAcct = email.account || (activeAccount !== 'all' ? activeAccount.replace(/^gmail:/, '') : '');
+        fetch(`/api/mail/email/${encodeURIComponent(email.id)}`, {
+          method: 'PATCH', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_read: 1, ...(patchAcct ? { account: patchAcct } : {}) }),
+        }).catch(() => {});
+      }
     } catch { /* show error in detail */ }
     finally { setLoadingDetail(false); }
-  }, []);
+  }, [activeAccount]);
 
   // ── CRUD ops ───────────────────────────────────────────────────────────────
-  const patchEmail = useCallback(async (id: string, patch: Partial<Email>) => {
+  const patchEmail = useCallback(async (id: string, patch: Partial<Email>, account?: string) => {
     setEmails(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e));
     if (selected?.id === id) setSelected(s => s ? { ...s, ...patch } : s);
+    const acct = account || selected?.account || '';
     await fetch(`/api/mail/email/${encodeURIComponent(id)}`, {
       method: 'PATCH', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
+      body: JSON.stringify({ ...patch, ...(acct ? { account: acct } : {}) }),
     }).catch(() => {});
   }, [selected]);
 
-  const archiveEmail = useCallback(async (id: string) => {
-    await patchEmail(id, { is_archived: 1 });
-    if (selected?.id === id) { setSelected(null); setDetail(null); }
+  const archiveEmail = useCallback(async (email: Email) => {
+    await patchEmail(email.id, { is_archived: 1 }, email.account);
+    setEmails(prev => prev.filter(e => e.id !== email.id));
+    if (selected?.id === email.id) { setSelected(null); setDetail(null); }
   }, [patchEmail, selected]);
 
-  const deleteEmail = useCallback(async (id: string) => {
-    await fetch(`/api/mail/email/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {});
-    setEmails(prev => prev.filter(e => e.id !== id));
-    if (selected?.id === id) { setSelected(null); setDetail(null); }
-  }, [selected]);
+  const deleteEmail = useCallback(async (email: Email) => {
+    const acctQs = email.account
+      ? `?account=${encodeURIComponent(email.account)}`
+      : accountQuery(activeAccount);
+    await fetch(`/api/mail/email/${encodeURIComponent(email.id)}${acctQs}`, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {});
+    setEmails(prev => prev.filter(e => e.id !== email.id));
+    if (selected?.id === email.id) { setSelected(null); setDetail(null); }
+  }, [selected, activeAccount]);
 
   const toggleStar = useCallback((email: Email) => {
-    patchEmail(email.id, { is_starred: email.is_starred ? 0 : 1 });
+    patchEmail(email.id, { is_starred: email.is_starred ? 0 : 1 }, email.account);
   }, [patchEmail]);
 
   // ── Send ───────────────────────────────────────────────────────────────────
@@ -432,9 +508,14 @@ export function MailPage() {
 
           {/* Account switcher */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <button type="button" onClick={() => setActiveAccount('all')} style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28, padding: '0 8px', borderRadius: 7, border: 'none', background: activeAccount === 'all' ? 'var(--bg-hover)' : 'transparent', color: 'var(--text-main)', fontSize: 11, fontWeight: activeAccount === 'all' ? 800 : 500, cursor: 'pointer', textAlign: 'left', width: '100%' }}>
-              <Mail size={12} style={{ color: 'var(--solar-cyan)', flexShrink: 0 }} />All accounts
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button type="button" onClick={() => setActiveAccount('all')} style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28, padding: '0 8px', borderRadius: 7, border: 'none', background: activeAccount === 'all' ? 'var(--bg-hover)' : 'transparent', color: 'var(--text-main)', fontSize: 11, fontWeight: activeAccount === 'all' ? 800 : 500, cursor: 'pointer', textAlign: 'left', flex: 1, minWidth: 0 }}>
+                <Mail size={12} style={{ color: 'var(--solar-cyan)', flexShrink: 0 }} />All accounts
+              </button>
+              <a href="/api/mail/gmail/start" title="Connect another Gmail account" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 7, background: 'var(--bg-hover)', color: 'var(--solar-cyan)', textDecoration: 'none', flexShrink: 0 }}>
+                <Plus size={13} />
+              </a>
+            </div>
             {accounts.map(acc => (
               <button key={acc.id} type="button" onClick={() => setActiveAccount(acc.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28, padding: '0 8px', borderRadius: 7, border: 'none', background: activeAccount === acc.id ? 'var(--bg-hover)' : 'transparent', color: acc.connected ? 'var(--text-main)' : 'var(--text-muted)', fontSize: 11, fontWeight: activeAccount === acc.id ? 800 : 400, cursor: 'pointer', textAlign: 'left', width: '100%', overflow: 'hidden' }}>
                 <span style={{ width: 8, height: 8, borderRadius: 99, background: acc.connected ? 'var(--solar-cyan)' : 'var(--text-muted)', flexShrink: 0 }} />
@@ -518,7 +599,7 @@ export function MailPage() {
                 <button type="button" title="Star" onClick={() => toggleStar(email)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: email.is_starred ? 'var(--solar-yellow)' : 'var(--text-muted)', padding: 3, borderRadius: 5 }}>
                   <Star size={13} style={{ fill: email.is_starred ? 'var(--solar-yellow)' : 'none' }} />
                 </button>
-                <button type="button" title="Archive" onClick={() => archiveEmail(email.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 3, borderRadius: 5 }}>
+                <button type="button" title="Archive" onClick={() => archiveEmail(email)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 3, borderRadius: 5 }}>
                   <Archive size={13} />
                 </button>
               </div>
@@ -542,12 +623,12 @@ export function MailPage() {
               <Btn onClick={() => startReply(selected, detail)} small><Reply size={12} />Reply</Btn>
               <Btn onClick={() => { setCompose(c => ({ ...c, to: '', subject: `Fwd: ${selected.subject}`, body: detail?.body ? `\n\n--- Forwarded ---\n${detail.body}` : '' })); setComposing(true); }} small><Forward size={12} />Forward</Btn>
               <Btn onClick={() => toggleStar(selected)} small active={selected.is_starred === 1}><Star size={12} style={{ fill: selected.is_starred ? 'var(--solar-yellow)' : 'none', color: selected.is_starred ? 'var(--solar-yellow)' : undefined }} /></Btn>
-              <Btn onClick={() => archiveEmail(selected.id)} small><Archive size={12} /></Btn>
-              <Btn onClick={() => deleteEmail(selected.id)} small danger><Trash2 size={12} /></Btn>
+              <Btn onClick={() => archiveEmail(selected)} small><Archive size={12} /></Btn>
+              <Btn onClick={() => deleteEmail(selected)} small danger><Trash2 size={12} /></Btn>
               <Btn onClick={() => { setAgentOpen(o => !o); }} small active={agentOpen}><Sparkles size={12} />AI</Btn>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
               {/* Subject */}
               <div style={{ padding: '16px 18px 10px' }}>
                 <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 8, lineHeight: 1.35 }}>{selected.subject || '(no subject)'}</div>
@@ -620,12 +701,12 @@ export function MailPage() {
                 <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>Loading…</div>
               )}
               {detail && (
-                <div style={{ padding: '0 18px 18px', flex: 1 }}>
+                <div style={{ padding: '0 18px 18px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                   {detail.body ? (
                     isHtml(detail.body) ? (
-                      <iframe srcDoc={detail.body} sandbox="allow-same-origin" style={{ width: '100%', minHeight: 400, border: 'none', background: '#fff', borderRadius: 8 }} title="email-body" />
+                      <EmailHtmlPreview html={detail.body} />
                     ) : (
-                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13, lineHeight: 1.7, color: 'var(--text-main)', margin: 0 }}>{detail.body}</pre>
+                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13, lineHeight: 1.7, color: 'var(--text-main)', margin: 0, flex: 1 }}>{detail.body}</pre>
                     )
                   ) : (
                     <div style={{ color: 'var(--text-muted)', fontSize: 12, padding: '12px 0' }}>No body content</div>
@@ -633,15 +714,20 @@ export function MailPage() {
 
                   {/* Attachments */}
                   {detail.attachments.length > 0 && (
-                    <div style={{ marginTop: 16 }}>
+                    <div style={{ marginTop: 16, flexShrink: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Attachments ({detail.attachments.length})</div>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         {detail.attachments.map(att => (
-                          <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border-subtle)', fontSize: 11 }}>
+                          <a
+                            key={att.id}
+                            href={`/api/mail/attachment/${encodeURIComponent(selected.id)}/${encodeURIComponent(att.id)}${selected.account ? `?account=${encodeURIComponent(selected.account)}` : ''}`}
+                            download={att.filename}
+                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border-subtle)', fontSize: 11, color: 'var(--text-main)', textDecoration: 'none' }}
+                          >
                             <Paperclip size={11} />
                             <span>{att.filename}</span>
                             <span style={{ color: 'var(--text-muted)' }}>{fmtSize(att.size)}</span>
-                          </div>
+                          </a>
                         ))}
                       </div>
                     </div>

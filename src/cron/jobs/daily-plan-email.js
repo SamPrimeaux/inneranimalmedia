@@ -210,7 +210,7 @@ Rules: Under 400 words total. No fluff. No emojis. Blunt. Treat Sam like a techn
     if (!emailBody && geminiKey) {
       try {
         const gRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -224,7 +224,7 @@ Rules: Under 400 words total. No fluff. No emojis. Blunt. Treat Sam like a techn
         if (gRes.ok) {
           const gData = await gRes.json();
           emailBody = gData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-          if (emailBody) console.log('[daily-plan] generated via gemini-3.1-flash-lite');
+          if (emailBody) console.log('[daily-plan] generated via gemini-3.5-flash');
         }
       } catch (e) { console.warn('[daily-plan] Gemini failed:', e?.message); }
     }
@@ -280,7 +280,7 @@ Rules: Under 400 words total. No fluff. No emojis. Blunt. Treat Sam like a techn
     </style></head><body><div class="wrap">
       <div class="header"><h1>Agent Sam</h1><div class="date">${subject}</div></div>
       <pre>${emailBody.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
-      <div class="footer">inneranimalmedia.com &bull; gemini-3.1-flash-lite &bull; ~$0.000004</div>
+      <div class="footer">inneranimalmedia.com &bull; gemini-3.5-flash &bull; daily synthesis</div>
     </div></body></html>`;
 
     const res = await fetch('https://api.resend.com/emails', {
