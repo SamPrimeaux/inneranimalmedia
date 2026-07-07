@@ -150,12 +150,9 @@ function SitesView({
     resolveStorefrontUrl({
       projectSlug: site.slug,
       siteDomain: site.domain,
-      publicDomain:
-        site.slug === primaryProjectSlug || site.slug === workspaceSlug ? publicDomain : null,
+      publicDomain: site.slug === primaryProjectSlug ? publicDomain : null,
     });
-  const featuredUrl = featured
-    ? resolveStorefrontUrl({ projectSlug: featured.slug, siteDomain: featured.domain, publicDomain })
-    : resolveStorefrontUrl({ projectSlug: primaryProjectSlug, publicDomain });
+  const featuredUrl = featured ? siteUrl(featured) : resolveStorefrontUrl({ projectSlug: primaryProjectSlug, publicDomain });
   useEffect(() => {
     for (const slug of ['anythingfloorsandmore', 'meauxbility', 'nicoc'] as const) {
       const site = rows.find((s) => s.slug === slug);

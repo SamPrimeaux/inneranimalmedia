@@ -54,6 +54,10 @@ import {
   type QuickstartThreadDetail,
 } from './agentChatConstants';
 import { IAM_AGENT_ENSURE_PANEL, IAM_AGENT_RESUME_CHAT, IAM_AGENT_START_NEW_CHAT, IAM_AGENT_START_PROJECT_CHAT, buildProjectChatFirstMessage, openAgentConversation, resumeAgentChatSession, type StartNewAgentChatDetail, type StartProjectAgentChatDetail } from './lib/openAgentConversation';
+import {
+  agentTabMessagesNeedHydration,
+  fetchAgentSessionMessages,
+} from './lib/mapAgentSessionMessages';
 import { writeSessionProject } from './src/lib/freshChatSession';
 import { resolveWorkspaceContextLabel } from './src/workspaceContextLabel';
 import { coalesceLabel } from './src/lib/coalesceLabel';
@@ -1098,6 +1102,7 @@ const App: React.FC = () => {
   }, [ideWorkspace, gitBranch, recentFiles, devServer]);
 
   const hydrateGenRef = useRef(0);
+  const messageHydrateGenRef = useRef(0);
   const prevAgentConvRef = useRef<string>('');
   useEffect(() => {
     const id = activeAgentConversationId?.trim() || '';
@@ -2085,17 +2090,57 @@ const App: React.FC = () => {
     return () => window.removeEventListener(IAM_AGENT_ENSURE_PANEL, ensurePanel);
   }, [isAgentHomeAtmospheric, isNarrowViewport]);
 
+  const hydrateAgentTabMessages = useCallback(
+    async (tabId: string, convId: string, force = false) => {
+      const tid = String(tabId || '').trim();
+      const cid = String(convId || '').trim();
+      if (!tid || !cid) return;
+
+      const existing = messagesByTabIdRef.current[tid];
+      if (!force && !agentTabMessagesNeedHydration(existing, { hasConversationId: true })) return;
+
+      const gen = ++messageHydrateGenRef.current;
+      setMessagesByTabId((prev) => ({
+        ...prev,
+        [tid]: [{ role: 'assistant' as const, content: 'Loading conversation…' }],
+      }));
+
+      try {
+        const mapped = await fetchAgentSessionMessages(cid);
+        if (messageHydrateGenRef.current !== gen) return;
+        if (!mapped.length) {
+          setMessagesByTabId((prev) => ({
+            ...prev,
+            [tid]: [{ role: 'assistant' as const, content: buildAgentSamGreeting(workspaceDisplayLine) }],
+          }));
+          return;
+        }
+        setMessagesByTabId((prev) => ({ ...prev, [tid]: mapped }));
+      } catch {
+        if (messageHydrateGenRef.current !== gen) return;
+        setMessagesByTabId((prev) => ({
+          ...prev,
+          [tid]: [{ role: 'assistant' as const, content: buildAgentSamGreeting(workspaceDisplayLine) }],
+        }));
+      }
+    },
+    [workspaceDisplayLine],
+  );
+
   useEffect(() => {
     const onResumeChat = (e: Event) => {
       const detail = (e as CustomEvent<{ id?: string; force?: boolean; title?: string }>).detail;
       const id = detail?.id?.trim();
       if (!id) return;
-      navigate(AGENT_HOME_PATH);
+      const stayOnToolRoute = !isAgentShellPath(location.pathname);
+      if (!stayOnToolRoute) {
+        navigate(AGENT_HOME_PATH);
+        setActiveTab('Workspace');
+        setOpenTabs((prev) => (prev.includes('Workspace') ? prev : [...prev, 'Workspace']));
+      }
       if (!(isAgentHomeAtmospheric && !isNarrowViewport)) {
         setAgentPosition((p) => (p === 'off' ? 'right' : p));
       }
-      setActiveTab('Workspace');
-      setOpenTabs((prev) => (prev.includes('Workspace') ? prev : [...prev, 'Workspace']));
       openAgentConversation({
         id,
         title: detail.title,
@@ -2104,7 +2149,7 @@ const App: React.FC = () => {
     };
     window.addEventListener(IAM_AGENT_RESUME_CHAT, onResumeChat);
     return () => window.removeEventListener(IAM_AGENT_RESUME_CHAT, onResumeChat);
-  }, [navigate, isAgentHomeAtmospheric, isNarrowViewport]);
+  }, [navigate, isAgentHomeAtmospheric, isNarrowViewport, location.pathname]);
 
   useEffect(() => {
     const onConv = (e: Event) => {
@@ -2175,99 +2220,17 @@ const App: React.FC = () => {
 
       if (!targetTabId) return;
 
-      const existingMessages = messagesByTabIdRef.current[targetTabId];
-      if (!forceReload && existingMessages && existingMessages.length > 1) {
-        return;
-      }
-
-      setMessagesByTabId((prev) => ({
-        ...prev,
-        [targetTabId]: [{ role: 'assistant', content: 'Loading conversation…' }],
-      }));
-
-      void fetch(`/api/agent/sessions/${encodeURIComponent(convId)}/messages`, { credentials: 'same-origin' })
-        .then((r) => (r.ok ? r.json() : []))
-        .then((rows: unknown) => {
-          const tid = targetTabId;
-          if (!Array.isArray(rows) || rows.length === 0) {
-            setMessagesByTabId((prev) => ({
-              ...prev,
-              [tid]: [{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayLine) }],
-            }));
-            return;
-          }
-          const mapped: { role: 'user' | 'assistant'; content: string }[] = [];
-          for (const row of rows) {
-            if (!row || typeof row !== 'object') continue;
-            const o = row as { role?: string; content?: unknown };
-            const role = o.role === 'user' ? 'user' : o.role === 'assistant' ? 'assistant' : null;
-            if (!role) continue;
-            const rawContent = o.content;
-            let content = '';
-            if (typeof rawContent === 'string') {
-              content = rawContent;
-            } else if (rawContent != null && typeof rawContent === 'object') {
-              const block = rawContent as { text?: unknown; content?: unknown };
-              if (typeof block.text === 'string') content = block.text;
-              else if (typeof block.content === 'string') content = block.content;
-              else content = JSON.stringify(rawContent);
-            }
-            mapped.push({ role, content: content.trim() ? content : '(empty)' });
-          }
-          if (mapped.length === 0) {
-            setMessagesByTabId((prev) => ({
-              ...prev,
-              [tid]: [{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayLine) }],
-            }));
-            return;
-          }
-          setMessagesByTabId((prev) => ({ ...prev, [tid]: mapped }));
-        })
-        .catch(() => {
-          setMessagesByTabId((prev) => ({
-            ...prev,
-            [targetTabId]: [{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayLine) }],
-          }));
-        });
+      void hydrateAgentTabMessages(targetTabId, convId, forceReload);
     };
     window.addEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onConv);
     return () => window.removeEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onConv);
-  }, [workspaceDisplayLine]);
+  }, [workspaceDisplayLine, hydrateAgentTabMessages]);
 
-  const didInitialAgentMessagesFetch = useRef(false);
   useEffect(() => {
-    if (didInitialAgentMessagesFetch.current) return;
-    const conv = agentChatTabs.find((t) => t.id === activeAgentChatTabId)?.conversationId?.trim();
+    const conv = activeAgentConversationId.trim();
     if (!conv) return;
-    didInitialAgentMessagesFetch.current = true;
-    void fetch(`/api/agent/sessions/${encodeURIComponent(conv)}/messages`, { credentials: 'same-origin' })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((rows: unknown) => {
-        const tid = activeAgentChatTabId;
-        if (!Array.isArray(rows) || rows.length === 0) return;
-        const mapped: { role: 'user' | 'assistant'; content: string }[] = [];
-        for (const row of rows) {
-          if (!row || typeof row !== 'object') continue;
-          const o = row as { role?: string; content?: unknown };
-          const role = o.role === 'user' ? 'user' : o.role === 'assistant' ? 'assistant' : null;
-          if (!role) continue;
-          const rawContent = o.content;
-          let content = '';
-          if (typeof rawContent === 'string') {
-            content = rawContent;
-          } else if (rawContent != null && typeof rawContent === 'object') {
-            const block = rawContent as { text?: unknown; content?: unknown };
-            if (typeof block.text === 'string') content = block.text;
-            else if (typeof block.content === 'string') content = block.content;
-            else content = JSON.stringify(rawContent);
-          }
-          mapped.push({ role, content: content.trim() ? content : '(empty)' });
-        }
-        if (mapped.length === 0) return;
-        setMessagesByTabId((prev) => ({ ...prev, [tid]: mapped }));
-      })
-      .catch(() => {});
-  }, [agentChatTabs, activeAgentChatTabId]);
+    void hydrateAgentTabMessages(activeAgentChatTabId, conv, false);
+  }, [activeAgentChatTabId, activeAgentConversationId, hydrateAgentTabMessages]);
 
   const createNewAgentChatTab = useCallback(() => {
     const cap = maxTabsPolicyRef.current;
@@ -2527,15 +2490,68 @@ const App: React.FC = () => {
   const selectAgentChatTab = useCallback(
     (tabId: string) => {
       setActiveAgentChatTabId(tabId);
-      const conv = agentChatTabs.find((t) => t.id === tabId)?.conversationId?.trim() ?? '';
+      const row = agentChatTabs.find((t) => t.id === tabId);
+      const conv = row?.conversationId?.trim() ?? '';
       try {
         if (conv) localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, conv);
         else localStorage.removeItem(LS_AGENT_CHAT_CONVERSATION_ID);
       } catch {
         /* ignore */
       }
+      if (conv) {
+        void hydrateAgentTabMessages(tabId, conv, false);
+      }
     },
-    [agentChatTabs],
+    [agentChatTabs, hydrateAgentTabMessages],
+  );
+
+  const closeAgentChatTab = useCallback(
+    (tabId: string) => {
+      const id = String(tabId || '').trim();
+      if (!id) return;
+
+      setAgentChatTabs((prev) => {
+        if (prev.length <= 1) {
+          setActiveAgentChatTabId(prev[0]?.id ?? id);
+          setMessagesByTabId((mPrev) => ({
+            ...mPrev,
+            [prev[0]?.id ?? id]: [{ role: 'assistant' as const, content: buildAgentSamGreeting(workspaceDisplayLine) }],
+          }));
+          try {
+            localStorage.removeItem(LS_AGENT_CHAT_CONVERSATION_ID);
+          } catch {
+            /* ignore */
+          }
+          return prev.map((t) => ({ ...t, conversationId: '', title: 'New chat' }));
+        }
+
+        const idx = prev.findIndex((t) => t.id === id);
+        const nextTabs = prev.filter((t) => t.id !== id);
+        if (activeAgentChatTabId === id) {
+          const neighbor = nextTabs[Math.max(0, idx - 1)] ?? nextTabs[0];
+          if (neighbor) {
+            setActiveAgentChatTabId(neighbor.id);
+            const conv = neighbor.conversationId.trim();
+            try {
+              if (conv) localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, conv);
+              else localStorage.removeItem(LS_AGENT_CHAT_CONVERSATION_ID);
+            } catch {
+              /* ignore */
+            }
+            if (conv) void hydrateAgentTabMessages(neighbor.id, conv, false);
+          }
+        }
+        return nextTabs;
+      });
+
+      setMessagesByTabId((prev) => {
+        if (!(id in prev)) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    },
+    [activeAgentChatTabId, hydrateAgentTabMessages, workspaceDisplayLine],
   );
 
   const narrowBackToCenter = useCallback(() => {
@@ -4232,6 +4248,7 @@ const App: React.FC = () => {
       agentChatShellTabs: agentSamChatShellTabs,
       activeAgentChatShellTabId: activeAgentChatTabId,
       onAgentChatShellTabSelect: selectAgentChatTab,
+      onAgentChatShellTabClose: closeAgentChatTab,
       onAgentChatShellNewTab: createNewAgentChatTab,
       onAgentRunContext: setActiveAgentRunId,
       activeWorkbenchTab: isMovieModeRoute
@@ -4287,6 +4304,7 @@ const App: React.FC = () => {
       agentSamChatShellTabs,
       activeAgentChatTabId,
       selectAgentChatTab,
+      closeAgentChatTab,
       createNewAgentChatTab,
       isMovieModeRoute,
       isCmsRoute,

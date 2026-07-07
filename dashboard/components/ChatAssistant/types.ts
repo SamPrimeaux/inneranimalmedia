@@ -285,6 +285,8 @@ export interface ChatAssistantProps {
   agentChatShellTabs?: AgentChatShellTab[];
   activeAgentChatShellTabId?: string | null;
   onAgentChatShellTabSelect?: (tabId: string) => void;
+  /** Close a chat tab (host removes tab + switches neighbor). */
+  onAgentChatShellTabClose?: (tabId: string) => void;
   /** Open a parallel chat tab (host allocates tab + messages slot). */
   onAgentChatShellNewTab?: () => void;
   /** When false, hide workbench tab strip (center chat home uses thread header only). */

@@ -27,7 +27,7 @@ function normalizePath(path?: string): string {
 /** Resolve the live public storefront URL — never a fake workers.dev placeholder for known tenants */
 export function resolveStorefrontUrl(input: StorefrontUrlInput): string {
   const path = normalizePath(input.path);
-  for (const candidate of [input.publicDomain, input.tenantDomain, input.siteDomain]) {
+  for (const candidate of [input.siteDomain, input.publicDomain, input.tenantDomain]) {
     if (!candidate?.trim()) continue;
     const trimmed = candidate.trim();
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {

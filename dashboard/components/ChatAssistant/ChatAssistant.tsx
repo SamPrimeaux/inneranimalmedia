@@ -262,6 +262,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   agentChatShellTabs,
   activeAgentChatShellTabId,
   onAgentChatShellTabSelect,
+  onAgentChatShellTabClose,
   onAgentChatShellNewTab,
   showAgentWorkbenchTabs = true,
   activeWorkbenchTab,
@@ -1556,19 +1557,41 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         className={`flex items-center gap-1 min-w-0 overflow-x-auto chat-hide-scroll [scrollbar-width:none] ${className}`}
       >
         {agentChatShellTabs!.map((tab) => (
-          <button
+          <div
             key={tab.id}
-            type="button"
-            onClick={() => onAgentChatShellTabSelect?.(tab.id)}
-            className={`shrink-0 max-w-[min(160px,36vw)] truncate px-2 sm:px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+            className={`group/tab flex items-center shrink-0 max-w-[min(176px,40vw)] rounded-md border transition-colors ${
               tab.id === activeAgentChatShellTabId
-                ? 'bg-[var(--scene-bg)] text-[var(--solar-cyan)] border border-[var(--dashboard-border)]'
-                : 'text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)] border border-transparent'
+                ? 'bg-[var(--scene-bg)] border-[var(--dashboard-border)]'
+                : 'border-transparent hover:bg-[var(--bg-hover)]'
             }`}
-            title={tab.title}
           >
-            {tab.title}
-          </button>
+            <button
+              type="button"
+              onClick={() => onAgentChatShellTabSelect?.(tab.id)}
+              className={`min-w-0 flex-1 truncate px-2 sm:px-2.5 py-1 text-[11px] font-medium text-left transition-colors ${
+                tab.id === activeAgentChatShellTabId
+                  ? 'text-[var(--solar-cyan)]'
+                  : 'text-[var(--dashboard-muted)] group-hover/tab:text-[var(--dashboard-text)]'
+              }`}
+              title={tab.title}
+            >
+              {tab.title}
+            </button>
+            {onAgentChatShellTabClose ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAgentChatShellTabClose(tab.id);
+                }}
+                className="shrink-0 mr-0.5 p-0.5 rounded text-[var(--dashboard-muted)] opacity-70 hover:opacity-100 hover:text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)]"
+                title="Close chat"
+                aria-label={`Close ${tab.title}`}
+              >
+                <X size={11} strokeWidth={2} />
+              </button>
+            ) : null}
+          </div>
         ))}
         <button
           type="button"

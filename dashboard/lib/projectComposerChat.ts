@@ -8,6 +8,7 @@ import {
   flattenSessionEnabledTools,
   readSessionEnabledConnectors,
 } from '../src/lib/freshChatSession';
+import { mapAgentSessionMessages } from './mapAgentSessionMessages';
 
 export type ProjectThreadMessage = { role: 'user' | 'assistant'; content: string; id?: string };
 
@@ -178,17 +179,5 @@ export async function loadProjectThreadMessages(conversationId: string): Promise
   });
   if (!r.ok) return [];
   const rows = await r.json().catch(() => []);
-  if (!Array.isArray(rows)) return [];
-  return rows
-    .map((row) => {
-      if (!row || typeof row !== 'object') return null;
-      const o = row as { role?: string; content?: unknown };
-      const role = o.role === 'user' ? 'user' : o.role === 'assistant' ? 'assistant' : null;
-      if (!role) return null;
-      let content = '';
-      if (typeof o.content === 'string') content = o.content;
-      else if (o.content != null) content = JSON.stringify(o.content);
-      return { role, content: content.trim() || '(empty)' };
-    })
-    .filter(Boolean) as ProjectThreadMessage[];
+  return mapAgentSessionMessages(rows) as ProjectThreadMessage[];
 }
