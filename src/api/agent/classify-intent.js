@@ -152,6 +152,12 @@ export function inferIntentHeuristically(text) {
   if (hasSkill) return { taskType: 'skill_use', mode: 'agent' };
   if (hasTool) return { taskType: 'tool_use', mode: 'agent' };
   if (hasCms) return { taskType: 'cms_edit', mode: 'agent' };
+  // Project questions: answer from project memory/RAG already in the system prompt — no tool loop needed.
+  const hasProjectQuestion =
+    is(/\b(what('?s| is| are| does)|how does|tell me about|remind me|status of|show me|where is|summarize|describe|who is|which)\b/) &&
+    !hasDeploy && !hasDbWrite && !hasCode && !hasShell && !hasRefactor && !hasDebug && !hasBrowser;
+  if (hasProjectQuestion) return { taskType: 'project_question', mode: 'agent' };
+
   if (hasRecall) return { taskType: 'recall', mode: 'auto' };
   if (hasExplain) return { taskType: 'explain', mode: 'auto' };
   return { taskType: 'chat', mode: 'agent' };
