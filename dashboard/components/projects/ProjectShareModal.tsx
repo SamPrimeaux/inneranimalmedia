@@ -152,7 +152,7 @@ export function ProjectShareModal({ project, onClose, onToast }: Props) {
           <input
             type="email"
             className="proj-create-input"
-            placeholder="connor@example.com"
+            placeholder="teammate@company.com"
             value={emailInput}
             onChange={(e) => setEmailInput(e.target.value)}
             onKeyDown={(e) => {
@@ -191,7 +191,7 @@ export function ProjectShareModal({ project, onClose, onToast }: Props) {
         {loadingCollab ? (
           <p className="proj-modal-hint">Loading…</p>
         ) : collaborators.length === 0 ? (
-          <p className="proj-modal-hint">No collaborators yet — invite Connor or teammates to stress-test access.</p>
+          <p className="proj-modal-hint">No collaborators yet — invite teammates to collaborate on this build.</p>
         ) : (
           <ul className="proj-share-collab-list">
             {collaborators.map((c) => (

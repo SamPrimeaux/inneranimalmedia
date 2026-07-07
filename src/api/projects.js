@@ -293,7 +293,7 @@ async function handleOverview(request, url, env, authUser) {
   let projectRows = [];
   try {
     const { results } = await env.DB.prepare(`SELECT p.* FROM projects p WHERE ${whereSql} ORDER BY COALESCE(p.priority,0) DESC, p.name ASC`).bind(...whereBinds).all();
-    projectRows = results || [];
+    projectRows = mergeProjectRowsById(results || [], await fetchCollaboratorProjectRows(env, authUser));
   } catch (e) {
     return jsonResponse({ ok: false, error: String(e.message || e) }, 500);
   }
@@ -788,10 +788,11 @@ async function handleList(env, authUser, url) {
   const { results } = await withD1Retry(() =>
     env.DB.prepare(`SELECT p.* FROM projects p WHERE ${whereSql} ORDER BY COALESCE(p.priority,0) DESC, p.name ASC`).bind(...whereBinds).all(),
   );
+  const mergedRows = mergeProjectRowsById(results || [], await fetchCollaboratorProjectRows(env, authUser));
   const { projectRows, wpCoverByProjectId, chatProjectIdByProjectsId } = await mergeWorkspaceProjectRows(
     env,
     scope === 'tenant' ? null : workspaceId,
-    results || [],
+    mergedRows,
   );
   const enriched = projectRows.map((p) => {
     const meta = parseMetadataObject(p?.metadata_json);
@@ -813,10 +814,8 @@ async function handleList(env, authUser, url) {
 
 async function handleGetOne(env, authUser, id) {
   const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(id).first();
-  if (!row) return jsonResponse({ ok: false, error: 'not_found' }, 404);
-  if (authUser.tenant_id && row.tenant_id && String(row.tenant_id) !== String(authUser.tenant_id) && !authUser.is_superadmin) {
-    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
-  }
+  const access = await assertProjectAccess(env, authUser, row);
+  if (!access.ok) return jsonResponse({ ok: false, error: access.error }, access.status);
   const [project] = await attachChatProjectIds(env, [row]);
   return jsonResponse({ ok: true, project: project || row });
 }
@@ -1081,13 +1080,106 @@ async function handlePost(request, env, authUser, ctx) {
   );
 }
 
+async function claimProjectCollaborator(env, projectId, authUser) {
+  const email = authUser?.email ? String(authUser.email).trim().toLowerCase() : '';
+  const userId = authUser?.id != null ? String(authUser.id) : null;
+  if (!email || !userId || !env?.DB) return;
+  try {
+    await env.DB.prepare(
+      `UPDATE project_collaborators
+       SET user_id = ?, updated_at = unixepoch()
+       WHERE project_id = ?
+         AND LOWER(email) = ?
+         AND (user_id IS NULL OR TRIM(user_id) = '')`,
+    )
+      .bind(userId, String(projectId), email)
+      .run();
+  } catch {
+    /* optional table */
+  }
+}
+
+async function isProjectCollaborator(env, projectId, authUser) {
+  const email = authUser?.email ? String(authUser.email).trim().toLowerCase() : '';
+  const userId = authUser?.id != null ? String(authUser.id) : '';
+  if (!email && !userId) return false;
+  try {
+    const clauses = [];
+    const binds = [String(projectId)];
+    if (email) {
+      clauses.push('LOWER(c.email) = ?');
+      binds.push(email);
+    }
+    if (userId) {
+      clauses.push('c.user_id = ?');
+      binds.push(userId);
+    }
+    const row = await env.DB.prepare(
+      `SELECT c.id FROM project_collaborators c
+       WHERE c.project_id = ? AND (${clauses.join(' OR ')})
+       LIMIT 1`,
+    )
+      .bind(...binds)
+      .first();
+    return !!row;
+  } catch {
+    return false;
+  }
+}
+
+async function fetchCollaboratorProjectRows(env, authUser) {
+  const email = authUser?.email ? String(authUser.email).trim().toLowerCase() : '';
+  const userId = authUser?.id != null ? String(authUser.id) : '';
+  if (!email && !userId) return [];
+  try {
+    const clauses = [];
+    const binds = [];
+    if (email) {
+      clauses.push('LOWER(c.email) = ?');
+      binds.push(email);
+    }
+    if (userId) {
+      clauses.push('c.user_id = ?');
+      binds.push(userId);
+    }
+    const { results } = await env.DB.prepare(
+      `SELECT DISTINCT p.* FROM projects p
+       INNER JOIN project_collaborators c ON c.project_id = p.id
+       WHERE (${clauses.join(' OR ')})
+       ORDER BY COALESCE(p.priority, 0) DESC, p.name ASC`,
+    )
+      .bind(...binds)
+      .all();
+    return results || [];
+  } catch {
+    return [];
+  }
+}
+
+function mergeProjectRowsById(primary, extra) {
+  const map = new Map();
+  for (const row of primary || []) map.set(String(row.id), row);
+  for (const row of extra || []) {
+    const id = String(row.id);
+    if (!map.has(id)) map.set(id, row);
+  }
+  return [...map.values()];
+}
+
 async function assertProjectAccess(env, authUser, row) {
   if (!row) return { ok: false, error: 'not_found', status: 404 };
+  if (authUser?.is_superadmin) return { ok: true, row };
+
+  const collaborator = await isProjectCollaborator(env, String(row.id), authUser);
+  if (collaborator) {
+    await claimProjectCollaborator(env, String(row.id), authUser);
+    return { ok: true, row, collaborator: true };
+  }
+
   if (
     authUser.tenant_id &&
     row.tenant_id &&
-    String(row.tenant_id) !== String(authUser.tenant_id) &&
-    !authUser.is_superadmin
+    String(row.tenant_id) !== String(authUser.tenant_id)
   ) {
     return { ok: false, error: 'forbidden', status: 403 };
   }
@@ -1184,16 +1276,15 @@ async function handleProjectCollaboratorsPost(request, env, authUser, projectId)
     return jsonResponse({ ok: false, error: `collaborator_upsert_failed: ${e?.message || e}` }, 500);
   }
 
-  const { results } = await env.DB
-    .prepare(
-      `SELECT id, project_id, email, user_id, role, invited_by, workspace_id, created_at, updated_at
-       FROM project_collaborators WHERE project_id = ? AND email = ? LIMIT 1`,
-    )
-    .bind(String(projectId), email)
-    .all();
+  const collabRes = await handleProjectCollaboratorsGet(env, authUser, projectId);
+  const collabJson = await collabRes.json();
 
   return jsonResponse(
-    { ok: true, collaborator: results?.[0] ?? null, collaborators: results || [] },
+    {
+      ok: true,
+      collaborator: collabJson.collaborators?.find((c) => String(c.email).toLowerCase() === email) ?? null,
+      collaborators: collabJson.collaborators ?? [],
+    },
     201,
   );
 }
