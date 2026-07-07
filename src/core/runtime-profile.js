@@ -1052,6 +1052,14 @@ export async function resolveRuntimeProfile(env, input) {
     Boolean(overrides.task_type),
   );
 
+  // project_qna_fast: short-circuit tool compilation — answer from project memory + RAG.
+  // Agent mode keeps its controller; only tool loop and workspace binding are skipped.
+  const isProjectQnaFast =
+    classifiedIntent === 'project_qna_fast' &&
+    composerMode === 'agent' &&
+    !overrides.task_type &&
+    !overrides.route_key;
+
   let profile = await compileModeProfile(env, {
     mode: composerMode,
     message,
