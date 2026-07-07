@@ -2820,6 +2820,19 @@
 .vpc__axis--y { color: #4ade80; }
 .vpc__axis--z { color: #60a5fa; }
 
+/* ── Three.js orientation gyro (canvas overlay, synced to main camera) ── */
+.iam-viewport-gyro {
+  position: absolute;
+  bottom: 124px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 72px;
+  height: 72px;
+  pointer-events: none;
+  z-index: 11;
+  opacity: 0.92;
+}
+
 /* ── Ortho / Perspective pill ── */
 .vpc__view-toggle {
   position: absolute;
@@ -2839,6 +2852,11 @@
 }
 /* On mobile push it above the bottom bar + safe area */
 @media (max-width: 480px) {
+  .iam-viewport-gyro {
+    bottom: calc(126px + env(safe-area-inset-bottom, 0px));
+    width: 64px;
+    height: 64px;
+  }
   .vpc__view-toggle {
     bottom: calc(70px + env(safe-area-inset-bottom, 0px));
     font-size: 10px;

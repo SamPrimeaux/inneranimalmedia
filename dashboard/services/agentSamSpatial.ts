@@ -75,9 +75,30 @@ export function resolveSpawnProfile(entity: GameEntity): {
   return { profile, sidecar, fitToViewport, unitScale };
 }
 
-export function applySourceOrientation(model: THREE.Object3D, sidecar: CadPlacementSidecar | null) {
-  if (sidecar?.up_axis === 'Z') {
-    model.rotateX(-Math.PI / 2);
+/** Resolve CAD up-axis from sidecar and/or spawn metadata. */
+export function resolveModelUpAxis(
+  sidecar: CadPlacementSidecar | null,
+  meta?: Record<string, unknown> | null,
+): 'Y' | 'Z' | null {
+  if (sidecar?.up_axis === 'Y' || sidecar?.up_axis === 'Z') return sidecar.up_axis;
+  const raw = meta?.up_axis;
+  if (raw === 'Y' || raw === 'Z') return raw;
+  if (meta?.spawn_profile === 'bim') return 'Z';
+  return null;
+}
+
+/** Z-up CAD/BIM exports → Y-up Three.js scene (+Y gravity / grid). */
+export function applyZUpModelCorrection(model: THREE.Object3D) {
+  model.rotateX(-Math.PI / 2);
+}
+
+export function applySourceOrientation(
+  model: THREE.Object3D,
+  sidecar: CadPlacementSidecar | null,
+  meta?: Record<string, unknown> | null,
+) {
+  if (resolveModelUpAxis(sidecar, meta) === 'Z') {
+    applyZUpModelCorrection(model);
   }
   if (sidecar?.placement?.rotation_euler_deg) {
     const [rx, ry, rz] = sidecar.placement.rotation_euler_deg.map((d) =>

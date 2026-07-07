@@ -1,3 +1,7 @@
+import {
+  fetchPlacementSidecarForGlb,
+  spawnMetadataFromSidecar,
+} from '../../lib/cadPlacement';
 import { normalizeGlbUrl } from '../../lib/glbAssets';
 import type { GameEntity } from '../../types';
 
@@ -24,6 +28,8 @@ export async function spawnGlbInEngine(
     return false;
   }
   try {
+    const sidecar = await fetchPlacementSidecarForGlb(raw);
+    const metadata = sidecar ? spawnMetadataFromSidecar(sidecar) : undefined;
     await engine.spawnEntity({
       id: `glb_${Date.now()}`,
       name: opts.name || 'CAD Model',
@@ -31,7 +37,7 @@ export async function spawnGlbInEngine(
       modelUrl: raw,
       scale: opts.scale ?? 1,
       position: opts.position ?? { x: 0, y: 1, z: 0 },
-      behavior: { type: 'static' },
+      behavior: { type: 'static', metadata },
     });
     return true;
   } catch (e) {

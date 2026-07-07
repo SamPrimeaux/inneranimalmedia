@@ -500,6 +500,7 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
         setUndoStack((prev) => [...prev, entity]);
         setRedoStack([]);
       });
+      engine.setOnEntitySelected((id) => setSelectedEntityId(id));
       engine.updateLighting(sceneConfig);
       engine.setCADPlane(genConfig.cadPlane);
       engine.setExtrusion(genConfig.extrusion);

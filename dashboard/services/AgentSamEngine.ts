@@ -31,6 +31,11 @@ import {
   boxToSnapshot,
 } from './agentSamSpatial';
 import type { EntitySpatialSnapshot } from '../lib/cadPlacement';
+import {
+  fetchPlacementSidecarForGlb,
+  spawnMetadataFromSidecar,
+} from '../lib/cadPlacement';
+import { ViewportGyroscope } from './viewportGyroscope';
 
 const CHESS_PIECES = ['bishop', 'king', 'knight', 'pawn', 'queen', 'rook'] as const;
 
@@ -87,6 +92,9 @@ export class AgentSamEngine {
   private modelSpatialAxes: THREE.Group | null = null;
   private spatialOverlaysEnabled = true;
   private selectedSpatialEntityId: string | null = null;
+  private highlightedEntityId: string | null = null;
+  private pointerDownClient = { x: 0, y: 0 };
+  private gyroscope: ViewportGyroscope | null = null;
   private drawingPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private startPoint: THREE.Vector3 | null = null;
   private previewMesh: THREE.InstancedMesh | null = null;
@@ -95,6 +103,7 @@ export class AgentSamEngine {
 
   private onCountChange: (count: number) => void;
   private onEntityCreated: ((entity: GameEntity) => void) | null = null;
+  private onEntitySelected: ((id: string | null) => void) | null = null;
   private onChessMove: ((from: string, to: string) => void) | null = null;
   private dragFromSquare: string | null = null;
   private animationId: number = 0;
@@ -190,6 +199,10 @@ export class AgentSamEngine {
 
   public setOnEntityCreated(cb: (entity: GameEntity) => void) {
     this.onEntityCreated = cb;
+  }
+
+  public setOnEntitySelected(cb: ((id: string | null) => void) | null) {
+    this.onEntitySelected = cb;
   }
 
   public setOnChessMove(cb: ((from: string, to: string) => void) | null) {
@@ -398,15 +411,65 @@ export class AgentSamEngine {
 
   public setSelectedSpatialEntity(id: string | null) {
     this.selectedSpatialEntityId = id;
+    this.syncSelectionHighlight(id);
     this.syncModelSpatialAxes();
   }
 
-  /** Raycast targets for CAD voxel/paint — grid + voxel meshes only (never deep GLB hierarchies). */
+  private syncSelectionHighlight(id: string | null) {
+    if (this.highlightedEntityId && this.highlightedEntityId !== id) {
+      this.applyEntityMaterial(this.highlightedEntityId, { emissive: false });
+    }
+    this.highlightedEntityId = id;
+    if (id) {
+      this.applyEntityMaterial(id, { emissive: true });
+    }
+  }
+
+  private resolveEntityIdFromObject(obj: THREE.Object3D | null): string | null {
+    let current: THREE.Object3D | null = obj;
+    while (current) {
+      const id = current.userData?.iamEntityId;
+      if (typeof id === 'string' && id) return id;
+      current = current.parent;
+    }
+    return null;
+  }
+
+  private getSelectableRoots(): THREE.Object3D[] {
+    const roots: THREE.Object3D[] = [];
+    for (const [id, ent] of this.entities.entries()) {
+      if (id === 'chess_board') continue;
+      const root = ent.model || ent.mesh;
+      if (root) roots.push(root);
+    }
+    return roots;
+  }
+
+  private pickEntityAtPointer(): string | null {
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    const hits = this.raycaster.intersectObjects(this.getSelectableRoots(), true);
+    if (!hits.length) return null;
+    return this.resolveEntityIdFromObject(hits[0].object);
+  }
+
+  private setupGyroscopeOverlay() {
+    if (this.gyroscope) return;
+    const canvas = document.createElement('canvas');
+    canvas.className = 'iam-viewport-gyro';
+    canvas.setAttribute('aria-hidden', 'true');
+    canvas.width = 72;
+    canvas.height = 72;
+    this.container.appendChild(canvas);
+    this.gyroscope = new ViewportGyroscope(canvas);
+  }
+
+  /** Raycast targets for CAD voxel/paint — grid + entity roots (GLB pivots + voxels). */
   private getCadRaycastTargets(voxelOnly = false): THREE.Object3D[] {
     const targets: THREE.Object3D[] = [];
     if (!voxelOnly && this.gridHelper) targets.push(this.gridHelper);
     for (const ent of this.entities.values()) {
       if (ent.mesh) targets.push(ent.mesh);
+      else if (ent.model) targets.push(ent.model);
     }
     return targets;
   }
@@ -445,6 +508,8 @@ export class AgentSamEngine {
   private onMouseDown(e: MouseEvent) {
     this.updateMouse(e);
     this.isMouseDown = true;
+    this.pointerDownClient.x = e.clientX;
+    this.pointerDownClient.y = e.clientY;
     
     if (this.projectType === ProjectType.CHESS) {
       this.raycaster.setFromCamera(this.mouse, this.camera);
@@ -523,6 +588,20 @@ export class AgentSamEngine {
   private onMouseUp(e: MouseEvent) {
     this.updateMouse(e);
     this.isMouseDown = false;
+
+    if (
+      this.projectType === ProjectType.CAD &&
+      this.cadTool === CADTool.NONE &&
+      !this.draggedEntityId
+    ) {
+      const dx = e.clientX - this.pointerDownClient.x;
+      const dy = e.clientY - this.pointerDownClient.y;
+      if (dx * dx + dy * dy <= 36) {
+        const picked = this.pickEntityAtPointer();
+        this.setSelectedSpatialEntity(picked);
+        this.onEntitySelected?.(picked);
+      }
+    }
 
     if (this.draggedEntityId) {
       const ent = this.entities.get(this.draggedEntityId);
@@ -768,6 +847,7 @@ export class AgentSamEngine {
       this.scene.background = new THREE.Color(bg);
       this.scene.fog = null;
       this.world.gravity.set(0, 0, 0);
+      this.setupGyroscopeOverlay();
     }
     else if (type === ProjectType.CHESS) {
       this.camera = this.perspectiveCamera;
@@ -836,11 +916,27 @@ export class AgentSamEngine {
     let visual: THREE.Object3D | undefined;
     if (entity.modelUrl) {
       try {
-        const gltf = await this.loadModel(entity.modelUrl);
-        const model = cloneGltfScene(gltf);
-        const { profile, sidecar, fitToViewport, unitScale } = resolveSpawnProfile(entity);
+        let spawnEntity = entity;
+        const metaSeed = { ...(entity.behavior?.metadata ?? {}) } as Record<string, unknown>;
+        if (!metaSeed.placement_sidecar) {
+          const fetchedSidecar = await fetchPlacementSidecarForGlb(entity.modelUrl);
+          if (fetchedSidecar) {
+            spawnEntity = {
+              ...entity,
+              behavior: {
+                ...entity.behavior,
+                metadata: { ...metaSeed, ...spawnMetadataFromSidecar(fetchedSidecar) },
+              },
+            };
+          }
+        }
 
-        applySourceOrientation(model, sidecar);
+        const gltf = await this.loadModel(spawnEntity.modelUrl!);
+        const model = cloneGltfScene(gltf);
+        const spawnMeta = { ...(spawnEntity.behavior?.metadata ?? {}) } as Record<string, unknown>;
+        const { profile, sidecar, fitToViewport, unitScale } = resolveSpawnProfile(spawnEntity);
+
+        applySourceOrientation(model, sidecar, spawnMeta);
 
         const boxBeforeScale = new THREE.Box3().setFromObject(model);
         const sizeBefore = new THREE.Vector3();
@@ -848,6 +944,7 @@ export class AgentSamEngine {
         bottomCenterModel(model);
 
         const pivot = new THREE.Group();
+        pivot.userData.iamEntityId = spawnEntity.id;
         pivot.add(model);
 
         let appliedScale: number;
@@ -863,27 +960,28 @@ export class AgentSamEngine {
         }
         pivot.scale.set(appliedScale, appliedScale, appliedScale);
 
-        const pieceColor = (entity.behavior.metadata?.color as 'white' | 'black' | undefined)
-          ?? (entity.name?.toLowerCase().startsWith('white')
+        const pieceColor = (spawnEntity.behavior.metadata?.color as 'white' | 'black' | undefined)
+          ?? (spawnEntity.name?.toLowerCase().startsWith('white')
             ? 'white'
-            : entity.name?.toLowerCase().startsWith('black') || entity.name?.toLowerCase().startsWith('orange')
+            : spawnEntity.name?.toLowerCase().startsWith('black') || spawnEntity.name?.toLowerCase().startsWith('orange')
               ? 'black'
               : undefined);
         const isChessPiece =
           pieceColor &&
-          (entity.type === 'piece' ||
-            entity.behavior.type === 'chess_piece' ||
-            Boolean(entity.modelUrl?.includes('chess_')));
+          (spawnEntity.type === 'piece' ||
+            spawnEntity.behavior.type === 'chess_piece' ||
+            Boolean(spawnEntity.modelUrl?.includes('chess_')));
         if (isChessPiece && pieceColor) {
           applyChessPieceMaterials(pivot, pieceColor);
         }
         
         visual = pivot;
         this.scene.add(visual);
-        const meta = { ...(entity.behavior.metadata ?? {}) } as Record<string, unknown>;
+        const meta = { ...(spawnEntity.behavior.metadata ?? {}) } as Record<string, unknown>;
         meta.spawn_profile = profile;
         meta.visual_scale = appliedScale;
-        entity.behavior = { ...entity.behavior, metadata: meta };
+        spawnEntity.behavior = { ...spawnEntity.behavior, metadata: meta };
+        entity = spawnEntity;
         this.entities.set(entity.id, { model: pivot, data: entity });
 
         const spatial = buildSpatialSnapshot(entity, pivot, profile, meta);
@@ -905,6 +1003,7 @@ export class AgentSamEngine {
         return;
       }
       visual = this.buildVoxelInstancedMesh(entity.voxels);
+      visual.userData.iamEntityId = entity.id;
       this.scene.add(visual);
       this.entities.set(entity.id, { mesh: visual, data: entity });
     }
@@ -1042,6 +1141,9 @@ export class AgentSamEngine {
         this.selectedSpatialEntityId = null;
         this.syncModelSpatialAxes();
       }
+      if (this.highlightedEntityId === id) {
+        this.highlightedEntityId = null;
+      }
       this.updateEntityCount();
     }
   }
@@ -1061,6 +1163,9 @@ export class AgentSamEngine {
     this.world.fixedStep();
     this.controls.update();
     this.syncPhysicsDebug();
+    if (this.gyroscope && this.projectType === ProjectType.CAD) {
+      this.gyroscope.syncFromCamera(this.camera);
+    }
     this.entities.forEach((ent) => {
       const visual = ent.mesh || ent.model;
       if (visual && ent.body) {
@@ -1492,6 +1597,8 @@ export class AgentSamEngine {
   public cleanup() {
     cancelAnimationFrame(this.animationId);
     this.resizeObserver.disconnect();
+    this.gyroscope?.dispose();
+    this.gyroscope = null;
     this.renderer.dispose();
   }
 }
