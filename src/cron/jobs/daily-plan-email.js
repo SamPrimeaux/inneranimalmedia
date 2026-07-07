@@ -47,80 +47,84 @@ export async function sendDailyPlanEmail(env, ctx = null) {
       timeZone: 'America/Chicago',
     });
 
-    const prompt = `You are Agent Sam writing Sam Primeaux's daily morning briefing. Today is ${today}.
+    const prompt = `You are Agent Sam producing Sam Primeaux's daily operational brief for ${today}.
 
-Sam is the solo founder of Inner Animal Media — building Agent Sam on Cloudflare Workers + D1 + R2 + Vectorize. He manages client projects and works solo with AI tools. Time is his scarcest resource.
+Sam is the solo founder of Inner Animal Media — building Agent Sam on Cloudflare Workers + D1 + R2 + Vectorize. Time is his scarcest resource.
 
-== PLATFORM MASTER CONTEXT (agentsam_project_context.ctx_inneranimalmedia) ==
+PATTERN RECOGNITION RULES (apply before writing):
+- plan task / todo status='carried' for 3+ days → CHRONIC BLOCKER
+- daily AI cost > 120% of 7-day average → COST SPIKE
+- error volume up >15% vs prior day → QUALITY REGRESSION
+- deploy count 0 for 2+ consecutive days → VELOCITY STALL
+- founder_metrics.burnout_risk in ('high','critical') → lead with wellness alert
+- client_revenue payment_status → 'overdue' → flag immediately
+
+== PLATFORM CONTEXT ==
 ${JSON.stringify(ctxData.platformCtx || {})}
 
-== LIVE SPRINT MEMORY (agentsam_memory — decision/skill/state/policy) ==
+== MEMORY (decision/skill/state) ==
 ${JSON.stringify(ctxData.memoryRows?.results || [])}
 
-== ACTIVE CLIENT PROJECTS (agentsam_project_context) ==
+== CLIENT PROJECTS (blockers) ==
 ${JSON.stringify(ctxData.clientCtxRows?.results || [])}
 
-== EMAIL WATCH — LIVE GMAIL (${ctxData.gmailSnapshot?.source || 'none'}, accounts: ${JSON.stringify(ctxData.gmailSnapshot?.accounts || [])}) ==
-Raw inbox (last 48h): ${JSON.stringify(ctxData.gmailSnapshot?.emails || [])}
+== FINANCIAL — usage rollups (deduped) ==
+Today: ${JSON.stringify(ctxData.usageToday || {})}
+7d window: ${JSON.stringify(ctxData.usage7d || {})}
+Billing month: ${JSON.stringify(ctxData.billingMonth?.results || [])}
+Client revenue: ${JSON.stringify(ctxData.clientRevenue?.results || [])}
+Finance monthly: ${JSON.stringify(ctxData.financeMonthly?.results || [])}
+Agent run 24h: ${JSON.stringify(ctxData.recentRuns || {})}
 
-== EMAIL WATCH — TRIAGE (gemini-3.1-flash-lite) ==
-${JSON.stringify(inboxTriage)}
+== VELOCITY ==
+task_velocity (7d): ${JSON.stringify(ctxData.velocityRecent?.results || [])}
+Deploys 24h/7d: ${JSON.stringify(ctxData.deploys24h || {})} / ${JSON.stringify(ctxData.deploys7d || {})}
+Plan tasks by status: ${JSON.stringify(ctxData.planTasks?.results || [])}
+Chronic blockers: ${JSON.stringify(ctxData.chronicBlockers?.results || [])}
+Tracked minutes today: ${JSON.stringify(ctxData.trackedTimeToday || {})}
+Task activity 24h: ${JSON.stringify(ctxData.taskActivityRecent?.results || [])}
+Migrations: ${JSON.stringify(ctxData.migrations?.results || [])}
+Git: ${ctxData.gitLog || '(n/a)'}
 
-== PLATFORM EMAIL LOG (email_logs, last 24h) ==
-${JSON.stringify(ctxData.emailLogs24h?.results || [])}
+== QUALITY ==
+ETO 24h: ${JSON.stringify(ctxData.eto24h || {})}
+Errors 24h: ${JSON.stringify(ctxData.errors24h?.results || [])}
+Guardrails blocked: ${JSON.stringify(ctxData.guardrails24h?.results || [])}
+Model health (non-green): ${JSON.stringify(ctxData.modelHealth?.results || [])}
+Analytics 7d: ${JSON.stringify(ctxData.analytics7d?.results || [])}
+Flaky tools: ${JSON.stringify(ctxData.toolStatsFlaky?.results || [])}
+Exec perf 24h: ${JSON.stringify(ctxData.execPerf24h?.results || [])}
+Health daily: ${JSON.stringify(ctxData.healthDaily?.results || [])}
+Compaction 24h: ${JSON.stringify(ctxData.compaction24h || {})}
 
-== NOTIFICATION OUTBOX (pending/failed) ==
-${JSON.stringify(ctxData.pendingNotifications?.results || [])}
+== CLIENT ==
+Open todos by project: ${JSON.stringify(ctxData.openTodosByProject?.results || [])}
+Calendar today+tomorrow: ${JSON.stringify(ctxData.calendarUpcoming?.results || [])}
+Stripe webhooks 48h: ${JSON.stringify(ctxData.stripeWebhooks?.results || [])}
 
-== AGENT RUN ACTIVITY (agentsam_agent_run, last 24h) ==
-${JSON.stringify(ctxData.recentRuns || {})}
-Week cost: $${ctxData.runCostToday?.week_cost ?? 0}
+== SELF / OPS ==
+Founder metrics: ${JSON.stringify(ctxData.founderToday || {})}
+Cron health: ${JSON.stringify(ctxData.cronHealth?.results || [])}
+MCP tools 24h: ${JSON.stringify(ctxData.mcpActivity?.results || [])}
+Spawn jobs: ${JSON.stringify(ctxData.spawnJobs?.results || [])}
+Email logs 24h: ${JSON.stringify(ctxData.emailLogs24h?.results || [])}
+Pending notifications: ${JSON.stringify(ctxData.pendingNotifications?.results || [])}
 
-== CRON HEALTH (agentsam_cron_runs) ==
-${JSON.stringify(ctxData.cronHealth?.results || [])}
+== GMAIL TRIAGE ==
+Accounts: ${JSON.stringify(ctxData.gmailSnapshot?.accounts || [])}
+Triage: ${JSON.stringify(inboxTriage)}
 
-== MCP TOOL ACTIVITY (agentsam_mcp_tool_execution, last 24h) ==
-${JSON.stringify(ctxData.mcpActivity?.results || [])}
+OUTPUT SECTIONS (in order, plain text):
 
-== SKILL SPAWN JOBS (agentsam_spawn_job) ==
-${JSON.stringify(ctxData.spawnJobs?.results || [])}
+1. ALERTS — blockers, spikes, regressions (write "None." if clean)
+2. TODAY'S FINANCIAL SNAPSHOT — AI spend vs 7d avg, month cumulative if inferable
+3. VELOCITY — shipped yesterday, in-flight, chronic blockers, deploy cadence
+4. CLIENT STATUS — one line per active client with open task count
+5. INBOX PRIORITY — from triage; names and subjects
+6. TOMORROW'S PLAN — 3–5 specific tasks from blockers + inbox
+7. MONTHLY ARC — week-over-week narrative; if day-of-month > 15, add month-end trajectory
 
-== VELOCITY (task_velocity, last 7 days) ==
-${JSON.stringify(ctxData.velocityRecent?.results || [])}
-
-== RECENT MIGRATIONS (d1_migrations) ==
-${JSON.stringify(ctxData.migrations?.results || [])}
-
-== RECENT GIT COMMITS ==
-${ctxData.gitLog || '(not available)'}
-
-Write a sharp morning briefing. Sections:
-
-WHAT SHIPPED YESTERDAY
-[git + migrations. Max 5 bullets.]
-
-EMAIL WATCH
-[From triage: urgent replies, archive candidates, accounts needing attention. Be specific — names/subjects.]
-
-ACTIVE SPRINT FOCUS
-[From agentsam_memory decision keys.]
-
-CLIENT WATCH
-[One line per active client project; flag blockers.]
-
-PLATFORM HEALTH
-[Cron failures, stuck runs, MCP spikes.]
-
-SKILL GROWTH
-[task_velocity trend — one paragraph.]
-
-COST PULSE
-[24h + week cost. One line.]
-
-TODAY'S TOP 3
-[Ordered, specific — include email actions if triage flagged any.]
-
-Rules: Under 450 words. No fluff. No emojis. Blunt.`;
+Rules: Under 550 words. No fluff. No emojis. Blunt. ALERTS empty on good days.`;
 
     const emailBody = await generateWithGemini(env, {
       modelKey: 'gemini-3.5-flash',
@@ -128,7 +132,7 @@ Rules: Under 450 words. No fluff. No emojis. Blunt.`;
       systemInstruction:
         'You are Agent Sam. Write a concise daily briefing. Plain text only. Under 450 words. No emojis. Blunt and specific.',
       userText: prompt,
-      maxOutputTokens: 1024,
+      maxOutputTokens: 1400,
       temperature: 0.2,
     });
 

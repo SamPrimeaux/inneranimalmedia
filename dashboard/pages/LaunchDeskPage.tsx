@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Calendar, CheckSquare, ChevronDown, Clock, MapPin, RefreshCw, Users, Video } from 'lucide-react';
 import { CollaboratePageRail } from '../src/components/collaborate/CollaboratePageRail';
+import { CollaborateWorkShell } from '../src/components/collaborate/CollaborateWorkShell';
 import {
   parseCollaborateSearchParams,
   patchCollaborateSearchParams,
@@ -32,6 +33,7 @@ import {
   parseEventDate,
   parseInviteEmails,
   postActivityHeartbeat,
+  postActivityStop,
   publicBookingPageUrl,
   QuickEventType,
   sameDay,
@@ -676,16 +678,22 @@ export function LaunchDeskPage() {
       }
     };
 
+    const stop = () => {
+      void postActivityStop().catch(() => {});
+    };
+
     void beat();
     const id = window.setInterval(() => void beat(), 60_000);
     const onVis = () => {
       if (document.visibilityState === 'visible') void beat();
+      else stop();
     };
     document.addEventListener('visibilitychange', onVis);
     return () => {
       cancelled = true;
       window.clearInterval(id);
       document.removeEventListener('visibilitychange', onVis);
+      stop();
     };
   }, [mainSeg, projectFilterId, selectedTaskId, todos]);
 
@@ -697,6 +705,43 @@ export function LaunchDeskPage() {
   const remainingMins = Math.max(0, workMins * 5 - scheduledMins);
 
   return (
+    <CollaborateWorkShell
+      surface={mainSeg === 'tasks' ? 'tasks' : 'calendar'}
+      trailing={
+        <>
+          {mainSeg === 'calendar' ? (
+            <>
+              <button type="button" className="colab-cal-pill-btn" onClick={() => setAnchor(new Date())}>
+                Today
+              </button>
+              <button type="button" className="colab-cal-circle-btn" aria-label="Previous" onClick={() => stepAnchor(-1)}>
+                ‹
+              </button>
+              <button type="button" className="colab-cal-circle-btn" aria-label="Next" onClick={() => stepAnchor(1)}>
+                ›
+              </button>
+              <span className="colab-work-shell-date">{calendarHeadTitle}</span>
+              <label className="colab-cal-view-select">
+                <select
+                  className="colab-cal-view-select-input"
+                  value={calView}
+                  onChange={(e) => setCalendarView(e.target.value as CollaborateCalView)}
+                  aria-label="Calendar view"
+                >
+                  <option value="day">Day</option>
+                  <option value="week">Week</option>
+                  <option value="month">Month</option>
+                </select>
+                <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
+              </label>
+            </>
+          ) : null}
+          <button type="button" className="colab-cal-icon-btn" aria-label="Refresh" onClick={() => reload()} disabled={loading}>
+            <RefreshCw size={18} strokeWidth={1.75} />
+          </button>
+        </>
+      }
+    >
     <div
       className={[
         'colab-cal',
@@ -704,7 +749,7 @@ export function LaunchDeskPage() {
         leftNavOpen ? 'left-nav-open' : 'left-nav-closed',
       ].filter(Boolean).join(' ')}
     >
-      <header className="colab-cal-topbar">
+      <header className="colab-cal-topbar colab-cal-topbar--sub">
         <button
           type="button"
           className="colab-cal-hamb"
@@ -722,67 +767,8 @@ export function LaunchDeskPage() {
             <line className="colab-cal-hamb-bar colab-cal-hamb-bar-bottom" x1="3" y1="15" x2="17" y2="15" />
           </svg>
         </button>
-        <div className="colab-cal-brand">
-          <div className="colab-cal-brand-mark">C</div>
-          <div className="colab-cal-brand-title">{mainSeg === 'tasks' ? 'Tasks' : 'Calendar'}</div>
-        </div>
         <div className="colab-cal-top-center">
-          {mainSeg === 'calendar' ? (
-            <>
-          <button type="button" className="colab-cal-pill-btn" onClick={() => setAnchor(new Date())}>
-            Today
-          </button>
-          <button type="button" className="colab-cal-circle-btn" aria-label="Previous" onClick={() => stepAnchor(-1)}>
-            ‹
-          </button>
-          <button type="button" className="colab-cal-circle-btn" aria-label="Next" onClick={() => stepAnchor(1)}>
-            ›
-          </button>
-          <h1 className="colab-cal-month-title">{calendarHeadTitle}</h1>
-            </>
-          ) : (
-            <h1 className="colab-cal-month-title">Tasks</h1>
-          )}
-        </div>
-        <div className="colab-cal-top-right">
-          {mainSeg === 'calendar' && (
-            <label className="colab-cal-view-select">
-              <select
-                className="colab-cal-view-select-input"
-                value={calView}
-                onChange={(e) => setCalendarView(e.target.value as CollaborateCalView)}
-                aria-label="Calendar view"
-              >
-                <option value="day">Day</option>
-                <option value="week">Week</option>
-                <option value="month">Month</option>
-              </select>
-              <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
-            </label>
-          )}
-          <div className="colab-cal-seg">
-            <button
-              type="button"
-              className={mainSeg === 'calendar' ? 'active' : ''}
-              onClick={openCalendarSeg}
-              title="Calendar"
-              aria-label="Calendar"
-            >
-              <Calendar size={18} strokeWidth={1.75} />
-            </button>
-            <button
-              type="button"
-              className={mainSeg === 'tasks' ? 'active' : ''}
-              onClick={openTasksSeg}
-              title="Tasks"
-              aria-label="Tasks"
-            >
-              <CheckSquare size={18} strokeWidth={1.75} />
-            </button>
-          </div>
-          <button type="button" className="colab-cal-icon-btn" aria-label="Refresh" onClick={() => reload()} disabled={loading}>
-            <RefreshCw size={18} strokeWidth={1.75} />
-          </button>
+          <h1 className="colab-cal-month-title">{mainSeg === 'tasks' ? 'My tasks' : calendarHeadTitle}</h1>
         </div>
       </header>
 
@@ -1525,5 +1511,6 @@ export function LaunchDeskPage() {
 
       {toast && <div className="colab-cal-toast">{toast}</div>}
     </div>
+    </CollaborateWorkShell>
   );
 }

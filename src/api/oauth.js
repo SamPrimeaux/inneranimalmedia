@@ -1348,9 +1348,8 @@ export async function handleOAuthApi(request, env, ctx) {
     return Response.redirect(target.toString(), 302);
   }
   if (pathLower === '/api/oauth/gmail/callback' && method === 'GET') {
-    const target = new URL(`${url.origin}/api/integrations/gmail/callback`);
-    for (const [k, v] of url.searchParams.entries()) target.searchParams.set(k, v);
-    return Response.redirect(target.toString(), 302);
+    const { handleGmailConnectCallback } = await import('./integrations/gmail-connect.js');
+    return handleGmailConnectCallback(request, url, env);
   }
 
   if (pathLower === '/api/oauth/stripe/start' && method === 'GET') {

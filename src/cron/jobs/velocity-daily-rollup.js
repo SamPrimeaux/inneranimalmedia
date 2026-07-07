@@ -158,11 +158,44 @@ export async function runVelocityDailyRollup(env) {
          AND started_at >= unixepoch(?) AND started_at < unixepoch(?)`
     ).bind(yesterday, new Date(Date.now()).toISOString().slice(0, 10)).first().catch(() => null);
 
-    // AI spend yesterday from usage rollups
+    // AI spend yesterday from usage rollups (dedupe duplicate rows per day)
     const spendRow = await env.DB.prepare(
-      `SELECT ROUND(SUM(cost_usd), 4) as spend
+      `SELECT ROUND(MAX(cost_usd), 4) as spend
        FROM agentsam_usage_rollups_daily
        WHERE day = ?`
+    ).bind(yesterday).first().catch(() => null);
+
+    const usageRollupRow = await env.DB.prepare(
+      `SELECT
+         MAX(ai_calls) as ai_calls,
+         MAX(tool_calls) as tool_calls,
+         MAX(tool_successes) as tool_successes,
+         MAX(tool_failures) as tool_failures,
+         MAX(deployments) as deployments
+       FROM agentsam_usage_rollups_daily
+       WHERE day = ?`
+    ).bind(yesterday).first().catch(() => null);
+
+    const todosCompletedRow = await env.DB.prepare(
+      `SELECT COUNT(*) as cnt FROM agentsam_todo
+       WHERE status IN ('done','completed')
+         AND date(completed_at) = date(?)`,
+    ).bind(yesterday).first().catch(() => null);
+
+    const todosCreatedRow = await env.DB.prepare(
+      `SELECT COUNT(*) as cnt FROM agentsam_todo
+       WHERE date(created_at) = date(?)`,
+    ).bind(yesterday).first().catch(() => null);
+
+    const todosOpenRow = await env.DB.prepare(
+      `SELECT COUNT(*) as cnt FROM agentsam_todo
+       WHERE status NOT IN ('done','completed','cancelled')`,
+    ).first().catch(() => null);
+
+    const timeRow = await env.DB.prepare(
+      `SELECT ROUND(COALESCE(SUM(duration_seconds), 0) / 60.0) as minutes
+       FROM project_time_entries
+       WHERE date(start_time) = date(?)`,
     ).bind(yesterday).first().catch(() => null);
 
     // Last week's velocity score for WoW delta
@@ -231,6 +264,13 @@ export async function runVelocityDailyRollup(env) {
     if (migrationsApplied > 0) noteParts.push(`${migrationsApplied} migrations`);
     if (spawnJobsCompleted > 0) noteParts.push(`${spawnJobsCompleted} skill jobs completed`);
     if (mcpToolCalls > 0) noteParts.push(`${mcpToolCalls} MCP calls`);
+    const todosCompleted = Math.max(Number(todosCompletedRow?.cnt) || 0, 0);
+    const todosCreated = Math.max(Number(todosCreatedRow?.cnt) || 0, 0);
+    const todosOpen = Math.max(Number(todosOpenRow?.cnt) || 0, 0);
+    const timeMinutes = Math.max(Number(timeRow?.minutes) || 0, 0);
+    if (todosCompleted > 0) noteParts.push(`${todosCompleted} todos completed`);
+    if (todosCreated > 0) noteParts.push(`${todosCreated} todos created`);
+    if (timeMinutes > 0) noteParts.push(`${timeMinutes} tracked minutes`);
     if (stuckRuns > 0) noteParts.push(`${stuckRuns} stuck agent runs — needs attention`);
     if (cronFailures > 0) noteParts.push(`${cronFailures} cron failures`);
     const migNames = deployLog?.migration_names || migrationsRow?.names || '';
@@ -245,12 +285,14 @@ export async function runVelocityDailyRollup(env) {
         velocity_score, momentum, sprint_goal, sprint_progress_percent, notes,
         migrations_applied, mcp_tool_calls, cursor_spend_usd,
         platform_worker_version, week_over_week_delta,
+        time_minutes, cost_usd,
         new_concepts, confidence_gains, struggle_areas,
         ai_collab_score, solo_decisions
       ) VALUES (
         ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
         ?, ?, ?,
+        ?, ?,
         ?, ?,
         NULL, NULL, NULL,
         NULL, 0
@@ -264,14 +306,15 @@ export async function runVelocityDailyRollup(env) {
       velocityScore,
       momentum,
       sprintGoal.slice(0, 200),
-      null, // sprint_progress_percent — filled via chat
+      null,
       notes.slice(0, 1000),
       migrationsApplied,
       mcpToolCalls,
       cursorSpend,
-      null, // platform_worker_version — filled via chat or future CF API pull
+      null,
       wowDelta,
-      // new_concepts, confidence_gains, struggle_areas, ai_collab_score, solo_decisions
+      timeMinutes,
+      cursorSpend,
     ).run();
 
     console.log(`[velocity-rollup] wrote ${yesterday}: score=${velocityScore} momentum=${momentum} commits=${commits} deploys=${deploys}`);

@@ -10,6 +10,35 @@ import { GMAIL_PROVIDER } from '../../core/gmail-user-tokens.js';
 
 const STATE_PREFIX = 'gmail_integrations_oauth:';
 
+/** Must match Google Cloud Console → OAuth client → Authorized redirect URIs exactly. */
+export const GMAIL_OAUTH_CALLBACK_PATH = '/api/oauth/gmail/callback';
+
+/**
+ * Stable Gmail OAuth redirect (apex via WORKER_BASE_URL — not request Host).
+ * @param {Request} request
+ * @param {*} env
+ */
+export function resolveGmailOAuthRedirectUri(request, env) {
+  const explicit =
+    typeof env?.GMAIL_OAUTH_REDIRECT_URI === 'string' ? env.GMAIL_OAUTH_REDIRECT_URI.trim() : '';
+  if (explicit) return explicit;
+
+  const fromEnv =
+    typeof env?.WORKER_BASE_URL === 'string' ? env.WORKER_BASE_URL.trim().replace(/\/$/, '') : '';
+  if (fromEnv) return `${fromEnv}${GMAIL_OAUTH_CALLBACK_PATH}`;
+
+  try {
+    const parsed = new URL(request.url);
+    const host = parsed.hostname.toLowerCase();
+    if (host === 'inneranimalmedia.com' || host === 'www.inneranimalmedia.com') {
+      return `https://inneranimalmedia.com${GMAIL_OAUTH_CALLBACK_PATH}`;
+    }
+    return `${parsed.origin.replace(/\/$/, '')}${GMAIL_OAUTH_CALLBACK_PATH}`;
+  } catch {
+    return `https://inneranimalmedia.com${GMAIL_OAUTH_CALLBACK_PATH}`;
+  }
+}
+
 export const GMAIL_OAUTH_SCOPES = [
   'openid',
   'email',
@@ -98,6 +127,7 @@ export async function startGmailConnect(request, url, env, authUser) {
   if (!userId) return jsonResponse({ error: 'User id required' }, 400);
 
   const returnTo = safeReturnTo(url);
+  const redirectUri = resolveGmailOAuthRedirectUri(request, env);
   const stateId = crypto.randomUUID();
   await env.SESSION_CACHE.put(
     `${STATE_PREFIX}${stateId}`,
@@ -106,11 +136,11 @@ export async function startGmailConnect(request, url, env, authUser) {
       tenant_id: authUser.tenant_id ?? authUser.active_tenant_id ?? null,
       return_to: returnTo,
       popup: url.searchParams.get('popup') === '1',
+      redirect_uri: redirectUri,
     }),
     { expirationTtl: 600 },
   );
 
-  const redirectUri = `${url.origin}/api/integrations/gmail/callback`;
   const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   authUrl.searchParams.set('client_id', env.GOOGLE_CLIENT_ID);
   authUrl.searchParams.set('redirect_uri', redirectUri);
@@ -130,7 +160,9 @@ export async function startGmailConnect(request, url, env, authUser) {
  * @param {*} env
  */
 export async function handleGmailConnectCallback(request, url, env) {
-  const origin = url.origin;
+  const origin =
+    (typeof env?.WORKER_BASE_URL === 'string' && env.WORKER_BASE_URL.trim().replace(/\/$/, '')) ||
+    url.origin;
   const fail = (reason = 'gmail_auth_failed') =>
     Response.redirect(`${origin}/dashboard/mail?error=${encodeURIComponent(reason)}`, 302);
 
@@ -160,7 +192,9 @@ export async function handleGmailConnectCallback(request, url, env) {
     (env?.TENANT_ID && String(env.TENANT_ID).trim()) ||
     '';
 
-  const redirectUri = `${origin}/api/integrations/gmail/callback`;
+  const redirectUri =
+    (parsed?.redirect_uri && String(parsed.redirect_uri).trim()) ||
+    resolveGmailOAuthRedirectUri(request, env);
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

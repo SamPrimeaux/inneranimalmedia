@@ -42,9 +42,23 @@ export async function resolveDailyPlanNotifyUser(env) {
   return { userId, email };
 }
 
+/** @param {*} env @param {string} sql @param  {...*} bind */
+async function d1All(env, sql, ...bind) {
+  if (!env?.DB) return { results: [] };
+  return env.DB.prepare(sql).bind(...bind).all().catch(() => ({ results: [] }));
+}
+
+/** @param {*} env @param {string} sql @param  {...*} bind */
+async function d1First(env, sql, ...bind) {
+  if (!env?.DB) return null;
+  return env.DB.prepare(sql).bind(...bind).first().catch(() => null);
+}
+
 /** @param {*} env @param {string} tenantId @param {{ userId?: string|null, email?: string|null }} owner */
 export async function gatherMorningPlanContext(env, tenantId, owner) {
   const safe = (p) => (p ? p.catch(() => null) : Promise.resolve(null));
+  const today = new Date().toISOString().slice(0, 10);
+  const ws = 'ws_inneranimalmedia';
 
   const [
     memoryRows,
@@ -60,6 +74,29 @@ export async function gatherMorningPlanContext(env, tenantId, owner) {
     emailLogs24h,
     pendingNotifications,
     gmailSnapshot,
+    usageToday,
+    usage7d,
+    billingMonth,
+    clientRevenue,
+    financeMonthly,
+    deploys24h,
+    deploys7d,
+    planTasks,
+    execPerf24h,
+    healthDaily,
+    compaction24h,
+    errors24h,
+    guardrails24h,
+    modelHealth,
+    analytics7d,
+    toolStatsFlaky,
+    eto24h,
+    openTodosByProject,
+    calendarUpcoming,
+    stripeWebhooks,
+    founderToday,
+    taskActivityRecent,
+    trackedTimeToday,
   ] = await Promise.all([
     env.DB.prepare(
       `SELECT key, value, memory_type, updated_at FROM agentsam_memory
@@ -135,9 +172,8 @@ export async function gatherMorningPlanContext(env, tenantId, owner) {
     ).all(),
 
     env.DB.prepare(
-      `SELECT date, velocity_score, momentum, new_concepts, confidence_gains,
-              struggle_areas, ai_collab_score, commits_count, deploys_production,
-              migrations_applied, mcp_tool_calls, notes
+      `SELECT date, velocity_score, momentum, github_commits, deploys_production,
+              migrations_applied, mcp_tool_calls, time_minutes, cost_usd, notes
        FROM task_velocity ORDER BY date DESC LIMIT 7`
     ).all(),
 
@@ -160,6 +196,164 @@ export async function gatherMorningPlanContext(env, tenantId, owner) {
       userId: owner.userId || undefined,
       maxPerAccount: 25,
     }),
+
+    d1First(env,
+      `SELECT day,
+              MAX(cost_usd) as cost_usd, MAX(ai_calls) as ai_calls,
+              MAX(tool_calls) as tool_calls, MAX(tool_failures) as tool_failures,
+              MAX(deployments) as deployments
+       FROM agentsam_usage_rollups_daily WHERE day = ? GROUP BY day`,
+      today),
+
+    d1First(env,
+      `SELECT ROUND(SUM(sub.cost_usd), 4) as week_cost,
+              ROUND(AVG(sub.cost_usd), 4) as avg_daily_cost
+       FROM (
+         SELECT day, MAX(cost_usd) as cost_usd
+         FROM agentsam_usage_rollups_daily
+         WHERE day >= date(?, '-7 days') AND day < ?
+         GROUP BY day
+       ) sub`,
+      today, today),
+
+    d1All(env,
+      `SELECT provider, period_month, subscription_usd, usage_usd, total_usd, status
+       FROM billing_summary
+       WHERE period_month = strftime('%Y-%m', ?)
+       ORDER BY total_usd DESC LIMIT 12`,
+      today),
+
+    d1All(env,
+      `SELECT client_id, client_name, mrr_usd, payment_status, profit_margin_pct, updated_at
+       FROM client_revenue
+       WHERE payment_status != 'churned'
+       ORDER BY mrr_usd DESC LIMIT 12`),
+
+    d1All(env,
+      `SELECT month, net_cashflow_usd, revenue_usd, expenses_usd
+       FROM financial_monthly_summaries
+       ORDER BY month DESC LIMIT 2`),
+
+    d1First(env,
+      `SELECT COUNT(*) as cnt FROM deployments
+       WHERE datetime(created_at) >= datetime('now', '-24 hours')`),
+
+    d1First(env,
+      `SELECT COUNT(*) as cnt FROM deployments
+       WHERE datetime(created_at) >= datetime('now', '-7 days')`),
+
+    d1All(env,
+      `SELECT status, COUNT(*) as cnt
+       FROM agentsam_plan_tasks
+       WHERE tenant_id = ?
+       GROUP BY status`,
+      tenantId),
+
+    d1All(env,
+      `SELECT task_type,
+              COUNT(*) as runs,
+              ROUND(AVG(CASE WHEN success = 1 THEN 1.0 ELSE 0 END), 3) as success_rate,
+              ROUND(AVG(latency_ms)) as avg_latency_ms
+       FROM agentsam_execution_performance_metrics
+       WHERE created_at_unix > unixepoch('now', '-24 hours')
+       GROUP BY task_type ORDER BY runs DESC LIMIT 10`),
+
+    d1All(env,
+      `SELECT day, green_count, yellow_count, red_count, overall_score
+       FROM agentsam_health_daily
+       ORDER BY day DESC LIMIT 8`),
+
+    d1First(env,
+      `SELECT COUNT(*) as events, COALESCE(SUM(tokens_saved), 0) as tokens_saved
+       FROM agentsam_compaction_events
+       WHERE created_at_unix > unixepoch('now', '-24 hours')`),
+
+    d1All(env,
+      `SELECT error_type, COUNT(*) as cnt
+       FROM agentsam_error_log
+       WHERE created_at_unix > unixepoch('now', '-24 hours')
+       GROUP BY error_type ORDER BY cnt DESC LIMIT 8`),
+
+    d1All(env,
+      `SELECT guardrail_key, decision, COUNT(*) as cnt
+       FROM agentsam_guardrail_events
+       WHERE created_at_unix > unixepoch('now', '-24 hours')
+         AND decision != 'allowed'
+       GROUP BY guardrail_key, decision ORDER BY cnt DESC LIMIT 8`),
+
+    d1All(env,
+      `SELECT model_key, status, error_rate, p95_latency_ms, updated_at
+       FROM agentsam_model_health
+       WHERE status != 'healthy'
+       ORDER BY error_rate DESC LIMIT 8`),
+
+    d1All(env,
+      `SELECT model_key, intent, bucket_date,
+              ROUND(AVG(success_rate), 3) as success_rate,
+              ROUND(AVG(avg_cost_usd), 4) as avg_cost_usd
+       FROM agentsam_analytics
+       WHERE bucket_date >= date(?, '-7 days')
+       GROUP BY model_key, intent
+       ORDER BY success_rate ASC LIMIT 12`,
+      today),
+
+    d1All(env,
+      `SELECT tool_name, failure_count, success_count, last_failure_at
+       FROM agentsam_tool_stats_compacted
+       WHERE failure_count > 0
+       ORDER BY failure_count DESC LIMIT 10`),
+
+    d1First(env,
+      `SELECT COUNT(*) as events,
+              ROUND(AVG(reward_score), 3) as avg_reward,
+              ROUND(SUM(cost_usd), 4) as cost_usd,
+              ROUND(AVG(latency_ms)) as avg_latency_ms,
+              SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as ok,
+              SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failed
+       FROM agentsam_performance_eto_events
+       WHERE created_at_unix > unixepoch('now', '-24 hours')`),
+
+    d1All(env,
+      `SELECT COALESCE(project_id, 'unassigned') as project_id, COUNT(*) as open_cnt
+       FROM agentsam_todo
+       WHERE tenant_id = ? AND status NOT IN ('done','completed','cancelled')
+       GROUP BY COALESCE(project_id, 'unassigned')
+       ORDER BY open_cnt DESC LIMIT 12`,
+      tenantId),
+
+    d1All(env,
+      `SELECT id, title, start_datetime, end_datetime, event_type
+       FROM calendar_events
+       WHERE workspace_id = ?
+         AND date(start_datetime) BETWEEN date('now') AND date('now', '+1 day')
+       ORDER BY start_datetime ASC LIMIT 12`,
+      ws),
+
+    d1All(env,
+      `SELECT event_type, status, created_at
+       FROM agentsam_webhook_events
+       WHERE provider = 'stripe'
+         AND datetime(created_at) >= datetime('now', '-48 hours')
+       ORDER BY created_at DESC LIMIT 10`),
+
+    d1First(env,
+      `SELECT day, deep_work_hours, burnout_risk, productivity_ratio
+       FROM founder_metrics
+       WHERE day >= date(?, '-7 days')
+       ORDER BY day DESC LIMIT 1`,
+      today),
+
+    d1All(env,
+      `SELECT action, COUNT(*) as cnt
+       FROM task_activity
+       WHERE tenant_id = ? AND created_at > unixepoch('now', '-24 hours')
+       GROUP BY action ORDER BY cnt DESC`,
+      tenantId),
+
+    d1First(env,
+      `SELECT ROUND(COALESCE(SUM(duration_seconds), 0) / 60.0) as minutes
+       FROM project_time_entries
+       WHERE date(start_time) = date('now')`),
   ]);
 
   let gitLog = '';
@@ -171,6 +365,14 @@ export async function gatherMorningPlanContext(env, tenantId, owner) {
     }));
     if (r?.ok) gitLog = await r.text();
   } catch { /* non-fatal */ }
+
+  const chronicBlockers = await d1All(env,
+    `SELECT id, title, status, project_id, updated_at
+     FROM agentsam_todo
+     WHERE tenant_id = ? AND status = 'carried'
+       AND date(updated_at) <= date('now', '-3 days')
+     ORDER BY updated_at ASC LIMIT 8`,
+    tenantId);
 
   return {
     memoryRows,
@@ -187,6 +389,30 @@ export async function gatherMorningPlanContext(env, tenantId, owner) {
     pendingNotifications,
     gmailSnapshot,
     gitLog,
+    usageToday,
+    usage7d,
+    billingMonth,
+    clientRevenue,
+    financeMonthly,
+    deploys24h,
+    deploys7d,
+    planTasks,
+    execPerf24h,
+    healthDaily,
+    compaction24h,
+    errors24h,
+    guardrails24h,
+    modelHealth,
+    analytics7d,
+    toolStatsFlaky,
+    eto24h,
+    openTodosByProject,
+    calendarUpcoming,
+    stripeWebhooks,
+    founderToday,
+    taskActivityRecent,
+    trackedTimeToday,
+    chronicBlockers,
   };
 }
 

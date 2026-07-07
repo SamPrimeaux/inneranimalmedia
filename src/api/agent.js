@@ -2011,6 +2011,9 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       .first();
     if (!existing) return jsonResponse({ error: 'Not found' }, 404);
 
+    const userId = String(authUser.id || authUser.user_id || authUser.email || 'user').slice(0, 64);
+    const { logTaskActivity, taskActivityChangesFromPatch } = await import('../core/task-activity-log.js');
+
     const fields = [];
     const binds = [];
     const set = (col, val) => {
@@ -2068,6 +2071,27 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       .bind(...binds)
       .run();
     const todo = await env.DB.prepare(`SELECT * FROM agentsam_todo WHERE id = ?`).bind(todoId).first();
+
+    const activityChanges = taskActivityChangesFromPatch(existing, body);
+    if (activityChanges) {
+      let action = 'updated';
+      if (activityChanges.field === 'status') {
+        if (body.status === 'done' || body.status === 'completed') action = 'completed';
+        else if (body.status === 'in_progress') action = 'started';
+        else action = 'updated';
+      } else if (activityChanges.field === 'project_id') {
+        action = 'project_link';
+      }
+      await logTaskActivity(env.DB, {
+        taskId: todoId,
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
+        userId,
+        action,
+        changes: activityChanges,
+      });
+    }
+
     return jsonResponse({ ok: true, todo }, 200);
   }
 
@@ -2134,6 +2158,15 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       )
       .run();
     const todo = await env.DB.prepare(`SELECT * FROM agentsam_todo WHERE id = ?`).bind(id).first();
+    const { logTaskActivity } = await import('../core/task-activity-log.js');
+    await logTaskActivity(env.DB, {
+      taskId: id,
+      tenantId: scope.tenantId,
+      workspaceId: scope.workspaceId,
+      userId,
+      action: 'created',
+      changes: { title, project_id: projectId, category },
+    });
     return jsonResponse({ ok: true, todo }, 201);
   }
 

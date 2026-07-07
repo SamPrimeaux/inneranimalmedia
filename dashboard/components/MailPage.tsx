@@ -5,6 +5,8 @@
 import React, {
   useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
+import { CollaborateWorkShell } from '../src/components/collaborate/CollaborateWorkShell';
+import { MailTimeInsightsPanel } from '../src/components/collaborate/MailTimeInsightsPanel';
 import {
   Archive, Bot, ChevronLeft, ChevronRight, Circle, Clock,
   Forward, Inbox, Mail, Paperclip, Plus, RefreshCw, Reply,
@@ -491,7 +493,8 @@ export function MailPage() {
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', height: '100%', minHeight: 0, background: 'var(--bg-app)', color: 'var(--text-main)', fontFamily: 'var(--font-sans)', overflow: 'hidden', userSelect: 'none' }}>
+    <CollaborateWorkShell surface="mail">
+    <div style={{ display: 'flex', height: '100%', minHeight: 0, background: '#eef2f7', color: 'var(--text-main)', fontFamily: 'var(--font-sans)', overflow: 'hidden', userSelect: 'none' }}>
 
       {/* ── LEFT SIDEBAR ────────────────────────────────────────────────── */}
       <div style={{ width: sidebarW, minWidth: SIDEBAR_MIN, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border-subtle)', background: 'var(--bg-sidebar, var(--bg-elevated))', overflow: 'hidden' }}>
@@ -499,7 +502,6 @@ export function MailPage() {
         {/* Header */}
         <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: 0.1 }}>Mail</span>
             <div style={{ display: 'flex', gap: 4 }}>
               <Btn onClick={() => { loadEmails(); loadStats(); }} title="Refresh" small><RefreshCw size={13} /></Btn>
               <Btn onClick={() => { setComposing(true); setCompose(c => ({ ...c, to: '', subject: '', body: '' })); }} title="Compose" small><Plus size={13} />Compose</Btn>
@@ -752,6 +754,8 @@ export function MailPage() {
         </>
       )}
 
+      <MailTimeInsightsPanel />
+
       {/* ── COMPOSE MODAL ──────────────────────────────────────────────── */}
       {composing && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', padding: 24, pointerEvents: 'none' }}>
@@ -803,6 +807,7 @@ export function MailPage() {
         * { box-sizing: border-box; }
       `}</style>
     </div>
+    </CollaborateWorkShell>
   );
 }
 

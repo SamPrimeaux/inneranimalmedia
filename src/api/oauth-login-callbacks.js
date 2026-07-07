@@ -268,6 +268,13 @@ export async function finalizeInboundOAuth(env, request, input) {
       sessionId,
     ).run().catch(() => {});
     await env.DB.prepare(`
+      UPDATE time_entries
+      SET ended_at = unixepoch(),
+          hours = MAX(0, (unixepoch() - COALESCE(started_at, created_at, unixepoch())) / 3600.0),
+          updated_at = unixepoch()
+      WHERE user_id = ? AND ended_at IS NULL
+    `).bind(authUserId).run().catch(() => {});
+    await env.DB.prepare(`
       INSERT INTO time_entries
         (user_id, tenant_id, workspace_id, description,
          source, work_session_id, started_at, created_at, updated_at)

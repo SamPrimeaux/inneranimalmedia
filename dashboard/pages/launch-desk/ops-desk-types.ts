@@ -97,6 +97,15 @@ export interface ClientProjectRow {
 
 export interface TasksInsightsPayload {
   today_minutes: number;
+  agent_inferred_minutes?: number;
+  scheduled_today_minutes?: number;
+  combined_today_minutes?: number;
+  usage_rollup?: {
+    cost_usd?: number;
+    ai_calls?: number;
+    tool_calls?: number;
+    deployments?: number;
+  } | null;
   active_tracking: boolean;
   by_project: { project_id: string; name: string; minutes: number }[];
   by_task: { todo_id: string | null; title: string; minutes: number }[];
@@ -394,6 +403,14 @@ export async function postProjectTimer(payload: {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  });
+}
+
+export async function postActivityStop() {
+  return apiJson<{ ok?: boolean; closed?: number }>('/api/calendar/activity/stop', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
   });
 }
 

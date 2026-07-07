@@ -534,9 +534,68 @@ export async function handleCalendarApi(request, url, env, ctx) {
       }
     }
 
+    let agentInferredMinutes = 0;
+    let usageRollup = null;
+    let scheduledTodayMinutes = 0;
+    try {
+      const runRow = await env.DB.prepare(
+        `SELECT ROUND(COALESCE(SUM(
+           CASE WHEN completed_at_unix > created_at_unix
+             THEN (completed_at_unix - created_at_unix) / 60.0
+             ELSE 4 END
+         ), 0)) as minutes
+         FROM agentsam_agent_run
+         WHERE workspace_id = ?
+           AND created_at_unix > unixepoch('now', '-24 hours')`,
+      )
+        .bind(workspaceId)
+        .first();
+      agentInferredMinutes = Math.max(0, Math.round(Number(runRow?.minutes) || 0));
+    } catch {
+      /* non-fatal */
+    }
+
+    try {
+      usageRollup = await env.DB.prepare(
+        `SELECT MAX(cost_usd) as cost_usd, MAX(ai_calls) as ai_calls,
+                MAX(tool_calls) as tool_calls, MAX(deployments) as deployments
+         FROM agentsam_usage_rollups_daily
+         WHERE day = date('now')`,
+      ).first();
+    } catch {
+      /* non-fatal */
+    }
+
+    try {
+      if (tenantId) {
+        const taskEventsToday = await fetchTaskCalendarEvents(
+          env,
+          workspaceId,
+          tenantId,
+          dayWindow.from,
+          dayWindow.to,
+        );
+        scheduledTodayMinutes = (taskEventsToday || []).reduce(
+          (sum, ev) => sum + eventDurationMinutes(ev),
+          0,
+        );
+      }
+    } catch {
+      /* non-fatal */
+    }
+
+    const combinedTodayMinutes = Math.max(
+      todayMinutes,
+      agentInferredMinutes > 0 ? Math.min(agentInferredMinutes, todayMinutes + agentInferredMinutes) : 0,
+    );
+
     return jsonResponse(
       {
         today_minutes: todayMinutes,
+        agent_inferred_minutes: agentInferredMinutes,
+        scheduled_today_minutes: scheduledTodayMinutes,
+        combined_today_minutes: combinedTodayMinutes || todayMinutes || agentInferredMinutes,
+        usage_rollup: usageRollup,
         active_tracking: activeTracking,
         by_project,
         by_task,
@@ -654,22 +713,56 @@ export async function handleCalendarApi(request, url, env, ctx) {
     }
   }
 
+  // POST /api/calendar/activity/stop — close active project_time_entries row
+  if (parts[0] === 'activity' && parts[1] === 'stop' && method === 'POST') {
+    try {
+      const userIds = [...new Set([userId, userId ? `user_${userId}` : null].filter(Boolean))];
+      for (const uid of userIds) {
+        const active = await env.DB.prepare(
+          `SELECT id FROM project_time_entries
+           WHERE user_id = ? AND is_active = 1
+           ORDER BY start_time DESC LIMIT 1`,
+        )
+          .bind(uid)
+          .first();
+        if (active?.id) {
+          await env.DB.prepare(
+            `UPDATE project_time_entries SET is_active = 0 WHERE id = ?`,
+          )
+            .bind(active.id)
+            .run();
+          return jsonResponse({ ok: true, stopped: true, entry_id: active.id }, 200);
+        }
+      }
+      return jsonResponse({ ok: true, stopped: false }, 200);
+    } catch (e) {
+      console.warn('[calendar/activity/stop]', e?.message ?? e);
+      return jsonResponse({ ok: false, error: 'activity_stop_failed' }, 200);
+    }
+  }
+
   // POST /api/calendar/activity/heartbeat — autonomous active time while on collaborate
   if (parts[0] === 'activity' && parts[1] === 'heartbeat' && method === 'POST') {
     const body = await request.json().catch(() => ({}));
-    const projectId = String(body.project_id || 'inneranimalmedia').trim().slice(0, 120) || 'inneranimalmedia';
+    const projectIdRaw = body.project_id != null ? String(body.project_id).trim().slice(0, 120) : '';
+    const projectId = projectIdRaw || '_session';
     const todoId = body.todo_id ? String(body.todo_id).trim().slice(0, 64) : null;
     const surface = String(body.surface || 'collaborate').trim().slice(0, 64);
     const beatSeconds = 60;
     const now = toSqlDateTime(new Date());
     const description = `${surface}${todoId ? ` · ${todoId}` : ''} · ${projectId}`;
 
+    const extractTodoFromDescription = (desc) => {
+      const m = String(desc || '').match(/todo_[a-z0-9]+/i);
+      return m ? m[0] : null;
+    };
+
     try {
       const userIds = [...new Set([userId, userId ? `user_${userId}` : null].filter(Boolean))];
       let activeRow = null;
       for (const uid of userIds) {
         activeRow = await env.DB.prepare(
-          `SELECT id FROM project_time_entries
+          `SELECT id, project_id, description FROM project_time_entries
            WHERE user_id = ? AND is_active = 1
            ORDER BY start_time DESC LIMIT 1`,
         )
@@ -678,15 +771,27 @@ export async function handleCalendarApi(request, url, env, ctx) {
         if (activeRow) break;
       }
 
+      const prevProject = String(activeRow?.project_id || '');
+      const prevTodo = extractTodoFromDescription(activeRow?.description);
+      const contextChanged =
+        activeRow?.id &&
+        (prevProject !== projectId || String(prevTodo || '') !== String(todoId || ''));
+
+      if (contextChanged) {
+        await env.DB.prepare(`UPDATE project_time_entries SET is_active = 0 WHERE id = ?`)
+          .bind(activeRow.id)
+          .run();
+        activeRow = null;
+      }
+
       if (activeRow?.id) {
         await env.DB.prepare(
           `UPDATE project_time_entries
            SET duration_seconds = COALESCE(duration_seconds, 0) + ?,
-               description = ?,
-               project_id = ?
+               description = ?
            WHERE id = ?`,
         )
-          .bind(beatSeconds, description, projectId, activeRow.id)
+          .bind(beatSeconds, description, activeRow.id)
           .run();
       } else {
         const entryId = `pte_${userId || 'user'}_${Date.now()}`;

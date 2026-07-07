@@ -41,6 +41,13 @@ export function CollaborateTasksInsights({
 }: Props) {
   const breakdown = insights?.insights.breakdown_minutes || {};
   const trackedToday = tasksInsights?.today_minutes || 0;
+  const agentInferred = tasksInsights?.agent_inferred_minutes || 0;
+  const scheduledToday = tasksInsights?.scheduled_today_minutes || 0;
+  const displayToday =
+    trackedToday > 0
+      ? trackedToday
+      : tasksInsights?.combined_today_minutes || agentInferred || scheduledToday;
+  const usageRollup = tasksInsights?.usage_rollup;
   const byProject = tasksInsights?.by_project || [];
   const byTask = tasksInsights?.by_task || [];
 
@@ -139,8 +146,33 @@ export function CollaborateTasksInsights({
 
       <div className="colab-tasks-insights-today">
         <span>Today tracked</span>
-        <strong>{fmtMinutes(trackedToday)}</strong>
+        <strong>{fmtMinutes(displayToday)}</strong>
       </div>
+      {(trackedToday === 0 && (agentInferred > 0 || scheduledToday > 0)) ? (
+        <div className="colab-tasks-insights-lanes">
+          {agentInferred > 0 ? (
+            <div className="colab-tasks-insights-lane">
+              <span>Agent sessions</span>
+              <strong>{fmtMinutes(agentInferred)}</strong>
+            </div>
+          ) : null}
+          {scheduledToday > 0 ? (
+            <div className="colab-tasks-insights-lane">
+              <span>Scheduled tasks</span>
+              <strong>{fmtMinutes(scheduledToday)}</strong>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {usageRollup?.cost_usd != null && Number(usageRollup.cost_usd) > 0 ? (
+        <div className="colab-tasks-insights-usage">
+          <span>AI spend today</span>
+          <strong>${Number(usageRollup.cost_usd).toFixed(2)}</strong>
+          {usageRollup.ai_calls ? (
+            <span className="colab-tasks-insights-usage-meta">{usageRollup.ai_calls} calls</span>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="colab-tasks-manual-time">
         {!manualOpen ? (

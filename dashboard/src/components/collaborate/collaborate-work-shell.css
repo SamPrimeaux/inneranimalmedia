@@ -1,0 +1,124 @@
+/* GCP-style unified work shell — Calendar / Tasks / Mail */
+.colab-work-shell {
+  --colab-shell-bg: #eef2f7;
+  --colab-shell-bar: #f8fafc;
+  --colab-shell-border: #b8bec8;
+  --colab-shell-text: #1a1c1e;
+  --colab-shell-muted: #5f6368;
+  --colab-shell-blue: #1558b8;
+  --colab-shell-blue-soft: #d8e6fb;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--colab-shell-bg);
+  color: var(--colab-shell-text);
+}
+
+.colab-work-shell-topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 52px;
+  padding: 0 16px;
+  background: var(--colab-shell-bar);
+  border-bottom: 1px solid var(--colab-shell-border);
+  flex-shrink: 0;
+}
+
+.colab-work-shell-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 140px;
+  font-size: 14px;
+}
+
+.colab-work-shell-product {
+  font-weight: 600;
+  color: var(--colab-shell-muted);
+  letter-spacing: 0.01em;
+}
+
+.colab-work-shell-sep {
+  color: var(--colab-shell-muted);
+  opacity: 0.6;
+}
+
+.colab-work-shell-title {
+  font-weight: 600;
+}
+
+.colab-work-shell-tabs {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.colab-work-shell-tabs button {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--colab-shell-muted);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.colab-work-shell-tabs button:hover {
+  background: var(--colab-shell-blue-soft);
+  color: var(--colab-shell-blue);
+}
+
+.colab-work-shell-tabs button.active {
+  background: var(--colab-shell-blue-soft);
+  color: var(--colab-shell-blue);
+  border-color: #9bbef0;
+  font-weight: 600;
+}
+
+.colab-work-shell-trailing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.colab-work-shell-date {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--colab-shell-text);
+  white-space: nowrap;
+}
+
+.colab-cal-topbar--sub {
+  min-height: 44px;
+  border-bottom: 1px solid var(--border);
+}
+
+.colab-cal-topbar--sub .colab-cal-top-center {
+  flex: 1;
+}
+
+.colab-work-shell .colab-cal {
+  flex: 1;
+  min-height: 0;
+}
+
+.colab-work-shell-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mail-time-insights {
+  width: 280px;
+  min-width: 240px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--colab-shell-border);
+  background: #fff;
+  overflow-y: auto;
+}
