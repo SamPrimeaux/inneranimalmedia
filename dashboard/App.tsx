@@ -4773,7 +4773,7 @@ const App: React.FC = () => {
                       <Route
                         path="/dashboard/collaborate"
                         element={
-                          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                          <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
                             <LaunchDeskPage />
                           </div>
                         }
@@ -4871,7 +4871,11 @@ const App: React.FC = () => {
                         path="/dashboard/images"
                         element={<ImagesPage workspaceId={authWorkspaceId || undefined} />}
                       />
-                      <Route path="/dashboard/mail" element={<MailPage />} />
+                      <Route path="/dashboard/mail" element={
+                        <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+                          <MailPage />
+                        </div>
+                      } />
                       <Route
                         path="/dashboard/meet"
                         element={

@@ -757,6 +757,23 @@ export function LaunchDeskPage() {
       surface={mainSeg === 'tasks' ? 'tasks' : 'calendar'}
       trailing={
         <>
+          <button
+            type="button"
+            className="colab-cal-hamb"
+            aria-label={leftNavOpen ? 'Close navigation' : 'Open navigation'}
+            aria-expanded={leftNavOpen}
+            onClick={() => setLeftNavOpen((v) => !v)}
+          >
+            <svg
+              className={`colab-cal-hamb-icon${leftNavOpen ? ' is-open' : ''}`}
+              viewBox="0 0 20 20"
+              aria-hidden
+            >
+              <line className="colab-cal-hamb-bar colab-cal-hamb-bar-top" x1="3" y1="5" x2="17" y2="5" />
+              <line className="colab-cal-hamb-bar colab-cal-hamb-bar-mid" x1="3" y1="10" x2="17" y2="10" />
+              <line className="colab-cal-hamb-bar colab-cal-hamb-bar-bottom" x1="3" y1="15" x2="17" y2="15" />
+            </svg>
+          </button>
           {mainSeg === 'calendar' ? (
             <>
               <button type="button" className="colab-cal-pill-btn" onClick={() => setAnchor(new Date())}>
@@ -797,29 +814,6 @@ export function LaunchDeskPage() {
         leftNavOpen ? 'left-nav-open' : 'left-nav-closed',
       ].filter(Boolean).join(' ')}
     >
-      <header className="colab-cal-topbar colab-cal-topbar--sub">
-        <button
-          type="button"
-          className="colab-cal-hamb"
-          aria-label={leftNavOpen ? 'Close task navigation' : 'Open task navigation'}
-          aria-expanded={leftNavOpen}
-          onClick={() => setLeftNavOpen((v) => !v)}
-        >
-          <svg
-            className={`colab-cal-hamb-icon${leftNavOpen ? ' is-open' : ''}`}
-            viewBox="0 0 20 20"
-            aria-hidden
-          >
-            <line className="colab-cal-hamb-bar colab-cal-hamb-bar-top" x1="3" y1="5" x2="17" y2="5" />
-            <line className="colab-cal-hamb-bar colab-cal-hamb-bar-mid" x1="3" y1="10" x2="17" y2="10" />
-            <line className="colab-cal-hamb-bar colab-cal-hamb-bar-bottom" x1="3" y1="15" x2="17" y2="15" />
-          </svg>
-        </button>
-        <div className="colab-cal-top-center">
-          <h1 className="colab-cal-month-title">{mainSeg === 'tasks' ? 'My tasks' : calendarHeadTitle}</h1>
-        </div>
-      </header>
-
       {projectFilterId && mainSeg === 'tasks' ? (
         <div className="colab-cal-project-banner">
           <span>

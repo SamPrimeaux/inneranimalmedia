@@ -7,6 +7,7 @@ import React, {
 } from 'react';
 import { CollaborateWorkShell } from '../src/components/collaborate/CollaborateWorkShell';
 import { MailTimeInsightsPanel } from '../src/components/collaborate/MailTimeInsightsPanel';
+import '../src/components/collaborate/mail-work-surface.css';
 import {
   Archive, Bot, ChevronLeft, ChevronRight, Circle, Clock,
   Forward, Inbox, Mail, Paperclip, Plus, RefreshCw, Reply,
@@ -532,10 +533,10 @@ export function MailPage() {
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <CollaborateWorkShell surface="mail">
-    <div style={{ display: 'flex', height: '100%', minHeight: 0, background: '#eef2f7', color: 'var(--text-main)', fontFamily: 'var(--font-sans)', overflow: 'hidden', userSelect: 'none' }}>
+    <div className="mail-work-surface">
 
       {/* ── LEFT SIDEBAR ────────────────────────────────────────────────── */}
-      <div style={{ width: sidebarW, minWidth: SIDEBAR_MIN, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border-subtle)', background: 'var(--bg-sidebar, var(--bg-elevated))', overflow: 'hidden' }}>
+      <div className="mail-sidebar" style={{ width: sidebarW, minWidth: SIDEBAR_MIN, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
         {/* Header */}
         <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
@@ -585,12 +586,13 @@ export function MailPage() {
           ))}
           <button
             type="button"
+            className={mailSurface === 'agentsam' ? 'mail-agentsam-nav active' : 'mail-agentsam-nav'}
             onClick={() => { setMailSurface('agentsam'); setSelected(null); setDetail(null); }}
             style={{
               display: 'flex', alignItems: 'center', gap: 8, width: '100%', height: 32,
               padding: '0 8px', borderRadius: 7, border: 'none', marginTop: 4,
-              background: mailSurface === 'agentsam' ? 'rgba(0,255,200,0.12)' : 'transparent',
-              color: mailSurface === 'agentsam' ? 'var(--solar-cyan)' : 'var(--text-muted)',
+              background: mailSurface === 'agentsam' ? undefined : 'transparent',
+              color: mailSurface === 'agentsam' ? undefined : 'var(--text-muted)',
               fontSize: 12, fontWeight: mailSurface === 'agentsam' ? 800 : 600, cursor: 'pointer', textAlign: 'left',
             }}
           >
@@ -609,11 +611,11 @@ export function MailPage() {
       <div onPointerDown={e => startResize('sidebar', e)} style={{ width: 5, flexShrink: 0, cursor: 'col-resize', background: 'transparent', borderRight: '1px solid var(--border-subtle)' }} />
 
       {/* ── CENTER LIST ─────────────────────────────────────────────────── */}
-      <div style={{ flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="mail-list-pane" style={{ flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
         {mailSurface === 'agentsam' ? (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-app)' }}>
-            <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(0,255,200,0.05)' }}>
+          <div className="mail-agentsam-pane" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="mail-agentsam-header" style={{ padding: '16px 18px 12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                 <Bot size={18} style={{ color: 'var(--solar-cyan)' }} />
                 <div>
@@ -678,7 +680,7 @@ export function MailPage() {
         ) : (
         <>
         {/* Toolbar */}
-        <div style={{ height: 48, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-app)' }}>
+        <div className="mail-list-toolbar" style={{ height: 48, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
           <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: 0.1, textTransform: 'capitalize' }}>{folder}</span>
           <div style={{ flex: 1, position: 'relative', maxWidth: 280 }}>
             <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
@@ -693,9 +695,7 @@ export function MailPage() {
             <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No messages</div>
           )}
           {filtered.map(email => (
-            <div key={email.id} onClick={() => openEmail(email)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer', background: selected?.id === email.id ? 'var(--bg-hover)' : 'transparent', transition: 'background 0.1s', userSelect: 'none' }}
-              onMouseEnter={e => { if (selected?.id !== email.id) (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'; }}
-              onMouseLeave={e => { if (selected?.id !== email.id) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}>
+            <div key={email.id} onClick={() => openEmail(email)} className={`mail-list-row${selected?.id === email.id ? ' is-selected' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer', transition: 'background 0.1s', userSelect: 'none' }}>
               {/* Avatar */}
               <div style={{ width: 34, height: 34, borderRadius: 99, background: avatarColor(email.from_address), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: '#000', flexShrink: 0 }}>
                 {initials(email.from_address)}
@@ -735,7 +735,7 @@ export function MailPage() {
           {/* Detail resize handle */}
           <div onPointerDown={e => startResize('detail', e)} style={{ width: 5, flexShrink: 0, cursor: 'col-resize', background: 'transparent', borderLeft: '1px solid var(--border-subtle)' }} />
 
-          <div style={{ width: detailW, flexShrink: 0, display: 'flex', flexDirection: 'column', borderLeft: '1px solid var(--border-subtle)', overflow: 'hidden', background: 'var(--bg-app)' }}>
+          <div className="mail-detail-pane" style={{ width: detailW, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
             {/* Detail header */}
             <div style={{ height: 48, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', borderBottom: '1px solid var(--border-subtle)' }}>

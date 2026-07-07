@@ -229,7 +229,7 @@
 .colab-cal-seg button.active { background: var(--blue-soft); color: var(--blue-text); font-weight: 600; }
 
 .colab-cal-layout {
-  flex: 1; min-height: 0;
+  flex: 1; min-height: 0; min-width: 0; width: 100%;
   display: grid;
   grid-template-columns: var(--left) minmax(0, 1fr) var(--rail);
   background: var(--bg);
@@ -539,7 +539,7 @@
   flex-direction: column;
   gap: 6px;
   padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line-soft);
   margin-bottom: 8px;
 }
 .colab-tasks-insights-lane {
@@ -563,7 +563,7 @@
   color: var(--text-secondary);
   padding-bottom: 10px;
   margin-bottom: 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line-soft);
 }
 .colab-tasks-insights-usage strong {
   color: var(--blue-text);
