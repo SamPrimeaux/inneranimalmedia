@@ -9,7 +9,11 @@ import { getAuthUser } from '../core/auth.js';
 import { jsonResponse } from '../core/responses.js';
 import { sendPlatformEmail, sendUserGmail } from '../lib/email.js';
 import { resolveOAuthAccessToken, resolveOAuthRefreshToken } from './oauth.js';
-import { upsertOauthToken } from '../core/oauth-token-store.js';
+import {
+  listGmailTokenRowsForUser,
+  getGmailTokenRowForUser,
+} from '../core/gmail-user-tokens.js';
+import { disconnectGmailAccount } from './integrations/gmail-connect.js';
 import {
   emailSentLogKey,
   getEmailR2Bucket,
@@ -17,8 +21,6 @@ import {
 } from '../core/r2-email.js';
 
 const PAGE_SIZE = 50;
-const GMAIL_PROVIDER = 'google_gmail';
-const GMAIL_STATE_PREFIX = 'gmail_oauth_state:';
 
 function pathLower(url) {
   return url.pathname.toLowerCase().replace(/\/$/, '') || '/';
@@ -144,18 +146,6 @@ function base64UrlDecodeToString(b64url) {
   return new TextDecoder().decode(bytes);
 }
 
-function parseJwtPayload(jwt) {
-  const token = String(jwt || '');
-  const parts = token.split('.');
-  if (parts.length < 2) return null;
-  try {
-    const raw = base64UrlDecodeToString(parts[1]);
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
 function firstHeader(msg, name) {
   const want = String(name || '').toLowerCase();
   const headers = msg?.payload?.headers;
@@ -264,58 +254,12 @@ function buildRfc2822Message({ from, to, subject, bodyText, bodyHtml, inReplyTo,
   return lines.join('\r\n');
 }
 
-async function getOauthUserKey(authUser) {
-  // Match legacy behavior: prefer email (stable) then id.
-  const email = authUser?.email ? String(authUser.email).trim() : '';
-  if (email) return email;
-  const id = authUser?.id ? String(authUser.id).trim() : '';
-  return id || null;
+async function listGmailTokenRows(env, authUser) {
+  return listGmailTokenRowsForUser(env, authUser);
 }
 
 async function getGmailTokenRow(env, authUser, accountIdentifier = null) {
-  if (!env?.DB) return null;
-  const userKey = await getOauthUserKey(authUser);
-  if (!userKey) return null;
-  const acct = accountIdentifier ? String(accountIdentifier).trim().toLowerCase() : '';
-  if (acct) {
-    const row = await env.DB.prepare(
-      `SELECT user_id, provider, account_identifier,
-              access_token, access_token_encrypted,
-              refresh_token, refresh_token_encrypted,
-              expires_at, scope, updated_at
-       FROM user_oauth_tokens
-       WHERE user_id = ? AND provider = ? AND lower(account_identifier) = ?
-       LIMIT 1`
-    ).bind(userKey, GMAIL_PROVIDER, acct).first().catch(() => null);
-    if (row) return row;
-  }
-  const row = await env.DB.prepare(
-    `SELECT user_id, provider, account_identifier,
-            access_token, access_token_encrypted,
-            refresh_token, refresh_token_encrypted,
-            expires_at, scope, updated_at
-     FROM user_oauth_tokens
-     WHERE user_id = ? AND provider = ?
-     ORDER BY updated_at DESC
-     LIMIT 1`
-  ).bind(userKey, GMAIL_PROVIDER).first().catch(() => null);
-  return row || null;
-}
-
-async function listGmailTokenRows(env, authUser) {
-  if (!env?.DB) return [];
-  const userKey = await getOauthUserKey(authUser);
-  if (!userKey) return [];
-  const { results } = await env.DB.prepare(
-    `SELECT user_id, provider, account_identifier,
-            access_token, access_token_encrypted,
-            refresh_token, refresh_token_encrypted,
-            expires_at, scope, updated_at
-     FROM user_oauth_tokens
-     WHERE user_id = ? AND provider = ?
-     ORDER BY updated_at DESC`
-  ).bind(userKey, GMAIL_PROVIDER).all().catch(() => ({ results: [] }));
-  return results || [];
+  return getGmailTokenRowForUser(env, authUser, accountIdentifier);
 }
 
 async function resolveGmailTokensForRequest(env, authUser, accountParam) {
@@ -581,114 +525,26 @@ export async function handleMailApi(request, url, env, ctx) {
 
     // DELETE /api/mail/gmail/disconnect?account=email@domain.com
     if (method === 'DELETE' && p === '/api/mail/gmail/disconnect') {
-      const userKey = await getOauthUserKey(authUser);
-      const acct = url.searchParams.get('account') ? String(url.searchParams.get('account')).trim().toLowerCase() : '';
-      if (!userKey || !acct) return jsonResponse({ error: 'account required' }, 400);
-      await env.DB.prepare(
-        `DELETE FROM user_oauth_tokens
-         WHERE user_id = ? AND provider = ? AND lower(account_identifier) = ?`
-      ).bind(userKey, GMAIL_PROVIDER, acct).run();
-      return jsonResponse({ ok: true });
+      const acct = url.searchParams.get('account') ? String(url.searchParams.get('account')).trim() : '';
+      if (!acct) return jsonResponse({ error: 'account required' }, 400);
+      const result = await disconnectGmailAccount(env, authUser, acct);
+      if (!result.ok) return jsonResponse({ error: result.error || 'disconnect_failed' }, 400);
+      return jsonResponse({ ok: true, account: acct.toLowerCase() });
     }
 
-    // GET /api/mail/gmail/start -> redirect to Google OAuth consent
+    // Legacy alias → unified Gmail connect spine
     if (method === 'GET' && p === '/api/mail/gmail/start') {
-      if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_OAUTH_CLIENT_SECRET) {
-        return jsonResponse({ error: 'Google OAuth not configured' }, 503);
-      }
-      if (!env.SESSION_CACHE) return jsonResponse({ error: 'SESSION_CACHE not configured' }, 503);
-      const userKey = await getOauthUserKey(authUser);
-      if (!userKey) return jsonResponse({ error: 'User id missing' }, 400);
-
-      const origin = url.origin;
-      const redirectUri = `${origin}/api/mail/gmail/callback`;
-      const stateId = crypto.randomUUID();
-      await env.SESSION_CACHE.put(
-        `${GMAIL_STATE_PREFIX}${stateId}`,
-        JSON.stringify({ user_id: userKey, ts: Date.now() }),
-        { expirationTtl: 10 * 60 },
-      );
-
-      const scopes = [
-        'openid',
-        'email',
-        'profile',
-        'https://www.googleapis.com/auth/gmail.readonly',
-        'https://www.googleapis.com/auth/gmail.modify',
-        'https://www.googleapis.com/auth/gmail.send',
-      ];
-
-      const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-      authUrl.searchParams.set('client_id', env.GOOGLE_CLIENT_ID);
-      authUrl.searchParams.set('redirect_uri', redirectUri);
-      authUrl.searchParams.set('response_type', 'code');
-      authUrl.searchParams.set('scope', scopes.join(' '));
-      authUrl.searchParams.set('access_type', 'offline');
-      authUrl.searchParams.set('prompt', 'consent');
-      authUrl.searchParams.set('include_granted_scopes', 'true');
-      authUrl.searchParams.set('state', stateId);
-
-      return Response.redirect(authUrl.toString(), 302);
+      const returnTo = url.searchParams.get('return_to') || '/dashboard/mail';
+      const target = new URL(`${url.origin}/api/integrations/gmail/connect`);
+      target.searchParams.set('return_to', returnTo);
+      if (url.searchParams.get('popup') === '1') target.searchParams.set('popup', '1');
+      return Response.redirect(target.toString(), 302);
     }
 
-    // GET /api/mail/gmail/callback
     if (method === 'GET' && p === '/api/mail/gmail/callback') {
-      if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_OAUTH_CLIENT_SECRET) {
-        return jsonResponse({ error: 'Google OAuth not configured' }, 503);
-      }
-      if (!env.SESSION_CACHE) return jsonResponse({ error: 'SESSION_CACHE not configured' }, 503);
-      const code = url.searchParams.get('code') || '';
-      const state = url.searchParams.get('state') || '';
-      if (!code || !state) return jsonResponse({ error: 'Missing code/state' }, 400);
-
-      const stateKey = `${GMAIL_STATE_PREFIX}${state}`;
-      const stateRaw = await env.SESSION_CACHE.get(stateKey);
-      if (!stateRaw) return jsonResponse({ error: 'OAuth state expired' }, 400);
-      await env.SESSION_CACHE.delete(stateKey).catch(() => {});
-      const parsed = safeJsonParse(stateRaw);
-      const userId = parsed?.user_id ? String(parsed.user_id) : '';
-      if (!userId) return jsonResponse({ error: 'OAuth state invalid' }, 400);
-
-      const redirectUri = `${url.origin}/api/mail/gmail/callback`;
-      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          code,
-          client_id: env.GOOGLE_CLIENT_ID,
-          client_secret: env.GOOGLE_OAUTH_CLIENT_SECRET,
-          redirect_uri: redirectUri,
-          grant_type: 'authorization_code',
-        }).toString(),
-      });
-      const tok = await tokenRes.json().catch(() => null);
-      if (!tokenRes.ok || !tok?.access_token) {
-        return jsonResponse({ error: 'Token exchange failed', detail: tok }, 502);
-      }
-
-      const scope = tok.scope ? String(tok.scope) : '';
-      const idPayload = tok.id_token ? parseJwtPayload(tok.id_token) : null;
-      const acct = idPayload?.email ? String(idPayload.email) : '';
-      const account_identifier = acct || '';
-
-      await upsertOauthToken(env, {
-        user_id: userId,
-        tenant_id: authUser.tenant_id ?? authUser.active_tenant_id ?? null,
-        provider: GMAIL_PROVIDER,
-        access_token: String(tok.access_token),
-        refresh_token: tok.refresh_token ? String(tok.refresh_token) : null,
-        scope,
-        expires_at: tok.expires_in
-          ? Math.floor(Date.now() / 1000) + Number(tok.expires_in)
-          : null,
-        account_identifier,
-        account_email: acct || null,
-        account_display: null,
-        workspace_id: null,
-        metadata_json: null,
-      }, { skipRegistry: false });
-
-      return Response.redirect(`${url.origin}/dashboard/mail?connected=1`, 302);
+      const target = new URL(`${url.origin}/api/integrations/gmail/callback`);
+      for (const [k, v] of url.searchParams.entries()) target.searchParams.set(k, v);
+      return Response.redirect(target.toString(), 302);
     }
 
     // GET /api/mail/inbox

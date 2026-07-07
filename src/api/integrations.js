@@ -131,6 +131,11 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
 
     if (!pathLower.startsWith('/api/integrations') && !pathLower.startsWith('/api/gdrive')) return null;
 
+    if (pathLower === '/api/integrations/gmail/callback' && method === 'GET') {
+        const { handleGmailConnectCallback } = await import('./integrations/gmail-connect.js');
+        return handleGmailConnectCallback(request, url, env);
+    }
+
     const authUser =
       providedAuthUser ||
       (await import('../core/auth.js').then((m) => m.authUserFromRequest(request, env)));

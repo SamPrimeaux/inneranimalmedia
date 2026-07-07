@@ -1341,10 +1341,16 @@ export async function handleOAuthApi(request, env, ctx) {
   }
 
   if (pathLower === '/api/oauth/gmail/start' && method === 'GET') {
-    return gmailOAuthStart(request, url, env);
+    const returnTo = url.searchParams.get('return_to') || '/dashboard/mail';
+    const target = new URL(`${url.origin}/api/integrations/gmail/connect`);
+    target.searchParams.set('return_to', returnTo);
+    if (url.searchParams.get('popup') === '1') target.searchParams.set('popup', '1');
+    return Response.redirect(target.toString(), 302);
   }
   if (pathLower === '/api/oauth/gmail/callback' && method === 'GET') {
-    return gmailOAuthCallback(request, url, env);
+    const target = new URL(`${url.origin}/api/integrations/gmail/callback`);
+    for (const [k, v] of url.searchParams.entries()) target.searchParams.set(k, v);
+    return Response.redirect(target.toString(), 302);
   }
 
   if (pathLower === '/api/oauth/stripe/start' && method === 'GET') {

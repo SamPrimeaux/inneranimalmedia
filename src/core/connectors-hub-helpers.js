@@ -39,7 +39,9 @@ export function connectUrlForAgentHub(providerKey, returnTo = '/dashboard/agent'
   }
   if (pk === 'github') return `/api/oauth/github/start?return_to=${rt}`;
   if (pk === 'google_drive') return `/api/oauth/google/start?connectDrive=1&return_to=${rt}`;
-  if (pk === 'google_gmail' || pk === 'gmail') return `/api/mail/gmail/start?return_to=${rt}`;
+  if (pk === 'google_gmail' || pk === 'gmail') {
+    return `/api/integrations/gmail/connect?return_to=${rt}`;
+  }
   if (pk === 'cloudflare_oauth' || pk === 'cloudflare') {
     return `/api/oauth/cloudflare/start?return_to=${rt}`;
   }

@@ -32,9 +32,7 @@ const MCP_OAUTH_REDIRECT =
 function oauthStartPathForSlug(slugRaw) {
   const s = normalizeSlug(slugRaw).replace(/-/g, '_');
   if (s === 'github') return 'github';
-  if (
-    ['google_drive', 'google_gmail', 'google_calendar', 'gmail', 'google_ai'].includes(s)
-  ) {
+  if (['google_drive', 'google_calendar', 'google_ai'].includes(s)) {
     return 'google';
   }
   if (s === 'cloudflare' || s === 'cloudflare_oauth') return 'cloudflare';
@@ -273,7 +271,10 @@ async function handleLocalTunnelConnect(env, authUser, body) {
 async function deleteOauthTokensForSlug(DB, userId, slug) {
   const s = normalizeSlug(String(slug || '')).replace(/-/g, '_');
   const providers = new Set();
-  if (['google_drive', 'google_gmail', 'google_calendar', 'gmail', 'google_ai'].includes(s)) {
+  if (s === 'google_gmail' || s === 'gmail') {
+    providers.add('google_gmail');
+    providers.add('gmail');
+  } else if (['google_drive', 'google_calendar', 'google_ai'].includes(s)) {
     providers.add('google_drive');
   } else if (s === 'github') {
     providers.add('github');
@@ -476,6 +477,11 @@ async function handleStripeConnect(env, authUser, body) {
 
 
 export async function handleIntegrationsConnectRoutes(request, env, ctx, authUser, url, pathLower, method) {
+  if (pathLower === '/api/integrations/gmail/callback' && method === 'GET') {
+    const { handleGmailConnectCallback } = await import('./gmail-connect.js');
+    return handleGmailConnectCallback(request, url, env);
+  }
+
   const origin = url.origin;
   const returnToRaw = url.searchParams.get('return_to') || '';
   const safeReturn =
@@ -499,9 +505,9 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
     }
 
     if (method === 'GET') {
-      if (slugNorm === 'gmail') {
-        const rt = encodeURIComponent(safeReturn);
-        return Response.redirect(`${origin}/api/mail/gmail/start?return_to=${rt}`, 302);
+      if (slugNorm === 'gmail' || slugNorm === 'google_gmail') {
+        const { startGmailConnect } = await import('./gmail-connect.js');
+        return startGmailConnect(request, url, env, authUser);
       }
       if (
         slugNorm === 'custom_mcp' ||
@@ -623,16 +629,41 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
   if (disconnectMatch && (method === 'DELETE' || method === 'POST')) {
     if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const slugRaw = decodeURIComponent(disconnectMatch[1] || '');
+    const slugNormDisconnect = normalizeSlug(slugRaw).replace(/-/g, '_');
     const userId = await resolveIntegrationUserId(env, authUser);
     if (!userId) return jsonResponse({ error: 'User id required' }, 400);
     const tenantId = tenantIdFromAuth(authUser, env);
+    const accountParam = url.searchParams.get('account') || '';
+
+    if ((slugNormDisconnect === 'gmail' || slugNormDisconnect === 'google_gmail') && accountParam) {
+      const { disconnectGmailAccount } = await import('./gmail-connect.js');
+      const { listGmailTokenRowsForUser } = await import('../../core/gmail-user-tokens.js');
+      await disconnectGmailAccount(env, authUser, accountParam);
+      const remaining = await listGmailTokenRowsForUser(env, authUser);
+      if (!remaining.length) {
+        try {
+          await env.DB.prepare(
+            `UPDATE integration_registry SET status = 'disconnected', account_display = NULL, updated_at = datetime('now')
+             WHERE tenant_id = ? AND lower(provider_key) IN ('google_gmail', 'gmail')`,
+          ).bind(tenantId).run();
+        } catch (e) {
+          console.warn('[integrations/connect] gmail registry update', e?.message || e);
+        }
+      }
+      await touchUserIntegrationsDisconnected(env.DB, String(authUser.email || '').trim(), slugRaw);
+      return jsonResponse({
+        disconnected: true,
+        provider_key: 'google_gmail',
+        account: String(accountParam).trim().toLowerCase(),
+      });
+    }
 
     await deleteOauthTokensForSlug(env.DB, userId, slugRaw);
     await revokeIntegrationByokKey(env, authUser, slugRaw);
 
-    const slugNormDisconnect = normalizeIntegrationSlug(slugRaw);
+    const slugNormDisconnectRegistry = normalizeIntegrationSlug(slugRaw);
     const registrySql =
-      slugNormDisconnect === 'local_tunnel'
+      slugNormDisconnectRegistry === 'local_tunnel'
         ? `UPDATE integration_registry SET status = 'disconnected', config_json = '{}', account_display = NULL, updated_at = datetime('now')
            WHERE tenant_id = ? AND LOWER(provider_key) = LOWER(?)`
         : `UPDATE integration_registry SET status = 'disconnected', account_display = NULL, updated_at = datetime('now')

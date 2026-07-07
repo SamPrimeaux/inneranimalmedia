@@ -512,7 +512,7 @@ export function MailPage() {
               <button type="button" onClick={() => setActiveAccount('all')} style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28, padding: '0 8px', borderRadius: 7, border: 'none', background: activeAccount === 'all' ? 'var(--bg-hover)' : 'transparent', color: 'var(--text-main)', fontSize: 11, fontWeight: activeAccount === 'all' ? 800 : 500, cursor: 'pointer', textAlign: 'left', flex: 1, minWidth: 0 }}>
                 <Mail size={12} style={{ color: 'var(--solar-cyan)', flexShrink: 0 }} />All accounts
               </button>
-              <a href="/api/mail/gmail/start" title="Connect another Gmail account" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 7, background: 'var(--bg-hover)', color: 'var(--solar-cyan)', textDecoration: 'none', flexShrink: 0 }}>
+              <a href="/api/integrations/gmail/connect?return_to=%2Fdashboard%2Fmail" title="Connect another Gmail account" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 7, background: 'var(--bg-hover)', color: 'var(--solar-cyan)', textDecoration: 'none', flexShrink: 0 }}>
                 <Plus size={13} />
               </a>
             </div>
@@ -525,7 +525,7 @@ export function MailPage() {
               </button>
             ))}
             {!accounts.some(a => a.provider === 'gmail' && a.connected) && (
-              <a href="/api/mail/gmail/start" style={{ display: 'flex', alignItems: 'center', gap: 6, height: 26, padding: '0 8px', borderRadius: 7, background: 'var(--bg-hover)', color: 'var(--solar-cyan)', fontSize: 10, fontWeight: 700, textDecoration: 'none', marginTop: 2 }}>
+              <a href="/api/integrations/gmail/connect?return_to=%2Fdashboard%2Fmail" style={{ display: 'flex', alignItems: 'center', gap: 6, height: 26, padding: '0 8px', borderRadius: 7, background: 'var(--bg-hover)', color: 'var(--solar-cyan)', fontSize: 10, fontWeight: 700, textDecoration: 'none', marginTop: 2 }}>
                 <Plus size={11} />Connect Gmail
               </a>
             )}

@@ -23,7 +23,7 @@ function connectUrlForProvider(providerKey: string): string {
     case 'google_drive':
       return `/api/oauth/google/start?connectDrive=1&return_to=${returnTo}`;
     case 'google_gmail':
-      return `/api/mail/gmail/start`;
+      return `/api/integrations/gmail/connect?return_to=${returnTo}`;
     case 'github':
       return `/api/oauth/github/start?return_to=${returnTo}`;
     case 'cloudflare':

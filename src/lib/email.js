@@ -2,6 +2,7 @@
  * Platform email (Resend or delegated Gmail) vs user Gmail (OAuth tokens).
  */
 import { getVaultSecrets, getPublicConfig, secretFromVault } from '../core/vault.js';
+import { getGmailTokenRowForUser } from '../core/gmail-user-tokens.js';
 
 function b64UrlEncodeUtf8(str) {
   const bytes = new TextEncoder().encode(str);
@@ -347,20 +348,14 @@ export async function sendUserGmail(env, userId, params) {
   const subject = String(params.subject || '').trim();
   if (!to || !subject) return { ok: false, error: 'to_and_subject_required' };
 
-  const vault = await getVaultSecrets(env);
-  const row = await env.DB.prepare(
-    `SELECT user_id, provider, account_identifier, access_token, refresh_token, expires_at
-     FROM user_oauth_tokens
-     WHERE user_id = ? AND LOWER(provider) IN ('google', 'google_gmail')
-     ORDER BY updated_at DESC
-     LIMIT 1`,
-  )
-    .bind(String(userId))
-    .first()
-    .catch(() => null);
+  const authUser = { id: String(userId) };
+  const account = params.account ? String(params.account).trim() : '';
+  const row = await getGmailTokenRowForUser(env, authUser, account || null);
   if (!row?.access_token && !row?.refresh_token) {
-    return { ok: false, error: 'no_google_oauth' };
+    return { ok: false, error: 'no_google_gmail_oauth' };
   }
+
+  const vault = await getVaultSecrets(env);
 
   const fromAddr = String(row.account_identifier || '').trim();
   if (!fromAddr || !fromAddr.includes('@')) {

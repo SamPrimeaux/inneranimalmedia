@@ -1,11 +1,11 @@
 /**
  * Cron-safe Gmail inbox snapshot (no HTTP auth session).
- * Reads user_oauth_tokens for google_gmail by user key (email preferred, then auth id).
+ * Reads user_oauth_tokens for google_gmail by canonical au_* user id.
  */
 
 import { resolveOAuthAccessToken, resolveOAuthRefreshToken } from '../api/oauth.js';
+import { listGmailTokenRowsForUser } from './gmail-user-tokens.js';
 
-const GMAIL_PROVIDER = 'google_gmail';
 const DEFAULT_MAX = 25;
 
 function firstHeader(msg, name) {
@@ -37,8 +37,9 @@ async function refreshGoogleAccessToken(env, tokenRow) {
     await env.DB.prepare(
       `UPDATE user_oauth_tokens
        SET access_token = ?, expires_at = ?, updated_at = unixepoch()
-       WHERE user_id = ? AND provider = ? AND account_identifier = ?`
-    ).bind(refreshed.access_token, exp, tokenRow.user_id, tokenRow.provider, tokenRow.account_identifier || '').run();
+       WHERE user_id = ? AND lower(provider) IN ('google_gmail', 'gmail')
+         AND account_identifier = ?`
+    ).bind(refreshed.access_token, exp, tokenRow.user_id, tokenRow.account_identifier || '').run();
   } catch { /* ignore */ }
   return { access_token: refreshed.access_token };
 }
@@ -63,35 +64,18 @@ async function gmailFetchJson(env, tokenRow, url, init) {
   return { ok: res.ok, status: res.status, json };
 }
 
-async function listGmailTokens(env, userKey) {
-  if (!env?.DB || !userKey) return [];
-  const { results } = await env.DB.prepare(
-    `SELECT user_id, provider, account_identifier,
-            access_token, access_token_encrypted,
-            refresh_token, refresh_token_encrypted,
-            expires_at, scope
-     FROM user_oauth_tokens
-     WHERE user_id = ? AND provider = ?
-     ORDER BY updated_at DESC`
-  ).bind(userKey, GMAIL_PROVIDER).all().catch(() => ({ results: [] }));
-  return results || [];
-}
-
 /**
  * @param {*} env
  * @param {{ email?: string, userId?: string, maxPerAccount?: number }} opts
  */
 export async function snapshotGmailInboxForUser(env, opts = {}) {
-  const email = opts.email ? String(opts.email).trim().toLowerCase() : '';
   const userId = opts.userId ? String(opts.userId).trim() : '';
-  const userKey = email || userId;
+  const email = opts.email ? String(opts.email).trim().toLowerCase() : '';
   const max = Number(opts.maxPerAccount) > 0 ? Number(opts.maxPerAccount) : DEFAULT_MAX;
-  if (!userKey) return { emails: [], accounts: [], source: 'none' };
+  const authUser = userId || email ? { id: userId || undefined, email: email || undefined } : null;
+  if (!authUser) return { emails: [], accounts: [], source: 'none' };
 
-  let tokens = await listGmailTokens(env, userKey);
-  if (!tokens.length && userId && email && userId !== email) {
-    tokens = await listGmailTokens(env, userId);
-  }
+  const tokens = await listGmailTokenRowsForUser(env, authUser);
 
   const emails = [];
   const accounts = [];

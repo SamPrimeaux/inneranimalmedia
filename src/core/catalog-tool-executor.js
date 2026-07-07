@@ -2740,6 +2740,16 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           break;
         }
       }
+      if (moduleKey.includes('gmail')) {
+        const handlerKey = String(config.handler || row.handler_key || toolKey || '').trim();
+        const { handlers: gmailHandlers } = await import('../tools/builtin/gmail.js');
+        const fn = gmailHandlers[handlerKey] || gmailHandlers[row.tool_key] || gmailHandlers[row.tool_name];
+        if (typeof fn === 'function') {
+          const out = await fn(params, env, { ...runContext, executionCtx: runContext.ctx });
+          result = out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
+          break;
+        }
+      }
       {
         const handlerKey = String(config.handler || row.handler_key || toolKey || '').trim();
         const { handlers: agentHandlers } = await import('../tools/builtin/agent.js');

@@ -9,6 +9,7 @@ import {
 } from '../core/integration-byok-sync.js';
 import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 import { catalogSlugForRegistry, expandConnectedSlugs } from '../core/integration-slug-aliases.js';
+import { listGmailTokenRowsForUser } from '../core/gmail-user-tokens.js';
 
 function resolveTenantId(env, authUser) {
   if (authUser?.tenant_id && String(authUser.tenant_id).trim()) {
@@ -107,17 +108,21 @@ async function getConnectedIntegrations(env, authUser) {
   const tokProviders = new Set();
   const byokProviders = new Set();
   if (userId && env.DB) {
-    try {
-      const tr = await env.DB.prepare(
-        `SELECT DISTINCT lower(provider) AS p FROM user_oauth_tokens WHERE user_id = ?`,
-      )
-        .bind(userId)
-        .all();
-      for (const r of tr.results || []) {
-        if (r?.p) tokProviders.add(String(r.p).toLowerCase());
+    const tokenUserKeys = [userId];
+    if (email && email.toLowerCase() !== userId.toLowerCase()) tokenUserKeys.push(email);
+    for (const key of tokenUserKeys) {
+      try {
+        const tr = await env.DB.prepare(
+          `SELECT DISTINCT lower(provider) AS p FROM user_oauth_tokens WHERE user_id = ?`,
+        )
+          .bind(key)
+          .all();
+        for (const r of tr.results || []) {
+          if (r?.p) tokProviders.add(String(r.p).toLowerCase());
+        }
+      } catch {
+        /* ignore */
       }
-    } catch {
-      /* ignore */
     }
     try {
       const tenantIdForKeys = await resolveTenantIdOrFetch(env, authUser);
@@ -192,6 +197,11 @@ async function getConnectedIntegrations(env, authUser) {
       derived_status = 'connected';
     } else if (pk === 'google_drive' && tokProviders.has('google_drive')) {
       derived_status = 'connected';
+    } else if (
+      (pk === 'google_gmail' || pk === 'gmail') &&
+      (tokProviders.has('google_gmail') || tokProviders.has('gmail'))
+    ) {
+      derived_status = 'connected';
     } else if (pk === 'cloudflare_oauth' && tokProviders.has('cloudflare')) {
       derived_status = 'connected';
     } else if (['anthropic', 'openai', 'resend', 'google_ai', 'cursor'].includes(pk)) {
@@ -253,11 +263,88 @@ async function getConnectedIntegrations(env, authUser) {
     };
   });
 
+  const gmailTemplateRow =
+    rows.find((r) => String(r.provider_key || '').toLowerCase() === 'google_gmail') ||
+    rows.find((r) => String(r.catalog_slug || '').toLowerCase() === 'gmail');
+  const gmailTokens = userId ? await listGmailTokenRowsForUser(env, authUser) : [];
+  const withoutGmailRegistry = items.filter((item) => {
+    const pk = String(item.connection?.provider_key || '').toLowerCase();
+    return pk !== 'google_gmail' && pk !== 'gmail';
+  });
+
+  for (const tok of gmailTokens) {
+    const acct = String(tok.account_identifier || '').trim();
+    if (!acct) continue;
+    const catalog =
+      gmailTemplateRow?.catalog_row_id || gmailTemplateRow?.catalog_slug
+        ? {
+            id: gmailTemplateRow.catalog_row_id,
+            name: gmailTemplateRow.catalog_name || 'Gmail',
+            slug: gmailTemplateRow.catalog_slug || 'gmail',
+            category: gmailTemplateRow.catalog_category || 'communication',
+            auth_type: gmailTemplateRow.catalog_auth_type || 'oauth',
+            oauth_authorize_url: gmailTemplateRow.oauth_authorize_url,
+            oauth_scopes_default: parseJson(gmailTemplateRow.oauth_scopes_default, []),
+            oauth_scopes_available: parseJson(gmailTemplateRow.oauth_scopes_available, []),
+            api_key_label: gmailTemplateRow.api_key_label,
+            api_key_placeholder: gmailTemplateRow.api_key_placeholder,
+            docs_url: gmailTemplateRow.docs_url,
+            icon_slug: gmailTemplateRow.icon_slug || 'gmail',
+            icon_url: gmailTemplateRow.icon_url,
+            description: gmailTemplateRow.catalog_description,
+            sort_order: gmailTemplateRow.catalog_sort_order,
+            is_active: gmailTemplateRow.catalog_is_active,
+          }
+        : {
+            name: 'Gmail',
+            slug: 'gmail',
+            category: 'communication',
+            auth_type: 'oauth',
+            icon_slug: 'gmail',
+          };
+    withoutGmailRegistry.push({
+      catalog,
+      connection: {
+        id: `gmail_acct_${acct.replace(/[^a-z0-9@._-]+/gi, '_')}`,
+        tenant_id: tenantId,
+        provider_key: 'google_gmail',
+        display_name: 'Gmail',
+        category: 'communication',
+        auth_type: 'oauth',
+        status: 'connected',
+        scopes_json: tok.scope ? String(tok.scope).split(/\s+/).filter(Boolean) : [],
+        config_json: {},
+        account_display: acct,
+        secret_binding_name: null,
+        last_sync_at: tok.updated_at || null,
+        last_health_check_at: null,
+        last_health_latency_ms: null,
+        last_health_status: null,
+        is_enabled: 1,
+        sort_order: gmailTemplateRow?.sort_order ?? 25,
+        updated_at: tok.updated_at || null,
+      },
+      integration_status: {
+        connected: true,
+        slug: 'google_gmail',
+        account_display: acct,
+        last_verified_at: tok.updated_at
+          ? (Number(tok.updated_at) < 1e12 ? Number(tok.updated_at) * 1000 : Number(tok.updated_at))
+          : undefined,
+      },
+      legacy: null,
+      derived_status: 'connected',
+      iam_hosted: false,
+    });
+  }
+
+  const finalItems = withoutGmailRegistry;
+
   return jsonResponse({
     tenant_id: tenantId,
-    items,
+    items: finalItems,
     connected_slugs: expandConnectedSlugs(
-      items
+      finalItems
         .filter((i) => i.integration_status?.connected)
         .map((i) => String(i.connection?.provider_key || '').toLowerCase())
         .filter(Boolean),

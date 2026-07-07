@@ -64,7 +64,9 @@ export function buildCatalogConnectUrl(catalogRow, returnTo = '/dashboard/home')
   const authType = String(catalogRow.auth_type || '').toLowerCase();
   const rt = encodeURIComponent(returnTo);
 
-  if (s === 'gmail') return `/api/mail/gmail/start?return_to=${rt}`;
+  if (s === 'gmail' || s === 'google_gmail') {
+    return `/api/integrations/gmail/connect?return_to=${rt}`;
+  }
   if (
     s === 'mcp' ||
     s === 'custom_mcp' ||
