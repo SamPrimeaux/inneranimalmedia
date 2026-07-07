@@ -371,7 +371,7 @@ async function persistMemoryArtifacts(env, p) {
         id, tenant_id, workspace_id, user_id, compaction_type, compaction_scope, compaction_strategy,
         source_kind, source_table, source_row_count, summary_text, summary_json, metrics_json,
         provider, model_key, status, source_url, compacted_at_epoch, created_at_epoch, updated_at_epoch
-      ) VALUES (?, ?, ?, ?, 'data_summary', 'workspace', 'gemini_flash_pro', 'cron', 'gmail_inbox',
+      ) VALUES (?, ?, ?, ?, 'data_summary', 'workspace', 'summarize', 'cron', 'gmail_inbox',
         ?, ?, ?, ?, 'google', ?, 'completed', ?, unixepoch(), unixepoch(), unixepoch())`,
     ).bind(
       compactionId,
