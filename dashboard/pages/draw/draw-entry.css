@@ -331,3 +331,44 @@
   font-size: 0.6875rem;
   color: var(--dashboard-muted);
 }
+
+.draw-plan-templates {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--dashboard-border);
+  background: color-mix(in srgb, var(--dashboard-panel) 92%, transparent);
+}
+
+.draw-plan-templates__chip {
+  flex: 0 0 auto;
+  min-width: 128px;
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--dashboard-canvas);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.draw-plan-templates__chip:hover {
+  border-color: var(--color-primary, #3a9fe8);
+  background: color-mix(in srgb, var(--color-primary, #3a9fe8) 8%, var(--dashboard-canvas));
+}
+
+.draw-plan-templates__chip-title {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: var(--dashboard-text);
+}
+
+.draw-plan-templates__chip-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.625rem;
+  color: var(--dashboard-muted);
+}

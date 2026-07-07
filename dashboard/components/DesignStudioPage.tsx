@@ -505,6 +505,7 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
       engine.setCADPlane(genConfig.cadPlane);
       engine.setExtrusion(genConfig.extrusion);
       engine.setProjectType(ACTIVE_PROJECT);
+      engine.setViewTool('select');
       engine.ensureViewportNavigation();
       const settleViewport = () => {
         if (isAgentSamEngine(engine)) engine.handleResize();
@@ -1199,6 +1200,11 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
         onViewportZoom={handleViewportZoom}
         onViewportPanMode={handleViewportPanMode}
         onViewportReset={handleViewportReset}
+        onViewToolChange={(tool) => {
+          if (isAgentSamEngine(engineRef.current)) {
+            engineRef.current.setViewTool(tool);
+          }
+        }}
         engineReady={engineReady}
         engineLoading={engineLoading}
         viewCubeOrientation={viewCubeOrientation}

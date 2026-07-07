@@ -1,10 +1,16 @@
-import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { DrawEntryScreen } from './DrawEntryScreen';
 import {
   loadDrawLibrariesForCanvas,
   type ExcalidrawLibraryItem,
 } from '../../lib/excalidrawLibraries';
+import {
+  DRAW_PLAN_TEMPLATES,
+  drawPlanTemplateEvent,
+  isDrawPlanDeepLink,
+} from './drawPlanTemplates';
 import './draw-entry.css';
 
 const ExcalidrawView = lazy(() =>
@@ -22,7 +28,14 @@ export default function DrawPage({
   onComposerHost,
   onMessagesHost,
 }: DrawPageProps) {
-  const [phase, setPhase] = useState<'entry' | 'canvas'>('entry');
+  const [searchParams] = useSearchParams();
+  const planDeepLink = useMemo(
+    () => isDrawPlanDeepLink(`?${searchParams.toString()}`),
+    [searchParams],
+  );
+  const [phase, setPhase] = useState<'entry' | 'canvas'>(() =>
+    planDeepLink ? 'canvas' : 'entry',
+  );
   const [libraryPanelOpen, setLibraryPanelOpen] = useState(false);
   const [enabledLibrarySlugs, setEnabledLibrarySlugs] = useState<string[]>([]);
   const [libraryItems, setLibraryItems] = useState<ExcalidrawLibraryItem[]>([]);
@@ -30,6 +43,10 @@ export default function DrawPage({
   const [clearOnOpen, setClearOnOpen] = useState(false);
 
   const [libraryItemCount, setLibraryItemCount] = useState(0);
+
+  useEffect(() => {
+    if (planDeepLink) setPhase('canvas');
+  }, [planDeepLink]);
 
   useEffect(() => {
     onEntryPhaseChange?.(phase === 'entry');
@@ -99,7 +116,7 @@ export default function DrawPage({
           ← Back
         </button>
         <span className="draw-canvas-toolbar__label">
-          {!librariesReady
+          {planDeepLink ? 'Plan sketch · Design Studio' : !librariesReady
             ? 'Loading libraries…'
             : enabledLibrarySlugs.length > 0
               ? libraryItemCount > 0
@@ -108,6 +125,21 @@ export default function DrawPage({
               : 'Excalidraw canvas'}
         </span>
       </div>
+      {planDeepLink ? (
+        <div className="draw-plan-templates" role="toolbar" aria-label="Plan templates">
+          {DRAW_PLAN_TEMPLATES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className="draw-plan-templates__chip"
+              onClick={() => window.dispatchEvent(drawPlanTemplateEvent(t.id))}
+            >
+              <span className="draw-plan-templates__chip-title">{t.label}</span>
+              <span className="draw-plan-templates__chip-sub">{t.subtitle}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
       <Suspense
         fallback={
           <div className="draw-canvas-loading">

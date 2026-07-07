@@ -139,6 +139,20 @@ export function bottomCenterModel(model: THREE.Object3D) {
   model.position.set(-center.x, -box.min.y, -center.z);
 }
 
+/** After scale/orientation — snap entity root so world-space foot sits on y=0 grid. */
+export function applyPlacementOffsetMm(
+  root: THREE.Object3D,
+  sidecar: CadPlacementSidecar | null,
+  unitScale: number,
+) {
+  if (!sidecar?.placement?.position_mm) return;
+  const [px, py, pz] = sidecar.placement.position_mm;
+  const s = unitScale > 0 ? unitScale : 1;
+  root.position.x += (Number(px) || 0) * s;
+  root.position.y += (Number(py) || 0) * s;
+  root.position.z += (Number(pz) || 0) * s;
+}
+
 export function buildSpatialSnapshot(
   entity: GameEntity,
   visual: THREE.Object3D,

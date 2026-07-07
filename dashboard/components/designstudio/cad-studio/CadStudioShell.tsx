@@ -115,6 +115,7 @@ export type CadStudioShellProps = {
   engineReady?: boolean;
   engineLoading?: boolean;
   viewCubeOrientation?: { x: number; y: number; z: number };
+  onViewToolChange?: (tool: ViewTool) => void;
 };
 
 function computeMeshStats(entity: GameEntity | null): MeshStats {
@@ -192,6 +193,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   engineReady = false,
   engineLoading = false,
   viewCubeOrientation,
+  onViewToolChange,
 }) => {
   const navigate = useNavigate();
   const protocol = useCadStudioProtocol();
@@ -1026,6 +1028,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         activeTool={ui.viewTool as ViewTool}
         onToolChange={(t) => {
           patchUi({ viewTool: t as ViewTool });
+          onViewToolChange?.(t as ViewTool);
         }}
         animateOpen={animLibVisible}
         onToggleAnimate={() => { if (animLibVisible) closeAnimLib(); else openAnimLib(); }}

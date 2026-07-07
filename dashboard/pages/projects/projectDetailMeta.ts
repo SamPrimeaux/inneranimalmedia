@@ -86,37 +86,97 @@ function isImageKey(key: string): boolean {
   return /\.(png|jpe?g|gif|webp|avif|svg|heic)$/i.test(key);
 }
 
-function parseR2BucketName(raw: string | null | undefined): string | null {
+const PLATFORM_R2_BUCKET = 'inneranimalmedia';
+
+/** Wrangler binding labels → platform bucket names (client bindings resolved via worker_id). */
+const BINDING_BUCKET_HINTS: Record<string, string> = {
+  ASSETS: PLATFORM_R2_BUCKET,
+  AUTORAG_BUCKET: 'inneranimalmedia-autorag',
+  CMS_BUCKET: 'cms',
+  ARTIFACTS: 'artifacts',
+};
+
+function isValidR2BucketName(raw: string | null | undefined): boolean {
+  const t = raw?.trim();
+  if (!t || t.startsWith('{') || t.includes('"')) return false;
+  return /^[a-z0-9][a-z0-9._-]{0,62}$/i.test(t);
+}
+
+function resolveBindingToBucket(binding: string, workerId?: string | null): string | null {
+  const key = binding.trim().toUpperCase();
+  const hint = BINDING_BUCKET_HINTS[key];
+  if (hint) return hint;
+  if (key === 'WEBSITE_ASSETS' || key === 'R2_BUCKET') {
+    const wid = workerId?.trim();
+    if (wid && wid !== 'inneranimalmedia') return wid;
+  }
+  return null;
+}
+
+function parseR2BucketName(raw: string | null | undefined, workerId?: string | null): string | null {
   const t = raw?.trim();
   if (!t) return null;
   if (t.startsWith('{')) {
     try {
-      const o = JSON.parse(t) as { bucket_name?: string; bucket?: string };
-      return String(o.bucket_name || o.bucket || '').trim() || null;
+      const o = JSON.parse(t) as { bucket_name?: string; bucket?: string; binding?: string };
+      const explicit = String(o.bucket_name || o.bucket || '').trim();
+      if (isValidR2BucketName(explicit)) return explicit;
+      const binding = String(o.binding || '').trim();
+      if (binding) {
+        const resolved = resolveBindingToBucket(binding, workerId);
+        if (isValidR2BucketName(resolved)) return resolved;
+      }
+      return null;
     } catch {
       return null;
     }
   }
-  return t.split(/[,;]/)[0]?.trim() || null;
+  const first = t.split(/[,;]/)[0]?.trim() || '';
+  if (!first) return null;
+  if (isValidR2BucketName(first)) return first;
+  const fromBinding = resolveBindingToBucket(first, workerId);
+  return isValidR2BucketName(fromBinding) ? fromBinding : null;
 }
 
-export function resolveProjectStorageScope(project: {
-  id: string;
-  r2_buckets?: string | null;
-  metadata_json?: string | null;
-  worker_id?: string | null;
-}): ProjectStorageScope {
+export function resolveProjectStorageScope(
+  project: {
+    id: string;
+    r2_buckets?: string | null;
+    metadata_json?: string | null;
+    worker_id?: string | null;
+  },
+  opts?: {
+    pref?: { bucket?: string; prefix?: string; source?: 'auto' | 'platform_r2' | 'client_r2' } | null;
+    bindings?: { r2Bucket?: string | null; workerName?: string | null } | null;
+  },
+): ProjectStorageScope {
   const meta = parseProjectMeta(project.metadata_json);
-  const explicitBucket = meta.storage_bucket?.trim();
-  const rowBucket = parseR2BucketName(project.r2_buckets);
-  const bucket = explicitBucket || rowBucket || 'inneranimalmedia';
+  const pref = opts?.pref;
+  if (pref?.source === 'platform_r2') {
+    const prefix =
+      pref.prefix?.replace(/^\/*/, '').replace(/\/?$/, '/') || `brand/${project.id}/`;
+    return {
+      bucket: PLATFORM_R2_BUCKET,
+      prefix: prefix.endsWith('/') ? prefix : `${prefix}/`,
+      source: 'platform_r2',
+      publicBaseUrl: meta.storage_public_url || null,
+    };
+  }
+
+  const prefBucket = parseR2BucketName(pref?.bucket, project.worker_id);
+  const bindingBucket = parseR2BucketName(opts?.bindings?.r2Bucket, project.worker_id);
+  const explicitBucket = parseR2BucketName(meta.storage_bucket, project.worker_id);
+  const rowBucket = parseR2BucketName(project.r2_buckets, project.worker_id);
+  const resolvedClient = prefBucket || bindingBucket || explicitBucket || rowBucket;
+  const bucket = isValidR2BucketName(resolvedClient) ? resolvedClient! : PLATFORM_R2_BUCKET;
   const rawPrefix =
+    pref?.prefix ||
     meta.storage_prefix ||
     meta.brand_r2_prefix ||
-    (bucket !== 'inneranimalmedia' ? 'brand/' : `brand/${project.id}/`);
+    (bucket === PLATFORM_R2_BUCKET ? `brand/${project.id}/` : 'brand/');
   const prefix = rawPrefix.replace(/^\/*/, '');
   const normalizedPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
-  const isPlatformDefault = bucket === 'inneranimalmedia' && !rowBucket && !explicitBucket;
+  const isPlatformDefault = bucket === PLATFORM_R2_BUCKET && !isValidR2BucketName(resolvedClient);
   return {
     bucket,
     prefix: normalizedPrefix,

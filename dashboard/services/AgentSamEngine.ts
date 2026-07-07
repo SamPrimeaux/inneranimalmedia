@@ -22,6 +22,7 @@ import { createChessBoard } from '../lib/chessBoard';
 import { applyChessPieceMaterials, setupChessEnvironment } from '../lib/chessMaterials';
 import {
   applySourceOrientation,
+  applyPlacementOffsetMm,
   bottomCenterModel,
   buildSpatialSnapshot,
   createAxesHelper,
@@ -77,6 +78,8 @@ export class AgentSamEngine {
   private groundBody: CANNON.Body;
 
   private draggedEntityId: string | null = null;
+  private dragOffset = new THREE.Vector3();
+  private viewTool: 'select' | 'move' | 'rotate' | 'scale' = 'select';
   private dragIndicator: THREE.Mesh | null = null;
   private cadTool: CADTool = CADTool.NONE;
   private cadPlane: CADPlane = CADPlane.XZ;
@@ -483,9 +486,41 @@ export class AgentSamEngine {
 
   public setCADTool(tool: CADTool) {
     this.cadTool = tool;
-    this.container.style.cursor = (tool !== CADTool.NONE) ? 'crosshair' : 'default';
-    this.controls.enableRotate = (tool === CADTool.NONE || this.projectType !== ProjectType.CAD);
-    if (this.dragIndicator) this.dragIndicator.visible = (tool === CADTool.VOXEL);
+    this.container.style.cursor = tool !== CADTool.NONE ? 'crosshair' : 'default';
+    this.syncOrbitForCadInteraction();
+    if (this.dragIndicator) this.dragIndicator.visible = tool === CADTool.VOXEL;
+  }
+
+  /** Blender-style viewport tools (Design Studio menu bar). */
+  public setViewTool(tool: 'select' | 'move' | 'rotate' | 'scale') {
+    this.viewTool = tool;
+    this.cadTool = CADTool.NONE;
+    this.container.style.cursor = tool === 'select' ? 'default' : 'grab';
+    this.syncOrbitForCadInteraction();
+  }
+
+  private syncOrbitForCadInteraction() {
+    const cadIdle = this.projectType === ProjectType.CAD && this.cadTool === CADTool.NONE;
+    this.controls.enableRotate = !cadIdle || this.viewTool === 'select';
+    this.controls.enablePan = true;
+    this.controls.enableZoom = true;
+  }
+
+  private beginCadEntityDrag(id: string) {
+    const ent = this.entities.get(id);
+    const visual = ent?.model || ent?.mesh;
+    if (!ent || !visual) return false;
+    this.draggedEntityId = id;
+    this.setSelectedSpatialEntity(id);
+    this.onEntitySelected?.(id);
+    this.controls.enabled = false;
+    const ground = this.getMousePoint();
+    if (ground) {
+      this.dragOffset.copy(visual.position).sub(ground);
+    } else {
+      this.dragOffset.set(0, 0, 0);
+    }
+    return true;
   }
 
   public setCADPlane(plane: CADPlane) {
@@ -544,6 +579,15 @@ export class AgentSamEngine {
       return;
     }
 
+    if (
+      this.projectType === ProjectType.CAD &&
+      this.cadTool === CADTool.NONE &&
+      (this.viewTool === 'select' || this.viewTool === 'move')
+    ) {
+      const picked = this.pickEntityAtPointer();
+      if (picked && this.beginCadEntityDrag(picked)) return;
+    }
+
     if (this.cadTool !== CADTool.NONE && this.projectType === ProjectType.CAD) {
       this.startPoint = this.getMousePoint();
     }
@@ -559,7 +603,21 @@ export class AgentSamEngine {
         if (ent) {
           const visual = ent.mesh || ent.model;
           if (visual) {
-            visual.position.lerp(new THREE.Vector3(point.x, 1.2, point.z), 0.2);
+            if (this.projectType === ProjectType.CHESS) {
+              visual.position.lerp(new THREE.Vector3(point.x, 1.2, point.z), 0.2);
+            } else {
+              visual.position.set(
+                point.x + this.dragOffset.x,
+                visual.position.y,
+                point.z + this.dragOffset.z,
+              );
+              ent.data.position = {
+                x: visual.position.x,
+                y: visual.position.y,
+                z: visual.position.z,
+              };
+              this.syncModelSpatialAxes();
+            }
           }
         }
       }
@@ -606,7 +664,7 @@ export class AgentSamEngine {
     if (this.draggedEntityId) {
       const ent = this.entities.get(this.draggedEntityId);
       const fromSquare = this.dragFromSquare;
-      if (ent) {
+      if (ent && this.projectType === ProjectType.CHESS) {
         const visual = ent.mesh || ent.model;
         if (visual) {
           const x = Math.floor(visual.position.x) + 0.5;
@@ -629,6 +687,8 @@ export class AgentSamEngine {
             }
           }
         }
+      } else if (ent && this.projectType === ProjectType.CAD) {
+        this.refreshEntitySpatialMetadata(this.draggedEntityId);
       }
       this.draggedEntityId = null;
       this.dragFromSquare = null;
@@ -959,6 +1019,7 @@ export class AgentSamEngine {
           appliedScale = unitScale;
         }
         pivot.scale.set(appliedScale, appliedScale, appliedScale);
+        applyPlacementOffsetMm(pivot, sidecar, unitScale);
 
         const pieceColor = (spawnEntity.behavior.metadata?.color as 'white' | 'black' | undefined)
           ?? (spawnEntity.name?.toLowerCase().startsWith('white')
@@ -1029,6 +1090,10 @@ export class AgentSamEngine {
         this.world.addBody(body);
         const entRef = this.entities.get(entity.id);
         if (entRef) entRef.body = body;
+      }
+      const spawnProf = entity.behavior?.metadata?.spawn_profile;
+      if (spawnProf === 'bim') {
+        this.setEntityGroundY(entity.id, 0);
       }
     }
     this.updateEntityCount();

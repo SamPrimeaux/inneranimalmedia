@@ -62,6 +62,17 @@ import {
   type ProjectFileRef,
   type ProjectStorageScope,
 } from './projectDetailMeta';
+import {
+  defaultProjectMemoryDraft,
+  PROJECT_MEMORY_PLACEHOLDER,
+} from './projectMemoryTemplate';
+import {
+  fetchProjectWorkContextBindings,
+  readProjectStoragePref,
+  storagePrefSummary,
+  writeProjectStoragePref,
+  type ProjectStoragePref,
+} from './projectStoragePreferences';
 import { openAgentThreadFullScreen, resumeAgentChatSession } from '../../lib/openAgentConversation';
 import { writeSessionProject } from '../../src/lib/freshChatSession';
 import { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../../agentChatConstants';
@@ -147,7 +158,7 @@ function truncatePreview(text: string, max = 220): string {
   return `${t.slice(0, max).trim()}…`;
 }
 
-type RailEditorKind = 'memory' | 'instructions' | 'cover' | 'files' | 'stats' | 'brand';
+type RailEditorKind = 'memory' | 'instructions' | 'cover' | 'files' | 'stats' | 'brand' | 'storage';
 
 function RailEditorModal({
   open,
@@ -445,6 +456,9 @@ export default function ProjectDetailPage() {
   const [brandUploading, setBrandUploading] = useState(false);
   const [brandDragOver, setBrandDragOver] = useState(false);
   const [storageScope, setStorageScope] = useState<ProjectStorageScope | null>(null);
+  const [storagePref, setStoragePref] = useState<ProjectStoragePref | null>(null);
+  const [storageDraft, setStorageDraft] = useState<ProjectStoragePref>({ source: 'auto' });
+  const [storageBusy, setStorageBusy] = useState(false);
   const [clientContact, setClientContact] = useState<ClientContactRow | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [railEditor, setRailEditor] = useState<RailEditorKind | null>(null);
@@ -472,7 +486,12 @@ export default function ProjectDetailPage() {
       setProjectFiles(projectFilesFromMeta(p.metadata_json));
       setCoverUrl(p.cover_image_url || coverFromMeta(p.metadata_json));
       setBrandTokens(brandTokensFromMeta(p.metadata_json));
-      setStorageScope(resolveProjectStorageScope(p));
+      const pref = readProjectStoragePref(p.id);
+      setStoragePref(pref);
+      const bindings = await fetchProjectWorkContextBindings(p.id);
+      setStorageScope(
+        resolveProjectStorageScope(p, { pref, bindings: bindings ?? undefined }),
+      );
 
       if (activateRef.current !== projectId) {
         activateRef.current = projectId;
@@ -720,8 +739,17 @@ export default function ProjectDetailPage() {
   }, [railEditor, isMobile, railOpen]);
 
   const openRailEditor = (kind: RailEditorKind) => {
-    if (kind === 'memory') setMemDraft(memory);
+    if (kind === 'memory') {
+      setMemDraft(
+        memory.trim()
+          ? memory
+          : defaultProjectMemoryDraft(project?.name, project?.id),
+      );
+    }
     if (kind === 'instructions') setInstrDraft(instructions);
+    if (kind === 'storage') {
+      setStorageDraft(storagePref ?? { source: 'auto' });
+    }
     setRailEditor(kind);
     if (isMobile) setRailOpen(false);
   };
@@ -795,6 +823,26 @@ export default function ProjectDetailPage() {
   const saveMemoryFromModal = async () => {
     const ok = await saveMemory(memDraft);
     if (ok) closeRailEditor();
+  };
+
+  const saveStoragePrefFromModal = async () => {
+    if (!project?.id || storageBusy) return;
+    setStorageBusy(true);
+    try {
+      writeProjectStoragePref(project.id, storageDraft);
+      setStoragePref({ ...storageDraft });
+      const bindings = await fetchProjectWorkContextBindings(project.id);
+      setStorageScope(
+        resolveProjectStorageScope(project, {
+          pref: storageDraft,
+          bindings: bindings ?? undefined,
+        }),
+      );
+      setToast('Storage preferences saved (this browser)');
+      closeRailEditor();
+    } finally {
+      setStorageBusy(false);
+    }
   };
 
   const saveInstructionsFromModal = async () => {
@@ -1219,6 +1267,14 @@ export default function ProjectDetailPage() {
             <button
               type="button"
               className="cpd-icon-btn"
+              title="Storage preferences"
+              onClick={() => openRailEditor('storage')}
+            >
+              <FolderOpen size={13} strokeWidth={1.5} />
+            </button>
+            <button
+              type="button"
+              className="cpd-icon-btn"
               title="Open asset browser"
               onClick={openBrandAssetBrowser}
             >
@@ -1276,9 +1332,9 @@ export default function ProjectDetailPage() {
             <p className="cpd-rail-preview-empty">Drop logos & icons here</p>
           )}
           <span className="cpd-rail-preview-foot">
-            {storageScope?.source === 'client_r2'
-              ? `${storageScope.bucket} · drop to upload`
-              : 'Set client R2 bucket on project for client storage'}
+            {storageScope
+              ? `${storagePrefSummary(storageScope, storagePref)} · drop to upload`
+              : 'Loading storage…'}
           </span>
         </div>
       </RailSection>
@@ -1716,8 +1772,56 @@ export default function ProjectDetailPage() {
           autoFocus
           value={memDraft}
           onChange={(e) => setMemDraft(e.target.value)}
-          placeholder="Companions of CPAS — nonprofit rescue, companionsofcaddo.org, worker companionscpas…"
+          placeholder={PROJECT_MEMORY_PLACEHOLDER}
         />
+      </RailEditorModal>
+
+      <RailEditorModal
+        open={railEditor === 'storage'}
+        isMobile={isMobile}
+        title="Project storage"
+        mobileTitle="Storage"
+        subtitle="Saved in this browser first. Auto resolves bucket from /api/projects/work-context (Cloudflare bindings via D1) — no hardcoded client routes."
+        saving={storageBusy}
+        saveLabel="Save preferences"
+        onClose={closeRailEditor}
+        onSave={() => void saveStoragePrefFromModal()}
+      >
+        <label className="cpd-editor-field">
+          <span>Source</span>
+          <select
+            className="cpd-editor-input"
+            value={storageDraft.source ?? 'auto'}
+            onChange={(e) =>
+              setStorageDraft((d) => ({
+                ...d,
+                source: e.target.value as ProjectStoragePref['source'],
+              }))
+            }
+          >
+            <option value="auto">Auto (work-context + project row)</option>
+            <option value="platform_r2">Platform R2 (inneranimalmedia)</option>
+            <option value="client_r2">Client bucket override</option>
+          </select>
+        </label>
+        <label className="cpd-editor-field">
+          <span>R2 bucket override</span>
+          <input
+            className="cpd-editor-input"
+            value={storageDraft.bucket ?? ''}
+            placeholder="e.g. companionscpas or inneranimalmedia"
+            onChange={(e) => setStorageDraft((d) => ({ ...d, bucket: e.target.value }))}
+          />
+        </label>
+        <label className="cpd-editor-field">
+          <span>Key prefix</span>
+          <input
+            className="cpd-editor-input"
+            value={storageDraft.prefix ?? ''}
+            placeholder="brand/{projectId}/"
+            onChange={(e) => setStorageDraft((d) => ({ ...d, prefix: e.target.value }))}
+          />
+        </label>
       </RailEditorModal>
 
       <RailEditorModal
