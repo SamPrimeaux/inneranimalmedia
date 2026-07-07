@@ -1,3 +1,5 @@
+import { removeProjectFromIamProjectsCache } from '../src/iamProjectsCache';
+
 export type ProjectKpis = {
   active_projects: number;
   open_tasks: number;
@@ -290,6 +292,7 @@ export async function setProjectPinned(
 
 export async function deleteProject(
   id: string,
+  opts?: { workspaceId?: string },
 ): Promise<{ ok: boolean; error?: string; deleted?: boolean }> {
   const r = await fetch(`/api/projects/${encodeURIComponent(id)}`, {
     method: "DELETE",
@@ -298,6 +301,9 @@ export async function deleteProject(
   });
   const j = (await r.json()) as { ok: boolean; error?: string; deleted?: boolean };
   if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
+  if (j.ok && opts?.workspaceId) {
+    removeProjectFromIamProjectsCache(opts.workspaceId, id);
+  }
   return j;
 }
 

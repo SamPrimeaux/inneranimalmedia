@@ -1,5 +1,5 @@
 /**
- * Google Calendar API → D1 calendar_events (read-only sync).
+ * Google Calendar API ↔ D1 calendar_events (import sync + write-back on CRUD).
  */
 
 import { getIntegrationOAuthRow } from './user-oauth-token.js';
@@ -84,7 +84,19 @@ export async function syncGoogleCalendarForTokenRow(env, tokenMeta) {
 
   for (const item of items) {
     const externalId = String(item?.id || '').trim();
-    if (!externalId || item?.status === 'cancelled') continue;
+    if (!externalId) continue;
+
+    if (item?.status === 'cancelled') {
+      await env.DB.prepare(
+        `DELETE FROM calendar_events
+         WHERE workspace_id = ? AND external_event_id = ? AND lower(sync_account) = ?`,
+      )
+        .bind(workspaceId, externalId, account)
+        .run()
+        .catch(() => null);
+      continue;
+    }
+
     seenExternal.add(externalId);
 
     const startRaw = item?.start?.dateTime || (item?.start?.date ? `${item.start.date}T00:00:00` : null);

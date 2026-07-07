@@ -27,6 +27,32 @@ export function readIamProjectsCache(workspaceId: string | null | undefined): Ia
   }
 }
 
+export function invalidateIamProjectsCache(workspaceId: string | null | undefined): void {
+  if (typeof window === 'undefined') return;
+  const ws = workspaceId?.trim();
+  if (!ws) return;
+  try {
+    localStorage.removeItem(storageKey(ws));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function removeProjectFromIamProjectsCache(
+  workspaceId: string | null | undefined,
+  projectId: string,
+): void {
+  if (typeof window === 'undefined') return;
+  const ws = workspaceId?.trim();
+  const id = projectId?.trim();
+  if (!ws || !id) return;
+  const cached = readIamProjectsCache(ws);
+  if (!cached?.projects?.length) return;
+  const next = cached.projects.filter((p) => String(p.id) !== id);
+  if (next.length === cached.projects.length) return;
+  writeIamProjectsCache(ws, next);
+}
+
 export function writeIamProjectsCache(workspaceId: string, projects: OverviewProject[]): void {
   if (typeof window === 'undefined') return;
   const ws = workspaceId.trim();

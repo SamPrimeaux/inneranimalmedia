@@ -28,6 +28,8 @@ import {
   fmtMinutes,
   fmtTime,
   isAllDay,
+  isEditableCalendarEvent,
+  isGoogleSyncedEvent,
   isSyntheticEvent,
   meetRoomId,
   parseAttendees,
@@ -540,7 +542,7 @@ export function LaunchDeskPage() {
   const openFullEditor = (fromPopover = true) => {
     if (!popover) return;
     setEditor({
-      mode: popover.event && !isSyntheticEvent(popover.event) ? 'edit' : 'create',
+      mode: popover.event && isEditableCalendarEvent(popover.event) ? 'edit' : 'create',
       event: popover.event,
       day: popover.day,
       hour: popover.hour,
@@ -589,7 +591,11 @@ export function LaunchDeskPage() {
         attendees: parseInviteEmails(draft.attendeesRaw),
         with_meet: draft.withMeet || draft.eventType === 'meeting',
       };
-      if (draft.mode === 'edit' && draft.event && !isSyntheticEvent(draft.event)) {
+      if (draft.mode === 'edit' && draft.event && !isEditableCalendarEvent(draft.event)) {
+        setError('This event cannot be edited here.');
+        return;
+      }
+      if (draft.mode === 'edit' && draft.event && isEditableCalendarEvent(draft.event)) {
         await apiJson(`/api/calendar/events/${draft.event.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -616,6 +622,12 @@ export function LaunchDeskPage() {
 
   const deleteEvent = async (ev: CalEvent) => {
     if (isSyntheticEvent(ev)) return;
+    if (
+      isGoogleSyncedEvent(ev) &&
+      !window.confirm('Delete this event from Google Calendar and Inner Animal Media?')
+    ) {
+      return;
+    }
     setSaving(true);
     try {
       await apiJson(`/api/calendar/events/${ev.id}`, { method: 'DELETE' });
@@ -1349,12 +1361,21 @@ export function LaunchDeskPage() {
           }}
         >
           <div className="colab-cal-popover-top">
-            <span>{popover.event ? 'Edit event' : 'Quick event'}</span>
+            <span>
+              {popover.event
+                ? isGoogleSyncedEvent(popover.event)
+                  ? 'Google Calendar event'
+                  : 'Edit event'
+                : 'Quick event'}
+            </span>
             <button type="button" className="colab-cal-icon-btn" onClick={() => setPopover(null)}>
               ×
             </button>
           </div>
           <div className="colab-cal-popover-body">
+            {popover.event && isGoogleSyncedEvent(popover.event) && (
+              <p className="colab-cal-sync-badge">Synced with Google Calendar — edits and deletes update Google.</p>
+            )}
             <input
               className="colab-cal-title-input"
               placeholder="Add title"
@@ -1429,7 +1450,7 @@ export function LaunchDeskPage() {
                 disabled={saving}
                 onClick={() =>
                   saveEvent({
-                    mode: popover.event && !isSyntheticEvent(popover.event) ? 'edit' : 'create',
+                    mode: popover.event && isEditableCalendarEvent(popover.event) ? 'edit' : 'create',
                     event: popover.event,
                     title: popoverDraft.title,
                     description: popover.event?.description || '',

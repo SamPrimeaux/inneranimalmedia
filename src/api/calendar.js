@@ -3,6 +3,13 @@
  */
 import { jsonResponse, getAuthUser } from '../core/auth.js';
 import { usHolidaysInWindow } from '../core/calendar-holidays.js';
+import {
+  createGoogleCalendarEvent,
+  removeGoogleCalendarEvent,
+  resolveDefaultGoogleCalendarAccount,
+  updateGoogleCalendarEvent,
+  hasGoogleCalendarWriteScope,
+} from '../core/google-calendar-write.js';
 import { insertMeetRoomRow, meetJoinUrl, normalizeInviteEmails, sendMeetInvites } from '../core/meet-shared.js';
 import {
   heartbeatActiveTimer,
@@ -332,6 +339,8 @@ export async function handleCalendarApi(request, url, env, ctx) {
         last_sync_at,
         last_sync_count,
         event_count: Number(countRow?.cnt) || 0,
+        write_scope: hasGoogleCalendarWriteScope(row.scope),
+        needs_reconnect: !hasGoogleCalendarWriteScope(row.scope),
       });
     }
     return jsonResponse({ connected: accounts.length > 0, accounts }, 200);
@@ -911,14 +920,63 @@ export async function handleCalendarApi(request, url, env, ctx) {
       return jsonResponse({ success: false, error: 'title, start_datetime, end_datetime required' }, 400);
     }
 
-    const id = newId('cev');
+    const syncToGoogle = body?.sync_to_google !== false;
+    const googleAccount =
+      body?.google_account != null
+        ? String(body.google_account).trim().toLowerCase()
+        : syncToGoogle
+          ? await resolveDefaultGoogleCalendarAccount(env, authUser)
+          : null;
+
+    let externalEventId = null;
+    let syncAccount = null;
+    let effectiveSource = calendar_source;
+
+    if (googleAccount && syncToGoogle) {
+      const gOut = await createGoogleCalendarEvent(
+        env,
+        userId,
+        {
+          title,
+          description,
+          location,
+          start_datetime,
+          end_datetime,
+          all_day,
+          timezone,
+          attendees: attendeesJson,
+        },
+        { account: googleAccount },
+      );
+      if (!gOut.ok) {
+        if (gOut.needs_reconnect) {
+          return jsonResponse(
+            {
+              success: false,
+              error: gOut.error,
+              needs_reconnect: true,
+              connect_url: gOut.connect_url || '/api/integrations/google-calendar/connect?return_to=/dashboard/collaborate',
+            },
+            gOut.error === 'google_calendar_not_connected' ? 404 : 403,
+          );
+        }
+        return jsonResponse({ success: false, error: gOut.error || 'google_create_failed' }, gOut.status || 502);
+      }
+      externalEventId = gOut.external_event_id;
+      syncAccount = gOut.sync_account;
+      effectiveSource = 'google_calendar';
+    }
+
+    const id = externalEventId
+      ? `gce_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`
+      : newId('cev');
     await env.DB.prepare(
       `INSERT INTO calendar_events
         (id, tenant_id, workspace_id, event_type, title, description, location,
          start_datetime, end_datetime, color, status, attendees, created_by,
          all_day, timezone, recurrence_rule, calendar_source, guest_permissions_json,
-         created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+         external_event_id, sync_account, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
     )
       .bind(
         id,
@@ -937,8 +995,10 @@ export async function handleCalendarApi(request, url, env, ctx) {
         all_day,
         timezone,
         recurrence_rule,
-        calendar_source,
+        effectiveSource,
         guest_permissions_json,
+        externalEventId,
+        syncAccount,
       )
       .run();
 
@@ -986,6 +1046,8 @@ export async function handleCalendarApi(request, url, env, ctx) {
     return jsonResponse({
       success: true,
       id,
+      google_synced: Boolean(externalEventId),
+      external_event_id: externalEventId,
       meet_room_id: meetRoomId,
       join_url: meetRoomId ? meetJoinUrl(env, meetRoomId, request) : null,
     }, 200);
@@ -1010,7 +1072,7 @@ export async function handleCalendarApi(request, url, env, ctx) {
     const id = String(parts[1] || '').trim();
     const body = await request.json().catch(() => ({}));
     const existing = await env.DB.prepare(
-      `SELECT id FROM calendar_events WHERE id = ? AND workspace_id = ? LIMIT 1`,
+      `SELECT * FROM calendar_events WHERE id = ? AND workspace_id = ? LIMIT 1`,
     )
       .bind(id, workspaceId)
       .first();
@@ -1057,6 +1119,63 @@ export async function handleCalendarApi(request, url, env, ctx) {
 
     if (!fields.length) return jsonResponse({ success: false, error: 'No fields to update' }, 400);
 
+    const merged = { ...existing };
+    if (body.title != null) merged.title = String(body.title).trim().slice(0, 200);
+    if (body.description != null) merged.description = String(body.description).slice(0, 4000);
+    if (body.location != null) merged.location = String(body.location).slice(0, 400);
+    if (body.start_datetime != null) merged.start_datetime = String(body.start_datetime).trim();
+    if (body.end_datetime != null) merged.end_datetime = String(body.end_datetime).trim();
+    if (body.all_day != null) merged.all_day = body.all_day ? 1 : 0;
+    if (body.timezone != null) merged.timezone = String(body.timezone).slice(0, 64);
+    if (body.attendees != null) {
+      merged.attendees =
+        typeof body.attendees === 'string' ? body.attendees : JSON.stringify(body.attendees);
+    }
+
+    const externalId = existing.external_event_id ? String(existing.external_event_id) : '';
+    const syncAcct = existing.sync_account ? String(existing.sync_account) : '';
+
+    if (externalId && syncAcct) {
+      const gOut = await updateGoogleCalendarEvent(env, userId, externalId, merged, { account: syncAcct });
+      if (!gOut.ok) {
+        if (gOut.needs_reconnect) {
+          return jsonResponse(
+            {
+              success: false,
+              error: gOut.error,
+              needs_reconnect: true,
+              connect_url: gOut.connect_url || '/api/integrations/google-calendar/connect?return_to=/dashboard/collaborate',
+            },
+            403,
+          );
+        }
+        return jsonResponse({ success: false, error: gOut.error || 'google_update_failed' }, gOut.status || 502);
+      }
+    } else if (body.sync_to_google !== false) {
+      const googleAccount =
+        body?.google_account != null
+          ? String(body.google_account).trim().toLowerCase()
+          : await resolveDefaultGoogleCalendarAccount(env, authUser);
+      if (googleAccount) {
+        const gOut = await createGoogleCalendarEvent(env, userId, merged, { account: googleAccount });
+        if (gOut.ok && gOut.external_event_id) {
+          setField('external_event_id', gOut.external_event_id);
+          setField('sync_account', gOut.sync_account);
+          setField('calendar_source', 'google_calendar');
+        } else if (gOut.needs_reconnect) {
+          return jsonResponse(
+            {
+              success: false,
+              error: gOut.error,
+              needs_reconnect: true,
+              connect_url: gOut.connect_url || '/api/integrations/google-calendar/connect?return_to=/dashboard/collaborate',
+            },
+            403,
+          );
+        }
+      }
+    }
+
     fields.push("updated_at = datetime('now')");
     binds.push(id, workspaceId);
     await env.DB.prepare(
@@ -1085,10 +1204,45 @@ export async function handleCalendarApi(request, url, env, ctx) {
   // DELETE /api/calendar/events/:id
   if (parts[0] === 'events' && parts[1] && method === 'DELETE') {
     const id = String(parts[1] || '').trim();
+    const existing = await env.DB.prepare(
+      `SELECT id, external_event_id, sync_account FROM calendar_events
+       WHERE id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(id, workspaceId)
+      .first()
+      .catch(() => null);
+
+    if (!existing) {
+      return jsonResponse({ success: false, error: 'not_found' }, 404);
+    }
+
+    const externalId = existing.external_event_id ? String(existing.external_event_id) : '';
+    const syncAcct = existing.sync_account ? String(existing.sync_account) : '';
+
+    if (externalId && syncAcct) {
+      const gOut = await removeGoogleCalendarEvent(env, userId, externalId, { account: syncAcct });
+      if (!gOut.ok) {
+        if (gOut.needs_reconnect) {
+          return jsonResponse(
+            {
+              success: false,
+              error: gOut.error,
+              needs_reconnect: true,
+              connect_url: '/api/integrations/google-calendar/connect?return_to=/dashboard/collaborate',
+            },
+            403,
+          );
+        }
+        if (gOut.status !== 404) {
+          return jsonResponse({ success: false, error: gOut.error || 'google_delete_failed' }, gOut.status || 502);
+        }
+      }
+    }
+
     await env.DB.prepare(`DELETE FROM calendar_events WHERE id = ? AND workspace_id = ?`)
       .bind(id, workspaceId)
       .run();
-    return jsonResponse({ success: true }, 200);
+    return jsonResponse({ success: true, google_deleted: Boolean(externalId) }, 200);
   }
 
   return jsonResponse({ error: 'Not found' }, 404);

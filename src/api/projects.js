@@ -636,7 +636,8 @@ async function handleOverview(request, url, env, authUser) {
 }
 
 /**
- * Merge workspace_projects presets into project rows (same logic for list + overview).
+ * Enrich projects rows with workspace_projects cover/chat metadata only.
+ * Never synthesize project rows from orphaned workspace_projects — that resurrected deleted projects.
  * @returns {Promise<{ projectRows: any[], wpCoverByProjectId: Map<string, string>, chatProjectIdByProjectsId: Map<string, string> }>}
  */
 async function mergeWorkspaceProjectRows(env, workspaceId, projectRows) {
@@ -649,10 +650,9 @@ async function mergeWorkspaceProjectRows(env, workspaceId, projectRows) {
 
   try {
     const { results: wpRows } = await env.DB.prepare(
-      `SELECT id, name, slug, description, client_company, project_type, status, metadata_json, workspace_id, tenant_id
+      `SELECT id, metadata_json
        FROM workspace_projects
-       WHERE workspace_id = ?
-       ORDER BY name ASC`,
+       WHERE workspace_id = ?`,
     )
       .bind(workspaceId)
       .all();
@@ -667,34 +667,13 @@ async function mergeWorkspaceProjectRows(env, workspaceId, projectRows) {
         if (linkedId) wpCoverByProjectId.set(linkedId, cover);
         wpCoverByProjectId.set(String(wp.id), cover);
       }
-      if (linkedId && existingIds.has(linkedId)) continue;
-      if (linkedId) {
+      if (linkedId && !existingIds.has(linkedId)) {
         const linked = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(linkedId).first();
         if (linked) {
           rows.push(linked);
           existingIds.add(linkedId);
-          continue;
         }
       }
-      const presetId = linkedId || String(wp.id);
-      if (existingIds.has(presetId)) continue;
-      rows.push({
-        id: presetId,
-        name: wp.name,
-        client_name: wp.client_company || wp.name,
-        description: wp.description || '',
-        status: wp.status || 'active',
-        priority: 2,
-        project_type: wp.project_type || '',
-        workspace_id: wp.workspace_id,
-        tenant_id: wp.tenant_id,
-        tags_json: '[]',
-        owner_user_id: null,
-        budget_tokens: 0,
-        tokens_used: 0,
-        estimated_completion_date: null,
-      });
-      existingIds.add(presetId);
     }
   } catch {
     /* workspace_projects optional */
@@ -1572,9 +1551,11 @@ async function handleDelete(request, env, authUser, id, url, ctx) {
   }
   try {
     await env.DB.prepare(
-      `DELETE FROM workspace_projects WHERE json_extract(metadata_json, '$.projects_table_id') = ?`,
+      `DELETE FROM workspace_projects
+       WHERE json_extract(metadata_json, '$.projects_table_id') = ?
+          OR id = ?`,
     )
-      .bind(String(id))
+      .bind(String(id), String(id))
       .run();
   } catch {
     /* optional */

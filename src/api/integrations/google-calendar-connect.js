@@ -17,8 +17,7 @@ export const GOOGLE_CALENDAR_OAUTH_SCOPES = [
   'openid',
   'email',
   'profile',
-  'https://www.googleapis.com/auth/calendar.readonly',
-  'https://www.googleapis.com/auth/calendar.events.readonly',
+  'https://www.googleapis.com/auth/calendar.events',
 ];
 
 function googleClientSecret(env) {

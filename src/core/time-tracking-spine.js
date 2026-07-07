@@ -27,6 +27,35 @@ export function isEntryOpen(row) {
   return !!row && (row.ended_at == null || row.ended_at === '');
 }
 
+/** @param {{ start: number, end: number }[]} intervals */
+function mergedDurationSeconds(intervals) {
+  if (!intervals?.length) return 0;
+  const sorted = intervals
+    .filter((i) => i.end > i.start)
+    .sort((a, b) => a.start - b.start);
+  if (!sorted.length) return 0;
+  let total = 0;
+  let cur = { ...sorted[0] };
+  for (let i = 1; i < sorted.length; i += 1) {
+    const next = sorted[i];
+    if (next.start <= cur.end) {
+      cur.end = Math.max(cur.end, next.end);
+    } else {
+      total += cur.end - cur.start;
+      cur = { ...next };
+    }
+  }
+  return total + (cur.end - cur.start);
+}
+
+/** @param {Record<string, unknown>|null|undefined} row @param {number} dayStart @param {number} dayEnd @param {number} nowSec */
+function clipEntryIntervalToDay(row, dayStart, dayEnd, nowSec) {
+  if (!row) return null;
+  const overlapStart = Math.max(Number(row.started_at || row.created_at || dayStart), dayStart);
+  const overlapEnd = Math.min(row.ended_at != null && row.ended_at !== '' ? Number(row.ended_at) : nowSec, dayEnd);
+  return overlapEnd > overlapStart ? { start: overlapStart, end: overlapEnd } : null;
+}
+
 /** @param {Record<string, unknown>|null|undefined} row */
 export function extractTodoId(row) {
   const desc = String(row?.description || '');
@@ -407,27 +436,27 @@ export async function summarizeUserTime(env, userId, opts = {}) {
   ).bind(...ids, dayEnd, dayStart).all().catch(() => ({ results: [] }));
 
   const entries = results || [];
-  let todayMinutes = 0;
   let activeTracking = false;
   let activeEntry = null;
-  const byProjectMap = new Map();
-  const byTaskMap = new Map();
+  const allClips = [];
+  const byProjectClips = new Map();
+  const byTaskClips = new Map();
   const focusRef = opts.projectRef ? await resolveTimeProjectRef(env, opts.projectRef) : null;
   const focusIds = focusRef
     ? [...new Set([focusRef.projectId, focusRef.projectKey, focusRef.ref].filter(Boolean))]
     : [];
+  const focusClips = [];
 
   for (const row of entries) {
     const isLoginAuto = String(row.source || '') === 'auto'
       && /^Login session/i.test(String(row.description || ''));
     if (isLoginAuto) continue;
 
+    const clip = clipEntryIntervalToDay(row, dayStart, dayEnd, now);
+    if (!clip) continue;
+
     const secs = entryDurationSeconds(row, now);
-    const overlapStart = Math.max(Number(row.started_at || row.created_at || dayStart), dayStart);
-    const overlapEnd = Math.min(row.ended_at != null ? Number(row.ended_at) : now, dayEnd);
-    const overlapSecs = overlapEnd > overlapStart ? overlapEnd - overlapStart : secs;
-    const mins = Math.round(overlapSecs / 60);
-    todayMinutes += mins;
+    allClips.push(clip);
 
     if (isEntryOpen(row)) {
       activeTracking = true;
@@ -443,26 +472,46 @@ export async function summarizeUserTime(env, userId, opts = {}) {
     }
 
     const pid = String(row.project_id || 'inneranimalmedia');
-    byProjectMap.set(pid, (byProjectMap.get(pid) || 0) + mins);
+    if (!byProjectClips.has(pid)) byProjectClips.set(pid, []);
+    byProjectClips.get(pid).push(clip);
     const todoId = extractTodoId(row);
-    if (todoId) byTaskMap.set(todoId, (byTaskMap.get(todoId) || 0) + mins);
+    if (todoId) {
+      if (!byTaskClips.has(todoId)) byTaskClips.set(todoId, []);
+      byTaskClips.get(todoId).push(clip);
+    }
+    if (focusIds.length && focusIds.includes(String(row.project_id || ''))) {
+      focusClips.push(clip);
+    }
   }
+
+  const todayMinutes = Math.round(mergedDurationSeconds(allClips) / 60);
+  const byProjectMap = new Map(
+    [...byProjectClips.entries()].map(([project_id, clips]) => [
+      project_id,
+      Math.round(mergedDurationSeconds(clips) / 60),
+    ]),
+  );
+  const byTaskMap = new Map(
+    [...byTaskClips.entries()].map(([todo_id, clips]) => [
+      todo_id,
+      Math.round(mergedDurationSeconds(clips) / 60),
+    ]),
+  );
 
   let projectTodayMinutes = 0;
   let projectActiveTracking = false;
   let projectActiveEntry = null;
   if (focusIds.length) {
+    projectTodayMinutes = Math.round(mergedDurationSeconds(focusClips) / 60);
     for (const row of entries) {
       if (!focusIds.includes(String(row.project_id || ''))) continue;
-      const secs = entryDurationSeconds(row, now);
-      projectTodayMinutes += Math.round(secs / 60);
       if (isEntryOpen(row)) {
         projectActiveTracking = true;
         projectActiveEntry = {
           id: String(row.id),
           project_id: String(row.project_id),
           started_at: row.started_at,
-          duration_seconds: secs,
+          duration_seconds: entryDurationSeconds(row, now),
         };
       }
     }

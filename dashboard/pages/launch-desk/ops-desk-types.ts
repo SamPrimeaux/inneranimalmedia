@@ -244,10 +244,19 @@ export function isSyntheticEvent(ev: CalEvent) {
     id.startsWith('task_') ||
     id.startsWith('bday_') ||
     id.startsWith('hol_') ||
-    id.startsWith('gce_') ||
-    src === 'holidays' ||
-    src === 'google_calendar'
+    src === 'holidays'
   );
+}
+
+/** Google Calendar import — read-only edit in IAM; delete removes local copy + tombstone. */
+export function isGoogleSyncedEvent(ev: CalEvent) {
+  const id = String(ev.id || '');
+  const src = String(ev.calendar_source || '').toLowerCase();
+  return src === 'google_calendar' || id.startsWith('gce_');
+}
+
+export function isEditableCalendarEvent(ev: CalEvent) {
+  return !isSyntheticEvent(ev);
 }
 
 export function isAllDay(ev: CalEvent) {
