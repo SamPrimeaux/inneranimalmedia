@@ -1,5 +1,7 @@
 /* Mail — light GCP tokens inside CollaborateWorkShell (overrides dashboard dark vars) */
 .colab-work-shell .mail-work-surface {
+  /* Ensure grid is fully contained within the flex shell — no overflow bleed */
+  max-width: 100%;
   --bg: #dfe5ee;
   --panel: #eef2f7;
   --panel-raised: #f8fafc;
@@ -60,6 +62,7 @@
   grid-row: 1;
   min-width: 0;
   width: var(--mail-rail-w);
+  flex-shrink: 0;
   position: relative;
   z-index: 2;
 }

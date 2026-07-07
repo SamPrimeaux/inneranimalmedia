@@ -1133,3 +1133,22 @@
     top: auto !important; bottom: 8px !important; width: auto !important; max-width: none;
   }
 }
+
+/* ── Rail gap fix: ensure grid never leaves orphaned columns at mid-widths ── */
+@media (min-width: 1087px) and (max-width: 1300px) {
+  .colab-cal:not(.insights-open) .colab-cal-layout {
+    grid-template-columns: var(--left) minmax(0, 1fr) var(--rail); /* --colab-gap-fix */
+    overflow: hidden;
+    width: 100%;
+  }
+  .colab-cal.insights-open .colab-cal-layout {
+    grid-template-columns: var(--left) minmax(0, 1fr) var(--right-open) var(--rail);
+    overflow: hidden;
+    width: 100%;
+  }
+  .colab-cal-layout > .colab-cal-rail {
+    width: var(--rail);
+    min-width: var(--rail);
+    max-width: var(--rail);
+  }
+}
