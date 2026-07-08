@@ -464,8 +464,47 @@ Host github.com
   User git
   IdentityFile ~/.ssh/id_ed25519
   IdentitiesOnly yes
+
+Host github.com-inneranimal
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+
+Host github-inneranimal
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
 SSHEOF
   chmod 600 ~/.ssh/config
+fi
+# agentsam owns repo .git + pm2 execos — mirror Sam SSH key for git pull cron/terminal.
+if id agentsam >/dev/null 2>&1 && [[ -f ~/.ssh/id_ed25519 ]]; then
+  sudo install -d -m 700 -o agentsam -g agentsam /var/lib/agentsam/.ssh
+  sudo install -m 600 -o agentsam -g agentsam ~/.ssh/id_ed25519 /var/lib/agentsam/.ssh/id_ed25519
+  [[ -f ~/.ssh/id_ed25519.pub ]] && sudo install -m 644 -o agentsam -g agentsam ~/.ssh/id_ed25519.pub /var/lib/agentsam/.ssh/id_ed25519.pub || true
+  sudo tee /var/lib/agentsam/.ssh/config >/dev/null <<'AGSSHEOF'
+# IAM PTY — GitHub SSH (agentsam runtime)
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+Host github.com-inneranimal
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+Host github-inneranimal
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+AGSSHEOF
+  sudo chown agentsam:agentsam /var/lib/agentsam/.ssh/config
+  sudo chmod 600 /var/lib/agentsam/.ssh/config
+  echo "OK: agentsam GitHub SSH mirrored for repo git pull"
 fi
 gh --version | head -1
 gh auth status -h github.com 2>&1 | head -3

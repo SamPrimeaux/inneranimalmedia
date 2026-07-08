@@ -1,0 +1,100 @@
+---
+description: GCP iam-tunnel VM self-heal — git pull, agentsam SSH, pm2, cron troubleshooting (on-demand)
+alwaysApply: false
+---
+
+# GCP iam-tunnel — VM self-heal & remote git
+
+**Load when:** `FETCH_HEAD` permission denied, `git@github.com: Permission denied (publickey)`, ExecOS sync failures, terminal.inneranimalmedia.com down, or post-deploy GCP VM issues.
+
+## Architecture (do not confuse users)
+
+| Layer | User | Role |
+|-------|------|------|
+| Mac operator | `samprimeaux` | `gh` + `GITHUB_TOKEN` in `.env.cloudflare`; deploy from Mac |
+| VM login | `samprimeaux` | gcloud SSH target; has GitHub SSH + gh |
+| VM runtime | **`agentsam`** | Owns `~/inneranimalmedia/.git`, `~/ExecOS/.git`, **pm2 execos** |
+
+**Git on VM uses SSH keys, not `GITHUB_TOKEN`.** Token powers `gh` for `samprimeaux` only. Repo `.git` is owned by `agentsam` — `git pull` as `samprimeaux` → `FETCH_HEAD: Permission denied`.
+
+**pm2 execos runs as `agentsam`** (`PM2_HOME=/var/lib/agentsam/.pm2`). Never restart execos via `samprimeaux` pm2 (empty list).
+
+## deploy:full vs VM
+
+- Default: **`IAM_SYNC_GCP_EXECOS=0`** — deploy does **not** SCP or force ExecOS sync.
+- VM self-heals every 5 min via root cron.
+- Opt-in force sync: `IAM_SYNC_GCP_EXECOS=1 npm run deploy:full`
+- Skip all VM sync: `IAM_SKIP_GCP_VM_SYNC=1`
+
+## Common errors → fix
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `cannot open '.git/FETCH_HEAD': Permission denied` | Pull as wrong user | Pull as `agentsam` (see below) |
+| `Permission denied (publickey)` as `agentsam` | No SSH in `/var/lib/agentsam/.ssh` | Run setup script (below) |
+| pm2 execos "not running" but terminal OK | Checked `samprimeaux` pm2 | `sudo -u agentsam pm2 list` |
+| ExecOS ff-only pull fails | VM branch diverged | `git fetch && git reset --hard origin/main` as `agentsam` |
+
+## One-shot fix from Mac (preferred)
+
+```bash
+# From repo root — needs gcloud + .env.cloudflare GCP_PROJECT_ID/GCP_ZONE
+./scripts/setup-gcp-vm-self-heal-once.sh
+```
+
+This: mirrors Sam SSH key → `agentsam`, git pull both repos, installs root cron, runs self-heal once.
+
+If `samprimeaux` lost gh/SSH on VM first:
+
+```bash
+./scripts/install-terminal-github-cli.sh --gcp-only --prompt-token
+./scripts/setup-gcp-vm-self-heal-once.sh
+```
+
+## Manual diagnose on VM (gcloud SSH)
+
+```bash
+export PATH="/opt/homebrew/bin:$PATH"
+source .env.cloudflare
+gcloud compute ssh iam-tunnel --project="$GCP_PROJECT_ID" --zone="$GCP_ZONE" --tunnel-through-iap
+```
+
+On VM:
+
+```bash
+# Who can reach GitHub?
+ssh -T git@github.com                                    # samprimeaux
+sudo -u agentsam ssh -T git@github.com                     # agentsam — must succeed
+
+# Repo ownership
+ls -la ~/inneranimalmedia/.git/FETCH_HEAD                # expect agentsam:agentsam
+
+# Git pull (correct user)
+sudo -u agentsam git -C ~/inneranimalmedia pull --ff-only
+sudo -u agentsam git -C ~/ExecOS pull --ff-only
+
+# pm2 + health
+sudo -u agentsam pm2 list
+curl -sf https://terminal.inneranimalmedia.com/health
+sudo crontab -l | grep -E 'self-heal|health-watchdog'
+tail -30 /var/log/iam-self-heal.log
+```
+
+## Scripts (repo)
+
+| Script | Runs on | Purpose |
+|--------|---------|---------|
+| `scripts/gcp-vm-self-heal.sh` | VM (root cron) | git pull, agentsam pm2, cloudflared |
+| `scripts/setup-gcp-vm-self-heal-once.sh` | Mac → VM | One-time agentsam SSH + cron install |
+| `scripts/install-terminal-github-cli.sh --gcp-only` | Mac → VM | gh + samprimeaux SSH (+ agentsam mirror) |
+| `scripts/sync-gcp-vm-after-deploy.sh` | Mac deploy | Repo/env sync; ExecOS off by default |
+| `scripts/bootstrap-gcp-vm-repo.sh` | Mac → VM | Sparse operator repo clone/reset |
+| `scripts/fix-gcp-vm-watchdog-cron.sh` | Mac → VM | Legacy health-watchdog root cron |
+
+## Agent checklist
+
+1. **Do not assume `GITHUB_TOKEN` is missing** — check `agentsam` SSH and `.git` ownership first.
+2. **Do not re-enable Mac SCP ExecOS sync** unless user explicitly asks (`IAM_SYNC_GCP_EXECOS=1`).
+3. **Use `gcp_vm_ssh`** (`scripts/lib/gcp-vm-ssh.sh`, default IAP) for remote commands.
+4. After VM repair, verify: `curl https://terminal.inneranimalmedia.com/health` → 200.
+5. Logs: `/var/log/iam-self-heal.log`, `/var/log/iam-watchdog.log`.

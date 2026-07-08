@@ -6,7 +6,7 @@
 
 **No test/smoke in deploy** unless you explicitly ask (see iam-core).
 
-**Optional (agent loads when relevant):** other files in `.cursor/rules/` with `alwaysApply: false`.
+**Optional (agent loads when relevant):** other files in `.cursor/rules/` with `alwaysApply: false` — e.g. `iam-gcp-vm-self-heal.mdc` for iam-tunnel git/SSH/pm2 failures.
 
 **Platform law in D1:** `agentsam_rules_document` — query at runtime with `d1_query` / migrations. Do **not** paste table catalogs or schemas into Cursor rules.
 
