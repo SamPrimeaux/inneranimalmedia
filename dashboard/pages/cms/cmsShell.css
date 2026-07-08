@@ -1085,29 +1085,32 @@
 
 .iam-cms-integrations-strip__row {
   display: flex;
-  gap: 14px;
-  overflow-x: auto;
-  padding-bottom: 4px;
-  scrollbar-width: thin;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .iam-cms-integrations-strip__app {
   flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
+  flex-direction: row;
   align-items: center;
-  gap: 6px;
-  width: 72px;
+  gap: 7px;
+  padding: 5px 10px 5px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--cms-border);
+  background: var(--cms-bg);
+  transition: border-color 0.12s;
+}
+
+.iam-cms-integrations-strip__app:hover {
+  border-color: color-mix(in srgb, var(--cms-teal) 30%, var(--cms-border));
 }
 
 .iam-cms-integrations-strip__app-name {
-  font-size: 10px;
-  color: var(--cms-muted);
-  text-align: center;
-  line-height: 1.2;
-  max-width: 72px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--cms-text);
   white-space: nowrap;
 }
 
