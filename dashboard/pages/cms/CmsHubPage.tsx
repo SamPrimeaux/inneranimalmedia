@@ -30,28 +30,50 @@ export function CmsHubPage({
   onNavigate,
   onOpenDeployWizard,
 }: Props) {
-  const activeSite = useMemo(() => {
-    const rows = Array.isArray(sites) ? sites : [];
-    return rows.find((s) => s.slug === activeSiteSlug) || null;
-  }, [sites, activeSiteSlug]);
+  const resolvedSiteSlug = useMemo(() => {
+    if (activeSiteSlug) return activeSiteSlug;
+    const stored = sites.find((s) => s.slug === context?.project_slug);
+    if (context?.project_slug && stored) return context.project_slug;
+    if (sites.length === 1) return sites[0].slug;
+    if (context?.is_operator_hub && sites.length > 0) {
+      const candidates = [context.workspace_slug, 'inneranimalmedia', context.project_slug]
+        .map((s) => (s != null ? String(s).trim() : ''))
+        .filter(Boolean);
+      for (const slug of candidates) {
+        if (sites.some((s) => s.slug === slug)) return slug;
+      }
+      const featured = [...sites].sort(
+        (a, b) => (Number(b.hub_priority) || 0) - (Number(a.hub_priority) || 0),
+      );
+      return featured[0]?.slug || null;
+    }
+    return null;
+  }, [
+    activeSiteSlug,
+    sites,
+    context?.project_slug,
+    context?.is_operator_hub,
+    context?.workspace_slug,
+  ]);
 
   const setupMode: CmsDashboardSetupMode = useMemo(() => {
     if (loading) return 'loading';
     if (sites.length === 0) return 'deploy';
-    if (sites.length > 1 && !activeSiteSlug) return 'pick-site';
-    if (activeSiteSlug) return 'active';
-    if (sites.length === 1) return 'active';
+    if (sites.length > 1 && !resolvedSiteSlug) return 'pick-site';
+    if (resolvedSiteSlug) return 'active';
     return 'deploy';
-  }, [loading, sites.length, activeSiteSlug]);
+  }, [loading, sites.length, resolvedSiteSlug]);
 
-  const effectiveSiteSlug =
-    activeSiteSlug || (sites.length === 1 ? sites[0]?.slug : null) || null;
+  const activeSite = useMemo(() => {
+    const rows = Array.isArray(sites) ? sites : [];
+    return rows.find((s) => s.slug === resolvedSiteSlug) || null;
+  }, [sites, resolvedSiteSlug]);
 
   return (
     <div className="iam-cms-shell iam-cms-hub-page">
       <div className="iam-cms-hub-page__scroll">
         <CmsGuidedChatHero
-          siteSlug={effectiveSiteSlug}
+          siteSlug={resolvedSiteSlug}
           siteName={activeSite?.name || context?.project_name}
         />
 
@@ -80,12 +102,12 @@ export function CmsHubPage({
             </div>
           ) : null}
 
-          {effectiveSiteSlug && setupMode === 'active' ? (
-            <CmsHubImportStrip projectSlug={effectiveSiteSlug} />
+          {resolvedSiteSlug && setupMode === 'active' ? (
+            <CmsHubImportStrip projectSlug={resolvedSiteSlug} />
           ) : null}
 
           <CmsDashboard
-            siteSlug={effectiveSiteSlug}
+            siteSlug={resolvedSiteSlug}
             setupMode={setupMode}
             site={activeSite}
             sites={sites}
@@ -96,16 +118,6 @@ export function CmsHubPage({
           />
         </div>
       </div>
-
-      <footer className="iam-cms-hub-page__foot">
-        <div className="iam-cms-hub-page__foot-tags">
-          <span>Multi-model AI</span>
-          <span>Enterprise ready</span>
-          <span>Open &amp; extensible</span>
-          <span>Built for scale</span>
-        </div>
-        <p className="iam-cms-hub-page__foot-tagline">One request. An entire team on it.</p>
-      </footer>
     </div>
   );
 }

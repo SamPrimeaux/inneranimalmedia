@@ -276,14 +276,35 @@
 
 .iam-cms-dashboard__hero {
   display: grid;
-  gap: 16px;
-  margin-bottom: 20px;
+  gap: 12px;
+  margin-bottom: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-@media (min-width: 900px) {
+@media (min-width: 720px) {
   .iam-cms-dashboard__hero {
-    grid-template-columns: minmax(0, 1.35fr) repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .iam-cms-site-hero,
+  .iam-cms-site-hero--setup,
+  .iam-cms-site-hero--skeleton {
+    grid-column: span 2;
+    grid-row: span 2;
+  }
+}
+
+@media (min-width: 1100px) {
+  .iam-cms-dashboard__hero {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     align-items: stretch;
+  }
+
+  .iam-cms-site-hero,
+  .iam-cms-site-hero--setup,
+  .iam-cms-site-hero--skeleton {
+    grid-column: span 2;
+    grid-row: span 1;
   }
 
   .iam-cms-modules {
@@ -299,10 +320,11 @@
 }
 
 .iam-cms-site-hero {
-  padding: 20px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+  min-height: 148px;
 }
 
 .iam-cms-site-hero__head {
@@ -416,13 +438,20 @@
 
 .iam-cms-modules {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 720px) {
   .iam-cms-modules {
-    grid-template-columns: repeat(4, 1fr);
+    grid-column: span 2;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1100px) {
+  .iam-cms-modules {
+    display: contents;
   }
 }
 
@@ -431,6 +460,9 @@
   text-align: left;
   cursor: pointer;
   transition: border-color 0.15s, transform 0.15s;
+  min-height: 148px;
+  display: flex;
+  flex-direction: column;
 }
 
 .iam-cms-module:hover {
@@ -523,8 +555,12 @@
 }
 
 .iam-cms-module__cta {
-  margin-top: 12px;
-  font-size: 12px;
+  margin-top: auto;
+  padding-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--cms-teal);
 }
@@ -1004,6 +1040,104 @@
   margin: 10px 0 0;
   font-size: 13px;
   color: var(--cms-muted);
+}
+
+.iam-cms-dashboard__grid--two {
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 900px) {
+  .iam-cms-dashboard__grid--two {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.iam-cms-integrations-strip {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--cms-border);
+  background: var(--cms-panel);
+  box-shadow: var(--cms-shadow);
+}
+
+.iam-cms-integrations-strip__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.iam-cms-integrations-strip__title {
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cms-muted);
+}
+
+.iam-cms-integrations-strip__manage {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cms-teal);
+  text-decoration: none;
+}
+
+.iam-cms-integrations-strip__row {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.iam-cms-integrations-strip__app {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 72px;
+}
+
+.iam-cms-integrations-strip__app-name {
+  font-size: 10px;
+  color: var(--cms-muted);
+  text-align: center;
+  line-height: 1.2;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iam-cms-integrations-strip__skel {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--cms-muted) 8%, transparent) 0%,
+    color-mix(in srgb, var(--cms-muted) 16%, transparent) 50%,
+    color-mix(in srgb, var(--cms-muted) 8%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: iam-cms-shimmer 1.25s ease-in-out infinite;
+}
+
+.iam-cms-integrations-strip__empty {
+  font-size: 12px;
+  color: var(--cms-muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.iam-cms-integrations-strip__empty a {
+  color: var(--cms-teal);
+  font-weight: 700;
+  text-decoration: none;
 }
 
 .iam-cms-dashboard__grid--three {

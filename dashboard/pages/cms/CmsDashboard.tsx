@@ -4,7 +4,7 @@ import type { CmsWorkspaceContext, CmsWorkspaceSite } from '../../hooks/useCmsWo
 import type { CmsBootstrapData } from '../../../src/types/cms';
 import { buildCmsHubPath, buildCmsPath } from './cmsRoute';
 import { resolveStorefrontUrl, storefrontDisplayHost } from '../../../src/dashboard/cms/cmsStorefrontUrl';
-import { CmsConnectedIntegrations } from './CmsConnectedIntegrations';
+import { CmsIntegrationsStrip } from './CmsIntegrationsStrip';
 import { CmsSiteStructurePanel } from './CmsSiteStructurePanel';
 import { useCmsConnectedIntegrations } from './useCmsConnectedIntegrations';
 import { useCmsLinkedProject } from './useCmsLinkedProject';
@@ -624,7 +624,16 @@ export function CmsDashboard({
         />
       ) : null}
 
-      <div className="iam-cms-dashboard__grid iam-cms-dashboard__grid--three">
+      <CmsIntegrationsStrip
+        items={connectedIntegrations}
+        loading={setupMode === 'loading' || integrationsLoading}
+        error={integrationsError}
+        onRetry={() => {
+          void refreshIntegrations();
+        }}
+      />
+
+      <div className="iam-cms-dashboard__grid iam-cms-dashboard__grid--two">
         <section className="iam-cms-card">
           <div className="iam-cms-panel-head">Recent activity</div>
           {setupMode === 'loading' || (hasActiveSite && activityLoading) ? (
@@ -691,15 +700,6 @@ export function CmsDashboard({
             </ul>
           )}
         </section>
-
-        <CmsConnectedIntegrations
-          items={connectedIntegrations}
-          loading={setupMode === 'loading' || integrationsLoading}
-          error={integrationsError}
-          onRetry={() => {
-            void refreshIntegrations();
-          }}
-        />
       </div>
 
       {context && setupMode === 'active' ? (

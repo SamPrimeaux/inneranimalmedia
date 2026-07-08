@@ -121,43 +121,44 @@ export async function listCmsSitesForScope(env, { tenantId, workspaceId }) {
     }
   } catch (_) {}
 
+  // Always merge tenant + page-derived sites — registry rows may omit the operator's primary tenant.
+  try {
+    const { results: tenantSites } = await env.DB.prepare(
+      `SELECT slug, name, domain
+         FROM cms_tenants
+        WHERE tenant_ref_id = ? AND COALESCE(is_active, 1) = 1
+        ORDER BY name, slug`,
+    )
+      .bind(tid)
+      .all();
+    for (const row of tenantSites || []) {
+      addSite(row.slug, { name: row.name, domain: row.domain, source: 'cms_tenants' });
+    }
+  } catch (_) {}
+
+  try {
+    const { results: pageProjects } = await env.DB.prepare(
+      `SELECT project_slug AS slug, COUNT(*) AS page_count, MAX(updated_at) AS updated_at
+         FROM cms_pages
+        WHERE tenant_id = ?
+          AND status != 'archived'
+          AND trim(COALESCE(project_slug, '')) != ''
+          AND (workspace_id = ? OR workspace_id IS NULL OR trim(workspace_id) = '')
+        GROUP BY project_slug
+        ORDER BY project_slug`,
+    )
+      .bind(tid, ws)
+      .all();
+    for (const row of pageProjects || []) {
+      addSite(row.slug, {
+        page_count: Number(row.page_count) || 0,
+        updated_at: row.updated_at,
+        source: 'cms_pages',
+      });
+    }
+  } catch (_) {}
+
   if (!hasWorkspaceRegistry) {
-    try {
-      const { results: tenantSites } = await env.DB.prepare(
-        `SELECT slug, name, domain
-           FROM cms_tenants
-          WHERE tenant_ref_id = ? AND COALESCE(is_active, 1) = 1
-          ORDER BY name, slug`,
-      )
-        .bind(tid)
-        .all();
-      for (const row of tenantSites || []) {
-        addSite(row.slug, { name: row.name, domain: row.domain, source: 'cms_tenants' });
-      }
-    } catch (_) {}
-
-    try {
-      const { results: pageProjects } = await env.DB.prepare(
-        `SELECT project_slug AS slug, COUNT(*) AS page_count, MAX(updated_at) AS updated_at
-           FROM cms_pages
-          WHERE tenant_id = ?
-            AND status != 'archived'
-            AND trim(COALESCE(project_slug, '')) != ''
-            AND (workspace_id = ? OR workspace_id IS NULL OR trim(workspace_id) = '')
-          GROUP BY project_slug
-          ORDER BY project_slug`,
-      )
-        .bind(tid, ws)
-        .all();
-      for (const row of pageProjects || []) {
-        addSite(row.slug, {
-          page_count: Number(row.page_count) || 0,
-          updated_at: row.updated_at,
-          source: 'cms_pages',
-        });
-      }
-    } catch (_) {}
-
     try {
       const wsRow = await env.DB.prepare(
         `SELECT slug, name FROM workspaces WHERE id = ? LIMIT 1`,
