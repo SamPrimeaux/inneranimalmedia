@@ -480,6 +480,7 @@ export async function handleMailApi(request, url, env, ctx) {
   // Canonical user_id and tenant_id for all email_logs queries — scopes data to this user only.
   const mailUserId = authUser.id ? String(authUser.id).trim() : '';
   const mailTenantId = authUser.tenant_id ? String(authUser.tenant_id).trim() : '';
+  const isSuperadmin = authUser.is_superadmin === 1 || authUser.is_superadmin === true;
 
   try {
     // Gmail OAuth connect (real)
@@ -867,6 +868,10 @@ export async function handleMailApi(request, url, env, ctx) {
         });
       }
       if (senders.length > 0) return jsonResponse({ senders });
+      // resend_emails is a platform-level table — only expose to superadmin.
+      // Non-superadmin users without Gmail connected get an empty sender list
+      // rather than leaking platform addresses across tenant boundaries.
+      if (!isSuperadmin) return jsonResponse({ senders: [] });
       const { results } = await env.DB.prepare(
         `SELECT id, address, display_name, label, purpose
          FROM resend_emails
