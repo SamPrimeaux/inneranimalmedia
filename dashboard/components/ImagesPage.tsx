@@ -3,7 +3,7 @@ import {
   Upload, Trash2, Copy, ExternalLink, X, Search,
   ChevronLeft, ChevronRight, ImageIcon,
   RefreshCw, Eye, AlertCircle, CheckCircle, Filter,
-  SlidersHorizontal, FileArchive
+  SlidersHorizontal, FileArchive, Maximize2, Tag, Plus
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -14,6 +14,8 @@ interface ImageMeta {
   preferred_bg?: string;
   notes?: string;
   tenant_slug?: string;
+  category?: string;
+  project_slug?: string;
 }
 
 type SourceTab = 'all' | 'r2' | 'cf_images' | 'drive';
@@ -37,7 +39,15 @@ interface CfImage {
   width?: number | null;
   height?: number | null;
   variants?: string[];
+  alt_text?: string | null;
+  description?: string | null;
+  tags?: string[];
   meta?: ImageMeta;
+}
+
+interface TagStat {
+  tag: string;
+  count: number;
 }
 
 interface Tenant {
@@ -91,6 +101,8 @@ function imagesListUrl(
   source: SourceTab,
   page: number,
   perPage: number,
+  tag?: string,
+  q?: string,
 ) {
   const params = new URLSearchParams();
   params.set('source', source);
@@ -98,7 +110,24 @@ function imagesListUrl(
   params.set('per_page', String(perPage));
   const ws = workspaceId?.trim();
   if (ws) params.set('workspace_id', ws);
+  if (tag?.trim()) params.set('tag', tag.trim());
+  if (q?.trim()) params.set('q', q.trim());
   return `/api/images?${params.toString()}`;
+}
+
+function imagesTagsUrl(workspaceId?: string | null) {
+  const params = new URLSearchParams();
+  const ws = workspaceId?.trim();
+  if (ws) params.set('workspace_id', ws);
+  const qs = params.toString();
+  return qs ? `/api/images/tags?${qs}` : '/api/images/tags';
+}
+
+function imagesPatchUrl(imageId: string, workspaceId?: string | null) {
+  const ws = workspaceId?.trim();
+  return ws
+    ? `/api/images/${encodeURIComponent(imageId)}?workspace_id=${encodeURIComponent(ws)}`
+    : `/api/images/${encodeURIComponent(imageId)}`;
 }
 
 function imagesUploadUrl(workspaceId?: string | null) {
@@ -127,20 +156,42 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
   const [mimeFilter, setMimeFilter] = useState('all');
   const [tenantFilter, setTenantFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [tagFilter, setTagFilter] = useState('');
+  const [allTags, setAllTags] = useState<TagStat[]>([]);
   const [detail, setDetail] = useState<CfImage | null>(null);
+  const [fullscreenUrl, setFullscreenUrl] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const { toasts, add: toast } = useToast();
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
-  // ── Fetch images ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => setDebouncedSearch(search.trim()), 280);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [search]);
+
+  const loadTags = useCallback(async () => {
+    try {
+      const r = await fetch(imagesTagsUrl(workspaceId), { credentials: 'same-origin' });
+      const d = await r.json();
+      if (d.tags) setAllTags(d.tags);
+    } catch {
+      /* optional */
+    }
+  }, [workspaceId]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const r = await fetch(imagesListUrl(workspaceId, sourceTab, page, perPage), {
-        credentials: 'same-origin',
-      });
+      const r = await fetch(
+        imagesListUrl(workspaceId, sourceTab, page, perPage, tagFilter, debouncedSearch),
+        { credentials: 'same-origin' },
+      );
       const d = await r.json();
       if (d.error) {
         setError(d.error);
@@ -151,12 +202,13 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
       setTotal(typeof d.total === 'number' ? d.total : rows.length);
       if (d.accountHash) setAccountHash(d.accountHash);
       if (typeof d.drive_connected === 'boolean') setDriveConnected(d.drive_connected);
+      void loadTags();
     } catch (e: any) {
       setError('Network error: ' + e.message);
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, sourceTab, page, perPage]);
+  }, [workspaceId, sourceTab, page, perPage, tagFilter, debouncedSearch, loadTags]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -175,11 +227,6 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
   const filtered = React.useMemo(() => {
     let list = [...images];
     if (tenantFilter !== 'all') list = list.filter(i => i.meta?.tenant_slug === tenantFilter);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(i =>
-        (i.filename || i.id || i.r2_key || '').toLowerCase().includes(q));
-    }
     if (mimeFilter !== 'all') {
       list = list.filter(i => (i.mime_type || '').toLowerCase().startsWith(mimeFilter));
     }
@@ -189,14 +236,34 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
     else if (sort === 'name-az') list.sort((a, b) => (a.filename || a.id || '').localeCompare(b.filename || b.id || ''));
     else if (sort === 'name-za') list.sort((a, b) => (b.filename || b.id || '').localeCompare(a.filename || a.id || ''));
     return list;
-  }, [images, tenantFilter, search, sort, mimeFilter]);
+  }, [images, tenantFilter, sort, mimeFilter]);
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
   const paginated = filtered;
 
-  useEffect(() => setPage(1), [sort, tenantFilter, search, perPage, sourceTab, mimeFilter]);
+  useEffect(() => setPage(1), [sort, tenantFilter, debouncedSearch, perPage, sourceTab, mimeFilter, tagFilter]);
 
-  // ── Delete ────────────────────────────────────────────────────────────────
+  const saveImage = useCallback(async (img: CfImage, payload: Record<string, unknown>) => {
+    try {
+      const r = await fetch(imagesPatchUrl(img.id, workspaceId), {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const d = await r.json();
+      if (d.ok && (d.item || d.image)) {
+        const row = d.item || d.image;
+        setImages(p => p.map(i => (i.id === img.id || i.id === row.id ? row : i)));
+        toast('Saved');
+        return row as CfImage;
+      }
+      toast(d.error || 'Save failed', 'err');
+    } catch (e: any) {
+      toast('Error: ' + e.message, 'err');
+    }
+    return null;
+  }, [workspaceId, toast]);
 
   const deleteImage = useCallback(async (img: CfImage) => {
     if (!confirm(`Delete "${img.filename || img.id}"? This cannot be undone.`)) return;
@@ -210,35 +277,14 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
         setTotal(t => Math.max(0, t - 1));
         setDetail(null);
         toast('Image deleted');
+        void loadTags();
       } else {
         toast(d.error || 'Delete failed', 'err');
       }
     } catch (e: any) {
       toast('Error: ' + e.message, 'err');
     }
-  }, [toast]);
-
-  // ── Save meta ─────────────────────────────────────────────────────────────
-
-  const saveMeta = useCallback(async (img: CfImage, payload: ImageMeta) => {
-    try {
-      const r = await fetch(`/api/images/${encodeURIComponent(img.id)}/meta`, {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const d = await r.json();
-      if (d.ok && d.meta) {
-        setImages(p => p.map(i => i.id === img.id ? { ...i, meta: { ...i.meta, ...d.meta } } : i));
-        toast('Saved');
-        return true;
-      }
-      toast(d.error || 'Save failed', 'err');
-    } catch (e: any) {
-      toast('Error: ' + e.message, 'err');
-    }
-    return false;
-  }, [toast]);
+  }, [toast, loadTags]);
 
   // ── URL for display ───────────────────────────────────────────────────────
 
@@ -451,6 +497,18 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
               </select>
             </label>
           )}
+          {allTags.length > 0 && (
+            <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Tag size={11} />
+              Tag
+              <select value={tagFilter} onChange={e => setTagFilter(e.target.value)} style={selectStyle}>
+                <option value="">All tags</option>
+                {allTags.map(t => (
+                  <option key={t.tag} value={t.tag}>{t.tag} ({t.count})</option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       )}
 
@@ -472,22 +530,9 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
           </div>
         )}
 
-        {/* Loading */}
+        {/* Loading skeleton */}
         {loading && (
-          <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'center', padding: 64, gap: 12
-          }}>
-            <div style={{
-              width: 32, height: 32, borderRadius: '50%',
-              border: '2px solid var(--border-subtle)',
-              borderTopColor: 'var(--solar-cyan)',
-              animation: 'spin 0.8s linear infinite'
-            }} />
-            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-              Loading images{sourceTab === 'cf_images' ? ' (syncing full Cloudflare catalog…)' : ''}…
-            </span>
-          </div>
+          <ImageGridSkeleton count={Math.min(perPage, 24)} />
         )}
 
         {/* Empty */}
@@ -590,6 +635,20 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
                     }}>
                       {img.meta?.label || img.filename || img.id}
                     </div>
+                    {(img.tags?.length ?? 0) > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                        {img.tags!.slice(0, 3).map(tag => (
+                          <span key={tag} style={{
+                            fontSize: 9, padding: '2px 6px', borderRadius: 999,
+                            background: 'color-mix(in srgb, var(--solar-cyan) 18%, transparent)',
+                            color: 'var(--solar-cyan)', fontWeight: 600
+                          }}>{tag}</span>
+                        ))}
+                        {img.tags!.length > 3 && (
+                          <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>+{img.tags!.length - 3}</span>
+                        )}
+                      </div>
+                    )}
                     <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
                       {fmtDate(img.created_at || img.uploaded)}
                       {img.size ? ` · ${fmtSize(img.size)}` : ''}
@@ -634,12 +693,18 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
         <DetailModal
           img={detail}
           url={imgUrl(detail)}
+          allTags={allTags.map(t => t.tag)}
           onClose={() => setDetail(null)}
           onDelete={deleteImage}
-          onSaveMeta={saveMeta}
+          onSave={saveImage}
           onImportDrive={importDriveImage}
+          onFullscreen={u => setFullscreenUrl(u)}
           onUpdated={updated => setDetail(updated)}
         />
+      )}
+
+      {fullscreenUrl && (
+        <ImageFullscreenPreview url={fullscreenUrl} onClose={() => setFullscreenUrl(null)} />
       )}
 
       {/* Upload Modal */}
@@ -671,29 +736,198 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
         ))}
       </div>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes iam-img-shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        .iam-img-skeleton {
+          background: linear-gradient(
+            90deg,
+            var(--bg-elevated) 0%,
+            color-mix(in srgb, var(--border-subtle) 60%, var(--bg-elevated)) 50%,
+            var(--bg-elevated) 100%
+          );
+          background-size: 200% 100%;
+          animation: iam-img-shimmer 1.4s ease-in-out infinite;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ── Skeleton grid ─────────────────────────────────────────────────────────────
+
+function ImageGridSkeleton({ count }: { count: number }) {
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+      gap: 14
+    }}>
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} style={{
+          border: '1px solid var(--border-subtle)', borderRadius: 12, overflow: 'hidden'
+        }}>
+          <div className="iam-img-skeleton" style={{ width: '100%', aspectRatio: '4/3' }} />
+          <div style={{ padding: '9px 11px' }}>
+            <div className="iam-img-skeleton" style={{ height: 11, borderRadius: 4, width: '72%' }} />
+            <div className="iam-img-skeleton" style={{ height: 9, borderRadius: 4, width: '45%', marginTop: 8 }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Fullscreen preview ────────────────────────────────────────────────────────
+
+function ImageFullscreenPreview({ url, onClose }: { url: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 600,
+        background: 'rgba(0,0,0,0.92)', display: 'flex',
+        alignItems: 'center', justifyContent: 'center', padding: 24,
+        cursor: 'zoom-out'
+      }}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close fullscreen"
+        style={{
+          position: 'absolute', top: 16, right: 16,
+          background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
+          borderRadius: 8, color: '#fff', padding: 8, cursor: 'pointer'
+        }}
+      >
+        <X size={18} />
+      </button>
+      <img
+        src={url}
+        alt=""
+        onClick={e => e.stopPropagation()}
+        style={{
+          maxWidth: '100%', maxHeight: '100%', objectFit: 'contain',
+          borderRadius: 4, boxShadow: '0 24px 64px rgba(0,0,0,0.5)', cursor: 'default'
+        }}
+      />
+    </div>
+  );
+}
+
+// ── Tag editor ────────────────────────────────────────────────────────────────
+
+function TagEditor({ tags, suggestions, onChange }: {
+  tags: string[];
+  suggestions: string[];
+  onChange: (tags: string[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+
+  const addTag = (raw: string) => {
+    const tag = raw.trim().toLowerCase();
+    if (!tag) return;
+    if (tags.includes(tag)) return;
+    onChange([...tags, tag]);
+    setDraft('');
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        {tags.map(tag => (
+          <span key={tag} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            fontSize: 11, padding: '3px 8px', borderRadius: 999,
+            background: 'color-mix(in srgb, var(--solar-cyan) 16%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--solar-cyan) 35%, transparent)',
+            color: 'var(--solar-cyan)'
+          }}>
+            {tag}
+            <button type="button" onClick={() => onChange(tags.filter(t => t !== tag))}
+              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', lineHeight: 1 }}>
+              <X size={11} />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ',') {
+              e.preventDefault();
+              addTag(draft);
+            }
+          }}
+          placeholder="Add tag…"
+          style={{ ...inputStyle, flex: 1 }}
+        />
+        <button type="button" onClick={() => addTag(draft)}
+          style={actionBtnStyle('var(--bg-hover)', 'var(--text-main)')}>
+          <Plus size={13} />
+        </button>
+      </div>
+      {suggestions.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+          {suggestions.filter(s => !tags.includes(s)).slice(0, 8).map(s => (
+            <button key={s} type="button" onClick={() => addTag(s)}
+              style={{ ...smallBtnStyle, fontSize: 10 }}>
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Detail Modal ──────────────────────────────────────────────────────────────
 
-function DetailModal({ img, url, onClose, onDelete, onSaveMeta, onImportDrive, onUpdated }: {
+function DetailModal({ img, url, allTags, onClose, onDelete, onSave, onImportDrive, onFullscreen, onUpdated }: {
   img: CfImage;
   url: string;
+  allTags: string[];
   onClose: () => void;
   onDelete: (img: CfImage) => void;
-  onSaveMeta: (img: CfImage, payload: ImageMeta) => Promise<boolean>;
+  onSave: (img: CfImage, payload: Record<string, unknown>) => Promise<CfImage | null>;
   onImportDrive: (img: CfImage) => void;
+  onFullscreen: (url: string) => void;
   onUpdated: (img: CfImage) => void;
 }) {
   const isArtifact = img.kind === 'artifact';
-  const [label, setLabel] = useState(img.meta?.label || '');
+  const [label, setLabel] = useState(img.meta?.label || img.filename || '');
   const [isLive, setIsLive] = useState(!!img.meta?.is_live);
   const [darkBg, setDarkBg] = useState(img.meta?.preferred_bg === 'dark');
   const [notes, setNotes] = useState(img.meta?.notes || '');
+  const [category, setCategory] = useState(img.meta?.category || '');
+  const [projectSlug, setProjectSlug] = useState(img.meta?.project_slug || '');
+  const [altText, setAltText] = useState(img.alt_text || '');
+  const [tags, setTags] = useState<string[]>(img.tags || []);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setLabel(img.meta?.label || img.filename || '');
+    setIsLive(!!img.meta?.is_live);
+    setDarkBg(img.meta?.preferred_bg === 'dark');
+    setNotes(img.meta?.notes || '');
+    setCategory(img.meta?.category || '');
+    setProjectSlug(img.meta?.project_slug || '');
+    setAltText(img.alt_text || '');
+    setTags(img.tags || []);
+  }, [img]);
 
   const copyUrl = () => {
     navigator.clipboard?.writeText(url).then(() => {
@@ -704,12 +938,17 @@ function DetailModal({ img, url, onClose, onDelete, onSaveMeta, onImportDrive, o
 
   const save = async () => {
     setSaving(true);
-    const ok = await onSaveMeta(img, {
-      label, is_live: isLive,
+    const row = await onSave(img, {
+      label,
+      is_live: isLive,
       preferred_bg: darkBg ? 'dark' : '',
-      notes
+      notes,
+      category,
+      project_slug: projectSlug,
+      alt_text: altText,
+      tags,
     });
-    if (ok) onUpdated({ ...img, meta: { ...img.meta, label, is_live: isLive, preferred_bg: darkBg ? 'dark' : '', notes } });
+    if (row) onUpdated(row);
     setSaving(false);
   };
 
@@ -723,34 +962,46 @@ function DetailModal({ img, url, onClose, onDelete, onSaveMeta, onImportDrive, o
       }}
     >
       <div style={{
-        width: '100%', maxWidth: 520, maxHeight: '90vh', overflowY: 'auto',
+        width: '100%', maxWidth: 560, maxHeight: '92vh', overflowY: 'auto',
         background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
         borderRadius: 16, boxShadow: '0 24px 48px rgba(0,0,0,0.4)', padding: 24
       }}>
         {/* Image preview */}
-        <div style={{
-          width: '100%', borderRadius: 10, overflow: 'hidden',
-          background: darkBg ? 'var(--bg-panel)' : 'var(--bg-app)',
-          marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          minHeight: 180
-        }}>
-          {!isArtifact && url ? (
-            <img src={url} alt={img.filename || img.id}
-              style={{ maxWidth: '100%', maxHeight: 320, objectFit: 'contain', display: 'block' }} />
-          ) : isArtifact ? (
-            <div style={{
-              padding: 24, textAlign: 'center', color: 'var(--text-muted)'
-            }}>
-              <FileArchive size={40} strokeWidth={1.25} style={{ marginBottom: 12, opacity: 0.85 }} />
-              <div style={{ fontSize: 12, marginBottom: 8 }}>Artifact / capture — preview not shown here.</div>
-              {img.r2_key && (
-                <code style={{ fontSize: 10, wordBreak: 'break-all', display: 'block', color: 'var(--text-muted)' }}>
-                  {img.r2_key}
-                </code>
-              )}
-            </div>
-          ) : (
-            <ImageIcon size={48} style={{ color: 'var(--text-muted)', opacity: 0.3 }} />
+        <div style={{ position: 'relative', marginBottom: 16 }}>
+          <div style={{
+            width: '100%', borderRadius: 10, overflow: 'hidden',
+            background: darkBg ? 'var(--bg-panel)' : 'var(--bg-app)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            minHeight: 200, maxHeight: 360
+          }}>
+            {!isArtifact && url ? (
+              <img src={url} alt={altText || img.filename || img.id}
+                style={{ maxWidth: '100%', maxHeight: 360, objectFit: 'contain', display: 'block', cursor: 'zoom-in' }}
+                onClick={() => onFullscreen(url)} />
+            ) : isArtifact ? (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
+                <FileArchive size={40} strokeWidth={1.25} style={{ marginBottom: 12, opacity: 0.85 }} />
+                <div style={{ fontSize: 12, marginBottom: 8 }}>Artifact / capture — preview not shown here.</div>
+                {img.r2_key && (
+                  <code style={{ fontSize: 10, wordBreak: 'break-all', display: 'block', color: 'var(--text-muted)' }}>
+                    {img.r2_key}
+                  </code>
+                )}
+              </div>
+            ) : (
+              <ImageIcon size={48} style={{ color: 'var(--text-muted)', opacity: 0.3 }} />
+            )}
+          </div>
+          {!isArtifact && url && (
+            <button type="button" onClick={() => onFullscreen(url)} title="Fullscreen preview"
+              style={{
+                position: 'absolute', top: 10, right: 10,
+                background: 'rgba(0,0,0,0.65)', border: 'none', borderRadius: 8,
+                color: '#fff', padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                fontSize: 11
+              }}>
+              <Maximize2 size={14} /> Fullscreen
+            </button>
           )}
         </div>
 
@@ -794,6 +1045,30 @@ function DetailModal({ img, url, onClose, onDelete, onSaveMeta, onImportDrive, o
             placeholder="Friendly name…" style={inputStyle} />
         </div>
 
+        <div style={{ marginBottom: 10 }}>
+          <label style={labelStyle}>Tags</label>
+          <TagEditor tags={tags} suggestions={allTags} onChange={setTags} />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+          <div>
+            <label style={labelStyle}>Category</label>
+            <input value={category} onChange={e => setCategory(e.target.value)}
+              placeholder="e.g. hero, logo, cms" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Project slug</label>
+            <input value={projectSlug} onChange={e => setProjectSlug(e.target.value)}
+              placeholder="e.g. inneranimalmedia" style={inputStyle} />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <label style={labelStyle}>Alt text</label>
+          <input value={altText} onChange={e => setAltText(e.target.value)}
+            placeholder="Accessibility description…" style={inputStyle} />
+        </div>
+
         <div style={{ display: 'flex', gap: 16, marginBottom: 10 }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' }}>
             <input type="checkbox" checked={isLive} onChange={e => setIsLive(e.target.checked)} />
@@ -833,8 +1108,8 @@ function DetailModal({ img, url, onClose, onDelete, onSaveMeta, onImportDrive, o
             </button>
           )}
           <button onClick={save} disabled={saving}
-            style={actionBtnStyle('var(--bg-hover)', 'var(--text-main)')}>
-            {saving ? 'Saving…' : 'Save note'}
+            style={actionBtnStyle('var(--solar-cyan)', '#000')}>
+            {saving ? 'Saving…' : 'Save changes'}
           </button>
           {img.source !== 'drive' && (
             <button onClick={() => onDelete(img)}
@@ -861,6 +1136,7 @@ function UploadModal({ workspaceId, onClose, onUploaded, onError }: {
 }) {
   const [urlInput, setUrlInput] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [tagsInput, setTagsInput] = useState('');
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -871,15 +1147,17 @@ function UploadModal({ workspaceId, onClose, onUploaded, onError }: {
     try {
       let r: Response;
       const base = imagesUploadUrl(workspaceId);
+      const tagList = tagsInput.split(',').map(s => s.trim()).filter(Boolean);
       if (urlInput.trim()) {
         r = await fetch(base, {
           method: 'POST', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: urlInput.trim() })
+          body: JSON.stringify({ url: urlInput.trim(), tags: tagList })
         });
       } else {
         const fd = new FormData();
         fd.append('file', file!);
+        if (tagList.length) fd.append('tags', JSON.stringify(tagList));
         r = await fetch(base, { method: 'POST', credentials: 'same-origin', body: fd });
       }
       const d = await r.json();
@@ -938,6 +1216,10 @@ function UploadModal({ workspaceId, onClose, onUploaded, onError }: {
         </div>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }}
           onChange={e => setFile(e.target.files?.[0] || null)} />
+
+        <label style={labelStyle}>Tags (comma-separated)</label>
+        <input value={tagsInput} onChange={e => setTagsInput(e.target.value)}
+          placeholder="hero, cms, inneranimalmedia" style={{ ...inputStyle, marginBottom: 14 }} />
 
         {status && (
           <div style={{ fontSize: 12, color: status.startsWith('Error') ? '#f87171' : 'var(--text-muted)', marginBottom: 12 }}>

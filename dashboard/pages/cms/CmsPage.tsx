@@ -176,13 +176,40 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
 
   const hubSiteSlug = useMemo(() => {
     if (parsed.siteSlug) return parsed.siteSlug;
+    if (!sitesList.length) return null;
+
+    if (context?.is_operator_hub) {
+      const candidates = [
+        context.workspace_slug,
+        'inneranimalmedia',
+        context.project_slug,
+        storedSiteSlug,
+      ]
+        .map((s) => (s != null ? String(s).trim() : ''))
+        .filter(Boolean);
+      for (const slug of candidates) {
+        if (sitesList.some((s) => s.slug === slug)) return slug;
+      }
+      const featured = [...sitesList].sort(
+        (a, b) => (Number(b.hub_priority) || 0) - (Number(a.hub_priority) || 0),
+      );
+      return featured[0]?.slug || null;
+    }
+
     if (context?.project_slug && sitesList.some((s) => s.slug === context.project_slug)) {
       return context.project_slug;
     }
     if (storedSiteSlug && sitesList.some((s) => s.slug === storedSiteSlug)) return storedSiteSlug;
     if (sitesList.length === 1) return sitesList[0].slug;
     return null;
-  }, [parsed.siteSlug, context?.project_slug, storedSiteSlug, sitesList]);
+  }, [
+    parsed.siteSlug,
+    context?.is_operator_hub,
+    context?.workspace_slug,
+    context?.project_slug,
+    storedSiteSlug,
+    sitesList,
+  ]);
 
   return (
     <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden bg-[#F9F7F2] iam-agentsam-cms-host h-full">

@@ -7,6 +7,7 @@
 
 import { getR2Binding } from '../api/r2-api.js';
 import { resolvePrimaryUploadPrefix } from './media-r2-access.js';
+import { putR2ImageWithCustomMetadata } from './r2-image-metadata.js';
 
 const BUCKET = 'inneranimalmedia';
 const CMS_ASSETS = 'cms_assets';
@@ -269,7 +270,15 @@ export async function commitImageDraft(env, ctx, body) {
   const committedKey = `${uploadPack.prefix}committed-${generationId.replace(/[^a-z0-9]/gi, '').slice(0, 20)}.${ext}`;
   const buf = await obj.arrayBuffer();
 
-  await binding.put(committedKey, buf, { httpMetadata: { contentType } });
+  await putR2ImageWithCustomMetadata(binding, committedKey, buf, {
+    contentType,
+    tags: [category],
+    meta: { label, category, project_slug: '', notes: '', tenant_slug: '', is_live: false, preferred_bg: '' },
+    scope: { userId, workspaceId: workspaceId || '', tenantId },
+    alt_text: label,
+    description: row.prompt ? String(row.prompt).slice(0, 160) : null,
+    extra: { iam_generation_id: generationId },
+  });
   await binding.delete(draftKey).catch(() => null);
 
   const origin = String(ctx.origin || env.IAM_ORIGIN || 'https://inneranimalmedia.com').replace(/\/$/, '');

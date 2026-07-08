@@ -13,6 +13,13 @@
  * POST   /api/images/commit   { generation_id } — save draft to library
  * POST   /api/images/discard  { generation_id } — delete draft
  * POST   /api/images/edit | /api/images/:id/meta  (legacy compat)
+ * GET    /api/images/tags?workspace_id=
+ * PATCH  /api/images/:id  { tags, label, notes, alt_text, category, project_slug, is_live, preferred_bg }
+ *
+ * Storage sync (triple-write):
+ * - D1 `images` — query/filter SSOT for dashboard
+ * - CF Images `meta` — PATCH v1/{id} on save; read on cf_live list (1024 byte cap)
+ * - R2 customMetadata (x-amz-meta-* iam_* keys, 2KB) + `{key}.iammeta.json` sidecar for full notes
  */
 
 import { jsonResponse } from '../core/responses.js';
@@ -25,9 +32,17 @@ import {
   discardImageDraft,
   imageGenerationShouldPersist,
 } from '../core/image-draft-store.js';
+import {
+  enrichItemsFromR2CustomMetadata,
+  normalizeTags,
+  parseIamMetaFromStorage,
+  putR2ImageWithCustomMetadata,
+  syncR2ObjectCustomMetadata,
+} from '../core/r2-image-metadata.js';
 
 const BUCKET = 'inneranimalmedia';
 const MAX_BYTES = 15 * 1024 * 1024;
+const CF_META_MAX_BYTES = 1024;
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
 
 function mediaKeyToId(key) {
@@ -81,16 +96,88 @@ function createdAtIso(unix) {
 
 function parseTags(raw) {
   if (!raw) return [];
-  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw)) return raw.map((t) => String(t).trim()).filter(Boolean);
   try {
     const p = JSON.parse(raw);
-    return Array.isArray(p) ? p : [];
+    return Array.isArray(p) ? p.map((t) => String(t).trim()).filter(Boolean) : [];
   } catch {
     return String(raw)
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
   }
+}
+
+function parseMetadata(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  try {
+    const p = JSON.parse(String(raw));
+    return p && typeof p === 'object' && !Array.isArray(p) ? p : {};
+  } catch {
+    return {};
+  }
+}
+
+function buildMetaFromRow(row) {
+  const metaObj = parseMetadata(row.metadata);
+  return {
+    label: metaObj.label || row.filename || row.original_filename || '',
+    is_live: !!metaObj.is_live,
+    preferred_bg: metaObj.preferred_bg || '',
+    notes: metaObj.notes || metaObj.description || row.description || '',
+    tenant_slug: metaObj.tenant_slug || '',
+    category: metaObj.category || '',
+    project_slug: metaObj.project_slug || '',
+  };
+}
+
+/** CF Images meta payload — must stay under 1024 bytes (JSON string). */
+function buildCfImagesMetaPayload({ tags, meta, scope, alt_text, filename }) {
+  const normalized = normalizeTags(tags);
+  /** @type {Record<string, string>} */
+  const cfMeta = {
+    userId: String(scope.userId || '').slice(0, 64),
+    workspaceId: String(scope.workspaceId || '').slice(0, 64),
+    tenantId: String(scope.tenantId || '').slice(0, 64),
+    filename: String(filename || meta?.label || '').slice(0, 120),
+  };
+  if (normalized.length) cfMeta.iam_tags = normalized.join(',').slice(0, 400);
+  if (meta?.label) cfMeta.iam_label = String(meta.label).slice(0, 120);
+  if (meta?.category) cfMeta.iam_category = String(meta.category).slice(0, 64);
+  if (meta?.project_slug) cfMeta.iam_project_slug = String(meta.project_slug).slice(0, 64);
+  if (meta?.tenant_slug) cfMeta.iam_tenant_slug = String(meta.tenant_slug).slice(0, 64);
+  if (meta?.preferred_bg) cfMeta.iam_preferred_bg = String(meta.preferred_bg).slice(0, 16);
+  if (meta?.is_live) cfMeta.iam_is_live = '1';
+  if (alt_text) cfMeta.iam_alt_text = String(alt_text).slice(0, 160);
+  if (meta?.notes) cfMeta.iam_notes = String(meta.notes).slice(0, 240);
+
+  let json = JSON.stringify(cfMeta);
+  while (json.length > CF_META_MAX_BYTES && cfMeta.iam_notes) {
+    cfMeta.iam_notes = cfMeta.iam_notes.slice(0, Math.max(0, cfMeta.iam_notes.length - 32));
+    if (!cfMeta.iam_notes) delete cfMeta.iam_notes;
+    json = JSON.stringify(cfMeta);
+  }
+  while (json.length > CF_META_MAX_BYTES && cfMeta.iam_tags) {
+    const parts = cfMeta.iam_tags.split(',');
+    parts.pop();
+    if (parts.length) cfMeta.iam_tags = parts.join(',');
+    else delete cfMeta.iam_tags;
+    json = JSON.stringify(cfMeta);
+  }
+  return cfMeta;
+}
+
+function buildR2SidecarPayload({ tags, meta, alt_text, scope }) {
+  return {
+    tags: normalizeTags(tags),
+    meta: meta || {},
+    alt_text: alt_text || null,
+    workspace_id: scope.workspaceId,
+    user_id: scope.userId,
+    tenant_id: scope.tenantId,
+    synced_at: new Date().toISOString(),
+  };
 }
 
 function rowSource(row) {
@@ -127,10 +214,13 @@ function mapD1RowToItem(row, { origin, accountHash }) {
     created_at: createdAtIso(row.created_at),
     user_id: row.user_id,
     workspace_id: row.workspace_id,
+    project_id: row.project_id || null,
     r2_key: row.r2_key || null,
     cloudflare_image_id: row.cloudflare_image_id || null,
     alt_text: row.alt_text || null,
+    description: row.description || null,
     tags: parseTags(row.tags),
+    meta: buildMetaFromRow(row),
   };
 }
 
@@ -138,12 +228,13 @@ function mapCfApiImage(img, accountHash, authUserId) {
   const meta = img.metadata || img.meta || {};
   const userMeta = meta.userId || meta.user_id || meta.userid;
   if (userMeta && String(userMeta) !== String(authUserId)) return null;
+  const parsed = parseIamMetaFromStorage(meta);
   const id = img.id;
   const url = cfDeliveryUrl(accountHash, id, 'public');
   return {
     id: `cf_live_${id}`,
     source: 'cf_images',
-    filename: meta.filename || meta.name || id,
+    filename: parsed.meta.label || meta.filename || meta.name || id,
     url,
     thumbnail_url: cfDeliveryUrl(accountHash, id, 'thumbnail') || url,
     mime_type: meta.mime || 'image/jpeg',
@@ -155,8 +246,12 @@ function mapCfApiImage(img, accountHash, authUserId) {
     workspace_id: meta.workspaceId || meta.workspace_id || null,
     r2_key: null,
     cloudflare_image_id: id,
-    alt_text: null,
-    tags: [],
+    alt_text: parsed.alt_text,
+    tags: parsed.tags,
+    meta: {
+      ...parsed.meta,
+      label: parsed.meta.label || meta.filename || meta.name || id,
+    },
     _cf_only: true,
   };
 }
@@ -205,7 +300,7 @@ async function resolveScope(env, authUser, identity, wsHint) {
   return { userId, workspaceId, tenantId };
 }
 
-async function listD1Images(env, { userId, workspaceId, source, limit, offset }) {
+async function listD1Images(env, { userId, workspaceId, source, tag, search, limit, offset }) {
   let sql = `SELECT * FROM images
     WHERE user_id = ? AND workspace_id = ? AND COALESCE(status, 'active') = 'active'`;
   const binds = [userId, workspaceId];
@@ -213,6 +308,22 @@ async function listD1Images(env, { userId, workspaceId, source, limit, offset })
     sql += ` AND (cloudflare_image_id IS NULL OR cloudflare_image_id = '')`;
   } else if (source === 'cf_images') {
     sql += ` AND cloudflare_image_id IS NOT NULL AND cloudflare_image_id != ''`;
+  }
+  if (tag) {
+    sql += ` AND (
+      lower(tags) LIKE ? OR lower(tags) LIKE ? OR lower(tags) LIKE ? OR lower(tags) = ?
+    )`;
+    const t = String(tag).trim().toLowerCase();
+    binds.push(`%"${t}"%`, `%"${t}"`, `%${t},%`, `["${t}"]`);
+  }
+  if (search) {
+    const q = `%${String(search).trim().toLowerCase()}%`;
+    sql += ` AND (
+      lower(COALESCE(filename, '')) LIKE ? OR lower(COALESCE(original_filename, '')) LIKE ?
+      OR lower(COALESCE(alt_text, '')) LIKE ? OR lower(COALESCE(description, '')) LIKE ?
+      OR lower(COALESCE(tags, '')) LIKE ? OR lower(COALESCE(metadata, '')) LIKE ?
+    )`;
+    binds.push(q, q, q, q, q, q);
   }
   sql += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
   binds.push(limit, offset);
@@ -328,6 +439,91 @@ async function uploadToCfImages(env, file, metadata) {
   };
 }
 
+async function patchCfImageMeta(env, cfImageId, metaPayload) {
+  const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const token = String(env.CLOUDFLARE_IMAGES_TOKEN || env.CLOUDFLARE_IMAGES_API_TOKEN || '').trim();
+  if (!accountId || !token || !cfImageId) {
+    return { ok: false, error: 'Cloudflare Images not configured' };
+  }
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v1/${encodeURIComponent(cfImageId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ metadata: metaPayload, meta: metaPayload }),
+    },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.success) {
+    const msg = data?.errors?.[0]?.message || data?.messages?.[0]?.message || 'CF Images meta PATCH failed';
+    return { ok: false, error: msg, status: res.status };
+  }
+  return { ok: true, result: data.result };
+}
+
+async function writeR2MetaSidecar(binding, r2Key, payload) {
+  if (!binding?.put || !r2Key) return;
+  await binding.put(metaSidecarKey(r2Key), JSON.stringify(payload ?? {}), {
+    httpMetadata: { contentType: 'application/json; charset=utf-8' },
+  });
+}
+
+async function syncR2ImageMeta(env, r2Key, sidecarPayload, tags, scope, sizeBytes) {
+  const binding = getR2Binding(env, BUCKET);
+  if (!binding?.put || !r2Key) return { ok: false, error: 'R2 not configured' };
+
+  await writeR2MetaSidecar(binding, r2Key, sidecarPayload);
+
+  const sync = await syncR2ObjectCustomMetadata(binding, r2Key, {
+    tags,
+    meta: sidecarPayload.meta,
+    scope,
+    alt_text: sidecarPayload.alt_text,
+    description: sidecarPayload.description,
+    sizeBytes,
+    maxBytes: MAX_BYTES,
+  });
+
+  return {
+    ok: sync.ok,
+    customMetadata: sync.customMetadata,
+    sidecar_only: !sync.object_updated,
+  };
+}
+
+async function syncImageStorageMeta(env, row, scope, { tags, meta, alt_text }) {
+  const tagList = normalizeTags(tags ?? parseTags(row.tags));
+  const metaFields = meta || buildMetaFromRow(row);
+  const alt = alt_text ?? row.alt_text ?? null;
+  const sync = { cf: null, r2: null };
+
+  if (row.cloudflare_image_id) {
+    const cfPayload = buildCfImagesMetaPayload({
+      tags: tagList,
+      meta: metaFields,
+      scope,
+      alt_text: alt,
+      filename: row.filename,
+    });
+    sync.cf = await patchCfImageMeta(env, row.cloudflare_image_id, cfPayload);
+  }
+
+  if (row.r2_key) {
+    const sidecar = buildR2SidecarPayload({
+      tags: tagList,
+      meta: metaFields,
+      alt_text: alt,
+      scope,
+    });
+    sync.r2 = await syncR2ImageMeta(env, row.r2_key, sidecar, tagList, scope, row.size);
+  }
+
+  return sync;
+}
+
 async function deleteCfImage(env, cfImageId) {
   const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
   const token = String(env.CLOUDFLARE_IMAGES_TOKEN || env.CLOUDFLARE_IMAGES_API_TOKEN || '').trim();
@@ -393,8 +589,37 @@ async function handleGetImages(request, url, env, authUser, identity) {
   const source = (url.searchParams.get('source') || 'all').toLowerCase();
   const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
   const perPage = Math.min(200, Math.max(1, parseInt(url.searchParams.get('per_page') || '50', 10) || 50));
+  const tagFilter = (url.searchParams.get('tag') || '').trim().toLowerCase();
+  const searchQ = (url.searchParams.get('q') || url.searchParams.get('search') || '').trim();
   const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
   const origin = url.origin;
+
+  const matchesFilters = (item) => {
+    if (tagFilter) {
+      const tags = (item.tags || []).map((t) => String(t).toLowerCase());
+      if (!tags.includes(tagFilter)) return false;
+    }
+    if (searchQ) {
+      const q = searchQ.toLowerCase();
+      const hay = [
+        item.filename,
+        item.id,
+        item.r2_key,
+        item.alt_text,
+        item.description,
+        item.meta?.label,
+        item.meta?.notes,
+        item.meta?.category,
+        item.meta?.project_slug,
+        ...(item.tags || []),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  };
 
   if (source === 'drive') {
     const drive = await listDriveImages(env, scope.userId);
@@ -420,6 +645,8 @@ async function handleGetImages(request, url, env, authUser, identity) {
       userId: scope.userId,
       workspaceId: scope.workspaceId,
       source: source === 'all' ? null : source,
+      tag: null,
+      search: null,
       limit: 5000,
       offset: 0,
     });
@@ -435,9 +662,14 @@ async function handleGetImages(request, url, env, authUser, identity) {
   }
 
   merged.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-  const total = merged.length;
+
+  const r2Binding = getR2Binding(env, BUCKET);
+  const enriched = await enrichItemsFromR2CustomMetadata(r2Binding, merged);
+
+  const filtered = enriched.filter(matchesFilters);
+  const total = filtered.length;
   const start = (page - 1) * perPage;
-  const items = merged.slice(start, start + perPage);
+  const items = filtered.slice(start, start + perPage);
 
   return jsonResponse({
     items,
@@ -520,19 +752,43 @@ async function handleUpload(request, url, env, authUser, identity) {
   const imageUuid = crypto.randomUUID();
   const r2Key = `images/${scope.workspaceId}/${scope.userId}/${imageUuid}.${ext}`;
   const filename = originalName || `${imageUuid}.${ext}`;
-
-  const metadata = {
-    userId: scope.userId,
-    workspaceId: scope.workspaceId,
-    tenantId: scope.tenantId,
-    filename,
+  const uploadTags = normalizeTags(parseTags(tagsJson));
+  const iamMeta = {
+    label: filename,
+    category: '',
+    project_slug: '',
+    notes: '',
+    tenant_slug: '',
+    is_live: false,
+    preferred_bg: '',
   };
 
+  const cfMetaPayload = buildCfImagesMetaPayload({
+    tags: uploadTags,
+    meta: iamMeta,
+    scope,
+    alt_text: altText,
+    filename,
+  });
+
   const fileBlob = new File([buf], filename, { type: mime });
-  const cf = await uploadToCfImages(env, fileBlob, metadata);
+  const cf = await uploadToCfImages(env, fileBlob, cfMetaPayload);
   if (cf.error) return jsonResponse({ error: cf.error }, cf.status || 502);
 
-  await binding.put(r2Key, buf, { httpMetadata: { contentType: mime } });
+  const r2Sidecar = buildR2SidecarPayload({
+    tags: uploadTags,
+    meta: iamMeta,
+    alt_text: altText,
+    scope,
+  });
+  await putR2ImageWithCustomMetadata(binding, r2Key, buf, {
+    contentType: mime,
+    tags: uploadTags,
+    meta: iamMeta,
+    scope,
+    alt_text: altText,
+  });
+  await writeR2MetaSidecar(binding, r2Key, r2Sidecar);
 
   const cfId = cf.imageId;
   const publicUrl = accountHash ? cfDeliveryUrl(accountHash, cfId, 'public') : '';
@@ -557,7 +813,7 @@ async function handleUpload(request, url, env, authUser, identity) {
     alt_text: altText || null,
     description: null,
     tags: tagsJson,
-    metadata: JSON.stringify(metadata),
+    metadata: JSON.stringify({ ...iamMeta, registered_from: 'upload' }),
     workspace_id: scope.workspaceId,
   });
 
@@ -604,7 +860,25 @@ async function handleDriveImport(request, url, env, authUser, identity) {
 
   const binding = getR2Binding(env, BUCKET);
   if (!binding?.put) return jsonResponse({ error: 'R2 not configured' }, 503);
-  await binding.put(r2Key, buf, { httpMetadata: { contentType: mime } });
+
+  const driveTags = ['drive_import'];
+  const driveMeta = {
+    label: filename,
+    category: '',
+    project_slug: '',
+    notes: '',
+    tenant_slug: '',
+    is_live: false,
+    preferred_bg: '',
+  };
+  const cfMetaPayload = buildCfImagesMetaPayload({
+    tags: driveTags,
+    meta: driveMeta,
+    scope,
+    alt_text: null,
+    filename,
+  });
+  cfMetaPayload.driveFileId = driveFileId;
 
   const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
   let cfId = null;
@@ -612,18 +886,28 @@ async function handleDriveImport(request, url, env, authUser, identity) {
   let thumbUrl = publicUrl;
 
   const fileBlob = new File([buf], filename, { type: mime });
-  const cf = await uploadToCfImages(env, fileBlob, {
-    userId: scope.userId,
-    workspaceId: scope.workspaceId,
-    tenantId: scope.tenantId,
-    filename,
-    driveFileId,
-  });
+  const cf = await uploadToCfImages(env, fileBlob, cfMetaPayload);
   if (!cf.error && cf.imageId) {
     cfId = cf.imageId;
     publicUrl = cfDeliveryUrl(accountHash, cfId, 'public') || publicUrl;
     thumbUrl = cfDeliveryUrl(accountHash, cfId, 'thumbnail') || publicUrl;
   }
+
+  const r2Sidecar = buildR2SidecarPayload({
+    tags: driveTags,
+    meta: driveMeta,
+    alt_text: null,
+    scope,
+  });
+  await putR2ImageWithCustomMetadata(binding, r2Key, buf, {
+    contentType: mime,
+    tags: driveTags,
+    meta: driveMeta,
+    scope,
+    alt_text: null,
+    extra: { drive_file_id: driveFileId },
+  });
+  await writeR2MetaSidecar(binding, r2Key, r2Sidecar);
 
   const rowId = `img_${imageUuid.replace(/-/g, '').slice(0, 24)}`;
   const row = await insertImageRow(env, {
@@ -643,8 +927,8 @@ async function handleDriveImport(request, url, env, authUser, identity) {
     thumbnail_url: thumbUrl,
     alt_text: null,
     description: null,
-    tags: JSON.stringify(['drive_import']),
-    metadata: JSON.stringify({ drive_file_id: driveFileId }),
+    tags: JSON.stringify(driveTags),
+    metadata: JSON.stringify({ ...driveMeta, drive_file_id: driveFileId }),
     workspace_id: scope.workspaceId,
   });
 
@@ -686,6 +970,7 @@ async function handleDelete(imageId, request, url, env, authUser, identity) {
   if (row.r2_key) {
     const binding = getR2Binding(env, BUCKET);
     await binding?.delete?.(row.r2_key).catch(() => {});
+    await binding?.delete?.(metaSidecarKey(row.r2_key)).catch(() => {});
   }
 
   await env.DB.prepare(
@@ -697,6 +982,257 @@ async function handleDelete(imageId, request, url, env, authUser, identity) {
   return jsonResponse({ ok: true, id: imageId });
 }
 
+async function fetchCfImageDetail(env, cfId) {
+  const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const token = String(env.CLOUDFLARE_IMAGES_TOKEN || env.CLOUDFLARE_IMAGES_API_TOKEN || '').trim();
+  if (!accountId || !token || !cfId) return null;
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v1/${encodeURIComponent(cfId)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.success) return null;
+  return data.result || null;
+}
+
+async function registerCfImageToD1(env, scope, authUser, cfId, origin) {
+  const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
+  const existing = await env.DB.prepare(
+    `SELECT * FROM images
+     WHERE cloudflare_image_id = ? AND user_id = ? AND workspace_id = ?
+       AND COALESCE(status, 'active') = 'active'
+     LIMIT 1`,
+  )
+    .bind(cfId, scope.userId, scope.workspaceId)
+    .first()
+    .catch(() => null);
+  if (existing) return existing;
+
+  const cfImg = await fetchCfImageDetail(env, cfId);
+  const cfRawMeta = cfImg?.metadata || cfImg?.meta || {};
+  const parsed = parseIamMetaFromStorage(cfRawMeta);
+  const imageUuid = crypto.randomUUID();
+  const rowId = `img_${imageUuid.replace(/-/g, '').slice(0, 24)}`;
+  const filename = safeFilename(parsed.meta.label || cfRawMeta.filename || cfRawMeta.name || cfId);
+  const publicUrl = accountHash ? cfDeliveryUrl(accountHash, cfId, 'public') : '';
+  const thumbUrl = accountHash ? cfDeliveryUrl(accountHash, cfId, 'thumbnail') : publicUrl;
+  const uploaded = cfImg?.uploaded || cfImg?.created;
+  const createdUnix = uploaded ? Math.floor(new Date(uploaded).getTime() / 1000) : Math.floor(Date.now() / 1000);
+
+  const row = {
+    id: rowId,
+    tenant_id: scope.tenantId,
+    project_id: null,
+    user_id: scope.userId,
+    filename,
+    original_filename: filename,
+    mime_type: cfRawMeta.mime || 'image/jpeg',
+    size: Number(cfImg?.size) || 0,
+    width: cfImg?.width != null ? Number(cfImg.width) : null,
+    height: cfImg?.height != null ? Number(cfImg.height) : null,
+    r2_key: null,
+    cloudflare_image_id: cfId,
+    url: publicUrl,
+    thumbnail_url: thumbUrl,
+    alt_text: parsed.alt_text,
+    description: null,
+    tags: JSON.stringify(parsed.tags),
+    metadata: JSON.stringify({
+      ...parsed.meta,
+      registered_from: 'cf_live',
+      origin: origin || '',
+    }),
+    workspace_id: scope.workspaceId,
+  };
+
+  await env.DB.prepare(
+    `INSERT INTO images (
+      id, tenant_id, project_id, user_id, filename, original_filename,
+      mime_type, size, width, height, r2_key, cloudflare_image_id,
+      url, thumbnail_url, alt_text, description, tags, metadata, status,
+      created_at, updated_at, workspace_id
+    ) VALUES (
+      ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?
+    )`,
+  )
+    .bind(
+      row.id,
+      row.tenant_id,
+      row.project_id,
+      row.user_id,
+      row.filename,
+      row.original_filename,
+      row.mime_type,
+      row.size,
+      row.width,
+      row.height,
+      row.r2_key,
+      row.cloudflare_image_id,
+      row.url,
+      row.thumbnail_url,
+      row.alt_text,
+      row.description,
+      row.tags,
+      row.metadata,
+      'active',
+      createdUnix,
+      Math.floor(Date.now() / 1000),
+      row.workspace_id,
+    )
+    .run();
+
+  return { ...row, created_at: createdUnix, updated_at: Math.floor(Date.now() / 1000) };
+}
+
+async function getImageRowForPatch(env, imageId, scope, authUser, origin) {
+  if (String(imageId).startsWith('cf_live_')) {
+    const cfId = String(imageId).slice('cf_live_'.length);
+    return registerCfImageToD1(env, scope, authUser, cfId, origin);
+  }
+  const row = await env.DB.prepare(
+    `SELECT * FROM images WHERE id = ? AND COALESCE(status, 'active') = 'active' LIMIT 1`,
+  )
+    .bind(imageId)
+    .first();
+  if (!row) return null;
+  if (String(row.user_id) !== String(authUser.id)) return { forbidden: true };
+  if (String(row.workspace_id) !== String(scope.workspaceId)) return { forbidden: true };
+  return row;
+}
+
+async function handleListTags(url, env, authUser, identity) {
+  const scope = await resolveScope(
+    env,
+    authUser,
+    identity,
+    url.searchParams.get('workspace_id')?.trim(),
+  );
+  if (scope.error) return jsonResponse({ error: scope.error }, scope.status);
+  if (!env?.DB) return jsonResponse({ tags: [] });
+
+  const { results } = await env.DB.prepare(
+    `SELECT tags FROM images
+     WHERE user_id = ? AND workspace_id = ? AND COALESCE(status, 'active') = 'active'
+       AND tags IS NOT NULL AND trim(tags) != '' AND tags != '[]'`,
+  )
+    .bind(scope.userId, scope.workspaceId)
+    .all()
+    .catch(() => ({ results: [] }));
+
+  const counts = new Map();
+  for (const row of results || []) {
+    for (const tag of parseTags(row.tags)) {
+      const key = tag.toLowerCase();
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  const tags = [...counts.entries()]
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+
+  return jsonResponse({ ok: true, tags });
+}
+
+async function handlePatchImage(request, url, env, authUser, identity, imageId, payloadOverride) {
+  const scope = await resolveScope(
+    env,
+    authUser,
+    identity,
+    url.searchParams.get('workspace_id')?.trim(),
+  );
+  if (scope.error) return jsonResponse({ error: scope.error }, scope.status);
+  if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+
+  const payload = payloadOverride ?? (await request.json().catch(() => ({})));
+  const rowOrErr = await getImageRowForPatch(env, imageId, scope, authUser, url.origin);
+  if (!rowOrErr) return jsonResponse({ error: 'Not found' }, 404);
+  if (rowOrErr.forbidden) return jsonResponse({ error: 'Forbidden' }, 403);
+  const row = rowOrErr;
+
+  const meta = parseMetadata(row.metadata);
+  const sets = [];
+  const binds = [];
+
+  if (payload.tags !== undefined) {
+    sets.push('tags = ?');
+    binds.push(JSON.stringify(normalizeTags(payload.tags)));
+  }
+  if (payload.label !== undefined) {
+    meta.label = String(payload.label || '').trim();
+  }
+  if (payload.notes !== undefined) {
+    meta.notes = String(payload.notes || '').trim();
+  }
+  if (payload.is_live !== undefined) {
+    meta.is_live = !!payload.is_live;
+  }
+  if (payload.preferred_bg !== undefined) {
+    meta.preferred_bg = String(payload.preferred_bg || '').trim();
+  }
+  if (payload.category !== undefined) {
+    meta.category = String(payload.category || '').trim();
+  }
+  if (payload.project_slug !== undefined) {
+    meta.project_slug = String(payload.project_slug || '').trim();
+  }
+  if (payload.tenant_slug !== undefined) {
+    meta.tenant_slug = String(payload.tenant_slug || '').trim();
+  }
+
+  sets.push('metadata = ?');
+  binds.push(JSON.stringify(meta));
+
+  if (payload.alt_text !== undefined) {
+    sets.push('alt_text = ?');
+    binds.push(String(payload.alt_text || '').trim() || null);
+  }
+  if (payload.description !== undefined) {
+    sets.push('description = ?');
+    binds.push(String(payload.description || '').trim() || null);
+  }
+  if (payload.label !== undefined && String(payload.label || '').trim()) {
+    sets.push('filename = ?');
+    binds.push(String(payload.label).trim());
+  }
+
+  sets.push('updated_at = unixepoch()');
+  binds.push(row.id);
+
+  await env.DB.prepare(`UPDATE images SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
+
+  const updated = await env.DB.prepare(`SELECT * FROM images WHERE id = ? LIMIT 1`)
+    .bind(row.id)
+    .first();
+
+  const mergedMeta = buildMetaFromRow(updated);
+  const mergedTags = payload.tags !== undefined
+    ? normalizeTags(payload.tags)
+    : parseTags(updated.tags);
+  const mergedAlt = payload.alt_text !== undefined
+    ? String(payload.alt_text || '').trim() || null
+    : updated.alt_text;
+
+  const storageSync = await syncImageStorageMeta(env, updated, scope, {
+    tags: mergedTags,
+    meta: mergedMeta,
+    alt_text: mergedAlt,
+  });
+
+  const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
+  const item = mapD1RowToItem(updated, { origin: url.origin, accountHash });
+  return jsonResponse({
+    ok: true,
+    item,
+    image: item,
+    meta: item.meta,
+    id: item.id,
+    storage_sync: storageSync,
+  });
+}
+
 async function handleLegacyMeta(request, env, authUser, imageId) {
   const key = mediaIdToKey(imageId);
   if (!key) return jsonResponse({ error: 'Not found' }, 404);
@@ -705,29 +1241,37 @@ async function handleLegacyMeta(request, env, authUser, imageId) {
     return jsonResponse({ error: 'Forbidden' }, 403);
   }
   const payload = await request.json().catch(() => ({}));
-  await binding.put(metaSidecarKey(key), JSON.stringify(payload ?? {}), {
-    httpMetadata: { contentType: 'application/json; charset=utf-8' },
-  });
-  return jsonResponse({ ok: true, meta: payload ?? {} });
+  const tags = normalizeTags(payload?.tags);
+  const sidecar = {
+    ...(payload ?? {}),
+    tags,
+    synced_at: new Date().toISOString(),
+  };
+  await syncR2ImageMeta(
+    env,
+    key,
+    {
+      tags,
+      meta: {
+        label: payload?.label || '',
+        notes: payload?.notes || '',
+        category: payload?.category || '',
+        project_slug: payload?.project_slug || '',
+        is_live: !!payload?.is_live,
+        preferred_bg: payload?.preferred_bg || '',
+        tenant_slug: payload?.tenant_slug || '',
+      },
+      alt_text: payload?.alt_text || null,
+    },
+    tags,
+    { userId: authUser.id, workspaceId: authUser.workspace_id || '', tenantId: authUser.tenant_id || '' },
+    null,
+  );
+  return jsonResponse({ ok: true, meta: sidecar });
 }
 
-async function handleLegacyD1Meta(env, authUser, imageId, payload) {
-  const row = await env.DB.prepare(`SELECT user_id, metadata FROM images WHERE id = ? LIMIT 1`)
-    .bind(imageId)
-    .first();
-  if (!row) return jsonResponse({ error: 'Not found' }, 404);
-  if (String(row.user_id) !== String(authUser.id)) return jsonResponse({ error: 'Forbidden' }, 403);
-  let meta = {};
-  try {
-    meta = row.metadata ? JSON.parse(row.metadata) : {};
-  } catch {
-    meta = {};
-  }
-  const merged = { ...meta, ...payload };
-  await env.DB.prepare(`UPDATE images SET metadata = ?, updated_at = unixepoch() WHERE id = ?`)
-    .bind(JSON.stringify(merged), imageId)
-    .run();
-  return jsonResponse({ ok: true, meta: merged });
+async function handleLegacyD1Meta(env, authUser, identity, request, url, imageId, payload) {
+  return handlePatchImage(request, url, env, authUser, identity, imageId, payload ?? {});
 }
 
 /**
@@ -744,6 +1288,10 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
   const pathLower = path.toLowerCase();
   const method = request.method.toUpperCase();
   const wsHint = url.searchParams.get('workspace_id')?.trim() || identity?.workspaceId || '';
+
+  if (pathLower === '/api/images/tags' && method === 'GET') {
+    return handleListTags(url, env, authUser, identity);
+  }
 
   if (pathLower === '/api/images' && method === 'GET') {
     return handleGetImages(request, url, env, authUser, identity);
@@ -851,12 +1399,17 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
   }
 
   const metaMatch = path.match(/^\/api\/images\/([^/]+)\/meta$/i);
-  if (metaMatch && method === 'POST') {
+  if (metaMatch && (method === 'POST' || method === 'PATCH')) {
     const imageId = metaMatch[1];
     const payload = await request.json().catch(() => ({}));
     if (mediaIdToKey(imageId)) return handleLegacyMeta(request, env, authUser, imageId);
-    if (env?.DB) return handleLegacyD1Meta(env, authUser, imageId, payload);
+    if (env?.DB) return handleLegacyD1Meta(env, authUser, identity, request, url, imageId, payload);
     return jsonResponse({ error: 'Not found' }, 404);
+  }
+
+  const patchMatch = path.match(/^\/api\/images\/([^/]+)$/i);
+  if (patchMatch && method === 'PATCH') {
+    return handlePatchImage(request, url, env, authUser, identity, patchMatch[1]);
   }
 
   const delMatch = path.match(/^\/api\/images\/([^/]+)$/i);

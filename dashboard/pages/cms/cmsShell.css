@@ -590,6 +590,64 @@
   font-size: 14px;
 }
 
+.iam-cms-skeleton {
+  padding: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.iam-cms-skeleton__hero {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (min-width: 900px) {
+  .iam-cms-skeleton__hero {
+    grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr;
+  }
+}
+
+.iam-cms-skeleton__card {
+  border-radius: 16px;
+  border: 1px solid var(--cms-border);
+  background: var(--cms-panel);
+  overflow: hidden;
+  min-height: 140px;
+}
+
+.iam-cms-skeleton__card--wide {
+  min-height: 180px;
+}
+
+.iam-cms-skeleton__block {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--cms-border) 35%, var(--cms-panel)) 0%,
+    color-mix(in srgb, var(--cms-border) 15%, var(--cms-panel)) 50%,
+    color-mix(in srgb, var(--cms-border) 35%, var(--cms-panel)) 100%
+  );
+  background-size: 200% 100%;
+  animation: iam-cms-shimmer 1.4s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+.iam-cms-skeleton__grid {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 900px) {
+  .iam-cms-skeleton__grid {
+    grid-template-columns: 1.1fr 0.9fr 0.9fr;
+  }
+}
+
+@keyframes iam-cms-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 .iam-cms-sites-hub__body {
   padding: 20px 16px 32px;
   max-width: 960px;

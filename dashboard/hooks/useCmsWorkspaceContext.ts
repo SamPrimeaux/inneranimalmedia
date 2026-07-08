@@ -90,9 +90,13 @@ export function useCmsWorkspaceContext(opts: UseCmsWorkspaceContextOptions = {})
     try {
       const qs = new URLSearchParams();
       if (opts.siteSlug) qs.set('site', opts.siteSlug);
+      const ws = trimSlug(opts.workspaceId);
+      const headers: Record<string, string> = {};
+      if (ws) headers['X-IAM-Workspace-Id'] = ws;
       const res = await fetch(`/api/cms/workspace-context${qs.size ? `?${qs}` : ''}`, {
         credentials: 'include',
         cache: 'no-store',
+        headers,
       });
       const data = normalizeWorkspaceContextPayload(
         (await res.json()) as CmsWorkspaceContext & { error?: string; message?: string },
@@ -120,10 +124,13 @@ export function useCmsWorkspaceContext(opts: UseCmsWorkspaceContextOptions = {})
 
   const persistSite = useCallback(
     async (projectSlug: string) => {
+      const ws = trimSlug(opts.workspaceId);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (ws) headers['X-IAM-Workspace-Id'] = ws;
       const res = await fetch('/api/cms/workspace-context', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ project_slug: projectSlug }),
       });
       const data = normalizeWorkspaceContextPayload(

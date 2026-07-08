@@ -258,7 +258,39 @@ export function CmsDashboard({
   );
 
   if (loading) {
-    return <div className="iam-cms-loading">Loading command center…</div>;
+    return (
+      <div className="iam-cms-skeleton" aria-busy="true" aria-label="Loading CMS command center">
+        <div className="iam-cms-skeleton__hero">
+          <div className="iam-cms-skeleton__card iam-cms-skeleton__card--wide" style={{ padding: 16 }}>
+            <div className="iam-cms-skeleton__block" style={{ width: 120, height: 12, marginBottom: 12 }} />
+            <div className="iam-cms-skeleton__block" style={{ width: '55%', height: 22, marginBottom: 10 }} />
+            <div className="iam-cms-skeleton__block" style={{ width: '40%', height: 12, marginBottom: 20 }} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+              {[1, 2, 3, 4].map(n => (
+                <div key={n} className="iam-cms-skeleton__block" style={{ height: 36 }} />
+              ))}
+            </div>
+          </div>
+          {[1, 2, 3, 4].map(n => (
+            <div key={n} className="iam-cms-skeleton__card" style={{ padding: 14 }}>
+              <div className="iam-cms-skeleton__block" style={{ width: 32, height: 32, borderRadius: 8, marginBottom: 12 }} />
+              <div className="iam-cms-skeleton__block" style={{ width: '70%', height: 12, marginBottom: 8 }} />
+              <div className="iam-cms-skeleton__block" style={{ width: '45%', height: 10 }} />
+            </div>
+          ))}
+        </div>
+        <div className="iam-cms-skeleton__grid">
+          {[1, 2, 3].map(n => (
+            <div key={n} className="iam-cms-skeleton__card" style={{ padding: 14, minHeight: 220 }}>
+              <div className="iam-cms-skeleton__block" style={{ width: '50%', height: 12, marginBottom: 16 }} />
+              {[1, 2, 3, 4].map(row => (
+                <div key={row} className="iam-cms-skeleton__block" style={{ height: 28, marginBottom: 8 }} />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   if (error) {
