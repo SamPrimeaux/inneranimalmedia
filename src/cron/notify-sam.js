@@ -1,3 +1,5 @@
+import { insertEmailLog } from '../core/email-log.js';
+
 /**
  * Resend notification + email_logs (from worker.js notifySam).
  * @param {any} env
@@ -46,20 +48,14 @@ export async function notifySam(env, opts, executionCtx) {
       });
       const json = await res.json().catch(() => ({}));
       if (env.DB) {
-        await env.DB.prepare(
-          `INSERT INTO email_logs (id, to_email, from_email, subject, status, resend_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-        )
-          .bind(
-            crypto.randomUUID(),
-            toAddr,
-            fromAddr,
-            subject,
-            res.ok ? 'sent' : 'failed',
-            json.id ?? null,
-          )
-          .run()
-          .catch((e) => console.warn('[notifySam] email_logs', e?.message ?? e));
+        await insertEmailLog(env, {
+          to: toAddr,
+          from: fromAddr,
+          subject,
+          status: res.ok ? 'sent' : 'failed',
+          externalMessageId: json.id ?? null,
+          provider: 'resend',
+        });
       }
       if (!res.ok) console.warn('[notifySam] Resend', res.status, JSON.stringify(json).slice(0, 400));
     } catch (e) {

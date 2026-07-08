@@ -7,6 +7,7 @@
  */
 import { getVaultSecrets, getPublicConfig, secretFromVault } from '../core/vault.js';
 import { getGmailTokenRowForUser } from '../core/gmail-user-tokens.js';
+import { insertEmailLog } from '../core/email-log.js';
 
 function b64UrlEncodeUtf8(str) {
   const bytes = new TextEncoder().encode(str);
@@ -244,20 +245,15 @@ export async function sendPlatformEmail(env, opts, executionCtx) {
       }
 
       if (env.DB) {
-        await env.DB.prepare(
-          `INSERT INTO email_logs (id, to_email, from_email, subject, status, resend_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-        )
-          .bind(
-            crypto.randomUUID(),
-            toAddr,
-            fromDefault || 'platform',
-            subject,
-            'sent',
-            json?.id ?? null,
-          )
-          .run()
-          .catch((e) => console.warn('[sendPlatformEmail] email_logs', e?.message ?? e));
+        const provider = useResend ? 'resend' : 'gmail';
+        await insertEmailLog(env, {
+          to: toAddr,
+          from: fromDefault || 'platform',
+          subject,
+          status: 'sent',
+          externalMessageId: json?.id ?? null,
+          provider,
+        });
       }
       return { success: true, data: json };
     } catch (e) {

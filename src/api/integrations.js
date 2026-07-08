@@ -10,6 +10,7 @@ import { getUserBYOKey } from './provisioning.js';
 import { handleGithubReposList } from '../integrations/github.js';
 import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 import { recordWorkerAnalyticsError } from './telemetry.js';
+import { persistResendInboundEmail } from '../core/resend-inbound.js';
 import { handleIntegrationsConnectRoutes } from './integrations/connect.js';
 import {
     addSharedDrivePermissionV3,
@@ -1307,10 +1308,25 @@ function timingSafeEqual(a, b) {
 async function handleResendWebhook(request, env, ctx, endpointPath = '/api/webhooks/resend') {
     try {
         const body = await request.json();
-        const { from, subject, text, to } = body.data || body; // Format varies based on Resend setup
+        const data = body?.data && typeof body.data === 'object' ? body.data : body;
+        const fromRaw = data?.from;
+        const senderEmail =
+            typeof fromRaw === 'string'
+                ? fromRaw
+                : fromRaw?.email || fromRaw?.address || fromRaw;
+        const subject = data?.subject != null ? String(data.subject) : '';
+        const text = data?.text != null ? String(data.text) : '';
 
-        const senderEmail = from?.email || from;
         console.log(`[Resend] New inbound email from ${senderEmail}: ${subject}`);
+
+        const inbound = await persistResendInboundEmail(env, body);
+        if (!inbound.ok && inbound.reason !== 'unresolved_tenant') {
+            console.warn('[Resend] inbound persist skipped', inbound.reason || 'unknown');
+        } else if (inbound.ok && !inbound.duplicate) {
+            console.log(
+                `[Resend] stored inbound ${inbound.id} tenant=${inbound.tenantId || 'unknown'}`,
+            );
+        }
 
         // 🧱 Hook Resolution Engine
         const hook = await env.DB.prepare(
@@ -1335,7 +1351,7 @@ async function handleResendWebhook(request, env, ctx, endpointPath = '/api/webho
                 Math.floor(Date.now() / 1000)
             ).run();
         }
-        await recordIntegrationEvent(env, 'system', 'resend', 'webhook_received', senderEmail, `Inbound email webhook received from ${senderEmail}`, { hook_matched: !!hook, subject });
+        await recordIntegrationEvent(env, 'system', 'resend', 'webhook_received', senderEmail, `Inbound email webhook received from ${senderEmail}`, { hook_matched: !!hook, subject, inbound_id: inbound.ok ? inbound.id : null });
 
         const { ingestWebhookEventAndDispatch } = await import('../core/webhook-ingest-dispatch.js');
         const pathNorm = String(endpointPath || '/api/webhooks/resend').toLowerCase();
@@ -1346,20 +1362,27 @@ async function handleResendWebhook(request, env, ctx, endpointPath = '/api/webho
                   ? 'email_inbound'
                   : 'webhook_received';
         await ingestWebhookEventAndDispatch(env, ctx, {
-            tenantId: null,
+            tenantId: inbound.ok ? inbound.tenantId : null,
             workspaceId: null,
             provider: 'resend',
             eventType,
             payload: body,
             endpointPath: pathNorm,
             signatureValid: true,
-            metadata: { hook_matched: !!hook, subject: subject ?? null, from: senderEmail },
+            metadata: {
+                hook_matched: !!hook,
+                subject: subject ?? null,
+                from: senderEmail,
+                inbound_id: inbound.ok ? inbound.id : null,
+            },
         });
 
         return jsonResponse({ 
             status: 'received', 
             source: 'resend',
-            hook_matched: !!hook
+            hook_matched: !!hook,
+            inbound_id: inbound.ok ? inbound.id : null,
+            tenant_id: inbound.ok ? inbound.tenantId : null,
         });
 
     } catch (e) {

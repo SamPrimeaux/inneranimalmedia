@@ -20,6 +20,8 @@ import {
   getEmailR2Bucket,
   getEmailSentLogObject,
 } from '../core/r2-email.js';
+import { emailLogExternalId, emailLogProvider, insertEmailLog, looksLikeGmailMessageId } from '../core/email-log.js';
+import { receivedEmailsScopeClause } from '../core/resend-inbound.js';
 
 const PAGE_SIZE = 50;
 const GMAIL_INBOX_PRELOAD_MAX = 20;
@@ -44,11 +46,6 @@ function safeJsonParse(raw) {
   } catch {
     return null;
   }
-}
-
-function looksLikeGmailMessageId(id) {
-  const s = String(id || '').trim();
-  return /^[0-9a-f]{10,}$/i.test(s);
 }
 
 function mapEmailLogRow(logRow) {
@@ -82,8 +79,9 @@ async function loadSentLogBody(env, authUser, logId, logRow) {
     /* fall through */
   }
 
-  const extId = logRow?.resend_id ? String(logRow.resend_id).trim() : '';
-  if (!extId || !looksLikeGmailMessageId(extId)) return null;
+  const extId = emailLogExternalId(logRow);
+  const provider = emailLogProvider(logRow, extId);
+  if (!extId || provider !== 'gmail' || !looksLikeGmailMessageId(extId)) return null;
 
   const gmailTok = await getGmailTokenRow(env, authUser);
   const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
@@ -491,10 +489,7 @@ export async function handleMailApi(request, url, env, ctx) {
     (await resolveIntegrationUserId(env, authUser)) ||
     (authUser.id ? String(authUser.id).trim() : '');
   const mailTenantId = authUser.tenant_id ? String(authUser.tenant_id).trim() : '';
-  const isSuperadmin =
-    authUser?.is_superadmin === 1 ||
-    authUser?.is_superadmin === true ||
-    authUser?.role === 'superadmin';
+  const receivedScope = receivedEmailsScopeClause(mailTenantId, mailUserId);
 
   try {
     // Gmail OAuth connect (real)
@@ -588,15 +583,15 @@ export async function handleMailApi(request, url, env, ctx) {
       const category = url.searchParams.get('category');
       const unread = url.searchParams.get('unread') === '1';
 
-      const where = ['is_archived = 0'];
-      const binds = [];
+      const where = [receivedScope.sql, 'is_archived = 0'];
+      const binds = [...receivedScope.binds];
       if (category && category.trim()) {
         where.push('category = ?');
         binds.push(category.trim());
       }
       if (unread) where.push('is_read = 0');
 
-      const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+      const whereSql = `WHERE ${where.join(' AND ')}`;
 
       const [rows, totalRow, unreadRow] = await Promise.all([
         env.DB.prepare(
@@ -610,8 +605,8 @@ export async function handleMailApi(request, url, env, ctx) {
           `SELECT COUNT(*) as c FROM received_emails ${whereSql}`
         ).bind(...binds).first(),
         env.DB.prepare(
-          `SELECT COUNT(*) as c FROM received_emails WHERE is_archived = 0 AND is_read = 0`
-        ).first(),
+          `SELECT COUNT(*) as c FROM received_emails WHERE ${receivedScope.sql} AND is_archived = 0 AND is_read = 0`
+        ).bind(...receivedScope.binds).first(),
       ]);
 
       return jsonResponse({
@@ -634,10 +629,10 @@ export async function handleMailApi(request, url, env, ctx) {
       const { results } = await env.DB.prepare(
         `SELECT id, from_address, to_address, subject, date_received, is_read, is_starred, is_archived, category, has_attachments
          FROM received_emails
-         WHERE is_starred = 1
+         WHERE ${receivedScope.sql} AND is_starred = 1
          ORDER BY date_received DESC
          LIMIT 100`
-      ).all();
+      ).bind(...receivedScope.binds).all();
       return jsonResponse({ emails: results || [] });
     }
 
@@ -657,13 +652,13 @@ export async function handleMailApi(request, url, env, ctx) {
         env.DB.prepare(
           `SELECT id, from_address, to_address, subject, date_received, is_read, is_starred, is_archived, category, has_attachments
            FROM received_emails
-           WHERE is_archived = 1
+           WHERE ${receivedScope.sql} AND is_archived = 1
            ORDER BY date_received DESC
            LIMIT ? OFFSET ?`
-        ).bind(PAGE_SIZE, offset).all(),
+        ).bind(...receivedScope.binds, PAGE_SIZE, offset).all(),
         env.DB.prepare(
-          `SELECT COUNT(*) as c FROM received_emails WHERE is_archived = 1`
-        ).first(),
+          `SELECT COUNT(*) as c FROM received_emails WHERE ${receivedScope.sql} AND is_archived = 1`
+        ).bind(...receivedScope.binds).first(),
       ]);
 
       return jsonResponse({
@@ -700,7 +695,8 @@ export async function handleMailApi(request, url, env, ctx) {
       if (!id) return jsonResponse({ error: 'Not found' }, 404);
 
       const logRow = await env.DB.prepare(
-        `SELECT id, from_email, to_email, from_address, to_address, subject, status, resend_id, created_at
+        `SELECT id, from_email, to_email, from_address, to_address, subject, status,
+                external_message_id, provider, resend_id, created_at
          FROM email_logs
          WHERE id = ? AND user_id = ?
          LIMIT 1`,
@@ -773,9 +769,9 @@ export async function handleMailApi(request, url, env, ctx) {
       const email = await env.DB.prepare(
         `SELECT *
          FROM received_emails
-         WHERE id = ?
+         WHERE id = ? AND ${receivedScope.sql}
          LIMIT 1`
-      ).bind(id).first();
+      ).bind(id, ...receivedScope.binds).first();
 
       if (!email) return jsonResponse({ error: 'Email not found' }, 404);
 
@@ -783,8 +779,8 @@ export async function handleMailApi(request, url, env, ctx) {
       await env.DB.prepare(
         `UPDATE received_emails
          SET is_read = 1, updated_at = datetime('now')
-         WHERE id = ?`
-      ).bind(id).run().catch(() => {});
+         WHERE id = ? AND ${receivedScope.sql}`
+      ).bind(id, ...receivedScope.binds).run().catch(() => {});
 
       let body = null;
       const r2Key = email?.r2_key ? String(email.r2_key).trim() : '';
@@ -811,10 +807,11 @@ export async function handleMailApi(request, url, env, ctx) {
           ? env.DB.prepare(
               `SELECT id, from_address, subject, date_received, is_read
                FROM received_emails
-               WHERE message_id = ? OR in_reply_to = ?
+               WHERE ${receivedScope.sql}
+                 AND (message_id = ? OR in_reply_to = ?)
                ORDER BY date_received ASC
                LIMIT 20`
-            ).bind(String(email.in_reply_to), String(email.in_reply_to)).all().catch(() => ({ results: [] }))
+            ).bind(...receivedScope.binds, String(email.in_reply_to), String(email.in_reply_to)).all().catch(() => ({ results: [] }))
           : Promise.resolve({ results: [] }),
       ]);
 
@@ -882,16 +879,13 @@ export async function handleMailApi(request, url, env, ctx) {
         });
       }
       if (senders.length > 0) return jsonResponse({ senders });
-      // resend_emails is a platform-level table — only expose to superadmin.
-      // Non-superadmin users without Gmail connected get an empty sender list
-      // rather than leaking platform addresses across tenant boundaries.
-      if (!isSuperadmin) return jsonResponse({ senders: [] });
+      if (!mailTenantId) return jsonResponse({ senders: [] });
       const { results } = await env.DB.prepare(
         `SELECT id, address, display_name, label, purpose
          FROM resend_emails
-         WHERE status = 'active' AND can_send = 1
+         WHERE status = 'active' AND can_send = 1 AND tenant_id = ?
          ORDER BY purpose, address`
-      ).all();
+      ).bind(mailTenantId).all();
       return jsonResponse({ senders: results || [] });
     }
 
@@ -925,18 +919,32 @@ export async function handleMailApi(request, url, env, ctx) {
         }
       }
 
-      const safeFirst = (q) => env.DB.prepare(q).first().catch(() => null);
-      const safeAll = (q) => env.DB.prepare(q).all().catch(() => ({ results: [] }));
+      const safeFirst = (q, binds = []) =>
+        env.DB.prepare(q).bind(...binds).first().catch(() => null);
+      const safeAll = (q, binds = []) =>
+        env.DB.prepare(q).bind(...binds).all().catch(() => ({ results: [] }));
 
+      const scopeSql = receivedScope.sql;
+      const scopeBinds = receivedScope.binds;
       const [totalRow, unreadRow, starredRow, categoriesRows] = await Promise.all([
-        safeFirst(`SELECT COUNT(*) as c FROM received_emails WHERE is_archived = 0`),
-        safeFirst(`SELECT COUNT(*) as c FROM received_emails WHERE is_read = 0 AND is_archived = 0`),
-        safeFirst(`SELECT COUNT(*) as c FROM received_emails WHERE is_starred = 1`),
+        safeFirst(
+          `SELECT COUNT(*) as c FROM received_emails WHERE ${scopeSql} AND is_archived = 0`,
+          scopeBinds,
+        ),
+        safeFirst(
+          `SELECT COUNT(*) as c FROM received_emails WHERE ${scopeSql} AND is_read = 0 AND is_archived = 0`,
+          scopeBinds,
+        ),
+        safeFirst(
+          `SELECT COUNT(*) as c FROM received_emails WHERE ${scopeSql} AND is_starred = 1`,
+          scopeBinds,
+        ),
         safeAll(
           `SELECT category, COUNT(*) as count
            FROM received_emails
-           WHERE is_archived = 0
-           GROUP BY category`
+           WHERE ${scopeSql} AND is_archived = 0
+           GROUP BY category`,
+          scopeBinds,
         ),
       ]);
 
@@ -989,8 +997,8 @@ export async function handleMailApi(request, url, env, ctx) {
       await env.DB.prepare(
         `UPDATE received_emails
          SET ${sets.join(', ')}
-         WHERE id = ?`
-      ).bind(...binds, id).run();
+         WHERE id = ? AND ${receivedScope.sql}`
+      ).bind(...binds, id, ...receivedScope.binds).run();
 
       return jsonResponse({ ok: true });
     }
@@ -1128,17 +1136,21 @@ export async function handleMailApi(request, url, env, ctx) {
         // Also log to email_logs for Sent UI — scoped to authUser.
         const logId = crypto.randomUUID();
         const gmailMsgId = String(sent.json?.id || '');
-        try {
-          await env.DB.prepare(
-            `INSERT INTO email_logs (id, to_email, from_email, subject, status, resend_id, user_id, tenant_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, 'sent', ?, ?, ?, datetime('now'), datetime('now'))`
-          ).bind(logId, to, from, subject, gmailMsgId, mailUserId, mailTenantId).run();
-        } catch {
-          // ignore
-        }
+        await insertEmailLog(env, {
+          id: logId,
+          to,
+          from,
+          subject,
+          status: 'sent',
+          externalMessageId: gmailMsgId,
+          provider: 'gmail',
+          userId: mailUserId,
+          tenantId: mailTenantId,
+        });
         await archiveSentEmailPayload(env, logId, {
           id: logId,
-          resend_id: gmailMsgId,
+          external_message_id: gmailMsgId,
+          provider: 'gmail',
           from,
           to,
           subject,
@@ -1170,7 +1182,8 @@ export async function handleMailApi(request, url, env, ctx) {
       const logId = crypto.randomUUID();
       const archivePayload = {
         id: logId,
-        resend_id: resendId,
+        external_message_id: resendId,
+        provider: 'resend',
         from,
         to,
         subject,
@@ -1179,17 +1192,17 @@ export async function handleMailApi(request, url, env, ctx) {
         sent_at: new Date().toISOString(),
       };
 
-      try {
-        const ins = await env.DB.prepare(
-          `INSERT INTO email_logs (id, to_email, from_email, subject, status, resend_id, user_id, tenant_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'sent', ?, ?, ?, datetime('now'), datetime('now'))`,
-        ).bind(logId, to, from, subject, resendId, mailUserId, mailTenantId).run();
-        if (!(ins.meta?.changes > 0)) {
-          console.warn('[mail/send] email_logs insert reported 0 changes');
-        }
-      } catch (e) {
-        console.warn('[mail/send] email_logs insert failed', e?.message ?? e);
-      }
+      await insertEmailLog(env, {
+        id: logId,
+        to,
+        from,
+        subject,
+        status: 'sent',
+        externalMessageId: resendId,
+        provider: 'resend',
+        userId: mailUserId,
+        tenantId: mailTenantId,
+      });
 
       await archiveSentEmailPayload(env, logId, archivePayload);
 
@@ -1242,8 +1255,8 @@ export async function handleMailApi(request, url, env, ctx) {
       await env.DB.prepare(
         `UPDATE received_emails
          SET is_archived = 1, updated_at = datetime('now')
-         WHERE id = ?`
-      ).bind(id).run();
+         WHERE id = ? AND ${receivedScope.sql}`
+      ).bind(id, ...receivedScope.binds).run();
 
       return jsonResponse({ ok: true });
     }

@@ -3,6 +3,7 @@
  * Each message goes only to auth_users.email for the same user_id as the open finding(s).
  */
 import { getVaultSecrets, secretFromVault } from './vault.js';
+import { insertEmailLog } from './email-log.js';
 
 const SECURITY_REVIEW_URL = 'https://inneranimalmedia.com/dashboard/settings/keys#security-findings';
 const SECURITY_FROM = 'notifications@inneranimalmedia.com';
@@ -162,15 +163,16 @@ export async function sendSecurityAlertHtmlToEmail(env, opts) {
     }
     const json = await res.json().catch(() => ({}));
     if (env.DB) {
-      await env.DB.prepare(
-        `INSERT INTO email_logs (id, to_email, from_email, subject, status, resend_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-      )
-        .bind(crypto.randomUUID(), to, SECURITY_FROM, subject, 'sent', json?.id ?? null)
-        .run()
-        .catch(() => {});
+      await insertEmailLog(env, {
+        to,
+        from: SECURITY_FROM,
+        subject,
+        status: 'sent',
+        externalMessageId: json?.id ?? null,
+        provider: 'resend',
+      });
     }
-    return { success: true, resend_id: json?.id ?? null };
+    return { success: true, external_message_id: json?.id ?? null, provider: 'resend' };
   } catch (e) {
     console.warn('[security-alert-email] send failed', to, e?.message ?? e);
     return { success: false, error: e?.message ?? String(e) };

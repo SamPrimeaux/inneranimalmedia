@@ -3,6 +3,7 @@
  * Evening and morning share this core; morning merges ## Morning into the same YYYY-MM-DD.md file.
  */
 
+import { insertEmailLog } from '../../core/email-log.js';
 import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
 import { resolveCronTenantId } from '../cron-tenant.js';
 import { snapshotGmailInboxForUser } from '../../core/gmail-inbox-snapshot.js';
@@ -481,17 +482,15 @@ async function sendResendEmail(env, p) {
   }
   const data = await res.json().catch(() => ({}));
   if (env.DB) {
-    await env.DB.prepare(
-      `INSERT INTO email_logs (id, to_email, from_email, subject, status, resend_id, text_content, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'sent', ?, ?, datetime('now'), datetime('now'))`,
-    ).bind(
-      crypto.randomUUID(),
-      p.toEmail,
-      p.fromEmail,
-      p.subject,
-      data.id ?? null,
-      p.textBody.slice(0, 50000),
-    ).run().catch(() => {});
+    await insertEmailLog(env, {
+      to: p.toEmail,
+      from: p.fromEmail,
+      subject: p.subject,
+      status: 'sent',
+      externalMessageId: data.id ?? null,
+      provider: 'resend',
+      textContent: p.textBody.slice(0, 50000),
+    });
   }
   return data;
 }
