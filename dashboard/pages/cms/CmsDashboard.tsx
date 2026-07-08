@@ -15,6 +15,8 @@ import { parseProjectMeta } from '../projects/projectDetailMeta';
 import { uploadProjectR2File } from '../../src/lib/projectR2Upload';
 import './cmsShell.css';
 
+export type CmsDashboardSetupMode = 'loading' | 'active' | 'deploy' | 'pick-site';
+
 type ActivityRow = {
   id?: string;
   action?: string;
@@ -25,7 +27,8 @@ type ActivityRow = {
 };
 
 type Props = {
-  siteSlug: string;
+  siteSlug: string | null;
+  setupMode: CmsDashboardSetupMode;
   site?: CmsWorkspaceSite | null;
   sites?: CmsWorkspaceSite[];
   context?: CmsWorkspaceContext | null;
@@ -70,8 +73,69 @@ function activityStatus(row: ActivityRow): 'published' | 'draft' {
   return 'draft';
 }
 
+function SkeletonBlock({
+  width,
+  height,
+  style,
+}: {
+  width?: string | number;
+  height?: number;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <div
+      className="iam-cms-skeleton__block"
+      style={{ width: width ?? '100%', height: height ?? 12, ...style }}
+    />
+  );
+}
+
+function ModuleCardSkeleton() {
+  return (
+    <div className="iam-cms-card iam-cms-module iam-cms-module--skeleton" aria-hidden>
+      <SkeletonBlock width="55%" height={12} style={{ marginBottom: 10 }} />
+      <SkeletonBlock height={10} style={{ marginBottom: 6 }} />
+      <SkeletonBlock width="40%" height={10} />
+    </div>
+  );
+}
+
+function ActiveSiteSkeleton() {
+  return (
+    <section className="iam-cms-card iam-cms-site-hero iam-cms-site-hero--skeleton" aria-hidden>
+      <SkeletonBlock width={100} height={10} style={{ marginBottom: 12 }} />
+      <SkeletonBlock width="60%" height={24} style={{ marginBottom: 8 }} />
+      <SkeletonBlock width="45%" height={12} style={{ marginBottom: 18 }} />
+      <div className="iam-cms-site-hero__stats">
+        {[1, 2, 3, 4].map((n) => (
+          <div key={n} className="iam-cms-stat">
+            <SkeletonBlock height={10} />
+            <SkeletonBlock height={18} style={{ marginTop: 8 }} />
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+        <SkeletonBlock width={120} height={40} />
+        <SkeletonBlock width={100} height={40} />
+      </div>
+    </section>
+  );
+}
+
+function PanelSkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="iam-cms-panel-skeleton" aria-hidden>
+      <SkeletonBlock width="45%" height={12} style={{ margin: '14px 16px 12px' }} />
+      {Array.from({ length: rows }, (_, i) => (
+        <SkeletonBlock key={i} height={28} style={{ margin: '0 16px 8px' }} />
+      ))}
+    </div>
+  );
+}
+
 export function CmsDashboard({
   siteSlug,
+  setupMode,
   site,
   sites = [],
   context,
@@ -86,8 +150,12 @@ export function CmsDashboard({
   const siteMenuRef = useRef<HTMLDivElement>(null);
   const [boot, setBoot] = useState<CmsBootstrapData | null>(null);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [bootLoading, setBootLoading] = useState(false);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [bootError, setBootError] = useState<string | null>(null);
+
+  const hasActiveSite = setupMode === 'active' && Boolean(siteSlug);
+
   const {
     items: connectedIntegrations,
     loading: integrationsLoading,
@@ -95,11 +163,22 @@ export function CmsDashboard({
     refresh: refreshIntegrations,
     connectedCount,
   } = useCmsConnectedIntegrations(true);
-  const { project: linkedProject, refresh: refreshLinkedProject } = useCmsLinkedProject(siteSlug, true);
+  const { project: linkedProject, refresh: refreshLinkedProject } = useCmsLinkedProject(
+    siteSlug || '',
+    hasActiveSite,
+  );
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const loadSiteData = useCallback(async () => {
+    if (!siteSlug || !hasActiveSite) {
+      setBoot(null);
+      setActivity([]);
+      setBootLoading(false);
+      setActivityLoading(false);
+      return;
+    }
+    setBootLoading(true);
+    setActivityLoading(true);
+    setBootError(null);
     try {
       const q = new URLSearchParams({ project_slug: siteSlug });
       const actQ = new URLSearchParams({ project_slug: siteSlug });
@@ -117,15 +196,18 @@ export function CmsDashboard({
         setActivity([]);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load CMS overview');
+      setBootError(e instanceof Error ? e.message : 'Failed to load CMS overview');
+      setBoot(null);
+      setActivity([]);
     } finally {
-      setLoading(false);
+      setBootLoading(false);
+      setActivityLoading(false);
     }
-  }, [siteSlug]);
+  }, [siteSlug, hasActiveSite]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadSiteData();
+  }, [loadSiteData]);
 
   useEffect(() => {
     setLocalIconUrl(null);
@@ -147,7 +229,6 @@ export function CmsDashboard({
   const assets = boot?.assets_3d || boot?.assets || [];
   const imports = boot?.imports || [];
   const navMenus = boot?.nav_menus || [];
-  const componentTemplates = boot?.component_templates || [];
   const sections = boot?.sections || Object.values(boot?.sections_by_page || {}).flat();
   const drafts = pages.filter((p) => String(p.status || '').toLowerCase() === 'draft').length;
 
@@ -159,13 +240,17 @@ export function CmsDashboard({
     return navMenus.length;
   }, [sections, navMenus.length]);
 
+  const settingsCount = themes.length + navMenus.length;
+
   const storefrontUrl = useMemo(
     () =>
-      resolveStorefrontUrl({
-        projectSlug: siteSlug,
-        siteDomain: site?.domain,
-        publicDomain: context?.public_domain,
-      }),
+      siteSlug
+        ? resolveStorefrontUrl({
+            projectSlug: siteSlug,
+            siteDomain: site?.domain,
+            publicDomain: context?.public_domain,
+          })
+        : null,
     [siteSlug, site?.domain, context?.public_domain],
   );
 
@@ -174,7 +259,7 @@ export function CmsDashboard({
     linkedProject?.cover_image_url ||
     site?.logo_url ||
     null;
-  const siteDisplayName = site?.name || context?.project_name || siteSlug;
+  const siteDisplayName = site?.name || context?.project_name || siteSlug || 'Your site';
 
   const handleIconDrop = useCallback(
     async (file: File) => {
@@ -204,266 +289,332 @@ export function CmsDashboard({
     [linkedProject, context?.workspace_id, refreshLinkedProject],
   );
 
+  const guardNavigate = useCallback(
+    (path: string) => {
+      if (setupMode === 'deploy' || setupMode === 'pick-site') {
+        onOpenDeployWizard?.();
+        return;
+      }
+      if (!siteSlug) return;
+      onNavigate(path);
+    },
+    [setupMode, siteSlug, onNavigate, onOpenDeployWizard],
+  );
+
   const modules = useMemo(
     () => [
       {
-        id: 'project',
-        title: 'Project',
-        desc: linkedProject
-          ? 'Jump to the dashboard project linked to this CMS site.'
-          : 'Connect a dashboard project for shared icons, rules, and memory.',
-        sub: linkedProject ? linkedProject.name : 'Browse projects',
-        path: linkedProject
-          ? `/dashboard/projects/${encodeURIComponent(linkedProject.id)}`
-          : '/dashboard/projects',
-        cta: linkedProject ? 'Open project →' : 'Browse projects →',
+        id: 'content',
+        title: 'Content',
+        desc: 'Create, organize, and publish content across your site.',
+        sub: hasActiveSite && !bootLoading ? `${drafts} draft${drafts === 1 ? '' : 's'}` : '—',
+        path: siteSlug ? buildCmsPath({ panel: 'pages', siteSlug }) : '',
+        cta: 'Manage content →',
       },
       {
         id: 'media',
         title: 'Media',
-        desc: 'Manage images, video, and files in this site’s media library.',
-        sub: `${assets.length} asset${assets.length === 1 ? '' : 's'}`,
-        path: buildCmsPath({ panel: 'media', siteSlug }),
+        desc: 'Manage images, videos, and files in your media library.',
+        sub: hasActiveSite && !bootLoading ? `${assets.length} asset${assets.length === 1 ? '' : 's'}` : '—',
+        path: siteSlug ? buildCmsPath({ panel: 'media', siteSlug }) : '',
         cta: 'Open media library →',
       },
       {
         id: 'structure',
         title: 'Structure',
-        desc: 'Bindings, domains, hosting profile, and site-specific configuration.',
-        sub: 'Bindings & site specifics',
+        desc: 'Organize your site structure, menus, and navigation.',
+        sub: hasActiveSite && !bootLoading ? `${collectionCount} menu${collectionCount === 1 ? '' : 's'}` : '—',
         action: 'structure' as const,
-        cta: 'View bindings →',
+        cta: 'View structure →',
       },
       {
-        id: 'templates',
-        title: 'Templates',
-        desc: 'Platform-wide page templates and section blocks from D1 + R2.',
-        sub: `${componentTemplates.length}+ global block${componentTemplates.length === 1 ? '' : 's'}`,
-        path: buildCmsPath({ panel: 'templates', siteSlug }),
-        cta: 'Browse library →',
+        id: 'settings',
+        title: 'Settings',
+        desc: 'Configure your site settings, domains, and preferences.',
+        sub: hasActiveSite && !bootLoading ? `${settingsCount} setting${settingsCount === 1 ? '' : 's'}` : '—',
+        path: siteSlug ? buildCmsPath({ panel: 'online-store', siteSlug }) : '',
+        cta: 'Site settings →',
       },
     ],
-    [linkedProject, assets.length, componentTemplates.length, siteSlug],
+    [hasActiveSite, bootLoading, drafts, assets.length, collectionCount, settingsCount, siteSlug],
   );
 
   const quickActions = useMemo(
     () => [
-      { label: 'Create new page', path: buildCmsPath({ panel: 'theme-editor', siteSlug }) },
-      { label: 'Browse templates', path: buildCmsPath({ panel: 'templates', siteSlug }) },
-      { label: 'Upload media', path: buildCmsPath({ panel: 'media', siteSlug }) },
+      { label: 'Create new page', path: siteSlug ? buildCmsPath({ panel: 'theme-editor', siteSlug }) : '' },
+      { label: 'Browse templates', path: siteSlug ? buildCmsPath({ panel: 'templates', siteSlug }) : '' },
+      { label: 'Upload media', path: siteSlug ? buildCmsPath({ panel: 'media', siteSlug }) : '' },
       { label: 'Import theme', action: 'import' as const },
-      { label: 'Manage redirects', path: buildCmsPath({ panel: 'pages', siteSlug }) },
+      { label: 'Manage redirects', path: siteSlug ? buildCmsPath({ panel: 'pages', siteSlug }) : '' },
     ],
     [siteSlug],
   );
 
-  if (loading) {
-    return (
-      <div className="iam-cms-skeleton" aria-busy="true" aria-label="Loading CMS command center">
-        <div className="iam-cms-skeleton__hero">
-          <div className="iam-cms-skeleton__card iam-cms-skeleton__card--wide" style={{ padding: 16 }}>
-            <div className="iam-cms-skeleton__block" style={{ width: 120, height: 12, marginBottom: 12 }} />
-            <div className="iam-cms-skeleton__block" style={{ width: '55%', height: 22, marginBottom: 10 }} />
-            <div className="iam-cms-skeleton__block" style={{ width: '40%', height: 12, marginBottom: 20 }} />
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-              {[1, 2, 3, 4].map(n => (
-                <div key={n} className="iam-cms-skeleton__block" style={{ height: 36 }} />
-              ))}
-            </div>
-          </div>
-          {[1, 2, 3, 4].map(n => (
-            <div key={n} className="iam-cms-skeleton__card" style={{ padding: 14 }}>
-              <div className="iam-cms-skeleton__block" style={{ width: 32, height: 32, borderRadius: 8, marginBottom: 12 }} />
-              <div className="iam-cms-skeleton__block" style={{ width: '70%', height: 12, marginBottom: 8 }} />
-              <div className="iam-cms-skeleton__block" style={{ width: '45%', height: 10 }} />
-            </div>
-          ))}
-        </div>
-        <div className="iam-cms-skeleton__grid">
-          {[1, 2, 3].map(n => (
-            <div key={n} className="iam-cms-skeleton__card" style={{ padding: 14, minHeight: 220 }}>
-              <div className="iam-cms-skeleton__block" style={{ width: '50%', height: 12, marginBottom: 16 }} />
-              {[1, 2, 3, 4].map(row => (
-                <div key={row} className="iam-cms-skeleton__block" style={{ height: 28, marginBottom: 8 }} />
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const showHeroSkeleton = setupMode === 'loading' || (hasActiveSite && bootLoading);
+  const showModuleSkeleton = setupMode === 'loading' || (hasActiveSite && bootLoading);
 
-  if (error) {
-    return (
-      <div className="iam-cms-dashboard">
-        <div className="iam-cms-card iam-cms-site-hero">
-          <p className="iam-cms-site-hero__meta">{error}</p>
-          <button type="button" className="iam-cms-btn" onClick={() => void load()}>
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const renderActiveSiteCard = () => {
+    if (showHeroSkeleton) return <ActiveSiteSkeleton />;
 
-  return (
-    <div className="iam-cms-dashboard">
-      <div className="iam-cms-dashboard__hero">
-        <section className="iam-cms-card iam-cms-site-hero">
+    if (setupMode === 'deploy') {
+      return (
+        <section className="iam-cms-card iam-cms-site-hero iam-cms-site-hero--setup">
           <div className="iam-cms-site-hero__head">
-            <div className="iam-cms-site-hero__identity">
-              <AppIcon
-                title={siteDisplayName}
-                imageUrl={cfImageVariants(siteIconUrl).src || undefined}
-                backgroundColor={
-                  siteIconUrl ? undefined : `hsl(${projectAccentHue(linkedProject?.id || siteSlug)} 42% 38%)`
-                }
-                size="lg"
-                editable={Boolean(linkedProject?.id)}
-                disabled={iconUploading}
-                onImageDrop={linkedProject?.id ? handleIconDrop : undefined}
-              />
-              <div>
-                <p className="iam-cms-site-hero__suite">Active site · CMS Suite</p>
-                <h2 className="iam-cms-site-hero__name">{siteDisplayName}</h2>
-                <p className="iam-cms-site-hero__meta">
-                  {storefrontDisplayHost(storefrontUrl) || siteSlug}
-                  {drafts ? ` · ${drafts} draft${drafts === 1 ? '' : 's'}` : ''}
-                </p>
-              </div>
-            </div>
-            <div className="iam-cms-site-hero__head-actions">
-              <span className="iam-cms-site-hero__live">
-                <i aria-hidden />
-                Live
-              </span>
-              {sites.length > 1 && onSelectSite ? (
-                <div className="iam-cms-site-menu" ref={siteMenuRef}>
-                  <button
-                    type="button"
-                    className="iam-cms-site-menu__trigger"
-                    aria-label="Switch site"
-                    aria-expanded={siteMenuOpen}
-                    onClick={() => setSiteMenuOpen((v) => !v)}
-                  >
-                    <MoreHorizontal size={18} />
-                  </button>
-                  {siteMenuOpen ? (
-                    <div className="iam-cms-site-menu__list" role="menu">
-                      {sites.map((row) => (
-                        <button
-                          key={row.slug}
-                          type="button"
-                          role="menuitem"
-                          className={row.slug === siteSlug ? 'is-active' : ''}
-                          onClick={() => {
-                            setSiteMenuOpen(false);
-                            void onSelectSite(row.slug, buildCmsHubPath(row.slug));
-                          }}
-                        >
-                          {row.name || row.slug}
-                        </button>
-                      ))}
-                      {onOpenDeployWizard ? (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="iam-cms-site-menu__new"
-                          onClick={() => {
-                            setSiteMenuOpen(false);
-                            onOpenDeployWizard();
-                          }}
-                        >
-                          <Plus size={14} aria-hidden />
-                          New site
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
+            <div>
+              <p className="iam-cms-site-hero__suite">Active site</p>
+              <h2 className="iam-cms-site-hero__name">Setup your site</h2>
+              <p className="iam-cms-site-hero__meta">
+                Deploy a CMS site for {context?.ui_label || 'this workspace'} to manage content, media, theme, and
+                storefront.
+              </p>
             </div>
           </div>
           <div className="iam-cms-site-hero__stats">
             <div className="iam-cms-stat">
               <div className="iam-cms-stat__label">Pages</div>
-              <div className="iam-cms-stat__value">{pages.length}</div>
+              <div className="iam-cms-stat__value">—</div>
             </div>
             <div className="iam-cms-stat">
               <div className="iam-cms-stat__label">Collections</div>
-              <div className="iam-cms-stat__value">{collectionCount}</div>
+              <div className="iam-cms-stat__value">—</div>
             </div>
             <div className="iam-cms-stat">
               <div className="iam-cms-stat__label">Integrations</div>
-              <div className="iam-cms-stat__value">{connectedCount}</div>
+              <div className="iam-cms-stat__value">—</div>
             </div>
             <div className="iam-cms-stat">
               <div className="iam-cms-stat__label">Themes</div>
-              <div className="iam-cms-stat__value">{themes.length}</div>
+              <div className="iam-cms-stat__value">—</div>
             </div>
           </div>
           <div className="iam-cms-site-hero__actions">
             <button
               type="button"
               className="iam-cms-btn iam-cms-btn--primary"
-              onClick={() => onNavigate(buildCmsPath({ panel: 'theme-editor', siteSlug }))}
+              onClick={() => onOpenDeployWizard?.()}
             >
-              Open CMS
+              Deploy site
               <ArrowRight size={16} strokeWidth={2} aria-hidden />
             </button>
-            <button
-              type="button"
-              className="iam-cms-btn"
-              onClick={() => onNavigate(buildCmsPath({ panel: 'pages', siteSlug }))}
-            >
-              Edit site
-            </button>
-            {storefrontUrl ? (
-              <a
-                className="iam-cms-btn"
-                href={storefrontUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                View site
-                <ExternalLink size={14} strokeWidth={2} aria-hidden />
-              </a>
-            ) : null}
           </div>
         </section>
+      );
+    }
+
+    if (setupMode === 'pick-site') {
+      return (
+        <section className="iam-cms-card iam-cms-site-hero iam-cms-site-hero--setup">
+          <div className="iam-cms-site-hero__head">
+            <div>
+              <p className="iam-cms-site-hero__suite">Active site</p>
+              <h2 className="iam-cms-site-hero__name">Choose a site</h2>
+              <p className="iam-cms-site-hero__meta">Pick which CMS site to open in this command center.</p>
+            </div>
+          </div>
+          <div className="iam-cms-site-picker">
+            {sites.map((row) => (
+              <button
+                key={row.slug}
+                type="button"
+                className="iam-cms-site-picker__btn"
+                onClick={() => {
+                  if (onSelectSite) void onSelectSite(row.slug, buildCmsHubPath(row.slug));
+                }}
+              >
+                <span className="iam-cms-site-picker__name">{row.name || row.slug}</span>
+                <span className="iam-cms-site-picker__slug">{row.domain || row.slug}</span>
+              </button>
+            ))}
+          </div>
+          {onOpenDeployWizard ? (
+            <div className="iam-cms-site-hero__actions">
+              <button type="button" className="iam-cms-btn" onClick={() => onOpenDeployWizard()}>
+                <Plus size={14} aria-hidden />
+                Deploy new site
+              </button>
+            </div>
+          ) : null}
+        </section>
+      );
+    }
+
+    if (bootError) {
+      return (
+        <section className="iam-cms-card iam-cms-site-hero">
+          <p className="iam-cms-site-hero__meta">{bootError}</p>
+          <button type="button" className="iam-cms-btn" onClick={() => void loadSiteData()}>
+            Retry
+          </button>
+        </section>
+      );
+    }
+
+    return (
+      <section className="iam-cms-card iam-cms-site-hero">
+        <div className="iam-cms-site-hero__head">
+          <div className="iam-cms-site-hero__identity">
+            <AppIcon
+              title={siteDisplayName}
+              imageUrl={cfImageVariants(siteIconUrl).src || undefined}
+              backgroundColor={
+                siteIconUrl ? undefined : `hsl(${projectAccentHue(linkedProject?.id || siteSlug || 'cms')} 42% 38%)`
+              }
+              size="lg"
+              editable={Boolean(linkedProject?.id)}
+              disabled={iconUploading}
+              onImageDrop={linkedProject?.id ? handleIconDrop : undefined}
+            />
+            <div>
+              <p className="iam-cms-site-hero__suite">Active site · CMS Suite</p>
+              <h2 className="iam-cms-site-hero__name">{siteDisplayName}</h2>
+              <p className="iam-cms-site-hero__meta">
+                {storefrontDisplayHost(storefrontUrl) || siteSlug}
+                {drafts ? ` · ${drafts} draft${drafts === 1 ? '' : 's'}` : ''}
+              </p>
+            </div>
+          </div>
+          <div className="iam-cms-site-hero__head-actions">
+            <span className="iam-cms-site-hero__live">
+              <i aria-hidden />
+              Live
+            </span>
+            {sites.length > 1 && onSelectSite ? (
+              <div className="iam-cms-site-menu" ref={siteMenuRef}>
+                <button
+                  type="button"
+                  className="iam-cms-site-menu__trigger"
+                  aria-label="Switch site"
+                  aria-expanded={siteMenuOpen}
+                  onClick={() => setSiteMenuOpen((v) => !v)}
+                >
+                  <MoreHorizontal size={18} />
+                </button>
+                {siteMenuOpen ? (
+                  <div className="iam-cms-site-menu__list" role="menu">
+                    {sites.map((row) => (
+                      <button
+                        key={row.slug}
+                        type="button"
+                        role="menuitem"
+                        className={row.slug === siteSlug ? 'is-active' : ''}
+                        onClick={() => {
+                          setSiteMenuOpen(false);
+                          void onSelectSite(row.slug, buildCmsHubPath(row.slug));
+                        }}
+                      >
+                        {row.name || row.slug}
+                      </button>
+                    ))}
+                    {onOpenDeployWizard ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="iam-cms-site-menu__new"
+                        onClick={() => {
+                          setSiteMenuOpen(false);
+                          onOpenDeployWizard();
+                        }}
+                      >
+                        <Plus size={14} aria-hidden />
+                        New site
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <div className="iam-cms-site-hero__stats">
+          <div className="iam-cms-stat">
+            <div className="iam-cms-stat__label">Pages</div>
+            <div className="iam-cms-stat__value">{pages.length}</div>
+          </div>
+          <div className="iam-cms-stat">
+            <div className="iam-cms-stat__label">Collections</div>
+            <div className="iam-cms-stat__value">{collectionCount}</div>
+          </div>
+          <div className="iam-cms-stat">
+            <div className="iam-cms-stat__label">Integrations</div>
+            <div className="iam-cms-stat__value">{connectedCount}</div>
+          </div>
+          <div className="iam-cms-stat">
+            <div className="iam-cms-stat__label">Themes</div>
+            <div className="iam-cms-stat__value">{themes.length}</div>
+          </div>
+        </div>
+        <div className="iam-cms-site-hero__actions">
+          <button
+            type="button"
+            className="iam-cms-btn iam-cms-btn--primary"
+            onClick={() => siteSlug && onNavigate(buildCmsPath({ panel: 'theme-editor', siteSlug }))}
+          >
+            Open CMS
+            <ArrowRight size={16} strokeWidth={2} aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="iam-cms-btn"
+            onClick={() => siteSlug && onNavigate(buildCmsPath({ panel: 'pages', siteSlug }))}
+          >
+            Edit site
+          </button>
+          {storefrontUrl ? (
+            <a className="iam-cms-btn" href={storefrontUrl} target="_blank" rel="noopener noreferrer">
+              View site
+              <ExternalLink size={14} strokeWidth={2} aria-hidden />
+            </a>
+          ) : null}
+        </div>
+      </section>
+    );
+  };
+
+  return (
+    <div className="iam-cms-dashboard">
+      <div className="iam-cms-dashboard__hero">
+        {renderActiveSiteCard()}
 
         <div className="iam-cms-modules">
-          {modules.map((m) =>
-            'action' in m && m.action === 'structure' ? (
-              <button
-                key={m.id}
-                type="button"
-                className={`iam-cms-card iam-cms-module${structureOpen ? ' is-active' : ''}`}
-                onClick={() => setStructureOpen((v) => !v)}
-              >
-                <h3 className="iam-cms-module__title">{m.title}</h3>
-                <p className="iam-cms-module__desc">{m.desc}</p>
-                <p className="iam-cms-module__sub">{m.sub}</p>
-                <span className="iam-cms-module__cta">{m.cta}</span>
-              </button>
-            ) : (
-              <button
-                key={m.id}
-                type="button"
-                className="iam-cms-card iam-cms-module"
-                onClick={() => onNavigate((m as { path: string }).path)}
-              >
-                <h3 className="iam-cms-module__title">{m.title}</h3>
-                <p className="iam-cms-module__desc">{m.desc}</p>
-                <p className="iam-cms-module__sub">{m.sub}</p>
-                <span className="iam-cms-module__cta">{m.cta}</span>
-              </button>
-            ),
-          )}
+          {showModuleSkeleton
+            ? [1, 2, 3, 4].map((n) => <ModuleCardSkeleton key={n} />)
+            : modules.map((m) =>
+                'action' in m && m.action === 'structure' ? (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className={`iam-cms-card iam-cms-module${structureOpen ? ' is-active' : ''}${setupMode !== 'active' ? ' is-muted' : ''}`}
+                    onClick={() => {
+                      if (setupMode !== 'active') {
+                        onOpenDeployWizard?.();
+                        return;
+                      }
+                      setStructureOpen((v) => !v);
+                    }}
+                  >
+                    <h3 className="iam-cms-module__title">{m.title}</h3>
+                    <p className="iam-cms-module__desc">{m.desc}</p>
+                    <p className="iam-cms-module__sub">{m.sub}</p>
+                    <span className="iam-cms-module__cta">{m.cta}</span>
+                  </button>
+                ) : (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className={`iam-cms-card iam-cms-module${setupMode !== 'active' ? ' is-muted' : ''}`}
+                    onClick={() => guardNavigate((m as { path: string }).path)}
+                  >
+                    <h3 className="iam-cms-module__title">{m.title}</h3>
+                    <p className="iam-cms-module__desc">{m.desc}</p>
+                    <p className="iam-cms-module__sub">{m.sub}</p>
+                    <span className="iam-cms-module__cta">{m.cta}</span>
+                  </button>
+                ),
+              )}
         </div>
       </div>
 
-      {structureOpen ? (
+      {structureOpen && siteSlug && setupMode === 'active' ? (
         <CmsSiteStructurePanel
           siteSlug={siteSlug}
           context={context}
@@ -476,7 +627,9 @@ export function CmsDashboard({
       <div className="iam-cms-dashboard__grid iam-cms-dashboard__grid--three">
         <section className="iam-cms-card">
           <div className="iam-cms-panel-head">Recent activity</div>
-          {activity.length ? (
+          {setupMode === 'loading' || (hasActiveSite && activityLoading) ? (
+            <PanelSkeleton rows={5} />
+          ) : activity.length ? (
             <ul className="iam-cms-activity">
               {activity.map((row, i) => {
                 const status = activityStatus(row);
@@ -495,41 +648,53 @@ export function CmsDashboard({
             </ul>
           ) : (
             <p className="iam-cms-site-hero__meta" style={{ padding: '16px' }}>
-              {pages.length
-                ? `${pages.length} page${pages.length === 1 ? '' : 's'} on this site — edits will appear here.`
-                : 'No recent activity logged yet.'}
+              {setupMode === 'deploy'
+                ? 'Activity will appear here after you deploy a site.'
+                : setupMode === 'pick-site'
+                  ? 'Choose a site to see recent edits and publishes.'
+                  : pages.length
+                    ? `${pages.length} page${pages.length === 1 ? '' : 's'} on this site — edits will appear here.`
+                    : 'No recent activity logged yet.'}
             </p>
           )}
         </section>
 
         <section className="iam-cms-card">
           <div className="iam-cms-panel-head">Quick actions</div>
-          <ul className="iam-cms-quick">
-            {quickActions.map((a) => (
-              <li key={a.label}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if ('action' in a && a.action === 'import') {
-                      document
-                        .querySelector('.iam-cms-import-strip')
-                        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                      return;
-                    }
-                    if ('path' in a && a.path) onNavigate(a.path);
-                  }}
-                >
-                  {a.label}
-                  <ArrowRight size={14} strokeWidth={2} aria-hidden />
-                </button>
-              </li>
-            ))}
-          </ul>
+          {setupMode === 'loading' ? (
+            <PanelSkeleton rows={5} />
+          ) : (
+            <ul className="iam-cms-quick">
+              {quickActions.map((a) => (
+                <li key={a.label}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (setupMode !== 'active') {
+                        onOpenDeployWizard?.();
+                        return;
+                      }
+                      if ('action' in a && a.action === 'import') {
+                        document
+                          .querySelector('.iam-cms-import-strip')
+                          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        return;
+                      }
+                      if ('path' in a && a.path) onNavigate(a.path);
+                    }}
+                  >
+                    {a.label}
+                    <ArrowRight size={14} strokeWidth={2} aria-hidden />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         <CmsConnectedIntegrations
           items={connectedIntegrations}
-          loading={integrationsLoading}
+          loading={setupMode === 'loading' || integrationsLoading}
           error={integrationsError}
           onRetry={() => {
             void refreshIntegrations();
@@ -537,7 +702,7 @@ export function CmsDashboard({
         />
       </div>
 
-      {context ? (
+      {context && setupMode === 'active' ? (
         <div className="iam-cms-runtime iam-cms-muted">
           Hosting profile: {context.cms_hosting || 'platform'}
           {context.bridge_supported ? ' · bridge' : ''}

@@ -1,10 +1,9 @@
 import React, { useMemo } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import type { CmsWorkspaceContext, CmsWorkspaceSite } from '../../hooks/useCmsWorkspaceContext';
-import { CmsDashboard } from './CmsDashboard';
+import { CmsDashboard, type CmsDashboardSetupMode } from './CmsDashboard';
 import { CmsGuidedChatHero } from './CmsGuidedChatHero';
 import { CmsHubImportStrip } from './CmsHubImportStrip';
-import { CmsSiteLauncherGrid } from './CmsSiteLauncherGrid';
 import { buildCmsHubPath } from './cmsRoute';
 import './cmsShell.css';
 
@@ -36,87 +35,65 @@ export function CmsHubPage({
     return rows.find((s) => s.slug === activeSiteSlug) || null;
   }, [sites, activeSiteSlug]);
 
-  const showSitePicker = sites.length > 1 && !activeSiteSlug;
+  const setupMode: CmsDashboardSetupMode = useMemo(() => {
+    if (loading) return 'loading';
+    if (sites.length === 0) return 'deploy';
+    if (sites.length > 1 && !activeSiteSlug) return 'pick-site';
+    if (activeSiteSlug) return 'active';
+    if (sites.length === 1) return 'active';
+    return 'deploy';
+  }, [loading, sites.length, activeSiteSlug]);
+
+  const effectiveSiteSlug =
+    activeSiteSlug || (sites.length === 1 ? sites[0]?.slug : null) || null;
 
   return (
     <div className="iam-cms-shell iam-cms-hub-page">
       <div className="iam-cms-hub-page__scroll">
-        <CmsGuidedChatHero siteSlug={activeSiteSlug} siteName={activeSite?.name || context?.project_name} />
+        <CmsGuidedChatHero
+          siteSlug={effectiveSiteSlug}
+          siteName={activeSite?.name || context?.project_name}
+        />
 
         <div className="iam-cms-hub-page__body">
-          {!showSitePicker && sites.length > 0 ? (
-            <div className="iam-cms-hub-page__toolbar iam-cms-hub-page__toolbar--compact">
-              <p className="iam-cms-shell__kicker">CMS command center</p>
-              <div className="iam-cms-shell__actions">
-                <button type="button" className="iam-cms-shell__nav-link" onClick={() => onRetry()} disabled={loading}>
-                  <RefreshCw size={14} className={loading ? 'animate-spin' : ''} aria-hidden />
-                  Refresh
-                </button>
-                <button type="button" className="iam-cms-shell__agent-btn" onClick={onOpenDeployWizard}>
-                  <Plus size={14} strokeWidth={1.75} aria-hidden />
-                  New site
-                </button>
-              </div>
+          <div className="iam-cms-hub-page__toolbar iam-cms-hub-page__toolbar--compact">
+            <p className="iam-cms-shell__kicker">CMS command center</p>
+            <div className="iam-cms-shell__actions">
+              <button type="button" className="iam-cms-shell__nav-link" onClick={() => onRetry()} disabled={loading}>
+                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} aria-hidden />
+                Refresh
+              </button>
+              <button type="button" className="iam-cms-shell__agent-btn" onClick={onOpenDeployWizard}>
+                <Plus size={14} strokeWidth={1.75} aria-hidden />
+                New site
+              </button>
             </div>
-          ) : null}
+          </div>
 
-          {loading ? (
-            <div className="iam-cms-loading">Loading CMS…</div>
-          ) : error ? (
-            <div className="iam-cms-empty-card">
-              <p className="iam-cms-empty-card__title">Could not load CMS</p>
+          {error ? (
+            <div className="iam-cms-empty-card iam-cms-empty-card--inline">
+              <p className="iam-cms-empty-card__title">Could not load workspace CMS context</p>
               <p className="iam-cms-muted">{error}</p>
               <button type="button" className="iam-cms-shell__nav-link mt-4" onClick={() => onRetry()}>
                 Retry
               </button>
             </div>
-          ) : sites.length === 0 ? (
-            <div className="iam-cms-empty-card">
-              <p className="iam-cms-muted">No CMS sites are configured for this workspace yet.</p>
-              <button type="button" className="iam-cms-shell__agent-btn mt-4" onClick={onOpenDeployWizard}>
-                Deploy your first site
-              </button>
-            </div>
-          ) : showSitePicker ? (
-            <>
-              <div className="iam-cms-hub-page__toolbar">
-                <div className="iam-cms-hub-page__toolbar-copy">
-                  <p className="iam-cms-shell__kicker">CMS command center</p>
-                  <h2 className="iam-cms-hub-page__heading">Your sites</h2>
-                </div>
-                <div className="iam-cms-shell__actions">
-                  <button type="button" className="iam-cms-shell__nav-link" onClick={() => onRetry()} disabled={loading}>
-                    <RefreshCw size={14} className={loading ? 'animate-spin' : ''} aria-hidden />
-                    Refresh
-                  </button>
-                  <button type="button" className="iam-cms-shell__agent-btn" onClick={onOpenDeployWizard}>
-                    <Plus size={14} strokeWidth={1.75} aria-hidden />
-                    New site
-                  </button>
-                </div>
-              </div>
-              <p className="iam-cms-sites-hub__lead">Choose a site to open its command center.</p>
-              <CmsSiteLauncherGrid
-                sites={sites}
-                onSelectSite={(site) => {
-                  void onSelectSite(site.slug, buildCmsHubPath(site.slug));
-                }}
-              />
-            </>
-          ) : activeSiteSlug ? (
-            <>
-              {activeSiteSlug ? <CmsHubImportStrip projectSlug={activeSiteSlug} /> : null}
-              <CmsDashboard
-                siteSlug={activeSiteSlug}
-                site={activeSite}
-                sites={sites}
-                context={context}
-                onNavigate={onNavigate}
-                onSelectSite={onSelectSite}
-                onOpenDeployWizard={onOpenDeployWizard}
-              />
-            </>
           ) : null}
+
+          {effectiveSiteSlug && setupMode === 'active' ? (
+            <CmsHubImportStrip projectSlug={effectiveSiteSlug} />
+          ) : null}
+
+          <CmsDashboard
+            siteSlug={effectiveSiteSlug}
+            setupMode={setupMode}
+            site={activeSite}
+            sites={sites}
+            context={context}
+            onNavigate={onNavigate}
+            onSelectSite={onSelectSite}
+            onOpenDeployWizard={onOpenDeployWizard}
+          />
         </div>
       </div>
 

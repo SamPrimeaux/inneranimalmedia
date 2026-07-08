@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { IAM_AGENT_CHAT_COMPOSE } from '@/agentChatConstants';
 import { TemplatePreviewModal } from './TemplatePreviewModal';
-import { StorefrontPreview } from './StorefrontPreview';
 import {
-  isHtmlTemplate,
   parseIamTags,
   parseTemplateMeta,
   resolveTemplatePreviewUrl,
@@ -687,12 +685,6 @@ export function TemplateLibraryStudio({
                     >
                       {previewUrl ? (
                         <img src={previewUrl} alt="" loading="lazy" />
-                      ) : isHtmlTemplate(t) && resolveTemplatePreviewUrl(t) ? (
-                        <StorefrontPreview
-                          url={resolveTemplatePreviewUrl(t)!}
-                          variant="desktop"
-                          title={t.template_name || 'Preview'}
-                        />
                       ) : null}
                     </div>
                     <div className="iam-tpl-body">

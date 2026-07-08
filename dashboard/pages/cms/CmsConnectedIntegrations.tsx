@@ -16,7 +16,15 @@ export function CmsConnectedIntegrations({ items, loading, error, onRetry }: Pro
     <section className="iam-cms-card">
       <div className="iam-cms-panel-head">Connected integrations</div>
       {loading ? (
-        <p className="iam-cms-integrations__empty">Loading workspace integrations…</p>
+        <div className="iam-cms-panel-skeleton" aria-hidden>
+          {[1, 2, 3, 4].map((n) => (
+            <div
+              key={n}
+              className="iam-cms-skeleton__block"
+              style={{ height: 28, margin: '0 16px 8px' }}
+            />
+          ))}
+        </div>
       ) : error ? (
         <div className="iam-cms-integrations__empty">
           <p>{error}</p>
