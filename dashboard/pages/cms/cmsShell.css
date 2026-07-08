@@ -1046,9 +1046,15 @@
   grid-template-columns: 1fr;
 }
 
-@media (min-width: 900px) {
+@media (min-width: 768px) {
   .iam-cms-dashboard__grid--two {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (min-width: 900px) {
+  .iam-cms-dashboard__grid--three {
+    grid-template-columns: 1.1fr 0.9fr 0.9fr;
   }
 }
 
