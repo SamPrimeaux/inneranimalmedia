@@ -1,0 +1,135 @@
+---
+description: No real client names or platform internals in user-facing UI copy — placeholders, modals, tooltips, notifications
+alwaysApply: false
+---
+
+# No Hardcoded Examples or Client Data in UI Copy
+
+## The Problem This Rule Exists To Fix
+
+UI modals, tooltips, placeholders, and helper text were shipping with:
+
+- Real client names as placeholder examples (`companionscpas`, `fuelnfreetime`, etc.)
+- Internal path structures hardcoded into visible strings (`brand/{projectId}/`)
+- Platform internals exposed as UI suggestions (`work-context + project row`, `Cloudflare bindings via D1`)
+
+This is a privacy violation, a professionalism failure, and it will not ship.
+
+---
+
+## Rule 1: Zero Real Names in UI Copy
+
+**Never** use a real client name, project slug, domain, or internal identifier as an example, placeholder, default value, or suggestion in any user-facing string.
+
+This includes:
+
+- `placeholder="e.g. companionscpas"`
+- `hint="e.g. fuelnfreetime or pawlove"`
+- `label="like proj_agentsam_sdk"`
+- Any string containing a real slug, tenant ID, project ID, or client name
+
+**Correct pattern — use purely fictional, obviously-generic examples:**
+
+```tsx
+// ✅
+placeholder="e.g. my-project or acme-corp"
+placeholder="e.g. acme or widget-co"
+hint="Use a short, lowercase identifier"
+
+// ❌
+placeholder="e.g. companionscpas or fuelnfreetime"
+placeholder="e.g. proj_agentsam_sdk"
+```
+
+---
+
+## Rule 2: No Platform Internals in Notification/Modal Copy
+
+Modal descriptions, toast messages, and inline helper text must never expose:
+
+- Table names (`D1`, `agentsam_*`, internal binding names)
+- Route paths (`/api/projects/work-context`, `Cloudflare bindings via D1`)
+- Internal resolution logic ("Auto resolves bucket from /api/projects/work-context")
+- Storage keys or prefixes visible to the end user
+
+If the user needs to understand *what* something does, describe the outcome — not the mechanism.
+
+**Correct pattern:**
+
+```tsx
+// ✅
+"Storage location for this project. Defaults to your workspace bucket."
+"Connected storage bucket for this project."
+
+// ❌
+"Saved in this browser first. Auto resolves bucket from /api/projects/work-context
+(Cloudflare bindings via D1) — no hardcoded client routes."
+"Source Auto (work-context + project row) → R2 bucket override"
+```
+
+---
+
+## Rule 3: Project Connections Use a Connections Dropdown, Not Text
+
+Each project in the dashboard represents a real build with real service connections (Cloudflare Workers, GitHub repos, Supabase, Stripe, etc.). These connections must be displayed as a **Connections dropdown/panel** with provider icons — never as hardcoded text, placeholder suggestions, or inline copy.
+
+Implementation requirements:
+
+- Render a `<ConnectionsDropdown projectId={projectId} />` component
+- Show provider icons (Cloudflare, GitHub, Supabase, Stripe, Resend, etc.) resolved dynamically from the project's actual integration registry
+- Empty state: "No connections configured" — never list fake or example connections
+- Do not expose internal binding names (`DB`, `R2`, `KV`, `HYPERDRIVE`) as the display label — use the integration's `display_name` from the registry
+
+```tsx
+// ✅ — dynamic, icon-driven, real data only
+<ConnectionsDropdown projectId={project.id} />
+
+// ❌ — hardcoded, exposes internals, leaks client data
+<span>e.g. companionscpas or iKey prefix brand/{projectId}/</span>
+<span>Cloudflare R2 · D1 · GitHub</span> // hardcoded, not from registry
+```
+
+---
+
+## Rule 4: Placeholder Text Must Be Generic and Fictional
+
+Any `placeholder`, `hint`, `description`, `helperText`, or `example` string must use **obviously fictional, non-client-specific** values. When in doubt, use these safe defaults:
+
+| Context | Safe placeholder |
+|---|---|
+| Project name | `my-project`, `acme-app` |
+| Slug / key prefix | `acme`, `widget-co` |
+| Domain | `example.com`, `myapp.io` |
+| Email | `hello@example.com` |
+| Org / team | `my-team`, `acme-corp` |
+| API key | `sk_...` or `[hidden]` |
+| Bucket / storage | `my-bucket` |
+| Worker name | `my-worker` |
+
+Never derive placeholder text from actual data in the codebase, database, or environment.
+
+---
+
+## Rule 5: Logs, Errors, and Bindings Are Exempt
+
+Real values ARE acceptable in:
+
+- Developer console logs
+- Error stack traces
+- Wrangler binding names in `wrangler.jsonc`
+- Internal debug panels gated behind superadmin/dev flags
+- CI/CD output
+
+This rule applies exclusively to **user-facing UI copy**: modals, tooltips, placeholders, notifications, onboarding text, helper descriptions, and any string a non-developer end user will read.
+
+---
+
+## Enforcement Checklist Before Shipping Any Modal/Notification/Tooltip
+
+- [ ] Does any string contain a real client name, project slug, or tenant ID? → Remove it
+- [ ] Does any string expose an internal route, table name, or binding? → Replace with outcome description
+- [ ] Does any placeholder use a real name from the codebase or DB? → Replace with fictional generic
+- [ ] Are project connections shown as icons from the registry, not hardcoded text? → Verify dropdown renders live data
+- [ ] Would a user seeing this string learn anything about another tenant's data or our internal architecture? → If yes, rewrite it
+
+If any checkbox fails, the component does not ship.
