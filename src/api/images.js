@@ -552,9 +552,11 @@ async function handleDriveMedia(env, authUser, fileId, variant) {
   });
 }
 
-async function uploadToCfImages(env, file, metadata) {
-  const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
-  const token = String(env.CLOUDFLARE_IMAGES_TOKEN || env.CLOUDFLARE_IMAGES_API_TOKEN || '').trim();
+async function uploadToCfImages(env, file, metadata, creds = null) {
+  const accountId = String(creds?.accountId || env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const token = String(
+    creds?.token || env.CLOUDFLARE_IMAGES_TOKEN || env.CLOUDFLARE_IMAGES_API_TOKEN || '',
+  ).trim();
   if (!accountId || !token) {
     return { error: 'Cloudflare Images not configured', status: 503 };
   }
@@ -578,6 +580,8 @@ async function uploadToCfImages(env, file, metadata) {
     imageId,
     variants: json?.result?.variants || [],
     uploaded: json?.result?.uploaded,
+    iam_hosted: creds?.iam_hosted === true,
+    cf_account_id: accountId,
   };
 }
 
@@ -919,7 +923,6 @@ async function handleUpload(request, url, env, authUser, identity) {
   const binding = getR2Binding(env, BUCKET);
   if (!binding?.put) return jsonResponse({ error: 'R2 not configured' }, 503);
 
-  const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
   const ct = (request.headers.get('Content-Type') || '').toLowerCase();
   let buf;
   let mime;
@@ -996,7 +999,19 @@ async function handleUpload(request, url, env, authUser, identity) {
   });
 
   const fileBlob = new File([buf], filename, { type: mime });
-  const cf = await uploadToCfImages(env, fileBlob, cfMetaPayload);
+  const { resolveCfImagesUploadContext } = await import('../core/cf-oauth-images.js');
+  const cfCtx = await resolveCfImagesUploadContext(env, {
+    userId: scope.userId,
+    workspaceId: scope.workspaceId,
+  });
+  if (!cfCtx.ok) {
+    return jsonResponse({ error: cfCtx.error, detail: cfCtx.detail, accounts: cfCtx.accounts }, 400);
+  }
+  const cf = await uploadToCfImages(env, fileBlob, cfMetaPayload, {
+    accountId: cfCtx.accountId,
+    token: cfCtx.token,
+    iam_hosted: cfCtx.iam_hosted,
+  });
   if (cf.error) return jsonResponse({ error: cf.error }, cf.status || 502);
 
   const r2Sidecar = buildR2SidecarPayload({
@@ -1015,6 +1030,8 @@ async function handleUpload(request, url, env, authUser, identity) {
   await writeR2MetaSidecar(binding, r2Key, r2Sidecar);
 
   const cfId = cf.imageId;
+  const accountHash =
+    String(cfCtx.accountHash || env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
   const publicUrl = accountHash ? cfDeliveryUrl(accountHash, cfId, 'public') : '';
   const thumbUrl = accountHash ? cfDeliveryUrl(accountHash, cfId, 'thumbnail') : publicUrl;
 
@@ -1037,7 +1054,13 @@ async function handleUpload(request, url, env, authUser, identity) {
     alt_text: altText || null,
     description: null,
     tags: tagsJson,
-    metadata: JSON.stringify({ ...iamMeta, registered_from: 'upload' }),
+    metadata: JSON.stringify({
+      ...iamMeta,
+      registered_from: 'upload',
+      iam_hosted: cfCtx.iam_hosted === true,
+      cf_account_id: cfCtx.accountId,
+      cf_images_source: cfCtx.source,
+    }),
     workspace_id: scope.workspaceId,
   });
 
