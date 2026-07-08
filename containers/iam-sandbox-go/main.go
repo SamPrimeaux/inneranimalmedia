@@ -96,9 +96,10 @@ func handleMounts(w http.ResponseWriter, r *http.Request) {
 		strings.TrimSpace(os.Getenv("AWS_SECRET_ACCESS_KEY")) != "" &&
 		strings.TrimSpace(os.Getenv("IAM_SANDBOX_R2_FUSE")) != "0"
 
+	r2Mount := envOr("R2_MOUNT", "/tmp/r2")
 	mounts := []map[string]any{}
 	for _, spec := range []struct{ path, label string }{
-		{"/mnt/r2", "r2"},
+		{r2Mount, "r2"},
 		{"/mnt/workspace", "workspace"},
 	} {
 		st, err := os.Stat(spec.path)

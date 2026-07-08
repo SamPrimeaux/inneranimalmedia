@@ -88,56 +88,31 @@ export async function resolveWorkspaceR2Prefix(env, workspaceId) {
   }
 }
 
+/** Container workspace root — entrypoint symlinks this to R2 FUSE or /tmp/r2. */
+export const SANDBOX_WORKSPACE_MOUNT = '/mnt/workspace';
+
 /**
- * Sandbox exec cwd — FUSE path under /mnt/r2/{workspace prefix}/{zone_slug}/ when configured.
- * Writable FUSE (default): zone work + assets persist to R2. Set IAM_R2_FUSE_READONLY=1 for read-only debug.
- * @param {any} env
+ * Sandbox exec cwd — always writable under /tmp/{zone_slug}.
+ * R2 persistence uses S3 API (R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY), not FUSE mount paths.
+ * @param {any} _env
  * @param {{ workspaceId?: string|null, zoneSlug?: string, innerPath?: string|null }} opts
  */
-export async function resolveSandboxContainerCwd(env, opts = {}) {
+export async function resolveSandboxContainerCwd(_env, opts = {}) {
   const zoneSlug = trim(opts.zoneSlug) || 'default';
   const innerPath = trim(opts.innerPath).replace(/^\//, '');
-
-  if (sandboxR2FuseConfigured(env)) {
-    const prefix = await resolveWorkspaceR2Prefix(env, opts.workspaceId);
-    const readOnly = trim(env?.IAM_R2_FUSE_READONLY) !== '0';
-
-    if (readOnly) {
-      /** @type {string[]} */
-      const r2Parts = ['/mnt/r2'];
-      if (prefix) r2Parts.push(prefix);
-      if (innerPath) r2Parts.push(innerPath);
-      return r2Parts.join('/');
-    }
-
-    /** @type {string[]} */
-    const parts = ['/mnt/r2'];
-    if (prefix) parts.push(prefix);
-    parts.push(zoneSlug);
-    if (innerPath) parts.push(innerPath);
-    return parts.join('/');
-  }
-
-  const tmpParts = [`/tmp/${zoneSlug}`];
-  if (innerPath) tmpParts.push(innerPath);
-  return tmpParts.join('/');
+  const parts = [`/tmp/${zoneSlug}`];
+  if (innerPath) parts.push(innerPath);
+  return parts.join('/');
 }
 
 /**
- * Shell prefix for sandbox exec — avoids mkdir on read-only FUSE mounts.
- * @param {any} env
+ * Shell prefix for sandbox exec — mkdir /tmp zone scratch only; never depends on FUSE.
+ * @param {any} _env
  * @param {string} execCwd
  * @param {string} zoneSlug
  */
-export function buildSandboxExecShellPreamble(env, execCwd, zoneSlug) {
-  const cwd = shellQuote(execCwd);
-  const scratch = shellQuote(`/tmp/${zoneSlug || 'default'}`);
-  if (!sandboxR2FuseConfigured(env)) {
-    return `mkdir -p ${cwd} && cd ${cwd}`;
-  }
-  if (trim(env?.IAM_R2_FUSE_READONLY) !== '0') {
-    return `mkdir -p ${scratch} && (cd ${cwd} 2>/dev/null || cd ${scratch})`;
-  }
+export function buildSandboxExecShellPreamble(_env, execCwd, zoneSlug) {
+  const cwd = shellQuote(execCwd || `/tmp/${zoneSlug || 'default'}`);
   return `mkdir -p ${cwd} && cd ${cwd}`;
 }
 

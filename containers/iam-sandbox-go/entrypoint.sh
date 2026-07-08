@@ -1,7 +1,14 @@
 #!/bin/sh
-set -e
+# R2 FUSE mount is optional — never abort container boot on mkdir/mount failure.
+set +e
 
-mkdir -p /mnt/r2 /mnt/workspace /workspace /tmp/workspace
+mkdir -p /mnt/workspace /workspace /tmp/workspace /tmp/r2 2>/dev/null || true
+
+R2_MOUNT="/tmp/r2"
+if mkdir -p /mnt/r2 2>/dev/null; then
+  R2_MOUNT="/mnt/r2"
+fi
+export R2_MOUNT
 
 # Map IAM worker secrets (R2_ACCESS_KEY_ID) → tigrisfs AWS env (CF R2 FUSE docs).
 if [ -z "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${R2_ACCESS_KEY_ID:-}" ]; then
@@ -25,16 +32,16 @@ if [ "${IAM_SANDBOX_R2_FUSE:-1}" != "0" ] \
   if [ "${IAM_R2_FUSE_READONLY:-0}" = "1" ]; then
     TIGRIS_FLAGS="${TIGRIS_FLAGS} -o ro"
   fi
-  echo "[entrypoint] mounting R2 bucket ${R2_BUCKET_NAME} at /mnt/r2..."
+  echo "[entrypoint] mounting R2 bucket ${R2_BUCKET_NAME} at ${R2_MOUNT}..."
   # shellcheck disable=SC2086
-  /usr/local/bin/tigrisfs ${TIGRIS_FLAGS} "${R2_BUCKET_NAME}" /mnt/r2 &
+  /usr/local/bin/tigrisfs ${TIGRIS_FLAGS} "${R2_BUCKET_NAME}" "${R2_MOUNT}" 2>/dev/null &
   sleep 3
 
-  if [ -n "${R2_BUCKET_PREFIX:-}" ] && [ -e "/mnt/r2/${R2_BUCKET_PREFIX}" ]; then
-    ln -sfn "/mnt/r2/${R2_BUCKET_PREFIX}" /mnt/workspace
-    echo "[entrypoint] workspace → /mnt/r2/${R2_BUCKET_PREFIX}"
+  if [ -n "${R2_BUCKET_PREFIX:-}" ] && [ -e "${R2_MOUNT}/${R2_BUCKET_PREFIX}" ]; then
+    ln -sfn "${R2_MOUNT}/${R2_BUCKET_PREFIX}" /mnt/workspace 2>/dev/null || true
+    echo "[entrypoint] workspace → ${R2_MOUNT}/${R2_BUCKET_PREFIX}"
   else
-    ln -sfn /mnt/r2 /mnt/workspace
+    ln -sfn "${R2_MOUNT}" /mnt/workspace 2>/dev/null || true
   fi
 else
   echo "[entrypoint] R2 FUSE skipped (set R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY on worker, IAM_SANDBOX_R2_FUSE=1)"
