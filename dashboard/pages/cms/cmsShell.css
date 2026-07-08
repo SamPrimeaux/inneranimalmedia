@@ -1115,9 +1115,9 @@
 }
 
 .iam-cms-integrations-strip__skel {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
+  width: 100px;
+  height: 30px;
+  border-radius: 8px;
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--cms-muted) 8%, transparent) 0%,
