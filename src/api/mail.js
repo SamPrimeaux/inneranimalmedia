@@ -477,6 +477,10 @@ export async function handleMailApi(request, url, env, ctx) {
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
   if (!mustDb(env)) return jsonResponse({ error: 'DB not configured' }, 503);
 
+  // Canonical user_id and tenant_id for all email_logs queries — scopes data to this user only.
+  const mailUserId = authUser.id ? String(authUser.id).trim() : '';
+  const mailTenantId = authUser.tenant_id ? String(authUser.tenant_id).trim() : '';
+
   try {
     // Gmail OAuth connect (real)
     // GET /api/mail/gmail/status
@@ -654,7 +658,7 @@ export async function handleMailApi(request, url, env, ctx) {
       });
     }
 
-    // GET /api/mail/sent
+    // GET /api/mail/sent — scoped to authUser via user_id
     if (method === 'GET' && p === '/api/mail/sent') {
       const statusParam = url.searchParams.get('status');
       const status = statusParam && statusParam.trim() ? statusParam.trim().toLowerCase() : null;
@@ -668,14 +672,14 @@ export async function handleMailApi(request, url, env, ctx) {
                 COALESCE(to_email, to_address) AS to_address,
                 subject, status, created_at
          FROM email_logs
-         WHERE ${statusFilter ? `status = ?` : `status IN ('sent','draft')`}
+         WHERE user_id = ? AND ${statusFilter ? `status = ?` : `status IN ('sent','draft')`}
          ORDER BY created_at DESC
          LIMIT 100`
-      ).bind(...(statusFilter ? [statusFilter] : [])).all();
+      ).bind(...(statusFilter ? [mailUserId, statusFilter] : [mailUserId])).all();
       return jsonResponse({ emails: results || [] });
     }
 
-    // GET /api/mail/email/:id
+    // GET /api/mail/email/:id — scoped to authUser for email_logs rows
     if (method === 'GET' && p.startsWith('/api/mail/email/')) {
       const id = decodeURIComponent(url.pathname.split('/').pop() || '').trim();
       if (!id) return jsonResponse({ error: 'Not found' }, 404);
@@ -683,9 +687,9 @@ export async function handleMailApi(request, url, env, ctx) {
       const logRow = await env.DB.prepare(
         `SELECT id, from_email, to_email, from_address, to_address, subject, status, resend_id, created_at
          FROM email_logs
-         WHERE id = ?
+         WHERE id = ? AND user_id = ?
          LIMIT 1`,
-      ).bind(id).first();
+      ).bind(id, mailUserId).first();
       if (logRow) {
         const body = await loadSentLogBody(env, authUser, id, logRow);
         return jsonResponse({
@@ -1102,14 +1106,14 @@ export async function handleMailApi(request, url, env, ctx) {
         }));
         const sent = await gmailSendMessage(env, gmailTok, raw, threadId || '');
         if (!sent.ok) return jsonResponse({ error: sent.error }, sent.status || 502);
-        // Also log to email_logs for Sent UI.
+        // Also log to email_logs for Sent UI — scoped to authUser.
         const logId = crypto.randomUUID();
         const gmailMsgId = String(sent.json?.id || '');
         try {
           await env.DB.prepare(
-            `INSERT INTO email_logs (id, to_email, from_email, subject, status, resend_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, 'sent', ?, datetime('now'), datetime('now'))`
-          ).bind(logId, to, from, subject, gmailMsgId).run();
+            `INSERT INTO email_logs (id, to_email, from_email, subject, status, resend_id, user_id, tenant_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'sent', ?, ?, ?, datetime('now'), datetime('now'))`
+          ).bind(logId, to, from, subject, gmailMsgId, mailUserId, mailTenantId).run();
         } catch {
           // ignore
         }
@@ -1158,9 +1162,9 @@ export async function handleMailApi(request, url, env, ctx) {
 
       try {
         const ins = await env.DB.prepare(
-          `INSERT INTO email_logs (id, to_email, from_email, subject, status, resend_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'sent', ?, datetime('now'), datetime('now'))`,
-        ).bind(logId, to, from, subject, resendId).run();
+          `INSERT INTO email_logs (id, to_email, from_email, subject, status, resend_id, user_id, tenant_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'sent', ?, ?, ?, datetime('now'), datetime('now'))`,
+        ).bind(logId, to, from, subject, resendId, mailUserId, mailTenantId).run();
         if (!(ins.meta?.changes > 0)) {
           console.warn('[mail/send] email_logs insert reported 0 changes');
         }
@@ -1173,7 +1177,7 @@ export async function handleMailApi(request, url, env, ctx) {
       return jsonResponse({ ok: true, id: resendId, log_id: logId });
     }
 
-    // POST /api/mail/draft
+    // POST /api/mail/draft — scoped to authUser
     if (method === 'POST' && p === '/api/mail/draft') {
       const body = await readJsonBody(request);
       const from = body?.from != null ? String(body.from).trim() : '';
@@ -1184,17 +1188,17 @@ export async function handleMailApi(request, url, env, ctx) {
       let id = null;
       try {
         const row = await env.DB.prepare(
-          `INSERT INTO email_logs (id, to_email, from_email, subject, status, created_at, updated_at)
-           VALUES (lower(hex(randomblob(16))), ?, ?, ?, 'draft', datetime('now'), datetime('now'))
+          `INSERT INTO email_logs (id, to_email, from_email, subject, status, user_id, tenant_id, created_at, updated_at)
+           VALUES (lower(hex(randomblob(16))), ?, ?, ?, 'draft', ?, ?, datetime('now'), datetime('now'))
            RETURNING id`
-        ).bind(to, from, subject).first();
+        ).bind(to, from, subject, mailUserId, mailTenantId).first();
         id = row?.id ? String(row.id) : null;
       } catch {
         id = crypto?.randomUUID?.() || String(Date.now());
         await env.DB.prepare(
-          `INSERT INTO email_logs (id, to_email, from_email, subject, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'draft', datetime('now'), datetime('now'))`
-        ).bind(id, to, from, subject).run();
+          `INSERT INTO email_logs (id, to_email, from_email, subject, status, user_id, tenant_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'draft', ?, ?, datetime('now'), datetime('now'))`
+        ).bind(id, to, from, subject, mailUserId, mailTenantId).run();
       }
 
       return jsonResponse({ ok: true, id });
@@ -1339,4 +1343,3 @@ export async function handleMailApi(request, url, env, ctx) {
     return jsonResponse({ error: String(e?.message || e) }, 500);
   }
 }
-
