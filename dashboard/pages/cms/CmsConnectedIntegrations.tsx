@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { AppIcon } from '../../components/ui/AppIcon';
 import type { CmsConnectedIntegration } from './useCmsConnectedIntegrations';
 
 type Props = {
@@ -35,15 +36,17 @@ export function CmsConnectedIntegrations({ items, loading, error, onRetry }: Pro
         </div>
       ) : (
         <>
-          <ul className="iam-cms-integrations">
+          <ul className="iam-cms-integrations iam-cms-integrations--rich">
             {items.map((item) => (
               <li key={item.providerKey}>
-                <span
-                  className="iam-cms-integrations__dot"
-                  style={item.primaryColor ? { background: item.primaryColor } : undefined}
-                  aria-hidden
+                <AppIcon
+                  title={item.displayName}
+                  providerKey={item.providerKey}
+                  iconSlug={item.iconSlug || item.providerKey}
+                  size="sm"
+                  presentation="brand"
+                  subtitle={item.accountDisplay || undefined}
                 />
-                <span className="iam-cms-integrations__name">{item.displayName}</span>
                 <span className={`iam-cms-integrations__status is-${item.status}`}>
                   {item.status === 'degraded' ? 'Needs attention' : 'Connected'}
                 </span>

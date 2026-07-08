@@ -2278,18 +2278,36 @@ export async function handleCmsApi(request, url, env, ctx) {
 
   if (path === '/api/cms/templates' && method === 'GET') {
     const category = url.searchParams.get('category') || null;
+    const page = Math.max(1, parseInt(String(url.searchParams.get('page') || '1'), 10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(String(url.searchParams.get('limit') || '10'), 10) || 10));
+    const offset = (page - 1) * limit;
     try {
-      let q = `SELECT id, template_name, template_type, category, preview_image_url,
-                      template_data, is_system, slug, r2_key, source_html_r2_key, source_liquid_file
-               FROM cms_component_templates`;
+      let where = '';
       const binds = [];
       if (category) {
-        q += ` WHERE category = ?`;
+        where = ' WHERE category = ?';
         binds.push(category);
       }
-      q += ` ORDER BY category, template_name`;
-      const { results } = await env.DB.prepare(q).bind(...binds).all();
-      return jsonResponse({ templates: results || [] });
+      const countRow = await env.DB.prepare(
+        `SELECT COUNT(*) AS total FROM cms_component_templates${where}`,
+      )
+        .bind(...binds)
+        .first();
+      const total = Number(countRow?.total) || 0;
+      let q = `SELECT id, template_name, template_type, category, preview_image_url,
+                      template_data, is_system, slug, r2_key, source_html_r2_key, source_liquid_file
+               FROM cms_component_templates${where}`;
+      q += ` ORDER BY category, template_name LIMIT ? OFFSET ?`;
+      const { results } = await env.DB.prepare(q)
+        .bind(...binds, limit, offset)
+        .all();
+      return jsonResponse({
+        templates: results || [],
+        page,
+        limit,
+        total,
+        total_pages: total ? Math.ceil(total / limit) : 0,
+      });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
@@ -2549,6 +2567,7 @@ export async function handleCmsApi(request, url, env, ctx) {
       const publicUrl =
         (await presignR2GetObjectUrl(env, r2Bucket, r2Key)) ||
         cmsR2PublicUrlFromRequest(request, r2Bucket, r2Key);
+      const zone = String(body.zone || body.section_zone || '').trim();
       const sectionData = {
         r2_key: r2Key,
         public_url: publicUrl,
@@ -2557,6 +2576,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         content_sha256: hash,
         updated_at: Math.floor(Date.now() / 1000),
         full_page_document: isFullHtmlDocument(html),
+        ...(zone ? { zone } : {}),
       };
       const payload = JSON.stringify(sectionData);
 
@@ -3242,10 +3262,27 @@ export async function handleCmsApi(request, url, env, ctx) {
 
   if (path === '/api/cms/activity' && method === 'GET') {
     const pageId = url.searchParams.get('page_id');
+    const projectSlug = String(
+      url.searchParams.get('project_slug') || url.searchParams.get('site') || '',
+    ).trim();
     try {
       let q = `SELECT id, user_id, action, resource_type, resource_id, details, created_at
                FROM cms_activity_log WHERE tenant_id = ?`;
       const binds = [tenantId];
+      if (projectSlug) {
+        q += ` AND (
+          resource_id IN (
+            SELECT id FROM cms_pages
+            WHERE project_slug = ? OR project_id = ?
+          )
+          OR resource_id IN (
+            SELECT s.id FROM cms_page_sections s
+            INNER JOIN cms_pages p ON p.id = s.page_id
+            WHERE p.project_slug = ? OR p.project_id = ?
+          )
+        )`;
+        binds.push(projectSlug, projectSlug, projectSlug, projectSlug);
+      }
       if (pageId) {
         q += ` AND (resource_id = ? OR resource_id IN (
                  SELECT id FROM cms_page_sections WHERE page_id = ?

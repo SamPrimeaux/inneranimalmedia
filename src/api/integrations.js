@@ -242,6 +242,10 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
         return handleRotateWebhookSecret(env, authUser, normalizeProviderKey(rotateMatch[1]));
     }
 
+    if (pathLower === '/api/integrations/cloudflare/context' && method === 'GET') {
+        const { handleCfAccountContext } = await import('./integrations/cloudflare-stack.js');
+        return handleCfAccountContext(env, authUser);
+    }
     if (pathLower === '/api/integrations/cloudflare_oauth/stack/enumerate' && method === 'POST') {
         const { handleCfStackEnumerate } = await import('./integrations/cloudflare-stack.js');
         const body = await request.json().catch(() => ({}));

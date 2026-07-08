@@ -2213,6 +2213,11 @@ const App: React.FC = () => {
     const onSyncUrl = (e: Event) => {
       const id = (e as CustomEvent<{ id?: string }>).detail?.id?.trim();
       if (!id) return;
+      if (
+        isCmsEditorFullscreenRoute(location.pathname, new URLSearchParams(location.search))
+      ) {
+        return;
+      }
       const next = agentConversationPath(id);
       if (normalizePath(location.pathname) === normalizePath(next)) return;
       navigate(next, { replace: true });

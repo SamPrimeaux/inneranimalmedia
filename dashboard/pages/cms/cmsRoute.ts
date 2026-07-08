@@ -35,20 +35,29 @@ const CMS_RESERVED = new Set([
   'editor',
   'templates',
   'imports',
+  'media',
   'pages',
   'studio',
   'online-store',
   'theme-editor',
 ]);
 
-export type CmsView = 'sites' | 'hub' | 'pages' | 'templates' | 'imports' | 'online-store' | 'theme-editor';
+export type CmsView =
+  | 'sites'
+  | 'hub'
+  | 'pages'
+  | 'templates'
+  | 'imports'
+  | 'media'
+  | 'online-store'
+  | 'theme-editor';
 
 export type ParsedCmsRoute = {
   view: CmsView;
   /** Explicit ?site= or legacy slug segment — never a hardcoded default */
   siteSlug: string | null;
   pageId: string | null;
-  panel: 'pages' | 'templates' | 'imports' | 'online-store' | 'theme-editor';
+  panel: 'pages' | 'templates' | 'imports' | 'media' | 'online-store' | 'theme-editor';
   legacy: boolean;
   legacyTarget: string | null;
 };
@@ -60,7 +69,7 @@ export function buildCmsHubPath(siteSlug?: string | null): string {
 }
 
 export function buildCmsPath(opts: {
-  panel?: 'pages' | 'templates' | 'imports' | 'online-store' | 'theme-editor';
+  panel?: 'pages' | 'templates' | 'imports' | 'media' | 'online-store' | 'theme-editor';
   pageId?: string | null;
   siteSlug?: string | null;
 }): string {
@@ -73,6 +82,7 @@ export function buildCmsPath(opts: {
   if (panel === 'theme-editor') return `/dashboard/cms/theme-editor${siteQs}`;
   if (panel === 'templates') return `/dashboard/cms/templates${siteQs}`;
   if (panel === 'imports') return `/dashboard/cms/imports${siteQs}`;
+  if (panel === 'media') return `/dashboard/cms/media${siteQs}`;
   if (pageId) return `/dashboard/cms/pages/${encodeURIComponent(pageId)}${siteQs}`;
   return `/dashboard/cms/pages${siteQs}`;
 }
@@ -151,6 +161,17 @@ export function parseCmsRoute(pathname: string, searchParams: URLSearchParams): 
       siteSlug: siteFromQuery,
       pageId: null,
       panel: 'imports',
+      legacy: false,
+      legacyTarget: null,
+    };
+  }
+
+  if (rest[0] === 'media') {
+    return {
+      view: 'media',
+      siteSlug: siteFromQuery,
+      pageId: null,
+      panel: 'media',
       legacy: false,
       legacyTarget: null,
     };

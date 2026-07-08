@@ -5,7 +5,14 @@ import type { CmsBootstrapData } from '../../../src/types/cms';
 import { buildCmsHubPath, buildCmsPath } from './cmsRoute';
 import { resolveStorefrontUrl, storefrontDisplayHost } from '../../../src/dashboard/cms/cmsStorefrontUrl';
 import { CmsConnectedIntegrations } from './CmsConnectedIntegrations';
+import { CmsSiteStructurePanel } from './CmsSiteStructurePanel';
 import { useCmsConnectedIntegrations } from './useCmsConnectedIntegrations';
+import { useCmsLinkedProject } from './useCmsLinkedProject';
+import { AppIcon } from '../../components/ui/AppIcon';
+import { updateProject } from '../../api/projects';
+import { cfImageVariants, projectAccentHue } from '../../src/lib/projectBranding';
+import { parseProjectMeta } from '../projects/projectDetailMeta';
+import { uploadProjectR2File } from '../../src/lib/projectR2Upload';
 import './cmsShell.css';
 
 type ActivityRow = {
@@ -14,7 +21,7 @@ type ActivityRow = {
   resource_type?: string;
   resource_id?: string;
   created_at?: number | string;
-  details?: string;
+  details?: string | Record<string, unknown>;
 };
 
 type Props = {
@@ -39,6 +46,30 @@ function formatWhen(value: unknown): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+function activityLabel(row: ActivityRow): string {
+  const action = String(row.action || 'update').replace(/_/g, ' ');
+  const type = String(row.resource_type || '').replace(/_/g, ' ');
+  let detail = '';
+  if (row.details) {
+    try {
+      const parsed =
+        typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
+      detail =
+        String(parsed.section_name || parsed.route_path || parsed.template_id || '').trim();
+    } catch {
+      detail = typeof row.details === 'string' ? row.details.slice(0, 48) : '';
+    }
+  }
+  const parts = [action, type, detail || row.resource_id].filter(Boolean);
+  return parts.join(' · ');
+}
+
+function activityStatus(row: ActivityRow): 'published' | 'draft' {
+  const action = String(row.action || '').toLowerCase();
+  if (action.includes('publish') || action.includes('deploy')) return 'published';
+  return 'draft';
+}
+
 export function CmsDashboard({
   siteSlug,
   site,
@@ -49,6 +80,9 @@ export function CmsDashboard({
   onOpenDeployWizard,
 }: Props) {
   const [siteMenuOpen, setSiteMenuOpen] = useState(false);
+  const [structureOpen, setStructureOpen] = useState(false);
+  const [iconUploading, setIconUploading] = useState(false);
+  const [localIconUrl, setLocalIconUrl] = useState<string | null>(null);
   const siteMenuRef = useRef<HTMLDivElement>(null);
   const [boot, setBoot] = useState<CmsBootstrapData | null>(null);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
@@ -61,15 +95,17 @@ export function CmsDashboard({
     refresh: refreshIntegrations,
     connectedCount,
   } = useCmsConnectedIntegrations(true);
+  const { project: linkedProject, refresh: refreshLinkedProject } = useCmsLinkedProject(siteSlug, true);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const q = new URLSearchParams({ project_slug: siteSlug });
+      const actQ = new URLSearchParams({ project_slug: siteSlug });
       const [bootRes, actRes] = await Promise.all([
         fetch(`/api/cms/bootstrap?${q}`, { credentials: 'include', cache: 'no-store' }),
-        fetch('/api/cms/activity', { credentials: 'include', cache: 'no-store' }),
+        fetch(`/api/cms/activity?${actQ}`, { credentials: 'include', cache: 'no-store' }),
       ]);
       const bootJson = (await bootRes.json()) as CmsBootstrapData & { error?: string };
       if (!bootRes.ok) throw new Error(bootJson.error || `Bootstrap HTTP ${bootRes.status}`);
@@ -92,6 +128,10 @@ export function CmsDashboard({
   }, [load]);
 
   useEffect(() => {
+    setLocalIconUrl(null);
+  }, [siteSlug, linkedProject?.cover_image_url]);
+
+  useEffect(() => {
     if (!siteMenuOpen) return;
     const onDoc = (e: MouseEvent) => {
       if (siteMenuRef.current && !siteMenuRef.current.contains(e.target as Node)) {
@@ -107,8 +147,10 @@ export function CmsDashboard({
   const assets = boot?.assets_3d || boot?.assets || [];
   const imports = boot?.imports || [];
   const navMenus = boot?.nav_menus || [];
+  const componentTemplates = boot?.component_templates || [];
   const sections = boot?.sections || Object.values(boot?.sections_by_page || {}).flat();
   const drafts = pages.filter((p) => String(p.status || '').toLowerCase() === 'draft').length;
+
   const collectionCount = useMemo(() => {
     const sectionTypes = new Set(
       sections.map((s) => String((s as { section_type?: string }).section_type || '').trim()).filter(Boolean),
@@ -127,48 +169,90 @@ export function CmsDashboard({
     [siteSlug, site?.domain, context?.public_domain],
   );
 
+  const siteIconUrl =
+    localIconUrl ||
+    linkedProject?.cover_image_url ||
+    site?.logo_url ||
+    null;
+  const siteDisplayName = site?.name || context?.project_name || siteSlug;
+
+  const handleIconDrop = useCallback(
+    async (file: File) => {
+      if (!linkedProject?.id) return;
+      setIconUploading(true);
+      try {
+        const out = await uploadProjectR2File(
+          linkedProject.id,
+          file,
+          'cover',
+          context?.workspace_id || undefined,
+        );
+        if (!out.ok || !out.url) throw new Error(out.error || 'Upload failed');
+        const meta = { ...parseProjectMeta(linkedProject.metadata_json), cover_image_url: out.url };
+        const res = await updateProject(linkedProject.id, {
+          metadata_json: JSON.stringify(meta),
+        });
+        if (!res.ok) throw new Error(res.error || 'Could not save project icon');
+        setLocalIconUrl(out.url);
+        void refreshLinkedProject();
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setIconUploading(false);
+      }
+    },
+    [linkedProject, context?.workspace_id, refreshLinkedProject],
+  );
+
   const modules = useMemo(
     () => [
       {
-        id: 'content',
-        title: 'Content',
-        sub: `${drafts} draft${drafts === 1 ? '' : 's'}`,
-        path: buildCmsPath({ panel: 'pages', siteSlug }),
-        cta: 'Manage content',
+        id: 'project',
+        title: 'Project',
+        desc: linkedProject
+          ? 'Jump to the dashboard project linked to this CMS site.'
+          : 'Connect a dashboard project for shared icons, rules, and memory.',
+        sub: linkedProject ? linkedProject.name : 'Browse projects',
+        path: linkedProject
+          ? `/dashboard/projects/${encodeURIComponent(linkedProject.id)}`
+          : '/dashboard/projects',
+        cta: linkedProject ? 'Open project →' : 'Browse projects →',
       },
       {
         id: 'media',
         title: 'Media',
+        desc: 'Manage images, video, and files in this site’s media library.',
         sub: `${assets.length} asset${assets.length === 1 ? '' : 's'}`,
-        path: buildCmsPath({ panel: 'pages', siteSlug }),
-        cta: 'Open media library',
+        path: buildCmsPath({ panel: 'media', siteSlug }),
+        cta: 'Open media library →',
       },
       {
         id: 'structure',
         title: 'Structure',
-        sub: `${navMenus.length || pages.length} menu${(navMenus.length || pages.length) === 1 ? '' : 's'}`,
-        path: buildCmsPath({ panel: 'theme-editor', siteSlug }),
-        cta: 'View structure',
+        desc: 'Bindings, domains, hosting profile, and site-specific configuration.',
+        sub: 'Bindings & site specifics',
+        action: 'structure' as const,
+        cta: 'View bindings →',
       },
       {
-        id: 'settings',
-        title: 'Settings',
-        sub: `${connectedCount} integration${connectedCount === 1 ? '' : 's'} connected`,
-        path: '/dashboard/settings?section=integrations',
-        cta: 'Site settings',
-        external: true,
+        id: 'templates',
+        title: 'Templates',
+        desc: 'Platform-wide page templates and section blocks from D1 + R2.',
+        sub: `${componentTemplates.length}+ global block${componentTemplates.length === 1 ? '' : 's'}`,
+        path: buildCmsPath({ panel: 'templates', siteSlug }),
+        cta: 'Browse library →',
       },
     ],
-    [drafts, assets.length, navMenus.length, pages.length, connectedCount, siteSlug],
+    [linkedProject, assets.length, componentTemplates.length, siteSlug],
   );
 
   const quickActions = useMemo(
     () => [
-      { label: 'Create new page', path: buildCmsPath({ panel: 'pages', siteSlug }) },
+      { label: 'Create new page', path: buildCmsPath({ panel: 'theme-editor', siteSlug }) },
       { label: 'Browse templates', path: buildCmsPath({ panel: 'templates', siteSlug }) },
-      { label: 'Open theme editor', path: buildCmsPath({ panel: 'theme-editor', siteSlug }) },
-      { label: 'Import theme (drop above)', action: 'import' as const },
-      { label: 'Online store preview', path: buildCmsPath({ panel: 'online-store', siteSlug }) },
+      { label: 'Upload media', path: buildCmsPath({ panel: 'media', siteSlug }) },
+      { label: 'Import theme', action: 'import' as const },
+      { label: 'Manage redirects', path: buildCmsPath({ panel: 'pages', siteSlug }) },
     ],
     [siteSlug],
   );
@@ -195,12 +279,26 @@ export function CmsDashboard({
       <div className="iam-cms-dashboard__hero">
         <section className="iam-cms-card iam-cms-site-hero">
           <div className="iam-cms-site-hero__head">
-            <div>
-              <p className="iam-cms-site-hero__suite">CMS Suite</p>
-              <h2 className="iam-cms-site-hero__name">{site?.name || context?.project_name || siteSlug}</h2>
-              <p className="iam-cms-site-hero__meta">
-                {storefrontDisplayHost(storefrontUrl) || siteSlug}
-              </p>
+            <div className="iam-cms-site-hero__identity">
+              <AppIcon
+                title={siteDisplayName}
+                imageUrl={cfImageVariants(siteIconUrl).src || undefined}
+                backgroundColor={
+                  siteIconUrl ? undefined : `hsl(${projectAccentHue(linkedProject?.id || siteSlug)} 42% 38%)`
+                }
+                size="lg"
+                editable={Boolean(linkedProject?.id)}
+                disabled={iconUploading}
+                onImageDrop={linkedProject?.id ? handleIconDrop : undefined}
+              />
+              <div>
+                <p className="iam-cms-site-hero__suite">Active site · CMS Suite</p>
+                <h2 className="iam-cms-site-hero__name">{siteDisplayName}</h2>
+                <p className="iam-cms-site-hero__meta">
+                  {storefrontDisplayHost(storefrontUrl) || siteSlug}
+                  {drafts ? ` · ${drafts} draft${drafts === 1 ? '' : 's'}` : ''}
+                </p>
+              </div>
             </div>
             <div className="iam-cms-site-hero__head-actions">
               <span className="iam-cms-site-hero__live">
@@ -304,20 +402,27 @@ export function CmsDashboard({
 
         <div className="iam-cms-modules">
           {modules.map((m) =>
-            (m as { external?: boolean }).external ? (
-              <a key={m.id} className="iam-cms-card iam-cms-module" href={m.path}>
+            'action' in m && m.action === 'structure' ? (
+              <button
+                key={m.id}
+                type="button"
+                className={`iam-cms-card iam-cms-module${structureOpen ? ' is-active' : ''}`}
+                onClick={() => setStructureOpen((v) => !v)}
+              >
                 <h3 className="iam-cms-module__title">{m.title}</h3>
+                <p className="iam-cms-module__desc">{m.desc}</p>
                 <p className="iam-cms-module__sub">{m.sub}</p>
                 <span className="iam-cms-module__cta">{m.cta}</span>
-              </a>
+              </button>
             ) : (
               <button
                 key={m.id}
                 type="button"
                 className="iam-cms-card iam-cms-module"
-                onClick={() => onNavigate(m.path)}
+                onClick={() => onNavigate((m as { path: string }).path)}
               >
                 <h3 className="iam-cms-module__title">{m.title}</h3>
+                <p className="iam-cms-module__desc">{m.desc}</p>
                 <p className="iam-cms-module__sub">{m.sub}</p>
                 <span className="iam-cms-module__cta">{m.cta}</span>
               </button>
@@ -326,24 +431,41 @@ export function CmsDashboard({
         </div>
       </div>
 
+      {structureOpen ? (
+        <CmsSiteStructurePanel
+          siteSlug={siteSlug}
+          context={context}
+          pageCount={pages.length}
+          themeCount={themes.length}
+          importCount={imports.length}
+        />
+      ) : null}
+
       <div className="iam-cms-dashboard__grid iam-cms-dashboard__grid--three">
         <section className="iam-cms-card">
           <div className="iam-cms-panel-head">Recent activity</div>
           {activity.length ? (
             <ul className="iam-cms-activity">
-              {activity.map((row, i) => (
-                <li key={row.id || i}>
-                  <span className="iam-cms-activity__action">
-                    {row.action || row.resource_type || 'Update'}
-                    {row.resource_id ? ` · ${row.resource_id}` : ''}
-                  </span>
-                  <span className="iam-cms-activity__when">{formatWhen(row.created_at)}</span>
-                </li>
-              ))}
+              {activity.map((row, i) => {
+                const status = activityStatus(row);
+                return (
+                  <li key={row.id || i}>
+                    <span className="iam-cms-activity__action">{activityLabel(row)}</span>
+                    <span className="iam-cms-activity__meta">
+                      <span className={`iam-cms-activity__tag is-${status}`}>
+                        {status === 'published' ? 'Published' : 'Draft'}
+                      </span>
+                      <span className="iam-cms-activity__when">{formatWhen(row.created_at)}</span>
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p className="iam-cms-site-hero__meta" style={{ padding: '16px' }}>
-              No recent platform activity yet — edits on federated client sites appear in their runtime.
+              {pages.length
+                ? `${pages.length} page${pages.length === 1 ? '' : 's'} on this site — edits will appear here.`
+                : 'No recent activity logged yet.'}
             </p>
           )}
         </section>
@@ -357,7 +479,9 @@ export function CmsDashboard({
                   type="button"
                   onClick={() => {
                     if ('action' in a && a.action === 'import') {
-                      document.querySelector('.iam-cms-import-strip')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      document
+                        .querySelector('.iam-cms-import-strip')
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                       return;
                     }
                     if ('path' in a && a.path) onNavigate(a.path);

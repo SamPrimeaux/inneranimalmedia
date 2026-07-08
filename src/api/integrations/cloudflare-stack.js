@@ -5,6 +5,11 @@ import { jsonResponse } from '../../core/auth.js';
 import { getIntegrationOAuthRow } from '../../core/user-oauth-token.js';
 import { resolveIntegrationUserId } from '../../core/integration-user-id.js';
 import { userCanAccessWorkspace } from '../../core/workspace-access.js';
+import {
+  buildAccountCloudflareSnapshot,
+  persistUserCfStackSettings,
+  readUserCfStackSettings,
+} from '../../core/account-cloudflare-context.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -229,8 +234,7 @@ export async function handleCfStackSave(env, authUser, body) {
 
   const current = await readWorkspaceSettingsJson(env, workspace_id);
 
-  const updated = {
-    ...current,
+  const stackPatch = {
     ...(account_id && { cf_account_id: account_id }),
     ...(d1_database_id && { cf_d1_database_id: d1_database_id }),
     ...(body?.d1_database_name && { cf_d1_database_name: String(body.d1_database_name).trim() }),
@@ -241,7 +245,25 @@ export async function handleCfStackSave(env, authUser, body) {
     cf_stack_configured_by: userId,
   };
 
+  if (userId) {
+    await persistUserCfStackSettings(env, userId, stackPatch);
+  }
+
+  const updated = {
+    ...current,
+    ...stackPatch,
+  };
+
   await mergeWorkspaceSettingsJson(env, workspace_id, updated);
 
-  return jsonResponse({ ok: true, workspace_id, saved: Object.keys(updated) });
+  return jsonResponse({ ok: true, workspace_id, saved: Object.keys(stackPatch), account_wide: true });
+}
+
+/**
+ * GET /api/integrations/cloudflare/context — account-wide CF credential snapshot.
+ */
+export async function handleCfAccountContext(env, authUser) {
+  if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+  const snapshot = await buildAccountCloudflareSnapshot(env, authUser);
+  return jsonResponse(snapshot);
 }

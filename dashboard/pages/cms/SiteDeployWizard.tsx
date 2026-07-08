@@ -2,7 +2,7 @@
  * SiteDeployWizard — 7-step site provisioning (Site → Infra → Repo → Domain → CMS → Review → Deploy).
  * POST /api/cms/projects/create + optional POST /api/cms/liquid-imports/upload for theme .zip.
  */
-import React, { useState, useCallback, useRef, useId, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useId, useEffect, useMemo } from 'react';
 import {
   Check,
   Plus,
@@ -26,8 +26,16 @@ import {
   ExternalLink,
   Pencil,
   Sparkles,
+  ChevronLeft,
+  Monitor,
+  Loader2,
   type LucideIcon,
 } from 'lucide-react';
+import { AppIcon } from '../../components/ui/AppIcon';
+import { fetchConnectTiles } from '../../api/connectTiles';
+import { openIntegrationOAuthPopup } from '../../src/lib/integrationOAuthPopup';
+import { CfStackWizard } from '../../components/settings/sections/CfStackWizard';
+import '../../components/ui/AppIcon.css';
 import './SiteDeployWizard.css';
 
 interface ImportZipState {
@@ -35,7 +43,11 @@ interface ImportZipState {
   error: string | null;
 }
 
+type HostingLane = 'platform_shared' | 'isolated_build' | 'localhost_dev';
+
 interface WState {
+  hosting: HostingLane;
+  localDevPort: string;
   site: { name: string; slug: string; type: 'new' | 'import' | 'client'; _se?: boolean };
   importZip: ImportZipState;
   infra: { worker: 'existing' | 'new'; workerName: string; bucket: 'cms' | 'new'; kv: boolean };
@@ -76,6 +88,8 @@ const ZIP_ACCEPT = '.zip,.tar.gz,.tgz,.tar';
 const ZIP_MAX_MB = 80;
 
 const INIT: WState = {
+  hosting: 'platform_shared',
+  localDevPort: '8787',
   site: { name: '', slug: '', type: 'new' },
   importZip: { file: null, error: null },
   infra: { worker: 'existing', workerName: '', bucket: 'cms', kv: false },
@@ -126,11 +140,73 @@ function slugFromZipName(filename: string) {
 
 function applyExpressDefaults(slug: string) {
   return {
+    hosting: 'platform_shared' as const,
     infra: { worker: 'existing' as const, workerName: '', bucket: 'cms' as const, kv: false },
     repo: { mode: 'skip' as const, org: 'SamPrimeaux', repoName: '', branch: 'main', builds: false },
     domain: { mode: 'subdomain' as const, sub: slug, custom: '', cf: true },
     cms: { tpl: 'shopify' as const, secs: [] as string[], agentic: true, pipeline: true },
   };
+}
+
+function applyHostingLaneDefaults(lane: HostingLane, slug: string) {
+  if (lane === 'platform_shared') {
+    return {
+      hosting: lane,
+      infra: { worker: 'existing' as const, workerName: '', bucket: 'cms' as const, kv: false },
+      repo: { mode: 'skip' as const, org: 'SamPrimeaux', repoName: '', branch: 'main', builds: false },
+      domain: { mode: 'subdomain' as const, sub: slug, custom: '', cf: false },
+    };
+  }
+  if (lane === 'localhost_dev') {
+    return {
+      hosting: lane,
+      infra: { worker: 'existing' as const, workerName: '', bucket: 'cms' as const, kv: false },
+      repo: { mode: 'skip' as const, org: 'SamPrimeaux', repoName: '', branch: 'main', builds: false },
+      domain: { mode: 'later' as const, sub: slug, custom: '', cf: false },
+    };
+  }
+  return {
+    hosting: lane,
+    infra: { worker: 'new' as const, workerName: slug ? `${slug}-worker` : '', bucket: 'new' as const, kv: true },
+    repo: { mode: 'new' as const, org: 'SamPrimeaux', repoName: slug || '', branch: 'main', builds: true },
+    domain: { mode: 'custom' as const, sub: slug, custom: '', cf: true },
+  };
+}
+
+const ISOLATION_BINDINGS = [
+  { iconSlug: 'cloudflare', providerKey: 'cloudflare_workers', title: 'Worker', detail: 'One dedicated Worker script' },
+  { iconSlug: 'cloudflare_d1', providerKey: 'cloudflare_d1', title: 'D1', detail: 'Own schema — no cross-tenant tables' },
+  { iconSlug: 'cf_r2', providerKey: 'cloudflare_r2', title: 'R2', detail: 'Own bucket + prefix space' },
+  { iconSlug: 'cloudflare_kv', providerKey: 'cloudflare_kv', title: 'KV', detail: 'Own namespace key space' },
+  { iconSlug: 'github', providerKey: 'github', title: 'GitHub', detail: 'One repo + deploy hook' },
+];
+
+function IsolationPatternPanel({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={`sw-isolation-panel${compact ? ' sw-isolation-panel--compact' : ''}`}>
+      <p className="sw-isolation-panel__lede">
+        Companions-style isolation — five bindings + one <code>agentsam_workspace</code> row as SSOT. Uses your
+        Cloudflare account (OAuth once, account-wide — CF account id wins).
+      </p>
+      <ul className="sw-isolation-panel__grid">
+        {ISOLATION_BINDINGS.map((row) => (
+          <li key={row.title}>
+            <AppIcon
+              title={row.title}
+              iconSlug={row.iconSlug}
+              providerKey={row.providerKey}
+              size="sm"
+              presentation="brand"
+            />
+            <span>
+              <strong>{row.title}</strong>
+              <span>{row.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function sleep(ms: number) {
@@ -141,6 +217,138 @@ function validateZipFile(file: File): string | null {
   if (!isAllowedZip(file)) return 'Use a .zip or .tar.gz theme archive';
   if (file.size > ZIP_MAX_MB * 1024 * 1024) return `File must be under ${ZIP_MAX_MB} MB`;
   return null;
+}
+
+type CfCredentialSnapshot = {
+  cfOAuthConnected: boolean;
+  cfStackConfigured: boolean;
+  cfAccountDisplay: string | null;
+  cfConnectUrl: string | null;
+  connecting: boolean;
+  connectError: string | null;
+};
+
+type BrandIconSpec = {
+  iconSlug: string;
+  providerKey?: string;
+  title: string;
+};
+
+async function loadCfCredentialSnapshot(): Promise<
+  Pick<CfCredentialSnapshot, 'cfOAuthConnected' | 'cfStackConfigured' | 'cfAccountDisplay' | 'cfConnectUrl'>
+> {
+  try {
+    const res = await fetch('/api/integrations/cloudflare/context', { credentials: 'same-origin' });
+    if (!res.ok) return { cfStackConfigured: false };
+    const snap = (await res.json()) as {
+      connected?: boolean;
+      oauth_connected?: boolean;
+      stack_configured?: boolean;
+      account_display?: string | null;
+      connect_url?: string;
+    };
+    return {
+      cfOAuthConnected: Boolean(snap.connected || snap.oauth_connected),
+      cfStackConfigured: Boolean(snap.stack_configured),
+      cfAccountDisplay: snap.account_display || null,
+      cfConnectUrl: snap.connect_url || '/api/integrations/cloudflare/connect',
+    };
+  } catch {
+    return { cfStackConfigured: false };
+  }
+}
+
+function wizardUsesCfInfra(s: WState, express: boolean): boolean {
+  if (s.hosting === 'isolated_build') return true;
+  if (s.hosting === 'localhost_dev') return false;
+  if (express) {
+    return (
+      s.pkg.dbTarget !== 'platform' ||
+      s.pkg.r2Target !== 'shared' ||
+      s.pkg.workerTarget !== 'shared'
+    );
+  }
+  return s.infra.worker === 'new' || s.infra.bucket === 'new' || s.infra.kv || s.repo.builds;
+}
+
+function CfCredentialsStrip({
+  snapshot,
+  needsStack,
+  onConnect,
+  onConfigureStack,
+}: {
+  snapshot: CfCredentialSnapshot;
+  needsStack?: boolean;
+  onConnect: () => void | Promise<void>;
+  onConfigureStack: () => void;
+}) {
+  return (
+    <div className="sw-cf-strip">
+      <AppIcon
+        title="Cloudflare"
+        providerKey="cloudflare_oauth"
+        iconSlug="cloudflare"
+        size="md"
+        presentation="brand"
+        subtitle={
+          snapshot.cfOAuthConnected
+            ? snapshot.cfAccountDisplay || 'Connected'
+            : 'Authorize to use Workers, R2, D1, and DNS'
+        }
+        status={snapshot.cfOAuthConnected ? 'ok' : 'warning'}
+      />
+      <div className="sw-cf-strip__copy">
+        <p className="sw-cf-strip__title">Cloudflare credentials</p>
+        <p className="sw-cf-strip__sub">
+          {snapshot.cfOAuthConnected
+            ? needsStack && !snapshot.cfStackConfigured
+              ? 'OAuth connected — pick your D1, Worker, and R2 targets in the stack wizard.'
+              : 'Your account is linked. IAM can provision Workers, R2, D1, and DNS on your behalf.'
+            : 'Connect Cloudflare so this wizard can provision real infrastructure on your account.'}
+        </p>
+        {snapshot.connectError ? (
+          <p className="sw-cf-strip__err">{snapshot.connectError}</p>
+        ) : null}
+      </div>
+      <div className="sw-cf-strip__actions">
+        {!snapshot.cfOAuthConnected ? (
+          <button type="button" className="sw-cf-strip__btn" disabled={snapshot.connecting} onClick={() => void onConnect()}>
+            {snapshot.connecting ? (
+              <>
+                <Loader2 size={14} className="animate-spin" aria-hidden />
+                Connecting…
+              </>
+            ) : (
+              'Connect Cloudflare'
+            )}
+          </button>
+        ) : needsStack && !snapshot.cfStackConfigured ? (
+          <button type="button" className="sw-cf-strip__btn sw-cf-strip__btn--ghost" onClick={onConfigureStack}>
+            Configure stack
+          </button>
+        ) : (
+          <span className="sw-cf-strip__ok">
+            <Check size={14} aria-hidden />
+            Ready
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BrandIconSlot({ brand, sel }: { brand: BrandIconSpec; sel?: boolean }) {
+  return (
+    <div className={`sw-brand-icon${sel ? ' sw-brand-icon--selected' : ''}`}>
+      <AppIcon
+        title={brand.title}
+        providerKey={brand.providerKey}
+        iconSlug={brand.iconSlug}
+        size="sm"
+        presentation="brand"
+      />
+    </div>
+  );
 }
 
 /* ── primitives ─────────────────────────────────────────────────────────── */
@@ -196,12 +404,14 @@ function Card({
   sel,
   onClick,
   icon: Icon,
+  brand,
   title,
   sub,
 }: {
   sel: boolean;
   onClick: () => void;
-  icon: LucideIcon;
+  icon?: LucideIcon;
+  brand?: BrandIconSpec;
   title: React.ReactNode;
   sub: string;
 }) {
@@ -212,15 +422,19 @@ function Card({
       className={`w-full text-left rounded-xl p-4 mb-2.5 cursor-pointer sw-card ${sel ? 'sw-card--selected' : ''}`}
     >
       <div className="flex items-start gap-3">
-        <div
-          className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
-          style={{
-            background: sel ? 'var(--bg-accent)' : 'var(--surface-1)',
-            color: sel ? 'var(--text-accent)' : 'var(--text-secondary)',
-          }}
-        >
-          <Icon size={17} strokeWidth={2} aria-hidden />
-        </div>
+        {brand ? (
+          <BrandIconSlot brand={brand} sel={sel} />
+        ) : Icon ? (
+          <div
+            className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+            style={{
+              background: sel ? 'var(--bg-accent)' : 'var(--surface-1)',
+              color: sel ? 'var(--text-accent)' : 'var(--text-secondary)',
+            }}
+          >
+            <Icon size={17} strokeWidth={2} aria-hidden />
+          </div>
+        ) : null}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 text-[14px] font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
             <span className="min-w-0">{title}</span>
@@ -475,12 +689,14 @@ function S0({
   s,
   u,
   uZip,
+  uHosting,
   onExpressZip,
   express,
 }: {
   s: WState;
   u: (p: Partial<WState['site']>) => void;
   uZip: (p: Partial<ImportZipState>) => void;
+  uHosting: (lane: HostingLane) => void;
   onExpressZip: (file: File, slug: string) => void;
   express?: boolean;
 }) {
@@ -528,6 +744,37 @@ function S0({
       >
         <Inp value={s.site.slug} placeholder="my-site" onChange={(v) => u({ slug: v, _se: true })} />
       </Fld>
+      {!express ? (
+        <>
+          <Div label="hosting model" />
+          <Card
+            sel={s.hosting === 'platform_shared'}
+            onClick={() => uHosting('platform_shared')}
+            brand={{ iconSlug: 'cloudflare', providerKey: 'cloudflare_oauth', title: 'IAM platform' }}
+            title="Platform shared (IAM)"
+            sub="Uses Inner Animal shared Worker + CMS bucket. No Cloudflare billing on your account — best for prototypes and IAM-hosted sites."
+          />
+          <Card
+            sel={s.hosting === 'isolated_build'}
+            onClick={() => uHosting('isolated_build')}
+            brand={{ iconSlug: 'cloudflare_workers', providerKey: 'cloudflare_workers', title: 'Isolated build' }}
+            title={
+              <>
+                Isolated build <Bdg v="new">your CF</Bdg>
+              </>
+            }
+            sub="Companions pattern — your Worker, D1, R2, KV, GitHub, and deploy URL. Requires Cloudflare OAuth + stack wizard."
+          />
+          {s.hosting === 'isolated_build' ? <IsolationPatternPanel compact /> : null}
+          <Card
+            sel={s.hosting === 'localhost_dev'}
+            onClick={() => uHosting('localhost_dev')}
+            icon={Monitor}
+            title="Localhost dev"
+            sub="Registry-only on IAM — run wrangler dev locally. No cloud resources provisioned on platform or your account."
+          />
+        </>
+      ) : null}
       <ZipDropZone
         file={s.importZip.file}
         error={s.importZip.error}
@@ -560,66 +807,152 @@ function S0({
   );
 }
 
-function S1({ s, u }: { s: WState; u: (p: Partial<WState['infra']>) => void }) {
+function hostingLaneLabel(lane: HostingLane): string {
+  if (lane === 'isolated_build') return 'Isolated build (your Cloudflare)';
+  if (lane === 'localhost_dev') return 'Localhost dev (registry only)';
+  return 'Platform shared (IAM)';
+}
+
+function S1({
+  s,
+  u,
+  uLocalPort,
+  cfSnapshot,
+  onCfConnect,
+  onCfConfigureStack,
+}: {
+  s: WState;
+  u: (p: Partial<WState['infra']>) => void;
+  uLocalPort: (port: string) => void;
+  cfSnapshot: CfCredentialSnapshot;
+  onCfConnect: () => void | Promise<void>;
+  onCfConfigureStack: () => void;
+}) {
+  const slug = s.site.slug || toSlug(s.site.name) || 'my-site';
+
+  if (s.hosting === 'localhost_dev') {
+    return (
+      <>
+        <Head
+          title="Local development"
+          desc="Register the project on IAM only — run wrangler dev on your machine. No Workers, R2, or DNS are provisioned on the platform or your Cloudflare account."
+        />
+        <div className="sw-localhost-panel">
+          <Monitor size={22} aria-hidden />
+          <div>
+            <p className="sw-localhost-panel__title">Registry-only lane</p>
+            <p className="sw-localhost-panel__sub">
+              IAM creates the workspace + CMS registry rows. You bind local wrangler to port{' '}
+              <strong>{s.localDevPort || '8787'}</strong> and sync when ready.
+            </p>
+          </div>
+        </div>
+        <Fld label="Wrangler dev port" hint="Default 8787 — must match your local wrangler.toml dev port">
+          <Inp value={s.localDevPort} placeholder="8787" onChange={uLocalPort} />
+        </Fld>
+        <div className="sw-platform-lock">
+          <Lock size={14} aria-hidden />
+          <span>Cloudflare OAuth not required — nothing is billed on IAM or your account from this wizard.</span>
+        </div>
+      </>
+    );
+  }
+
+  if (s.hosting === 'platform_shared') {
+    return (
+      <>
+        <Head
+          title="Platform infrastructure"
+          desc="Uses Inner Animal shared Worker + CMS bucket. Dedicated Workers, R2, KV, and DNS on your account are not provisioned from this lane."
+        />
+        <div className="sw-platform-lock">
+          <Lock size={14} aria-hidden />
+          <span>
+            Locked to IAM shared resources — connect Cloudflare OAuth on the <strong>Isolated build</strong> lane if
+            you need dedicated infrastructure on your account.
+          </span>
+        </div>
+        <Div label="worker" />
+        <Card
+          sel
+          onClick={() => {}}
+          brand={{ iconSlug: 'cloudflare', providerKey: 'cloudflare_workers', title: 'Cloudflare Workers' }}
+          title="inneranimalmedia (shared Worker)"
+          sub="All routes and CMS hydration run on the platform Worker — no new Worker deploy on your account."
+        />
+        <Div label="R2 storage" />
+        <Card
+          sel
+          onClick={() => {}}
+          brand={{ iconSlug: 'cf_r2', providerKey: 'cloudflare_r2', title: 'Shared CMS R2' }}
+          title={
+            <>
+              Shared CMS bucket <Bdg v="cn">cms</Bdg>
+            </>
+          }
+          sub="Draft and published HTML live in the platform CMS bucket — not billed to your Cloudflare account."
+        />
+      </>
+    );
+  }
+
   return (
     <>
       <Head
-        title="Cloudflare infrastructure"
-        desc="Choose how this site's Worker and storage are set up. Connect existing resources or create new ones."
+        title="Isolated build infrastructure"
+        desc="Companions-style isolation on your Cloudflare account. OAuth + stack wizard required — IAM will not provision dedicated bindings on the platform account."
       />
-      <Div label="worker" />
-      <Card
-        sel={s.infra.worker === 'existing'}
-        onClick={() => u({ worker: 'existing' })}
-        icon={Zap}
-        title="Connect existing Worker"
-        sub="Attach this site to inneranimalmedia — your main Worker handles routing and CMS hydration."
+      <IsolationPatternPanel />
+      <CfCredentialsStrip
+        snapshot={cfSnapshot}
+        needsStack
+        onConnect={onCfConnect}
+        onConfigureStack={onCfConfigureStack}
       />
+      <Div label="provisioned bindings" />
       <Card
-        sel={s.infra.worker === 'new'}
-        onClick={() => u({ worker: 'new' })}
-        icon={Plus}
+        sel
+        onClick={() => {}}
+        brand={{ iconSlug: 'cloudflare', providerKey: 'cloudflare_workers', title: 'Dedicated Worker' }}
         title={
           <>
-            Deploy a new Worker <Bdg v="new">new</Bdg>
+            Worker <Bdg v="new">{s.infra.workerName || `${slug}-worker`}</Bdg>
           </>
         }
-        sub="Spin up a dedicated Worker for this site. Useful for isolated client projects or custom routing logic."
+        sub="One Worker script + deploy URL — created on your Cloudflare account after stack save."
       />
-      {s.infra.worker === 'new' ? (
-        <div className="pl-6 mb-2">
-          <Fld label="Worker name">
-            <Inp value={s.infra.workerName} placeholder="my-site-worker" onChange={(v) => u({ workerName: v })} />
-          </Fld>
+      <Card
+        sel
+        onClick={() => {}}
+        brand={{ iconSlug: 'cloudflare_d1', providerKey: 'cloudflare_d1', title: 'Dedicated D1' }}
+        title="D1 database"
+        sub="Own schema — no cross-tenant tables. Registry row on IAM; content plane on your D1."
+      />
+      <Card
+        sel
+        onClick={() => {}}
+        brand={{ iconSlug: 'cf_r2', providerKey: 'cloudflare_r2', title: 'Dedicated R2' }}
+        title={
+          <>
+            R2 bucket <Bdg v="new">{slug}-assets</Bdg>
+          </>
+        }
+        sub="Isolated prefix space for pages, themes, and media."
+      />
+      <div className="mt-2 pl-1">
+        <div className="flex items-start gap-3">
+          <BrandIconSlot brand={{ iconSlug: 'cloudflare_kv', providerKey: 'cloudflare_kv', title: 'Cloudflare KV' }} sel />
+          <Tog
+            on
+            onClick={() => {}}
+            label="KV draft cache"
+            sub="Included in the isolation pattern — draft CMS state namespace on your account."
+          />
         </div>
-      ) : null}
-      <Div label="R2 storage" />
-      <Card
-        sel={s.infra.bucket === 'cms'}
-        onClick={() => u({ bucket: 'cms' })}
-        icon={Database}
-        title={
-          <>
-            Shared CMS bucket <Bdg v="cn">cms.inneranimalmedia.com</Bdg>
-          </>
-        }
-        sub="Pages and sections land in the cms R2 bucket — default for all new sites."
-      />
-      <Card
-        sel={s.infra.bucket === 'new'}
-        onClick={() => u({ bucket: 'new' })}
-        icon={Plus}
-        title="Create dedicated bucket"
-        sub="Isolated storage for this project — useful for client sites needing separate asset management."
-      />
-      <div className="mt-4" style={{ borderTop: '0.5px solid var(--border)', paddingTop: '1rem' }}>
-        <Tog
-          on={s.infra.kv}
-          onClick={() => u({ kv: !s.infra.kv })}
-          label="KV draft cache"
-          sub="Stores draft CMS state between saves for faster preview loads"
-        />
       </div>
+      <Fld label="Worker name">
+        <Inp value={s.infra.workerName} placeholder={`${slug}-worker`} onChange={(v) => u({ workerName: v })} />
+      </Fld>
     </>
   );
 }
@@ -893,6 +1226,10 @@ function S5({ s, goTo, express }: { s: WState; goTo: (i: number) => void; expres
     : [
         ['Project', s.site.name || '—', 0],
         ['Slug', slug, 0],
+        ['Hosting', hostingLaneLabel(s.hosting), 0],
+        ...(s.hosting === 'localhost_dev'
+          ? [['Local port', s.localDevPort || '8787', 1] as [string, string, number]]
+          : []),
         ['Type', s.site.type, 0],
         ...(s.importZip.file ? [['Theme zip', s.importZip.file.name, 0] as [string, string, number]] : []),
         ['Worker', s.infra.worker === 'existing' ? 'inneranimalmedia (shared)' : s.infra.workerName || 'new worker', 1],
@@ -941,18 +1278,31 @@ function S5({ s, goTo, express }: { s: WState; goTo: (i: number) => void; expres
   );
 }
 
-function DeployStepIcon({ icon: Icon }: { icon: LucideIcon }) {
+function DeployStepIcon({ icon: Icon, brand }: { icon?: LucideIcon; brand?: BrandIconSpec }) {
+  if (brand) {
+    return (
+      <div className="shrink-0">
+        <AppIcon
+          title={brand.title}
+          providerKey={brand.providerKey}
+          iconSlug={brand.iconSlug}
+          size="sm"
+          presentation="brand"
+        />
+      </div>
+    );
+  }
   return (
     <div
       className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
       style={{ background: 'var(--surface-1)', color: 'var(--text-secondary)' }}
     >
-      <Icon size={16} strokeWidth={2} aria-hidden />
+      {Icon ? <Icon size={16} strokeWidth={2} aria-hidden /> : null}
     </div>
   );
 }
 
-function buildDeployItems(s: WState, express: boolean): { icon: LucideIcon; label: string; sub: string }[] {
+function buildDeployItems(s: WState, express: boolean): { icon?: LucideIcon; brand?: BrandIconSpec; label: string; sub: string }[] {
   const slug = s.site.slug || toSlug(s.site.name) || 'my-site';
   const domain =
     s.domain.mode === 'subdomain'
@@ -963,34 +1313,103 @@ function buildDeployItems(s: WState, express: boolean): { icon: LucideIcon; labe
 
   if (express) {
     return [
-      { icon: Database, label: 'Register project', sub: `Workspace entry for ${slug}` },
+      {
+        brand: { iconSlug: 'cloudflare_d1', providerKey: 'cloudflare_d1', title: 'Cloudflare D1' },
+        label: 'Register project',
+        sub: `Workspace entry for ${slug} (platform shared)`,
+      },
       { icon: Upload, label: 'Upload theme archive', sub: s.importZip.file?.name || 'theme.zip' },
       { icon: Layout, label: 'Extract & map sections', sub: 'Parse templates/index.json + sections/*.liquid' },
-      { icon: Globe, label: 'Publish v1 homepage', sub: domain },
+      {
+        brand: { iconSlug: 'cloudflare', providerKey: 'cloudflare_oauth', title: 'Cloudflare DNS' },
+        label: 'Publish v1 homepage',
+        sub: domain,
+      },
+    ];
+  }
+
+  if (s.hosting === 'localhost_dev') {
+    return [
+      {
+        brand: { iconSlug: 'cloudflare_d1', providerKey: 'cloudflare_d1', title: 'IAM registry' },
+        label: 'Register project (registry only)',
+        sub: 'agentsam_project_context + CMS rows — no cloud seed',
+      },
+      {
+        icon: Monitor,
+        label: 'Local wrangler dev',
+        sub: `Run wrangler dev --port ${s.localDevPort || '8787'} locally`,
+      },
+    ];
+  }
+
+  if (s.hosting === 'isolated_build') {
+    return [
+      {
+        brand: { iconSlug: 'cloudflare_d1', providerKey: 'cloudflare_d1', title: 'Cloudflare D1' },
+        label: 'Register IAM workspace row',
+        sub: 'SSOT agentsam_workspace → your bindings',
+      },
+      {
+        brand: { iconSlug: 'cloudflare', providerKey: 'cloudflare_workers', title: 'Cloudflare Workers' },
+        label: 'Provision Worker + D1 + R2 + KV',
+        sub: `${s.infra.workerName || `${slug}-worker`} on your Cloudflare account`,
+      },
+      { icon: Github, label: 'Scaffold GitHub repo', sub: `${s.repo.org || 'org'}/${s.repo.repoName || slug}` },
+      ...(s.domain.mode !== 'later'
+        ? [{
+            brand: { iconSlug: 'cloudflare', providerKey: 'cloudflare_oauth', title: 'Cloudflare DNS' },
+            label: 'Configure deploy URL',
+            sub: domain,
+          }]
+        : []),
     ];
   }
 
   return [
-    { icon: Database, label: 'Register project in D1', sub: `cms_pages + workspace entry for ${slug}` },
     {
-      icon: Zap,
+      brand: { iconSlug: 'cloudflare_d1', providerKey: 'cloudflare_d1', title: 'Cloudflare D1' },
+      label: 'Register project in D1',
+      sub: `cms_pages + workspace entry for ${slug}`,
+    },
+    {
+      brand: { iconSlug: 'cloudflare', providerKey: 'cloudflare_workers', title: 'Cloudflare Workers' },
       label: 'Provision Worker route',
       sub: s.infra.worker === 'existing' ? 'Add route to inneranimalmedia Worker' : 'Deploy new Worker',
     },
-    ...(s.infra.bucket === 'new' ? [{ icon: Database, label: 'Create R2 bucket', sub: `${slug}-assets` }] : []),
+    ...(s.infra.bucket === 'new'
+      ? [{
+          brand: { iconSlug: 'cf_r2', providerKey: 'cloudflare_r2', title: 'Cloudflare R2' },
+          label: 'Create R2 bucket',
+          sub: `${slug}-assets`,
+        }]
+      : []),
+    ...(s.infra.kv
+      ? [{
+          brand: { iconSlug: 'cloudflare_kv', providerKey: 'cloudflare_kv', title: 'Cloudflare KV' },
+          label: 'Enable KV draft cache',
+          sub: 'Namespace binding for CMS draft previews',
+        }]
+      : []),
     ...(s.repo.mode !== 'skip'
       ? [{ icon: Github, label: 'Link GitHub repo', sub: `${s.repo.org || 'org'}/${s.repo.repoName || 'repo'}` }]
       : []),
     ...(s.domain.mode === 'subdomain'
       ? [
           {
-            icon: Globe,
+            brand: { iconSlug: 'cloudflare', providerKey: 'cloudflare_oauth', title: 'Cloudflare DNS' },
             label: 'Add DNS record',
             sub: `CNAME ${s.domain.sub || slug}.inneranimalmedia.com → inneranimalmedia.com`,
           },
         ]
       : []),
-    ...(s.domain.mode === 'custom' ? [{ icon: Lock, label: 'Configure custom domain', sub: s.domain.custom }] : []),
+    ...(s.domain.mode === 'custom'
+      ? [{
+          brand: { iconSlug: 'cloudflare', providerKey: 'cloudflare_oauth', title: 'Cloudflare DNS' },
+          label: 'Configure custom domain',
+          sub: s.domain.custom,
+        }]
+      : []),
     ...(s.cms.tpl !== 'shopify' && !s.importZip.file
       ? [
           {
@@ -1009,7 +1428,21 @@ function buildDeployItems(s: WState, express: boolean): { icon: LucideIcon; labe
   ];
 }
 
-function S6({ s, onDeploy, express }: { s: WState; onDeploy: () => Promise<void>; express?: boolean }) {
+function S6({
+  s,
+  onDeploy,
+  express,
+  cfSnapshot,
+  onCfConnect,
+  onCfConfigureStack,
+}: {
+  s: WState;
+  onDeploy: () => Promise<void>;
+  express?: boolean;
+  cfSnapshot: CfCredentialSnapshot;
+  onCfConnect: () => void | Promise<void>;
+  onCfConfigureStack: () => void;
+}) {
   const slug = s.site.slug || toSlug(s.site.name) || 'my-site';
   const domain =
     s.domain.mode === 'subdomain'
@@ -1103,6 +1536,14 @@ function S6({ s, onDeploy, express }: { s: WState; onDeploy: () => Promise<void>
               : 'Tap "Deploy now" to provision your site end-to-end. This takes about 30–60 seconds.'
         }
       />
+      {wizardUsesCfInfra(s, !!express) ? (
+        <CfCredentialsStrip
+          snapshot={cfSnapshot}
+          needsStack={!express && (s.infra.worker === 'new' || s.infra.bucket === 'new')}
+          onConnect={onCfConnect}
+          onConfigureStack={onCfConfigureStack}
+        />
+      ) : null}
       <div className="rounded-xl px-5 py-1 mb-4" style={{ background: 'var(--surface-2)', border: '0.5px solid var(--border)' }}>
         {items.map((item, i) => (
           <div
@@ -1110,7 +1551,7 @@ function S6({ s, onDeploy, express }: { s: WState; onDeploy: () => Promise<void>
             className="flex items-center gap-3 py-3"
             style={{ borderBottom: i < items.length - 1 ? '0.5px solid var(--border)' : 'none' }}
           >
-            <DeployStepIcon icon={item.icon} />
+            <DeployStepIcon icon={item.icon} brand={item.brand} />
             <div className="flex-1 min-w-0">
               <div className="text-[13px] font-medium truncate" style={{ color: 'var(--text-primary)' }}>
                 {item.label}
@@ -1261,14 +1702,21 @@ function TargetPicker({
   value,
   options,
   onChange,
+  brand,
 }: {
   label: string;
   value: string;
   options: Array<{ id: string; label: string }>;
   onChange: (id: string) => void;
+  brand?: BrandIconSpec;
 }) {
   return (
     <Fld label={label}>
+      {brand ? (
+        <div className="mb-2">
+          <BrandIconSlot brand={brand} sel />
+        </div>
+      ) : null}
       <div className="flex flex-col gap-2">
         {options.map((opt) => (
           <button
@@ -1289,10 +1737,16 @@ function SProceed({
   s,
   upPkg,
   onProceed,
+  cfSnapshot,
+  onCfConnect,
+  onCfConfigureStack,
 }: {
   s: WState;
   upPkg: (p: Partial<WState['pkg']>) => void;
   onProceed: () => Promise<void>;
+  cfSnapshot: CfCredentialSnapshot;
+  onCfConnect: () => void | Promise<void>;
+  onCfConfigureStack: () => void;
 }) {
   const slug = s.site.slug || toSlug(s.site.name) || 'my-site';
   const domain =
@@ -1345,15 +1799,39 @@ function SProceed({
     <>
       <Head
         title={s.deploy.status === 'running' ? 'Publishing…' : 'Proceed to live'}
-        desc="Choose where CMS data lives, then publish your selected sections."
+        desc="Choose where CMS data lives on Cloudflare, then publish your selected sections."
+      />
+      <CfCredentialsStrip
+        snapshot={cfSnapshot}
+        needsStack={s.pkg.dbTarget !== 'platform' || s.pkg.r2Target !== 'shared' || s.pkg.workerTarget !== 'shared'}
+        onConnect={onCfConnect}
+        onConfigureStack={onCfConfigureStack}
       />
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-        <TargetPicker label="Database" value={s.pkg.dbTarget} options={dbOptions} onChange={(id) => {
+        <TargetPicker
+          label="Database"
+          brand={{ iconSlug: 'cloudflare_d1', providerKey: 'cloudflare_d1', title: 'Cloudflare D1' }}
+          value={s.pkg.dbTarget}
+          options={dbOptions}
+          onChange={(id) => {
           const pick = targets?.db_targets?.find((t) => t.id === id);
           upPkg({ dbTarget: id, databaseId: pick?.database_id || '' });
-        }} />
-        <TargetPicker label="R2 storage" value={s.pkg.r2Target} options={r2Options} onChange={(id) => upPkg({ r2Target: id })} />
-        <TargetPicker label="Worker" value={s.pkg.workerTarget} options={workerOptions} onChange={(id) => upPkg({ workerTarget: id })} />
+        }}
+        />
+        <TargetPicker
+          label="R2 storage"
+          brand={{ iconSlug: 'cf_r2', providerKey: 'cloudflare_r2', title: 'Cloudflare R2' }}
+          value={s.pkg.r2Target}
+          options={r2Options}
+          onChange={(id) => upPkg({ r2Target: id })}
+        />
+        <TargetPicker
+          label="Worker"
+          brand={{ iconSlug: 'cloudflare', providerKey: 'cloudflare_workers', title: 'Cloudflare Workers' }}
+          value={s.pkg.workerTarget}
+          options={workerOptions}
+          onChange={(id) => upPkg({ workerTarget: id })}
+        />
       </div>
       <div className="rounded-xl px-5 py-3 mb-4 sw-panel" style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}>
         <div className="text-[13px] py-1" style={{ color: 'var(--text-secondary)' }}>
@@ -1396,8 +1874,82 @@ export interface SiteDeployWizardProps {
 export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeployWizardProps) {
   const [cur, setCur] = useState(0);
   const [s, setS] = useState<WState>(INIT);
+  const [cfStackOpen, setCfStackOpen] = useState(false);
+  const [cfSnapshot, setCfSnapshot] = useState<CfCredentialSnapshot>({
+    cfOAuthConnected: false,
+    cfStackConfigured: false,
+    cfAccountDisplay: null,
+    cfConnectUrl: '/api/integrations/cloudflare/connect',
+    connecting: false,
+    connectError: null,
+  });
   const express = Boolean(s.importZip.file);
   const steps = express ? EXPRESS_STEPS : STEPS;
+
+  const refreshCfSnapshot = useCallback(async () => {
+    const [tilesRes, accountSnap] = await Promise.all([
+      fetchConnectTiles('workspace'),
+      loadCfCredentialSnapshot(),
+    ]);
+    const cfTile =
+      (tilesRes.tiles || []).find((t) => t.provider_key === 'cloudflare_oauth') || null;
+    setCfSnapshot((prev) => ({
+      ...prev,
+      cfOAuthConnected: Boolean(accountSnap.cfOAuthConnected || cfTile?.connected),
+      cfAccountDisplay: accountSnap.cfAccountDisplay || cfTile?.account_display || null,
+      cfConnectUrl: accountSnap.cfConnectUrl || cfTile?.connect_url || '/api/integrations/cloudflare/connect',
+      cfStackConfigured: Boolean(accountSnap.cfStackConfigured),
+      connecting: false,
+    }));
+  }, []);
+
+  useEffect(() => {
+    void refreshCfSnapshot();
+  }, [refreshCfSnapshot]);
+
+  const onCfConnect = useCallback(async () => {
+    setCfSnapshot((prev) => ({ ...prev, connecting: true, connectError: null }));
+    try {
+      const connectUrl = cfSnapshot.cfConnectUrl || '/api/integrations/cloudflare/connect';
+      const result = await openIntegrationOAuthPopup(connectUrl, 'cloudflare_oauth');
+      if (!result.ok) {
+        setCfSnapshot((prev) => ({
+          ...prev,
+          connecting: false,
+          connectError: result.error || 'Cloudflare authorization failed',
+        }));
+        return;
+      }
+      await refreshCfSnapshot();
+    } catch (e) {
+      setCfSnapshot((prev) => ({
+        ...prev,
+        connecting: false,
+        connectError: e instanceof Error ? e.message : 'Cloudflare authorization failed',
+      }));
+    }
+  }, [cfSnapshot.cfConnectUrl, refreshCfSnapshot]);
+
+  const needsCfForDeploy = useMemo(() => wizardUsesCfInfra(s, express), [s, express]);
+  const needsCfStackForDeploy = useMemo(() => {
+    if (s.hosting === 'isolated_build') return true;
+    if (s.hosting === 'localhost_dev') return false;
+    if (express) {
+      return s.pkg.dbTarget !== 'platform' || s.pkg.r2Target !== 'shared' || s.pkg.workerTarget !== 'shared';
+    }
+    return s.infra.worker === 'new' || s.infra.bucket === 'new';
+  }, [express, s]);
+
+  const assertCfReady = useCallback((): string | null => {
+    if (!needsCfForDeploy) return null;
+    if (!cfSnapshot.cfOAuthConnected) {
+      return 'Connect Cloudflare first — authorize your account using the banner above.';
+    }
+    if (needsCfStackForDeploy && !cfSnapshot.cfStackConfigured) {
+      return 'Configure your Cloudflare stack (D1, Worker, R2) before deploying dedicated infrastructure.';
+    }
+    return null;
+  }, [needsCfForDeploy, needsCfStackForDeploy, cfSnapshot.cfOAuthConnected, cfSnapshot.cfStackConfigured]);
 
   const upSite = useCallback((p: Partial<WState['site']>) => setS((prev) => ({ ...prev, site: { ...prev.site, ...p } })), []);
   const upZip = useCallback(
@@ -1430,6 +1982,16 @@ export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeplo
     (p: Partial<WState['pkg']>) => setS((prev) => ({ ...prev, pkg: { ...prev.pkg, ...p } })),
     [],
   );
+  const uHosting = useCallback((lane: HostingLane) => {
+    setS((prev) => {
+      const slug = prev.site.slug || toSlug(prev.site.name);
+      return { ...prev, ...applyHostingLaneDefaults(lane, slug), hosting: lane };
+    });
+  }, []);
+  const uLocalPort = useCallback((port: string) => {
+    const digits = port.replace(/\D/g, '').slice(0, 5);
+    setS((prev) => ({ ...prev, localDevPort: digits || '8787' }));
+  }, []);
 
   const handleRunInventory = useCallback(async () => {
     upPkg({ phase: 'running', error: undefined });
@@ -1461,6 +2023,7 @@ export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeplo
           sections: [],
           import_mode: 'theme_zip',
           skip_seed: true,
+          hosting_lane: 'platform_shared',
           public_domain: publicDomain,
         }),
       });
@@ -1537,6 +2100,11 @@ export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeplo
   const handleProceed = useCallback(async () => {
     upDeploy({ status: 'running', error: undefined });
     try {
+      const cfErr = assertCfReady();
+      if (cfErr) {
+        upDeploy({ status: 'error', error: cfErr });
+        return;
+      }
       const packageId = s.pkg.packageId;
       if (!packageId) {
         upDeploy({ status: 'error', error: 'No site package — run inventory first' });
@@ -1588,7 +2156,94 @@ export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeplo
     } catch (e) {
       upDeploy({ status: 'error', error: e instanceof Error ? e.message : 'Proceed failed' });
     }
-  }, [s, upDeploy, onDeployed]);
+  }, [s, upDeploy, onDeployed, assertCfReady]);
+
+  const handleFullDeploy = useCallback(async () => {
+    upDeploy({ status: 'running', error: undefined });
+    try {
+      const cfErr = assertCfReady();
+      if (cfErr) {
+        upDeploy({ status: 'error', error: cfErr });
+        return;
+      }
+      const slug = s.site.slug || toSlug(s.site.name);
+      if (!slug || !s.site.name.trim()) {
+        upDeploy({ status: 'error', error: 'Site name and slug are required' });
+        return;
+      }
+      const publicDomain =
+        s.domain.mode === 'subdomain'
+          ? `${s.domain.sub || slug}.inneranimalmedia.com`
+          : s.domain.mode === 'custom'
+            ? s.domain.custom
+            : null;
+
+      const res = await fetch('/api/cms/projects/create', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspace_id: workspaceId,
+          project_name: s.site.name,
+          project_slug: slug,
+          project_type: s.site.type,
+          worker: s.infra.worker,
+          worker_name: s.infra.workerName,
+          bucket: s.infra.bucket,
+          kv_draft_cache: s.infra.kv,
+          repo_mode: s.repo.mode,
+          repo_org: s.repo.org,
+          repo_name: s.repo.repoName,
+          repo_branch: s.repo.branch,
+          cf_builds: s.repo.builds,
+          domain_mode: s.domain.mode,
+          subdomain: s.domain.sub || slug,
+          custom_domain: s.domain.custom || null,
+          cms_template: s.cms.tpl,
+          sections: s.cms.secs,
+          agentic_tools: s.cms.agentic,
+          pipeline_binding: s.cms.pipeline,
+          hosting_lane: s.hosting,
+          local_dev_port: s.localDevPort,
+          public_domain: publicDomain,
+        }),
+      });
+      if (!res.ok) {
+        const e = (await res.json().catch(() => ({ error: `HTTP ${res.status}` }))) as { error?: string };
+        upDeploy({ status: 'error', error: e.error || 'Deploy failed' });
+        return;
+      }
+
+      if (s.importZip.file) {
+        const fd = new FormData();
+        fd.append('file', s.importZip.file);
+        fd.append('import_name', `${s.site.name || slug} theme`);
+        fd.append('project_slug', slug);
+        const up = await fetch('/api/cms/liquid-imports/upload', {
+          method: 'POST',
+          credentials: 'same-origin',
+          body: fd,
+        });
+        if (!up.ok) {
+          const ue = (await up.json().catch(() => ({ error: `HTTP ${up.status}` }))) as {
+            error?: string;
+            message?: string;
+          };
+          upDeploy({
+            status: 'error',
+            error: ue.message || ue.error || 'Site created but theme upload failed',
+          });
+          return;
+        }
+        upDeploy({ importUploaded: true });
+      }
+
+      upDeploy({ status: 'done' });
+      onDeployed?.(slug);
+    } catch (e) {
+      upDeploy({ status: 'error', error: e instanceof Error ? e.message : 'Deploy failed' });
+    }
+  }, [s, workspaceId, upDeploy, onDeployed, assertCfReady]);
 
   const goTo = useCallback(
     (i: number) => {
@@ -1603,33 +2258,96 @@ export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeplo
   }, [express, cur, s.pkg.phase, handleRunInventory]);
 
   const handleDeploy = useCallback(async () => {
-    await handleProceed();
-  }, [handleProceed]);
+    if (express) {
+      await handleProceed();
+      return;
+    }
+    await handleFullDeploy();
+  }, [express, handleProceed, handleFullDeploy]);
 
   const isLast = cur === steps.length - 1;
   const isDone = s.deploy.status === 'done';
 
   const renderStep = () => {
     if (express) {
-      if (cur === 0) return <S0 s={s} u={upSite} uZip={upZip} onExpressZip={onExpressZip} express />;
+      if (cur === 0) {
+        return (
+          <S0
+            s={s}
+            u={upSite}
+            uZip={upZip}
+            uHosting={uHosting}
+            onExpressZip={onExpressZip}
+            express
+          />
+        );
+      }
       if (cur === 1) return <SInventory s={s} upPkg={upPkg} />;
-      if (cur === 2) return <SProceed s={s} upPkg={upPkg} onProceed={handleProceed} />;
+      if (cur === 2) {
+        return (
+          <SProceed
+            s={s}
+            upPkg={upPkg}
+            onProceed={handleProceed}
+            cfSnapshot={cfSnapshot}
+            onCfConnect={onCfConnect}
+            onCfConfigureStack={() => setCfStackOpen(true)}
+          />
+        );
+      }
       return null;
     }
-    if (cur === 0) return <S0 s={s} u={upSite} uZip={upZip} onExpressZip={onExpressZip} />;
-    if (cur === 1) return <S1 s={s} u={upInfra} />;
+    if (cur === 0) {
+      return (
+        <S0
+          s={s}
+          u={upSite}
+          uZip={upZip}
+          uHosting={uHosting}
+          onExpressZip={onExpressZip}
+        />
+      );
+    }
+    if (cur === 1) {
+      return (
+        <S1
+          s={s}
+          u={upInfra}
+          uLocalPort={uLocalPort}
+          cfSnapshot={cfSnapshot}
+          onCfConnect={onCfConnect}
+          onCfConfigureStack={() => setCfStackOpen(true)}
+        />
+      );
+    }
     if (cur === 2) return <S2 s={s} u={upRepo} />;
     if (cur === 3) return <S3 s={s} u={upDomain} />;
     if (cur === 4) return <S4 s={s} u={upCms} uZip={upZip} />;
     if (cur === 5) return <S5 s={s} goTo={goTo} />;
-    if (cur === 6) return <S6 s={s} onDeploy={handleDeploy} />;
+    if (cur === 6) {
+      return (
+        <S6
+          s={s}
+          onDeploy={handleDeploy}
+          cfSnapshot={cfSnapshot}
+          onCfConnect={onCfConnect}
+          onCfConfigureStack={() => setCfStackOpen(true)}
+        />
+      );
+    }
     return null;
   };
 
   const canContinue =
     !isLast &&
     !(cur === 0 && express && (!s.importZip.file || !s.site.name.trim() || !s.site.slug.trim())) &&
-    !(cur === 1 && express && s.pkg.phase !== 'ready');
+    !(cur === 1 && express && s.pkg.phase !== 'ready') &&
+    !(
+      cur === 1 &&
+      !express &&
+      s.hosting === 'isolated_build' &&
+      (!cfSnapshot.cfOAuthConnected || (needsCfStackForDeploy && !cfSnapshot.cfStackConfigured))
+    );
 
   return (
     <div className="flex flex-col h-full min-h-0 site-deploy-wizard" style={{ background: 'var(--surface-0)', fontFamily: 'var(--font-sans)' }}>
@@ -1637,9 +2355,21 @@ export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeplo
         className="flex items-center justify-between px-6 py-4 shrink-0"
         style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface-1)' }}
       >
-        <h1 className="text-[16px] font-semibold" style={{ color: 'var(--text-primary)' }}>
-          Deploy a new site
-        </h1>
+        <div className="flex items-center gap-2 min-w-0">
+          {cur > 0 && !isDone ? (
+            <button
+              type="button"
+              onClick={() => goTo(cur - 1)}
+              className="sw-header-back"
+              aria-label="Previous step"
+            >
+              <ChevronLeft size={20} aria-hidden />
+            </button>
+          ) : null}
+          <h1 className="text-[16px] font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+            Deploy a new site
+          </h1>
+        </div>
         {onClose ? (
           <button
             type="button"
@@ -1656,24 +2386,24 @@ export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeplo
         <Prog cur={cur} steps={steps} />
         {renderStep()}
       </div>
-      {!isDone && !(express && cur === 2) ? (
+      {!isDone ? (
         <div
           className="flex items-center justify-between px-6 py-4 shrink-0"
           style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}
         >
-          {cur > 0 && !isLast ? (
+          {cur > 0 && s.deploy.status !== 'running' ? (
             <button
               type="button"
               onClick={() => goTo(cur - 1)}
-              className="px-4 py-2 text-[14px] font-semibold"
-              style={{ border: 'none', background: 'transparent', color: 'var(--text-secondary)' }}
+              className="sw-footer-back"
             >
+              <ChevronLeft size={16} aria-hidden />
               Back
             </button>
           ) : (
             <div />
           )}
-          {isLast ? (
+          {express && cur === 2 ? null : isLast ? (
             s.deploy.status === 'running' ? (
               <button
                 type="button"
@@ -1711,6 +2441,17 @@ export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeplo
             </button>
           )}
         </div>
+      ) : null}
+      {workspaceId ? (
+        <CfStackWizard
+          open={cfStackOpen}
+          workspaceId={workspaceId}
+          onClose={() => setCfStackOpen(false)}
+          onComplete={() => {
+            setCfStackOpen(false);
+            void refreshCfSnapshot();
+          }}
+        />
       ) : null}
     </div>
   );

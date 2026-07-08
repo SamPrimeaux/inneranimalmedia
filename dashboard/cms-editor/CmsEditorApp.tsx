@@ -188,7 +188,52 @@ const SECTION_TEMPLATES = [
   { id: 'custom', label: 'Content block', type: 'custom', name: 'content-block', data: { headline: 'Content block', body: 'Edit in the Content tab.' } },
 ];
 
-/** @typedef {'header' | 'template' | 'footer'} SectionZone */
+/** @typedef {string} SectionZone */
+
+function parseSectionData(sec) {
+  if (!sec) return {};
+  const d = sec.section_data;
+  if (typeof d === 'string') {
+    try {
+      return JSON.parse(d);
+    } catch {
+      return {};
+    }
+  }
+  return d || {};
+}
+
+function zoneDisplayLabel(zone) {
+  const z = String(zone || 'template').trim();
+  if (z === 'header') return 'Header';
+  if (z === 'footer') return 'Footer';
+  if (z === 'template') return 'Template';
+  return z.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function orderedSectionZones(sections) {
+  const base = ['header', 'template', 'footer'];
+  const baseSet = new Set(base);
+  const extras = [];
+  for (const sec of sections || []) {
+    const z = sectionZone(sec);
+    if (!baseSet.has(z) && !extras.includes(z)) extras.push(z);
+  }
+  return [...base, ...extras];
+}
+
+/** @param {import('../../src/types/cms').CmsSection | null | undefined} sec */
+function sectionZone(sec) {
+  if (!sec) return 'template';
+  const data = parseSectionData(sec);
+  const explicit = String(data.zone || sec.section_zone || '').trim().toLowerCase();
+  if (explicit) return explicit;
+  const type = String(sec.section_type || '').toLowerCase();
+  const name = String(sec.section_name || '').toLowerCase();
+  if (type === 'header' || name === 'header' || name.startsWith('site-header')) return 'header';
+  if (type === 'footer' || name === 'footer' || name.startsWith('site-footer')) return 'footer';
+  return 'template';
+}
 
 const ZONE_SECTION_TEMPLATES = {
   header: [
@@ -209,16 +254,6 @@ const ZONE_HTML_STARTERS = {
   template: `<!-- Section block — paste HTML -->\n<section data-cms-section="custom-block" style="padding:64px 24px;text-align:center">\n  <h2>Heading</h2>\n  <p>Your content here</p>\n</section>`,
   footer: `<!-- Footer block — paste HTML -->\n<footer data-cms-section="custom-footer" style="padding:32px 24px;text-align:center;color:#64748b;background:#f5f2eb">\n  <p>&copy; ${new Date().getFullYear()} Your company</p>\n</footer>`,
 };
-
-/** @param {import('../../src/types/cms').CmsSection | null | undefined} sec */
-function sectionZone(sec) {
-  if (!sec) return 'template';
-  const type = String(sec.section_type || '').toLowerCase();
-  const name = String(sec.section_name || '').toLowerCase();
-  if (type === 'header' || name === 'header' || name.startsWith('site-header')) return 'header';
-  if (type === 'footer' || name === 'footer' || name.startsWith('site-footer')) return 'footer';
-  return 'template';
-}
 
 function sectionsInZone(list, zone) {
   return (list || []).filter((s) => sectionZone(s) === zone);
@@ -540,14 +575,31 @@ html,body,#app{background:#F9F7F2;color:#1a1a1a;height:100dvh;height:-webkit-fil
 .shell.theme-studio.inspector-collapsed .rpanel{overflow:hidden;width:0;min-width:0;padding:0;border-left:none;opacity:0;pointer-events:none}
 .shell.theme-studio.sidebar-collapsed.inspector-collapsed{grid-template-columns:0 minmax(0,1fr) 0}
 .shell.theme-studio.template-library-mode,
-.shell.theme-studio.imports-panel-mode{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
+.shell.theme-studio.imports-panel-mode,
+.shell.theme-studio.media-library-mode{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
 .shell.theme-studio.template-library-mode .sidebar,
 .shell.theme-studio.template-library-mode .rpanel,
 .shell.theme-studio.template-library-mode .canvas,
 .shell.theme-studio.imports-panel-mode .sidebar,
 .shell.theme-studio.imports-panel-mode .rpanel,
-.shell.theme-studio.imports-panel-mode .canvas{display:none}
-.template-library-body,.imports-panel-body{grid-column:1/-1;grid-row:2;overflow:auto;padding:20px 16px 32px;background:#F9F7F2;min-height:0}
+.shell.theme-studio.imports-panel-mode .canvas,
+.shell.theme-studio.media-library-mode .sidebar,
+.shell.theme-studio.media-library-mode .rpanel,
+.shell.theme-studio.media-library-mode .canvas{display:none}
+.template-library-body,.imports-panel-body,.media-library-body{grid-column:1/-1;grid-row:2;overflow:auto;padding:20px 16px 32px;background:#F9F7F2;min-height:0}
+.tpl-library-subtitle{margin:16px 0 10px;font-size:12px;font-weight:700;color:#475569}
+.tpl-library-loading,.tpl-library-error{font-size:13px;color:#64748b;padding:12px 0}
+.tpl-library-error{color:#b91c1c}
+.tpl-library-pagination{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:28px;font-size:13px;color:#64748b}
+.media-library-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:160px;padding:24px;border:2px dashed #d6d0c4;border-radius:16px;background:#fff;margin-bottom:20px;text-align:center}
+.media-library-drop__icon{width:44px;height:44px;border-radius:12px;background:#ecfdf5;color:#0d9488;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:300}
+.media-library-drop__hint{font-size:11px;color:#94a3b8}
+.media-library-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
+.media-library-tile{border:1px solid #e8e4dc;border-radius:12px;background:#fff;overflow:hidden}
+.media-library-tile__thumb{aspect-ratio:1;background:linear-gradient(135deg,#f1f5f9,#e2e8f0)}
+.media-library-tile__label{display:block;padding:8px 10px;font-size:11px;font-weight:600;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.media-library-empty{grid-column:1/-1;padding:24px;text-align:center;color:#94a3b8;font-size:13px}
+.ts-zone-add--new{margin-top:8px;border-style:dashed;color:#64748b}
 .tpl-library-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
 .tpl-library-head h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-.03em;color:#111}
 .tpl-library-head p{margin:6px 0 0;font-size:13px;color:#64748b;line-height:1.55;max-width:520px}
@@ -1108,7 +1160,7 @@ function SectionAddModal({
   const [htmlCode, setHtmlCode] = useState('');
 
   const templates = ZONE_SECTION_TEMPLATES[zone] || SECTION_TEMPLATES;
-  const zoneLabel = zone === 'header' ? 'Header' : zone === 'footer' ? 'Footer' : 'Template';
+  const zoneLabel = zoneDisplayLabel(zone);
   const secTpl = templates.find((t) => t.id === sectionTpl) || templates[0];
 
   useEffect(() => {
@@ -1378,20 +1430,135 @@ function PagePicker({ pages, activePage, onSelect, onOpenWizard }) {
 /* ══════════════════════════════════════════════════════════════
    TEMPLATE LIBRARY + IMPORTS PANELS
 ══════════════════════════════════════════════════════════════ */
-function TemplateLibraryPanel({ activePage, busy, onBack, onCreatePage, onCreateSection }) {
-  const pageItems = Object.values(PAGE_TEMPLATES);
-  const sectionItems = [
+function TemplateLibraryPanel({
+  activePage,
+  busy,
+  projectSlug,
+  onBack,
+  onCreatePage,
+  onCreateSection,
+  onInstantiatedPage,
+}) {
+  const [pageNum, setPageNum] = useState(1);
+  const [remoteRows, setRemoteRows] = useState([]);
+  const [totalPages, setTotalPages] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [loadingRemote, setLoadingRemote] = useState(true);
+  const [remoteErr, setRemoteErr] = useState('');
+  const [applyingId, setApplyingId] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingRemote(true);
+      setRemoteErr('');
+      try {
+        const res = await fetch(`/api/cms/templates?page=${pageNum}&limit=10`, {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        if (cancelled) return;
+        setRemoteRows(Array.isArray(data.templates) ? data.templates : []);
+        setTotalPages(Number(data.total_pages) || 0);
+        setTotal(Number(data.total) || 0);
+      } catch (e) {
+        if (!cancelled) {
+          setRemoteErr(e.message || 'Failed to load templates');
+          setRemoteRows([]);
+        }
+      } finally {
+        if (!cancelled) setLoadingRemote(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pageNum]);
+
+  const pageItems = pageNum === 1 ? Object.values(PAGE_TEMPLATES) : [];
+  const sectionStarters = [
     ...ZONE_SECTION_TEMPLATES.header.map((t) => ({ ...t, zone: 'header' })),
     ...SECTION_TEMPLATES.map((t) => ({ ...t, zone: 'template' })),
     ...ZONE_SECTION_TEMPLATES.footer.map((t) => ({ ...t, zone: 'footer' })),
   ];
+
+  const remotePageTemplates = remoteRows.filter((row) => {
+    const t = String(row.template_type || '').toLowerCase();
+    return t === 'page' || t === 'marketing_page' || t === 'landing';
+  });
+  const remoteSectionTemplates = remoteRows.filter((row) => {
+    const t = String(row.template_type || '').toLowerCase();
+    return t !== 'page' && t !== 'marketing_page' && t !== 'landing';
+  });
+
+  const parseTemplateMeta = (row) => {
+    let meta = {};
+    try {
+      meta =
+        typeof row.template_data === 'string'
+          ? JSON.parse(row.template_data)
+          : row.template_data || {};
+    } catch {
+      meta = {};
+    }
+    return meta;
+  };
+
+  const applyRemoteTemplate = async (row) => {
+    if (!projectSlug) {
+      showToast('Select a CMS site first', 'err');
+      return;
+    }
+    const type = String(row.template_type || 'section').toLowerCase();
+    const isPage = type === 'page' || type === 'marketing_page' || type === 'landing';
+    setApplyingId(row.id);
+    try {
+      if (isPage) {
+        const res = await api(`/api/cms/templates/${encodeURIComponent(row.id)}/instantiate`, {
+          method: 'POST',
+          body: { project_slug: projectSlug },
+        });
+        if (onInstantiatedPage) await onInstantiatedPage(res);
+        showToast(`Page created · ${row.template_name || row.slug || 'template'}`, 'ok');
+        return;
+      }
+      const meta = parseTemplateMeta(row);
+      const zone = String(meta.zone || row.category || 'template').trim().toLowerCase() || 'template';
+      const name =
+        String(meta.name || meta.section_name || row.slug || row.template_name || 'section')
+          .trim()
+          .replace(/\s+/g, '-')
+          .toLowerCase() || `block-${Date.now().toString(36).slice(-4)}`;
+      if (!activePage) {
+        showToast('Select a page first to add a section block', 'err');
+        return;
+      }
+      await onCreateSection({
+        template: {
+          id: row.id,
+          label: row.template_name || name,
+          type: meta.section_type || meta.type || type || 'custom',
+          name,
+          data: { ...meta, zone },
+        },
+        zone,
+      });
+    } catch (e) {
+      showToast(`Template failed: ${e.message}`, 'err');
+    } finally {
+      setApplyingId('');
+    }
+  };
+
   return (
     <div className="template-library-body">
       <div className="tpl-library-head">
         <div>
           <h1>Template library</h1>
           <p>
-            Reusable pages and section blocks for your CMS. Add to{' '}
+            Platform-wide page templates and section blocks (D1 metadata + R2 bodies). Add to{' '}
             {activePage?.title ? `"${activePage.title}"` : 'the active page'} or create a new page.
           </p>
         </div>
@@ -1399,37 +1566,167 @@ function TemplateLibraryPanel({ activePage, busy, onBack, onCreatePage, onCreate
           ← Command center
         </button>
       </div>
-      <div className="tpl-library-section-title">Page templates</div>
-      <div className="tpl-gallery">
-        {pageItems.map((tpl) => (
-          <button
-            key={tpl.id}
-            type="button"
-            className="tpl-card"
-            disabled={busy}
-            onClick={() => onCreatePage(tpl)}
-          >
-            <span className="tpl-card-kicker">Page</span>
-            <span className="tpl-card-title">{tpl.label}</span>
-            <span className="tpl-card-desc">{tpl.desc}</span>
-          </button>
-        ))}
+
+      {pageNum === 1 ? (
+        <>
+          <div className="tpl-library-section-title">Starter page templates</div>
+          <div className="tpl-gallery">
+            {pageItems.map((tpl) => (
+              <button
+                key={tpl.id}
+                type="button"
+                className="tpl-card"
+                disabled={busy}
+                onClick={() => onCreatePage(tpl)}
+              >
+                <span className="tpl-card-kicker">Page</span>
+                <span className="tpl-card-title">{tpl.label}</span>
+                <span className="tpl-card-desc">{tpl.desc}</span>
+              </button>
+            ))}
+          </div>
+          <div className="tpl-library-section-title">Starter section blocks</div>
+          <div className="tpl-gallery">
+            {sectionStarters.map((tpl) => (
+              <button
+                key={`${tpl.zone}-${tpl.id}`}
+                type="button"
+                className="tpl-card"
+                disabled={busy || !activePage}
+                onClick={() => onCreateSection({ template: tpl, zone: tpl.zone })}
+              >
+                <span className="tpl-card-zone">{tpl.zone}</span>
+                <span className="tpl-card-title">{tpl.label}</span>
+                <span className="tpl-card-desc">{tpl.type || tpl.id}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+
+      <div className="tpl-library-section-title">
+        Platform library {total ? `· ${total} templates` : ''}
       </div>
-      <div className="tpl-library-section-title">Section blocks</div>
-      <div className="tpl-gallery">
-        {sectionItems.map((tpl) => (
+      {remoteErr ? <div className="tpl-library-error">{remoteErr}</div> : null}
+      {loadingRemote ? (
+        <div className="tpl-library-loading">Loading templates…</div>
+      ) : (
+        <>
+          {remotePageTemplates.length ? (
+            <>
+              <div className="tpl-library-subtitle">Page templates</div>
+              <div className="tpl-gallery">
+                {remotePageTemplates.map((row) => (
+                  <button
+                    key={row.id}
+                    type="button"
+                    className="tpl-card"
+                    disabled={busy || applyingId === row.id}
+                    onClick={() => void applyRemoteTemplate(row)}
+                  >
+                    <span className="tpl-card-kicker">{row.category || 'Page'}</span>
+                    <span className="tpl-card-title">{row.template_name || row.slug}</span>
+                    <span className="tpl-card-desc">{row.template_type || 'page'}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+          {remoteSectionTemplates.length ? (
+            <>
+              <div className="tpl-library-subtitle">Section blocks</div>
+              <div className="tpl-gallery">
+                {remoteSectionTemplates.map((row) => {
+                  const meta = parseTemplateMeta(row);
+                  const zone = String(meta.zone || row.category || 'template').toLowerCase();
+                  return (
+                    <button
+                      key={row.id}
+                      type="button"
+                      className="tpl-card"
+                      disabled={busy || !activePage || applyingId === row.id}
+                      onClick={() => void applyRemoteTemplate(row)}
+                    >
+                      <span className="tpl-card-zone">{zone}</span>
+                      <span className="tpl-card-title">{row.template_name || row.slug}</span>
+                      <span className="tpl-card-desc">{row.template_type || 'section'}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          ) : null}
+          {!remotePageTemplates.length && !remoteSectionTemplates.length && !remoteErr ? (
+            <div className="tpl-library-loading">No templates on this page.</div>
+          ) : null}
+        </>
+      )}
+
+      {totalPages > 1 ? (
+        <div className="tpl-library-pagination">
           <button
-            key={`${tpl.zone}-${tpl.id}`}
             type="button"
-            className="tpl-card"
-            disabled={busy || !activePage}
-            onClick={() => onCreateSection({ template: tpl, zone: tpl.zone })}
+            className="btn"
+            disabled={pageNum <= 1 || loadingRemote}
+            onClick={() => setPageNum((p) => Math.max(1, p - 1))}
           >
-            <span className="tpl-card-zone">{tpl.zone}</span>
-            <span className="tpl-card-title">{tpl.label}</span>
-            <span className="tpl-card-desc">{tpl.type || tpl.id}</span>
+            ← Previous
           </button>
-        ))}
+          <span>
+            Page {pageNum} of {totalPages}
+          </span>
+          <button
+            type="button"
+            className="btn"
+            disabled={pageNum >= totalPages || loadingRemote}
+            onClick={() => setPageNum((p) => p + 1)}
+          >
+            Next →
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MediaLibraryPanel({ projectSlug, assets = [], onBack }) {
+  return (
+    <div className="template-library-body media-library-body">
+      <div className="tpl-library-head">
+        <div>
+          <h1>Media library</h1>
+          <p>
+            Site-scoped gallery for <strong>{projectSlug || 'this site'}</strong>. Upload and metatag
+            assets here — structure is wired; rich tagging ships next.
+          </p>
+        </div>
+        <button type="button" className="btn" onClick={onBack}>
+          ← Command center
+        </button>
+      </div>
+      <div className="media-library-drop" aria-label="Upload media (coming soon)">
+        <span className="media-library-drop__icon">+</span>
+        <p>Drop images, video, or files to upload</p>
+        <span className="media-library-drop__hint">Drag &amp; drop — no URL fields</span>
+      </div>
+      <div className="tpl-library-section-title">
+        {assets.length ? `${assets.length} asset${assets.length === 1 ? '' : 's'}` : 'No assets yet'}
+      </div>
+      <div className="media-library-grid">
+        {assets.length ? (
+          assets.slice(0, 24).map((asset, i) => {
+            const id = asset.id || asset.asset_id || `asset-${i}`;
+            const label = asset.name || asset.title || asset.filename || id;
+            return (
+              <div key={id} className="media-library-tile">
+                <div className="media-library-tile__thumb" aria-hidden />
+                <span className="media-library-tile__label">{label}</span>
+              </div>
+            );
+          })
+        ) : (
+          <div className="media-library-empty">Uploads will appear here with site metatags.</div>
+        )}
       </div>
     </div>
   );
@@ -1750,6 +2047,7 @@ function CmsEditor() {
             position,
             sort_order: zone === 'header' ? 5 : (sections.length + 1) * 10,
             project_slug: ctx.project,
+            zone,
           },
         });
         sec = result.section;
@@ -1761,7 +2059,7 @@ function CmsEditor() {
             section_type: sectionType,
             section_name,
             sort_order: zone === 'header' ? 5 : (sections.length + 1) * 10,
-            section_data: template.data,
+            section_data: { ...(template?.data || {}), zone },
           },
         });
         sec = result.section || { id: result.id, section_name, section_type: sectionType, section_data: template.data, is_visible: 1 };
@@ -2438,10 +2736,7 @@ function CmsEditor() {
 
   /* ── helpers ── */
   function secData(sec) {
-    if (!sec) return {};
-    const d = sec.section_data;
-    if (typeof d === 'string') { try { return JSON.parse(d); } catch { return {}; } }
-    return d || {};
+    return parseSectionData(sec);
   }
 
   const liveUrl = activePage
@@ -2462,9 +2757,12 @@ function CmsEditor() {
     );
   }, [sections, sectionQueryNorm]);
   const themeViewports = isThemeStudio ? VIEWPORTS.filter(v => v.id === 'desktop' || v.id === 'mobile') : VIEWPORTS;
-  const headerSecs = sectionsInZone(sections, 'header');
-  const templateSecs = sectionsInZone(sections, 'template');
-  const footerSecs = sectionsInZone(sections, 'footer');
+  const sectionZones = useMemo(() => orderedSectionZones(sections), [sections]);
+  const zoneSections = useMemo(() => {
+    const map = {};
+    for (const z of sectionZones) map[z] = sectionsInZone(sections, z);
+    return map;
+  }, [sections, sectionZones]);
 
   const onSelectSectionRow = (sec) => {
     setActiveShellPart(null);
@@ -2532,6 +2830,8 @@ function CmsEditor() {
   /* ── RENDER ── */
   const isTemplateLibrary = isThemeStudio && ctx.panel === 'templates';
   const isImportsPanel = isThemeStudio && ctx.panel === 'imports';
+  const isMediaPanel = isThemeStudio && ctx.panel === 'media';
+  const isLibraryPanel = isTemplateLibrary || isImportsPanel || isMediaPanel;
   const shellClass = [
     'shell',
     isThemeStudio ? 'theme-studio' : '',
@@ -2540,8 +2840,9 @@ function CmsEditor() {
     isMobile && isThemeStudio && mobilePanel !== 'canvas' ? `mobile-panel-${mobilePanel}` : '',
     isTemplateLibrary ? 'template-library-mode' : '',
     isImportsPanel ? 'imports-panel-mode' : '',
-    sidebarCollapsed && !isTemplateLibrary && !isImportsPanel ? 'sidebar-collapsed' : '',
-    inspectorCollapsed && !isTemplateLibrary && !isImportsPanel ? 'inspector-collapsed' : '',
+    isMediaPanel ? 'media-library-mode' : '',
+    sidebarCollapsed && !isLibraryPanel ? 'sidebar-collapsed' : '',
+    inspectorCollapsed && !isLibraryPanel ? 'inspector-collapsed' : '',
   ].filter(Boolean).join(' ');
 
   const goHub = () => {
@@ -2550,7 +2851,12 @@ function CmsEditor() {
     });
   };
 
-  if (isTemplateLibrary || isImportsPanel) {
+  if (isLibraryPanel) {
+    const panelTitle = isTemplateLibrary
+      ? 'Template library'
+      : isMediaPanel
+        ? 'Media library'
+        : 'Import theme';
     return (
       <>
         <div id="cms-toast" className="cms-toast" />
@@ -2558,14 +2864,20 @@ function CmsEditor() {
           <div className="topbar">
             <div className="ts-brand">
               <div className="ts-logo">{brandInitials}</div>
-              <span className="ts-brand-name">{isTemplateLibrary ? 'Template library' : 'Import theme'}</span>
+              <span className="ts-brand-name">{panelTitle}</span>
             </div>
           </div>
           {isTemplateLibrary ? (
             <TemplateLibraryPanel
               activePage={activePage}
               busy={wizardBusy}
+              projectSlug={ctx.project}
               onBack={goHub}
+              onInstantiatedPage={async (res) => {
+                const data = await reloadBootstrap(res?.page?.id);
+                const page = (data.pages || []).find((p) => p.id === res?.page?.id);
+                if (page) loadPage(page, data, { syncParent: true });
+              }}
               onCreatePage={(tpl) =>
                 wizardCreatePage({
                   title: tpl.label,
@@ -2582,6 +2894,12 @@ function CmsEditor() {
                   zone,
                 })
               }
+            />
+          ) : isMediaPanel ? (
+            <MediaLibraryPanel
+              projectSlug={ctx.project}
+              assets={bootstrap?.assets_3d || bootstrap?.assets || []}
+              onBack={goHub}
             />
           ) : (
             <ImportsPanel project={ctx.project} onBack={goHub} />
@@ -2876,83 +3194,87 @@ function CmsEditor() {
                   </div>
                 )}
 
-                <div className="ts-sec-group-label">Header</div>
-                {siteShell?.enabled ? (
-                  (() => {
-                    const meta = (siteShell.parts || []).find((p) => p.id === 'header');
-                    const isActive = activeShellPart === 'header';
-                    return (
-                      <div
-                        className={`sec-row ${isActive ? 'active' : ''}`}
-                        onClick={() => selectShellPart('header')}
-                      >
-                        <div className="sec-icon" style={{ color: '#60a5fa', background: '#60a5fa18' }}>HD</div>
-                        <div className="sec-info">
-                          <div className="sec-name">iam-header.html</div>
-                          <div className="sec-type">
-                            {meta?.has_draft ? 'Draft · publish to go live' : 'Global site chrome (R2)'}
-                          </div>
+                {sectionZones.map((zoneKey) => {
+                  const zoneSecs = zoneSections[zoneKey] || [];
+                  const showShellHeader = zoneKey === 'header' && siteShell?.enabled;
+                  const showShellFooter = zoneKey === 'footer' && siteShell?.enabled;
+                  return (
+                    <React.Fragment key={zoneKey}>
+                      <div className="ts-sec-group-label">{zoneDisplayLabel(zoneKey)}</div>
+                      {showShellHeader
+                        ? (() => {
+                            const meta = (siteShell.parts || []).find((p) => p.id === 'header');
+                            const isActive = activeShellPart === 'header';
+                            return (
+                              <div
+                                className={`sec-row ${isActive ? 'active' : ''}`}
+                                onClick={() => selectShellPart('header')}
+                              >
+                                <div className="sec-icon" style={{ color: '#60a5fa', background: '#60a5fa18' }}>HD</div>
+                                <div className="sec-info">
+                                  <div className="sec-name">iam-header.html</div>
+                                  <div className="sec-type">
+                                    {meta?.has_draft ? 'Draft · publish to go live' : 'Global site chrome (R2)'}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()
+                        : null}
+                      {showShellFooter
+                        ? (() => {
+                            const meta = (siteShell.parts || []).find((p) => p.id === 'footer');
+                            const isActive = activeShellPart === 'footer';
+                            return (
+                              <div
+                                className={`sec-row ${isActive ? 'active' : ''}`}
+                                onClick={() => selectShellPart('footer')}
+                              >
+                                <div className="sec-icon" style={{ color: '#a78bfa', background: '#a78bfa18' }}>FT</div>
+                                <div className="sec-info">
+                                  <div className="sec-name">iam-footer.html</div>
+                                  <div className="sec-type">
+                                    {meta?.has_draft ? 'Draft · publish to go live' : 'Global site chrome (R2)'}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()
+                        : null}
+                      {zoneSecs.map((sec) => {
+                        const realIdx = sections.findIndex((s) => s.id === sec.id);
+                        return renderThemeSectionRow(sec, realIdx >= 0 ? realIdx : null);
+                      })}
+                      {!zoneSecs.length && !showShellHeader && !showShellFooter && !booting ? (
+                        <div style={{ padding: '4px 14px 8px', color: '#94a3b8', fontSize: 11 }}>
+                          No {zoneDisplayLabel(zoneKey).toLowerCase()} blocks yet
                         </div>
-                      </div>
-                    );
-                  })()
-                ) : null}
-                {headerSecs.map((sec) => {
-                  const realIdx = sections.findIndex((s) => s.id === sec.id);
-                  return renderThemeSectionRow(sec, realIdx >= 0 ? realIdx : null);
+                      ) : null}
+                      <button type="button" className="ts-zone-add" onClick={() => openSectionAdd(zoneKey)}>
+                        {I.plus} Add section
+                      </button>
+                    </React.Fragment>
+                  );
                 })}
-                {!headerSecs.length && !siteShell?.enabled && !booting ? (
-                  <div style={{ padding: '4px 14px 8px', color: '#94a3b8', fontSize: 11 }}>No header blocks yet</div>
-                ) : null}
-                <button type="button" className="ts-zone-add" onClick={() => openSectionAdd('header')}>
-                  {I.plus} Add section
-                </button>
-
-                <div className="ts-sec-group-label">Template</div>
-                {templateSecs.map((sec) => {
-                  const realIdx = sections.findIndex((s) => s.id === sec.id);
-                  return renderThemeSectionRow(sec, realIdx >= 0 ? realIdx : 0);
-                })}
-                {!templateSecs.length && !booting ? (
-                  <div style={{ padding: '4px 14px 8px', color: '#94a3b8', fontSize: 11 }}>No template sections yet</div>
-                ) : null}
-                <button type="button" className="ts-zone-add" onClick={() => openSectionAdd('template')}>
-                  {I.plus} Add section
-                </button>
-
-                <div className="ts-sec-group-label">Footer</div>
-                {siteShell?.enabled ? (
-                  (() => {
-                    const meta = (siteShell.parts || []).find((p) => p.id === 'footer');
-                    const isActive = activeShellPart === 'footer';
-                    return (
-                      <div
-                        className={`sec-row ${isActive ? 'active' : ''}`}
-                        onClick={() => selectShellPart('footer')}
-                      >
-                        <div className="sec-icon" style={{ color: '#a78bfa', background: '#a78bfa18' }}>FT</div>
-                        <div className="sec-info">
-                          <div className="sec-name">iam-footer.html</div>
-                          <div className="sec-type">
-                            {meta?.has_draft ? 'Draft · publish to go live' : 'Global site chrome (R2)'}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()
-                ) : null}
-                {footerSecs.map((sec) => {
-                  const realIdx = sections.findIndex((s) => s.id === sec.id);
-                  return renderThemeSectionRow(sec, realIdx >= 0 ? realIdx : null);
-                })}
-                {!footerSecs.length && !siteShell?.enabled && !booting ? (
-                  <div style={{ padding: '4px 14px 8px', color: '#94a3b8', fontSize: 11 }}>No footer blocks yet</div>
-                ) : null}
-                <button type="button" className="ts-zone-add" onClick={() => openSectionAdd('footer')}>
-                  {I.plus} Add section
+                <button
+                  type="button"
+                  className="ts-zone-add ts-zone-add--new"
+                  onClick={() => {
+                    const raw = window.prompt('New zone name (e.g. sidebar, hero, pre-footer)');
+                    const slug = String(raw || '')
+                      .trim()
+                      .toLowerCase()
+                      .replace(/\s+/g, '-')
+                      .replace(/[^a-z0-9-]/g, '');
+                    if (slug) openSectionAdd(slug);
+                  }}
+                >
+                  {I.plus} Add zone
                 </button>
               </div>
-              <div className="ts-sections-hint">Drag sections to reorder. Add custom blocks in any zone with + Add section.</div>
+              <div className="ts-sections-hint">
+                Drag sections to reorder. Use any zone — not limited to header, template, and footer.
+              </div>
             </>
           ) : (
           <>

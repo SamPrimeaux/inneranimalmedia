@@ -32,6 +32,7 @@ export type QuickstartThreadDetail = {
   ensureAgentPanel?: boolean;
   force_plan_mode?: boolean;
   project_slug?: string;
+  surface?: string;
   page_id?: string | null;
   bootstrap_cache_key?: string | null;
   collab_room?: string | null;
@@ -40,6 +41,9 @@ export type QuickstartThreadDetail = {
 
 /** Window event: App created a new shell tab; ChatAssistant should send detail in that thread. */
 export const IAM_AGENT_CHAT_NEW_THREAD = 'iam-agent-chat-new-thread';
+
+/** Open Agent Sam side rail without route navigation (CMS hub, fullscreen surfaces). */
+export { IAM_AGENT_ENSURE_PANEL } from './lib/openAgentConversation';
 
 /** ChatAssistant mounted and listening for pending App sends. */
 export const IAM_AGENT_CHAT_READY = 'iam-agent-chat-ready';

@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { ArrowUp, Mic, Paperclip, Sparkles } from 'lucide-react';
-import { IAM_AGENT_CHAT_COMPOSE } from '../../agentChatConstants';
+import { IAM_AGENT_CHAT_NEW_THREAD, IAM_AGENT_ENSURE_PANEL } from '../../agentChatConstants';
 
 type Props = {
   siteSlug?: string | null;
@@ -14,32 +14,36 @@ export function CmsGuidedChatHero({ siteSlug, siteName }: Props) {
     ? `What would you like to manage on ${siteName || siteSlug} today?`
     : 'What would you like to manage in your CMS today?';
 
-  const dispatchCompose = useCallback(
-    (message: string, send: boolean) => {
+  const openAgentRail = useCallback(() => {
+    window.dispatchEvent(new CustomEvent(IAM_AGENT_ENSURE_PANEL));
+  }, []);
+
+  const sendToAgent = useCallback(
+    (message: string) => {
+      openAgentRail();
       window.dispatchEvent(
-        new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
+        new CustomEvent(IAM_AGENT_CHAT_NEW_THREAD, {
           detail: {
             message,
-            send,
-            ensureAgentPanel: true,
+            ensureAgentPanel: false,
             project_slug: siteSlug || undefined,
             surface: 'cms',
           },
         }),
       );
     },
-    [siteSlug],
+    [openAgentRail, siteSlug],
   );
 
   const onSubmit = useCallback(() => {
     const message = draft.trim();
     if (!message) {
-      dispatchCompose('', false);
+      openAgentRail();
       return;
     }
-    dispatchCompose(message, true);
+    sendToAgent(message);
     setDraft('');
-  }, [draft, dispatchCompose]);
+  }, [draft, openAgentRail, sendToAgent]);
 
   return (
     <section className="iam-cms-guided-hero" aria-label="CMS guided chat">
@@ -64,6 +68,7 @@ export function CmsGuidedChatHero({ siteSlug, siteName }: Props) {
             onChange={(e) => setDraft(e.target.value)}
             placeholder={placeholder}
             aria-label={placeholder}
+            onFocus={openAgentRail}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();

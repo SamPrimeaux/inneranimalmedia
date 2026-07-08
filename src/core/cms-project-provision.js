@@ -7,6 +7,7 @@ import { renderCmsSectionTreeHtml } from './cms-edit-safety.js';
 import { persistBootstrapCmsProjectSlug, resolveCmsWorkspaceContext } from './cms-workspace-resolve.js';
 import { CMS_DEFAULT_R2_BUCKET, getCmsR2Binding } from './cms-r2-binding.js';
 import { emitInnerAnimalProEvent } from './inneranimalpro-stream.js';
+import { resolveAccountCloudflareContext } from './account-cloudflare-context.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -110,6 +111,87 @@ function resolvePublicDomain(payload, slug) {
   return trim(payload.public_domain) || null;
 }
 
+function normalizeHostingLane(payload) {
+  const lane = trim(payload.hosting_lane || payload.hosting || 'platform_shared');
+  if (lane === 'isolated_build' || lane === 'localhost_dev') return lane;
+  return 'platform_shared';
+}
+
+/**
+ * Enforce Companions-style hosting lanes — platform shared must not spin dedicated CF on IAM's dime.
+ * @param {any} env
+ * @param {{ tenantId: string, workspaceId: string, userId: string, authUser?: import('../core/auth.js').AuthUser|null, payload: Record<string, unknown> }} scope
+ * @param {string} projectSlug
+ */
+async function enforceHostingLane(env, scope, payload, projectSlug) {
+  const lane = normalizeHostingLane(payload);
+  const localDevPort = trim(payload.local_dev_port) || '8787';
+
+  if (lane === 'platform_shared') {
+    payload.worker = 'existing';
+    payload.worker_name = '';
+    payload.bucket = 'cms';
+    payload.kv_draft_cache = false;
+    return { ok: true, lane, localDevPort, registryOnly: false };
+  }
+
+  if (lane === 'localhost_dev') {
+    payload.worker = 'existing';
+    payload.worker_name = '';
+    payload.bucket = 'cms';
+    payload.kv_draft_cache = false;
+    payload.repo_mode = 'skip';
+    payload.domain_mode = 'later';
+    payload.skip_seed = true;
+    return { ok: true, lane, localDevPort, registryOnly: true };
+  }
+
+  const cfCtx = await resolveAccountCloudflareContext(env, {
+    userId: scope.userId,
+    tenantId: scope.tenantId,
+    workspaceId: scope.workspaceId,
+    authUser: scope.authUser || null,
+  });
+  if (!cfCtx.ok || !cfCtx.token) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'cloudflare_oauth_required',
+      message:
+        'Connect Cloudflare OAuth or add a BYOK API token before provisioning an isolated build.',
+    };
+  }
+  if (!cfCtx.account_id) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'cloudflare_account_id_missing',
+      message: 'Cloudflare account id required — connect OAuth once; account id is stored account-wide.',
+    };
+  }
+
+  payload.worker = 'new';
+  payload.worker_name = trim(payload.worker_name) || `${projectSlug}-worker`;
+  payload.bucket = 'new';
+  payload.kv_draft_cache = true;
+  payload.cf_account_id = cfCtx.account_id;
+  payload.cf_credential_source = cfCtx.source;
+  if (trim(payload.repo_mode) === 'skip') {
+    payload.repo_mode = 'new';
+    payload.repo_name = trim(payload.repo_name) || projectSlug;
+  }
+
+  return {
+    ok: true,
+    lane,
+    localDevPort,
+    registryOnly: false,
+    isolated: true,
+    cf_account_id: cfCtx.account_id,
+    cf_credential_source: cfCtx.source,
+  };
+}
+
 function buildDeferredSteps(payload) {
   const steps = [];
   if (trim(payload.worker) === 'new') {
@@ -170,6 +252,21 @@ export async function provisionCmsProject(env, ctx, opts) {
 
   if (!env?.DB) return { ok: false, status: 503, error: 'Database unavailable' };
 
+  const hosting = await enforceHostingLane(
+    env,
+    { tenantId, workspaceId, userId, authUser: opts.authUser || null, payload },
+    payload,
+    projectSlug,
+  );
+  if (!hosting.ok) {
+    return {
+      ok: false,
+      status: hosting.status || 403,
+      error: hosting.error,
+      message: hosting.message || hosting.error,
+    };
+  }
+
   const existingCtx = await env.DB.prepare(
     `SELECT id FROM agentsam_project_context
      WHERE workspace_id = ? AND project_key = ? LIMIT 1`,
@@ -199,6 +296,12 @@ export async function provisionCmsProject(env, ctx, opts) {
       : 'inneranimalmedia';
 
   const provisioningMeta = {
+    hosting_lane: hosting.lane,
+    local_dev_port: hosting.localDevPort,
+    isolation_pattern: hosting.isolated ? 'companions' : null,
+    cf_account_id: hosting.cf_account_id || trim(payload.cf_account_id) || null,
+    cf_credential_source: hosting.cf_credential_source || trim(payload.cf_credential_source) || null,
+    registry_only: hosting.registryOnly === true,
     project_type: trim(payload.project_type) || 'new',
     worker: trim(payload.worker) || 'existing',
     worker_name: workerName,
@@ -225,6 +328,8 @@ export async function provisionCmsProject(env, ctx, opts) {
     publicDomain ? `Public domain: ${publicDomain}.` : 'Domain pending.',
     `Template: ${provisioningMeta.cms_template}.`,
   ].join(' ');
+
+  const ctxId = cmsProjectContextRowId(projectSlug);
 
   await env.DB.prepare(
     `INSERT INTO agentsam_project_context (
@@ -269,8 +374,12 @@ export async function provisionCmsProject(env, ctx, opts) {
   let pageId = null;
   let homepageSlug = null;
   const cmsTemplate = provisioningMeta.cms_template;
+  const skipHomepageSeed =
+    provisioningMeta.skip_seed === true ||
+    hosting.registryOnly === true ||
+    hosting.lane === 'localhost_dev';
 
-  if (cmsTemplate !== 'shopify') {
+  if (!skipHomepageSeed && cmsTemplate !== 'shopify') {
     const sectionKeys =
       cmsTemplate === 'blank'
         ? []
