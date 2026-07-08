@@ -47,7 +47,7 @@ export function CmsIntegrationsStrip({ items, loading, error, onRetry }: Props) 
                 title={item.displayName}
                 providerKey={item.providerKey}
                 iconSlug={item.iconSlug || item.providerKey}
-                size="md"
+                size="sm"
                 presentation="brand"
               />
               <span className="iam-cms-integrations-strip__app-name">{item.displayName}</span>
