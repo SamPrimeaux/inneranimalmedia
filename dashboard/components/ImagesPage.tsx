@@ -28,6 +28,7 @@ interface CfImage {
   r2_key?: string | null;
   cloudflare_image_id?: string | null;
   drive_file_id?: string;
+  web_view_link?: string;
   filename?: string;
   uploaded?: string;
   created_at?: string;
@@ -289,14 +290,25 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
   // ── URL for display ───────────────────────────────────────────────────────
 
   const imgUrl = (img: CfImage) => {
-    if (img.url) return img.url;
+    if (img.source === 'drive') {
+      const driveId = img.drive_file_id || (img.id?.startsWith('drive_') ? img.id.slice(6) : '');
+      if (driveId) return `/api/images/drive/${encodeURIComponent(driveId)}/preview`;
+    }
+    if (img.url && !img.url.includes('drive.google.com') && !img.url.includes('docs.google.com')) {
+      return img.url;
+    }
     const cfId = img.cloudflare_image_id || (img.id?.startsWith('cf_live_') ? img.id.slice(9) : '');
     if (accountHash && cfId) return buildImageUrl(accountHash, cfId);
-    return '';
+    return img.url || '';
   };
 
-  const thumbUrl = (img: CfImage) =>
-    img.thumbnail_url || img.thumbnail || imgUrl(img);
+  const thumbUrl = (img: CfImage) => {
+    if (img.source === 'drive') {
+      const driveId = img.drive_file_id || (img.id?.startsWith('drive_') ? img.id.slice(6) : '');
+      if (driveId) return `/api/images/drive/${encodeURIComponent(driveId)}/thumbnail`;
+    }
+    return img.thumbnail_url || img.thumbnail || imgUrl(img);
+  };
 
   const importDriveImage = useCallback(async (img: CfImage) => {
     const driveId = img.drive_file_id || (img.id?.startsWith('drive_') ? img.id.slice(6) : '');
@@ -1015,7 +1027,18 @@ function DetailModal({ img, url, allTags, onClose, onDelete, onSave, onImportDri
           {img.meta?.tenant_slug && <span style={{ marginLeft: 8, color: 'var(--solar-cyan)' }}>· {img.meta.tenant_slug}</span>}
         </div>
 
-        {/* Variants */}
+        {img.source === 'drive' && (
+          <div style={{
+            marginBottom: 14, padding: '10px 12px', borderRadius: 10,
+            background: 'color-mix(in srgb, var(--solar-cyan) 10%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--solar-cyan) 25%, transparent)',
+            fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45
+          }}>
+            This file stays in your Google Drive. Preview is proxied through IAM (same-origin).
+            Use <strong style={{ color: 'var(--text-main)' }}>Import to R2</strong> only when you want a copy in platform storage (R2 + CF Images + registry).
+          </div>
+        )}
+
         {img.variants && img.variants.length > 0 && (
           <div style={{
             background: 'var(--bg-app)', border: '1px solid var(--border-subtle)',
@@ -1038,6 +1061,8 @@ function DetailModal({ img, url, allTags, onClose, onDelete, onSave, onImportDri
           </div>
         )}
 
+        {img.source !== 'drive' && (
+          <>
         {/* Meta fields */}
         <div style={{ marginBottom: 10 }}>
           <label style={labelStyle}>Display name</label>
@@ -1086,6 +1111,8 @@ function DetailModal({ img, url, allTags, onClose, onDelete, onSave, onImportDri
             placeholder="Where this image is used…"
             style={{ ...inputStyle, minHeight: 60, resize: 'vertical' as const }} />
         </div>
+          </>
+        )}
 
         {/* Actions */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -1095,11 +1122,11 @@ function DetailModal({ img, url, allTags, onClose, onDelete, onSave, onImportDri
           </button>
           )}
           <button type="button" onClick={copyUrl} style={actionBtnStyle('var(--bg-hover)', 'var(--text-main)')}>
-            <Copy size={13} />{copied ? 'Copied!' : 'Copy proxy URL'}
+            <Copy size={13} />{copied ? 'Copied!' : img.source === 'drive' ? 'Copy preview URL' : 'Copy proxy URL'}
           </button>
-          <a href={url} target="_blank" rel="noopener"
+          <a href={img.source === 'drive' ? (img.web_view_link || url) : url} target="_blank" rel="noopener"
             style={{ ...actionBtnStyle('var(--bg-hover)', 'var(--text-main)'), textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <ExternalLink size={13} />Open
+            <ExternalLink size={13} />{img.source === 'drive' ? 'Open in Drive' : 'Open'}
           </a>
           {img.source === 'drive' && (
             <button type="button" onClick={() => onImportDrive(img)}
@@ -1107,10 +1134,12 @@ function DetailModal({ img, url, allTags, onClose, onDelete, onSave, onImportDri
               <Upload size={13} />Import to R2
             </button>
           )}
-          <button onClick={save} disabled={saving}
-            style={actionBtnStyle('var(--solar-cyan)', '#000')}>
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
+          {img.source !== 'drive' && (
+            <button onClick={save} disabled={saving}
+              style={actionBtnStyle('var(--solar-cyan)', '#000')}>
+              {saving ? 'Saving…' : 'Save changes'}
+            </button>
+          )}
           {img.source !== 'drive' && (
             <button onClick={() => onDelete(img)}
               style={actionBtnStyle('rgba(239,68,68,0.15)', '#f87171')}>

@@ -7,7 +7,8 @@
  *
  * GET    /api/images?source=all|r2|cf_images|drive&page=1&per_page=50
  * POST   /api/images/upload  (multipart) — also POST /api/images (multipart or JSON url)
- * POST   /api/images/import/drive  { drive_file_id }
+ * POST   /api/images/import/drive  { drive_file_id } — explicit copy into R2+CF+D1 (not browse)
+ * GET    /api/images/drive/:fileId/preview|thumbnail — OAuth-proxied preview (browse only; no R2)
  * DELETE /api/images/:id
  * POST   /api/images/generate  { persist: false default — draft until commit }
  * POST   /api/images/commit   { generation_id } — save draft to library
@@ -16,10 +17,11 @@
  * GET    /api/images/tags?workspace_id=
  * PATCH  /api/images/:id  { tags, label, notes, alt_text, category, project_slug, is_live, preferred_bg }
  *
- * Storage sync (triple-write):
+ * Storage sync (triple-write) applies only to IAM-owned assets (upload + Import to R2):
  * - D1 `images` — query/filter SSOT for dashboard
  * - CF Images `meta` — PATCH v1/{id} on save; read on cf_live list (1024 byte cap)
- * - R2 customMetadata (x-amz-meta-* iam_* keys, 2KB) + `{key}.iammeta.json` sidecar for full notes
+ * - R2 customMetadata (x-amz-meta-* iam_* keys, 2KB) + `{key}.iammeta.json` sidecar
+ * Drive tab is browse-only via Google OAuth — files stay in the user's Drive until Import to R2.
  */
 
 import { jsonResponse } from '../core/responses.js';
@@ -256,13 +258,21 @@ function mapCfApiImage(img, accountHash, authUserId) {
   };
 }
 
-function mapDriveFile(file, authUserId) {
+function driveProxyPath(origin, fileId, variant = 'preview') {
+  const id = String(fileId || '').trim();
+  if (!id || !origin) return '';
+  return `${origin}/api/images/drive/${encodeURIComponent(id)}/${variant}`;
+}
+
+function mapDriveFile(file, authUserId, origin) {
+  const fileId = file.id;
   return {
-    id: `drive_${file.id}`,
+    id: `drive_${fileId}`,
     source: 'drive',
-    filename: file.name || file.id,
-    url: file.webViewLink || file.webContentLink || '',
-    thumbnail_url: file.thumbnailLink || '',
+    filename: file.name || fileId,
+    url: driveProxyPath(origin, fileId, 'preview'),
+    thumbnail_url: driveProxyPath(origin, fileId, 'thumbnail'),
+    web_view_link: file.webViewLink || file.webContentLink || '',
     mime_type: file.mimeType || 'image/jpeg',
     size: Number(file.size) || 0,
     width: null,
@@ -272,9 +282,10 @@ function mapDriveFile(file, authUserId) {
     workspace_id: null,
     r2_key: null,
     cloudflare_image_id: null,
-    drive_file_id: file.id,
+    drive_file_id: fileId,
     alt_text: null,
     tags: [],
+    _drive_only: true,
   };
 }
 
@@ -393,7 +404,7 @@ async function listAllCfImagesLive(env, authUserId, knownCfIds) {
   return { items, accountHash };
 }
 
-async function listDriveImages(env, userId) {
+async function listDriveImages(env, userId, origin) {
   const token = await getOAuthToken(env, userId, 'google_drive');
   if (!token) return { items: [], connected: false };
 
@@ -406,8 +417,56 @@ async function listDriveImages(env, userId) {
   if (!res.ok) {
     return { items: [], connected: true, error: data.error?.message || res.statusText };
   }
-  const items = (data.files || []).map((f) => mapDriveFile(f, userId));
+  const items = (data.files || []).map((f) => mapDriveFile(f, userId, origin));
   return { items, connected: true };
+}
+
+async function handleDriveMedia(env, authUser, fileId, variant) {
+  const id = String(fileId || '').trim();
+  if (!id) return jsonResponse({ error: 'file_id required' }, 400);
+
+  const token = await getOAuthToken(env, authUser.id, 'google_drive');
+  if (!token) return jsonResponse({ error: 'Google Drive not connected' }, 400);
+
+  const authHeaders = { Authorization: `Bearer ${token}` };
+
+  if (variant === 'thumbnail') {
+    const metaRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?fields=thumbnailLink,mimeType`,
+      { headers: authHeaders },
+    );
+    const meta = await metaRes.json().catch(() => ({}));
+    if (metaRes.ok && meta.thumbnailLink) {
+      const thumbRes = await fetch(String(meta.thumbnailLink), { headers: authHeaders });
+      if (thumbRes.ok && thumbRes.body) {
+        return new Response(thumbRes.body, {
+          headers: {
+            'Content-Type': thumbRes.headers.get('Content-Type') || 'image/jpeg',
+            'Cache-Control': 'private, max-age=3600',
+          },
+        });
+      }
+    }
+  }
+
+  const mediaRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media`,
+    { headers: authHeaders },
+  );
+  if (!mediaRes.ok || !mediaRes.body) {
+    const err = await mediaRes.json().catch(() => ({}));
+    return jsonResponse(
+      { error: err.error?.message || 'Drive media unavailable' },
+      mediaRes.status >= 400 ? mediaRes.status : 502,
+    );
+  }
+
+  return new Response(mediaRes.body, {
+    headers: {
+      'Content-Type': mediaRes.headers.get('Content-Type') || 'application/octet-stream',
+      'Cache-Control': 'private, max-age=300',
+    },
+  });
 }
 
 async function uploadToCfImages(env, file, metadata) {
@@ -622,7 +681,7 @@ async function handleGetImages(request, url, env, authUser, identity) {
   };
 
   if (source === 'drive') {
-    const drive = await listDriveImages(env, scope.userId);
+    const drive = await listDriveImages(env, scope.userId, origin);
     const total = drive.items.length;
     const start = (page - 1) * perPage;
     const items = drive.items.slice(start, start + perPage);
@@ -1303,6 +1362,11 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
 
   if (pathLower === '/api/images/import/drive' && method === 'POST') {
     return handleDriveImport(request, url, env, authUser, identity);
+  }
+
+  const driveMediaMatch = path.match(/^\/api\/images\/drive\/([^/]+)\/(preview|thumbnail)$/i);
+  if (driveMediaMatch && method === 'GET') {
+    return handleDriveMedia(env, authUser, driveMediaMatch[1], driveMediaMatch[2].toLowerCase());
   }
 
   if (pathLower === '/api/images/generate' && method === 'POST') {
