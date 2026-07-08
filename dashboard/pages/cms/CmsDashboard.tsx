@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowRight, ExternalLink } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowRight, ExternalLink, MoreHorizontal, Plus } from 'lucide-react';
 import type { CmsWorkspaceContext, CmsWorkspaceSite } from '../../hooks/useCmsWorkspaceContext';
 import type { CmsBootstrapData } from '../../../src/types/cms';
-import { buildCmsPath } from './cmsRoute';
+import { buildCmsHubPath, buildCmsPath } from './cmsRoute';
 import { resolveStorefrontUrl, storefrontDisplayHost } from '../../../src/dashboard/cms/cmsStorefrontUrl';
 import { CmsConnectedIntegrations } from './CmsConnectedIntegrations';
 import { useCmsConnectedIntegrations } from './useCmsConnectedIntegrations';
@@ -20,8 +20,11 @@ type ActivityRow = {
 type Props = {
   siteSlug: string;
   site?: CmsWorkspaceSite | null;
+  sites?: CmsWorkspaceSite[];
   context?: CmsWorkspaceContext | null;
   onNavigate: (path: string) => void;
+  onSelectSite?: (slug: string, path: string) => void | Promise<void>;
+  onOpenDeployWizard?: () => void;
 };
 
 function formatWhen(value: unknown): string {
@@ -36,7 +39,17 @@ function formatWhen(value: unknown): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export function CmsDashboard({ siteSlug, site, context, onNavigate }: Props) {
+export function CmsDashboard({
+  siteSlug,
+  site,
+  sites = [],
+  context,
+  onNavigate,
+  onSelectSite,
+  onOpenDeployWizard,
+}: Props) {
+  const [siteMenuOpen, setSiteMenuOpen] = useState(false);
+  const siteMenuRef = useRef<HTMLDivElement>(null);
   const [boot, setBoot] = useState<CmsBootstrapData | null>(null);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,6 +90,17 @@ export function CmsDashboard({ siteSlug, site, context, onNavigate }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!siteMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (siteMenuRef.current && !siteMenuRef.current.contains(e.target as Node)) {
+        setSiteMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [siteMenuOpen]);
 
   const pages = boot?.pages || [];
   const themes = boot?.themes || [];
@@ -141,8 +165,9 @@ export function CmsDashboard({ siteSlug, site, context, onNavigate }: Props) {
   const quickActions = useMemo(
     () => [
       { label: 'Create new page', path: buildCmsPath({ panel: 'pages', siteSlug }) },
+      { label: 'Browse templates', path: buildCmsPath({ panel: 'templates', siteSlug }) },
       { label: 'Open theme editor', path: buildCmsPath({ panel: 'theme-editor', siteSlug }) },
-      { label: 'Upload / import', path: buildCmsPath({ panel: 'imports', siteSlug }) },
+      { label: 'Import theme (drop above)', action: 'import' as const },
       { label: 'Online store preview', path: buildCmsPath({ panel: 'online-store', siteSlug }) },
     ],
     [siteSlug],
@@ -171,16 +196,63 @@ export function CmsDashboard({ siteSlug, site, context, onNavigate }: Props) {
         <section className="iam-cms-card iam-cms-site-hero">
           <div className="iam-cms-site-hero__head">
             <div>
+              <p className="iam-cms-site-hero__suite">CMS Suite</p>
               <h2 className="iam-cms-site-hero__name">{site?.name || context?.project_name || siteSlug}</h2>
               <p className="iam-cms-site-hero__meta">
                 {storefrontDisplayHost(storefrontUrl) || siteSlug}
-                {context?.api_profile ? ` · ${context.api_profile}` : ''}
               </p>
             </div>
-            <span className="iam-cms-site-hero__live">
-              <i aria-hidden />
-              Live
-            </span>
+            <div className="iam-cms-site-hero__head-actions">
+              <span className="iam-cms-site-hero__live">
+                <i aria-hidden />
+                Live
+              </span>
+              {sites.length > 1 && onSelectSite ? (
+                <div className="iam-cms-site-menu" ref={siteMenuRef}>
+                  <button
+                    type="button"
+                    className="iam-cms-site-menu__trigger"
+                    aria-label="Switch site"
+                    aria-expanded={siteMenuOpen}
+                    onClick={() => setSiteMenuOpen((v) => !v)}
+                  >
+                    <MoreHorizontal size={18} />
+                  </button>
+                  {siteMenuOpen ? (
+                    <div className="iam-cms-site-menu__list" role="menu">
+                      {sites.map((row) => (
+                        <button
+                          key={row.slug}
+                          type="button"
+                          role="menuitem"
+                          className={row.slug === siteSlug ? 'is-active' : ''}
+                          onClick={() => {
+                            setSiteMenuOpen(false);
+                            void onSelectSite(row.slug, buildCmsHubPath(row.slug));
+                          }}
+                        >
+                          {row.name || row.slug}
+                        </button>
+                      ))}
+                      {onOpenDeployWizard ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="iam-cms-site-menu__new"
+                          onClick={() => {
+                            setSiteMenuOpen(false);
+                            onOpenDeployWizard();
+                          }}
+                        >
+                          <Plus size={14} aria-hidden />
+                          New site
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
           <div className="iam-cms-site-hero__stats">
             <div className="iam-cms-stat">
@@ -281,7 +353,16 @@ export function CmsDashboard({ siteSlug, site, context, onNavigate }: Props) {
           <ul className="iam-cms-quick">
             {quickActions.map((a) => (
               <li key={a.label}>
-                <button type="button" onClick={() => onNavigate(a.path)}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if ('action' in a && a.action === 'import') {
+                      document.querySelector('.iam-cms-import-strip')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      return;
+                    }
+                    if ('path' in a && a.path) onNavigate(a.path);
+                  }}
+                >
                   {a.label}
                   <ArrowRight size={14} strokeWidth={2} aria-hidden />
                 </button>
@@ -301,16 +382,9 @@ export function CmsDashboard({ siteSlug, site, context, onNavigate }: Props) {
       </div>
 
       {context ? (
-        <div className="iam-cms-runtime">
-          Runtime:{' '}
-          <code>{context.cms_hosting || 'platform'}</code>
+        <div className="iam-cms-runtime iam-cms-muted">
+          Hosting profile: {context.cms_hosting || 'platform'}
           {context.bridge_supported ? ' · bridge' : ''}
-          {context.worker_base_url ? (
-            <>
-              {' '}
-              · worker <code>{context.worker_base_url.replace(/^https?:\/\//, '')}</code>
-            </>
-          ) : null}
           {imports.length ? ` · ${imports.length} import${imports.length === 1 ? '' : 's'}` : ''}
         </div>
       ) : null}

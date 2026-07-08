@@ -514,7 +514,7 @@ function S0({
       <Fld label="Project name" hint="Used as the display name across the CMS and dashboard">
         <Inp
           value={s.site.name}
-          placeholder="Fuel & Free Time"
+          placeholder="My site"
           onChange={(v) => u({ name: v, slug: s.site._se ? s.site.slug : toSlug(v) })}
         />
       </Fld>
@@ -526,7 +526,7 @@ function S0({
         }
         hint="URL-safe identifier — letters, numbers, hyphens only"
       >
-        <Inp value={s.site.slug} placeholder="fuel-and-free-time" onChange={(v) => u({ slug: v, _se: true })} />
+        <Inp value={s.site.slug} placeholder="my-site" onChange={(v) => u({ slug: v, _se: true })} />
       </Fld>
       <ZipDropZone
         file={s.importZip.file}
@@ -729,7 +729,7 @@ function S3({ s, u }: { s: WState; u: (p: Partial<WState['domain']>) => void }) 
                 type="text"
                 value={s.domain.sub}
                 onChange={(e) => u({ sub: e.target.value })}
-                placeholder="fuel"
+                placeholder="acme"
                 className="flex-1 px-3 py-2 text-[14px] outline-none bg-transparent"
                 style={{ color: 'var(--text-primary)', border: 'none' }}
               />
@@ -756,7 +756,7 @@ function S3({ s, u }: { s: WState; u: (p: Partial<WState['domain']>) => void }) 
       {s.domain.mode === 'custom' ? (
         <div className="mt-4" style={{ borderTop: '0.5px solid var(--border)', paddingTop: '1rem' }}>
           <Fld label="Domain name" hint="Nameservers must point to Cloudflare. SSL issued automatically.">
-            <Inp value={s.domain.custom} placeholder="fuelnfreetime.com" onChange={(v) => u({ custom: v })} />
+            <Inp value={s.domain.custom} placeholder="example.com" onChange={(v) => u({ custom: v })} />
           </Fld>
         </div>
       ) : null}

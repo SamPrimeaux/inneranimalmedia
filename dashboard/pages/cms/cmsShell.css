@@ -18,6 +18,31 @@
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
+.iam-cms-shell .text-muted,
+.iam-cms-shell .iam-cms-muted,
+.iam-agentsam-cms-host .iam-cms-muted {
+  color: var(--cms-muted);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.iam-cms-empty-card__title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--cms-text);
+}
+
 .iam-cms-shell__top {
   display: flex;
   flex-direction: column;
@@ -889,6 +914,176 @@
   font-weight: 700;
   color: var(--cms-teal);
   text-decoration: none;
+}
+
+.iam-cms-hub-page__toolbar--compact {
+  align-items: center;
+  padding-top: 8px;
+}
+
+.iam-cms-hub-page__toolbar--compact .iam-cms-shell__kicker {
+  margin: 0;
+  flex: 1;
+}
+
+.iam-cms-import-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 16px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--cms-border);
+  background: var(--cms-panel);
+  box-shadow: var(--cms-shadow);
+}
+
+.iam-cms-import-strip__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--cms-text);
+  flex-shrink: 0;
+}
+
+.iam-cms-import-strip__drop {
+  flex: 1;
+  min-width: min(100%, 280px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px dashed color-mix(in srgb, var(--cms-teal) 35%, var(--cms-border));
+  background: var(--cms-teal-soft);
+  color: var(--cms-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.iam-cms-import-strip__drop.is-dragover,
+.iam-cms-import-strip__drop:hover {
+  border-color: var(--cms-teal);
+  background: color-mix(in srgb, var(--cms-teal) 8%, var(--cms-panel));
+  color: var(--cms-text);
+}
+
+.iam-cms-import-strip__drop.is-busy {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.iam-cms-import-strip__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(42vw, 320px);
+  font-size: 11px;
+  color: var(--cms-muted);
+}
+
+.iam-cms-import-strip__status.is-ok {
+  color: #047857;
+}
+
+.iam-cms-import-strip__status.is-error {
+  color: #b91c1c;
+}
+
+.iam-cms-import-strip__status span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iam-cms-site-hero__suite {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cms-muted);
+}
+
+.iam-cms-site-hero__head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.iam-cms-site-menu {
+  position: relative;
+}
+
+.iam-cms-site-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--cms-border);
+  background: var(--cms-panel);
+  color: var(--cms-muted);
+  cursor: pointer;
+}
+
+.iam-cms-site-menu__trigger:hover {
+  background: var(--cms-bg);
+  color: var(--cms-text);
+}
+
+.iam-cms-site-menu__list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  min-width: 200px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--cms-border);
+  background: var(--cms-panel);
+  box-shadow: var(--cms-shadow);
+}
+
+.iam-cms-site-menu__list button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--cms-text);
+}
+
+.iam-cms-site-menu__list button:hover,
+.iam-cms-site-menu__list button.is-active {
+  background: var(--cms-teal-soft);
+  color: var(--cms-teal);
+}
+
+.iam-cms-site-menu__new {
+  margin-top: 4px;
+  border-top: 1px solid var(--cms-border) !important;
+  border-radius: 0 0 8px 8px !important;
+  color: var(--cms-teal) !important;
+  font-weight: 700;
+}
+
+.iam-cms-runtime {
+  margin-top: 12px;
+  font-size: 11px;
 }
 
 .iam-cms-integrations__manage:hover {

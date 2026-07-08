@@ -534,6 +534,36 @@ html,body,#app{background:#F9F7F2;color:#1a1a1a;height:100dvh;height:-webkit-fil
 .shell.theme-studio .sidebar{grid-column:1;grid-row:2;background:#fff;border-right:1px solid #e8e4dc;min-width:0;min-height:0}
 .shell.theme-studio .canvas{grid-column:2;grid-row:2;background:#F9F7F2;min-width:0;min-height:0}
 .shell.theme-studio .rpanel{grid-column:3;grid-row:2;background:#fff;border-left:1px solid #e8e4dc;min-width:0;min-height:0}
+.shell.theme-studio.sidebar-collapsed{grid-template-columns:0 minmax(0,1fr) minmax(280px,340px)}
+.shell.theme-studio.sidebar-collapsed .sidebar{overflow:hidden;width:0;min-width:0;padding:0;border-right:none;opacity:0;pointer-events:none}
+.shell.theme-studio.inspector-collapsed{grid-template-columns:minmax(240px,280px) minmax(0,1fr) 0}
+.shell.theme-studio.inspector-collapsed .rpanel{overflow:hidden;width:0;min-width:0;padding:0;border-left:none;opacity:0;pointer-events:none}
+.shell.theme-studio.sidebar-collapsed.inspector-collapsed{grid-template-columns:0 minmax(0,1fr) 0}
+.shell.theme-studio.template-library-mode,
+.shell.theme-studio.imports-panel-mode{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
+.shell.theme-studio.template-library-mode .sidebar,
+.shell.theme-studio.template-library-mode .rpanel,
+.shell.theme-studio.template-library-mode .canvas,
+.shell.theme-studio.imports-panel-mode .sidebar,
+.shell.theme-studio.imports-panel-mode .rpanel,
+.shell.theme-studio.imports-panel-mode .canvas{display:none}
+.template-library-body,.imports-panel-body{grid-column:1/-1;grid-row:2;overflow:auto;padding:20px 16px 32px;background:#F9F7F2;min-height:0}
+.tpl-library-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.tpl-library-head h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-.03em;color:#111}
+.tpl-library-head p{margin:6px 0 0;font-size:13px;color:#64748b;line-height:1.55;max-width:520px}
+.tpl-library-section-title{margin:24px 0 12px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8}
+.tpl-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.tpl-card{display:flex;flex-direction:column;gap:8px;border:1px solid #e8e4dc;border-radius:14px;padding:16px;background:#fff;text-align:left;cursor:pointer;transition:border-color .12s,box-shadow .12s,transform .12s}
+.tpl-card:hover{border-color:#0d9488;box-shadow:0 10px 28px rgba(13,148,136,.12);transform:translateY(-1px)}
+.tpl-card-kicker{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#0d9488}
+.tpl-card-title{font-size:14px;font-weight:700;color:#111}
+.tpl-card-desc{font-size:12px;color:#64748b;line-height:1.45}
+.tpl-card-zone{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em}
+.imports-panel-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:220px;padding:28px;border:2px dashed #d6d0c4;border-radius:18px;background:#fff;color:#64748b;font-size:13px;cursor:pointer;transition:border-color .12s,background .12s}
+.imports-panel-drop.is-dragover,.imports-panel-drop:hover{border-color:#0d9488;background:#f0fdfa;color:#115e59}
+.imports-panel-status{margin-top:12px;font-size:12px;color:#64748b}
+.imports-panel-status.is-ok{color:#047857}
+.imports-panel-status.is-err{color:#b91c1c}
 .shell.theme-studio .topbar{
   grid-column:1/-1;
   min-height:52px;
@@ -834,6 +864,8 @@ const I = {
   undo: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6.69 3L3 13"/></svg>,
   page: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>,
   block: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>,
+  panelLeft: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>,
+  panelRight: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg>,
 };
 
 function useIsMobile(breakpoint = 767) {
@@ -1344,6 +1376,156 @@ function PagePicker({ pages, activePage, onSelect, onOpenWizard }) {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   TEMPLATE LIBRARY + IMPORTS PANELS
+══════════════════════════════════════════════════════════════ */
+function TemplateLibraryPanel({ activePage, busy, onBack, onCreatePage, onCreateSection }) {
+  const pageItems = Object.values(PAGE_TEMPLATES);
+  const sectionItems = [
+    ...ZONE_SECTION_TEMPLATES.header.map((t) => ({ ...t, zone: 'header' })),
+    ...SECTION_TEMPLATES.map((t) => ({ ...t, zone: 'template' })),
+    ...ZONE_SECTION_TEMPLATES.footer.map((t) => ({ ...t, zone: 'footer' })),
+  ];
+  return (
+    <div className="template-library-body">
+      <div className="tpl-library-head">
+        <div>
+          <h1>Template library</h1>
+          <p>
+            Reusable pages and section blocks for your CMS. Add to{' '}
+            {activePage?.title ? `"${activePage.title}"` : 'the active page'} or create a new page.
+          </p>
+        </div>
+        <button type="button" className="btn" onClick={onBack}>
+          ← Command center
+        </button>
+      </div>
+      <div className="tpl-library-section-title">Page templates</div>
+      <div className="tpl-gallery">
+        {pageItems.map((tpl) => (
+          <button
+            key={tpl.id}
+            type="button"
+            className="tpl-card"
+            disabled={busy}
+            onClick={() => onCreatePage(tpl)}
+          >
+            <span className="tpl-card-kicker">Page</span>
+            <span className="tpl-card-title">{tpl.label}</span>
+            <span className="tpl-card-desc">{tpl.desc}</span>
+          </button>
+        ))}
+      </div>
+      <div className="tpl-library-section-title">Section blocks</div>
+      <div className="tpl-gallery">
+        {sectionItems.map((tpl) => (
+          <button
+            key={`${tpl.zone}-${tpl.id}`}
+            type="button"
+            className="tpl-card"
+            disabled={busy || !activePage}
+            onClick={() => onCreateSection({ template: tpl, zone: tpl.zone })}
+          >
+            <span className="tpl-card-zone">{tpl.zone}</span>
+            <span className="tpl-card-title">{tpl.label}</span>
+            <span className="tpl-card-desc">{tpl.type || tpl.id}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ImportsPanel({ project, onBack }) {
+  const inputRef = useRef(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [status, setStatus] = useState('idle');
+
+  const uploadFile = async (file) => {
+    if (!file) return;
+    const name = file.name.toLowerCase();
+    if (!name.endsWith('.zip') && !name.endsWith('.tar') && !name.endsWith('.tar.gz') && !name.endsWith('.tgz')) {
+      setStatus('err');
+      setMessage('Use a .zip or .tar.gz theme archive');
+      return;
+    }
+    setBusy(true);
+    setStatus('uploading');
+    setMessage('Uploading…');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('import_name', `${project} theme`);
+      fd.append('project_slug', project);
+      const res = await fetch(`/api/cms/liquid-imports/upload?project_slug=${encodeURIComponent(project)}`, {
+        method: 'POST',
+        credentials: 'include',
+        body: fd,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+      setStatus('ok');
+      setMessage('Upload received — review inventory from the CMS command center import strip.');
+      showToast('Theme uploaded', 'ok');
+    } catch (e) {
+      setStatus('err');
+      setMessage(e.message || 'Upload failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="imports-panel-body">
+      <div className="tpl-library-head">
+        <div>
+          <h1>Import theme</h1>
+          <p>
+            Drop a Shopify .zip or .tar.gz here. For day-to-day imports, use the drag-and-drop strip on the CMS command
+            center home.
+          </p>
+        </div>
+        <button type="button" className="btn" onClick={onBack}>
+          ← Command center
+        </button>
+      </div>
+      <label
+        className={`imports-panel-drop${dragOver ? ' is-dragover' : ''}`}
+        onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const f = e.dataTransfer.files?.[0];
+          if (f) void uploadFile(f);
+        }}
+      >
+        {busy ? 'Uploading…' : 'Drop theme archive here or tap to browse (max 80 MB)'}
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".zip,.tar,.tar.gz,.tgz"
+          style={{ display: 'none' }}
+          disabled={busy}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void uploadFile(f);
+            e.target.value = '';
+          }}
+        />
+      </label>
+      {message ? (
+        <p className={`imports-panel-status${status === 'ok' ? ' is-ok' : status === 'err' ? ' is-err' : ''}`}>
+          {message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
    ROOT COMPONENT
 ══════════════════════════════════════════════════════════════ */
 function CmsEditor() {
@@ -1395,6 +1577,8 @@ function CmsEditor() {
   const [sectionAddZone, setSectionAddZone] = useState('template');
   const [sectionInjectedHtml, setSectionInjectedHtml] = useState('');
   const [sectionInjectedHtmlDirty, setSectionInjectedHtmlDirty] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [undoStack, setUndoStack] = useState([]);
   const [lastRollback, setLastRollback] = useState(null);
   const [logoPopoverOpen, setLogoPopoverOpen] = useState(false);
@@ -2346,13 +2530,66 @@ function CmsEditor() {
   }, [activeSection?.id, activeSection?.section_name, liveUrl, draftPreview, previewing]);
 
   /* ── RENDER ── */
+  const isTemplateLibrary = isThemeStudio && ctx.panel === 'templates';
+  const isImportsPanel = isThemeStudio && ctx.panel === 'imports';
   const shellClass = [
     'shell',
     isThemeStudio ? 'theme-studio' : '',
     isThemeStudio ? `vp-${vp}` : '',
     isMobile && isThemeStudio ? 'mobile' : '',
     isMobile && isThemeStudio && mobilePanel !== 'canvas' ? `mobile-panel-${mobilePanel}` : '',
+    isTemplateLibrary ? 'template-library-mode' : '',
+    isImportsPanel ? 'imports-panel-mode' : '',
+    sidebarCollapsed && !isTemplateLibrary && !isImportsPanel ? 'sidebar-collapsed' : '',
+    inspectorCollapsed && !isTemplateLibrary && !isImportsPanel ? 'inspector-collapsed' : '',
   ].filter(Boolean).join(' ');
+
+  const goHub = () => {
+    postParent('iam-cms-navigate', {
+      path: `/dashboard/cms?site=${encodeURIComponent(ctx.project)}`,
+    });
+  };
+
+  if (isTemplateLibrary || isImportsPanel) {
+    return (
+      <>
+        <div id="cms-toast" className="cms-toast" />
+        <div className={shellClass}>
+          <div className="topbar">
+            <div className="ts-brand">
+              <div className="ts-logo">{brandInitials}</div>
+              <span className="ts-brand-name">{isTemplateLibrary ? 'Template library' : 'Import theme'}</span>
+            </div>
+          </div>
+          {isTemplateLibrary ? (
+            <TemplateLibraryPanel
+              activePage={activePage}
+              busy={wizardBusy}
+              onBack={goHub}
+              onCreatePage={(tpl) =>
+                wizardCreatePage({
+                  title: tpl.label,
+                  slug: tpl.id === 'blank' ? `page-${Date.now().toString(36).slice(-6)}` : tpl.id,
+                  route_path: tpl.id === 'blank' ? '/new-page' : `/${tpl.id}`,
+                  template: tpl,
+                })
+              }
+              onCreateSection={({ template, zone }) =>
+                wizardCreateSection({
+                  template,
+                  section_name: template.name,
+                  injectHtml: true,
+                  zone,
+                })
+              }
+            />
+          ) : (
+            <ImportsPanel project={ctx.project} onBack={goHub} />
+          )}
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -2459,6 +2696,26 @@ function CmsEditor() {
             </div>
 
             <div className="ts-topbar-right ts-topbar-actions-full">
+              {!isMobile ? (
+                <>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ts-icon-btn${sidebarCollapsed ? ' active' : ''}`}
+                    title={sidebarCollapsed ? 'Show sections panel' : 'Hide sections panel'}
+                    onClick={() => setSidebarCollapsed((v) => !v)}
+                  >
+                    {I.panelLeft}
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ts-icon-btn${inspectorCollapsed ? ' active' : ''}`}
+                    title={inspectorCollapsed ? 'Show inspector panel' : 'Hide inspector panel'}
+                    onClick={() => setInspectorCollapsed((v) => !v)}
+                  >
+                    {I.panelRight}
+                  </button>
+                </>
+              ) : null}
               <button type="button" className="btn btn-sm ts-icon-btn" title="Ask Agent Sam" onClick={() => postParent('iam-cms-open-agent', { page_id: activePage?.id, section_id: activeSection?.id, surface: 'cms_editor', project_slug: ctx.project })}>
                 {I.agentSam}
               </button>
@@ -2640,7 +2897,10 @@ function CmsEditor() {
                     );
                   })()
                 ) : null}
-                {headerSecs.map((sec) => renderThemeSectionRow(sec))}
+                {headerSecs.map((sec) => {
+                  const realIdx = sections.findIndex((s) => s.id === sec.id);
+                  return renderThemeSectionRow(sec, realIdx >= 0 ? realIdx : null);
+                })}
                 {!headerSecs.length && !siteShell?.enabled && !booting ? (
                   <div style={{ padding: '4px 14px 8px', color: '#94a3b8', fontSize: 11 }}>No header blocks yet</div>
                 ) : null}
@@ -2681,7 +2941,10 @@ function CmsEditor() {
                     );
                   })()
                 ) : null}
-                {footerSecs.map((sec) => renderThemeSectionRow(sec))}
+                {footerSecs.map((sec) => {
+                  const realIdx = sections.findIndex((s) => s.id === sec.id);
+                  return renderThemeSectionRow(sec, realIdx >= 0 ? realIdx : null);
+                })}
                 {!footerSecs.length && !siteShell?.enabled && !booting ? (
                   <div style={{ padding: '4px 14px 8px', color: '#94a3b8', fontSize: 11 }}>No footer blocks yet</div>
                 ) : null}
@@ -2689,7 +2952,7 @@ function CmsEditor() {
                   {I.plus} Add section
                 </button>
               </div>
-              <div className="ts-sections-hint">Drag template sections to reorder. Use the page dropdown above to switch pages.</div>
+              <div className="ts-sections-hint">Drag sections to reorder. Add custom blocks in any zone with + Add section.</div>
             </>
           ) : (
           <>

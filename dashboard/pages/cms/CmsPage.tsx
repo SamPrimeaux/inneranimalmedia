@@ -6,6 +6,7 @@ import { CmsHubPage } from './CmsHubPage';
 import { SiteDeployWizard } from './SiteDeployWizard';
 import { CmsSiteLauncherGrid } from './CmsSiteLauncherGrid';
 import { useWorkspace } from '../../src/context/WorkspaceContext';
+import './cmsShell.css';
 
 const CmsStudioEditor = lazy(() =>
   import('../../../src/dashboard/cms/CmsStudioEditor').then((m) => ({
@@ -186,10 +187,10 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   return (
     <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden bg-[#F9F7F2] iam-agentsam-cms-host h-full">
       {needsSitePick ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-6 p-8 text-center overflow-auto">
+        <div className="iam-cms-shell iam-cms-hub-page flex flex-1 flex-col items-center justify-center gap-6 p-8 text-center overflow-auto">
           <div className="max-w-lg w-full">
-            <h2 className="text-lg font-semibold text-[var(--text-heading)]">Choose a CMS site</h2>
-            <p className="mt-2 text-sm text-muted">
+            <h2 className="iam-cms-hub-page__heading">Choose a CMS site</h2>
+            <p className="mt-2 text-sm iam-cms-muted">
               {loading
                 ? 'Loading sites for this workspace…'
                 : error
