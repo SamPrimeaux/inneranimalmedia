@@ -72,7 +72,9 @@ import {
   storagePrefSummary,
   writeProjectStoragePref,
   type ProjectStoragePref,
+  type ProjectWorkContextBindings,
 } from './projectStoragePreferences';
+import { ProjectStorageDropdown } from './ProjectStorageDropdown';
 import { openAgentThreadFullScreen, resumeAgentChatSession } from '../../lib/openAgentConversation';
 import { writeSessionProject } from '../../src/lib/freshChatSession';
 import { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../../agentChatConstants';
@@ -158,7 +160,7 @@ function truncatePreview(text: string, max = 220): string {
   return `${t.slice(0, max).trim()}…`;
 }
 
-type RailEditorKind = 'memory' | 'instructions' | 'cover' | 'files' | 'stats' | 'brand' | 'storage';
+type RailEditorKind = 'memory' | 'instructions' | 'cover' | 'files' | 'stats' | 'brand';
 
 function RailEditorModal({
   open,
@@ -459,6 +461,10 @@ export default function ProjectDetailPage() {
   const [storagePref, setStoragePref] = useState<ProjectStoragePref | null>(null);
   const [storageDraft, setStorageDraft] = useState<ProjectStoragePref>({ source: 'auto' });
   const [storageBusy, setStorageBusy] = useState(false);
+  const [storageMenuOpen, setStorageMenuOpen] = useState(false);
+  const [storageAdvancedOpen, setStorageAdvancedOpen] = useState(false);
+  const [workContextBindings, setWorkContextBindings] = useState<ProjectWorkContextBindings | null>(null);
+  const storageAnchorRef = useRef<HTMLDivElement | null>(null);
   const [clientContact, setClientContact] = useState<ClientContactRow | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [railEditor, setRailEditor] = useState<RailEditorKind | null>(null);
@@ -489,6 +495,7 @@ export default function ProjectDetailPage() {
       const pref = readProjectStoragePref(p.id);
       setStoragePref(pref);
       const bindings = await fetchProjectWorkContextBindings(p.id);
+      setWorkContextBindings(bindings);
       setStorageScope(
         resolveProjectStorageScope(p, { pref, bindings: bindings ?? undefined }),
       );
@@ -747,9 +754,6 @@ export default function ProjectDetailPage() {
       );
     }
     if (kind === 'instructions') setInstrDraft(instructions);
-    if (kind === 'storage') {
-      setStorageDraft(storagePref ?? { source: 'auto' });
-    }
     setRailEditor(kind);
     if (isMobile) setRailOpen(false);
   };
@@ -811,6 +815,15 @@ export default function ProjectDetailPage() {
       if (res.ok) {
         setInstructions(value);
         setInstrSaved(true);
+        const sync = res.runtime_contract_sync;
+        if (sync?.ok) {
+          const key = sync.rule_key || 'runtime contract';
+          setToast(sync.unchanged ? `Instructions saved · ${key} unchanged` : `Instructions saved · synced ${key}`);
+        } else if (sync && !sync.ok) {
+          setToast(`Saved instructions; rule sync failed: ${sync.error || 'unknown'}`);
+        } else {
+          setToast('Instructions saved');
+        }
         return true;
       }
       setToast(res.error || 'Failed to save instructions');
@@ -825,13 +838,38 @@ export default function ProjectDetailPage() {
     if (ok) closeRailEditor();
   };
 
-  const saveStoragePrefFromModal = async () => {
+  const toggleStorageMenu = async () => {
+    if (storageMenuOpen) {
+      closeStorageMenu();
+      return;
+    }
+    if (!project?.id) return;
+    setStorageDraft(storagePref ?? { source: 'auto' });
+    setStorageAdvancedOpen(false);
+    setStorageMenuOpen(true);
+    const bindings = await fetchProjectWorkContextBindings(project.id);
+    setWorkContextBindings(bindings);
+    setStorageScope(
+      resolveProjectStorageScope(project, {
+        pref: storagePref,
+        bindings: bindings ?? undefined,
+      }),
+    );
+  };
+
+  const closeStorageMenu = () => {
+    setStorageMenuOpen(false);
+    setStorageAdvancedOpen(false);
+  };
+
+  const saveStoragePrefFromMenu = async () => {
     if (!project?.id || storageBusy) return;
     setStorageBusy(true);
     try {
       writeProjectStoragePref(project.id, storageDraft);
       setStoragePref({ ...storageDraft });
       const bindings = await fetchProjectWorkContextBindings(project.id);
+      setWorkContextBindings(bindings);
       setStorageScope(
         resolveProjectStorageScope(project, {
           pref: storageDraft,
@@ -839,7 +877,7 @@ export default function ProjectDetailPage() {
         }),
       );
       setToast('Storage preferences saved (this browser)');
-      closeRailEditor();
+      closeStorageMenu();
     } finally {
       setStorageBusy(false);
     }
@@ -1263,15 +1301,38 @@ export default function ProjectDetailPage() {
         title="Brand assets"
         defaultOpen={false}
         action={
-          <div className="cpd-rail-actions">
-            <button
-              type="button"
-              className="cpd-icon-btn"
-              title="Storage preferences"
-              onClick={() => openRailEditor('storage')}
-            >
-              <FolderOpen size={13} strokeWidth={1.5} />
-            </button>
+          <div className="cpd-rail-actions cpd-rail-actions--storage">
+            <div className="cpd-storage-anchor" ref={storageAnchorRef}>
+              <button
+                type="button"
+                className={`cpd-icon-btn${storageMenuOpen ? ' cpd-icon-btn--active' : ''}`}
+                title="Project storage"
+                aria-expanded={storageMenuOpen}
+                aria-haspopup="dialog"
+                onClick={() => void toggleStorageMenu()}
+              >
+                <FolderOpen size={13} strokeWidth={1.5} />
+              </button>
+              <ProjectStorageDropdown
+                open={storageMenuOpen}
+                isMobile={isMobile}
+                anchorRef={storageAnchorRef}
+                scope={storageScope}
+                bindings={workContextBindings}
+                pref={storagePref}
+                draft={storageDraft}
+                busy={storageBusy}
+                advancedOpen={storageAdvancedOpen}
+                onAdvancedOpenChange={setStorageAdvancedOpen}
+                onDraftChange={setStorageDraft}
+                onClose={closeStorageMenu}
+                onSave={saveStoragePrefFromMenu}
+                onOpenAssetBrowser={() => {
+                  closeStorageMenu();
+                  openBrandAssetBrowser();
+                }}
+              />
+            </div>
             <button
               type="button"
               className="cpd-icon-btn"
@@ -1777,59 +1838,11 @@ export default function ProjectDetailPage() {
       </RailEditorModal>
 
       <RailEditorModal
-        open={railEditor === 'storage'}
-        isMobile={isMobile}
-        title="Project storage"
-        mobileTitle="Storage"
-        subtitle="Saved in this browser first. Auto resolves bucket from /api/projects/work-context (Cloudflare bindings via D1) — no hardcoded client routes."
-        saving={storageBusy}
-        saveLabel="Save preferences"
-        onClose={closeRailEditor}
-        onSave={() => void saveStoragePrefFromModal()}
-      >
-        <label className="cpd-editor-field">
-          <span>Source</span>
-          <select
-            className="cpd-editor-input"
-            value={storageDraft.source ?? 'auto'}
-            onChange={(e) =>
-              setStorageDraft((d) => ({
-                ...d,
-                source: e.target.value as ProjectStoragePref['source'],
-              }))
-            }
-          >
-            <option value="auto">Auto (work-context + project row)</option>
-            <option value="platform_r2">Platform R2 (inneranimalmedia)</option>
-            <option value="client_r2">Client bucket override</option>
-          </select>
-        </label>
-        <label className="cpd-editor-field">
-          <span>R2 bucket override</span>
-          <input
-            className="cpd-editor-input"
-            value={storageDraft.bucket ?? ''}
-            placeholder="e.g. companionscpas or inneranimalmedia"
-            onChange={(e) => setStorageDraft((d) => ({ ...d, bucket: e.target.value }))}
-          />
-        </label>
-        <label className="cpd-editor-field">
-          <span>Key prefix</span>
-          <input
-            className="cpd-editor-input"
-            value={storageDraft.prefix ?? ''}
-            placeholder="brand/{projectId}/"
-            onChange={(e) => setStorageDraft((d) => ({ ...d, prefix: e.target.value }))}
-          />
-        </label>
-      </RailEditorModal>
-
-      <RailEditorModal
         open={railEditor === 'instructions'}
         isMobile={isMobile}
         title="Set project instructions"
         mobileTitle="Instructions"
-        subtitle="Tailor how Agent Sam responds on this project. Require AGENTSAM.md sync, deploy rules, and binding format here."
+        subtitle="Per-project instructions sync to agentsam_rules_document as rule_{project_id}_runtimecontract. Workspace bindings stay shared; only rules and memory are scoped here."
         saving={instrBusy}
         saveLabel="Save instructions"
         onClose={closeRailEditor}
@@ -1920,8 +1933,8 @@ export default function ProjectDetailPage() {
         mobileTitle="Brand"
         subtitle={
           storageScope
-            ? `Uploads go to ${storageScope.bucket} · ${storageScope.prefix} — not platform inneranimalmedia when client bucket is set.`
-            : 'Logos, icons, and color references for this client.'
+            ? `Uploads go to ${storageScope.bucket} · ${storageScope.prefix}`
+            : 'Logos, icons, and color references for this project.'
         }
         showSave={false}
         onClose={closeRailEditor}
@@ -2351,6 +2364,162 @@ const CSS = `
 }
 .cpd-quick-stats--compact { margin: 0; }
 .cpd-rail-actions { display: flex; align-items: center; gap: 2px; }
+.cpd-rail-actions--storage { position: relative; }
+.cpd-storage-anchor { position: relative; }
+.cpd-icon-btn--active {
+  background: var(--bg-hover);
+  color: var(--color-main, #e2e8f0);
+}
+.cpd-storage-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 540;
+  width: min(360px, calc(100vw - 32px));
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--dashboard-panel, #0f172a);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+}
+.cpd-storage-panel--sheet {
+  position: fixed;
+  top: auto;
+  right: 12px;
+  left: 12px;
+  bottom: 12px;
+  width: auto;
+  max-height: min(72vh, 640px);
+  overflow: auto;
+}
+.cpd-storage-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.cpd-storage-panel-head-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cpd-storage-panel-head-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.cpd-storage-panel-head-copy span {
+  font-size: 11px;
+  color: var(--color-muted, #94a3b8);
+}
+.cpd-storage-summary {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--dashboard-border);
+}
+.cpd-storage-summary-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+}
+.cpd-storage-summary-row span:first-child {
+  color: var(--color-muted, #94a3b8);
+}
+.cpd-storage-summary-row code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--color-main, #e2e8f0);
+  word-break: break-all;
+  text-align: right;
+}
+.cpd-storage-connections {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.cpd-storage-connection {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--dashboard-border);
+  background: rgba(255, 255, 255, 0.02);
+}
+.cpd-storage-connection--empty {
+  opacity: 0.72;
+}
+.cpd-storage-connection-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cpd-storage-connection-copy strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.cpd-storage-connection-copy span {
+  font-size: 11px;
+  color: var(--color-muted, #94a3b8);
+  word-break: break-all;
+}
+.cpd-storage-advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 0;
+  border: none;
+  background: transparent;
+  color: var(--color-muted, #94a3b8);
+  font-size: 11px;
+  cursor: pointer;
+}
+.cpd-storage-advanced-chevron--open {
+  transform: rotate(180deg);
+}
+.cpd-storage-advanced {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+.cpd-storage-advanced-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-muted, #94a3b8);
+  line-height: 1.45;
+}
+.cpd-storage-panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.cpd-editor-field {
+  display: grid;
+  gap: 6px;
+}
+.cpd-editor-field > span {
+  font-size: 11px;
+  color: var(--color-muted, #94a3b8);
+}
+.cpd-editor-input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--dashboard-border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--color-main, #e2e8f0);
+  font-size: 12px;
+}
 .cpd-rail-preview-inner {
   display: block;
   width: 100%;

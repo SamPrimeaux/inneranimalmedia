@@ -1,0 +1,48 @@
+---
+description: Per-project runtime contract rule keys, workspace vs project scope, save→sync→embed path
+alwaysApply: false
+---
+
+# Project runtime contract (IAM)
+
+Load when editing project instructions, agentsam_rules_document rows, `/dashboard/projects` context admin, or agent lane confusion across projects on one workspace.
+
+## Model (intentional)
+
+| Layer | Scope | SSOT |
+|-------|--------|------|
+| **Workspace** (`agentsam_workspace`) | Shared by all projects on that workspace | D1 UUID, worker, R2, GitHub, KV, deploy URL, `root_path` |
+| **Project** (`projects.id`) | Unit of work inside a workspace | Instructions, dashboard memory, runtime contract rule |
+| **Platform law** | Global | `agentsam_rules_document` rows with `workspace_id IS NULL` |
+
+**Correct:** `proj_agentsam_sdk` on `ws_inneranimalmedia` inherits platform bindings from `agentsam_workspace.project_id = proj_inneranimalmedia`. Storage/connections UI shows workspace bindings — not a bug.
+
+**Wrong (fixed):** keying runtime contracts by workspace slug (`rule_inneranimalmedia_runtimecontract`) for every project on that workspace.
+
+## Rule key convention
+
+- **Per project:** `rule_{project_id}_runtimecontract`
+  - Examples: `rule_proj_agentsam_sdk_runtimecontract`, `rule_proj_companions_cpas_web_runtimecontract`
+- **Code:** `projectRuntimeContractRuleKeyFromProjectId()` / `resolveProjectRuntimeContractRuleKey()` in `src/core/project-runtime-contract.js`
+- **Never** derive project runtime contract keys from `workspace_slug` alone.
+- Workspace-level seeds (`rule_inneranimalmedia_runtimecontract`, MCP variants) remain separate platform rows — do not overwrite them from project instruction saves.
+
+## Save → sync → embed path
+
+1. Dashboard: `PATCH /api/projects/:id/memory` with `{ instructions }` → `upsertProjectDashboardMemory()` (`project_memory` keys `dashboard.instructions`, `dashboard.memory`).
+2. On instructions change: `syncProjectRuntimeContract()` (`src/core/project-runtime-contract-sync.js`) upserts `agentsam_rules_document` with `project_id = projects.id` and computed `rule_key`.
+3. Response includes `runtime_contract_sync`: `{ ok, rule_key, unchanged, content_hash, body_chars, error? }` — UI must surface failures (no silent sync).
+4. Agent load: `fetchTriggeredRulesForSystemPrompt()` / `loadProjectRuntimeContractSystemBlock()` prefer D1 row where `project_id` matches active project.
+
+Manual resync: `POST /api/projects/:id/runtime-contract/sync` (when exposed).
+
+## Admin / cleanup UI
+
+- **`/dashboard/projects` → Context tab** calls `GET /api/projects/context-audit` — lists each project with workspace bindings, expected `rule_key`, sync status, instruction/memory char counts.
+- Use this to delete stale projects, align instructions per lane, and verify companions vs SDK vs platform are not sharing one runtime contract row.
+
+## When changing this system
+
+- Migrations for `agentsam_rules_document`: keep `project_id` + `rule_key` columns (migration 800+).
+- Do not reintroduce workspace-slug rule keys for per-project instructions.
+- Connections dropdown: workspace bindings only. Do not fork binding rows per project unless product explicitly adds project-level override tables.

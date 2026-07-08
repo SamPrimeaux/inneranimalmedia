@@ -26,9 +26,9 @@ export type ProjectMeta = {
   project_files?: ProjectFileRef[];
   brand_assets?: ProjectFileRef[];
   brand_tokens?: BrandTokens;
-  /** Override default R2 bucket (e.g. companionscpas vs inneranimalmedia). */
+  /** Override default R2 bucket for brand assets. */
   storage_bucket?: string;
-  /** Prefix within bucket for brand assets (default brand/{projectId}/). */
+  /** Prefix within bucket for brand assets. */
   storage_prefix?: string;
   brand_r2_prefix?: string;
   storage_public_url?: string;
@@ -147,7 +147,7 @@ export function resolveProjectStorageScope(
   },
   opts?: {
     pref?: { bucket?: string; prefix?: string; source?: 'auto' | 'platform_r2' | 'client_r2' } | null;
-    bindings?: { r2Bucket?: string | null; workerName?: string | null } | null;
+    bindings?: { r2Bucket?: string | null; r2Prefix?: string | null; workerName?: string | null } | null;
   },
 ): ProjectStorageScope {
   const meta = parseProjectMeta(project.metadata_json);
@@ -169,10 +169,12 @@ export function resolveProjectStorageScope(
   const rowBucket = parseR2BucketName(project.r2_buckets, project.worker_id);
   const resolvedClient = prefBucket || bindingBucket || explicitBucket || rowBucket;
   const bucket = isValidR2BucketName(resolvedClient) ? resolvedClient! : PLATFORM_R2_BUCKET;
+  const bindingPrefix = opts?.bindings?.r2Prefix?.trim();
   const rawPrefix =
     pref?.prefix ||
     meta.storage_prefix ||
     meta.brand_r2_prefix ||
+    bindingPrefix ||
     (bucket === PLATFORM_R2_BUCKET ? `brand/${project.id}/` : 'brand/');
   const prefix = rawPrefix.replace(/^\/*/, '');
   const normalizedPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;

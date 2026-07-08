@@ -94,14 +94,25 @@ export async function upsertProjectDashboardMemory(db, opts) {
           userId: opts.userId ?? null,
         },
       );
-      if (sync?.ok && !sync.unchanged) {
-        next.runtime_contract_sync = {
-          rule_key: sync.rule_key,
-          content_hash: sync.content_hash,
-        };
-      }
+      next.runtime_contract_sync = sync?.ok
+        ? {
+            ok: true,
+            rule_key: sync.rule_key ?? null,
+            unchanged: sync.unchanged === true,
+            content_hash: sync.content_hash ?? null,
+            body_chars: sync.body_chars ?? null,
+          }
+        : {
+            ok: false,
+            error: sync?.error ?? 'sync_failed',
+            hint: sync?.hint ?? null,
+          };
     } catch (e) {
       console.warn('[project-dashboard-memory] runtime_contract_sync', e?.message ?? e);
+      next.runtime_contract_sync = {
+        ok: false,
+        error: e?.message ?? String(e),
+      };
     }
   }
 

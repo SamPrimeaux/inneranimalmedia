@@ -1,5 +1,5 @@
 /**
- * Sync AGENTSAM.md + dashboard instructions → agentsam_rules_document (rule_{slug}_runtimecontract).
+ * Sync AGENTSAM.md + dashboard instructions → agentsam_rules_document (rule_{project_id}_runtimecontract).
  * Called on project instructions save and POST /api/projects/:id/runtime-contract/sync.
  */
 import { parseJsonSafe } from './agent-prompt-builder.js';
@@ -8,9 +8,9 @@ import { readProjectDashboardMemory } from './project-dashboard-memory.js';
 import { pragmaTableInfo } from './retention.js';
 import {
   fetchProjectRuntimeContractRule,
-  projectRuntimeContractRuleKey,
-  resolveProjectSlugForRuntimeContract,
-  sanitizeProjectSlugForRuleKey,
+  projectRuntimeContractRuleKeyFromProjectId,
+  resolveProjectIdForRuntimeContract,
+  resolveProjectRuntimeContractRuleKey,
 } from './project-runtime-contract.js';
 
 function trim(v) {
@@ -134,34 +134,53 @@ export async function resolveProjectAgentsamMdPath(env, projectRef, workspaceId 
     : '';
 }
 
+function stripDashboardInstructionsSection(body) {
+  const text = trim(body);
+  if (!text) return '';
+  const idx = text.indexOf('### Dashboard instructions');
+  return idx >= 0 ? text.slice(0, idx).trim() : text;
+}
+
 /**
  * @param {{
- *   projectSlug: string,
+ *   projectId: string,
+ *   projectName?: string|null,
+ *   ruleKey?: string|null,
+ *   workspaceSlug?: string|null,
  *   agentsamMarkdown?: string|null,
  *   dashboardInstructions?: string|null,
  *   agentsamMdPath?: string|null,
  *   existingBody?: string|null,
+ *   workspaceBindingsBlock?: string|null,
  * }} opts
  */
 export function composeProjectRuntimeContractBody(opts) {
-  const slug = sanitizeProjectSlugForRuleKey(opts.projectSlug) || 'project';
-  const ruleKey = projectRuntimeContractRuleKey(slug);
+  const projectId = trim(opts.projectId) || 'project';
+  const projectName = trim(opts.projectName) || projectId;
+  const ruleKey = trim(opts.ruleKey) || projectRuntimeContractRuleKeyFromProjectId(projectId);
+  const workspaceSlug = trim(opts.workspaceSlug);
   const agentsamMd = trim(opts.agentsamMarkdown);
   const instructions = trim(opts.dashboardInstructions);
   const sourcePath = trim(opts.agentsamMdPath);
   const existing = trim(opts.existingBody);
+  const bindingsBlock = trim(opts.workspaceBindingsBlock);
 
   /** @type {string[]} */
   const parts = [
-    `## Project runtime contract: ${slug}`,
+    `## Project runtime contract: ${projectName}`,
     '',
-    `**D1:** \`agentsam_rules_document\` · **rule_key:** \`${ruleKey}\``,
-    sourcePath ? `**Human SSOT:** \`${sourcePath}\` (this file wins over DB when in conflict)` : '',
+    `**project_id:** \`${projectId}\` · **rule_key:** \`${ruleKey}\``,
+    workspaceSlug ? `**execution workspace:** \`${workspaceSlug}\` (shared bindings — see Connections)` : '',
+    sourcePath ? `**Human SSOT:** \`${sourcePath}\` (wins over DB when in conflict)` : '',
     '',
     'Agent Sam loads this row on every **project-scoped** turn (project selected in chat).',
-    'Update flow: edit AGENTSAM.md → sync · edit dashboard Instructions → auto-sync on save.',
+    'Dashboard Instructions save here auto-syncs. Full AGENTSAM.md: POST /runtime-contract/sync or npm run sync:project-runtime-contract.',
     '',
   ].filter(Boolean);
+
+  if (bindingsBlock) {
+    parts.push('### Workspace bindings (shared execution lane)', '', bindingsBlock, '', '---', '');
+  }
 
   if (instructions) {
     parts.push(
@@ -179,23 +198,54 @@ export function composeProjectRuntimeContractBody(opts) {
     if (meta.project_id || meta.workspace_id || meta.project_slug) {
       parts.push(
         '<!-- AGENTSAM frontmatter -->',
-        `\`project_id\`: ${meta.project_id || '—'} · \`workspace_id\`: ${meta.workspace_id || '—'} · \`project_slug\`: ${meta.project_slug || slug}`,
+        `\`project_id\`: ${meta.project_id || projectId} · \`workspace_id\`: ${meta.workspace_id || '—'} · \`project_slug\`: ${meta.project_slug || workspaceSlug || '—'}`,
         '',
       );
     }
     parts.push(body || agentsamMd);
-  } else if (existing && !existing.includes('run sync after editing')) {
-    const idx = existing.indexOf('### Dashboard instructions');
-    const tail = idx >= 0 ? existing.slice(idx) : existing;
-    if (tail && !instructions) parts.push(tail);
+  } else if (existing) {
+    const base = stripDashboardInstructionsSection(existing);
+    if (base && !base.includes('run sync after editing')) {
+      parts.push(base);
+    } else if (sourcePath) {
+      parts.push(
+        `Full AGENTSAM.md not embedded in this sync pass. Path: \`${sourcePath}\`.`,
+        'Run: `npm run sync:project-runtime-contract -- --project ' +
+          projectId +
+          ' --file ' +
+          sourcePath +
+          '` after editing.',
+      );
+    }
   } else if (sourcePath) {
     parts.push(
       `Full AGENTSAM.md not embedded in this sync pass. Path: \`${sourcePath}\`.`,
-      'Run: `npm run sync:project-runtime-contract -- --project <id> --file ' + sourcePath + '` after editing.',
+      'Run: `npm run sync:project-runtime-contract -- --project ' +
+        projectId +
+        ' --file ' +
+        sourcePath +
+        '` after editing.',
     );
   }
 
   return parts.join('\n').trim();
+}
+
+function formatWorkspaceBindingsBlock(bindings) {
+  if (!bindings) return '';
+  const lines = [];
+  if (bindings.workerName) lines.push(`- Worker: \`${bindings.workerName}\``);
+  if (bindings.r2Bucket) {
+    lines.push(
+      `- R2: \`${bindings.r2Bucket}\`${bindings.r2Prefix ? ` · prefix \`${bindings.r2Prefix}\`` : ''}`,
+    );
+  }
+  if (bindings.d1DatabaseId) {
+    lines.push(`- D1: \`${bindings.d1DatabaseId}\`${bindings.d1Binding ? ` (binding ${bindings.d1Binding})` : ''}`);
+  }
+  if (bindings.githubRepo) lines.push(`- GitHub: \`${bindings.githubRepo}\``);
+  if (bindings.deployUrl) lines.push(`- Deploy URL: ${bindings.deployUrl}`);
+  return lines.join('\n');
 }
 
 /**
@@ -221,21 +271,35 @@ export async function syncProjectRuntimeContract(env, opts = {}) {
   }
 
   const ws = trim(opts.workspaceId);
-  const slug = await resolveProjectSlugForRuntimeContract(env, projectRef, ws);
-  const ruleKey = projectRuntimeContractRuleKey(slug);
+  const projectId = await resolveProjectIdForRuntimeContract(env, projectRef, ws);
+  const ruleKey = await resolveProjectRuntimeContractRuleKey(env, projectRef, ws);
   if (!ruleKey) return { ok: false, error: 'rule_key_unresolved' };
 
   const bindings = await resolveWorkspaceBindings(env, projectRef);
   const dashboard = await readProjectDashboardMemory(env.DB, projectRef);
   const agentsamMdPath = await resolveProjectAgentsamMdPath(env, projectRef, ws);
-  const existing = await fetchProjectRuntimeContractRule(env, { projectRef, workspaceId: ws });
+  const existing = await fetchProjectRuntimeContractRule(env, { projectRef: projectId, workspaceId: ws });
+
+  let projectName = projectId;
+  try {
+    const projRow = await env.DB.prepare(`SELECT name FROM projects WHERE id = ? LIMIT 1`)
+      .bind(projectId)
+      .first();
+    if (projRow?.name) projectName = String(projRow.name).trim();
+  } catch {
+    /* optional */
+  }
 
   const body = composeProjectRuntimeContractBody({
-    projectSlug: slug,
+    projectId,
+    projectName,
+    ruleKey,
+    workspaceSlug: bindings?.slug || null,
     agentsamMarkdown: opts.agentsamMarkdown,
     dashboardInstructions: dashboard.instructions,
     agentsamMdPath: agentsamMdPath,
     existingBody: existing?.body_markdown,
+    workspaceBindingsBlock: formatWorkspaceBindingsBlock(bindings),
   });
 
   if (!body || body.length < 40) {
@@ -258,7 +322,7 @@ export async function syncProjectRuntimeContract(env, opts = {}) {
   }
 
   const ruleId = ruleKey;
-  const title = `Project runtime contract: ${slug}`;
+  const title = `Project runtime contract: ${projectName}`;
   const workspaceId = trim(bindings?.workspaceId) || ws || '';
   const sourceStored = agentsamMdPath
     ? `repo:${agentsamMdPath}`
@@ -294,7 +358,7 @@ export async function syncProjectRuntimeContract(env, opts = {}) {
   }
   if (cols.has('project_id')) {
     insertCols.push('project_id');
-    insertVals.push(projectRef);
+    insertVals.push(projectId);
     updateSets.push('project_id = excluded.project_id');
   }
   if (cols.has('rule_type')) {

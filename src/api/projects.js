@@ -12,6 +12,7 @@ import {
   upsertProjectDashboardMemory,
 } from '../core/project-dashboard-memory.js';
 import { syncProjectRuntimeContract } from '../core/project-runtime-contract-sync.js';
+import { buildProjectContextAudit } from '../core/project-context-audit.js';
 import { sendResendEmail } from '../services/resend.js';
 
 const PROJECTS_LIST_CACHE = 'private, max-age=30, stale-while-revalidate=120';
@@ -1200,6 +1201,51 @@ async function handleProjectMemoryPatch(request, env, authUser, projectId) {
   }
 }
 
+async function handleProjectContextAudit(env, authUser, url) {
+  const tenantId = authUser.tenant_id ? String(authUser.tenant_id) : null;
+  const workspaceId =
+    url.searchParams.get('workspace_id') ||
+    (authUser.active_workspace_id ? String(authUser.active_workspace_id) : null);
+  const scope = String(url.searchParams.get('scope') || 'tenant').trim().toLowerCase();
+  const includeArchived =
+    url.searchParams.get('include_archived') === '1' ||
+    url.searchParams.get('include_archived') === 'true';
+
+  let whereSql;
+  let whereBinds;
+  if (scope === 'tenant' && tenantId) {
+    whereSql = 'p.tenant_id = ?';
+    whereBinds = [tenantId];
+  } else if (authUser.is_superadmin && scope === 'all') {
+    whereSql = '1=1';
+    whereBinds = [];
+  } else {
+    ({ sql: whereSql, binds: whereBinds } = buildProjectWhereClause(workspaceId, tenantId));
+  }
+  if (!includeArchived) {
+    whereSql += ` AND COALESCE(p.status, '') != 'archived'`;
+  }
+
+  const { results } = await withD1Retry(() =>
+    env.DB.prepare(
+      `SELECT p.id, p.name, p.status, p.project_type, p.workspace_id, p.client_id, p.worker_id, p.domain, p.tenant_id
+       FROM projects p
+       WHERE ${whereSql}
+       ORDER BY p.name ASC`,
+    )
+      .bind(...whereBinds)
+      .all(),
+  );
+
+  const mergedRows = mergeProjectRowsById(results || [], await fetchCollaboratorProjectRows(env, authUser));
+  const audit = await buildProjectContextAudit(env, { projectRows: mergedRows });
+  return projectsJsonResponse(
+    { ok: true, projects: audit, total: audit.length },
+    200,
+    'private, no-store',
+  );
+}
+
 async function handleProjectRuntimeContractSync(request, env, authUser, projectId) {
   const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(projectId).first();
   const access = await assertProjectAccess(env, authUser, row);
@@ -1624,6 +1670,10 @@ export async function handleProjectsApi(request, url, env, authUser, ctx = null)
   const pathLower = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
   const method = request.method.toUpperCase();
   const sub = pathLower.startsWith('/api/projects/') ? pathLower.slice('/api/projects/'.length) : '';
+
+  if (pathLower === '/api/projects/context-audit' && method === 'GET') {
+    return handleProjectContextAudit(env, authUser, url);
+  }
 
   if (pathLower === '/api/projects/overview' && method === 'GET') {
     return handleOverview(request, url, env, authUser);

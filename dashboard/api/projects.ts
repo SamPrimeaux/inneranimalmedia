@@ -324,7 +324,39 @@ export type ProjectMemoryPayload = {
   memory?: string;
   instructions?: string;
   updated_at?: number | null;
+  runtime_contract_sync?: {
+    ok: boolean;
+    rule_key?: string | null;
+    unchanged?: boolean;
+    content_hash?: string | null;
+    body_chars?: number | null;
+    error?: string | null;
+    hint?: string | null;
+  };
   error?: string;
+};
+
+export type ProjectContextAuditRow = {
+  id: string;
+  name: string;
+  status?: string | null;
+  project_type?: string | null;
+  workspace_id?: string | null;
+  client_id?: string | null;
+  rule_key?: string | null;
+  rule_synced?: boolean;
+  rule_body_chars?: number;
+  memory_chars?: number;
+  instructions_chars?: number;
+  bindings?: {
+    workspace_slug?: string | null;
+    worker_name?: string | null;
+    r2_bucket?: string | null;
+    r2_prefix?: string | null;
+    d1_database_id?: string | null;
+    github_repo?: string | null;
+    deploy_url?: string | null;
+  } | null;
 };
 
 export async function fetchProjectMemory(projectId: string): Promise<ProjectMemoryPayload> {
@@ -351,6 +383,22 @@ export async function updateProjectMemory(
   const j = (await r.json()) as ProjectMemoryPayload;
   if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
   return j;
+}
+
+export async function fetchProjectContextAudit(opts?: {
+  scope?: 'tenant' | 'all';
+  includeArchived?: boolean;
+}): Promise<{ ok: boolean; projects: ProjectContextAuditRow[]; error?: string }> {
+  const params = new URLSearchParams();
+  params.set('scope', opts?.scope || 'tenant');
+  if (opts?.includeArchived) params.set('include_archived', '1');
+  const r = await fetch(`/api/projects/context-audit?${params}`, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  });
+  const j = (await r.json()) as { ok?: boolean; projects?: ProjectContextAuditRow[]; error?: string };
+  if (!r.ok) return { ok: false, projects: [], error: j.error || `HTTP ${r.status}` };
+  return { ok: true, projects: Array.isArray(j.projects) ? j.projects : [] };
 }
 
 export async function fetchProjectCollaborators(projectId: string): Promise<{

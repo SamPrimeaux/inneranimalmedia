@@ -13,10 +13,12 @@ import {
 } from 'lucide-react';
 import {
   deleteProject,
+  fetchProjectContextAudit,
   fetchProjectsList,
   setProjectPinned,
   updateProject,
   type OverviewProject,
+  type ProjectContextAuditRow,
 } from '../../api/projects';
 import { ProjectShareModal } from '../../components/projects/ProjectShareModal';
 import { AppIcon } from '../../components/ui/AppIcon';
@@ -101,14 +103,39 @@ const STATUS_LABELS: Record<string, string> = {
   complete:   'Complete',
 };
 
-type TabFilter = 'recent' | 'shared' | 'starred' | 'completed';
+type TabFilter = 'recent' | 'shared' | 'starred' | 'completed' | 'context';
 
 const TABS: { key: TabFilter; label: string }[] = [
   { key: 'recent',    label: 'Recent' },
   { key: 'shared',    label: 'Shared' },
   { key: 'starred',   label: 'Starred' },
   { key: 'completed', label: 'Completed' },
+  { key: 'context',   label: 'Context' },
 ];
+
+function formatAuditChars(n?: number): string {
+  const v = Number(n) || 0;
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
+  return String(v);
+}
+
+function auditSearchHaystack(row: ProjectContextAuditRow): string {
+  return [
+    row.id,
+    row.name,
+    row.status,
+    row.project_type,
+    row.workspace_id,
+    row.rule_key,
+    row.bindings?.workspace_slug,
+    row.bindings?.worker_name,
+    row.bindings?.github_repo,
+    row.bindings?.r2_bucket,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
 
 function isCompletedStatus(p: Project): boolean {
   const s = String(p.status_raw || p.status || '').toLowerCase();
@@ -389,6 +416,8 @@ export default function ProjectsPage() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [shareTarget, setShareTarget] = useState<Project | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [auditRows, setAuditRows] = useState<ProjectContextAuditRow[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -408,6 +437,28 @@ export default function ProjectsPage() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  const loadAudit = useCallback(async () => {
+    setAuditLoading(true);
+    try {
+      const res = await fetchProjectContextAudit({ scope: 'tenant', includeArchived: true });
+      if (!res.ok) {
+        setAuditRows([]);
+        setToast(res.error || 'Failed to load project context');
+        return;
+      }
+      setAuditRows(res.projects);
+    } catch {
+      setAuditRows([]);
+      setToast('Failed to load project context');
+    } finally {
+      setAuditLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'context') void loadAudit();
+  }, [activeTab, loadAudit]);
 
   useEffect(() => {
     if (!toast) return;
@@ -453,6 +504,14 @@ export default function ProjectsPage() {
 
     return list;
   }, [projects, query, activeTab, sessionUserId]);
+
+  const filteredAudit = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let list = [...auditRows];
+    if (q) list = list.filter((row) => auditSearchHaystack(row).includes(q));
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    return list;
+  }, [auditRows, query]);
 
   const createProject = async () => {
     const name = newName.trim();
@@ -613,7 +672,101 @@ export default function ProjectsPage() {
       )}
 
       <div className="pj-body">
-        {loading ? (
+        {activeTab === 'context' ? (
+          auditLoading ? (
+            <div className="pj-audit-loading">Loading project context…</div>
+          ) : !filteredAudit.length ? (
+            <div className="pj-empty">
+              <FolderOpen size={32} className="pj-empty-icon" />
+              <p className="pj-empty-text">
+                {query ? 'No projects match your search.' : 'No project context rows yet.'}
+              </p>
+            </div>
+          ) : (
+            <div className="pj-audit-wrap">
+              <p className="pj-audit-lede">
+                Workspace bindings are shared by design. Instructions, memory, and runtime rules are scoped per project.
+              </p>
+              <div className="pj-audit-scroll">
+                <table className="pj-audit-table">
+                  <thead>
+                    <tr>
+                      <th>Project</th>
+                      <th>Workspace</th>
+                      <th>Rule key</th>
+                      <th>Memory</th>
+                      <th>Bindings</th>
+                      <th aria-label="Open" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAudit.map((row) => (
+                      <tr key={row.id}>
+                        <td>
+                          <div className="pj-audit-name">{row.name}</div>
+                          <div className="pj-audit-id">{row.id}</div>
+                          {row.status ? <div className="pj-audit-meta">{row.status}</div> : null}
+                        </td>
+                        <td>
+                          <div className="pj-audit-mono">{row.workspace_id || '—'}</div>
+                          {row.bindings?.workspace_slug ? (
+                            <div className="pj-audit-meta">{row.bindings.workspace_slug}</div>
+                          ) : null}
+                        </td>
+                        <td>
+                          <div className="pj-audit-mono pj-audit-rule">{row.rule_key || '—'}</div>
+                          <div className={`pj-audit-pill${row.rule_synced ? ' pj-audit-pill--ok' : ''}`}>
+                            {row.rule_synced ? 'synced' : 'no rule body'}
+                          </div>
+                          {row.rule_body_chars ? (
+                            <div className="pj-audit-meta">{formatAuditChars(row.rule_body_chars)} chars</div>
+                          ) : null}
+                        </td>
+                        <td>
+                          <div className="pj-audit-meta">
+                            instr {formatAuditChars(row.instructions_chars)}
+                          </div>
+                          <div className="pj-audit-meta">
+                            mem {formatAuditChars(row.memory_chars)}
+                          </div>
+                        </td>
+                        <td>
+                          {row.bindings ? (
+                            <div className="pj-audit-bindings">
+                              {row.bindings.worker_name ? (
+                                <span>{row.bindings.worker_name}</span>
+                              ) : null}
+                              {row.bindings.r2_bucket ? (
+                                <span>{row.bindings.r2_bucket}</span>
+                              ) : null}
+                              {row.bindings.github_repo ? (
+                                <span>{row.bindings.github_repo}</span>
+                              ) : null}
+                              {row.bindings.deploy_url ? (
+                                <span className="pj-audit-meta">{row.bindings.deploy_url}</span>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <span className="pj-audit-meta">—</span>
+                          )}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="pj-audit-open"
+                            onClick={() => navigate(`/dashboard/projects/${encodeURIComponent(row.id)}`)}
+                          >
+                            Open
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
+        ) : loading ? (
           <div className="pj-grid">
             {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
           </div>
@@ -1533,6 +1686,128 @@ const PROJECTS_CSS = `
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
   pointer-events: none;
   white-space: nowrap;
+  max-width: min(92vw, 560px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pj-audit-loading {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--color-muted, #94a3b8);
+  font-size: 14px;
+}
+
+.pj-audit-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.pj-audit-lede {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-muted, #94a3b8);
+}
+
+.pj-audit-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--dashboard-border);
+  border-radius: 12px;
+  background: var(--bg-elevated, rgba(255,255,255,0.03));
+}
+
+.pj-audit-table {
+  width: 100%;
+  min-width: 920px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.pj-audit-table th,
+.pj-audit-table td {
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--dashboard-border);
+}
+
+.pj-audit-table th {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted, #94a3b8);
+  background: rgba(0,0,0,0.15);
+}
+
+.pj-audit-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.pj-audit-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.pj-audit-id,
+.pj-audit-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: var(--color-muted, #94a3b8);
+  word-break: break-all;
+}
+
+.pj-audit-rule {
+  color: var(--color-main, #e2e8f0);
+}
+
+.pj-audit-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-muted, #94a3b8);
+}
+
+.pj-audit-pill {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: #fca5a5;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pj-audit-pill--ok {
+  border-color: rgba(74, 222, 128, 0.35);
+  color: #86efac;
+}
+
+.pj-audit-bindings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  word-break: break-all;
+}
+
+.pj-audit-open {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--dashboard-border);
+  background: transparent;
+  color: var(--color-main, #e2e8f0);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pj-audit-open:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.08));
 }
 
 @media (min-width: 768px) {

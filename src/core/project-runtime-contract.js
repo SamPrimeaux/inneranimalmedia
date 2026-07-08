@@ -1,6 +1,7 @@
 /**
  * Per-project runtime contracts — D1 agentsam_rules_document rows aligned with .cursorrules / AGENTSAM.md.
- * Convention: rule_key = rule_{project_slug}_runtimecontract
+ * Convention: rule_key = rule_{project_id}_runtimecontract (e.g. rule_proj_agentsam_sdk_runtimecontract).
+ * Workspace-level seeds (rule_inneranimalmedia_runtimecontract) stay separate — never keyed by workspace slug alone.
  * Global platform law stays in workspace_id=NULL rows; project paths/deploy live here (not in rule_agent_delivery_workflow).
  */
 import {
@@ -25,10 +26,63 @@ export function sanitizeProjectSlugForRuleKey(slug) {
     .slice(0, 64);
 }
 
-/** @param {string} projectSlug */
+/** @param {string} projectSlug @deprecated prefer projectRuntimeContractRuleKeyFromProjectId */
 export function projectRuntimeContractRuleKey(projectSlug) {
   const slug = sanitizeProjectSlugForRuleKey(projectSlug);
   return slug ? `rule_${slug}_runtimecontract` : '';
+}
+
+/** @param {string} projectId projects.id e.g. proj_agentsam_sdk */
+export function sanitizeProjectIdForRuleKey(projectId) {
+  return trim(projectId)
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 96);
+}
+
+/** @param {string} projectId */
+export function projectRuntimeContractRuleKeyFromProjectId(projectId) {
+  const id = sanitizeProjectIdForRuleKey(projectId);
+  return id ? `rule_${id}_runtimecontract` : '';
+}
+
+/**
+ * Resolve canonical projects.id for rule key (chat link + D1 lookup).
+ * @param {any} env
+ * @param {string|null|undefined} projectRef
+ * @param {string|null|undefined} [workspaceId]
+ */
+export async function resolveProjectIdForRuntimeContract(env, projectRef, workspaceId = null) {
+  const ref = trim(projectRef);
+  if (!ref) return '';
+  let lookupRef = ref;
+  try {
+    const { resolveChatProjectId } = await import('./project-chat-link.js');
+    const linked = await resolveChatProjectId(env, ref, workspaceId);
+    if (linked) lookupRef = linked;
+  } catch {
+    /* use ref */
+  }
+  if (lookupRef.startsWith('proj_')) return lookupRef;
+  try {
+    const row = await env.DB.prepare(`SELECT id FROM projects WHERE id = ? LIMIT 1`).bind(lookupRef).first();
+    if (row?.id) return String(row.id).trim();
+  } catch {
+    /* optional */
+  }
+  return lookupRef;
+}
+
+/**
+ * Per-project rule key — scoped by projects.id, not workspace slug.
+ * @param {any} env
+ * @param {string|null|undefined} projectRef
+ * @param {string|null|undefined} [workspaceId]
+ */
+export async function resolveProjectRuntimeContractRuleKey(env, projectRef, workspaceId = null) {
+  const projectId = await resolveProjectIdForRuntimeContract(env, projectRef, workspaceId);
+  return projectRuntimeContractRuleKeyFromProjectId(projectId);
 }
 
 /** @param {string} ruleKey */
@@ -75,8 +129,7 @@ export async function fetchProjectRuntimeContractRule(env, opts = {}) {
 
   let ruleKey = explicitKey;
   if (!ruleKey && projectRef) {
-    const slug = await resolveProjectSlugForRuntimeContract(env, projectRef, ws);
-    ruleKey = projectRuntimeContractRuleKey(slug);
+    ruleKey = await resolveProjectRuntimeContractRuleKey(env, projectRef, ws);
   }
   if (!ruleKey) return null;
 
@@ -86,11 +139,17 @@ export async function fetchProjectRuntimeContractRule(env, opts = {}) {
        FROM agentsam_rules_document
        WHERE is_active = 1
          AND apply_mode = 'always'
-         AND (id = ? OR rule_key = ?)
-       ORDER BY CASE WHEN workspace_id = ? THEN 0 WHEN workspace_id IS NULL OR TRIM(COALESCE(workspace_id,'')) = '' THEN 1 ELSE 2 END
+         AND (
+           project_id = ?
+           OR id = ?
+           OR rule_key = ?
+         )
+       ORDER BY
+         CASE WHEN project_id = ? THEN 0 WHEN rule_key = ? THEN 1 ELSE 2 END,
+         COALESCE(sort_order, 0) ASC
        LIMIT 1`,
     )
-      .bind(ruleKey, ruleKey, ws || '')
+      .bind(projectRef, ruleKey, ruleKey, projectRef, ruleKey)
       .first();
     return row || null;
   } catch (e) {

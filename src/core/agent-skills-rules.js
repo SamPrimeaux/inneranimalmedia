@@ -43,11 +43,8 @@ export async function fetchTriggeredRulesForSystemPrompt(env, opts = {}) {
   let projectRuleKey = '';
   if (projectRef) {
     try {
-      const { projectRuntimeContractRuleKey, resolveProjectSlugForRuntimeContract } = await import(
-        './project-runtime-contract.js'
-      );
-      const slug = await resolveProjectSlugForRuntimeContract(env, projectRef, ws);
-      projectRuleKey = projectRuntimeContractRuleKey(slug);
+      const { resolveProjectRuntimeContractRuleKey } = await import('./project-runtime-contract.js');
+      projectRuleKey = await resolveProjectRuntimeContractRuleKey(env, projectRef, ws);
     } catch (e) {
       console.warn('[agent] project rule key', e?.message ?? e);
     }
