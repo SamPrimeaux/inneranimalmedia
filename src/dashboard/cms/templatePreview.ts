@@ -12,7 +12,28 @@ export type CmsTemplateRow = {
   slug?: string | null;
   is_system?: number | boolean;
   source_liquid_file?: string | null;
+  iam_tags?: string | string[] | null;
+  iam_build?: string | null;
+  iam_project_slug?: string | null;
+  iam_category?: string | null;
+  iam_label?: string | null;
+  iam_status?: string | null;
+  is_featured?: number | boolean | null;
+  featured_collection?: string | null;
+  usage_count?: number | null;
+  sort_order?: number | null;
 };
+
+export function parseIamTags(raw: CmsTemplateRow['iam_tags']): string[] {
+  if (Array.isArray(raw)) return raw.map((t) => String(t).trim()).filter(Boolean);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(String(raw));
+    return Array.isArray(parsed) ? parsed.map((t) => String(t).trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
 
 export function parseTemplateMeta(template: CmsTemplateRow): Record<string, unknown> {
   const raw = template.template_data;

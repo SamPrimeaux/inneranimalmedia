@@ -3,8 +3,10 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useCmsWorkspaceContext, normalizeCmsSitesList } from '../../hooks/useCmsWorkspaceContext';
 import { buildCmsPath, buildCmsHubPath, parseCmsRoute, readStoredCmsProjectSlug } from './cmsRoute';
 import { CmsHubPage } from './CmsHubPage';
+import { CmsShellLayout, type CmsShellNav } from './CmsShellLayout';
 import { SiteDeployWizard } from './SiteDeployWizard';
 import { CmsSiteLauncherGrid } from './CmsSiteLauncherGrid';
+import { TemplateLibraryStudio } from '../../../src/dashboard/cms/TemplateLibraryStudio';
 import { useWorkspace } from '../../src/context/WorkspaceContext';
 import './cmsShell.css';
 
@@ -77,6 +79,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
   const { workspaceId: ctxWorkspaceId } = useWorkspace();
   const activeWorkspaceId = workspaceId || ctxWorkspaceId || null;
 
@@ -211,6 +214,29 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
     sitesList,
   ]);
 
+  const shellSiteSlug =
+    studioProjectSlug || hubSiteSlug || effectiveSiteSlug || context?.project_slug || '';
+  const shellSite = useMemo(
+    () => sitesList.find((s) => s.slug === shellSiteSlug) || null,
+    [sitesList, shellSiteSlug],
+  );
+  const shellActiveNav: CmsShellNav = isHubView
+    ? 'hub'
+    : parsed.panel === 'templates'
+      ? 'templates'
+      : parsed.panel === 'theme-editor'
+        ? 'theme-editor'
+        : parsed.panel === 'online-store'
+          ? 'online-store'
+          : parsed.panel === 'imports'
+            ? 'imports'
+            : 'pages';
+
+  const isTemplatesShellRoute = !isHubView && parsed.panel === 'templates' && Boolean(shellSiteSlug);
+  const isHubShellRoute = isHubView && Boolean(hubSiteSlug);
+  const isStudioShellRoute =
+    !isHubView && !isTemplatesShellRoute && isStudioEditorRoute && Boolean(studioProjectSlug);
+
   return (
     <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden bg-[#F9F7F2] iam-agentsam-cms-host h-full">
       {needsSitePick ? (
@@ -250,7 +276,31 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           </div>
         </div>
       ) : null}
-      {!needsSitePick && isHubView ? (
+      {!needsSitePick && isHubShellRoute ? (
+        <CmsShellLayout
+          siteSlug={hubSiteSlug || shellSiteSlug}
+          site={shellSite}
+          context={context}
+          activeNav="hub"
+          showComposeBar={composeOpen}
+          onComposeToggle={setComposeOpen}
+        >
+          <CmsHubPage
+            context={context ? { ...context, sites: sitesList } : null}
+            sites={sitesList}
+            activeSiteSlug={hubSiteSlug}
+            loading={loading}
+            error={error}
+            onRetry={() => {
+              void load();
+            }}
+            onSelectSite={handleSelectSite}
+            onNavigate={cmsNavigatePath}
+            onOpenDeployWizard={() => setWizardOpen(true)}
+          />
+        </CmsShellLayout>
+      ) : null}
+      {!needsSitePick && isHubView && !hubSiteSlug ? (
         <CmsHubPage
           context={context ? { ...context, sites: sitesList } : null}
           sites={sitesList}
@@ -265,20 +315,45 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           onOpenDeployWizard={() => setWizardOpen(true)}
         />
       ) : null}
-      {!needsSitePick && !isHubView && isStudioEditorRoute && studioProjectSlug ? (
-        <Suspense fallback={<StudioShellFallback themeEditor={studioPanel === 'theme-editor'} />}>
-          <CmsStudioEditor
-            projectSlug={studioProjectSlug}
-            pageId={parsed.pageId}
-            panel={studioPanel}
-            agentSamCmsShell
-            workspaceId={activeWorkspaceId || context?.workspace_id || ''}
-            workspaceLabel={context?.ui_label || context?.workspace_name || null}
-            publicDomain={context?.public_domain || null}
-            studioUrl={context?.studio_url || null}
+      {!needsSitePick && isTemplatesShellRoute ? (
+        <CmsShellLayout
+          siteSlug={shellSiteSlug}
+          site={shellSite}
+          context={context}
+          activeNav="templates"
+          showComposeBar={composeOpen}
+          onComposeToggle={setComposeOpen}
+        >
+          <TemplateLibraryStudio
+            projectSlug={shellSiteSlug}
+            addToPageId={parsed.pageId}
             onNavigatePath={cmsNavigatePath}
           />
-        </Suspense>
+        </CmsShellLayout>
+      ) : null}
+      {!needsSitePick && isStudioShellRoute && studioProjectSlug ? (
+        <CmsShellLayout
+          siteSlug={studioProjectSlug}
+          site={shellSite}
+          context={context}
+          activeNav={shellActiveNav}
+          showComposeBar={composeOpen}
+          onComposeToggle={setComposeOpen}
+        >
+          <Suspense fallback={<StudioShellFallback themeEditor={studioPanel === 'theme-editor'} />}>
+            <CmsStudioEditor
+              projectSlug={studioProjectSlug}
+              pageId={parsed.pageId}
+              panel={studioPanel}
+              agentSamCmsShell
+              workspaceId={activeWorkspaceId || context?.workspace_id || ''}
+              workspaceLabel={context?.ui_label || context?.workspace_name || null}
+              publicDomain={context?.public_domain || null}
+              studioUrl={context?.studio_url || null}
+              onNavigatePath={cmsNavigatePath}
+            />
+          </Suspense>
+        </CmsShellLayout>
       ) : null}
       {wizardOpen ? (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4">

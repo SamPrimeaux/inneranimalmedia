@@ -91,7 +91,7 @@ export function useCmsWorkspaceContext(opts: UseCmsWorkspaceContextOptions = {})
       const qs = new URLSearchParams();
       if (opts.siteSlug) qs.set('site', opts.siteSlug);
       const ws = trimSlug(opts.workspaceId);
-      const headers: Record<string, string> = {};
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (ws) headers['X-IAM-Workspace-Id'] = ws;
       const res = await fetch(`/api/cms/workspace-context${qs.size ? `?${qs}` : ''}`, {
         credentials: 'include',

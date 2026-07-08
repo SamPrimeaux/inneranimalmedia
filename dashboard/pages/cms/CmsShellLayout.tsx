@@ -16,6 +16,7 @@ type Props = {
   activeNav: CmsShellNav;
   children: React.ReactNode;
   showComposeBar?: boolean;
+  onComposeToggle?: (open: boolean) => void;
 };
 
 function siteInitials(name?: string | null, slug?: string | null): string {
@@ -42,6 +43,7 @@ export function CmsShellLayout({
   activeNav,
   children,
   showComposeBar = false,
+  onComposeToggle,
 }: Props) {
   const navigate = useNavigate();
   const siteName = site?.name || context?.project_name || siteSlug;
@@ -60,6 +62,20 @@ export function CmsShellLayout({
   );
 
   const openAgent = useCallback(() => {
+    if (showComposeBar) {
+      window.dispatchEvent(
+        new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
+          detail: {
+            message: '',
+            send: false,
+            ensureAgentPanel: false,
+            closePanel: true,
+          },
+        }),
+      );
+      onComposeToggle?.(false);
+      return;
+    }
     window.dispatchEvent(
       new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
         detail: {
@@ -71,7 +87,8 @@ export function CmsShellLayout({
         },
       }),
     );
-  }, [siteSlug]);
+    onComposeToggle?.(true);
+  }, [siteSlug, showComposeBar, onComposeToggle]);
 
   const goNav = useCallback(
     (nav: CmsShellNav) => {
@@ -108,7 +125,7 @@ export function CmsShellLayout({
           <div className="iam-cms-shell__actions">
             <button type="button" className="iam-cms-shell__agent-btn" onClick={openAgent}>
               <Sparkles size={14} strokeWidth={1.75} aria-hidden />
-              Agent Sam
+              {showComposeBar ? 'Close agent' : 'Agent Sam'}
             </button>
           </div>
         </div>

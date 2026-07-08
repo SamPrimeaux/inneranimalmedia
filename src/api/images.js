@@ -25,7 +25,8 @@
  */
 
 import { jsonResponse } from '../core/responses.js';
-import { getR2Binding } from './r2-api.js';
+import { getR2Binding, listR2BucketsForCatalog } from './r2-api.js';
+import { assertDashboardR2BucketAccess } from '../core/r2-storage-scope.js';
 import { getOAuthToken } from '../core/user-oauth-token.js';
 import { canAccessMediaObjectKey } from '../core/media-r2-access.js';
 import { runImageGenerationForTool } from '../tools/image_generation.js';
@@ -69,8 +70,89 @@ function cfDeliveryUrl(accountHash, imageId, variant = 'public') {
   return `https://imagedelivery.net/${accountHash}/${imageId}/${variant}`;
 }
 
-function proxyR2Url(origin, key) {
-  return `${origin}/api/r2/buckets/${encodeURIComponent(BUCKET)}/object/${encodeURIComponent(key)}`;
+function proxyR2Url(origin, key, bucket = BUCKET) {
+  const b = bucket || BUCKET;
+  return `${origin}/api/r2/buckets/${encodeURIComponent(b)}/object/${encodeURIComponent(key)}`;
+}
+
+function mimeFromKey(key) {
+  const ext = String(key || '').split('.').pop()?.toLowerCase() || '';
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'png') return 'image/png';
+  if (ext === 'webp') return 'image/webp';
+  if (ext === 'gif') return 'image/gif';
+  if (ext === 'svg') return 'image/svg+xml';
+  if (ext === 'avif') return 'image/avif';
+  return 'application/octet-stream';
+}
+
+function mapR2BrowseObject(obj, bucketName, origin, authUserId) {
+  const key = obj.key;
+  const legacyId = mediaKeyToId(key);
+  const id = legacyId || `r2obj_${key.replace(/[^a-zA-Z0-9]/g, '').slice(0, 28)}`;
+  const url = proxyR2Url(origin, key, bucketName);
+  return {
+    id,
+    source: 'r2',
+    filename: key.split('/').pop() || key,
+    url,
+    thumbnail_url: url,
+    mime_type: mimeFromKey(key),
+    size: Number(obj.size) || 0,
+    width: null,
+    height: null,
+    created_at: obj.last_modified || new Date().toISOString(),
+    user_id: authUserId,
+    workspace_id: null,
+    r2_key: key,
+    r2_bucket: bucketName,
+    cloudflare_image_id: null,
+    alt_text: null,
+    description: null,
+    tags: [],
+    meta: { label: key.split('/').pop() || key },
+    _r2_browse_only: true,
+  };
+}
+
+async function listR2BrowseImages(env, authUser, { bucket, prefix, origin, workspaceId }) {
+  const access = await assertDashboardR2BucketAccess(env, authUser, bucket);
+  if (!access.ok) {
+    return { error: access.user_message || access.error || 'Forbidden', status: access.status || 403 };
+  }
+
+  const bucketName = access.bucket;
+  const binding = getR2Binding(env, bucketName);
+  if (!binding?.list) {
+    return { error: 'R2 bucket binding not available', status: 503 };
+  }
+
+  const normPrefix = String(prefix || '').replace(/^\/+/, '');
+  /** @type {{ key: string, size: number, last_modified: string|null }[]} */
+  const allObjects = [];
+  let cursor;
+  do {
+    const page = await binding.list({ prefix: normPrefix, limit: 1000, cursor });
+    for (const o of page.objects || []) {
+      if (!o?.key || o.key.endsWith('/') || o.key.endsWith('.iammeta.json')) continue;
+      if (!IMAGE_EXT.test(o.key)) continue;
+      allObjects.push({
+        key: o.key,
+        size: o.size ?? 0,
+        last_modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
+      });
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor && allObjects.length < 5000);
+
+  const items = [];
+  for (const o of allObjects) {
+    if (bucketName === BUCKET && !(await canAccessMediaObjectKey(env, authUser, o.key))) continue;
+    items.push(mapR2BrowseObject(o, bucketName, origin, authUser.id));
+  }
+
+  items.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  return { items, bucket: bucketName, prefix: normPrefix };
 }
 
 function extFromMime(mime) {
@@ -218,6 +300,7 @@ function mapD1RowToItem(row, { origin, accountHash }) {
     workspace_id: row.workspace_id,
     project_id: row.project_id || null,
     r2_key: row.r2_key || null,
+    r2_bucket: BUCKET,
     cloudflare_image_id: row.cloudflare_image_id || null,
     alt_text: row.alt_text || null,
     description: row.description || null,
@@ -696,6 +779,80 @@ async function handleGetImages(request, url, env, authUser, identity) {
     });
   }
 
+  const r2BucketParam = url.searchParams.get('r2_bucket')?.trim() || '';
+  const r2PrefixParam = url.searchParams.get('r2_prefix') ?? '';
+  const r2RegistryOnly = url.searchParams.get('r2_mode') === 'registry';
+
+  let r2BucketsCatalog = null;
+  if (source === 'r2') {
+    try {
+      r2BucketsCatalog = await listR2BucketsForCatalog(env, {
+        authUser,
+        workspaceId: scope.workspaceId,
+      });
+    } catch {
+      r2BucketsCatalog = { buckets: [], bound: [], count: 0 };
+    }
+
+    if (!r2BucketParam) {
+      return jsonResponse({
+        items: [],
+        images: [],
+        total: 0,
+        page,
+        per_page: perPage,
+        accountHash,
+        workspace_id: scope.workspaceId,
+        r2_buckets: r2BucketsCatalog?.buckets || [],
+        r2_selection_required: true,
+      });
+    }
+  }
+
+  if (source === 'r2' && r2BucketParam && !r2RegistryOnly) {
+    const browse = await listR2BrowseImages(env, authUser, {
+      bucket: r2BucketParam,
+      prefix: r2PrefixParam,
+      origin,
+      workspaceId: scope.workspaceId,
+    });
+    if (browse.error) {
+      return jsonResponse(
+        {
+          error: browse.error,
+          r2_buckets: r2BucketsCatalog?.buckets || [],
+          r2_bucket: r2BucketParam,
+          r2_prefix: r2PrefixParam,
+        },
+        browse.status || 400,
+      );
+    }
+
+    const r2Binding = getR2Binding(env, browse.bucket || r2BucketParam);
+    let items = browse.items || [];
+    if (r2Binding) {
+      items = await enrichItemsFromR2CustomMetadata(r2Binding, items);
+    }
+    const filtered = items.filter(matchesFilters);
+    const total = filtered.length;
+    const start = (page - 1) * perPage;
+    const pageItems = filtered.slice(start, start + perPage);
+
+    return jsonResponse({
+      items: pageItems,
+      images: pageItems,
+      total,
+      page,
+      per_page: perPage,
+      accountHash,
+      workspace_id: scope.workspaceId,
+      r2_buckets: r2BucketsCatalog?.buckets || [],
+      r2_bucket: browse.bucket || r2BucketParam,
+      r2_prefix: browse.prefix ?? r2PrefixParam,
+      r2_browse: true,
+    });
+  }
+
   const merged = [];
   const knownCf = new Set();
 
@@ -738,6 +895,14 @@ async function handleGetImages(request, url, env, authUser, identity) {
     per_page: perPage,
     accountHash,
     workspace_id: scope.workspaceId,
+    ...(source === 'r2' && r2BucketsCatalog
+      ? {
+          r2_buckets: r2BucketsCatalog.buckets || [],
+          r2_bucket: r2BucketParam,
+          r2_prefix: r2PrefixParam,
+          r2_browse: false,
+        }
+      : {}),
   });
 }
 

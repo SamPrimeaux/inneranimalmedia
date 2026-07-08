@@ -3,8 +3,9 @@ import {
   Upload, Trash2, Copy, ExternalLink, X, Search,
   ChevronLeft, ChevronRight, ImageIcon,
   RefreshCw, Eye, AlertCircle, CheckCircle, Filter,
-  SlidersHorizontal, FileArchive, Maximize2, Tag, Plus
+  SlidersHorizontal, FileArchive, Maximize2, Tag, Plus, Folder
 } from 'lucide-react';
+import { fetchR2BucketNames, fetchR2Listing } from '../src/lib/library/libraryApi';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ interface CfImage {
   source?: ItemSource;
   kind?: 'image' | 'artifact';
   r2_key?: string | null;
+  r2_bucket?: string;
   cloudflare_image_id?: string | null;
   drive_file_id?: string;
   web_view_link?: string;
@@ -104,6 +106,8 @@ function imagesListUrl(
   perPage: number,
   tag?: string,
   q?: string,
+  r2Bucket?: string,
+  r2Prefix?: string,
 ) {
   const params = new URLSearchParams();
   params.set('source', source);
@@ -113,6 +117,10 @@ function imagesListUrl(
   if (ws) params.set('workspace_id', ws);
   if (tag?.trim()) params.set('tag', tag.trim());
   if (q?.trim()) params.set('q', q.trim());
+  if (source === 'r2' && r2Bucket?.trim()) {
+    params.set('r2_bucket', r2Bucket.trim());
+    params.set('r2_prefix', r2Prefix ?? '');
+  }
   return `/api/images?${params.toString()}`;
 }
 
@@ -159,6 +167,12 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
   const [search, setSearch] = useState('');
   const [tagFilter, setTagFilter] = useState('');
   const [allTags, setAllTags] = useState<TagStat[]>([]);
+  const [r2Buckets, setR2Buckets] = useState<string[]>([]);
+  const [r2Bucket, setR2Bucket] = useState('');
+  const [r2Prefix, setR2Prefix] = useState('');
+  const [r2PrefixDraft, setR2PrefixDraft] = useState('');
+  const [r2Folders, setR2Folders] = useState<string[]>([]);
+  const [r2FoldersLoading, setR2FoldersLoading] = useState(false);
   const [detail, setDetail] = useState<CfImage | null>(null);
   const [fullscreenUrl, setFullscreenUrl] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -175,6 +189,49 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
     };
   }, [search]);
 
+  useEffect(() => {
+    if (sourceTab !== 'r2') return;
+    let cancelled = false;
+    fetchR2BucketNames()
+      .then(list => {
+        if (!cancelled) setR2Buckets(list);
+      })
+      .catch(() => {
+        if (!cancelled) setR2Buckets([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sourceTab]);
+
+  const loadR2Folders = useCallback(async () => {
+    if (!r2Bucket.trim()) {
+      setR2Folders([]);
+      return;
+    }
+    setR2FoldersLoading(true);
+    try {
+      const res = await fetchR2Listing(r2Bucket.trim(), r2Prefix);
+      setR2Folders(res.ok ? res.folders : []);
+    } catch {
+      setR2Folders([]);
+    } finally {
+      setR2FoldersLoading(false);
+    }
+  }, [r2Bucket, r2Prefix]);
+
+  useEffect(() => {
+    if (sourceTab !== 'r2' || !r2Bucket.trim()) {
+      setR2Folders([]);
+      return;
+    }
+    void loadR2Folders();
+  }, [sourceTab, r2Bucket, r2Prefix, loadR2Folders]);
+
+  useEffect(() => {
+    setR2PrefixDraft(r2Prefix);
+  }, [r2Prefix, r2Bucket]);
+
   const loadTags = useCallback(async () => {
     try {
       const r = await fetch(imagesTagsUrl(workspaceId), { credentials: 'same-origin' });
@@ -186,16 +243,25 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
   }, [workspaceId]);
 
   const load = useCallback(async () => {
+    if (sourceTab === 'r2' && !r2Bucket.trim()) {
+      setLoading(false);
+      setError('');
+      setImages([]);
+      setTotal(0);
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
       const r = await fetch(
-        imagesListUrl(workspaceId, sourceTab, page, perPage, tagFilter, debouncedSearch),
+        imagesListUrl(workspaceId, sourceTab, page, perPage, tagFilter, debouncedSearch, r2Bucket, r2Prefix),
         { credentials: 'same-origin' },
       );
       const d = await r.json();
       if (d.error) {
         setError(d.error);
+        if (Array.isArray(d.r2_buckets) && d.r2_buckets.length) setR2Buckets(d.r2_buckets);
         return;
       }
       const rows: CfImage[] = d.items || d.images || [];
@@ -203,13 +269,14 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
       setTotal(typeof d.total === 'number' ? d.total : rows.length);
       if (d.accountHash) setAccountHash(d.accountHash);
       if (typeof d.drive_connected === 'boolean') setDriveConnected(d.drive_connected);
+      if (Array.isArray(d.r2_buckets) && d.r2_buckets.length) setR2Buckets(d.r2_buckets);
       void loadTags();
     } catch (e: any) {
       setError('Network error: ' + e.message);
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, sourceTab, page, perPage, tagFilter, debouncedSearch, loadTags]);
+  }, [workspaceId, sourceTab, page, perPage, tagFilter, debouncedSearch, loadTags, r2Bucket, r2Prefix]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -242,7 +309,18 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
   const totalPages = Math.max(1, Math.ceil(total / perPage));
   const paginated = filtered;
 
-  useEffect(() => setPage(1), [sort, tenantFilter, debouncedSearch, perPage, sourceTab, mimeFilter, tagFilter]);
+  useEffect(() => setPage(1), [sort, tenantFilter, debouncedSearch, perPage, sourceTab, mimeFilter, tagFilter, r2Bucket, r2Prefix]);
+
+  const r2PathSegments = React.useMemo(() => {
+    const parts = r2Prefix.split('/').filter(Boolean);
+    const segments: { label: string; prefix: string }[] = [{ label: 'Root', prefix: '' }];
+    let acc = '';
+    for (const part of parts) {
+      acc += `${part}/`;
+      segments.push({ label: part, prefix: acc });
+    }
+    return segments;
+  }, [r2Prefix]);
 
   const saveImage = useCallback(async (img: CfImage, payload: Record<string, unknown>) => {
     try {
@@ -296,6 +374,9 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
     }
     if (img.url && !img.url.includes('drive.google.com') && !img.url.includes('docs.google.com')) {
       return img.url;
+    }
+    if (img.r2_key && img.r2_bucket) {
+      return `/api/r2/buckets/${encodeURIComponent(img.r2_bucket)}/object/${encodeURIComponent(img.r2_key)}`;
     }
     const cfId = img.cloudflare_image_id || (img.id?.startsWith('cf_live_') ? img.id.slice(9) : '');
     if (accountHash && cfId) return buildImageUrl(accountHash, cfId);
@@ -457,6 +538,135 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
         </button>
       </div>
 
+      {sourceTab === 'r2' && (
+        <div style={{
+          padding: '12px 24px', borderBottom: '1px solid var(--border-subtle)',
+          background: 'var(--bg-panel)', flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: r2Bucket ? 10 : 0 }}>
+            <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              R2 bucket
+              <select
+                value={r2Bucket}
+                onChange={e => {
+                  setR2Bucket(e.target.value);
+                  setR2Prefix('');
+                  setPage(1);
+                }}
+                style={{ ...selectStyle, minWidth: 180 }}
+              >
+                <option value="">Choose bucket…</option>
+                {r2Buckets.map(b => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+            </label>
+
+            {r2Bucket && (
+              <>
+                <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 220 }}>
+                  Path prefix
+                  <input
+                    value={r2PrefixDraft}
+                    onChange={e => setR2PrefixDraft(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        setR2Prefix(r2PrefixDraft.replace(/^\/+/, ''));
+                        setPage(1);
+                      }
+                    }}
+                    placeholder="e.g. uploads/2026/ (leave empty for bucket root)"
+                    style={{
+                      flex: 1, padding: '5px 10px', borderRadius: 6,
+                      border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)',
+                      color: 'var(--text-primary)', fontSize: 12, outline: 'none', minWidth: 160,
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setR2Prefix(r2PrefixDraft.replace(/^\/+/, ''));
+                    setPage(1);
+                  }}
+                  style={{
+                    padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border-subtle)',
+                    background: 'var(--bg-elevated)', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer',
+                  }}
+                >
+                  Go to path
+                </button>
+              </>
+            )}
+          </div>
+
+          {r2Bucket && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: r2Folders.length ? 8 : 0 }}>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', marginRight: 4 }}>Location</span>
+                <span style={{ fontSize: 11, color: 'var(--solar-cyan)', fontWeight: 600 }}>{r2Bucket}</span>
+                {r2PathSegments.map((seg, idx) => (
+                  <React.Fragment key={seg.prefix || 'root'}>
+                    <ChevronRight size={12} style={{ color: 'var(--text-muted)', opacity: 0.5 }} />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setR2Prefix(seg.prefix);
+                        setPage(1);
+                      }}
+                      style={{
+                        padding: '2px 6px', borderRadius: 4, border: 'none', cursor: 'pointer',
+                        background: idx === r2PathSegments.length - 1 ? 'rgba(56,189,248,0.15)' : 'transparent',
+                        color: idx === r2PathSegments.length - 1 ? 'var(--solar-cyan)' : 'var(--text-muted)',
+                        fontSize: 11,
+                      }}
+                    >
+                      {seg.label}
+                    </button>
+                  </React.Fragment>
+                ))}
+              </div>
+
+              {(r2FoldersLoading || r2Folders.length > 0) && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Folders</span>
+                  {r2FoldersLoading && (
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Loading…</span>
+                  )}
+                  {!r2FoldersLoading && r2Folders.map(folder => {
+                    const name = folder.replace(r2Prefix, '').replace(/\/$/, '') || folder;
+                    return (
+                      <button
+                        key={folder}
+                        type="button"
+                        onClick={() => {
+                          setR2Prefix(folder);
+                          setPage(1);
+                        }}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '4px 10px', borderRadius: 999, border: '1px solid var(--border-subtle)',
+                          background: 'var(--bg-elevated)', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer',
+                        }}
+                      >
+                        <Folder size={11} />
+                        {name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+
+          {!r2Bucket && (
+            <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+              Select which R2 bucket to browse. Images load from the bucket and path you choose — nothing is preset.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Filter bar */}
       {filterOpen && (
         <div style={{
@@ -555,12 +765,16 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
             color: 'var(--text-muted)'
           }}>
             <ImageIcon size={40} strokeWidth={1} style={{ opacity: 0.3 }} />
-            <span style={{ fontSize: 14, textAlign: 'center', maxWidth: 420 }}>
-              {images.length === 0
-                ? (sourceTab === 'drive'
-                  ? 'No Drive images found. Connect Google Drive in Settings → Integrations, or upload locally.'
-                  : 'No media yet. Upload a file — stored in Cloudflare Images, R2 backup, and the images registry.')
-                : 'No items match your filters.'}
+            <span style={{ fontSize: 14, textAlign: 'center', maxWidth: 480 }}>
+              {sourceTab === 'r2' && !r2Bucket
+                ? 'Choose an R2 bucket above, then navigate folders or enter a path prefix to browse images.'
+                : sourceTab === 'r2' && r2Bucket
+                  ? `No images under ${r2Bucket}${r2Prefix ? `/${r2Prefix.replace(/\/$/, '')}` : ''}. Try another folder or upload.`
+                  : images.length === 0
+                    ? (sourceTab === 'drive'
+                      ? 'No Drive images found. Connect Google Drive in Settings → Integrations, or upload locally.'
+                      : 'No media yet. Upload a file — stored in Cloudflare Images, R2 backup, and the images registry.')
+                    : 'No items match your filters.'}
             </span>
           </div>
         )}

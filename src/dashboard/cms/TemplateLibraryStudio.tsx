@@ -1,89 +1,69 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { IAM_AGENT_CHAT_COMPOSE } from '@/agentChatConstants';
 import { TemplatePreviewModal } from './TemplatePreviewModal';
-import { TemplateLiveControls, useTemplateLiveControls } from './TemplateLiveControls';
 import { StorefrontPreview } from './StorefrontPreview';
 import {
-  classifyTemplate,
-  filterTemplatesByTaxonomy,
-  TEMPLATE_TAXONOMY_HINTS,
-  TEMPLATE_TAXONOMY_LABELS,
-  type TemplateTaxonomy,
-} from './templateTaxonomy';
-import {
   isHtmlTemplate,
-  isInlineComponentTemplate,
+  parseIamTags,
   parseTemplateMeta,
   resolveTemplatePreviewUrl,
   type CmsTemplateRow,
 } from './templatePreview';
 import { cmsApi } from './cmsApi';
-import { TemplateInlineDemo } from './TemplateInlineDemo';
 
 const api = cmsApi;
 
-const STUDIO_STYLES = `
-.pt-library-studio{display:grid;grid-template-columns:minmax(280px,360px) minmax(0,1fr);gap:18px;align-items:start;min-height:520px}
-.pt-library-list{display:grid;gap:8px;max-height:min(72vh,720px);overflow:auto;padding-right:4px}
-.pt-library-item{width:100%;text-align:left;border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:12px 14px;cursor:pointer;transition:border-color .15s,background .15s}
-.pt-library-item:hover{border-color:color-mix(in srgb,var(--blue) 35%,var(--line));background:var(--bg-hover,color-mix(in srgb,var(--text) 3%,transparent))}
-.pt-library-item.active{border-color:color-mix(in srgb,var(--blue) 55%,var(--line));box-shadow:0 0 0 1px color-mix(in srgb,var(--blue) 18%,transparent)}
-.pt-library-item__title{font-size:13px;font-weight:760;letter-spacing:-.02em;color:var(--text)}
-.pt-library-item__sub{margin-top:3px;font-size:11px;color:var(--muted)}
-.pt-taxonomy{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
-.pt-taxonomy-pill{height:34px;border-radius:999px;border:1px solid var(--line2);background:var(--panel);padding:0 14px;font-size:12px;font-weight:720;cursor:pointer;color:var(--muted);transition:all .15s}
-.pt-taxonomy-pill.active{background:color-mix(in srgb,var(--blue) 12%,var(--panel));border-color:color-mix(in srgb,var(--blue) 40%,var(--line));color:var(--text)}
-.pt-taxonomy-hint{margin:-6px 0 12px;font-size:12px;color:var(--muted);line-height:1.45}
-.pt-studio-panel{display:grid;gap:14px;min-width:0;position:sticky;top:12px}
-.pt-studio-preview{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel2);min-height:280px}
-.pt-studio-preview__head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
-.pt-studio-preview__body{min-height:240px}
-.pt-refine{display:grid;gap:8px}
-.pt-refine textarea{min-height:72px;border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:10px;padding:10px 12px;resize:vertical;line-height:1.45}
-.pt-live-controls{border:1px solid var(--line);border-radius:14px;padding:14px;background:var(--panel)}
-.pt-live-controls__head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-.pt-live-controls__grid{display:grid;gap:12px}
-.pt-live-control{display:grid;gap:6px;font-size:12px;color:var(--text)}
-.pt-live-control__row{display:flex;justify-content:space-between;gap:8px;font-weight:650}
-.pt-live-control__val{font-family:ui-monospace,monospace;color:var(--muted);font-size:11px}
-.pt-live-control input[type=range]{width:100%;accent-color:var(--blue)}
-@media(max-width:960px){.pt-library-studio{grid-template-columns:1fr}.pt-studio-panel{position:static}}
-`;
+const FAVS_KEY = 'iam_tpl_favs';
+const DROP_COLLAPSED_KEY = 'iam_tpl_drop_collapsed';
+const STATIC_BUILDS = ['inneranimalmedia', 'companionscpas', 'meauxbility', 'fuelnfreetime'];
 
-function useStudioStyles() {
-  useEffect(() => {
-    const id = 'iam-template-library-studio-styles';
-    if (document.getElementById(id)) return;
-    const s = document.createElement('style');
-    s.id = id;
-    s.textContent = STUDIO_STYLES;
-    document.head.appendChild(s);
-  }, []);
+const CATEGORY_BG: Record<string, string> = {
+  hero: '#0a0a14',
+  'loading-screen': '#1a2e1a',
+  cta: '#1d9e75',
+  interactive: '#12082a',
+  default: '#f5f4f0',
+};
+
+type SortKey = 'popular' | 'newest' | 'az' | 'most-used';
+type ViewMode = 'grid' | 'list';
+type SidebarFilter =
+  | { kind: 'library'; value: string }
+  | { kind: 'build'; value: string }
+  | { kind: 'collection'; value: string }
+  | { kind: 'type'; value: string };
+
+function loadFavs(): Set<string> {
+  try {
+    const raw = localStorage.getItem(FAVS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr.map(String) : []);
+  } catch {
+    return new Set();
+  }
 }
 
-function refinePrompt(template: CmsTemplateRow, instruction: string): string {
-  const meta = parseTemplateMeta(template);
-  const r2 = template.source_html_r2_key || template.r2_key || '';
-  return [
-    `Refine CMS template **${template.template_name}** (${template.slug || template.id}).`,
-    r2 ? `Source: \`${r2}\`` : '',
-    meta.description ? `Context: ${String(meta.description)}` : '',
-    '',
-    `Instruction: ${instruction.trim()}`,
-    '',
-    'Update the HTML/CSS, write back via r2_put, bump version in cms_component_templates, and keep it reusable.',
-  ]
-    .filter(Boolean)
-    .join('\n');
+function saveFavs(favs: Set<string>) {
+  try {
+    localStorage.setItem(FAVS_KEY, JSON.stringify([...favs]));
+  } catch {
+    /* ignore */
+  }
 }
 
-function dispatchAgentSamRefine(template: CmsTemplateRow, instruction: string) {
-  const message = refinePrompt(template, instruction);
-  window.dispatchEvent(
-    new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
-      detail: { message, ensureAgentPanel: true, send: false },
-    }),
-  );
+function categoryBg(t: CmsTemplateRow): string {
+  const cat = String(t.iam_category || t.category || '').toLowerCase();
+  return CATEGORY_BG[cat] || CATEGORY_BG.default;
+}
+
+function libraryKind(t: CmsTemplateRow): string {
+  const type = String(t.template_type || '').toLowerCase();
+  const cat = String(t.iam_category || t.category || '').toLowerCase();
+  if (type === 'marketing_page' || cat === 'page') return 'pages';
+  if (type === 'section' || cat === 'section') return 'sections';
+  if (cat === 'block' || type === 'block') return 'blocks';
+  if (type === 'starter' || cat === 'starter') return 'starters';
+  return 'all';
 }
 
 type TemplateLibraryStudioProps = {
@@ -99,14 +79,29 @@ export function TemplateLibraryStudio({
   onNavigatePath,
   marketingTemplates = [],
 }: TemplateLibraryStudioProps): ReactNode {
-  useStudioStyles();
   const [templates, setTemplates] = useState<CmsTemplateRow[] | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
-  const [taxonomy, setTaxonomy] = useState<TemplateTaxonomy>('components');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<SortKey>('popular');
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [sidebarFilter, setSidebarFilter] = useState<SidebarFilter>({ kind: 'library', value: 'all' });
+  const [filterChips, setFilterChips] = useState<string[]>([]);
+  const [favs, setFavs] = useState<Set<string>>(() => loadFavs());
   const [modalTemplate, setModalTemplate] = useState<CmsTemplateRow | null>(null);
-  const [refineText, setRefineText] = useState('');
+  const [dropCollapsed, setDropCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(DROP_COLLAPSED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [dropDrag, setDropDrag] = useState(false);
+  const [importUrl, setImportUrl] = useState('');
+  const [importDescribe, setImportDescribe] = useState('');
+  const [tagEditId, setTagEditId] = useState<string | null>(null);
+  const [tagDraft, setTagDraft] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
     setError('');
@@ -135,21 +130,117 @@ export function TemplateLibraryStudio({
     void load();
   }, [load]);
 
-  const filtered = useMemo(
-    () => (templates ? filterTemplatesByTaxonomy(templates, taxonomy) : []),
-    [templates, taxonomy],
-  );
+  const builds = useMemo(() => {
+    const fromApi = new Set<string>();
+    for (const t of templates || []) {
+      const b = String(t.iam_build || '').trim();
+      if (b) fromApi.add(b);
+    }
+    const merged = [...fromApi];
+    for (const b of STATIC_BUILDS) {
+      if (!merged.includes(b)) merged.push(b);
+    }
+    return merged.sort((a, b) => a.localeCompare(b));
+  }, [templates]);
 
-  const selected = useMemo(
-    () => filtered.find((t) => t.id === selectedId) ?? filtered[0] ?? null,
-    [filtered, selectedId],
-  );
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of templates || []) {
+      const c = String(t.iam_category || t.category || '').trim();
+      if (c) set.add(c);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [templates]);
 
-  useEffect(() => {
-    if (selected?.id && selected.id !== selectedId) setSelectedId(selected.id);
-  }, [selected?.id, selectedId]);
+  const libraryCounts = useMemo(() => {
+    const counts = { all: 0, pages: 0, sections: 0, blocks: 0, starters: 0 };
+    for (const t of templates || []) {
+      counts.all += 1;
+      const k = libraryKind(t);
+      if (k in counts && k !== 'all') counts[k as keyof typeof counts] += 1;
+    }
+    return counts;
+  }, [templates]);
 
-  const { values, onChange, reset, cssVars } = useTemplateLiveControls(selected);
+  const filtered = useMemo(() => {
+    if (!templates) return [];
+    let list = [...templates];
+    const q = search.trim().toLowerCase();
+
+    if (sidebarFilter.kind === 'library' && sidebarFilter.value !== 'all') {
+      list = list.filter((t) => libraryKind(t) === sidebarFilter.value);
+    } else if (sidebarFilter.kind === 'build') {
+      list = list.filter((t) => String(t.iam_build || '').trim() === sidebarFilter.value);
+    } else if (sidebarFilter.kind === 'collection') {
+      if (sidebarFilter.value === 'agent-ready') {
+        list = list.filter(
+          (t) => Number(t.is_featured) === 1 && t.featured_collection === 'agent-ready',
+        );
+      } else if (sidebarFilter.value === 'starred') {
+        list = list.filter((t) => t.id && favs.has(String(t.id)));
+      } else if (sidebarFilter.value === 'needs-remaster') {
+        list = list.filter((t) => parseIamTags(t.iam_tags).includes('needs-remaster'));
+      } else if (sidebarFilter.value === 'imported') {
+        list = list.filter((t) => parseIamTags(t.iam_tags).includes('imported'));
+      }
+    } else if (sidebarFilter.kind === 'type') {
+      list = list.filter(
+        (t) => String(t.iam_category || t.category || '').toLowerCase() === sidebarFilter.value,
+      );
+    }
+
+    for (const chip of filterChips) {
+      const c = chip.toLowerCase();
+      list = list.filter((t) => {
+        const tags = parseIamTags(t.iam_tags);
+        return (
+          tags.some((tag) => tag.toLowerCase() === c) ||
+          String(t.iam_build || '').toLowerCase() === c ||
+          String(t.iam_category || t.category || '').toLowerCase() === c ||
+          String(t.slug || '').toLowerCase().includes(c)
+        );
+      });
+    }
+
+    if (q) {
+      list = list.filter((t) => {
+        const tags = parseIamTags(t.iam_tags);
+        const hay = [
+          t.template_name,
+          t.slug,
+          t.iam_build,
+          t.iam_category,
+          t.category,
+          ...tags,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return hay.includes(q);
+      });
+    }
+
+    if (sort === 'popular' || sort === 'most-used') {
+      list.sort((a, b) => (Number(b.usage_count) || 0) - (Number(a.usage_count) || 0));
+    } else if (sort === 'newest') {
+      list.sort((a, b) => String(b.id || '').localeCompare(String(a.id || '')));
+    } else if (sort === 'az') {
+      list.sort((a, b) =>
+        String(a.template_name || a.slug || '').localeCompare(String(b.template_name || b.slug || '')),
+      );
+    }
+    return list;
+  }, [templates, sidebarFilter, filterChips, search, sort, favs]);
+
+  const toggleFav = (id: string) => {
+    setFavs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      saveFavs(next);
+      return next;
+    });
+  };
 
   const addTemplate = async (t: CmsTemplateRow) => {
     if (!addToPageId) {
@@ -169,7 +260,9 @@ export function TemplateLibraryStudio({
           sort_order: 100,
         },
       });
-      onNavigatePath(`/dashboard/cms/pages/${encodeURIComponent(addToPageId)}${projectSlug ? `?site=${encodeURIComponent(projectSlug)}` : ''}`);
+      onNavigatePath(
+        `/dashboard/cms/pages/${encodeURIComponent(addToPageId)}${projectSlug ? `?site=${encodeURIComponent(projectSlug)}` : ''}`,
+      );
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
     } finally {
@@ -177,182 +270,542 @@ export function TemplateLibraryStudio({
     }
   };
 
-  const previewStyle = useMemo(() => {
-    const style: Record<string, string> = {};
-    for (const [k, v] of Object.entries(cssVars)) style[k] = v;
-    return style as React.CSSProperties;
-  }, [cssVars]);
-
-  const renderPreview = (t: CmsTemplateRow) => {
-    const meta = parseTemplateMeta(t);
-    const previewUrl = resolveTemplatePreviewUrl(t, meta);
-    const showHtml = previewUrl && isHtmlTemplate(t);
-    const showInline = isInlineComponentTemplate(t) && !showHtml;
-
-    if (showHtml && previewUrl) {
-      return (
-        <div style={previewStyle}>
-          <StorefrontPreview url={previewUrl} variant="desktop" title={t.template_name || 'Preview'} />
-        </div>
+  const patchTemplate = async (t: CmsTemplateRow, payload: Record<string, unknown>) => {
+    if (!t.id) return;
+    try {
+      const res = await api<{ ok?: boolean; template?: CmsTemplateRow }>(
+        `/api/cms/templates/${encodeURIComponent(String(t.id))}`,
+        { method: 'PATCH', body: payload },
       );
+      if (res.template) {
+        setTemplates((prev) =>
+          prev ? prev.map((row) => (row.id === res.template?.id ? res.template! : row)) : prev,
+        );
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
     }
-    if (showInline) {
-      return (
-        <div className="pt-template-modal-inline" style={previewStyle}>
-          <TemplateInlineDemo meta={{ ...meta, slug: t.slug ?? meta.slug }} manual />
-        </div>
-      );
-    }
-    return (
-      <div className="pt-template-modal-empty">
-        <p>No live preview configured.</p>
-        {meta.description ? <p className="pt-copy">{String(meta.description)}</p> : null}
-      </div>
-    );
   };
 
-  const counts = useMemo(() => {
-    if (!templates) return { components: 0, websites: 0, other: 0 };
-    return templates.reduce(
-      (acc, t) => {
-        acc[classifyTemplate(t)] += 1;
-        return acc;
-      },
-      { components: 0, websites: 0, other: 0 } as Record<TemplateTaxonomy, number>,
+  const collapseDrop = () => {
+    setDropCollapsed(true);
+    try {
+      localStorage.setItem(DROP_COLLAPSED_KEY, '1');
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const uploadFiles = async (files: FileList | File[]) => {
+    const arr = [...files];
+    if (!arr.length) return;
+    const encoded = await Promise.all(
+      arr.slice(0, 8).map(async (file) => ({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        content: await file.text().catch(() => ''),
+      })),
     );
-  }, [templates]);
+    try {
+      await api('/api/cms/imports', {
+        method: 'POST',
+        body: {
+          source_type: 'html_drop',
+          files: encoded,
+          project_slug: projectSlug || null,
+        },
+      });
+      collapseDrop();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setDropDrag(false);
+    if (e.dataTransfer.files?.length) void uploadFiles(e.dataTransfer.files);
+  };
+
+  const importFromUrl = () => {
+    const url = importUrl.trim();
+    if (!url) return;
+    window.dispatchEvent(
+      new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
+        detail: {
+          message: `Import and remaster: ${url}`,
+          ensureAgentPanel: true,
+          send: false,
+          project_slug: projectSlug,
+          surface: 'cms',
+        },
+      }),
+    );
+    setImportUrl('');
+    collapseDrop();
+  };
+
+  const describeToAgent = () => {
+    const text = importDescribe.trim();
+    if (!text) return;
+    window.dispatchEvent(
+      new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
+        detail: {
+          message: text,
+          ensureAgentPanel: true,
+          send: false,
+          project_slug: projectSlug,
+          surface: 'cms',
+        },
+      }),
+    );
+    setImportDescribe('');
+    collapseDrop();
+  };
+
+  const openTagEditor = (t: CmsTemplateRow) => {
+    setTagEditId(String(t.id));
+    setTagDraft(parseIamTags(t.iam_tags));
+  };
+
+  const saveTags = async (t: CmsTemplateRow) => {
+    await patchTemplate(t, {
+      iam_tags: tagDraft,
+      iam_build: t.iam_build,
+      iam_category: t.iam_category,
+    });
+    setTagEditId(null);
+  };
+
+  const sidebarItem = (
+    label: string,
+    count: number | null,
+    active: boolean,
+    onClick: () => void,
+  ) => (
+    <button
+      type="button"
+      className={`iam-tpl-sidebar__item${active ? ' is-active' : ''}`}
+      onClick={onClick}
+    >
+      <span>{label}</span>
+      {count != null ? <span className="iam-tpl-sidebar__count">{count}</span> : null}
+    </button>
+  );
 
   return (
-    <div className="pt-page">
-      <div className="pt-page-inner">
-        <header className="pt-compact-head">
-          <h1 className="pt-compact-title">Template library</h1>
-          <div className="pt-actions">
-            <button type="button" className="pt-btn" onClick={() => onNavigatePath(`/dashboard/cms/pages${projectSlug ? `?site=${encodeURIComponent(projectSlug)}` : ''}`)}>
-              Pages
-            </button>
-            <button type="button" className="pt-btn" onClick={() => void load()}>
-              Refresh
-            </button>
+    <div className="iam-tpl-gallery" style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+      <aside className="iam-tpl-sidebar">
+        <div className="iam-tpl-sidebar__section">
+          <div className="iam-tpl-sidebar__label">Library</div>
+          {sidebarItem('All', libraryCounts.all, sidebarFilter.kind === 'library' && sidebarFilter.value === 'all', () =>
+            setSidebarFilter({ kind: 'library', value: 'all' }),
+          )}
+          {sidebarItem('Pages', libraryCounts.pages, sidebarFilter.kind === 'library' && sidebarFilter.value === 'pages', () =>
+            setSidebarFilter({ kind: 'library', value: 'pages' }),
+          )}
+          {sidebarItem('Sections', libraryCounts.sections, sidebarFilter.kind === 'library' && sidebarFilter.value === 'sections', () =>
+            setSidebarFilter({ kind: 'library', value: 'sections' }),
+          )}
+          {sidebarItem('Blocks', libraryCounts.blocks, sidebarFilter.kind === 'library' && sidebarFilter.value === 'blocks', () =>
+            setSidebarFilter({ kind: 'library', value: 'blocks' }),
+          )}
+          {sidebarItem('Starters', libraryCounts.starters, sidebarFilter.kind === 'library' && sidebarFilter.value === 'starters', () =>
+            setSidebarFilter({ kind: 'library', value: 'starters' }),
+          )}
+        </div>
+        <div className="iam-tpl-sidebar__section">
+          <div className="iam-tpl-sidebar__label">Your builds</div>
+          {builds.map((b) =>
+            sidebarItem(
+              b,
+              null,
+              sidebarFilter.kind === 'build' && sidebarFilter.value === b,
+              () => setSidebarFilter({ kind: 'build', value: b }),
+            ),
+          )}
+        </div>
+        <div className="iam-tpl-sidebar__section">
+          <div className="iam-tpl-sidebar__label">Collections</div>
+          {sidebarItem('Agent ready', null, sidebarFilter.kind === 'collection' && sidebarFilter.value === 'agent-ready', () =>
+            setSidebarFilter({ kind: 'collection', value: 'agent-ready' }),
+          )}
+          {sidebarItem('Starred', favs.size, sidebarFilter.kind === 'collection' && sidebarFilter.value === 'starred', () =>
+            setSidebarFilter({ kind: 'collection', value: 'starred' }),
+          )}
+          {sidebarItem('Needs remaster', null, sidebarFilter.kind === 'collection' && sidebarFilter.value === 'needs-remaster', () =>
+            setSidebarFilter({ kind: 'collection', value: 'needs-remaster' }),
+          )}
+          {sidebarItem('Imported', null, sidebarFilter.kind === 'collection' && sidebarFilter.value === 'imported', () =>
+            setSidebarFilter({ kind: 'collection', value: 'imported' }),
+          )}
+        </div>
+        {categories.length > 0 ? (
+          <div className="iam-tpl-sidebar__section">
+            <div className="iam-tpl-sidebar__label">By type</div>
+            {categories.map((c) =>
+              sidebarItem(
+                c,
+                null,
+                sidebarFilter.kind === 'type' && sidebarFilter.value === c,
+                () => setSidebarFilter({ kind: 'type', value: c }),
+              ),
+            )}
           </div>
-        </header>
+        ) : null}
+      </aside>
 
-        {error ? (
-          <div className="pt-card" style={{ padding: 16, marginBottom: 14, color: 'var(--muted)' }}>
-            {error}
-            <button type="button" className="pt-btn" style={{ marginLeft: 10 }} onClick={() => void load()}>
-              Retry
+      <div className="iam-tpl-main">
+        <div className="iam-tpl-toolbar">
+          <div className="iam-tpl-search">
+            <span aria-hidden style={{ fontSize: 11, opacity: 0.6 }}>⌕</span>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search templates…"
+            />
+          </div>
+          {dropCollapsed ? (
+            <button type="button" className="iam-tpl-chip" onClick={() => setDropCollapsed(false)}>
+              + Import
             </button>
+          ) : null}
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+            style={{
+              height: 30,
+              borderRadius: 6,
+              border: '1px solid var(--cms-border)',
+              background: 'var(--cms-bg)',
+              fontSize: 12,
+              padding: '0 8px',
+            }}
+          >
+            <option value="popular">Popular</option>
+            <option value="newest">Newest</option>
+            <option value="az">A–Z</option>
+            <option value="most-used">Most used</option>
+          </select>
+          <button
+            type="button"
+            aria-label="Grid view"
+            title="Grid"
+            onClick={() => setViewMode('grid')}
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 6,
+              border: '1px solid var(--cms-border)',
+              background: viewMode === 'grid' ? 'var(--cms-teal-soft)' : 'var(--cms-bg)',
+              display: 'grid',
+              placeItems: 'center',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            #
+          </button>
+          <button
+            type="button"
+            aria-label="List view"
+            title="List"
+            onClick={() => setViewMode('list')}
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 6,
+              border: '1px solid var(--cms-border)',
+              background: viewMode === 'list' ? 'var(--cms-teal-soft)' : 'var(--cms-bg)',
+              display: 'grid',
+              placeItems: 'center',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            ≡
+          </button>
+          <button
+            type="button"
+            onClick={() => void load()}
+            style={{
+              marginLeft: 'auto',
+              height: 30,
+              padding: '0 10px',
+              borderRadius: 6,
+              border: '1px solid var(--cms-border)',
+              background: 'var(--cms-bg)',
+              fontSize: 11,
+              cursor: 'pointer',
+            }}
+          >
+            Refresh
+          </button>
+        </div>
+
+        {filterChips.length > 0 ? (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '8px 16px 0' }}>
+            {filterChips.map((chip) => (
+              <button
+                key={chip}
+                type="button"
+                className="iam-tpl-chip"
+                onClick={() => setFilterChips((prev) => prev.filter((c) => c !== chip))}
+              >
+                {chip} ×
+              </button>
+            ))}
           </div>
         ) : null}
 
-        <div className="pt-taxonomy" role="tablist" aria-label="Template taxonomy">
-          {(['components', 'websites', 'other'] as TemplateTaxonomy[]).map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={taxonomy === key}
-              className={`pt-taxonomy-pill${taxonomy === key ? ' active' : ''}`}
-              onClick={() => setTaxonomy(key)}
-            >
-              {TEMPLATE_TAXONOMY_LABELS[key]} ({counts[key]})
-            </button>
-          ))}
-        </div>
-        <p className="pt-taxonomy-hint">{TEMPLATE_TAXONOMY_HINTS[taxonomy]}</p>
-
-        {!templates ? (
-          <div className="pt-card" style={{ padding: 24, color: 'var(--muted)' }} aria-busy="true">
-            Loading templates…
-          </div>
-        ) : (
-          <div className="pt-library-studio">
-            <div className="pt-library-list" role="list">
-              {filtered.map((t) => (
-                <button
-                  key={String(t.id)}
-                  type="button"
-                  role="listitem"
-                  className={`pt-library-item${selected?.id === t.id ? ' active' : ''}`}
-                  onClick={() => setSelectedId(String(t.id))}
-                >
-                  <div className="pt-library-item__title">{t.template_name}</div>
-                  <div className="pt-library-item__sub">
-                    {t.category || 'General'} · {t.template_type || 'section'}
-                  </div>
-                </button>
-              ))}
-              {!filtered.length ? (
-                <div className="pt-card" style={{ padding: 18, color: 'var(--muted)' }}>
-                  No templates in this bucket yet.
-                </div>
-              ) : null}
+        {!dropCollapsed ? (
+          <div
+            className={`iam-tpl-dropzone${dropDrag ? ' is-dragover' : ''}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDropDrag(true);
+            }}
+            onDragLeave={() => setDropDrag(false)}
+            onDrop={onDrop}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".html,.liquid,.jsx,.tsx,.zip"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                if (e.target.files?.length) void uploadFiles(e.target.files);
+                e.target.value = '';
+              }}
+            />
+            <div className="iam-tpl-dropzone__title">
+              Drop HTML, .liquid, .jsx, .zip, or paste a URL
             </div>
+            <div className="iam-tpl-dropzone__sub">
+              Agent Sam will parse, tag, and remaster into CMS blocks.
+            </div>
+            <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <span className="iam-tpl-tag">Accepts: .html .liquid .jsx .tsx .zip</span>
+            </div>
+            <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <input
+                value={importUrl}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => setImportUrl(e.target.value)}
+                placeholder="Paste URL"
+                style={{
+                  height: 30,
+                  borderRadius: 6,
+                  border: '1px solid var(--cms-border)',
+                  padding: '0 10px',
+                  fontSize: 12,
+                  minWidth: 200,
+                }}
+              />
+              <button
+                type="button"
+                className="iam-tpl-chip"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  importFromUrl();
+                }}
+              >
+                Import URL
+              </button>
+            </div>
+            <div style={{ marginTop: 10, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <input
+                value={importDescribe}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => setImportDescribe(e.target.value)}
+                placeholder="Describe to Agent Sam"
+                style={{
+                  height: 30,
+                  borderRadius: 6,
+                  border: '1px solid var(--cms-border)',
+                  padding: '0 10px',
+                  fontSize: 12,
+                  minWidth: 240,
+                }}
+              />
+              <button
+                type="button"
+                className="iam-tpl-chip"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  describeToAgent();
+                }}
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        ) : null}
 
-            {selected ? (
-              <div className="pt-studio-panel">
-                <div className="pt-studio-preview">
-                  <div className="pt-studio-preview__head">
-                    <div>
-                      <div className="pt-row-title" style={{ fontSize: 15 }}>
-                        {selected.template_name}
-                      </div>
-                      <div className="pt-row-sub">{selected.slug || selected.id}</div>
-                    </div>
-                    <div className="pt-actions">
-                      <button type="button" className="pt-btn" onClick={() => setModalTemplate(selected)}>
-                        Fullscreen
-                      </button>
-                      {addToPageId ? (
-                        <button
-                          type="button"
-                          className="pt-btn primary"
-                          disabled={busy === String(selected.id)}
-                          onClick={() => void addTemplate(selected)}
-                        >
-                          {busy === String(selected.id) ? 'Adding…' : 'Add to page'}
-                        </button>
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          {error ? (
+            <div style={{ padding: 16, color: 'var(--cms-muted)', fontSize: 13 }}>
+              {error}
+              <button type="button" onClick={() => void load()} style={{ marginLeft: 10 }}>
+                Retry
+              </button>
+            </div>
+          ) : null}
+
+          {!templates ? (
+            <div style={{ padding: 24, color: 'var(--cms-muted)' }}>Loading templates…</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: 24, color: 'var(--cms-muted)' }}>No templates match your filters.</div>
+          ) : viewMode === 'grid' ? (
+            <div className="iam-tpl-grid">
+              {filtered.map((t) => {
+                const id = String(t.id);
+                const tags = parseIamTags(t.iam_tags);
+                const previewUrl = t.preview_image_url || resolveTemplatePreviewUrl(t);
+                const isFav = favs.has(id);
+                return (
+                  <div key={id} className="iam-tpl-card">
+                    <button
+                      type="button"
+                      className={`iam-tpl-fav${isFav ? ' is-faved' : ''}`}
+                      aria-label={isFav ? 'Unfavorite' : 'Favorite'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFav(id);
+                      }}
+                    >
+                      {isFav ? 'Saved' : 'Save'}
+                    </button>
+                    <div
+                      className="iam-tpl-preview"
+                      style={{ background: previewUrl ? undefined : categoryBg(t) }}
+                    >
+                      {previewUrl ? (
+                        <img src={previewUrl} alt="" loading="lazy" />
+                      ) : isHtmlTemplate(t) && resolveTemplatePreviewUrl(t) ? (
+                        <StorefrontPreview
+                          url={resolveTemplatePreviewUrl(t)!}
+                          variant="desktop"
+                          title={t.template_name || 'Preview'}
+                        />
                       ) : null}
                     </div>
+                    <div className="iam-tpl-body">
+                      <div className="iam-tpl-name">{t.template_name || t.slug}</div>
+                      <div className="iam-tpl-chips">
+                        {t.iam_category || t.category ? (
+                          <span className="iam-tpl-tag">{t.iam_category || t.category}</span>
+                        ) : null}
+                        {t.iam_build ? <span className="iam-tpl-tag is-build">{t.iam_build}</span> : null}
+                        {tags.slice(0, 3).map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            className="iam-tpl-tag"
+                            onClick={() => openTagEditor(t)}
+                          >
+                            {tag}
+                          </button>
+                        ))}
+                        {tags.length > 3 ? (
+                          <span className="iam-tpl-tag">+{tags.length - 3}</span>
+                        ) : null}
+                      </div>
+                      {tagEditId === id ? (
+                        <div style={{ marginBottom: 8 }}>
+                          <input
+                            value={tagDraft.join(', ')}
+                            onChange={(e) =>
+                              setTagDraft(
+                                e.target.value
+                                  .split(',')
+                                  .map((s) => s.trim())
+                                  .filter(Boolean),
+                              )
+                            }
+                            style={{
+                              width: '100%',
+                              fontSize: 11,
+                              padding: '4px 6px',
+                              borderRadius: 4,
+                              border: '1px solid var(--cms-border)',
+                            }}
+                          />
+                          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                            <button type="button" className="iam-tpl-actions button use" onClick={() => void saveTags(t)}>
+                              Save tags
+                            </button>
+                            <button type="button" onClick={() => setTagEditId(null)}>
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                      <div className="iam-tpl-actions">
+                        <button type="button" onClick={() => setModalTemplate(t)}>
+                          Preview
+                        </button>
+                        <button
+                          type="button"
+                          className="use"
+                          disabled={busy === id}
+                          onClick={() => void addTemplate(t)}
+                        >
+                          {busy === id ? 'Adding…' : 'Use'}
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="pt-studio-preview__body">{renderPreview(selected)}</div>
-                </div>
-
-                <TemplateLiveControls template={selected} values={values} onChange={onChange} onReset={reset} />
-
-                <div className="pt-refine pt-card" style={{ padding: 14 }}>
-                  <div className="pt-label">Refine with Agent Sam</div>
-                  <textarea
-                    placeholder="e.g. wire progress to agentsam_cad_jobs.progress_pct, remove the card chrome, match Claude tool rows…"
-                    value={refineText}
-                    onChange={(e) => setRefineText(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="pt-btn primary"
-                    disabled={!refineText.trim()}
-                    onClick={() => {
-                      dispatchAgentSamRefine(selected, refineText);
-                      setRefineText('');
-                    }}
-                  >
-                    Open in Agent Sam
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ padding: 16, display: 'grid', gap: 8 }}>
+              {filtered.map((t) => (
+                <div
+                  key={String(t.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '10px 12px',
+                    border: '1px solid var(--cms-border)',
+                    borderRadius: 8,
+                    background: 'var(--cms-panel)',
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="iam-tpl-name">{t.template_name}</div>
+                    <div className="iam-tpl-chips">
+                      {t.iam_build ? <span className="iam-tpl-tag is-build">{t.iam_build}</span> : null}
+                      {parseIamTags(t.iam_tags)
+                        .slice(0, 3)
+                        .map((tag) => (
+                          <span key={tag} className="iam-tpl-tag">
+                            {tag}
+                          </span>
+                        ))}
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => setModalTemplate(t)}>
+                    Preview
+                  </button>
+                  <button type="button" className="use" onClick={() => void addTemplate(t)}>
+                    Use
                   </button>
                 </div>
-              </div>
-            ) : null}
-          </div>
-        )}
-
-        <TemplatePreviewModal
-          template={modalTemplate}
-          onClose={() => setModalTemplate(null)}
-          liveValues={modalTemplate?.id === selected?.id ? values : undefined}
-          onLiveChange={modalTemplate?.id === selected?.id ? onChange : undefined}
-          onLiveReset={modalTemplate?.id === selected?.id ? reset : undefined}
-        />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+
+      <TemplatePreviewModal template={modalTemplate} onClose={() => setModalTemplate(null)} />
     </div>
   );
 }

@@ -2278,9 +2278,6 @@ export async function handleCmsApi(request, url, env, ctx) {
 
   if (path === '/api/cms/templates' && method === 'GET') {
     const category = url.searchParams.get('category') || null;
-    const page = Math.max(1, parseInt(String(url.searchParams.get('page') || '1'), 10) || 1);
-    const limit = Math.min(50, Math.max(1, parseInt(String(url.searchParams.get('limit') || '10'), 10) || 10));
-    const offset = (page - 1) * limit;
     try {
       let where = '';
       const binds = [];
@@ -2295,22 +2292,101 @@ export async function handleCmsApi(request, url, env, ctx) {
         .first();
       const total = Number(countRow?.total) || 0;
       let q = `SELECT id, template_name, template_type, category, preview_image_url,
-                      template_data, is_system, slug, r2_key, source_html_r2_key, source_liquid_file
+                      template_data, is_system, slug, r2_key, source_html_r2_key, source_liquid_file,
+                      iam_tags, iam_build, iam_project_slug, iam_category, iam_label, iam_status,
+                      iam_workspace_id, sort_order, usage_count, last_used_at, is_featured, featured_collection
                FROM cms_component_templates${where}`;
-      q += ` ORDER BY category, template_name LIMIT ? OFFSET ?`;
-      const { results } = await env.DB.prepare(q)
-        .bind(...binds, limit, offset)
-        .all();
+      q += ` ORDER BY sort_order ASC, category, template_name LIMIT 5000`;
+      const { results } = await env.DB.prepare(q).bind(...binds).all();
       return jsonResponse({
         templates: results || [],
-        page,
-        limit,
         total,
-        total_pages: total ? Math.ceil(total / limit) : 0,
       });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
+  }
+
+  const templateIdMatch = path.match(/^\/api\/cms\/templates\/([^/]+)$/);
+  if (templateIdMatch && method === 'PATCH') {
+    const templateId = decodeURIComponent(templateIdMatch[1]);
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON' }, 400);
+    }
+    try {
+      const existing = await env.DB.prepare(
+        `SELECT id, iam_tags, iam_build, iam_category FROM cms_component_templates WHERE id = ? LIMIT 1`,
+      )
+        .bind(templateId)
+        .first();
+      if (!existing) return jsonResponse({ error: 'template not found' }, 404);
+
+      const sets = [];
+      const binds = [];
+      if (body.iam_tags != null) {
+        const tags = Array.isArray(body.iam_tags)
+          ? body.iam_tags.map((t) => String(t).trim()).filter(Boolean)
+          : [];
+        sets.push('iam_tags = ?');
+        binds.push(JSON.stringify(tags));
+      }
+      if (body.iam_build != null) {
+        sets.push('iam_build = ?');
+        binds.push(String(body.iam_build).trim() || null);
+      }
+      if (body.iam_category != null) {
+        sets.push('iam_category = ?');
+        binds.push(String(body.iam_category).trim() || null);
+      }
+      if (body.iam_label != null) {
+        sets.push('iam_label = ?');
+        binds.push(String(body.iam_label).trim() || null);
+      }
+      if (!sets.length) return jsonResponse({ error: 'no fields to update' }, 400);
+
+      await env.DB.prepare(
+        `UPDATE cms_component_templates SET ${sets.join(', ')} WHERE id = ?`,
+      )
+        .bind(...binds, templateId)
+        .run();
+
+      const row = await env.DB.prepare(
+        `SELECT id, template_name, template_type, category, preview_image_url,
+                template_data, is_system, slug, r2_key, source_html_r2_key, source_liquid_file,
+                iam_tags, iam_build, iam_project_slug, iam_category, iam_label, iam_status,
+                iam_workspace_id, sort_order, usage_count, last_used_at, is_featured, featured_collection
+         FROM cms_component_templates WHERE id = ? LIMIT 1`,
+      )
+        .bind(templateId)
+        .first();
+      return jsonResponse({ ok: true, template: row });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/cms/imports' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON' }, 400);
+    }
+    const sourceType = String(body.source_type || 'html_drop').trim();
+    const projectSlug = String(body.project_slug || body.projectSlug || '').trim();
+    const files = Array.isArray(body.files) ? body.files : [];
+    return jsonResponse({
+      ok: true,
+      queued: true,
+      source_type: sourceType,
+      project_slug: projectSlug || null,
+      file_count: files.length,
+      message:
+        'Import received. Agent Sam will parse, tag, and remaster dropped assets into CMS blocks.',
+    });
   }
 
   if (path === '/api/cms/templates' && method === 'POST') {
