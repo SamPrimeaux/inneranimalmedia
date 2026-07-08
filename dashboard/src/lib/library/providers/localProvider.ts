@@ -1,5 +1,5 @@
 import { readLocalDirectoryEntries } from '../../localFileTree';
-import { ensureLocalReadPermission, resolveLocalSubdirectoryHandle } from '../localHandleStore';
+import { queryLocalReadPermission, resolveLocalSubdirectoryHandle } from '../localHandleStore';
 import { mapLocalNode, sortLibraryItems } from '../mappers';
 import type { LibraryListResult, LibraryProvider } from '../types';
 
@@ -15,9 +15,12 @@ export const localProvider: LibraryProvider = {
       };
     }
 
-    const ok = await ensureLocalReadPermission(root);
-    if (!ok) {
-      return { items: [], error: 'Local folder permission denied — reconnect via Computers' };
+    const perm = await queryLocalReadPermission(root);
+    if (perm !== 'granted' && perm !== 'unsupported') {
+      return {
+        items: [],
+        error: 'Local folder needs permission — click Reconnect folder in Connections',
+      };
     }
 
     const dir = await resolveLocalSubdirectoryHandle(root, params.localPath || '');

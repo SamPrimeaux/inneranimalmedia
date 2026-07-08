@@ -11,6 +11,7 @@ import {
   readProjectDashboardMemory,
   upsertProjectDashboardMemory,
 } from '../core/project-dashboard-memory.js';
+import { syncProjectRuntimeContract } from '../core/project-runtime-contract-sync.js';
 import { sendResendEmail } from '../services/resend.js';
 
 const PROJECTS_LIST_CACHE = 'private, max-age=30, stale-while-revalidate=120';
@@ -1199,6 +1200,35 @@ async function handleProjectMemoryPatch(request, env, authUser, projectId) {
   }
 }
 
+async function handleProjectRuntimeContractSync(request, env, authUser, projectId) {
+  const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(projectId).first();
+  const access = await assertProjectAccess(env, authUser, row);
+  if (!access.ok) return jsonResponse({ ok: false, error: access.error }, access.status);
+
+  const body = await request.json().catch(() => ({}));
+  const agentsamMarkdown =
+    typeof body.agentsam_markdown === 'string'
+      ? body.agentsam_markdown
+      : typeof body.agentsamMarkdown === 'string'
+        ? body.agentsamMarkdown
+        : null;
+
+  try {
+    const result = await syncProjectRuntimeContract(env, {
+      projectRef: String(projectId),
+      workspaceId: row.workspace_id ? String(row.workspace_id) : null,
+      tenantId: row.tenant_id ? String(row.tenant_id) : authUser.tenant_id ? String(authUser.tenant_id) : null,
+      userId: authUser?.id ?? null,
+      agentsamMarkdown,
+      force: body.force === true,
+    });
+    const status = result.ok ? 200 : result.error === 'migration_800_required' ? 503 : 400;
+    return jsonResponse({ ok: result.ok, project_id: String(projectId), ...result }, status);
+  } catch (e) {
+    return jsonResponse({ ok: false, error: `runtime_contract_sync_failed: ${e?.message || e}` }, 500);
+  }
+}
+
 async function handleProjectCollaboratorsGet(env, authUser, projectId) {
   const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(projectId).first();
   const access = await assertProjectAccess(env, authUser, row);
@@ -1621,6 +1651,9 @@ export async function handleProjectsApi(request, url, env, authUser, ctx = null)
   if (seg.length === 2 && seg[1] === 'memory') {
     if (method === 'GET') return handleProjectMemoryGet(env, authUser, seg[0]);
     if (method === 'PATCH' || method === 'PUT') return handleProjectMemoryPatch(request, env, authUser, seg[0]);
+  }
+  if (seg.length === 3 && seg[1] === 'runtime-contract' && seg[2] === 'sync') {
+    if (method === 'POST') return handleProjectRuntimeContractSync(request, env, authUser, seg[0]);
   }
   if (seg.length === 2 && seg[1] === 'collaborators') {
     if (method === 'GET') return handleProjectCollaboratorsGet(env, authUser, seg[0]);

@@ -205,7 +205,7 @@ export function MailPage() {
 
   // Accounts
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [activeAccount, setActiveAccount] = useState<string>('all');
+  const [activeAccount, setActiveAccount] = useState<string>('');
 
   // Email state
   const [folder, setFolder] = useState<Folder>('inbox');
@@ -284,6 +284,9 @@ export function MailPage() {
     setAccounts(accs);
     if (accs.length === 0) {
       setAccounts([{ id: 'platform', label: 'Platform', address: '', provider: 'platform', connected: true }]);
+      setActiveAccount('platform');
+    } else {
+      setActiveAccount((prev) => (prev && accs.some((a) => a.id === prev) ? prev : accs[0].id));
     }
   }, []);
 

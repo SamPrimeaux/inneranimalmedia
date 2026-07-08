@@ -13,6 +13,7 @@ import {
   listGmailTokenRowsForUser,
   getGmailTokenRowForUser,
 } from '../core/gmail-user-tokens.js';
+import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 import { disconnectGmailAccount } from './integrations/gmail-connect.js';
 import {
   emailSentLogKey,
@@ -21,6 +22,7 @@ import {
 } from '../core/r2-email.js';
 
 const PAGE_SIZE = 50;
+const GMAIL_INBOX_PRELOAD_MAX = 20;
 
 function pathLower(url) {
   return url.pathname.toLowerCase().replace(/\/$/, '') || '/';
@@ -264,7 +266,7 @@ async function getGmailTokenRow(env, authUser, accountIdentifier = null) {
 
 async function resolveGmailTokensForRequest(env, authUser, accountParam) {
   const raw = accountParam ? String(accountParam).trim() : '';
-  if (!raw || raw === 'all') {
+  if (raw === 'all') {
     const rows = await listGmailTokenRows(env, authUser);
     const out = [];
     for (const row of rows) {
@@ -273,10 +275,17 @@ async function resolveGmailTokensForRequest(env, authUser, accountParam) {
     }
     return out;
   }
-  const row = await getGmailTokenRow(env, authUser, raw);
-  if (!row) return [];
-  const tok = await resolveOAuthAccessToken(env, row);
-  return tok ? [row] : [];
+  if (raw) {
+    const row = await getGmailTokenRow(env, authUser, raw);
+    if (!row) return [];
+    const tok = await resolveOAuthAccessToken(env, row);
+    return tok ? [row] : [];
+  }
+  const rows = await listGmailTokenRows(env, authUser);
+  if (!rows.length) return [];
+  const primary = rows[0];
+  const tok = await resolveOAuthAccessToken(env, primary);
+  return tok ? [primary] : [];
 }
 
 function mapGmailMetadataToEmail(msg, accountIdentifier = '') {
@@ -317,14 +326,14 @@ async function fetchGmailFolderEmails(env, tokenRows, folder) {
       list = await gmailListMessages(env, tokenRow, ['INBOX']);
     }
     if (!list.ok) return { ok: false, status: list.status, error: list.error, emails: [] };
-    const ids = (list.messages || []).map((m) => String(m?.id || '')).filter(Boolean);
+    const ids = (list.messages || []).map((m) => String(m?.id || '')).filter(Boolean).slice(0, GMAIL_INBOX_PRELOAD_MAX);
     for (const id of ids) {
       const m = await gmailGetMessage(env, tokenRow, id, 'metadata');
       if (m.ok && m.msg) allEmails.push(mapGmailMetadataToEmail(m.msg, acct));
     }
   }
   allEmails.sort((a, b) => new Date(b.date_received).getTime() - new Date(a.date_received).getTime());
-  return { ok: true, emails: allEmails.slice(0, PAGE_SIZE) };
+  return { ok: true, emails: allEmails.slice(0, GMAIL_INBOX_PRELOAD_MAX) };
 }
 
 async function refreshGoogleAccessToken(env, tokenRow) {
@@ -478,9 +487,14 @@ export async function handleMailApi(request, url, env, ctx) {
   if (!mustDb(env)) return jsonResponse({ error: 'DB not configured' }, 503);
 
   // Canonical user_id and tenant_id for all email_logs queries — scopes data to this user only.
-  const mailUserId = authUser.id ? String(authUser.id).trim() : '';
+  const mailUserId =
+    (await resolveIntegrationUserId(env, authUser)) ||
+    (authUser.id ? String(authUser.id).trim() : '');
   const mailTenantId = authUser.tenant_id ? String(authUser.tenant_id).trim() : '';
-  const isSuperadmin = authUser.is_superadmin === 1 || authUser.is_superadmin === true;
+  const isSuperadmin =
+    authUser?.is_superadmin === 1 ||
+    authUser?.is_superadmin === true ||
+    authUser?.role === 'superadmin';
 
   try {
     // Gmail OAuth connect (real)

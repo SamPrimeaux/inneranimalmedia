@@ -78,7 +78,32 @@ export async function upsertProjectDashboardMemory(db, opts) {
   };
 
   await upsertOne(PROJECT_DASHBOARD_MEMORY_KEY, opts.memory);
+  const instructionsTouched = opts.instructions !== undefined;
   await upsertOne(PROJECT_DASHBOARD_INSTRUCTIONS_KEY, opts.instructions);
 
-  return readProjectDashboardMemory(db, pid);
+  const next = await readProjectDashboardMemory(db, pid);
+
+  if (instructionsTouched) {
+    try {
+      const { syncProjectRuntimeContract } = await import('./project-runtime-contract-sync.js');
+      const sync = await syncProjectRuntimeContract(
+        { DB: db },
+        {
+          projectRef: pid,
+          tenantId: opts.tenantId,
+          userId: opts.userId ?? null,
+        },
+      );
+      if (sync?.ok && !sync.unchanged) {
+        next.runtime_contract_sync = {
+          rule_key: sync.rule_key,
+          content_hash: sync.content_hash,
+        };
+      }
+    } catch (e) {
+      console.warn('[project-dashboard-memory] runtime_contract_sync', e?.message ?? e);
+    }
+  }
+
+  return next;
 }

@@ -410,6 +410,7 @@ export function ArtifactsDriveShell() {
             <LibraryConnectMenu
               driveStatus={ws.driveStatus}
               localFolderName={ws.localFolderName}
+              localNeedsReconnect={ws.localNeedsReconnect}
               onConnectDrive={ws.connectDrive}
               onDisconnectDrive={ws.disconnectDrive}
               onConnectLocal={ws.connectLocalFolder}
@@ -660,7 +661,7 @@ export function ArtifactsDriveShell() {
               {primaryError}
               {ws.filters.rail === 'local' ? (
                 <button type="button" onClick={() => void ws.connectLocalFolder()}>
-                  Choose local folder
+                  {ws.localNeedsReconnect ? 'Reconnect folder' : 'Choose local folder'}
                 </button>
               ) : null}
             </div>

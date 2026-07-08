@@ -179,11 +179,22 @@ export async function loadSessionProjectContextSystemBlock(env, projectRef, work
     console.warn('[project-session-context] execution_bindings', e?.message ?? e);
   }
 
+  let skipInstructions = false;
+  try {
+    const { fetchProjectRuntimeContractRule } = await import('./project-runtime-contract.js');
+    const rule = await fetchProjectRuntimeContractRule(env, { projectRef: ref, workspaceId });
+    skipInstructions = Boolean(rule?.body_markdown);
+  } catch {
+    /* optional */
+  }
+
   if (!memory && !instructions && !bindingsBlock) return '';
 
   const parts = [`Project session: ${ref}`];
   if (bindingsBlock) parts.push(bindingsBlock);
   if (memory) parts.push(`Project memory:\n${memory}`);
-  if (instructions) parts.push(`Project instructions:\n${instructions}`);
+  if (instructions && !skipInstructions) {
+    parts.push(`Project instructions:\n${instructions}`);
+  }
   return `## Project session context\n${parts.join('\n\n')}`;
 }

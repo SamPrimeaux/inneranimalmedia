@@ -14,19 +14,28 @@ Canonical split for `agentsam_terminal_*` tools. Each lane has one job; tools mu
 
 | Tool | Exec surface | Who | When |
 |------|--------------|-----|------|
-| **`agentsam_terminal_local`** | Caller's **own device** via `user_hosted_tunnel` | Any user who completed device setup | Sam's Mac (zsh), Connor's Windows (PowerShell), any provisioned tunnel |
+| **`agentsam_terminal_local`** | Caller's **own device** via `user_hosted_tunnel` | Any user who completed device setup | **Sam:** `localpty.inneranimalmedia.com` → **samsmac** tunnel (Mac awake). Connor: his provisioned tunnel when set up |
 | **`agentsam_terminal_remote`** | **GCP iam-tunnel VM** (`terminal.inneranimalmedia.com`) | Platform operators (Sam) | Mac asleep, phone, OAuth — sparse git/shell/wrangler on Linux clone |
-| **`agentsam_terminal_sandbox`** | **Cloudflare Container** — single shared `inneranimalmedia` pool (path/R2-isolated, not per-`zone_slug` DO instance) | Any workspace user with tool access | Isolated dev zones, experiments, CAD/movie batch — not shared VM disk |
+| **`agentsam_terminal_sandbox`** | **Cloudflare Container** — single shared `inneranimalmedia` pool (path/R2-isolated, not per-`zone_slug` DO instance) | Any workspace user with tool access | Isolated dev zones, experiments, CAD/movie batch — **default R2 FUSE persistence** |
 
 ## Routing (code)
 
 ```
-agentsam_terminal_local   → target_type: user_hosted_tunnel  → wss://localpty.* or user tunnel URL
-agentsam_terminal_remote  → target_type: platform_vm        → wss://terminal.inneranimalmedia.com
+agentsam_terminal_local   → target_type: user_hosted_tunnel  → wss://localpty.* (samsmac) or user tunnel URL
+agentsam_terminal_remote  → target_type: platform_vm        → wss://terminal.inneranimalmedia.com (GCP / ExecOS)
 agentsam_terminal_sandbox → target_type: container          → MY_CONTAINER.getByName("inneranimalmedia")
                             zone_slug = cwd/R2 path tag only, NOT a separate DO instance id
                             (per-zone_slug DO affinity was tried and explicitly reverted — see getZoneContainerStub)
 ```
+
+### ExecOS worker (execos.inneranimalmedia.com)
+
+| Env var | Target | Role |
+|---------|--------|------|
+| `MAC_EXEC_URL` | `https://localpty.inneranimalmedia.com/run` | **samsmac** tunnel — desk lane when Mac is awake |
+| `GCP_EXEC_URL` | `https://terminal.inneranimalmedia.com/run` | GCP iam-tunnel — always-on when Mac sleeps |
+
+Health-aware routing (`terminal-connection-health.js`): probe localpty first in `auto` mode; fall back to GCP, then sandbox.
 
 ## Access control
 
@@ -82,7 +91,7 @@ Recovery hints on failed wrangler commands are appended via `wranglerTerminalRec
 ```
 getContainerStub(env)  →  env.MY_CONTAINER.getByName(resolveContainerPoolId(env))  // always "inneranimalmedia"
                        →  Go sandbox + git + wrangler in image
-                       →  optional R2 FUSE at /mnt/r2 (worker secrets R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY)
+                       →  **default** R2 FUSE at /mnt/r2/{workspace r2_prefix}/{zone_slug}/ (writable — see sandbox-r2-fuse-default.md)
                        →  exec cwd: /mnt/r2/{workspace r2_prefix}/{zone_slug}/…
 ```
 

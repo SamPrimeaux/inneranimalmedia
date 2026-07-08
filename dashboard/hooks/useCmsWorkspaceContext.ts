@@ -43,6 +43,38 @@ type UseCmsWorkspaceContextOptions = {
   enabled?: boolean;
 };
 
+/** API must return an array — guard object/map payloads that break `.find`. */
+export function normalizeCmsSitesList(raw: unknown): CmsWorkspaceSite[] {
+  if (Array.isArray(raw)) {
+    return raw.filter((s) => s && typeof s === 'object' && trimSlug(s.slug));
+  }
+  if (raw && typeof raw === 'object') {
+    const vals = Object.values(raw as Record<string, unknown>);
+    const asSites = vals.filter(
+      (v): v is CmsWorkspaceSite =>
+        !!v &&
+        typeof v === 'object' &&
+        typeof (v as CmsWorkspaceSite).slug === 'string' &&
+        Boolean(trimSlug((v as CmsWorkspaceSite).slug)),
+    );
+    if (asSites.length) return asSites;
+  }
+  return [];
+}
+
+function trimSlug(v: unknown): string {
+  return v != null ? String(v).trim() : '';
+}
+
+function normalizeWorkspaceContextPayload(
+  data: CmsWorkspaceContext & { error?: string; message?: string },
+): CmsWorkspaceContext & { error?: string; message?: string } {
+  return {
+    ...data,
+    sites: normalizeCmsSitesList(data.sites),
+  };
+}
+
 export function useCmsWorkspaceContext(opts: UseCmsWorkspaceContextOptions = {}) {
   const [context, setContext] = useState<CmsWorkspaceContext | null>(null);
   const [loading, setLoading] = useState(true);
@@ -62,7 +94,9 @@ export function useCmsWorkspaceContext(opts: UseCmsWorkspaceContextOptions = {})
         credentials: 'include',
         cache: 'no-store',
       });
-      const data = (await res.json()) as CmsWorkspaceContext & { error?: string; message?: string };
+      const data = normalizeWorkspaceContextPayload(
+        (await res.json()) as CmsWorkspaceContext & { error?: string; message?: string },
+      );
       if (!res.ok) {
         setContext(data);
         setError(data.error || data.message || res.statusText);
@@ -92,7 +126,9 @@ export function useCmsWorkspaceContext(opts: UseCmsWorkspaceContextOptions = {})
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_slug: projectSlug }),
       });
-      const data = (await res.json()) as CmsWorkspaceContext & { error?: string };
+      const data = normalizeWorkspaceContextPayload(
+        (await res.json()) as CmsWorkspaceContext & { error?: string },
+      );
       if (!res.ok) throw new Error(data.error || res.statusText);
       setContext(data);
       if (opts.workspaceId) writeStoredCmsProjectSlug(opts.workspaceId, projectSlug);

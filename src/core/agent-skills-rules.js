@@ -30,6 +30,7 @@ export function ruleMatchesKeywordTrigger(message, triggerConditionJson) {
 /**
  * Loads agentsam_rules_document rows for system prompt injection:
  * apply_mode=always, trigger_type=system (always) or keyword (message match).
+ * When projectRef/projectId is set, also loads rule_{slug}_runtimecontract rows.
  */
 export async function fetchTriggeredRulesForSystemPrompt(env, opts = {}) {
   if (!env?.DB) return [];
@@ -37,6 +38,20 @@ export async function fetchTriggeredRulesForSystemPrompt(env, opts = {}) {
   const uid = opts.userId != null ? String(opts.userId).trim() : '';
   if (!ws) return [];
   const message = String(opts.message ?? '');
+  const projectRef = trim(opts.projectRef || opts.projectId);
+
+  let projectRuleKey = '';
+  if (projectRef) {
+    try {
+      const { projectRuntimeContractRuleKey, resolveProjectSlugForRuntimeContract } = await import(
+        './project-runtime-contract.js'
+      );
+      const slug = await resolveProjectSlugForRuntimeContract(env, projectRef, ws);
+      projectRuleKey = projectRuntimeContractRuleKey(slug);
+    } catch (e) {
+      console.warn('[agent] project rule key', e?.message ?? e);
+    }
+  }
 
   let rows = [];
   try {
@@ -58,12 +73,41 @@ export async function fetchTriggeredRulesForSystemPrompt(env, opts = {}) {
     return [];
   }
 
+  if (projectRuleKey) {
+    try {
+      const pRes = await env.DB.prepare(
+        `SELECT id, title, body_markdown, trigger_type, trigger_condition_json, sort_order, rule_key, project_id
+         FROM agentsam_rules_document
+         WHERE is_active = 1
+           AND apply_mode = 'always'
+           AND (id = ? OR rule_key = ? OR project_id = ?)
+         ORDER BY COALESCE(sort_order, 0) ASC, updated_at_epoch DESC`,
+      )
+        .bind(projectRuleKey, projectRuleKey, projectRef)
+        .all();
+      const projectRows = pRes.results || [];
+      const seen = new Set(rows.map((r) => String(r.id)));
+      for (const pr of projectRows) {
+        if (!seen.has(String(pr.id))) {
+          rows.push(pr);
+          seen.add(String(pr.id));
+        }
+      }
+    } catch (e) {
+      console.warn('[agent] project rules query', e?.message ?? e);
+    }
+  }
+
   return rows.filter((r) => {
     const tt = String(r.trigger_type || '').toLowerCase();
     if (tt === 'system') return true;
     if (tt === 'keyword') return ruleMatchesKeywordTrigger(message, r.trigger_condition_json);
     return false;
   });
+}
+
+function trim(v) {
+  return v == null ? '' : String(v).trim();
 }
 
 export async function appendTriggeredRulesToSystemPrompt(env, systemPrompt, opts = {}) {

@@ -50,6 +50,8 @@
     "run:ingest_client_project_doc:dry-run": "./scripts/with-cloudflare-env.sh node scripts/ingest_client_project_doc.mjs --dry-run",
     "run:ingest_client_companionscpas": "./scripts/with-cloudflare-env.sh node scripts/ingest_client_project_doc.mjs --manifest docs/clients/companionscpas/ingest.manifest.json",
     "run:ingest_client_companionscpas:dry-run": "./scripts/with-cloudflare-env.sh node scripts/ingest_client_project_doc.mjs --dry-run --manifest docs/clients/companionscpas/ingest.manifest.json",
+    "sync:project-runtime-contract": "./scripts/with-cloudflare-env.sh node scripts/sync-project-runtime-contract.mjs",
+    "sync:project-runtime-contract:dry-run": "./scripts/with-cloudflare-env.sh node scripts/sync-project-runtime-contract.mjs --dry-run",
     "run:ingest_client_fuelnfreetime": "./scripts/with-cloudflare-env.sh node scripts/ingest_client_project_doc.mjs --manifest docs/clients/fuelnfreetime/ingest.manifest.json",
     "run:ingest_client_fuelnfreetime:dry-run": "./scripts/with-cloudflare-env.sh node scripts/ingest_client_project_doc.mjs --dry-run --manifest docs/clients/fuelnfreetime/ingest.manifest.json",
     "run:ingest_client_meauxbility": "./scripts/with-cloudflare-env.sh node scripts/ingest_client_project_doc.mjs --manifest docs/clients/meauxbility/ingest.manifest.json",

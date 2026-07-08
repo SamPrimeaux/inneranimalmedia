@@ -108,7 +108,9 @@ export type CmsBootstrapData = {
   components_by_section?: Record<string, unknown[]>;
   themes?: unknown[];
   active_theme?: { name?: string; slug?: string; accent?: string } | null;
+  nav_menus?: unknown[];
   assets_3d?: unknown[];
+  assets?: unknown[];
   imports?: unknown[];
   liquid_imports?: unknown[];
   global_settings?: unknown;

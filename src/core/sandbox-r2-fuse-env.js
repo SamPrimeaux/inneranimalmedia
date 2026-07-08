@@ -1,5 +1,7 @@
 /**
- * Optional R2 FUSE for MY_CONTAINER sandbox — maps worker R2 S3 secrets into container env.
+ * Default R2 FUSE for MY_CONTAINER sandbox — durable cwd/assets at /mnt/r2/{prefix}/{zone_slug}/…
+ * Maps worker R2 S3 secrets into container env (not optional for production sandbox exec).
+ * @see docs/platform/sandbox-r2-fuse-default.md
  * @see https://developers.cloudflare.com/containers/examples/r2-fuse-mount/
  */
 
@@ -41,7 +43,7 @@ export function buildSandboxR2FuseEnvVars(env, opts = {}) {
     CONTAINER_POOL_ID: poolId,
     IAM_IMAGE_TAG: 'sandbox-go-v1',
     IAM_SANDBOX_R2_FUSE: trim(env?.IAM_SANDBOX_R2_FUSE) || '1',
-    IAM_R2_FUSE_READONLY: trim(env?.IAM_R2_FUSE_READONLY) || '1',
+    IAM_R2_FUSE_READONLY: trim(env?.IAM_R2_FUSE_READONLY) || '0',
     WRANGLER_SEND_METRICS: 'false',
   };
 
@@ -87,8 +89,8 @@ export async function resolveWorkspaceR2Prefix(env, workspaceId) {
 }
 
 /**
- * Sandbox exec cwd — FUSE path under /mnt/r2/{workspace prefix} when configured.
- * Read-only FUSE (default): read workspace prefix from R2; zone scratch stays under /tmp/{zone}.
+ * Sandbox exec cwd — FUSE path under /mnt/r2/{workspace prefix}/{zone_slug}/ when configured.
+ * Writable FUSE (default): zone work + assets persist to R2. Set IAM_R2_FUSE_READONLY=1 for read-only debug.
  * @param {any} env
  * @param {{ workspaceId?: string|null, zoneSlug?: string, innerPath?: string|null }} opts
  */

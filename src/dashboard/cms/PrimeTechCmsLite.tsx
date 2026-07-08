@@ -129,7 +129,7 @@ function SitesView({
   onOpenDeployWizard?: () => void;
   onSelectSite?: (slug: string, path: string) => void | Promise<void>;
 }) {
-  const rows = sites || [];
+  const rows = Array.isArray(sites) ? sites : [];
   const featured = rows.find((s) => s.slug === primaryProjectSlug)
     || rows.find((s) => s.slug === workspaceSlug)
     || rows[0];

@@ -1,6 +1,6 @@
 /**
  * Health-aware terminal_connections routing — Mac-first when healthy, GCP fallback.
- * ExecOS law: localpty.* = desk lane · terminal.* = always-on cloud · auto picks by probe.
+ * ExecOS law: localpty.* = samsmac desk lane · terminal.* = GCP always-on · auto picks by probe.
  */
 
 /** @typedef {'auto'|'user_hosted_tunnel'|'platform_vm'|'sandbox'} TerminalRouteMode */

@@ -1,18 +1,11 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { useCmsWorkspaceContext } from '../../hooks/useCmsWorkspaceContext';
-import { buildCmsPath, buildCmsHubPath, parseCmsRoute, readStoredCmsProjectSlug, type CmsView } from './cmsRoute';
-import { CmsDashboard } from './CmsDashboard';
-import { CmsShellLayout } from './CmsShellLayout';
+import { useCmsWorkspaceContext, normalizeCmsSitesList } from '../../hooks/useCmsWorkspaceContext';
+import { buildCmsPath, buildCmsHubPath, parseCmsRoute, readStoredCmsProjectSlug } from './cmsRoute';
+import { CmsHubPage } from './CmsHubPage';
 import { SiteDeployWizard } from './SiteDeployWizard';
 import { CmsSiteLauncherGrid } from './CmsSiteLauncherGrid';
 import { useWorkspace } from '../../src/context/WorkspaceContext';
-
-const CmsRoot = lazy(() =>
-  import('../../../src/dashboard/cms/CmsRoot').then((m) => ({
-    default: m.CmsRoot ?? m.default,
-  })),
-);
 
 const CmsStudioEditor = lazy(() =>
   import('../../../src/dashboard/cms/CmsStudioEditor').then((m) => ({
@@ -125,9 +118,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
     [load, navigate, persistSite],
   );
 
-  const isOperatorHub = context?.is_operator_hub === true;
-  const isHubSitesView = parsed.view === 'sites';
-  const isHubCommandCenter = parsed.view === 'hub' && Boolean(parsed.siteSlug);
+  const isHubView = parsed.view === 'sites' || parsed.view === 'hub';
 
   useEffect(() => {
     if (parsed.legacy && parsed.legacyTarget) {
@@ -136,7 +127,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   }, [parsed, navigate]);
 
   useEffect(() => {
-    if (isHubSitesView || isHubCommandCenter || loading || !context?.project_slug || parsed.siteSlug) return;
+    if (isHubView || loading || !context?.project_slug || parsed.siteSlug) return;
     navigate(
       buildCmsPath({
         panel: parsed.panel,
@@ -145,29 +136,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
       }),
       { replace: true },
     );
-  }, [isHubSitesView, isHubCommandCenter, parsed.panel, parsed.pageId, parsed.siteSlug, loading, context?.project_slug, navigate]);
-
-  const cmsNavigate = useCallback(
-    (target: string) => {
-      const [pathPart, queryPart] = target.split('?');
-      const legacy = pathPart.replace(/^\//, '').split('/');
-      const idx = legacy.indexOf('cms');
-      const seg = idx >= 0 ? legacy[idx + 1] : pathPart;
-      const q = new URLSearchParams(queryPart || '');
-      const site = q.get('project') || q.get('site') || parsed.siteSlug || context?.project_slug || null;
-
-      if (seg === 'editor' || seg === 'templates' || seg === 'imports') {
-        if (seg === 'editor') {
-          navigate(buildCmsPath({ panel: 'pages', pageId: q.get('page'), siteSlug: site }));
-          return;
-        }
-        navigate(buildCmsPath({ panel: seg === 'templates' ? 'templates' : 'imports', siteSlug: site }));
-        return;
-      }
-      navigate(pathPart.startsWith('/') ? pathPart : `/dashboard/cms/${pathPart}`);
-    },
-    [navigate, parsed.siteSlug, context?.project_slug],
-  );
+  }, [isHubView, parsed.panel, parsed.pageId, parsed.siteSlug, loading, context?.project_slug, navigate]);
 
   const handleSelectSite = useCallback(
     async (slug: string, path: string) => {
@@ -185,38 +154,34 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
     [navigate],
   );
 
-  const viewForRoot: CmsView =
-    parsed.view === 'sites'
-      ? 'sites'
-      : parsed.view === 'online-store'
-        ? 'online-store'
-        : parsed.view === 'theme-editor'
-          ? 'theme-editor'
-          : parsed.panel === 'templates'
-            ? 'templates'
-            : parsed.panel === 'imports'
-              ? 'imports'
-              : 'pages';
-
   const isStudioEditorRoute =
-    !isHubSitesView && !isHubCommandCenter && Boolean(context?.project_slug || effectiveSiteSlug);
+    !isHubView && Boolean(context?.project_slug || effectiveSiteSlug);
   const studioProjectSlug = context?.project_slug || effectiveSiteSlug || null;
   const studioPanel =
     parsed.view === 'theme-editor'
       ? 'theme-editor'
       : parsed.panel || 'pages';
 
+  const sitesList = useMemo(() => normalizeCmsSitesList(context?.sites), [context?.sites]);
+
   const needsSitePick =
-    !isHubSitesView &&
-    !isHubCommandCenter &&
+    !isHubView &&
     !loading &&
     !context?.project_slug &&
     !effectiveSiteSlug &&
-    (context?.sites?.length || 0) !== 1;
+    sitesList.length !== 1;
 
-  const siteCount = context?.sites?.length || 0;
-  const activeSite =
-    context?.sites?.find((s) => s.slug === (parsed.siteSlug || context?.project_slug)) || null;
+  const siteCount = sitesList.length;
+
+  const hubSiteSlug = useMemo(() => {
+    if (parsed.siteSlug) return parsed.siteSlug;
+    if (context?.project_slug && sitesList.some((s) => s.slug === context.project_slug)) {
+      return context.project_slug;
+    }
+    if (storedSiteSlug && sitesList.some((s) => s.slug === storedSiteSlug)) return storedSiteSlug;
+    if (sitesList.length === 1) return sitesList[0].slug;
+    return null;
+  }, [parsed.siteSlug, context?.project_slug, storedSiteSlug, sitesList]);
 
   return (
     <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden bg-[#F9F7F2] iam-agentsam-cms-host h-full">
@@ -244,10 +209,10 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
                 Retry
               </button>
             ) : null}
-            {(context?.sites?.length || 0) > 0 ? (
+            {sitesList.length > 0 ? (
               <div className="mt-6 flex justify-center">
                 <CmsSiteLauncherGrid
-                  sites={context?.sites || []}
+                  sites={sitesList}
                   onSelectSite={(site) => {
                     void handleSelectSite(site.slug, buildCmsHubPath(site.slug));
                   }}
@@ -257,61 +222,22 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           </div>
         </div>
       ) : null}
-      {!needsSitePick && isHubCommandCenter && parsed.siteSlug ? (
-        <CmsShellLayout
-          siteSlug={parsed.siteSlug}
-          site={activeSite}
-          context={context}
-          activeNav="hub"
-          showComposeBar
-        >
-          {loading ? (
-            <div className="iam-cms-loading">Loading site context…</div>
-          ) : (
-            <CmsDashboard
-              siteSlug={parsed.siteSlug}
-              site={activeSite}
-              context={context}
-              onNavigate={cmsNavigatePath}
-            />
-          )}
-        </CmsShellLayout>
+      {!needsSitePick && isHubView ? (
+        <CmsHubPage
+          context={context ? { ...context, sites: sitesList } : null}
+          sites={sitesList}
+          activeSiteSlug={hubSiteSlug}
+          loading={loading}
+          error={error}
+          onRetry={() => {
+            void load();
+          }}
+          onSelectSite={handleSelectSite}
+          onNavigate={cmsNavigatePath}
+          onOpenDeployWizard={() => setWizardOpen(true)}
+        />
       ) : null}
-      {!needsSitePick && isHubSitesView ? (
-        <Suspense
-          fallback={
-            <div className="flex flex-1 items-center justify-center text-sm text-muted">
-              Loading…
-            </div>
-          }
-        >
-          <CmsRoot
-            workspaceId={activeWorkspaceId}
-            workspaceLabel={context?.ui_label || context?.workspace_name || null}
-            workspaceSlug={context?.workspace_slug || null}
-            publicDomain={context?.public_domain || null}
-            sites={context?.sites || []}
-            primaryProjectSlug={isOperatorHub ? null : context?.project_slug || null}
-            loadingSites={loading && isHubSitesView}
-            sitesError={isHubSitesView ? error : null}
-            onRetrySites={() => {
-              void load();
-            }}
-            view={viewForRoot}
-            projectSlug={parsed.siteSlug || null}
-            pageId={parsed.pageId}
-            studioPanel={parsed.panel}
-            addToPageId={searchParams.get('add_to_page')}
-            loadingProject={loading && !isHubSitesView}
-            projectError={error}
-            onNavigate={cmsNavigate}
-            onNavigatePath={cmsNavigatePath}
-            onOpenDeployWizard={() => setWizardOpen(true)}
-            onSelectSite={handleSelectSite}
-          />
-        </Suspense>
-      ) : null}
-      {!needsSitePick && !isHubSitesView && isStudioEditorRoute && studioProjectSlug ? (
+      {!needsSitePick && !isHubView && isStudioEditorRoute && studioProjectSlug ? (
         <Suspense fallback={<StudioShellFallback themeEditor={studioPanel === 'theme-editor'} />}>
           <CmsStudioEditor
             projectSlug={studioProjectSlug}
@@ -343,4 +269,3 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
 
 // NOTE: iam-cms-navigate postMessage handler is registered in CmsStudioEditor
 // via window.addEventListener('message', ...) — no additional wiring needed here.
-// The parent cmsNavigate callback is already passed to CmsRoot as onNavigate.

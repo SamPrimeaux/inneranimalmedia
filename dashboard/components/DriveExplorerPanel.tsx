@@ -10,14 +10,12 @@ import {
 } from 'lucide-react';
 import type { ActiveFile } from '../types';
 import {
+  connectGoogleDrive,
   fetchDriveConnectionStatus,
   fetchDriveListing,
   isDriveFolder,
   type DriveApiFile,
 } from '../src/lib/library/libraryApi';
-
-const DRIVE_CONNECT_HREF =
-  '/api/integrations/google-drive/connect?return_to=/dashboard/agent/editor';
 
 type FolderCrumb = { id: string; name: string };
 
@@ -156,13 +154,16 @@ export const DriveExplorerPanel: React.FC<{
         {statusError ? (
           <p className="text-[10px] text-[var(--solar-orange)]">{statusError}</p>
         ) : null}
-        <a
-          href={DRIVE_CONNECT_HREF}
+        <button
+          type="button"
           className="inline-flex items-center gap-2 px-3 py-1.5 rounded bg-[var(--text-main)] text-[var(--bg-panel)] text-[11px] font-semibold hover:brightness-110"
+          onClick={() => {
+            void connectGoogleDrive().then(() => void loadStatus());
+          }}
         >
           <ExternalLink size={12} aria-hidden />
           Connect Drive
-        </a>
+        </button>
       </div>
     );
   }
@@ -242,7 +243,23 @@ export const DriveExplorerPanel: React.FC<{
             Loading…
           </div>
         ) : listError ? (
-          <p className="px-3 py-4 text-[11px] text-[var(--solar-orange)]">{listError}</p>
+          <p className="px-3 py-4 text-[11px] text-[var(--solar-orange)]">
+            {listError}
+            {listError.toLowerCase().includes('not connected') || listError.toLowerCase().includes('unauthorized') ? (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  className="underline font-semibold"
+                  onClick={() => {
+                    void connectGoogleDrive().then(() => void loadStatus());
+                  }}
+                >
+                  Reconnect Drive
+                </button>
+              </>
+            ) : null}
+          </p>
         ) : files.length === 0 ? (
           <p className="px-3 py-4 text-[11px] text-muted">This folder is empty.</p>
         ) : (

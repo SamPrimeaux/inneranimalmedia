@@ -1,3 +1,8 @@
+import {
+  oauthConnectReturnTo,
+  openIntegrationOAuthPopup,
+  type OAuthPopupResult,
+} from '../integrationOAuthPopup';
 import { pickR2DisplayBuckets, type R2BucketsApiResponse } from '../r2Buckets';
 import { partitionR2Listing, type R2ObjectRow } from '../r2Listing';
 import type { DriveView } from './types';
@@ -233,23 +238,25 @@ export async function fetchR2StorageLabel(bucket: string, signal?: AbortSignal):
 const GOOGLE_DRIVE_READONLY_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
 const GOOGLE_DRIVE_MANAGE_SCOPE = 'https://www.googleapis.com/auth/drive';
 
-export function connectGoogleDrive(returnTo = '/dashboard/artifacts') {
-  window.open(
-    `/api/integrations/google-drive/connect?return_to=${encodeURIComponent(returnTo)}`,
-    'google_oauth',
-    'width=600,height=700,scrollbars=yes',
-  );
+function driveConnectUrl(returnTo: string, extraParams?: URLSearchParams) {
+  const params = new URLSearchParams({ return_to: returnTo });
+  if (extraParams) {
+    for (const [k, v] of extraParams.entries()) params.set(k, v);
+  }
+  return `/api/integrations/google-drive/connect?${params.toString()}`;
+}
+
+/** Unified Drive OAuth — same spine as Integrations catalog + popup postMessage. */
+export function connectGoogleDrive(returnTo?: string): Promise<OAuthPopupResult> {
+  const rt = returnTo || oauthConnectReturnTo();
+  return openIntegrationOAuthPopup(driveConnectUrl(rt), 'google_drive');
 }
 
 /** Reconnect with readonly + full drive scope for shared drive create/manage. */
-export function connectGoogleDriveForManage(returnTo = '/dashboard/artifacts') {
-  const params = new URLSearchParams({
-    return_to: returnTo,
+export function connectGoogleDriveForManage(returnTo?: string): Promise<OAuthPopupResult> {
+  const rt = returnTo || oauthConnectReturnTo();
+  const scopes = new URLSearchParams({
     scope: [GOOGLE_DRIVE_READONLY_SCOPE, GOOGLE_DRIVE_MANAGE_SCOPE].join(' '),
   });
-  window.open(
-    `/api/integrations/google-drive/connect?${params.toString()}`,
-    'google_oauth',
-    'width=600,height=700,scrollbars=yes',
-  );
+  return openIntegrationOAuthPopup(driveConnectUrl(rt, scopes), 'google_drive');
 }

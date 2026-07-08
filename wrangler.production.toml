@@ -276,7 +276,7 @@ CAD_DISPATCH_TARGET = "gcp"
 CONTAINER_POOL_ID = "inneranimalmedia"
 SANDBOX_R2_BUCKET_NAME = "inneranimalmedia"
 IAM_SANDBOX_R2_FUSE = "1"
-IAM_R2_FUSE_READONLY = "1"
+IAM_R2_FUSE_READONLY = "0"
 
 [observability]
 

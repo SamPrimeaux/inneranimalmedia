@@ -12,7 +12,10 @@ import {
 } from './libraryApi';
 import {
   loadPersistedLocalDirectoryHandle,
+  persistLocalDirectoryHandle,
   pickLocalDirectoryHandle,
+  queryLocalReadPermission,
+  requestLocalReadPermission,
 } from './localHandleStore';
 import { listLibrarySources } from './providers';
 import type {
@@ -60,6 +63,7 @@ export function useLibraryWorkspace() {
   const [localDirHandle, setLocalDirHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [localPath, setLocalPath] = useState('');
   const [localFolderName, setLocalFolderName] = useState<string | null>(null);
+  const [localNeedsReconnect, setLocalNeedsReconnect] = useState(false);
 
   const loadSeq = useRef(0);
 
@@ -186,9 +190,19 @@ export function useLibraryWorkspace() {
   useEffect(() => {
     void (async () => {
       const handle = await loadPersistedLocalDirectoryHandle();
-      if (handle) {
+      if (!handle) {
+        setLocalNeedsReconnect(false);
+        return;
+      }
+      const perm = await queryLocalReadPermission(handle);
+      if (perm === 'granted' || perm === 'unsupported') {
         setLocalDirHandle(handle);
         setLocalFolderName(handle.name);
+        setLocalNeedsReconnect(false);
+      } else {
+        setLocalDirHandle(null);
+        setLocalFolderName(handle.name);
+        setLocalNeedsReconnect(true);
       }
     })();
   }, []);
@@ -320,13 +334,17 @@ export function useLibraryWorkspace() {
     }
   }, [activeRail, driveFolderStack, driveView, sharedDriveId, r2Prefix, localPath, resetDriveNav]);
 
-  const connectDrive = useCallback(() => {
-    connectGoogleDrive('/dashboard/artifacts');
-  }, []);
+  const connectDrive = useCallback(async () => {
+    const out = await connectGoogleDrive();
+    if (out.ok) await refresh();
+    return out;
+  }, [refresh]);
 
-  const connectDriveForManage = useCallback(() => {
-    connectGoogleDriveForManage('/dashboard/artifacts');
-  }, []);
+  const connectDriveForManage = useCallback(async () => {
+    const out = await connectGoogleDriveForManage();
+    if (out.ok) await refresh();
+    return out;
+  }, [refresh]);
 
   const disconnectDrive = useCallback(async () => {
     const out = await disconnectGoogleDrive();
@@ -337,10 +355,25 @@ export function useLibraryWorkspace() {
   }, [refresh]);
 
   const connectLocalFolder = useCallback(async () => {
+    const persisted = await loadPersistedLocalDirectoryHandle();
+    if (persisted) {
+      const perm = await requestLocalReadPermission(persisted);
+      if (perm === 'granted' || perm === 'unsupported') {
+        await persistLocalDirectoryHandle(persisted);
+        setLocalDirHandle(persisted);
+        setLocalFolderName(persisted.name);
+        setLocalNeedsReconnect(false);
+        setLocalPath('');
+        setRail('local');
+        void refresh();
+        return;
+      }
+    }
     const handle = await pickLocalDirectoryHandle();
     if (!handle) return;
     setLocalDirHandle(handle);
     setLocalFolderName(handle.name);
+    setLocalNeedsReconnect(false);
     setLocalPath('');
     setRail('local');
     void refresh();
@@ -391,6 +424,7 @@ export function useLibraryWorkspace() {
     r2Prefix,
     storageLabel,
     localFolderName,
+    localNeedsReconnect,
     pageTitle,
     canNavigateUp,
     setQuery,

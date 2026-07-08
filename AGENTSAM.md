@@ -5,6 +5,44 @@
 > Fill this in at project conception. Keep it current. Commit every change.
 > If this file conflicts with anything in any database — this file wins.
 
+<!--
+Optional frontmatter (parsed on sync — keep accurate):
+---
+project_slug: inneranimalmedia
+project_id: proj_xxx_or_dashboard_projects.id
+workspace_id: ws_inneranimalmedia
+agentsam_md: AGENTSAM.md
+---
+-->
+
+---
+
+## Runtime contract sync (Agent Sam)
+
+Every IAM project gets a D1 row: **`agentsam_rules_document`** · **`rule_{project_slug}_runtimecontract`**.
+
+| Source | What happens |
+|--------|----------------|
+| **This file (AGENTSAM.md)** | Human SSOT — edit here first |
+| **Dashboard → Project → Instructions** | Additive rules; **auto-syncs** to the D1 row on save |
+| **CLI sync** | Embeds full AGENTSAM.md into D1 after you commit |
+
+```bash
+# After editing AGENTSAM.md (set IAM_SYNC_BEARER or use logged-in session):
+npm run sync:project-runtime-contract -- --project <projects.id> --file AGENTSAM.md
+
+# Client example:
+npm run sync:project-runtime-contract -- \
+  --project proj_companions_cpas_web \
+  --file docs/clients/companionscpas/AGENTSAM.md
+```
+
+**Honored when:** user selects this project in Agent Sam chat → row injected into system prompt every turn.
+
+**Do not** bake repo paths into global platform rules — only into this project's runtime contract row (or `agentsam_workspace` metadata).
+
+Vectorized R2 copy: add `AGENTSAM.md` to `docs/clients/{slug}/ingest.manifest.json` for semantic search (`npm run run:ingest_client_*`).
+
 ---
 
 ## Identity
@@ -192,6 +230,7 @@ Dead/unwired code:      <!-- list anything that exists but isn't called -->
 5. If uncertain about anything — ask, do not invent
 6. Worker bindings must match the Cloudflare dashboard table in this file — Type / Name / Value verbatim; **Name** = `env.*` in code
 7. Every IAM project must have a synced AGENTSAM.md pair (IAM docs + client repo when applicable); seed dashboard Instructions on the project detail page
+8. After changing rules here: run `npm run sync:project-runtime-contract` (or save dashboard Instructions) so D1 `rule_{slug}_runtimecontract` stays current
 ```
 
 ---

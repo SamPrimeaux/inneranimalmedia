@@ -397,6 +397,8 @@ export async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeC
     workspaceId: options?.workspaceId,
     userId: options?.userId,
     message: options?.message,
+    projectId: options?.projectId ?? options?.project_id ?? null,
+    projectRef: options?.projectRef ?? options?.project_id ?? options?.projectId ?? null,
   };
 
   const appendRulesContextBlock = async (systemPrompt) =>

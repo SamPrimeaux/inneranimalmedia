@@ -22,31 +22,26 @@ export async function resolveGmailUserId(env, authUser) {
  * @param {string} canonicalUserId
  * @param {string} [legacyEmail]
  */
-async function queryGmailTokenRows(env, canonicalUserId, legacyEmail = '') {
+async function queryGmailTokenRows(env, canonicalUserId) {
   if (!env?.DB || !canonicalUserId) return [];
-  const keys = new Set([canonicalUserId]);
-  const email = String(legacyEmail || '').trim().toLowerCase();
-  if (email && email !== canonicalUserId.toLowerCase()) keys.add(email);
+  const { results } = await env.DB.prepare(
+    `SELECT user_id, provider, account_identifier,
+            access_token, access_token_encrypted,
+            refresh_token, refresh_token_encrypted,
+            expires_at, scope, updated_at, account_email, account_display
+     FROM user_oauth_tokens
+     WHERE user_id = ? AND lower(provider) IN ('google_gmail', 'gmail')
+     ORDER BY updated_at DESC`
+  ).bind(canonicalUserId).all().catch(() => ({ results: [] }));
 
   const all = [];
-  for (const userKey of keys) {
-    const { results } = await env.DB.prepare(
-      `SELECT user_id, provider, account_identifier,
-              access_token, access_token_encrypted,
-              refresh_token, refresh_token_encrypted,
-              expires_at, scope, updated_at, account_email, account_display
-       FROM user_oauth_tokens
-       WHERE user_id = ? AND lower(provider) IN ('google_gmail', 'gmail')
-       ORDER BY updated_at DESC`
-    ).bind(userKey).all().catch(() => ({ results: [] }));
-    for (const row of results || []) {
-      const acct = String(row.account_identifier || '').trim().toLowerCase();
-      const dedupe = `${acct}:${String(row.provider || '').toLowerCase()}`;
-      if (all.some((x) => `${String(x.account_identifier || '').trim().toLowerCase()}:${String(x.provider || '').toLowerCase()}` === dedupe)) {
-        continue;
-      }
-      all.push({ ...row, user_id: canonicalUserId, provider: GMAIL_PROVIDER });
+  for (const row of results || []) {
+    const acct = String(row.account_identifier || '').trim().toLowerCase();
+    const dedupe = `${acct}:${String(row.provider || '').toLowerCase()}`;
+    if (all.some((x) => `${String(x.account_identifier || '').trim().toLowerCase()}:${String(x.provider || '').toLowerCase()}` === dedupe)) {
+      continue;
     }
+    all.push({ ...row, user_id: canonicalUserId, provider: GMAIL_PROVIDER });
   }
   return all;
 }
@@ -58,8 +53,7 @@ async function queryGmailTokenRows(env, canonicalUserId, legacyEmail = '') {
 export async function listGmailTokenRowsForUser(env, authUser) {
   const canonicalUserId = await resolveGmailUserId(env, authUser);
   if (!canonicalUserId) return [];
-  const email = authUser?.email ? String(authUser.email).trim().toLowerCase() : '';
-  return queryGmailTokenRows(env, canonicalUserId, email);
+  return queryGmailTokenRows(env, canonicalUserId);
 }
 
 /**

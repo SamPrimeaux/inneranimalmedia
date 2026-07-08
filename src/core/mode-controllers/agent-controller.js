@@ -307,6 +307,8 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         routeKey: promptRouteRow?.route_key ?? body.route_key ?? body.routeKey ?? null,
         workspaceId,
         userId,
+        projectId: input.sessionProjectRef ?? body.project_id ?? body.projectId ?? null,
+        projectRef: input.sessionProjectRef ?? body.project_id ?? body.projectId ?? null,
         minimalAsk,
         ctx: input.ctx ?? null,
         conversationId: sessionId,

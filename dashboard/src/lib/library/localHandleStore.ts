@@ -2,6 +2,13 @@ const NATIVE_WS_DB_NAME = 'iam-agent-native-workspace-v1';
 const NATIVE_WS_STORE = 'handles';
 const NATIVE_WS_KEY = 'directory';
 
+type PermissionState = 'granted' | 'denied' | 'prompt';
+
+type HandleWithPermission = FileSystemDirectoryHandle & {
+  queryPermission?: (o: { mode: string }) => Promise<string>;
+  requestPermission?: (o: { mode: string }) => Promise<string>;
+};
+
 function openNativeWsDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(NATIVE_WS_DB_NAME, 2);
@@ -52,20 +59,38 @@ export async function pickLocalDirectoryHandle(): Promise<FileSystemDirectoryHan
   }
 }
 
-export async function ensureLocalReadPermission(
+/** Query only — safe on page load (no user activation required). */
+export async function queryLocalReadPermission(
   handle: FileSystemDirectoryHandle,
-): Promise<boolean> {
-  const h = handle as FileSystemDirectoryHandle & {
-    queryPermission?: (o: { mode: string }) => Promise<string>;
-    requestPermission?: (o: { mode: string }) => Promise<string>;
-  };
-  if (typeof h.queryPermission !== 'function') return true;
+): Promise<PermissionState | 'unsupported'> {
+  const h = handle as HandleWithPermission;
+  if (typeof h.queryPermission !== 'function') return 'unsupported';
+  const state = await h.queryPermission({ mode: 'read' });
+  if (state === 'granted' || state === 'denied' || state === 'prompt') return state;
+  return 'denied';
+}
+
+/**
+ * Must run synchronously inside a click/tap handler — browsers reject otherwise.
+ * Never call from useEffect, OAuth callbacks, or post-load refresh paths.
+ */
+export async function requestLocalReadPermission(
+  handle: FileSystemDirectoryHandle,
+): Promise<PermissionState | 'unsupported'> {
+  const h = handle as HandleWithPermission;
+  if (typeof h.queryPermission !== 'function') return 'unsupported';
   let state = await h.queryPermission({ mode: 'read' });
-  if (state === 'granted') return true;
-  if (typeof h.requestPermission === 'function') {
-    state = await h.requestPermission({ mode: 'read' });
-  }
-  return state === 'granted';
+  if (state === 'granted') return 'granted';
+  if (typeof h.requestPermission !== 'function') return 'denied';
+  state = await h.requestPermission({ mode: 'read' });
+  if (state === 'granted' || state === 'denied' || state === 'prompt') return state;
+  return 'denied';
+}
+
+/** @deprecated Prefer queryLocalReadPermission + explicit reconnect click. */
+export async function ensureLocalReadPermission(handle: FileSystemDirectoryHandle): Promise<boolean> {
+  const state = await queryLocalReadPermission(handle);
+  return state === 'granted' || state === 'unsupported';
 }
 
 export async function resolveLocalSubdirectoryHandle(

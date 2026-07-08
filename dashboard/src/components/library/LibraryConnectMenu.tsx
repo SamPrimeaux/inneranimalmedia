@@ -13,6 +13,7 @@ import type { DriveConnectionStatus } from '../../lib/library/libraryApi';
 type Props = {
   driveStatus: DriveConnectionStatus | null;
   localFolderName: string | null;
+  localNeedsReconnect?: boolean;
   onConnectDrive: () => void;
   onDisconnectDrive: () => Promise<{ ok: boolean; error?: string }>;
   onConnectLocal: () => void | Promise<void>;
@@ -23,6 +24,7 @@ type Props = {
 export function LibraryConnectMenu({
   driveStatus,
   localFolderName,
+  localNeedsReconnect = false,
   onConnectDrive,
   onDisconnectDrive,
   onConnectLocal,
@@ -137,12 +139,16 @@ export function LibraryConnectMenu({
               <FolderOpen size={16} strokeWidth={1.75} aria-hidden />
               <div className="lib-connect-row-body">
                 <span className="lib-connect-label">Local folder</span>
-                <span className="lib-connect-status">{localFolderName || 'Not linked'}</span>
+                <span className={`lib-connect-status${localFolderName && !localNeedsReconnect ? ' on' : ''}`}>
+                  {localNeedsReconnect
+                    ? `${localFolderName || 'Folder'} — reconnect required`
+                    : localFolderName || 'Not linked'}
+                </span>
               </div>
             </div>
             <button type="button" className="lib-connect-action" onClick={() => void onConnectLocal()}>
               <FolderOpen size={15} strokeWidth={1.75} />
-              {localFolderName ? 'Change local folder' : 'Choose local folder'}
+              {localNeedsReconnect ? 'Reconnect folder' : localFolderName ? 'Change local folder' : 'Choose local folder'}
             </button>
           </div>
 

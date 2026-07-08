@@ -18,6 +18,8 @@ const RAIL_ITEMS: RailItem[] = [
   { id: 'contacts', label: 'Contacts', title: 'Contacts', icon: 'contacts' },
 ];
 
+type PanelAction = { type: 'new-note' | 'new-contact'; at: number } | null;
+
 function CalendarBadgeIcon() {
   const { month, day, weekday } = useMemo(() => {
     const now = new Date();
@@ -47,6 +49,7 @@ function RailIcon({ kind }: { kind: RailItem['icon'] }) {
 export function LibrarySideRail({ onPanelChange }: { onPanelChange?: (open: boolean) => void }) {
   const [activePanel, setActivePanel] = useState<CollaborateRailPanel | null>(null);
   const [panelVersion, setPanelVersion] = useState(0);
+  const [panelAction, setPanelAction] = useState<PanelAction>(null);
 
   const togglePanel = (id: CollaborateRailPanel) => {
     setActivePanel((cur) => {
@@ -70,7 +73,7 @@ export function LibrarySideRail({ onPanelChange }: { onPanelChange?: (open: bool
   const activeMeta = RAIL_ITEMS.find((r) => r.id === activePanel);
 
   return (
-    <>
+    <div className="drive-rail-stack">
       {activePanel && activeMeta ? (
         <aside className="lib-rail-panel open" aria-label={`${activeMeta.title} panel`}>
           <div className="lib-rail-panel-head">
@@ -79,12 +82,39 @@ export function LibrarySideRail({ onPanelChange }: { onPanelChange?: (open: bool
               <strong>{activeMeta.title}</strong>
             </div>
             <div className="lib-rail-panel-actions">
+              {activePanel === 'notes' ? (
+                <button
+                  type="button"
+                  className="icon-btn lib-rail-add-btn"
+                  aria-label="New note"
+                  title="New note"
+                  onClick={() => setPanelAction({ type: 'new-note', at: Date.now() })}
+                >
+                  <Plus size={18} strokeWidth={1.75} />
+                </button>
+              ) : null}
+              {activePanel === 'contacts' ? (
+                <button
+                  type="button"
+                  className="icon-btn lib-rail-add-btn"
+                  aria-label="Add contact"
+                  title="Add contact"
+                  onClick={() => setPanelAction({ type: 'new-contact', at: Date.now() })}
+                >
+                  <Plus size={18} strokeWidth={1.75} />
+                </button>
+              ) : null}
               <button type="button" className="icon-btn" onClick={closePanel} aria-label="Close panel">
                 <X size={18} strokeWidth={1.75} />
               </button>
             </div>
           </div>
-          <CollaborateRailPanels key={`${activePanel}-${panelVersion}`} panel={activePanel} />
+          <CollaborateRailPanels
+            key={`${activePanel}-${panelVersion}`}
+            panel={activePanel}
+            panelAction={panelAction}
+            onPanelActionHandled={() => setPanelAction(null)}
+          />
         </aside>
       ) : null}
 
@@ -109,7 +139,7 @@ export function LibrarySideRail({ onPanelChange }: { onPanelChange?: (open: bool
           />
         </div>
       </aside>
-    </>
+    </div>
   );
 }
 

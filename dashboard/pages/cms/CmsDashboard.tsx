@@ -4,6 +4,8 @@ import type { CmsWorkspaceContext, CmsWorkspaceSite } from '../../hooks/useCmsWo
 import type { CmsBootstrapData } from '../../../src/types/cms';
 import { buildCmsPath } from './cmsRoute';
 import { resolveStorefrontUrl, storefrontDisplayHost } from '../../../src/dashboard/cms/cmsStorefrontUrl';
+import { CmsConnectedIntegrations } from './CmsConnectedIntegrations';
+import { useCmsConnectedIntegrations } from './useCmsConnectedIntegrations';
 import './cmsShell.css';
 
 type ActivityRow = {
@@ -39,6 +41,13 @@ export function CmsDashboard({ siteSlug, site, context, onNavigate }: Props) {
   const [activity, setActivity] = useState<ActivityRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const {
+    items: connectedIntegrations,
+    loading: integrationsLoading,
+    error: integrationsError,
+    refresh: refreshIntegrations,
+    connectedCount,
+  } = useCmsConnectedIntegrations(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,10 +80,18 @@ export function CmsDashboard({ siteSlug, site, context, onNavigate }: Props) {
 
   const pages = boot?.pages || [];
   const themes = boot?.themes || [];
-  const assets = boot?.assets || [];
+  const assets = boot?.assets_3d || boot?.assets || [];
   const imports = boot?.imports || [];
-  const published = pages.filter((p) => String(p.status || '').toLowerCase() === 'published').length;
+  const navMenus = boot?.nav_menus || [];
+  const sections = boot?.sections || Object.values(boot?.sections_by_page || {}).flat();
   const drafts = pages.filter((p) => String(p.status || '').toLowerCase() === 'draft').length;
+  const collectionCount = useMemo(() => {
+    const sectionTypes = new Set(
+      sections.map((s) => String((s as { section_type?: string }).section_type || '').trim()).filter(Boolean),
+    );
+    if (sectionTypes.size > 0) return sectionTypes.size;
+    return navMenus.length;
+  }, [sections, navMenus.length]);
 
   const storefrontUrl = useMemo(
     () =>
@@ -91,16 +108,9 @@ export function CmsDashboard({ siteSlug, site, context, onNavigate }: Props) {
       {
         id: 'content',
         title: 'Content',
-        sub: `${drafts} draft${drafts === 1 ? '' : 's'} · ${published} live`,
+        sub: `${drafts} draft${drafts === 1 ? '' : 's'}`,
         path: buildCmsPath({ panel: 'pages', siteSlug }),
         cta: 'Manage content',
-      },
-      {
-        id: 'theme',
-        title: 'Theme',
-        sub: `${themes.length} theme${themes.length === 1 ? '' : 's'} available`,
-        path: buildCmsPath({ panel: 'theme-editor', siteSlug }),
-        cta: 'Open theme editor',
       },
       {
         id: 'media',
@@ -112,12 +122,20 @@ export function CmsDashboard({ siteSlug, site, context, onNavigate }: Props) {
       {
         id: 'structure',
         title: 'Structure',
-        sub: `${pages.length} page${pages.length === 1 ? '' : 's'} in sitemap`,
+        sub: `${navMenus.length || pages.length} menu${(navMenus.length || pages.length) === 1 ? '' : 's'}`,
         path: buildCmsPath({ panel: 'theme-editor', siteSlug }),
         cta: 'View structure',
       },
+      {
+        id: 'settings',
+        title: 'Settings',
+        sub: `${connectedCount} integration${connectedCount === 1 ? '' : 's'} connected`,
+        path: '/dashboard/settings?section=integrations',
+        cta: 'Site settings',
+        external: true,
+      },
     ],
-    [drafts, published, themes.length, assets.length, pages.length, siteSlug],
+    [drafts, assets.length, navMenus.length, pages.length, connectedCount, siteSlug],
   );
 
   const quickActions = useMemo(
@@ -170,16 +188,16 @@ export function CmsDashboard({ siteSlug, site, context, onNavigate }: Props) {
               <div className="iam-cms-stat__value">{pages.length}</div>
             </div>
             <div className="iam-cms-stat">
-              <div className="iam-cms-stat__label">Published</div>
-              <div className="iam-cms-stat__value">{published}</div>
+              <div className="iam-cms-stat__label">Collections</div>
+              <div className="iam-cms-stat__value">{collectionCount}</div>
             </div>
             <div className="iam-cms-stat">
-              <div className="iam-cms-stat__label">Drafts</div>
-              <div className="iam-cms-stat__value">{drafts}</div>
+              <div className="iam-cms-stat__label">Integrations</div>
+              <div className="iam-cms-stat__value">{connectedCount}</div>
             </div>
             <div className="iam-cms-stat">
-              <div className="iam-cms-stat__label">Assets</div>
-              <div className="iam-cms-stat__value">{assets.length}</div>
+              <div className="iam-cms-stat__label">Themes</div>
+              <div className="iam-cms-stat__value">{themes.length}</div>
             </div>
           </div>
           <div className="iam-cms-site-hero__actions">
@@ -196,7 +214,7 @@ export function CmsDashboard({ siteSlug, site, context, onNavigate }: Props) {
               className="iam-cms-btn"
               onClick={() => onNavigate(buildCmsPath({ panel: 'pages', siteSlug }))}
             >
-              Edit pages
+              Edit site
             </button>
             {storefrontUrl ? (
               <a
@@ -213,22 +231,30 @@ export function CmsDashboard({ siteSlug, site, context, onNavigate }: Props) {
         </section>
 
         <div className="iam-cms-modules">
-          {modules.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              className="iam-cms-card iam-cms-module"
-              onClick={() => onNavigate(m.path)}
-            >
-              <h3 className="iam-cms-module__title">{m.title}</h3>
-              <p className="iam-cms-module__sub">{m.sub}</p>
-              <span className="iam-cms-module__cta">{m.cta}</span>
-            </button>
-          ))}
+          {modules.map((m) =>
+            (m as { external?: boolean }).external ? (
+              <a key={m.id} className="iam-cms-card iam-cms-module" href={m.path}>
+                <h3 className="iam-cms-module__title">{m.title}</h3>
+                <p className="iam-cms-module__sub">{m.sub}</p>
+                <span className="iam-cms-module__cta">{m.cta}</span>
+              </a>
+            ) : (
+              <button
+                key={m.id}
+                type="button"
+                className="iam-cms-card iam-cms-module"
+                onClick={() => onNavigate(m.path)}
+              >
+                <h3 className="iam-cms-module__title">{m.title}</h3>
+                <p className="iam-cms-module__sub">{m.sub}</p>
+                <span className="iam-cms-module__cta">{m.cta}</span>
+              </button>
+            ),
+          )}
         </div>
       </div>
 
-      <div className="iam-cms-dashboard__grid">
+      <div className="iam-cms-dashboard__grid iam-cms-dashboard__grid--three">
         <section className="iam-cms-card">
           <div className="iam-cms-panel-head">Recent activity</div>
           {activity.length ? (
@@ -263,6 +289,15 @@ export function CmsDashboard({ siteSlug, site, context, onNavigate }: Props) {
             ))}
           </ul>
         </section>
+
+        <CmsConnectedIntegrations
+          items={connectedIntegrations}
+          loading={integrationsLoading}
+          error={integrationsError}
+          onRetry={() => {
+            void refreshIntegrations();
+          }}
+        />
       </div>
 
       {context ? (

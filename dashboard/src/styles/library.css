@@ -20,6 +20,7 @@
   --radius: 18px;
   --sidebar: 250px;
   --drive-rail-w: 64px;
+  --lib-rail-panel-w: 0px;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   height: 100%;
   min-height: 0;
@@ -27,6 +28,10 @@
   background: var(--bg);
   color: var(--ink);
   position: relative;
+}
+
+.artifacts-drive-shell.has-rail-panel {
+  --lib-rail-panel-w: min(360px, 42vw);
 }
 
 .artifacts-drive-shell *,
@@ -54,7 +59,7 @@
   height: 100%;
   display: grid;
   grid-template-rows: 72px 1fr;
-  grid-template-columns: var(--sidebar) minmax(0, 1fr) var(--drive-rail-w);
+  grid-template-columns: var(--sidebar) minmax(0, 1fr) calc(var(--lib-rail-panel-w) + var(--drive-rail-w));
   overflow: hidden;
   transition: grid-template-columns 0.22s ease;
 }
@@ -1023,9 +1028,26 @@
   flex: 1;
 }
 
-.artifacts-drive-shell .drive-rail {
+.artifacts-drive-shell .drive-rail-stack {
   grid-row: 2;
   grid-column: 3;
+  min-width: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: var(--lib-rail-panel-w) var(--drive-rail-w);
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  position: relative;
+  z-index: 10;
+}
+
+html[data-theme='dark'] .artifacts-drive-shell .drive-rail-stack {
+  border-left-color: var(--dashboard-border, var(--border));
+}
+
+.artifacts-drive-shell .drive-rail {
+  grid-column: 2;
+  grid-row: 1;
   width: var(--drive-rail-w);
   min-width: var(--drive-rail-w);
   background: var(--bg);
@@ -1034,10 +1056,8 @@
   flex-direction: column;
   align-items: center;
   gap: 16px;
-  border-left: 1px solid var(--border);
-  position: relative;
-  z-index: 10;
   flex-shrink: 0;
+  border-left: 1px solid var(--border);
 }
 
 html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
@@ -1511,6 +1531,10 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
     width: min(360px, calc(100vw - var(--drive-rail-w)));
   }
 
+  .artifacts-drive-shell.has-rail-panel {
+    --lib-rail-panel-w: min(320px, calc(100vw - var(--drive-rail-w) - 48px));
+  }
+
   .artifacts-drive-shell .lib-list-head-row,
   .artifacts-drive-shell .lib-list-row {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -1641,27 +1665,25 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
 
 /* Rail slide-out panel (Calendar / Keep / Notes / Contacts) */
 .artifacts-drive-shell .lib-rail-panel {
-  position: absolute;
-  right: var(--drive-rail-w);
-  top: 72px;
-  bottom: 0;
-  width: 360px;
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
   background: #fff;
-  border-left: 1px solid #dfe5ef;
+  border-right: 1px solid #dfe5ef;
   box-shadow: -8px 0 24px rgba(60, 64, 67, 0.08);
-  display: flex;
+  display: none;
   flex-direction: column;
-  z-index: 18;
-  transform: translateX(110%);
-  transition: transform 0.2s ease;
+  overflow: hidden;
 }
 
 .artifacts-drive-shell .lib-rail-panel.open {
-  transform: translateX(0);
+  display: flex;
 }
 
 .artifacts-drive-shell.has-rail-panel .drawer.open {
-  right: calc(360px + var(--drive-rail-w));
+  right: calc(var(--lib-rail-panel-w) + var(--drive-rail-w));
 }
 
 .artifacts-drive-shell .lib-rail-panel-head {
@@ -1941,6 +1963,86 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
 .artifacts-drive-shell .lib-rail-panel-body--calendar {
   display: flex;
   flex-direction: column;
+}
+
+.artifacts-drive-shell .lib-rail-add-btn {
+  color: var(--blue);
+}
+
+.artifacts-drive-shell .lib-rail-event-row,
+.artifacts-drive-shell .lib-rail-contact-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid #edf2fa;
+}
+
+.artifacts-drive-shell .lib-rail-event-row > div,
+.artifacts-drive-shell .lib-rail-contact-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.artifacts-drive-shell .lib-rail-event-row strong,
+.artifacts-drive-shell .lib-rail-contact-copy strong {
+  font-size: 13px;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-rail-event-row span,
+.artifacts-drive-shell .lib-rail-contact-copy span {
+  font-size: 12px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-rail-event-edit,
+.artifacts-drive-shell .lib-rail-contact-form,
+.artifacts-drive-shell .lib-rail-note-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.artifacts-drive-shell .lib-rail-event-edit input,
+.artifacts-drive-shell .lib-rail-event-edit textarea,
+.artifacts-drive-shell .lib-rail-contact-form input,
+.artifacts-drive-shell .lib-rail-contact-form textarea,
+.artifacts-drive-shell .lib-rail-note-compose input,
+.artifacts-drive-shell .lib-rail-note-compose textarea {
+  width: 100%;
+  border: 1px solid #c7cdd8;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #202124;
+  background: #fff;
+}
+
+.artifacts-drive-shell .lib-rail-contact-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .lib-rail-contact-avatar--fallback {
+  display: grid;
+  place-items: center;
+  background: #d3e3fd;
+  color: #0b57d0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.artifacts-drive-shell .lib-rail-people-list .lib-rail-contact-row {
+  list-style: none;
 }
 
 /* List view — Drive-style table */

@@ -21,6 +21,16 @@ function parseJsonSafe(raw, fallback = {}) {
   }
 }
 
+/** @param {unknown} raw */
+export function normalizeCmsSitesResponse(raw) {
+  if (Array.isArray(raw)) return raw.filter((s) => s && trim(s.slug));
+  if (raw && typeof raw === 'object') {
+    const vals = Object.values(raw);
+    if (vals.length && vals.every((v) => v && typeof v === 'object' && trim(v.slug))) return vals;
+  }
+  return [];
+}
+
 /**
  * True when agentsam_project_context has active cms_site rows for this workspace.
  * @param {any} env

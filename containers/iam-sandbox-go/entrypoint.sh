@@ -22,7 +22,7 @@ if [ "${IAM_SANDBOX_R2_FUSE:-1}" != "0" ] \
   && [ -x /usr/local/bin/tigrisfs ]; then
   R2_ENDPOINT="${R2_ENDPOINT:-https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com}"
   TIGRIS_FLAGS="--endpoint ${R2_ENDPOINT} -f"
-  if [ "${IAM_R2_FUSE_READONLY:-1}" = "1" ]; then
+  if [ "${IAM_R2_FUSE_READONLY:-0}" = "1" ]; then
     TIGRIS_FLAGS="${TIGRIS_FLAGS} -o ro"
   fi
   echo "[entrypoint] mounting R2 bucket ${R2_BUCKET_NAME} at /mnt/r2..."

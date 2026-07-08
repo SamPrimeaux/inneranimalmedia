@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Calendar, ClipboardList, Lightbulb, NotebookPen, Plus } from 'lucide-react';
-import { createCalendarEvent, createTodo } from '../../../pages/launch-desk/ops-desk-types';
+import { createCalendarEvent, createTodo, createUserNote } from '../../../pages/launch-desk/ops-desk-types';
 import type { CollaborateRailPanel } from '../../lib/collaborate/collaborateRailNav';
 
 type QuickKind = 'note' | 'keep' | 'task' | 'meeting' | 'plan';
@@ -60,7 +60,7 @@ export function RailQuickCreateMenu({ onCreated, onOpenPanel }: Props) {
     setError(null);
     try {
       if (active === 'note') {
-        await createTodo({ title: text, category: 'Notes', notes: notes.trim() || text });
+        await createUserNote({ title: text, body: notes.trim() || text });
         onOpenPanel?.('notes');
       } else if (active === 'keep') {
         await createTodo({ title: text, category: 'Keep', notes: notes.trim() || text });

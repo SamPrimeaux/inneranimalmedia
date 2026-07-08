@@ -37,6 +37,10 @@ export interface CalendarPerson {
   email?: string | null;
   role?: string | null;
   user_id?: string | null;
+  username?: string | null;
+  phone?: string | null;
+  avatar_url?: string | null;
+  description?: string | null;
 }
 
 export interface CalendarInsightsPayload {
@@ -209,6 +213,20 @@ export async function createCalendarEvent(payload: {
   });
 }
 
+export async function updateCalendarEvent(id: string, payload: Record<string, unknown>) {
+  return apiJson<{ success?: boolean; error?: string }>(`/api/calendar/events/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteCalendarEvent(id: string) {
+  return apiJson<{ success?: boolean; error?: string }>(`/api/calendar/events/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
 export function sameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
@@ -299,11 +317,17 @@ export function daySqlRange(d: Date) {
 
 export async function fetchDayEvents(day: Date): Promise<CalEvent[]> {
   const { from, to } = daySqlRange(day);
-  const q = `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  const q = new URLSearchParams({
+    from,
+    to,
+    sources: 'primary,google_calendar',
+  });
   const data = await apiJson<{ events?: CalEvent[] }>(`/api/calendar/view/day?${q}`);
-  return (data.events ?? []).sort(
-    (a, b) => parseEventDate(a.start_datetime).getTime() - parseEventDate(b.start_datetime).getTime(),
-  );
+  return (data.events ?? [])
+    .filter((ev) => !isSyntheticEvent(ev))
+    .sort(
+      (a, b) => parseEventDate(a.start_datetime).getTime() - parseEventDate(b.start_datetime).getTime(),
+    );
 }
 
 export function anchorIso(d: Date) {
@@ -443,10 +467,82 @@ export async function saveCalendarPreferences(working_hours: CalendarPreferences
 }
 
 export async function fetchPeople(q: string) {
-  const data = await apiJson<{ people?: CalendarPerson[] }>(
-    `/api/calendar/people?q=${encodeURIComponent(q)}`,
+  const data = await apiJson<{ contacts?: CalendarPerson[] }>(
+    `/api/user/contacts?q=${encodeURIComponent(q)}`,
   );
-  return data.people ?? [];
+  return data.contacts ?? [];
+}
+
+export interface UserNote {
+  id: string;
+  title: string;
+  body: string;
+  color?: string | null;
+  pinned?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export async function fetchUserNotes() {
+  const data = await apiJson<{ notes?: UserNote[] }>('/api/user/notes');
+  return data.notes ?? [];
+}
+
+export async function createUserNote(payload: { title?: string; body: string }) {
+  return apiJson<{ ok: boolean; note: UserNote }>('/api/user/notes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function patchUserNote(id: string, payload: Partial<{ title: string; body: string; pinned: boolean }>) {
+  return apiJson<{ ok: boolean; note: UserNote }>(`/api/user/notes/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteUserNote(id: string) {
+  return apiJson<{ ok: boolean }>(`/api/user/notes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function createUserContact(payload: {
+  display_name: string;
+  username?: string;
+  email?: string;
+  phone?: string;
+  avatar_url?: string;
+  description?: string;
+}) {
+  return apiJson<{ ok: boolean; contact: CalendarPerson }>('/api/user/contacts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function patchUserContact(
+  id: string,
+  payload: Partial<{
+    display_name: string;
+    username: string;
+    email: string;
+    phone: string;
+    avatar_url: string;
+    description: string;
+  }>,
+) {
+  return apiJson<{ ok: boolean; contact: CalendarPerson }>(`/api/user/contacts/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteUserContact(id: string) {
+  return apiJson<{ ok: boolean }>(`/api/user/contacts/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 export async function fetchProjects(opts?: { clientId?: string | null; clientWork?: boolean }) {

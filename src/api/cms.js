@@ -68,6 +68,7 @@ import {
 import {
   listCmsSitesForScope,
   persistBootstrapCmsProjectSlug,
+  normalizeCmsSitesResponse,
   resolveCmsBootstrapProjectSlug,
   resolveCmsWorkspaceContext,
   sortSitesForWorkspace,
@@ -269,11 +270,19 @@ export async function handleCmsApi(request, url, env, ctx) {
         explicitProjectSlug: explicit,
       });
       if (wsCtx.error) {
-        return jsonResponse({ error: wsCtx.error, sites: wsCtx.sites || [] }, 400);
+        return jsonResponse({
+          error: wsCtx.error,
+          sites: normalizeCmsSitesResponse(wsCtx.sites),
+        }, 400);
       }
       const siteConfig = await resolveCmsSiteConfig(env, workspaceId, wsCtx.project_slug);
       const is_operator_hub = await isOperatorCmsHubWorkspace(env, wsCtx.workspace_id);
-      return jsonResponse({ ...wsCtx, ...siteConfig, is_operator_hub });
+      return jsonResponse({
+        ...wsCtx,
+        ...siteConfig,
+        is_operator_hub,
+        sites: normalizeCmsSitesResponse(wsCtx.sites),
+      });
     } catch (e) {
       console.warn('[cms] workspace-context GET', e?.message || e);
       let sites = [];
