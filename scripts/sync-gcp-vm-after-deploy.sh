@@ -91,8 +91,11 @@ if (( _env_rc != 0 )); then
   echo "⚠️  [gcp-vm-sync] sync-vm-env-cloudflare.sh exited ${_env_rc}" >&2
 fi
 
-if [[ "${IAM_SYNC_GCP_EXECOS:-1}" != "0" ]]; then
-  echo "→ sync ExecOS runtime + pm2 restart"
+# ExecOS sync: default OFF — VM self-heals via git pull cron (gcp-vm-self-heal.sh).
+# Enable only when you explicitly want to force a VM ExecOS update from this machine.
+# IAM_SYNC_GCP_EXECOS=1 npm run deploy:full
+if [[ "${IAM_SYNC_GCP_EXECOS:-0}" == "1" ]]; then
+  echo "→ ExecOS runtime sync (IAM_SYNC_GCP_EXECOS=1)"
   if (( ${#SYNC_ARGS[@]} )); then
     "${REPO_ROOT}/scripts/sync-gcp-vm-execos-runtime.sh" "${SYNC_ARGS[@]}"
   else
@@ -102,6 +105,8 @@ if [[ "${IAM_SYNC_GCP_EXECOS:-1}" != "0" ]]; then
   if (( _execos_rc != 0 )); then
     echo "⚠️  [gcp-vm-sync] sync-gcp-vm-execos-runtime.sh exited ${_execos_rc}" >&2
   fi
+else
+  echo "→ ExecOS sync skipped (VM self-heals via cron — set IAM_SYNC_GCP_EXECOS=1 to force)"
 fi
 
 set -e
