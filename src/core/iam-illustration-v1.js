@@ -177,11 +177,15 @@ export function resolveIllustrationRoute(envelope) {
     return { engine: 'excalidraw', lane: 'excalidraw' };
   }
 
-  if (CAD_INTENTS.has(intent) || fidelity === 'technical_2d' || fidelity === 'structural') {
+  if (CAD_INTENTS.has(intent)) {
     if (fidelity === 'architectural_3d') {
       return { engine: 'freecad', lane: 'cad' };
     }
-    return { engine: 'openscad', lane: 'cad' };
+    if (fidelity === 'structural') {
+      return { engine: 'openscad', lane: 'cad' };
+    }
+    // 2D floor plans / blueprints: agent uses imgx or inline SVG (not OpenSCAD).
+    return { engine: 'excalidraw', lane: 'excalidraw' };
   }
 
   if (fidelity === 'architectural_3d') {

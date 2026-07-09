@@ -199,19 +199,50 @@ function secretKeyNameForCatalogRow(env, row) {
   return '';
 }
 
+export const IMAGE_INTENT_DEFAULTS = Object.freeze({
+  image_blueprint_draft: { quality: 'medium', size: '1024x1024' },
+  image_render_quality: { quality: 'high', size: '1536x1024' },
+  image_presentation_sheet: { quality: 'high', size: '1536x1024' },
+  image_edit_reference: { quality: 'high', size: '1024x1024' },
+  image_brand_mockup: { quality: 'high', size: '1536x1024' },
+});
+
+/**
+ * @param {Record<string, unknown>} params
+ * @param {{ workspaceId?: string | null }} ctx
+ */
+export function applyImageIntentDefaults(params, ctx = {}) {
+  const intentSlug = params.intent_slug != null ? String(params.intent_slug).trim() : '';
+  const defaults = IMAGE_INTENT_DEFAULTS[intentSlug] || {};
+  return {
+    ...params,
+    intent_slug: intentSlug || params.intent_slug,
+    quality: params.quality ?? defaults.quality ?? 'medium',
+    size: params.size ?? defaults.size ?? '1024x1024',
+    workspaceId: ctx.workspaceId ?? params.workspaceId,
+  };
+}
+
 /**
  * Thompson sample over image_generation arms (catalog + agentsam_ai; no ai_models).
  * @param {unknown} env
  * @param {string} workspaceId
+ * @param {string|null} [intentSlug]
  */
-export async function pickImageModelFromDb(env, workspaceId) {
+export async function pickImageModelFromDb(env, workspaceId, intentSlug = null) {
   const ws = String(workspaceId || '').trim();
   if (!env?.DB || !ws) return null;
+
+  const slug = intentSlug != null ? String(intentSlug).trim() : '';
+  const intentFilter = slug
+    ? `AND (ra.intent_slug = ? OR ra.intent_slug IS NULL OR ra.intent_slug = '')`
+    : `AND (ra.intent_slug IS NULL OR ra.intent_slug = '')`;
 
   const rows = await env.DB.prepare(
     `SELECT
        ra.id              AS arm_id,
        ra.model_key,
+       ra.intent_slug,
        ra.success_alpha,
        ra.success_beta,
        ra.max_cost_per_call_usd,
@@ -229,13 +260,14 @@ export async function pickImageModelFromDb(env, workspaceId) {
        AND ai.status    = 'active'
        AND (ai.mode = 'model' OR ai.model_key IS NOT NULL)
      WHERE ra.task_type    = 'image_generation'
+       ${intentFilter}
        AND ra.workspace_id = ?
        AND ra.is_paused    = 0
        AND ra.is_active    = 1
        AND ra.model_key NOT IN ('gpt-image-1', 'gpt-image-1-mini', 'gpt-image-1.5')
        AND (mc.deprecated_after IS NULL OR mc.deprecated_after > date('now'))`,
   )
-    .bind(ws)
+    .bind(...(slug ? [slug, ws] : [ws]))
     .all()
     .catch(() => ({ results: [] }));
 
@@ -809,30 +841,47 @@ export async function editImage(env, params) {
  * @param {{ authUser?: { id?: string }; workspaceId?: string | null; tenantId?: string | null; userId?: string | null; origin?: string }} ctx
  */
 export async function runImageGenerationForTool(env, toolName, params, ctx = {}) {
-  const prompt = String(params.prompt || params.description || '').trim();
+  let resolvedParams = applyImageIntentDefaults({ ...params }, ctx);
+  const ws = ctx.workspaceId != null ? String(ctx.workspaceId).trim() : '';
+  const intentSlug =
+    resolvedParams.intent_slug != null ? String(resolvedParams.intent_slug).trim() : '';
+  if (!resolvedParams.model && ws) {
+    const picked = await pickImageModelFromDb(env, ws, intentSlug || null);
+    if (picked) {
+      resolvedParams = {
+        ...resolvedParams,
+        model: picked.model_key,
+        provider: picked.resolved_platform,
+        secretKeyName: picked.keyName,
+        routing_arm_id: picked.arm_id,
+      };
+    }
+  }
+
+  const prompt = String(resolvedParams.prompt || resolvedParams.description || '').trim();
   const isEdit = toolName === 'imgx_edit_image';
-  const persist = imageGenerationShouldPersist(params);
+  const persist = imageGenerationShouldPersist(resolvedParams);
   const generationId =
-    String(params.generation_id || '').trim() ||
+    String(resolvedParams.generation_id || '').trim() ||
     `igen_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-  const dims = parseImageDimensions(params.size);
+  const dims = parseImageDimensions(resolvedParams.size);
   const purpose =
-    params.purpose != null ? String(params.purpose).trim().slice(0, 64) : null;
+    resolvedParams.purpose != null ? String(resolvedParams.purpose).trim().slice(0, 64) : null;
 
   const gen = isEdit
     ? await editImage(env, {
         prompt,
-        image_url: params.image_url || params.image,
-        model: params.model,
-        size: params.size,
+        image_url: resolvedParams.image_url || resolvedParams.image,
+        model: resolvedParams.model,
+        size: resolvedParams.size,
         userId: ctx.userId,
       })
     : await generateImage(env, {
-        provider: params.provider,
-        model: params.model,
+        provider: resolvedParams.provider,
+        model: resolvedParams.model,
         prompt,
-        size: params.size,
-        quality: params.quality,
+        size: resolvedParams.size,
+        quality: resolvedParams.quality,
         userId: ctx.userId,
         tenantId: ctx.tenantId,
       });
@@ -916,35 +965,39 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
  */
 export async function streamImageGenerationSse(emit, env, toolName, params, ctx = {}) {
   const generationId = `igen_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-  const prompt = String(params.prompt || params.description || '').trim();
-  const dims = parseImageDimensions(params.size);
+  let resolvedParams = applyImageIntentDefaults({ ...params }, ctx);
+  const prompt = String(resolvedParams.prompt || resolvedParams.description || '').trim();
+  const dims = parseImageDimensions(resolvedParams.size);
   const isEdit = toolName === 'imgx_edit_image';
-  if (!imageGenerationShouldPersist(params)) {
-    params = { ...params, persist: false };
+  if (!imageGenerationShouldPersist(resolvedParams)) {
+    resolvedParams = { ...resolvedParams, persist: false };
   }
 
   const ws = ctx.workspaceId != null ? String(ctx.workspaceId).trim() : '';
+  const intentSlug =
+    resolvedParams.intent_slug != null ? String(resolvedParams.intent_slug).trim() : '';
   let providerGuess = 'workers_ai';
-  let modelGuess = params.model ? String(params.model).trim() : '';
+  let modelGuess = resolvedParams.model ? String(resolvedParams.model).trim() : '';
   let scoredModelKey = null;
 
   if (isEdit) {
     providerGuess = 'openai';
   } else if (!modelGuess && ws) {
     const lane = resolveImageLane(prompt, false);
-    const picked = await pickImageModelFromDb(env, ws);
+    const picked = await pickImageModelFromDb(env, ws, intentSlug || null);
     if (picked) {
       if (lane) {
-        console.log('[image_generation] inferred_lane', { lane, model_key: picked.model_key });
+        console.log('[image_generation] inferred_lane', { lane, intent_slug: intentSlug, model_key: picked.model_key });
       }
       scoredModelKey = picked.model_key;
       providerGuess = String(picked.resolved_platform || 'workers_ai');
       modelGuess = scoredModelKey;
-      params = {
-        ...params,
+      resolvedParams = {
+        ...resolvedParams,
         model: scoredModelKey,
         provider: providerGuess,
         secretKeyName: picked.keyName,
+        routing_arm_id: picked.arm_id,
       };
     }
   }
@@ -955,6 +1008,7 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
     provider: providerGuess,
     model: String(modelGuess || ''),
     prompt: prompt.slice(0, 500),
+    intent_slug: intentSlug || null,
     width: dims.width,
     height: dims.height,
   });
@@ -991,7 +1045,7 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
     const result = await runImageGenerationForTool(
       env,
       toolName,
-      { ...params, generation_id: generationId },
+      { ...resolvedParams, generation_id: generationId },
       ctx,
     );
     if (scoredModelKey && ws) {

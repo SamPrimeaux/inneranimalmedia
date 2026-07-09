@@ -37,7 +37,7 @@ export function isDesignStudioCadCreateIntent(message) {
 }
 
 /**
- * Pin design_studio route + CAD tools when the live viewport context is present.
+ * Design Studio viewport context only — no subagent or CAD task pin.
  *
  * @param {unknown} browserContext
  * @param {unknown} body
@@ -47,11 +47,9 @@ export function isDesignStudioCadCreateIntent(message) {
 export function resolveDesignStudioChatOverrides(browserContext, body, message) {
   const raw = extractDesignStudioContext(browserContext, body);
   if (!isDesignStudioSurfaceContext(raw)) return null;
-  const cadIntent = isDesignStudioCadCreateIntent(message);
   return {
     route_key: 'design_studio',
-    task_type: cadIntent ? 'cad_generation' : 'design_studio',
-    subagent_slug: 'cadcreator',
+    task_type: 'design_studio',
     skip_rws_fanout: true,
   };
 }
@@ -156,7 +154,7 @@ export function formatDesignStudioContextForAgent(raw) {
   }
 
   lines.push(
-    'cad_actions: For new 3D models call illustration_create with iam.illustration.v1 (intent model_3d, engine auto/openscad, brief from user). Do not only describe — run the tool. After script_ready the pipeline auto-executes to GLB.',
+    'creative_actions: 2D floor plans / blueprints / sketches → build prompt from user + project context, then imgx_generate_image (intent_slug image_blueprint_draft or image_presentation_sheet) OR emit an inline ```svg sketch in chat for quick drafts. 3D massing only → illustration_create (intent model_3d, engine openscad/freecad). Do not route 2D house plans to OpenSCAD.',
   );
 
   return lines.join('\n');

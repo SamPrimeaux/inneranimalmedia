@@ -6,6 +6,7 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { AgentSvgSketchPreview } from './AgentSvgSketchPreview';
 
 function isExternalHref(href: string) {
   try {
@@ -86,6 +87,27 @@ export function AgentChatMarkdown({ source, onImageClick }: AgentChatMarkdownPro
                 />
               </button>
             );
+          },
+          code({ className, children, ...rest }) {
+            return (
+              <code className={className} {...rest}>
+                {children}
+              </code>
+            );
+          },
+          pre({ children, ...rest }) {
+            if (React.isValidElement(children)) {
+              const props = children.props as { className?: string; children?: React.ReactNode };
+              const lang = String(props.className || '')
+                .replace(/^language-/, '')
+                .trim()
+                .toLowerCase();
+              const text = String(props.children ?? '').replace(/\n$/, '');
+              if (lang === 'svg' && /<svg[\s>]/i.test(text)) {
+                return <AgentSvgSketchPreview source={text} title="Sketch preview" />;
+              }
+            }
+            return <pre {...rest}>{children}</pre>;
           },
         }}
       >

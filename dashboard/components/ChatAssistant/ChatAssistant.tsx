@@ -1033,8 +1033,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, [policyWebSearch, toggleComposerSource, mode]);
 
   const startImageGenerationPrompt = useCallback(() => {
-    setInput('Generate an image of ');
-    pendingSubagentSlugRef.current = 'genmedia_image_gen';
+    setInput('Create a visual for ');
     textareaRef.current?.focus();
   }, []);
 

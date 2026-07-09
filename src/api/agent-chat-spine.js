@@ -10,12 +10,6 @@ import {
   logRouteContract,
 } from '../core/runtime-profile.js';
 import { normalizeAgentRuntimeMode } from '../core/agent-mode.js';
-import {
-  hasImageGenerationIntent,
-  isPrimaryImageGenerationIntent,
-  handleDirectImageGenerationChatStream,
-} from '../tools/image_generation.js';
-import { isCodeImplementationIntent } from '../core/code-implementation-intent.js';
 import { executeAskTurn } from '../core/mode-controllers/ask-controller.js';
 import { executePlanTurn } from '../core/mode-controllers/plan-controller.js';
 import { executeAgentTurn } from '../core/mode-controllers/agent-controller.js';
@@ -213,25 +207,6 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     sessionId,
     workspaceId,
   });
-
-  const intentMessageForMedia = message;
-  const directImageIntent =
-    !skillRoute &&
-    hasImageGenerationIntent(intentMessageForMedia) &&
-    !isCodeImplementationIntent(intentMessageForMedia) &&
-    isPrimaryImageGenerationIntent(intentMessageForMedia);
-
-  if (directImageIntent) {
-    return handleDirectImageGenerationChatStream(env, ctx, {
-      request,
-      message,
-      userId,
-      tenantId,
-      workspaceId,
-      sessionId,
-      authUser,
-    });
-  }
 
   // Spine job: dispatch by compiled immutable profile only.
   const controllerInput = {
