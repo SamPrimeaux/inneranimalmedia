@@ -167,7 +167,6 @@ import { MobileNavShell } from './components/shell/MobileNavShell';
 import {
   resolveAgentChatLayout,
   shouldShowAgentWorkbenchTabs,
-  isAgentWorkbenchSurfaceActive,
   shouldShowMonacoWorkbench,
 } from './lib/shellLayoutMeta';
 import { MobileNavHamburger } from './components/shell/MobileNavHamburger';
@@ -540,14 +539,9 @@ const App: React.FC = () => {
     () => isAgentAtmosphericHome(location.pathname, location.search) || isAgentNewChatPath(location.pathname),
     [location.pathname, location.search],
   );
-  /** Editor landing — center chat until a workbench surface opens (file, browser, cms). */
-  const isEditorWorkbenchActive = useMemo(
-    () => isAgentWorkbenchSurfaceActive({ hasActiveFile: !!activeFile, activeTab: String(activeTab) }),
-    [activeFile, activeTab],
-  );
-  const isEditorCenterChatLanding = useMemo(
-    () => isAgentEditorPath(location.pathname) && !isEditorWorkbenchActive,
-    [location.pathname, isEditorWorkbenchActive],
+  const isAgentEditorWorkbench = useMemo(
+    () => isAgentEditorPath(location.pathname),
+    [location.pathname],
   );
   const editorDevContext = useMemo(
     () => isAgentEditorDevContext(location.pathname, !!activeFile),
@@ -585,7 +579,7 @@ const App: React.FC = () => {
     );
   }, [showStatusBar]);
   const isCenterChatAtmospheric =
-    !isEditorWorkbenchActive && (isAgentHomeAtmospheric || isEditorCenterChatLanding);
+    !isAgentEditorWorkbench && isAgentHomeAtmospheric;
   const isMovieModeRoute = location.pathname.startsWith('/dashboard/moviemode');
   const mobileTabBarBottom = mobileTabBarBottomOffset(showStatusBar);
   /** TODO: Movie Mode right rail — split Media bin + ChatAssistant (dual panel). */
@@ -946,11 +940,9 @@ const App: React.FC = () => {
     () =>
       !isNarrowViewport &&
       (
-        (isAgentCenterChatHome(location.pathname, location.search) && !isAgentEditorPath(location.pathname)) ||
-        // Editor with no file open uses center layout — treat same as home so side rail doesn't open.
-        (isAgentEditorPath(location.pathname) && !isEditorWorkbenchActive)
+        (isAgentCenterChatHome(location.pathname, location.search) && !isAgentEditorPath(location.pathname))
       ),
-    [isNarrowViewport, location.pathname, location.search, isEditorWorkbenchActive],
+    [isNarrowViewport, location.pathname, location.search],
   );
 
   const ensureAgentSidePanel = useCallback(() => {
@@ -1325,7 +1317,7 @@ const App: React.FC = () => {
   const designStudioEntryAtmospheric = isDesignStudioRoute && designStudioEntryPhase;
   const drawEntryAtmospheric = isDrawRoute && drawEntryPhase;
   const routeEntryAtmospheric =
-    designStudioEntryAtmospheric || drawEntryAtmospheric || isEditorCenterChatLanding;
+    designStudioEntryAtmospheric || drawEntryAtmospheric;
 
   useEffect(() => {
     if (!isDesignStudioRoute) {
@@ -1360,15 +1352,6 @@ const App: React.FC = () => {
       ensureAgentSidePanel();
     }
   }, [isDrawRoute, drawEntryPhase, isNarrowViewport, ensureAgentSidePanel]);
-
-  useEffect(() => {
-    if (!isAgentEditorPath(location.pathname) || isNarrowViewport) return;
-    if (isEditorCenterChatLanding) {
-      setAgentPosition('off');
-    } else if (isEditorWorkbenchActive) {
-      ensureAgentSidePanel();
-    }
-  }, [location.pathname, isNarrowViewport, isEditorCenterChatLanding, isEditorWorkbenchActive, ensureAgentSidePanel]);
 
   const agentWorkspaceContext = useMemo<AgentWorkspaceContextPacket>(() => {
     const routeCtx = resolveDashboardRouteAgentContext({
@@ -1658,6 +1641,9 @@ const App: React.FC = () => {
     });
     setActiveTab(tab);
     warmAgentChunksForTab(tab);
+    if (tab === 'code' && isAgentEditorPath(location.pathname) && !activeFile) {
+      openFile({ name: 'Untitled.ts', content: '' });
+    }
     if (
       !isNarrowViewport &&
       (tab === 'browser' || tab === 'cms' || tab === 'code') &&
@@ -1666,7 +1652,7 @@ const App: React.FC = () => {
     ) {
       setAgentPosition((p) => (p === 'off' ? 'right' : p));
     }
-  }, [isNarrowViewport, location.pathname, location.search]);
+  }, [isNarrowViewport, location.pathname, location.search, activeFile, openFile]);
 
   const toggleSidebarRail = useCallback(() => {
     setSidebarRailExpanded((prev) => {
@@ -2728,15 +2714,26 @@ const App: React.FC = () => {
     openTab('code');
   }, [focusMobileCodeContext, isNarrowViewport, revealMainWorkspaceIfNarrow, openTab]);
 
+  const engageAgentEditorWorkbench = useCallback(() => {
+    setAgentPosition((p) => (p === 'off' ? 'right' : p));
+    setOpenTabs((prev) => (prev.includes('Workspace') ? prev : ['Workspace', ...prev]));
+    setActiveTab((t) => (t === 'Workspace' || t === 'browser' || t === 'code' || t === 'cms' ? t : 'Workspace'));
+  }, []);
+
   const openEditorFromChat = useCallback(() => {
     if (!isAgentEditorPath(location.pathname)) {
       navigate(AGENT_EDITOR_PATH);
     }
-    focusCodeEditorFromChat();
+    engageAgentEditorWorkbench();
     if (isNarrowViewport) {
       setActiveActivity('files');
     }
-  }, [location.pathname, navigate, focusCodeEditorFromChat, isNarrowViewport]);
+  }, [location.pathname, navigate, engageAgentEditorWorkbench, isNarrowViewport]);
+
+  useEffect(() => {
+    if (!isAgentEditorWorkbench || isNarrowViewport) return;
+    engageAgentEditorWorkbench();
+  }, [isAgentEditorWorkbench, isNarrowViewport, engageAgentEditorWorkbench]);
 
   const openInEditorFromExplorer = useCallback(
     (file: ActiveFile) => {
@@ -3088,11 +3085,12 @@ const App: React.FC = () => {
   const toggleExplorer = useCallback(() => {
     if (!isAgentEditorPath(location.pathname)) {
       navigate(AGENT_EDITOR_PATH);
+      engageAgentEditorWorkbench();
       setActiveActivity('files');
       return;
     }
     setActiveActivity((prev) => (prev === 'files' ? null : 'files'));
-  }, [location.pathname, navigate]);
+  }, [location.pathname, navigate, engageAgentEditorWorkbench]);
 
   useEffect(() => {
     if (!isAgentHomePath(location.pathname)) return;
@@ -3633,6 +3631,7 @@ const App: React.FC = () => {
       if (!act) return;
       if (act === 'files' && !isAgentShellPath(location.pathname) && location.pathname !== '/dashboard/meet') {
         navigate(AGENT_EDITOR_PATH);
+        engageAgentEditorWorkbench();
       }
       if (act === 'remote') {
         if (!isAgentShellPath(location.pathname) && location.pathname !== '/dashboard/meet') {
@@ -3649,7 +3648,7 @@ const App: React.FC = () => {
     };
     window.addEventListener('iam-sidebar-toggle', onSidebarToggle as EventListener);
     return () => window.removeEventListener('iam-sidebar-toggle', onSidebarToggle as EventListener);
-  }, [location.pathname, navigate]);
+  }, [location.pathname, navigate, engageAgentEditorWorkbench]);
 
   const cycleAgentPosition = useCallback(() => {
     setAgentPosition((p) => (p === 'right' ? 'left' : p === 'left' ? 'off' : 'right'));
@@ -4450,7 +4449,7 @@ const App: React.FC = () => {
               <UnifiedSearchBar
                 workspaceLabel={editorDevContext ? workspaceDisplayLine : userProfileLabel}
                 gitBranch={editorDevContext ? gitBranch : undefined}
-                hideWorkspaceSegment={isAgentEditorPath(location.pathname) && !editorDevContext}
+                hideWorkspaceSegment={false}
                 activeWorkspaceId={authWorkspaceId}
                 workspaceRepoHint={activeWorkspaceRow?.github_repo ?? null}
                 onGitBranchSelect={handleStatusBarBranchSelect}
@@ -4818,6 +4817,7 @@ const App: React.FC = () => {
                   aria-label="Open editor explorer"
                   onClick={() => {
                     navigate(AGENT_EDITOR_PATH);
+                    engageAgentEditorWorkbench();
                     setActiveActivity('files');
                   }}
                 >
@@ -5127,9 +5127,9 @@ const App: React.FC = () => {
                       </div>
                   )}
 
-                  {isAgentWorkspaceBrowser &&
+                  {((isAgentWorkspaceBrowser || isAgentEditorWorkbench) &&
                     activeTab === 'Workspace' &&
-                    !isCenterChatAtmospheric && (
+                    !isCenterChatAtmospheric) && (
                       <div className="absolute inset-0 z-10">
                           <WorkspaceDashboardV2 
                             onOpenFolder={() => {

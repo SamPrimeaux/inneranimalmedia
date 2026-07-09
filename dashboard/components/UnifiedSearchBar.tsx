@@ -1519,7 +1519,7 @@ export const UnifiedSearchBar: React.FC<{
   };
 
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
-  const mobileCompact = hideWorkspaceSegment;
+  const mobileCompact = mobileToolbar;
   let rowIndex = -1;
 
   return (

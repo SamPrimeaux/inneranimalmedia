@@ -7,14 +7,18 @@ import {
 
 export type AgentChatLayout = 'center' | 'left-rail' | 'right-rail' | 'hidden';
 
-/** Browser/CMS workbench tabs need side-rail chat — not center overlay on the canvas. */
+/** Browser/CMS/code workbench tabs need side-rail chat — not center overlay on the canvas. */
 export function isAgentWorkbenchSurfaceActive(opts: {
   hasActiveFile?: boolean;
   activeTab?: string;
+  pathname?: string;
 }): boolean {
   if (opts.hasActiveFile) return true;
   const tab = String(opts.activeTab || '').trim();
-  return tab === 'browser' || tab === 'cms';
+  if (tab === 'browser' || tab === 'cms' || tab === 'code') return true;
+  // /dashboard/agent/editor is always a split workbench (Workspace + tabs), never center chat.
+  if (opts.pathname && isAgentEditorPath(opts.pathname)) return true;
+  return false;
 }
 
 export function resolveAgentChatLayout(opts: {
@@ -29,7 +33,7 @@ export function resolveAgentChatLayout(opts: {
   activeTab?: string;
 }): AgentChatLayout {
   const { pathname, search, agentPosition, isNarrow, isCmsFullscreen, hasActiveFile, activeTab } = opts;
-  const workbenchActive = isAgentWorkbenchSurfaceActive({ hasActiveFile, activeTab });
+  const workbenchActive = isAgentWorkbenchSurfaceActive({ hasActiveFile, activeTab, pathname });
   if (isCmsFullscreen) {
     if (isNarrow) return 'right-rail';
     if (agentPosition === 'left') return 'left-rail';
@@ -49,10 +53,8 @@ export function resolveAgentChatLayout(opts: {
     return 'center';
   }
 
-  // Editor route: chat-first until a workbench surface is open (file, browser, cms).
-  // Browser/CMS/file → side rail so the canvas is fully usable (Claude-style split).
+  // Editor route: always split-pane workbench — chat in side rail, never center overlay.
   if (editorRoute) {
-    if (!workbenchActive) return 'center';
     if (agentPosition === 'left') return 'left-rail';
     return 'right-rail';
   }
@@ -78,8 +80,8 @@ export function shouldShowMonacoWorkbench(opts: {
   hasActiveFile: boolean;
 }): boolean {
   if (opts.activeTab !== 'code') return false;
-  // Editor route: only show Monaco when a file is actually open — not on bare /editor landing.
-  if (isAgentEditorPath(opts.pathname)) return opts.hasActiveFile;
+  // Editor route: Monaco when Code tab is active (untitled ok).
+  if (isAgentEditorPath(opts.pathname)) return true;
   if (opts.hasActiveFile) return true;
   if (isAgentCenterChatHome(opts.pathname, opts.search)) return false;
   return true;
@@ -94,13 +96,14 @@ export function shouldShowAgentWorkbenchTabs(opts: {
   const workbenchActive = isAgentWorkbenchSurfaceActive({
     hasActiveFile: opts.hasActiveFile,
     activeTab: opts.activeTab,
+    pathname: opts.pathname,
   });
   const tab = String(opts.activeTab || '').trim();
   if (isAgentCenterChatHome(opts.pathname, opts.search)) {
     // Atmospheric home hides tabs until browser/cms/code surface is engaged.
     return workbenchActive && tab !== 'Workspace';
   }
-  // On /editor landing, show tabs once browser/cms/code surface is active.
-  if (isAgentEditorPath(opts.pathname) && !workbenchActive) return false;
+  // Editor always shows workbench tabs (Workspace, Browser, Code, …).
+  if (isAgentEditorPath(opts.pathname)) return true;
   return true;
 }
