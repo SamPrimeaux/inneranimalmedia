@@ -220,15 +220,10 @@ export async function runVelocityDailyRollup(env) {
        ORDER BY started_at DESC LIMIT 1`
     ).bind(yesterday).first().catch(() => null);
 
-    // ── Derive counts ────────────────────────────────────────────────────────
-    // migrations_applied is the primary deploy signal — each migration = a real deploy session
-    // commits estimated as migrations * 1.5 (typically more commits than migrations per session)
-    const migrationsToday = Math.max(Number(deployLog?.migration_count) || 0, 0);
-    const commits = Math.round(migrationsToday * 1.5);
-    // deploys = distinct deploy sessions inferred from migration batches (group by minute proximity)
-    // using worker_analytics as confirmation signal — if requests > 0, platform was deployed & live
+    // ── Derive counts from real deployments table ────────────────────────────
+    const deploys = Math.max(Number(deployLog?.deploy_count) || 0, 0);
+    const commits = deploys; // each deployments row = one shipped commit
     const workerRequests = Math.max(Number(workerActivity?.total_requests) || 0, 0);
-    const deploys = migrationsToday > 0 ? Math.max(1, Math.floor(migrationsToday / 2)) : (workerRequests > 100 ? 1 : 0);
     const migrationsApplied = Math.max(Number(migrationsRow?.cnt) || 0, 0);
     const mcpToolCalls = Math.max(Number(mcpRow?.total_calls) || 0, 0);
     const stuckRuns = Math.max(Number(runRow?.stuck) || 0, 0);
@@ -236,10 +231,9 @@ export async function runVelocityDailyRollup(env) {
     const spawnJobsCompleted = Math.max(Number(spawnRow?.completed) || 0, 0);
     const cursorSpend = spendRow?.spend ?? null;
 
-    // Features shipped = spawn jobs completed + deploys (rough but real)
-    const featuresShipped = spawnJobsCompleted + Math.min(deploys, 3);
-    // Bugs fixed = failed runs that resolved (imperfect proxy — better than nothing)
-    const bugsFixed = Math.max(Number(runRow?.failed) || 0, 0) > 0 ? 0 : Math.floor(commits / 3);
+    // Features/bugs derived from commit message prefixes in deployments.description
+    const featuresShipped = Math.max(Number(deployLog?.features_count) || 0, 0) + spawnJobsCompleted;
+    const bugsFixed = Math.max(Number(deployLog?.bugs_fixed_count) || 0, 0);
 
     const velocityScore = computeVelocityScore({
       commits, deploys, migrationsApplied, featuresShipped, bugsFixed,
