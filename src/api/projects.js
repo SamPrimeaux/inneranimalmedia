@@ -13,6 +13,7 @@ import {
 } from '../core/project-dashboard-memory.js';
 import { syncProjectRuntimeContract } from '../core/project-runtime-contract-sync.js';
 import { buildProjectContextAudit } from '../core/project-context-audit.js';
+import { insertProjectCost, listProjectCosts, summarizeProjectCosts } from '../core/project-costs.js';
 import { sendResendEmail } from '../services/resend.js';
 
 const PROJECTS_LIST_CACHE = 'private, max-age=30, stale-while-revalidate=120';
@@ -798,7 +799,73 @@ async function handleGetOne(env, authUser, id) {
   const access = await assertProjectAccess(env, authUser, row);
   if (!access.ok) return jsonResponse({ ok: false, error: access.error }, access.status);
   const [project] = await attachChatProjectIds(env, [row]);
-  return jsonResponse({ ok: true, project: project || row });
+  let cost_summary = null;
+  try {
+    cost_summary = await summarizeProjectCosts(env, id);
+  } catch {
+    /* schema may pre-802 */
+  }
+  return jsonResponse({ ok: true, project: project || row, cost_summary });
+}
+
+async function handleProjectCostsGet(env, authUser, projectId) {
+  const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(projectId).first();
+  const access = await assertProjectAccess(env, authUser, row);
+  if (!access.ok) return jsonResponse({ ok: false, error: access.error }, access.status);
+  const costs = await listProjectCosts(env, projectId);
+  const summary = await summarizeProjectCosts(env, projectId);
+  return jsonResponse({ ok: true, project_id: projectId, costs, summary });
+}
+
+async function handleProjectCostsPost(request, env, authUser, projectId) {
+  const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(projectId).first();
+  const access = await assertProjectAccess(env, authUser, row);
+  if (!access.ok) return jsonResponse({ ok: false, error: access.error }, access.status);
+  const body = await request.json().catch(() => ({}));
+  const costType = String(body.cost_type || body.costType || '').trim();
+  if (!costType) return jsonResponse({ ok: false, error: 'cost_type_required' }, 400);
+
+  const metaRaw = body.metadata_json ?? body.metadata;
+  let metadata = null;
+  if (metaRaw != null) {
+    if (typeof metaRaw === 'object' && !Array.isArray(metaRaw)) metadata = metaRaw;
+    else if (typeof metaRaw === 'string') {
+      try {
+        metadata = JSON.parse(metaRaw);
+      } catch {
+        return jsonResponse({ ok: false, error: 'invalid_metadata_json' }, 400);
+      }
+    }
+  }
+
+  try {
+    const inserted = await insertProjectCost(env, {
+      projectId,
+      costType,
+      amount: body.amount != null ? Number(body.amount) : null,
+      description: body.description ?? null,
+      workspaceId: body.workspace_id ?? row?.workspace_id ?? authUser.active_workspace_id ?? null,
+      tenantId: body.tenant_id ?? row?.tenant_id ?? authUser.tenant_id ?? null,
+      userId: body.user_id ?? authUser.id ?? null,
+      provider: body.provider ?? null,
+      modelKey: body.model_key ?? body.model ?? null,
+      taskType: body.task_type ?? body.taskType ?? null,
+      inputTokens: body.input_tokens ?? body.inputTokens ?? 0,
+      outputTokens: body.output_tokens ?? body.outputTokens ?? 0,
+      qualityTier: body.quality_tier ?? body.quality ?? null,
+      qualityScore: body.quality_score ?? body.qualityScore ?? null,
+      currency: body.currency ?? 'USD',
+      sourceKind: body.source_kind ?? body.sourceKind ?? 'manual',
+      sourceId: body.source_id ?? body.sourceId ?? null,
+      routingArmId: body.routing_arm_id ?? body.routingArmId ?? null,
+      imageCount: body.image_count ?? body.imageCount ?? (costType === 'ai_image' ? 1 : 0),
+      metadata,
+      pricingKind: body.pricing_kind ?? body.pricingKind ?? null,
+    });
+    return jsonResponse({ ok: true, cost: inserted });
+  } catch (e) {
+    return jsonResponse({ ok: false, error: String(e?.message || e) }, 500);
+  }
 }
 
 async function handlePatch(request, env, authUser, id, ctx) {
@@ -1714,6 +1781,10 @@ export async function handleProjectsApi(request, url, env, authUser, ctx = null)
   }
   if (seg.length === 2 && seg[1] === 'share' && method === 'POST') {
     return handleProjectSharePost(request, env, authUser, seg[0]);
+  }
+  if (seg.length === 2 && seg[1] === 'costs') {
+    if (method === 'GET') return handleProjectCostsGet(env, authUser, seg[0]);
+    if (method === 'POST') return handleProjectCostsPost(request, env, authUser, seg[0]);
   }
   if (seg.length === 1 && method === 'GET') {
     return handleGetOne(env, authUser, seg[0]);
