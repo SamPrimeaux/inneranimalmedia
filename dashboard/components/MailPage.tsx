@@ -9,13 +9,14 @@ import { useNavigate } from 'react-router-dom';
 import { CollaborateWorkShell } from '../src/components/collaborate/CollaborateWorkShell';
 import { CollaboratePageRail } from '../src/components/collaborate/CollaboratePageRail';
 import { MailTimeInsightsPanel } from '../src/components/collaborate/MailTimeInsightsPanel';
+import { openMailAgent } from '../lib/askMailAgent';
 import '../pages/launch-desk/collaborate-calendar.css';
 import '../src/components/collaborate/mail-work-surface.css';
 import {
   Archive, Bot, ChevronLeft, ChevronRight, Circle, Clock,
   Forward, Inbox, Mail, Paperclip, Plus, RefreshCw, Reply,
-  Search, Send, Settings, Star, Tag, Trash2, X, Zap,
-  CheckCircle, AlertTriangle, Filter, MoreHorizontal, Sparkles,
+  Search, Send, Settings, Star, Tag, Trash2, X,
+  CheckCircle, AlertTriangle, Filter, MoreHorizontal,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -58,15 +59,6 @@ interface ComposeState {
   reply_to: string;
   in_reply_to: string;
   thread_id: string;
-}
-
-interface AgentResult {
-  loading: boolean;
-  action: string;
-  result: Record<string, unknown> | null;
-  error: string | null;
-  model: string;
-  agent_name: string;
 }
 
 type Folder = 'inbox' | 'starred' | 'archived' | 'sent' | 'templates';
@@ -172,22 +164,6 @@ function Btn({ onClick, title, children, active = false, danger = false, small =
   );
 }
 
-function UrgencyBadge({ urgency }: { urgency: string }) {
-  const map: Record<string, { bg: string; label: string }> = {
-    critical: { bg: '#ef4444', label: 'Critical' },
-    high:     { bg: 'var(--solar-orange)', label: 'High' },
-    normal:   { bg: 'var(--solar-cyan)', label: 'Normal' },
-    low:      { bg: 'var(--text-muted)', label: 'Low' },
-    fyi:      { bg: '#8b5cf6', label: 'FYI' },
-  };
-  const s = map[String(urgency || '').toLowerCase()] || map.normal;
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', height: 18, padding: '0 7px', borderRadius: 99, background: s.bg + '22', color: s.bg, fontSize: 10, fontWeight: 800, letterSpacing: 0.4 }}>
-      {s.label}
-    </span>
-  );
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function MailPage() {
@@ -231,11 +207,28 @@ export function MailPage() {
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  // Agent Sam AI
-  const [mailSurface, setMailSurface] = useState<'folders' | 'agentsam'>('folders');
-  const [agentOpen, setAgentOpen] = useState(false);
-  const [agentInstruction, setAgentInstruction] = useState('');
-  const [agent, setAgent] = useState<AgentResult>({ loading: false, action: '', result: null, error: null, model: '', agent_name: '' });
+  const handleMailAgent = useCallback(() => {
+    openMailAgent({
+      inboxPreview: emails.map((e) => ({
+        id: e.id,
+        subject: e.subject,
+        from: e.from_address,
+        date: e.date_received,
+        is_read: e.is_read,
+      })),
+      focus: selected
+        ? {
+          subject: selected.subject,
+          from: selected.from_address,
+          to: selected.to_address,
+          bodyPreview: detail?.body || undefined,
+        }
+        : undefined,
+      message: selected
+        ? 'Summarize this email and suggest whether I should reply, archive, or follow up.'
+        : undefined,
+    });
+  }, [emails, selected, detail]);
 
   // ── Load accounts (Gmail status + Resend senders) ──────────────────────────
   const loadAccounts = useCallback(async () => {
@@ -305,11 +298,9 @@ export function MailPage() {
         const acctVal = activeAccount.startsWith('gmail:') ? activeAccount.slice(6) : activeAccount;
         if (acctVal) params.set('account', acctVal);
       }
-      if (folder === 'sent') {
-        params.set('page', String(listPage));
-      } else if (listPage > 1 && gmailPageTokens[listPage]) {
+      if (listPage > 1 && gmailPageTokens[listPage]) {
         params.set('page_token', gmailPageTokens[listPage]);
-      } else if (listPage > 1) {
+      } else if (listPage > 1 && listSource !== 'gmail') {
         params.set('page', String(listPage));
       }
       const url = params.toString() ? `${endpoint}?${params}` : endpoint;
@@ -330,7 +321,7 @@ export function MailPage() {
       setStats(s => ({ ...s, total: data.total ?? list.length, unread: data.unread_count ?? s.unread }));
     } catch { setEmails([]); }
     finally { setLoadingList(false); }
-  }, [folder, activeAccount, listPage, gmailPageTokens]);
+  }, [folder, activeAccount, listPage, gmailPageTokens, listSource]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -351,7 +342,6 @@ export function MailPage() {
   const openEmail = useCallback(async (email: Email) => {
     setSelected(email);
     setDetail(null);
-    setAgent(a => ({ ...a, result: null, error: null }));
     setLoadingDetail(true);
     try {
       const acctQs = email.account ? `?account=${encodeURIComponent(email.account)}` : accountQuery(activeAccount);
@@ -447,85 +437,6 @@ export function MailPage() {
     setComposing(true);
   }, []);
 
-  // ── Agent Sam ──────────────────────────────────────────────────────────────
-  const callAgent = useCallback(async (action: string, instruction?: string) => {
-    if (!selected && action !== 'triage_inbox' && action !== 'custom') return;
-    setAgent({ loading: true, action, result: null, error: null, model: '', agent_name: '' });
-    try {
-      const body: Record<string, unknown> = { action: action === 'custom' ? 'custom' : action };
-      const instr = instruction?.trim();
-      if (instr) body.instruction = instr;
-      if (action === 'triage_inbox') {
-        body.emails = emails.slice(0, 30).map(e => ({
-          id: e.id, subject: e.subject,
-          from: e.from_address, preview: e.subject,
-          date: e.date_received, is_read: e.is_read,
-        }));
-      } else {
-        body.email = selected;
-        body.thread = detail?.thread || [];
-        if (detail?.body) body.email = { ...selected, body_preview: detail.body.slice(0, 3000) };
-      }
-      const res = await fetch('/api/mail/agent', {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const d = await res.json();
-      if (!res.ok || !d.ok) throw new Error(d.error || 'Agent error');
-      setAgent({ loading: false, action, result: d.result, error: null, model: d.model, agent_name: d.agent_name });
-    } catch (e: unknown) {
-      setAgent(a => ({ ...a, loading: false, error: String((e as Error).message || e) }));
-    }
-  }, [selected, detail, emails]);
-
-  // ── Copy drafted body to compose ──────────────────────────────────────────
-  const useAgentDraft = useCallback(() => {
-    if (!agent.result) return;
-    const r = agent.result as Record<string, string>;
-    setCompose(c => ({
-      ...c,
-      subject: r.subject || c.subject,
-      body: r.body_text || r.body_html || c.body,
-    }));
-    setComposing(true);
-  }, [agent.result]);
-
-  const renderAgentResult = useCallback((r: Record<string, unknown>) => (
-    <div style={{ padding: '10px 14px', fontSize: 12, lineHeight: 1.6 }}>
-      {r.summary && <p style={{ margin: '0 0 8px', color: 'var(--text-main)' }}>{String(r.summary)}</p>}
-      {r.urgency && <div style={{ marginBottom: 6, display: 'flex', gap: 6, alignItems: 'center' }}><span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Urgency:</span><UrgencyBadge urgency={String(r.urgency)} /></div>}
-      {r.type && <div style={{ marginBottom: 6, fontSize: 11 }}><span style={{ color: 'var(--text-muted)' }}>Type: </span><span style={{ fontWeight: 700 }}>{String(r.type)}</span></div>}
-      {Array.isArray(r.action_items) && r.action_items.length > 0 && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 4 }}>Action items</div>
-          <ul style={{ margin: 0, padding: '0 0 0 16px' }}>
-            {(r.action_items as string[]).map((a, i) => <li key={i} style={{ marginBottom: 2 }}>{a}</li>)}
-          </ul>
-        </div>
-      )}
-      {Array.isArray(r.priorities) && r.priorities.length > 0 && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 4 }}>Priority inbox</div>
-          <ul style={{ margin: 0, padding: '0 0 0 16px' }}>
-            {(r.priorities as { subject?: string; reason?: string }[]).map((p, i) => (
-              <li key={i} style={{ marginBottom: 4 }}><strong>{p.subject || 'Message'}</strong>{p.reason ? ` — ${p.reason}` : ''}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {(r.body_text || r.subject) && (
-        <div style={{ marginTop: 8, padding: 10, background: 'var(--bg-app)', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
-          {r.subject && <div style={{ fontWeight: 800, marginBottom: 4 }}>Subject: {String(r.subject)}</div>}
-          <div style={{ whiteSpace: 'pre-wrap', color: 'var(--text-muted)' }}>{String(r.body_text || '')}</div>
-          <Btn onClick={useAgentDraft} small><CheckCircle size={11} />Use this draft</Btn>
-        </div>
-      )}
-      {r.raw && <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>{String(r.raw).slice(0, 1200)}</div>}
-      {r.reply && <div style={{ marginTop: 8, whiteSpace: 'pre-wrap', color: 'var(--text-main)' }}>{String(r.reply)}</div>}
-    </div>
-  ), [useAgentDraft]);
-
   // ── Panel resize ───────────────────────────────────────────────────────────
   const startResize = useCallback((panel: 'sidebar' | 'detail', e: React.PointerEvent) => {
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -617,7 +528,7 @@ export function MailPage() {
         {/* Folders */}
         <div style={{ padding: '8px 8px 4px', flexShrink: 0 }}>
           {FOLDERS.map(f => (
-            <button key={f.id} type="button" onClick={() => { setMailSurface('folders'); setFolder(f.id); }} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', height: 32, padding: '0 8px', borderRadius: 7, border: 'none', background: mailSurface === 'folders' && folder === f.id ? 'var(--bg-hover)' : 'transparent', color: mailSurface === 'folders' && folder === f.id ? 'var(--text-main)' : 'var(--text-muted)', fontSize: 12, fontWeight: mailSurface === 'folders' && folder === f.id ? 800 : 400, cursor: 'pointer', textAlign: 'left' }}>
+            <button key={f.id} type="button" onClick={() => setFolder(f.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', height: 32, padding: '0 8px', borderRadius: 7, border: 'none', background: folder === f.id ? 'var(--bg-hover)' : 'transparent', color: folder === f.id ? 'var(--text-main)' : 'var(--text-muted)', fontSize: 12, fontWeight: folder === f.id ? 800 : 400, cursor: 'pointer', textAlign: 'left' }}>
               {f.icon}
               <span style={{ flex: 1 }}>{f.label}</span>
               {f.id === 'inbox' && stats.unread > 0 && (
@@ -625,21 +536,6 @@ export function MailPage() {
               )}
             </button>
           ))}
-          <button
-            type="button"
-            className={mailSurface === 'agentsam' ? 'mail-agentsam-nav active' : 'mail-agentsam-nav'}
-            onClick={() => { setMailSurface('agentsam'); setSelected(null); setDetail(null); }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8, width: '100%', height: 32,
-              padding: '0 8px', borderRadius: 7, border: 'none', marginTop: 4,
-              background: mailSurface === 'agentsam' ? undefined : 'transparent',
-              color: mailSurface === 'agentsam' ? undefined : 'var(--text-muted)',
-              fontSize: 12, fontWeight: mailSurface === 'agentsam' ? 800 : 600, cursor: 'pointer', textAlign: 'left',
-            }}
-          >
-            <Bot size={14} />
-            <span style={{ flex: 1 }}>AgentSam</span>
-          </button>
         </div>
 
         {/* Stats footer */}
@@ -653,76 +549,11 @@ export function MailPage() {
 
       {/* ── CENTER LIST ─────────────────────────────────────────────────── */}
       <div className="mail-list-pane" style={{ flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-        {mailSurface === 'agentsam' ? (
-          <div className="mail-agentsam-pane" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div className="mail-agentsam-header" style={{ padding: '16px 18px 12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                <Bot size={18} style={{ color: 'var(--solar-cyan)' }} />
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 800 }}>AgentSam</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Agentic email assistant — triage, summarize, draft replies</div>
-                </div>
-                {agent.model && (
-                  <span style={{ marginLeft: 'auto', fontSize: 10, padding: '2px 8px', borderRadius: 99, border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-                    {agent.model.split('/').pop()}
-                  </span>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <Btn onClick={() => callAgent('triage_inbox')} small active={agent.action === 'triage_inbox' && agent.loading}>
-                  <Sparkles size={11} />Triage inbox
-                </Btn>
-                <Btn onClick={() => selected && callAgent('summarize')} small>
-                  <Sparkles size={11} />Summarize selected
-                </Btn>
-                <Btn onClick={() => selected && callAgent('draft_reply')} small>
-                  <Zap size={11} />Draft reply
-                </Btn>
-              </div>
-            </div>
-            <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
-              <textarea
-                value={agentInstruction}
-                onChange={e => setAgentInstruction(e.target.value)}
-                placeholder="Ask AgentSam about your mail… e.g. “Summarize unread from clients this week”"
-                rows={3}
-                style={{ width: '100%', boxSizing: 'border-box', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 8, color: 'var(--text-main)', fontSize: 12, padding: 10, resize: 'vertical', outline: 'none', fontFamily: 'var(--font-sans)', lineHeight: 1.5 }}
-              />
-              <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
-                <Btn
-                  onClick={() => callAgent('custom', agentInstruction)}
-                  small
-                  active={agent.action === 'custom' && agent.loading}
-                >
-                  <Bot size={11} />Run
-                </Btn>
-              </div>
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto' }}>
-              {agent.loading && (
-                <div style={{ padding: 20, color: 'var(--text-muted)', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <RefreshCw size={13} style={{ animation: 'spin 0.8s linear infinite' }} />Thinking…
-                </div>
-              )}
-              {agent.error && (
-                <div style={{ padding: 16, color: '#ef4444', fontSize: 12, display: 'flex', gap: 6 }}>
-                  <AlertTriangle size={13} />{agent.error}
-                </div>
-              )}
-              {agent.result && !agent.loading && renderAgentResult(agent.result as Record<string, unknown>)}
-              {!agent.loading && !agent.error && !agent.result && (
-                <div style={{ padding: 24, color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.6 }}>
-                  Select a message in Inbox for per-email actions, or run <strong>Triage inbox</strong> to prioritize what needs attention.
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
         <>
         {/* Toolbar */}
         <div className="mail-list-toolbar" style={{ height: 48, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
           <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: 0.1, textTransform: 'capitalize' }}>{folder}</span>
+          <Btn onClick={handleMailAgent} small title="Open mail assistant in Agent Sam"><Bot size={12} />Triage</Btn>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <button
               type="button"
@@ -792,11 +623,10 @@ export function MailPage() {
           ))}
         </div>
         </>
-        )}
       </div>
 
       {/* ── DETAIL PANEL ───────────────────────────────────────────────── */}
-      {selected && mailSurface === 'folders' && (
+      {selected && (
         <>
           {/* Detail resize handle */}
           <div onPointerDown={e => startResize('detail', e)} style={{ width: 5, flexShrink: 0, cursor: 'col-resize', background: 'transparent', borderLeft: '1px solid var(--border-subtle)' }} />
@@ -812,7 +642,7 @@ export function MailPage() {
               <Btn onClick={() => toggleStar(selected)} small active={selected.is_starred === 1}><Star size={12} style={{ fill: selected.is_starred ? 'var(--solar-yellow)' : 'none', color: selected.is_starred ? 'var(--solar-yellow)' : undefined }} /></Btn>
               <Btn onClick={() => archiveEmail(selected)} small><Archive size={12} /></Btn>
               <Btn onClick={() => deleteEmail(selected)} small danger><Trash2 size={12} /></Btn>
-              <Btn onClick={() => { setAgentOpen(o => !o); }} small active={agentOpen}><Sparkles size={12} />AI</Btn>
+              <Btn onClick={handleMailAgent} small><Bot size={12} />Agent</Btn>
             </div>
 
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
@@ -825,38 +655,6 @@ export function MailPage() {
                   <span style={{ marginLeft: 'auto' }}>{fmtDate(selected.date_received)}</span>
                 </div>
               </div>
-
-              {/* Agent Sam AI panel */}
-              {agentOpen && (
-                <div style={{ margin: '0 14px 10px', borderRadius: 10, border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', overflow: 'hidden' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(0,255,200,0.06)' }}>
-                    <Bot size={14} style={{ color: 'var(--solar-cyan)' }} />
-                    <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--solar-cyan)' }}>Agent Sam</span>
-                    {agent.agent_name && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>· {agent.agent_name}</span>}
-                    {agent.model && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 99, background: 'var(--bg-app)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)', marginLeft: 'auto' }}>{agent.model.split('/').pop()}</span>}
-                  </div>
-                  <div style={{ padding: '10px 14px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {['summarize', 'classify', 'draft_reply'].map(act => (
-                      <Btn key={act} onClick={() => callAgent(act)} small active={agent.action === act && !agent.loading}>
-                        {act === 'summarize' && <><Sparkles size={11} />Summarize</>}
-                        {act === 'classify' && <><Tag size={11} />Classify</>}
-                        {act === 'draft_reply' && <><Zap size={11} />Draft Reply</>}
-                      </Btn>
-                    ))}
-                  </div>
-                  {agent.loading && (
-                    <div style={{ padding: '10px 14px', color: 'var(--text-muted)', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <RefreshCw size={13} style={{ animation: 'spin 0.8s linear infinite' }} />Thinking…
-                    </div>
-                  )}
-                  {agent.error && (
-                    <div style={{ padding: '10px 14px', color: '#ef4444', fontSize: 12, display: 'flex', gap: 6 }}>
-                      <AlertTriangle size={13} />{agent.error}
-                    </div>
-                  )}
-                  {agent.result && !agent.loading && renderAgentResult(agent.result as Record<string, unknown>)}
-                </div>
-              )}
 
               {/* Body */}
               {loadingDetail && (
@@ -927,6 +725,7 @@ export function MailPage() {
         insightsOpen={insightsOpen}
         onInsightsToggle={() => setInsightsOpen((v) => !v)}
         onTasksClick={() => navigate('/dashboard/collaborate?seg=tasks')}
+        onMailAgentClick={handleMailAgent}
       />
 
       {/* ── COMPOSE MODAL ──────────────────────────────────────────────── */}

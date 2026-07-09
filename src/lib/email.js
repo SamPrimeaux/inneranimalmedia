@@ -246,6 +246,11 @@ export async function sendPlatformEmail(env, opts, executionCtx) {
 
       if (env.DB) {
         const provider = useResend ? 'resend' : 'gmail';
+        let logUserId = null;
+        try {
+          const { resolveUserIdByEmail } = await import('../core/email-sent-archive.js');
+          logUserId = await resolveUserIdByEmail(env, toAddr);
+        } catch { /* non-fatal */ }
         await insertEmailLog(env, {
           to: toAddr,
           from: fromDefault || 'platform',
@@ -253,6 +258,8 @@ export async function sendPlatformEmail(env, opts, executionCtx) {
           status: 'sent',
           externalMessageId: json?.id ?? null,
           provider,
+          userId: logUserId,
+          textContent: bodyRaw || null,
         });
       }
       return { success: true, data: json };

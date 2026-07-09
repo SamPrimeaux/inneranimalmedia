@@ -234,6 +234,8 @@ export async function handleEmailApi(request, env) {
 
   try {
     const out = await sendViaResend(env, { from, to, subject, html, text });
+    const { resolveUserIdByEmail, logAndArchiveSentEmail } = await import('../core/email-sent-archive.js');
+    const userId = await resolveUserIdByEmail(env, to);
     await logAndArchiveSentEmail(env, {
       to,
       from,
@@ -242,12 +244,15 @@ export async function handleEmailApi(request, env) {
       text,
       status: 'sent',
       provider: 'resend',
+      userId,
     }).catch((e) => console.warn('[email/send] archive', e?.message ?? e));
     return jsonResponse({ ok: true, provider: 'resend' });
   } catch (resendErr) {
     console.warn('[email/send] Resend failed, trying Gmail:', resendErr?.message ?? resendErr);
     try {
       const out = await sendViaGmail(env, { from, to, subject, html, text });
+      const { resolveUserIdByEmail, logAndArchiveSentEmail } = await import('../core/email-sent-archive.js');
+      const userId = await resolveUserIdByEmail(env, to);
       await logAndArchiveSentEmail(env, {
         to,
         from,
@@ -257,6 +262,7 @@ export async function handleEmailApi(request, env) {
         status: 'sent',
         provider: 'gmail',
         externalMessageId: out.id ?? null,
+        userId,
       }).catch((e) => console.warn('[email/send] archive', e?.message ?? e));
       return jsonResponse({ ok: true, ...out, resend_error: String(resendErr?.message || resendErr) });
     } catch (gmailErr) {

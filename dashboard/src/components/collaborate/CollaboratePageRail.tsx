@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, CalendarCog, CheckSquare, Lightbulb, ListTodo, Mail, Video } from 'lucide-react';
+import { BookOpen, Bot, CalendarCog, CheckSquare, Lightbulb, ListTodo, Mail, Video } from 'lucide-react';
 import type { CollaborateCalendarRightPanel } from '../../lib/collaborate/collaborateRailNav';
 
 type ActiveSurface = 'calendar' | 'tasks' | 'mail';
@@ -15,6 +15,9 @@ type Props = {
   showCalendarPanels?: boolean;
   /** Highlights the current work surface on the rail (e.g. mail when on /dashboard/mail). */
   activeSurface?: ActiveSurface;
+  /** Mail-only: open Agent Sam side rail with inbox context. */
+  onMailAgentClick?: () => void;
+  mailAgentActive?: boolean;
 };
 
 /** Right rail on /dashboard/collaborate — Lucide icons. */
@@ -28,6 +31,8 @@ export function CollaboratePageRail({
   activeTasksCount = 0,
   showCalendarPanels = false,
   activeSurface,
+  onMailAgentClick,
+  mailAgentActive = false,
 }: Props) {
   const navigate = useNavigate();
   const insightsActive = rightPanel ? rightPanel === 'insights' : insightsOpen;
@@ -100,6 +105,18 @@ export function CollaboratePageRail({
       >
         <Mail size={20} strokeWidth={1.75} />
       </button>
+      {activeSurface === 'mail' && onMailAgentClick ? (
+        <button
+          type="button"
+          className={`colab-cal-rail-icon violet${mailAgentActive ? ' active' : ''}`}
+          title="Mail assistant"
+          aria-label="Open Agent Sam mail assistant"
+          aria-pressed={mailAgentActive}
+          onClick={() => onMailAgentClick()}
+        >
+          <Bot size={20} strokeWidth={1.75} />
+        </button>
+      ) : null}
       <button
         type="button"
         className="colab-cal-rail-icon"

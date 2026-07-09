@@ -487,6 +487,8 @@
 .colab-cal-rail-icon.blue { color: #4285f4; }
 .colab-cal-rail-icon.green { color: #34a853; }
 .colab-cal-rail-icon.orange { color: #f4511e; }
+.colab-cal-rail-icon.violet { color: #7c3aed; }
+.colab-cal-rail-icon.violet.active { background: #ede9fe; box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.35); }
 .colab-cal-rail-icon.teal.active { background: #e0f2f1; box-shadow: inset 0 0 0 1px rgba(0, 137, 123, 0.35); }
 .colab-cal-rail-icon.slate.active { background: #eceff1; box-shadow: inset 0 0 0 1px rgba(95, 99, 104, 0.35); }
 .colab-cal-rail-badge {

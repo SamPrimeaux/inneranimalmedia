@@ -181,19 +181,20 @@ function hasGmailAttachments(msg) {
 function extractGmailBodies(msg) {
   let html = '';
   let text = '';
-  const stack = [msg?.payload].filter(Boolean);
-  while (stack.length) {
-    const n = stack.pop();
-    if (!n) continue;
-    const mt = String(n.mimeType || '').toLowerCase();
-    const data = n?.body?.data ? String(n.body.data) : '';
-    if (data && (mt === 'text/html' || mt === 'text/plain')) {
-      const decoded = base64UrlDecodeToString(data);
-      if (mt === 'text/html' && !html) html = decoded;
-      if (mt === 'text/plain' && !text) text = decoded;
-    }
-    if (Array.isArray(n.parts)) stack.push(...n.parts);
-  }
+  const walk = (node) => {
+    if (!node) return;
+    const mt = String(node.mimeType || '').toLowerCase();
+    const data = node?.body?.data ? String(node.body.data) : '';
+    if (data && mt === 'text/html' && !html) html = base64UrlDecodeToString(data);
+    if (data && mt === 'text/plain' && !text) text = base64UrlDecodeToString(data);
+    const parts = Array.isArray(node.parts) ? node.parts : [];
+    if (!parts.length) return;
+    const alt = parts.filter((p) => String(p?.mimeType || '').toLowerCase().includes('alternative'));
+    const nested = parts.filter((p) => String(p?.mimeType || '').toLowerCase() === 'message/rfc822');
+    const rest = parts.filter((p) => !alt.includes(p) && !nested.includes(p));
+    for (const p of [...alt, ...nested, ...rest]) walk(p);
+  };
+  walk(msg?.payload);
   return { html, text };
 }
 
@@ -324,6 +325,8 @@ async function fetchGmailFolderEmails(env, tokenRows, folder, opts = {}) {
     let list;
     if (folder === 'archived') {
       list = await gmailListMessagesQuery(env, tokenRow, 'in:all -in:inbox -in:trash -in:spam -in:drafts', pageToken);
+    } else if (folder === 'sent') {
+      list = await gmailListMessages(env, tokenRow, ['SENT'], pageToken);
     } else if (folder === 'starred') {
       list = await gmailListMessages(env, tokenRow, ['STARRED'], pageToken);
     } else {
@@ -713,19 +716,70 @@ export async function handleMailApi(request, url, env, ctx) {
       });
     }
 
-    // GET /api/mail/sent — scoped to authUser via user_id
+    // GET /api/mail/sent — Gmail SENT label when connected; D1 email_logs fallback + platform audit rows
     if (method === 'GET' && p === '/api/mail/sent') {
+      const accountParam = url.searchParams.get('account');
+      const gmailTokens = await resolveGmailTokensForRequest(env, authUser, accountParam);
+      const pageToken = url.searchParams.get('page_token') || null;
+      const page = parsePage(url);
+
       const statusParam = url.searchParams.get('status');
       const status = statusParam && statusParam.trim() ? statusParam.trim().toLowerCase() : null;
       const allowedStatuses = new Set(['sent', 'draft', 'queued', 'failed']);
       const includeAll = !status || status === 'all';
       const statusFilter = (!includeAll && allowedStatuses.has(status)) ? status : null;
-      const page = parsePage(url);
-      const offset = (page - 1) * PAGE_SIZE;
-
       const statusSql = statusFilter ? `status = ?` : `status IN ('sent','draft')`;
-      const binds = statusFilter ? [mailUserId, statusFilter] : [mailUserId];
+      const d1Binds = statusFilter ? [mailUserId, statusFilter] : [mailUserId];
 
+      const d1Promise = env.DB.prepare(
+        `SELECT id,
+                COALESCE(from_email, from_address) AS from_address,
+                COALESCE(to_email, to_address) AS to_address,
+                subject, status, created_at
+         FROM email_logs
+         WHERE user_id = ? AND ${statusSql}
+         ORDER BY created_at DESC
+         LIMIT 30`,
+      ).bind(...d1Binds).all();
+
+      if (gmailTokens.length > 0) {
+        const fetched = await fetchGmailFolderEmails(env, gmailTokens, 'sent', { pageToken });
+        if (!fetched.ok) return jsonResponse({ error: fetched.error }, fetched.status || 502);
+        const gmailEmails = fetched.emails || [];
+        const d1Res = await d1Promise.catch(() => ({ results: [] }));
+        const d1Only = (d1Res?.results || []).filter((row) => {
+          const ext = String(row.id || '');
+          return !looksLikeGmailMessageId(ext);
+        });
+        const merged = [
+          ...gmailEmails,
+          ...d1Only.map((row) => ({
+            id: String(row.id),
+            from_address: String(row.from_address || ''),
+            to_address: String(row.to_address || ''),
+            subject: String(row.subject || '(no subject)'),
+            date_received: String(row.created_at || ''),
+            is_read: 1,
+            is_starred: 0,
+            is_archived: 0,
+            category: String(row.status || 'sent'),
+            has_attachments: 0,
+            source: 'platform',
+          })),
+        ];
+        merged.sort((a, b) => new Date(b.date_received).getTime() - new Date(a.date_received).getTime());
+        return jsonResponse({
+          emails: merged,
+          total: fetched.total_estimate ?? merged.length,
+          page,
+          page_size: fetched.page_size || GMAIL_LIST_MAX,
+          next_page_token: fetched.next_page_token || null,
+          source: 'gmail',
+          platform_log_count: d1Only.length,
+        });
+      }
+
+      const offset = (page - 1) * PAGE_SIZE;
       const [listRes, totalRow] = await Promise.all([
         env.DB.prepare(
           `SELECT id,
@@ -736,10 +790,10 @@ export async function handleMailApi(request, url, env, ctx) {
            WHERE user_id = ? AND ${statusSql}
            ORDER BY created_at DESC
            LIMIT ? OFFSET ?`,
-        ).bind(...binds, PAGE_SIZE, offset).all(),
+        ).bind(...d1Binds, PAGE_SIZE, offset).all(),
         env.DB.prepare(
           `SELECT COUNT(*) as c FROM email_logs WHERE user_id = ? AND ${statusSql}`,
-        ).bind(...binds).first(),
+        ).bind(...d1Binds).first(),
       ]);
 
       return jsonResponse({
@@ -747,6 +801,7 @@ export async function handleMailApi(request, url, env, ctx) {
         total: Number(totalRow?.c || 0),
         page,
         page_size: PAGE_SIZE,
+        source: 'd1',
       });
     }
 

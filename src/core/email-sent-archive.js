@@ -12,7 +12,7 @@ export async function resolveUserIdByEmail(env, email) {
   const addr = String(email || '').trim().toLowerCase();
   if (!addr || !env?.DB) return null;
   const row = await env.DB.prepare(
-    `SELECT id FROM users WHERE lower(email) = ? LIMIT 1`,
+    `SELECT id FROM auth_users WHERE lower(trim(email)) = ? LIMIT 1`,
   )
     .bind(addr)
     .first()
