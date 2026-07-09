@@ -45,32 +45,6 @@ const areas = {
   'Docs / Config':     changedFiles.filter(f => f.startsWith('docs/') || f.endsWith('.toml') || f.endsWith('.json') && !f.startsWith('dashboard/')),
 };
 
-// ── Next steps — deploy-specific only (no generic boilerplate) ─────────────
-let nextSteps = [];
-const headMsg = e('GIT_MSG_LINE') || commits[0]?.message || '';
-if (areas['Migrations / DB'].length) {
-  for (const f of areas['Migrations / DB'].slice(0, 2)) {
-    nextSteps.push(`Verify D1 migration applied: ${f}`);
-  }
-}
-if (areas['Dashboard / UI'].length) {
-  nextSteps.push(`Spot-check dashboard routes touched (${areas['Dashboard / UI'].length} file${areas['Dashboard / UI'].length === 1 ? '' : 's'})`);
-}
-if (areas['Worker / API'].length) {
-  nextSteps.push('Smoke: GET /api/health — confirm worker responds after deploy');
-}
-if (areas['Scripts / Deploy'].length) {
-  nextSteps.push(`Review deploy script changes: ${areas['Scripts / Deploy'].slice(0, 2).join(', ')}`);
-}
-if (headMsg && headMsg !== '—') {
-  nextSteps.unshift(`Shipped intent: ${headMsg.slice(0, 200)}`);
-}
-if (!nextSteps.length) {
-  nextSteps.push(`Review this deploy: ${headMsg || shortSha} (${shortSha})`);
-}
-nextSteps = nextSteps.slice(0, 5);
-const nextStepsGeneric = false;
-
 // ── Env vars ──────────────────────────────────────────────────────────────────
 const e = k => process.env[k] || '';
 const workerVersion  = e('WORKER_VERSION_ID') || '—';
@@ -87,6 +61,32 @@ const r2Status       = e('R2_SYNC_STATUS')      || 'passed';
 const fileCount      = e('FILE_COUNT')          || '—';
 const totalKb        = e('TOTAL_KB')            || '—';
 const notifyTo       = e('NOTIFY_TO')           || 'info@inneranimals.com';
+
+// ── Next steps — deploy-specific only (no generic boilerplate) ─────────────
+let nextSteps = [];
+const headMsg = gitMsg !== '—' ? gitMsg : (commits[0]?.message || '');
+if (areas['Migrations / DB'].length) {
+  for (const f of areas['Migrations / DB'].slice(0, 2)) {
+    nextSteps.push(`Verify D1 migration applied: ${f}`);
+  }
+}
+if (areas['Dashboard / UI'].length) {
+  nextSteps.push(`Spot-check dashboard routes touched (${areas['Dashboard / UI'].length} file${areas['Dashboard / UI'].length === 1 ? '' : 's'})`);
+}
+if (areas['Worker / API'].length) {
+  nextSteps.push('Smoke: GET /api/health — confirm worker responds after deploy');
+}
+if (areas['Scripts / Deploy'].length) {
+  nextSteps.push(`Review deploy script changes: ${areas['Scripts / Deploy'].slice(0, 2).join(', ')}`);
+}
+if (headMsg) {
+  nextSteps.unshift(`Shipped intent: ${headMsg.slice(0, 200)}`);
+}
+if (!nextSteps.length) {
+  nextSteps.push(`Review this deploy: ${headMsg || shortSha} (${shortSha})`);
+}
+nextSteps = nextSteps.slice(0, 5);
+const nextStepsGeneric = false;
 
 // ── HTML helpers ──────────────────────────────────────────────────────────────
 const row = (label, value) =>
