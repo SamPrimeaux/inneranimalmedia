@@ -91,14 +91,16 @@ export async function runVelocityDailyRollup(env) {
 
     // ── Count signals from live tables ──────────────────────────────────────
 
-    // Migrations = proxy for deploy activity — d1_migrations is written on every real deploy
-    // commits derived from migration count (best available without PTY in Worker context)
+    // Deploy activity — read directly from deployments table (authoritative, 868+ rows)
     const deployLog = await env.DB.prepare(
-      `SELECT COUNT(*) as migration_count,
-              GROUP_CONCAT(name, ' | ') as migration_names
-       FROM d1_migrations
-       WHERE applied_at >= ? AND applied_at < ?`
-    ).bind(yesterday, new Date(Date.now()).toISOString().slice(0, 10)).first().catch(() => null);
+      `SELECT COUNT(*) as deploy_count,
+              SUM(CASE WHEN description LIKE 'fix%' OR description LIKE 'Fix%' THEN 1 ELSE 0 END) as bugs_fixed_count,
+              SUM(CASE WHEN description LIKE 'feat%' OR description LIKE 'Feat%' THEN 1 ELSE 0 END) as features_count,
+              GROUP_CONCAT(COALESCE(git_hash,'') || ': ' || COALESCE(description,''), ' | ') as deploy_names
+       FROM deployments
+       WHERE COALESCE(created_at, unixepoch(timestamp), 0) >= unixepoch(?)
+         AND COALESCE(created_at, unixepoch(timestamp), 0) < unixepoch(date(?, '+1 day'))`
+    ).bind(yesterday, yesterday).first().catch(() => null);
 
     // Worker request volume yesterday — confirms platform was live and serving
     const workerActivity = await env.DB.prepare(
