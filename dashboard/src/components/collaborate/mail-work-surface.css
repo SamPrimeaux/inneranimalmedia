@@ -17,6 +17,14 @@
 
 .colab-work-shell .mail-work-surface .mail-list-row {
   border-bottom: 1px solid var(--panel-soft);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.colab-work-shell .mail-work-surface .mail-detail-pane,
+.colab-work-shell .mail-work-surface .mail-detail-pane * {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .colab-work-shell .mail-work-surface .mail-list-row:hover,

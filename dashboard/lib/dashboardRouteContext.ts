@@ -200,6 +200,34 @@ export function resolveDashboardRouteAgentContext(opts: {
     };
   }
 
+  if (path.startsWith('/dashboard/mail')) {
+    return {
+      route_key: 'mail_triage',
+      context_label: 'Collaborate · Mail',
+      contextMode: 'mail',
+      workspaceContext: {
+        ...basePacket,
+        linked_route: path + (search || ''),
+        capabilities: ['mail', 'gmail'],
+      },
+      quickActions: [
+        {
+          id: 'mail-triage-inbox',
+          label: 'Triage inbox',
+          message:
+            'Triage my visible inbox: what needs a reply, what can wait, and what should I archive?',
+          route_key: 'mail_triage',
+        },
+        {
+          id: 'mail-summarize-unread',
+          label: 'Summarize unread',
+          message: 'Summarize my unread inbox messages from the last 24 hours.',
+          route_key: 'mail_triage',
+        },
+      ],
+    };
+  }
+
   if (path.startsWith('/dashboard/collaborate')) {
     const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
     const seg = params.get('seg');

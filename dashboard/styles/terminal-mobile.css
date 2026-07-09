@@ -1,4 +1,4 @@
-/* Terminal drawer resize handle — all viewports */
+/* Terminal drawer resize handle — all viewports (drag handle: no text select while resizing) */
 .iam-terminal-drawer-resizer {
   flex-shrink: 0;
   height: 12px;
@@ -34,6 +34,36 @@
   background: color-mix(in srgb, var(--solar-cyan, #2dd4bf) 12%, transparent);
 }
 
+/* Terminal copy surfaces — all viewports (PTY scrollback, Output, Problems, agent live log) */
+.iam-terminal-pane-root {
+  touch-action: pan-y;
+}
+
+.iam-terminal-pane-root .xterm .xterm-screen,
+.iam-terminal-pane-root .xterm .xterm-screen * {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+
+.iam-terminal-output-panel,
+.iam-terminal-output-panel *,
+.iam-terminal-problems-panel,
+.iam-terminal-problems-panel *,
+.iam-terminal-live-output,
+.iam-terminal-live-output *,
+.iam-terminal-welcome-pre {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Keep resize chrome from stealing drags as text selection */
+.iam-terminal-height-resizer,
+.iam-terminal-drawer-resizer,
+.iam-terminal-chrome-row {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 /* Mobile terminal UX — desktop layout unchanged (max-width: 430px) */
 
 @media (max-width: 430px) {
@@ -53,8 +83,6 @@
     width: 100%;
     max-width: 100%;
     overflow-x: hidden;
-    /* pan-y: allow vertical scroll + iOS text selection long-press */
-    touch-action: pan-y;
   }
 
   .iam-terminal-pane-root .xterm,
@@ -62,13 +90,6 @@
   .iam-terminal-pane-root .xterm-screen {
     max-width: 100% !important;
     overflow-x: hidden !important;
-  }
-
-  /* iOS: enable long-press copy/highlight in xterm canvas */
-  .iam-terminal-pane-root .xterm .xterm-screen,
-  .iam-terminal-pane-root .xterm .xterm-screen * {
-    -webkit-user-select: text !important;
-    user-select: text !important;
   }
 
   .iam-terminal-chrome-row {

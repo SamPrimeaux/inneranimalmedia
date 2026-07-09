@@ -220,6 +220,29 @@ samp.font-mono {
   font-size: 1.0625rem;
 }
 
+/* Readable copy surfaces — override chrome/parent select-none where users expect highlight */
+.agent-content,
+.agent-scroll-area .agent-content,
+.chat-message,
+.mail-detail-pane,
+.mail-detail-pane * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Terminal — override global resize drag lock so logs stay copyable */
+body.is-resizing .iam-terminal-pane-root,
+body.is-resizing .iam-terminal-output-panel,
+body.is-resizing .iam-terminal-problems-panel,
+body.is-resizing .iam-terminal-live-output,
+body.is-terminal-resizing .iam-terminal-pane-root,
+body.is-terminal-resizing .iam-terminal-output-panel,
+body.is-terminal-resizing .iam-terminal-problems-panel,
+body.is-terminal-resizing .iam-terminal-live-output {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
 /* Claude-style subtle scrollbar for agent message thread */
 .agent-scroll-area {
   scrollbar-width: thin;

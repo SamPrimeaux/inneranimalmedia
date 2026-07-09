@@ -358,6 +358,15 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     if (dsBlock && !systemPrompt.includes('[Design Studio — live viewport context')) {
       systemPrompt = `${systemPrompt}\n\n## Design Studio\n${dsBlock}`;
     }
+    const { extractMailSurfaceContext, formatMailSurfaceContextForAgent } = await import(
+      '../mail-studio-context.js'
+    );
+    const mailBlock = formatMailSurfaceContextForAgent(
+      extractMailSurfaceContext(browserContextPayload, body),
+    );
+    if (mailBlock && !systemPrompt.includes('[Mail — live surface context')) {
+      systemPrompt = `${systemPrompt}\n\n## Mail\n${mailBlock}`;
+    }
     const lockedEnvelope = body.activeFileEnvelope;
     if (lockedEnvelope) {
       const { formatActiveFileForAgent } = await import('../active-file-envelope.js');

@@ -412,6 +412,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const databaseSurfaceRef = useRef<Record<string, unknown> | null>(null);
   /** Latest `iam-designstudio-surface-context` from DesignStudioPage. */
   const designStudioSurfaceRef = useRef<Record<string, unknown> | null>(null);
+  /** Latest `iam-mail-surface-context` from MailPage. */
+  const mailSurfaceRef = useRef<Record<string, unknown> | null>(null);
   const messagesRef = useRef<Message[]>(messages);
   messagesRef.current = messages;
   /** Optional workflow run stream (`agent_universal_autonomous_run` / graph SSE). */
@@ -679,9 +681,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       const d = (ev as CustomEvent<Record<string, unknown>>).detail;
       if (d && typeof d === 'object') designStudioSurfaceRef.current = d;
     };
+    const onMailSurface = (ev: Event) => {
+      const d = (ev as CustomEvent<Record<string, unknown>>).detail;
+      if (d && typeof d === 'object') mailSurfaceRef.current = d;
+    };
     window.addEventListener('iam-browser-surface-context', onSurface as EventListener);
     window.addEventListener('iam-database-surface-context', onDatabaseSurface as EventListener);
     window.addEventListener('iam-designstudio-surface-context', onDesignStudioSurface as EventListener);
+    window.addEventListener('iam-mail-surface-context', onMailSurface as EventListener);
     return () => {
       window.removeEventListener('iam-browser-surface-context', onSurface as EventListener);
       window.removeEventListener('iam-database-surface-context', onDatabaseSurface as EventListener);
@@ -689,6 +696,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         'iam-designstudio-surface-context',
         onDesignStudioSurface as EventListener,
       );
+      window.removeEventListener('iam-mail-surface-context', onMailSurface as EventListener);
     };
   }, []);
 
@@ -2901,6 +2909,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       }
       if (designStudioSurfaceRef.current && typeof designStudioSurfaceRef.current === 'object') {
         browserCtxPayload.designStudioContext = designStudioSurfaceRef.current;
+      }
+      if (mailSurfaceRef.current && typeof mailSurfaceRef.current === 'object') {
+        browserCtxPayload.mailContext = mailSurfaceRef.current;
       }
       const browserUrlFromSurface =
         typeof browserSurfaceRef.current?.url === 'string'

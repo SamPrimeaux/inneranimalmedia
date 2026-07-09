@@ -183,7 +183,7 @@ export const AgentTerminalLivePanel: React.FC<AgentTerminalLivePanelProps> = ({
       </div>
 
       {/* Output */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3">
+      <div className="iam-terminal-live-output flex-1 overflow-y-auto px-3 py-2 space-y-3">
         {lines.length === 0 && (
           <p className="text-[11px] text-[var(--dashboard-muted)] italic pt-2">
             Waiting for Agent Sam to run commands…

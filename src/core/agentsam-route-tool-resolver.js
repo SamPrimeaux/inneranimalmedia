@@ -147,6 +147,20 @@ const DEFAULT_ROUTE_TOOL = /** @type {Record<string, Omit<RouteToolRequirements,
     max_tools: 6,
     approval_policy: { high_risk_requires_approval: true },
   },
+  mail_triage: {
+    allowed_lanes: ['think', 'research', 'general'],
+    required_capabilities: [],
+    optional_capabilities: [
+      'gmail_list_inbox',
+      'gmail_modify_message',
+      'gmail_send',
+      'agentsam_gmail_mcp_search_threads',
+      'agentsam_gmail_mcp_get_thread',
+    ],
+    blocked_capabilities: ['terminal_execute', 'terminal_run', 'worker_deploy'],
+    max_tools: 6,
+    approval_policy: { high_risk_requires_approval: true },
+  },
   terminal_execution: {
     allowed_lanes: ['develop', 'operate', 'terminal'],
     required_capabilities: [],
@@ -424,6 +438,7 @@ function defaultForKey(key) {
     };
   }
   if (k === 'agent_tool_orchestration' || k === 'agent_smoke_test') return DEFAULT_ROUTE_TOOL.workflow_orchestration;
+  if (k === 'mail_triage') return DEFAULT_ROUTE_TOOL.mail_triage;
   if (k === 'agent_general' || k === 'ollama-local-workflow-pinstest') return DEFAULT_ROUTE_TOOL.chat;
   if (k === 'readonly_repo_audit' || k === 'multitask_report_child' || k === 'ask_evidence_child') {
     return DEFAULT_ROUTE_TOOL.readonly_repo_audit;

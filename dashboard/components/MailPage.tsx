@@ -10,6 +10,7 @@ import { CollaborateWorkShell } from '../src/components/collaborate/CollaborateW
 import { CollaboratePageRail } from '../src/components/collaborate/CollaboratePageRail';
 import { MailTimeInsightsPanel } from '../src/components/collaborate/MailTimeInsightsPanel';
 import { openMailAgent } from '../lib/askMailAgent';
+import { publishMailSurfaceContext } from '../lib/mailSurfaceEvents';
 import '../pages/launch-desk/collaborate-calendar.css';
 import '../src/components/collaborate/mail-work-surface.css';
 import {
@@ -229,6 +230,33 @@ export function MailPage() {
         : undefined,
     });
   }, [emails, selected, detail]);
+
+  useEffect(() => {
+    const gmailConnected = accounts.some((a) => a.provider === 'gmail' && a.connected);
+    publishMailSurfaceContext({
+      surface: 'mail',
+      route: '/dashboard/mail',
+      folder,
+      account: activeAccount || null,
+      search,
+      gmailConnected,
+      inboxPreview: emails.map((e) => ({
+        id: e.id,
+        subject: e.subject,
+        from: e.from_address,
+        date: e.date_received,
+        is_read: e.is_read,
+      })),
+      selected: selected
+        ? {
+          subject: selected.subject,
+          from: selected.from_address,
+          to: selected.to_address,
+          bodyPreview: detail?.body ? detail.body.slice(0, 3000) : undefined,
+        }
+        : null,
+    });
+  }, [accounts, emails, selected, detail, folder, activeAccount, search]);
 
   // ── Load accounts (Gmail status + Resend senders) ──────────────────────────
   const loadAccounts = useCallback(async () => {
@@ -592,7 +620,7 @@ export function MailPage() {
             <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No messages</div>
           )}
           {filtered.map(email => (
-            <div key={email.id} onClick={() => openEmail(email)} className={`mail-list-row${selected?.id === email.id ? ' is-selected' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer', transition: 'background 0.1s', userSelect: 'none' }}>
+            <div key={email.id} onClick={() => openEmail(email)} className={`mail-list-row${selected?.id === email.id ? ' is-selected' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer', transition: 'background 0.1s' }}>
               {/* Avatar */}
               <div style={{ width: 34, height: 34, borderRadius: 99, background: avatarColor(email.from_address), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: '#000', flexShrink: 0 }}>
                 {initials(email.from_address)}

@@ -753,7 +753,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
         >
           {!isDrawer && !isCollapsed && (
             <div
-              className="h-1 w-full shrink-0 cursor-ns-resize group flex items-center justify-center"
+              className="iam-terminal-height-resizer h-1 w-full shrink-0 cursor-ns-resize group flex items-center justify-center"
               onMouseDown={handleDragStart}
             >
               <div className="h-px w-16 rounded-full bg-[var(--border-subtle)] group-hover:bg-[var(--solar-cyan)] group-hover:w-24 transition-all duration-200" />
@@ -1148,7 +1148,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
               </div>
 
               {activeTab === 'output' && (
-                <div className="absolute inset-0 overflow-y-auto custom-scrollbar px-4 py-3 font-mono text-[11px] leading-relaxed text-main bg-[var(--terminal-surface)] z-[20]">
+                <div className="iam-terminal-output-panel absolute inset-0 overflow-y-auto custom-scrollbar px-4 py-3 font-mono text-[11px] leading-relaxed text-main bg-[var(--terminal-surface)] z-[20]">
                   {outputLines.length === 0 ? (
                     <p className="text-muted/40 text-xs italic mt-4">No output yet.</p>
                   ) : (
@@ -1165,7 +1165,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
               )}
 
               {activeTab === 'problems' && (
-                <div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4 space-y-2 bg-[var(--terminal-surface)] z-[20]">
+                <div className="iam-terminal-problems-panel absolute inset-0 overflow-y-auto custom-scrollbar p-4 space-y-2 bg-[var(--terminal-surface)] z-[20]">
                   {problems.length > 0 && (
                     <div className="flex items-center justify-end gap-2 pb-1">
                       <button

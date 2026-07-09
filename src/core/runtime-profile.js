@@ -33,12 +33,20 @@ const AUGMENTATION_EXEMPT_ROUTES = new Set([
   'design_studio',
   'cms_code_pass',
   'mcp_panel',
+  'mail_triage',
 ]);
 
 const EXEMPT_ROUTE_TOOL_ALLOWLIST_FALLBACK = {
   design_intake: ['agentsam_d1_write', 'fs_read_file', 'fs_search_files', 'agentsam_memory_manager'],
   cad_generation: ['agentsam_d1_write', 'fs_read_file', 'fs_search_files', 'agentsam_memory_manager', 'agentsam_r2_put'],
   design_studio: ['agentsam_d1_write', 'fs_read_file', 'fs_search_files', 'agentsam_memory_manager', 'agentsam_r2_put'],
+  mail_triage: [
+    'gmail_list_inbox',
+    'gmail_modify_message',
+    'gmail_send',
+    'agentsam_gmail_mcp_search_threads',
+    'agentsam_gmail_mcp_get_thread',
+  ],
 };
 
 /**

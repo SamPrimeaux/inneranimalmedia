@@ -1021,6 +1021,20 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
       term.loadAddon(fitAddon);
       fitTerminalDimensions(term, fitAddon, hostEl);
 
+      term.attachCustomKeyEventHandler((event) => {
+        const mod = event.metaKey || event.ctrlKey;
+        if (!mod || event.altKey) return true;
+        const key = event.key.toLowerCase();
+        if (key !== 'c' || event.shiftKey) return true;
+        const sel = term.getSelection();
+        if (!sel?.length) return true;
+        event.preventDefault();
+        void navigator.clipboard?.writeText(sel).catch(() => {
+          /* fallback: xterm may still copy on some browsers */
+        });
+        return false;
+      });
+
       xtermRef.current = term;
       fitAddonRef.current = fitAddon;
 
