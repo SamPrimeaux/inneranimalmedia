@@ -629,7 +629,7 @@ export async function runDailyMemoryPipeline(env, opts) {
       : await synthesizeMorningMd(env, {
         triageBatch,
         ctxData,
-        priorMd: existingMd,
+        priorMd: digestScope.isPlatformOperator ? existingMd : '',
         yesterdayMd,
         dateIso,
         dateDisplay,
