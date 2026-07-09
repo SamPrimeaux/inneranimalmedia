@@ -517,10 +517,11 @@ export async function gatherMorningPlanContext(env, tenantId, owner, presetScope
 
     isOp
       ? d1First(env,
-        `SELECT day, deep_work_hours, burnout_risk, productivity_ratio
+        `SELECT date, deep_work_hours, burnout_risk, productivity_ratio,
+                energy_level, stress_level, days_since_break, late_night_commits
          FROM founder_metrics
-         WHERE day >= date(?, '-7 days')
-         ORDER BY day DESC LIMIT 1`,
+         WHERE date >= date(?, '-7 days')
+         ORDER BY date DESC LIMIT 1`,
         today)
       : emptyFirst(),
 
