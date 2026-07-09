@@ -45,25 +45,31 @@ const areas = {
   'Docs / Config':     changedFiles.filter(f => f.startsWith('docs/') || f.endsWith('.toml') || f.endsWith('.json') && !f.startsWith('dashboard/')),
 };
 
-// ── Next steps (from NEXT_STEPS.md if present, else inferred) ────────────────
+// ── Next steps — deploy-specific only (no generic boilerplate) ─────────────
 let nextSteps = [];
-const nsPath = resolve(REPO_ROOT, 'NEXT_STEPS.md');
-if (existsSync(nsPath)) {
-  const raw = readFileSync(nsPath, 'utf8');
-  nextSteps = raw.split('\n')
-    .filter(l => l.trim().startsWith('-') || l.trim().startsWith('*'))
-    .map(l => l.replace(/^[\s\-\*]+/, '').trim())
-    .filter(Boolean)
-    .slice(0, 6);
+const headMsg = e('GIT_MSG_LINE') || commits[0]?.message || '';
+if (areas['Migrations / DB'].length) {
+  for (const f of areas['Migrations / DB'].slice(0, 2)) {
+    nextSteps.push(`Verify D1 migration applied: ${f}`);
+  }
+}
+if (areas['Dashboard / UI'].length) {
+  nextSteps.push(`Spot-check dashboard routes touched (${areas['Dashboard / UI'].length} file${areas['Dashboard / UI'].length === 1 ? '' : 's'})`);
+}
+if (areas['Worker / API'].length) {
+  nextSteps.push('Smoke: GET /api/health — confirm worker responds after deploy');
+}
+if (areas['Scripts / Deploy'].length) {
+  nextSteps.push(`Review deploy script changes: ${areas['Scripts / Deploy'].slice(0, 2).join(', ')}`);
+}
+if (headMsg && headMsg !== '—') {
+  nextSteps.unshift(`Shipped intent: ${headMsg.slice(0, 200)}`);
 }
 if (!nextSteps.length) {
-  // Infer from what changed
-  if (areas['Dashboard / UI'].length) nextSteps.push('Verify dashboard changes at inneranimalmedia.com/dashboard/agent');
-  if (areas['Worker / API'].length)   nextSteps.push('Run post-deploy smoke: check /api/agent/health');
-  if (areas['Migrations / DB'].length) nextSteps.push('Confirm D1 migration applied — check agentsam_* tables in studio');
-  nextSteps.push('Run full identity audit: python3 scripts/audit_dashboard_identity.py');
-  nextSteps.push('Check ThinkingCard fires on next agent task execution');
+  nextSteps.push(`Review this deploy: ${headMsg || shortSha} (${shortSha})`);
 }
+nextSteps = nextSteps.slice(0, 5);
+const nextStepsGeneric = false;
 
 // ── Env vars ──────────────────────────────────────────────────────────────────
 const e = k => process.env[k] || '';
@@ -186,7 +192,7 @@ const html = `<!DOCTYPE html>
   <!-- Next steps -->
   ${nextSteps.length ? `
   <div style="margin-bottom:24px;">
-    <div style="font-size:11px;font-weight:600;color:#475569;letter-spacing:0.06em;margin-bottom:8px;">RECOMMENDED NEXT STEPS</div>
+    <div style="font-size:11px;font-weight:600;color:#475569;letter-spacing:0.06em;margin-bottom:8px;">DEPLOY-SPECIFIC NEXT STEPS${nextStepsGeneric ? '' : ' <span style="color:#4ade80;">(from this diff)</span>'}</div>
     <div style="background:#0c1a2e;border:1px solid #1e3a5f;border-radius:8px;padding:14px 16px;">
       ${nextSteps.map((s,i) => `
         <div style="display:flex;gap:10px;padding:4px 0;${i > 0 ? 'border-top:1px solid #1e293b;margin-top:6px;padding-top:10px;' : ''}">

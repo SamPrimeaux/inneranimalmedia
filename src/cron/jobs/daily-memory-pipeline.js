@@ -3,7 +3,11 @@
  * Evening and morning share this core; morning merges ## Morning into the same YYYY-MM-DD.md file.
  */
 
-import { insertEmailLog } from '../../core/email-log.js';
+import { logAndArchiveSentEmail } from '../../core/email-sent-archive.js';
+import {
+  isDeployNotificationEmail,
+  triageDeployNotificationEmail,
+} from '../../core/deploy-email-intake.js';
 import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
 import { resolveCronTenantId } from '../cron-tenant.js';
 import { snapshotGmailInboxForUser } from '../../core/gmail-inbox-snapshot.js';
@@ -21,6 +25,7 @@ import {
 
 const WORKSPACE_ID = 'ws_inneranimalmedia';
 const FLASH_MODEL = 'gemini-3.5-flash';
+const FLASH_LITE_MODEL = 'gemini-3.1-flash-lite';
 const PRO_MODEL = 'gemini-3.1-pro-preview';
 const TRIAGE_CONCURRENCY = 8;
 const MEMORY_R2_PREFIX = 'memory/';
@@ -55,7 +60,36 @@ function escHtml(s) {
 
 function parseJsonGemini(raw) {
   const cleaned = String(raw || '').replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
-  return JSON.parse(cleaned);
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
+    throw new Error('json_parse_failed');
+  }
+}
+
+async function triageWithGemini(env, email, modelKey) {
+  const raw = await generateWithGemini(env, {
+    modelKey,
+    stage: 'email_triage',
+    systemInstruction:
+      'Triage one email for a solo founder. Return JSON only: {"label":"primary|updates|action|fyi","summary":"one line","needs_action":true,"urgency":"critical|high|normal|low|fyi","project_tag":"client or internal tag","suggested_action":"reply|schedule|archive|ignore","reason":"brief"}. No emojis.',
+    userText: JSON.stringify({
+      id: email.id,
+      account: email.account,
+      from: email.from_address,
+      subject: email.subject,
+      date: email.date_received,
+      snippet: email.snippet,
+      starred: email.is_starred,
+    }),
+    maxOutputTokens: 512,
+    temperature: 0.1,
+    json: true,
+  });
+  return parseJsonGemini(raw);
 }
 
 /**
@@ -117,26 +151,21 @@ async function putAutoragText(env, key, text) {
 
 /** @param {*} env @param {object} email */
 async function triageOneEmail(env, email) {
-  const raw = await generateWithGemini(env, {
-    modelKey: FLASH_MODEL,
-    stage: 'email_triage',
-    systemInstruction:
-      'Triage one email for a solo founder. Return JSON only: {"label":"primary|updates|action|fyi","summary":"one line","needs_action":true,"urgency":"critical|high|normal|low|fyi","project_tag":"client or internal tag","suggested_action":"reply|schedule|archive|ignore","reason":"brief"}. No emojis.',
-    userText: JSON.stringify({
-      id: email.id,
-      account: email.account,
-      from: email.from_address,
-      subject: email.subject,
-      date: email.date_received,
-      snippet: email.snippet,
-      starred: email.is_starred,
-    }),
-    maxOutputTokens: 320,
-    temperature: 0.1,
-    json: true,
-  });
-  const triage = parseJsonGemini(raw);
-  return { ...email, triage };
+  if (isDeployNotificationEmail(email)) {
+    return triageDeployNotificationEmail(email);
+  }
+
+  try {
+    const triage = await triageWithGemini(env, email, FLASH_MODEL);
+    return { ...email, triage };
+  } catch (primaryErr) {
+    try {
+      const triage = await triageWithGemini(env, email, FLASH_LITE_MODEL);
+      return { ...email, triage, triage_fallback_model: FLASH_LITE_MODEL };
+    } catch {
+      throw primaryErr;
+    }
+  }
 }
 
 /** @param {*} env @param {object[]} emails */
@@ -482,14 +511,17 @@ async function sendResendEmail(env, p) {
   }
   const data = await res.json().catch(() => ({}));
   if (env.DB) {
-    await insertEmailLog(env, {
+    await logAndArchiveSentEmail(env, {
       to: p.toEmail,
       from: p.fromEmail,
       subject: p.subject,
+      html: p.htmlBody,
+      text: p.textBody,
       status: 'sent',
       externalMessageId: data.id ?? null,
       provider: 'resend',
-      textContent: p.textBody.slice(0, 50000),
+      userId: p.userId || null,
+      tenantId: p.tenantId || null,
     });
   }
   return data;
@@ -631,6 +663,8 @@ export async function runDailyMemoryPipeline(env, opts) {
       htmlBody,
       toEmail: deliverTo,
       fromEmail: env.RESEND_FROM.trim(),
+      userId: owner.userId,
+      tenantId: tid,
     });
     partial.email = true;
 

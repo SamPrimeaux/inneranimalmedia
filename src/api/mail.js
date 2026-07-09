@@ -24,7 +24,7 @@ import { emailLogExternalId, emailLogProvider, insertEmailLog, looksLikeGmailMes
 import { receivedEmailsScopeClause } from '../core/resend-inbound.js';
 
 const PAGE_SIZE = 50;
-const GMAIL_INBOX_PRELOAD_MAX = 20;
+const GMAIL_LIST_MAX = 50;
 
 function pathLower(url) {
   return url.pathname.toLowerCase().replace(/\/$/, '') || '/';
@@ -64,6 +64,9 @@ function mapEmailLogRow(logRow) {
 }
 
 async function loadSentLogBody(env, authUser, logId, logRow) {
+  const dbText = logRow?.text_content != null ? String(logRow.text_content).trim() : '';
+  if (dbText) return dbText;
+
   try {
     const obj = await getEmailSentLogObject(env, logId);
     if (obj) {
@@ -311,27 +314,38 @@ function mapGmailMetadataToEmail(msg, accountIdentifier = '') {
   };
 }
 
-async function fetchGmailFolderEmails(env, tokenRows, folder) {
+async function fetchGmailFolderEmails(env, tokenRows, folder, opts = {}) {
+  const pageToken = opts.pageToken ? String(opts.pageToken) : null;
   const allEmails = [];
+  let nextPageToken = null;
+  let resultSizeEstimate = null;
   for (const tokenRow of tokenRows) {
     const acct = String(tokenRow.account_identifier || '').trim();
     let list;
     if (folder === 'archived') {
-      list = await gmailListMessagesQuery(env, tokenRow, 'in:all -in:inbox -in:trash -in:spam -in:drafts');
+      list = await gmailListMessagesQuery(env, tokenRow, 'in:all -in:inbox -in:trash -in:spam -in:drafts', pageToken);
     } else if (folder === 'starred') {
-      list = await gmailListMessages(env, tokenRow, ['STARRED']);
+      list = await gmailListMessages(env, tokenRow, ['STARRED'], pageToken);
     } else {
-      list = await gmailListMessages(env, tokenRow, ['INBOX']);
+      list = await gmailListMessages(env, tokenRow, ['INBOX'], pageToken);
     }
     if (!list.ok) return { ok: false, status: list.status, error: list.error, emails: [] };
-    const ids = (list.messages || []).map((m) => String(m?.id || '')).filter(Boolean).slice(0, GMAIL_INBOX_PRELOAD_MAX);
+    nextPageToken = list.nextPageToken || nextPageToken;
+    resultSizeEstimate = list.resultSizeEstimate ?? resultSizeEstimate;
+    const ids = (list.messages || []).map((m) => String(m?.id || '')).filter(Boolean);
     for (const id of ids) {
       const m = await gmailGetMessage(env, tokenRow, id, 'metadata');
       if (m.ok && m.msg) allEmails.push(mapGmailMetadataToEmail(m.msg, acct));
     }
   }
   allEmails.sort((a, b) => new Date(b.date_received).getTime() - new Date(a.date_received).getTime());
-  return { ok: true, emails: allEmails.slice(0, GMAIL_INBOX_PRELOAD_MAX) };
+  return {
+    ok: true,
+    emails: allEmails,
+    next_page_token: nextPageToken,
+    total_estimate: resultSizeEstimate,
+    page_size: GMAIL_LIST_MAX,
+  };
 }
 
 async function refreshGoogleAccessToken(env, tokenRow) {
@@ -389,22 +403,34 @@ async function gmailFetchJson(env, tokenRow, url, init) {
   return { ok: res.ok, status: res.status, json };
 }
 
-async function gmailListMessages(env, tokenRow, labelIds) {
+async function gmailListMessages(env, tokenRow, labelIds, pageToken = null) {
   const u = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages');
-  u.searchParams.set('maxResults', String(PAGE_SIZE));
+  u.searchParams.set('maxResults', String(GMAIL_LIST_MAX));
+  if (pageToken) u.searchParams.set('pageToken', String(pageToken));
   for (const l of (Array.isArray(labelIds) ? labelIds : [])) u.searchParams.append('labelIds', String(l));
   const out = await gmailFetchJson(env, tokenRow, u.toString());
-  if (!out.ok) return { ok: false, status: out.status, error: out.json?.error?.message || 'gmail list failed', messages: [] };
-  return { ok: true, messages: Array.isArray(out.json?.messages) ? out.json.messages : [] };
+  if (!out.ok) return { ok: false, status: out.status, error: out.json?.error?.message || 'gmail list failed', messages: [], nextPageToken: null };
+  return {
+    ok: true,
+    messages: Array.isArray(out.json?.messages) ? out.json.messages : [],
+    nextPageToken: out.json?.nextPageToken ? String(out.json.nextPageToken) : null,
+    resultSizeEstimate: out.json?.resultSizeEstimate ?? null,
+  };
 }
 
-async function gmailListMessagesQuery(env, tokenRow, query) {
+async function gmailListMessagesQuery(env, tokenRow, query, pageToken = null) {
   const u = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages');
-  u.searchParams.set('maxResults', String(PAGE_SIZE));
+  u.searchParams.set('maxResults', String(GMAIL_LIST_MAX));
+  if (pageToken) u.searchParams.set('pageToken', String(pageToken));
   if (query) u.searchParams.set('q', String(query));
   const out = await gmailFetchJson(env, tokenRow, u.toString());
-  if (!out.ok) return { ok: false, status: out.status, error: out.json?.error?.message || 'gmail list failed', messages: [] };
-  return { ok: true, messages: Array.isArray(out.json?.messages) ? out.json.messages : [] };
+  if (!out.ok) return { ok: false, status: out.status, error: out.json?.error?.message || 'gmail list failed', messages: [], nextPageToken: null };
+  return {
+    ok: true,
+    messages: Array.isArray(out.json?.messages) ? out.json.messages : [],
+    nextPageToken: out.json?.nextPageToken ? String(out.json.nextPageToken) : null,
+    resultSizeEstimate: out.json?.resultSizeEstimate ?? null,
+  };
 }
 
 async function gmailModifyMessage(env, tokenRow, messageId, { addLabelIds = [], removeLabelIds = [] } = {}) {
@@ -566,13 +592,17 @@ export async function handleMailApi(request, url, env, ctx) {
       const accountParam = url.searchParams.get('account');
       const gmailTokens = await resolveGmailTokensForRequest(env, authUser, accountParam);
       if (gmailTokens.length > 0) {
-        const fetched = await fetchGmailFolderEmails(env, gmailTokens, 'inbox');
+        const pageToken = url.searchParams.get('page_token') || null;
+        const fetched = await fetchGmailFolderEmails(env, gmailTokens, 'inbox', { pageToken });
         if (!fetched.ok) return jsonResponse({ error: fetched.error }, fetched.status || 502);
         const emails = fetched.emails;
+        const page = parsePage(url);
         return jsonResponse({
           emails,
-          total: emails.length,
-          page: 1,
+          total: fetched.total_estimate ?? emails.length,
+          page,
+          page_size: fetched.page_size || GMAIL_LIST_MAX,
+          next_page_token: fetched.next_page_token || null,
           unread_count: emails.filter((e) => e.is_read === 0).length,
           source: 'gmail',
         });
@@ -613,6 +643,7 @@ export async function handleMailApi(request, url, env, ctx) {
         emails: rows?.results || [],
         total: Number(totalRow?.c || 0),
         page,
+        page_size: PAGE_SIZE,
         unread_count: Number(unreadRow?.c || 0),
       });
     }
@@ -622,9 +653,15 @@ export async function handleMailApi(request, url, env, ctx) {
       const accountParam = url.searchParams.get('account');
       const gmailTokens = await resolveGmailTokensForRequest(env, authUser, accountParam);
       if (gmailTokens.length > 0) {
-        const fetched = await fetchGmailFolderEmails(env, gmailTokens, 'starred');
+        const pageToken = url.searchParams.get('page_token') || null;
+        const fetched = await fetchGmailFolderEmails(env, gmailTokens, 'starred', { pageToken });
         if (!fetched.ok) return jsonResponse({ error: fetched.error }, fetched.status || 502);
-        return jsonResponse({ emails: fetched.emails, source: 'gmail' });
+        return jsonResponse({
+          emails: fetched.emails,
+          source: 'gmail',
+          next_page_token: fetched.next_page_token || null,
+          page_size: fetched.page_size || GMAIL_LIST_MAX,
+        });
       }
       const { results } = await env.DB.prepare(
         `SELECT id, from_address, to_address, subject, date_received, is_read, is_starred, is_archived, category, has_attachments
@@ -641,10 +678,18 @@ export async function handleMailApi(request, url, env, ctx) {
       const accountParam = url.searchParams.get('account');
       const gmailTokens = await resolveGmailTokensForRequest(env, authUser, accountParam);
       if (gmailTokens.length > 0) {
-        const fetched = await fetchGmailFolderEmails(env, gmailTokens, 'archived');
+        const pageToken = url.searchParams.get('page_token') || null;
+        const fetched = await fetchGmailFolderEmails(env, gmailTokens, 'archived', { pageToken });
         if (!fetched.ok) return jsonResponse({ error: fetched.error }, fetched.status || 502);
         const emails = fetched.emails;
-        return jsonResponse({ emails, total: emails.length, page: 1, source: 'gmail' });
+        return jsonResponse({
+          emails,
+          total: fetched.total_estimate ?? emails.length,
+          page: parsePage(url),
+          page_size: fetched.page_size || GMAIL_LIST_MAX,
+          next_page_token: fetched.next_page_token || null,
+          source: 'gmail',
+        });
       }
       const page = parsePage(url);
       const offset = (page - 1) * PAGE_SIZE;
@@ -675,18 +720,34 @@ export async function handleMailApi(request, url, env, ctx) {
       const allowedStatuses = new Set(['sent', 'draft', 'queued', 'failed']);
       const includeAll = !status || status === 'all';
       const statusFilter = (!includeAll && allowedStatuses.has(status)) ? status : null;
+      const page = parsePage(url);
+      const offset = (page - 1) * PAGE_SIZE;
 
-      const { results } = await env.DB.prepare(
-        `SELECT id,
-                COALESCE(from_email, from_address) AS from_address,
-                COALESCE(to_email, to_address) AS to_address,
-                subject, status, created_at
-         FROM email_logs
-         WHERE user_id = ? AND ${statusFilter ? `status = ?` : `status IN ('sent','draft')`}
-         ORDER BY created_at DESC
-         LIMIT 100`
-      ).bind(...(statusFilter ? [mailUserId, statusFilter] : [mailUserId])).all();
-      return jsonResponse({ emails: results || [] });
+      const statusSql = statusFilter ? `status = ?` : `status IN ('sent','draft')`;
+      const binds = statusFilter ? [mailUserId, statusFilter] : [mailUserId];
+
+      const [listRes, totalRow] = await Promise.all([
+        env.DB.prepare(
+          `SELECT id,
+                  COALESCE(from_email, from_address) AS from_address,
+                  COALESCE(to_email, to_address) AS to_address,
+                  subject, status, created_at
+           FROM email_logs
+           WHERE user_id = ? AND ${statusSql}
+           ORDER BY created_at DESC
+           LIMIT ? OFFSET ?`,
+        ).bind(...binds, PAGE_SIZE, offset).all(),
+        env.DB.prepare(
+          `SELECT COUNT(*) as c FROM email_logs WHERE user_id = ? AND ${statusSql}`,
+        ).bind(...binds).first(),
+      ]);
+
+      return jsonResponse({
+        emails: listRes?.results || [],
+        total: Number(totalRow?.c || 0),
+        page,
+        page_size: PAGE_SIZE,
+      });
     }
 
     // GET /api/mail/email/:id — scoped to authUser for email_logs rows

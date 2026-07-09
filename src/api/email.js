@@ -12,6 +12,7 @@
  * mailbox for platform automation — not per-user OAuth / MCP / agent mail).
  */
 import { verifyInternalApiSecret, jsonResponse } from '../core/auth.js';
+import { logAndArchiveSentEmail } from '../core/email-sent-archive.js';
 
 /** Deploy hooks / automation: INTERNAL_API_SECRET or Bearer AGENTSAM_BRIDGE_KEY (same as post-deploy). */
 function isEmailSendAuthorized(request, env) {
@@ -232,12 +233,31 @@ export async function handleEmailApi(request, env) {
   }
 
   try {
-    await sendViaResend(env, { from, to, subject, html, text });
+    const out = await sendViaResend(env, { from, to, subject, html, text });
+    await logAndArchiveSentEmail(env, {
+      to,
+      from,
+      subject,
+      html,
+      text,
+      status: 'sent',
+      provider: 'resend',
+    }).catch((e) => console.warn('[email/send] archive', e?.message ?? e));
     return jsonResponse({ ok: true, provider: 'resend' });
   } catch (resendErr) {
     console.warn('[email/send] Resend failed, trying Gmail:', resendErr?.message ?? resendErr);
     try {
       const out = await sendViaGmail(env, { from, to, subject, html, text });
+      await logAndArchiveSentEmail(env, {
+        to,
+        from,
+        subject,
+        html,
+        text,
+        status: 'sent',
+        provider: 'gmail',
+        externalMessageId: out.id ?? null,
+      }).catch((e) => console.warn('[email/send] archive', e?.message ?? e));
       return jsonResponse({ ok: true, ...out, resend_error: String(resendErr?.message || resendErr) });
     } catch (gmailErr) {
       console.warn('[email/send] Gmail failed:', gmailErr?.message ?? gmailErr);

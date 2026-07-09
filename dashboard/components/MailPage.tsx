@@ -216,6 +216,11 @@ export function MailPage() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [search, setSearch] = useState('');
   const [stats, setStats] = useState({ total: 0, unread: 0, starred: 0 });
+  const [listPage, setListPage] = useState(1);
+  const [listTotal, setListTotal] = useState(0);
+  const [listPageSize, setListPageSize] = useState(50);
+  const [listSource, setListSource] = useState<'gmail' | 'd1' | ''>('');
+  const [gmailPageTokens, setGmailPageTokens] = useState<Record<number, string>>({});
 
   // Compose
   const [composing, setComposing] = useState(false);
@@ -294,17 +299,38 @@ export function MailPage() {
   const loadEmails = useCallback(async () => {
     setLoadingList(true);
     try {
-      const qs = accountQuery(activeAccount);
       const endpoint = folder === 'sent' ? '/api/mail/sent' : `/api/mail/${folder}`;
-      const res = await fetch(`${endpoint}${qs}`, { credentials: 'same-origin' });
+      const params = new URLSearchParams();
+      if (activeAccount && activeAccount !== 'all' && activeAccount !== 'platform') {
+        const acctVal = activeAccount.startsWith('gmail:') ? activeAccount.slice(6) : activeAccount;
+        if (acctVal) params.set('account', acctVal);
+      }
+      if (folder === 'sent') {
+        params.set('page', String(listPage));
+      } else if (listPage > 1 && gmailPageTokens[listPage]) {
+        params.set('page_token', gmailPageTokens[listPage]);
+      } else if (listPage > 1) {
+        params.set('page', String(listPage));
+      }
+      const url = params.toString() ? `${endpoint}?${params}` : endpoint;
+      const res = await fetch(url, { credentials: 'same-origin' });
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
-      const list: Email[] = data.emails || [];
+      const list: Email[] = (data.emails || []).map((e: Email) => ({
+        ...e,
+        date_received: e.date_received || (e as Email & { created_at?: string }).created_at || '',
+      }));
       setEmails(list);
+      setListTotal(data.total ?? list.length);
+      setListPageSize(data.page_size ?? 50);
+      setListSource(data.source === 'gmail' ? 'gmail' : 'd1');
+      if (data.next_page_token) {
+        setGmailPageTokens((prev) => ({ ...prev, [listPage + 1]: data.next_page_token }));
+      }
       setStats(s => ({ ...s, total: data.total ?? list.length, unread: data.unread_count ?? s.unread }));
     } catch { setEmails([]); }
     finally { setLoadingList(false); }
-  }, [folder, activeAccount]);
+  }, [folder, activeAccount, listPage, gmailPageTokens]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -314,7 +340,12 @@ export function MailPage() {
   }, [activeAccount]);
 
   useEffect(() => { loadAccounts(); }, [loadAccounts]);
-  useEffect(() => { loadEmails(); loadStats(); setSelected(null); setDetail(null); }, [folder, activeAccount, loadEmails, loadStats]);
+  useEffect(() => {
+    setListPage(1);
+    setGmailPageTokens({});
+    setListSource('');
+  }, [folder, activeAccount]);
+  useEffect(() => { loadEmails(); loadStats(); setSelected(null); setDetail(null); }, [folder, activeAccount, listPage, loadEmails, loadStats]);
 
   // ── Load email detail ──────────────────────────────────────────────────────
   const openEmail = useCallback(async (email: Email) => {
@@ -692,6 +723,31 @@ export function MailPage() {
         {/* Toolbar */}
         <div className="mail-list-toolbar" style={{ height: 48, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
           <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: 0.1, textTransform: 'capitalize' }}>{folder}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button
+              type="button"
+              title="Previous page"
+              disabled={listPage <= 1 || loadingList}
+              onClick={() => setListPage((p) => Math.max(1, p - 1))}
+              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', color: listPage <= 1 ? 'var(--text-muted)' : 'var(--text-main)', cursor: listPage <= 1 ? 'not-allowed' : 'pointer', opacity: listPage <= 1 ? 0.5 : 1 }}
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', minWidth: 72, textAlign: 'center' }}>
+              {listTotal > 0
+                ? `${(listPage - 1) * listPageSize + 1}–${Math.min(listPage * listPageSize, listTotal)} of ${listTotal}`
+                : `Page ${listPage}`}
+            </span>
+            <button
+              type="button"
+              title="Next page"
+              disabled={loadingList || (listSource === 'gmail' ? !gmailPageTokens[listPage + 1] : listPage * listPageSize >= listTotal)}
+              onClick={() => setListPage((p) => p + 1)}
+              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', color: 'var(--text-main)', cursor: 'pointer', opacity: (listSource === 'gmail' ? !gmailPageTokens[listPage + 1] : listPage * listPageSize >= listTotal) ? 0.5 : 1 }}
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
           <div style={{ flex: 1, position: 'relative', maxWidth: 280 }}>
             <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" style={{ width: '100%', height: 30, padding: '0 9px 0 28px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 8, color: 'var(--text-main)', fontSize: 12, outline: 'none' }} />
