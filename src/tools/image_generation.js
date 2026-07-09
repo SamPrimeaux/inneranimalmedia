@@ -199,44 +199,84 @@ function secretKeyNameForCatalogRow(env, row) {
   return '';
 }
 
-export const IMAGE_INTENT_DEFAULTS = Object.freeze({
-  image_blueprint_draft: { quality: 'medium', size: '1024x1024' },
-  image_render_quality: { quality: 'high', size: '1536x1024' },
-  image_presentation_sheet: { quality: 'high', size: '1536x1024' },
-  image_edit_reference: { quality: 'high', size: '1024x1024' },
-  image_brand_mockup: { quality: 'high', size: '1536x1024' },
+/** @typedef {'draft' | 'quality' | 'standard'} ImageTier */
+
+/**
+ * Classify image tier from prompt text — tool owns routing; agent passes prompt only.
+ * @param {string} prompt
+ * @returns {ImageTier}
+ */
+export function classifyImageTier(prompt) {
+  const p = String(prompt || '').toLowerCase();
+  if (/draft|rough|quick|sketch|blueprint|floor.?plan|2d.?plan|layout|wireframe/.test(p)) {
+    return 'draft';
+  }
+  if (/presentation|client|final|high.?res|photorealistic|render|production/.test(p)) {
+    return 'quality';
+  }
+  return 'standard';
+}
+
+const TIER_QUALITY_DEFAULTS = Object.freeze({
+  draft: { quality: 'medium', size: '1024x1024' },
+  quality: { quality: 'high', size: '1536x1024' },
+  standard: { quality: 'medium', size: '1024x1024' },
+});
+
+const TIER_MODEL_KEYS = Object.freeze({
+  draft: new Set(['gemini-3.1-flash-image', 'gpt-image-2', '@cf/black-forest-labs/flux-2-klein-4b']),
+  quality: new Set(['gpt-image-2', 'gemini-3-pro-image']),
 });
 
 /**
- * @param {Record<string, unknown>} params
- * @param {{ workspaceId?: string | null }} ctx
+ * @param {Record<string, unknown>} row
+ * @param {ImageTier} tier
  */
-export function applyImageIntentDefaults(params, ctx = {}) {
-  const intentSlug = params.intent_slug != null ? String(params.intent_slug).trim() : '';
-  const defaults = IMAGE_INTENT_DEFAULTS[intentSlug] || {};
+function armEligibleForTier(row, tier) {
+  if (tier === 'standard') return true;
+  const keys = TIER_MODEL_KEYS[tier];
+  if (keys?.has(String(row.model_key || '').trim())) return true;
+  const intent = row.intent_slug != null ? String(row.intent_slug).trim() : '';
+  if (!intent) return true;
+  return false;
+}
+
+/**
+ * @param {Array<Record<string, unknown>>} candidates
+ * @param {ImageTier} tier
+ */
+function filterArmsForTier(candidates, tier) {
+  if (tier === 'standard' || !candidates?.length) return candidates || [];
+  const filtered = candidates.filter((row) => armEligibleForTier(row, tier));
+  return filtered.length ? filtered : candidates;
+}
+
+/**
+ * @param {Record<string, unknown>} params
+ */
+export function applyImageTierDefaults(params) {
+  const prompt = String(params.prompt || params.description || '').trim();
+  const tier = classifyImageTier(prompt);
+  const defaults = TIER_QUALITY_DEFAULTS[tier] || TIER_QUALITY_DEFAULTS.standard;
   return {
     ...params,
-    intent_slug: intentSlug || params.intent_slug,
-    quality: params.quality ?? defaults.quality ?? 'medium',
-    size: params.size ?? defaults.size ?? '1024x1024',
-    workspaceId: ctx.workspaceId ?? params.workspaceId,
+    prompt,
+    quality: params.quality ?? defaults.quality,
+    size: params.size ?? defaults.size,
   };
 }
 
 /**
- * Thompson sample over image_generation arms (catalog + agentsam_ai; no ai_models).
+ * Thompson sample over image_generation arms. Tier inferred from prompt inside this function.
  * @param {unknown} env
  * @param {string} workspaceId
- * @param {string|null} [intentSlug]
+ * @param {string} [prompt]
  */
-export async function pickImageModelFromDb(env, workspaceId, intentSlug = null) {
+export async function pickImageModelFromDb(env, workspaceId, prompt = '') {
   const ws = String(workspaceId || '').trim();
   if (!env?.DB || !ws) return null;
 
-  const slug = intentSlug != null ? String(intentSlug).trim() : '';
-  const intentFilter = slug
-    ? `AND (ra.intent_slug = ? OR ra.intent_slug IS NULL OR ra.intent_slug = '')`
-    : `AND (ra.intent_slug IS NULL OR ra.intent_slug = '')`;
+  const tier = classifyImageTier(prompt);
 
   const rows = await env.DB.prepare(
     `SELECT
@@ -260,22 +300,22 @@ export async function pickImageModelFromDb(env, workspaceId, intentSlug = null) 
        AND ai.status    = 'active'
        AND (ai.mode = 'model' OR ai.model_key IS NOT NULL)
      WHERE ra.task_type    = 'image_generation'
-       ${intentFilter}
        AND ra.workspace_id = ?
        AND ra.is_paused    = 0
        AND ra.is_active    = 1
        AND ra.model_key NOT IN ('gpt-image-1', 'gpt-image-1-mini', 'gpt-image-1.5')
        AND (mc.deprecated_after IS NULL OR mc.deprecated_after > date('now'))`,
   )
-    .bind(...(slug ? [slug, ws] : [ws]))
+    .bind(ws)
     .all()
     .catch(() => ({ results: [] }));
 
-  if (!rows.results?.length) return null;
+  const candidates = filterArmsForTier(rows.results || [], tier);
+  if (!candidates.length) return null;
 
   let best = null;
   let bestScore = -1;
-  for (const row of rows.results) {
+  for (const row of candidates) {
     const keyName = secretKeyNameForCatalogRow(env, row);
     if (keyName && !env[keyName]) continue;
     const plat = String(row.resolved_platform || '').toLowerCase();
@@ -284,8 +324,11 @@ export async function pickImageModelFromDb(env, workspaceId, intentSlug = null) 
     const score = betaSampleRouting(row.success_alpha ?? 1, row.success_beta ?? 1);
     if (score > bestScore) {
       bestScore = score;
-      best = { ...row, keyName: keyName || null };
+      best = { ...row, keyName: keyName || null, tier };
     }
+  }
+  if (best) {
+    console.log('[image_generation] pick_model', { tier, model_key: best.model_key, arm_id: best.arm_id });
   }
   return best;
 }
@@ -380,7 +423,7 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
       const referenceImageB64 = opts.referenceImageB64 ?? opts.referenceImage ?? null;
       const lane = resolveImageLane(message, !!referenceImageB64);
       const ws = workspaceId != null ? String(workspaceId).trim() : '';
-      const imageModel = ws ? await pickImageModelFromDb(env, ws) : null;
+      const imageModel = ws ? await pickImageModelFromDb(env, ws, message) : null;
       if (lane && imageModel) {
         console.log('[image_generation] inferred_lane', { lane, model_key: imageModel.model_key });
       }
@@ -841,12 +884,11 @@ export async function editImage(env, params) {
  * @param {{ authUser?: { id?: string }; workspaceId?: string | null; tenantId?: string | null; userId?: string | null; origin?: string }} ctx
  */
 export async function runImageGenerationForTool(env, toolName, params, ctx = {}) {
-  let resolvedParams = applyImageIntentDefaults({ ...params }, ctx);
+  const prompt = String(params.prompt || params.description || '').trim();
+  let resolvedParams = applyImageTierDefaults({ ...params, prompt });
   const ws = ctx.workspaceId != null ? String(ctx.workspaceId).trim() : '';
-  const intentSlug =
-    resolvedParams.intent_slug != null ? String(resolvedParams.intent_slug).trim() : '';
-  if (!resolvedParams.model && ws) {
-    const picked = await pickImageModelFromDb(env, ws, intentSlug || null);
+  if (!resolvedParams.model && ws && prompt) {
+    const picked = await pickImageModelFromDb(env, ws, prompt);
     if (picked) {
       resolvedParams = {
         ...resolvedParams,
@@ -858,7 +900,6 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
     }
   }
 
-  const prompt = String(resolvedParams.prompt || resolvedParams.description || '').trim();
   const isEdit = toolName === 'imgx_edit_image';
   const persist = imageGenerationShouldPersist(resolvedParams);
   const generationId =
@@ -965,30 +1006,26 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
  */
 export async function streamImageGenerationSse(emit, env, toolName, params, ctx = {}) {
   const generationId = `igen_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-  let resolvedParams = applyImageIntentDefaults({ ...params }, ctx);
-  const prompt = String(resolvedParams.prompt || resolvedParams.description || '').trim();
+  const prompt = String(params.prompt || params.description || '').trim();
+  let resolvedParams = applyImageTierDefaults({ ...params, prompt });
   const dims = parseImageDimensions(resolvedParams.size);
+  const tier = classifyImageTier(prompt);
   const isEdit = toolName === 'imgx_edit_image';
   if (!imageGenerationShouldPersist(resolvedParams)) {
     resolvedParams = { ...resolvedParams, persist: false };
   }
 
   const ws = ctx.workspaceId != null ? String(ctx.workspaceId).trim() : '';
-  const intentSlug =
-    resolvedParams.intent_slug != null ? String(resolvedParams.intent_slug).trim() : '';
   let providerGuess = 'workers_ai';
   let modelGuess = resolvedParams.model ? String(resolvedParams.model).trim() : '';
   let scoredModelKey = null;
 
   if (isEdit) {
     providerGuess = 'openai';
-  } else if (!modelGuess && ws) {
-    const lane = resolveImageLane(prompt, false);
-    const picked = await pickImageModelFromDb(env, ws, intentSlug || null);
+  } else if (!modelGuess && ws && prompt) {
+    const picked = await pickImageModelFromDb(env, ws, prompt);
     if (picked) {
-      if (lane) {
-        console.log('[image_generation] inferred_lane', { lane, intent_slug: intentSlug, model_key: picked.model_key });
-      }
+      console.log('[image_generation] inferred_tier', { tier, model_key: picked.model_key });
       scoredModelKey = picked.model_key;
       providerGuess = String(picked.resolved_platform || 'workers_ai');
       modelGuess = scoredModelKey;
@@ -1008,7 +1045,7 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
     provider: providerGuess,
     model: String(modelGuess || ''),
     prompt: prompt.slice(0, 500),
-    intent_slug: intentSlug || null,
+    tier,
     width: dims.width,
     height: dims.height,
   });

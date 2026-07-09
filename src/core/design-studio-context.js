@@ -154,7 +154,7 @@ export function formatDesignStudioContextForAgent(raw) {
   }
 
   lines.push(
-    'creative_actions: 2D floor plans / blueprints / sketches → build prompt from user + project context, then imgx_generate_image (intent_slug image_blueprint_draft or image_presentation_sheet) OR emit an inline ```svg sketch in chat for quick drafts. 3D massing only → illustration_create (intent model_3d, engine openscad/freecad). Do not route 2D house plans to OpenSCAD.',
+    'creative_actions: 2D floor plans / blueprints / sketches → build a good prompt from user + project context, then imgx_generate_image (pass prompt only — tool picks model tier) OR emit an inline ```svg sketch in chat for quick drafts. 3D massing only → illustration_create (intent model_3d, engine openscad/freecad). Do not route 2D house plans to OpenSCAD.',
   );
 
   return lines.join('\n');

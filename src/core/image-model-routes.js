@@ -3,7 +3,7 @@
  *
  * Routing stack:
  * 1. resolveImageGenerationIntent(message) → lane slug
- * 2. pickImageModelFromDb(env, workspaceId) → Thompson sample over agentsam_routing_arms
+ * 2. pickImageModelFromDb(env, workspaceId, prompt) → tier from prompt + Thompson sample
  * 3. runImageGenerationForTool / imgx_* with resolved model_key
  */
 import { GOOGLE_MODEL_ROUTES } from './google-model-routes.js';
