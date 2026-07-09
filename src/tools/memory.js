@@ -5,6 +5,7 @@
  */
 import { mirrorD1MemoryToPrivatePg, searchPrivateAgentsamMemory } from '../core/agentsam-private-memory.js';
 import { resolveManagedMemoryType, normalizeMemoryTags } from '../core/mcp-memory-type-compat.js';
+import { agentsamMemoryActiveSqlOrEmpty, resolveAgentsamMemory } from '../core/agentsam-memory-resolve.js';
 
 // ---------------------------------------------------------------------------
 // Tool schemas — registered with the model via buildAnthropicMessagesTools
@@ -61,6 +62,23 @@ export const MEMORY_TOOL_SCHEMAS = [
         },
       },
       required: ['key', 'value'],
+    },
+  },
+  {
+    name: 'memory_resolve',
+    description:
+      'Mark a memory key (or keys) as resolved/closed. Resolved rows stop appearing in daily briefs and active recall. Use when a blocker or alert is confirmed done.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Single memory key to resolve' },
+        keys: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Multiple keys to resolve',
+        },
+        note: { type: 'string', description: 'Optional resolution note appended to summary' },
+      },
     },
   },
   {
@@ -267,13 +285,16 @@ export async function memoryRead(input, env, context = {}) {
   sweepExpired(env.DB, tenantId, userId);
 
   const now = nowUnix();
+  const activeSql = await agentsamMemoryActiveSqlOrEmpty(env.DB);
   const placeholders = keys.map(() => '?').join(', ');
   const rows = await env.DB
     .prepare(
       `SELECT id, key, value, memory_type, source, confidence, decay_score,
-              recall_count, last_recalled_at, expires_at, tags, created_at, updated_at
+              recall_count, last_recalled_at, expires_at, tags, created_at, updated_at,
+              is_resolved, resolved_at
        FROM agentsam_memory
        WHERE tenant_id = ? AND user_id = ? AND key IN (${placeholders})
+         AND ${activeSql}
          AND (expires_at IS NULL OR expires_at > ?)`
     )
     .bind(tenantId, userId, ...keys, now)
@@ -325,10 +346,12 @@ export async function memorySearch(input, env, context = {}) {
   const { query, memory_type, tags, limit = 20 } = input;
   const cap = Math.min(Number(limit) || 20, 50);
   const now = nowUnix();
+  const activeSql = await agentsamMemoryActiveSqlOrEmpty(env.DB);
 
   const conditions = [
     'tenant_id = ?',
     'user_id = ?',
+    activeSql,
     '(expires_at IS NULL OR expires_at > ?)',
   ];
   const binds = [tenantId, userId, now];
@@ -424,6 +447,27 @@ export async function memoryDelete(input, env, context = {}) {
   return { ok: true, key, deleted: result.meta?.changes ?? 0 };
 }
 
+/**
+ * memory_resolve — mark blocker/alert memory as closed (excluded from briefs).
+ */
+export async function memoryResolve(input, env, context = {}) {
+  const { tenantId, userId } = context;
+  if (!tenantId || !userId) {
+    return { error: 'memory_resolve requires tenantId and userId in context' };
+  }
+  const out = await resolveAgentsamMemory(env, {
+    tenantId,
+    userId,
+    key: input.key,
+    keys: input.keys,
+    id: input.id,
+    resolvedBy: input.resolved_by ?? userId,
+    note: input.note,
+  });
+  if (!out.ok) return { error: out.error, ...out };
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Unified dispatch — plug into your existing tool router
 // ---------------------------------------------------------------------------
@@ -433,4 +477,5 @@ export const handlers = {
   memory_read:   (input, env, ctx) => memoryRead(input, env, ctx),
   memory_search: (input, env, ctx) => memorySearch(input, env, ctx),
   memory_delete: (input, env, ctx) => memoryDelete(input, env, ctx),
+  memory_resolve: (input, env, ctx) => memoryResolve(input, env, ctx),
 };

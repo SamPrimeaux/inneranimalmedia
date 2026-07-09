@@ -87,6 +87,7 @@ export async function runAgentsamMemoryVectorSync(env, opts = {}) {
         WHERE workspace_id IS NOT NULL
           AND TRIM(workspace_id) != ''
           AND is_archived = 0
+          AND COALESCE(is_resolved, 0) = 0
           AND TRIM(value) != ''
           AND (embedded_at IS NULL OR embedded_at < updated_at)
         ORDER BY updated_at DESC

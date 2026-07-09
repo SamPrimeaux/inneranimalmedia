@@ -208,7 +208,7 @@ ${JSON.stringify(triageBatch)}
 PLATFORM CONTEXT:
 ${platformContextJson(ctxData)}
 
-Rules: Professional narrative markdown. Cross-thread dedupe (same client/topic = one action). Rank by true priority. Platform health from D1 context. 1-5 minute read. No emojis. No JSON.`;
+Rules: Professional narrative markdown. Cross-thread dedupe (same client/topic = one action). Rank by true priority. Platform health from D1 context. Do not resurrect resolved/closed memory items as active blockers. Only list blockers with verified source (triage JSON or D1 context) — if triage failed, say so instead of inferring. 1-5 minute read. No emojis. No JSON.`;
 
   return generateWithGemini(env, {
     modelKey: PRO_MODEL,
@@ -242,7 +242,7 @@ ${JSON.stringify(triageBatch)}
 PLATFORM DELTA:
 ${platformContextJson(ctxData)}
 
-Rules: Shorter than evening — 1-3 minute read. Action-first. ALERTS = "None." if clean. No emojis. Markdown only.`;
+Rules: Shorter than evening — 1-3 minute read. Action-first. ALERTS = "None." if clean. Do not carry forward blockers that are resolved in D1 memory. If triage failed, lead ALERTS with triage degradation — do not invent regressions. No emojis. Markdown only.`;
 
   return generateWithGemini(env, {
     modelKey: PRO_MODEL,

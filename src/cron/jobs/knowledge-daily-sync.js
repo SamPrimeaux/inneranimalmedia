@@ -24,7 +24,10 @@ export async function runKnowledgeDailySync(env) {
   if (env.DB && ksTid) {
     try {
       const r = await env.DB.prepare(
-        "SELECT key, value, importance_score FROM agentsam_memory WHERE importance_score >= 7 AND tenant_id = ? ORDER BY importance_score DESC"
+        `SELECT key, value, importance_score FROM agentsam_memory
+         WHERE importance_score >= 7 AND tenant_id = ?
+           AND COALESCE(is_archived, 0) = 0 AND COALESCE(is_resolved, 0) = 0
+         ORDER BY importance_score DESC`
       ).bind(ksTid).all();
       for (const row of (r.results || [])) {
         memoryMd += `## ${row.key} (score: ${row.importance_score})\n${(row.value || '').trim()}\n\n`;

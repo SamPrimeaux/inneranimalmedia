@@ -19,6 +19,7 @@
 import { logSemanticSearch, createEmbedding } from '../api/rag.js';
 import { compactToolStatsCompacted } from './tool-stats-rollup.js';
 import { isHyperdriveUsable, runHyperdriveQuery } from './hyperdrive-query.js';
+import { agentsamMemoryActiveSqlOrEmpty } from './agentsam-memory-resolve.js';
 
 const MEMORY_KV_TTL_SEC   = 180;   // 3 minutes
 const MEMORY_TIMEOUT_MS   = 2000;  // hard cap — never blocks model call
@@ -110,10 +111,12 @@ async function loadD1Memory(env, tenantId, workspaceId) {
       ? [String(tenantId), String(workspaceId)]
       : [String(tenantId)];
 
+    const activeSql = await agentsamMemoryActiveSqlOrEmpty(env.DB);
     const { results } = await env.DB.prepare(
       `SELECT id, key, value, memory_type, confidence, decay_score
        FROM agentsam_memory
        WHERE tenant_id = ? ${wsClause}
+         AND ${activeSql}
          AND decay_score > 0.3
          AND (expires_at IS NULL OR expires_at > unixepoch())
          AND value NOT LIKE '[STALE%'

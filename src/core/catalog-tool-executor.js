@@ -802,6 +802,7 @@ const MEMORY_CATALOG_OPS = new Set([
   'memory_read',
   'memory_delete',
   'memory_list',
+  'memory_resolve',
 ]);
 
 const MEMORY_CATALOG_OP_ALIASES = {
@@ -813,6 +814,8 @@ const MEMORY_CATALOG_OP_ALIASES = {
   get: 'memory_read',
   delete: 'memory_delete',
   list: 'memory_list',
+  resolve: 'memory_resolve',
+  close: 'memory_resolve',
 };
 
 /**
@@ -840,6 +843,10 @@ function resolveMemoryCatalogOperation(config, params, toolKey) {
       sub = 'write';
     }
     if (!sub && params.keys) sub = 'read';
+    if (!sub && (params.key || params.memory_key) && params.resolved === true) sub = 'resolve';
+    if (!sub && (params.key || params.keys) && (params.resolve === true || params.action === 'resolve')) {
+      sub = 'resolve';
+    }
   }
 
   if (MEMORY_CATALOG_OPS.has(sub)) return sub;
@@ -865,7 +872,7 @@ async function executeMemoryCatalogDispatch(env, config, params, runContext, too
   if (!op || !MEMORY_CATALOG_OPS.has(op)) {
     return {
       ok: false,
-      error: `memory operation required (search|write|read|delete|list); got=${op || '(empty)'}`,
+      error: `memory operation required (search|write|read|delete|list|resolve); got=${op || '(empty)'}`,
     };
   }
 

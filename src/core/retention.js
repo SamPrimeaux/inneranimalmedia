@@ -385,40 +385,13 @@ export async function rollupWorkspaceUsageMetrics(env) {
 
 export async function updateModelRoutingRulesFromScores(env) {
   if (!env?.DB) return { ok: false, skipped: true };
+  const scores = await pragmaTableInfo(env.DB, 'model_performance_scores');
   const rules = await pragmaTableInfo(env.DB, 'agentsam_routing_arms');
-  if (!rules.has('task_type') || !scores.has('task_type')) {
-    return { ok: false, skipped: true };
+  if (!scores.size || !rules.has('task_type') || !scores.has('task_type')) {
+    return { ok: false, skipped: true, reason: 'schema_incomplete' };
   }
-  const modelCol = scores.has('model') ? 'model' : scores.has('model_key') ? 'model_key' : null;
-  const primaryCol = rules.has('primary_model') ? 'primary_model' : rules.has('model_key') ? 'model_key' : null;
-  if (!modelCol || !primaryCol) return { ok: false, skipped: true };
-
-  try {
-    const orderCol = scores.has('calls')
-      ? 'calls'
-      : scores.has('call_count')
-        ? 'call_count'
-        : scores.has('total_cost_usd')
-          ? 'total_cost_usd'
-          : null;
-    if (!orderCol) return { ok: false, skipped: true, reason: 'no_score_order_column' };
-
-    const sql = `
-      UPDATE agentsam_routing_arms SET
-        is_active = CASE
-          WHEN ${primaryCol} IN (
-            WHERE ${scores.has('data_quality') ? "data_quality = 'sufficient' AND" : ''}
-              ${scores.has('error_rate') ? 'error_rate < 0.1 AND' : ''}
-              task_type = agentsam_routing_arms.task_type
-            ORDER BY ${orderCol} DESC
-            LIMIT 1
-          ) THEN 1 ELSE is_active END
-    `;
-    const r = await env.DB.prepare(sql).run();
-    return { ok: true, changes: r.meta?.changes ?? r.changes ?? 0 };
-  } catch (e) {
-    return { ok: false, error: String(e?.message || e) };
-  }
+  // Arm promotion from model_performance_scores — SQL incomplete; skip until implemented.
+  return { ok: false, skipped: true, reason: 'routing_scores_update_not_implemented' };
 }
 
 export async function rollupAgentsamHealthDaily(env) {

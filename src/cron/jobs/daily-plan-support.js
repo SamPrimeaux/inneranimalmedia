@@ -6,6 +6,7 @@ import { getSuperadminAuthIds } from '../../core/auth.js';
 import { notifySam } from '../../core/notifications.js';
 import { sendWebPushToUser } from '../../core/web-push.js';
 import { snapshotGmailInboxForUser } from '../../core/gmail-inbox-snapshot.js';
+import { agentsamMemoryActiveSqlOrEmpty } from '../../core/agentsam-memory-resolve.js';
 
 export class DailyPlanError extends Error {
   constructor(message, { stage = 'unknown', model = '', detail = '' } = {}) {
@@ -116,6 +117,7 @@ export async function gatherMorningPlanContext(env, tenantId, owner) {
   const safe = (p) => (p ? p.catch(() => null) : Promise.resolve(null));
   const today = new Date().toISOString().slice(0, 10);
   const ws = 'ws_inneranimalmedia';
+  const memoryActiveSql = await agentsamMemoryActiveSqlOrEmpty(env.DB);
 
   const [
     memoryRows,
@@ -158,6 +160,7 @@ export async function gatherMorningPlanContext(env, tenantId, owner) {
     env.DB.prepare(
       `SELECT key, value, memory_type, updated_at FROM agentsam_memory
        WHERE tenant_id = ?
+         AND ${memoryActiveSql}
          AND memory_type IN ('decision','skill','state','policy')
          AND decay_score > 0
        ORDER BY updated_at DESC LIMIT 12`

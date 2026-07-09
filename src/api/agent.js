@@ -2869,9 +2869,15 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         })),
       });
     }
+    const includeResolved = url.searchParams.get('include_resolved') === '1';
+    const activeFilter = includeResolved
+      ? '1=1'
+      : 'COALESCE(is_archived, 0) = 0 AND COALESCE(is_resolved, 0) = 0';
     const { results } = await env.DB.prepare(
-      `SELECT key, memory_type, COALESCE(importance, importance_score, 5) AS importance_score, sync_key
-       FROM agentsam_memory WHERE tenant_id = ? ORDER BY COALESCE(importance, importance_score, 0) DESC LIMIT 200`,
+      `SELECT key, memory_type, COALESCE(importance, importance_score, 5) AS importance_score,
+              sync_key, COALESCE(is_resolved, 0) AS is_resolved, resolved_at
+       FROM agentsam_memory WHERE tenant_id = ? AND ${activeFilter}
+       ORDER BY COALESCE(importance, importance_score, 0) DESC LIMIT 200`,
     )
       .bind(tenantId)
       .all()
@@ -2975,6 +2981,34 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       userId: identity.userId,
     });
     return jsonResponse(report);
+  }
+
+  // ── POST /api/agent/memory/resolve — mark memory closed (excluded from briefs) ─
+  if (path === '/api/agent/memory/resolve' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'no_db' }, 503);
+    let tenantId =
+      identity?.tenantId ||
+      (authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : null);
+    if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+    const userId = identity?.userId || authUser.id;
+    if (!tenantId || !userId) return jsonResponse({ error: 'no_identity' }, 403);
+
+    const body = await request.json().catch(() => ({}));
+    const { resolveAgentsamMemory } = await import('../core/agentsam-memory-resolve.js');
+    const out = await resolveAgentsamMemory(env, {
+      tenantId,
+      userId,
+      key: body.key ?? body.memory_key,
+      keys: body.keys,
+      id: body.id,
+      resolvedBy: authUser.id,
+      note: body.note ?? body.reason,
+    });
+    return jsonResponse(out, out.ok ? 200 : 400);
   }
 
   // ── POST /api/agent/memory/private/backfill — D1 → private PG (owner) ───
