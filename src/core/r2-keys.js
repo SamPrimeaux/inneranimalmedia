@@ -17,6 +17,8 @@ export const DASHBOARD_UPLOAD_PREFIXES = [
   'moviemode/',
   'users/',
   'projects/',
+  /** Project brand kit uploads (resolveProjectStorageScope → brand/{projectId}/) */
+  'brand/',
 ];
 
 const MAX_OBJECT_BYTES = 5 * 1024 * 1024 * 1024; // 5 GiB R2 limit guard
