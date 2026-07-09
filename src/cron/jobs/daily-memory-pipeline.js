@@ -20,8 +20,10 @@ import {
   gatherMorningPlanContext,
   generateWithGemini,
   listDailyMemoryRecipients,
+  resolveDailyDigestScope,
   resolveDailyPlanNotifyUser,
 } from './daily-plan-support.js';
+import { digestContextJson } from '../../core/daily-digest-scope.js';
 
 const WORKSPACE_ID = 'ws_inneranimalmedia';
 const FLASH_MODEL = 'gemini-3.5-flash';
@@ -196,30 +198,18 @@ export async function triageEmailsParallel(env, emails, concurrency = TRIAGE_CON
 }
 
 function platformContextJson(ctxData) {
-  return JSON.stringify({
-    platform: ctxData.platformCtx || {},
-    memory: ctxData.memoryRows?.results || [],
-    clients: ctxData.clientCtxRows?.results || [],
-    usageToday: ctxData.usageToday || {},
-    usage7d: ctxData.usage7d || {},
-    deploys24h: ctxData.deploys24h || {},
-    deploys7d: ctxData.deploys7d || {},
-    cronHealth: ctxData.cronHealth?.results || [],
-    errors24h: ctxData.errors24h?.results || [],
-    openTodosByProject: ctxData.openTodosByProject?.results || [],
-    chronicBlockers: ctxData.chronicBlockers?.results || [],
-    calendarUpcoming: ctxData.calendarUpcoming?.results || [],
-    clientRevenue: ctxData.clientRevenue?.results || [],
-    founderToday: ctxData.founderToday || {},
-    trackedTimeToday: ctxData.trackedTimeToday || {},
-    mcpActivity: ctxData.mcpActivity?.results || [],
-    gitLog: ctxData.gitLog || '',
-  });
+  const scope = ctxData?.digestScope;
+  if (!scope) {
+    return digestContextJson(ctxData, { isPlatformOperator: true, tenantId: null, workspaceIds: [], userId: '' });
+  }
+  return digestContextJson(ctxData, scope);
 }
 
 /** @param {*} env @param {{ triageBatch: object, ctxData: object, dateIso: string, dateDisplay: string }} p */
 async function synthesizeEveningMd(env, { triageBatch, ctxData, dateIso, dateDisplay }) {
-  const userText = `Date: ${dateDisplay} (${dateIso})
+  const isOp = !!ctxData?.digestScope?.isPlatformOperator;
+  const userText = isOp
+    ? `Date: ${dateDisplay} (${dateIso})
 
 Write the ## Evening section body ONLY (no ## Evening header). Use ### subsections exactly:
 ### Email Summary
@@ -237,22 +227,41 @@ ${JSON.stringify(triageBatch)}
 PLATFORM CONTEXT:
 ${platformContextJson(ctxData)}
 
-Rules: Professional narrative markdown. Cross-thread dedupe (same client/topic = one action). Rank by true priority. Platform health from D1 context. Do not resurrect resolved/closed memory items as active blockers. Only list blockers with verified source (triage JSON or D1 context) — if triage failed, say so instead of inferring. 1-5 minute read. No emojis. No JSON.`;
+Rules: Professional narrative markdown. Cross-thread dedupe (same client/topic = one action). Rank by true priority. Platform health from D1 context. Do not resurrect resolved/closed memory items as active blockers. Only list blockers with verified source (triage JSON or D1 context) — if triage failed, say so instead of inferring. 1-5 minute read. No emojis. No JSON.`
+    : `Date: ${dateDisplay} (${dateIso})
+
+Write the ## Evening section body ONLY (no ## Evening header). Use ### subsections exactly:
+### Email Summary
+### Patterns
+### Workspace Status
+### Action Items
+### Carry Forward
+
+INBOX TRIAGE (this user's connected Gmail accounts only):
+${JSON.stringify(triageBatch)}
+
+WORKSPACE CONTEXT (this user's tenant/workspaces only — never invent data outside this JSON):
+${platformContextJson(ctxData)}
+
+Rules: Personal workspace digest only. Use inbox triage + workspace context JSON — nothing else. Never mention other users, other tenants, platform operations, billing, revenue, cron health, migrations, or Inner Animal Media internals. If triage failed, say so — do not invent blockers. 1-3 minute read. No emojis. No JSON.`;
 
   return generateWithGemini(env, {
     modelKey: PRO_MODEL,
     stage: 'evening_synthesis',
-    systemInstruction:
-      'You are Agent Sam daily memory synthesizer for Sam Primeaux (Inner Animal Media). Output markdown subsection content only — no preamble, no outer ## Evening header.',
+    systemInstruction: isOp
+      ? 'You are Agent Sam daily memory synthesizer for the platform operator. Output markdown subsection content only — no preamble, no outer ## Evening header.'
+      : 'You are a personal workspace digest assistant. Output markdown subsection content only. Never reference data outside the provided workspace context.',
     userText,
-    maxOutputTokens: 4096,
+    maxOutputTokens: isOp ? 4096 : 2800,
     temperature: 0.25,
   });
 }
 
 /** @param {*} env @param {{ triageBatch: object, ctxData: object, priorMd: string, yesterdayMd: string, dateIso: string, dateDisplay: string }} p */
 async function synthesizeMorningMd(env, { triageBatch, ctxData, priorMd, yesterdayMd, dateIso, dateDisplay }) {
-  const userText = `Date: ${dateDisplay} (${dateIso})
+  const isOp = !!ctxData?.digestScope?.isPlatformOperator;
+  const userText = isOp
+    ? `Date: ${dateDisplay} (${dateIso})
 
 Write the ## Morning section body ONLY (no ## Morning header). Use ### subsections in order:
 ### ALERTS
@@ -271,15 +280,34 @@ ${JSON.stringify(triageBatch)}
 PLATFORM DELTA:
 ${platformContextJson(ctxData)}
 
-Rules: Shorter than evening — 1-3 minute read. Action-first. ALERTS = "None." if clean. Do not carry forward blockers that are resolved in D1 memory. If triage failed, lead ALERTS with triage degradation — do not invent regressions. No emojis. Markdown only.`;
+Rules: Shorter than evening — 1-3 minute read. Action-first. ALERTS = "None." if clean. Do not carry forward blockers that are resolved in D1 memory. If triage failed, lead ALERTS with triage degradation — do not invent regressions. No emojis. Markdown only.`
+    : `Date: ${dateDisplay} (${dateIso})
+
+Write the ## Morning section body ONLY (no ## Morning header). Use ### subsections in order:
+### ALERTS
+### INBOX PRIORITY
+### WORKSPACE
+### TODAY'S PLAN
+
+PRIOR DIGEST (continuity — this user only):
+${(priorMd || yesterdayMd || '(none)').slice(0, 8000)}
+
+INBOX TRIAGE (this user's connected Gmail accounts only):
+${JSON.stringify(triageBatch)}
+
+WORKSPACE DELTA (this user's tenant/workspaces only):
+${platformContextJson(ctxData)}
+
+Rules: Shorter personal digest — 1-2 minute read. Action-first. Never mention other users, tenants, platform operations, billing, or Inner Animal Media internals. ALERTS = "None." if clean. If triage failed, say so — do not invent regressions. No emojis. Markdown only.`;
 
   return generateWithGemini(env, {
     modelKey: PRO_MODEL,
     stage: 'morning_synthesis',
-    systemInstruction:
-      'You are Agent Sam morning focus synthesizer. Output markdown subsection content only — no preamble, no outer ## Morning header.',
+    systemInstruction: isOp
+      ? 'You are Agent Sam morning focus synthesizer for the platform operator. Output markdown subsection content only — no preamble, no outer ## Morning header.'
+      : 'You are a personal morning focus assistant. Output markdown subsection content only. Never reference data outside the provided workspace context.',
     userText,
-    maxOutputTokens: 2800,
+    maxOutputTokens: isOp ? 2800 : 2000,
     temperature: 0.2,
   });
 }
@@ -589,7 +617,8 @@ export async function runDailyMemoryPipeline(env, opts) {
     });
 
     const triageBatch = await triageEmailsParallel(env, gmailSnapshot.emails || []);
-    const ctxData = await gatherMorningPlanContext(env, tid, owner);
+    const digestScope = await resolveDailyDigestScope(env, owner);
+    const ctxData = await gatherMorningPlanContext(env, tid, owner, digestScope);
 
     const existingMd = await readAutoragText(env, r2Key);
     const yesterdayIso = chicagoDateIso(new Date(Date.now() - 86400000));
@@ -622,9 +651,10 @@ export async function runDailyMemoryPipeline(env, opts) {
     partial.d1 = true;
     partial.embed = persist.embedded > 0;
 
-    const subject = mode === 'evening'
-      ? `IAM Daily Memory — ${dateDisplay}`
-      : `Agent Sam — ${dateDisplay}`;
+    const isOp = digestScope.isPlatformOperator;
+    const subject = isOp
+      ? (mode === 'evening' ? `IAM Daily Memory — ${dateDisplay}` : `Agent Sam — ${dateDisplay}`)
+      : (mode === 'evening' ? `Your Evening Digest — ${dateDisplay}` : `Your Morning Focus — ${dateDisplay}`);
 
     if (!opts.forceEmail) {
       const dup = await env.DB.prepare(
@@ -652,7 +682,9 @@ export async function runDailyMemoryPipeline(env, opts) {
 
     const htmlBody = brandedEmailHtml({
       variant: mode,
-      title: mode === 'evening' ? 'Daily Memory Close' : 'Morning Focus',
+      title: isOp
+        ? (mode === 'evening' ? 'Daily Memory Close' : 'Morning Focus')
+        : (mode === 'evening' ? 'Evening Digest' : 'Morning Focus'),
       subtitle: dateDisplay,
       md: fullMd,
     });

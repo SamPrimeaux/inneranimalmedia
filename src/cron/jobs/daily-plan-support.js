@@ -3,10 +3,17 @@
  */
 
 import { getSuperadminAuthIds } from '../../core/auth.js';
+import {
+  EMPTY_ALL,
+  resolveDailyDigestScope,
+  workspaceIdInSql,
+} from '../../core/daily-digest-scope.js';
 import { notifySam } from '../../core/notifications.js';
 import { sendWebPushToUser } from '../../core/web-push.js';
 import { snapshotGmailInboxForUser } from '../../core/gmail-inbox-snapshot.js';
 import { agentsamMemoryActiveSqlOrEmpty } from '../../core/agentsam-memory-resolve.js';
+
+export { resolveDailyDigestScope } from '../../core/daily-digest-scope.js';
 
 export class DailyPlanError extends Error {
   constructor(message, { stage = 'unknown', model = '', detail = '' } = {}) {
@@ -44,9 +51,10 @@ export async function resolveDailyPlanNotifyUser(env) {
 }
 
 /**
- * Users who should receive daily memory email + Gmail triage.
- * Primary: active google_gmail OAuth linked to auth_users.email.
+ * Users who should receive their own scoped daily digest + Gmail triage.
+ * Primary: active google_gmail OAuth linked to auth_users.email (all connected accounts per user).
  * Fallback: platform notify user (RESEND_TO / superadmin) if not already listed.
+ * Context is isolated per recipient — never cross-tenant / cross-user platform data.
  * @param {*} env
  * @returns {Promise<Array<{ userId: string, email: string, tenantId?: string|null, hasGmail?: boolean }>>}
  */
@@ -112,12 +120,17 @@ async function d1First(env, sql, ...bind) {
   return env.DB.prepare(sql).bind(...bind).first().catch(() => null);
 }
 
-/** @param {*} env @param {string} tenantId @param {{ userId?: string|null, email?: string|null }} owner */
-export async function gatherMorningPlanContext(env, tenantId, owner) {
+/** @param {*} env @param {string} tenantId @param {{ userId?: string|null, email?: string|null }} owner @param {import('../../core/daily-digest-scope.js').DailyDigestScope|null} [presetScope] */
+export async function gatherMorningPlanContext(env, tenantId, owner, presetScope = null) {
   const safe = (p) => (p ? p.catch(() => null) : Promise.resolve(null));
   const today = new Date().toISOString().slice(0, 10);
-  const ws = 'ws_inneranimalmedia';
+  const digestScope = presetScope || await resolveDailyDigestScope(env, owner);
+  const isOp = digestScope.isPlatformOperator;
+  const effectiveTenant = digestScope.tenantId || tenantId;
+  const wsIn = workspaceIdInSql(digestScope.workspaceIds);
   const memoryActiveSql = await agentsamMemoryActiveSqlOrEmpty(env.DB);
+  const emptyAll = () => Promise.resolve(EMPTY_ALL);
+  const emptyFirst = () => Promise.resolve(null);
 
   const [
     memoryRows,
@@ -164,12 +177,14 @@ export async function gatherMorningPlanContext(env, tenantId, owner) {
          AND memory_type IN ('decision','skill','state','policy')
          AND decay_score > 0
        ORDER BY updated_at DESC LIMIT 12`
-    ).bind(tenantId).all(),
+    ).bind(effectiveTenant).all(),
 
-    safe(env.DB.prepare(
-      `SELECT project_name, status, description, current_blockers, goals, notes, updated_at
-       FROM agentsam_project_context WHERE id = 'ctx_inneranimalmedia'`
-    ).first()),
+    isOp
+      ? safe(env.DB.prepare(
+        `SELECT project_name, status, description, current_blockers, goals, notes, updated_at
+         FROM agentsam_project_context WHERE id = 'ctx_inneranimalmedia'`
+      ).first())
+      : emptyFirst(),
 
     env.DB.prepare(
       `SELECT project_name, status, current_blockers, goals, updated_at
@@ -179,201 +194,285 @@ export async function gatherMorningPlanContext(env, tenantId, owner) {
          AND status IN ('active','blocked_live_platform_regression')
          AND project_type != 'cms_site'
        ORDER BY updated_at DESC LIMIT 6`
-    ).bind(tenantId).all(),
+    ).bind(effectiveTenant).all(),
 
-    safe(env.DB.prepare(
-      `SELECT COUNT(*) as total_runs,
-              ROUND(SUM(cost_usd), 4) as total_cost,
-              SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as completed,
-              SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as failed,
-              SUM(CASE WHEN status='running' THEN 1 ELSE 0 END) as stuck_running
-       FROM agentsam_agent_run
-       WHERE workspace_id = 'ws_inneranimalmedia'
-         AND created_at_unix > unixepoch('now','-24 hours')`
-    ).first()),
+    wsIn.binds.length
+      ? safe(env.DB.prepare(
+        `SELECT COUNT(*) as total_runs,
+                ROUND(SUM(cost_usd), 4) as total_cost,
+                SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as failed,
+                SUM(CASE WHEN status='running' THEN 1 ELSE 0 END) as stuck_running
+         FROM agentsam_agent_run
+         WHERE ${wsIn.clause}
+           AND created_at_unix > unixepoch('now','-24 hours')`
+      ).bind(...wsIn.binds).first())
+      : emptyFirst(),
 
-    safe(env.DB.prepare(
-      `SELECT ROUND(SUM(cost_usd), 4) as week_cost
-       FROM agentsam_agent_run
-       WHERE workspace_id = 'ws_inneranimalmedia'
-         AND created_at_unix > unixepoch('now','-7 days')`
-    ).first()),
+    wsIn.binds.length
+      ? safe(env.DB.prepare(
+        `SELECT ROUND(SUM(cost_usd), 4) as week_cost
+         FROM agentsam_agent_run
+         WHERE ${wsIn.clause}
+           AND created_at_unix > unixepoch('now','-7 days')`
+      ).bind(...wsIn.binds).first())
+      : emptyFirst(),
 
-    env.DB.prepare(
-      `SELECT job_name, status, started_at, duration_ms, error_message
-       FROM agentsam_cron_runs
-       WHERE started_at = (
-         SELECT MAX(c2.started_at) FROM agentsam_cron_runs c2
-         WHERE c2.job_name = agentsam_cron_runs.job_name
-       )
-       ORDER BY started_at DESC LIMIT 12`
-    ).all(),
+    isOp
+      ? env.DB.prepare(
+        `SELECT job_name, status, started_at, duration_ms, error_message
+         FROM agentsam_cron_runs
+         WHERE started_at = (
+           SELECT MAX(c2.started_at) FROM agentsam_cron_runs c2
+           WHERE c2.job_name = agentsam_cron_runs.job_name
+         )
+         ORDER BY started_at DESC LIMIT 12`
+      ).all()
+      : emptyAll(),
 
-    env.DB.prepare(
-      `SELECT tool_name, COUNT(*) as calls,
-              SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as ok,
-              SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as errors
-       FROM agentsam_mcp_tool_execution
-       WHERE workspace_id = 'ws_inneranimalmedia'
-         AND COALESCE(created_at_unix, unixepoch(created_at)) > unixepoch('now','-24 hours')
-       GROUP BY tool_name ORDER BY calls DESC LIMIT 10`
-    ).all(),
+    wsIn.binds.length
+      ? env.DB.prepare(
+        `SELECT tool_name, COUNT(*) as calls,
+                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as ok,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as errors
+         FROM agentsam_mcp_tool_execution
+         WHERE ${wsIn.clause}
+           AND COALESCE(created_at_unix, unixepoch(created_at)) > unixepoch('now','-24 hours')
+         GROUP BY tool_name ORDER BY calls DESC LIMIT 10`
+      ).bind(...wsIn.binds).all()
+      : emptyAll(),
 
-    env.DB.prepare(
-      `SELECT master_agent_slug, status, subagents_spawned,
-              subagents_succeeded, subagents_failed, started_at, completed_at
-       FROM agentsam_spawn_job
-       WHERE workspace_id = 'ws_inneranimalmedia'
-       ORDER BY started_at DESC LIMIT 5`
-    ).all(),
+    wsIn.binds.length
+      ? env.DB.prepare(
+        `SELECT master_agent_slug, status, subagents_spawned,
+                subagents_succeeded, subagents_failed, started_at, completed_at
+         FROM agentsam_spawn_job
+         WHERE ${wsIn.clause}
+         ORDER BY started_at DESC LIMIT 5`
+      ).bind(...wsIn.binds).all()
+      : emptyAll(),
 
-    env.DB.prepare(
-      `SELECT id, name, applied_at FROM d1_migrations ORDER BY applied_at DESC LIMIT 5`
-    ).all(),
+    isOp
+      ? env.DB.prepare(
+        `SELECT id, name, applied_at FROM d1_migrations ORDER BY applied_at DESC LIMIT 5`
+      ).all()
+      : emptyAll(),
 
-    env.DB.prepare(
-      `SELECT date, velocity_score, momentum, github_commits, deploys_production,
-              migrations_applied, mcp_tool_calls, time_minutes, cost_usd, notes
-       FROM task_velocity ORDER BY date DESC LIMIT 7`
-    ).all(),
+    isOp
+      ? env.DB.prepare(
+        `SELECT date, velocity_score, momentum, github_commits, deploys_production,
+                migrations_applied, mcp_tool_calls, time_minutes, cost_usd, notes
+         FROM task_velocity ORDER BY date DESC LIMIT 7`
+      ).all()
+      : emptyAll(),
 
-    safe(env.DB.prepare(
-      `SELECT subject, status, to_email, from_email, created_at
-       FROM email_logs
-       WHERE datetime(created_at) >= datetime('now', '-24 hours')
-       ORDER BY created_at DESC LIMIT 15`
-    ).all()),
+    isOp
+      ? safe(env.DB.prepare(
+        `SELECT subject, status, to_email, from_email, created_at
+         FROM email_logs
+         WHERE datetime(created_at) >= datetime('now', '-24 hours')
+         ORDER BY created_at DESC LIMIT 15`
+      ).all())
+      : safe(env.DB.prepare(
+        `SELECT subject, status, to_email, from_email, created_at
+         FROM email_logs
+         WHERE user_id = ?
+           AND datetime(created_at) >= datetime('now', '-24 hours')
+         ORDER BY created_at DESC LIMIT 15`
+      ).bind(digestScope.userId).all()),
 
-    safe(env.DB.prepare(
-      `SELECT channel, subject, status, priority, created_at
-       FROM notification_outbox
-       WHERE status IN ('pending','queued','failed')
-       ORDER BY created_at DESC LIMIT 10`
-    ).all()),
+    isOp
+      ? safe(env.DB.prepare(
+        `SELECT channel, subject, status, priority, created_at
+         FROM notification_outbox
+         WHERE status IN ('pending','queued','failed')
+         ORDER BY created_at DESC LIMIT 10`
+      ).all())
+      : safe(env.DB.prepare(
+        `SELECT channel, subject, status, priority, created_at
+         FROM notification_outbox
+         WHERE status IN ('pending','queued','failed')
+           AND (tenant_id = ? OR user_id = ?)
+         ORDER BY created_at DESC LIMIT 10`
+      ).bind(effectiveTenant, digestScope.userId).all()),
 
     snapshotGmailInboxForUser(env, {
-      email: owner.email || undefined,
-      userId: owner.userId || undefined,
+      email: owner.email || digestScope.email || undefined,
+      userId: owner.userId || digestScope.userId || undefined,
       maxPerAccount: 100,
       searchAnywhere: true,
       hoursBack: 24,
     }),
 
-    d1First(env,
-      `SELECT day,
-              MAX(cost_usd) as cost_usd, MAX(ai_calls) as ai_calls,
-              MAX(tool_calls) as tool_calls, MAX(tool_failures) as tool_failures,
-              MAX(deployments) as deployments
-       FROM agentsam_usage_rollups_daily WHERE day = ? GROUP BY day`,
-      today),
+    isOp
+      ? d1First(env,
+        `SELECT day,
+                MAX(cost_usd) as cost_usd, MAX(ai_calls) as ai_calls,
+                MAX(tool_calls) as tool_calls, MAX(tool_failures) as tool_failures,
+                MAX(deployments) as deployments
+         FROM agentsam_usage_rollups_daily WHERE day = ? GROUP BY day`,
+        today)
+      : (effectiveTenant && wsIn.binds.length
+        ? d1First(env,
+          `SELECT day,
+                  MAX(cost_usd) as cost_usd, MAX(ai_calls) as ai_calls,
+                  MAX(tool_calls) as tool_calls, MAX(tool_failures) as tool_failures,
+                  MAX(deployments) as deployments
+           FROM agentsam_usage_rollups_daily
+           WHERE tenant_id = ? AND ${wsIn.clause} AND day = ?
+           GROUP BY day`,
+          effectiveTenant, ...wsIn.binds, today)
+        : emptyFirst()),
 
-    d1First(env,
-      `SELECT ROUND(SUM(sub.cost_usd), 4) as week_cost,
-              ROUND(AVG(sub.cost_usd), 4) as avg_daily_cost
-       FROM (
-         SELECT day, MAX(cost_usd) as cost_usd
-         FROM agentsam_usage_rollups_daily
-         WHERE day >= date(?, '-7 days') AND day < ?
-         GROUP BY day
-       ) sub`,
-      today, today),
+    isOp
+      ? d1First(env,
+        `SELECT ROUND(SUM(sub.cost_usd), 4) as week_cost,
+                ROUND(AVG(sub.cost_usd), 4) as avg_daily_cost
+         FROM (
+           SELECT day, MAX(cost_usd) as cost_usd
+           FROM agentsam_usage_rollups_daily
+           WHERE day >= date(?, '-7 days') AND day < ?
+           GROUP BY day
+         ) sub`,
+        today, today)
+      : (effectiveTenant && wsIn.binds.length
+        ? d1First(env,
+          `SELECT ROUND(SUM(sub.cost_usd), 4) as week_cost,
+                  ROUND(AVG(sub.cost_usd), 4) as avg_daily_cost
+           FROM (
+             SELECT day, MAX(cost_usd) as cost_usd
+             FROM agentsam_usage_rollups_daily
+             WHERE tenant_id = ? AND ${wsIn.clause}
+               AND day >= date(?, '-7 days') AND day < ?
+             GROUP BY day
+           ) sub`,
+          effectiveTenant, ...wsIn.binds, today, today)
+        : emptyFirst()),
 
-    d1All(env,
-      `SELECT provider, period_month, subscription_usd, usage_usd, total_usd, status
-       FROM billing_summary
-       WHERE period_month = strftime('%Y-%m', ?)
-       ORDER BY total_usd DESC LIMIT 12`,
-      today),
+    isOp
+      ? d1All(env,
+        `SELECT provider, period_month, subscription_usd, usage_usd, total_usd, status
+         FROM billing_summary
+         WHERE period_month = strftime('%Y-%m', ?)
+         ORDER BY total_usd DESC LIMIT 12`,
+        today)
+      : emptyAll(),
 
-    d1All(env,
-      `SELECT client_id, client_name, mrr_usd, payment_status, profit_margin_pct, updated_at
-       FROM client_revenue
-       WHERE payment_status != 'churned'
-       ORDER BY mrr_usd DESC LIMIT 12`),
+    isOp
+      ? d1All(env,
+        `SELECT client_id, client_name, mrr_usd, payment_status, profit_margin_pct, updated_at
+         FROM client_revenue
+         WHERE payment_status != 'churned'
+         ORDER BY mrr_usd DESC LIMIT 12`)
+      : emptyAll(),
 
-    d1All(env,
-      `SELECT month, net_cashflow_usd, revenue_usd, expenses_usd
-       FROM financial_monthly_summaries
-       ORDER BY month DESC LIMIT 2`),
+    isOp
+      ? d1All(env,
+        `SELECT month, net_cashflow_usd, revenue_usd, expenses_usd
+         FROM financial_monthly_summaries
+         ORDER BY month DESC LIMIT 2`)
+      : emptyAll(),
 
-    d1First(env,
-      `SELECT COUNT(*) as cnt FROM deployments
-       WHERE datetime(created_at) >= datetime('now', '-24 hours')`),
+    isOp
+      ? d1First(env,
+        `SELECT COUNT(*) as cnt FROM deployments
+         WHERE datetime(created_at) >= datetime('now', '-24 hours')`)
+      : emptyFirst(),
 
-    d1First(env,
-      `SELECT COUNT(*) as cnt FROM deployments
-       WHERE datetime(created_at) >= datetime('now', '-7 days')`),
+    isOp
+      ? d1First(env,
+        `SELECT COUNT(*) as cnt FROM deployments
+         WHERE datetime(created_at) >= datetime('now', '-7 days')`)
+      : emptyFirst(),
 
     d1All(env,
       `SELECT status, COUNT(*) as cnt
        FROM agentsam_plan_tasks
        WHERE tenant_id = ?
        GROUP BY status`,
-      tenantId),
+      effectiveTenant),
 
-    d1All(env,
-      `SELECT task_type,
-              COUNT(*) as runs,
-              ROUND(AVG(CASE WHEN success = 1 THEN 1.0 ELSE 0 END), 3) as success_rate,
-              ROUND(AVG(latency_ms)) as avg_latency_ms
-       FROM agentsam_execution_performance_metrics
-       WHERE created_at_unix > unixepoch('now', '-24 hours')
-       GROUP BY task_type ORDER BY runs DESC LIMIT 10`),
+    isOp
+      ? d1All(env,
+        `SELECT task_type,
+                COUNT(*) as runs,
+                ROUND(AVG(CASE WHEN success = 1 THEN 1.0 ELSE 0 END), 3) as success_rate,
+                ROUND(AVG(latency_ms)) as avg_latency_ms
+         FROM agentsam_execution_performance_metrics
+         WHERE created_at_unix > unixepoch('now', '-24 hours')
+         GROUP BY task_type ORDER BY runs DESC LIMIT 10`)
+      : emptyAll(),
 
-    d1All(env,
-      `SELECT day, green_count, yellow_count, red_count, overall_score
-       FROM agentsam_health_daily
-       ORDER BY day DESC LIMIT 8`),
+    isOp
+      ? d1All(env,
+        `SELECT day, green_count, yellow_count, red_count, overall_score
+         FROM agentsam_health_daily
+         ORDER BY day DESC LIMIT 8`)
+      : emptyAll(),
 
-    d1First(env,
-      `SELECT COUNT(*) as events, COALESCE(SUM(tokens_saved), 0) as tokens_saved
-       FROM agentsam_compaction_events
-       WHERE created_at_unix > unixepoch('now', '-24 hours')`),
+    isOp
+      ? d1First(env,
+        `SELECT COUNT(*) as events, COALESCE(SUM(tokens_saved), 0) as tokens_saved
+         FROM agentsam_compaction_events
+         WHERE created_at_unix > unixepoch('now', '-24 hours')`)
+      : emptyFirst(),
 
-    d1All(env,
-      `SELECT error_type, COUNT(*) as cnt
-       FROM agentsam_error_log
-       WHERE created_at_unix > unixepoch('now', '-24 hours')
-       GROUP BY error_type ORDER BY cnt DESC LIMIT 8`),
+    isOp
+      ? d1All(env,
+        `SELECT error_type, COUNT(*) as cnt
+         FROM agentsam_error_log
+         WHERE created_at_unix > unixepoch('now', '-24 hours')
+         GROUP BY error_type ORDER BY cnt DESC LIMIT 8`)
+      : emptyAll(),
 
-    d1All(env,
-      `SELECT guardrail_key, decision, COUNT(*) as cnt
-       FROM agentsam_guardrail_events
-       WHERE created_at_unix > unixepoch('now', '-24 hours')
-         AND decision != 'allowed'
-       GROUP BY guardrail_key, decision ORDER BY cnt DESC LIMIT 8`),
+    isOp
+      ? d1All(env,
+        `SELECT guardrail_key, decision, COUNT(*) as cnt
+         FROM agentsam_guardrail_events
+         WHERE created_at_unix > unixepoch('now', '-24 hours')
+           AND decision != 'allowed'
+         GROUP BY guardrail_key, decision ORDER BY cnt DESC LIMIT 8`)
+      : emptyAll(),
 
-    d1All(env,
-      `SELECT model_key, status, error_rate, p95_latency_ms, updated_at
-       FROM agentsam_model_health
-       WHERE status != 'healthy'
-       ORDER BY error_rate DESC LIMIT 8`),
+    isOp
+      ? d1All(env,
+        `SELECT model_key, status, error_rate, p95_latency_ms, updated_at
+         FROM agentsam_model_health
+         WHERE status != 'healthy'
+         ORDER BY error_rate DESC LIMIT 8`)
+      : emptyAll(),
 
-    d1All(env,
-      `SELECT model_key, intent, bucket_date,
-              ROUND(AVG(success_rate), 3) as success_rate,
-              ROUND(AVG(avg_cost_usd), 4) as avg_cost_usd
-       FROM agentsam_analytics
-       WHERE bucket_date >= date(?, '-7 days')
-       GROUP BY model_key, intent
-       ORDER BY success_rate ASC LIMIT 12`,
-      today),
+    isOp
+      ? d1All(env,
+        `SELECT model_key, intent, bucket_date,
+                ROUND(AVG(success_rate), 3) as success_rate,
+                ROUND(AVG(avg_cost_usd), 4) as avg_cost_usd
+         FROM agentsam_analytics
+         WHERE bucket_date >= date(?, '-7 days')
+         GROUP BY model_key, intent
+         ORDER BY success_rate ASC LIMIT 12`,
+        today)
+      : emptyAll(),
 
-    d1All(env,
-      `SELECT tool_name, failure_count, success_count, last_failure_at
-       FROM agentsam_tool_stats_compacted
-       WHERE failure_count > 0
-       ORDER BY failure_count DESC LIMIT 10`),
+    isOp
+      ? d1All(env,
+        `SELECT tool_name, failure_count, success_count, last_failure_at
+         FROM agentsam_tool_stats_compacted
+         WHERE failure_count > 0
+         ORDER BY failure_count DESC LIMIT 10`)
+      : emptyAll(),
 
-    d1First(env,
-      `SELECT COUNT(*) as events,
-              ROUND(AVG(reward_score), 3) as avg_reward,
-              ROUND(SUM(cost_usd), 4) as cost_usd,
-              ROUND(AVG(latency_ms)) as avg_latency_ms,
-              SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as ok,
-              SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failed
-       FROM agentsam_performance_eto_events
-       WHERE created_at_unix > unixepoch('now', '-24 hours')`),
+    isOp
+      ? d1First(env,
+        `SELECT COUNT(*) as events,
+                ROUND(AVG(reward_score), 3) as avg_reward,
+                ROUND(SUM(cost_usd), 4) as cost_usd,
+                ROUND(AVG(latency_ms)) as avg_latency_ms,
+                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as ok,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failed
+         FROM agentsam_performance_eto_events
+         WHERE created_at_unix > unixepoch('now', '-24 hours')`)
+      : emptyFirst(),
 
     d1All(env,
       `SELECT COALESCE(project_id, 'unassigned') as project_id, COUNT(*) as open_cnt
@@ -381,57 +480,77 @@ export async function gatherMorningPlanContext(env, tenantId, owner) {
        WHERE tenant_id = ? AND status NOT IN ('done','completed','cancelled')
        GROUP BY COALESCE(project_id, 'unassigned')
        ORDER BY open_cnt DESC LIMIT 12`,
-      tenantId),
+      effectiveTenant),
 
-    d1All(env,
-      `SELECT id, title, start_datetime, end_datetime, event_type
-       FROM calendar_events
-       WHERE workspace_id = ?
-         AND date(start_datetime) BETWEEN date('now') AND date('now', '+1 day')
-       ORDER BY start_datetime ASC LIMIT 12`,
-      ws),
+    wsIn.binds.length
+      ? d1All(env,
+        `SELECT id, title, start_datetime, end_datetime, event_type
+         FROM calendar_events
+         WHERE ${wsIn.clause}
+           AND date(start_datetime) BETWEEN date('now') AND date('now', '+1 day')
+         ORDER BY start_datetime ASC LIMIT 12`,
+        ...wsIn.binds)
+      : emptyAll(),
 
-    d1All(env,
-      `SELECT event_type, status, created_at
-       FROM agentsam_webhook_events
-       WHERE provider = 'stripe'
-         AND datetime(created_at) >= datetime('now', '-48 hours')
-       ORDER BY created_at DESC LIMIT 10`),
+    isOp
+      ? d1All(env,
+        `SELECT event_type, status, created_at
+         FROM agentsam_webhook_events
+         WHERE provider = 'stripe'
+           AND datetime(created_at) >= datetime('now', '-48 hours')
+         ORDER BY created_at DESC LIMIT 10`)
+      : emptyAll(),
 
-    d1First(env,
-      `SELECT day, deep_work_hours, burnout_risk, productivity_ratio
-       FROM founder_metrics
-       WHERE day >= date(?, '-7 days')
-       ORDER BY day DESC LIMIT 1`,
-      today),
+    isOp
+      ? d1First(env,
+        `SELECT day, deep_work_hours, burnout_risk, productivity_ratio
+         FROM founder_metrics
+         WHERE day >= date(?, '-7 days')
+         ORDER BY day DESC LIMIT 1`,
+        today)
+      : emptyFirst(),
 
     d1All(env,
       `SELECT action, COUNT(*) as cnt
        FROM task_activity
        WHERE tenant_id = ? AND created_at > unixepoch('now', '-24 hours')
        GROUP BY action ORDER BY cnt DESC`,
-      tenantId),
+      effectiveTenant),
 
-    d1First(env,
-      `SELECT ROUND(COALESCE(SUM(
-         CASE
-           WHEN ended_at IS NULL THEN MAX(0, (unixepoch() - COALESCE(started_at, created_at))) / 60.0
-           ELSE COALESCE(hours * 60, MAX(0, ended_at - COALESCE(started_at, created_at)) / 60.0)
-         END
-       ), 0)) as minutes
-       FROM time_entries
-       WHERE date(datetime(COALESCE(started_at, created_at), 'unixepoch')) = date('now')`),
+    isOp
+      ? d1First(env,
+        `SELECT ROUND(COALESCE(SUM(
+           CASE
+             WHEN ended_at IS NULL THEN MAX(0, (unixepoch() - COALESCE(started_at, created_at))) / 60.0
+             ELSE COALESCE(hours * 60, MAX(0, ended_at - COALESCE(started_at, created_at)) / 60.0)
+           END
+         ), 0)) as minutes
+         FROM time_entries
+         WHERE date(datetime(COALESCE(started_at, created_at), 'unixepoch')) = date('now')`)
+      : d1First(env,
+        `SELECT ROUND(COALESCE(SUM(
+           CASE
+             WHEN ended_at IS NULL THEN MAX(0, (unixepoch() - COALESCE(started_at, created_at))) / 60.0
+             ELSE COALESCE(hours * 60, MAX(0, ended_at - COALESCE(started_at, created_at)) / 60.0)
+           END
+         ), 0)) as minutes
+         FROM time_entries
+         WHERE user_id = ?
+           AND date(datetime(COALESCE(started_at, created_at), 'unixepoch')) = date('now')`,
+        digestScope.userId),
   ]);
 
   let gitLog = '';
-  try {
-    const r = await env.TERMINAL?.fetch?.(new Request('http://internal/exec', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command: 'cd ~/inneranimalmedia && git log --oneline -8' }),
-    }));
-    if (r?.ok) gitLog = await r.text();
-  } catch { /* non-fatal */ }
+  if (isOp) {
+    try {
+      const r = await env.TERMINAL?.fetch?.(new Request('http://internal/exec', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: 'cd ~/inneranimalmedia && git log --oneline -8' }),
+      }));
+      if (r?.ok) gitLog = await r.text();
+    } catch { /* non-fatal */ }
+  }
 
   const chronicBlockers = await d1All(env,
     `SELECT id, title, status, project_id, updated_at
@@ -439,9 +558,10 @@ export async function gatherMorningPlanContext(env, tenantId, owner) {
      WHERE tenant_id = ? AND status = 'carried'
        AND date(updated_at) <= date('now', '-3 days')
      ORDER BY updated_at ASC LIMIT 8`,
-    tenantId);
+    effectiveTenant);
 
   return {
+    digestScope,
     memoryRows,
     platformCtx,
     clientCtxRows,
