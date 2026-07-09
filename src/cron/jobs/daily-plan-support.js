@@ -168,7 +168,8 @@ export async function gatherMorningPlanContext(env, tenantId, owner, presetScope
     openTodosByProject,
     calendarUpcoming,
     stripeWebhooks,
-    founderToday,
+    founderMetricsRecent,
+    kpiSnapshot,
     taskActivityRecent,
     trackedTimeToday,
   ] = await Promise.all([
@@ -516,14 +517,23 @@ export async function gatherMorningPlanContext(env, tenantId, owner, presetScope
       : emptyAll(),
 
     isOp
-      ? d1First(env,
-        `SELECT date, deep_work_hours, burnout_risk, productivity_ratio,
-                energy_level, stress_level, days_since_break, late_night_commits
+      ? d1All(env,
+        `SELECT date, deep_work_hours, burnout_risk, days_since_break, energy_level,
+                stress_level, late_night_commits, context_switches, notes, productivity_ratio
          FROM founder_metrics
-         WHERE date >= date(?, '-7 days')
-         ORDER BY date DESC LIMIT 1`,
-        today)
-      : emptyFirst(),
+         ORDER BY date DESC LIMIT 7`)
+      : emptyAll(),
+
+    isOp
+      ? d1All(env,
+        `SELECT e.kpi_id, d.name, d.target_min, d.target_max, d.unit, d.cadence,
+                e.value, e.period_start, e.period_end, e.source, e.created_at
+         FROM kpi_entries e
+         JOIN kpi_definitions d ON d.id = e.kpi_id
+         WHERE e.tenant_id = ?
+         ORDER BY e.created_at DESC LIMIT 20`,
+        effectiveTenant)
+      : emptyAll(),
 
     d1All(env,
       `SELECT action, COUNT(*) as cnt
@@ -612,7 +622,9 @@ export async function gatherMorningPlanContext(env, tenantId, owner, presetScope
     openTodosByProject,
     calendarUpcoming,
     stripeWebhooks,
-    founderToday,
+    founderToday: founderMetricsRecent?.results?.[0] ?? null,
+    founderMetricsRecent,
+    kpiSnapshot,
     taskActivityRecent,
     trackedTimeToday,
     chronicBlockers,

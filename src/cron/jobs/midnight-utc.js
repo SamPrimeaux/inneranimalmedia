@@ -190,6 +190,9 @@ export async function runMidnightUtcJobs(env, ctx) {
       ),
     );
     ctx.waitUntil(runOvernightCronStep(env));
+    ctx.waitUntil(
+      cronLedgerWrap(env, 'velocity_daily_rollup', CRON_MIDNIGHT, () => runVelocityDailyRollup(env)),
+    );
   }
   if (env?.DB && env?.R2) {
     ctx.waitUntil(
@@ -209,11 +212,6 @@ export async function runMidnightUtcJobs(env, ctx) {
     .first()
     .catch(() => null);
   if (already) return;
-  ctx.waitUntil(
-    runVelocityDailyRollup(env)
-      .then((r) => console.log('[cron] velocity_rollup:', r?.date, 'score='+r?.score, r?.momentum ?? ''))
-      .catch((e) => console.warn('[cron] velocity_rollup failed:', e?.message))
-  );
   ctx.waitUntil(writeDailySnapshot(env, 'cron_midnight').catch(() => {}));
   ctx.waitUntil(sendDailyDigest(env));
 }

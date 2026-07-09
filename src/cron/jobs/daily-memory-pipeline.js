@@ -323,6 +323,12 @@ ${(priorMd || yesterdayMd || '(none)').slice(0, 12000)}
 VERIFIED DEPLOYS (from D1 deployments table — authoritative; list every git_hash and description verbatim under ### VELOCITY; never dedupe; do not use inbox triage for deploy history):
 ${JSON.stringify(verifiedDeploysFromD1(ctxData))}
 
+FOUNDER WELLNESS (D1 founder_metrics — surface days_since_break, burnout_risk, energy/stress under ### ALERTS when stale or elevated; last human entry May 2026):
+${JSON.stringify(ctxData.founderMetricsRecent?.results || [])}
+
+KPI SNAPSHOT (D1 kpi_entries vs kpi_definitions targets — include under ### FINANCIAL or ### ALERTS when off-target):
+${JSON.stringify(ctxData.kpiSnapshot?.results || [])}
+
 OVERNIGHT HUMAN INBOX TRIAGE:
 ${JSON.stringify({ items: grouped.humanEmails, failed: grouped.failed, summary: grouped.summary, triage_errors: grouped.triageErrors })}
 
