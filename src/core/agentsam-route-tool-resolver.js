@@ -152,6 +152,7 @@ const DEFAULT_ROUTE_TOOL = /** @type {Record<string, Omit<RouteToolRequirements,
     required_capabilities: [],
     optional_capabilities: [
       'gmail_list_inbox',
+      'gmail_get_message',
       'gmail_modify_message',
       'gmail_send',
       'agentsam_gmail_mcp_search_threads',

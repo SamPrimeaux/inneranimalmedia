@@ -50,7 +50,7 @@ export function formatMailSurfaceContextForAgent(raw) {
     : [];
 
   const lines = [
-    '[Mail — live surface context. The user is on Collaborate Mail. The inbox snapshot below matches their visible list (metadata). For summaries or bodies you MUST call gmail_list_inbox (snippets) or agentsam_gmail_mcp_get_thread — never claim you lack inbox access without using those tools first.]',
+    '[Mail — live surface context. The user is on Collaborate Mail. The inbox snapshot below is metadata only (subject/from/date). Before triage conclusions on Stripe, security, or OAuth items: call gmail_list_inbox then gmail_get_message for each candidate message id (snippets are not enough). Never claim you cannot read inbox without calling those tools.]',
     `folder: ${folder}`,
     `account: ${account || '(all connected)'}`,
     `gmail_connected: ${raw.gmailConnected !== false}`,
@@ -74,7 +74,7 @@ export function formatMailSurfaceContextForAgent(raw) {
   }
 
   lines.push(
-    'mail_tools: gmail_list_inbox, gmail_modify_message, gmail_send, agentsam_gmail_mcp_search_threads, agentsam_gmail_mcp_get_thread (OAuth user-scoped).',
+    'mail_tools: gmail_list_inbox, gmail_get_message (full body), gmail_modify_message, gmail_send, agentsam_gmail_mcp_search_threads, agentsam_gmail_mcp_get_thread (OAuth user-scoped).',
   );
 
   return lines.filter(Boolean).join('\n');

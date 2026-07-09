@@ -31,7 +31,7 @@ const mdWrapClass =
   '[&_a]:text-[var(--solar-cyan)] [&_a]:underline [&_a]:underline-offset-2 ' +
   '[&_strong]:font-semibold [&_strong]:text-[var(--dashboard-text)] ' +
   '[&_em]:italic [&_em]:text-[var(--dashboard-muted)] ' +
-  '[&_code]:text-[0.75rem] [&_code]:font-mono [&_code]:bg-[color-mix(in_srgb,var(--dashboard-border)_38%,var(--dashboard-panel))] [&_code]:text-[var(--dashboard-text)] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:border [&_code]:border-[color-mix(in_srgb,var(--dashboard-border)_70%,transparent)] ' +
+  '[&_code]:text-[0.75rem] [&_code]:font-mono [&_code]:bg-[color-mix(in_srgb,var(--solar-cyan)_14%,var(--dashboard-panel))] [&_code]:text-[var(--dashboard-text)] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:border [&_code]:border-[color-mix(in_srgb,var(--dashboard-border)_55%,transparent)] [&_code]:break-words [&_code]:[overflow-wrap:anywhere] [&_code]:whitespace-normal ' +
   '[&_pre]:my-2 [&_pre]:p-3 [&_pre]:bg-[var(--scene-bg)] [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-[var(--dashboard-border)] [&_pre]:overflow-x-auto [&_pre]:text-[0.75rem] [&_pre]:font-mono [&_pre]:text-[var(--solar-cyan)] ' +
   '[&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 ' +
   '[&_blockquote]:border-l-2 [&_blockquote]:border-[var(--dashboard-border)] [&_blockquote]:pl-3 [&_blockquote]:my-2 [&_blockquote]:text-[var(--dashboard-muted)] ' +

@@ -230,6 +230,24 @@ samp.font-mono {
   -webkit-user-select: text;
 }
 
+/* Inline markdown code in Agent Sam — readable chips, not dark redaction bars */
+.agent-content :not(pre) > code,
+.agent-scroll-area .agent-content :not(pre) > code {
+  background: color-mix(in srgb, var(--solar-cyan, #2dd4bf) 14%, var(--dashboard-panel, #0a1620)) !important;
+  color: var(--dashboard-text, #e8eef4) !important;
+  border: 1px solid color-mix(in srgb, var(--dashboard-border, #1e3e4a) 50%, transparent);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  max-width: 100%;
+}
+
+.agent-content pre code {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+}
+
 /* Terminal — override global resize drag lock so logs stay copyable */
 body.is-resizing .iam-terminal-pane-root,
 body.is-resizing .iam-terminal-output-panel,
