@@ -37,6 +37,7 @@ import {
   type AgentHomeTab,
 } from './lib/agentRoutes';
 import { AgentHome } from './components/agent/AgentHome';
+import { EditorWorkbenchLanes } from './components/agent/EditorWorkbenchLanes';
 import type { AgentModeId } from './types/agentHomeScene';
 import { resolveDashboardRouteAgentContext } from './lib/dashboardRouteContext';
 import { resolveAgentSurfaceTarget } from './lib/resolveAgentSurfaceTarget';
@@ -1641,9 +1642,6 @@ const App: React.FC = () => {
     });
     setActiveTab(tab);
     warmAgentChunksForTab(tab);
-    if (tab === 'code' && isAgentEditorPath(location.pathname) && !activeFile) {
-      openFile({ name: 'Untitled.ts', content: '' });
-    }
     if (
       !isNarrowViewport &&
       (tab === 'browser' || tab === 'cms' || tab === 'code') &&
@@ -1652,7 +1650,7 @@ const App: React.FC = () => {
     ) {
       setAgentPosition((p) => (p === 'off' ? 'right' : p));
     }
-  }, [isNarrowViewport, location.pathname, location.search, activeFile, openFile]);
+  }, [isNarrowViewport, location.pathname, location.search]);
 
   const toggleSidebarRail = useCallback(() => {
     setSidebarRailExpanded((prev) => {
@@ -2705,30 +2703,45 @@ const App: React.FC = () => {
     window.dispatchEvent(new CustomEvent(IAM_AGENT_MOBILE_CODE_FOCUS));
   }, [agentPosition]);
 
+  const engageAgentEditorWorkbench = useCallback(() => {
+    setAgentPosition((p) => (p === 'off' ? 'right' : p));
+    setOpenTabs((prev) => {
+      let next = prev.includes('Workspace') ? [...prev] : ['Workspace', ...prev];
+      if (!next.includes('browser')) next = [...next, 'browser'];
+      return next;
+    });
+    setActiveTab((t) => (t === 'browser' || t === 'code' || t === 'cms' ? t : 'Workspace'));
+    setActiveActivity('files');
+  }, []);
+
+  const openNewEditorFile = useCallback(() => {
+    openFile({ name: 'Untitled.ts', content: '', originalContent: '' });
+    setOpenTabs((p) => (p.includes('code') ? p : [...p, 'code']));
+    setActiveTab('code');
+    revealMainWorkspaceIfNarrow();
+  }, [openFile, revealMainWorkspaceIfNarrow]);
+
   const focusCodeEditorFromChat = useCallback(() => {
     if (isNarrowViewport) {
       focusMobileCodeContext();
       return;
     }
     revealMainWorkspaceIfNarrow();
-    openTab('code');
-  }, [focusMobileCodeContext, isNarrowViewport, revealMainWorkspaceIfNarrow, openTab]);
-
-  const engageAgentEditorWorkbench = useCallback(() => {
-    setAgentPosition((p) => (p === 'off' ? 'right' : p));
-    setOpenTabs((prev) => (prev.includes('Workspace') ? prev : ['Workspace', ...prev]));
-    setActiveTab((t) => (t === 'Workspace' || t === 'browser' || t === 'code' || t === 'cms' ? t : 'Workspace'));
-  }, []);
+    if (activeFile) {
+      openTab('code');
+      return;
+    }
+    setActiveActivity('files');
+    setOpenTabs((p) => (p.includes('code') ? p : [...p, 'code']));
+    setActiveTab('code');
+  }, [focusMobileCodeContext, isNarrowViewport, revealMainWorkspaceIfNarrow, openTab, activeFile]);
 
   const openEditorFromChat = useCallback(() => {
     if (!isAgentEditorPath(location.pathname)) {
       navigate(AGENT_EDITOR_PATH);
     }
     engageAgentEditorWorkbench();
-    if (isNarrowViewport) {
-      setActiveActivity('files');
-    }
-  }, [location.pathname, navigate, engageAgentEditorWorkbench, isNarrowViewport]);
+  }, [location.pathname, navigate, engageAgentEditorWorkbench]);
 
   useEffect(() => {
     if (!isAgentEditorWorkbench || isNarrowViewport) return;
@@ -4999,7 +5012,7 @@ const App: React.FC = () => {
                       <Tab
                           title={
                               <span className="flex items-center gap-1">
-                                  {activeFile ? activeFile.name : 'Untitled.ts'}
+                                  {activeFile ? activeFile.name : 'Code'}
                                   {isDirty && <span className="text-[var(--solar-yellow)] text-[10px] animate-pulse-dirty" title="Unsaved changes">●</span>}
                               </span>
                           }
@@ -5172,6 +5185,32 @@ const App: React.FC = () => {
                             activeAgentSlug={typeof workspaceSamState?.active_agent_slug === 'string' ? workspaceSamState.active_agent_slug : null}
                             sessionUserId={sessionUserId}
                           />
+                      </div>
+                  )}
+
+                  {isAgentEditorWorkbench && activeTab === 'code' && !activeFile && (
+                      <div className="absolute inset-0 z-10">
+                        <EditorWorkbenchLanes
+                          onOpenFileTree={() => setActiveActivity('files')}
+                          onOpenFolder={() => {
+                            setActiveActivity('files');
+                            setNativeFolderOpenSignal((n) => n + 1);
+                          }}
+                          onBrowseWeb={() => openTab('browser')}
+                          onNewFile={openNewEditorFile}
+                          onOpenWorkspace={() => setActiveTab('Workspace')}
+                          recentFiles={mappedRecentFiles}
+                          onOpenRecent={(path) => {
+                            const entry = workspaceDashboardRecentFiles.find(
+                              (f) =>
+                                f.workspacePath === path ||
+                                f.githubPath === path ||
+                                f.r2Key === path ||
+                                f.id === path,
+                            );
+                            if (entry) void openRecentEntry(entry);
+                          }}
+                        />
                       </div>
                   )}
 

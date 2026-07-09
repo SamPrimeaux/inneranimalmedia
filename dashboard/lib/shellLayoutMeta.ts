@@ -71,7 +71,7 @@ export function resolveAgentChatLayout(opts: {
 
 /**
  * Hide empty Monaco trap on agent home / conversation — editor only when a file is open.
- * On /editor with no file, Monaco stays hidden so center chat fills the canvas.
+ * On /editor with no file, show EditorWorkbenchLanes — not Monaco or center chat.
  */
 export function shouldShowMonacoWorkbench(opts: {
   pathname: string;
@@ -80,8 +80,8 @@ export function shouldShowMonacoWorkbench(opts: {
   hasActiveFile: boolean;
 }): boolean {
   if (opts.activeTab !== 'code') return false;
-  // Editor route: Monaco when Code tab is active (untitled ok).
-  if (isAgentEditorPath(opts.pathname)) return true;
+  // Editor: Monaco only after user opens a file (explicit lane — not auto Untitled).
+  if (isAgentEditorPath(opts.pathname)) return opts.hasActiveFile;
   if (opts.hasActiveFile) return true;
   if (isAgentCenterChatHome(opts.pathname, opts.search)) return false;
   return true;
