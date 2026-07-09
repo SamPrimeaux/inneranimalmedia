@@ -9,9 +9,12 @@ export type MailInboxPreviewRow = {
 };
 
 export type MailSurfaceFocus = {
+  /** Gmail message id — required for gmail_get_message when preview is insufficient. */
+  id?: string;
   subject: string;
   from: string;
   to?: string;
+  account?: string;
   bodyPreview?: string;
 };
 

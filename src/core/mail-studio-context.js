@@ -61,11 +61,16 @@ export function formatMailSurfaceContextForAgent(raw) {
   if (selected && typeof selected === 'object') {
     const s = /** @type {Record<string, unknown>} */ (selected);
     lines.push(
-      'selected_email:',
+      'selected_email (user has this message open in Mail UI):',
+      s.id ? `message_id: ${String(s.id)}` : '',
+      s.account ? `account: ${String(s.account)}` : '',
       `from: ${String(s.from || '')}`,
       `subject: ${String(s.subject || '')}`,
       s.to ? `to: ${String(s.to)}` : '',
       s.bodyPreview ? `body_preview:\n${String(s.bodyPreview).slice(0, 3000)}` : '',
+      s.id
+        ? 'For full body: gmail_get_message({ message_id }) — preview alone is not enough for triage conclusions.'
+        : '',
     );
   }
 

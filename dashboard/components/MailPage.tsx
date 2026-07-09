@@ -219,14 +219,16 @@ export function MailPage() {
       })),
       focus: selected
         ? {
+          id: selected.id,
           subject: selected.subject,
           from: selected.from_address,
           to: selected.to_address,
+          account: selected.account,
           bodyPreview: detail?.body || undefined,
         }
         : undefined,
       message: selected
-        ? 'Summarize this email and suggest whether I should reply, archive, or follow up.'
+        ? 'Summarize this open email and suggest whether I should reply, archive, or follow up. Use gmail_get_message on the focused message id if the preview is not enough.'
         : undefined,
     });
   }, [emails, selected, detail]);
@@ -249,9 +251,11 @@ export function MailPage() {
       })),
       selected: selected
         ? {
+          id: selected.id,
           subject: selected.subject,
           from: selected.from_address,
           to: selected.to_address,
+          account: selected.account,
           bodyPreview: detail?.body ? detail.body.slice(0, 3000) : undefined,
         }
         : null,

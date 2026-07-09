@@ -1,4 +1,4 @@
-import { IAM_AGENT_CHAT_NEW_THREAD, IAM_AGENT_ENSURE_PANEL } from '../agentChatConstants';
+import { IAM_AGENT_CHAT_NEW_THREAD } from '../agentChatConstants';
 
 export type MailInboxPreview = {
   id?: string;
@@ -9,9 +9,11 @@ export type MailInboxPreview = {
 };
 
 export type MailAgentFocus = {
+  id?: string;
   subject: string;
   from: string;
   to?: string;
+  account?: string;
   bodyPreview?: string;
 };
 
@@ -23,8 +25,6 @@ export function openMailAgent(opts?: {
 }) {
   if (typeof window === 'undefined') return;
 
-  window.dispatchEvent(new CustomEvent(IAM_AGENT_ENSURE_PANEL));
-
   const base =
     opts?.message?.trim() ||
     'Help me triage my inbox — what needs a reply, what can wait, and what should I archive?';
@@ -34,11 +34,16 @@ export function openMailAgent(opts?: {
     chunks.push(
       [
         'Focused email:',
+        opts.focus.id ? `Message id: ${opts.focus.id}` : '',
+        opts.focus.account ? `Account: ${opts.focus.account}` : '',
         `From: ${opts.focus.from}`,
         `Subject: ${opts.focus.subject}`,
         opts.focus.to ? `To: ${opts.focus.to}` : '',
         opts.focus.bodyPreview
           ? `Body preview:\n${opts.focus.bodyPreview.slice(0, 3000)}`
+          : '',
+        opts.focus.id
+          ? 'Use gmail_get_message with this message id if you need the full body beyond the preview.'
           : '',
       ]
         .filter(Boolean)
@@ -56,11 +61,12 @@ export function openMailAgent(opts?: {
 
   chunks.push(base);
 
+  // ensureAgentPanel: true — App opens side rail + queues send until ChatAssistant mounts (no /agent navigation).
   window.dispatchEvent(
     new CustomEvent(IAM_AGENT_CHAT_NEW_THREAD, {
       detail: {
         message: chunks.join('\n\n'),
-        ensureAgentPanel: false,
+        ensureAgentPanel: true,
         surface: 'mail',
         route_key: 'mail_triage',
       },
