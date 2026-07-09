@@ -167,6 +167,7 @@ import { MobileNavShell } from './components/shell/MobileNavShell';
 import {
   resolveAgentChatLayout,
   shouldShowAgentWorkbenchTabs,
+  isAgentWorkbenchSurfaceActive,
   shouldShowMonacoWorkbench,
 } from './lib/shellLayoutMeta';
 import { MobileNavHamburger } from './components/shell/MobileNavHamburger';
@@ -486,6 +487,8 @@ function persistRecentFileToLocalStorage(entry: RecentFileEntry): void {
 const App: React.FC = () => {
   const { tabs, activeTabId, openFile, updateActiveContent, saveActiveFile } = useEditor();
   const activeFile = tabs.find((t) => t.id === activeTabId) || null;
+  const [openTabs, setOpenTabs] = useState<TabId[]>(['Workspace']);
+  const [activeTab, setActiveTab] = useState<TabId>('Workspace');
   const {
     sessionUserId,
     sessionUserName,
@@ -537,10 +540,14 @@ const App: React.FC = () => {
     () => isAgentAtmosphericHome(location.pathname, location.search) || isAgentNewChatPath(location.pathname),
     [location.pathname, location.search],
   );
-  /** Editor landing — center chat like /agent/new until a file is opened. */
+  /** Editor landing — center chat until a workbench surface opens (file, browser, cms). */
+  const isEditorWorkbenchActive = useMemo(
+    () => isAgentWorkbenchSurfaceActive({ hasActiveFile: !!activeFile, activeTab: String(activeTab) }),
+    [activeFile, activeTab],
+  );
   const isEditorCenterChatLanding = useMemo(
-    () => isAgentEditorPath(location.pathname) && !activeFile,
-    [location.pathname, activeFile],
+    () => isAgentEditorPath(location.pathname) && !isEditorWorkbenchActive,
+    [location.pathname, isEditorWorkbenchActive],
   );
   const editorDevContext = useMemo(
     () => isAgentEditorDevContext(location.pathname, !!activeFile),
@@ -577,7 +584,8 @@ const App: React.FC = () => {
       showStatusBar ? DASHBOARD_STATUS_BAR_INSET : '0px',
     );
   }, [showStatusBar]);
-  const isCenterChatAtmospheric = isAgentHomeAtmospheric || isEditorCenterChatLanding;
+  const isCenterChatAtmospheric =
+    !isEditorWorkbenchActive && (isAgentHomeAtmospheric || isEditorCenterChatLanding);
   const isMovieModeRoute = location.pathname.startsWith('/dashboard/moviemode');
   const mobileTabBarBottom = mobileTabBarBottomOffset(showStatusBar);
   /** TODO: Movie Mode right rail — split Media bin + ChatAssistant (dual panel). */
@@ -919,6 +927,7 @@ const App: React.FC = () => {
       isNarrow: isNarrowViewport,
       isCmsFullscreen,
       hasActiveFile: !!activeFile,
+      activeTab: String(activeTab),
     });
   }, [
     location.pathname,
@@ -929,6 +938,7 @@ const App: React.FC = () => {
     designStudioEntryPhase,
     drawEntryPhase,
     activeFile,
+    activeTab,
   ]);
 
   /** Desktop center-chat routes keep layout=center — do not flip agentPosition to open a side rail. */
@@ -938,9 +948,9 @@ const App: React.FC = () => {
       (
         (isAgentCenterChatHome(location.pathname, location.search) && !isAgentEditorPath(location.pathname)) ||
         // Editor with no file open uses center layout — treat same as home so side rail doesn't open.
-        (isAgentEditorPath(location.pathname) && !activeFile)
+        (isAgentEditorPath(location.pathname) && !isEditorWorkbenchActive)
       ),
-    [isNarrowViewport, location.pathname, location.search, activeFile],
+    [isNarrowViewport, location.pathname, location.search, isEditorWorkbenchActive],
   );
 
   const ensureAgentSidePanel = useCallback(() => {
@@ -949,8 +959,13 @@ const App: React.FC = () => {
   }, [isCenterAgentDesktop]);
 
   const showAgentWorkbenchTabs = useMemo(
-    () => shouldShowAgentWorkbenchTabs({ pathname: location.pathname, search: location.search, hasActiveFile: !!activeFile }),
-    [location.pathname, location.search, activeFile],
+    () => shouldShowAgentWorkbenchTabs({
+      pathname: location.pathname,
+      search: location.search,
+      hasActiveFile: !!activeFile,
+      activeTab: String(activeTab),
+    }),
+    [location.pathname, location.search, activeFile, activeTab],
   );
 
   useEffect(() => {
@@ -1201,8 +1216,6 @@ const App: React.FC = () => {
   }, [recentFiles, recentFilesLsTick]);
 
   // Tabs: Workspace matches default activeTab (welcome had no panel — stranded tab id removed from defaults).
-  const [openTabs, setOpenTabs] = useState<TabId[]>(['Workspace']);
-  const [activeTab, setActiveTab] = useState<TabId>('Workspace');
 
   /** Hero scene only when chat is in a side rail — center chat IS the home (no portal shell). */
   const showAgentHomeScene = useMemo(
@@ -1352,10 +1365,10 @@ const App: React.FC = () => {
     if (!isAgentEditorPath(location.pathname) || isNarrowViewport) return;
     if (isEditorCenterChatLanding) {
       setAgentPosition('off');
-    } else if (activeFile) {
+    } else if (isEditorWorkbenchActive) {
       ensureAgentSidePanel();
     }
-  }, [location.pathname, isNarrowViewport, isEditorCenterChatLanding, activeFile, ensureAgentSidePanel]);
+  }, [location.pathname, isNarrowViewport, isEditorCenterChatLanding, isEditorWorkbenchActive, ensureAgentSidePanel]);
 
   const agentWorkspaceContext = useMemo<AgentWorkspaceContextPacket>(() => {
     const routeCtx = resolveDashboardRouteAgentContext({
@@ -1645,7 +1658,15 @@ const App: React.FC = () => {
     });
     setActiveTab(tab);
     warmAgentChunksForTab(tab);
-  }, []);
+    if (
+      !isNarrowViewport &&
+      (tab === 'browser' || tab === 'cms' || tab === 'code') &&
+      (isAgentEditorPath(location.pathname) ||
+        isAgentCenterChatHome(location.pathname, location.search))
+    ) {
+      setAgentPosition((p) => (p === 'off' ? 'right' : p));
+    }
+  }, [isNarrowViewport, location.pathname, location.search]);
 
   const toggleSidebarRail = useCallback(() => {
     setSidebarRailExpanded((prev) => {

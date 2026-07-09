@@ -7,6 +7,16 @@ import {
 
 export type AgentChatLayout = 'center' | 'left-rail' | 'right-rail' | 'hidden';
 
+/** Browser/CMS workbench tabs need side-rail chat — not center overlay on the canvas. */
+export function isAgentWorkbenchSurfaceActive(opts: {
+  hasActiveFile?: boolean;
+  activeTab?: string;
+}): boolean {
+  if (opts.hasActiveFile) return true;
+  const tab = String(opts.activeTab || '').trim();
+  return tab === 'browser' || tab === 'cms';
+}
+
 export function resolveAgentChatLayout(opts: {
   pathname: string;
   search: string;
@@ -15,8 +25,11 @@ export function resolveAgentChatLayout(opts: {
   isCmsFullscreen: boolean;
   /** True when /editor has an active file open — transitions chat to right rail. */
   hasActiveFile?: boolean;
+  /** Active workbench tab — browser/cms also move chat to a side rail. */
+  activeTab?: string;
 }): AgentChatLayout {
-  const { pathname, search, agentPosition, isNarrow, isCmsFullscreen, hasActiveFile } = opts;
+  const { pathname, search, agentPosition, isNarrow, isCmsFullscreen, hasActiveFile, activeTab } = opts;
+  const workbenchActive = isAgentWorkbenchSurfaceActive({ hasActiveFile, activeTab });
   if (isCmsFullscreen) {
     if (isNarrow) return 'right-rail';
     if (agentPosition === 'left') return 'left-rail';
@@ -29,18 +42,17 @@ export function resolveAgentChatLayout(opts: {
   // Center-chat routes (/dashboard/agent, /new, /c/*) use center layout when browsing.
   // When a code file is open, move chat to a side rail so Monaco is usable.
   if (centerChat && !editorRoute) {
-    if (hasActiveFile) {
+    if (workbenchActive) {
       if (agentPosition === 'left') return 'left-rail';
       return 'right-rail';
     }
     return 'center';
   }
 
-  // Editor route: chat-first until a file is open.
-  // No file → center layout (same as /agent/new). File open → right-rail so Monaco is usable.
+  // Editor route: chat-first until a workbench surface is open (file, browser, cms).
+  // Browser/CMS/file → side rail so the canvas is fully usable (Claude-style split).
   if (editorRoute) {
-    if (!hasActiveFile) return 'center';
-    // File is open: honour agentPosition, default to right-rail.
+    if (!workbenchActive) return 'center';
     if (agentPosition === 'left') return 'left-rail';
     return 'right-rail';
   }
@@ -77,9 +89,18 @@ export function shouldShowAgentWorkbenchTabs(opts: {
   pathname: string;
   search: string;
   hasActiveFile?: boolean;
+  activeTab?: string;
 }): boolean {
-  if (isAgentCenterChatHome(opts.pathname, opts.search)) return false;
-  // On /editor with no file open, suppress workbench tabs — chat fills the canvas.
-  if (isAgentEditorPath(opts.pathname) && !opts.hasActiveFile) return false;
+  const workbenchActive = isAgentWorkbenchSurfaceActive({
+    hasActiveFile: opts.hasActiveFile,
+    activeTab: opts.activeTab,
+  });
+  const tab = String(opts.activeTab || '').trim();
+  if (isAgentCenterChatHome(opts.pathname, opts.search)) {
+    // Atmospheric home hides tabs until browser/cms/code surface is engaged.
+    return workbenchActive && tab !== 'Workspace';
+  }
+  // On /editor landing, show tabs once browser/cms/code surface is active.
+  if (isAgentEditorPath(opts.pathname) && !workbenchActive) return false;
   return true;
 }
