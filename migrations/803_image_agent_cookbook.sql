@@ -77,10 +77,3 @@ SET
   input_schema = '{"type":"object","properties":{"prompt":{"type":"string","description":"Constructed image prompt from user intent and project context"},"intent_slug":{"type":"string","description":"image_blueprint_draft | image_render_quality | image_presentation_sheet | image_edit_reference"},"quality":{"type":"string","description":"low | medium | high | auto (OpenAI gpt-image-2)"},"size":{"type":"string","description":"e.g. 1024x1024, 1536x1024"},"provider":{"type":"string"},"model":{"type":"string"},"persist":{"type":"boolean"},"project_id":{"type":"string"}},"required":["prompt"],"additionalProperties":true}',
   updated_at = unixepoch()
 WHERE tool_key = 'imgx_generate_image' AND is_active = 1;
-
-UPDATE mcp_registered_tools
-SET
-  description = 'Generate an image from a constructed prompt. Thompson routing uses intent_slug when model omitted.',
-  input_schema = '{"type":"object","properties":{"prompt":{"type":"string"},"intent_slug":{"type":"string"},"quality":{"type":"string"},"size":{"type":"string"},"provider":{"type":"string"},"model":{"type":"string"},"filename":{"type":"string"},"project_id":{"type":"string"}},"required":["prompt"],"additionalProperties":true}',
-  updated_at = datetime('now')
-WHERE tool_name = 'imgx_generate_image';
