@@ -274,7 +274,9 @@ export async function runVelocityDailyRollup(env) {
     if (timeMinutes > 0) noteParts.push(`${timeMinutes} tracked minutes`);
     if (stuckRuns > 0) noteParts.push(`${stuckRuns} stuck agent runs — needs attention`);
     if (cronFailures > 0) noteParts.push(`${cronFailures} cron failures`);
-    const migNames = deployLog?.migration_names || migrationsRow?.names || '';
+    const deployNames = deployLog?.deploy_names || '';
+    if (deployNames) noteParts.push(`deploys: ${deployNames.slice(0, 300)}`);
+    const migNames = migrationsRow?.names || '';
     if (migNames) noteParts.push(`migrations: ${migNames.slice(0, 200)}`);
     if (workerRequests > 0) noteParts.push(`${workerRequests} worker requests (platform live)`);
     const notes = noteParts.join('. ') || 'No significant activity detected.';
