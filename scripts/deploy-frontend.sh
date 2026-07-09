@@ -322,11 +322,13 @@ if command -v jq >/dev/null 2>&1; then
       --arg wv "${WORKER_VERSION_ID:-unknown}" \
       --argjson dur "${DEPLOY_DURATION_MS:-0}" \
       --arg uid "${D1_AUTH_USER_ID}" \
+      --arg tid "${TENANT_ID:-}" \
+      --arg ws "${WORKSPACE_ID:-}" \
       --arg ws_uuid "${IAM_SUPABASE_WORKSPACE_ID}" \
       --arg branch "${BRANCH_NAME:-main}" \
       --arg desc "${GIT_MSG_LINE:-}" \
       --arg by "${DEPLOYED_BY:-deploy:full}" \
-      '{environment:$env, git_hash:$gh, version:$v, worker_version_id:$wv, deploy_duration_ms:$dur, user_id:$uid, supabase_workspace_id:$ws_uuid, branch_name:$branch, git_message:$desc, deployed_by:$by}'
+      '{environment:$env, git_hash:$gh, version:$v, worker_version_id:$wv, deploy_duration_ms:$dur, user_id:$uid, tenant_id:$tid, workspace_id:$ws, supabase_workspace_id:$ws_uuid, branch_name:$branch, git_message:$desc, deployed_by:$by}'
   )
   if [ -n "${AGENTSAM_BRIDGE_KEY:-}" ]; then
     curl -sS -X POST "https://inneranimalmedia.com/api/internal/post-deploy" \
@@ -474,6 +476,23 @@ if command -v jq >/dev/null 2>&1; then
       r2_manifest_total_bytes: $r2_manifest_total_bytes
     }' > "$REPO_ROOT/.deploy-worker-stats.json"
 fi
+
+# D1 agentsam_memory: one structured deploy fact per deploy (no LLM / no vector required)
+echo "→ D1 agentsam_memory deploy facts (post-deploy-memory-sync)…"
+ENVIRONMENT="${ENVIRONMENT:-production}" \
+BRANCH_NAME="${BRANCH_NAME:-}" \
+GIT_MSG_LINE="${GIT_MSG_LINE:-}" \
+WORKER_VERSION_ID="${WORKER_VERSION_ID:-}" \
+DEPLOY_DURATION_MS="${DEPLOY_DURATION_MS:-0}" \
+R2_SYNC_STATUS="${R2_SYNC_STATUS:-}" \
+R2_SYNC_MS="${R2_SYNC_MS:-0}" \
+R2_RECONCILE_STATUS="${R2_RECONCILE_STATUS:-}" \
+FILE_COUNT="${FILE_COUNT:-}" \
+TOTAL_KB="${TOTAL_KB:-}" \
+NOTIFY_STATUS="${NOTIFY_STATUS:-}" \
+DEPLOYED_BY="${DEPLOYED_BY:-deploy:full}" \
+bash "$REPO_ROOT/scripts/post-deploy-memory-sync.sh" \
+  || echo "[deploy-frontend] warning: post-deploy-memory-sync non-zero (non-fatal)" >&2
 
 if [[ "${DEPLOY_EMBEDDINGS_RAN:-0}" == "1" ]]; then
   echo "✓ Done (worker + R2 + notification; Supabase embeddings backfill ran)"

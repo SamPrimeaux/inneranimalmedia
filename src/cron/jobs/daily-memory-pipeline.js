@@ -205,9 +205,51 @@ function platformContextJson(ctxData) {
   return digestContextJson(ctxData, scope);
 }
 
+/** D1 deployments rows for synthesis — authoritative ship history (not inbox triage). */
+function verifiedDeploysFromD1(ctxData) {
+  const rows = ctxData?.verifiedDeploys24h?.results ?? [];
+  return rows.map((r) => ({
+    source: 'd1_deployments',
+    deploy_sha: r.git_hash,
+    latest_commit_message: r.description,
+    status: r.status,
+    deploy_time_seconds: r.deploy_time_seconds ?? null,
+    created_at: r.created_at ?? null,
+    timestamp: r.timestamp ?? null,
+    environment: r.environment ?? null,
+    version: r.version ?? null,
+  }));
+}
+
+/** Split deploy notifications (verified ground truth) from human inbox triage for synthesis. */
+export function groupTriageBatchForSynthesis(triageBatch) {
+  const items = Array.isArray(triageBatch?.items) ? triageBatch.items : [];
+  const verifiedDeploys = items
+    .filter((e) => e?.triage?.source === 'deploy_email_parser')
+    .map((e) => ({
+      message_id: e.id,
+      account: e.account,
+      subject: e.subject,
+      date: e.date_received,
+      summary: e.triage?.summary,
+      facts: e.triage?.facts,
+    }))
+    .filter((d) => d.facts || d.summary);
+  const humanEmails = items.filter((e) => !e?.triage_error && e?.triage?.source !== 'deploy_email_parser');
+  const triageErrors = items.filter((e) => e.triage_error);
+  return {
+    verifiedDeploys,
+    humanEmails,
+    triageErrors,
+    failed: Number(triageBatch?.failed) || 0,
+    summary: String(triageBatch?.summary || ''),
+  };
+}
+
 /** @param {*} env @param {{ triageBatch: object, ctxData: object, dateIso: string, dateDisplay: string }} p */
 async function synthesizeEveningMd(env, { triageBatch, ctxData, dateIso, dateDisplay }) {
   const isOp = !!ctxData?.digestScope?.isPlatformOperator;
+  const grouped = groupTriageBatchForSynthesis(triageBatch);
   const userText = isOp
     ? `Date: ${dateDisplay} (${dateIso})
 
@@ -221,13 +263,16 @@ Write the ## Evening section body ONLY (no ## Evening header). Use ### subsectio
 ### Don't Miss
 ### Carry Forward
 
-TRIAGE BATCH:
-${JSON.stringify(triageBatch)}
+VERIFIED DEPLOYS (authoritative production events — list every deploy_sha and latest_commit_message verbatim in ### Platform Health; never dedupe or collapse; not inbox clutter):
+${JSON.stringify(grouped.verifiedDeploys)}
+
+HUMAN INBOX TRIAGE (exclude deploy notifications):
+${JSON.stringify({ items: grouped.humanEmails, failed: grouped.failed, summary: grouped.summary, triage_errors: grouped.triageErrors })}
 
 PLATFORM CONTEXT:
 ${platformContextJson(ctxData)}
 
-Rules: Professional narrative markdown. Cross-thread dedupe (same client/topic = one action). Rank by true priority. Platform health from D1 context. Do not resurrect resolved/closed memory items as active blockers. Only list blockers with verified source (triage JSON or D1 context) — if triage failed, say so instead of inferring. 1-5 minute read. No emojis. No JSON.`
+Rules: Professional narrative markdown. Cross-thread dedupe human emails only (same client/topic = one action). VERIFIED DEPLOYS are platform ground truth — surface every SHA and commit message in ### Platform Health. Platform health also uses D1 context. Do not resurrect resolved/closed memory items as active blockers. Only list blockers with verified source (triage JSON or D1 context) — if triage failed, say so instead of inferring. 1-5 minute read. No emojis. No JSON.`
     : `Date: ${dateDisplay} (${dateIso})
 
 Write the ## Evening section body ONLY (no ## Evening header). Use ### subsections exactly:
@@ -238,7 +283,7 @@ Write the ## Evening section body ONLY (no ## Evening header). Use ### subsectio
 ### Carry Forward
 
 INBOX TRIAGE (this user's connected Gmail accounts only):
-${JSON.stringify(triageBatch)}
+${JSON.stringify({ items: grouped.humanEmails, failed: grouped.failed, summary: grouped.summary, triage_errors: grouped.triageErrors })}
 
 WORKSPACE CONTEXT (this user's tenant/workspaces only — never invent data outside this JSON):
 ${platformContextJson(ctxData)}
@@ -260,6 +305,7 @@ Rules: Personal workspace digest only. Use inbox triage + workspace context JSON
 /** @param {*} env @param {{ triageBatch: object, ctxData: object, priorMd: string, yesterdayMd: string, dateIso: string, dateDisplay: string }} p */
 async function synthesizeMorningMd(env, { triageBatch, ctxData, priorMd, yesterdayMd, dateIso, dateDisplay }) {
   const isOp = !!ctxData?.digestScope?.isPlatformOperator;
+  const grouped = groupTriageBatchForSynthesis(triageBatch);
   const userText = isOp
     ? `Date: ${dateDisplay} (${dateIso})
 
@@ -274,13 +320,16 @@ Write the ## Morning section body ONLY (no ## Morning header). Use ### subsectio
 LAST NIGHT MEMORY (continuity):
 ${(priorMd || yesterdayMd || '(none)').slice(0, 12000)}
 
-OVERNIGHT INBOX TRIAGE:
-${JSON.stringify(triageBatch)}
+VERIFIED DEPLOYS (from D1 deployments table — authoritative; list every git_hash and description verbatim under ### VELOCITY; never dedupe; do not use inbox triage for deploy history):
+${JSON.stringify(verifiedDeploysFromD1(ctxData))}
+
+OVERNIGHT HUMAN INBOX TRIAGE:
+${JSON.stringify({ items: grouped.humanEmails, failed: grouped.failed, summary: grouped.summary, triage_errors: grouped.triageErrors })}
 
 PLATFORM DELTA:
 ${platformContextJson(ctxData)}
 
-Rules: Shorter than evening — 1-3 minute read. Action-first. ALERTS = "None." if clean. Do not carry forward blockers that are resolved in D1 memory. If triage failed, lead ALERTS with triage degradation — do not invent regressions. No emojis. Markdown only.`
+Rules: Shorter than evening — 1-3 minute read. Action-first. ALERTS = "None." if clean. Do not carry forward blockers that are resolved in D1 memory. If triage failed, lead ALERTS with triage degradation — do not invent regressions. VERIFIED DEPLOYS are production ground truth for ### VELOCITY. No emojis. Markdown only.`
     : `Date: ${dateDisplay} (${dateIso})
 
 Write the ## Morning section body ONLY (no ## Morning header). Use ### subsections in order:
@@ -293,7 +342,7 @@ PRIOR DIGEST (continuity — this user only):
 ${(priorMd || yesterdayMd || '(none)').slice(0, 8000)}
 
 INBOX TRIAGE (this user's connected Gmail accounts only):
-${JSON.stringify(triageBatch)}
+${JSON.stringify({ items: grouped.humanEmails, failed: grouped.failed, summary: grouped.summary, triage_errors: grouped.triageErrors })}
 
 WORKSPACE DELTA (this user's tenant/workspaces only):
 ${platformContextJson(ctxData)}

@@ -12,6 +12,7 @@ import { notifySam } from '../../core/notifications.js';
 import { sendWebPushToUser } from '../../core/web-push.js';
 import { snapshotGmailInboxForUser } from '../../core/gmail-inbox-snapshot.js';
 import { agentsamMemoryActiveSqlOrEmpty } from '../../core/agentsam-memory-resolve.js';
+import { buildGeminiGenerationConfig, parseGeminiResponseText } from '../../integrations/gemini.js';
 
 export { resolveDailyDigestScope } from '../../core/daily-digest-scope.js';
 
@@ -153,6 +154,7 @@ export async function gatherMorningPlanContext(env, tenantId, owner, presetScope
     financeMonthly,
     deploys24h,
     deploys7d,
+    verifiedDeploys24h,
     planTasks,
     execPerf24h,
     healthDaily,
@@ -385,6 +387,18 @@ export async function gatherMorningPlanContext(env, tenantId, owner, presetScope
          WHERE datetime(created_at) >= datetime('now', '-7 days')`)
       : emptyFirst(),
 
+    isOp
+      ? d1All(env,
+        `SELECT git_hash, description, status,
+                COALESCE(deploy_time_seconds, duration_seconds) AS deploy_time_seconds,
+                COALESCE(created_at, unixepoch(timestamp)) AS created_at,
+                timestamp, version, environment
+         FROM deployments
+         WHERE COALESCE(created_at, unixepoch(timestamp), 0) >= unixepoch('now', '-24 hours')
+         ORDER BY COALESCE(created_at, unixepoch(timestamp), 0) DESC
+         LIMIT 30`)
+      : emptyAll(),
+
     d1All(env,
       `SELECT status, COUNT(*) as cnt
        FROM agentsam_plan_tasks
@@ -583,6 +597,7 @@ export async function gatherMorningPlanContext(env, tenantId, owner, presetScope
     financeMonthly,
     deploys24h,
     deploys7d,
+    verifiedDeploys24h,
     planTasks,
     execPerf24h,
     healthDaily,
@@ -616,8 +631,10 @@ export async function generateWithGemini(env, opts) {
   const modelKey = String(opts.modelKey || '').trim();
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelKey}:generateContent?key=${apiKey}`;
   const generationConfig = {
-    maxOutputTokens: opts.maxOutputTokens ?? 900,
-    temperature: opts.temperature ?? 0.2,
+    ...buildGeminiGenerationConfig(
+      { mode: 'ask', taskType: opts.taskType || 'summary' },
+      { modelId: modelKey, maxOutputTokens: opts.maxOutputTokens ?? 900 },
+    ),
   };
   if (opts.json) generationConfig.responseMimeType = 'application/json';
 
@@ -641,13 +658,7 @@ export async function generateWithGemini(env, opts) {
     });
   }
 
-  let text = '';
-  for (const c of data?.candidates || []) {
-    for (const p of c?.content?.parts || []) {
-      if (typeof p?.text === 'string') text += p.text;
-    }
-  }
-  text = text.trim();
+  const text = parseGeminiResponseText(data);
   if (!text) {
     throw new DailyPlanError(`Gemini ${modelKey} returned empty content`, {
       stage: opts.stage,

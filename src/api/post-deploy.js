@@ -19,6 +19,7 @@ import {
   resolvePlatformSupabaseWorkspaceUuid,
 } from '../core/platform-identity-constants.js';
 import { scheduleMirrorDeployEventToSupabase } from '../core/hyperdrive-write.js';
+import { upsertDeployMemoryFacts } from '../core/deploy-memory-fact.js';
 
 function isPostDeployAuthorized(request, env) {
   if (isIngestSecretAuthorized(request, env)) return true;
@@ -208,6 +209,28 @@ export async function handlePostDeploy(request, env, ctx) {
         deployDurationMs,
         workerVersion,
       }).catch((e) => console.warn('[post-deploy] deployments insert failed', e?.message || e)),
+    );
+
+    ctx.waitUntil(
+      upsertDeployMemoryFacts(
+        env.DB,
+        env,
+        {
+          tenantId: String(body.tenant_id ?? body.tenantId ?? '').trim(),
+          workspaceId: String(body.workspace_id ?? body.d1_workspace_id ?? '').trim(),
+          userId: String(body.user_id ?? '').trim(),
+          shortSha: version,
+          gitHash,
+          environment,
+          branchName,
+          description,
+          deployedAt: now,
+          workerVersionId: workerVersion,
+          deployDurationMs,
+          deployedBy,
+        },
+        body,
+      ).catch((e) => console.warn('[post-deploy] deploy memory fact failed', e?.message || e)),
     );
 
     ctx.waitUntil(
