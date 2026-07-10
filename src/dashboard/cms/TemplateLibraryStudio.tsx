@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, Fragment, type DragEvent, type ReactNode } from 'react';
 import { IAM_AGENT_CHAT_COMPOSE } from '@/agentChatConstants';
 import { TemplatePreviewModal } from './TemplatePreviewModal';
 import {
@@ -415,14 +415,16 @@ export function TemplateLibraryStudio({
         </div>
         <div className="iam-tpl-sidebar__section">
           <div className="iam-tpl-sidebar__label">Your builds</div>
-          {builds.map((b) =>
-            sidebarItem(
-              b,
-              null,
-              sidebarFilter.kind === 'build' && sidebarFilter.value === b,
-              () => setSidebarFilter({ kind: 'build', value: b }),
-            ),
-          )}
+          {builds.map((b) => (
+            <Fragment key={b}>
+              {sidebarItem(
+                b,
+                null,
+                sidebarFilter.kind === 'build' && sidebarFilter.value === b,
+                () => setSidebarFilter({ kind: 'build', value: b }),
+              )}
+            </Fragment>
+          ))}
         </div>
         <div className="iam-tpl-sidebar__section">
           <div className="iam-tpl-sidebar__label">Collections</div>
@@ -442,14 +444,16 @@ export function TemplateLibraryStudio({
         {categories.length > 0 ? (
           <div className="iam-tpl-sidebar__section">
             <div className="iam-tpl-sidebar__label">By type</div>
-            {categories.map((c) =>
-              sidebarItem(
-                c,
-                null,
-                sidebarFilter.kind === 'type' && sidebarFilter.value === c,
-                () => setSidebarFilter({ kind: 'type', value: c }),
-              ),
-            )}
+            {categories.map((c) => (
+              <Fragment key={c}>
+                {sidebarItem(
+                  c,
+                  null,
+                  sidebarFilter.kind === 'type' && sidebarFilter.value === c,
+                  () => setSidebarFilter({ kind: 'type', value: c }),
+                )}
+              </Fragment>
+            ))}
           </div>
         ) : null}
       </aside>
