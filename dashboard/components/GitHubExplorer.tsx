@@ -16,7 +16,6 @@ import {
 } from 'lucide-react';
 import type { ActiveFile } from '../types';
 import { SetiFileIcon } from '../src/components/SetiFileIcon';
-import { useWorkspace } from '../src/context/WorkspaceContext';
 import {
   flattenVisibleGithubTree,
   mapGithubNodeByPath,
@@ -191,9 +190,6 @@ export const GitHubExplorer: React.FC<{
   /** Hide outer chrome when nested in AgentSamFilesystem. */
   embedded?: boolean;
 }> = ({ onOpenInEditor, expandRepoFullName, onExpandRepoConsumed, workspace_id = null, onClose, embedded = false }) => {
-  const { workspaceId: ctxWorkspaceId, persistGithubRepo } = useWorkspace();
-  const effectiveWorkspaceId = (workspace_id?.trim() || ctxWorkspaceId || '').trim() || null;
-
   const [isAuthenticated, setIsAuthenticated] = useState(true);
   const [reconnectAfterReposFailure, setReconnectAfterReposFailure] = useState(false);
   const [repos, setRepos] = useState<any[]>([]);
@@ -269,6 +265,13 @@ export const GitHubExplorer: React.FC<{
     setExpandedRepo(null);
     setTreeByRepo({});
     setLoadError(null);
+    try {
+      window.dispatchEvent(
+        new CustomEvent('iam_explorer_active_repo', { detail: { active_repo: null } }),
+      );
+    } catch {
+      /* ignore */
+    }
   }, [workspace_id]);
 
   const filteredRepos = useMemo(() => {
@@ -345,11 +348,26 @@ export const GitHubExplorer: React.FC<{
   const toggleRepo = useCallback((fullName: string) => {
     if (expandedRepo === fullName) {
       setExpandedRepo(null);
+      try {
+        window.dispatchEvent(
+          new CustomEvent('iam_explorer_active_repo', { detail: { active_repo: null } }),
+        );
+      } catch {
+        /* ignore */
+      }
       return;
     }
     setExpandedRepo(fullName);
     requestMobileActivitySheetExpand(58);
-    if (effectiveWorkspaceId) void persistGithubRepo(fullName, effectiveWorkspaceId);
+    try {
+      window.dispatchEvent(
+        new CustomEvent('iam_explorer_active_repo', {
+          detail: { active_repo: fullName, branch: defaultBranchFor(fullName) },
+        }),
+      );
+    } catch {
+      /* ignore */
+    }
 
     // Init tree root if not yet loaded
     setTreeByRepo((prev) => {
@@ -368,7 +386,7 @@ export const GitHubExplorer: React.FC<{
     // Fetch root contents
     const branch = defaultBranchFor(fullName);
     void fetchChildren(fullName, '', branch);
-  }, [expandedRepo, effectiveWorkspaceId, persistGithubRepo, defaultBranchFor, fetchChildren]);
+  }, [expandedRepo, defaultBranchFor, fetchChildren]);
 
   const handleToggleDir = useCallback((fullName: string, branch: string, node: GithubFileNode) => {
     if (node.isOpen) {

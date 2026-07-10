@@ -97,6 +97,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   const profile = input.profile;
   const body = input.body || {};
   const message = String(input.message || '').trim();
+  const activeRepo = String(body.active_repo ?? body.activeRepo ?? '').trim();
   const { userId, tenantId, workspaceId, sessionId, authUser: sessionAuthUser } = input.session || {};
   const quickstartBatch = input.quickstartBatch != null ? String(input.quickstartBatch) : '';
   const activeFileEnvelope = input.activeFileEnvelope ?? null;
@@ -327,24 +328,35 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
 
   const projectContextBlock =
     input.projectContextBlock != null ? String(input.projectContextBlock).trim() : '';
-  if (projectContextBlock && !systemPrompt.includes(projectContextBlock.slice(0, 40))) {
+  // When explorer sent active_repo, do not feed D1/IAM "what's open" stories — model must tool-read.
+  if (
+    !activeRepo &&
+    projectContextBlock &&
+    !systemPrompt.includes(projectContextBlock.slice(0, 40))
+  ) {
     systemPrompt = `${systemPrompt}\n\n${projectContextBlock}`;
   }
 
   const sessionProjectContextBlock =
     input.sessionProjectContextBlock != null ? String(input.sessionProjectContextBlock).trim() : '';
-  if (sessionProjectContextBlock && !systemPrompt.includes(sessionProjectContextBlock.slice(0, 40))) {
+  if (
+    !activeRepo &&
+    sessionProjectContextBlock &&
+    !systemPrompt.includes(sessionProjectContextBlock.slice(0, 40))
+  ) {
     systemPrompt = `${systemPrompt}\n\n${sessionProjectContextBlock}`;
   }
 
   try {
     const { extractCmsAgentContext, formatCmsContextForAgent } = await import('../cms-agent-context.js');
     const { appendAmbientWorkspaceContextToPrompt } = await import('../workspace-studio-context.js');
-    systemPrompt = appendAmbientWorkspaceContextToPrompt(
-      systemPrompt,
-      browserContextPayload,
-      body,
-    );
+    if (!activeRepo) {
+      systemPrompt = appendAmbientWorkspaceContextToPrompt(
+        systemPrompt,
+        browserContextPayload,
+        body,
+      );
+    }
     const cmsBlock = formatCmsContextForAgent(extractCmsAgentContext(body, browserContextPayload));
     if (cmsBlock && !systemPrompt.includes('## CMS context')) {
       systemPrompt = `${systemPrompt}\n\n${cmsBlock}`;
@@ -382,7 +394,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       typeof browserContextPayload.workspaceContext === 'object'
         ? browserContextPayload.workspaceContext
         : null;
-    if (wsCtxForMobile) {
+    if (wsCtxForMobile && !activeRepo) {
       const {
         parseClientSurface,
         parseExecLane,
@@ -434,7 +446,12 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     input.sessionProjectRef != null ? String(input.sessionProjectRef).trim() : '';
   const projectExecBindings = input.projectExecutionBindings ?? null;
 
-  if (sessionProjectRef && projectExecBindings && !createSubagentFlow.active) {
+  if (activeRepo) {
+    const openLine = `Open repo this turn: ${activeRepo}.`;
+    if (!systemPrompt.includes(openLine)) {
+      systemPrompt = `${systemPrompt}\n\n${openLine}`;
+    }
+  } else if (sessionProjectRef && projectExecBindings && !createSubagentFlow.active) {
     try {
       const { appendWorkspaceBindingBlockToPrompt } = await import('../workspace-chat-scope.js');
       systemPrompt = appendWorkspaceBindingBlockToPrompt(systemPrompt, projectExecBindings);

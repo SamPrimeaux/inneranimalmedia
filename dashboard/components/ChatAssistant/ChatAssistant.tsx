@@ -482,6 +482,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     readStoredExecLane(detectClientSurface(), isPlatformOperatorFromPolicy(agentsamPolicy)),
   );
   const [githubRepoContext, setGithubRepoContext] = useState<string | null>(null);
+  /** Repo currently expanded in the file explorer (not auth-workspace github_repo). */
+  const [explorerActiveRepo, setExplorerActiveRepo] = useState<string | null>(null);
   const [chatGithubFilePath, setChatGithubFilePath] = useState<string | null>(null);
   const [chatGithubBranch, setChatGithubBranch] = useState('main');
   const [chatGithubFileContent, setChatGithubFileContent] = useState<string | null>(null);
@@ -729,6 +731,17 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   useEffect(() => {
     console.log('[ChatAssistant] canonical mounted agent-app-sse-v1');
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onExplorerRepo = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ active_repo?: string | null }>).detail;
+      const repo = detail?.active_repo != null ? String(detail.active_repo).trim() : '';
+      setExplorerActiveRepo(repo || null);
+    };
+    window.addEventListener('iam_explorer_active_repo', onExplorerRepo);
+    return () => window.removeEventListener('iam_explorer_active_repo', onExplorerRepo);
   }, []);
 
   useEffect(() => {
@@ -2854,6 +2867,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     if (designStudioBlueprintId?.trim()) form.append('blueprint_id', designStudioBlueprintId.trim());
     if (designStudioCadJobId?.trim()) form.append('cad_job_id', designStudioCadJobId.trim());
     if (sendWorkspaceId) form.append('workspace_id', sendWorkspaceId);
+    const activeRepoForTurn =
+      explorerActiveRepo?.trim() || githubRepoContext?.trim() || '';
+    if (activeRepoForTurn) form.append('active_repo', activeRepoForTurn);
     if (sendOpts?.task_type?.trim()) form.append('task_type', sendOpts.task_type.trim());
     else if (
       designStudioSurfaceRef.current?.surface === 'design_studio' &&
