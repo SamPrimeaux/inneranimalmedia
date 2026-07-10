@@ -1569,6 +1569,16 @@ export async function handleOAuthApi(request, env, ctx) {
         });
       } else if (provider === 'cloudflare') {
         const tok = await exchangeCloudflare(env, code);
+        const { resolveCfAccountFromAccessToken } = await import('../core/cf-token-account.js');
+        const { persistUserCfStackSettings } = await import('../core/account-cloudflare-context.js');
+        let cfAccount = null;
+        try {
+          cfAccount = await resolveCfAccountFromAccessToken(tok.access_token);
+        } catch (e) {
+          console.warn('[cloudflare_oauth] /v4/accounts resolution failed', e?.message || e);
+        }
+        const accountId = cfAccount?.id || null;
+        const accountName = cfAccount?.name || null;
         await upsertOauthToken(env, {
           user_id: userId,
           tenant_id: tenantId,
@@ -1578,10 +1588,20 @@ export async function handleOAuthApi(request, env, ctx) {
           refresh_token: tok.refresh_token || null,
           scope: tok.scope || null,
           expires_at: tok.expires_in ? nowSeconds() + Number(tok.expires_in) : null,
-          account_identifier: 'Cloudflare',
+          account_identifier: accountId || `cf_oauth_${userId}`,
           account_email: null,
-          account_display: 'Cloudflare',
+          account_display: accountName || (accountId ? 'Cloudflare account' : null),
+          metadata_json: accountId
+            ? JSON.stringify({ cloudflare_account_id: accountId })
+            : null,
         });
+        if (accountId) {
+          try {
+            await persistUserCfStackSettings(env, userId, { cf_account_id: accountId });
+          } catch (e) {
+            console.warn('[cloudflare_oauth] cf_stack persist failed', e?.message || e);
+          }
+        }
       } else if (provider === 'supabase') {
         const mgmtCreds = getSupabaseManagementOAuthCredentials(env);
         const redirectUriTok =

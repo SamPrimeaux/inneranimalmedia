@@ -6,6 +6,8 @@ import { getAESKey, aesGcmDecryptFromB64 } from './crypto-vault.js';
 import { getDefaultWorkspaceDataBinding } from './workspace-data-bindings.js';
 import { userHasSuperadminRole } from './resolve-credential.js';
 import { workspaceAllowsPlatformFallback } from './workspace-spend-guard.js';
+import { resolveCfAccountIdFromToken, looksLikeCfAccountId, healCloudflareOAuthAccountIfNeeded } from './cf-token-account.js';
+import { getIntegrationOAuthRow } from './user-oauth-token.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -91,6 +93,38 @@ export async function resolveWorkspaceCloudflareCredentials(env, userId, tenantI
         key_id: null,
         binding_id: bindingId,
         platform_bypass: 'superadmin_role',
+      };
+    }
+  }
+
+  const oauthRow = await getIntegrationOAuthRow(env, uid, 'cloudflare');
+  const oauthToken = oauthRow?.access_token ? trim(oauthRow.access_token) : null;
+  if (oauthToken) {
+    let oauthAccountId = null;
+    const fromId = trim(oauthRow?.account_identifier);
+    if (looksLikeCfAccountId(fromId)) oauthAccountId = fromId;
+    if (!oauthAccountId && oauthRow?.metadata_json) {
+      try {
+        const meta = JSON.parse(String(oauthRow.metadata_json));
+        oauthAccountId =
+          trim(meta?.cloudflare_account_id) || trim(meta?.account_id) || null;
+      } catch {
+        oauthAccountId = null;
+      }
+    }
+    if (!oauthAccountId) {
+      oauthAccountId = await healCloudflareOAuthAccountIfNeeded(env, uid, oauthToken, oauthRow);
+    }
+    if (oauthAccountId) {
+      return {
+        ok: true,
+        error: null,
+        token: oauthToken,
+        account_id: oauthAccountId,
+        account_mask: maskAccountId(oauthAccountId),
+        key_id: null,
+        binding_id: bindingId,
+        credential_source: 'oauth',
       };
     }
   }
@@ -181,6 +215,28 @@ export async function resolveWorkspaceCloudflareCredentials(env, userId, tenantI
       key_id: row.id != null ? String(row.id) : null,
       binding_id: bindingId,
     };
+  }
+
+  if (!accountId) {
+    const resolved = await resolveCfAccountIdFromToken(String(token));
+    if (resolved.ok && resolved.account_id) {
+      accountId = resolved.account_id;
+      const keyId = row.id != null ? String(row.id) : null;
+      if (keyId) {
+        const nextMeta = {
+          ...meta,
+          cloudflare_account_id: accountId,
+          account_id: accountId,
+        };
+        await env.DB.prepare(
+          `UPDATE user_api_keys SET metadata_json = ?, updated_at = COALESCE(updated_at, unixepoch())
+           WHERE id = ? AND user_id = ?`,
+        )
+          .bind(JSON.stringify(nextMeta), keyId, uid)
+          .run()
+          .catch(() => null);
+      }
+    }
   }
 
   if (!accountId) {

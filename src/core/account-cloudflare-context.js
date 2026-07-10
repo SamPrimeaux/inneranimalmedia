@@ -6,6 +6,11 @@ import { getIntegrationOAuthRow } from './user-oauth-token.js';
 import { resolveIntegrationUserId } from './integration-user-id.js';
 import { resolveWorkspaceCloudflareCredentials, maskAccountId } from './workspace-cloudflare-credentials.js';
 import { userHasSuperadminRole } from './resolve-credential.js';
+import {
+  looksLikeCfAccountId,
+  resolveCfAccountFromAccessToken,
+  healCloudflareOAuthAccountIfNeeded,
+} from './cf-token-account.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -22,14 +27,13 @@ function parseJson(raw, fallback = {}) {
   }
 }
 
-function looksLikeCfAccountId(v) {
-  const s = trim(v);
-  return /^[a-f0-9]{32}$/i.test(s);
+function looksLikeCfAccountIdLocal(v) {
+  return looksLikeCfAccountId(v);
 }
 
 function accountFromOAuthRow(row) {
   const fromIdentifier = trim(row?.account_identifier);
-  if (looksLikeCfAccountId(fromIdentifier)) return fromIdentifier;
+  if (looksLikeCfAccountIdLocal(fromIdentifier)) return fromIdentifier;
   const meta = parseJson(row?.metadata_json);
   return (
     trim(meta.cloudflare_account_id) ||
@@ -143,15 +147,15 @@ export async function resolveAccountCloudflareContext(env, scope = {}) {
   }
 
   const userCf = await readUserCfStackSettings(env, userId);
-  let accountId =
-    trim(userCf.cf_account_id) ||
-    trim(env?.CLOUDFLARE_ACCOUNT_ID) ||
-    null;
+  let accountId = trim(userCf.cf_account_id) || null;
 
   const oauthRow = await getIntegrationOAuthRow(env, userId, 'cloudflare');
   let token = oauthRow?.access_token ? trim(oauthRow.access_token) : null;
-  const oauthAccount = accountFromOAuthRow(oauthRow);
-  if (oauthAccount) accountId = accountId || oauthAccount;
+  let oauthAccount = accountFromOAuthRow(oauthRow);
+  if (token && !oauthAccount) {
+    oauthAccount = await healCloudflareOAuthAccountIfNeeded(env, userId, token, oauthRow);
+  }
+  if (oauthAccount) accountId = oauthAccount;
 
   let source = token ? 'oauth' : null;
 
@@ -159,13 +163,14 @@ export async function resolveAccountCloudflareContext(env, scope = {}) {
     const byok = await resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId);
     if (byok.ok && byok.token) {
       token = trim(byok.token);
-      accountId = accountId || trim(byok.account_id) || null;
+      accountId = trim(byok.account_id) || accountId || null;
       source = 'byok';
     }
   }
 
   const authRow = await loadAuthUserRow(env, authUser);
-  if (!token && userHasSuperadminRole(authRow)) {
+  const isSuperadmin = userHasSuperadminRole(authRow);
+  if (!token && isSuperadmin) {
     const platformToken = trim(env?.CLOUDFLARE_API_TOKEN);
     const platformAccountId = trim(env?.CLOUDFLARE_ACCOUNT_ID);
     if (platformToken && platformAccountId) {
@@ -173,9 +178,11 @@ export async function resolveAccountCloudflareContext(env, scope = {}) {
       accountId = accountId || platformAccountId;
       source = 'platform';
     }
+  } else if (!accountId && isSuperadmin) {
+    accountId = trim(env?.CLOUDFLARE_ACCOUNT_ID) || null;
   }
 
-  if (accountId && looksLikeCfAccountId(accountId) === false) accountId = null;
+  if (accountId && looksLikeCfAccountIdLocal(accountId) === false) accountId = null;
 
   return {
     ok: Boolean(token),
