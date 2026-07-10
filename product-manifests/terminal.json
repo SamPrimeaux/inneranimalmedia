@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "id": "terminal",
+  "name": "Terminal",
+  "classification": "shared_capability",
+  "family": null,
+  "stage": "production",
+  "current_host": {
+    "type": "workspace",
+    "route": null,
+    "worker": "inneranimalmedia"
+  },
+  "standalone_intent": false,
+  "implementation": {
+    "frontend": ["dashboard/components/ChatAssistant/ (bottom panel)"],
+    "backend": [
+      "src/api/terminal.js",
+      "src/core/terminal.js",
+      "src/core/terminal-sandbox.js"
+    ],
+    "migrations": [],
+    "docs": [
+      "docs/platform/terminal-three-lane-model.md",
+      "docs/infrastructure/terminal.md"
+    ]
+  },
+  "agent_sam": {
+    "context_adapter": null,
+    "route_key": null,
+    "tool_profiles": [
+      "agentsam_terminal_run",
+      "agentsam_terminal_remote",
+      "agentsam_terminal_sandbox"
+    ],
+    "project_memory": false
+  },
+  "shared_capabilities": ["agent-runtime"],
+  "known_gaps": ["fs list/write loopback issues per README P0"],
+  "confidence": "verified"
+}

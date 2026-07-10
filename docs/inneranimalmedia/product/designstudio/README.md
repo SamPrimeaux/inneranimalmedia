@@ -1,5 +1,8 @@
 # Design Studio (product)
 
+> **Canonical product index:** [`docs/products/design-studio/README.md`](../../../products/design-studio/README.md)  
+> This folder remains **technical SSOT** (pipeline, TRUTH, AGENTSAM detail). Do not use "Platform: Inner Animal Media Dashboard" as product identity — see Platform Constitution.
+
 | Field | Value |
 |--------|--------|
 | **Product name** | Design Studio |

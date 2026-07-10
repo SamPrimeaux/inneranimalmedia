@@ -204,7 +204,55 @@
 .iam-cms-shell__body {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.iam-cms-shell--editor .iam-cms-shell__top {
+  box-shadow: 0 1px 0 rgba(26, 26, 26, 0.04);
+}
+
+.iam-cms-shell__agent-btn.is-active {
+  background: #fff;
+  border-color: color-mix(in srgb, var(--cms-teal) 35%, var(--cms-border));
+}
+
+.iam-cms-studio-shell {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.iam-cms-studio-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+}
+
+.iam-cms-shell__agent-fab {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  z-index: 45;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--cms-teal) 28%, var(--cms-border));
+  background: var(--cms-panel);
+  color: var(--cms-teal);
+  box-shadow: 0 8px 28px rgba(26, 26, 26, 0.12);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.iam-cms-shell__agent-fab:hover {
+  background: var(--cms-teal-soft);
 }
 
 .iam-cms-compose {

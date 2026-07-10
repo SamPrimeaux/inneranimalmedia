@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "database-explorer",
+  "name": "Database Explorer",
+  "classification": "shared_capability",
+  "family": null,
+  "stage": "internal_alpha",
+  "current_host": {
+    "type": "workspace",
+    "route": "/dashboard/database",
+    "worker": "inneranimalmedia"
+  },
+  "standalone_intent": false,
+  "implementation": {
+    "frontend": ["dashboard/src/lib/databaseStudioRoute.ts"],
+    "backend": ["src/api/d1-dashboard.js"],
+    "migrations": [],
+    "docs": ["docs/shared/SHARED_CAPABILITIES.md"]
+  },
+  "agent_sam": {
+    "context_adapter": "dashboard/lib/dashboardRouteContext.ts",
+    "route_key": "database_studio",
+    "tool_profiles": ["d1_query", "d1_schema"],
+    "project_memory": false
+  },
+  "shared_capabilities": ["agent-runtime"],
+  "known_gaps": [],
+  "confidence": "verified"
+}

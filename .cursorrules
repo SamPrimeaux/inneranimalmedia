@@ -1,5 +1,7 @@
 # Inner Animal Media — Cursor
 
+**Platform identity (read before any product work):** `docs/platform/PLATFORM_CONSTITUTION.md` → `docs/workspace/WORKSPACE_CONSTITUTION.md` → `docs/products/PRODUCT_REGISTRY.md`
+
 **Always-on rules:** `.cursor/rules/iam-core.mdc` · `.cursor/rules/iam-ship-gate.mdc` (local → git → full deploy — required for PWA/phone updates) · `.cursor/rules/iam-agent-delivery-workflow.mdc`
 
 **Ship gate:** every deploy must pass local, stage/commit/push, then `npm run deploy:full` — no partial handoffs.

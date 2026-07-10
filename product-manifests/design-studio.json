@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "id": "design-studio",
+  "name": "Design Studio",
+  "classification": "independent_product",
+  "family": "create",
+  "stage": "incubating",
+  "current_host": {
+    "type": "workspace",
+    "route": "/dashboard/designstudio",
+    "worker": "inneranimalmedia"
+  },
+  "standalone_intent": true,
+  "implementation": {
+    "frontend": [
+      "dashboard/components/DesignStudioPage.tsx",
+      "dashboard/components/designstudio/",
+      "dashboard/services/AgentSamEngine.ts"
+    ],
+    "backend": [
+      "src/api/cad.js",
+      "src/api/cad-meshy.js",
+      "src/api/designstudio/index.js",
+      "src/core/cad-dispatch.js",
+      "src/core/cad-job-complete.js",
+      "scripts/designstudio/cad-job-runner.mjs",
+      "containers/iam-cad-worker/"
+    ],
+    "migrations": ["669_designstudio_r2_stock_assets.sql", "775_openscad_libraries.sql"],
+    "docs": [
+      "docs/products/design-studio/README.md",
+      "docs/inneranimalmedia/product/designstudio/TRUTH-2026-07.md"
+    ]
+  },
+  "agent_sam": {
+    "context_adapter": "dashboard/lib/dashboardRouteContext.ts",
+    "route_key": "design_studio",
+    "tool_profiles": ["illustration_create", "cadcreator"],
+    "project_memory": true
+  },
+  "shared_capabilities": ["images-dam", "agent-runtime", "terminal"],
+  "known_gaps": [
+    "UI oversells in-browser CAD editing",
+    "CAD runner dependency opaque when degraded",
+    "Blueprint-driven workflow not end-to-end"
+  ],
+  "confidence": "partial"
+}

@@ -552,6 +552,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 
 const THEME_STUDIO_STYLES = `
 html,body,#app{background:#F9F7F2;color:#1a1a1a;height:100dvh;height:-webkit-fill-available}
+html.iam-cms-embedded,body.iam-cms-embedded,#app.iam-cms-embedded{height:100%;max-height:100%;min-height:0;overflow:hidden}
 .shell.theme-studio{
   display:grid;
   grid-template-columns:minmax(240px,280px) minmax(0,1fr) minmax(280px,340px);
@@ -567,7 +568,8 @@ html,body,#app{background:#F9F7F2;color:#1a1a1a;height:100dvh;height:-webkit-fil
 }
 .shell.theme-studio .icon-rail{display:none}
 .shell.theme-studio .sidebar{grid-column:1;grid-row:2;background:#fff;border-right:1px solid #e8e4dc;min-width:0;min-height:0}
-.shell.theme-studio .canvas{grid-column:2;grid-row:2;background:#F9F7F2;min-width:0;min-height:0}
+.shell.theme-studio .canvas{grid-column:2;grid-row:2;background:#F9F7F2;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.shell.theme-studio.embedded{height:100%;max-height:100%;min-height:0}
 .shell.theme-studio .rpanel{grid-column:3;grid-row:2;background:#fff;border-left:1px solid #e8e4dc;min-width:0;min-height:0}
 .shell.theme-studio.sidebar-collapsed{grid-template-columns:0 minmax(0,1fr) minmax(280px,340px)}
 .shell.theme-studio.sidebar-collapsed .sidebar{overflow:hidden;width:0;min-width:0;padding:0;border-right:none;opacity:0;pointer-events:none}
@@ -1830,6 +1832,23 @@ function CmsEditor() {
   const isThemeStudio = ctx.view === 'themeEditor';
   injectStyles(isThemeStudio);
 
+  const isEmbedded =
+    typeof window !== 'undefined' &&
+    (window.parent !== window || Boolean(new URLSearchParams(window.location.search).get('parent_origin')));
+
+  useEffect(() => {
+    if (!isEmbedded || !isThemeStudio) return undefined;
+    document.documentElement.classList.add('iam-cms-embedded');
+    document.body.classList.add('iam-cms-embedded');
+    const app = document.getElementById('app');
+    app?.classList.add('iam-cms-embedded');
+    return () => {
+      document.documentElement.classList.remove('iam-cms-embedded');
+      document.body.classList.remove('iam-cms-embedded');
+      app?.classList.remove('iam-cms-embedded');
+    };
+  }, [isEmbedded, isThemeStudio]);
+
   /* ── state ── */
   const [bootstrap, setBootstrap]   = useState(null);
   const [siteShell, setSiteShell]   = useState(null);
@@ -2835,6 +2854,7 @@ function CmsEditor() {
   const shellClass = [
     'shell',
     isThemeStudio ? 'theme-studio' : '',
+    isThemeStudio && isEmbedded ? 'embedded' : '',
     isThemeStudio ? `vp-${vp}` : '',
     isMobile && isThemeStudio ? 'mobile' : '',
     isMobile && isThemeStudio && mobilePanel !== 'canvas' ? `mobile-panel-${mobilePanel}` : '',

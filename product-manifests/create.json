@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "id": "create",
+  "name": "Create",
+  "classification": "product_family",
+  "family": null,
+  "stage": "incubating",
+  "current_host": {
+    "type": "workspace",
+    "route": null,
+    "worker": "inneranimalmedia"
+  },
+  "nav_family": {
+    "shell_product_id": "create",
+    "home": "/dashboard/designstudio"
+  },
+  "standalone_intent": true,
+  "members": ["draw", "design-studio", "sam-sketch"],
+  "implementation": {
+    "frontend": [
+      "dashboard/pages/draw/",
+      "dashboard/components/DesignStudioPage.tsx",
+      "dashboard/config/shellNav.ts"
+    ],
+    "backend": [
+      "src/api/draw.js",
+      "src/api/cad.js",
+      "src/api/designstudio/",
+      "src/core/iam-illustration-router.js"
+    ],
+    "migrations": ["799_agentsam_cad_engineering_course.sql", "801_sam_sketch_barndominium_reference_assets.sql"],
+    "docs": ["docs/products/create/README.md"]
+  },
+  "agent_sam": {
+    "context_adapter": "dashboard/lib/dashboardRouteContext.ts",
+    "route_key": null,
+    "tool_profiles": ["illustration_create"],
+    "project_memory": true
+  },
+  "shared_capabilities": ["images-dam", "agent-runtime"],
+  "known_gaps": [
+    "No unified Create app shell",
+    "Blueprint phase router not wired in UI",
+    "SKU decision pending: family vs separate products"
+  ],
+  "confidence": "partial"
+}

@@ -1,6 +1,99 @@
 # Inner Animal Media
 
-Canonical platform repo for the Inner Animal Media AI agent operating system (**Agent Sam**), the production Worker, and the Vite dashboard. Runtime: **Cloudflare Workers + D1 + R2 + Hyperdrive (Supabase) + PTY (iam-pty)**.
+Inner Animal Media is a **multi-product development platform** — not a generic dashboard application.
+
+This repository contains four distinct layers:
+
+| Layer | What it is |
+|-------|------------|
+| **Platform** | Shared infrastructure: auth, billing, Workers, D1, Supabase/Hyperdrive, R2, MCP plumbing, model routing, telemetry, deployments |
+| **Workspace (Foundry)** | Private dev/ops environment at `/dashboard` — where products are incubated, tested, debugged, and matured (`dashboard/`) |
+| **Agent Sam** | Branded intelligence and execution layer inherited by Workspace and products — runtime, MCP, SDK, embedded agents |
+| **Products** | Independent surfaces (CMS, Create family, Movie Mode, Agent Sam as SKU, etc.) that may graduate to standalone apps |
+
+Runtime: **Cloudflare Workers + D1 + R2 + Hyperdrive (Supabase) + PTY (iam-pty)**.
+
+---
+
+## Canonical doctrine
+
+> The Workspace is where products are incubated and operated. Agent Sam is the intelligence and execution platform they inherit. Each product remains an independent surface capable of graduating into production.
+
+> **Development topology is not product topology.**
+
+> A route under `/dashboard/*` does not automatically represent a dashboard feature. It may be the current **incubation route** for an independent product.
+
+> Products are independent. Infrastructure is shared.
+
+> The Workspace may wrap a product, but it must not reshape the product.
+
+**Do not infer a product's identity solely from its route or directory.**
+
+---
+
+## Critical interpretation (routes today)
+
+| Route | Classification |
+|-------|----------------|
+| `/dashboard/*` shell | Workspace (Foundry) |
+| `/dashboard/agent` | Agent Sam — **one interface**, not the entirety of Agent Sam |
+| `/dashboard/designstudio` | Design Studio (Create family) |
+| `/dashboard/draw` | Draw (Create family) |
+| `/dashboard/cms/*` | CMS product |
+| `/dashboard/moviemode/*` | Movie Mode product |
+| `/dashboard/images` | Shared DAM capability |
+| `/dashboard/database` | Workspace capability (Database Explorer) |
+
+Full registry: [`docs/products/PRODUCT_REGISTRY.md`](docs/products/PRODUCT_REGISTRY.md) · Manifests: [`product-manifests/`](product-manifests/)
+
+---
+
+## Required agent reading order
+
+Before proposing architecture, redesigning a surface, or changing product code:
+
+1. Root `README.md` (this file)
+2. [`docs/platform/PLATFORM_CONSTITUTION.md`](docs/platform/PLATFORM_CONSTITUTION.md)
+3. [`docs/workspace/WORKSPACE_CONSTITUTION.md`](docs/workspace/WORKSPACE_CONSTITUTION.md)
+4. [`docs/products/PRODUCT_REGISTRY.md`](docs/products/PRODUCT_REGISTRY.md)
+5. Relevant product `README.md` under `docs/products/<id>/`
+6. Relevant `PRODUCT_PRINCIPLES.md`
+7. Relevant `AGENTSAM.md`
+8. Relevant PDRs under `docs/platform/decisions/` or `docs/products/*/decisions/`
+9. [`docs/shared/AGENT_RUNTIME.md`](docs/shared/AGENT_RUNTIME.md) when touching agent behavior
+10. Current task and implementation code
+
+> **Memory** holds preferences. **Documentation** holds principles. Do not guess product identity from chat history.
+
+---
+
+## Documentation map
+
+| Doc | Purpose |
+|-----|---------|
+| [PLATFORM_CONSTITUTION.md](docs/platform/PLATFORM_CONSTITUTION.md) | Platform identity |
+| [WORKSPACE_CONSTITUTION.md](docs/workspace/WORKSPACE_CONSTITUTION.md) | Foundry rules |
+| [AGENT_RUNTIME.md](docs/shared/AGENT_RUNTIME.md) | What products inherit from Agent Sam |
+| [PRODUCT_REGISTRY.md](docs/products/PRODUCT_REGISTRY.md) | Surface classification and maturity |
+| [AUDIT_MULTI_PRODUCT_2026-07-09.md](docs/platform/AUDIT_MULTI_PRODUCT_2026-07-09.md) | Evidence-based status audit |
+
+---
+
+## Documentation maintenance contract
+
+Documentation changes are part of product changes.
+
+- Durable platform principle → `docs/platform/decisions/PDR-*.md`
+- Product purpose or scope → product constitution or vision
+- Runtime or deploy change → this README and `docs/platform/` ops docs
+- Maturity or route change → `PRODUCT_REGISTRY.md` + `product-manifests/*.json`
+- Supersede decisions explicitly — do not silently rewrite history
+
+A task is not complete when code and canonical documentation disagree.
+
+---
+
+## Playbooks and active plans
 
 **Tomorrow playbook:** [`docs/TOMORROW_2026-06-01.md`](docs/TOMORROW_2026-06-01.md)  
 **Mode spine plan:** [`agentsamrefine.md`](agentsamrefine.md)  
@@ -16,7 +109,7 @@ Canonical platform repo for the Inner Animal Media AI agent operating system (**
 | **GitHub** | `https://github.com/SamPrimeaux/inneranimalmedia` |
 | **Worker entry (only)** | `src/index.js` — `wrangler.production.toml` `main` |
 | **Legacy `worker.js`** | **Removed** from repo — do not reference in new code or docs |
-| **Dashboard** | `dashboard/` (Vite → `dashboard/dist` → R2 `static/dashboard/app/`) |
+| **Workspace (Foundry)** | `dashboard/` (Vite → `dashboard/dist` → R2 `static/dashboard/app/`) — internal product incubator at `/dashboard/*`; not the definition of products hosted inside it |
 | **D1 database** | `inneranimalmedia-business` (`cf87b717-d4e2-4cf8-bab0-a81268e32d49`) |
 | **Production deploy** | `npm run deploy:full` only (see below) |
 | **Sandbox deploy** | **Discontinued** — do not run `deploy-sandbox.sh` / `promote-to-prod.sh` |
@@ -205,7 +298,7 @@ Connor’s PAT goes in `~/.config/iam/github.env` — never repo `.env.cloudflar
 
 ---
 
-## Agent Sam modes (dashboard)
+## Agent Sam modes (Workspace)
 
 Composer modes: **Ask | Plan | Agent | Debug | Multitask** — enum in `src/core/agent-mode.js`.
 

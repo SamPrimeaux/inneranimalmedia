@@ -1,8 +1,13 @@
-import React, { useCallback, useMemo } from 'react';
-import { ArrowLeft, Sparkles } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, PanelRightClose, PanelRightOpen, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { CmsWorkspaceContext, CmsWorkspaceSite } from '../../hooks/useCmsWorkspaceContext';
-import { IAM_AGENT_CHAT_COMPOSE } from '../../agentChatConstants';
+import {
+  IAM_AGENT_CHAT_COMPOSE,
+  IAM_AGENT_COLLAPSE_PANEL,
+  IAM_AGENT_ENSURE_PANEL,
+  IAM_AGENT_PANEL_CHANGED,
+} from '../../agentChatConstants';
 import { CmsAgentComposeBar } from './CmsAgentComposeBar';
 import { buildCmsHubPath, buildCmsPath } from './cmsRoute';
 import './cmsShell.css';
@@ -15,8 +20,11 @@ type Props = {
   context?: CmsWorkspaceContext | null;
   activeNav: CmsShellNav;
   children: React.ReactNode;
+  /** Hub/overview compose strip — hidden on live editor routes for max canvas. */
   showComposeBar?: boolean;
   onComposeToggle?: (open: boolean) => void;
+  /** Editor routes use global Agent Sam rail toggle instead of compose strip. */
+  editorMode?: boolean;
 };
 
 function siteInitials(name?: string | null, slug?: string | null): string {
@@ -44,10 +52,21 @@ export function CmsShellLayout({
   children,
   showComposeBar = false,
   onComposeToggle,
+  editorMode = false,
 }: Props) {
   const navigate = useNavigate();
   const siteName = site?.name || context?.project_name || siteSlug;
   const domain = displayDomain(site, context);
+  const [agentPanelOpen, setAgentPanelOpen] = useState(false);
+
+  useEffect(() => {
+    const onPanelChanged = (e: Event) => {
+      const open = Boolean((e as CustomEvent<{ open?: boolean }>).detail?.open);
+      setAgentPanelOpen(open);
+    };
+    window.addEventListener(IAM_AGENT_PANEL_CHANGED, onPanelChanged);
+    return () => window.removeEventListener(IAM_AGENT_PANEL_CHANGED, onPanelChanged);
+  }, []);
 
   const navItems = useMemo(
     () =>
@@ -61,7 +80,27 @@ export function CmsShellLayout({
     [],
   );
 
-  const openAgent = useCallback(() => {
+  const toggleAgentPanel = useCallback(() => {
+    if (editorMode) {
+      if (agentPanelOpen) {
+        window.dispatchEvent(new CustomEvent(IAM_AGENT_COLLAPSE_PANEL));
+      } else {
+        window.dispatchEvent(new CustomEvent(IAM_AGENT_ENSURE_PANEL));
+        window.dispatchEvent(
+          new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
+            detail: {
+              message: '',
+              send: false,
+              ensureAgentPanel: true,
+              project_slug: siteSlug,
+              surface: 'cms',
+            },
+          }),
+        );
+      }
+      return;
+    }
+
     if (showComposeBar) {
       window.dispatchEvent(
         new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
@@ -76,6 +115,7 @@ export function CmsShellLayout({
       onComposeToggle?.(false);
       return;
     }
+    window.dispatchEvent(new CustomEvent(IAM_AGENT_ENSURE_PANEL));
     window.dispatchEvent(
       new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
         detail: {
@@ -88,7 +128,7 @@ export function CmsShellLayout({
       }),
     );
     onComposeToggle?.(true);
-  }, [siteSlug, showComposeBar, onComposeToggle]);
+  }, [agentPanelOpen, editorMode, onComposeToggle, showComposeBar, siteSlug]);
 
   const goNav = useCallback(
     (nav: CmsShellNav) => {
@@ -101,8 +141,11 @@ export function CmsShellLayout({
     [navigate, siteSlug],
   );
 
+  const agentOpen = editorMode ? agentPanelOpen : showComposeBar;
+  const shellClass = `iam-cms-shell${editorMode ? ' iam-cms-shell--editor' : ''}`;
+
   return (
-    <div className="iam-cms-shell">
+    <div className={shellClass}>
       <header className="iam-cms-shell__top">
         <div className="iam-cms-shell__bar">
           <button
@@ -123,9 +166,19 @@ export function CmsShellLayout({
             </div>
           </div>
           <div className="iam-cms-shell__actions">
-            <button type="button" className="iam-cms-shell__agent-btn" onClick={openAgent}>
-              <Sparkles size={14} strokeWidth={1.75} aria-hidden />
-              {showComposeBar ? 'Close agent' : 'Agent Sam'}
+            <button
+              type="button"
+              className={`iam-cms-shell__agent-btn${agentOpen ? ' is-active' : ''}`}
+              onClick={toggleAgentPanel}
+              aria-pressed={agentOpen}
+              title={agentOpen ? 'Hide Agent Sam panel' : 'Open Agent Sam'}
+            >
+              {agentOpen ? (
+                <PanelRightClose size={14} strokeWidth={1.75} aria-hidden />
+              ) : (
+                <Sparkles size={14} strokeWidth={1.75} aria-hidden />
+              )}
+              {agentOpen ? 'Hide agent' : 'Agent Sam'}
             </button>
           </div>
         </div>
@@ -142,10 +195,21 @@ export function CmsShellLayout({
           ))}
         </nav>
       </header>
-      {showComposeBar ? (
+      {showComposeBar && !editorMode ? (
         <CmsAgentComposeBar siteSlug={siteSlug} siteName={siteName} />
       ) : null}
       <div className="iam-cms-shell__body">{children}</div>
+      {editorMode && !agentPanelOpen ? (
+        <button
+          type="button"
+          className="iam-cms-shell__agent-fab"
+          onClick={toggleAgentPanel}
+          aria-label="Open Agent Sam"
+          title="Agent Sam"
+        >
+          <PanelRightOpen size={18} strokeWidth={1.75} aria-hidden />
+        </button>
+      ) : null}
     </div>
   );
 }

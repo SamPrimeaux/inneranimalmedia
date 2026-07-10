@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "id": "movie-mode",
+  "name": "Movie Mode",
+  "classification": "independent_product",
+  "family": null,
+  "stage": "incubating",
+  "current_host": {
+    "type": "workspace",
+    "route": "/dashboard/moviemode",
+    "worker": "inneranimalmedia"
+  },
+  "standalone_intent": true,
+  "implementation": {
+    "frontend": ["dashboard/features/moviemode/", "dashboard/pages/moviemode/"],
+    "backend": [
+      "src/api/moviemode-api.js",
+      "src/core/cloudconvert-workflows.js",
+      "services/moviemode-service/"
+    ],
+    "migrations": ["615_moviemode_artifact_link.sql"],
+    "docs": [
+      "docs/products/movie-mode/README.md",
+      "docs/MOVIEMODE-INFRA-PLAN.md"
+    ]
+  },
+  "agent_sam": {
+    "context_adapter": "dashboard/App.tsx",
+    "route_key": null,
+    "tool_profiles": ["moviemode.render"],
+    "project_memory": true
+  },
+  "shared_capabilities": ["images-dam", "agent-runtime", "terminal"],
+  "known_gaps": [
+    "No route_key in dashboardRouteContext.ts",
+    "Mobile editor refactor pending",
+    "API not offloaded to moviemode-service"
+  ],
+  "confidence": "partial"
+}

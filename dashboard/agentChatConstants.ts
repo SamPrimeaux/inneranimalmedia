@@ -43,7 +43,11 @@ export type QuickstartThreadDetail = {
 export const IAM_AGENT_CHAT_NEW_THREAD = 'iam-agent-chat-new-thread';
 
 /** Open Agent Sam side rail without route navigation (CMS hub, fullscreen surfaces). */
-export { IAM_AGENT_ENSURE_PANEL } from './lib/openAgentConversation';
+export {
+  IAM_AGENT_COLLAPSE_PANEL,
+  IAM_AGENT_ENSURE_PANEL,
+  IAM_AGENT_PANEL_CHANGED,
+} from './lib/openAgentConversation';
 
 /** ChatAssistant mounted and listening for pending App sends. */
 export const IAM_AGENT_CHAT_READY = 'iam-agent-chat-ready';
@@ -64,6 +68,8 @@ export type AgentChatComposeDetail = {
   message: string;
   selectionStart?: number;
   selectionEnd?: number;
+  /** When true, App closes the agent panel if it was open. */
+  closePanel?: boolean;
   /** When true (default), App opens the agent panel if it was closed. */
   ensureAgentPanel?: boolean;
   /** When true, sends immediately (default false). */

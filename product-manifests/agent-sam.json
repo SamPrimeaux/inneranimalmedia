@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "id": "agent-sam",
+  "name": "Agent Sam",
+  "classification": "independent_product",
+  "family": null,
+  "stage": "incubating",
+  "current_host": {
+    "type": "workspace",
+    "route": "/dashboard/agent",
+    "worker": "inneranimalmedia"
+  },
+  "standalone_intent": true,
+  "implementation": {
+    "frontend": ["dashboard/App.tsx", "dashboard/components/ChatAssistant/"],
+    "backend": [
+      "src/api/agent.js",
+      "src/api/agent-chat-spine.js",
+      "src/core/runtime-profile.js",
+      "src/core/agent-tool-loop.js",
+      "src/api/sdk.js",
+      "src/core/sdk-scaffold.js"
+    ],
+    "migrations": ["754_agentsam_sdk_project_registration.sql"],
+    "docs": [
+      "docs/products/agent-sam/README.md",
+      "docs/shared/AGENT_RUNTIME.md"
+    ]
+  },
+  "agent_sam": {
+    "context_adapter": "dashboard/lib/dashboardRouteContext.ts",
+    "route_key": "agent_sam",
+    "tool_profiles": ["agentsam_route_requirements"],
+    "project_memory": true
+  },
+  "shared_capabilities": ["model-routing", "terminal", "mcp-plumbing"],
+  "external_surfaces": {
+    "mcp": {
+      "url": "https://mcp.inneranimalmedia.com",
+      "repo": "inneranimalmedia-mcp-server",
+      "stage": "internal_alpha"
+    },
+    "sdk": {
+      "npm": "@inneranimalmedia/agentsam-sdk",
+      "project_id": "proj_agentsam_sdk",
+      "stage": "development"
+    }
+  },
+  "known_gaps": [
+    "Agent mode may compile zero tools",
+    "CF Agents SDK adoption not complete"
+  ],
+  "confidence": "partial"
+}

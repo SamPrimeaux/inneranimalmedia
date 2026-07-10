@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "workspace",
+  "name": "Workspace (Foundry)",
+  "classification": "workspace",
+  "family": null,
+  "stage": "production",
+  "current_host": {
+    "type": "workspace",
+    "route": "/dashboard",
+    "worker": "inneranimalmedia"
+  },
+  "standalone_intent": false,
+  "implementation": {
+    "frontend": ["dashboard/", "dashboard/config/shellNav.ts", "dashboard/App.tsx"],
+    "backend": ["src/index.js", "src/api/dashboard-bootstrap.js"],
+    "migrations": [],
+    "docs": [
+      "docs/workspace/WORKSPACE_CONSTITUTION.md",
+      "docs/workspace/WORKSPACE_ARCHITECTURE.md"
+    ]
+  },
+  "agent_sam": {
+    "context_adapter": "dashboard/lib/dashboardRouteContext.ts",
+    "route_key": "dashboard",
+    "tool_profiles": [],
+    "project_memory": true
+  },
+  "shared_capabilities": ["auth", "agent-runtime", "projects"],
+  "known_gaps": ["Draw and Movie Mode lack dedicated route context entries"],
+  "confidence": "verified"
+}

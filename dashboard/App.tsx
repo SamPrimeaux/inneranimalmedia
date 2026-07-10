@@ -59,7 +59,9 @@ import {
   type QuickstartThreadDetail,
 } from './agentChatConstants';
 import {
+  IAM_AGENT_COLLAPSE_PANEL,
   IAM_AGENT_ENSURE_PANEL,
+  IAM_AGENT_PANEL_CHANGED,
   IAM_AGENT_OPEN_THREAD,
   IAM_AGENT_START_NEW_CHAT,
   buildProjectChatFirstMessage,
@@ -136,7 +138,7 @@ import {
   type AgentWorkspaceContextPacket,
   type DevServerState,
 } from './src/ideWorkspace';
-import { isCmsEditorFullscreenRoute, parseCmsRoute } from './pages/cms/cmsRoute';
+import { isCmsEditorFullscreenRoute, isCmsStudioEditorRoute, parseCmsRoute } from './pages/cms/cmsRoute';
 import { useCmsWorkspaceContext } from './hooks/useCmsWorkspaceContext';
 import { useEditor } from './src/EditorContext';
 import { useWorkspace } from './src/context/WorkspaceContext';
@@ -594,6 +596,10 @@ const App: React.FC = () => {
     location.pathname,
     new URLSearchParams(location.search),
   );
+  const isCmsStudioEditor = isCmsStudioEditorRoute(
+    location.pathname,
+    new URLSearchParams(location.search),
+  );
 
   const { context: cmsWorkspaceContext } = useCmsWorkspaceContext({
     workspaceId: authWorkspaceId,
@@ -962,9 +968,18 @@ const App: React.FC = () => {
   );
 
   useEffect(() => {
-    if (!isCmsFullscreen || isNarrowViewport) return;
-    ensureAgentSidePanel();
-  }, [isCmsFullscreen, isNarrowViewport, ensureAgentSidePanel]);
+    if (!isCmsStudioEditor || isNarrowViewport) return;
+    setAgentPosition('off');
+  }, [isCmsStudioEditor, isNarrowViewport, location.pathname, location.search]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(
+      new CustomEvent(IAM_AGENT_PANEL_CHANGED, {
+        detail: { open: agentPosition !== 'off' },
+      }),
+    );
+  }, [agentPosition]);
 
   useEffect(() => {
     if (isNarrowViewport) return;
@@ -2113,8 +2128,15 @@ const App: React.FC = () => {
       if (isAgentHomeAtmospheric && !isNarrowViewport) return;
       setAgentPosition((p) => (p === 'off' ? 'right' : p));
     };
+    const collapsePanel = () => {
+      setAgentPosition('off');
+    };
     window.addEventListener(IAM_AGENT_ENSURE_PANEL, ensurePanel);
-    return () => window.removeEventListener(IAM_AGENT_ENSURE_PANEL, ensurePanel);
+    window.addEventListener(IAM_AGENT_COLLAPSE_PANEL, collapsePanel);
+    return () => {
+      window.removeEventListener(IAM_AGENT_ENSURE_PANEL, ensurePanel);
+      window.removeEventListener(IAM_AGENT_COLLAPSE_PANEL, collapsePanel);
+    };
   }, [isAgentHomeAtmospheric, isNarrowViewport]);
 
   const hydrateAgentTabMessages = useCallback(
@@ -2437,6 +2459,10 @@ const App: React.FC = () => {
   useEffect(() => {
     const onComposeRequest = (e: Event) => {
       const detail = (e as CustomEvent<AgentChatComposeDetail>).detail;
+      if (detail?.closePanel) {
+        setAgentPosition('off');
+        return;
+      }
       if (detail?.ensureAgentPanel !== false && agentPosition === 'off') {
         setAgentPosition('right');
       }
@@ -4937,11 +4963,19 @@ const App: React.FC = () => {
                       />
                       <Route
                         path="/dashboard/cms"
-                        element={<CmsPage workspaceId={authWorkspaceId || undefined} />}
+                        element={
+                          <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+                            <CmsPage workspaceId={authWorkspaceId || undefined} />
+                          </div>
+                        }
                       />
                       <Route
                         path="/dashboard/cms/*"
-                        element={<CmsPage workspaceId={authWorkspaceId || undefined} />}
+                        element={
+                          <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+                            <CmsPage workspaceId={authWorkspaceId || undefined} />
+                          </div>
+                        }
                       />
                       <Route
                         path="/dashboard/designstudio"

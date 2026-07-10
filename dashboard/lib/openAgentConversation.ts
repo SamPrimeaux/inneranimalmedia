@@ -17,6 +17,12 @@ export type OpenAgentConversationDetail = {
 
 export const IAM_AGENT_ENSURE_PANEL = 'iam-agent-ensure-panel';
 
+/** App listens — collapse Agent Sam side rail (CMS editor maximize canvas). */
+export const IAM_AGENT_COLLAPSE_PANEL = 'iam-agent-collapse-panel';
+
+/** App broadcasts when agent column opens/closes (detail.open boolean). */
+export const IAM_AGENT_PANEL_CHANGED = 'iam-agent-panel-changed';
+
 /** App listens — navigate to Agent full-screen thread (SSOT entry). */
 export const IAM_AGENT_OPEN_THREAD = 'iam-agent-open-thread';
 

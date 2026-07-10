@@ -87,6 +87,21 @@ export function buildCmsPath(opts: {
   return `/dashboard/cms/pages${siteQs}`;
 }
 
+/** Live CMS editor lanes (pages, theme, store) — maximize canvas; Agent Sam collapsed by default. */
+export function isCmsStudioEditorRoute(
+  pathname: string,
+  searchParams: URLSearchParams,
+): boolean {
+  const parsed = parseCmsRoute(pathname, searchParams);
+  if (parsed.view === 'sites' || parsed.view === 'hub') return false;
+  return (
+    parsed.view === 'pages' ||
+    parsed.view === 'theme-editor' ||
+    parsed.view === 'online-store' ||
+    parsed.view === 'media'
+  );
+}
+
 /** Immersive CMS shell (hub + editor lanes) — hides dashboard chrome; Agent Sam uses side rail. */
 export function isCmsEditorFullscreenRoute(
   pathname: string,

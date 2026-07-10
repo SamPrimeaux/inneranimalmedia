@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "id": "cms",
+  "name": "CMS",
+  "classification": "independent_product",
+  "family": null,
+  "stage": "incubating",
+  "current_host": {
+    "type": "workspace",
+    "route": "/dashboard/cms",
+    "worker": "inneranimalmedia"
+  },
+  "standalone_intent": true,
+  "implementation": {
+    "frontend": [
+      "dashboard/pages/cms/",
+      "src/dashboard/cms/CmsStudioEditor.tsx",
+      "dashboard/cms-editor/"
+    ],
+    "backend": [
+      "src/api/cms.js",
+      "src/core/cms-hub-sites.js",
+      "src/core/cms-site-config.js",
+      "src/core/cms-client-bridge.js"
+    ],
+    "migrations": [],
+    "docs": [
+      "docs/products/cms/README.md",
+      "docs/platform/cms-federated-hub-architecture.md"
+    ]
+  },
+  "agent_sam": {
+    "context_adapter": "dashboard/lib/dashboardRouteContext.ts",
+    "route_key": "cms_edit",
+    "tool_profiles": ["cms_edit", "cms_client_worker", "fuel_cms_admin"],
+    "project_memory": true
+  },
+  "shared_capabilities": ["images-dam", "agent-runtime", "auth"],
+  "known_gaps": [
+    "Editor iframe /studio/editor display and section hydration unstable",
+    "cms-v2 API patch partially landed"
+  ],
+  "confidence": "partial"
+}

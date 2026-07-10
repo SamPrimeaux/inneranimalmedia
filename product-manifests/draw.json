@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "id": "draw",
+  "name": "Draw",
+  "classification": "independent_product",
+  "family": "create",
+  "stage": "incubating",
+  "current_host": {
+    "type": "workspace",
+    "route": "/dashboard/draw",
+    "worker": "inneranimalmedia"
+  },
+  "standalone_intent": true,
+  "implementation": {
+    "frontend": [
+      "dashboard/pages/draw/DrawPage.tsx",
+      "dashboard/components/ExcalidrawView.tsx"
+    ],
+    "backend": ["src/api/draw.js"],
+    "migrations": ["783_draw_p0_libraries.sql", "785_draw_agent_tools.sql"],
+    "docs": ["docs/products/create/README.md", "docs/platform/design-cad-draw-inventory-2026-07.md"]
+  },
+  "agent_sam": {
+    "context_adapter": null,
+    "route_key": null,
+    "tool_profiles": ["excalidraw", "illustration_create"],
+    "project_memory": true
+  },
+  "shared_capabilities": ["agent-runtime"],
+  "known_gaps": [
+    "No route_key in dashboardRouteContext.ts",
+    "Not project-scoped at entry"
+  ],
+  "confidence": "verified"
+}

@@ -35,7 +35,8 @@ export function resolveAgentChatLayout(opts: {
   const { pathname, search, agentPosition, isNarrow, isCmsFullscreen, hasActiveFile, activeTab } = opts;
   const workbenchActive = isAgentWorkbenchSurfaceActive({ hasActiveFile, activeTab, pathname });
   if (isCmsFullscreen) {
-    if (isNarrow) return 'right-rail';
+    if (agentPosition === 'off') return 'hidden';
+    if (isNarrow) return agentPosition === 'left' ? 'left-rail' : 'right-rail';
     if (agentPosition === 'left') return 'left-rail';
     return 'right-rail';
   }

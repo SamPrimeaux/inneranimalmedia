@@ -321,8 +321,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           site={shellSite}
           context={context}
           activeNav="templates"
-          showComposeBar={composeOpen}
-          onComposeToggle={setComposeOpen}
+          editorMode
         >
           <TemplateLibraryStudio
             projectSlug={shellSiteSlug}
@@ -337,8 +336,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           site={shellSite}
           context={context}
           activeNav={shellActiveNav}
-          showComposeBar={composeOpen}
-          onComposeToggle={setComposeOpen}
+          editorMode
         >
           <Suspense fallback={<StudioShellFallback themeEditor={studioPanel === 'theme-editor'} />}>
             <CmsStudioEditor

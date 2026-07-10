@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "images",
+  "name": "Images (DAM)",
+  "classification": "shared_capability",
+  "family": null,
+  "stage": "incubating",
+  "current_host": {
+    "type": "workspace",
+    "route": "/dashboard/images",
+    "worker": "inneranimalmedia"
+  },
+  "standalone_intent": false,
+  "implementation": {
+    "frontend": ["dashboard/components/ImagesPage.tsx"],
+    "backend": ["src/api/images.js", "src/core/image-draft-store.js"],
+    "migrations": [],
+    "docs": ["docs/products/images/README.md", "docs/shared/SHARED_CAPABILITIES.md"]
+  },
+  "agent_sam": {
+    "context_adapter": null,
+    "route_key": null,
+    "tool_profiles": ["images_generate", "images_commit"],
+    "project_memory": false
+  },
+  "shared_capabilities": ["agent-runtime"],
+  "serves_products": ["cms", "design-studio", "movie-mode", "create"],
+  "known_gaps": [
+    "Cross-product media pickers not unified",
+    "Category taxonomy not enforced in all upload paths"
+  ],
+  "confidence": "verified"
+}
