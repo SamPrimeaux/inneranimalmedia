@@ -4,15 +4,9 @@ WORKDIR /src
 COPY go.mod main.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -o /iam-sandbox-go .
 
-# Runtime — Node 22 (not Alpine apk nodejs=20) + git/wrangler for agent sandbox lane
-FROM alpine:3.20
-ARG NODE_VERSION=22.14.0
-RUN apk add --no-cache git curl bash openssh-client ca-certificates fuse3 libstdc++ su-exec xz \
-  && ARCH=$(uname -m) \
-  && case "$ARCH" in x86_64) NODE_ARCH=x64;; aarch64) NODE_ARCH=arm64;; *) NODE_ARCH=x64;; esac \
-  && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
-    | tar -xJ -C /usr/local --strip-components=1 \
-  && node -v && npm -v \
+# Runtime — Node 22 Alpine (musl). Do not use nodejs.org glibc tarballs on Alpine.
+FROM node:22-alpine
+RUN apk add --no-cache git curl bash openssh-client ca-certificates fuse3 su-exec \
   && npm install -g wrangler@latest \
   && adduser -D -u 1001 sandbox
 
