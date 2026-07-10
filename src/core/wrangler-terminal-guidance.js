@@ -198,6 +198,14 @@ export async function prepareContainerShellCommand(env, authUser, command, lane 
   }
   const prefix = await buildContainerWranglerEnvPrefix(env, authUser);
   const cmd = norm.command;
+  if (isWranglerCommand(cmd) && !prefix) {
+    return {
+      ok: false,
+      error:
+        'CLOUDFLARE_API_TOKEN could not be injected into the sandbox. Superadmin: ensure platform CLOUDFLARE_API_TOKEN is set and pass user_id/workspace_id. Customers: connect Cloudflare OAuth or BYOK. Prefer agentsam_d1_query / agentsam_d1_write with workspace_slug for D1.',
+      guidance: wranglerAuthGuideForLane('sandbox'),
+    };
+  }
   if (!prefix) return { ok: true, command: cmd };
   return { ok: true, command: `${prefix} && ${cmd}` };
 }

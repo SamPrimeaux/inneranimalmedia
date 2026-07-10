@@ -6,7 +6,6 @@
  */
 import { resolveCredential, parseHandlerConfig, normalizeAuthSource } from './resolve-credential.js';
 export { resolveCredential, parseHandlerConfig, normalizeAuthSource };
-import { d1_query, d1_write } from './d1.js';
 import { handlers as dbToolHandlers } from '../tools/db.js';
 import { handlers as storageHandlers } from '../tools/builtin/storage.js';
 import { handlers as aiOpsHandlers } from '../tools/builtin/ai-ops.js';
@@ -329,7 +328,7 @@ async function executeCatalogCfD1(env, row, config, params, runContext) {
     }
   }
 
-  const { resolveWorkspaceD1Execution, executeWorkspaceD1Query } = await import(
+  const { executeWorkspaceD1Query } = await import(
     './workspace-d1-execution.js'
   );
   const authUser = runContext.authUser ?? runContext.user ?? null;
@@ -364,23 +363,23 @@ async function executeCatalogCfD1(env, row, config, params, runContext) {
     }
 
     if (op === 'execute' || op === 'write' || op === 'migrate') {
-      const resolved = await resolveWorkspaceD1Execution(env, d1Ctx);
-      if (!resolved.ok || resolved.mode === 'denied') {
+      const { executeWorkspaceD1Write } = await import('./workspace-d1-execution.js');
+      const writeOut = await executeWorkspaceD1Write(env, d1Ctx, sql, params.params);
+      if (!writeOut.ok) {
         return {
           ok: false,
-          error: resolved.error || 'access_denied',
-          user_message: resolved.user_message,
+          error: writeOut.error || 'access_denied',
+          user_message: writeOut.user_message,
         };
       }
-      if (resolved.mode === 'remote') {
-        return {
-          ok: false,
-          error: 'remote_d1_write_not_supported',
-          user_message: 'Remote customer D1 writes require dashboard approval flow.',
-        };
-      }
-      const out = await d1_write({ sql, params: params.params }, env);
-      return { ok: true, body: out };
+      return {
+        ok: true,
+        body: {
+          ...(writeOut.body && typeof writeOut.body === 'object' ? writeOut.body : { result: writeOut.body }),
+          data_plane: writeOut.mode,
+          meta: writeOut.meta ?? {},
+        },
+      };
     }
 
     const out = await executeWorkspaceD1Query(env, d1Ctx, sql, params.params);

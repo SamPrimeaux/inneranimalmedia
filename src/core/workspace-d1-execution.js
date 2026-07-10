@@ -48,7 +48,30 @@ export async function executeRemoteCloudflareD1Query(token, accountId, databaseI
     throw new Error(String(msg));
   }
   const result = Array.isArray(data?.result) ? data.result[0] : data?.result;
-  return result?.results ?? result?.rows ?? [];
+  return {
+    rows: result?.results ?? result?.rows ?? [],
+    meta: result?.meta ?? {},
+    success: result?.success !== false,
+  };
+}
+
+/**
+ * Remote D1 write via the same Cloudflare REST /query endpoint (supports mutating SQL).
+ * @param {string} token
+ * @param {string} accountId
+ * @param {string} databaseId
+ * @param {string} sql
+ * @param {unknown[]} [params]
+ */
+export async function executeRemoteCloudflareD1Write(token, accountId, databaseId, sql, params = []) {
+  const out = await executeRemoteCloudflareD1Query(token, accountId, databaseId, sql, params);
+  return {
+    changes: Number(out.meta?.changes ?? 0) || 0,
+    last_row_id: out.meta?.last_row_id ?? null,
+    meta: out.meta,
+    rows: out.rows,
+    success: out.success !== false,
+  };
 }
 
 /**
@@ -209,7 +232,7 @@ export async function executeWorkspaceD1Query(env, ctx, sql, params = []) {
   }
 
   if (resolved.mode === 'remote') {
-    const rows = await executeRemoteCloudflareD1Query(
+    const out = await executeRemoteCloudflareD1Query(
       resolved.token,
       resolved.account_id,
       resolved.database_id,
@@ -219,7 +242,63 @@ export async function executeWorkspaceD1Query(env, ctx, sql, params = []) {
     return {
       ok: true,
       mode: 'remote',
-      rows: rows || [],
+      rows: out.rows || [],
+      meta: {
+        workspace_id: resolved.workspace_id,
+        binding_id: resolved.binding_id,
+        database_id: resolved.database_id,
+        account_id: resolved.account_id,
+      },
+    };
+  }
+
+  return {
+    ok: false,
+    error: resolved.error || 'd1_execution_denied',
+    user_message: resolved.user_message,
+  };
+}
+
+/**
+ * Workspace-scoped D1 write (platform env.DB or remote customer D1 via CF REST).
+ * @param {any} env
+ * @param {Record<string, unknown>} ctx
+ * @param {string} sql
+ * @param {unknown[]} [params]
+ */
+export async function executeWorkspaceD1Write(env, ctx, sql, params = []) {
+  const resolved = await resolveWorkspaceD1Execution(env, ctx);
+  if (!resolved.ok) {
+    return {
+      ok: false,
+      error: resolved.error,
+      user_message: resolved.user_message,
+      workspace_id: resolved.workspace_id,
+    };
+  }
+
+  if (resolved.mode === 'platform') {
+    const { d1_write } = await import('./d1.js');
+    const out = await d1_write({ sql, params }, env);
+    return { ok: true, mode: 'platform', body: out, meta: {} };
+  }
+
+  if (resolved.mode === 'remote') {
+    const out = await executeRemoteCloudflareD1Write(
+      resolved.token,
+      resolved.account_id,
+      resolved.database_id,
+      sql,
+      params,
+    );
+    return {
+      ok: true,
+      mode: 'remote',
+      body: {
+        changes: out.changes,
+        last_row_id: out.last_row_id,
+        success: out.success,
+      },
       meta: {
         workspace_id: resolved.workspace_id,
         binding_id: resolved.binding_id,

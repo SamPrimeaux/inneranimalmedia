@@ -6,7 +6,7 @@
 
 export const CONTAINER_IMAGE_REF =
   'registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/inneranimalmedia:sandbox-v3';
-export const CONTAINER_IMAGE_TAG = 'inneranimalmedia:sandbox-go-v1';
+export const CONTAINER_IMAGE_TAG = 'inneranimalmedia:sandbox-go-v2';
 
 /** Legacy getByName ids from pre-inneranimalmedia pool routing — safe to destroy. */
 export const LEGACY_CONTAINER_INSTANCE_NAMES = Object.freeze([

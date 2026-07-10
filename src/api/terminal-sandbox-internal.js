@@ -36,16 +36,37 @@ export async function handleTerminalSandboxExec(request, env) {
   }
 
   const zoneSlugRaw = body.zone_slug ?? body.zoneSlug ?? null;
-  const userId = String(body.user_id || body.userId || '').trim() || null;
+  const userId = String(body.user_id || body.userId || authUser?.id || '').trim() || null;
   const username = String(body.username || body.user_name || '').trim() || null;
-  const workspaceId = String(body.workspace_id || body.workspaceId || '').trim() || null;
-  const tenantId = String(body.tenant_id || body.tenantId || '').trim() || null;
+  const workspaceId =
+    String(body.workspace_id || body.workspaceId || authUser?.workspace_id || '').trim() || null;
+  const tenantId =
+    String(body.tenant_id || body.tenantId || authUser?.tenant_id || '').trim() || null;
 
   if (!zoneSlugRaw && !userId && !username && !workspaceId) {
     return jsonResponse(
       { ok: false, error: 'zone_slug_or_user_required', user_message: 'Pass zone_slug (username), user_id, or workspace_id.' },
       400,
     );
+  }
+
+  // MCP internal calls authenticate via INTERNAL_API_SECRET and pass user/workspace in the body.
+  // Without synthesizing authUser, CLOUDFLARE_API_TOKEN is never injected into the sandbox.
+  if (!authUser && userId) {
+    authUser = {
+      id: userId,
+      user_id: userId,
+      tenant_id: tenantId,
+      workspace_id: workspaceId,
+    };
+  } else if (authUser) {
+    authUser = {
+      ...authUser,
+      id: authUser.id || userId,
+      user_id: authUser.user_id || authUser.id || userId,
+      tenant_id: authUser.tenant_id || tenantId,
+      workspace_id: authUser.workspace_id || workspaceId,
+    };
   }
 
   const sb = await runMcpZoneSandboxCommand(env, request, {

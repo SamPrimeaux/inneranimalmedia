@@ -41,7 +41,7 @@ export function buildSandboxR2FuseEnvVars(env, opts = {}) {
   /** @type {Record<string, string>} */
   const base = {
     CONTAINER_POOL_ID: poolId,
-    IAM_IMAGE_TAG: 'sandbox-go-v1',
+    IAM_IMAGE_TAG: 'sandbox-go-v2',
     IAM_SANDBOX_R2_FUSE: trim(env?.IAM_SANDBOX_R2_FUSE) || '1',
     IAM_R2_FUSE_READONLY: trim(env?.IAM_R2_FUSE_READONLY) || '0',
     WRANGLER_SEND_METRICS: 'false',
