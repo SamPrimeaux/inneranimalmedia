@@ -14,9 +14,10 @@ export function safeJsonParse(value) {
  * (id may be omitted on later chunks). Not for Responses API — use a separate adapter there.
  * Without reconstructing tool_calls here, pendingToolCalls stay empty and no tools run.
  */
-export async function consumeOpenAIChatCompletionsSse(readable, emit) {
+export async function consumeOpenAIChatCompletionsSse(readable, emit, opts = {}) {
   const reader = readable.getReader();
   const decoder = new TextDecoder();
+  const throwIfAborted = opts.throwIfAborted;
   let buf = '';
   /** @type {Map<number, { id?: string, name?: string, args: string }>} */
   const tcByIndex = new Map();
@@ -86,6 +87,7 @@ export async function consumeOpenAIChatCompletionsSse(readable, emit) {
   };
 
   while (true) {
+    if (throwIfAborted) await throwIfAborted();
     const { done, value } = await reader.read();
     if (done) break;
     buf += decoder.decode(value, { stream: true });
@@ -130,9 +132,10 @@ export async function consumeOpenAIChatCompletionsSse(readable, emit) {
  * `response.output_item.added` (function_call), `response.completed`.
  * Normalizes to the same bridge as consumeOpenAIChatCompletionsSse; adds `responseId` for chaining.
  */
-export async function consumeOpenAIResponsesSse(readable, emit) {
+export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
   const reader = readable.getReader();
   const decoder = new TextDecoder();
+  const throwIfAborted = opts.throwIfAborted;
   let buf = '';
   let textBuf = '';
   let streamFinish = null;
@@ -256,6 +259,7 @@ export async function consumeOpenAIResponsesSse(readable, emit) {
   };
 
   while (true) {
+    if (throwIfAborted) await throwIfAborted();
     const { done, value } = await reader.read();
     if (done) break;
     buf += decoder.decode(value, { stream: true });

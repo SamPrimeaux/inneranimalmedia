@@ -27,7 +27,11 @@ import { scheduleRecordMcpToolExecution, recordMcpToolOtlpSpan } from './mcp-too
 import { writeTelemetry } from '../api/telemetry.js';
 import { resolveProviderForModelKey } from './usage-event-writer.js';
 import { assertSpendKillSwitch } from './spend-ledger-canonical.js';
-import { isAgentRunCancelRequested } from './agent-run-cancel.js';
+import {
+  createAgentRunAbortScope,
+  consumeReadableWithAbort,
+  isAgentRunAbortError,
+} from './agent-run-abort-scope.js';
 import { notifySam } from './notifications.js';
 import { loadAgentsamToolRow } from './agentsam-tools-catalog.js';
 import {
@@ -179,6 +183,13 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     sourceTool: ledgerSourceTool,
   };
 
+  const abortScope = createAgentRunAbortScope({
+    request,
+    externalSignal: abortSignalParam,
+    env,
+    agentRunId: chatAgentRunId != null ? String(chatAgentRunId) : null,
+  });
+
   const routeArmOutcome = (success) => {
     const aid = attributedRoutingArmId();
     if (aid) {
@@ -283,24 +294,18 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     );
   };
 
-  const isAbortRequested = () => {
-    try {
-      if (abortSignalParam?.aborted) return true;
-      if (request?.signal?.aborted) return true;
-    } catch {
-      /* ignore */
-    }
-    return false;
-  };
-
-  const cancelFlagCache = { at: 0, value: false };
   const shouldStopRun = async () => {
-    if (isAbortRequested()) return true;
-    if (!chatAgentRunId || !env?.DB) return false;
-    return isAgentRunCancelRequested(env, String(chatAgentRunId), { cache: cancelFlagCache });
+    if (abortScope.isAborted()) return true;
+    try {
+      await abortScope.throwIfAborted();
+      return false;
+    } catch {
+      return true;
+    }
   };
 
   const exitCancelled = () => {
+    abortScope.dispose();
     scheduleLoopUsageTelemetry(false);
     emit('error', { message: 'Stopped by user', code: 'agent_run_cancelled' });
     safeDone({
@@ -466,7 +471,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           )
             ? 'premium'
             : null),
-        signal: abortSignalParam ?? null,
+        signal: abortScope.signal,
         openaiPreviousResponseId,
         promptAuditContext:
           promptAuditContextParam && typeof promptAuditContextParam === 'object'
@@ -475,6 +480,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       });
       isWorkersAiStream = false;
     } catch (e) {
+      if (isAgentRunAbortError(e)) return exitCancelled();
       console.warn('[agent] model call failed:', e?.message ?? e);
       routeArmOutcome(false);
       const detail = e?.message != null ? String(e.message).slice(0, 8000) : String(e).slice(0, 8000);
@@ -555,12 +561,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     };
 
     const consumeWorkersAiText = async (readable) => {
-      const reader = readable.getReader();
       const decoder = new TextDecoder();
       let buf = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      await consumeReadableWithAbort(readable, (value) => {
         buf += decoder.decode(value, { stream: true });
         let nl;
         while ((nl = buf.indexOf('\n')) >= 0) {
@@ -579,7 +582,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           if (last) last.text += piece;
           emit('text', { text: piece });
         }
-      }
+      }, { throwIfAborted: () => abortScope.throwIfAborted() });
       const tail = buf.trim();
       if (tail) {
         let piece = '';
@@ -597,12 +600,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     };
 
     const consumeSseText = async (readable) => {
-      const reader = readable.getReader();
       const decoder = new TextDecoder();
       let buf = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      await consumeReadableWithAbort(readable, (value) => {
         buf += decoder.decode(value, { stream: true });
         const parts = buf.split('\n\n');
         buf = parts.pop() || '';
@@ -629,7 +629,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             // ignore non-JSON SSE frames
           }
         }
-      }
+      }, { throwIfAborted: () => abortScope.throwIfAborted() });
     };
 
     if (stream instanceof Response) {
@@ -699,7 +699,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
 
       if (stream.body && useOpenAIResponses) {
         assistantContent.push({ type: 'text', text: '' });
-        const parsed = await consumeOpenAIResponsesSse(stream.body, emit);
+        const parsed = await consumeOpenAIResponsesSse(stream.body, emit, {
+          throwIfAborted: () => abortScope.throwIfAborted(),
+        });
         if (parsed.input_tokens || parsed.output_tokens) {
           totalUsage.input_tokens  += parsed.input_tokens;
           totalUsage.output_tokens += parsed.output_tokens;
@@ -708,7 +710,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         if (parsed.responseId) openaiPreviousResponseId = parsed.responseId;
       } else if (stream.body && useOpenAiShapedToolStream) {
         assistantContent.push({ type: 'text', text: '' });
-        const parsed = await consumeOpenAIChatCompletionsSse(stream.body, emit);
+        const parsed = await consumeOpenAIChatCompletionsSse(stream.body, emit, {
+          throwIfAborted: () => abortScope.throwIfAborted(),
+        });
         applyNormalizedOpenAI(parsed);
       } else if (stream.body) {
         assistantContent.push({ type: 'text', text: '' });
@@ -823,7 +827,10 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       const drainAnthropicStream = async (s) => {
         stopReason = null;
         turnUsage = null;
-        for await (const chunk of s) handleAnthropicChunk(chunk);
+        for await (const chunk of s) {
+          await abortScope.throwIfAborted();
+          handleAnthropicChunk(chunk);
+        }
         mergeTurnUsage();
       };
       await drainAnthropicStream(stream);
@@ -831,6 +838,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       const PAUSE_TURN_MAX = 8;
       let pauseIterations = 0;
       while (stopReason === 'pause_turn' && containerId && pauseIterations < PAUSE_TURN_MAX) {
+        if (await shouldStopRun()) return exitCancelled();
         pauseIterations += 1;
         console.log(`[agent] pause_turn continuation ${pauseIterations} container=${containerId}`);
         emit('pause_turn', { container_id: containerId, iteration: pauseIterations });
@@ -860,7 +868,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             lane:
               dispatchSpineParam?.routing_decision?.lane ??
               (['debug', 'plan'].includes(String(mode || '').toLowerCase()) ? 'premium' : null),
-            signal: abortSignalParam ?? null,
+            signal: abortScope.signal,
             anthropicContainerId: containerId,
             promptAuditContext:
               promptAuditContextParam && typeof promptAuditContextParam === 'object'
@@ -919,6 +927,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       content: assistantContent,
       ...(assistantReasoningContent ? { reasoning_content: assistantReasoningContent } : {}),
     });
+
+    if (await shouldStopRun()) return exitCancelled();
 
     if (chatAgentRunId && routingWs && env?.DB) {
       const progressCost = await fetchModelCostUsd(
@@ -1291,13 +1301,15 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           if (!imageGenerationShouldPersist(toolInput)) {
             toolInput.persist = false;
           }
-          execResult = await streamImageGenerationSse(emit, env, call.name, toolInput, {
-            authUser: { id: userId },
-            workspaceId,
-            tenantId,
-            userId,
-            origin: (env.IAM_ORIGIN || request?.url ? new URL(request.url).origin : '').replace(/\/$/, ''),
-          });
+          execResult = await abortScope.race(
+            streamImageGenerationSse(emit, env, call.name, toolInput, {
+              authUser: { id: userId },
+              workspaceId,
+              tenantId,
+              userId,
+              origin: (env.IAM_ORIGIN || request?.url ? new URL(request.url).origin : '').replace(/\/$/, ''),
+            }),
+          );
         } else {
           let toolInput = call.input && typeof call.input === 'object' ? { ...call.input } : {};
           if (call.name === 'fs_search_files') {
@@ -1310,7 +1322,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             const { applyActiveFileDefaultsToToolInput } = await import('../core/active-file-envelope.js');
             toolInput = applyActiveFileDefaultsToToolInput(call.name, toolInput, activeFileEnvelopeParam);
           }
-          execResult = await dispatchToolCallWithBudget(
+          execResult = await abortScope.race(
+            dispatchToolCallWithBudget(
             env,
             call.name,
             toolInput,
@@ -1344,6 +1357,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
               resolvedContextParam,
             ),
             toolBudgetMs,
+          ),
           );
         }
         if (execResult && typeof execResult === 'object') {
@@ -1611,6 +1625,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           }
         }
       } catch (e) {
+        if (isAgentRunAbortError(e)) return exitCancelled();
         execErr = e;
         const isTimeout =
           e &&
@@ -1950,6 +1965,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     if (stopReason === 'end_turn') break;
   }
   } catch (e) {
+    if (isAgentRunAbortError(e)) {
+      return exitCancelled();
+    }
     ledgerLoopThrew = true;
     ledgerErrorMsg = e?.message != null ? String(e.message) : String(e);
     throw e;
@@ -1964,6 +1982,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         console.warn('[agent] chat_tool_session_ledger_finalize', fe?.message ?? fe);
       }
     }
+    abortScope.dispose();
   }
 
   scheduleLoopUsageTelemetry(true);
