@@ -4,7 +4,7 @@
 Agent Sam
 
 ## Status
-Implemented locally — awaiting review / ship.
+**Closed — chat path green** (sha `d3a68a3e`, live gate `arun_785f879bb57d` → COUNT=1).
 
 ## Before metrics (prod D1, 2026-07-11)
 
@@ -82,3 +82,19 @@ These predate the fix; forward chat-loop path cannot double-write once `skipTool
 Requires this commit on a Worker before D1 can prove one row. Local SSOT acceptance: `node scripts/telemetry-001-acceptance.mjs` (PASS). After sandbox/prod worker deploy: one free-tool chat turn → count `agentsam_tool_call_log` for that `agent_run_id` = 1.
 
 **First live attempt (sha 65b4edb7):** `arun_f0872f39b56b` → **COUNT=2**. Catalog skip worked (`source_tool=agent` + `input_summary` present). Second row was `source_tool=mcp_proxy` from `scheduleRecordMcpToolExecution` → `scheduleToolCallLog` — a third writer not in the original catalog+loop spine. Fix: `skip_tool_call_log: true` from the loop (and execute-approved-tool) into `scheduleRecordMcpToolExecution`.
+
+**Second live attempt (sha d3a68a3e):** `arun_785f879bb57d` → **COUNT=1** (`agentsam_d1_query`, `source_tool=agent`, `cost_usd=0`, `duration_ms=175`).
+
+## D1 framing correction: `source_tool = mcp_proxy`
+
+Early source-mix analysis treated **`mcp_proxy` counts as external-client / MCP-traffic signal**. That was wrong.
+
+`mcp_proxy` is **not** a traffic-source label. It is the **default fallback** on `scheduleRecordMcpToolExecution` → `scheduleToolCallLog` when the caller does not pass `source_tool` — an internal mirror write, produced routinely by in-app dispatch (chat loop, slash commands, terminal run, approval pending, dashboard MCP panel). It is **unrelated** to catalog `dispatch_target = 'mcp_proxy'` (CF Bindings MCP routing).
+
+The bug still affects real traffic (`claude: 368` and other non-mirror sources establish dashboard impact). Do **not** interpret historical `mcp_proxy: N` in GROUP BY source_tool as external MCP OAuth volume.
+
+**TELEMETRY-003:** rename default `mcp_proxy` → `mcp_exec_mirror` (or require explicit `source_tool` on every caller).
+
+## Follow-up (out of TELEMETRY-001 scope)
+
+Architectural gap: nothing requires `scheduleRecordMcpToolExecution` callers to declare ledger ownership. Full-repo enumeration → `plans/backlog/TELEMETRY-LEDGER-OWNERSHIP-mcp-exec-mirror.md`.
