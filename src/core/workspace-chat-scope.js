@@ -16,7 +16,7 @@ function trim(v) {
 }
 
 /**
- * Full CF binding block for system prompt (D1/R2/KV/worker/deploy targets).
+ * Full CF binding block — on-demand only (deploy/CF jobs). Not ambient.
  * @param {ReturnType<typeof normalizeWorkspaceBindings>} bindings
  */
 export function formatWorkspaceBindingBlock(bindings) {
@@ -43,15 +43,23 @@ export function formatWorkspaceBindingBlock(bindings) {
 }
 
 /**
+ * Ambient append: workspace_id only (tenancy). Full CF/repo dump is opt-in via opts.includeBindings.
  * @param {string} systemPrompt
  * @param {ReturnType<typeof normalizeWorkspaceBindings>} bindings
+ * @param {{ includeBindings?: boolean }} [opts]
  */
-export function appendWorkspaceBindingBlockToPrompt(systemPrompt, bindings) {
-  const block = formatWorkspaceBindingBlock(bindings);
-  if (!block) return String(systemPrompt || '');
+export function appendWorkspaceBindingBlockToPrompt(systemPrompt, bindings, opts = {}) {
   const out = String(systemPrompt || '');
-  if (out.includes('## Active build:')) return out;
-  return `${out}\n\n${block}`;
+  if (!bindings?.workspaceId) return out;
+  if (opts.includeBindings === true) {
+    const block = formatWorkspaceBindingBlock(bindings);
+    if (!block) return out;
+    if (out.includes('## Active build:')) return out;
+    return `${out}\n\n${block}`;
+  }
+  // Identity-only ambient — no github/root/r2/worker dump.
+  if (out.includes('workspace_id:')) return out;
+  return `${out}\n\n## Session\nworkspace_id: ${bindings.workspaceId}`;
 }
 
 /**
@@ -219,15 +227,23 @@ export function formatWorkspaceBindingForAgent(binding, opts = {}) {
 }
 
 /**
+ * Ambient: workspace_id only. Full github/r2/root/CF binding dump requires opts.includeBindings.
  * @param {string} systemPrompt
  * @param {Awaited<ReturnType<typeof fetchWorkspaceChatBinding>>} binding
- * @param {{ explicitGithubRepo?: string|null, activeFileRepo?: string|null, activeFileR2Key?: string|null }} [opts]
+ * @param {{ explicitGithubRepo?: string|null, activeFileRepo?: string|null, activeFileR2Key?: string|null, cfBindings?: unknown, includeBindings?: boolean }} [opts]
  */
 export function appendWorkspaceBindingToPrompt(systemPrompt, binding, opts = {}) {
+  const includeBindings = opts.includeBindings === true;
   const cfBindings = opts.cfBindings ?? binding?.cf_bindings ?? null;
   let out = String(systemPrompt || '');
-  if (cfBindings) {
-    out = appendWorkspaceBindingBlockToPrompt(out, cfBindings);
+  if (includeBindings && cfBindings) {
+    out = appendWorkspaceBindingBlockToPrompt(out, cfBindings, { includeBindings: true });
+  }
+  if (!includeBindings) {
+    const wid = binding?.workspace_id != null ? String(binding.workspace_id).trim() : '';
+    if (!wid) return out;
+    if (out.includes('workspace_id:')) return out;
+    return `${out}\n\n## Session\nworkspace_id: ${wid}`;
   }
   const block = formatWorkspaceBindingForAgent(binding, opts);
   if (!block) return out;

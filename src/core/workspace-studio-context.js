@@ -1,109 +1,71 @@
 /**
- * Compact IDE workspace context for Agent Sam chat (parallel to database-studio-context).
+ * Ambient chat context — identity only.
+ *
+ * Place/repo/path/CMS/IDE fields stay in workspaceContext for routing/tools,
+ * but must NOT be dumped into the system prompt every turn.
  */
 
 /**
+ * Minimal always-on session block (who can act — not what this job is about).
+ * @param {Record<string, unknown>|null|undefined} identity
+ * @returns {string|null}
+ */
+export function formatAmbientIdentityForAgent(identity) {
+  if (!identity || typeof identity !== 'object') return null;
+  const userId = identity.user_id != null ? String(identity.user_id).trim() : '';
+  const role = identity.role != null ? String(identity.role).trim() : '';
+  const isSuperadmin =
+    identity.is_superadmin === true ||
+    identity.is_superadmin === 1 ||
+    Number(identity.is_superadmin) === 1 ||
+    role.toLowerCase() === 'superadmin';
+  const tenantId = identity.tenant_id != null ? String(identity.tenant_id).trim() : '';
+  const workspaceId = identity.workspace_id != null ? String(identity.workspace_id).trim() : '';
+  const email = identity.email != null ? String(identity.email).trim() : '';
+  const credentialLane =
+    identity.credential_lane != null
+      ? String(identity.credential_lane).trim()
+      : isSuperadmin
+        ? 'platform'
+        : 'byok';
+
+  if (!userId && !workspaceId && !tenantId) return null;
+
+  const lines = [
+    '[Session identity — who can act. Do not treat this as the active repo, file, or dashboard surface. Discover place/job context via tools or explicit @ attachments.]',
+    `user_id: ${userId || '(none)'}`,
+    email ? `email: ${email}` : null,
+    `role: ${role || (isSuperadmin ? 'superadmin' : 'user')}`,
+    `is_superadmin: ${isSuperadmin ? '1' : '0'}`,
+    `tenant_id: ${tenantId || '(none)'}`,
+    `workspace_id: ${workspaceId || '(none)'}`,
+    `credential_lane: ${credentialLane || 'byok'}`,
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
+/**
+ * @deprecated Prefer formatAmbientIdentityForAgent. Kept so callers that still pass
+ * IDE packets do not reintroduce place/repo dumps into the prompt.
  * @param {Record<string, unknown>|null|undefined} raw
  * @returns {string|null}
  */
 export function formatWorkspaceContextForAgent(raw) {
   if (!raw || typeof raw !== 'object') return null;
-  const activeTab = raw.activeTab != null ? String(raw.activeTab).trim() : '';
-  const browserUrl = raw.browserUrl != null ? String(raw.browserUrl).trim() : '';
-  const openFiles = Array.isArray(raw.openFiles)
-    ? raw.openFiles.map((f) => String(f || '').trim()).filter(Boolean).slice(0, 32)
-    : [];
-  const planId = raw.plan_id != null ? String(raw.plan_id).trim() : '';
-  const workflowRunId = raw.workflow_run_id != null ? String(raw.workflow_run_id).trim() : '';
-  const projectSlug = raw.project_slug != null ? String(raw.project_slug).trim() : '';
-  const pageId = raw.page_id != null ? String(raw.page_id).trim() : '';
-  const studioPanel = raw.studio_panel != null ? String(raw.studio_panel).trim() : '';
-  const liveSessionId = raw.live_session_id != null ? String(raw.live_session_id).trim() : '';
-  const collabRoom = raw.collab_room != null ? String(raw.collab_room).trim() : '';
-  const bootstrapCacheKey =
-    raw.bootstrap_cache_key != null ? String(raw.bootstrap_cache_key).trim() : '';
-  const dashboardPath = raw.dashboard_path != null ? String(raw.dashboard_path).trim() : '';
-  const dashboardRouteKey =
-    raw.dashboard_route_key != null ? String(raw.dashboard_route_key).trim() : '';
-  const devServerUrl = raw.dev_server_url != null ? String(raw.dev_server_url).trim() : '';
-  const activeFile = raw.active_file != null ? String(raw.active_file).trim() : '';
-  const previewUrl = raw.preview_url != null ? String(raw.preview_url).trim() : '';
-  const publicDomain = raw.public_domain != null ? String(raw.public_domain).trim() : '';
-  const cmsHosting = raw.cms_hosting != null ? String(raw.cms_hosting).trim() : '';
-  const terminalTail = Array.isArray(raw.terminal_tail)
-    ? raw.terminal_tail.map((l) => String(l || '').trim()).filter(Boolean).slice(-12)
-    : [];
-  const capabilities = Array.isArray(raw.capabilities)
-    ? raw.capabilities.map((c) => String(c || '').trim()).filter(Boolean)
-    : [];
-  const workspaceId = raw.workspace_id != null ? String(raw.workspace_id).trim() : '';
-  const workspaceSource = raw.workspace_source != null ? String(raw.workspace_source).trim() : '';
-  const githubRepo = raw.github_repo != null ? String(raw.github_repo).trim() : '';
-  const r2Prefix = raw.r2_prefix != null ? String(raw.r2_prefix).trim() : '';
-  const rootPath = raw.root_path != null ? String(raw.root_path).trim() : '';
-
-  if (
-    !activeTab &&
-    !browserUrl &&
-    !openFiles.length &&
-    !planId &&
-    !workflowRunId &&
-    !projectSlug &&
-    !pageId &&
-    !dashboardPath &&
-    !devServerUrl &&
-    !activeFile &&
-    !previewUrl &&
-    !workspaceId &&
-    !githubRepo &&
-    !r2Prefix
-  ) {
-    return null;
+  // If a caller accidentally passes an identity-shaped object, format it.
+  if (raw.user_id || raw.userId || raw.is_superadmin != null || raw.credential_lane) {
+    return formatAmbientIdentityForAgent({
+      user_id: raw.user_id ?? raw.userId,
+      email: raw.email,
+      role: raw.role,
+      is_superadmin: raw.is_superadmin,
+      tenant_id: raw.tenant_id ?? raw.tenantId,
+      workspace_id: raw.workspace_id ?? raw.workspaceId,
+      credential_lane: raw.credential_lane ?? raw.credentialLane,
+    });
   }
-
-  const lines = [
-    '[IDE workspace context — live Agent Sam workbench. Use for active tab, browser URL, open files, and in-flight plan/run ids. Do not invent file paths or URLs.]',
-  ];
-  if (workspaceId || workspaceSource || githubRepo || r2Prefix || rootPath) {
-    lines.push(
-      `workspace_id: ${workspaceId || '(none)'}`,
-      `workspace_source: ${workspaceSource || '(none)'}`,
-      `workspace_github_repo: ${githubRepo || '(none)'}`,
-      `workspace_r2_prefix: ${r2Prefix || '(none)'}`,
-      `workspace_root_path: ${rootPath || '(none)'}`,
-    );
-  }
-  lines.push(
-    `active_tab: ${activeTab || '(none)'}`,
-    `browser_url: ${browserUrl || '(none)'}`,
-    `open_files: ${openFiles.length ? openFiles.join(', ') : '(none)'}`,
-    `plan_id: ${planId || '(none)'}`,
-    `workflow_run_id: ${workflowRunId || '(none)'}`,
-  );
-  if (dashboardPath || dashboardRouteKey) {
-    lines.push(
-      `dashboard_path: ${dashboardPath || '(none)'}`,
-      `dashboard_route_key: ${dashboardRouteKey || '(none)'}`,
-    );
-  }
-  if (devServerUrl) lines.push(`dev_server_url: ${devServerUrl}`);
-  if (activeFile) lines.push(`active_file: ${activeFile}`);
-  if (terminalTail.length) lines.push(`terminal_tail: ${terminalTail.join(' | ')}`);
-  if (capabilities.length) lines.push(`capabilities: ${capabilities.join(', ')}`);
-  if (projectSlug || pageId || studioPanel || previewUrl || publicDomain || cmsHosting) {
-    lines.push(
-      `cms_project_slug: ${projectSlug || '(none)'}`,
-      `cms_page_id: ${pageId || '(none)'}`,
-      `cms_studio_panel: ${studioPanel || '(none)'}`,
-      `cms_live_session_id: ${liveSessionId || '(none)'}`,
-      `cms_collab_room (IAM_COLLAB): ${collabRoom || '(none)'}`,
-      `cms_bootstrap_cache_key (SESSION_CACHE): ${bootstrapCacheKey || '(none)'}`,
-      `cms_preview_url: ${previewUrl || '(none)'}`,
-      `cms_public_domain: ${publicDomain || '(none)'}`,
-      `cms_hosting: ${cmsHosting || '(none)'}`,
-    );
-  }
-  return lines.join('\n');
+  // IDE / place packets are intentionally not ambient anymore.
+  return null;
 }
 
 /**
@@ -187,19 +149,32 @@ export function normalizeWorkspaceContextPacket(browserContext, body) {
 }
 
 /**
- * Append ambient workspace + CMS blocks to the agent system prompt (all chat routes).
+ * Append ambient identity only. IDE/CMS/repo packets are never injected here.
  * @param {string} systemPrompt
  * @param {unknown} browserContext
  * @param {unknown} body
+ * @param {Record<string, unknown>|null|undefined} [identity]
  */
-export function appendAmbientWorkspaceContextToPrompt(systemPrompt, browserContext, body) {
+export function appendAmbientWorkspaceContextToPrompt(systemPrompt, browserContext, body, identity) {
   let out = String(systemPrompt || '');
-  const wsPacket = normalizeWorkspaceContextPacket(browserContext, body);
-  const wsBlock = formatWorkspaceContextForAgent(wsPacket);
-  if (wsBlock && !out.includes('[IDE workspace context')) {
-    out = `${out}\n\n## Workspace\n${wsBlock}`;
-  }
-  return out;
+  if (out.includes('[Session identity')) return out;
+
+  const fromArg =
+    identity && typeof identity === 'object'
+      ? identity
+      : body && typeof body === 'object' && /** @type {Record<string, unknown>} */ (body).ambient_identity
+        ? /** @type {Record<string, unknown>} */ (body).ambient_identity
+        : null;
+
+  // Never format the IDE workspaceContext packet into the prompt.
+  void browserContext;
+  const block = formatAmbientIdentityForAgent(
+    fromArg && typeof fromArg === 'object'
+      ? /** @type {Record<string, unknown>} */ (fromArg)
+      : null,
+  );
+  if (!block) return out;
+  return `${out}\n\n## Session\n${block}`;
 }
 
 /**

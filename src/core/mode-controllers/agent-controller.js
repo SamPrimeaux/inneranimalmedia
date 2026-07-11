@@ -344,8 +344,9 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         projectRef: input.sessionProjectRef ?? body.project_id ?? body.projectId ?? null,
         minimalAsk,
         ctx: input.ctx ?? null,
+        authUser: sessionAuthUser ?? input.session?.authUser ?? null,
         conversationId: sessionId,
-        activeRepo: activeRepo || null,
+        // activeRepo intentionally not ambient — discover via tools / @ attachments
       },
     );
   } else {

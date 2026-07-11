@@ -147,19 +147,39 @@ export function isSimpleAskMessage(message = '') {
 }
 
 /**
- * Flat static system prompt — zero D1 lookups, zero KV, zero layer assembly.
- * The model discovers context through tools.
+ * Flat static system prompt — ambient identity only.
+ * Place/repo/file/surface context is discovered via tools or explicit @ attachments — never pre-dumped.
  */
 export async function buildSystemPrompt(_env, _tenantId, _mode, _contextBlock, _modeConfig, _promptRouteRow, options = {}) {
-  const activeRepo = options?.activeRepo ?? '';
+  // contextBlock / activeRepo intentionally ignored for ambient prompt (payload diet).
+  void _contextBlock;
   const message = options?.message != null ? String(options.message) : '';
-  const base = 'You are Agent Sam, an AI coding and operations assistant. Use tools to read files, query databases, run commands, and deploy. When you need information about a repo or codebase, call agentsam_github_tree or agentsam_github_read. Do not assume context — discover it through tools.';
+  const base =
+    'You are Agent Sam, an AI coding and operations assistant. Use tools to read files, query databases, run commands, and deploy. Do not assume an active repo, file, or dashboard surface — discover job context through tools or explicit user attachments (@file, @browser, etc.).';
   const parts = [base];
-  if (activeRepo) {
-    parts.push(
-      `Open repo this turn: ${activeRepo}. Use agentsam_github_tree to inspect it, then agentsam_github_read for key files.`,
-    );
+
+  try {
+    const { formatAmbientIdentityForAgent } = await import('./workspace-studio-context.js');
+    const auth = options?.ctx?.authUser ?? options?.authUser ?? null;
+    const isSuperadmin =
+      auth?.role === 'superadmin' ||
+      auth?.is_superadmin === true ||
+      auth?.is_superadmin === 1 ||
+      Number(auth?.is_superadmin) === 1;
+    const identityBlock = formatAmbientIdentityForAgent({
+      user_id: options?.userId ?? auth?.id ?? null,
+      email: auth?.email ?? null,
+      role: auth?.role ?? (isSuperadmin ? 'superadmin' : 'user'),
+      is_superadmin: isSuperadmin ? 1 : 0,
+      tenant_id: _tenantId ?? auth?.tenant_id ?? null,
+      workspace_id: options?.workspaceId ?? auth?.active_workspace_id ?? null,
+      credential_lane: isSuperadmin ? 'platform' : 'byok',
+    });
+    if (identityBlock) parts.push(`## Session\n${identityBlock}`);
+  } catch (_) {
+    /* optional */
   }
+
   try {
     const { hasImageGenerationIntent } = await import('../tools/image_generation.js');
     if (hasImageGenerationIntent(message)) {

@@ -87,7 +87,6 @@ import {
   chatGithubContextStorageKey,
   readChatGithubContext,
   writeChatGithubContext,
-  MENTION_CONTEXT_HEADER,
   CHAT_ATTACH_MAX_TOTAL_BYTES,
   CHAT_REQUEST_MAX_BYTES,
   resolveComposerImageHandlingMode,
@@ -106,10 +105,8 @@ import {
 import {
   buildMentionContext,
   browserElementMentionToken,
-  browserMentionInMessage,
   isChatTextCodeFile,
   readFileAsText,
-  getEditorDisplayPath,
   getEditorLightweightPath,
 } from './mentionContext';
 import {
@@ -2810,25 +2807,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             contentTruncated: chatGithubContentTruncated,
           }),
         });
-    const ghCtx = githubRepoContext?.trim();
-    const openIsLocal =
-      activeFile &&
-      !activeFile.githubPath &&
-      !activeFile.r2Key &&
-      !!(activeFile.workspacePath?.trim() || activeFile.handle);
-    if (ghCtx) {
-      messageForApi += `${MENTION_CONTEXT_HEADER}### Selected GitHub repository\nThe user chose **${ghCtx}** as context for remote repo work.${
-        openIsLocal
-          ? ' A **local workspace file** is open in Monaco — use ### Open file (editor) content as authoritative; do NOT github_file to verify the open buffer. Use github_file only for other paths under this repo when the user asks.'
-          : ` Prefer github_file with repo="${ghCtx}" when reading remote files not already open in the editor.`
-      }`;
-    }
-
-    const snap =
-      browserElementContext && typeof browserElementContext === 'object' ? browserElementContext : null;
-    if (snap && !browserMentionInMessage(userMessage)) {
-      messageForApi += `\n\n### BrowserView selection (structured)\n\`\`\`json\n${JSON.stringify(snap, null, 2)}\n\`\`\`\n`;
-    }
+    // Repo / browser / open-file payloads are on-demand (@file, @browser, attachments) — not ambient.
 
     const effectiveConvId =
       sendOpts?.conversationIdOverride?.trim() ||

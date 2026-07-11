@@ -33,18 +33,36 @@ test('formatWorkspaceBindingForAgent documents precedence and overrides', () => 
   assert.match(block, /Precedence/);
 });
 
-test('appendWorkspaceBindingToPrompt is idempotent', () => {
+test('appendWorkspaceBindingToPrompt ambient is identity-only (no repo/r2 dump)', () => {
   const binding = {
     workspace_id: 'ws_1',
-    github_repo: null,
+    github_repo: 'user/repo',
     r2_prefix: 'lane/',
     r2_bucket: 'bucket',
-    root_path: null,
+    root_path: '/Users/dev/repo',
     workspace_type: 'r2',
     source_lane: 'r2',
   };
   const once = appendWorkspaceBindingToPrompt('base', binding);
   const twice = appendWorkspaceBindingToPrompt(once, binding);
   assert.equal(once, twice);
-  assert.match(once, /r2_prefix: lane\//);
+  assert.match(once, /workspace_id: ws_1/);
+  assert.doesNotMatch(once, /r2_prefix: lane\//);
+  assert.doesNotMatch(once, /github_repo: user\/repo/);
+  assert.doesNotMatch(once, /root_path:/);
+});
+
+test('appendWorkspaceBindingToPrompt includeBindings restores full dump', () => {
+  const binding = {
+    workspace_id: 'ws_1',
+    github_repo: 'user/repo',
+    r2_prefix: 'lane/',
+    r2_bucket: 'bucket',
+    root_path: null,
+    workspace_type: 'r2',
+    source_lane: 'r2',
+  };
+  const full = appendWorkspaceBindingToPrompt('base', binding, { includeBindings: true });
+  assert.match(full, /Workspace binding/);
+  assert.match(full, /r2_prefix: lane\//);
 });

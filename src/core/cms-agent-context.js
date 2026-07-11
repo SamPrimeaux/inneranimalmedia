@@ -62,6 +62,9 @@ export function extractCmsAgentContext(body, browserContext) {
 }
 
 /**
+ * On-demand CMS payload formatter — do NOT append ambiently every chat turn.
+ * Call only when the user is on a CMS surface and this chat is about that page,
+ * or when they @-attach CMS context.
  * @param {Record<string, unknown>|null} cms
  */
 export function formatCmsContextForAgent(cms) {

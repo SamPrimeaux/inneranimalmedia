@@ -81,48 +81,13 @@ export function getEditorLightweightPath(af: ActiveFile | null | undefined): str
   return null;
 }
 
-/** Display path for always-on editor line (lightweight path, else filename). */
+/** Display path for editor UI (lightweight path, else filename). */
 export function getEditorDisplayPath(af: ActiveFile, activeFileName?: string): string {
   const light = getEditorLightweightPath(af);
   if (light) return light;
   if (af.name?.trim()) return af.name.trim();
   if (activeFileName?.trim()) return activeFileName.trim();
   return '(unnamed)';
-}
-
-function languageFromFileName(fileName: string): string {
-  const base = fileName.split(/[/\\]/).pop() || fileName;
-  const ext = (base.includes('.') ? base.split('.').pop() : '')?.toLowerCase() || '';
-  const map: Record<string, string> = {
-    ts: 'typescript',
-    tsx: 'tsx',
-    mts: 'typescript',
-    cts: 'typescript',
-    js: 'javascript',
-    jsx: 'jsx',
-    mjs: 'javascript',
-    cjs: 'javascript',
-    json: 'json',
-    md: 'markdown',
-    markdown: 'markdown',
-    mdx: 'mdx',
-    html: 'html',
-    htm: 'html',
-    css: 'css',
-    scss: 'scss',
-    sass: 'sass',
-    less: 'less',
-    svg: 'svg',
-    py: 'python',
-    rs: 'rust',
-    go: 'go',
-    sql: 'sql',
-    yaml: 'yaml',
-    yml: 'yaml',
-    toml: 'toml',
-    xml: 'xml',
-  };
-  return map[ext] || (ext || 'text');
 }
 
 const CHAT_TEXT_CODE_EXT = new Set(['js', 'ts', 'tsx', 'jsx', 'css', 'html', 'htm', 'sql', 'md', 'json', 'py', 'sh']);
@@ -146,7 +111,7 @@ export function readFileAsText(file: File): Promise<string> {
 function formatAgentToolRouting(activeFile: ActiveFile | null | undefined): string {
   const lines: string[] = [
     '### Agent tool targets (read/write this buffer)',
-    'When ### Open file (editor) content appears below, use it directly — do not github_file to re-fetch the open buffer.',
+    'When ### @file content appears below, use it directly — do not github_file to re-fetch the open buffer.',
     'If the user asks to change, save, or sync this file, call the matching tool with the exact ids below — do not only paste code in chat when persistence is requested.',
   ];
   if (!activeFile) {
@@ -192,8 +157,8 @@ function formatAgentToolRouting(activeFile: ActiveFile | null | undefined): stri
 }
 
 /**
- * Append @-mention snippets, always-on open-file buffer + tool routing when a file is open,
- * and optional R2/D1 context. @ tokens still gate @monaco list and @r2 bucket lists.
+ * Append explicit @-mention / attachment payloads only.
+ * No ambient open-file body, editor path, or tool-routing dump — use @file / @Name / tools.
  */
 export async function buildMentionContext(
   userMessage: string,
@@ -207,7 +172,7 @@ export async function buildMentionContext(
     attachContextFiles?: Array<{ name: string; content: string }>;
     /** BrowserView element pick — injected when message includes `@browser`. */
     browserElementContext?: Record<string, unknown> | null;
-    /** Locked GitHub focus from repo/file picker (Context Envelope v1). */
+    /** Locked GitHub focus — only when envelope has an explicit path (user-locked). */
     contextEnvelope?: ContextEnvelopeV1 | null;
   },
 ): Promise<string> {
@@ -229,6 +194,7 @@ export async function buildMentionContext(
 
   if (injectFileSnippet) {
     parts.push(`### @file\n${activeFileName || 'untitled'}\n\n${activeFileContent.slice(0, MENTION_FILE_MAX_CHARS)}`);
+    if (activeFile) parts.push(formatAgentToolRouting(activeFile));
   }
 
   if (attachContextFiles?.length) {
@@ -245,10 +211,6 @@ export async function buildMentionContext(
     parts.push(
       `### @monaco\nFile: ${activeFileName || '(none)'}\nTotal lines: ${totalLines}\nCursor: line ${cl}, column ${cc}`,
     );
-  }
-
-  if (activeFile) {
-    parts.push(formatAgentToolRouting(activeFile));
   }
 
   if (contextEnvelope?.focus?.github?.path) {
@@ -309,18 +271,6 @@ export async function buildMentionContext(
         '(No stored D1 result in this session. SQL explorer can set sessionStorage key iam_d1_last_result.)'
       }`,
     );
-  }
-
-  if (activeFile && activeFileContent != null && activeFileContent !== '' && !injectFileSnippet) {
-    parts.push(
-      `### Open file (editor)\n${activeFileName || activeFile.name || 'untitled'}\n\n${activeFileContent.slice(0, MENTION_FILE_MAX_CHARS)}`,
-    );
-  } else if (activeFile && !injectFileSnippet) {
-    const path = getEditorDisplayPath(activeFile, activeFileName);
-    const n =
-      activeFileContent != null && activeFileContent !== '' ? activeFileContent.split('\n').length : 0;
-    const lang = languageFromFileName(activeFile.name || activeFileName || '');
-    parts.push(`### Editor context\nCurrently open: ${path} (${n} lines) [${lang}]`);
   }
 
   if (parts.length === 0) return userMessage;
