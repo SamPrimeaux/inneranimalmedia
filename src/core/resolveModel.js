@@ -107,12 +107,42 @@ export class ResolutionError extends Error {
 
 const CANONICAL_TASK_TYPES = ['agent', 'ask', 'multitask', 'plan', 'debug'];
 
+/** Granular intents that must keep their own Thompson task_type (not collapse to agent→chat). */
+const PRESERVED_TASK_TYPES = [
+  'code',
+  'search_code',
+  'refactor',
+  'review',
+  'github',
+  'code_gen',
+  'deploy',
+  'browser',
+  'r2_ops',
+  'cf_ops',
+  'd1_query',
+  'd1_write',
+  'sql_d1_generation',
+  'workflow_orchestration',
+  'terminal_execution',
+  'vectorize',
+  'web_search',
+  'cms_edit',
+  'tool_use',
+  'skill_use',
+  'agent_spawn',
+  'subagent_worker',
+  'subagent_master',
+  'project_question',
+];
+
 /** Map UI/default mode "auto" to D1 routing arm mode (arms use task_type names, not "auto"). */
 export function resolveRoutingMode(task_type, mode = 'auto') {
   const m = String(mode || 'auto').trim().toLowerCase();
   if (m !== 'auto') return m;
   const tt = String(task_type || '').trim().toLowerCase();
   if (CANONICAL_TASK_TYPES.includes(tt)) return tt;
+  // Granular intents are seeded on mode=agent arms.
+  if (PRESERVED_TASK_TYPES.includes(tt)) return 'agent';
   return 'auto';
 }
 
@@ -126,11 +156,20 @@ export function routingTaskTypeCandidates(task_type, mode = '') {
   const tt = String(task_type || 'ask').trim().toLowerCase();
   const md = String(mode || '').trim().toLowerCase();
   if (tt === 'ask') return ['ask', 'chat'];
-  if (tt === 'agent' || md === 'agent') {
-    return ['chat', 'code', 'agent', 'multitask', 'tool_use'];
+  // Specific classified intents first — never let composer mode=agent force chat-first.
+  if (PRESERVED_TASK_TYPES.includes(tt)) {
+    if (tt === 'search_code') return ['search_code', 'code', 'agent'];
+    if (tt === 'code' || tt === 'code_gen' || tt === 'refactor' || tt === 'review') {
+      return [tt, 'code', 'code_gen', 'agent'];
+    }
+    return [tt, 'agent'];
+  }
+  if (tt === 'agent') {
+    // Prefer code builders over chat lottery when task_type is literally agent.
+    return ['code', 'agent', 'chat', 'multitask', 'tool_use'];
   }
   if (tt === 'multitask' || md === 'multitask') {
-    return ['multitask', 'chat', 'agent', 'code'];
+    return ['multitask', 'agent', 'code', 'chat'];
   }
   if (tt === 'debug' || md === 'debug') {
     return ['debug', 'code', 'agent', 'chat'];
@@ -175,8 +214,8 @@ function diversifyArmsForThompsonDraw(arms, cap = THOMPSON_CANDIDATE_LIMIT) {
 export function normalizeCanonicalTaskType(task_type) {
   const tt = String(task_type ?? 'ask').trim().toLowerCase();
   if (CANONICAL_TASK_TYPES.includes(tt)) return tt;
+  if (PRESERVED_TASK_TYPES.includes(tt)) return tt;
   if (tt === 'subagent_dispatch') return 'multitask';
-  if (tt === 'terminal_execution') return 'agent';
   if (tt === 'plan' || tt === 'research' || tt === 'plan_pipeline') return 'plan';
   if (tt === 'debug' || tt === 'debug_live_page' || tt === 'browser_ui_repair') return 'debug';
   if (tt === 'designstudio_cad_script' || tt === 'cad_generation') return tt;
