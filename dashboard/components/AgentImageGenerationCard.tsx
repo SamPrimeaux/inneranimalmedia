@@ -198,7 +198,7 @@ export function AgentImageGenerationCard({
           disabled={busyAction === 'rate'}
           onClick={() => void handleRate(1)}
         >
-          <ThumbsUp size={14} strokeWidth={2} aria-hidden />
+          <ThumbsUp size={16} strokeWidth={2.25} absoluteStrokeWidth aria-hidden />
         </button>
         <button
           type="button"
@@ -208,7 +208,7 @@ export function AgentImageGenerationCard({
           disabled={busyAction === 'rate'}
           onClick={() => void handleRate(-1)}
         >
-          <ThumbsDown size={14} strokeWidth={2} aria-hidden />
+          <ThumbsDown size={16} strokeWidth={2.25} absoluteStrokeWidth aria-hidden />
         </button>
       </div>
     ) : null;

@@ -118,6 +118,39 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     skip_rws_fanout: designStudioOverrides?.skip_rws_fanout === true,
   };
 
+  // Image fast path BEFORE chat Thompson / project_qna compile — pure image turns must not
+  // pick gpt-5/kimi or strip tools; those logs were misleading when this ran after profile.
+  {
+    const { isPrimaryImageGenerationIntent, handleDirectImageGenerationChatStream } = await import(
+      '../tools/image_generation.js'
+    );
+    if (isPrimaryImageGenerationIntent(message) && !requireVision) {
+      scheduleChatSessionTitleInsert(env, ctx, {
+        conversationId: sessionId,
+        tenantId,
+        userId,
+        workspaceId,
+        message,
+        modelKey: null,
+        activeFileEnvelope,
+        body,
+      });
+      scheduleWorkspaceStateConversationUpdate(env, ctx, {
+        conversationId: sessionId,
+        workspaceId,
+      });
+      return handleDirectImageGenerationChatStream(env, ctx, {
+        request,
+        message,
+        userId,
+        tenantId,
+        workspaceId,
+        sessionId,
+        authUser,
+      });
+    }
+  }
+
   const profile = await withD1Retry(
     () =>
       userAppLane
@@ -264,21 +297,6 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
           });
     }
     return executeAgentTurn(env, ctx, { ...controllerInput, profile: agentProfile, skillRoute });
-  }
-
-  // Image generation fast path — bypass full tool loop, go direct to image handler.
-  // No 93-tool manifest, no text model deciding what to do. Just generate.
-  const { isPrimaryImageGenerationIntent, handleDirectImageGenerationChatStream } = await import('../tools/image_generation.js');
-  if (!skillRoute && isPrimaryImageGenerationIntent(message)) {
-    return handleDirectImageGenerationChatStream(env, ctx, {
-      request,
-      message,
-      userId,
-      tenantId,
-      workspaceId,
-      sessionId,
-      authUser,
-    });
   }
 
   switch (profile.mode_controller) {
