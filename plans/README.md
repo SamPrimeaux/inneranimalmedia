@@ -68,3 +68,13 @@ Stop after presenting:
 ## Task template
 
 Every implementation ticket uses the template in the active `*-001-*.md` files.
+
+## agentsam_tickets (D1 index)
+
+Platform work index: `agentsam_tickets` + append-only `agentsam_ticket_events`.
+
+- Prose SSOT stays in `plans/active|backlog/*.md` via `doc_path` — do not duplicate body into D1.
+- Status enum enforced in code; `status_reason` required for `blocked` / `abandoned`.
+- API: `GET/POST /api/tickets`, `PATCH /api/tickets/:id`, `POST /api/tickets/:id/status`, events.
+- Does **not** replace kanban, `agentsam_todo`, or `project_issues`.
+- UI: fold into Projects / Collaborate later — backend only until instructed.

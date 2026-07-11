@@ -12,7 +12,7 @@ import { IAM_AGENT_CHAT_COMPOSE } from '../agentChatConstants';
 import type { ImageGenerationState } from './ChatAssistant/types';
 import { ProgressiveImagePreview } from './ProgressiveImagePreview';
 import {
-  commitImageDraft,
+  saveImageDraft,
   discardImageDraft,
   rateImageDraft,
 } from '../lib/imageDraftActions';
@@ -154,7 +154,7 @@ export function AgentImageGenerationCard({
     setBusyAction('save');
     setActionMsg(null);
     try {
-      const out = await commitImageDraft(state.generationId, {
+      const out = await saveImageDraft(state.generationId, {
         workspaceId,
         label: imageTitle,
         category: 'agent_backdrops',

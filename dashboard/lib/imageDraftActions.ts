@@ -41,16 +41,18 @@ export type CommitImageDraftResponse = {
   error?: string;
 };
 
-export async function commitImageDraft(
+export async function saveImageDraft(
   generationId: string,
   opts: {
     workspaceId?: string | null;
     label?: string;
     category?: string;
+    tags?: string[];
+    project_id?: string | null;
     register_cms_asset?: boolean;
   } = {},
 ): Promise<CommitImageDraftResponse> {
-  const res = await fetch('/api/images/commit', {
+  const res = await fetch('/api/images/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -59,6 +61,8 @@ export async function commitImageDraft(
       workspace_id: opts.workspaceId || undefined,
       label: opts.label,
       category: opts.category ?? 'agent_backdrops',
+      tags: opts.tags,
+      project_id: opts.project_id || undefined,
       register_cms_asset: opts.register_cms_asset ?? true,
     }),
   });
@@ -68,6 +72,9 @@ export async function commitImageDraft(
   }
   return json || {};
 }
+
+/** @deprecated use saveImageDraft — removed soon */
+export const commitImageDraft = saveImageDraft;
 
 export async function discardImageDraft(generationId: string): Promise<void> {
   const res = await fetch('/api/images/discard', {

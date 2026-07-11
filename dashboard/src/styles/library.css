@@ -1,17 +1,3431 @@
-/* ── /dashboard/artifacts mobile fixes (768px) ───────────────────────────────
-   The existing 760px block handles layout collapse but misses:
-   1. folder/file grid min-width leaking past viewport edge
-   2. "Computers in the sidebar" notice pointing to hidden UI
-   3. main-head title + view-tools overflowing on narrow screens
-   4. new-menu positioning off-screen
-   5. list view default on mobile (grid cards too small to be useful)
-   6. drive-side drawer — the hamb button already exists, just needs the
-      drive-side to slide in rather than be display:none permanently
-──────────────────────────────────────────────────────────────────────────── */
+/* Drive Parity Workspace — scoped to /dashboard/artifacts shell */
+.artifacts-drive-shell {
+  --bg: #f8fafd;
+  --panel: #ffffff;
+  --panel-2: #f1f5fb;
+  --panel-3: #edf2fa;
+  --ink: #1f1f1f;
+  --muted: #5f6368;
+  --soft: #8b95a1;
+  --border: #dfe5ef;
+  --border-2: #c9d3e2;
+  --blue: #0b57d0;
+  --blue-soft: #d3e3fd;
+  --blue-hover: #e8f0fe;
+  --green: #188038;
+  --red: #d93025;
+  --yellow: #f9ab00;
+  --shadow: 0 1px 2px rgba(60, 64, 67, 0.12), 0 2px 6px rgba(60, 64, 67, 0.08);
+  --shadow-lg: 0 14px 40px rgba(60, 64, 67, 0.16);
+  --radius: 18px;
+  --sidebar: 250px;
+  --drive-rail-w: 64px;
+  --lib-rail-panel-w: 0px;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  position: relative;
+}
 
+.artifacts-drive-shell.has-rail-panel {
+  --lib-rail-panel-w: min(360px, 42vw);
+}
+
+.artifacts-drive-shell *,
+.artifacts-drive-shell *::before,
+.artifacts-drive-shell *::after {
+  box-sizing: border-box;
+}
+
+.artifacts-drive-shell button,
+.artifacts-drive-shell input {
+  font: inherit;
+}
+
+.artifacts-drive-shell button {
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.artifacts-drive-shell .drive-app {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: 72px 1fr;
+  grid-template-columns: var(--sidebar) minmax(0, 1fr) calc(var(--lib-rail-panel-w) + var(--drive-rail-w));
+  overflow: hidden;
+  transition: grid-template-columns 0.22s ease;
+}
+
+.artifacts-drive-shell .topbar {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: var(--sidebar) minmax(220px, 720px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 22px 10px 22px;
+  background: var(--bg);
+  border-bottom: 1px solid transparent;
+}
+
+.artifacts-drive-shell .brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 22px;
+  font-weight: 500;
+  color: #3c4043;
+}
+
+.artifacts-drive-shell .hamb {
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+}
+
+.artifacts-drive-shell .hamb:hover {
+  background: #edf2fa;
+}
+
+.artifacts-drive-shell .hamb-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.artifacts-drive-shell .hamb-bar {
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.25s ease, opacity 0.2s ease;
+}
+
+.artifacts-drive-shell .hamb-icon.is-open .hamb-bar-top {
+  transform: translateY(5px) rotate(45deg);
+}
+
+.artifacts-drive-shell .hamb-icon.is-open .hamb-bar-mid {
+  opacity: 0;
+}
+
+.artifacts-drive-shell .hamb-icon.is-open .hamb-bar-bottom {
+  transform: translateY(-5px) rotate(-45deg);
+}
+
+.artifacts-drive-shell .drive-mark {
+  width: 34px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+}
+
+.artifacts-drive-shell .drive-tri {
+  width: 31px;
+  height: 27px;
+  background: conic-gradient(from 150deg, #188038 0 33%, #fbbc04 0 66%, #4285f4 0);
+  clip-path: polygon(50% 0, 100% 88%, 0 88%);
+}
+
+.artifacts-drive-shell .search {
+  height: 48px;
+  border-radius: 999px;
+  background: #edf2fa;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  color: #5f6368;
+  box-shadow: inset 0 0 0 1px transparent;
+}
+
+.artifacts-drive-shell .search:focus-within {
+  background: white;
+  box-shadow: var(--shadow);
+}
+
+.artifacts-drive-shell .search input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #202124;
+  font-size: 15px;
+}
+
+.artifacts-drive-shell .search .tune {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+}
+
+.artifacts-drive-shell .search .tune:hover {
+  background: #dde6f3;
+}
+
+.artifacts-drive-shell .top-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.artifacts-drive-shell .icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  color: #444746;
+}
+
+.artifacts-drive-shell .icon-btn:hover {
+  background: #edf2fa;
+}
+
+.artifacts-drive-shell .lib-connect-wrap {
+  position: relative;
+}
+
+.artifacts-drive-shell .lib-connect-gear.active {
+  background: #d3e3fd;
+  color: #174ea6;
+}
+
+.artifacts-drive-shell .lib-connect-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 280px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(60, 64, 67, 0.18);
+  padding: 8px;
+  z-index: 40;
+}
+
+.artifacts-drive-shell .lib-connect-menu-head {
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid #edf2fa;
+  margin-bottom: 4px;
+}
+
+.artifacts-drive-shell .lib-connect-menu-head strong {
+  display: block;
+  font-size: 14px;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-connect-menu-head span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-connect-section {
+  padding: 6px 0;
+  border-bottom: 1px solid #edf2fa;
+}
+
+.artifacts-drive-shell .lib-connect-section:last-of-type {
+  border-bottom: 0;
+}
+
+.artifacts-drive-shell .lib-connect-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px 4px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-connect-row-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.artifacts-drive-shell .lib-connect-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-connect-status {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #80868b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifacts-drive-shell .lib-connect-status.on {
+  color: #188038;
+}
+
+.artifacts-drive-shell .lib-connect-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 8px);
+  margin: 2px 4px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #3c4043;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-connect-action:hover {
+  background: #edf2fa;
+}
+
+.artifacts-drive-shell .lib-connect-action.primary {
+  color: #1a73e8;
+  font-weight: 500;
+}
+
+.artifacts-drive-shell .lib-connect-action.danger {
+  color: #c5221f;
+}
+
+.artifacts-drive-shell .lib-connect-action.muted {
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-connect-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.artifacts-drive-shell .lib-drive-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.artifacts-drive-shell .lib-drive-workspace-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e8f0fe;
+  color: #1967d2;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.artifacts-drive-shell .lib-save-to-drive-host {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.artifacts-drive-shell .lib-drive-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid #dadce0;
+  background: #fff;
+  color: #3c4043;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.artifacts-drive-shell .lib-drive-action:hover:not(:disabled) {
+  background: #edf2fa;
+}
+
+.artifacts-drive-shell .lib-drive-action:disabled,
+.artifacts-drive-shell .lib-drive-action--muted {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.artifacts-drive-shell .shared-drive-toolbar-btn {
+  height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.artifacts-drive-shell .shared-drive-panel {
+  position: fixed;
+  top: 64px;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 100vw);
+  background: #fff;
+  border-left: 1px solid #dadce0;
+  box-shadow: -8px 0 24px rgba(60, 64, 67, 0.12);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+}
+
+.artifacts-drive-shell.has-shared-drive-panel .drawer.open {
+  right: min(420px, 100vw);
+}
+
+.artifacts-drive-shell .shared-drive-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid #e8eaed;
+}
+
+.artifacts-drive-shell .shared-drive-panel-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 18px 24px;
+}
+
+.artifacts-drive-shell .shared-drive-section {
+  margin-bottom: 20px;
+}
+
+.artifacts-drive-shell .shared-drive-section h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.artifacts-drive-shell .shared-drive-label {
+  display: block;
+  font-size: 12px;
+  color: #5f6368;
+  margin-bottom: 6px;
+}
+
+.artifacts-drive-shell .shared-drive-input,
+.artifacts-drive-shell .shared-drive-select {
+  width: 100%;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  background: #fff;
+}
+
+.artifacts-drive-shell .shared-drive-row {
+  display: flex;
+  gap: 8px;
+}
+
+.artifacts-drive-shell .shared-drive-row .shared-drive-input {
+  flex: 1;
+}
+
+.artifacts-drive-shell .shared-drive-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .shared-drive-members {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.artifacts-drive-shell .shared-drive-member {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f1f3f4;
+}
+
+.artifacts-drive-shell .shared-drive-member strong {
+  display: block;
+  font-size: 13px;
+}
+
+.artifacts-drive-shell .shared-drive-member span,
+.artifacts-drive-shell .shared-drive-member em {
+  display: block;
+  font-size: 11px;
+  color: #5f6368;
+  font-style: normal;
+}
+
+.artifacts-drive-shell .shared-drive-add-member {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.artifacts-drive-shell .shared-drive-danger-zone {
+  padding-top: 8px;
+  border-top: 1px solid #f1f3f4;
+}
+
+.artifacts-drive-shell .shared-drive-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(32, 33, 36, 0.45);
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.artifacts-drive-shell .shared-drive-modal {
+  width: min(420px, 100%);
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 16px 48px rgba(60, 64, 67, 0.24);
+}
+
+.artifacts-drive-shell .shared-drive-modal h3 {
+  margin: 0 0 8px;
+}
+
+.artifacts-drive-shell .shared-drive-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.artifacts-drive-shell .user-pill {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: #f1f3f4;
+  border: 1px solid #dadce0;
+  display: grid;
+  place-items: center;
+}
+
+.artifacts-drive-shell .iam-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: #111827;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: -0.04em;
+}
+
+.artifacts-drive-shell .drive-side {
+  grid-row: 2;
+  grid-column: 1;
+  background: var(--bg);
+  padding: 10px 0 14px 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.artifacts-drive-shell .new-btn {
+  height: 58px;
+  width: 112px;
+  margin: 4px 0 12px 6px;
+  border-radius: 17px;
+  background: #fff;
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.artifacts-drive-shell .new-btn:hover {
+  box-shadow: 0 2px 6px rgba(60, 64, 67, 0.22);
+}
+
+.artifacts-drive-shell .new-btn svg {
+  width: 24px;
+  height: 24px;
+}
+
+.artifacts-drive-shell .nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+  padding-right: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.artifacts-drive-shell .nav-item {
+  height: 36px;
+  border-radius: 0 18px 18px 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px 0 18px;
+  color: #3c4043;
+  font-size: 14px;
+  text-align: left;
+}
+
+.artifacts-drive-shell .nav-item:hover {
+  background: #edf2fa;
+}
+
+.artifacts-drive-shell .nav-item.active {
+  background: #c2e7ff;
+  color: #001d35;
+  font-weight: 600;
+}
+
+.artifacts-drive-shell .nav-section {
+  margin: 14px 0 4px;
+  padding: 0 18px;
+  color: #697386;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.artifacts-drive-shell .storage {
+  margin-top: auto;
+  padding: 12px 18px 0 18px;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .storage .meter {
+  height: 4px;
+  border-radius: 999px;
+  background: #d7dce5;
+  overflow: hidden;
+  margin: 10px 0;
+}
+
+.artifacts-drive-shell .storage .bar {
+  height: 100%;
+  width: 63%;
+  background: #1a73e8;
+}
+
+.artifacts-drive-shell .storage small {
+  color: #5f6368;
+  font-size: 12px;
+}
+
+.artifacts-drive-shell .drive-main {
+  grid-row: 2;
+  grid-column: 2;
+  min-width: 0;
+  min-height: 0;
+  background: var(--panel);
+  border-radius: 26px 0 0 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.artifacts-drive-shell .main-head {
+  flex-shrink: 0;
+  padding: 20px 24px 10px;
+  background: var(--panel);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.artifacts-drive-shell .title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 25px;
+  font-weight: 500;
+  color: #202124;
+}
+
+.artifacts-drive-shell .view-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.artifacts-drive-shell .segmented {
+  height: 36px;
+  border: 1px solid var(--border-2);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  background: #fff;
+}
+
+.artifacts-drive-shell .segmented button {
+  height: 100%;
+  min-width: 46px;
+  display: grid;
+  place-items: center;
+  border-right: 1px solid var(--border-2);
+}
+
+.artifacts-drive-shell .segmented button:last-child {
+  border-right: 0;
+}
+
+.artifacts-drive-shell .segmented button.active {
+  background: #c2e7ff;
+  color: #001d35;
+}
+
+.artifacts-drive-shell .filters {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  padding: 0 24px 14px;
+  align-items: center;
+  overflow: auto;
+}
+
+.artifacts-drive-shell .filter {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #c7cdd8;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: #fff;
+  color: #202124;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.artifacts-drive-shell .filter.disabled {
+  opacity: 0.45;
+}
+
+.artifacts-drive-shell .notice {
+  margin: 0 24px 16px;
+  border-radius: 12px;
+  background: #d3e3fd;
+  color: #202124;
+  min-height: 78px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 18px;
+}
+
+.artifacts-drive-shell .notice-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: white;
+  color: #1a73e8;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .notice strong {
+  font-size: 16px;
+  font-weight: 520;
+}
+
+.artifacts-drive-shell .notice p {
+  margin: 3px 0 0;
+  color: #3c4043;
+  font-size: 14px;
+}
+
+.artifacts-drive-shell .notice .spacer {
+  flex: 1;
+}
+
+.artifacts-drive-shell .upgrade {
+  background: #0b57d0;
+  color: white;
+  border-radius: 999px;
+  padding: 10px 22px;
+  font-weight: 600;
+}
+
+.artifacts-drive-shell .close-x {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  color: #0b57d0;
+}
+
+.artifacts-drive-shell .close-x:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.artifacts-drive-shell .drive-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 24px 32px;
+}
+
+.artifacts-drive-shell .list-head {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #3c4043;
+  font-size: 13px;
+}
+
+.artifacts-drive-shell .sort-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #c2e7ff;
+  color: #185abc;
+  display: grid;
+  place-items: center;
+}
+
+.artifacts-drive-shell .folder-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 8px 0 18px;
+}
+
+.artifacts-drive-shell .folder-card {
+  height: 50px;
+  border-radius: 12px;
+  background: #edf2fa;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 0 14px;
+  color: #202124;
+  font-size: 14px;
+  position: relative;
+  width: 100%;
+  text-align: left;
+}
+
+.artifacts-drive-shell .folder-card:hover {
+  background: #e3e9f3;
+}
+
+.artifacts-drive-shell .folder-card.selected {
+  box-shadow: inset 0 0 0 2px #1a73e8;
+  background: #d3e3fd;
+}
+
+.artifacts-drive-shell .kebab {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .kebab:hover {
+  background: rgba(60, 64, 67, 0.08);
+}
+
+.artifacts-drive-shell .file-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(210px, 1fr));
+  gap: 18px 14px;
+}
+
+.artifacts-drive-shell .file-card {
+  border-radius: 12px;
+  background: #edf2fa;
+  overflow: hidden;
+  position: relative;
+  outline: 0;
+  transition: box-shadow 0.14s, background 0.14s;
+  width: 100%;
+  text-align: left;
+}
+
+.artifacts-drive-shell .file-card:hover {
+  box-shadow: var(--shadow);
+  background: #e7edf7;
+}
+
+.artifacts-drive-shell .file-card.selected {
+  box-shadow: inset 0 0 0 2px #1a73e8;
+  background: #d3e3fd;
+}
+
+.artifacts-drive-shell .card-head {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+}
+
+.artifacts-drive-shell .file-name {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.artifacts-drive-shell .thumb {
+  height: 192px;
+  margin: 0 8px 8px;
+  border-radius: 6px;
+  background: white;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(60, 64, 67, 0.06);
+}
+
+.artifacts-drive-shell .thumb.doc {
+  align-items: start;
+  justify-items: stretch;
+  padding: 0;
+}
+
+.artifacts-drive-shell .doc-lines {
+  height: 100%;
+  padding: 18px;
+  background: linear-gradient(#fff, #fff);
+  width: 100%;
+}
+
+.artifacts-drive-shell .doc-lines span {
+  display: block;
+  height: 13px;
+  margin-bottom: 9px;
+  border-radius: 4px;
+  background: #dfe5ef;
+}
+
+.artifacts-drive-shell .doc-lines span:nth-child(1) {
+  width: 86%;
+  background: #f28b82;
+}
+
+.artifacts-drive-shell .doc-lines span:nth-child(2) {
+  width: 72%;
+  background: #81c995;
+}
+
+.artifacts-drive-shell .doc-lines span:nth-child(3) {
+  width: 93%;
+  background: #aecBfa;
+}
+
+.artifacts-drive-shell .doc-lines span:nth-child(4) {
+  width: 62%;
+  background: #fdd663;
+}
+
+.artifacts-drive-shell .spark-thumb {
+  width: 54px;
+  height: 54px;
+  border-radius: 6px;
+  background: #13a8c4;
+  color: white;
+  display: grid;
+  place-items: center;
+}
+
+.artifacts-drive-shell .photo-thumb {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #d2e3fc, #fff 28%, #e7e0f8 29%, #fce8e6 56%, #e6f4ea 57%);
+  display: grid;
+  place-items: center;
+  color: #3c4043;
+  font-weight: 700;
+}
+
+.artifacts-drive-shell .pdf-thumb {
+  width: 100%;
+  height: 100%;
+  background: #fff;
+}
+
+.artifacts-drive-shell .pdf-banner {
+  height: 68px;
+  background: #ea4335;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 900;
+}
+
+.artifacts-drive-shell .pdf-body {
+  padding: 18px;
+}
+
+.artifacts-drive-shell .pdf-body span {
+  display: block;
+  height: 10px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+  background: #e8eaed;
+}
+
+.artifacts-drive-shell .list-view .folder-grid,
+.artifacts-drive-shell .list-view .file-grid {
+  display: block;
+}
+
+.artifacts-drive-shell .list-view .folder-card,
+.artifacts-drive-shell .list-view .file-card {
+  height: 54px;
+  margin-bottom: 4px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+}
+
+.artifacts-drive-shell .list-view .thumb {
+  display: none;
+}
+
+.artifacts-drive-shell .list-view .card-head {
+  height: 54px;
+  flex: 1;
+}
+
+.artifacts-drive-shell .drive-rail-stack {
+  grid-row: 2;
+  grid-column: 3;
+  min-width: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: var(--lib-rail-panel-w) var(--drive-rail-w);
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  position: relative;
+  z-index: 10;
+}
+
+html[data-theme='dark'] .artifacts-drive-shell .drive-rail-stack {
+  border-left-color: var(--dashboard-border, var(--border));
+}
+
+.artifacts-drive-shell .drive-rail {
+  grid-column: 2;
+  grid-row: 1;
+  width: var(--drive-rail-w);
+  min-width: var(--drive-rail-w);
+  background: var(--bg);
+  padding: 12px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+}
+
+html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
+  border-left-color: var(--dashboard-border, var(--border));
+}
+
+.artifacts-drive-shell .drive-rail .rbtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .drive-rail .rbtn:hover {
+  background: #edf2fa;
+}
+
+.artifacts-drive-shell .drive-rail .plus {
+  margin-top: 10px;
+  border-top: 1px solid #dfe5ef;
+  padding-top: 14px;
+  width: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.artifacts-drive-shell .drawer {
+  position: absolute;
+  right: var(--drive-rail-w);
+  top: 72px;
+  bottom: 0;
+  width: 360px;
+  background: white;
+  border-left: 1px solid #dfe5ef;
+  box-shadow: -10px 0 30px rgba(60, 64, 67, 0.08);
+  transform: translateX(110%);
+  transition: transform 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  z-index: 20;
+}
+
+.artifacts-drive-shell .drawer.open {
+  transform: translateX(0);
+}
+
+.artifacts-drive-shell .drawer-head {
+  height: 70px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  border-bottom: 1px solid #edf2fa;
+}
+
+.artifacts-drive-shell .drawer-head strong {
+  font-size: 17px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.artifacts-drive-shell .drawer-body {
+  padding: 18px;
+  overflow: auto;
+}
+
+.artifacts-drive-shell .preview-box {
+  height: 200px;
+  border-radius: 14px;
+  background: #edf2fa;
+  display: grid;
+  place-items: center;
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+
+.artifacts-drive-shell .meta {
+  display: grid;
+  gap: 12px;
+}
+
+.artifacts-drive-shell .meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  border-bottom: 1px solid #edf2fa;
+  padding-bottom: 10px;
+}
+
+.artifacts-drive-shell .meta-row span:first-child {
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .new-menu {
+  position: absolute;
+  left: 28px;
+  top: 128px;
+  width: 250px;
+  background: white;
+  border: 1px solid #dfe5ef;
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  padding: 8px;
+  z-index: 30;
+  display: none;
+}
+
+.artifacts-drive-shell .new-menu.open {
+  display: block;
+}
+
+.artifacts-drive-shell .menu-item {
+  height: 42px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  font-size: 14px;
+  width: 100%;
+  text-align: left;
+}
+
+.artifacts-drive-shell .menu-item:hover {
+  background: #edf2fa;
+}
+
+.artifacts-drive-shell .context-menu {
+  position: fixed;
+  width: 220px;
+  background: white;
+  border: 1px solid #dfe5ef;
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  padding: 8px;
+  z-index: 40;
+  display: none;
+}
+
+.artifacts-drive-shell .context-menu.open {
+  display: block;
+}
+
+.artifacts-drive-shell .toast {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%) translateY(18px);
+  opacity: 0;
+  pointer-events: none;
+  background: #202124;
+  color: white;
+  border-radius: 12px;
+  padding: 13px 18px;
+  font-size: 14px;
+  box-shadow: var(--shadow-lg);
+  transition: 0.22s;
+  z-index: 50;
+}
+
+.artifacts-drive-shell .toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.artifacts-drive-shell svg.drive-icon {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .file-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .folder-icon {
+  color: #5f6368;
+  fill: #5f6368;
+  stroke: none;
+}
+
+.artifacts-drive-shell .doc-icon {
+  color: #4285f4;
+  fill: #4285f4;
+  stroke: none;
+}
+
+.artifacts-drive-shell .pdf-icon {
+  color: #ea4335;
+  fill: #ea4335;
+  stroke: none;
+}
+
+.artifacts-drive-shell .sheet-icon {
+  color: #188038;
+  fill: #188038;
+  stroke: none;
+}
+
+.artifacts-drive-shell .filter-divider {
+  color: #c3c9d3;
+}
+
+.artifacts-drive-shell .title-chevron {
+  width: 16px;
+  height: 16px;
+}
+
+.artifacts-drive-shell .lib-loading,
+.artifacts-drive-shell .lib-empty,
+.artifacts-drive-shell .lib-error {
+  padding: 32px 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.artifacts-drive-shell .lib-error {
+  color: #d93025;
+  background: #fce8e6;
+  border-radius: 12px;
+  margin: 0 24px 16px;
+  text-align: left;
+}
+
+.artifacts-drive-shell .lib-error button {
+  margin-top: 10px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: #0b57d0;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.artifacts-drive-shell .lib-session-banner {
+  margin: 0 24px 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #d3e3fd;
+  color: #001d35;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.artifacts-drive-shell .lib-source-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #5f6368;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .title-back {
+  margin-right: 6px;
+  color: #0b57d0;
+}
+
+.artifacts-drive-shell.side-collapsed {
+  --sidebar: 88px;
+}
+
+.artifacts-drive-shell.side-collapsed .topbar {
+  grid-template-columns: 88px minmax(220px, 1fr) 1fr auto;
+}
+
+.artifacts-drive-shell.side-collapsed .brand span.label,
+.artifacts-drive-shell.side-collapsed .nav-item span,
+.artifacts-drive-shell.side-collapsed .nav-section,
+.artifacts-drive-shell.side-collapsed .storage,
+.artifacts-drive-shell.side-collapsed .new-btn span {
+  display: none;
+}
+
+.artifacts-drive-shell.side-collapsed .new-btn {
+  width: 54px;
+  border-radius: 18px;
+}
+
+.artifacts-drive-shell.side-collapsed .drive-side {
+  padding-left: 8px;
+}
+
+.artifacts-drive-shell.side-collapsed .nav-item {
+  border-radius: 999px;
+  width: 52px;
+  padding: 0;
+  justify-content: center;
+}
+
+@media (max-width: 1040px) {
+  .artifacts-drive-shell {
+    --sidebar: 88px;
+  }
+
+  .artifacts-drive-shell .topbar {
+    grid-template-columns: 88px minmax(220px, 1fr) auto;
+  }
+
+  .artifacts-drive-shell .brand span.label,
+  .artifacts-drive-shell .nav-item span,
+  .artifacts-drive-shell .nav-section,
+  .artifacts-drive-shell .storage,
+  .artifacts-drive-shell .new-btn span {
+    display: none;
+  }
+
+  .artifacts-drive-shell .new-btn {
+    width: 54px;
+    border-radius: 18px;
+  }
+
+  .artifacts-drive-shell .drive-side {
+    padding-left: 8px;
+  }
+
+  .artifacts-drive-shell .nav-item {
+    border-radius: 999px;
+    width: 52px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .artifacts-drive-shell .folder-grid,
+  .artifacts-drive-shell .file-grid {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+  }
+
+  .artifacts-drive-shell .drive-rail {
+    display: none;
+  }
+
+  .artifacts-drive-shell .drawer {
+    right: 0;
+  }
+
+  .artifacts-drive-shell .drive-main {
+    grid-column: 2 / -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .artifacts-drive-shell {
+    --bg: var(--dashboard-canvas, #07111d);
+    --panel: var(--dashboard-panel, #0f172a);
+    --panel-2: color-mix(in srgb, var(--dashboard-panel, #0f172a) 88%, #1e293b);
+    --panel-3: color-mix(in srgb, var(--dashboard-panel, #0f172a) 82%, #334155);
+    --ink: var(--text-main, #e8eaf0);
+    --muted: var(--text-muted, rgba(232, 234, 240, 0.62));
+    --soft: color-mix(in srgb, var(--text-muted, rgba(232, 234, 240, 0.62)) 80%, transparent);
+    --border: var(--dashboard-border, rgba(148, 163, 184, 0.16));
+    --border-2: color-mix(in srgb, var(--dashboard-border, rgba(148, 163, 184, 0.16)) 140%, #475569);
+    --blue: var(--solar-cyan, #38d9ff);
+    --blue-soft: color-mix(in srgb, var(--solar-cyan, #38d9ff) 18%, transparent);
+    --blue-hover: color-mix(in srgb, var(--solar-cyan, #38d9ff) 12%, transparent);
+    --shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.36);
+  }
+
+  .artifacts-drive-shell .drive-app {
+    grid-template-columns: 1fr;
+    grid-template-rows: 52px 1fr;
+  }
+
+  .artifacts-drive-shell .topbar {
+    grid-column: 1;
+    grid-template-columns: 1fr auto;
+    padding: 6px 10px;
+    background: color-mix(in srgb, var(--dashboard-panel, #0f172a) 92%, transparent);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .artifacts-drive-shell .brand {
+    display: none;
+  }
+
+  .artifacts-drive-shell .search {
+    height: 40px;
+    background: color-mix(in srgb, var(--dashboard-panel, #0f172a) 70%, #1e293b);
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+
+  .artifacts-drive-shell .search:focus-within {
+    background: color-mix(in srgb, var(--dashboard-panel, #0f172a) 88%, #1e293b);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--solar-cyan, #38d9ff) 28%, transparent);
+  }
+
+  .artifacts-drive-shell .search input {
+    color: var(--ink);
+  }
+
+  .artifacts-drive-shell .top-actions .user-pill {
+    display: none;
+  }
+
+  .artifacts-drive-shell .drive-side {
+    display: none;
+  }
+
+  .artifacts-drive-shell .drive-main {
+    grid-column: 1;
+    grid-row: 2;
+    border-radius: 0;
+    background: var(--bg);
+  }
+
+  .artifacts-drive-shell .drive-main--projects {
+    background: var(--bg);
+  }
+
+  .artifacts-drive-shell .main-head {
+    padding: 14px;
+  }
+
+  .artifacts-drive-shell .title {
+    font-size: 21px;
+    color: var(--ink);
+  }
+
+  .artifacts-drive-shell .notice {
+    margin: 0 14px 12px;
+    background: color-mix(in srgb, var(--solar-orange, #f97316) 12%, transparent);
+    border-color: color-mix(in srgb, var(--solar-orange, #f97316) 35%, transparent);
+    color: var(--ink);
+  }
+
+  .artifacts-drive-shell .notice p,
+  .artifacts-drive-shell .notice .upgrade {
+    display: block;
+  }
+
+  .artifacts-drive-shell .filters {
+    padding: 0 14px 12px;
+  }
+
+  .artifacts-drive-shell .drive-content {
+    padding: 0 14px 24px;
+  }
+
+  .artifacts-drive-shell .folder-grid,
+  .artifacts-drive-shell .file-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .artifacts-drive-shell .thumb {
+    height: 170px;
+  }
+
+  .artifacts-drive-shell .drawer {
+    top: 52px;
+    width: min(360px, 100vw);
+  }
+
+  .artifacts-drive-shell .lib-rail-panel {
+    width: min(360px, calc(100vw - var(--drive-rail-w)));
+  }
+
+  .artifacts-drive-shell.has-rail-panel {
+    --lib-rail-panel-w: min(320px, calc(100vw - var(--drive-rail-w) - 48px));
+  }
+
+  .artifacts-drive-shell .lib-list-head-row,
+  .artifacts-drive-shell .lib-list-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 0 6px;
+    min-height: 48px;
+  }
+
+  .artifacts-drive-shell .lib-list-col--owner,
+  .artifacts-drive-shell .lib-list-col--size,
+  .artifacts-drive-shell .lib-list-col--modified {
+    display: none;
+  }
+
+  .artifacts-drive-shell .lib-list-col--source {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.75;
+  }
+
+  .artifacts-drive-shell .lib-projects-surface {
+    padding: 16px 14px 28px;
+  }
+
+  .artifacts-drive-shell .lib-projects-title-row h1 {
+    color: var(--ink);
+  }
+
+  .artifacts-drive-shell .lib-projects-create-btn {
+    background: color-mix(in srgb, var(--dashboard-panel, #0f172a) 80%, transparent);
+    border-color: var(--border);
+    color: var(--blue);
+  }
+
+  .artifacts-drive-shell .lib-projects-search {
+    max-width: none;
+    background: color-mix(in srgb, var(--dashboard-panel, #0f172a) 70%, #1e293b);
+    border-color: var(--border);
+    color: var(--ink);
+  }
+
+  .artifacts-drive-shell .lib-projects-table-wrap {
+    border-top-color: var(--border);
+  }
+
+  .artifacts-drive-shell .lib-projects-table th {
+    color: var(--muted);
+    border-bottom-color: var(--border);
+  }
+
+  .artifacts-drive-shell .lib-projects-table td {
+    border-bottom-color: color-mix(in srgb, var(--border) 60%, transparent);
+    color: var(--ink);
+  }
+
+  .artifacts-drive-shell .lib-projects-name-btn {
+    color: var(--ink);
+  }
+
+  .artifacts-drive-shell .lib-projects-toolbar {
+    flex-wrap: wrap;
+  }
+}
+
+/* Right rail — Lucide icons + Google-style calendar badge */
+.artifacts-drive-shell .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.artifacts-drive-shell .drive-rail .rbtn.active {
+  background: #c2e7ff;
+  color: #001d35;
+}
+
+.artifacts-drive-shell .rail-cal-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid #dadce0;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.12);
+}
+
+.artifacts-drive-shell .rail-cal-month {
+  width: 100%;
+  background: #1a73e8;
+  color: #fff;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  padding: 1px 0;
+}
+
+.artifacts-drive-shell .rail-cal-day {
+  font-size: 13px;
+  font-weight: 600;
+  color: #3c4043;
+  padding-top: 1px;
+}
+
+.artifacts-drive-shell .rail-icon--keep {
+  color: #f9ab00;
+}
+
+.artifacts-drive-shell .rail-icon--notes {
+  color: #1a73e8;
+}
+
+.artifacts-drive-shell .rail-icon--contacts {
+  color: #5f6368;
+}
+
+/* Rail slide-out panel (Calendar / Keep / Notes / Contacts) */
+.artifacts-drive-shell .lib-rail-panel {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  background: #fff;
+  border-right: 1px solid #dfe5ef;
+  box-shadow: -8px 0 24px rgba(60, 64, 67, 0.08);
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.artifacts-drive-shell .lib-rail-panel.open {
+  display: flex;
+}
+
+.artifacts-drive-shell.has-rail-panel .drawer.open {
+  right: calc(var(--lib-rail-panel-w) + var(--drive-rail-w));
+}
+
+.artifacts-drive-shell .lib-rail-panel-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 14px 12px;
+  border-bottom: 1px solid #edf2fa;
+}
+
+.artifacts-drive-shell .lib-rail-panel-kicker {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: #5f6368;
+  margin-bottom: 2px;
+}
+
+.artifacts-drive-shell .lib-rail-panel-head strong {
+  font-size: 16px;
+  font-weight: 500;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-rail-panel-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.artifacts-drive-shell .lib-rail-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+
+.artifacts-drive-shell .lib-rail-note-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  border: 1px solid #c7cdd8;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #5f6368;
+  margin-bottom: 16px;
+}
+
+.artifacts-drive-shell .lib-rail-note-input input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 14px;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-rail-empty {
+  text-align: center;
+  padding: 32px 16px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-rail-empty p {
+  margin: 12px 0 4px;
+  font-size: 15px;
+  color: #3c4043;
+}
+
+.artifacts-drive-shell .lib-rail-empty span {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.artifacts-drive-shell .lib-rail-empty-icon--keep {
+  color: #f9ab00;
+  opacity: 0.85;
+}
+
+.artifacts-drive-shell .lib-rail-empty-icon--notes {
+  color: #1a73e8;
+  opacity: 0.85;
+}
+
+.artifacts-drive-shell .lib-rail-empty-icon--contacts {
+  color: #5f6368;
+  opacity: 0.7;
+}
+
+.artifacts-drive-shell .lib-rail-panel-hint {
+  margin-top: 16px;
+  font-size: 12px;
+  color: #5f6368;
+  text-align: center;
+}
+
+.artifacts-drive-shell .lib-rail-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.artifacts-drive-shell .lib-rail-cal-today {
+  font-size: 12px;
+  color: #1a73e8;
+  font-weight: 600;
+}
+
+.artifacts-drive-shell .lib-rail-cal-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.artifacts-drive-shell .lib-rail-cal-row {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 8px;
+  align-items: stretch;
+  min-height: 36px;
+  border-top: 1px solid #edf2fa;
+  padding-top: 6px;
+  font-size: 11px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-rail-cal-slot {
+  min-height: 28px;
+}
+
+.artifacts-drive-shell .lib-rail-panel-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #5f6368;
+  font-size: 13px;
+  min-height: 120px;
+}
+
+.artifacts-drive-shell .lib-rail-spin {
+  animation: lib-rail-spin 0.9s linear infinite;
+}
+
+@keyframes lib-rail-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.artifacts-drive-shell .lib-rail-panel-error {
+  color: #c5221f;
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+
+.artifacts-drive-shell .lib-rail-open-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+  padding: 8px 14px;
+  border: 1px solid #c7cdd8;
+  border-radius: 8px;
+  background: #fff;
+  color: #1a73e8;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-rail-open-btn:hover {
+  background: #edf2fa;
+}
+
+.artifacts-drive-shell .lib-rail-open-btn--inline {
+  margin-top: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.artifacts-drive-shell .lib-rail-panel-subhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #3c4043;
+  margin-bottom: 12px;
+}
+
+.artifacts-drive-shell .lib-rail-event-list,
+.artifacts-drive-shell .lib-rail-note-list,
+.artifacts-drive-shell .lib-rail-people-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.artifacts-drive-shell .lib-rail-event-list li,
+.artifacts-drive-shell .lib-rail-people-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid #edf2fa;
+  border-radius: 8px;
+  background: #f8fafd;
+}
+
+.artifacts-drive-shell .lib-rail-event-list li strong,
+.artifacts-drive-shell .lib-rail-people-list li strong {
+  font-size: 13px;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-rail-event-list li span,
+.artifacts-drive-shell .lib-rail-people-list li span {
+  font-size: 12px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-rail-note-list li {
+  list-style: none;
+}
+
+.artifacts-drive-shell .lib-rail-note-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid #edf2fa;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-rail-note-card:hover {
+  background: #edf2fa;
+}
+
+.artifacts-drive-shell .lib-rail-note-card.static {
+  cursor: default;
+}
+
+.artifacts-drive-shell .lib-rail-note-card strong {
+  font-size: 13px;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-rail-note-card span {
+  font-size: 12px;
+  color: #5f6368;
+  line-height: 1.4;
+}
+
+.artifacts-drive-shell .lib-rail-note-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #80868b;
+}
+
+.artifacts-drive-shell .lib-rail-empty.compact {
+  padding: 24px 12px;
+}
+
+.artifacts-drive-shell .lib-rail-panel-body--calendar {
+  display: flex;
+  flex-direction: column;
+}
+
+.artifacts-drive-shell .lib-rail-add-btn {
+  color: var(--blue);
+}
+
+.artifacts-drive-shell .lib-rail-event-row,
+.artifacts-drive-shell .lib-rail-contact-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid #edf2fa;
+}
+
+.artifacts-drive-shell .lib-rail-event-row > div,
+.artifacts-drive-shell .lib-rail-contact-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.artifacts-drive-shell .lib-rail-event-row strong,
+.artifacts-drive-shell .lib-rail-contact-copy strong {
+  font-size: 13px;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-rail-event-row span,
+.artifacts-drive-shell .lib-rail-contact-copy span {
+  font-size: 12px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-rail-event-edit,
+.artifacts-drive-shell .lib-rail-contact-form,
+.artifacts-drive-shell .lib-rail-note-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.artifacts-drive-shell .lib-rail-event-edit input,
+.artifacts-drive-shell .lib-rail-event-edit textarea,
+.artifacts-drive-shell .lib-rail-contact-form input,
+.artifacts-drive-shell .lib-rail-contact-form textarea,
+.artifacts-drive-shell .lib-rail-note-compose input,
+.artifacts-drive-shell .lib-rail-note-compose textarea {
+  width: 100%;
+  border: 1px solid #c7cdd8;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #202124;
+  background: #fff;
+}
+
+.artifacts-drive-shell .lib-rail-contact-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .lib-rail-contact-avatar--fallback {
+  display: grid;
+  place-items: center;
+  background: #d3e3fd;
+  color: #0b57d0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.artifacts-drive-shell .lib-rail-people-list .lib-rail-contact-row {
+  list-style: none;
+}
+
+/* List view — Drive-style table */
+.artifacts-drive-shell .lib-list-table {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.artifacts-drive-shell .lib-list-head-row,
+.artifacts-drive-shell .lib-list-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 2.2fr) minmax(100px, 1fr) minmax(110px, 1fr) minmax(80px, 0.7fr) minmax(72px, 0.6fr);
+  align-items: center;
+  gap: 12px;
+  padding: 0 8px;
+  min-height: 44px;
+  border-radius: 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.artifacts-drive-shell .lib-list-head-row {
+  color: #5f6368;
+  font-size: 12px;
+  font-weight: 500;
+  border-bottom: 1px solid #edf2fa;
+  margin-bottom: 4px;
+  min-height: 36px;
+}
+
+.artifacts-drive-shell .lib-list-row {
+  color: #202124;
+  font-size: 13px;
+}
+
+.artifacts-drive-shell .lib-list-row:hover {
+  background: #edf2fa;
+}
+
+.artifacts-drive-shell .lib-list-row.selected {
+  background: #d3e3fd;
+  box-shadow: inset 0 0 0 1px #1a73e8;
+}
+
+.artifacts-drive-shell .lib-list-col--name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.artifacts-drive-shell .lib-list-col--owner,
+.artifacts-drive-shell .lib-list-col--modified,
+.artifacts-drive-shell .lib-list-col--size,
+.artifacts-drive-shell .lib-list-col--source {
+  color: #5f6368;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.artifacts-drive-shell .list-view .list-head {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .artifacts-drive-shell .lib-list-head-row,
+  .artifacts-drive-shell .lib-list-row {
+    grid-template-columns: minmax(160px, 1fr) minmax(90px, 0.8fr) minmax(72px, 0.5fr);
+  }
+
+  .artifacts-drive-shell .lib-list-col--owner,
+  .artifacts-drive-shell .lib-list-col--size {
+    display: none;
+  }
+}
+
+/* ── Projects surface (Drive-style) ───────────────────────────────────────── */
+
+.artifacts-drive-shell .drive-main--projects {
+  background: #fff;
+}
+
+.artifacts-drive-shell .lib-projects-surface {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px 32px;
+}
+
+.artifacts-drive-shell .lib-projects-head {
+  margin-bottom: 16px;
+}
+
+.artifacts-drive-shell .lib-projects-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.artifacts-drive-shell .lib-projects-title-row h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 500;
+}
+
+.artifacts-drive-shell .lib-projects-create-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 0 18px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid #dadce0;
+  background: #fff;
+  color: #1a73e8;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-projects-create-btn:hover {
+  background: #f6fafe;
+  border-color: #c2d7f2;
+}
+
+.artifacts-drive-shell .lib-projects-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.artifacts-drive-shell .lib-projects-search {
+  flex: 1;
+  max-width: 320px;
+  height: 36px;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  padding: 0 12px;
+  font: inherit;
+}
+
+.artifacts-drive-shell .lib-projects-table-wrap {
+  border-top: 1px solid #e8eaed;
+  overflow-x: auto;
+}
+
+.artifacts-drive-shell .lib-projects-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.artifacts-drive-shell .lib-projects-table th {
+  text-align: left;
+  color: #5f6368;
+  font-weight: 500;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e8eaed;
+}
+
+.artifacts-drive-shell .lib-projects-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f1f3f4;
+  vertical-align: middle;
+}
+
+.artifacts-drive-shell .lib-projects-sort {
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.artifacts-drive-shell .lib-projects-name-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: none;
+  font: inherit;
+  color: #202124;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.artifacts-drive-shell .lib-projects-name-btn:hover {
+  color: #1a73e8;
+}
+
+.artifacts-drive-shell .lib-project-folder-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  background: #e8f0fe;
+  color: #1a73e8;
+}
+
+.artifacts-drive-shell .lib-projects-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.artifacts-drive-shell .lib-projects-owner-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #fce8b2;
+  color: #3c4043;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.artifacts-drive-shell .lib-project-muted {
+  color: #5f6368;
+  font-size: 12px;
+  margin: 0;
+}
+
+.artifacts-drive-shell .lib-project-detail {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.artifacts-drive-shell .lib-project-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e8eaed;
+}
+
+.artifacts-drive-shell .lib-project-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.artifacts-drive-shell .lib-project-detail-title h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.artifacts-drive-shell .lib-project-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.artifacts-drive-shell .lib-project-detail-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  overflow: hidden;
+}
+
+.artifacts-drive-shell .lib-project-detail-side {
+  border-right: 1px solid #e8eaed;
+  padding: 16px;
+  overflow: auto;
+}
+
+.artifacts-drive-shell .lib-project-detail-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.artifacts-drive-shell .lib-project-detail-tabs button {
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+  color: #3c4043;
+}
+
+.artifacts-drive-shell .lib-project-detail-tabs button.active {
+  background: #e8f0fe;
+  color: #1a73e8;
+  font-weight: 500;
+}
+
+.artifacts-drive-shell .lib-project-detail-main {
+  padding: 24px;
+  overflow: auto;
+}
+
+.artifacts-drive-shell .lib-project-detail-main h3 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  font-weight: 400;
+}
+
+.artifacts-drive-shell .lib-project-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.artifacts-drive-shell .lib-project-meta-grid span {
+  display: block;
+  font-size: 11px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-project-meta-grid strong {
+  font-size: 14px;
+}
+
+.artifacts-drive-shell .lib-project-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.artifacts-drive-shell .lib-project-tags span {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f1f3f4;
+  font-size: 11px;
+}
+
+.artifacts-drive-shell .lib-project-sources-empty {
+  text-align: center;
+  padding: 24px 12px;
+}
+
+.artifacts-drive-shell .lib-project-sources-illustration {
+  width: 120px;
+  height: 80px;
+  margin: 0 auto 12px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #e8f5e9, #fff9c4);
+}
+
+.artifacts-drive-shell .lib-project-source-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.artifacts-drive-shell .lib-project-source-list li {
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f3f4;
+}
+
+.artifacts-drive-shell .lib-project-kanban-wrap {
+  min-height: 420px;
+}
+
+@media (max-width: 900px) {
+  .artifacts-drive-shell .lib-project-detail-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Projects grid (Claude-style) ─────────────────────────────────────────── */
+
+.artifacts-drive-shell .lib-proj-grid-surface,
+.artifacts-drive-shell .lib-proj-detail {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 28px 32px 40px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-head h1,
+.artifacts-drive-shell .lib-proj-detail-head h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 500;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-proj-grid-search {
+  position: relative;
+  margin-bottom: 28px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-search svg {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9aa0a6;
+}
+
+.artifacts-drive-shell .lib-proj-grid-search input {
+  width: 100%;
+  padding: 10px 14px 10px 40px;
+  font: inherit;
+  font-size: 14px;
+  border: 1px solid #dadce0;
+  border-radius: 10px;
+  background: #fff;
+  outline: none;
+}
+
+.artifacts-drive-shell .lib-proj-grid-search input:focus {
+  border-color: #80868b;
+}
+
+.artifacts-drive-shell .lib-proj-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 760px) {
+  .artifacts-drive-shell .lib-proj-grid {
+    grid-template-columns: 1fr;
+  }
+  .artifacts-drive-shell .lib-proj-grid-surface,
+  .artifacts-drive-shell .lib-proj-detail {
+    padding: 20px 16px 32px;
+  }
+}
+
+.artifacts-drive-shell .lib-proj-grid-card {
+  text-align: left;
+  padding: 0;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card.is-selected {
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.25);
+}
+
+.artifacts-drive-shell .lib-proj-grid-card-cover {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #e8eaed;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card-initials {
+  font-size: 28px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  letter-spacing: 0.04em;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card-top,
+.artifacts-drive-shell .lib-proj-grid-card-desc,
+.artifacts-drive-shell .lib-proj-grid-card-meta {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card-top {
+  padding-top: 14px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card-meta {
+  padding-bottom: 16px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-check {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  color: #fff;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+}
+
+.artifacts-drive-shell .lib-proj-grid-card {
+  position: relative;
+}
+
+.artifacts-drive-shell .lib-proj-grid-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.artifacts-drive-shell .lib-proj-btn.danger {
+  color: #c5221f;
+}
+
+.artifacts-drive-shell .lib-proj-sync-hint {
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.artifacts-drive-shell .lib-proj-detail-hero {
+  height: 160px;
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-proj-detail-hero.is-uploading {
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.artifacts-drive-shell .lib-proj-detail-hero-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.artifacts-drive-shell .lib-proj-detail-hero:hover .lib-proj-detail-hero-overlay,
+.artifacts-drive-shell .lib-proj-detail-hero:focus-visible .lib-proj-detail-hero-overlay,
+.artifacts-drive-shell .lib-proj-detail-hero.is-uploading .lib-proj-detail-hero-overlay {
+  opacity: 1;
+}
+
+.lib-proj-hidden-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lib-proj-grid-skeleton .lib-proj-skeleton-card {
+  pointer-events: none;
+  animation: lib-proj-pulse 1.4s ease-in-out infinite;
+}
+
+.lib-proj-skeleton-cover {
+  height: 96px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #eceff1 25%, #f5f5f5 50%, #eceff1 75%);
+  background-size: 200% 100%;
+  margin-bottom: 12px;
+}
+
+.lib-proj-skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+  background: #eceff1;
+  margin-bottom: 8px;
+}
+
+.lib-proj-skeleton-line.lg {
+  width: 70%;
+  height: 14px;
+}
+
+.lib-proj-skeleton-line.sm {
+  width: 40%;
+  margin-bottom: 0;
+}
+
+@keyframes lib-proj-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.65;
+  }
+}
+
+.lib-proj-quick-create {
+  position: relative;
+}
+
+.lib-proj-quick-create-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: 260px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(60, 64, 67, 0.18);
+  z-index: 40;
+  padding: 8px;
+}
+
+.lib-proj-quick-create-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lib-proj-quick-create-list button {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  padding: 10px;
+  border-radius: 8px;
+  text-align: left;
+  cursor: pointer;
+  color: #202124;
+}
+
+.lib-proj-quick-create-list button:hover {
+  background: #f1f3f4;
+}
+
+.lib-proj-quick-create-list strong {
+  display: block;
+  font-size: 14px;
+}
+
+.lib-proj-quick-create-list small {
+  display: block;
+  font-size: 12px;
+  color: #5f6368;
+  margin-top: 2px;
+}
+
+.lib-proj-quick-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px;
+}
+
+.lib-proj-quick-create-kicker {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5f6368;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.lib-proj-quick-create-form input,
+.lib-proj-quick-create-form textarea {
+  width: 100%;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.lib-proj-quick-create-error {
+  margin: 0;
+  font-size: 12px;
+  color: #c5221f;
+}
+
+.lib-proj-quick-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.lib-proj-files-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.lib-proj-files-list a {
+  display: block;
+  padding: 6px 0;
+  font-size: 13px;
+  color: #1a73e8;
+  text-decoration: none;
+}
+
+.lib-proj-files-list a:hover {
+  text-decoration: underline;
+}
+
+.artifacts-drive-shell .lib-proj-detail-hero img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.artifacts-drive-shell .lib-proj-detail-hero-initials {
+  font-size: 48px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.rail-quick-create {
+  position: relative;
+}
+
+.rail-quick-create-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: 260px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(60, 64, 67, 0.18);
+  z-index: 40;
+  padding: 8px;
+}
+
+.rail-quick-create-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rail-quick-create-list button {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  text-align: left;
+  cursor: pointer;
+  color: #202124;
+}
+
+.rail-quick-create-list button:hover {
+  background: #f1f3f4;
+}
+
+.rail-quick-create-list strong {
+  display: block;
+  font-size: 13px;
+}
+
+.rail-quick-create-list small {
+  display: block;
+  font-size: 11px;
+  color: #5f6368;
+  margin-top: 2px;
+}
+
+.rail-quick-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rail-quick-create-kicker {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: #5f6368;
+  text-transform: uppercase;
+}
+
+.rail-quick-create-form input,
+.rail-quick-create-form textarea {
+  width: 100%;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.rail-quick-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.lib-rail-open-btn.primary {
+  background: #1a73e8;
+  color: #fff;
+  border-color: #1a73e8;
+}
+
+.lib-rail-note-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.lib-rail-note-row .lib-rail-note-card,
+.lib-rail-note-row .lib-rail-note-card.static {
+  flex: 1;
+  min-width: 0;
+}
+
+.lib-rail-note-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  padding-top: 4px;
+}
+
+.lib-rail-icon-btn {
+  border: 0;
+  background: transparent;
+  padding: 4px;
+  border-radius: 6px;
+  color: #5f6368;
+  cursor: pointer;
+}
+
+.lib-rail-icon-btn:hover {
+  background: #f1f3f4;
+  color: #202124;
+}
+
+.lib-rail-icon-btn.danger:hover {
+  color: #c5221f;
+  background: #fce8e6;
+}
+
+.lib-rail-note-edit {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lib-rail-note-edit input,
+.lib-rail-note-edit textarea {
+  width: 100%;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card:hover {
+  border-color: #bdc1c6;
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.12);
+}
+
+.artifacts-drive-shell .lib-proj-grid-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card-top h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card-desc {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #5f6368;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card-meta {
+  margin: 0;
+  font-size: 12px;
+  color: #9aa0a6;
+}
+
+.artifacts-drive-shell .lib-proj-star,
+.artifacts-drive-shell .lib-proj-star-btn {
+  color: #f9ab00;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .lib-proj-star-btn {
+  opacity: 0;
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-card:hover .lib-proj-star-btn {
+  opacity: 1;
+}
+
+.artifacts-drive-shell .lib-proj-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 0;
+}
+
+.artifacts-drive-shell .lib-proj-btn.primary {
+  background: #202124;
+  color: #fff;
+}
+
+.artifacts-drive-shell .lib-proj-btn.primary:hover {
+  background: #3c4043;
+}
+
+.artifacts-drive-shell .lib-proj-btn.outline {
+  background: #fff;
+  border: 1px solid #dadce0;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-proj-btn.ghost {
+  background: transparent;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-proj-btn.ghost:hover {
+  background: #f1f3f4;
+}
+
+.artifacts-drive-shell .lib-proj-btn.sm {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.artifacts-drive-shell .lib-proj-grid-empty {
+  text-align: center;
+  padding: 48px 16px;
+}
+
+.artifacts-drive-shell .lib-proj-back {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-bottom: 24px;
+  font: inherit;
+  font-size: 14px;
+  color: #5f6368;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-proj-back:hover {
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-proj-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.artifacts-drive-shell .lib-proj-detail-head p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-proj-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.artifacts-drive-shell .lib-proj-icon-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #5f6368;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-proj-icon-btn:hover {
+  background: #f1f3f4;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-proj-menu {
+  position: absolute;
+  right: 0;
+  top: 40px;
+  z-index: 30;
+  min-width: 168px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(60, 64, 67, 0.16);
+  padding: 6px 0;
+}
+
+.artifacts-drive-shell .lib-proj-menu button,
+.artifacts-drive-shell .lib-proj-menu a {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  text-align: left;
+  font-size: 13px;
+  color: #202124;
+  text-decoration: none;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-proj-menu button:hover,
+.artifacts-drive-shell .lib-proj-menu a:hover {
+  background: #f8f9fa;
+}
+
+.artifacts-drive-shell .lib-proj-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+  gap: 32px;
+}
+
+@media (max-width: 900px) {
+  .artifacts-drive-shell .lib-proj-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.artifacts-drive-shell .lib-proj-composer {
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 14px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  position: relative;
+}
+
+.artifacts-drive-shell .lib-proj-composer p {
+  margin: 0;
+  flex: 1;
+  font-size: 14px;
+  color: #9aa0a6;
+}
+
+.artifacts-drive-shell .lib-proj-composer-plus {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  background: #fff;
+  color: #9aa0a6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-proj-chat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.artifacts-drive-shell .lib-proj-chat-count {
+  font-size: 12px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-proj-chat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.artifacts-drive-shell .lib-proj-chat-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid #f1f3f4;
+  background: none;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-proj-chat-row span:first-child {
+  font-size: 14px;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-proj-chat-row span:last-child {
+  font-size: 12px;
+  color: #9aa0a6;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .lib-proj-chat-row:hover span:first-child {
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-proj-chat-empty {
+  padding: 16px 0;
+  font-size: 13px;
+}
+
+.artifacts-drive-shell .lib-proj-card {
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 14px;
+  margin-bottom: 16px;
+}
+
+.artifacts-drive-shell .lib-proj-card.relative {
+  position: relative;
+}
+
+.artifacts-drive-shell .lib-proj-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.artifacts-drive-shell .lib-proj-card-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-proj-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f1f3f4;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-proj-card p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-proj-card-meta {
+  margin-top: 8px !important;
+  font-size: 11px !important;
+  color: #9aa0a6 !important;
+}
+
+.artifacts-drive-shell .lib-proj-instructions {
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid #e8eaed;
+  border-radius: 8px;
+  resize: vertical;
+  min-height: 88px;
+  outline: none;
+}
+
+.artifacts-drive-shell .lib-proj-files-empty {
+  border: 1px dashed #dadce0;
+  border-radius: 10px;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.artifacts-drive-shell .lib-proj-files-empty p {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #9aa0a6;
+}
+
+.artifacts-drive-shell .lib-proj-add-file-menu {
+  position: absolute;
+  right: 0;
+  top: 36px;
+  z-index: 20;
+  width: 220px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(60, 64, 67, 0.14);
+  padding: 6px 0;
+}
+
+.artifacts-drive-shell .lib-proj-add-file-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  color: #3c4043;
+  cursor: pointer;
+  text-align: left;
+}
+
+.artifacts-drive-shell .lib-proj-add-file-item:hover {
+  background: #f8f9fa;
+}
+
+.artifacts-drive-shell .lib-proj-add-file-item span {
+  color: #9aa0a6;
+}
+
+.artifacts-drive-shell .lib-proj-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 16px;
+}
+
+.artifacts-drive-shell .lib-proj-modal {
+  width: 100%;
+  max-width: 440px;
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #dadce0;
+  box-shadow: 0 16px 48px rgba(60, 64, 67, 0.2);
+  padding: 20px;
+}
+
+.artifacts-drive-shell .lib-proj-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.artifacts-drive-shell .lib-proj-modal-head h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.artifacts-drive-shell .lib-proj-modal-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid #dadce0;
+  border-radius: 10px;
+  margin-bottom: 12px;
+  color: #9aa0a6;
+}
+
+.artifacts-drive-shell .lib-proj-modal-search input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  font-size: 13px;
+  background: transparent;
+}
+
+.artifacts-drive-shell .lib-proj-add-chat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.artifacts-drive-shell .lib-proj-add-chat-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f3f4;
+}
+
+.artifacts-drive-shell .lib-proj-add-chat-title {
+  flex: 1;
+  font-size: 13px;
+  color: #202124;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifacts-drive-shell .lib-proj-add-chat-time {
+  font-size: 11px;
+  color: #9aa0a6;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .lib-proj-modal-empty {
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.artifacts-drive-shell .lib-proj-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* ── 2026-07-11 restore companion: mobile 768px fixes (were kept after accidental base wipe) ── */
 @media (max-width: 768px) {
 
-  /* Kill the minmax floor that causes horizontal overflow */
   .artifacts-drive-shell .folder-grid {
     grid-template-columns: 1fr 1fr;
     gap: 8px;
@@ -22,7 +3436,6 @@
     gap: 10px;
   }
 
-  /* Folder cards — enforce full width, no overflow */
   .artifacts-drive-shell .folder-card {
     min-width: 0;
     width: 100%;
@@ -35,7 +3448,6 @@
     width: 100%;
   }
 
-  /* main-head: stack title and tools vertically on narrow screens */
   .artifacts-drive-shell .main-head {
     flex-wrap: wrap;
     gap: 10px;
@@ -52,13 +3464,10 @@
     flex-shrink: 0;
   }
 
-  /* Suppress the "Connect a local folder via Computers in the sidebar" notice
-     on mobile — the sidebar is hidden so the instruction is broken/misleading */
   .artifacts-drive-shell .notice--local-folder-tip {
     display: none;
   }
 
-  /* Re-anchor new-menu to topbar area instead of absolute sidebar position */
   .artifacts-drive-shell .new-menu {
     left: 10px;
     top: 58px;
@@ -66,10 +3475,6 @@
     max-width: 280px;
   }
 
-  /* Drive-side: convert from display:none to a slide-in drawer so the
-     existing hamb button in .brand actually does something on mobile.
-     The React component calls setSideCollapsed which toggles .side-collapsed;
-     on mobile we hook into that same class to open/close a drawer. */
   .artifacts-drive-shell .drive-side {
     display: flex;
     position: fixed;
@@ -87,11 +3492,6 @@
     overflow-y: auto;
   }
 
-  /* When side is NOT collapsed (default open state from hamb toggle),
-     slide the drawer in. The component defaults sideCollapsed=false,
-     meaning the drawer should be hidden by default on mobile.
-     We invert: hide when !side-collapsed, show when side-collapsed is absent
-     i.e. when hamb has been tapped to "open" the menu. */
   .artifacts-drive-shell:not(.side-collapsed) .drive-side {
     transform: translateX(0);
   }
@@ -100,7 +3500,6 @@
     transform: translateX(-100%);
   }
 
-  /* Backdrop overlay when drawer is open */
   .artifacts-drive-shell:not(.side-collapsed)::before {
     content: '';
     position: fixed;
@@ -109,23 +3508,19 @@
     z-index: 99;
   }
 
-  /* drive-main must span full width since sidebar is now a floating drawer */
   .artifacts-drive-shell .drive-main {
     grid-column: 1 !important;
     grid-row: 2;
   }
 
-  /* drive-app grid — ensure single column, no sidebar column allocation */
   .artifacts-drive-shell .drive-app {
     grid-template-columns: 1fr !important;
   }
 
-  /* Thumb height — shorter on single-column mobile */
   .artifacts-drive-shell .thumb {
     height: 140px;
   }
 
-  /* Filters row — allow horizontal scroll, don't wrap */
   .artifacts-drive-shell .filters {
     gap: 6px;
     padding: 0 10px 10px;
@@ -139,12 +3534,10 @@
     flex-shrink: 0;
   }
 
-  /* Drive content padding */
   .artifacts-drive-shell .drive-content {
     padding: 0 10px 80px;
   }
 
-  /* Drawer (file detail panel) — full width on mobile */
   .artifacts-drive-shell .drawer {
     width: 100vw;
     right: 0;
@@ -153,18 +3546,15 @@
     z-index: 110;
   }
 
-  /* Context menu — prevent going off-screen */
   .artifacts-drive-shell .context-menu {
     width: calc(100vw - 24px);
     max-width: 240px;
   }
 
-  /* list-head "Name ↓" — hide on mobile, takes up space */
   .artifacts-drive-shell .list-head {
     display: none;
   }
 
-  /* nav items in the drawer — full-width rounded */
   .artifacts-drive-shell .nav-item {
     border-radius: 8px;
     width: 100%;

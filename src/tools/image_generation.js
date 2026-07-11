@@ -3,7 +3,7 @@
  * Used by /api/images/generate|edit and agent chat SSE tool paths.
  *
  * Product rule: AI creates drafts. Users create canon.
- * Default persist: false — drafts in drafts/images/{user_id}/ until POST /api/images/commit.
+ * Default persist: false — drafts in drafts/images/{user_id}/ until POST /api/images/save.
  */
 
 import { generateImageOpenAI, normalizeOpenAiImageQuality } from '../integrations/openai.js';

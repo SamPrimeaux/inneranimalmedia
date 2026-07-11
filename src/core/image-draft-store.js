@@ -225,7 +225,9 @@ export async function discardImageDraft(env, generationId, userId) {
   return { ok: true, generation_id: generationId, status: 'discarded' };
 }
 
+
 /**
+ * Promote a draft into the library (canon). AI creates drafts; users save.
  * @param {unknown} env
  * @param {{
  *   authUser: { id: string; tenant_id?: string | null };
@@ -237,10 +239,12 @@ export async function discardImageDraft(env, generationId, userId) {
  *   generation_id: string;
  *   label?: string;
  *   category?: string;
+ *   tags?: string[] | string;
+ *   project_id?: string | null;
  *   register_cms_asset?: boolean;
  * }} body
  */
-export async function commitImageDraft(env, ctx, body) {
+export async function saveImageDraft(env, ctx, body) {
   if (!env?.DB) throw new Error('Database not configured');
   const userId = String(ctx.authUser?.id || '').trim();
   if (!userId) throw new Error('Unauthorized');
@@ -252,6 +256,8 @@ export async function commitImageDraft(env, ctx, body) {
   if (!row) throw new Error('draft_not_found');
   if (row.expired) throw new Error('draft_expired');
   if (String(row.status) === 'committed') {
+    const w = row.width != null ? Number(row.width) : null;
+    const h = row.height != null ? Number(row.height) : null;
     return {
       ok: true,
       status: 'saved',
@@ -260,10 +266,13 @@ export async function commitImageDraft(env, ctx, body) {
       image_id: row.committed_image_id,
       url: assetUrlFromR2Key(ctx.origin, row.committed_r2_key),
       r2_key: row.committed_r2_key,
-      already_committed: true,
+      already_saved: true,
+      width: w,
+      height: h,
+      size_label: w && h ? `${w}×${h}` : null,
     };
   }
-  if (String(row.status) !== 'draft') throw new Error('draft_not_committable');
+  if (String(row.status) !== 'draft') throw new Error('draft_not_savable');
 
   const binding = getR2Binding(env, BUCKET);
   if (!binding?.get || !binding?.put) throw new Error('R2 not configured');
@@ -288,15 +297,44 @@ export async function commitImageDraft(env, ctx, body) {
   const uploadPack = await resolvePrimaryUploadPrefix(env, ctx.authUser, workspaceId || null);
   if (uploadPack.error) throw new Error(uploadPack.error);
 
+  const label = String(body.label || row.prompt || 'Generated image').trim().slice(0, 120);
+  const category = String(body.category || 'image_gen').trim().slice(0, 64).toLowerCase();
+  const tagList = normalizeSaveTags(body.tags, category);
+  const width = row.width != null ? Number(row.width) || null : null;
+  const height = row.height != null ? Number(row.height) || null : null;
+  const sizeLabel = width && height ? `${width}×${height}` : null;
+
+  let projectId = body.project_id != null ? String(body.project_id).trim() || null : null;
+  let projectSlug = '';
+  if (projectId) {
+    const resolved = await resolveProjectForImage(env, projectId, workspaceId);
+    if (!resolved) throw new Error('project_not_found');
+    projectId = resolved.id;
+    projectSlug = resolved.slug || '';
+  }
+
   const contentType = obj.httpMetadata?.contentType || 'image/png';
   const ext = extFromContentType(contentType);
-  const committedKey = `${uploadPack.prefix}committed-${generationId.replace(/[^a-z0-9]/gi, '').slice(0, 20)}.${ext}`;
+  const committedKey = `${uploadPack.prefix}saved-${generationId.replace(/[^a-z0-9]/gi, '').slice(0, 20)}.${ext}`;
   const buf = await obj.arrayBuffer();
+  const sizeBytes = buf.byteLength;
 
   await putR2ImageWithCustomMetadata(binding, committedKey, buf, {
     contentType,
-    tags: [category],
-    meta: { label, category, project_slug: '', notes: '', tenant_slug: '', is_live: false, preferred_bg: '' },
+    tags: tagList,
+    meta: {
+      label,
+      category,
+      project_slug: projectSlug,
+      notes: '',
+      tenant_slug: '',
+      is_live: false,
+      preferred_bg: '',
+      width,
+      height,
+      size_bytes: sizeBytes,
+      size_label: sizeLabel,
+    },
     scope: { userId, workspaceId: workspaceId || '', tenantId },
     alt_text: label,
     description: row.prompt ? String(row.prompt).slice(0, 160) : null,
@@ -307,9 +345,24 @@ export async function commitImageDraft(env, ctx, body) {
   const origin = String(ctx.origin || env.IAM_ORIGIN || 'https://inneranimalmedia.com').replace(/\/$/, '');
   const publicUrl = assetUrlFromR2Key(origin, committedKey);
   const imageId = `img_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-  const label = String(body.label || row.prompt || 'Generated image').trim().slice(0, 120);
-  const category = String(body.category || 'image_gen').trim().slice(0, 64);
   const now = Math.floor(Date.now() / 1000);
+
+  const metadata = {
+    generation_id: generationId,
+    purpose: row.purpose,
+    provider: row.provider,
+    model: row.model,
+    content_tier: row.content_tier ?? null,
+    cost_usd: row.cost_usd ?? null,
+    saved_from: 'draft',
+    label,
+    category,
+    project_slug: projectSlug,
+    width,
+    height,
+    size_bytes: sizeBytes,
+    size_label: sizeLabel,
+  };
 
   await env.DB.prepare(
     `INSERT INTO images (
@@ -322,28 +375,22 @@ export async function commitImageDraft(env, ctx, body) {
     .bind(
       imageId,
       tenantId,
-      null,
+      projectId,
       userId,
       `${generationId}.${ext}`,
       label,
       contentType,
-      buf.byteLength,
-      row.width != null ? Number(row.width) : null,
-      row.height != null ? Number(row.height) : null,
+      sizeBytes,
+      width,
+      height,
       committedKey,
       null,
       publicUrl,
       publicUrl,
       label,
-      null,
-      JSON.stringify([category]),
-      JSON.stringify({
-        generation_id: generationId,
-        purpose: row.purpose,
-        provider: row.provider,
-        model: row.model,
-        committed_from: 'draft',
-      }),
+      sizeLabel ? `${label} (${sizeLabel})` : null,
+      JSON.stringify(tagList),
+      JSON.stringify(metadata),
       now,
       now,
       workspaceId || null,
@@ -375,10 +422,10 @@ export async function commitImageDraft(env, ctx, body) {
         label,
         label,
         publicUrl.startsWith('/assets/') ? publicUrl : committedKey,
-        buf.byteLength,
+        sizeBytes,
         contentType,
         category,
-        JSON.stringify(['image_gen', category]),
+        JSON.stringify(['image_gen', ...tagList]),
         committedKey,
         publicUrl,
         JSON.stringify({
@@ -386,6 +433,11 @@ export async function commitImageDraft(env, ctx, body) {
           generation_id: generationId,
           image_id: imageId,
           purpose: row.purpose,
+          width,
+          height,
+          size_bytes: sizeBytes,
+          size_label: sizeLabel,
+          project_id: projectId,
         }),
         userId,
       )
@@ -414,7 +466,137 @@ export async function commitImageDraft(env, ctx, body) {
     url: publicUrl,
     public_url: publicUrl,
     r2_key: committedKey,
+    project_id: projectId,
+    category,
+    tags: tagList,
+    width,
+    height,
+    size_bytes: sizeBytes,
+    size_label: sizeLabel,
   };
+}
+
+/** Suggested library categories for generated images. */
+export const IMAGE_SAVE_CATEGORY_PRESETS = Object.freeze([
+  'logo',
+  'website',
+  'mockup',
+  'hero',
+  'social',
+  'backdrop',
+  'image_gen',
+]);
+
+/**
+ * @param {unknown} tags
+ * @param {string} category
+ * @returns {string[]}
+ */
+function normalizeSaveTags(tags, category) {
+  const out = new Set();
+  const cat = String(category || '').trim().toLowerCase();
+  if (cat) out.add(cat);
+  out.add('image_gen');
+  if (Array.isArray(tags)) {
+    for (const t of tags) {
+      const s = String(t || '').trim().toLowerCase().slice(0, 48);
+      if (s) out.add(s);
+    }
+  } else if (typeof tags === 'string' && tags.trim()) {
+    for (const part of tags.split(/[,|]/)) {
+      const s = part.trim().toLowerCase().slice(0, 48);
+      if (s) out.add(s);
+    }
+  }
+  return [...out].slice(0, 24);
+}
+
+/**
+ * @param {unknown} env
+ * @param {string} projectId
+ * @param {string} workspaceId
+ * @returns {Promise<{ id: string, slug: string } | null>}
+ */
+export async function resolveProjectForImage(env, projectId, workspaceId) {
+  if (!env?.DB || !projectId) return null;
+  const pid = String(projectId).trim();
+  const ws = String(workspaceId || '').trim();
+  const row = await env.DB.prepare(
+    ws
+      ? `SELECT id, name FROM projects WHERE id = ? AND workspace_id = ? LIMIT 1`
+      : `SELECT id, name FROM projects WHERE id = ? LIMIT 1`,
+  )
+    .bind(...(ws ? [pid, ws] : [pid]))
+    .first()
+    .catch(() => null);
+  if (!row?.id) return null;
+
+  let slug = '';
+  const wp = await env.DB.prepare(
+    `SELECT slug FROM workspace_projects
+     WHERE json_extract(metadata_json, '$.projects_table_id') = ?
+     LIMIT 1`,
+  )
+    .bind(String(row.id))
+    .first()
+    .catch(() => null);
+  if (wp?.slug) slug = String(wp.slug);
+  else if (row.name) {
+    slug = String(row.name)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 64);
+  }
+  return { id: String(row.id), slug };
+}
+
+/**
+ * Attach or detach a library image to a project.
+ * @param {unknown} env
+ * @param {{ imageId: string, userId: string, workspaceId: string, projectId: string | null }} p
+ */
+export async function setImageProject(env, p) {
+  if (!env?.DB) throw new Error('Database not configured');
+  const imageId = String(p.imageId || '').trim();
+  const userId = String(p.userId || '').trim();
+  const workspaceId = String(p.workspaceId || '').trim();
+  if (!imageId || !userId || !workspaceId) throw new Error('image_id and workspace required');
+
+  const row = await env.DB.prepare(
+    `SELECT id, user_id, workspace_id, metadata FROM images WHERE id = ? LIMIT 1`,
+  )
+    .bind(imageId)
+    .first();
+  if (!row?.id) throw new Error('image_not_found');
+  if (String(row.user_id) !== userId || String(row.workspace_id) !== workspaceId) {
+    throw new Error('forbidden');
+  }
+
+  let projectId = p.projectId != null ? String(p.projectId).trim() || null : null;
+  let projectSlug = '';
+  if (projectId) {
+    const resolved = await resolveProjectForImage(env, projectId, workspaceId);
+    if (!resolved) throw new Error('project_not_found');
+    projectId = resolved.id;
+    projectSlug = resolved.slug || '';
+  }
+
+  let meta = {};
+  try {
+    meta = row.metadata ? JSON.parse(String(row.metadata)) : {};
+  } catch {
+    meta = {};
+  }
+  meta.project_slug = projectSlug;
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB.prepare(
+    `UPDATE images SET project_id = ?, metadata = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
+  )
+    .bind(projectId, JSON.stringify(meta), now, imageId, userId)
+    .run();
+
+  return { ok: true, image_id: imageId, project_id: projectId, project_slug: projectSlug || null };
 }
 
 /**

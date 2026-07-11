@@ -11,9 +11,10 @@
  * GET    /api/images/drive/:fileId/preview|thumbnail — OAuth-proxied preview (browse only; no R2)
  * DELETE /api/images/:id
  * POST   /api/images/generate  { persist: false default — draft until commit }
- * POST   /api/images/commit   { generation_id } — save draft to library
+ * POST   /api/images/save     { generation_id, category?, tags?, project_id? } — save draft to library
  * POST   /api/images/discard  { generation_id } — delete draft
  * POST   /api/images/rate     { generation_id, rating: 1|-1 } — thumbs → Thompson
+ * POST   /api/images/:id/project { project_id | null } — attach/detach project
  * POST   /api/images/edit | /api/images/:id/meta  (legacy compat)
  * GET    /api/images/tags?workspace_id=
  * PATCH  /api/images/:id  { tags, label, notes, alt_text, category, project_slug, is_live, preferred_bg }
@@ -32,9 +33,11 @@ import { getOAuthToken } from '../core/user-oauth-token.js';
 import { canAccessMediaObjectKey } from '../core/media-r2-access.js';
 import { rateImageGeneration, runImageGenerationForTool } from '../tools/image_generation.js';
 import {
-  commitImageDraft,
+  saveImageDraft,
+  setImageProject,
   discardImageDraft,
   imageGenerationShouldPersist,
+  IMAGE_SAVE_CATEGORY_PRESETS,
 } from '../core/image-draft-store.js';
 import {
   enrichItemsFromR2CustomMetadata,
@@ -395,7 +398,7 @@ async function resolveScope(env, authUser, identity, wsHint) {
   return { userId, workspaceId, tenantId };
 }
 
-async function listD1Images(env, { userId, workspaceId, source, tag, search, limit, offset }) {
+async function listD1Images(env, { userId, workspaceId, source, tag, search, projectId, category, limit, offset }) {
   let sql = `SELECT * FROM images
     WHERE user_id = ? AND workspace_id = ? AND COALESCE(status, 'active') = 'active'`;
   const binds = [userId, workspaceId];
@@ -403,6 +406,18 @@ async function listD1Images(env, { userId, workspaceId, source, tag, search, lim
     sql += ` AND (cloudflare_image_id IS NULL OR cloudflare_image_id = '')`;
   } else if (source === 'cf_images') {
     sql += ` AND cloudflare_image_id IS NOT NULL AND cloudflare_image_id != ''`;
+  }
+  if (projectId) {
+    sql += ` AND project_id = ?`;
+    binds.push(String(projectId).trim());
+  }
+  if (category) {
+    const c = String(category).trim().toLowerCase();
+    sql += ` AND (
+      lower(COALESCE(json_extract(metadata, '$.category'), '')) = ?
+      OR lower(COALESCE(tags, '')) LIKE ?
+    )`;
+    binds.push(c, `%"${c}"%`);
   }
   if (tag) {
     sql += ` AND (
@@ -738,6 +753,8 @@ async function handleGetImages(request, url, env, authUser, identity) {
   const perPage = Math.min(200, Math.max(1, parseInt(url.searchParams.get('per_page') || '50', 10) || 50));
   const tagFilter = (url.searchParams.get('tag') || '').trim().toLowerCase();
   const searchQ = (url.searchParams.get('q') || url.searchParams.get('search') || '').trim();
+  const projectIdFilter = (url.searchParams.get('project_id') || '').trim();
+  const categoryFilter = (url.searchParams.get('category') || '').trim().toLowerCase();
   const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
   const origin = url.origin;
 
@@ -745,6 +762,14 @@ async function handleGetImages(request, url, env, authUser, identity) {
     if (tagFilter) {
       const tags = (item.tags || []).map((t) => String(t).toLowerCase());
       if (!tags.includes(tagFilter)) return false;
+    }
+    if (projectIdFilter) {
+      if (String(item.project_id || '') !== projectIdFilter) return false;
+    }
+    if (categoryFilter) {
+      const cat = String(item.meta?.category || '').toLowerCase();
+      const tags = (item.tags || []).map((t) => String(t).toLowerCase());
+      if (cat !== categoryFilter && !tags.includes(categoryFilter)) return false;
     }
     if (searchQ) {
       const q = searchQ.toLowerCase();
@@ -758,6 +783,7 @@ async function handleGetImages(request, url, env, authUser, identity) {
         item.meta?.notes,
         item.meta?.category,
         item.meta?.project_slug,
+        item.meta?.size_label,
         ...(item.tags || []),
       ]
         .filter(Boolean)
@@ -866,8 +892,10 @@ async function handleGetImages(request, url, env, authUser, identity) {
       userId: scope.userId,
       workspaceId: scope.workspaceId,
       source: source === 'all' ? null : source,
-      tag: null,
+      tag: tagFilter || null,
       search: null,
+      projectId: projectIdFilter || null,
+      category: categoryFilter || null,
       limit: 5000,
       offset: 0,
     });
@@ -1588,21 +1616,30 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
     }
   }
 
-  if (pathLower === '/api/images/commit' && method === 'POST') {
+  if (pathLower === '/api/images/save' && method === 'POST') {
     const body = await request.json().catch(() => ({}));
     const generationId = String(body.generation_id || '').trim();
     if (!generationId) return jsonResponse({ error: 'generation_id required' }, 400);
     try {
-      const out = await commitImageDraft(env, {
-        authUser,
-        workspaceId: wsHint || identity?.workspaceId || body.workspace_id || null,
-        tenantId: identity?.tenantId || null,
-        origin: url.origin,
-      }, body);
-      return jsonResponse(out);
+      const out = await saveImageDraft(
+        env,
+        {
+          authUser,
+          workspaceId: wsHint || identity?.workspaceId || body.workspace_id || null,
+          tenantId: identity?.tenantId || null,
+          origin: url.origin,
+        },
+        body,
+      );
+      return jsonResponse({ ...out, category_presets: IMAGE_SAVE_CATEGORY_PRESETS });
     } catch (e) {
-      const msg = e?.message != null ? String(e.message) : 'commit failed';
-      const status = msg === 'draft_not_found' || msg === 'draft_expired' ? 404 : 500;
+      const msg = e?.message != null ? String(e.message) : 'save failed';
+      const status =
+        msg === 'draft_not_found' || msg === 'draft_expired'
+          ? 404
+          : msg === 'project_not_found'
+            ? 404
+            : 500;
       return jsonResponse({ error: msg }, status);
     }
   }
@@ -1672,6 +1709,31 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
       });
     } catch (e) {
       return jsonResponse({ error: e?.message || 'edit failed' }, 500);
+    }
+  }
+
+  const projectMatch = path.match(/^\/api\/images\/([^/]+)\/project$/i);
+  if (projectMatch && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const scope = await resolveScope(env, authUser, identity, wsHint || body.workspace_id);
+    if (scope.error) return jsonResponse({ error: scope.error }, scope.status);
+    try {
+      const out = await setImageProject(env, {
+        imageId: projectMatch[1],
+        userId: scope.userId,
+        workspaceId: scope.workspaceId,
+        projectId: body.project_id === null || body.project_id === '' ? null : body.project_id,
+      });
+      return jsonResponse(out);
+    } catch (e) {
+      const msg = e?.message != null ? String(e.message) : 'project attach failed';
+      const status =
+        msg === 'image_not_found' || msg === 'project_not_found'
+          ? 404
+          : msg === 'forbidden'
+            ? 403
+            : 500;
+      return jsonResponse({ error: msg }, status);
     }
   }
 

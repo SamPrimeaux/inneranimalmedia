@@ -68,6 +68,7 @@ import { handleUnifiedSearchApi } from '../api/unified-search.js';
 import { handleWorkflowsApi } from '../api/workflows.js';
 import { handleCommandsApi } from '../api/commands.js';
 import { handleImagesApi } from '../api/images.js';
+import { handleTicketsApi } from '../api/tickets.js';
 import { handleMoviemodeApi } from '../api/moviemode-api.js';
 
 /**
@@ -523,6 +524,10 @@ export async function dispatchProductionDomainRoutes(rc) {
   if (pathLower.startsWith('/api/images')) {
     const res = await handleImagesApi(request, url, env, authUser, identity);
     return res;
+  }
+
+  if (pathLower.startsWith('/api/tickets')) {
+    return handleTicketsApi(request, url, env, authUser);
   }
 
   if (pathLower.startsWith('/api/hub')) {

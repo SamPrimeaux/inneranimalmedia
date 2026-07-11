@@ -25,3 +25,7 @@ On generate: `attachImageGenerationUsage` → `cost_usd` on draft + `agentsam_to
 ## Human signal
 
 `POST /api/images/rate` `{ generation_id, rating: 1|-1 }` → `image_generation_feedback` append + draft `user_rating`. First rating bumps arm `success_alpha`/`success_beta` + `avg_quality_score` / `quality_n`.
+
+## Save path
+
+`POST /api/images/save` only (no `/commit` alias). Body may include `category`, `tags`, `project_id`. Response includes `width`, `height`, `size_bytes`, `size_label` (e.g. `1536×1024`). Attach later: `POST /api/images/:id/project`. List filters: `?project_id=` `?category=`.
