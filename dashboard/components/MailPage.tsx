@@ -1,6 +1,7 @@
 /**
  * MailPage.tsx — IAM Dashboard Mail
  * Multi-account (Gmail + Resend), full CRUD, Agent Sam AI panel (Gemini-driven via D1 subagent profiles).
+ * Mobile: sidebar collapses to a slide-in drawer; list and detail each go full-width.
  */
 import React, {
   useCallback, useEffect, useMemo, useRef, useState,
@@ -65,6 +66,17 @@ interface ComposeState {
 type Folder = 'inbox' | 'starred' | 'archived' | 'sent' | 'templates';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function useIsMobile(breakpoint = 768) {
+  const [mobile, setMobile] = useState(() => window.innerWidth < breakpoint);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
+    const handler = (e: MediaQueryListEvent) => setMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [breakpoint]);
+  return mobile;
+}
 
 function initials(addr: string) {
   const s = String(addr || '').trim();
@@ -165,11 +177,104 @@ function Btn({ onClick, title, children, active = false, danger = false, small =
   );
 }
 
+// ─── Sidebar content (shared between desktop inline + mobile drawer) ──────────
+
+function SidebarContent({
+  accounts, activeAccount, setActiveAccount,
+  folder, setFolder, stats,
+  loadEmails, loadStats,
+  setComposing, setCompose,
+  onClose,
+}: {
+  accounts: Account[];
+  activeAccount: string;
+  setActiveAccount: (id: string) => void;
+  folder: Folder;
+  setFolder: (f: Folder) => void;
+  stats: { total: number; unread: number; starred: number };
+  loadEmails: () => void;
+  loadStats: () => void;
+  setComposing: (v: boolean) => void;
+  setCompose: React.Dispatch<React.SetStateAction<ComposeState>>;
+  onClose?: () => void;
+}) {
+  const FOLDERS: { id: Folder; label: string; icon: React.ReactNode }[] = [
+    { id: 'inbox', label: 'Inbox', icon: <Inbox size={14} /> },
+    { id: 'starred', label: 'Starred', icon: <Star size={14} /> },
+    { id: 'sent', label: 'Sent', icon: <Send size={14} /> },
+    { id: 'archived', label: 'Archived', icon: <Archive size={14} /> },
+  ];
+
+  return (
+    <>
+      {/* Header */}
+      <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <Btn onClick={() => { loadEmails(); loadStats(); onClose?.(); }} title="Refresh" small><RefreshCw size={13} /></Btn>
+            <Btn onClick={() => { setComposing(true); setCompose(c => ({ ...c, to: '', subject: '', body: '' })); onClose?.(); }} title="Compose" small><Plus size={13} />Compose</Btn>
+          </div>
+          {onClose ? (
+            <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4 }}>
+              <X size={16} />
+            </button>
+          ) : null}
+        </div>
+
+        {/* Account switcher */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button type="button" onClick={() => { setActiveAccount('all'); onClose?.(); }} style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28, padding: '0 8px', borderRadius: 7, border: 'none', background: activeAccount === 'all' ? 'var(--bg-hover)' : 'transparent', color: 'var(--text-main)', fontSize: 11, fontWeight: activeAccount === 'all' ? 800 : 500, cursor: 'pointer', textAlign: 'left', flex: 1, minWidth: 0 }}>
+              <Mail size={12} style={{ color: 'var(--solar-cyan)', flexShrink: 0 }} />All accounts
+            </button>
+            <a href="/api/integrations/gmail/connect?return_to=%2Fdashboard%2Fmail" title="Connect another Gmail account" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 7, background: 'var(--bg-hover)', color: 'var(--solar-cyan)', textDecoration: 'none', flexShrink: 0 }}>
+              <Plus size={13} />
+            </a>
+          </div>
+          {accounts.map(acc => (
+            <button key={acc.id} type="button" onClick={() => { setActiveAccount(acc.id); onClose?.(); }} style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28, padding: '0 8px', borderRadius: 7, border: 'none', background: activeAccount === acc.id ? 'var(--bg-hover)' : 'transparent', color: acc.connected ? 'var(--text-main)' : 'var(--text-muted)', fontSize: 11, fontWeight: activeAccount === acc.id ? 800 : 400, cursor: 'pointer', textAlign: 'left', width: '100%', overflow: 'hidden' }}>
+              <span style={{ width: 8, height: 8, borderRadius: 99, background: acc.connected ? 'var(--solar-cyan)' : 'var(--text-muted)', flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                {acc.label}{acc.address ? ` · ${acc.address.split('@')[0]}` : ''}
+              </span>
+            </button>
+          ))}
+          {!accounts.some(a => a.provider === 'gmail' && a.connected) && (
+            <a href="/api/integrations/gmail/connect?return_to=%2Fdashboard%2Fmail" style={{ display: 'flex', alignItems: 'center', gap: 6, height: 26, padding: '0 8px', borderRadius: 7, background: 'var(--bg-hover)', color: 'var(--solar-cyan)', fontSize: 10, fontWeight: 700, textDecoration: 'none', marginTop: 2 }}>
+              <Plus size={11} />Connect Gmail
+            </a>
+          )}
+        </div>
+      </div>
+
+      {/* Folders */}
+      <div style={{ padding: '8px 8px 4px', flexShrink: 0 }}>
+        {FOLDERS.map(f => (
+          <button key={f.id} type="button" onClick={() => { setFolder(f.id); onClose?.(); }} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', height: 32, padding: '0 8px', borderRadius: 7, border: 'none', background: folder === f.id ? 'var(--bg-hover)' : 'transparent', color: folder === f.id ? 'var(--text-main)' : 'var(--text-muted)', fontSize: 12, fontWeight: folder === f.id ? 800 : 400, cursor: 'pointer', textAlign: 'left' }}>
+            {f.icon}
+            <span style={{ flex: 1 }}>{f.label}</span>
+            {f.id === 'inbox' && stats.unread > 0 && (
+              <span style={{ fontSize: 10, fontWeight: 800, background: 'var(--solar-cyan)', color: '#000', borderRadius: 99, padding: '1px 6px' }}>{stats.unread}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Stats footer */}
+      <div style={{ marginTop: 'auto', padding: '10px 14px', borderTop: '1px solid var(--border-subtle)', fontSize: 10, color: 'var(--text-muted)' }}>
+        {stats.total} total · {stats.unread} unread · {stats.starred} starred
+      </div>
+    </>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function MailPage() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [insightsOpen, setInsightsOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Panels
   const [sidebarW, setSidebarW] = useState(() => {
@@ -207,6 +312,9 @@ export function MailPage() {
   const [senders, setSenders] = useState<{ id: string; address: string; label?: string }[]>([]);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  // Close drawer when switching to desktop
+  useEffect(() => { if (!isMobile) setDrawerOpen(false); }, [isMobile]);
 
   const handleMailAgent = useCallback(() => {
     openMailAgent({
@@ -262,7 +370,7 @@ export function MailPage() {
     });
   }, [accounts, emails, selected, detail, folder, activeAccount, search]);
 
-  // ── Load accounts (Gmail status + Resend senders) ──────────────────────────
+  // ── Load accounts ──────────────────────────────────────────────────────────
   const loadAccounts = useCallback(async () => {
     const accs: Account[] = [];
     try {
@@ -272,13 +380,7 @@ export function MailPage() {
         for (const g of gd.accounts || []) {
           const addr = String(g.address || g.id || '').trim();
           if (!addr) continue;
-          accs.push({
-            id: `gmail:${addr}`,
-            label: 'Gmail',
-            address: addr,
-            provider: 'gmail',
-            connected: true,
-          });
+          accs.push({ id: `gmail:${addr}`, label: 'Gmail', address: addr, provider: 'gmail', connected: true });
         }
       }
     } catch { /* skip */ }
@@ -288,13 +390,7 @@ export function MailPage() {
         if (statusRes.ok) {
           const gd = await statusRes.json();
           if (gd.connected && gd.account) {
-            accs.push({
-              id: `gmail:${gd.account}`,
-              label: 'Gmail',
-              address: gd.account,
-              provider: 'gmail',
-              connected: true,
-            });
+            accs.push({ id: `gmail:${gd.account}`, label: 'Gmail', address: gd.account, provider: 'gmail', connected: true });
           }
         }
       } catch { /* skip */ }
@@ -469,11 +565,12 @@ export function MailPage() {
     setComposing(true);
   }, []);
 
-  // ── Panel resize ───────────────────────────────────────────────────────────
+  // ── Panel resize (desktop only) ────────────────────────────────────────────
   const startResize = useCallback((panel: 'sidebar' | 'detail', e: React.PointerEvent) => {
+    if (isMobile) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     resizingRef.current = { panel, startX: e.clientX, startW: panel === 'sidebar' ? sidebarW : detailW };
-  }, [sidebarW, detailW]);
+  }, [isMobile, sidebarW, detailW]);
 
   useEffect(() => {
     const move = (e: PointerEvent) => {
@@ -506,81 +603,46 @@ export function MailPage() {
     ) : emails;
   }, [emails, search]);
 
-  const FOLDERS: { id: Folder; label: string; icon: React.ReactNode }[] = [
-    { id: 'inbox', label: 'Inbox', icon: <Inbox size={14} /> },
-    { id: 'starred', label: 'Starred', icon: <Star size={14} /> },
-    { id: 'sent', label: 'Sent', icon: <Send size={14} /> },
-    { id: 'archived', label: 'Archived', icon: <Archive size={14} /> },
-  ];
+  const sidebarProps = {
+    accounts, activeAccount, setActiveAccount,
+    folder, setFolder, stats,
+    loadEmails, loadStats,
+    setComposing, setCompose,
+  };
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <CollaborateWorkShell surface="mail">
+    <CollaborateWorkShell surface="mail" onMenuTap={isMobile ? () => setDrawerOpen(true) : undefined}>
     <div className={`mail-work-surface${insightsOpen ? ' insights-open' : ''}`}>
+
+      {/* ── MOBILE DRAWER ───────────────────────────────────────────────── */}
+      {isMobile && (
+        <>
+          <div
+            className={`mail-sidebar-drawer-overlay${drawerOpen ? ' open' : ''}`}
+            onClick={() => setDrawerOpen(false)}
+          />
+          <div className={`mail-sidebar-drawer${drawerOpen ? ' open' : ''}`} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <SidebarContent {...sidebarProps} onClose={() => setDrawerOpen(false)} />
+          </div>
+        </>
+      )}
+
     <div className="mail-work-surface-main">
 
-      {/* ── LEFT SIDEBAR ────────────────────────────────────────────────── */}
-      <div className="mail-sidebar" style={{ width: sidebarW, minWidth: SIDEBAR_MIN, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-        {/* Header */}
-        <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <div style={{ display: 'flex', gap: 4 }}>
-              <Btn onClick={() => { loadEmails(); loadStats(); }} title="Refresh" small><RefreshCw size={13} /></Btn>
-              <Btn onClick={() => { setComposing(true); setCompose(c => ({ ...c, to: '', subject: '', body: '' })); }} title="Compose" small><Plus size={13} />Compose</Btn>
-            </div>
+      {/* ── LEFT SIDEBAR (desktop only) ──────────────────────────────────── */}
+      {!isMobile && (
+        <>
+          <div className="mail-sidebar" style={{ width: sidebarW, minWidth: SIDEBAR_MIN, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <SidebarContent {...sidebarProps} />
           </div>
-
-          {/* Account switcher */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <button type="button" onClick={() => setActiveAccount('all')} style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28, padding: '0 8px', borderRadius: 7, border: 'none', background: activeAccount === 'all' ? 'var(--bg-hover)' : 'transparent', color: 'var(--text-main)', fontSize: 11, fontWeight: activeAccount === 'all' ? 800 : 500, cursor: 'pointer', textAlign: 'left', flex: 1, minWidth: 0 }}>
-                <Mail size={12} style={{ color: 'var(--solar-cyan)', flexShrink: 0 }} />All accounts
-              </button>
-              <a href="/api/integrations/gmail/connect?return_to=%2Fdashboard%2Fmail" title="Connect another Gmail account" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 7, background: 'var(--bg-hover)', color: 'var(--solar-cyan)', textDecoration: 'none', flexShrink: 0 }}>
-                <Plus size={13} />
-              </a>
-            </div>
-            {accounts.map(acc => (
-              <button key={acc.id} type="button" onClick={() => setActiveAccount(acc.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28, padding: '0 8px', borderRadius: 7, border: 'none', background: activeAccount === acc.id ? 'var(--bg-hover)' : 'transparent', color: acc.connected ? 'var(--text-main)' : 'var(--text-muted)', fontSize: 11, fontWeight: activeAccount === acc.id ? 800 : 400, cursor: 'pointer', textAlign: 'left', width: '100%', overflow: 'hidden' }}>
-                <span style={{ width: 8, height: 8, borderRadius: 99, background: acc.connected ? 'var(--solar-cyan)' : 'var(--text-muted)', flexShrink: 0 }} />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                  {acc.label}{acc.address ? ` · ${acc.address.split('@')[0]}` : ''}
-                </span>
-              </button>
-            ))}
-            {!accounts.some(a => a.provider === 'gmail' && a.connected) && (
-              <a href="/api/integrations/gmail/connect?return_to=%2Fdashboard%2Fmail" style={{ display: 'flex', alignItems: 'center', gap: 6, height: 26, padding: '0 8px', borderRadius: 7, background: 'var(--bg-hover)', color: 'var(--solar-cyan)', fontSize: 10, fontWeight: 700, textDecoration: 'none', marginTop: 2 }}>
-                <Plus size={11} />Connect Gmail
-              </a>
-            )}
-          </div>
-        </div>
-
-        {/* Folders */}
-        <div style={{ padding: '8px 8px 4px', flexShrink: 0 }}>
-          {FOLDERS.map(f => (
-            <button key={f.id} type="button" onClick={() => setFolder(f.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', height: 32, padding: '0 8px', borderRadius: 7, border: 'none', background: folder === f.id ? 'var(--bg-hover)' : 'transparent', color: folder === f.id ? 'var(--text-main)' : 'var(--text-muted)', fontSize: 12, fontWeight: folder === f.id ? 800 : 400, cursor: 'pointer', textAlign: 'left' }}>
-              {f.icon}
-              <span style={{ flex: 1 }}>{f.label}</span>
-              {f.id === 'inbox' && stats.unread > 0 && (
-                <span style={{ fontSize: 10, fontWeight: 800, background: 'var(--solar-cyan)', color: '#000', borderRadius: 99, padding: '1px 6px' }}>{stats.unread}</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Stats footer */}
-        <div style={{ marginTop: 'auto', padding: '10px 14px', borderTop: '1px solid var(--border-subtle)', fontSize: 10, color: 'var(--text-muted)' }}>
-          {stats.total} total · {stats.unread} unread · {stats.starred} starred
-        </div>
-      </div>
-
-      {/* Sidebar resize handle */}
-      <div onPointerDown={e => startResize('sidebar', e)} style={{ width: 5, flexShrink: 0, cursor: 'col-resize', background: 'transparent', borderRight: '1px solid var(--border-subtle)' }} />
+          {/* Sidebar resize handle */}
+          <div className="mail-sidebar-resize" onPointerDown={e => startResize('sidebar', e)} style={{ width: 5, flexShrink: 0, cursor: 'col-resize', background: 'transparent', borderRight: '1px solid var(--border-subtle)' }} />
+        </>
+      )}
 
       {/* ── CENTER LIST ─────────────────────────────────────────────────── */}
-      <div className="mail-list-pane" style={{ flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="mail-list-pane" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <>
         {/* Toolbar */}
         <div className="mail-list-toolbar" style={{ height: 48, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
@@ -596,7 +658,7 @@ export function MailPage() {
             >
               <ChevronLeft size={14} />
             </button>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)', minWidth: 72, textAlign: 'center' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', minWidth: 60, textAlign: 'center' }}>
               {listTotal > 0
                 ? `${(listPage - 1) * listPageSize + 1}–${Math.min(listPage * listPageSize, listTotal)} of ${listTotal}`
                 : `Page ${listPage}`}
@@ -611,15 +673,15 @@ export function MailPage() {
               <ChevronRight size={14} />
             </button>
           </div>
-          <div style={{ flex: 1, position: 'relative', maxWidth: 280 }}>
+          <div style={{ flex: 1, position: 'relative' }}>
             <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" style={{ width: '100%', height: 30, padding: '0 9px 0 28px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 8, color: 'var(--text-main)', fontSize: 12, outline: 'none' }} />
           </div>
-          {loadingList && <RefreshCw size={13} style={{ color: 'var(--text-muted)', animation: 'spin 0.8s linear infinite' }} />}
+          {loadingList && <RefreshCw size={13} style={{ color: 'var(--text-muted)', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />}
         </div>
 
         {/* Email list */}
-        <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div style={{ flex: 1, overflowY: 'auto', paddingBottom: isMobile ? 56 : 0 }}>
           {filtered.length === 0 && !loadingList && (
             <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No messages</div>
           )}
@@ -660,28 +722,30 @@ export function MailPage() {
       {/* ── DETAIL PANEL ───────────────────────────────────────────────── */}
       {selected && (
         <>
-          {/* Detail resize handle */}
-          <div onPointerDown={e => startResize('detail', e)} style={{ width: 5, flexShrink: 0, cursor: 'col-resize', background: 'transparent', borderLeft: '1px solid var(--border-subtle)' }} />
+          {/* Detail resize handle (desktop only) */}
+          {!isMobile && (
+            <div onPointerDown={e => startResize('detail', e)} style={{ width: 5, flexShrink: 0, cursor: 'col-resize', background: 'transparent', borderLeft: '1px solid var(--border-subtle)' }} />
+          )}
 
-          <div className="mail-detail-pane" style={{ width: detailW, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div className="mail-detail-pane" style={isMobile ? {} : { width: detailW, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
             {/* Detail header */}
             <div style={{ height: 48, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', borderBottom: '1px solid var(--border-subtle)' }}>
               <button type="button" onClick={() => { setSelected(null); setDetail(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4, borderRadius: 6 }}><ChevronLeft size={16} /></button>
               <div style={{ flex: 1 }} />
               <Btn onClick={() => startReply(selected, detail)} small><Reply size={12} />Reply</Btn>
-              <Btn onClick={() => { setCompose(c => ({ ...c, to: '', subject: `Fwd: ${selected.subject}`, body: detail?.body ? `\n\n--- Forwarded ---\n${detail.body}` : '' })); setComposing(true); }} small><Forward size={12} />Forward</Btn>
+              {!isMobile && <Btn onClick={() => { setCompose(c => ({ ...c, to: '', subject: `Fwd: ${selected.subject}`, body: detail?.body ? `\n\n--- Forwarded ---\n${detail.body}` : '' })); setComposing(true); }} small><Forward size={12} />Fwd</Btn>}
               <Btn onClick={() => toggleStar(selected)} small active={selected.is_starred === 1}><Star size={12} style={{ fill: selected.is_starred ? 'var(--solar-yellow)' : 'none', color: selected.is_starred ? 'var(--solar-yellow)' : undefined }} /></Btn>
               <Btn onClick={() => archiveEmail(selected)} small><Archive size={12} /></Btn>
               <Btn onClick={() => deleteEmail(selected)} small danger><Trash2 size={12} /></Btn>
               <Btn onClick={handleMailAgent} small><Bot size={12} />Agent</Btn>
             </div>
 
-            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', paddingBottom: isMobile ? 56 : 0 }}>
               {/* Subject */}
               <div style={{ padding: '16px 18px 10px' }}>
                 <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 8, lineHeight: 1.35 }}>{selected.subject || '(no subject)'}</div>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 11, color: 'var(--text-muted)' }}>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 11, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
                   <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>{selected.from_address}</span>
                   <span>→ {selected.to_address || 'me'}</span>
                   <span style={{ marginLeft: 'auto' }}>{fmtDate(selected.date_received)}</span>
@@ -752,24 +816,25 @@ export function MailPage() {
         </div>
       ) : null}
 
-      <CollaboratePageRail
-        activeSurface="mail"
-        insightsOpen={insightsOpen}
-        onInsightsToggle={() => setInsightsOpen((v) => !v)}
-        onTasksClick={() => navigate('/dashboard/collaborate?seg=tasks')}
-        onMailAgentClick={handleMailAgent}
-      />
+      {!isMobile && (
+        <CollaboratePageRail
+          activeSurface="mail"
+          insightsOpen={insightsOpen}
+          onInsightsToggle={() => setInsightsOpen((v) => !v)}
+          onTasksClick={() => navigate('/dashboard/collaborate?seg=tasks')}
+          onMailAgentClick={handleMailAgent}
+        />
+      )}
 
       {/* ── COMPOSE MODAL ──────────────────────────────────────────────── */}
       {composing && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', padding: 24, pointerEvents: 'none' }}>
-          <div style={{ width: 520, background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 14, boxShadow: '0 8px 40px rgba(0,0,0,0.5)', overflow: 'hidden', pointerEvents: 'all', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: isMobile ? 'stretch' : 'flex-end', padding: isMobile ? 0 : 24, pointerEvents: 'none' }}>
+          <div style={{ width: isMobile ? '100%' : 520, background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: isMobile ? '14px 14px 0 0' : 14, boxShadow: '0 8px 40px rgba(0,0,0,0.5)', overflow: 'hidden', pointerEvents: 'all', display: 'flex', flexDirection: 'column', maxHeight: isMobile ? '90vh' : 'unset', paddingBottom: isMobile ? 56 : 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(0,255,200,0.04)' }}>
               <span style={{ fontSize: 13, fontWeight: 800, flex: 1 }}>New Message</span>
               <button type="button" onClick={() => setComposing(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={16} /></button>
             </div>
-            <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {/* From */}
+            <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto' }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 48, flexShrink: 0 }}>From</span>
                 <select value={compose.from} onChange={e => setCompose(c => ({ ...c, from: e.target.value }))} style={{ flex: 1, height: 28, background: 'var(--bg-app)', border: '1px solid var(--border-subtle)', borderRadius: 7, color: 'var(--text-main)', fontSize: 12, padding: '0 8px' }}>
@@ -777,18 +842,15 @@ export function MailPage() {
                   {senders.map(s => <option key={s.id} value={s.address}>{s.label ? `${s.label} <${s.address}>` : s.address}</option>)}
                 </select>
               </div>
-              {/* To */}
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 48, flexShrink: 0 }}>To</span>
                 <input value={compose.to} onChange={e => setCompose(c => ({ ...c, to: e.target.value }))} placeholder="recipient@example.com" style={{ flex: 1, height: 28, background: 'var(--bg-app)', border: '1px solid var(--border-subtle)', borderRadius: 7, color: 'var(--text-main)', fontSize: 12, padding: '0 8px', outline: 'none' }} />
               </div>
-              {/* Subject */}
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 48, flexShrink: 0 }}>Subject</span>
                 <input value={compose.subject} onChange={e => setCompose(c => ({ ...c, subject: e.target.value }))} placeholder="Subject" style={{ flex: 1, height: 28, background: 'var(--bg-app)', border: '1px solid var(--border-subtle)', borderRadius: 7, color: 'var(--text-main)', fontSize: 12, padding: '0 8px', outline: 'none' }} />
               </div>
-              {/* Body */}
-              <textarea value={compose.body} onChange={e => setCompose(c => ({ ...c, body: e.target.value }))} placeholder="Write your message…" rows={10} style={{ width: '100%', boxSizing: 'border-box', background: 'var(--bg-app)', border: '1px solid var(--border-subtle)', borderRadius: 7, color: 'var(--text-main)', fontSize: 12, padding: '10px', resize: 'vertical', outline: 'none', fontFamily: 'var(--font-sans)', lineHeight: 1.6 }} />
+              <textarea value={compose.body} onChange={e => setCompose(c => ({ ...c, body: e.target.value }))} placeholder="Write your message…" rows={isMobile ? 8 : 10} style={{ width: '100%', boxSizing: 'border-box', background: 'var(--bg-app)', border: '1px solid var(--border-subtle)', borderRadius: 7, color: 'var(--text-main)', fontSize: 12, padding: '10px', resize: 'vertical', outline: 'none', fontFamily: 'var(--font-sans)', lineHeight: 1.6 }} />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderTop: '1px solid var(--border-subtle)' }}>
               {sendResult && (
