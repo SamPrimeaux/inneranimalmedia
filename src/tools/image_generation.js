@@ -19,7 +19,7 @@ import {
   isPrimaryImageGenerationIntentSync,
   resolvePrimaryImageGenerationIntent,
 } from '../core/image-intent-gate.js';
-import { recordRewardEvent } from '../core/reward-events.js';
+import { applyRewardEvent } from '../core/reward-events.js';
 import { resolveModelApiKey } from '../integrations/tokens.js';
 import { getR2Binding } from '../api/r2-api.js';
 import { resolvePrimaryUploadPrefix } from '../core/media-r2-access.js';
@@ -289,63 +289,85 @@ export async function pickImageModelFromDb(env, workspaceId, prompt = '') {
 }
 
 /**
+ * Resolve tenant for reward writes — never invent one.
+ * @param {unknown} env
+ * @param {string|null|undefined} tenantId
+ * @param {string|null|undefined} userId
+ */
+async function resolveTenantIdForReward(env, tenantId, userId) {
+  const direct = tenantId != null ? String(tenantId).trim() : '';
+  if (direct) return direct;
+  const uid = userId != null ? String(userId).trim() : '';
+  if (!uid || !env?.DB) return '';
+  try {
+    const row = await env.DB.prepare(
+      `SELECT COALESCE(active_tenant_id, tenant_id) AS tid FROM auth_users WHERE id = ? LIMIT 1`,
+    )
+      .bind(uid)
+      .first();
+    return row?.tid != null ? String(row.tid).trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Image-lane bandit update — single writer via applyRewardEvent (event + arm in one batch).
  * @param {unknown} env
  * @param {string} modelKey
  * @param {string} workspaceId
  * @param {boolean} success
  * @param {number} latencyMs
- * @param {{ costUsd?: number | null, contentTier?: string | null }} [extra]
+ * @param {{
+ *   costUsd?: number | null,
+ *   contentTier?: string | null,
+ *   tenantId?: string | null,
+ *   userId?: string | null,
+ *   routingArmId?: string | null,
+ *   provider?: string | null,
+ *   generationId?: string | null,
+ * }} [extra]
  */
 export async function recordImageModelOutcome(env, modelKey, workspaceId, success, latencyMs, extra = {}) {
   const ws = String(workspaceId || '').trim();
   const mk = String(modelKey || '').trim();
   if (!env?.DB || !ws || !mk) return;
+  const tenantId = await resolveTenantIdForReward(env, extra.tenantId, extra.userId);
+  if (!tenantId) {
+    console.warn('[image_generation] recordImageModelOutcome skipped — no tenant_id (refusing partial arm update)');
+    return;
+  }
   const cost = Number(extra.costUsd);
   const hasCost = Number.isFinite(cost) && cost >= 0;
-  const latency = Math.max(0, Number(latencyMs) || 0);
+  const genId = extra.generationId != null ? String(extra.generationId).trim() : '';
   try {
-    if (hasCost) {
-      await env.DB.prepare(
-        `UPDATE agentsam_routing_arms SET
-           success_alpha    = success_alpha + ?,
-           success_beta     = success_beta  + ?,
-           latency_n        = latency_n + 1,
-           latency_mean     = CAST((latency_mean * latency_n + ?) / (latency_n + 1) AS REAL),
-           cost_mean        = CAST((COALESCE(cost_mean, 0) * cost_n + ?) / (cost_n + 1) AS REAL),
-           cost_n           = cost_n + 1,
-           total_executions = total_executions + 1,
-           updated_at       = unixepoch()
-         WHERE model_key    = ?
-           AND workspace_id = ?
-           AND task_type    = 'image_generation'
-           AND is_paused    = 0`,
-      )
-        .bind(success ? 1 : 0, success ? 0 : 1, latency, cost, mk, ws)
-        .run();
-    } else {
-      await env.DB.prepare(
-        `UPDATE agentsam_routing_arms SET
-           success_alpha    = success_alpha + ?,
-           success_beta     = success_beta  + ?,
-           latency_n        = latency_n + 1,
-           latency_mean     = CAST((latency_mean * latency_n + ?) / (latency_n + 1) AS REAL),
-           total_executions = total_executions + 1,
-           updated_at       = unixepoch()
-         WHERE model_key    = ?
-           AND workspace_id = ?
-           AND task_type    = 'image_generation'
-           AND is_paused    = 0`,
-      )
-        .bind(success ? 1 : 0, success ? 0 : 1, latency, mk, ws)
-        .run();
-    }
+    await applyRewardEvent(env, {
+      tenant_id: tenantId,
+      workspace_id: ws,
+      task_type: 'image_generation',
+      signal_type: success ? 'auto_success' : 'auto_error',
+      signal_value: success ? 1 : -1,
+      signal_source: 'system',
+      routing_arm_id: extra.routingArmId ?? null,
+      model_key: mk,
+      provider: extra.provider ?? null,
+      content_tier: extra.contentTier ?? null,
+      cost_usd: hasCost ? cost : null,
+      latency_ms: latencyMs,
+      apply_cost: hasCost,
+      apply_latency: true,
+      apply_execution: true,
+      dedup_key: genId ? `img_outcome:${genId}:${success ? 'ok' : 'err'}` : null,
+      reason: 'image_generation_outcome',
+      metadata: { generation_id: genId || null },
+    });
   } catch (e) {
     console.warn('[image_generation] recordImageModelOutcome', e?.message ?? e);
   }
 }
 
 /**
- * User thumbs → Thompson quality + alpha/beta (human signal, not just auto stats).
+ * User thumbs → domain feedback rows + single-writer bandit (applyRewardEvent).
  * @param {unknown} env
  * @param {{
  *   generationId: string,
@@ -381,7 +403,6 @@ export async function rateImageGeneration(env, p) {
   const armId = draft.routing_arm_id != null ? String(draft.routing_arm_id).trim() : null;
   const contentTier = draft.content_tier != null ? String(draft.content_tier).trim() : null;
   const costUsd = Number(draft.cost_usd);
-  const quality = rating === 1 ? 1 : 0;
   const prevRating = Number(draft.user_rating);
   const alreadyRated = prevRating === 1 || prevRating === -1;
 
@@ -414,75 +435,38 @@ export async function rateImageGeneration(env, p) {
     .bind(rating, now, now, generationId, userId)
     .run();
 
-  // First rating only → Thompson (avoids double-count on re-tap). Feedback trail still appends.
+  // First rating only → bandit via applyRewardEvent (event + arm in one batch).
+  // Do NOT bump cost_mean on thumbs — cost already applied on generate outcome.
+  let thompsonUpdated = false;
   if (!alreadyRated && modelKey && ws) {
-    const alphaDelta = rating === 1 ? 1 : 0;
-    const betaDelta = rating === 1 ? 0 : 1;
-    try {
-      if (armId) {
-        await env.DB.prepare(
-          `UPDATE agentsam_routing_arms SET
-             success_alpha = success_alpha + ?,
-             success_beta  = success_beta + ?,
-             avg_quality_score = ((COALESCE(avg_quality_score, 0) * COALESCE(quality_n, 0)) + ?) / (COALESCE(quality_n, 0) + 1),
-             quality_n = COALESCE(quality_n, 0) + 1,
-             updated_at = unixepoch()
-           WHERE id = ? AND is_paused = 0`,
-        )
-          .bind(alphaDelta, betaDelta, quality, armId)
-          .run();
-      } else {
-        await env.DB.prepare(
-          `UPDATE agentsam_routing_arms SET
-             success_alpha = success_alpha + ?,
-             success_beta  = success_beta + ?,
-             avg_quality_score = ((COALESCE(avg_quality_score, 0) * COALESCE(quality_n, 0)) + ?) / (COALESCE(quality_n, 0) + 1),
-             quality_n = COALESCE(quality_n, 0) + 1,
-             updated_at = unixepoch()
-           WHERE model_key = ? AND workspace_id = ? AND task_type = 'image_generation' AND is_paused = 0`,
-        )
-          .bind(alphaDelta, betaDelta, quality, modelKey, ws)
-          .run();
-      }
-    } catch (e) {
-      console.warn('[image_generation] rate thompson', e?.message ?? e);
-    }
-
-    // Reward ledger — requires real tenant; skip rather than guess.
-    const tenantId =
-      (p.tenantId != null && String(p.tenantId).trim()) ||
-      (await env.DB.prepare(
-        `SELECT COALESCE(active_tenant_id, tenant_id) AS tid FROM auth_users WHERE id = ? LIMIT 1`,
-      )
-        .bind(userId)
-        .first()
-        .then((r) => (r?.tid != null ? String(r.tid).trim() : ''))
-        .catch(() => ''));
-    if (tenantId) {
+    const tenantId = await resolveTenantIdForReward(env, p.tenantId, userId);
+    if (!tenantId) {
+      console.warn('[image_generation] rate bandit skipped — no tenant_id (refusing partial arm update)');
+    } else {
       try {
-        await recordRewardEvent(env, {
+        const out = await applyRewardEvent(env, {
           tenant_id: tenantId,
           workspace_id: ws,
           task_type: 'image_generation',
+          signal_type: rating === 1 ? 'user_thumbs_up' : 'user_thumbs_down',
+          signal_value: rating,
+          signal_source: 'user',
           routing_arm_id: armId,
           model_key: modelKey,
           provider: draft.provider != null ? String(draft.provider).slice(0, 64) : null,
           content_tier: contentTier,
-          signal_type: rating === 1 ? 'user_thumbs_up' : 'user_thumbs_down',
-          signal_source: 'user',
-          signal_value: rating,
-          alpha_delta: alphaDelta,
-          beta_delta: betaDelta,
           cost_usd: Number.isFinite(costUsd) ? costUsd : null,
-          reason: 'image_generation_rate',
+          apply_cost: false,
+          apply_latency: false,
+          apply_execution: false,
           dedup_key: `img_rate:${generationId}:${rating === 1 ? 'up' : 'down'}`,
+          reason: 'image_generation_rate',
           metadata: { generation_id: generationId, feedback_id: feedbackId, user_id: userId },
         });
+        thompsonUpdated = !out.deduped;
       } catch (e) {
-        console.warn('[image_generation] reward_event', e?.message ?? e);
+        console.warn('[image_generation] rate applyRewardEvent', e?.message ?? e);
       }
-    } else {
-      console.warn('[image_generation] reward_event skipped — no tenant_id for user');
     }
   }
 
@@ -493,7 +477,7 @@ export async function rateImageGeneration(env, p) {
     content_tier: contentTier,
     model: modelKey,
     feedback_id: feedbackId,
-    thompson_updated: !alreadyRated,
+    thompson_updated: thompsonUpdated,
   };
 }
 
@@ -1432,6 +1416,11 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
       await recordImageModelOutcome(env, scoredModelKey, ws, true, Date.now() - scoredT0, {
         costUsd: outcomeCost,
         contentTier: result?.content_tier || contentTier,
+        tenantId: ctx.tenantId,
+        userId: ctx.userId || ctx.authUser?.id,
+        routingArmId: result?.routing_arm_id || resolvedParams.routing_arm_id || null,
+        provider: result?.provider || providerGuess,
+        generationId: result?.generation_id || generationId,
       });
     }
 
@@ -1475,7 +1464,13 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
     return result;
   } catch (e) {
     if (scoredModelKey && ws) {
-      await recordImageModelOutcome(env, scoredModelKey, ws, false, Date.now() - scoredT0);
+      await recordImageModelOutcome(env, scoredModelKey, ws, false, Date.now() - scoredT0, {
+        tenantId: ctx.tenantId,
+        userId: ctx.userId || ctx.authUser?.id,
+        routingArmId: resolvedParams.routing_arm_id || null,
+        provider: providerGuess,
+        generationId,
+      });
     }
     const msg = e?.message != null ? String(e.message) : String(e);
     emit('image_generation_progress', {

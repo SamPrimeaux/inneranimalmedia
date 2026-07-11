@@ -19,10 +19,18 @@ Image intent lived in a JS regex wordlist — same class of bug as hardcoded mod
 - `matched_by`: `keyword` | `classifier` | `neither` | `rejected_guard`
 - Query gaps instead of waiting for users to notice
 
-### 4. Reward ledger
-- Table: `agentsam_reward_events` — multi-tenant, multi-task, no identity defaults
-- Image thumbs write here with `dedup_key` (single-writer, no double-apply)
-- Snapshots `model_key` / `provider` / `content_tier` / `cost_usd` at event time
+## 4. Reward ledger — single writer (LOCKED)
 
-## Domain
-`agentsam_tickets` = platform engineering. Collaborate tasks stay separate.
+**Wrong:** INSERT `agentsam_reward_events` and separately UPDATE `agentsam_routing_arms` (fifth parallel writer — TELEMETRY-LEDGER-OWNERSHIP class).
+
+**Right:** `applyRewardEvent` in `src/core/reward-events.js`:
+1. `computeRewardDeltas(signalType, signalValue)` — pure
+2. `env.DB.batch([ INSERT reward_events, UPDATE routing_arms ])` — atomic
+
+Image lane call sites:
+- `recordImageModelOutcome` → `auto_success` / `auto_error` (cost_mean + latency + alpha/beta)
+- `rateImageGeneration` → `user_thumbs_up` / `user_thumbs_down` (alpha/beta + quality; **not** cost again)
+
+Domain tables (`image_generation_drafts`, `image_generation_feedback`, `agentsam_tool_call_log`) may still store facts. They must **not** independently bump bandit columns.
+
+Remaining non-image writers (routing.js, thompson.js, agent-run-routing.js, …) → ticket `tkt_consolidate_arm_writers`.
