@@ -463,7 +463,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         agentRunId: chatAgentRunId ?? null,
         routingArmId: routingArmIdParam ?? dispatchSpine.routing_arm_id ?? null,
         taskType: routingTaskType || 'ask',
-        mode: (dispatchSpineParam?.routing_decision?.mode ?? mode) || 'auto',
+        // `auto` is UI-only; tool loop always continues as a concrete mode.
+        mode: (dispatchSpineParam?.routing_decision?.mode ?? mode) || 'agent',
         lane:
           dispatchSpineParam?.routing_decision?.lane ??
           (['debug', 'plan'].includes(
@@ -864,7 +865,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             agentRunId: chatAgentRunId ?? null,
             routingArmId: routingArmIdParam ?? null,
             taskType: routingTaskType || 'ask',
-            mode: mode || 'auto',
+            // `auto` is UI-only; pause_turn continuation is always an agent/tool path.
+            mode: mode || 'agent',
             lane:
               dispatchSpineParam?.routing_decision?.lane ??
               (['debug', 'plan'].includes(String(mode || '').toLowerCase()) ? 'premium' : null),
