@@ -19,11 +19,13 @@ When the Mac is asleep, **do not** run `npm run deploy:full` on the GCP `iam-tun
 4. **Watch paths:** must **not** exclude `dashboard/**`
 5. Sync triggers: `./scripts/cf-builds-sync.sh`
 
-## Bloat killed (2026-07-11)
+## Bloat / failures killed (2026-07-11)
 
-| Waste | Fix |
-|-------|-----|
-| wrangler CLI × N R2 puts (~2s each → 5 min) | Parallel CF R2 REST / S3; refuse wrangler backend |
-| `with-cloudflare-env.sh` (zsh) on CF image | Direct `npx wrangler` when token present |
-| `copy-cms-vendor` npm install react@18 (~19s) | Skipped on CI |
-| rclone `--checksum` full crawl | Content-hash manifest delta only |
+| Waste / failure | Fix |
+|-----------------|-----|
+| wrangler CLI × N R2 puts (~5 min) | Parallel CF R2 REST / S3 |
+| `with-cloudflare-env.sh` (zsh) | Direct `npx wrangler` on Builds |
+| CMS vendor npm install (~19s) | Skipped on CI |
+| Root `npm ci` only → `vite: not found` | `npm ci --prefix dashboard` in smart-build |
+| Vite OOM ~2GB heap | `NODE_OPTIONS=--max-old-space-size=8192` |
+| Fallback retry×3 on OOM + exit 0 | Bypass fallback; force non-zero exit |
