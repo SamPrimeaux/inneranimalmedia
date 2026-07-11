@@ -266,6 +266,21 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     return executeAgentTurn(env, ctx, { ...controllerInput, profile: agentProfile, skillRoute });
   }
 
+  // Image generation fast path — bypass full tool loop, go direct to image handler.
+  // No 93-tool manifest, no text model deciding what to do. Just generate.
+  const { isPrimaryImageGenerationIntent, handleDirectImageGenerationChatStream } = await import('../tools/image_generation.js');
+  if (!skillRoute && isPrimaryImageGenerationIntent(message)) {
+    return handleDirectImageGenerationChatStream(env, ctx, {
+      request,
+      message,
+      userId,
+      tenantId,
+      workspaceId,
+      sessionId,
+      authUser,
+    });
+  }
+
   switch (profile.mode_controller) {
     case 'ask_controller':
       return executeAskTurn(env, ctx, controllerInput);
