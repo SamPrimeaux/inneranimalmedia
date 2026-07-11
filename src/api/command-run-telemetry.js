@@ -1533,6 +1533,8 @@ export async function completeCommand(env, ctx, o) {
       duration_ms: Math.max(0, Math.floor(Number(durationMs) || 0)),
       invoked_by: spineUserId || 'execute_command',
       status: success ? 'completed' : 'error',
+      // TELEMETRY-LEDGER-OWNERSHIP Phase A: scheduleToolCallLog below owns agentsam_tool_call_log.
+      skip_tool_call_log: true,
       ...spine,
     });
     scheduleToolCallLog(env, ctx, {

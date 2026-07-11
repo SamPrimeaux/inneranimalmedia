@@ -236,6 +236,8 @@ export async function executeScopedAgentTerminalRun(request, env, ctx, url, body
       user_id: uid,
       person_uuid: personUuid || null,
       status: execErr ? 'error' : 'completed',
+      // TELEMETRY-LEDGER-OWNERSHIP Phase A: scheduleTerminalToolCallLog below owns agentsam_tool_call_log.
+      skip_tool_call_log: true,
       ...terminalSpine,
     });
 

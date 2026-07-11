@@ -1004,6 +1004,25 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       }
       if (call.input && typeof call.input === 'object' && call.input.__parse_error === true) {
         const raw = String(call.raw_input != null ? call.raw_input : call.input.__raw || '').slice(0, 2000);
+        // TELEMETRY-LEDGER-OWNERSHIP Phase A3: primary owns ledger (was orphan mirror only —
+        // scheduleAgentsamToolCallLog never ran on parse failure; mcp-exec still mirrored).
+        scheduleAgentsamToolCallLog(env, ctx, {
+          tenantId,
+          sessionId,
+          toolName: call.name,
+          status: 'error',
+          durationMs: 0,
+          costUsd: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          userId,
+          workspaceId,
+          errorMessage: 'tool_arguments_json_parse_error',
+          inputSummary: JSON.stringify({ __parse_error: true, __raw: raw }).slice(0, 200),
+          routingArmId: attributedRoutingArmId(),
+          ...runSpineIds,
+          ...ledgerIdentityFields,
+        });
         scheduleRecordMcpToolExecution(env, ctx, {
           tenant_id: tenantId,
           workspace_id: workspaceId,
@@ -1016,6 +1035,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           error_message: 'tool_arguments_json_parse_error',
           duration_ms: 0,
           status: 'error',
+          skip_tool_call_log: true,
           ...runSpineIds,
         });
         emit('tool_error', { tool: call.name, error: 'tool_arguments_json_parse_error' });
