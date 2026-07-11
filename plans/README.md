@@ -94,3 +94,5 @@ This split is deliberate. Do **not** merge Collaborate client tasks into `agents
 - Events carry `actor_type` / `actor_id` (dashboard_user | claude_mcp | chatgpt_mcp | agent_sam).
 - Create supports `dedup_key` (unique) so MCP/agent retries do not double-insert.
 - Standing Cursor rule: any time you say follow-up / later / backlog / not in scope — create the ticket via API in the same turn.
+- **Phase gates:** if a ticket says Phase N only / enumerate / no code changes — stop after that phase and wait for review. Do not collapse Phase 1 findings into Phase 3 implement + migrate + deploy in one pass (`tkt_phase_gate_stop`).
+- **Timestamps (convention):** new columns are `INTEGER` + `unixepoch()` default, named `created_at` / `updated_at` / `closed_at` — no `_unix` twin columns. Prefer `created_at` when a twin exists (`tkt_timestamp_convention`).
