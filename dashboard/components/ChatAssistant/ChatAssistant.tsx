@@ -3320,7 +3320,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const mobileAgentsThread = isNarrow && mobileHubTab === 'agents';
   const mobileActiveAgentThread = mobileAgentsThread && Boolean(conversationId.trim());
   const showMobileHubNav = false; // hub nav removed — Agents/Automations/Dashboard tabs were conception-phase junk
-  const hubBodyVisible = isNarrow && mobileHubTab !== 'agents';
+
   const messagesVisible =
     !mobileAgentHomeMode &&
     (!isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat'));
