@@ -30,9 +30,12 @@ ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID}"
 API_TOKEN="${CLOUDFLARE_API_TOKEN}"
 WORKER_NAME="${WORKER_SERVICE_NAME:-inneranimalmedia}"
 
+# Mac-free ship: build Vite on CF, deploy = R2 delta + wrangler (deploy:fast:cf).
+# Requires CF Builds secrets: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, CLOUDFLARE_ACCOUNT_ID
+# (plus existing CLOUDFLARE_API_TOKEN). Watch paths must include dashboard/** for SPA-only pushes.
 BUILD_COMMAND="${CF_BUILDS_BUILD_COMMAND:-node scripts/smart-build.mjs}"
-MAIN_DEPLOY_COMMAND="${CF_BUILDS_MAIN_DEPLOY_COMMAND:-npm run deploy:cf-builds}"
-NON_MAIN_DEPLOY_COMMAND="${CF_BUILDS_NON_MAIN_DEPLOY_COMMAND:-npm exec -- wrangler deploy -c wrangler.production.toml}"
+MAIN_DEPLOY_COMMAND="${CF_BUILDS_MAIN_DEPLOY_COMMAND:-npm run deploy:fast:cf}"
+NON_MAIN_DEPLOY_COMMAND="${CF_BUILDS_NON_MAIN_DEPLOY_COMMAND:-npm run deploy:cf-builds}"
 NON_MAIN_BRANCH_EXCLUDES="${CF_BUILDS_NON_MAIN_BRANCH_EXCLUDES:-main,production}"
 
 if [[ -z "$ACCOUNT_ID" || -z "$API_TOKEN" ]]; then
@@ -99,13 +102,17 @@ patch_trigger() {
   local trigger_uuid="$1"
   local deploy_command="$2"
   local branch_excludes_json="$3"
+  # path_excludes: never exclude dashboard/** — Mac-free SPA ship requires Builds to see UI changes.
+  local path_excludes_json='["snapshot-*.json","docs/**","*.md"]'
   local patch_body
   patch_body="$(cat <<JSON
 {
   "build_command": "${BUILD_COMMAND}",
   "deploy_command": "${deploy_command}",
   "root_directory": "/",
-  "branch_excludes": ${branch_excludes_json}
+  "branch_excludes": ${branch_excludes_json},
+  "path_includes": ["*"],
+  "path_excludes": ${path_excludes_json}
 }
 JSON
 )"
