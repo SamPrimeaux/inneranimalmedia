@@ -358,6 +358,7 @@ export function normalizeImageGenerationEvent(
         artifactId: typeof o.artifact_id === 'string' ? o.artifact_id : undefined,
         provider: typeof o.provider === 'string' ? o.provider : undefined,
         model: typeof o.model === 'string' ? o.model : undefined,
+        prompt: typeof o.prompt === 'string' ? o.prompt : undefined,
         failed: Boolean(o.failed),
       },
     };

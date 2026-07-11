@@ -383,6 +383,25 @@ const SSE_HEADERS = {
  *   authUser?: { id?: string } | null;
  * }} opts
  */
+/**
+ * Parse lightbox "Describe edits" / Edit-this-image turns.
+ * @param {string} message
+ * @returns {{ isEdit: boolean, prompt: string, imageUrl: string|null }}
+ */
+export function parseImageEditRequest(message) {
+  const raw = String(message || '').trim();
+  const urlMatch = raw.match(/\bImage URL:\s*(\S+)/i);
+  const editMatch = raw.match(/^Edit this image:\s*([\s\S]+?)(?:\n\nImage URL:|$)/i);
+  if (urlMatch && editMatch) {
+    return {
+      isEdit: true,
+      prompt: String(editMatch[1] || '').trim(),
+      imageUrl: String(urlMatch[1] || '').trim() || null,
+    };
+  }
+  return { isEdit: false, prompt: raw, imageUrl: null };
+}
+
 export function handleDirectImageGenerationChatStream(env, ctx, opts) {
   const message = String(opts.message || '').trim();
   const userId = opts.userId ?? opts.authUser?.id ?? null;
@@ -390,6 +409,9 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
   const workspaceId = opts.workspaceId ?? null;
   const sessionId = opts.sessionId ?? null;
   const request = opts.request;
+  const parsed = parseImageEditRequest(message);
+  const prompt = parsed.prompt || message;
+  const toolName = parsed.isEdit && parsed.imageUrl ? 'imgx_edit_image' : 'imgx_generate_image';
 
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
@@ -416,16 +438,30 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
         intent: 'image_generation',
         mode: 'image_generation',
         runtime_mode: 'image_generation',
-        tool: 'imgx_generate_image',
+        tool: toolName,
         session_id: sessionId,
+        prompt,
       });
 
+      if (sessionId && userId && message) {
+        try {
+          const { appendChatMessage } = await import('../core/agentsam-chat-sessions.js');
+          await appendChatMessage(env, sessionId, {
+            role: 'user',
+            content: message,
+            status: 'complete',
+          });
+        } catch (e) {
+          console.warn('[image_generation] persist_user_failed', e?.message ?? e);
+        }
+      }
+
       const referenceImageB64 = opts.referenceImageB64 ?? opts.referenceImage ?? null;
-      const lane = resolveImageLane(message, !!referenceImageB64);
+      const lane = resolveImageLane(prompt, !!(referenceImageB64 || parsed.imageUrl));
       const ws = workspaceId != null ? String(workspaceId).trim() : '';
-      const imageModel = ws ? await pickImageModelFromDb(env, ws, message) : null;
+      const imageModel = ws ? await pickImageModelFromDb(env, ws, prompt) : null;
       if (lane && imageModel) {
-        console.log('[image_generation] inferred_lane', { lane, model_key: imageModel.model_key });
+        console.log('[image_generation] inferred_lane', { lane, model_key: imageModel.model_key, tool: toolName });
       }
       const sseCtx = {
         authUser: opts.authUser || { id: userId },
@@ -435,39 +471,53 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
         origin,
         secretKeyName: imageModel?.keyName ?? null,
       };
-      const sseParams = imageModel
-        ? {
-            prompt: message,
-            model: imageModel.model_key,
-            provider: imageModel.resolved_platform,
-            secretKeyName: imageModel.keyName,
-            persist: false,
-          }
-        : { prompt: message, persist: false };
+      const sseParams = {
+        prompt,
+        persist: false,
+        ...(parsed.imageUrl ? { image_url: parsed.imageUrl } : {}),
+        ...(imageModel
+          ? {
+              model: imageModel.model_key,
+              provider: imageModel.resolved_platform,
+              secretKeyName: imageModel.keyName,
+            }
+          : {}),
+      };
 
       const t0 = Date.now();
       try {
-        if (imageModel) {
-          emit('image_generation_started', {
-            provider: imageModel.resolved_platform,
-            model: imageModel.model_key,
-            lane,
-          });
-        }
-        const result = await streamImageGenerationSse(
-          emit,
-          env,
-          'imgx_generate_image',
-          sseParams,
-          sseCtx,
-        );
+        emit('image_generation_started', {
+          type: 'image_generation_started',
+          provider: imageModel?.resolved_platform || null,
+          model: imageModel?.model_key || null,
+          lane,
+          prompt,
+          tool: toolName,
+        });
+        const result = await streamImageGenerationSse(emit, env, toolName, sseParams, sseCtx);
         if (imageModel && ws) {
           await recordImageModelOutcome(env, imageModel.model_key, ws, true, Date.now() - t0);
         }
+        const imageUrl = result?.preview_url || result?.image_url || '';
+        if (sessionId && userId && imageUrl) {
+          try {
+            const { appendChatMessage } = await import('../core/agentsam-chat-sessions.js');
+            const alt = prompt.replace(/\s+/g, ' ').trim().slice(0, 120) || 'Generated image';
+            await appendChatMessage(env, sessionId, {
+              role: 'assistant',
+              content: `![${alt}](${imageUrl})`,
+              status: 'complete',
+              model_key: result?.model || imageModel?.model_key || null,
+            });
+          } catch (e) {
+            console.warn('[image_generation] persist_assistant_failed', e?.message ?? e);
+          }
+        }
         console.log('[agent] image_generation_fast_path_done', {
-          generation_id: result?.artifact_id,
+          generation_id: result?.generation_id || result?.artifact_id,
           provider: result?.provider,
           model: result?.model,
+          tool: toolName,
         });
       } catch (err) {
         if (imageModel && ws) {
@@ -477,6 +527,7 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
             failed: true,
             provider: imageModel.resolved_platform,
             model: imageModel.model_key,
+            prompt,
             error: err?.message != null ? String(err.message) : String(err),
           });
         }
@@ -619,8 +670,30 @@ async function generateOpenAI(env, opts) {
  * @param {string} apiKey
  * @param {string} modelKey
  * @param {string} prompt
+ * @param {{ bytes?: Uint8Array, contentType?: string } | null} [referenceImage]
  */
-async function generateGeminiContent(apiKey, modelKey, prompt) {
+async function generateGeminiContent(apiKey, modelKey, prompt, referenceImage = null) {
+  const parts = [];
+  if (referenceImage?.bytes?.length) {
+    const mime = referenceImage.contentType || 'image/png';
+    let binary = '';
+    const bytes = referenceImage.bytes;
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    parts.push({
+      inlineData: {
+        mimeType: mime,
+        data: btoa(binary),
+      },
+    });
+    parts.push({
+      text: `Edit this image according to these instructions. Return only the updated image.\n\n${prompt}`,
+    });
+  } else {
+    parts.push({ text: prompt });
+  }
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelKey)}:generateContent`,
     {
@@ -630,7 +703,7 @@ async function generateGeminiContent(apiKey, modelKey, prompt) {
         'x-goog-api-key': apiKey,
       },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: [{ parts }],
         generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
       }),
     },
@@ -641,8 +714,8 @@ async function generateGeminiContent(apiKey, modelKey, prompt) {
   }
   const data = await res.json();
   // Extract inline image from parts
-  const parts = data?.candidates?.[0]?.content?.parts ?? [];
-  for (const part of parts) {
+  const outParts = data?.candidates?.[0]?.content?.parts ?? [];
+  for (const part of outParts) {
     if (part?.inlineData?.data && part?.inlineData?.mimeType) {
       const bytes = Uint8Array.from(atob(part.inlineData.data), (c) => c.charCodeAt(0));
       return { bytes, contentType: part.inlineData.mimeType };
@@ -690,7 +763,7 @@ async function generateImagenPredict(apiKey, modelKey, prompt, aspectRatio) {
 
 /**
  * @param {unknown} env
- * @param {{ model?: string; prompt: string; size?: string; userId?: string | null }} opts
+ * @param {{ model?: string; prompt: string; size?: string; userId?: string | null; image_url?: string | null }} opts
  */
 async function generateGoogle(env, opts) {
   const modelKey = String(opts.model || '').trim();
@@ -703,8 +776,17 @@ async function generateGoogle(env, opts) {
 
   // Gemini multimodal models use generateContent; Imagen models use predict
   const isGeminiModel = modelKey.startsWith('gemini-');
+  let referenceImage = null;
+  const refUrl = opts.image_url != null ? String(opts.image_url).trim() : '';
+  if (isGeminiModel && refUrl) {
+    try {
+      referenceImage = await fetchImageBytes(refUrl);
+    } catch (e) {
+      console.warn('[image_generation] reference_fetch_failed', e?.message ?? e);
+    }
+  }
   const { bytes, contentType } = isGeminiModel
-    ? await generateGeminiContent(apiKey, modelKey, opts.prompt)
+    ? await generateGeminiContent(apiKey, modelKey, opts.prompt, referenceImage)
     : await generateImagenPredict(apiKey, modelKey, opts.prompt, aspect);
 
   return {
@@ -713,7 +795,7 @@ async function generateGoogle(env, opts) {
     bytes,
     contentType,
     preview_urls: [],
-    metadata: {},
+    metadata: referenceImage ? { edited_from: refUrl } : {},
   };
 }
 
@@ -908,24 +990,35 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
   const dims = parseImageDimensions(resolvedParams.size);
   const purpose =
     resolvedParams.purpose != null ? String(resolvedParams.purpose).trim().slice(0, 64) : null;
+  const refUrl = String(resolvedParams.image_url || resolvedParams.image || '').trim();
+  const modelKey = String(resolvedParams.model || '').trim();
+  const useGeminiEdit = isEdit && refUrl && modelKey.startsWith('gemini-');
 
-  const gen = isEdit
-    ? await editImage(env, {
+  const gen = useGeminiEdit
+    ? await generateGoogle(env, {
         prompt,
-        image_url: resolvedParams.image_url || resolvedParams.image,
-        model: resolvedParams.model,
+        model: modelKey,
         size: resolvedParams.size,
         userId: ctx.userId,
+        image_url: refUrl,
       })
-    : await generateImage(env, {
-        provider: resolvedParams.provider,
-        model: resolvedParams.model,
-        prompt,
-        size: resolvedParams.size,
-        quality: resolvedParams.quality,
-        userId: ctx.userId,
-        tenantId: ctx.tenantId,
-      });
+    : isEdit
+      ? await editImage(env, {
+          prompt,
+          image_url: refUrl,
+          model: resolvedParams.model,
+          size: resolvedParams.size,
+          userId: ctx.userId,
+        })
+      : await generateImage(env, {
+          provider: resolvedParams.provider,
+          model: resolvedParams.model,
+          prompt,
+          size: resolvedParams.size,
+          quality: resolvedParams.quality,
+          userId: ctx.userId,
+          tenantId: ctx.tenantId,
+        });
 
   const previewUrls = [...(gen.preview_urls || [])];
 

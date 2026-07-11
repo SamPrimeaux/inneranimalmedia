@@ -217,7 +217,24 @@ function patchAssistantImageGeneration(
     const idx = next.length - 1;
     if (idx < 0 || next[idx].role !== 'assistant') return prev;
     const merged = mergeImageGenerationState(next[idx].imageGenerationState, patch, eventType);
-    next[idx] = { ...next[idx], content: assistantContent, imageGenerationState: merged };
+    // Prefer prompt from prior user turn when SSE didn't include one.
+    if (!merged.prompt) {
+      for (let i = idx - 1; i >= 0; i -= 1) {
+        if (next[i].role === 'user' && next[i].content?.trim()) {
+          merged.prompt = next[i].content.trim();
+          break;
+        }
+      }
+    }
+    let content = assistantContent;
+    if (eventType === 'image_generation_complete') {
+      const url = merged.previewUrl || merged.imageUrl || '';
+      if (url) {
+        const alt = (merged.prompt || 'Generated image').replace(/\s+/g, ' ').trim().slice(0, 120);
+        content = `![${alt}](${url})`;
+      }
+    }
+    next[idx] = { ...next[idx], content, imageGenerationState: merged };
     return next;
   });
 }

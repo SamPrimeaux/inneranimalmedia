@@ -1,4 +1,12 @@
-export type AgentShellMessage = { role: 'user' | 'assistant'; content: string };
+import type { ImageGenerationState, Message } from '../components/ChatAssistant/types';
+
+export type AgentShellMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+  imageGenerationState?: ImageGenerationState | null;
+};
+
+const MD_IMAGE_RE = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/i;
 
 function readTextFromUnknown(value: unknown): string {
   if (value == null) return '';
@@ -57,6 +65,29 @@ export function normalizeAgentSessionMessageContent(raw: unknown): string {
   return readTextFromUnknown(raw).trim();
 }
 
+/** Rebuild clean image-gen state from persisted markdown so refresh keeps the image. */
+export function imageGenerationStateFromMarkdown(content: string): ImageGenerationState | null {
+  const m = String(content || '').match(MD_IMAGE_RE);
+  if (!m) return null;
+  const alt = (m[1] || 'Generated image').trim() || 'Generated image';
+  const url = (m[2] || '').trim();
+  if (!url) return null;
+  return {
+    generationId: `restored_${url.slice(-12).replace(/[^a-zA-Z0-9]/g, '')}`,
+    phase: 'completed',
+    progress: 100,
+    message: '',
+    prompt: alt,
+    previewUrl: url,
+    imageUrl: url,
+    previewFrames: [{ frameIndex: 0, previewUrl: url }],
+    activeFrameIndex: 0,
+    status: 'draft',
+    persist: false,
+    failed: false,
+  };
+}
+
 export function mapAgentSessionMessages(rows: unknown): AgentShellMessage[] {
   if (!Array.isArray(rows)) return [];
   const mapped: AgentShellMessage[] = [];
@@ -66,7 +97,17 @@ export function mapAgentSessionMessages(rows: unknown): AgentShellMessage[] {
     const role = o.role === 'user' ? 'user' : o.role === 'assistant' ? 'assistant' : null;
     if (!role) continue;
     const content = normalizeAgentSessionMessageContent(o.content);
-    mapped.push({ role, content: content || '(empty)' });
+    const imageGenerationState =
+      role === 'assistant' ? imageGenerationStateFromMarkdown(content) : null;
+    // Image-only assistant turns: keep markdown for persistence, but UI uses imageGenerationState.
+    // Avoid showing literal "(empty)" for blank image turns.
+    const displayContent =
+      content || (imageGenerationState ? `![Generated image](${imageGenerationState.imageUrl})` : '(empty)');
+    mapped.push({
+      role,
+      content: displayContent,
+      ...(imageGenerationState ? { imageGenerationState } : {}),
+    });
   }
   return mapped;
 }
@@ -81,12 +122,13 @@ export function agentTabMessagesNeedHydration(
     const t = c.trim();
     return !t || t === '(empty)' || t === 'Loading conversation…';
   };
-  if (messages.every((m) => placeholderOnly(m.content))) return true;
+  if (messages.every((m) => placeholderOnly(m.content) && !m.imageGenerationState)) return true;
   if (
     hasConv &&
     messages.length === 1 &&
     messages[0].role === 'assistant' &&
-    placeholderOnly(messages[0].content)
+    placeholderOnly(messages[0].content) &&
+    !messages[0].imageGenerationState
   ) {
     return true;
   }
@@ -102,4 +144,9 @@ export async function fetchAgentSessionMessages(conversationId: string): Promise
   if (!r.ok) return [];
   const rows = await r.json().catch(() => []);
   return mapAgentSessionMessages(rows);
+}
+
+/** Narrow helper for App message state typing. */
+export function asChatMessages(rows: AgentShellMessage[]): Message[] {
+  return rows as Message[];
 }

@@ -6,7 +6,8 @@
  * then a clean image (no card chrome). Click opens a lightbox to inspect.
  */
 
-import React, { useCallback, useEffect, useId, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { IAM_AGENT_CHAT_COMPOSE } from '../agentChatConstants';
 import type { ImageGenerationState } from './ChatAssistant/types';
 import { ProgressiveImagePreview } from './ProgressiveImagePreview';
@@ -23,12 +24,32 @@ export type AgentImageGenerationCardProps = {
   onImagePreview?: (url: string) => void;
 };
 
+function titleFromPrompt(prompt?: string): string {
+  const raw = String(prompt || '')
+    .replace(/^create a visual for\s*/i, '')
+    .replace(/^generate an image of\s*/i, '')
+    .replace(/^edit this image:\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!raw) return 'Generated image';
+  const words = raw.split(' ').slice(0, 8).join(' ');
+  return words.length > 56 ? `${words.slice(0, 53)}…` : words;
+}
+
+function shortId(generationId?: string): string {
+  const id = String(generationId || '').replace(/^igen_/, '');
+  return id ? id.slice(0, 8) : 'draft';
+}
+
 export function AgentImageGenerationCard({
   state,
   workspaceId,
 }: AgentImageGenerationCardProps) {
   const titleId = useId();
+  const pathId = useId();
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [editText, setEditText] = useState('');
+  const [editBusy, setEditBusy] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [committedUrl, setCommittedUrl] = useState<string | null>(state.committedUrl || null);
@@ -43,14 +64,22 @@ export function AgentImageGenerationCard({
   const isFailed = state.phase === 'failed';
   const isDraft = isComplete && (state.status === 'draft' || !state.persist);
   const displayUrl = committedUrl || previewUrl;
+  const imageTitle = useMemo(() => titleFromPrompt(state.prompt), [state.prompt]);
+  const pathLabel = useMemo(
+    () => `Agent / Images / ${isDraft ? 'Draft' : 'Library'} / ${shortId(state.generationId)}`,
+    [isDraft, state.generationId],
+  );
 
   const openLightbox = useCallback(() => {
     if (!displayUrl) return;
+    setActionMsg(null);
+    setEditText('');
     setLightboxOpen(true);
   }, [displayUrl]);
 
   const closeLightbox = useCallback(() => {
     setLightboxOpen(false);
+    setEditBusy(false);
   }, []);
 
   useEffect(() => {
@@ -67,6 +96,26 @@ export function AgentImageGenerationCard({
     };
   }, [lightboxOpen, closeLightbox]);
 
+  const submitEdit = useCallback(
+    (text: string) => {
+      const url = displayUrl;
+      const trimmed = text.trim();
+      if (!url || !trimmed || editBusy) return;
+      setEditBusy(true);
+      setActionMsg('Sending edit…');
+      closeLightbox();
+      window.dispatchEvent(
+        new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
+          detail: {
+            message: `Edit this image: ${trimmed}\n\nImage URL: ${url}`,
+            send: true,
+          },
+        }),
+      );
+    },
+    [closeLightbox, displayUrl, editBusy],
+  );
+
   const handleDownload = async () => {
     const url = displayUrl;
     if (!url) return;
@@ -75,28 +124,12 @@ export function AgentImageGenerationCard({
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `agentsam-${state.generationId.slice(0, 8)}.png`;
+      a.download = `agentsam-${shortId(state.generationId)}.png`;
       a.click();
       URL.revokeObjectURL(a.href);
     } catch {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
-  };
-
-  const handleEditPrompt = () => {
-    const url = displayUrl;
-    if (!url) return;
-    const prompt = window.prompt('Describe edits:', state.prompt || '');
-    if (!prompt?.trim()) return;
-    closeLightbox();
-    window.dispatchEvent(
-      new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
-        detail: {
-          message: `Edit this image: ${prompt.trim()}\n\nImage URL: ${url}`,
-          send: true,
-        },
-      }),
-    );
   };
 
   const handleSaveToLibrary = async () => {
@@ -106,13 +139,13 @@ export function AgentImageGenerationCard({
     try {
       const out = await commitImageDraft(state.generationId, {
         workspaceId,
-        label: state.prompt?.slice(0, 120) || 'Generated image',
+        label: imageTitle,
         category: 'agent_backdrops',
         register_cms_asset: true,
       });
       const url = out.url || out.public_url;
       if (url) setCommittedUrl(url);
-      setActionMsg('Saved');
+      setActionMsg('Saved to library');
     } catch (e) {
       setActionMsg(e instanceof Error ? e.message : 'Save failed');
     } finally {
@@ -169,97 +202,100 @@ export function AgentImageGenerationCard({
         ) : null}
       </div>
 
-      {lightboxOpen && displayUrl ? (
-        <div
-          className="iam-image-gen-lightbox"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-          onClick={closeLightbox}
-        >
-          <div
-            className="iam-image-gen-lightbox__panel"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <header className="iam-image-gen-lightbox__bar">
-              <button
-                type="button"
-                className="iam-image-gen-lightbox__icon-btn"
-                onClick={closeLightbox}
-                aria-label="Close"
-              >
-                ×
-              </button>
-              <h2 id={titleId} className="iam-image-gen-lightbox__title">
-                {(state.prompt || 'Generated image').slice(0, 80)}
-              </h2>
-              <div className="iam-image-gen-lightbox__actions">
-                {isDraft ? (
-                  <button
-                    type="button"
-                    disabled={busyAction != null}
-                    onClick={() => void handleSaveToLibrary()}
-                  >
-                    {busyAction === 'save' ? 'Saving…' : 'Save'}
-                  </button>
-                ) : null}
-                <button type="button" onClick={handleEditPrompt}>
-                  Edit
-                </button>
-                <button type="button" onClick={() => void handleDownload()}>
-                  Download
-                </button>
-                {isDraft ? (
-                  <button
-                    type="button"
-                    disabled={busyAction != null}
-                    onClick={() => void handleDiscard()}
-                  >
-                    Discard
-                  </button>
-                ) : null}
-              </div>
-            </header>
-            <div className="iam-image-gen-lightbox__stage">
-              <img src={displayUrl} alt={state.prompt || 'Generated image'} />
-            </div>
-            {actionMsg ? (
-              <p className="iam-image-gen-lightbox__msg" aria-live="polite">
-                {actionMsg}
-              </p>
-            ) : null}
-            <form
-              className="iam-image-gen-lightbox__edit"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const fd = new FormData(e.currentTarget);
-                const text = String(fd.get('edit') || '').trim();
-                if (!text || !displayUrl) return;
-                closeLightbox();
-                window.dispatchEvent(
-                  new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
-                    detail: {
-                      message: `Edit this image: ${text}\n\nImage URL: ${displayUrl}`,
-                      send: true,
-                    },
-                  }),
-                );
-              }}
+      {lightboxOpen && displayUrl
+        ? createPortal(
+            <div
+              className="iam-image-gen-lightbox"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={titleId}
+              aria-describedby={pathId}
+              onClick={closeLightbox}
             >
-              <input
-                name="edit"
-                type="text"
-                placeholder="Describe edits"
-                autoComplete="off"
-                aria-label="Describe edits"
-              />
-              <button type="submit" aria-label="Send edit">
-                ↑
-              </button>
-            </form>
-          </div>
-        </div>
-      ) : null}
+              <div
+                className="iam-image-gen-lightbox__panel"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <header className="iam-image-gen-lightbox__bar">
+                  <button
+                    type="button"
+                    className="iam-image-gen-lightbox__icon-btn"
+                    onClick={closeLightbox}
+                    aria-label="Close"
+                  >
+                    ×
+                  </button>
+                  <div className="iam-image-gen-lightbox__meta">
+                    <p id={pathId} className="iam-image-gen-lightbox__path">
+                      {pathLabel}
+                    </p>
+                    <h2 id={titleId} className="iam-image-gen-lightbox__title">
+                      {imageTitle}
+                    </h2>
+                  </div>
+                  <div className="iam-image-gen-lightbox__actions">
+                    {isDraft ? (
+                      <button
+                        type="button"
+                        disabled={busyAction != null}
+                        onClick={() => void handleSaveToLibrary()}
+                      >
+                        {busyAction === 'save' ? 'Saving…' : 'Save'}
+                      </button>
+                    ) : null}
+                    <button type="button" onClick={() => void handleDownload()}>
+                      Download
+                    </button>
+                    {isDraft ? (
+                      <button
+                        type="button"
+                        disabled={busyAction != null}
+                        onClick={() => void handleDiscard()}
+                      >
+                        Discard
+                      </button>
+                    ) : null}
+                  </div>
+                </header>
+                <div className="iam-image-gen-lightbox__stage">
+                  <img src={displayUrl} alt={imageTitle} />
+                </div>
+                {actionMsg ? (
+                  <p className="iam-image-gen-lightbox__msg" aria-live="polite">
+                    {actionMsg}
+                  </p>
+                ) : null}
+                <form
+                  className="iam-image-gen-lightbox__edit"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    submitEdit(editText);
+                  }}
+                >
+                  <input
+                    name="edit"
+                    type="text"
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    placeholder="Describe edits"
+                    autoComplete="off"
+                    aria-label="Describe edits"
+                    disabled={editBusy}
+                    autoFocus
+                  />
+                  <button
+                    type="submit"
+                    aria-label="Send edit"
+                    disabled={editBusy || !editText.trim()}
+                  >
+                    ↑
+                  </button>
+                </form>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }
