@@ -2233,6 +2233,14 @@ const App: React.FC = () => {
     pathHydratedConvRef.current = convId;
     setAgentPosition('off');
     persistAgentConversationId(convId);
+    // Mid-stream sync from /agent/new already owns this id on the active tab.
+    // force:true would replace live SSE messages with "Loading conversation…" and
+    // abort the in-flight image/tool stream (network shows Canceled).
+    const activeConv =
+      agentChatTabsRef.current
+        .find((t) => t.id === activeAgentChatTabIdRef.current)
+        ?.conversationId?.trim() || '';
+    if (activeConv === convId) return;
     openAgentConversation({ id: convId, force: true, ensureAgentPanel: false });
   }, [location.pathname]);
 

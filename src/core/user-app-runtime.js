@@ -389,20 +389,25 @@ export async function compileUserAppRuntimeProfile(env, input) {
   };
 
   let modelKey = isAutoModel ? null : modelOverrideRaw;
-  if (!modelKey) {
+  if (!modelKey && !isAutoModel) {
     modelKey = (await loadWorkspaceDefaultModel(env, workspaceId)) || USER_APP_DEFAULT_MODEL;
   }
   profile.model_key = modelKey;
 
-  if (input.requireVision === true && env?.DB && workspaceId) {
+  if (env?.DB && workspaceId && (isAutoModel || input.requireVision === true)) {
     const { resolveProfileModel } = await import('./runtime-profile.js');
     await resolveProfileModel(env, profile, {
       workspaceId,
       tenantId,
-      requestedModel: modelOverrideRaw || modelKey,
+      requestedModel: isAutoModel ? 'auto' : modelOverrideRaw || modelKey,
       requireTools: toolAllowlist.length > 0,
-      requireVision: true,
+      requireVision: input.requireVision === true,
     });
+  }
+
+  if (!profile.model_key) {
+    profile.model_key =
+      (await loadWorkspaceDefaultModel(env, workspaceId)) || USER_APP_DEFAULT_MODEL;
   }
 
   profile.profile_hash = await hashRuntimeProfile(profile);

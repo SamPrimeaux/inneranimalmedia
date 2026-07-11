@@ -152,11 +152,25 @@ export function isSimpleAskMessage(message = '') {
  */
 export async function buildSystemPrompt(_env, _tenantId, _mode, _contextBlock, _modeConfig, _promptRouteRow, options = {}) {
   const activeRepo = options?.activeRepo ?? '';
+  const message = options?.message != null ? String(options.message) : '';
   const base = 'You are Agent Sam, an AI coding and operations assistant. Use tools to read files, query databases, run commands, and deploy. When you need information about a repo or codebase, call agentsam_github_tree or agentsam_github_read. Do not assume context — discover it through tools.';
+  const parts = [base];
   if (activeRepo) {
-    return `${base}\n\nOpen repo this turn: ${activeRepo}. Use agentsam_github_tree to inspect it, then agentsam_github_read for key files.`;
+    parts.push(
+      `Open repo this turn: ${activeRepo}. Use agentsam_github_tree to inspect it, then agentsam_github_read for key files.`,
+    );
   }
-  return base;
+  try {
+    const { hasImageGenerationIntent } = await import('../tools/image_generation.js');
+    if (hasImageGenerationIntent(message)) {
+      parts.push(
+        'Image request this turn: call imgx_generate_image with a concrete visual prompt. Do not only describe the image in text — invoke the tool.',
+      );
+    }
+  } catch (_) {
+    /* optional */
+  }
+  return parts.join('\n\n');
 }
 
 export function projectIdFromEnv(env) {

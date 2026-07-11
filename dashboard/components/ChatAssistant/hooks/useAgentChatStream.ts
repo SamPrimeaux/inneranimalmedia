@@ -431,6 +431,8 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   let assistantStreamBuf = mergeIntoLastAssistant ? String(initialAssistantBuffer || '') : '';
   let sseCarry = '';
   let fileEchoSuppress = false;
+  /** Set when SSE assigns conversation_id; URL sync runs after stream so /agent/new stays put. */
+  let pendingConversationUrlSync: string | null = null;
 
   const streamStartedAt = Date.now();
   let readCount = 0;
@@ -2532,10 +2534,17 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           if (typeof cid === 'string' && cid) {
             activeConversationId = cid;
             setConversationId(cid);
-            replaceAgentConversationUrl(cid);
-            localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, cid);
+            // Persist id immediately, but defer URL navigate until the stream ends.
+            // Navigating /agent/new → /agent/{id} mid-SSE force-hydrates the tab and
+            // cancels the fetch (image gen pick_model runs server-side; UI never sees it).
+            try {
+              localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, cid);
+            } catch {
+              /* ignore */
+            }
             void loadSessions();
             notifyAgentChatSessionsRefresh(cid);
+            pendingConversationUrlSync = cid;
           }
         }
         const delta = normalizeAssistantSseText(data);
@@ -2603,6 +2612,9 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   }
   } finally {
     clearIdleTimer();
+    if (pendingConversationUrlSync && !signal.aborted) {
+      replaceAgentConversationUrl(pendingConversationUrlSync);
+    }
   }
 
   if (typeof window !== 'undefined' && window.__IAM_AGENT_LAST_STREAM_DEBUG) {
