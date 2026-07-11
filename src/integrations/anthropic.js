@@ -402,17 +402,18 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     streamParams.context_management = { ...existing, edits };
   }
 
-  // Route to beta endpoint when betas are required, standard endpoint otherwise
-  const response = betasFiltered.length > 0
-    ? await client.beta.messages.create({
-        ...streamParams,
-        betas: betasFiltered,
-        ...(options.signal != null ? { signal: options.signal } : {}),
-      })
-    : await client.messages.create({
-        ...streamParams,
-        ...(options.signal != null ? { signal: options.signal } : {}),
-      });
+  // AbortSignal must be request options (2nd arg) — not body. Body `signal` → 400 Extra inputs.
+  const requestOpts = options.signal != null ? { signal: options.signal } : undefined;
+  const response =
+    betasFiltered.length > 0
+      ? await client.beta.messages.create(
+          {
+            ...streamParams,
+            betas: betasFiltered,
+          },
+          requestOpts,
+        )
+      : await client.messages.create(streamParams, requestOpts);
   return response;
 }
 
