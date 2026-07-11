@@ -2,11 +2,10 @@
 /**
  * Cloudflare Workers Builds — build step (runs on CF, not Mac/VM).
  *
- * Mac-free ship: push/ship:remote → this build → deploy:fast:cf
+ * Installs dashboard deps (vite lives there, not in root package.json),
+ * builds with a raised heap (CF default ~2GB OOMs on this SPA), then bump-cache.
  *
- * Skips legacy CMS vendor npm reinstall (react@18 UMD) — vendor files are
- * already in dashboard/public/cms/vendor and cms-editor is Vite-built.
- * Set IAM_BUILD_WORKER_ONLY=1 to skip Vite entirely.
+ * Never use with-node-env-fallback here — it retries OOM 3× and has exited 0 on failure.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
@@ -15,7 +14,11 @@ import { fileURLToPath } from 'node:url';
 
 const root = pathMod.resolve(pathMod.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = pathMod.join(root, 'dashboard/dist');
+const dash = pathMod.join(root, 'dashboard');
 const workerOnly = String(process.env.IAM_BUILD_WORKER_ONLY || '') === '1';
+
+/** CF Builds / small VMs OOM around 2GB on this dashboard (excalidraw + realtimekit). */
+const HEAP_MB = String(process.env.IAM_VITE_MAX_OLD_SPACE_MB || '8192').trim() || '8192';
 
 function run(cmd, args, label, envExtra = {}) {
   console.log(`[smart-build] ${label}: ${cmd} ${args.join(' ')}`);
@@ -24,8 +27,10 @@ function run(cmd, args, label, envExtra = {}) {
     stdio: 'inherit',
     env: { ...process.env, ...envExtra },
   });
-  if (res.status !== 0) {
-    process.exit(res.status ?? 1);
+  const code = res.status ?? 1;
+  if (code !== 0) {
+    console.error(`[smart-build] ✗ ${label} failed (exit ${code})`);
+    process.exit(code);
   }
 }
 
@@ -34,29 +39,51 @@ if (workerOnly) {
   process.exit(0);
 }
 
-console.log('[smart-build] full ship build — Vite + cache bump (CF Builds / deploy:fast)');
+console.log(`[smart-build] full ship build — dashboard deps + Vite (heap=${HEAP_MB}MB) + bump-cache`);
+
+// Root npm ci does not install dashboard/ (separate package). Vite is a dashboard devDependency.
+const viteBin = pathMod.join(dash, 'node_modules', 'vite', 'bin', 'vite.js');
+if (!existsSync(viteBin)) {
+  console.log('[smart-build] dashboard/node_modules/vite missing — npm ci --prefix dashboard --include=dev');
+  run(
+    'npm',
+    ['ci', '--prefix', 'dashboard', '--include=dev', '--progress=false'],
+    'dashboard-npm-ci',
+    { NODE_ENV: 'development' },
+  );
+} else {
+  console.log('[smart-build] dashboard vite present — skip dashboard npm ci');
+}
+
+if (!existsSync(viteBin)) {
+  console.error('[smart-build] ✗ vite still missing after dashboard npm ci');
+  process.exit(1);
+}
+
 if (existsSync(dist)) {
   rmSync(dist, { recursive: true, force: true });
 }
 
-// Legacy CMS Babel UMD is unused by Vite cms-editor — never npm install react@18 on CF Builds (~19s waste).
-if (process.env.CI === 'true' || process.env.WORKERS_CI === '1' || process.env.CF_PAGES === '1' || process.env.SKIP_CMS_VENDOR_COPY === '1') {
-  console.log('[smart-build] skip copy-cms-vendor (CI / SKIP_CMS_VENDOR_COPY)');
-} else {
-  const vendorReact = pathMod.join(root, 'dashboard/public/cms/vendor/react.production.min.js');
-  if (existsSync(vendorReact)) {
-    console.log('[smart-build] CMS vendor already present — skip npm install');
-  } else {
-    run('bash', [pathMod.join(root, 'scripts/copy-cms-vendor.sh')], 'copy-cms-vendor');
-  }
-}
+const nodeOpts = [process.env.NODE_OPTIONS, `--max-old-space-size=${HEAP_MB}`]
+  .filter(Boolean)
+  .join(' ')
+  .trim();
 
-run('npm', ['run', 'build:vite-only'], 'vite');
-run('node', ['scripts/bump-cache.js'], 'bump-cache');
+// Direct vite — do not route through with-node-env-fallback (retry storm + bad exit codes).
+run(
+  'npm',
+  ['--prefix', 'dashboard', 'run', 'build'],
+  'vite',
+  {
+    NODE_ENV: 'production',
+    NODE_OPTIONS: nodeOpts,
+  },
+);
 
 if (!existsSync(pathMod.join(dist, 'index.html'))) {
-  console.error(`[smart-build] missing ${dist}/index.html after Vite`);
+  console.error(`[smart-build] ✗ missing ${dist}/index.html after Vite`);
   process.exit(1);
 }
 
+run('node', ['scripts/bump-cache.js'], 'bump-cache');
 console.log('[smart-build] ✓ dashboard/dist ready for deploy:fast R2 delta');

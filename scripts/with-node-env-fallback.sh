@@ -42,8 +42,11 @@ while (( attempt < MAX_ATTEMPTS )); do
   last_exit=$?
 
   if (( attempt >= MAX_ATTEMPTS )); then
-    echo "[node-env-fallback] ✗ failed after ${MAX_ATTEMPTS} consecutive attempts (exit ${last_exit}). Inspect output above." >&2
-    exit "$last_exit"
+    # Never exit 0 on failure (empty/unset last_exit → bash exit 0).
+    local_exit="${last_exit:-1}"
+    if [[ "$local_exit" -eq 0 ]]; then local_exit=1; fi
+    echo "[node-env-fallback] ✗ failed after ${MAX_ATTEMPTS} consecutive attempts (exit ${local_exit}). Inspect output above." >&2
+    exit "$local_exit"
   fi
 
   if (( attempt == 1 )); then
