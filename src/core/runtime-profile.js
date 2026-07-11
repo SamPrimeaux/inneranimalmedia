@@ -390,7 +390,10 @@ function executionModeLocksRouteKey(mode) {
 }
 
 /**
- * Composer modes that lock routing task_type for Thompson (intent heuristics must not override).
+ * Map composer mode + classified taskType → Thompson routing_task_type.
+ * Agent mode honors classification (mask #2 fix) — previously locked to mode and discarded
+ * inferIntentHeuristically results. Explicit body.task_type override still wins.
+ * multitask/debug/plan keep mode lock unless explicit override.
  * @param {string} composerMode
  * @param {string} classifiedTaskType
  * @param {boolean} [hasExplicitTaskTypeOverride]
@@ -402,9 +405,10 @@ export function resolveComposerRoutingTaskType(
 ) {
   const mode = String(composerMode || 'agent').trim().toLowerCase();
   const classified = String(classifiedTaskType || '').trim().toLowerCase();
-  if (executionModeLocksRouteKey(mode)) {
-    return hasExplicitTaskTypeOverride && classified ? classified : mode;
-  }
+  if (hasExplicitTaskTypeOverride && classified) return classified;
+  // Agent: classification drives Thompson (code → code arms, not chat/haiku by default).
+  if (mode === 'agent' && classified) return classified;
+  if (executionModeLocksRouteKey(mode)) return mode;
   return classified || mode;
 }
 

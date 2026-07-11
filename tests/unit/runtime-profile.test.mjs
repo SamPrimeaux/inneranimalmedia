@@ -71,12 +71,15 @@ test('multitask mode → multitask_fanout', () => {
   assert.equal(resolveExecutionKind('multitask'), 'multitask_fanout');
 });
 
-test('resolveComposerRoutingTaskType pins locked composer modes for Thompson', () => {
+test('resolveComposerRoutingTaskType — agent honors classification; other locks keep mode', () => {
+  assert.equal(resolveComposerRoutingTaskType('agent', 'code'), 'code');
+  assert.equal(resolveComposerRoutingTaskType('agent', 'chat'), 'chat');
+  assert.equal(resolveComposerRoutingTaskType('agent', ''), 'agent');
   assert.equal(resolveComposerRoutingTaskType('multitask', 'code'), 'multitask');
-  assert.equal(resolveComposerRoutingTaskType('agent', 'chat'), 'agent');
   assert.equal(resolveComposerRoutingTaskType('debug', 'tool_use'), 'debug');
   assert.equal(resolveComposerRoutingTaskType('plan', 'summary'), 'plan');
   assert.equal(resolveComposerRoutingTaskType('multitask', 'code', true), 'code');
+  assert.equal(resolveComposerRoutingTaskType('agent', 'search_code', true), 'search_code');
 });
 
 test('resolveComposerRoutingTaskType lets ask mode follow classified intent', () => {

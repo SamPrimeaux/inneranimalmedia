@@ -1,19 +1,15 @@
 /**
- * User App runtime lane — project context SSOT + lightweight profile compile.
- * Cursor-shaped: open repo is context, user credential is permission, session is boundary.
- * Skips compileModeProfile / OAuth parity scan / intent→D1 route compile on dashboard chat.
+ * User App runtime lane — project context SSOT + dashboard lane name.
+ *
+ * `user_app` is the lane the dashboard sends (runtime_lane=user_app). It is NOT a compile
+ * bypass: compileUserAppRuntimeProfile delegates to resolveRuntimeProfile → classifyIntent →
+ * compileModeProfile (prompt routes + route_requirements + route-scoped tools).
+ *
+ * Naming: `tenant_saas` means "full compile path," not a second company. Session tenant_id /
+ * workspace_id are unchanged either way.
  */
-import { normalizeAgentRuntimeMode, AGENT_MODE_CONTRACT } from './agent-mode.js';
-import {
-  resolveModeController,
-  resolveExecutionKind,
-  defaultWritePolicyForMode,
-  defaultParallelPolicyForMode,
-  hashRuntimeProfile,
-  stripCasualIntentMessage,
-} from './runtime-profile.js';
-import { RUNTIME_PROFILE_VERSION } from './runtime-profile.types.js';
-import { selectInAppAgentSpineToolsForAgentChat } from './in-app-agent-spine.js';
+import { normalizeAgentRuntimeMode } from './agent-mode.js';
+import { stripCasualIntentMessage } from './runtime-profile.js';
 import { sanitizeGithubRepoContextForChat } from './github-repo-scope.js';
 import { authUserIsSuperadmin } from './auth.js';
 import { parseSessionProjectIdFromChatBody } from './project-chat-link.js';
@@ -263,16 +259,19 @@ async function loadWorkspaceDefaultModel(env, workspaceId) {
 }
 
 /**
- * Lightweight RuntimeProfile for dashboard user_app lane (no compileModeProfile).
+ * Dashboard `user_app` lane — full compile path (masks removed).
+ * classifyIntent → compileModeProfile; mcpOAuthParity=false → route-scoped tools (not 100 oauth dump).
+ *
  * @param {any} env
  * @param {import('./runtime-profile.types.js').ResolveRuntimeProfileInput & {
+ *   body?: Record<string, unknown>|null,
  *   projectContext?: ProjectContext|null,
  *   requireVision?: boolean,
  *   isSuperadmin?: boolean,
  * }} input
  */
 export async function compileUserAppRuntimeProfile(env, input) {
-  let mode = /** @type {Exclude<import('./agent-mode.js').AgentMode, 'auto'>} */ (
+  const mode = /** @type {Exclude<import('./agent-mode.js').AgentMode, 'auto'>} */ (
     normalizeAgentRuntimeMode(input.mode) === 'auto' ? 'agent' : normalizeAgentRuntimeMode(input.mode)
   );
   const message = trim(input.message);
@@ -286,123 +285,48 @@ export async function compileUserAppRuntimeProfile(env, input) {
     input.isSuperadmin === true ||
     session.isSuperadmin === true ||
     authUserIsSuperadmin(session.authUser);
-  const hasProjectScope = hasUserAppProjectScope(body, input.projectContext ?? null);
-  const projectQnaFastLane = shouldUseProjectQnaFastLane(
-    body,
-    input.projectContext ?? null,
+  const projectContext = input.projectContext ?? null;
+  const hasProjectScope = hasUserAppProjectScope(body, projectContext);
+  const projectQnaFastLane = shouldUseProjectQnaFastLane(body, projectContext, mode, message);
+
+  const { resolveRuntimeProfile } = await import('./runtime-profile.js');
+  const profile = await resolveRuntimeProfile(env, {
     mode,
     message,
-  );
-
-  const modelOverrideRaw = trim(overrides.model_key);
-  const isAutoModel = !modelOverrideRaw || modelOverrideRaw.toLowerCase() === 'auto';
-
-  let compiledToolRows = [];
-  let toolAllowlist = [];
-
-  if (env?.DB && workspaceId && userId && !projectQnaFastLane) {
-    const executionMode = mode === 'agent' || mode === 'debug' || mode === 'multitask';
-    if (executionMode) {
-      const { selectOAuthMcpParityToolsForAgentChat, IN_APP_MCP_PARITY_TOOL_LIMIT } = await import(
-        './in-app-mcp-oauth-parity.js'
-      );
-      const det = await selectOAuthMcpParityToolsForAgentChat(
-        env.DB,
-        { userId, tenantId, workspaceId, isSuperadmin },
-        {
-          modeSlug: mode,
-          outputLimit: IN_APP_MCP_PARITY_TOOL_LIMIT,
-          isSuperadmin,
-        },
-      );
-      compiledToolRows = det.rows || [];
-    } else {
-      const spine = await selectInAppAgentSpineToolsForAgentChat(
-        env.DB,
-        { userId, tenantId, workspaceId, isSuperadmin },
-        { modeSlug: mode, outputLimit: 8 },
-      );
-      compiledToolRows = spine.rows || [];
-    }
-    toolAllowlist = compiledToolRows
-      .map((r) => trim(r?.name || r?.tool_key || r?.tool_name))
-      .filter(Boolean);
-  }
-
-  const modeContract = AGENT_MODE_CONTRACT[mode] || AGENT_MODE_CONTRACT.agent;
-  const routeKey = projectQnaFastLane ? USER_APP_PROJECT_QNA_ROUTE : 'user_app';
-
-  /** @type {import('./runtime-profile.types.js').RuntimeProfile} */
-  const profile = {
-    mode,
-    mode_controller: resolveModeController(mode),
-    profile_id: `user_app_${mode}`,
-    profile_hash: '',
-    profile_version: RUNTIME_PROFILE_VERSION,
-    system_prompt_key: 'user_app',
-    system_prompt_inline: null,
-    prompt_layers: ['user_app', mode],
-    tool_allowlist: toolAllowlist,
-    tool_denylist: [],
-    tool_require_approval: [],
-    tool_policy: {
-      allowlist: toolAllowlist,
-      denylist: [],
-      require_approval: [],
-      max_tool_calls: projectQnaFastLane ? 0 : 15,
-      max_runtime_ms: projectQnaFastLane ? 45000 : 90000,
-    },
-    max_tools: projectQnaFastLane ? 0 : toolAllowlist.length,
-    max_tool_calls: projectQnaFastLane ? 0 : 15,
-    max_turns: projectQnaFastLane ? 1 : 6,
-    max_runtime_ms: projectQnaFastLane ? 45000 : 90000,
-    write_policy: defaultWritePolicyForMode(mode),
-    workflow_key: null,
-    execution_kind: resolveExecutionKind(mode),
-    context_policy: {
-      include_rag: hasProjectScope,
-      include_memory: hasProjectScope,
-      include_workspace: hasProjectScope,
-      fresh_thread_recommended: false,
-    },
-    routing_task_type: projectQnaFastLane ? 'chat' : mode,
-    model_key: null,
-    routing_arm_id: null,
-    temperature: 0.7,
-    parallel_policy: defaultParallelPolicyForMode(mode),
-    debug_policy: mode === 'debug' ? { evidence_required_before_write: true, evidence_required_before_deploy: true, phase: 'inspect' } : null,
-    source: {
-      prompt_route_id: null,
-      route_requirements_id: null,
-      compiled_at: Date.now(),
-      compile_lane: 'live',
-    },
-    refined_route_key: routeKey,
-    color: modeContract.color || 'blue',
-    tool_profile: 'execution',
-    tool_capable_required: projectQnaFastLane ? false : toolAllowlist.length > 0,
-    selected_provider: null,
-    _compiled_tool_rows: compiledToolRows,
-    _runtime_lane: RUNTIME_LANE_USER_APP,
-    _project_context: input.projectContext ?? null,
-    _project_qna_fast_lane: projectQnaFastLane,
-  };
-
-  let modelKey = isAutoModel ? null : modelOverrideRaw;
-  if (!modelKey && !isAutoModel) {
-    modelKey = (await loadWorkspaceDefaultModel(env, workspaceId)) || USER_APP_DEFAULT_MODEL;
-  }
-  profile.model_key = modelKey;
-
-  if (env?.DB && workspaceId && (isAutoModel || input.requireVision === true)) {
-    const { resolveProfileModel } = await import('./runtime-profile.js');
-    await resolveProfileModel(env, profile, {
+    session: {
+      userId,
       workspaceId,
       tenantId,
-      requestedModel: isAutoModel ? 'auto' : modelOverrideRaw || modelKey,
-      requireTools: toolAllowlist.length > 0,
-      requireVision: input.requireVision === true,
-    });
+      conversationId: session.conversationId,
+      authUser: session.authUser,
+      isSuperadmin,
+    },
+    overrides: {
+      model_key: overrides.model_key,
+      subagent_slug: overrides.subagent_slug,
+      task_type: overrides.task_type,
+      route_key: projectQnaFastLane
+        ? USER_APP_PROJECT_QNA_ROUTE
+        : overrides.route_key ?? null,
+    },
+    compile_lane: 'live',
+    requireVision: input.requireVision === true,
+    // P0#5 / tkt_route_contract_tool_scoping — no OAuth-parity 100-tool default-allow.
+    mcpOAuthParity: false,
+  });
+
+  profile._runtime_lane = RUNTIME_LANE_USER_APP;
+  profile._project_context = projectContext;
+  profile._project_qna_fast_lane = projectQnaFastLane;
+  profile.profile_id = `user_app_${profile.mode || mode}`;
+
+  if (hasProjectScope && profile.context_policy) {
+    profile.context_policy = {
+      ...profile.context_policy,
+      include_rag: true,
+      include_memory: true,
+      include_workspace: true,
+    };
   }
 
   if (!profile.model_key) {
@@ -410,17 +334,20 @@ export async function compileUserAppRuntimeProfile(env, input) {
       (await loadWorkspaceDefaultModel(env, workspaceId)) || USER_APP_DEFAULT_MODEL;
   }
 
-  profile.profile_hash = await hashRuntimeProfile(profile);
   console.info(
     '[user-app-runtime] compiled',
     JSON.stringify({
       mode: profile.mode,
       model_key: profile.model_key,
-      tool_count: toolAllowlist.length,
-      project_repo: input.projectContext?.github_repo ?? null,
+      tool_count: Array.isArray(profile.tool_allowlist) ? profile.tool_allowlist.length : 0,
+      routing_task_type: profile.routing_task_type,
+      prompt_route_id: profile.source?.prompt_route_id ?? null,
+      route_requirements_id: profile.source?.route_requirements_id ?? null,
+      project_repo: projectContext?.github_repo ?? null,
       project_qna_fast_lane: projectQnaFastLane,
       has_project_scope: hasProjectScope,
       message_len: message.length,
+      mcp_oauth_parity: false,
     }),
   );
   return profile;
