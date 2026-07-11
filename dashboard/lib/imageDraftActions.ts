@@ -82,6 +82,39 @@ export async function discardImageDraft(generationId: string): Promise<void> {
   }
 }
 
+export type RateImageDraftResponse = {
+  ok?: boolean;
+  generation_id?: string;
+  rating?: 1 | -1;
+  content_tier?: string | null;
+  model?: string | null;
+  feedback_id?: string;
+  thompson_updated?: boolean;
+  error?: string;
+};
+
+export async function rateImageDraft(
+  generationId: string,
+  rating: 1 | -1,
+  workspaceId?: string | null,
+): Promise<RateImageDraftResponse> {
+  const res = await fetch('/api/images/rate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      generation_id: generationId,
+      rating,
+      workspace_id: workspaceId || undefined,
+    }),
+  });
+  const json = (await res.json().catch(() => null)) as RateImageDraftResponse | null;
+  if (!res.ok) {
+    throw new Error(json?.error || 'Failed to rate image');
+  }
+  return json || { ok: true, rating };
+}
+
 export async function applyAgentHomeBackdropToTheme(
   workspaceId: string,
   imageUrl: string,

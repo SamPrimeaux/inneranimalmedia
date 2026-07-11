@@ -13,6 +13,7 @@
  * POST   /api/images/generate  { persist: false default — draft until commit }
  * POST   /api/images/commit   { generation_id } — save draft to library
  * POST   /api/images/discard  { generation_id } — delete draft
+ * POST   /api/images/rate     { generation_id, rating: 1|-1 } — thumbs → Thompson
  * POST   /api/images/edit | /api/images/:id/meta  (legacy compat)
  * GET    /api/images/tags?workspace_id=
  * PATCH  /api/images/:id  { tags, label, notes, alt_text, category, project_slug, is_live, preferred_bg }
@@ -29,7 +30,7 @@ import { getR2Binding, listR2BucketsForCatalog } from './r2-api.js';
 import { assertDashboardR2BucketAccess } from '../core/r2-storage-scope.js';
 import { getOAuthToken } from '../core/user-oauth-token.js';
 import { canAccessMediaObjectKey } from '../core/media-r2-access.js';
-import { runImageGenerationForTool } from '../tools/image_generation.js';
+import { rateImageGeneration, runImageGenerationForTool } from '../tools/image_generation.js';
 import {
   commitImageDraft,
   discardImageDraft,
@@ -1616,6 +1617,30 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
     } catch (e) {
       const msg = e?.message != null ? String(e.message) : 'discard failed';
       return jsonResponse({ error: msg }, msg === 'draft_not_found' ? 404 : 500);
+    }
+  }
+
+  if (pathLower === '/api/images/rate' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const generationId = String(body.generation_id || '').trim();
+    const ratingRaw = Number(body.rating);
+    if (!generationId) return jsonResponse({ error: 'generation_id required' }, 400);
+    if (ratingRaw !== 1 && ratingRaw !== -1) {
+      return jsonResponse({ error: 'rating must be 1 (up) or -1 (down)' }, 400);
+    }
+    try {
+      const out = await rateImageGeneration(env, {
+        generationId,
+        userId: authUser.id,
+        workspaceId: wsHint || identity?.workspaceId || body.workspace_id || null,
+        rating: /** @type {1 | -1} */ (ratingRaw),
+      });
+      return jsonResponse(out);
+    } catch (e) {
+      const msg = e?.message != null ? String(e.message) : 'rate failed';
+      const status =
+        msg === 'draft_not_found' ? 404 : msg === 'forbidden' ? 403 : msg.includes('required') ? 400 : 500;
+      return jsonResponse({ error: msg }, status);
     }
   }
 

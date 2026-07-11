@@ -14,6 +14,7 @@ import { ProgressiveImagePreview } from './ProgressiveImagePreview';
 import {
   commitImageDraft,
   discardImageDraft,
+  rateImageDraft,
 } from '../lib/imageDraftActions';
 import '../styles/image-generation.css';
 
@@ -53,6 +54,7 @@ export function AgentImageGenerationCard({
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [committedUrl, setCommittedUrl] = useState<string | null>(state.committedUrl || null);
+  const [userRating, setUserRating] = useState<1 | -1 | null>(state.userRating ?? null);
 
   const previewUrl =
     state.previewFrames.find((f) => f.frameIndex === state.activeFrameIndex)?.previewUrl ||
@@ -116,6 +118,21 @@ export function AgentImageGenerationCard({
     [closeLightbox, displayUrl, editBusy],
   );
 
+  const handleRate = async (rating: 1 | -1) => {
+    if (!state.generationId || busyAction === 'rate') return;
+    setBusyAction('rate');
+    setActionMsg(null);
+    try {
+      await rateImageDraft(state.generationId, rating, workspaceId);
+      setUserRating(rating);
+      setActionMsg(rating === 1 ? 'Thanks — noted' : 'Thanks — we will learn from that');
+    } catch (e) {
+      setActionMsg(e instanceof Error ? e.message : 'Rating failed');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const handleDownload = async () => {
     const url = displayUrl;
     if (!url) return;
@@ -169,6 +186,32 @@ export function AgentImageGenerationCard({
     }
   };
 
+  const renderRatingControls = () =>
+    isComplete && state.generationId ? (
+      <div className="iam-image-gen-rate" role="group" aria-label="Rate this image">
+        <button
+          type="button"
+          className={`iam-image-gen-rate__btn${userRating === 1 ? ' is-active' : ''}`}
+          aria-pressed={userRating === 1}
+          aria-label="Thumbs up"
+          disabled={busyAction === 'rate'}
+          onClick={() => void handleRate(1)}
+        >
+          ▲
+        </button>
+        <button
+          type="button"
+          className={`iam-image-gen-rate__btn${userRating === -1 ? ' is-active' : ''}`}
+          aria-pressed={userRating === -1}
+          aria-label="Thumbs down"
+          disabled={busyAction === 'rate'}
+          onClick={() => void handleRate(-1)}
+        >
+          ▼
+        </button>
+      </div>
+    ) : null;
+
   if (isFailed) {
     return (
       <p className="iam-image-gen-fail" role="alert">
@@ -196,9 +239,12 @@ export function AgentImageGenerationCard({
           onImageClick={isComplete ? openLightbox : undefined}
         />
         {isComplete ? (
-          <button type="button" className="iam-image-gen-expand-hint" onClick={openLightbox}>
-            Click to enlarge
-          </button>
+          <div className="iam-image-gen-footer">
+            {renderRatingControls()}
+            <button type="button" className="iam-image-gen-expand-hint" onClick={openLightbox}>
+              Click to enlarge
+            </button>
+          </div>
         ) : null}
       </div>
 
@@ -234,6 +280,7 @@ export function AgentImageGenerationCard({
                     </h2>
                   </div>
                   <div className="iam-image-gen-lightbox__actions">
+                    {renderRatingControls()}
                     {isDraft ? (
                       <button
                         type="button"

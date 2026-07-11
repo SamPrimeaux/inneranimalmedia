@@ -70,6 +70,9 @@ export async function maybeConvertDraftToWebp(bytes, contentType) {
  *   width?: number | null;
  *   height?: number | null;
  *   origin?: string;
+ *   contentTier?: string | null;
+ *   costUsd?: number | null;
+ *   routingArmId?: string | null;
  * }} p
  */
 export async function persistImageDraft(env, p) {
@@ -93,6 +96,16 @@ export async function persistImageDraft(env, p) {
   const expiresAt = now + IMAGE_DRAFT_TTL_SEC;
   const origin = String(p.origin || env.IAM_ORIGIN || 'https://inneranimalmedia.com').replace(/\/$/, '');
   const previewUrl = assetUrlFromR2Key(origin, r2Key);
+  const contentTier =
+    p.contentTier != null && String(p.contentTier).trim()
+      ? String(p.contentTier).trim().slice(0, 64)
+      : null;
+  const costUsd = Number(p.costUsd);
+  const costBind = Number.isFinite(costUsd) && costUsd >= 0 ? costUsd : null;
+  const routingArmId =
+    p.routingArmId != null && String(p.routingArmId).trim()
+      ? String(p.routingArmId).trim().slice(0, 120)
+      : null;
 
   await binding.put(r2Key, buf, {
     httpMetadata: { contentType: packed.contentType },
@@ -106,8 +119,9 @@ export async function persistImageDraft(env, p) {
   await env.DB.prepare(
     `INSERT INTO image_generation_drafts (
        id, user_id, workspace_id, tenant_id, status, r2_key, r2_bucket, preview_url,
-       purpose, prompt, provider, model, width, height, expires_at, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       purpose, prompt, provider, model, width, height, expires_at, created_at, updated_at,
+       content_tier, cost_usd, routing_arm_id
+     ) VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        status = 'draft',
        r2_key = excluded.r2_key,
@@ -119,7 +133,10 @@ export async function persistImageDraft(env, p) {
        width = excluded.width,
        height = excluded.height,
        expires_at = excluded.expires_at,
-       updated_at = excluded.updated_at`,
+       updated_at = excluded.updated_at,
+       content_tier = COALESCE(excluded.content_tier, image_generation_drafts.content_tier),
+       cost_usd = COALESCE(excluded.cost_usd, image_generation_drafts.cost_usd),
+       routing_arm_id = COALESCE(excluded.routing_arm_id, image_generation_drafts.routing_arm_id)`,
   )
     .bind(
       generationId,
@@ -138,6 +155,9 @@ export async function persistImageDraft(env, p) {
       expiresAt,
       now,
       now,
+      contentTier,
+      costBind,
+      routingArmId,
     )
     .run();
 
@@ -151,6 +171,9 @@ export async function persistImageDraft(env, p) {
     r2_bucket: BUCKET,
     expires_at: new Date(expiresAt * 1000).toISOString(),
     expires_at_unix: expiresAt,
+    content_tier: contentTier,
+    cost_usd: costBind,
+    routing_arm_id: routingArmId,
   };
 }
 

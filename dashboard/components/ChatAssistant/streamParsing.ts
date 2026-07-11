@@ -360,6 +360,13 @@ export function normalizeImageGenerationEvent(
         model: typeof o.model === 'string' ? o.model : undefined,
         prompt: typeof o.prompt === 'string' ? o.prompt : undefined,
         failed: Boolean(o.failed),
+        contentTier:
+          typeof o.content_tier === 'string'
+            ? o.content_tier
+            : typeof o.tier === 'string'
+              ? o.tier
+              : undefined,
+        costUsd: typeof o.cost_usd === 'number' ? o.cost_usd : undefined,
       },
     };
   }

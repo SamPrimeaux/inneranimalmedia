@@ -7,6 +7,24 @@ import { estimateModelRunCostUsd } from './model-pricing.js';
 
 /** @typedef {'1k' | '2k' | '4k'} GeminiImageSize */
 
+/** Stable content-type keys for cost/quality learning (not the same as OpenAI quality=low|medium|high). */
+export const IMAGE_CONTENT_TIERS = Object.freeze({
+  draft_mockup: 'draft_mockup',
+  standard_render: 'standard_render',
+  presentation_quality: 'presentation_quality',
+});
+
+/**
+ * Map classifyImageTier() → learning key (low-fi mockup vs investor deck, etc.).
+ * @param {'draft' | 'quality' | 'standard' | string | null | undefined} tier
+ */
+export function contentTierFromImageTier(tier) {
+  const t = String(tier || '').trim().toLowerCase();
+  if (t === 'draft') return IMAGE_CONTENT_TIERS.draft_mockup;
+  if (t === 'quality') return IMAGE_CONTENT_TIERS.presentation_quality;
+  return IMAGE_CONTENT_TIERS.standard_render;
+}
+
 /**
  * Map pixel dimensions to Gemini imageSize tier (billing dial).
  * @param {number} width

@@ -121,6 +121,10 @@ export type ImageGenerationState = {
   r2Key?: string;
   artifactId?: string;
   failed?: boolean;
+  /** Learning key: draft_mockup | standard_render | presentation_quality */
+  contentTier?: string;
+  costUsd?: number;
+  userRating?: 1 | -1 | null;
 };
 
 export interface EmailArtifact {

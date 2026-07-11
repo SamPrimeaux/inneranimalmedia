@@ -19,6 +19,7 @@ import { getR2Binding } from '../api/r2-api.js';
 import { resolvePrimaryUploadPrefix } from '../core/media-r2-access.js';
 import {
   attachImageGenerationUsage,
+  contentTierFromImageTier,
   resolveGeminiAspectRatio,
   resolveGeminiImageSize,
 } from '../core/image-generation-telemetry.js';
@@ -344,28 +345,169 @@ export async function pickImageModelFromDb(env, workspaceId, prompt = '') {
  * @param {string} workspaceId
  * @param {boolean} success
  * @param {number} latencyMs
+ * @param {{ costUsd?: number | null, contentTier?: string | null }} [extra]
  */
-export async function recordImageModelOutcome(env, modelKey, workspaceId, success, latencyMs) {
+export async function recordImageModelOutcome(env, modelKey, workspaceId, success, latencyMs, extra = {}) {
   const ws = String(workspaceId || '').trim();
   const mk = String(modelKey || '').trim();
   if (!env?.DB || !ws || !mk) return;
-  await env.DB.prepare(
-    `UPDATE agentsam_routing_arms SET
-       success_alpha    = success_alpha + ?,
-       success_beta     = success_beta  + ?,
-       latency_n        = latency_n + 1,
-       latency_mean     = CAST((latency_mean * latency_n + ?) / (latency_n + 1) AS REAL),
-       total_executions = total_executions + 1,
-       updated_at       = unixepoch()
-     WHERE model_key    = ?
-       AND workspace_id = ?
-       AND task_type    = 'image_generation'
-       AND is_paused    = 0`,
-  )
-    .bind(success ? 1 : 0, success ? 0 : 1, latencyMs, mk, ws)
-    .run()
-    .catch((e) => console.warn('[image_generation] recordImageModelOutcome', e?.message ?? e));
+  const cost = Number(extra.costUsd);
+  const hasCost = Number.isFinite(cost) && cost >= 0;
+  const latency = Math.max(0, Number(latencyMs) || 0);
+  try {
+    if (hasCost) {
+      await env.DB.prepare(
+        `UPDATE agentsam_routing_arms SET
+           success_alpha    = success_alpha + ?,
+           success_beta     = success_beta  + ?,
+           latency_n        = latency_n + 1,
+           latency_mean     = CAST((latency_mean * latency_n + ?) / (latency_n + 1) AS REAL),
+           cost_mean        = CAST((COALESCE(cost_mean, 0) * cost_n + ?) / (cost_n + 1) AS REAL),
+           cost_n           = cost_n + 1,
+           total_executions = total_executions + 1,
+           updated_at       = unixepoch()
+         WHERE model_key    = ?
+           AND workspace_id = ?
+           AND task_type    = 'image_generation'
+           AND is_paused    = 0`,
+      )
+        .bind(success ? 1 : 0, success ? 0 : 1, latency, cost, mk, ws)
+        .run();
+    } else {
+      await env.DB.prepare(
+        `UPDATE agentsam_routing_arms SET
+           success_alpha    = success_alpha + ?,
+           success_beta     = success_beta  + ?,
+           latency_n        = latency_n + 1,
+           latency_mean     = CAST((latency_mean * latency_n + ?) / (latency_n + 1) AS REAL),
+           total_executions = total_executions + 1,
+           updated_at       = unixepoch()
+         WHERE model_key    = ?
+           AND workspace_id = ?
+           AND task_type    = 'image_generation'
+           AND is_paused    = 0`,
+      )
+        .bind(success ? 1 : 0, success ? 0 : 1, latency, mk, ws)
+        .run();
+    }
+  } catch (e) {
+    console.warn('[image_generation] recordImageModelOutcome', e?.message ?? e);
+  }
 }
+
+/**
+ * User thumbs → Thompson quality + alpha/beta (human signal, not just auto stats).
+ * @param {unknown} env
+ * @param {{
+ *   generationId: string,
+ *   userId: string,
+ *   workspaceId?: string | null,
+ *   rating: 1 | -1,
+ * }} p
+ */
+export async function rateImageGeneration(env, p) {
+  if (!env?.DB) throw new Error('Database not configured');
+  const generationId = String(p.generationId || '').trim();
+  const userId = String(p.userId || '').trim();
+  const rating = Number(p.rating) === 1 ? 1 : Number(p.rating) === -1 ? -1 : 0;
+  if (!generationId || !userId || !rating) throw new Error('generation_id and rating (±1) required');
+
+  const draft = await env.DB.prepare(
+    `SELECT id, user_id, workspace_id, model, provider, content_tier, cost_usd, routing_arm_id, user_rating
+     FROM image_generation_drafts WHERE id = ? LIMIT 1`,
+  )
+    .bind(generationId)
+    .first();
+  if (!draft?.id) throw new Error('draft_not_found');
+  if (String(draft.user_id) !== userId) throw new Error('forbidden');
+
+  const now = Math.floor(Date.now() / 1000);
+  const feedbackId = `igf_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const ws =
+    (p.workspaceId != null ? String(p.workspaceId).trim() : '') ||
+    (draft.workspace_id != null ? String(draft.workspace_id).trim() : '') ||
+    null;
+  const modelKey = draft.model != null ? String(draft.model).trim() : null;
+  const armId = draft.routing_arm_id != null ? String(draft.routing_arm_id).trim() : null;
+  const contentTier = draft.content_tier != null ? String(draft.content_tier).trim() : null;
+  const costUsd = Number(draft.cost_usd);
+  const quality = rating === 1 ? 1 : 0;
+  const prevRating = Number(draft.user_rating);
+  const alreadyRated = prevRating === 1 || prevRating === -1;
+
+  await env.DB.prepare(
+    `INSERT INTO image_generation_feedback (
+       id, generation_id, user_id, workspace_id, rating, content_tier, model_key, provider,
+       routing_arm_id, cost_usd, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      feedbackId,
+      generationId,
+      userId,
+      ws,
+      rating,
+      contentTier,
+      modelKey,
+      draft.provider != null ? String(draft.provider).slice(0, 64) : null,
+      armId,
+      Number.isFinite(costUsd) ? costUsd : null,
+      now,
+    )
+    .run();
+
+  await env.DB.prepare(
+    `UPDATE image_generation_drafts
+     SET user_rating = ?, rated_at = ?, updated_at = ?
+     WHERE id = ? AND user_id = ?`,
+  )
+    .bind(rating, now, now, generationId, userId)
+    .run();
+
+  // First rating only → Thompson (avoids double-count on re-tap). Feedback trail still appends.
+  if (!alreadyRated && modelKey && ws) {
+    try {
+      if (armId) {
+        await env.DB.prepare(
+          `UPDATE agentsam_routing_arms SET
+             success_alpha = success_alpha + ?,
+             success_beta  = success_beta + ?,
+             avg_quality_score = ((COALESCE(avg_quality_score, 0) * COALESCE(quality_n, 0)) + ?) / (COALESCE(quality_n, 0) + 1),
+             quality_n = COALESCE(quality_n, 0) + 1,
+             updated_at = unixepoch()
+           WHERE id = ? AND is_paused = 0`,
+        )
+          .bind(rating === 1 ? 1 : 0, rating === 1 ? 0 : 1, quality, armId)
+          .run();
+      } else {
+        await env.DB.prepare(
+          `UPDATE agentsam_routing_arms SET
+             success_alpha = success_alpha + ?,
+             success_beta  = success_beta + ?,
+             avg_quality_score = ((COALESCE(avg_quality_score, 0) * COALESCE(quality_n, 0)) + ?) / (COALESCE(quality_n, 0) + 1),
+             quality_n = COALESCE(quality_n, 0) + 1,
+             updated_at = unixepoch()
+           WHERE model_key = ? AND workspace_id = ? AND task_type = 'image_generation' AND is_paused = 0`,
+        )
+          .bind(rating === 1 ? 1 : 0, rating === 1 ? 0 : 1, quality, modelKey, ws)
+          .run();
+      }
+    } catch (e) {
+      console.warn('[image_generation] rate thompson', e?.message ?? e);
+    }
+  }
+
+  return {
+    ok: true,
+    generation_id: generationId,
+    rating,
+    content_tier: contentTier,
+    model: modelKey,
+    feedback_id: feedbackId,
+    thompson_updated: !alreadyRated,
+  };
+}
+
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -485,6 +627,7 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
               model: imageModel.model_key,
               provider: imageModel.resolved_platform,
               secretKeyName: imageModel.keyName,
+              routing_arm_id: imageModel.arm_id,
             }
           : {}),
       };
@@ -501,10 +644,8 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
         });
         const result = await streamImageGenerationSse(emit, env, toolName, sseParams, sseCtx);
         const toolDurMs = Date.now() - t0;
-        if (imageModel && ws) {
-          await recordImageModelOutcome(env, imageModel.model_key, ws, true, toolDurMs);
-        }
         // TELEMETRY-002: image fast path bypasses agent-tool-loop — own the ledger row here.
+        // Thompson outcome is recorded inside streamImageGenerationSse (single writer).
         try {
           const { extractToolExecUsage } = await import('../core/tool-exec-telemetry.js');
           const { scheduleAgentsamToolCallLog } = await import('../core/agent-prompt-builder.js');
@@ -553,17 +694,14 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
           cost_usd: result?.cost_usd ?? result?.usage?.cost_usd ?? null,
         });
       } catch (err) {
-        if (imageModel && ws) {
-          await recordImageModelOutcome(env, imageModel.model_key, ws, false, Date.now() - t0);
-          emit('image_generation_complete', {
-            type: 'image_generation_complete',
-            failed: true,
-            provider: imageModel.resolved_platform,
-            model: imageModel.model_key,
-            prompt,
-            error: err?.message != null ? String(err.message) : String(err),
-          });
-        }
+        emit('image_generation_complete', {
+          type: 'image_generation_complete',
+          failed: true,
+          provider: imageModel?.resolved_platform || null,
+          model: imageModel?.model_key || null,
+          prompt,
+          error: err?.message != null ? String(err.message) : String(err),
+        });
         try {
           const { scheduleAgentsamToolCallLog } = await import('../core/agent-prompt-builder.js');
           scheduleAgentsamToolCallLog(env, ctx, {
@@ -1111,6 +1249,28 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
   if (!persist) {
     const userId = String(ctx.userId || ctx.authUser?.id || '').trim();
     if (!userId) throw new Error('user_id required for draft image');
+    const contentTier = contentTierFromImageTier(classifyImageTier(prompt));
+    const routingArmId =
+      resolvedParams.routing_arm_id != null
+        ? String(resolvedParams.routing_arm_id).trim() || null
+        : null;
+    const usageAttached = await attachImageGenerationUsage(
+      env?.DB,
+      {
+        ok: true,
+        status: 'draft',
+        generation_id: generationId,
+        provider: gen.provider,
+        model: gen.model,
+        preview_urls: previewUrls,
+        metadata: { ...(gen.metadata || {}), draft: true, purpose, content_tier: contentTier },
+        persist: false,
+        usageMetadata: gen.usageMetadata ?? null,
+        content_tier: contentTier,
+        routing_arm_id: routingArmId,
+      },
+      billingCtx,
+    );
     const draft = await persistImageDraft(env, {
       userId,
       workspaceId: ctx.workspaceId,
@@ -1125,31 +1285,28 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
       width: dims.width,
       height: dims.height,
       origin: ctx.origin,
+      contentTier,
+      costUsd: usageAttached.cost_usd ?? usageAttached.usage?.cost_usd ?? null,
+      routingArmId,
     });
     if (draft.preview_url && !previewUrls.includes(draft.preview_url)) {
       previewUrls.push(draft.preview_url);
     }
-    return attachImageGenerationUsage(
-      env?.DB,
-      {
-        ok: true,
-        status: 'draft',
-        generation_id: draft.generation_id,
-        preview_url: draft.preview_url,
-        image_url: draft.preview_url,
-        public_url: draft.preview_url,
-        url: draft.preview_url,
-        expires_at: draft.expires_at,
-        r2_key: draft.r2_key,
-        provider: gen.provider,
-        model: gen.model,
-        preview_urls: previewUrls,
-        metadata: { ...gen.metadata || {}, draft: true, purpose },
-        persist: false,
-        usageMetadata: gen.usageMetadata ?? null,
-      },
-      billingCtx,
-    );
+    return {
+      ...usageAttached,
+      status: 'draft',
+      generation_id: draft.generation_id,
+      preview_url: draft.preview_url,
+      image_url: draft.preview_url,
+      public_url: draft.preview_url,
+      url: draft.preview_url,
+      expires_at: draft.expires_at,
+      r2_key: draft.r2_key,
+      preview_urls: previewUrls,
+      content_tier: contentTier,
+      routing_arm_id: routingArmId,
+      cost_usd: draft.cost_usd ?? usageAttached.cost_usd,
+    };
   }
 
   const uploaded = await uploadImageBytesToR2(env, gen.bytes, gen.contentType, {
@@ -1207,7 +1364,8 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
   const ws = ctx.workspaceId != null ? String(ctx.workspaceId).trim() : '';
   let providerGuess = 'workers_ai';
   let modelGuess = resolvedParams.model ? String(resolvedParams.model).trim() : '';
-  let scoredModelKey = null;
+  let scoredModelKey = modelGuess || null;
+  const contentTier = contentTierFromImageTier(tier);
 
   if (isEdit) {
     providerGuess = 'openai';
@@ -1226,6 +1384,11 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
         routing_arm_id: picked.arm_id,
       };
     }
+  } else if (modelGuess && !resolvedParams.provider) {
+    providerGuess = String(resolvedParams.provider || providerGuess);
+  }
+  if (resolvedParams.provider) {
+    providerGuess = String(resolvedParams.provider);
   }
 
   emit('image_generation_started', {
@@ -1235,6 +1398,7 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
     model: String(modelGuess || ''),
     prompt: prompt.slice(0, 500),
     tier,
+    content_tier: contentTier,
     width: dims.width,
     height: dims.height,
   });
@@ -1274,8 +1438,12 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
       { ...resolvedParams, generation_id: generationId },
       ctx,
     );
+    const outcomeCost = result?.cost_usd ?? result?.usage?.cost_usd ?? null;
     if (scoredModelKey && ws) {
-      await recordImageModelOutcome(env, scoredModelKey, ws, true, Date.now() - scoredT0);
+      await recordImageModelOutcome(env, scoredModelKey, ws, true, Date.now() - scoredT0, {
+        costUsd: outcomeCost,
+        contentTier: result?.content_tier || contentTier,
+      });
     }
 
     for (const previewUrl of result.preview_urls || []) {
@@ -1310,6 +1478,9 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
       provider: result.provider,
       model: result.model,
       persist: result.persist ?? false,
+      content_tier: result.content_tier || contentTier,
+      cost_usd: outcomeCost,
+      routing_arm_id: result.routing_arm_id || resolvedParams.routing_arm_id || null,
     });
 
     return result;
