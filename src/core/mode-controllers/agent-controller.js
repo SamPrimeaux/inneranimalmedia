@@ -463,7 +463,8 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         quickstartBatch &&
         chatMessages.length <= 1 &&
         !threadSlashAction &&
-        !createSubagentFlow.active
+        !createSubagentFlow.active &&
+        !/\b(image|photo|picture|render|generat|illustrat|draw|barndo|visual)\b/i.test(message)
       ) {
         try {
           const {
