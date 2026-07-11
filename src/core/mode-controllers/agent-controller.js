@@ -727,7 +727,9 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           e?.name === 'AbortError' || String(e?.message || '').includes('Timeout');
         if (!isAbort) {
           console.warn('[agent-controller] loop_failed', e?.message ?? e);
-          emit('error', { message: e?.message ?? 'Agent loop failed', code: 'agent_spine_error' });
+          if (!e?.alreadyEmitted) {
+            emit('error', { message: e?.message ?? 'Agent loop failed', code: e?.code || 'agent_spine_error' });
+          }
         }
         if (!loopStats?.cancelled) {
           emit('done', {});

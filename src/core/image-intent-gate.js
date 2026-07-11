@@ -272,15 +272,16 @@ async function classifyImageIntentWithModel(env, message, ctx) {
 export function isPrimaryImageGenerationIntentSync(message, kw = null) {
   const m = stripUserTextForIntent(message).trim();
   if (!m || isExplicitImagePlanningIntent(m)) return false;
-  if (isCodeImplementationIntent(m)) return false;
-  if (COMBINED_WORK_RE.test(m) && m.split(/\s+/).filter(Boolean).length > 14) return false;
   const nounsVerbs = kw || {
     nounRe:
       /\b(images?|photos?|photographs?|product\s+photos?|heroes?|hero\s+images?|posters?|wallpapers?|illustrations?|artworks?|graphics?|thumbnails?|banners?|logos?|renders?|concept\s+arts?|covers?|visuals?|backgrounds?|icons?|avatars?|pictures?|art|mockups?|favicons?|og\s+images?|social\s+cards?|app\s+icons?|splash\s+screens?|ui\s+assets?)\b/i,
     verbRe:
       /\b(generate|create|make|design|render|draw|paint|produce|craft|build|illustrate|visualize)\b/i,
   };
-  return matchesKeywordPrimary(m, nounsVerbs);
+  if (matchesKeywordPrimary(m, nounsVerbs)) return true;
+  if (isCodeImplementationIntent(m)) return false;
+  if (COMBINED_WORK_RE.test(m) && m.split(/\s+/).filter(Boolean).length > 14) return false;
+  return false;
 }
 
 /**
@@ -320,6 +321,21 @@ export async function resolvePrimaryImageGenerationIntent(env, message, ctx = {}
     });
     return { isMatch: false, matchedBy: 'rejected_guard' };
   }
+
+  // Keyword match BEFORE code_implementation / combined_work guards — otherwise
+  // "Create a visual for … site plan" is wrongly rejected as code (create…site).
+  const kw = await loadIntentKeywords(env, 'image_generation');
+  if (matchesKeywordPrimary(m, kw)) {
+    await logIntentDecision(env, {
+      ...baseLog,
+      matched_by: 'keyword',
+      is_match: true,
+      reason: `keyword_source=${kw.source}`,
+      metadata: { keyword_source: kw.source },
+    });
+    return { isMatch: true, matchedBy: 'keyword' };
+  }
+
   if (isCodeImplementationIntent(m)) {
     await logIntentDecision(env, {
       ...baseLog,
@@ -337,18 +353,6 @@ export async function resolvePrimaryImageGenerationIntent(env, message, ctx = {}
       reason: 'combined_work',
     });
     return { isMatch: false, matchedBy: 'rejected_guard' };
-  }
-
-  const kw = await loadIntentKeywords(env, 'image_generation');
-  if (matchesKeywordPrimary(m, kw)) {
-    await logIntentDecision(env, {
-      ...baseLog,
-      matched_by: 'keyword',
-      is_match: true,
-      reason: `keyword_source=${kw.source}`,
-      metadata: { keyword_source: kw.source },
-    });
-    return { isMatch: true, matchedBy: 'keyword' };
   }
 
   if (!shouldEscalateToClassifier(m, kw)) {

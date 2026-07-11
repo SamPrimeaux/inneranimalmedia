@@ -486,7 +486,11 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       console.warn('[agent] model call failed:', e?.message ?? e);
       routeArmOutcome(false);
       const detail = e?.message != null ? String(e.message).slice(0, 8000) : String(e).slice(0, 8000);
-      emit('error', { message: detail || 'Model call failed', detail });
+      emit('error', {
+        message: detail || 'Model call failed',
+        detail,
+        code: 'MODEL_DISPATCH_FAILED',
+      });
 
       const eidFail = String(params.chatAgentRunId || sessionId || 'unknown').slice(0, 200);
       const lat = Math.max(0, Date.now() - modelT0);
@@ -541,8 +545,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         })(),
       );
 
-      const fail = new Error('MODEL_DISPATCH_FAILED');
+      const fail = new Error(detail || 'MODEL_DISPATCH_FAILED');
       fail.code = 'MODEL_DISPATCH_FAILED';
+      fail.alreadyEmitted = true;
       throw fail;
     }
 

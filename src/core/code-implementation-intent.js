@@ -167,7 +167,8 @@ export function isCodeImplementationIntent(message) {
   return (
     /\b(implement|refactor(?:ing|ed)?|patch|scaffold|wire\s+(up|in)|add\s+route|create\s+(the\s+)?files?)\b/i.test(m) ||
     /\b(build|ship|deliver)\b.{0,40}\b(dashboard|component|page|module|feature|migration|repo|site|app|website|landing page)\b/i.test(m) ||
-    /\b(make|create)\b.{0,32}\b(a\s+)?(project|landing page|page|site|app)\b/i.test(m) ||
+    // "site" alone matches architectural "site plan" — use website / web site only here
+    /\b(make|create)\b.{0,32}\b(a\s+)?(project|landing page|page|app|website|web\s+site)\b/i.test(m) ||
     /\blanding page\b/i.test(m) ||
     /\b(dashboard\/[\w/-]+|components\/|migrations\/|app\.tsx|index\.tsx|\.tsx\b|\.jsx\b|\.ts\b|\.js\b)\b/i.test(m) ||
     /\b(r2_write|github_create_file|github_update_file|terminal_run|terminal_execute)\b/i.test(m) ||

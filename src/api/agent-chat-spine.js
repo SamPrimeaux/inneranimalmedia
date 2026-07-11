@@ -119,18 +119,25 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
   };
 
   // Image fast path BEFORE chat Thompson / project_qna compile — pure image turns must not
-  // pick gpt-5/kimi or strip tools; those logs were misleading when this ran after profile.
-  // Keyword fast-path (D1) → escalate to intent_classification classifier on miss + cue.
+  // pick gpt-5/kimi or inject the full tool catalog. Composer chip can force the path.
+  const forceImage =
+    body.force_image_generation === true ||
+    body.force_image_generation === 1 ||
+    body.force_image_generation === '1' ||
+    body.force_image_generation === 'true' ||
+    String(body.composer_action || '').trim().toLowerCase() === 'create_image';
   if (!requireVision) {
     const { resolvePrimaryImageGenerationIntent, handleDirectImageGenerationChatStream } = await import(
       '../tools/image_generation.js'
     );
-    const intent = await resolvePrimaryImageGenerationIntent(env, message, {
-      tenantId,
-      workspaceId,
-      userId,
-      conversationId: sessionId,
-    });
+    const intent = forceImage
+      ? { isMatch: true, matchedBy: 'composer_action' }
+      : await resolvePrimaryImageGenerationIntent(env, message, {
+          tenantId,
+          workspaceId,
+          userId,
+          conversationId: sessionId,
+        });
     if (intent.isMatch) {
       scheduleChatSessionTitleInsert(env, ctx, {
         conversationId: sessionId,

@@ -181,6 +181,11 @@ function resolveDispatchPlatform(meta) {
     plat = deriveApiPlatformFromModelKey(meta?.model_key || meta?.logical_model_key || '').toLowerCase();
   }
   if (plat === 'google_ai' || plat === 'google_ai_studio') plat = 'gemini_api';
+  // Catalog aliases used by Workers AI OpenAI-compat models (kimi, granite, …)
+  if (plat === 'workers_ai_openai_compat' || plat === 'workers-ai' || plat === 'cloudflare_workers_ai') {
+    plat = 'workers_ai';
+  }
+  if (plat === 'google_vertex') plat = 'vertex';
   return plat;
 }
 

@@ -365,6 +365,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerGlassRef = useRef<HTMLDivElement>(null);
   const pendingSubagentSlugRef = useRef<string | null>(null);
+  /** Set by "Create an image" chip — next send forces image fast path (skips chat Thompson). */
+  const composerActionRef = useRef<string | null>(null);
   const attachButtonRef = useRef<HTMLButtonElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const modeButtonRef = useRef<HTMLButtonElement>(null);
@@ -1056,6 +1058,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, [policyWebSearch, toggleComposerSource, mode]);
 
   const startImageGenerationPrompt = useCallback(() => {
+    composerActionRef.current = 'create_image';
     setInput('Create a visual for ');
     textareaRef.current?.focus();
   }, []);
@@ -2858,6 +2861,13 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     form.append('mode', sendMode);
     form.append('agent_mode', sendMode);
     form.append('runtime_intent_mode', sendMode);
+    if (composerActionRef.current) {
+      form.append('composer_action', composerActionRef.current);
+      if (composerActionRef.current === 'create_image') {
+        form.append('force_image_generation', '1');
+      }
+      composerActionRef.current = null;
+    }
     if (resolvedActivePlanId) form.append('plan_id', resolvedActivePlanId);
     form.append('model', effectiveModelKey);
     if (!useAutoRouting) {
