@@ -1047,6 +1047,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           error_message: validation.reason,
           duration_ms: 0,
           status: 'error',
+          // TELEMETRY-001: loop owns agentsam_tool_call_log via scheduleAgentsamToolCallLog below.
+          skip_tool_call_log: true,
           ...runSpineIds,
         });
         scheduleAgentsamToolCallLog(env, ctx, {
@@ -1113,6 +1115,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           error_message: grTool.decision?.reason || 'guardrail_blocked',
           duration_ms: 0,
           status: 'blocked',
+          // TELEMETRY-001: loop owns agentsam_tool_call_log via scheduleAgentsamToolCallLog below.
+          skip_tool_call_log: true,
           ...runSpineIds,
         });
         scheduleAgentsamToolCallLog(env, ctx, {
@@ -1882,6 +1886,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         invoked_by: userId || 'iam_agent',
         status: execErr ? 'error' : 'completed',
         skip_tool_chain_row: true,
+        // TELEMETRY-001: loop owns agentsam_tool_call_log via scheduleAgentsamToolCallLog above.
+        skip_tool_call_log: true,
         ...runSpineIds,
       });
       const canonicalToolChainUserId = await resolveCanonicalUserId(userId, env);

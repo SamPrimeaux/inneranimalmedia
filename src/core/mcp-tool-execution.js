@@ -390,7 +390,15 @@ export function scheduleRecordMcpToolExecution(env, ctx, fields) {
         merged.user_id != null && String(merged.user_id).trim() !== ''
           ? String(merged.user_id).trim()
           : '';
-      if (execId && tid && ws) {
+      // TELEMETRY-001: when caller already owns agentsam_tool_call_log (chat tool loop /
+      // execute-approved-tool catalog path), skip this secondary write. Still inserts
+      // agentsam_mcp_tool_execution above. Removal of the default write is TELEMETRY-003.
+      const skipToolCallLog =
+        merged.skip_tool_call_log === true ||
+        merged.skip_tool_call_log === 1 ||
+        merged.skipToolCallLog === true ||
+        merged.skipToolCallLog === 1;
+      if (execId && tid && ws && !skipToolCallLog) {
         // TELEMETRY-003: migrate cost/token merge to extractToolExecUsage — keep local pick() until then.
         scheduleToolCallLog(env, ctx, {
           tenantId: tid,

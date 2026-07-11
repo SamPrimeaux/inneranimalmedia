@@ -5104,6 +5104,8 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         user_id: context.userId,
         invoked_by: context.userId || 'iam_agent',
         status: 'completed',
+        // TELEMETRY-001: catalog insertToolCallLog owns agentsam_tool_call_log on this path.
+        skip_tool_call_log: true,
         ...approvedToolSpine,
       });
 
@@ -5130,6 +5132,8 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         user_id: context.userId,
         invoked_by: context.userId || 'iam_agent',
         status: 'error',
+        // TELEMETRY-001: catalog owns agentsam_tool_call_log on this path (incl. error finalize).
+        skip_tool_call_log: true,
         ...approvedToolSpine,
       });
 

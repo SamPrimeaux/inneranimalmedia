@@ -80,3 +80,5 @@ These predate the fix; forward chat-loop path cannot double-write once `skipTool
 ## Live single-row gate
 
 Requires this commit on a Worker before D1 can prove one row. Local SSOT acceptance: `node scripts/telemetry-001-acceptance.mjs` (PASS). After sandbox/prod worker deploy: one free-tool chat turn → count `agentsam_tool_call_log` for that `agent_run_id` = 1.
+
+**First live attempt (sha 65b4edb7):** `arun_f0872f39b56b` → **COUNT=2**. Catalog skip worked (`source_tool=agent` + `input_summary` present). Second row was `source_tool=mcp_proxy` from `scheduleRecordMcpToolExecution` → `scheduleToolCallLog` — a third writer not in the original catalog+loop spine. Fix: `skip_tool_call_log: true` from the loop (and execute-approved-tool) into `scheduleRecordMcpToolExecution`.
