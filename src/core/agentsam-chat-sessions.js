@@ -770,12 +770,22 @@ export async function maybeCompactChatSession(env, conversationId) {
  * @param {string} conversationId
  * @returns {Promise<Array<{ role: string, content: string, ts: string, model_key: string|null, tokens_in: number, tokens_out: number }>>}
  */
+function chatMessagesLookEmpty(rows) {
+  if (!Array.isArray(rows) || !rows.length) return true;
+  return rows.every((m) => {
+    const c = String(m?.content ?? '').trim();
+    return !c || c === '(empty)' || c === 'Loading conversation…';
+  });
+}
+
 export async function getChatMessages(env, conversationId) {
   const convId = String(conversationId || '').trim();
   if (!convId) return [];
 
+  // DO is hot path, but empty stubs (e.g. image turns that never wrote markdown)
+  // must not block R2 fallback — that is why refresh showed "(empty)".
   const fromDo = await getChatMessagesFromDo(env, convId);
-  if (fromDo?.length) return fromDo;
+  if (fromDo?.length && !chatMessagesLookEmpty(fromDo)) return fromDo;
 
   let messagesKey = null;
   if (env.DB) {

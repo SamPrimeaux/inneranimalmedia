@@ -50,7 +50,7 @@ export function formatMailSurfaceContextForAgent(raw) {
     : [];
 
   const lines = [
-    '[Mail — live surface context. The user is on Collaborate Mail. The inbox snapshot below is metadata only (subject/from/date). Before triage conclusions on Stripe, security, or OAuth items: call gmail_list_inbox then gmail_get_message for each candidate message id (snippets are not enough). Never claim you cannot read inbox without calling those tools.]',
+    '[Mail — live surface context. The user is on Collaborate Mail. The inbox snapshot below is metadata only (subject/from/date). Before triage conclusions on Stripe, security, or OAuth items: call gmail_list_inbox then gmail_get_message for each candidate message id (snippets are not enough). For count/search-by-sender questions: call gmail_list_inbox (or agentsam_gmail_mcp_search_threads), then count from results — NEVER agentsam_d1_query / D1 schema discovery for inbox questions. Never claim you cannot read inbox without calling those tools.]',
     `folder: ${folder}`,
     `account: ${account || '(all connected)'}`,
     `gmail_connected: ${raw.gmailConnected !== false}`,
@@ -79,7 +79,7 @@ export function formatMailSurfaceContextForAgent(raw) {
   }
 
   lines.push(
-    'mail_tools: gmail_list_inbox, gmail_get_message (full body), gmail_modify_message, gmail_send, agentsam_gmail_mcp_search_threads, agentsam_gmail_mcp_get_thread (OAuth user-scoped).',
+    'mail_tools: gmail_list_inbox, gmail_get_message (full body), gmail_modify_message, gmail_send, agentsam_gmail_mcp_search_threads, agentsam_gmail_mcp_get_thread (OAuth user-scoped). Do not use agentsam_d1_query for mailbox questions.',
   );
 
   return lines.filter(Boolean).join('\n');

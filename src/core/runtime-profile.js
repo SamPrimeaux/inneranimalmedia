@@ -750,7 +750,54 @@ export async function compileModeProfile(env, input) {
   ) {
     const { selectAgentsamToolsForAgentChat } = await import('./agentsam-tools-catalog.js');
     let scoredRows = [];
-    if (useOAuthParity) {
+    // Resolve exempt-route allowlist (mail_triage, design_*, …) before OAuth parity.
+    // OAuth parity lists oauth_visible=1 only — gmail_list_inbox was invisible there and
+    // the model fell back to agentsam_d1_query. Exempt routes must pin their tool_keys.
+    const exemptAllowlistKeyEarly = AUGMENTATION_EXEMPT_ROUTES.has(routeKey)
+      ? routeKey
+      : AUGMENTATION_EXEMPT_ROUTES.has(taskType)
+        ? taskType
+        : AUGMENTATION_EXEMPT_ROUTES.has(input.routeKeyPin)
+          ? input.routeKeyPin
+          : null;
+    let exemptAllowlistEarly = null;
+    if (exemptAllowlistKeyEarly) {
+      if (promptRouteRow?.route_key === exemptAllowlistKeyEarly && promptRouteRow?.tool_keys) {
+        try {
+          const parsed = JSON.parse(String(promptRouteRow.tool_keys));
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            exemptAllowlistEarly = parsed.map((k) => String(k).trim()).filter(Boolean);
+          }
+        } catch (_) {
+          /* fall through */
+        }
+      }
+      if (!exemptAllowlistEarly) {
+        exemptAllowlistEarly = EXEMPT_ROUTE_TOOL_ALLOWLIST_FALLBACK[exemptAllowlistKeyEarly] || null;
+      }
+    }
+
+    if (useOAuthParity && exemptAllowlistEarly?.length) {
+      const { fetchAgentsamToolRowsByName } = await import('./agent-tool-loader.js');
+      const { mapCatalogRowsToMcpParityAgentTools } = await import('./in-app-mcp-oauth-parity.js');
+      const pinnedRows = await fetchAgentsamToolRowsByName(env, exemptAllowlistEarly);
+      const byName = new Map(
+        (pinnedRows || []).map((r) => [String(r.tool_name || '').trim().toLowerCase(), r]),
+      );
+      const ordered = [];
+      for (const key of exemptAllowlistEarly) {
+        const row = byName.get(String(key).trim().toLowerCase());
+        if (row) ordered.push(row);
+      }
+      scoredRows = mapCatalogRowsToMcpParityAgentTools(ordered).slice(0, Math.max(1, maxTools));
+      console.info(
+        '[runtime-profile] exempt_route_oauth_parity_pin',
+        JSON.stringify({
+          route_key: exemptAllowlistKeyEarly,
+          pinned: scoredRows.map((r) => r.name || r.tool_key).filter(Boolean),
+        }),
+      );
+    } else if (useOAuthParity) {
       const { selectOAuthMcpParityToolsForAgentChat } = await import('./in-app-mcp-oauth-parity.js');
       const det = await selectOAuthMcpParityToolsForAgentChat(
         env.DB,
