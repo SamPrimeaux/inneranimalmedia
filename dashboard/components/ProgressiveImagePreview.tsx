@@ -33,10 +33,10 @@ export function ProgressiveImagePreview({
   onImageClick,
 }: ProgressiveImagePreviewProps) {
   const displayUrl = phase === 'completed' && finalUrl ? finalUrl : previewUrl || finalUrl;
-  const isActive = Boolean(displayUrl);
+  const canOpen = phase === 'completed' && Boolean(displayUrl) && typeof onImageClick === 'function';
   const blur = blurForProgress(progress, phase);
   const scale = scaleForProgress(progress, phase);
-  const showAmbient = phase !== 'completed';
+  const showAmbient = phase !== 'completed' && phase !== 'failed';
 
   const handleClick = () => {
     const url = finalUrl || previewUrl;
@@ -46,11 +46,12 @@ export function ProgressiveImagePreview({
   return (
     <div
       className="iam-image-gen-preview"
-      role={isActive ? 'button' : undefined}
-      tabIndex={isActive ? 0 : undefined}
-      onClick={isActive ? handleClick : undefined}
+      role={canOpen ? 'button' : undefined}
+      tabIndex={canOpen ? 0 : undefined}
+      aria-label={canOpen ? 'Enlarge image' : undefined}
+      onClick={canOpen ? handleClick : undefined}
       onKeyDown={
-        isActive
+        canOpen
           ? (e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();

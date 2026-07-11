@@ -2627,11 +2627,24 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
 
   if (!assistantContent.trim() && !fileEchoSuppress) {
     if (doneReceived) {
-      assistantContent =
-        'Agent finished without a visible reply. Try Ask mode for quick questions, or send again.';
+      // Image / artifact turns are the reply — don't inject a false "no reply" line.
       setMessages((prev) => {
         const next = [...prev];
         const last = next[next.length - 1];
+        if (last?.role === 'assistant') {
+          const ig = last.imageGenerationState;
+          if (
+            ig &&
+            (ig.phase === 'completed' ||
+              ig.phase === 'failed' ||
+              Boolean(ig.previewUrl || ig.imageUrl || ig.previewFrames?.length))
+          ) {
+            return prev;
+          }
+          if (last.previewArtifacts?.length || last.emailArtifact) return prev;
+        }
+        assistantContent =
+          'Agent finished without a visible reply. Try Ask mode for quick questions, or send again.';
         if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: assistantContent };
         else next.push({ role: 'assistant', content: assistantContent });
         return next;
