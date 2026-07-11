@@ -1670,6 +1670,7 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
         generationId,
         userId: authUser.id,
         workspaceId: wsHint || identity?.workspaceId || body.workspace_id || null,
+        tenantId: identity?.tenantId || authUser?.tenant_id || authUser?.active_tenant_id || null,
         rating: /** @type {1 | -1} */ (ratingRaw),
       });
       return jsonResponse(out);

@@ -13,7 +13,13 @@ import {
 } from '../core/image-draft-store.js';
 import { assertOpenAiImageModelActive } from '../core/image-model-routes.js';
 import { stripUserTextForIntent } from '../core/active-file-envelope.js';
-import { isCodeImplementationIntent } from '../core/code-implementation-intent.js';
+import {
+  hasImageGenerationIntentSync,
+  isExplicitImagePlanningIntent,
+  isPrimaryImageGenerationIntentSync,
+  resolvePrimaryImageGenerationIntent,
+} from '../core/image-intent-gate.js';
+import { recordRewardEvent } from '../core/reward-events.js';
 import { resolveModelApiKey } from '../integrations/tokens.js';
 import { getR2Binding } from '../api/r2-api.js';
 import { resolvePrimaryUploadPrefix } from '../core/media-r2-access.js';
@@ -40,33 +46,17 @@ export const IMAGE_PROGRESS_TICKS = [
   { stage: 'finalizing', message: 'Finalizing the render...', progress: 94 },
 ];
 
-const IMAGE_NOUN_RE =
-  /\b(images?|photos?|photographs?|product\s+photos?|heroes?|hero\s+images?|posters?|wallpapers?|illustrations?|artworks?|graphics?|thumbnails?|banners?|logos?|logo\s+concepts?|renders?|concept\s+arts?|covers?|visuals?|backgrounds?|icons?|avatars?|pictures?|art|mockups?|mock[- ]?ups?|favicons?|og\s+images?|social\s+cards?|app\s+icons?|splash\s+screens?|ui\s+assets?)\b/i;
-const IMAGE_CREATE_VERB_RE =
-  /\b(generate|create|make|design|render|draw|paint|produce|craft|build|illustrate|visualize)\b/i;
-
-/** User is doing substantial non-image work in the same message — use tool path, not image-only fast path. */
-const COMBINED_WORK_RE =
-  /\b(fix|debug|refactor|implement|deploy|migrate|sql|d1_query|terminal|wrangler|github|pull request|test suite|unit test|eslint|typescript error|bug in)\b/i;
+export {
+  isExplicitImagePlanningIntent,
+  resolvePrimaryImageGenerationIntent,
+};
 
 /**
- * User explicitly wants planning/strategy — not an immediate single-image render.
+ * Sync keyword gate (bootstrap/D1 cache). Prefer resolvePrimaryImageGenerationIntent on chat spine.
  * @param {string} message
  */
-export function isExplicitImagePlanningIntent(message) {
-  const m = String(message || '').trim();
-  if (!m) return false;
-  if (/\b(make|create|write|build|draft)\s+(a\s+)?plan\b|\bplan\s+(for|to)\b/i.test(m)) return true;
-  if (/\b(plan|roadmap|strategy|breakdown)\b.*\b(campaign|branding|workflow|multi[- ]?step)\b/i.test(m)) {
-    return true;
-  }
-  if (/\bmulti[- ]?step\b.*\b(image|generation|workflow|creative|visual)\b/i.test(m)) return true;
-  if (/\b(image\s+generation\s+)?workflow\b/i.test(m) && /\b(plan|design|create|build|draft)\b/i.test(m)) {
-    return true;
-  }
-  if (/\b(create|write|draft|make)\s+(prompts?|a\s+set\s+of\s+prompts?)\s+for\b/i.test(m)) return true;
-  if (/\bprompts?\s+for\s+(a\s+)?(future\s+)?(campaign|project|workflow|brand)\b/i.test(m)) return true;
-  return false;
+export function isPrimaryImageGenerationIntent(message) {
+  return isPrimaryImageGenerationIntentSync(message);
 }
 
 /**
@@ -76,9 +66,7 @@ export function isExplicitImagePlanningIntent(message) {
 export function hasImageGenerationIntent(message) {
   const m = stripUserTextForIntent(message).trim();
   if (!m || isExplicitImagePlanningIntent(m)) return false;
-
-  if (matchesCoreImageGenerationPatterns(m)) return true;
-
+  if (hasImageGenerationIntentSync(m)) return true;
   if (
     /\b(also|and then|plus|as well|while you'?re at it|when done)\b[\s\S]{0,48}\b(generate|create|make|design|render|draw)\b[\s\S]{0,32}\b(image|photo|logo|icon|banner|thumbnail|mockup|hero|illustration|artwork|graphic)\b/i.test(
       m,
@@ -96,45 +84,6 @@ export function hasImageGenerationIntent(message) {
   if (/\b(imgx_|dall[- ]?e|imagen|gpt-image|image gen)/i.test(m)) return true;
   if (/\b(visual asset|marketing asset|brand asset|social preview)\b/i.test(m)) return true;
   return false;
-}
-
-/**
- * @param {string} m
- */
-function matchesCoreImageGenerationPatterns(m) {
-  if (/^(what|how|why|when|where|explain|describe|define)\b/i.test(m) && !IMAGE_CREATE_VERB_RE.test(m)) {
-    return false;
-  }
-  if (/\b(edit|modify|change|upscale|remove\s+background|inpaint|outpaint)\b/i.test(m) && IMAGE_NOUN_RE.test(m)) {
-    return true;
-  }
-  if (/\b(hero\s+image|dashboard\s+hero|landing\s+page\s+hero|hero\s+banner|hero\s+section)\b/i.test(m)) {
-    return true;
-  }
-  if (/\bmake\s+me\s+(a\s+)?/i.test(m) && IMAGE_NOUN_RE.test(m)) return true;
-  if (/\b(an?\s+)?(image|photo|photograph|illustration|artwork|render|graphic|poster|wallpaper|banner|thumbnail)\s+(of|for|showing)\b/i.test(m)) {
-    return true;
-  }
-  if (IMAGE_CREATE_VERB_RE.test(m) && IMAGE_NOUN_RE.test(m)) return true;
-  if (/\b(sci[- ]?fi|cyberpunk|futuristic|cinematic|neon)\b/i.test(m) && IMAGE_NOUN_RE.test(m)) {
-    return true;
-  }
-  if (/\b(poster|wallpaper|banner|thumbnail|illustration|concept\s+art|app icon|favicon)\b/i.test(m) && m.split(/\s+/).length >= 3) {
-    return true;
-  }
-  return false;
-}
-
-/**
- * True when image work is the main ask (mode-agnostic fast path — any Agent Sam mode).
- * @param {string} message
- */
-export function isPrimaryImageGenerationIntent(message) {
-  const m = stripUserTextForIntent(message).trim();
-  if (!hasImageGenerationIntent(m)) return false;
-  if (isCodeImplementationIntent(m)) return false;
-  if (COMBINED_WORK_RE.test(m) && m.split(/\s+/).filter(Boolean).length > 14) return false;
-  return matchesCoreImageGenerationPatterns(m);
 }
 
 /**
@@ -402,6 +351,7 @@ export async function recordImageModelOutcome(env, modelKey, workspaceId, succes
  *   generationId: string,
  *   userId: string,
  *   workspaceId?: string | null,
+ *   tenantId?: string | null,
  *   rating: 1 | -1,
  * }} p
  */
@@ -466,6 +416,8 @@ export async function rateImageGeneration(env, p) {
 
   // First rating only → Thompson (avoids double-count on re-tap). Feedback trail still appends.
   if (!alreadyRated && modelKey && ws) {
+    const alphaDelta = rating === 1 ? 1 : 0;
+    const betaDelta = rating === 1 ? 0 : 1;
     try {
       if (armId) {
         await env.DB.prepare(
@@ -477,7 +429,7 @@ export async function rateImageGeneration(env, p) {
              updated_at = unixepoch()
            WHERE id = ? AND is_paused = 0`,
         )
-          .bind(rating === 1 ? 1 : 0, rating === 1 ? 0 : 1, quality, armId)
+          .bind(alphaDelta, betaDelta, quality, armId)
           .run();
       } else {
         await env.DB.prepare(
@@ -489,11 +441,48 @@ export async function rateImageGeneration(env, p) {
              updated_at = unixepoch()
            WHERE model_key = ? AND workspace_id = ? AND task_type = 'image_generation' AND is_paused = 0`,
         )
-          .bind(rating === 1 ? 1 : 0, rating === 1 ? 0 : 1, quality, modelKey, ws)
+          .bind(alphaDelta, betaDelta, quality, modelKey, ws)
           .run();
       }
     } catch (e) {
       console.warn('[image_generation] rate thompson', e?.message ?? e);
+    }
+
+    // Reward ledger — requires real tenant; skip rather than guess.
+    const tenantId =
+      (p.tenantId != null && String(p.tenantId).trim()) ||
+      (await env.DB.prepare(
+        `SELECT COALESCE(active_tenant_id, tenant_id) AS tid FROM auth_users WHERE id = ? LIMIT 1`,
+      )
+        .bind(userId)
+        .first()
+        .then((r) => (r?.tid != null ? String(r.tid).trim() : ''))
+        .catch(() => ''));
+    if (tenantId) {
+      try {
+        await recordRewardEvent(env, {
+          tenant_id: tenantId,
+          workspace_id: ws,
+          task_type: 'image_generation',
+          routing_arm_id: armId,
+          model_key: modelKey,
+          provider: draft.provider != null ? String(draft.provider).slice(0, 64) : null,
+          content_tier: contentTier,
+          signal_type: rating === 1 ? 'user_thumbs_up' : 'user_thumbs_down',
+          signal_source: 'user',
+          signal_value: rating,
+          alpha_delta: alphaDelta,
+          beta_delta: betaDelta,
+          cost_usd: Number.isFinite(costUsd) ? costUsd : null,
+          reason: 'image_generation_rate',
+          dedup_key: `img_rate:${generationId}:${rating === 1 ? 'up' : 'down'}`,
+          metadata: { generation_id: generationId, feedback_id: feedbackId, user_id: userId },
+        });
+      } catch (e) {
+        console.warn('[image_generation] reward_event', e?.message ?? e);
+      }
+    } else {
+      console.warn('[image_generation] reward_event skipped — no tenant_id for user');
     }
   }
 

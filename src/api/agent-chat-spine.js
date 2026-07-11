@@ -120,11 +120,18 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
 
   // Image fast path BEFORE chat Thompson / project_qna compile — pure image turns must not
   // pick gpt-5/kimi or strip tools; those logs were misleading when this ran after profile.
-  {
-    const { isPrimaryImageGenerationIntent, handleDirectImageGenerationChatStream } = await import(
+  // Keyword fast-path (D1) → escalate to intent_classification classifier on miss + cue.
+  if (!requireVision) {
+    const { resolvePrimaryImageGenerationIntent, handleDirectImageGenerationChatStream } = await import(
       '../tools/image_generation.js'
     );
-    if (isPrimaryImageGenerationIntent(message) && !requireVision) {
+    const intent = await resolvePrimaryImageGenerationIntent(env, message, {
+      tenantId,
+      workspaceId,
+      userId,
+      conversationId: sessionId,
+    });
+    if (intent.isMatch) {
       scheduleChatSessionTitleInsert(env, ctx, {
         conversationId: sessionId,
         tenantId,
