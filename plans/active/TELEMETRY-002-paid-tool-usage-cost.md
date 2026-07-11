@@ -53,10 +53,11 @@ Before metrics: **0 / 430** rows with nonzero `cost_usd` in prod.
 ## Gap found live (2026-07-11 barndo turn)
 
 Session `6e8256ff-…` / draft `igen_6a8054ea47a0470b`:
+- **Started on `/dashboard/agent/new`** (not Design Studio) — image fast path is **intent-based** on the shared chat spine (`isPrimaryImageGenerationIntent`), not a Design Studio-only route
 - Path: `handleDirectImageGenerationChatStream` (bypasses tool loop)
 - Model: `gemini-3-pro-image` @ 1536×1024 (~2k)
 - Duration ~27s; image succeeded
-- **No** `agentsam_tool_call_log` row — TELEMETRY-002 attachUsage alone was insufficient for Design Studio until fast-path ledger write added
+- **No** `agentsam_tool_call_log` row until fast-path ledger write added
 
 ## Sequencing
 

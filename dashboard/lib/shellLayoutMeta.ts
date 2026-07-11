@@ -7,7 +7,9 @@ import {
 
 export type AgentChatLayout = 'center' | 'left-rail' | 'right-rail' | 'hidden';
 
-/** Browser/CMS/code workbench tabs need side-rail chat — not center overlay on the canvas. */
+/** Browser/CMS/code workbench tabs need side-rail chat — not center overlay on the canvas.
+ *  Workspace-only on /agent|/new|/agent/{id} is NOT workbench-active (chat stays center).
+ *  Stale browser tabs on those routes are reset by App — see UX-AGENT-CHAT-SURFACE-LAYOUT. */
 export function isAgentWorkbenchSurfaceActive(opts: {
   hasActiveFile?: boolean;
   activeTab?: string;

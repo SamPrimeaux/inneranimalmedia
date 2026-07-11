@@ -581,8 +581,6 @@ const App: React.FC = () => {
       showStatusBar ? DASHBOARD_STATUS_BAR_INSET : '0px',
     );
   }, [showStatusBar]);
-  const isCenterChatAtmospheric =
-    !isAgentEditorWorkbench && isAgentHomeAtmospheric;
   const isMovieModeRoute = location.pathname.startsWith('/dashboard/moviemode');
   const mobileTabBarBottom = mobileTabBarBottomOffset(showStatusBar);
   /** TODO: Movie Mode right rail — split Media bin + ChatAssistant (dual panel). */
@@ -942,6 +940,10 @@ const App: React.FC = () => {
     activeTab,
   ]);
 
+  /** Atmospheric chrome only while chat actually owns the center — not when a side rail left an empty canvas. */
+  const isCenterChatAtmospheric =
+    !isAgentEditorWorkbench && isAgentHomeAtmospheric && agentChatLayout === 'center';
+
   /** Desktop center-chat routes keep layout=center — do not flip agentPosition to open a side rail. */
   const isCenterAgentDesktop = useMemo(
     () =>
@@ -987,6 +989,14 @@ const App: React.FC = () => {
     if (isAgentEditorPath(location.pathname)) return;
     setAgentPosition('off');
   }, [location.pathname, location.search, isNarrowViewport]);
+
+  /** Pure chat routes (/new, /agent/{id}): don't leave a hollow browser/cms/code canvas beside the rail. */
+  useEffect(() => {
+    if (!isAgentCenterChatHome(location.pathname, location.search)) return;
+    if (isAgentEditorPath(location.pathname)) return;
+    if (activeFile) return;
+    setActiveTab((t) => (t === 'browser' || t === 'cms' || t === 'code' ? 'Workspace' : t));
+  }, [location.pathname, location.search, activeFile]);
 
   const { policy: agentsamChatPolicy } = useAgentPolicy(authWorkspaceId);
   const { connectors: availableConnectors, loading: availableConnectorsLoading } =
