@@ -46,8 +46,17 @@ Before metrics: **0 / 430** rows with nonzero `cost_usd` in prod.
 ## Verification
 
 1. `node --check` on touched `.js`
-2. Unit-less gate: one imgx chat turn → `agentsam_tool_call_log.cost_usd > 0` for success row (after deploy)
-3. Gemini request logs include explicit `imageSize` in outbound body
+2. **Design Studio / image-intent chat** (fast path) → one `agentsam_tool_call_log` row with `source_tool=image_fast_path`, `cost_usd > 0`
+3. Tool-loop path (`imgx_*` via agent tools) still extracts usage when present
+4. Gemini request logs include explicit `imageSize` in outbound body
+
+## Gap found live (2026-07-11 barndo turn)
+
+Session `6e8256ff-…` / draft `igen_6a8054ea47a0470b`:
+- Path: `handleDirectImageGenerationChatStream` (bypasses tool loop)
+- Model: `gemini-3-pro-image` @ 1536×1024 (~2k)
+- Duration ~27s; image succeeded
+- **No** `agentsam_tool_call_log` row — TELEMETRY-002 attachUsage alone was insufficient for Design Studio until fast-path ledger write added
 
 ## Sequencing
 

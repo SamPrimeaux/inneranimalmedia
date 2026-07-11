@@ -93,16 +93,22 @@ export function mapAgentSessionMessages(rows: unknown): AgentShellMessage[] {
   const mapped: AgentShellMessage[] = [];
   for (const row of rows) {
     if (!row || typeof row !== 'object') continue;
-    const o = row as { role?: string; content?: unknown };
+    const o = row as { role?: string; content?: unknown; status?: string };
     const role = o.role === 'user' ? 'user' : o.role === 'assistant' ? 'assistant' : null;
     if (!role) continue;
+    const status = o.status != null ? String(o.status).trim().toLowerCase() : '';
     const content = normalizeAgentSessionMessageContent(o.content);
     const imageGenerationState =
       role === 'assistant' ? imageGenerationStateFromMarkdown(content) : null;
-    // Image-only assistant turns: keep markdown for persistence, but UI uses imageGenerationState.
-    // Avoid showing literal "(empty)" for blank image turns.
+    // beginChatTurn reserves a pending assistant row with content ''. Never show that as "(empty)".
+    if (!content && !imageGenerationState) {
+      if (status === 'pending' || role === 'assistant') continue;
+    }
+    // Image-only assistant turns: keep markdown for persistence; UI uses imageGenerationState.
     const displayContent =
-      content || (imageGenerationState ? `![Generated image](${imageGenerationState.imageUrl})` : '(empty)');
+      content ||
+      (imageGenerationState ? `![Generated image](${imageGenerationState.imageUrl})` : '');
+    if (!displayContent && !imageGenerationState) continue;
     mapped.push({
       role,
       content: displayContent,

@@ -88,6 +88,7 @@ export function estimateGptImage2CostUsd(quality, openAiSize) {
  *   outputTokens?: number,
  *   quality?: string | null,
  *   openAiSize?: string | null,
+ *   imageSize?: string | null,
  *   imageCount?: number,
  * }} q
  */
@@ -114,6 +115,27 @@ export async function estimateImageGenerationCostUsd(db, q) {
     return {
       costUsd: estimateGptImage2CostUsd(q.quality, q.openAiSize),
       pricingSource: 'gpt_image_matrix',
+    };
+  }
+
+  if (
+    (provider.includes('google') || provider.includes('gemini')) &&
+    (model.startsWith('gemini-') || model.includes('imagen'))
+  ) {
+    const sizeKey =
+      q.imageSize != null
+        ? String(q.imageSize).trim().toLowerCase()
+        : '1k';
+    /** Rough USD/image until token rates land — flash cheap, pro ~10× (benchmark 2026-07-08). */
+    const isPro = /pro/i.test(model);
+    /** @type {Record<string, number>} */
+    const flash = { '1k': 0.02, '2k': 0.04, '4k': 0.08 };
+    /** @type {Record<string, number>} */
+    const pro = { '1k': 0.08, '2k': 0.13, '4k': 0.24 };
+    const table = isPro ? pro : flash;
+    return {
+      costUsd: table[sizeKey] ?? (isPro ? 0.13 : 0.02),
+      pricingSource: 'gemini_image_matrix',
     };
   }
 
@@ -155,6 +177,7 @@ export async function buildImageToolExecUsage(db, q) {
     outputTokens,
     quality: q.quality,
     openAiSize: q.openAiSize,
+    imageSize: q.imageSize,
     imageCount: q.imageCount ?? 1,
   });
 

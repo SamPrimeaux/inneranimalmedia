@@ -500,8 +500,35 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
           tool: toolName,
         });
         const result = await streamImageGenerationSse(emit, env, toolName, sseParams, sseCtx);
+        const toolDurMs = Date.now() - t0;
         if (imageModel && ws) {
-          await recordImageModelOutcome(env, imageModel.model_key, ws, true, Date.now() - t0);
+          await recordImageModelOutcome(env, imageModel.model_key, ws, true, toolDurMs);
+        }
+        // TELEMETRY-002: image fast path bypasses agent-tool-loop — own the ledger row here.
+        try {
+          const { extractToolExecUsage } = await import('../core/tool-exec-telemetry.js');
+          const { scheduleAgentsamToolCallLog } = await import('../core/agent-prompt-builder.js');
+          const toolUsage = extractToolExecUsage(result);
+          scheduleAgentsamToolCallLog(env, ctx, {
+            tenantId,
+            sessionId,
+            toolName,
+            status: 'success',
+            durationMs: toolDurMs,
+            costUsd: toolUsage.totalCostUsd,
+            inputTokens: toolUsage.inputTokens,
+            outputTokens: toolUsage.outputTokens,
+            inputCostUsd: toolUsage.inputCostUsd,
+            outputCostUsd: toolUsage.outputCostUsd,
+            userId,
+            workspaceId,
+            errorMessage: null,
+            inputSummary: JSON.stringify({ prompt: prompt.slice(0, 160), model: result?.model }).slice(0, 200),
+            sourceTool: 'image_fast_path',
+            conversationId: sessionId,
+          });
+        } catch (e) {
+          console.warn('[image_generation] tool_call_log_failed', e?.message ?? e);
         }
         const imageUrl = result?.preview_url || result?.image_url || '';
         if (sessionId && userId && imageUrl) {
@@ -523,6 +550,7 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
           provider: result?.provider,
           model: result?.model,
           tool: toolName,
+          cost_usd: result?.cost_usd ?? result?.usage?.cost_usd ?? null,
         });
       } catch (err) {
         if (imageModel && ws) {
@@ -535,6 +563,27 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
             prompt,
             error: err?.message != null ? String(err.message) : String(err),
           });
+        }
+        try {
+          const { scheduleAgentsamToolCallLog } = await import('../core/agent-prompt-builder.js');
+          scheduleAgentsamToolCallLog(env, ctx, {
+            tenantId,
+            sessionId,
+            toolName,
+            status: 'error',
+            durationMs: Date.now() - t0,
+            costUsd: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            userId,
+            workspaceId,
+            errorMessage: err?.message != null ? String(err.message).slice(0, 4000) : String(err).slice(0, 4000),
+            inputSummary: JSON.stringify({ prompt: prompt.slice(0, 160) }).slice(0, 200),
+            sourceTool: 'image_fast_path',
+            conversationId: sessionId,
+          });
+        } catch (_) {
+          /* non-fatal */
         }
         throw err;
       }
