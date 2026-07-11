@@ -115,28 +115,34 @@ export function hasVideoGenerationIntent(message) {
 }
 
 /**
- * @param {string} message
+ * Map content tier → legacy lane label (single classifier → one label).
+ * Edit/reference stays a structural check, not a second keyword tree.
+ * @param {ImageTier | string | null | undefined} tier
  * @param {boolean} [hasReferenceImage]
+ * @param {string} [message]
  */
-export function resolveImageLane(message, hasReferenceImage = false) {
+export function imageLaneFromTier(tier, hasReferenceImage = false, message = '') {
   if (
     hasReferenceImage ||
-    /\b(edit|modify|change|update|adjust|alter)\b.*\b(image|photo|pic)\b/i.test(message)
+    /\b(edit|modify|change|update|adjust|alter)\b.*\b(image|photo|pic)\b/i.test(String(message || ''))
   ) {
     return 'edit_reference';
   }
-  if (/\b(draft|rough|quick|sketch|thumbnail|preview|cheap|fast)\b/i.test(message)) {
-    return 'fast_draft';
-  }
-  if (
-    /\b(logo|brand|identity|mockup|hero|banner|campaign|professional|client)\b/i.test(message)
-  ) {
-    return 'brand_mockup';
-  }
-  if (/\b(final|high.?res|ultra|best|quality|print|production)\b/i.test(message)) {
-    return 'high_quality';
-  }
+  if (tier === 'draft') return 'fast_draft';
+  if (tier === 'quality') return 'high_quality';
   return 'brand_mockup';
+}
+
+/**
+ * @deprecated Prefer {@link imageLaneFromTier} after {@link resolveImageTier}.
+ * Sync path uses bootstrap tier only when caller has no env/tier yet.
+ * @param {string} message
+ * @param {boolean} [hasReferenceImage]
+ * @param {ImageTier | null} [tier]
+ */
+export function resolveImageLane(message, hasReferenceImage = false, tier = null) {
+  const t = tier || classifyImageTierSync(message);
+  return imageLaneFromTier(t, hasReferenceImage, message);
 }
 
 function betaSampleRouting(a, b) {
@@ -182,7 +188,7 @@ function secretKeyNameForCatalogRow(env, row) {
 /** @typedef {'draft' | 'quality' | 'standard'} ImageTier */
 
 /**
- * Sync classify (bootstrap). Prefer {@link resolveImageTier} on generate/pick paths.
+ * Sync bootstrap only — production paths must use {@link resolveImageTier} / {@link applyImageTierDefaults}.
  * @param {string} prompt
  * @returns {ImageTier}
  */
@@ -248,17 +254,33 @@ function pickImageArmCostAware(candidates, tier) {
 }
 
 /**
+ * Apply quality/size defaults from D1-backed tier (via {@link resolveImageTier}).
+ * @param {unknown} env
  * @param {Record<string, unknown>} params
+ * @param {{
+ *   tenantId?: string|null,
+ *   workspaceId?: string|null,
+ *   userId?: string|null,
+ *   conversationId?: string|null,
+ *   tier?: ImageTier,
+ *   tierMatchedBy?: string,
+ * }} [ctx]
  */
-export function applyImageTierDefaults(params) {
+export async function applyImageTierDefaults(env, params, ctx = {}) {
   const prompt = String(params.prompt || params.description || '').trim();
-  const tier = classifyImageTier(prompt);
+  const resolved =
+    ctx.tier === 'draft' || ctx.tier === 'quality' || ctx.tier === 'standard'
+      ? { tier: /** @type {ImageTier} */ (ctx.tier), matchedBy: ctx.tierMatchedBy || 'caller' }
+      : await resolveImageTier(env, prompt, ctx);
+  const tier = resolved.tier;
   const defaults = TIER_QUALITY_DEFAULTS[tier] || TIER_QUALITY_DEFAULTS.standard;
   return {
     ...params,
     prompt,
     quality: params.quality ?? defaults.quality,
     size: params.size ?? defaults.size,
+    tier,
+    tier_matched_by: resolved.matchedBy,
   };
 }
 
@@ -651,14 +673,29 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
       }
 
       const referenceImageB64 = opts.referenceImageB64 ?? opts.referenceImage ?? null;
-      const lane = resolveImageLane(prompt, !!(referenceImageB64 || parsed.imageUrl));
       const ws = workspaceId != null ? String(workspaceId).trim() : '';
-      const imageModel = ws ? await pickImageModelFromDb(env, ws, prompt, {
-        tenantId: ctx.tenantId,
-        userId: ctx.userId,
-      }) : null;
+      const { tier, matchedBy: tierMatchedBy } = await resolveImageTier(env, prompt, {
+        workspaceId: ws || null,
+        tenantId,
+        userId,
+      });
+      const lane = imageLaneFromTier(tier, !!(referenceImageB64 || parsed.imageUrl), prompt);
+      const imageModel = ws
+        ? await pickImageModelFromDb(env, ws, prompt, {
+            tenantId,
+            userId,
+            tier,
+            tierMatchedBy,
+          })
+        : null;
       if (lane && imageModel) {
-        console.log('[image_generation] inferred_lane', { lane, model_key: imageModel.model_key, tool: toolName });
+        console.log('[image_generation] inferred_lane', {
+          lane,
+          tier,
+          tier_matched_by: tierMatchedBy,
+          model_key: imageModel.model_key,
+          tool: toolName,
+        });
       }
       const sseCtx = {
         authUser: opts.authUser || { id: userId },
@@ -1236,12 +1273,18 @@ export async function editImage(env, params) {
  */
 export async function runImageGenerationForTool(env, toolName, params, ctx = {}) {
   const prompt = String(params.prompt || params.description || '').trim();
-  let resolvedParams = applyImageTierDefaults({ ...params, prompt });
+  let resolvedParams = await applyImageTierDefaults(env, { ...params, prompt }, {
+    workspaceId: ctx.workspaceId,
+    tenantId: ctx.tenantId,
+    userId: ctx.userId ?? ctx.authUser?.id,
+  });
   const ws = ctx.workspaceId != null ? String(ctx.workspaceId).trim() : '';
   if (!resolvedParams.model && ws && prompt) {
     const picked = await pickImageModelFromDb(env, ws, prompt, {
       tenantId: ctx.tenantId,
       userId: ctx.userId ?? ctx.authUser?.id,
+      tier: resolvedParams.tier,
+      tierMatchedBy: resolvedParams.tier_matched_by,
     });
     if (picked) {
       resolvedParams = {
@@ -1302,12 +1345,17 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
   if (!persist) {
     const userId = String(ctx.userId || ctx.authUser?.id || '').trim();
     if (!userId) throw new Error('user_id required for draft image');
-    const { tier: draftTier } = await resolveImageTier(env, prompt, {
-      workspaceId: ctx.workspaceId,
-      tenantId: ctx.tenantId,
-      userId,
-      conversationId: ctx.conversationId,
-    });
+    const draftTier =
+      resolvedParams.tier === 'draft' ||
+      resolvedParams.tier === 'quality' ||
+      resolvedParams.tier === 'standard'
+        ? /** @type {ImageTier} */ (resolvedParams.tier)
+        : (await resolveImageTier(env, prompt, {
+            workspaceId: ctx.workspaceId,
+            tenantId: ctx.tenantId,
+            userId,
+            conversationId: ctx.conversationId,
+          })).tier;
     const contentTier = contentTierFromImageTier(draftTier);
     const routingArmId =
       resolvedParams.routing_arm_id != null
@@ -1412,14 +1460,15 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
 export async function streamImageGenerationSse(emit, env, toolName, params, ctx = {}) {
   const generationId = `igen_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const prompt = String(params.prompt || params.description || '').trim();
-  let resolvedParams = applyImageTierDefaults({ ...params, prompt });
-  const dims = parseImageDimensions(resolvedParams.size);
-  const { tier, matchedBy: tierMatchedBy } = await resolveImageTier(env, prompt, {
+  let resolvedParams = await applyImageTierDefaults(env, { ...params, prompt }, {
     workspaceId: ctx.workspaceId,
     tenantId: ctx.tenantId,
     userId: ctx.userId,
     conversationId: ctx.conversationId,
   });
+  const dims = parseImageDimensions(resolvedParams.size);
+  const tier = /** @type {ImageTier} */ (resolvedParams.tier || 'standard');
+  const tierMatchedBy = String(resolvedParams.tier_matched_by || 'keyword');
   const isEdit = toolName === 'imgx_edit_image';
   if (!imageGenerationShouldPersist(resolvedParams)) {
     resolvedParams = { ...resolvedParams, persist: false };
@@ -1445,6 +1494,7 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
       console.log('[image_generation] inferred_tier', {
         tier,
         tier_matched_by: tierMatchedBy,
+        lane: imageLaneFromTier(tier, false, prompt),
         model_key: picked.model_key,
       });
       scoredModelKey = picked.model_key;
