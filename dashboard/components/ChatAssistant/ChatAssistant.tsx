@@ -3636,51 +3636,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             />
           </div>
         ) : null}
-        {hubBodyVisible && (
-          <div className="order-1 flex-1 min-h-0 overflow-y-auto chat-hide-scroll px-4 py-4 space-y-4">
-            {mobileHubTab === 'automations' ? (
-              <>
-                <h2 className="text-[16px] font-semibold text-[var(--text-heading)]">Automations and GitHub</h2>
-                <p className="text-[12px] text-[var(--dashboard-muted)] leading-relaxed">
-                  Open the full GitHub repository browser (same as the Deploy tab) to work in any connected repo, browse
-                  files, and open them in the editor.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => onOpenGitHubIntegration?.()}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] text-[13px] font-medium text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)]"
-                >
-                  <FolderGit2 size={18} className="text-[var(--solar-cyan)]" />
-                  Open GitHub repos
-                </button>
-                <button
-                  type="button"
-                  onClick={() => window.open('https://github.com/new', '_blank', 'noopener,noreferrer')}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[13px] font-medium text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)]"
-                >
-                  <Zap size={18} className="text-[var(--solar-yellow)]" />
-                  Create new repository on GitHub
-                </button>
-              </>
-            ) : (
-              <>
-                <h2 className="text-[16px] font-semibold text-[var(--text-heading)]">Workspace</h2>
-                <p className="text-[12px] text-[var(--dashboard-muted)] leading-relaxed">
-                  Return to the main editor, welcome screen, and tabs. Inner Animal Media themes from Settings still apply
-                  everywhere via your workspace <code className="text-[var(--solar-cyan)]">cms_themes</code> row.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => onMobileOpenDashboard?.()}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] text-[13px] font-medium text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)]"
-                >
-                  <LayoutDashboard size={18} className="text-[var(--solar-cyan)]" />
-                  Open dashboard / editor
-                </button>
-              </>
-            )}
-          </div>
-        )}
+
 
         {messagesVisible && !desktopStartupCenterMode && !hideOverlayMessagesForPortalStartup && (() => {
           const block = (
