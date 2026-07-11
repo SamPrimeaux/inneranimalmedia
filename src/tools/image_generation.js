@@ -24,6 +24,12 @@ import { resolveModelApiKey } from '../integrations/tokens.js';
 import { getR2Binding } from '../api/r2-api.js';
 import { resolvePrimaryUploadPrefix } from '../core/media-r2-access.js';
 import {
+  classifyImageTierSync,
+  intentSlugForImageTier,
+  resolveImageTier,
+  tierCostReferenceUsd,
+} from '../core/image-tier.js';
+import {
   attachImageGenerationUsage,
   contentTierFromImageTier,
   resolveGeminiAspectRatio,
@@ -140,6 +146,25 @@ function betaSampleRouting(a, b) {
 }
 
 /**
+ * Soft-cap expensive arms on cheap tiers once cost_mean is trusted (cost_n >= N).
+ * Falls back to full candidate set if every arm would be filtered (cold start).
+ * @param {Array<Record<string, unknown>>} candidates
+ * @param {ImageTier} tier
+ */
+function applyTierCostCaps(candidates, tier) {
+  const cap = TIER_COST_CAP_USD[tier];
+  if (cap == null || !candidates?.length) return candidates || [];
+  const filtered = candidates.filter((row) => {
+    const n = Number(row.cost_n) || 0;
+    if (n < TIER_COST_CAP_MIN_N) return true; // explore until we have evidence
+    const mean = Number(row.cost_mean);
+    if (!Number.isFinite(mean)) return true;
+    return mean <= cap;
+  });
+  return filtered.length ? filtered : candidates;
+}
+
+/**
  * Resolve env secret binding for a catalog+routing row (matches resolveModel.js join shape).
  * @param {unknown} env
  * @param {Record<string, unknown>} row
@@ -157,20 +182,23 @@ function secretKeyNameForCatalogRow(env, row) {
 /** @typedef {'draft' | 'quality' | 'standard'} ImageTier */
 
 /**
- * Classify image tier from prompt text — tool owns routing; agent passes prompt only.
+ * Sync classify (bootstrap). Prefer {@link resolveImageTier} on generate/pick paths.
  * @param {string} prompt
  * @returns {ImageTier}
  */
 export function classifyImageTier(prompt) {
-  const p = String(prompt || '').toLowerCase();
-  if (/draft|rough|quick|sketch|blueprint|floor.?plan|2d.?plan|layout|wireframe/.test(p)) {
-    return 'draft';
-  }
-  if (/presentation|client|final|high.?res|photorealistic|render|production/.test(p)) {
-    return 'quality';
-  }
-  return 'standard';
+  return classifyImageTierSync(prompt);
 }
+
+/** Soft cost ceilings once we have enough samples (cost_n). Blocks burners on draft prompts. */
+const TIER_COST_CAP_USD = Object.freeze({
+  draft: 0.02,
+  standard: 0.08,
+  quality: null, // no soft cap — presentation may use gpt-image-2 / pro
+});
+const TIER_COST_CAP_MIN_N = 3;
+/** Blend weight for cost-efficiency vs Beta quality sample (0.3–0.5). */
+const IMAGE_COST_WEIGHT = 0.4;
 
 const TIER_QUALITY_DEFAULTS = Object.freeze({
   draft: { quality: 'medium', size: '1024x1024' },
@@ -178,32 +206,45 @@ const TIER_QUALITY_DEFAULTS = Object.freeze({
   standard: { quality: 'medium', size: '1024x1024' },
 });
 
-const TIER_MODEL_KEYS = Object.freeze({
-  draft: new Set(['gemini-3.1-flash-image', 'gpt-image-2', '@cf/black-forest-labs/flux-2-klein-4b']),
-  quality: new Set(['gpt-image-2', 'gemini-3-pro-image']),
-});
-
 /**
- * @param {Record<string, unknown>} row
- * @param {ImageTier} tier
- */
-function armEligibleForTier(row, tier) {
-  if (tier === 'standard') return true;
-  const keys = TIER_MODEL_KEYS[tier];
-  if (keys?.has(String(row.model_key || '').trim())) return true;
-  const intent = row.intent_slug != null ? String(row.intent_slug).trim() : '';
-  if (!intent) return true;
-  return false;
-}
-
-/**
+ * Prefer per-tier arms (intent_slug = image_tier_*). Fallback to any unpaused image arm.
  * @param {Array<Record<string, unknown>>} candidates
  * @param {ImageTier} tier
  */
 function filterArmsForTier(candidates, tier) {
-  if (tier === 'standard' || !candidates?.length) return candidates || [];
-  const filtered = candidates.filter((row) => armEligibleForTier(row, tier));
-  return filtered.length ? filtered : candidates;
+  if (!candidates?.length) return [];
+  const slug = intentSlugForImageTier(tier);
+  const matched = candidates.filter(
+    (row) => String(row.intent_slug || '').trim() === slug,
+  );
+  return matched.length ? matched : candidates;
+}
+
+/**
+ * score = thompson_sample × (tier_cost_reference / cost_mean) ^ cost_weight
+ * @param {Array<Record<string, unknown>>} candidates
+ * @param {ImageTier} tier
+ */
+function pickImageArmCostAware(candidates, tier) {
+  if (!candidates?.length) return null;
+  const ref = tierCostReferenceUsd(tier);
+  const w = IMAGE_COST_WEIGHT;
+  let best = null;
+  let bestScore = -1;
+  let bestMeta = null;
+
+  for (const arm of candidates) {
+    const sample = betaSampleRouting(arm.success_alpha, arm.success_beta);
+    const costMean = Math.max(Number(arm.cost_mean) || 0.01, 1e-6);
+    const costFactor = Math.pow(ref / costMean, w);
+    const score = sample * costFactor;
+    if (score > bestScore) {
+      bestScore = score;
+      best = arm;
+      bestMeta = { sample, cost_mean: costMean, cost_factor: costFactor, final_score: score, tier_cost_ref: ref };
+    }
+  }
+  return best ? { arm: best, meta: bestMeta } : null;
 }
 
 /**
@@ -222,24 +263,40 @@ export function applyImageTierDefaults(params) {
 }
 
 /**
- * Thompson sample over image_generation arms. Tier inferred from prompt inside this function.
+ * Thompson sample over per-tier image arms with cost-efficiency blend.
  * @param {unknown} env
  * @param {string} workspaceId
  * @param {string} [prompt]
+ * @param {{ tenantId?: string|null, userId?: string|null, conversationId?: string|null }} [ctx]
  */
-export async function pickImageModelFromDb(env, workspaceId, prompt = '') {
+export async function pickImageModelFromDb(env, workspaceId, prompt = '', ctx = {}) {
   const ws = String(workspaceId || '').trim();
   if (!env?.DB || !ws) return null;
 
-  const tier = classifyImageTier(prompt);
+  const { tier, matchedBy } =
+    ctx.tier === 'draft' || ctx.tier === 'quality' || ctx.tier === 'standard'
+      ? { tier: /** @type {ImageTier} */ (ctx.tier), matchedBy: ctx.tierMatchedBy || 'caller' }
+      : await resolveImageTier(env, prompt, {
+          workspaceId: ws,
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          conversationId: ctx.conversationId,
+        });
 
   const rows = await env.DB.prepare(
     `SELECT
        ra.id              AS arm_id,
+       ra.id              AS id,
        ra.model_key,
        ra.intent_slug,
        ra.success_alpha,
        ra.success_beta,
+       ra.cost_n,
+       ra.cost_mean,
+       ra.latency_n,
+       ra.latency_mean,
+       ra.avg_quality_score,
+       ra.quality_n,
        ra.max_cost_per_call_usd,
        mc.api_platform,
        mc.google_model_id,
@@ -265,27 +322,44 @@ export async function pickImageModelFromDb(env, workspaceId, prompt = '') {
     .all()
     .catch(() => ({ results: [] }));
 
-  const candidates = filterArmsForTier(rows.results || [], tier);
+  let candidates = filterArmsForTier(rows.results || [], tier);
   if (!candidates.length) return null;
 
-  let best = null;
-  let bestScore = -1;
+  const credentialed = [];
   for (const row of candidates) {
     const keyName = secretKeyNameForCatalogRow(env, row);
     if (keyName && !env[keyName]) continue;
     const plat = String(row.resolved_platform || '').toLowerCase();
     if (plat === 'workers_ai' && !env.AI) continue;
+    credentialed.push({ ...row, keyName: keyName || null });
+  }
+  if (!credentialed.length) return null;
 
-    const score = betaSampleRouting(row.success_alpha ?? 1, row.success_beta ?? 1);
-    if (score > bestScore) {
-      bestScore = score;
-      best = { ...row, keyName: keyName || null, tier };
-    }
-  }
-  if (best) {
-    console.log('[image_generation] pick_model', { tier, model_key: best.model_key, arm_id: best.arm_id });
-  }
-  return best;
+  candidates = applyTierCostCaps(credentialed, tier);
+  const pickedPack = pickImageArmCostAware(candidates, tier);
+  if (!pickedPack?.arm) return null;
+  const picked = pickedPack.arm;
+
+  console.log('[image_generation] pick_model', {
+    tier,
+    tier_matched_by: matchedBy,
+    model_key: picked.model_key,
+    arm_id: picked.arm_id || picked.id,
+    intent_slug: picked.intent_slug ?? null,
+    cost_mean: pickedPack.meta?.cost_mean ?? null,
+    cost_n: picked.cost_n ?? null,
+    thompson_sample: pickedPack.meta?.sample != null ? Number(pickedPack.meta.sample.toFixed(4)) : null,
+    cost_factor: pickedPack.meta?.cost_factor != null ? Number(pickedPack.meta.cost_factor.toFixed(4)) : null,
+    final_score: pickedPack.meta?.final_score != null ? Number(pickedPack.meta.final_score.toFixed(4)) : null,
+    tier_cost_ref: pickedPack.meta?.tier_cost_ref ?? null,
+  });
+  return {
+    ...picked,
+    keyName: picked.keyName || null,
+    tier,
+    tier_matched_by: matchedBy,
+    pick_meta: pickedPack.meta,
+  };
 }
 
 /**
@@ -579,7 +653,10 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
       const referenceImageB64 = opts.referenceImageB64 ?? opts.referenceImage ?? null;
       const lane = resolveImageLane(prompt, !!(referenceImageB64 || parsed.imageUrl));
       const ws = workspaceId != null ? String(workspaceId).trim() : '';
-      const imageModel = ws ? await pickImageModelFromDb(env, ws, prompt) : null;
+      const imageModel = ws ? await pickImageModelFromDb(env, ws, prompt, {
+        tenantId: ctx.tenantId,
+        userId: ctx.userId,
+      }) : null;
       if (lane && imageModel) {
         console.log('[image_generation] inferred_lane', { lane, model_key: imageModel.model_key, tool: toolName });
       }
@@ -1162,7 +1239,10 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
   let resolvedParams = applyImageTierDefaults({ ...params, prompt });
   const ws = ctx.workspaceId != null ? String(ctx.workspaceId).trim() : '';
   if (!resolvedParams.model && ws && prompt) {
-    const picked = await pickImageModelFromDb(env, ws, prompt);
+    const picked = await pickImageModelFromDb(env, ws, prompt, {
+      tenantId: ctx.tenantId,
+      userId: ctx.userId ?? ctx.authUser?.id,
+    });
     if (picked) {
       resolvedParams = {
         ...resolvedParams,
@@ -1222,7 +1302,13 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
   if (!persist) {
     const userId = String(ctx.userId || ctx.authUser?.id || '').trim();
     if (!userId) throw new Error('user_id required for draft image');
-    const contentTier = contentTierFromImageTier(classifyImageTier(prompt));
+    const { tier: draftTier } = await resolveImageTier(env, prompt, {
+      workspaceId: ctx.workspaceId,
+      tenantId: ctx.tenantId,
+      userId,
+      conversationId: ctx.conversationId,
+    });
+    const contentTier = contentTierFromImageTier(draftTier);
     const routingArmId =
       resolvedParams.routing_arm_id != null
         ? String(resolvedParams.routing_arm_id).trim() || null
@@ -1328,7 +1414,12 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
   const prompt = String(params.prompt || params.description || '').trim();
   let resolvedParams = applyImageTierDefaults({ ...params, prompt });
   const dims = parseImageDimensions(resolvedParams.size);
-  const tier = classifyImageTier(prompt);
+  const { tier, matchedBy: tierMatchedBy } = await resolveImageTier(env, prompt, {
+    workspaceId: ctx.workspaceId,
+    tenantId: ctx.tenantId,
+    userId: ctx.userId,
+    conversationId: ctx.conversationId,
+  });
   const isEdit = toolName === 'imgx_edit_image';
   if (!imageGenerationShouldPersist(resolvedParams)) {
     resolvedParams = { ...resolvedParams, persist: false };
@@ -1343,9 +1434,19 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
   if (isEdit) {
     providerGuess = 'openai';
   } else if (!modelGuess && ws && prompt) {
-    const picked = await pickImageModelFromDb(env, ws, prompt);
+    const picked = await pickImageModelFromDb(env, ws, prompt, {
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      conversationId: ctx.conversationId,
+      tier,
+      tierMatchedBy,
+    });
     if (picked) {
-      console.log('[image_generation] inferred_tier', { tier, model_key: picked.model_key });
+      console.log('[image_generation] inferred_tier', {
+        tier,
+        tier_matched_by: tierMatchedBy,
+        model_key: picked.model_key,
+      });
       scoredModelKey = picked.model_key;
       providerGuess = String(picked.resolved_platform || 'workers_ai');
       modelGuess = scoredModelKey;

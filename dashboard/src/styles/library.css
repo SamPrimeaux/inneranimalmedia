@@ -3927,8 +3927,137 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
   gap: 6px;
 }
 
+.lib-tickets__analytics {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(60, 64, 67, 0.12);
+  background: rgba(248, 249, 250, 0.6);
+}
+
+.lib-tickets__stat-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.lib-tickets__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid rgba(60, 64, 67, 0.1);
+}
+
+.lib-tickets__stat span {
+  font-size: 11px;
+  color: #5f6368;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.lib-tickets__stat strong {
+  font-size: 22px;
+  font-weight: 600;
+  color: #202124;
+  font-variant-numeric: tabular-nums;
+}
+
+.lib-tickets__charts {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.lib-tickets__chart-label {
+  font-size: 12px;
+  color: #5f6368;
+  margin-bottom: 8px;
+}
+
+.lib-tickets__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-height: 80px;
+}
+
+.lib-tickets__bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.lib-tickets__bar {
+  width: 100%;
+  max-width: 28px;
+  border-radius: 4px 4px 0 0;
+  background: #1a73e8;
+}
+
+.lib-tickets__bar-col em {
+  font-size: 10px;
+  font-style: normal;
+  color: #5f6368;
+  font-variant-numeric: tabular-nums;
+}
+
+.lib-tickets__donut-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.lib-tickets__donut {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  mask: radial-gradient(circle 22px at center, transparent 98%, #000 100%);
+  -webkit-mask: radial-gradient(circle 22px at center, transparent 98%, #000 100%);
+}
+
+.lib-tickets__donut-legend {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 11px;
+  color: #3c4043;
+}
+
+.lib-tickets__donut-legend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 4px;
+}
+
+.lib-tickets__donut-legend em {
+  font-style: normal;
+  color: #5f6368;
+  margin-left: 2px;
+}
+
 @media (max-width: 960px) {
   .lib-tickets__body {
+    grid-template-columns: 1fr;
+  }
+
+  .lib-tickets__charts {
+    grid-template-columns: 1fr;
+  }
+
+  .lib-tickets__stat-tiles {
     grid-template-columns: 1fr;
   }
 }

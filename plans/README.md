@@ -87,6 +87,10 @@ This split is deliberate. Do **not** merge Collaborate client tasks into `agents
 
 - Prose SSOT stays in `plans/active|backlog/*.md` via `doc_path` — do not duplicate body into D1.
 - Status enum enforced in code; `status_reason` required for `blocked` / `abandoned`.
-- API: `GET/POST /api/tickets`, `PATCH /api/tickets/:id`, `POST /api/tickets/:id/status`, events.
+- API: `GET/POST /api/tickets`, `GET /api/tickets/analytics`, `PATCH /api/tickets/:id`, `POST /api/tickets/:id/status`, events.
 - Does **not** replace kanban, `agentsam_todo`, or `project_issues`.
 - UI: Work sidebar → **Tickets** (`/dashboard/artifacts` rail) for CRUD list of platform tickets.
+- **New plan file → ticket same session** (never leave an active plan without a queryable ticket).
+- Events carry `actor_type` / `actor_id` (dashboard_user | claude_mcp | chatgpt_mcp | agent_sam).
+- Create supports `dedup_key` (unique) so MCP/agent retries do not double-insert.
+- Standing Cursor rule: any time you say follow-up / later / backlog / not in scope — create the ticket via API in the same turn.

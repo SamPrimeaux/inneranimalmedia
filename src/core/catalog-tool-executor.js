@@ -2760,6 +2760,16 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           break;
         }
       }
+      if (moduleKey.includes('tickets')) {
+        const handlerKey = String(config.handler || row.handler_key || toolKey || '').trim();
+        const { handlers: ticketHandlers } = await import('../tools/builtin/tickets.js');
+        const fn = ticketHandlers[handlerKey] || ticketHandlers[row.tool_key] || ticketHandlers[row.tool_name];
+        if (typeof fn === 'function') {
+          const out = await fn(params, env, { ...runContext, executionCtx: runContext.ctx });
+          result = out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
+          break;
+        }
+      }
       {
         const handlerKey = String(config.handler || row.handler_key || toolKey || '').trim();
         const { handlers: agentHandlers } = await import('../tools/builtin/agent.js');

@@ -1,5 +1,6 @@
 /**
  * GET    /api/tickets?status=&project=&subsystem=&priority=&workable=1
+ * GET    /api/tickets/analytics
  * POST   /api/tickets
  * GET    /api/tickets/:id
  * PATCH  /api/tickets/:id
@@ -17,6 +18,7 @@ import {
   addTicketEvent,
   createTicket,
   getTicket,
+  getTicketAnalytics,
   listTicketEvents,
   listTickets,
   setTicketStatus,
@@ -35,6 +37,16 @@ export async function handleTicketsApi(request, url, env, authUser) {
   const path = url.pathname.replace(/\/$/, '') || '/';
   const pathLower = path.toLowerCase();
   const method = request.method.toUpperCase();
+  const actor = { actor_type: 'dashboard_user', actor_id: String(authUser.id) };
+
+  if (pathLower === '/api/tickets/analytics' && method === 'GET') {
+    try {
+      const analytics = await getTicketAnalytics(env);
+      return jsonResponse({ ok: true, analytics });
+    } catch (e) {
+      return jsonResponse({ error: e?.message || 'analytics failed' }, 500);
+    }
+  }
 
   if (pathLower === '/api/tickets' && method === 'GET') {
     try {
@@ -57,7 +69,7 @@ export async function handleTicketsApi(request, url, env, authUser) {
   if (pathLower === '/api/tickets' && method === 'POST') {
     const body = await request.json().catch(() => ({}));
     try {
-      const ticket = await createTicket(env, body);
+      const ticket = await createTicket(env, { ...body, ...actor });
       return jsonResponse({ ok: true, ticket }, 201);
     } catch (e) {
       const msg = e?.message != null ? String(e.message) : 'create failed';
@@ -70,7 +82,7 @@ export async function handleTicketsApi(request, url, env, authUser) {
   if (statusMatch && method === 'POST') {
     const body = await request.json().catch(() => ({}));
     try {
-      const ticket = await setTicketStatus(env, statusMatch[1], body);
+      const ticket = await setTicketStatus(env, statusMatch[1], { ...body, ...actor });
       return jsonResponse({ ok: true, ticket });
     } catch (e) {
       const msg = e?.message != null ? String(e.message) : 'status failed';
@@ -96,7 +108,7 @@ export async function handleTicketsApi(request, url, env, authUser) {
   if (eventsMatch && method === 'POST') {
     const body = await request.json().catch(() => ({}));
     try {
-      const out = await addTicketEvent(env, eventsMatch[1], body);
+      const out = await addTicketEvent(env, eventsMatch[1], { ...body, ...actor });
       return jsonResponse(out);
     } catch (e) {
       const msg = e?.message != null ? String(e.message) : 'event failed';

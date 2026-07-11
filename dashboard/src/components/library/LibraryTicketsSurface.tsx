@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   createTicket,
+  fetchTicketAnalytics,
   fetchTickets,
   setTicketStatus,
   type PlatformTicket,
+  type TicketAnalytics,
   type TicketStatus,
 } from '../../../api/tickets';
+import { conicDonutGradient } from '../../lib/chartDonut';
 
 type Props = {
   onToast?: (msg: string) => void;
@@ -15,6 +18,15 @@ type Tab = 'open' | 'blocked' | 'backlog' | 'done';
 
 const OPEN_STATUSES = new Set<TicketStatus>(['active', 'in_review']);
 const DONE_STATUSES = new Set<TicketStatus>(['shipped', 'abandoned']);
+
+const STATUS_DONUT_COLORS: Record<string, string> = {
+  shipped: '#34a853',
+  abandoned: '#9aa0a6',
+  active: '#1a73e8',
+  in_review: '#f9ab00',
+  blocked: '#d93025',
+  backlog: '#5f6368',
+};
 
 function statusBadgeClass(status: string): string {
   if (status === 'active' || status === 'in_review') return 'is-active';
@@ -26,6 +38,7 @@ function statusBadgeClass(status: string): string {
 
 export function LibraryTicketsSurface({ onToast }: Props) {
   const [tickets, setTickets] = useState<PlatformTicket[]>([]);
+  const [analytics, setAnalytics] = useState<TicketAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('open');
@@ -40,8 +53,12 @@ export function LibraryTicketsSurface({ onToast }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const rows = await fetchTickets({ limit: 200 });
+      const [rows, stats] = await Promise.all([
+        fetchTickets({ limit: 200 }),
+        fetchTicketAnalytics().catch(() => null),
+      ]);
       setTickets(rows);
+      setAnalytics(stats);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load tickets');
       setTickets([]);
@@ -78,6 +95,24 @@ export function LibraryTicketsSurface({ onToast }: Props) {
   }, [tickets, tab]);
 
   const selected = tickets.find((t) => t.id === selectedId) || null;
+
+  const statusDonut = useMemo(() => {
+    const by = analytics?.by_status || {};
+    const slices = Object.entries(by)
+      .filter(([, n]) => Number(n) > 0)
+      .map(([key, val]) => ({
+        key,
+        color: STATUS_DONUT_COLORS[key] || '#dadce0',
+        val: Number(val) || 0,
+      }));
+    if (!slices.length) slices.push({ key: 'empty', color: '#3c4043', val: 1 });
+    return conicDonutGradient(slices);
+  }, [analytics]);
+
+  const maxShipped = useMemo(() => {
+    const rows = analytics?.throughput || [];
+    return Math.max(1, ...rows.map((r) => Number(r.shipped) || 0));
+  }, [analytics]);
 
   const handleCreate = async () => {
     const title = newTitle.trim();
@@ -134,6 +169,61 @@ export function LibraryTicketsSurface({ onToast }: Props) {
           merge those lists into this index.
         </span>
       </div>
+
+      {analytics ? (
+        <div className="lib-tickets__analytics">
+          <div className="lib-tickets__stat-tiles">
+            <div className="lib-tickets__stat">
+              <span>Completion</span>
+              <strong>{Math.round((analytics.completion_rate || 0) * 100)}%</strong>
+            </div>
+            <div className="lib-tickets__stat">
+              <span>Avg cycle</span>
+              <strong>
+                {analytics.avg_cycle_days != null
+                  ? `${analytics.avg_cycle_days.toFixed(1)}d`
+                  : '—'}
+              </strong>
+            </div>
+            <div className="lib-tickets__stat">
+              <span>Oldest active</span>
+              <strong>{analytics.oldest_active_days}d</strong>
+            </div>
+          </div>
+          <div className="lib-tickets__charts">
+            <div className="lib-tickets__throughput" aria-label="Shipped per week">
+              <div className="lib-tickets__chart-label">Throughput (shipped / week)</div>
+              <div className="lib-tickets__bars">
+                {(analytics.throughput || []).map((row) => {
+                  const n = Number(row.shipped) || 0;
+                  const h = Math.max(4, Math.round((n / maxShipped) * 64));
+                  return (
+                    <div key={row.week} className="lib-tickets__bar-col" title={`${row.week}: ${n}`}>
+                      <div className="lib-tickets__bar" style={{ height: h }} />
+                      <em>{n}</em>
+                    </div>
+                  );
+                })}
+                {!analytics.throughput?.length ? (
+                  <span className="lib-empty">No shipped events yet</span>
+                ) : null}
+              </div>
+            </div>
+            <div className="lib-tickets__donut-wrap">
+              <div className="lib-tickets__chart-label">Status mix</div>
+              <div className="lib-tickets__donut" style={{ background: statusDonut }} />
+              <ul className="lib-tickets__donut-legend">
+                {Object.entries(analytics.by_status || {}).map(([k, n]) => (
+                  <li key={k}>
+                    <i style={{ background: STATUS_DONUT_COLORS[k] || '#dadce0' }} />
+                    {k} <em>{n}</em>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="lib-tickets__toolbar">
         <div className="lib-tickets__tabs" role="tablist">

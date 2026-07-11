@@ -101,3 +101,24 @@ export async function fetchTicketEvents(id: string): Promise<TicketEvent[]> {
   const data = await parseJson<{ ok: boolean; events: TicketEvent[] }>(res);
   return data.events || [];
 }
+
+export type TicketAnalytics = {
+  completion_rate: number;
+  avg_cycle_days: number | null;
+  oldest_active_days: number;
+  by_status: Record<string, number>;
+  throughput: { week: string; shipped: number }[];
+  aging: {
+    id: string;
+    title: string;
+    status: string;
+    priority: string | null;
+    days_in_status: number;
+  }[];
+};
+
+export async function fetchTicketAnalytics(): Promise<TicketAnalytics> {
+  const res = await fetch('/api/tickets/analytics', { credentials: 'same-origin' });
+  const data = await parseJson<{ ok: boolean; analytics: TicketAnalytics }>(res);
+  return data.analytics;
+}
