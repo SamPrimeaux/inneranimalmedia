@@ -8,6 +8,7 @@ export type LibraryRail =
   | 'all'
   | 'artifacts'
   | 'projects'
+  | 'tickets'
   | 'drive'
   | 'r2'
   | 'local'
@@ -84,9 +85,10 @@ export interface LibraryProvider {
 }
 
 export const RAIL_TITLES: Record<LibraryRail, string> = {
-  all: 'All files',
+  all: 'All sources',
   artifacts: 'My artifacts',
   projects: 'Projects',
+  tickets: 'Tickets',
   drive: 'Google Drive',
   r2: 'R2 Storage',
   local: 'Local folder',
@@ -99,6 +101,7 @@ export const NAV_RAIL_MAP: Record<string, LibraryRail> = {
   home: 'all',
   artifacts: 'artifacts',
   projects: 'projects',
+  tickets: 'tickets',
   workspaces: 'r2',
   'my-drive': 'drive',
   shared: 'drive',

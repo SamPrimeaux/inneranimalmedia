@@ -15,6 +15,7 @@ const RAIL_SOURCES: Partial<Record<LibraryRail, LibrarySource[]>> = {
   all: ['artifacts', 'drive', 'r2', 'local'],
   artifacts: ['artifacts'],
   projects: [],
+  tickets: [],
   drive: ['drive'],
   r2: ['r2'],
   local: ['local'],

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useLibraryWorkspace } from '../../lib/library/useLibraryWorkspace';
-import type { LibraryItem, SourceFilter } from '../../lib/library/types';
+import type { LibraryItem, LibrarySource, SourceFilter } from '../../lib/library/types';
 import { openDriveShareDialog } from '../../lib/library/googleDriveWidgets';
 import { createSharedDrive, hasDriveManageScope } from '../../lib/library/sharedDriveApi';
 import {
@@ -14,7 +14,9 @@ import {
   uploadDriveFiles,
 } from '../../lib/library/driveOpsApi';
 import { LibraryConnectMenu } from './LibraryConnectMenu';
+import { LibraryHomeLanes } from './LibraryHomeLanes';
 import { LibraryProjectsSurface } from './LibraryProjectsSurface';
+import { LibraryTicketsSurface } from './LibraryTicketsSurface';
 import { LibraryFileDriveActions } from './LibraryFileDriveActions';
 import { LibraryListView } from './LibraryListView';
 import { LibrarySideRail } from './LibrarySideRail';
@@ -36,6 +38,7 @@ const NEW_MENU_ITEMS = [
 const NAV_ITEMS = [
   { key: 'home', label: 'Home', icon: 'home' },
   { key: 'projects', label: 'Projects', icon: 'projectFolder' },
+  { key: 'tickets', label: 'Tickets', icon: 'tickets' },
   { key: 'artifacts', label: 'My artifacts', icon: 'artifacts' },
   { key: 'workspaces', label: 'R2 Storage', icon: 'workspaces' },
   { key: 'my-drive', label: 'Google Drive', icon: 'drive' },
@@ -66,6 +69,12 @@ function NavIcon({ name }: { name: string }) {
       <>
         <path d="M4 5h16v14H4z" />
         <path d="M8 9h8M8 13h5" />
+      </>
+    ),
+    tickets: (
+      <>
+        <path d="M4 5h16v4H4zM4 11h16v8H4z" />
+        <path d="M8 14h5M8 17h8" />
       </>
     ),
     projects: (
@@ -152,7 +161,19 @@ export function ArtifactsDriveShell() {
   const routeProjectMatch = location.pathname.match(/^\/dashboard\/projects\/([^/?#]+)/);
   const routeProjectId = routeProjectMatch?.[1] ? decodeURIComponent(routeProjectMatch[1]) : null;
   const isProjectsView = isProjectsRoute || ws.filters.rail === 'projects';
+  const isTicketsView = !isProjectsView && ws.filters.rail === 'tickets';
+  const isHomeLanes = !isProjectsView && !isTicketsView && ws.filters.rail === 'all';
   const projectIdParam = isProjectsRoute ? routeProjectId : searchParams.get('project');
+
+  const openSourceLane = useCallback(
+    (source: LibrarySource) => {
+      if (source === 'artifacts') ws.setNavKey('artifacts');
+      else if (source === 'drive') ws.setNavKey('my-drive');
+      else if (source === 'r2') ws.setNavKey('workspaces');
+      else if (source === 'local') ws.setNavKey('computers');
+    },
+    [ws],
+  );
   const activeSharedDriveId = ws.sharedDriveId || ws.driveFolderStack[0]?.id || null;
   const activeSharedDriveName =
     ws.driveFolderStack[0]?.name ||
@@ -384,7 +405,7 @@ export function ArtifactsDriveShell() {
             <span className="drive-mark">
               <span className="drive-tri" />
             </span>
-            <span className="label">Library</span>
+            <span className="label">Work</span>
           </div>
 
           <label className="search">
@@ -468,6 +489,10 @@ export function ArtifactsDriveShell() {
                       navigate('/dashboard/projects');
                       return;
                     }
+                    if (item.key === 'tickets') {
+                      ws.setNavKey('tickets');
+                      return;
+                    }
                     if (rail) ws.setNavKey(item.key);
                     else showToast(`${item.label} — coming soon`);
                   }}
@@ -488,13 +513,17 @@ export function ArtifactsDriveShell() {
           </nav>
         </aside>
 
-        <main className={`drive-main${isProjectsView ? ' drive-main--projects' : ''}`}>
+        <main
+          className={`drive-main${isProjectsView || isTicketsView ? ' drive-main--projects' : ''}`}
+        >
           {isProjectsView ? (
             <LibraryProjectsSurface
               onToast={showToast}
               initialProjectId={projectIdParam}
               onProjectChange={handleProjectChange}
             />
+          ) : isTicketsView ? (
+            <LibraryTicketsSurface onToast={showToast} />
           ) : (
             <>
           <div className="main-head">
@@ -644,7 +673,7 @@ export function ArtifactsDriveShell() {
               <div className="notice-icon">G</div>
               <div>
                 <strong>Connect Google Drive</strong>
-                <p>Authorize Drive to browse folders and files inside your library.</p>
+                <p>Authorize Drive to browse folders and files inside Work.</p>
               </div>
               <span className="spacer" />
               <button type="button" className="upgrade" onClick={ws.connectDrive}>
@@ -669,7 +698,20 @@ export function ArtifactsDriveShell() {
 
           <section className={`drive-content${viewMode === 'list' ? ' list-view' : ''}`}>
             {ws.loading ? (
-              <div className="lib-loading">Loading library…</div>
+              <div className="lib-loading">Loading…</div>
+            ) : isHomeLanes ? (
+              <LibraryHomeLanes
+                folders={ws.folders}
+                files={ws.files}
+                selectedId={selected?.id ?? null}
+                onItemClick={handleItemClick}
+                onContextMenu={handleContextMenu}
+                onOpenSource={openSourceLane}
+                driveConnected={ws.driveConnected}
+                localFolderName={ws.localFolderName}
+                onConnectDrive={ws.connectDrive}
+                onConnectLocal={ws.connectLocalFolder}
+              />
             ) : ws.folders.length === 0 && ws.files.length === 0 ? (
               <div className="lib-empty">
                 No files found

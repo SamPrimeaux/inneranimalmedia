@@ -1,6 +1,9 @@
 /**
  * agentsam_tickets — D1 index over plans/*.md (doc_path = prose SSOT).
- * Does not replace kanban / agentsam_todo / project_issues.
+ *
+ * Domain boundary (LOCKED): platform / infra / Agent Sam engineering only.
+ * Collaborate tasks (client & operational) stay in agentsam_todo / project issues / kanban.
+ * Do not merge those domains without an explicit product decision.
  */
 
 export const TICKET_STATUSES = Object.freeze([

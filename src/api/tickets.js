@@ -8,6 +8,7 @@
  * GET    /api/tickets/:id/events
  *
  * Index only — prose lives at ticket.doc_path (plans/active|backlog).
+ * Platform engineering only — not Collaborate client tasks.
  * Does not replace kanban / agentsam_todo / project_issues.
  */
 

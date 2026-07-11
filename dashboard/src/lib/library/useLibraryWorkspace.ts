@@ -69,6 +69,7 @@ export function useLibraryWorkspace() {
 
   const activeRail = filters.rail;
   const pageTitle = useMemo(() => {
+    if (activeRail === 'tickets') return RAIL_TITLES.tickets;
     if (activeRail === 'projects') return RAIL_TITLES.projects;
     if (activeRail === 'drive') {
       if (driveView === 'shared-drives' && !sharedDriveId) return DRIVE_VIEW_TITLES['shared-drives'];
@@ -224,7 +225,13 @@ export function useLibraryWorkspace() {
   }, []);
 
   const setRail = useCallback((rail: LibraryRail) => {
-    setFilters((f) => ({ ...f, rail, source: rail === 'all' ? 'all' : rail }));
+    const source: SourceFilter =
+      rail === 'all' || rail === 'projects' || rail === 'tickets' || rail === 'recent'
+        ? 'all'
+        : rail === 'starred' || rail === 'trash'
+          ? 'drive'
+          : (rail as SourceFilter);
+    setFilters((f) => ({ ...f, rail, source }));
     if (rail === 'drive') {
       resetDriveNav('my-drive');
     } else {
@@ -241,7 +248,13 @@ export function useLibraryWorkspace() {
       const rail = NAV_RAIL_MAP[navKey];
       const nextDriveView = NAV_DRIVE_VIEW[navKey];
       if (rail) {
-        setFilters((f) => ({ ...f, rail, source: rail === 'all' ? 'all' : rail }));
+        const source: SourceFilter =
+          rail === 'all' || rail === 'projects' || rail === 'tickets' || rail === 'recent'
+            ? 'all'
+            : rail === 'starred' || rail === 'trash'
+              ? 'drive'
+              : (rail as SourceFilter);
+        setFilters((f) => ({ ...f, rail, source }));
         if (rail === 'drive' && nextDriveView) {
           resetDriveNav(nextDriveView);
         } else if (rail === 'trash' || rail === 'starred') {

@@ -1,0 +1,103 @@
+/** Platform engineering tickets (`agentsam_tickets`) — not Collaborate client tasks. */
+
+export type TicketStatus =
+  | 'backlog'
+  | 'active'
+  | 'blocked'
+  | 'in_review'
+  | 'shipped'
+  | 'abandoned';
+
+export type PlatformTicket = {
+  id: string;
+  title: string;
+  status: TicketStatus;
+  status_reason: string | null;
+  project: string | null;
+  subsystem: string | null;
+  tags: string[];
+  priority: string | null;
+  doc_path: string | null;
+  blocks: string[];
+  blocked_by: string[];
+  supersedes: string | null;
+  created_at: number;
+  updated_at: number;
+  closed_at: number | null;
+};
+
+export type TicketEvent = {
+  id: string;
+  ticket_id: string;
+  event_type: string;
+  from_status: string | null;
+  to_status: string | null;
+  detail: string | null;
+  commit_sha: string | null;
+  created_at: number;
+};
+
+async function parseJson<T>(res: Response): Promise<T> {
+  const data = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
+  }
+  return data;
+}
+
+export async function fetchTickets(params?: {
+  status?: string;
+  workable?: boolean;
+  limit?: number;
+}): Promise<PlatformTicket[]> {
+  const q = new URLSearchParams();
+  if (params?.status) q.set('status', params.status);
+  if (params?.workable) q.set('workable', '1');
+  if (params?.limit) q.set('limit', String(params.limit));
+  const res = await fetch(`/api/tickets${q.toString() ? `?${q}` : ''}`, {
+    credentials: 'same-origin',
+  });
+  const data = await parseJson<{ ok: boolean; tickets: PlatformTicket[] }>(res);
+  return data.tickets || [];
+}
+
+export async function createTicket(body: {
+  title: string;
+  status?: TicketStatus;
+  priority?: string;
+  project?: string;
+  subsystem?: string;
+  doc_path?: string;
+  tags?: string[];
+}): Promise<PlatformTicket> {
+  const res = await fetch('/api/tickets', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await parseJson<{ ok: boolean; ticket: PlatformTicket }>(res);
+  return data.ticket;
+}
+
+export async function setTicketStatus(
+  id: string,
+  body: { status: TicketStatus; status_reason?: string },
+): Promise<PlatformTicket> {
+  const res = await fetch(`/api/tickets/${encodeURIComponent(id)}/status`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await parseJson<{ ok: boolean; ticket: PlatformTicket }>(res);
+  return data.ticket;
+}
+
+export async function fetchTicketEvents(id: string): Promise<TicketEvent[]> {
+  const res = await fetch(`/api/tickets/${encodeURIComponent(id)}/events`, {
+    credentials: 'same-origin',
+  });
+  const data = await parseJson<{ ok: boolean; events: TicketEvent[] }>(res);
+  return data.events || [];
+}

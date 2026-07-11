@@ -71,10 +71,22 @@ Every implementation ticket uses the template in the active `*-001-*.md` files.
 
 ## agentsam_tickets (D1 index)
 
-Platform work index: `agentsam_tickets` + append-only `agentsam_ticket_events`.
+Platform engineering work index: `agentsam_tickets` + append-only `agentsam_ticket_events`.
+
+### Domain boundary (LOCKED)
+
+| System | Domain | Examples |
+|--------|--------|----------|
+| **`agentsam_tickets`** | Platform / infra / Agent Sam engineering | TELEMETRY-002, Finding #3, image-gen regressions, ledger ownership |
+| **Collaborate tasks** (`agentsam_todo` / project issues / kanban) | Client & operational delivery | “Revamp /about page”, nondiscrimination policy, client checklists |
+| **`agentsam_plans` / `plans/*.md`** | Prose SSOT for platform tickets | Linked via ticket `doc_path` — not a third task list |
+
+This split is deliberate. Do **not** merge Collaborate client tasks into `agentsam_tickets` (or vice versa) without an explicit product decision. Tickets **index** markdown plans; they do not replace Collaborate.
+
+### Contract
 
 - Prose SSOT stays in `plans/active|backlog/*.md` via `doc_path` — do not duplicate body into D1.
 - Status enum enforced in code; `status_reason` required for `blocked` / `abandoned`.
 - API: `GET/POST /api/tickets`, `PATCH /api/tickets/:id`, `POST /api/tickets/:id/status`, events.
 - Does **not** replace kanban, `agentsam_todo`, or `project_issues`.
-- UI: fold into Projects / Collaborate later — backend only until instructed.
+- UI: Work sidebar → **Tickets** (`/dashboard/artifacts` rail) for CRUD list of platform tickets.
