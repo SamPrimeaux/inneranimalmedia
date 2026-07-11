@@ -202,6 +202,38 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     const cap = Math.max(tools.length, Number(profile.max_tools) || 8);
     tools = await ensureActiveFileCapabilityTools(env, tools, cap, activeFileEnvelope);
   }
+  if (activeRepo && env?.DB) {
+    try {
+      const {
+        fetchAgentsamToolRowsByName,
+        agentToolNameOf,
+        inputSchemaFromAgentsamToolRow,
+      } = await import('../agent-tool-loader.js');
+      const names = ['agentsam_github_tree', 'agentsam_github_read', 'agentsam_github_read_many'];
+      const have = new Set(tools.map((t) => agentToolNameOf(t)).filter(Boolean));
+      const missing = names.filter((n) => !have.has(n));
+      if (missing.length) {
+        const rows = await fetchAgentsamToolRowsByName(env, missing);
+        const cap = Math.max(tools.length + missing.length, Number(profile.max_tools) || 12);
+        const seen = new Set(have);
+        for (const row of rows) {
+          const nm = String(row.tool_name || '');
+          if (!nm || seen.has(nm)) continue;
+          if (tools.length >= cap) break;
+          seen.add(nm);
+          tools.unshift({
+            name: nm,
+            description: String(row.description || nm).slice(0, 4000),
+            input_schema: inputSchemaFromAgentsamToolRow(row),
+            tool_category: String(row.tool_category || 'builtin'),
+            requires_approval: Number(row.requires_approval || 0) === 1,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[agent-controller] ensure_github_repo_tools', e?.message ?? e);
+    }
+  }
 
   /** Codemode hybrid manifest (multitask / tool-chain planning) — non-fatal if build fails. */
   let codemodeRuntime = null;
@@ -577,7 +609,12 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         : null;
 
       const githubRepoCtx = String(
-        body.selectedGithubRepoContext ?? body.github_repo_context ?? body.githubRepoContext ?? '',
+        body.active_repo ??
+          body.activeRepo ??
+          body.selectedGithubRepoContext ??
+          body.github_repo_context ??
+          body.githubRepoContext ??
+          '',
       ).trim();
       const wsCtxMobile =
         browserContextPayload &&
@@ -618,7 +655,11 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         userMessage: message,
         runtimeProfile: profile,
         ...(githubRepoCtx
-          ? { selectedGithubRepoContext: githubRepoCtx, github_repo_context: githubRepoCtx }
+          ? {
+              selectedGithubRepoContext: githubRepoCtx,
+              github_repo_context: githubRepoCtx,
+              active_repo: githubRepoCtx,
+            }
           : {}),
         ...(clientSurface ? { client_surface: clientSurface, clientSurface } : {}),
         ...(execLane ? { exec_lane: execLane, execLane } : {}),

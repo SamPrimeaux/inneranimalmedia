@@ -739,6 +739,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       const detail = (ev as CustomEvent<{ active_repo?: string | null }>).detail;
       const repo = detail?.active_repo != null ? String(detail.active_repo).trim() : '';
       setExplorerActiveRepo(repo || null);
+      if (repo) setGithubRepoContext(repo);
     };
     window.addEventListener('iam_explorer_active_repo', onExplorerRepo);
     return () => window.removeEventListener('iam_explorer_active_repo', onExplorerRepo);
@@ -2869,7 +2870,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     if (sendWorkspaceId) form.append('workspace_id', sendWorkspaceId);
     const activeRepoForTurn =
       explorerActiveRepo?.trim() || githubRepoContext?.trim() || '';
-    if (activeRepoForTurn) form.append('active_repo', activeRepoForTurn);
+    if (activeRepoForTurn) {
+      form.append('active_repo', activeRepoForTurn);
+    }
     if (sendOpts?.task_type?.trim()) form.append('task_type', sendOpts.task_type.trim());
     else if (
       designStudioSurfaceRef.current?.surface === 'design_studio' &&
@@ -3050,7 +3053,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         form.append('active_file_content', chatGithubFileContent.slice(0, 48000));
       }
     }
-    const ghCtxForm = githubRepoContext?.trim();
+    const ghCtxForm = explorerActiveRepo?.trim() || githubRepoContext?.trim() || '';
     if (ghCtxForm) form.append('github_repo_context', ghCtxForm);
 
     const activePathForProject =
@@ -3068,7 +3071,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     const contextEnvelopePayload = buildGithubContextEnvelope({
       conversationId: effectiveConvId,
       workspaceId: sendWorkspaceId || null,
-      repo: githubRepoContext?.trim() || '',
+      repo: ghCtxForm || '',
       path: chatGithubFilePath,
       branch: chatGithubBranch,
       content: chatGithubFileContent,

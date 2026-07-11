@@ -2245,6 +2245,16 @@ const App: React.FC = () => {
       ) {
         return;
       }
+      // Stay in the editor workbench — conversation id lives in tab/localStorage, not URL.
+      // Navigating to /dashboard/agent/{id} drops the file explorer and feels like a "new chat" redirect.
+      if (isAgentEditorPath(location.pathname)) {
+        try {
+          localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id);
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
       const next = agentConversationPath(id);
       if (normalizePath(location.pathname) === normalizePath(next)) return;
       navigate(next, { replace: true });

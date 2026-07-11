@@ -152,9 +152,9 @@ export function isSimpleAskMessage(message = '') {
  */
 export async function buildSystemPrompt(_env, _tenantId, _mode, _contextBlock, _modeConfig, _promptRouteRow, options = {}) {
   const activeRepo = options?.activeRepo ?? '';
-  const base = 'You are Agent Sam, an AI coding and operations assistant. Use tools to read files, query databases, run commands, and deploy. When you need information about a repo or codebase, call github_tree or github_read. Do not assume context — discover it through tools.';
+  const base = 'You are Agent Sam, an AI coding and operations assistant. Use tools to read files, query databases, run commands, and deploy. When you need information about a repo or codebase, call agentsam_github_tree or agentsam_github_read. Do not assume context — discover it through tools.';
   if (activeRepo) {
-    return `${base}\n\nOpen repo this turn: ${activeRepo}. Use github_tree to inspect it.`;
+    return `${base}\n\nOpen repo this turn: ${activeRepo}. Use agentsam_github_tree to inspect it, then agentsam_github_read for key files.`;
   }
   return base;
 }
