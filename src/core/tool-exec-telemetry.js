@@ -26,18 +26,37 @@
  * }}
  */
 export function extractToolExecUsage(output, fallbackModel = null, fallbackProvider = null) {
+  const usageMetadata =
+    output?.usageMetadata && typeof output.usageMetadata === 'object'
+      ? output.usageMetadata
+      : output?.body?.usageMetadata && typeof output.body.usageMetadata === 'object'
+        ? output.body.usageMetadata
+        : null;
   const usage =
     output?.usage && typeof output.usage === 'object'
       ? output.usage
       : output?.body?.usage && typeof output.body.usage === 'object'
         ? output.body.usage
-        : null;
+        : usageMetadata
+          ? {
+              prompt_tokens: usageMetadata.promptTokenCount ?? usageMetadata.prompt_tokens,
+              output_tokens:
+                usageMetadata.candidatesTokenCount ??
+                usageMetadata.output_tokens ??
+                usageMetadata.completion_tokens,
+              input_tokens: usageMetadata.promptTokenCount ?? usageMetadata.input_tokens,
+              completion_tokens:
+                usageMetadata.candidatesTokenCount ?? usageMetadata.completion_tokens,
+              cost_usd: usageMetadata.cost_usd ?? usageMetadata.costUsd,
+            }
+          : null;
   const inputTokens = Math.max(
     0,
     Math.floor(
       Number(
         usage?.input_tokens ??
           usage?.prompt_tokens ??
+          usage?.promptTokenCount ??
           usage?.inputTokens ??
           output?.input_tokens ??
           output?.body?.input_tokens ??
@@ -51,6 +70,7 @@ export function extractToolExecUsage(output, fallbackModel = null, fallbackProvi
       Number(
         usage?.output_tokens ??
           usage?.completion_tokens ??
+          usage?.candidatesTokenCount ??
           usage?.outputTokens ??
           output?.output_tokens ??
           output?.body?.output_tokens ??

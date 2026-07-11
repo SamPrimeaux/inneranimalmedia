@@ -17,6 +17,11 @@ import { isCodeImplementationIntent } from '../core/code-implementation-intent.j
 import { resolveModelApiKey } from '../integrations/tokens.js';
 import { getR2Binding } from '../api/r2-api.js';
 import { resolvePrimaryUploadPrefix } from '../core/media-r2-access.js';
+import {
+  attachImageGenerationUsage,
+  resolveGeminiAspectRatio,
+  resolveGeminiImageSize,
+} from '../core/image-generation-telemetry.js';
 
 const BUCKET = 'inneranimalmedia';
 const PROGRESS_INTERVAL_MS = 5000;
@@ -671,8 +676,9 @@ async function generateOpenAI(env, opts) {
  * @param {string} modelKey
  * @param {string} prompt
  * @param {{ bytes?: Uint8Array, contentType?: string } | null} [referenceImage]
+ * @param {{ aspectRatio?: string, imageSize?: string }} [imageConfig]
  */
-async function generateGeminiContent(apiKey, modelKey, prompt, referenceImage = null) {
+async function generateGeminiContent(apiKey, modelKey, prompt, referenceImage = null, imageConfig = {}) {
   const parts = [];
   if (referenceImage?.bytes?.length) {
     const mime = referenceImage.contentType || 'image/png';
@@ -694,6 +700,10 @@ async function generateGeminiContent(apiKey, modelKey, prompt, referenceImage = 
   } else {
     parts.push({ text: prompt });
   }
+  const aspectRatio =
+    imageConfig.aspectRatio != null ? String(imageConfig.aspectRatio).trim() : '1:1';
+  const imageSize =
+    imageConfig.imageSize != null ? String(imageConfig.imageSize).trim().toLowerCase() : '1k';
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelKey)}:generateContent`,
     {
@@ -704,7 +714,10 @@ async function generateGeminiContent(apiKey, modelKey, prompt, referenceImage = 
       },
       body: JSON.stringify({
         contents: [{ parts }],
-        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        generationConfig: {
+          responseModalities: ['TEXT', 'IMAGE'],
+          imageConfig: { aspectRatio, imageSize },
+        },
       }),
     },
   );
@@ -718,7 +731,11 @@ async function generateGeminiContent(apiKey, modelKey, prompt, referenceImage = 
   for (const part of outParts) {
     if (part?.inlineData?.data && part?.inlineData?.mimeType) {
       const bytes = Uint8Array.from(atob(part.inlineData.data), (c) => c.charCodeAt(0));
-      return { bytes, contentType: part.inlineData.mimeType };
+      return {
+        bytes,
+        contentType: part.inlineData.mimeType,
+        usageMetadata: data?.usageMetadata ?? null,
+      };
     }
   }
   throw new Error('Gemini image generation returned no inline image');
@@ -772,7 +789,8 @@ async function generateGoogle(env, opts) {
   const apiKey = await resolveModelApiKey(env, 'google', modelKey, opts.userId);
   if (!apiKey) throw new Error('Google AI API key not configured');
 
-  const aspect = dims.width > dims.height ? '16:9' : dims.height > dims.width ? '9:16' : '1:1';
+  const aspect = resolveGeminiAspectRatio(dims.width, dims.height);
+  const imageSize = resolveGeminiImageSize(dims.width, dims.height);
 
   // Gemini multimodal models use generateContent; Imagen models use predict
   const isGeminiModel = modelKey.startsWith('gemini-');
@@ -785,9 +803,23 @@ async function generateGoogle(env, opts) {
       console.warn('[image_generation] reference_fetch_failed', e?.message ?? e);
     }
   }
-  const { bytes, contentType } = isGeminiModel
-    ? await generateGeminiContent(apiKey, modelKey, opts.prompt, referenceImage)
-    : await generateImagenPredict(apiKey, modelKey, opts.prompt, aspect);
+  if (isGeminiModel) {
+    const gem = await generateGeminiContent(apiKey, modelKey, opts.prompt, referenceImage, {
+      aspectRatio: aspect,
+      imageSize,
+    });
+    return {
+      provider: 'google',
+      model: modelKey,
+      bytes: gem.bytes,
+      contentType: gem.contentType,
+      preview_urls: [],
+      metadata: referenceImage ? { edited_from: refUrl, imageSize, aspectRatio: aspect } : { imageSize, aspectRatio: aspect },
+      usageMetadata: gem.usageMetadata,
+    };
+  }
+
+  const { bytes, contentType } = await generateImagenPredict(apiKey, modelKey, opts.prompt, aspect);
 
   return {
     provider: 'google',
@@ -795,7 +827,7 @@ async function generateGoogle(env, opts) {
     bytes,
     contentType,
     preview_urls: [],
-    metadata: referenceImage ? { edited_from: refUrl } : {},
+    metadata: { aspectRatio: aspect },
   };
 }
 
@@ -1021,6 +1053,11 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
         });
 
   const previewUrls = [...(gen.preview_urls || [])];
+  const billingCtx = {
+    quality: normalizeOpenAiImageQuality(modelKey || String(gen.model || ''), resolvedParams.quality),
+    openAiSize: dims.openAiSize,
+    imageSize: resolveGeminiImageSize(dims.width, dims.height),
+  };
 
   if (!persist) {
     const userId = String(ctx.userId || ctx.authUser?.id || '').trim();
@@ -1043,22 +1080,27 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
     if (draft.preview_url && !previewUrls.includes(draft.preview_url)) {
       previewUrls.push(draft.preview_url);
     }
-    return {
-      ok: true,
-      status: 'draft',
-      generation_id: draft.generation_id,
-      preview_url: draft.preview_url,
-      image_url: draft.preview_url,
-      public_url: draft.preview_url,
-      url: draft.preview_url,
-      expires_at: draft.expires_at,
-      r2_key: draft.r2_key,
-      provider: gen.provider,
-      model: gen.model,
-      preview_urls: previewUrls,
-      metadata: { ...gen.metadata || {}, draft: true, purpose },
-      persist: false,
-    };
+    return attachImageGenerationUsage(
+      env?.DB,
+      {
+        ok: true,
+        status: 'draft',
+        generation_id: draft.generation_id,
+        preview_url: draft.preview_url,
+        image_url: draft.preview_url,
+        public_url: draft.preview_url,
+        url: draft.preview_url,
+        expires_at: draft.expires_at,
+        r2_key: draft.r2_key,
+        provider: gen.provider,
+        model: gen.model,
+        preview_urls: previewUrls,
+        metadata: { ...gen.metadata || {}, draft: true, purpose },
+        persist: false,
+        usageMetadata: gen.usageMetadata ?? null,
+      },
+      billingCtx,
+    );
   }
 
   const uploaded = await uploadImageBytesToR2(env, gen.bytes, gen.contentType, {
@@ -1071,22 +1113,27 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
     previewUrls.push(uploaded.image_url);
   }
 
-  return {
-    ok: true,
-    status: 'saved',
-    generation_id: generationId,
-    image_url: uploaded.image_url,
-    public_url: uploaded.image_url,
-    url: uploaded.image_url,
-    preview_url: uploaded.image_url,
-    r2_key: uploaded.r2_key,
-    artifact_id: uploaded.artifact_id,
-    provider: gen.provider,
-    model: gen.model,
-    preview_urls: previewUrls,
-    metadata: gen.metadata || {},
-    persist: true,
-  };
+  return attachImageGenerationUsage(
+    env?.DB,
+    {
+      ok: true,
+      status: 'saved',
+      generation_id: generationId,
+      image_url: uploaded.image_url,
+      public_url: uploaded.image_url,
+      url: uploaded.image_url,
+      preview_url: uploaded.image_url,
+      r2_key: uploaded.r2_key,
+      artifact_id: uploaded.artifact_id,
+      provider: gen.provider,
+      model: gen.model,
+      preview_urls: previewUrls,
+      metadata: gen.metadata || {},
+      persist: true,
+      usageMetadata: gen.usageMetadata ?? null,
+    },
+    billingCtx,
+  );
 }
 
 /**

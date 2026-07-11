@@ -98,3 +98,7 @@ The bug still affects real traffic (`claude: 368` and other non-mirror sources e
 ## Follow-up (out of TELEMETRY-001 scope)
 
 Architectural gap: nothing requires `scheduleRecordMcpToolExecution` callers to declare ledger ownership. Full-repo enumeration → `plans/backlog/TELEMETRY-LEDGER-OWNERSHIP-mcp-exec-mirror.md`.
+
+Paid tool usage/cost (image gen first) → `plans/active/TELEMETRY-002-paid-tool-usage-cost.md`.
+
+Model attribution columns (orchestrator vs tool-executor) → `plans/backlog/TELEMETRY-MODEL-ATTRIBUTION-tool-call-log.md`.
