@@ -38,18 +38,24 @@ Fix failures before Gate 2. Minimum by area:
 
 **Block:** never deploy uncommitted or unpushed changes. Repo and production must stay in sync.
 
-## Gate 3 — Full deploy (not partial)
+## Gate 3 — Deploy (pick lane by host — not always `deploy:full`)
 
-Deploy from the **correct repo root only** — never mix main worker and MCP repos:
+Deploy from the **correct repo root only** — never mix main worker and MCP repos.
 
-| Repo | Root | Command |
-|------|------|---------|
-| inneranimalmedia | `/Users/samprimeaux/inneranimalmedia` | `npm run deploy:full` |
-| inneranimalmedia-mcp | `inneranimalmedia-mcp-server` | `npm run deploy:full` |
+| Host / lane | Repo | Command |
+|-------------|------|---------|
+| **Mac** (operator) | inneranimalmedia | `npm run deploy:full` (or `deploy:fast`) |
+| **GCP iam-tunnel / phone / remote** | inneranimalmedia | `npm run ship:remote` → Cloudflare Builds |
+| **CF Workers Builds** | inneranimalmedia | `smart-build` + `deploy:fast:cf` (already configured) |
+| Any | inneranimalmedia-mcp | `npm run deploy:full` from MCP repo only |
 
-**Full deploy means:** frontend build, R2 sync, **PWA publish** (`sw.js`, manifest, root HTML), worker deploy — all steps exit 0. A failed PWA publish or wrangler put is **not shipped**.
+**SSOT:** `.cursor/rules/iam-ship-lanes.mdc` · `docs/platform/mac-free-ship-lanes-2026-07.md`
 
-Do **not** use `npm run deploy` alone on the main app. Do **not** hand-upload single files instead of the full pipeline unless the user explicitly opts out of deploy.
+**BANNED on GCP `iam-tunnel`:** `npm run deploy:full`, `npm run deploy:fast`, Vite, rclone — they OOM the VM. Push and let CF Builds ship SPA/PWA.
+
+**Shipped means:** worker + dashboard/R2 + **PWA publish** (`sw.js`, manifest) exit 0 (via full/fast locally, or via CF Builds after `ship:remote`). A failed PWA publish or wrangler put is **not shipped**.
+
+Do **not** use `npm run deploy` alone on the main app. Do **not** hand-upload single files instead of the pipeline unless the user opts out of deploy.
 
 ### Deploy gates (unchanged)
 

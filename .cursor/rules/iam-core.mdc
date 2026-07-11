@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Inner Animal Media — core (always on)
 
-**Repo:** `/Users/samprimeaux/inneranimalmedia` · **Worker entry:** `src/index.js` · **Deploy:** `npm run deploy:full` only (not `npm run deploy` alone) · **MCP host:** separate worker at `mcp.inneranimalmedia.com`
+**Repo:** `/Users/samprimeaux/inneranimalmedia` · **Worker entry:** `src/index.js` · **Deploy:** pick by host — Mac `deploy:full` / `deploy:fast`; GCP VM `ship:remote` only (never Vite/`deploy:full` on iam-tunnel) — see `iam-ship-lanes.mdc` · **MCP host:** separate worker at `mcp.inneranimalmedia.com`
 
 **D1 / schema:** Do **not** load table lists in rules (500+ tables). Before workflows, tools, routing, or handlers — **query D1** (`agentsam_*` registry, `d1_schema`, migrations). Missing config → idempotent `migrations/###_*.sql`, not JS fallbacks.
 
@@ -18,7 +18,10 @@ Unless the user says **local only**, **no commit**, **no push**, or **no deploy*
 1. Validate touched files (`node --check` on edited `.js`, dashboard console if UI).
 2. **Commit** on `main` (why-focused message).
 3. **Push** `origin/main`.
-4. **Deploy** `npm run deploy:full` from repo root (or MCP `npm run deploy:full` in `inneranimalmedia-mcp-server`).
+4. **Deploy by host** (see `.cursor/rules/iam-ship-lanes.mdc` + `docs/platform/mac-free-ship-lanes-2026-07.md`):
+   - **Mac:** `npm run deploy:full` (or `deploy:fast` for critical path).
+   - **GCP iam-tunnel / remote PTY:** `npm run ship:remote` only — **never** `deploy:full` / Vite on the VM.
+   - **MCP repo:** `npm run deploy:full` from `inneranimalmedia-mcp-server` only.
 
 Opt-out: `local only`, `no deploy`, `plan only`, `review only`. Never force-push `main`; never commit `.env`, tokens, `*.bak`, `.scratch/`, `*.db`.
 

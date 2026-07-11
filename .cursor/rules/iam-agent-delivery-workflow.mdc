@@ -11,9 +11,12 @@ Same contract as in-app Agent Sam (`agentsam_rules_document:rule_agent_delivery_
 
 | Workspace | Repo root | Deploy |
 |-----------|-----------|--------|
-| `inneranimalmedia` | `/Users/samprimeaux/inneranimalmedia` | `npm run deploy:full` (+ vite build when dashboard touched) |
+| `inneranimalmedia` (Mac) | `/Users/samprimeaux/inneranimalmedia` | `npm run deploy:full` or `deploy:fast` |
+| `inneranimalmedia` (GCP VM / remote) | same repo on VM | `npm run ship:remote` only — never Vite/`deploy:full` on iam-tunnel |
 | `inneranimalmedia-mcp` | `/Users/samprimeaux/inneranimalmedia-mcp-server` | `npm run deploy:full` from MCP repo only (`node --check src/index.js`) |
 | Collab (`fuelnfreetime`, etc.) | workspace `root_path` | per workspace metadata |
+
+Ship lanes SSOT: `.cursor/rules/iam-ship-lanes.mdc` · `docs/platform/mac-free-ship-lanes-2026-07.md`
 
 **Does not apply** to unrelated workspaces without a ship profile.
 

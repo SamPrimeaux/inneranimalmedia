@@ -116,7 +116,8 @@ export function resolveWorkspaceShipProfile(row) {
     const deployCommand =
       deployFromMeta ||
       trim(patterns.full) ||
-      'npm run deploy:full';
+      // Host-aware default: Mac may use deploy:full; remote/VM must use ship:remote.
+      'Mac: npm run deploy:full (or deploy:fast). GCP iam-tunnel / remote PTY: npm run ship:remote ONLY — never Vite or deploy:full on the VM (OOM). See docs/platform/mac-free-ship-lanes-2026-07.md';
     return {
       kind: 'main_saas',
       slug,
@@ -134,7 +135,8 @@ export function resolveWorkspaceShipProfile(row) {
       deployUrl: trim(row.deploy_url) || 'https://inneranimalmedia.com',
       repoNote:
         'This is the **main IAM platform** repo (`inneranimalmedia`). ' +
-        'For MCP OAuth/tools work, switch to the `inneranimalmedia-mcp` workspace — separate repo and deploy.',
+        'For MCP OAuth/tools work, switch to the `inneranimalmedia-mcp` workspace — separate repo and deploy. ' +
+        'Ship lanes: Mac deploy:full/fast; GCP VM ship:remote → CF Builds.',
       migrationsNote:
         'Apply inneranimalmedia D1 migrations via wrangler against inneranimalmedia-business when SQL changed.',
     };
@@ -190,8 +192,13 @@ export function buildDeliveryWorkflowPromptBlock(profile, opts = {}) {
 
   if (profile.deployCommand) {
     lines.push(
-      `4. **Deploy** — from repo root \`${profile.rootPath || 'see workspace root'}\`: \`${profile.deployCommand}\`.`,
+      `4. **Deploy** — from repo root \`${profile.rootPath || 'see workspace root'}\`: ${profile.deployCommand}`,
     );
+    if (profile.kind === 'main_saas') {
+      lines.push(
+        '   **If you are on GCP iam-tunnel / remote PTY:** run `npm run ship:remote` only. Never `deploy:full`, Vite, or rclone on the VM.',
+      );
+    }
     if (profile.migrationsNote) lines.push(`   ${profile.migrationsNote}`);
   } else {
     lines.push('4. **Deploy** — only when this workspace has a documented deploy path.');

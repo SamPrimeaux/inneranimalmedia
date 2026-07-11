@@ -171,18 +171,21 @@ Auth model: `EXECOS_KEY` (X-ExecOS-Key header) is unified forward path. `PTY_AUT
 
 ## 3. Deploy Protocol
 
-| Command | What it does |
-|---|---|
-| `git push main` | Triggers CF Builds — **preferred for API-only deploys** |
-| `npm run deploy` | Worker only (note: alias errors for aws4fetch/pg/anthropic — use git push) |
-| `npm run deploy:frontend` | Dashboard + worker |
-| `npm run deploy:full` | Full pipeline |
-| Raw wrangler | `./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml` |
-| D1 migrations (prod) | `node scripts/d1-apply-pending.mjs --apply --from <n> --to <n>` |
+**SSOT (Mac-free lanes):** `docs/platform/mac-free-ship-lanes-2026-07.md` · `.cursor/rules/iam-ship-lanes.mdc`
+
+| Where | Command | Notes |
+|---|---|---|
+| **Mac** | `npm run deploy:full` or `deploy:fast` | Full pipeline / critical path |
+| **GCP iam-tunnel / remote** | `npm run ship:remote` | Push → CF Builds — **never** Vite/`deploy:full` on VM |
+| CF Builds (automatic) | `smart-build` + `deploy:fast:cf` | Configured via `scripts/cf-builds-sync.sh` |
+| Worker-only emergency | `npm run ship:remote -- --worker-only` | SPA/PWA unchanged |
+| D1 migrations (prod) | `node scripts/d1-apply-pending.mjs --apply --from <n> --to <n>` | Not bulk wrangler apply |
 
 **Never use:** `wrangler deploy --env production` / bare `npx wrangler deploy` at repo root. No `[env.production]` block exists. Production config is `wrangler.production.toml`.
 
 **Never use:** `wrangler d1 migrations apply --remote` on prod — ledger is partially manual; bulk apply will attempt 150+ stale files. Use `scripts/d1-apply-pending.mjs` instead.
+
+**Proof:** `https://inneranimalmedia.com/pwa-build-meta.json` → `git_sha` + `cache_bust`.
 
 ---
 

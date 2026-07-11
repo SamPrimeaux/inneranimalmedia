@@ -21,9 +21,22 @@ alwaysApply: false
 
 ## deploy:full vs VM
 
+### BANNED on iam-tunnel (LOCKED)
+
+Never run on the GCP VM:
+
+- `npm run deploy:full`
+- `npm run deploy:fast` / Vite / `npm --prefix dashboard run build`
+- rclone dashboard sync
+
+Ship from the VM with: **`npm run ship:remote`** (push → Cloudflare Builds).  
+SSOT: `docs/platform/mac-free-ship-lanes-2026-07.md` · `.cursor/rules/iam-ship-lanes.mdc`
+
+### Post-deploy VM sync (Mac ran deploy)
+
 - Default: **`IAM_SYNC_GCP_EXECOS=0`** — deploy does **not** SCP or force ExecOS sync.
 - VM self-heals every 5 min via root cron.
-- Opt-in force sync: `IAM_SYNC_GCP_EXECOS=1 npm run deploy:full`
+- Opt-in force sync: `IAM_SYNC_GCP_EXECOS=1 npm run deploy:full` (Mac only)
 - Skip all VM sync: `IAM_SKIP_GCP_VM_SYNC=1`
 
 ## Common errors → fix

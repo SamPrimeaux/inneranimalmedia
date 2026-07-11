@@ -1,0 +1,38 @@
+---
+description: LOCKED — which deploy command by host (Mac vs GCP VM vs CF Builds). Never deploy:full on iam-tunnel.
+alwaysApply: true
+---
+
+# Ship lanes (LOCKED — pick by host)
+
+**SSOT doc:** `docs/platform/mac-free-ship-lanes-2026-07.md`  
+**D1:** `agentsam_rules_document` id `rule_mac_free_ship_lanes`
+
+## Command matrix
+
+| Where you are | Ship command | Never |
+|---------------|--------------|-------|
+| **Mac** (desk, plenty of RAM) | `npm run deploy:full` **or** `npm run deploy:fast` | `npm run deploy` alone |
+| **GCP iam-tunnel VM** / phone / remote PTY | `npm run ship:remote` (push → CF Builds) | `deploy:full`, `deploy:fast`, Vite, rclone |
+| **Cloudflare Workers Builds** | `node scripts/smart-build.mjs` then `npm run deploy:fast:cf` | wrangler-per-file R2 loops |
+| **Emergency worker-only** (any host) | `npm run ship:remote -- --worker-only` | Expects SPA/PWA unchanged |
+
+## Hard bans on `iam-tunnel` (GCP)
+
+- **Do not** run `npm run deploy:full`
+- **Do not** run `npm run deploy:fast` / Vite / `npm --prefix dashboard run build`
+- **Do not** run rclone dashboard sync
+- Those OOM/crash the ~1GB VM. Production SPA/PWA ships via **Cloudflare Builds** after `git push`.
+
+## What `ship:remote` does
+
+1. Requires clean tree (commit first).
+2. `git push` to `origin/main`.
+3. CF Builds: Vite → R2 content-hash delta → wrangler (+ services SW ingest when `PUSH_SERVICE_TOKEN` is set).
+
+## Proof after ship
+
+- `https://inneranimalmedia.com/pwa-build-meta.json` → `git_sha` + `cache_bust`
+- Worker post-deploy version key matches pushed SHA when full/fast path ran
+
+MCP server repo is separate: deploy only from `inneranimalmedia-mcp-server` with that repo’s `npm run deploy:full`.
