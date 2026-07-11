@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  Camera,
   FolderOpen,
   MoreHorizontal,
   Pencil,
@@ -13,17 +14,12 @@ import {
 } from 'lucide-react';
 import {
   deleteProject,
-  fetchProjectContextAudit,
   fetchProjectsList,
   setProjectPinned,
   updateProject,
   type OverviewProject,
-  type ProjectContextAuditRow,
 } from '../../api/projects';
 import { ProjectShareModal } from '../../components/projects/ProjectShareModal';
-import { AppIcon } from '../../components/ui/AppIcon';
-import { cfImageVariants, projectAccentHue, projectInitials } from '../../src/lib/projectBranding';
-import { useWorkspace } from '../../src/context/WorkspaceContext';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -44,12 +40,10 @@ interface Project {
   cover_image_url?: string | null;
   dueDate?: string;
   workspace_id?: string | null;
-  owner_user_id?: string | null;
-  updated_at?: string | null;
   is_pinned?: boolean;
 }
 
-function fromOverviewRow(p: OverviewProject & { owner_user_id?: string | null; updated_at?: string | null }): Project {
+function fromOverviewRow(p: OverviewProject): Project {
   return {
     id: p.id,
     name: p.name,
@@ -67,8 +61,6 @@ function fromOverviewRow(p: OverviewProject & { owner_user_id?: string | null; u
     cover_image_url: p.cover_image_url,
     dueDate: p.dueDate,
     workspace_id: p.workspace_id,
-    owner_user_id: p.owner_user_id ?? null,
-    updated_at: p.updated_at ?? null,
     is_pinned: p.is_pinned === true,
   };
 }
@@ -103,61 +95,49 @@ const STATUS_LABELS: Record<string, string> = {
   complete:   'Complete',
 };
 
-type TabFilter = 'recent' | 'shared' | 'starred' | 'completed' | 'context';
+type TabFilter = 'mine' | 'recent' | 'shared' | 'archived' | 'starred';
 
 const TABS: { key: TabFilter; label: string }[] = [
-  { key: 'recent',    label: 'Recent' },
-  { key: 'shared',    label: 'Shared' },
-  { key: 'starred',   label: 'Starred' },
-  { key: 'completed', label: 'Completed' },
-  { key: 'context',   label: 'Context' },
+  { key: 'mine',     label: 'My Projects' },
+  { key: 'recent',   label: 'Recent' },
+  { key: 'shared',   label: 'Shared' },
+  { key: 'archived', label: 'Archived' },
+  { key: 'starred',  label: 'Starred' },
 ];
 
-function formatAuditChars(n?: number): string {
-  const v = Number(n) || 0;
-  if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
-  return String(v);
-}
-
-function auditSearchHaystack(row: ProjectContextAuditRow): string {
-  return [
-    row.id,
-    row.name,
-    row.status,
-    row.project_type,
-    row.workspace_id,
-    row.rule_key,
-    row.bindings?.workspace_slug,
-    row.bindings?.worker_name,
-    row.bindings?.github_repo,
-    row.bindings?.r2_bucket,
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-}
-
-function isCompletedStatus(p: Project): boolean {
-  const s = String(p.status_raw || p.status || '').toLowerCase();
-  return s === 'complete' || s === 'archived';
-}
-
-function parseUpdatedTs(raw?: string | null): number {
-  if (!raw) return 0;
-  const n = Number(raw);
-  if (Number.isFinite(n) && n > 0) return n < 1e12 ? n * 1000 : n;
-  const ms = Date.parse(String(raw));
-  return Number.isNaN(ms) ? 0 : ms;
-}
-
 // ─── helpers ─────────────────────────────────────────────────────────────────
+
+function avatarInitials(name: string): string {
+  const parts = name.trim().split(/[\s_-]+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function avatarColor(id: string): string {
+  const colors = ['#6366f1','#8b5cf6','#ec4899','#22d3ee','#10b981','#f59e0b','#ef4444'];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = ((hash << 5) - hash) + id.charCodeAt(i);
+  return colors[Math.abs(hash) % colors.length];
+}
 
 // ─── skeleton ─────────────────────────────────────────────────────────────────
 
 function SkeletonCard() {
   return (
-    <div className="pj-card pj-card--visual pj-card--skeleton" aria-hidden="true">
-      <div className="pj-card-media pj-card-media--skel" />
+    <div className="pj-card pj-card--skeleton" aria-hidden="true">
+      <div className="pj-card-cover pj-card-cover--skel" />
+      <div className="pj-card-body">
+        <div className="pj-card-head">
+          <div className="skel skel-title" />
+        </div>
+        <div className="skel skel-sub" />
+        <div className="pj-card-progress-wrap">
+          <div className="skel skel-bar" />
+        </div>
+        <div className="pj-card-foot">
+          <div className="skel skel-avatar" />
+        </div>
+      </div>
     </div>
   );
 }
@@ -173,6 +153,7 @@ function CardMenu({
   onRename,
   onShare,
   onDelete,
+  placement = 'cover',
 }: {
   project: Project;
   isOpen: boolean;
@@ -182,6 +163,7 @@ function CardMenu({
   onRename: () => void;
   onShare: () => void;
   onDelete: () => void;
+  placement?: 'cover' | 'head';
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -200,7 +182,7 @@ function CardMenu({
   }, [isOpen, onClose]);
 
   return (
-    <div className="pj-menu" ref={ref}>
+    <div className={`pj-menu pj-menu--${placement}`} ref={ref}>
       <button
         type="button"
         className="pj-menu-btn"
@@ -232,70 +214,8 @@ function CardMenu({
   );
 }
 
-// ─── project app icon tile (floating icon — not a cover card) ─────────────────
+// ─── project card ─────────────────────────────────────────────────────────────
 
-function ProjectAppIconTile({
-  project,
-  menuOpen,
-  onOpen,
-  onMenuToggle,
-  onMenuClose,
-  onStar,
-  onRename,
-  onShare,
-  onDelete,
-}: {
-  project: Project;
-  menuOpen: boolean;
-  onOpen: () => void;
-  onMenuToggle: () => void;
-  onMenuClose: () => void;
-  onStar: () => void;
-  onRename: () => void;
-  onShare: () => void;
-  onDelete: () => void;
-}) {
-  const cover = cfImageVariants(project.cover_image_url);
-  const accentHue = projectAccentHue(project.id);
-  const fallbackBg = `hsl(${accentHue} 52% 42%)`;
-  const subtitle =
-    STATUS_LABELS[project.status ?? ''] ??
-    project.project_type ??
-    'project';
-
-  return (
-    <div
-      className={`pj-app-icon-cell${project.status === 'archived' ? ' pj-app-icon-cell--archived' : ''}`}
-    >
-      <AppIcon
-        title={project.name}
-        subtitle={subtitle}
-        imageUrl={cover.src}
-        backgroundColor={fallbackBg}
-        presentation="app"
-        size="lg"
-        onPress={onOpen}
-      />
-      {project.is_pinned ? (
-        <span className="pj-app-icon-pin" aria-label="Starred">
-          <Star size={10} fill="currentColor" />
-        </span>
-      ) : null}
-      <CardMenu
-        project={project}
-        isOpen={menuOpen}
-        onToggle={onMenuToggle}
-        onClose={onMenuClose}
-        onStar={onStar}
-        onRename={onRename}
-        onShare={onShare}
-        onDelete={onDelete}
-      />
-    </div>
-  );
-}
-
-// Legacy visual card — kept for reference; grid uses ProjectAppIconTile.
 function ProjectCard({
   project,
   menuOpen,
@@ -319,67 +239,30 @@ function ProjectCard({
 }) {
   const statusColor = STATUS_COLORS[project.status ?? ''] ?? '#94a3b8';
   const pct = Math.min(100, Math.max(0, project.progress ?? 0));
-  const cover = cfImageVariants(project.cover_image_url);
-  const accentHue = projectAccentHue(project.id);
-  const initials = projectInitials(project.name);
+  const initials = avatarInitials(project.workspace_id?.replace(/^ws_/, '') || project.name);
+  const avatarBg = avatarColor(project.id);
 
   return (
-    <div
-      className={`pj-card pj-card--visual${project.status === 'archived' ? ' pj-card--archived' : ''}${project.is_pinned ? ' pj-card--pinned' : ''}`}
-    >
+    <div className={`pj-card${project.status === 'archived' ? ' pj-card--archived' : ''}${project.is_pinned ? ' pj-card--pinned' : ''}`}>
+      {/* cover image */}
       <div
-        className="pj-card-media"
+        className="pj-card-cover"
         role="button"
         tabIndex={0}
         onClick={onOpen}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); }}}
         aria-label={`Open ${project.name}`}
-        style={!cover.src ? { background: `linear-gradient(145deg, hsl(${accentHue} 42% 22%), hsl(${accentHue} 28% 12%))` } : undefined}
       >
-        {cover.src ? (
-          <img
-            src={cover.src}
-            srcSet={cover.srcSet}
-            alt=""
-            className="pj-card-media-img"
-            draggable={false}
-            loading="lazy"
-          />
+        {project.cover_image_url ? (
+          <img src={project.cover_image_url} alt="" className="pj-card-cover-img" draggable={false} />
         ) : (
-          <div className="pj-card-media-fallback" aria-hidden>
-            <span className="pj-card-media-initials">{initials}</span>
+          <div className="pj-card-cover-placeholder">
+            <Camera size={18} className="pj-card-cover-icon" aria-hidden />
           </div>
         )}
-
-        <div className="pj-card-scrim" aria-hidden />
-
-        <div className="pj-card-overlay">
-          <div className="pj-card-overlay-top">
-            <span className="pj-card-status-pill" style={{ borderColor: statusColor, color: statusColor }}>
-              {STATUS_LABELS[project.status ?? ''] ?? project.status_raw ?? 'Project'}
-            </span>
-            {project.is_pinned ? (
-              <span className="pj-card-star-badge" aria-label="Starred">
-                <Star size={11} fill="currentColor" />
-              </span>
-            ) : null}
-          </div>
-
-          <div className="pj-card-overlay-body">
-            <div className="pj-card-name">{project.name}</div>
-            <div className="pj-card-type">{project.project_type || 'project'}</div>
-            <div className="pj-card-progress-wrap">
-              <div className="pj-card-progress-track">
-                <div
-                  className="pj-card-progress-fill"
-                  style={{ width: pct > 0 ? `${pct}%` : '0%' }}
-                />
-              </div>
-              <span className="pj-card-progress-pct">{pct}%</span>
-            </div>
-          </div>
-        </div>
-
+        {/* status strip */}
+        <div className="pj-card-status-strip" style={{ background: statusColor }} />
+        {/* three-dot menu — frosted overlay on cover (desktop / stacked layout) */}
         <CardMenu
           project={project}
           isOpen={menuOpen}
@@ -389,7 +272,64 @@ function ProjectCard({
           onRename={onRename}
           onShare={onShare}
           onDelete={onDelete}
+          placement="cover"
         />
+        {project.is_pinned && (
+          <span className="pj-card-star-badge" aria-label="Starred">
+            <Star size={11} fill="currentColor" />
+          </span>
+        )}
+      </div>
+
+      {/* card body */}
+      <div
+        className="pj-card-body"
+        role="button"
+        tabIndex={-1}
+        onClick={onOpen}
+        onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}
+      >
+        <div className="pj-card-head">
+          <div className="pj-card-name">{project.name}</div>
+          <CardMenu
+            project={project}
+            isOpen={menuOpen}
+            onToggle={onMenuToggle}
+            onClose={onMenuClose}
+            onStar={onStar}
+            onRename={onRename}
+            onShare={onShare}
+            onDelete={onDelete}
+            placement="head"
+          />
+        </div>
+        <div className="pj-card-type">{project.project_type || 'project'}</div>
+
+        <div className="pj-card-progress-wrap">
+          <div className="pj-card-progress-track">
+            <div
+              className="pj-card-progress-fill"
+              style={{ width: pct > 0 ? `${pct}%` : '0%' }}
+            />
+          </div>
+          <span className="pj-card-progress-pct">{pct}%</span>
+        </div>
+
+        <div className="pj-card-foot">
+          <div className="pj-avatar-cluster">
+            <div
+              className="pj-avatar"
+              style={{ background: avatarBg }}
+              title={project.workspace_id?.replace(/^ws_/, '') || project.name}
+            >
+              {initials}
+            </div>
+            <span className="pj-avatar-more">+2 more</span>
+          </div>
+          <span className="pj-card-status-label" style={{ color: statusColor }}>
+            {STATUS_LABELS[project.status ?? ''] ?? project.status_raw ?? ''}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -402,8 +342,7 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
-  const { sessionUserId } = useWorkspace();
-  const [activeTab, setActiveTab] = useState<TabFilter>('recent');
+  const [activeTab, setActiveTab] = useState<TabFilter>('mine');
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -416,8 +355,6 @@ export default function ProjectsPage() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [shareTarget, setShareTarget] = useState<Project | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [auditRows, setAuditRows] = useState<ProjectContextAuditRow[]>([]);
-  const [auditLoading, setAuditLoading] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -438,28 +375,6 @@ export default function ProjectsPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const loadAudit = useCallback(async () => {
-    setAuditLoading(true);
-    try {
-      const res = await fetchProjectContextAudit({ scope: 'tenant', includeArchived: true });
-      if (!res.ok) {
-        setAuditRows([]);
-        setToast(res.error || 'Failed to load project context');
-        return;
-      }
-      setAuditRows(res.projects);
-    } catch {
-      setAuditRows([]);
-      setToast('Failed to load project context');
-    } finally {
-      setAuditLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === 'context') void loadAudit();
-  }, [activeTab, loadAudit]);
-
   useEffect(() => {
     if (!toast) return;
     const t = window.setTimeout(() => setToast(null), 2800);
@@ -470,18 +385,9 @@ export default function ProjectsPage() {
     const q = query.trim().toLowerCase();
     let list = [...projects];
 
-    if (activeTab === 'starred') {
-      list = list.filter((p) => p.is_pinned);
-    } else if (activeTab === 'completed') {
-      list = list.filter((p) => isCompletedStatus(p));
-    } else if (activeTab === 'shared') {
-      list = list.filter((p) => {
-        const owner = p.owner_user_id ? String(p.owner_user_id).trim() : '';
-        return owner && sessionUserId && owner !== sessionUserId;
-      });
-    } else {
-      list = list.filter((p) => !isCompletedStatus(p));
-    }
+    if (activeTab === 'starred')  list = list.filter((p) => p.is_pinned);
+    if (activeTab === 'archived') list = list.filter((p) => p.status === 'archived' || p.status_raw === 'archived');
+    if (activeTab === 'mine')     list = list.filter((p) => p.status !== 'archived' && p.status_raw !== 'archived');
 
     if (q) {
       list = list.filter((p) =>
@@ -493,25 +399,12 @@ export default function ProjectsPage() {
     }
 
     list.sort((a, b) => {
-      if (activeTab === 'recent') {
-        const tb = parseUpdatedTs(b.updated_at);
-        const ta = parseUpdatedTs(a.updated_at);
-        if (tb !== ta) return tb - ta;
-      }
       if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
       return (b.priority_num ?? 0) - (a.priority_num ?? 0);
     });
 
     return list;
-  }, [projects, query, activeTab, sessionUserId]);
-
-  const filteredAudit = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    let list = [...auditRows];
-    if (q) list = list.filter((row) => auditSearchHaystack(row).includes(q));
-    list.sort((a, b) => a.name.localeCompare(b.name));
-    return list;
-  }, [auditRows, query]);
+  }, [projects, query, activeTab]);
 
   const createProject = async () => {
     const name = newName.trim();
@@ -672,101 +565,7 @@ export default function ProjectsPage() {
       )}
 
       <div className="pj-body">
-        {activeTab === 'context' ? (
-          auditLoading ? (
-            <div className="pj-audit-loading">Loading project context…</div>
-          ) : !filteredAudit.length ? (
-            <div className="pj-empty">
-              <FolderOpen size={32} className="pj-empty-icon" />
-              <p className="pj-empty-text">
-                {query ? 'No projects match your search.' : 'No project context rows yet.'}
-              </p>
-            </div>
-          ) : (
-            <div className="pj-audit-wrap">
-              <p className="pj-audit-lede">
-                Workspace bindings are shared by design. Instructions, memory, and runtime rules are scoped per project.
-              </p>
-              <div className="pj-audit-scroll">
-                <table className="pj-audit-table">
-                  <thead>
-                    <tr>
-                      <th>Project</th>
-                      <th>Workspace</th>
-                      <th>Rule key</th>
-                      <th>Memory</th>
-                      <th>Bindings</th>
-                      <th aria-label="Open" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredAudit.map((row) => (
-                      <tr key={row.id}>
-                        <td>
-                          <div className="pj-audit-name">{row.name}</div>
-                          <div className="pj-audit-id">{row.id}</div>
-                          {row.status ? <div className="pj-audit-meta">{row.status}</div> : null}
-                        </td>
-                        <td>
-                          <div className="pj-audit-mono">{row.workspace_id || '—'}</div>
-                          {row.bindings?.workspace_slug ? (
-                            <div className="pj-audit-meta">{row.bindings.workspace_slug}</div>
-                          ) : null}
-                        </td>
-                        <td>
-                          <div className="pj-audit-mono pj-audit-rule">{row.rule_key || '—'}</div>
-                          <div className={`pj-audit-pill${row.rule_synced ? ' pj-audit-pill--ok' : ''}`}>
-                            {row.rule_synced ? 'synced' : 'no rule body'}
-                          </div>
-                          {row.rule_body_chars ? (
-                            <div className="pj-audit-meta">{formatAuditChars(row.rule_body_chars)} chars</div>
-                          ) : null}
-                        </td>
-                        <td>
-                          <div className="pj-audit-meta">
-                            instr {formatAuditChars(row.instructions_chars)}
-                          </div>
-                          <div className="pj-audit-meta">
-                            mem {formatAuditChars(row.memory_chars)}
-                          </div>
-                        </td>
-                        <td>
-                          {row.bindings ? (
-                            <div className="pj-audit-bindings">
-                              {row.bindings.worker_name ? (
-                                <span>{row.bindings.worker_name}</span>
-                              ) : null}
-                              {row.bindings.r2_bucket ? (
-                                <span>{row.bindings.r2_bucket}</span>
-                              ) : null}
-                              {row.bindings.github_repo ? (
-                                <span>{row.bindings.github_repo}</span>
-                              ) : null}
-                              {row.bindings.deploy_url ? (
-                                <span className="pj-audit-meta">{row.bindings.deploy_url}</span>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <span className="pj-audit-meta">—</span>
-                          )}
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            className="pj-audit-open"
-                            onClick={() => navigate(`/dashboard/projects/${encodeURIComponent(row.id)}`)}
-                          >
-                            Open
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )
-        ) : loading ? (
+        {loading ? (
           <div className="pj-grid">
             {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
           </div>
@@ -778,22 +577,20 @@ export default function ProjectsPage() {
                 ? 'No projects match your search.'
                 : activeTab === 'starred'
                   ? 'Star a project to see it here.'
-                  : activeTab === 'completed'
-                    ? 'No completed projects yet.'
-                    : activeTab === 'shared'
-                      ? 'No shared projects yet.'
-                      : 'No projects yet.'}
+                  : activeTab === 'archived'
+                    ? 'No archived projects.'
+                    : 'No projects yet.'}
             </p>
-            {!query && activeTab === 'recent' && (
+            {!query && activeTab === 'mine' && (
               <button type="button" className="pj-btn pj-btn--primary" onClick={() => setCreating(true)}>
                 <Plus size={14} /> New project
               </button>
             )}
           </div>
         ) : (
-          <div className="pj-app-icon-grid iam-app-icon-grid">
+          <div className="pj-grid">
             {filtered.map((p) => (
-              <ProjectAppIconTile
+              <ProjectCard
                 key={p.id}
                 project={p}
                 menuOpen={menuOpenId === p.id}
@@ -1102,369 +899,79 @@ const PROJECTS_CSS = `
 
 .pj-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 16px;
-}
-
-.pj-app-icon-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
-  gap: 20px 16px;
-  max-width: 720px;
-}
-
-.pj-app-icon-cell {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.pj-app-icon-cell--archived {
-  opacity: 0.55;
-}
-
-.pj-app-icon-cell .pj-menu {
-  position: absolute;
-  top: -4px;
-  right: -2px;
-  z-index: 2;
-}
-
-.pj-app-icon-pin {
-  position: absolute;
-  top: 2px;
-  left: 50%;
-  margin-left: 28px;
-  color: var(--solar-cyan, #38bdf8);
-  pointer-events: none;
-}
-
-@media (max-width: 540px) {
-  .pj-grid { grid-template-columns: 1fr; gap: 12px; }
-  .pj-header { padding: 16px 12px 0; }
-  .pj-body { padding: 0 12px 32px; max-width: none; }
-  .pj-title { font-size: 26px; }
-  .pj-tabs { gap: 6px; margin-bottom: 12px; }
-  .pj-tab { padding: 6px 12px; font-size: 13px; }
-
-  /* List-row cards (mockup: thumb | meta | menu) */
-  .pj-card--visual {
-    aspect-ratio: auto;
-    min-height: 0;
-    border-radius: 14px;
-  }
-
-  .pj-card--visual:hover,
-  .pj-card--visual:focus-within {
-    transform: none;
-    box-shadow: none;
-  }
-
-  .pj-card-media {
-    display: grid;
-    grid-template-columns: 84px minmax(0, 1fr) 36px;
-    grid-template-rows: auto;
-    gap: 0 12px;
-    align-items: center;
-    min-height: 0;
-    height: auto;
-    padding: 12px;
-    background: var(--dashboard-panel, rgba(255,255,255,0.04));
-  }
-
-  .pj-card-media-img {
-    position: relative;
-    inset: auto;
-    grid-column: 1;
-    grid-row: 1 / span 2;
-    width: 84px;
-    height: 84px;
-    border-radius: 12px;
-    object-fit: cover;
-    align-self: center;
-  }
-
-  .pj-card-media-fallback {
-    position: relative;
-    inset: auto;
-    grid-column: 1;
-    grid-row: 1 / span 2;
-    width: 84px;
-    height: 84px;
-    border-radius: 12px;
-    align-self: center;
-  }
-
-  .pj-card-media-initials { font-size: 1.35rem; }
-
-  .pj-card--visual:hover .pj-card-media-img,
-  .pj-card--visual:focus-within .pj-card-media-img {
-    transform: none;
-  }
-
-  .pj-card-scrim { display: none; }
-
-  .pj-card-overlay {
-    position: relative;
-    inset: auto;
-    grid-column: 2;
-    grid-row: 1 / span 2;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    padding: 0;
-    min-width: 0;
-  }
-
-  .pj-card-overlay-top {
-    position: relative;
-    top: auto;
-    left: auto;
-    right: auto;
-    margin-bottom: 4px;
-    opacity: 1;
-    transform: none;
-  }
-
-  .pj-card-overlay-body {
-    opacity: 1;
-    transform: none;
-  }
-
-  .pj-card-status-pill {
-    font-size: 9px;
-    padding: 2px 7px;
-    background: rgba(255,255,255,0.06);
-  }
-
-  .pj-card-star-badge { display: none; }
-
-  .pj-card-name {
-    font-size: 16px;
-    font-weight: 650;
-    color: inherit;
-    text-shadow: none;
-    -webkit-line-clamp: 2;
-  }
-
-  .pj-card-type {
-    font-size: 13px;
-    color: var(--color-muted, #94a3b8);
-    margin: 2px 0 10px;
-    text-transform: none;
-  }
-
-  .pj-card-progress-wrap { gap: 10px; }
-
-  .pj-card-progress-track {
-    height: 4px;
-    background: rgba(148,163,184,0.22);
-  }
-
-  .pj-card-progress-fill {
-    background: #fb7185;
-  }
-
-  .pj-card-progress-pct {
-    font-size: 13px;
-    color: var(--color-muted, #94a3b8);
-    min-width: 36px;
-  }
-
-  .pj-card .pj-menu {
-    position: relative;
-    top: auto;
-    right: auto;
-    grid-column: 3;
-    grid-row: 1;
-    align-self: start;
-    justify-self: end;
-    pointer-events: auto;
-  }
-
-  .pj-menu-btn {
-    width: 32px;
-    height: 32px;
-    border-radius: 10px;
-    border: 1px solid var(--dashboard-border);
-    background: transparent;
-    color: inherit;
-    backdrop-filter: none;
-  }
-
-  .pj-menu-btn:hover,
-  .pj-menu-btn[aria-expanded="true"] {
-    background: var(--bg-hover);
-  }
-
-  .pj-card--skeleton .pj-card-media {
-    display: block;
-    min-height: 108px;
-    padding: 0;
-  }
-
-  .pj-card--skeleton .pj-card-media--skel {
-    min-height: 108px;
-    width: 100%;
-    border-radius: 14px;
-  }
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
 }
 
 .pj-card {
-  border-radius: 16px;
+  border-radius: 14px;
   border: 1px solid var(--dashboard-border);
   background: var(--dashboard-panel, rgba(255,255,255,0.03));
   overflow: hidden;
-  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.pj-card--visual {
-  aspect-ratio: 4 / 5;
-  min-height: 240px;
-}
-
-.pj-card--visual:hover,
-.pj-card--visual:focus-within {
-  border-color: rgba(255,255,255,0.18);
-  box-shadow: 0 10px 32px rgba(0,0,0,0.35);
-  transform: translateY(-2px);
+.pj-card:hover {
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
 }
 
 .pj-card--archived { opacity: 0.65; }
-.pj-card--pinned { border-color: rgba(251,191,36,0.35); }
+.pj-card--pinned { border-color: rgba(251,191,36,0.28); }
 
-.pj-card-media {
+.pj-card-cover {
   position: relative;
   width: 100%;
-  height: 100%;
-  min-height: 240px;
+  aspect-ratio: 16/9;
+  background: var(--bg-elevated, rgba(255,255,255,0.04));
   cursor: pointer;
   overflow: hidden;
-  display: block;
+  flex-shrink: 0;
 }
 
-.pj-card-media:focus-visible {
-  outline: 2px solid rgba(255,255,255,0.45);
+.pj-card-cover:focus-visible {
+  outline: 2px solid rgba(255,255,255,0.4);
   outline-offset: -2px;
 }
 
-.pj-card-media--skel {
-  min-height: 280px;
-  background: linear-gradient(110deg, rgba(255,255,255,0.04) 8%, rgba(255,255,255,0.09) 18%, rgba(255,255,255,0.04) 33%);
-  background-size: 200% 100%;
-  animation: pj-shimmer 1.4s ease-in-out infinite;
-}
-
-.pj-card-media-img {
-  position: absolute;
-  inset: 0;
+.pj-card-cover-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
-  transition: transform 0.45s ease;
+  transition: transform 0.3s ease;
 }
 
-.pj-card--visual:hover .pj-card-media-img,
-.pj-card--visual:focus-within .pj-card-media-img {
-  transform: scale(1.05);
-}
+.pj-card:hover .pj-card-cover-img { transform: scale(1.02); }
 
-.pj-card-media-fallback {
-  position: absolute;
-  inset: 0;
+.pj-card-cover-placeholder {
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.pj-card-media-initials {
-  font-size: 2.4rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: rgba(255,255,255,0.82);
-  text-shadow: 0 2px 24px rgba(0,0,0,0.35);
+.pj-card-cover-icon {
+  color: var(--color-muted, #94a3b8);
+  opacity: 0.3;
 }
 
-.pj-card-scrim {
+.pj-card-status-strip {
   position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(0,0,0,0.08) 0%,
-    rgba(0,0,0,0.02) 38%,
-    rgba(0,0,0,0.55) 100%
-  );
-  pointer-events: none;
-  transition: opacity 0.25s ease;
-}
-
-.pj-card-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  padding: 12px;
-  pointer-events: none;
-}
-
-.pj-card-overlay-top {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  right: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  opacity: 0;
-  transform: translateY(-4px);
-  transition: opacity 0.22s ease, transform 0.22s ease;
-}
-
-.pj-card-overlay-body {
-  opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 0.22s ease, transform 0.22s ease;
-}
-
-.pj-card--visual:hover .pj-card-overlay-top,
-.pj-card--visual:focus-within .pj-card-overlay-top,
-.pj-card--visual:hover .pj-card-overlay-body,
-.pj-card--visual:focus-within .pj-card-overlay-body {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-@media (hover: none) {
-  .pj-card-overlay-top,
-  .pj-card-overlay-body {
-    opacity: 1;
-    transform: none;
-  }
-  .pj-card-scrim {
-    background: linear-gradient(180deg, transparent 40%, rgba(0,0,0,0.72) 100%);
-  }
-}
-
-.pj-card-status-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 8px;
-  border-radius: 999px;
-  border: 1px solid currentColor;
-  background: rgba(0,0,0,0.45);
-  backdrop-filter: blur(6px);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  opacity: 0.8;
 }
 
 .pj-card-star-badge {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1476,32 +983,40 @@ const PROJECTS_CSS = `
   backdrop-filter: blur(4px);
 }
 
-.pj-card .pj-menu {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 4;
-  pointer-events: auto;
+.pj-card-body {
+  padding: 12px 14px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+
+.pj-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
 }
 
 .pj-card-name {
-  font-size: 15px;
-  font-weight: 650;
-  line-height: 1.25;
-  color: #fff;
-  text-shadow: 0 1px 12px rgba(0,0,0,0.45);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pj-card-type {
   font-size: 11px;
-  color: rgba(255,255,255,0.78);
-  letter-spacing: 0.02em;
-  margin: 2px 0 8px;
-  text-transform: capitalize;
+  color: var(--color-muted, #94a3b8);
+  letter-spacing: 0.01em;
+  margin-bottom: 4px;
 }
 
 .pj-card-progress-wrap {
@@ -1512,26 +1027,68 @@ const PROJECTS_CSS = `
 
 .pj-card-progress-track {
   flex: 1;
-  height: 4px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.18);
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.08);
   overflow: hidden;
 }
 
 .pj-card-progress-fill {
   height: 100%;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.88);
+  border-radius: 2px;
+  background: rgba(255,255,255,0.35);
   transition: width 0.4s ease;
 }
 
 .pj-card-progress-pct {
   font-size: 11px;
-  color: rgba(255,255,255,0.85);
-  font-variant-numeric: tabular-nums;
-  min-width: 28px;
-  text-align: right;
+  color: var(--color-muted, #94a3b8);
   flex-shrink: 0;
+  min-width: 26px;
+  text-align: right;
+}
+
+.pj-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.pj-avatar-cluster {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pj-avatar-more {
+  display: none;
+  font-size: 11px;
+  color: var(--color-muted, #94a3b8);
+  white-space: nowrap;
+}
+
+.pj-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #fff;
+  border: 1.5px solid var(--dashboard-canvas, #0d1117);
+  flex-shrink: 0;
+  cursor: default;
+  user-select: none;
+}
+
+.pj-card-status-label {
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .pj-menu {
@@ -1539,6 +1096,10 @@ const PROJECTS_CSS = `
   top: 8px;
   right: 8px;
   z-index: 10;
+}
+
+.pj-menu--head {
+  display: none;
 }
 
 .pj-menu-btn {
@@ -1598,6 +1159,119 @@ const PROJECTS_CSS = `
   height: 1px;
   background: var(--dashboard-border);
   margin: 3px 6px;
+}
+
+@media (max-width: 540px) {
+  .pj-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .pj-body { padding: 0 12px 40px; }
+
+  .pj-card {
+    flex-direction: row;
+    align-items: stretch;
+    min-height: 108px;
+  }
+
+  .pj-card-cover {
+    width: 92px;
+    min-width: 92px;
+    max-width: 92px;
+    aspect-ratio: unset;
+    height: auto;
+    align-self: stretch;
+    border-radius: 0;
+  }
+
+  .pj-card-cover-img,
+  .pj-card-cover-placeholder {
+    min-height: 100%;
+    height: 100%;
+  }
+
+  .pj-card-cover--skel {
+    aspect-ratio: unset;
+    min-height: 108px;
+  }
+
+  .pj-card-status-strip {
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: auto;
+    width: 2px;
+    height: auto;
+  }
+
+  .pj-card-star-badge {
+    bottom: 6px;
+    left: 6px;
+    width: 18px;
+    height: 18px;
+  }
+
+  .pj-card-body {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 12px 10px 10px;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .pj-card-head .pj-card-name {
+    font-size: 15px;
+  }
+
+  .pj-card-type {
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .pj-card-progress-fill {
+    background: #e07a5f;
+  }
+
+  .pj-card-foot {
+    margin-top: 2px;
+  }
+
+  .pj-card-status-label {
+    display: none;
+  }
+
+  .pj-menu--cover { display: none; }
+
+  .pj-menu--head {
+    display: block;
+    position: relative;
+    top: auto;
+    right: auto;
+    flex-shrink: 0;
+  }
+
+  .pj-menu--head .pj-menu-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    backdrop-filter: none;
+    color: var(--color-muted, #94a3b8);
+  }
+
+  .pj-menu--head .pj-menu-btn:hover,
+  .pj-menu--head .pj-menu-btn[aria-expanded="true"] {
+    background: var(--bg-hover, rgba(255,255,255,0.08));
+    color: inherit;
+  }
+
+  .pj-avatar-more {
+    display: inline;
+  }
 }
 
 .pj-card--skeleton { pointer-events: none; }
@@ -1686,128 +1360,6 @@ const PROJECTS_CSS = `
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
   pointer-events: none;
   white-space: nowrap;
-  max-width: min(92vw, 560px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pj-audit-loading {
-  padding: 48px 16px;
-  text-align: center;
-  color: var(--color-muted, #94a3b8);
-  font-size: 14px;
-}
-
-.pj-audit-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-}
-
-.pj-audit-lede {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--color-muted, #94a3b8);
-}
-
-.pj-audit-scroll {
-  overflow-x: auto;
-  border: 1px solid var(--dashboard-border);
-  border-radius: 12px;
-  background: var(--bg-elevated, rgba(255,255,255,0.03));
-}
-
-.pj-audit-table {
-  width: 100%;
-  min-width: 920px;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-.pj-audit-table th,
-.pj-audit-table td {
-  padding: 10px 12px;
-  text-align: left;
-  vertical-align: top;
-  border-bottom: 1px solid var(--dashboard-border);
-}
-
-.pj-audit-table th {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-muted, #94a3b8);
-  background: rgba(0,0,0,0.15);
-}
-
-.pj-audit-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.pj-audit-name {
-  font-weight: 600;
-  font-size: 13px;
-}
-
-.pj-audit-id,
-.pj-audit-mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
-  color: var(--color-muted, #94a3b8);
-  word-break: break-all;
-}
-
-.pj-audit-rule {
-  color: var(--color-main, #e2e8f0);
-}
-
-.pj-audit-meta {
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--color-muted, #94a3b8);
-}
-
-.pj-audit-pill {
-  display: inline-block;
-  margin-top: 6px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(248, 113, 113, 0.35);
-  color: #fca5a5;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.pj-audit-pill--ok {
-  border-color: rgba(74, 222, 128, 0.35);
-  color: #86efac;
-}
-
-.pj-audit-bindings {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  word-break: break-all;
-}
-
-.pj-audit-open {
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--dashboard-border);
-  background: transparent;
-  color: var(--color-main, #e2e8f0);
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.pj-audit-open:hover {
-  background: var(--bg-hover, rgba(255,255,255,0.08));
 }
 
 @media (min-width: 768px) {
