@@ -1109,12 +1109,20 @@ export async function resolveRuntimeProfile(env, input) {
   );
 
   // project_qna_fast: short-circuit tool compilation — answer from project memory + RAG.
-  // Agent mode keeps its controller; only tool loop and workspace binding are skipped.
+  // Never strip tools for image generation asks (photo/image/logo/etc.).
+  let hasImageAsk = false;
+  try {
+    const { hasImageGenerationIntent } = await import('../tools/image_generation.js');
+    hasImageAsk = hasImageGenerationIntent(message);
+  } catch {
+    hasImageAsk = false;
+  }
   const isProjectQnaFast =
     classifiedIntent === 'project_qna_fast' &&
     composerMode === 'agent' &&
     !overrides.task_type &&
-    !overrides.route_key;
+    !overrides.route_key &&
+    !hasImageAsk;
 
   let profile = await compileModeProfile(env, {
     mode: composerMode,

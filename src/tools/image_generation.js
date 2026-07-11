@@ -41,7 +41,7 @@ export const IMAGE_PROGRESS_TICKS = [
 ];
 
 const IMAGE_NOUN_RE =
-  /\b(images?|heroes?|hero\s+images?|posters?|wallpapers?|illustrations?|artworks?|graphics?|thumbnails?|banners?|logos?|logo\s+concepts?|renders?|concept\s+arts?|covers?|visuals?|backgrounds?|icons?|avatars?|pictures?|art|mockups?|mock[- ]?ups?|favicons?|og\s+images?|social\s+cards?|app\s+icons?|splash\s+screens?|ui\s+assets?)\b/i;
+  /\b(images?|photos?|photographs?|product\s+photos?|heroes?|hero\s+images?|posters?|wallpapers?|illustrations?|artworks?|graphics?|thumbnails?|banners?|logos?|logo\s+concepts?|renders?|concept\s+arts?|covers?|visuals?|backgrounds?|icons?|avatars?|pictures?|art|mockups?|mock[- ]?ups?|favicons?|og\s+images?|social\s+cards?|app\s+icons?|splash\s+screens?|ui\s+assets?)\b/i;
 const IMAGE_CREATE_VERB_RE =
   /\b(generate|create|make|design|render|draw|paint|produce|craft|build|illustrate|visualize)\b/i;
 
@@ -80,14 +80,14 @@ export function hasImageGenerationIntent(message) {
   if (matchesCoreImageGenerationPatterns(m)) return true;
 
   if (
-    /\b(also|and then|plus|as well|while you'?re at it|when done)\b[\s\S]{0,48}\b(generate|create|make|design|render|draw)\b[\s\S]{0,32}\b(image|logo|icon|banner|thumbnail|mockup|hero|illustration|artwork|graphic)\b/i.test(
+    /\b(also|and then|plus|as well|while you'?re at it|when done)\b[\s\S]{0,48}\b(generate|create|make|design|render|draw)\b[\s\S]{0,32}\b(image|photo|logo|icon|banner|thumbnail|mockup|hero|illustration|artwork|graphic)\b/i.test(
       m,
     )
   ) {
     return true;
   }
   if (
-    /\b(need|want|could you|can you)\b[\s\S]{0,24}\b(a |an )?(hero|banner|logo|icon|thumbnail|og image|app icon|mockup|illustration|cover image|feature graphic)\b/i.test(
+    /\b(need|want|could you|can you)\b[\s\S]{0,24}\b(a |an )?(hero|banner|logo|icon|thumbnail|og image|app icon|mockup|illustration|cover image|feature graphic|product photo|photo)\b/i.test(
       m,
     )
   ) {
@@ -112,7 +112,7 @@ function matchesCoreImageGenerationPatterns(m) {
     return true;
   }
   if (/\bmake\s+me\s+(a\s+)?/i.test(m) && IMAGE_NOUN_RE.test(m)) return true;
-  if (/\b(an?\s+)?(image|illustration|artwork|render|graphic|poster|wallpaper|banner|thumbnail)\s+(of|for|showing)\b/i.test(m)) {
+  if (/\b(an?\s+)?(image|photo|photograph|illustration|artwork|render|graphic|poster|wallpaper|banner|thumbnail)\s+(of|for|showing)\b/i.test(m)) {
     return true;
   }
   if (IMAGE_CREATE_VERB_RE.test(m) && IMAGE_NOUN_RE.test(m)) return true;

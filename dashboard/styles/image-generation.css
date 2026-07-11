@@ -69,6 +69,9 @@
   font-size: 11px;
   line-height: 1;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .iam-image-gen-rate__btn:hover:not(:disabled) {

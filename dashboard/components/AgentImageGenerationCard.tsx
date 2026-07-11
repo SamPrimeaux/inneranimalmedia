@@ -8,6 +8,7 @@
 
 import React, { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { IAM_AGENT_CHAT_COMPOSE } from '../agentChatConstants';
 import type { ImageGenerationState } from './ChatAssistant/types';
 import { ProgressiveImagePreview } from './ProgressiveImagePreview';
@@ -197,7 +198,7 @@ export function AgentImageGenerationCard({
           disabled={busyAction === 'rate'}
           onClick={() => void handleRate(1)}
         >
-          ▲
+          <ThumbsUp size={14} strokeWidth={2} aria-hidden />
         </button>
         <button
           type="button"
@@ -207,7 +208,7 @@ export function AgentImageGenerationCard({
           disabled={busyAction === 'rate'}
           onClick={() => void handleRate(-1)}
         >
-          ▼
+          <ThumbsDown size={14} strokeWidth={2} aria-hidden />
         </button>
       </div>
     ) : null;
