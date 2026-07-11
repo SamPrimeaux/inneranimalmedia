@@ -199,26 +199,6 @@ export function AgentImageGenerationCard({
       className={`iam-image-gen-card${isComplete ? ' iam-image-gen-card--complete' : ''}`}
       aria-busy={!isComplete && state.phase !== 'failed'}
     >
-      <header className="iam-image-gen-card__header">
-        <span className="iam-image-gen-card__title">{title}</span>
-        {(state.provider || state.model) && (
-          <span className="iam-image-gen-card__badge">{providerLabel(state.provider, state.model)}</span>
-        )}
-        {isDraft ? <span className="iam-image-gen-card__badge">draft</span> : null}
-      </header>
-      {statusLine ? (
-        <p key={statusLine} className="iam-image-gen-card__status">
-          {statusLine}
-        </p>
-      ) : null}
-      {state.expiresAt && isDraft ? (
-        <p className="iam-image-gen-card__status iam-image-gen-card__status--muted">
-          Draft expires {new Date(state.expiresAt).toLocaleString()}
-        </p>
-      ) : null}
-      {actionMsg ? (
-        <p className="iam-image-gen-card__status iam-image-gen-card__status--muted">{actionMsg}</p>
-      ) : null}
       <ProgressiveImagePreview
         phase={state.phase}
         progress={state.progress}
@@ -226,67 +206,14 @@ export function AgentImageGenerationCard({
         finalUrl={previewUrl}
         onImageClick={onImagePreview}
       />
-      {timeline.length > 1 ? (
-        <div className="iam-image-gen-timeline" role="tablist" aria-label="Generation previews">
-          {timeline.map((frame) => (
-            <button
-              key={frame.frameIndex}
-              type="button"
-              className={`iam-image-gen-timeline__thumb${
-                (selectedFrame ?? state.activeFrameIndex) === frame.frameIndex
-                  ? ' iam-image-gen-timeline__thumb--active'
-                  : ''
-              }`}
-              onClick={() => setSelectedFrame(frame.frameIndex)}
-              aria-label={`Preview frame ${frame.frameIndex}`}
-            >
-              <img src={frame.previewUrl} alt="" draggable={false} />
-            </button>
-          ))}
+      {isComplete ? (
+        <div className="iam-image-gen-actions">
+          {isDraft ? <span className="iam-image-gen-card__badge">draft</span> : null}
+          <button type="button" onClick={() => void handleDownload()}>Download</button>
         </div>
       ) : null}
-      {isComplete ? (
-        <div className="iam-image-gen-actions iam-image-gen-actions--stacked">
-          <label className="iam-image-gen-daypart">
-            <span>Day-part</span>
-            <select
-              value={dayPart}
-              onChange={(e) => setDayPart(e.target.value as ImageDraftDayPart)}
-              disabled={busyAction != null}
-            >
-              <option value="dawn">Dawn</option>
-              <option value="day">Day</option>
-              <option value="dusk">Dusk</option>
-              <option value="night">Night</option>
-              <option value="minimal-dark">Minimal dark</option>
-            </select>
-          </label>
-          <div className="iam-image-gen-actions">
-            {isDraft ? (
-              <button type="button" disabled={busyAction != null} onClick={() => void handleSaveToLibrary()}>
-                {busyAction === 'save' ? 'Saving…' : 'Save to library'}
-              </button>
-            ) : null}
-            <button type="button" disabled={busyAction != null} onClick={handlePreviewBackdrop}>
-              Preview as Agent backdrop
-            </button>
-            <button
-              type="button"
-              disabled={busyAction != null}
-              onClick={() => void handleApplyToAgentHome()}
-            >
-              {busyAction === 'apply' ? 'Applying…' : 'Save & apply to Agent Home'}
-            </button>
-            <button type="button" onClick={handleEditPrompt}>Edit prompt</button>
-            <button type="button" onClick={() => void handleCopy()}>Copy URL</button>
-            <button type="button" onClick={() => void handleDownload()}>Download</button>
-            {isDraft ? (
-              <button type="button" disabled={busyAction != null} onClick={() => void handleDiscard()}>
-                Discard
-              </button>
-            ) : null}
-          </div>
-        </div>
+      {state.phase === 'failed' ? (
+        <p className="iam-image-gen-card__status">{state.message || 'Image generation failed'}</p>
       ) : null}
     </article>
   );
