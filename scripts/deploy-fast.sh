@@ -58,11 +58,11 @@ if [[ ! -f "$REPO_ROOT/$DIST/index.html" ]]; then
   exit 1
 fi
 
-if [[ -z "${R2_ACCESS_KEY_ID:-}" || -z "${R2_SECRET_ACCESS_KEY:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
-  if [[ -n "${CLOUDFLARE_API_TOKEN:-}" || -n "${CF_API_TOKEN:-}" ]]; then
-    echo "⚠️  R2 S3 keys unset — r2-dashboard-delta-sync will use wrangler fallback"
+if [[ -z "${R2_ACCESS_KEY_ID:-}" || -z "${R2_SECRET_ACCESS_KEY:-}" ]]; then
+  if [[ -n "${CLOUDFLARE_API_TOKEN:-}${CF_API_TOKEN:-}" ]]; then
+    echo "→ R2 via Cloudflare API token (cf-api backend — parallel, no wrangler-per-file)"
   else
-    echo "✗ Need R2 S3 keys (.env.cloudflare) or CLOUDFLARE_API_TOKEN for wrangler R2 fallback" >&2
+    echo "✗ Need R2 S3 keys or CLOUDFLARE_API_TOKEN for R2 delta sync" >&2
     exit 1
   fi
 fi
@@ -82,8 +82,32 @@ fi
 WORKER_VERSION_ID=""
 if [[ "$SKIP_WORKER" != "1" ]]; then
   echo "→ Wrangler deploy (-c ${TOML})…"
+  # Never use with-cloudflare-env.sh on CF Builds — it requires zsh (missing in build image).
+  run_wrangler_deploy() {
+    if [[ -n "${CLOUDFLARE_API_TOKEN:-}${CF_API_TOKEN:-}" ]]; then
+      export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-${CF_API_TOKEN}}"
+      # Ensure account id for wrangler when not already exported (CF Builds).
+      if [[ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+        CLOUDFLARE_ACCOUNT_ID="$(
+          grep -E '^\s*account_id\s*=' "$TOML" 2>/dev/null | head -1 | sed -E 's/.*=\s*"([^"]+)".*/\1/' || true
+        )"
+        if [[ -z "${CLOUDFLARE_ACCOUNT_ID}" ]]; then
+          CLOUDFLARE_ACCOUNT_ID="$(
+            grep -E '^\s*CLOUDFLARE_ACCOUNT_ID\s*=' "$TOML" 2>/dev/null | head -1 | sed -E 's/.*=\s*"([^"]+)".*/\1/' || true
+          )"
+        fi
+        export CLOUDFLARE_ACCOUNT_ID
+      fi
+      npx wrangler deploy -c "$TOML"
+    elif command -v zsh >/dev/null 2>&1 && [[ -x "$REPO_ROOT/scripts/with-cloudflare-env.sh" ]]; then
+      "$REPO_ROOT/scripts/with-cloudflare-env.sh" npx wrangler deploy -c "$TOML"
+    else
+      echo "✗ CLOUDFLARE_API_TOKEN unset and zsh wrapper unavailable" >&2
+      return 1
+    fi
+  }
   DEPLOY_LOG="$(mktemp "${TMPDIR:-/tmp}/iam-deploy-fast.XXXXXX")"
-  if ! ./scripts/with-cloudflare-env.sh npx wrangler deploy -c "$TOML" 2>&1 | tee "$DEPLOY_LOG"; then
+  if ! run_wrangler_deploy 2>&1 | tee "$DEPLOY_LOG"; then
     rm -f "$DEPLOY_LOG"
     echo "✗ Worker deploy failed" >&2
     exit 1

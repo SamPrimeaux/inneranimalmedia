@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /**
- * Content-addressed R2 dashboard sync (no rclone).
+ * Content-addressed R2 dashboard sync (no rclone, no wrangler-per-file).
  *
- * Prefer S3 API (R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY) for parallel puts.
- * Fallback: wrangler r2 object put/get/delete (CF Builds API token lane).
+ * Backends (fast → slow):
+ *   1. S3 API — R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY (Mac / local)
+ *   2. Cloudflare R2 REST — CLOUDFLARE_API_TOKEN + account id (CF Builds)
+ *   3. wrangler CLI — last resort (≈2s/object — avoid)
  *
  * Usage:
  *   node scripts/r2-dashboard-delta-sync.mjs
  *   node scripts/r2-dashboard-delta-sync.mjs --dry-run
- *   node scripts/r2-dashboard-delta-sync.mjs --concurrency 16 --no-pwa
  */
 import { createHash } from 'crypto';
 import {
@@ -37,7 +38,7 @@ function parseArgs() {
   };
   const concurrency = Math.max(
     1,
-    Number.parseInt(get('--concurrency', process.env.R2_DELTA_CONCURRENCY || '12'), 10) || 12,
+    Number.parseInt(get('--concurrency', process.env.R2_DELTA_CONCURRENCY || '16'), 10) || 16,
   );
   return {
     dist: get('--dist', 'dashboard/dist'),
@@ -61,6 +62,25 @@ function resolveGitSha(explicit) {
   } catch {
     return '';
   }
+}
+
+function resolveAccountId() {
+  const fromEnv = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  if (fromEnv) return fromEnv;
+  try {
+    const toml = readFileSync(pathMod.join(root, 'wrangler.production.toml'), 'utf8');
+    const m =
+      toml.match(/^\s*account_id\s*=\s*["']([^"']+)["']/m) ||
+      toml.match(/^\s*CLOUDFLARE_ACCOUNT_ID\s*=\s*["']([^"']+)["']/m);
+    if (m?.[1]) return m[1].trim();
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
+
+function resolveApiToken() {
+  return String(process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN || '').trim();
 }
 
 function walkFiles(absDir, files = []) {
@@ -144,7 +164,7 @@ async function buildManifest(absDist, prefix) {
 
 function hasS3Env() {
   return Boolean(
-    String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim() &&
+    resolveAccountId() &&
       String(process.env.R2_ACCESS_KEY_ID || '').trim() &&
       String(process.env.R2_SECRET_ACCESS_KEY || '').trim(),
   );
@@ -156,7 +176,7 @@ function wranglerToml() {
 
 function createBackend() {
   if (hasS3Env()) {
-    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+    const accountId = resolveAccountId();
     const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
     const aws = new AwsClient({
       accessKeyId: process.env.R2_ACCESS_KEY_ID,
@@ -193,14 +213,68 @@ function createBackend() {
       },
       async delete(bucket, key) {
         const res = await aws.fetch(objectUrl(bucket, key), { method: 'DELETE' });
+        if (!res.ok && res.status !== 404) throw new Error(`DeleteObject ${key} failed ${res.status}`);
+      },
+    };
+  }
+
+  const token = resolveApiToken();
+  const accountId = resolveAccountId();
+  if (token && accountId) {
+    const apiBase = `https://api.cloudflare.com/client/v4/accounts/${accountId}/r2/buckets`;
+    const headers = { Authorization: `Bearer ${token}` };
+    const objectUrl = (bucket, key) =>
+      `${apiBase}/${bucket}/objects/${key.split('/').map(encodeURIComponent).join('/')}`;
+
+    return {
+      mode: 'cf-api',
+      async getJson(bucket, key) {
+        const res = await fetch(objectUrl(bucket, key), { method: 'GET', headers });
+        if (res.status === 404) return null;
+        if (!res.ok) {
+          const t = await res.text();
+          // CF sometimes wraps errors as JSON
+          if (res.status === 404 || /not.?found/i.test(t)) return null;
+          throw new Error(`CF GET ${key} failed ${res.status}: ${t.slice(0, 300)}`);
+        }
+        const text = await res.text();
+        try {
+          const parsed = JSON.parse(text);
+          // Some CF endpoints wrap; object GET returns raw body
+          if (parsed && typeof parsed === 'object' && parsed.success === false) return null;
+          if (parsed && typeof parsed === 'object' && parsed.objects && parsed.version) return parsed;
+          if (parsed && typeof parsed === 'object' && parsed.version && parsed.prefix) return parsed;
+          return parsed;
+        } catch {
+          return null;
+        }
+      },
+      async putFile(bucket, key, absPath, contentType) {
+        const res = await fetch(objectUrl(bucket, key), {
+          method: 'PUT',
+          headers: { ...headers, 'Content-Type': contentType },
+          body: readFileSync(absPath),
+        });
+        if (!res.ok) throw new Error(`CF PUT ${key} failed ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      },
+      async putBytes(bucket, key, body, contentType) {
+        const res = await fetch(objectUrl(bucket, key), {
+          method: 'PUT',
+          headers: { ...headers, 'Content-Type': contentType },
+          body,
+        });
+        if (!res.ok) throw new Error(`CF PUT ${key} failed ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      },
+      async delete(bucket, key) {
+        const res = await fetch(objectUrl(bucket, key), { method: 'DELETE', headers });
         if (!res.ok && res.status !== 404) {
-          throw new Error(`DeleteObject ${key} failed ${res.status}`);
+          throw new Error(`CF DELETE ${key} failed ${res.status}: ${(await res.text()).slice(0, 300)}`);
         }
       },
     };
   }
 
-  console.warn('[r2-delta] S3 keys missing — using wrangler r2 fallback (slower; fine for CF Builds)');
+  console.warn('[r2-delta] no S3 keys or CF API token — wrangler fallback (VERY SLOW)');
   return {
     mode: 'wrangler',
     async getJson(bucket, key) {
@@ -329,6 +403,12 @@ async function main() {
   console.log(`[r2-delta] local objects=${manifest.object_count} bytes=${manifest.total_size_bytes}`);
 
   const backend = createBackend();
+  if (backend.mode === 'wrangler') {
+    throw new Error(
+      '[r2-delta] refusing wrangler-per-file backend (≈5min for 100 objects). ' +
+        'Set R2_ACCESS_KEY_ID+R2_SECRET_ACCESS_KEY, or CLOUDFLARE_API_TOKEN+CLOUDFLARE_ACCOUNT_ID.',
+    );
+  }
   console.log(`[r2-delta] backend=${backend.mode}`);
   const previous = await backend.getJson(o.bucket, o.previousKey);
   const prev = prevHashMap(previous);
@@ -341,7 +421,7 @@ async function main() {
 
   const newKeys = new Set(manifest.objects.map((x) => x.object_key));
   const stale = [...prev.keys()].filter((k) => k.startsWith(`${o.prefix}/`) && !newKeys.has(k));
-  const concurrency = backend.mode === 'wrangler' ? Math.min(o.concurrency, 4) : o.concurrency;
+  const concurrency = o.concurrency;
 
   console.log(
     `[r2-delta] previous=${prev.size} upload=${toUpload.length} delete=${stale.length} concurrency=${concurrency}`,

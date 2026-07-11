@@ -30,9 +30,17 @@ ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID}"
 API_TOKEN="${CLOUDFLARE_API_TOKEN}"
 WORKER_NAME="${WORKER_SERVICE_NAME:-inneranimalmedia}"
 
-# Mac-free ship: build Vite on CF, deploy = R2 delta + wrangler (deploy:fast:cf).
-# Requires CF Builds secrets: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, CLOUDFLARE_ACCOUNT_ID
-# (plus existing CLOUDFLARE_API_TOKEN). Watch paths must include dashboard/** for SPA-only pushes.
+# Bloat map (from failed CF Builds log 2026-07-11)
+#
+# | Step                         | Time     | Status |
+# |------------------------------|----------|--------|
+# | npm ci                       | ~19s     | needed |
+# | copy-cms-vendor npm install  | ~19s     | KILLED — skipped on CI |
+# | Vite 5972 modules            | ~60s     | needed (excalidraw/realtimekit are fat) |
+# | wrangler r2 ×132 objects     | ~5m      | KILLED — cf-api / S3 parallel |
+# | with-cloudflare-env.sh (zsh) | fail     | KILLED — bash + direct wrangler |
+#
+# Target CF Builds wall clock: npm ci + Vite + R2 delta (~10–20s) + wrangler ≈ 2–3 min first cold; <90s warm delta.
 BUILD_COMMAND="${CF_BUILDS_BUILD_COMMAND:-node scripts/smart-build.mjs}"
 MAIN_DEPLOY_COMMAND="${CF_BUILDS_MAIN_DEPLOY_COMMAND:-npm run deploy:fast:cf}"
 NON_MAIN_DEPLOY_COMMAND="${CF_BUILDS_NON_MAIN_DEPLOY_COMMAND:-npm run deploy:cf-builds}"

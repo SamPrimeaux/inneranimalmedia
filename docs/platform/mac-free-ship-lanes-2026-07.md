@@ -13,12 +13,17 @@ When the Mac is asleep, **do not** run `npm run deploy:full` on the GCP `iam-tun
 
 ## Cloudflare Builds requirements
 
-1. **Build command:** `node scripts/smart-build.mjs` (Vite + bump-cache)
-2. **Deploy command (main):** `npm run deploy:fast:cf` (`DEPLOY_FAST_SKIP_BUILD=1` → R2 delta + wrangler)
-3. **Build secrets:** `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_ACCOUNT_ID` (plus existing API token)
-4. **Watch paths:** must **not** exclude `dashboard/**` (was historically excluded — that forced Mac `deploy:full` for SPA). `ship:remote` also POSTs the deploy hook as a backstop.
-5. Sync triggers from any host with API token: `./scripts/cf-builds-sync.sh`
+1. **Build command:** `node scripts/smart-build.mjs` (Vite + bump-cache; skips CMS vendor npm install)
+2. **Deploy command (main):** `npm run deploy:fast:cf` (R2 delta via **CF API token** or S3 keys + wrangler — no zsh)
+3. **Auth:** Builds already injects `CLOUDFLARE_API_TOKEN`. Account id is read from `wrangler.production.toml` vars if unset. Optional speed-up: add `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` as Build secrets (S3 backend).
+4. **Watch paths:** must **not** exclude `dashboard/**`
+5. Sync triggers: `./scripts/cf-builds-sync.sh`
 
-## R2 sync
+## Bloat killed (2026-07-11)
 
-`scripts/r2-dashboard-delta-sync.mjs` replaces rclone `--checksum`: local SHA-256 manifest vs `analytics/deploys/previous-manifest.json`, PutObject delta only, delete stale, publish PWA + canonical keys.
+| Waste | Fix |
+|-------|-----|
+| wrangler CLI × N R2 puts (~2s each → 5 min) | Parallel CF R2 REST / S3; refuse wrangler backend |
+| `with-cloudflare-env.sh` (zsh) on CF image | Direct `npx wrangler` when token present |
+| `copy-cms-vendor` npm install react@18 (~19s) | Skipped on CI |
+| rclone `--checksum` full crawl | Content-hash manifest delta only |
