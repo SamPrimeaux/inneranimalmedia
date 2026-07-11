@@ -39,6 +39,7 @@ async function resolveTaskExecutorModelKey(env, workspaceId) {
 }
 
 function extractCodexUsage(result) {
+  // TELEMETRY-003: migrate to extractToolExecUsage (tool-exec-telemetry.js) — do not delete here.
   const usage =
     result?.usage && typeof result.usage === 'object'
       ? result.usage

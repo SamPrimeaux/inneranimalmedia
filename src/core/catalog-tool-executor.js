@@ -24,6 +24,10 @@ import {
 import { mergeR2S3EnvFromUserStorage } from './user-storage-r2-credentials.js';
 import { invokeR2DeleteHttp } from '../tools/builtin/r2-http-catalog.js';
 import {
+  extractToolExecUsage as extractUsageMetrics,
+  shouldSkipCatalogToolCallLog,
+} from './tool-exec-telemetry.js';
+import {
   executeR2CatalogOperation,
   executeR2ListCatalogOperation,
   isR2ListLikeOperation,
@@ -389,74 +393,6 @@ async function executeCatalogCfD1(env, row, config, params, runContext) {
   } catch (e) {
     return { ok: false, error: e?.message ?? String(e) };
   }
-}
-
-function extractUsageMetrics(output, fallbackModel = null, fallbackProvider = null) {
-  const usage =
-    output?.usage && typeof output.usage === 'object'
-      ? output.usage
-      : output?.body?.usage && typeof output.body.usage === 'object'
-        ? output.body.usage
-        : null;
-  const inputTokens = Math.max(
-    0,
-    Math.floor(
-      Number(
-        usage?.input_tokens ??
-          usage?.prompt_tokens ??
-          usage?.inputTokens ??
-          output?.input_tokens ??
-          output?.body?.input_tokens ??
-          0,
-      ) || 0,
-    ),
-  );
-  const outputTokens = Math.max(
-    0,
-    Math.floor(
-      Number(
-        usage?.output_tokens ??
-          usage?.completion_tokens ??
-          usage?.outputTokens ??
-          output?.output_tokens ??
-          output?.body?.output_tokens ??
-          0,
-      ) || 0,
-    ),
-  );
-  const totalCostUsd =
-    Number(
-      usage?.cost_usd ??
-        usage?.costUsd ??
-        output?.cost_usd ??
-        output?.body?.cost_usd ??
-        output?.costUsd ??
-        output?.body?.costUsd ??
-        0,
-    ) || 0;
-  const inputCostUsd = Number(usage?.input_cost_usd ?? usage?.inputCostUsd ?? 0) || 0;
-  const outputCostUsd = Number(usage?.output_cost_usd ?? usage?.outputCostUsd ?? 0) || 0;
-  const modelUsed =
-    output?.model_key ??
-    output?.modelKey ??
-    output?.body?.model_key ??
-    output?.body?.modelKey ??
-    output?.model ??
-    output?.body?.model ??
-    fallbackModel;
-  const provider =
-    output?.provider ??
-    output?.body?.provider ??
-    fallbackProvider;
-  return {
-    inputTokens,
-    outputTokens,
-    inputCostUsd,
-    outputCostUsd,
-    totalCostUsd,
-    modelUsed: modelUsed != null ? String(modelUsed).trim() || null : null,
-    provider: provider != null ? String(provider).trim() || null : null,
-  };
 }
 
 async function writeTelemetryError(env, runContext, source, error) {
@@ -1033,41 +969,44 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
 
         const cachedBody = JSON.parse(String(cached.output_json));
         const usage = extractUsageMetrics(cachedBody, params.model ?? config.default_model ?? null, config.default_provider ?? null);
-        try {
-          await insertToolCallLog(
-            env,
-            {
-              tenantId,
-              workspaceId,
-              userId,
-              agentRunId,
-              toolName,
-              toolKey,
-              handlerKey: row.handler_key ?? null,
-              capabilityKey: row.capability_key ?? null,
-              agentsamToolsId: row.id ?? null,
-              routingArmId,
-              conversationId,
-              status: 'success',
-              inputJson: safeJsonString(rawInput),
-              outputJson: safeJsonString(cachedBody),
-              inputSummary: 'cache_hit',
-              outputSummary: summarizeOutput(cachedBody),
-              inputTokens: usage.inputTokens,
-              outputTokens: usage.outputTokens,
-              inputCostUsd: usage.inputCostUsd,
-              outputCostUsd: usage.outputCostUsd,
-              totalCostUsd: usage.totalCostUsd,
-              durationMs: 0,
-              timedOut: false,
-              toolCategory: row.tool_category ?? null,
-              agentId,
-              sourceTool,
-            },
-            runContext,
-          );
-        } catch (e) {
-          await writeTelemetryError(env, runContext, 'agentsam_tool_call_log.cache_hit', e);
+        // TELEMETRY-001: when agent-tool-loop set skipToolCallLog, loop owns agentsam_tool_call_log.
+        if (!shouldSkipCatalogToolCallLog(runContext)) {
+          try {
+            await insertToolCallLog(
+              env,
+              {
+                tenantId,
+                workspaceId,
+                userId,
+                agentRunId,
+                toolName,
+                toolKey,
+                handlerKey: row.handler_key ?? null,
+                capabilityKey: row.capability_key ?? null,
+                agentsamToolsId: row.id ?? null,
+                routingArmId,
+                conversationId,
+                status: 'success',
+                inputJson: safeJsonString(rawInput),
+                outputJson: safeJsonString(cachedBody),
+                inputSummary: 'cache_hit',
+                outputSummary: summarizeOutput(cachedBody),
+                inputTokens: usage.inputTokens,
+                outputTokens: usage.outputTokens,
+                inputCostUsd: usage.inputCostUsd,
+                outputCostUsd: usage.outputCostUsd,
+                totalCostUsd: usage.totalCostUsd,
+                durationMs: 0,
+                timedOut: false,
+                toolCategory: row.tool_category ?? null,
+                agentId,
+                sourceTool,
+              },
+              runContext,
+            );
+          } catch (e) {
+            await writeTelemetryError(env, runContext, 'agentsam_tool_call_log.cache_hit', e);
+          }
         }
         return { ok: true, body: cachedBody };
       }
@@ -1092,41 +1031,45 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     const outputSummary = summarizeOutput(output);
     let toolCallLogId = null;
 
-    try {
-      toolCallLogId = await insertToolCallLog(
-        env,
-        {
-          tenantId,
-          workspaceId,
-          userId,
-          agentRunId,
-          toolName,
-          toolKey,
-          handlerKey: row.handler_key ?? null,
-          capabilityKey: row.capability_key ?? null,
-          agentsamToolsId: row.id ?? null,
-          routingArmId,
-          conversationId,
-          status: success ? 'success' : 'error',
-          inputJson: safeJsonString(rawInput),
-          outputJson,
-          inputSummary: null,
-          outputSummary,
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          inputCostUsd: usage.inputCostUsd,
-          outputCostUsd: usage.outputCostUsd,
-          totalCostUsd: usage.totalCostUsd,
-          durationMs,
-          timedOut,
-          toolCategory: row.tool_category ?? null,
-          agentId,
-          sourceTool,
-        },
-        runContext,
-      );
-    } catch (e) {
-      await writeTelemetryError(env, runContext, 'agentsam_tool_call_log', e);
+    // TELEMETRY-001 Layer 2 — contract: agent-tool-loop sets runContext.skipToolCallLog=true
+    // before dispatchToolCallWithBudget so this INSERT is skipped; loop owns the ledger row.
+    if (!shouldSkipCatalogToolCallLog(runContext)) {
+      try {
+        toolCallLogId = await insertToolCallLog(
+          env,
+          {
+            tenantId,
+            workspaceId,
+            userId,
+            agentRunId,
+            toolName,
+            toolKey,
+            handlerKey: row.handler_key ?? null,
+            capabilityKey: row.capability_key ?? null,
+            agentsamToolsId: row.id ?? null,
+            routingArmId,
+            conversationId,
+            status: success ? 'success' : 'error',
+            inputJson: safeJsonString(rawInput),
+            outputJson,
+            inputSummary: null,
+            outputSummary,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            inputCostUsd: usage.inputCostUsd,
+            outputCostUsd: usage.outputCostUsd,
+            totalCostUsd: usage.totalCostUsd,
+            durationMs,
+            timedOut,
+            toolCategory: row.tool_category ?? null,
+            agentId,
+            sourceTool,
+          },
+          runContext,
+        );
+      } catch (e) {
+        await writeTelemetryError(env, runContext, 'agentsam_tool_call_log', e);
+      }
     }
 
     try {

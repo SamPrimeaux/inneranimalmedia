@@ -72,6 +72,7 @@ import {
   inferArtifactFromAssistantText,
   scheduleAgentsamArtifactFromChatOutput,
 } from './agent-prompt-builder.js';
+import { extractToolExecUsage } from './tool-exec-telemetry.js';
 import {
   shouldOpenChatToolSessionLedger,
   TOOL_OUTPUT_SSE_MAX,
@@ -1351,6 +1352,10 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
                   mcpCtx.platform_operator_lane === true || mcpCtx.platformOperatorLane === true,
                 platformOperatorLane:
                   mcpCtx.platformOperatorLane === true || mcpCtx.platform_operator_lane === true,
+                // TELEMETRY-001 Layer 2 — loop owns agentsam_tool_call_log for this dispatch.
+                // Catalog finalizeTelemetry must skip INSERT when this flag is set.
+                skipToolCallLog: true,
+                ledgerOwner: 'tool_loop',
                 ...(mcpCtx.mcp_panel_slug != null && String(mcpCtx.mcp_panel_slug).trim() !== ''
                   ? { mcp_panel_slug: String(mcpCtx.mcp_panel_slug).trim() }
                   : {}),
@@ -1832,6 +1837,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           console.warn('[agent] chat_tool_session_ledger_step', e?.message ?? e);
         }
       }
+      // TELEMETRY-001: extract from execResult (SSOT = tool-exec-telemetry.js).
+      // Honest 0 when tool returns no usage (free tools). Blocked paths above stay literal 0.
+      const toolUsage = extractToolExecUsage(execResult);
       scheduleAgentsamToolCallLog(env, ctx, {
         tenantId,
         sessionId,
@@ -1845,9 +1853,11 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             : 'error'
           : 'success',
         durationMs: toolDurMs,
-        costUsd: 0,
-        inputTokens: 0,
-        outputTokens: 0,
+        costUsd: toolUsage.totalCostUsd,
+        inputTokens: toolUsage.inputTokens,
+        outputTokens: toolUsage.outputTokens,
+        inputCostUsd: toolUsage.inputCostUsd,
+        outputCostUsd: toolUsage.outputCostUsd,
         userId,
         workspaceId,
         errorMessage: execErr ? String(execErr.message || execErr).slice(0, 4000) : null,
@@ -1881,7 +1891,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         workspaceId,
         userId: canonicalToolChainUserId,
         error: execErr,
-        costUsd: 0,
+        costUsd: toolUsage.totalCostUsd,
+        inputTokens: toolUsage.inputTokens,
+        outputTokens: toolUsage.outputTokens,
         mcpToolCallId: mcpExecId,
         durationMs: toolDurMs,
         terminalSessionId: null,

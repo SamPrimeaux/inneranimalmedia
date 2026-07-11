@@ -391,6 +391,7 @@ export function scheduleRecordMcpToolExecution(env, ctx, fields) {
           ? String(merged.user_id).trim()
           : '';
       if (execId && tid && ws) {
+        // TELEMETRY-003: migrate cost/token merge to extractToolExecUsage — keep local pick() until then.
         scheduleToolCallLog(env, ctx, {
           tenantId: tid,
           workspaceId: ws,
