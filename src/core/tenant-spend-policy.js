@@ -6,6 +6,8 @@
  * (NOT a daily recurring budget).
  */
 
+import { getSpendLedgerTotals } from './spend-ledger-canonical.js';
+
 function trim(v) {
   return v == null ? '' : String(v).trim();
 }
@@ -123,43 +125,7 @@ export async function loadTenantSpendPolicy(env, tenantId) {
 export async function getTenantSpendRollups(env, tenantId) {
   const tid = trim(tenantId);
   if (!env?.DB || !tid) return { daily_usd: 0, monthly_usd: 0, total_usd: 0 };
-
-  const today = new Date().toISOString().slice(0, 10);
-  const monthPrefix = today.slice(0, 7);
-
-  try {
-    const dailyRow = await env.DB.prepare(
-      `SELECT COALESCE(SUM(cost_usd), 0) AS total
-         FROM agentsam_usage_rollups_daily
-        WHERE tenant_id = ? AND day = ?`,
-    )
-      .bind(tid, today)
-      .first();
-
-    const monthlyRow = await env.DB.prepare(
-      `SELECT COALESCE(SUM(cost_usd), 0) AS total
-         FROM agentsam_usage_rollups_daily
-        WHERE tenant_id = ? AND day LIKE ?`,
-    )
-      .bind(tid, `${monthPrefix}%`)
-      .first();
-
-    const totalRow = await env.DB.prepare(
-      `SELECT COALESCE(SUM(cost_usd), 0) AS total
-         FROM agentsam_usage_rollups_daily
-        WHERE tenant_id = ?`,
-    )
-      .bind(tid)
-      .first();
-
-    return {
-      daily_usd: Number(dailyRow?.total ?? 0) || 0,
-      monthly_usd: Number(monthlyRow?.total ?? 0) || 0,
-      total_usd: Number(totalRow?.total ?? 0) || 0,
-    };
-  } catch {
-    return { daily_usd: 0, monthly_usd: 0, total_usd: 0 };
-  }
+  return getSpendLedgerTotals(env, { tenantId: tid });
 }
 
 /**

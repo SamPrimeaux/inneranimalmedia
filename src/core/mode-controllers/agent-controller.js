@@ -1,6 +1,8 @@
 import { jsonResponse } from '../responses.js';
 import { loadAgentSamUserPolicy } from '../agent-policy.js';
-import { newChatAgentRunId, scheduleAgentsamChatAgentRunStart } from '../agent-run-routing.js';
+import { newChatAgentRunId, scheduleAgentsamChatAgentRunStart, scheduleAgentsamChatAgentRunInsert } from '../agent-run-routing.js';
+import { fetchModelCostUsd } from '../agent-model-resolver.js';
+import { processWorkspaceSpendAlertsAfterUsage } from '../workspace-spend-guard.js';
 import { fireAgentHooks } from '../hook-dispatcher.js';
 import { toolsManifestFromCompiledRows, isSimpleAskMessage } from '../runtime-profile.js';
 import { executeRwsSpawnFanout, shouldRunRwsFanout } from '../rws-spawn-fanout.js';
@@ -672,56 +674,134 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           sessionAuthUser?.is_superadmin === 1,
       };
 
-      await withTimeout(
-        runAgentToolLoop(env, ctx, emit, {
-          request: input.request,
-          messages: chatMessages,
-          tools,
-          systemPrompt,
-          modelKey: profile.model_key,
-          temperature: profile.temperature,
-          maxToolCalls: profile.max_tool_calls,
-          mode: profile.mode,
-          modeConfig: {
-            max_runtime_ms: maxRunMs,
-            max_turns: profile.max_turns,
-            max_tool_calls: profile.max_tool_calls,
+      let loopStats = null;
+        loopStats = await withTimeout(
+          runAgentToolLoop(env, ctx, emit, {
+            request: input.request,
+            messages: chatMessages,
+            tools,
+            systemPrompt,
+            modelKey: profile.model_key,
             temperature: profile.temperature,
-          },
-          userPolicy,
-          sessionId,
-          tenantId,
-          userId,
-          workspaceId,
-          authUser: sessionAuthUser ?? null,
-          routingTaskType: profile.routing_task_type,
-          mcpRuntimeContext,
-          routingArmId: profile.routing_arm_id,
-          dispatchSpine,
-          agentSlug: subagentProfileRow?.id ?? null,
-          chatAgentRunId,
-          chatRouteKey: profile.refined_route_key,
-          activeFileEnvelope,
-          resolvedContext: agentChatResolvedContext,
-          handoffDepth: handoffResume?.depth ?? 0,
-          rootSessionId: handoffResume?.rootSessionId ?? sessionId,
-          runStartedAt: chatT0,
-          maxRuntimeMs: maxRunMs,
-          runtimeProfile: profile,
-          codemodeRuntime,
-          chatTurnMeta,
-        }),
-        maxRunMs + 5000,
-      );
+            maxToolCalls: profile.max_tool_calls,
+            mode: profile.mode,
+            modeConfig: {
+              max_runtime_ms: maxRunMs,
+              max_turns: profile.max_turns,
+              max_tool_calls: profile.max_tool_calls,
+              temperature: profile.temperature,
+            },
+            userPolicy,
+            sessionId,
+            tenantId,
+            userId,
+            workspaceId,
+            authUser: sessionAuthUser ?? null,
+            routingTaskType: profile.routing_task_type,
+            mcpRuntimeContext,
+            routingArmId: profile.routing_arm_id,
+            dispatchSpine,
+            agentSlug: subagentProfileRow?.id ?? null,
+            chatAgentRunId,
+            chatRouteKey: profile.refined_route_key,
+            activeFileEnvelope,
+            resolvedContext: agentChatResolvedContext,
+            handoffDepth: handoffResume?.depth ?? 0,
+            rootSessionId: handoffResume?.rootSessionId ?? sessionId,
+            runStartedAt: chatT0,
+            maxRuntimeMs: maxRunMs,
+            runtimeProfile: profile,
+            codemodeRuntime,
+            chatTurnMeta,
+            // Client Stop aborts fetch → request.signal; honor between tool turns.
+            signal: input.request?.signal ?? null,
+          }),
+          maxRunMs + 5000,
+        );
 
-      emit('done', {});
-    } catch (e) {
-      console.warn('[agent-controller] loop_failed', e?.message ?? e);
-      emit('error', { message: e?.message ?? 'Agent loop failed', code: 'agent_spine_error' });
-      emit('done', {});
-    } finally {
-      writer.close().catch(() => {});
-    }
+        if (!loopStats?.cancelled) {
+          emit('done', {});
+        }
+      } catch (e) {
+        const isAbort =
+          e?.name === 'AbortError' || String(e?.message || '').includes('Timeout');
+        if (!isAbort) {
+          console.warn('[agent-controller] loop_failed', e?.message ?? e);
+          emit('error', { message: e?.message ?? 'Agent loop failed', code: 'agent_spine_error' });
+        }
+        if (!loopStats?.cancelled) {
+          emit('done', {});
+        }
+      } finally {
+        if (chatAgentRunId && userId && workspaceId) {
+          const cancelled = loopStats?.cancelled === true;
+          const timedOut = loopStats?.timedOut === true;
+          const inputTokens = Math.max(0, Math.floor(Number(loopStats?.totalUsage?.input_tokens) || 0));
+          const outputTokens = Math.max(
+            0,
+            Math.floor(Number(loopStats?.totalUsage?.output_tokens) || 0),
+          );
+          const cacheReadTokens = Math.max(
+            0,
+            Math.floor(Number(loopStats?.totalUsage?.cache_read_input_tokens) || 0),
+          );
+          const mk = loopStats?.modelKey || profile.model_key;
+          const costUsd =
+            inputTokens > 0 || outputTokens > 0
+              ? await fetchModelCostUsd(env, mk, inputTokens, outputTokens, cacheReadTokens)
+              : 0;
+          const finalSuccess = Boolean(loopStats) && !cancelled && !timedOut;
+          const errorMessage = cancelled
+            ? 'agent_run_cancelled'
+            : timedOut
+              ? 'agent_run_timeout'
+              : loopStats == null
+                ? 'agent_spine_error'
+                : null;
+
+          scheduleAgentsamChatAgentRunInsert(env, ctx, {
+            runId: chatAgentRunId,
+            userId,
+            tenantId,
+            workspaceId,
+            conversationId: sessionId ? String(sessionId) : null,
+            routingArmId: profile.routing_arm_id,
+            modelKey: mk,
+            taskType: profile.routing_task_type,
+            mode: profile.mode,
+            routeKey: profile.refined_route_key,
+            success: finalSuccess,
+            cancelled,
+            inputTokens,
+            outputTokens,
+            costUsd,
+            durationMs: Date.now() - chatT0,
+            errorMessage,
+            workflowRunId: loopStats?.workflowRunId ?? null,
+            chainRootId: loopStats?.chainRootId ?? null,
+            timedOut,
+            fallbackUsed: false,
+            fallbackReason: null,
+            modelsTried: mk ? [mk] : [],
+            quickstartBatch: quickstartBatch || null,
+          });
+
+          const isSuperadmin =
+            sessionAuthUser?.role === 'superadmin' ||
+            sessionAuthUser?.is_superadmin === true ||
+            sessionAuthUser?.is_superadmin === 1;
+          if (inputTokens > 0 || outputTokens > 0 || costUsd > 0) {
+            await processWorkspaceSpendAlertsAfterUsage(env, ctx, {
+              tenantId,
+              workspaceId,
+              userId,
+              sessionId: sessionId ? String(sessionId) : null,
+              isSuperadmin,
+            });
+          }
+        }
+        writer.close().catch(() => {});
+      }
   })();
     } catch (setupErr) {
       console.warn('[agent-controller] setup_failed', setupErr?.message ?? setupErr);

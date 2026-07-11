@@ -299,6 +299,7 @@ export async function writeTelemetry(env, data, modelRates) {
         workspaceId: wsInsert,
         userId: userId != null ? String(userId).trim() : null,
         sessionId: sid,
+        isSuperadmin: false,
       });
     } catch (alertErr) {
       console.warn('[writeTelemetry] spend_alerts', alertErr?.message ?? alertErr);

@@ -456,8 +456,21 @@ export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
         p.trigger != null && String(p.trigger).trim() !== '' ? String(p.trigger).slice(0, 80) : 'chat_sse',
       );
       add('status', 'running');
-      add('ai_model_ref', p.modelKey != null ? String(p.modelKey).slice(0, 200) : null);
-      add('model_id', p.modelKey != null ? String(p.modelKey).slice(0, 200) : null);
+      const mk = p.modelKey != null ? String(p.modelKey).slice(0, 200) : null;
+      add('ai_model_ref', mk);
+      add('model_id', mk);
+      add('model_key', mk);
+      let providerVal =
+        p.provider != null && String(p.provider).trim() !== '' ? String(p.provider).trim() : null;
+      if (!providerVal && mk) {
+        try {
+          const { resolveProviderForModelKey } = await import('./usage-event-writer.js');
+          providerVal = await resolveProviderForModelKey(env, mk, null);
+        } catch {
+          providerVal = deriveProvider(mk);
+        }
+      }
+      add('provider', providerVal != null ? String(providerVal).slice(0, 80) : null);
       add('input_tokens', 0);
       add('output_tokens', 0);
       add('cost_usd', 0);
@@ -595,7 +608,7 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
           sets.push(`${name} = ?`);
           binds.push(val);
         };
-        pushSet('status', p.success ? 'completed' : 'failed');
+        pushSet('status', p.cancelled ? 'cancelled' : p.success ? 'completed' : 'failed');
         pushSet('ai_model_ref', mk);
         pushSet('model_id', mk);
         pushSet('input_tokens', tin);

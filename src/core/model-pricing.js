@@ -16,9 +16,13 @@ export const ANTHROPIC_ALIAS_TO_CANONICAL = Object.freeze({
   anthropic_haiku_4_5: 'claude-haiku-4-5-20251001',
   anthropic_sonnet_4_6: 'claude-sonnet-4-6',
   anthropic_opus_4_7: 'claude-opus-4-7',
+  anthropic_opus_4_8: 'claude-opus-4-8',
   'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
   'anthropic/claude-opus-4.7': 'claude-opus-4-7',
+  'anthropic/claude-opus-4.8': 'claude-opus-4-8',
   'wai-claude-opus-4-7': 'claude-opus-4-7',
+  'wai-claude-opus-4-8': 'claude-opus-4-8',
+  'claude-opus-4-8': 'claude-opus-4-8',
 });
 
 export const CANONICAL_ANTHROPIC_MODEL_KEYS = Object.freeze([
@@ -26,6 +30,7 @@ export const CANONICAL_ANTHROPIC_MODEL_KEYS = Object.freeze([
   'claude-sonnet-4-6',
   'claude-opus-4-6',
   'claude-opus-4-7',
+  'claude-opus-4-8',
 ]);
 
 /**

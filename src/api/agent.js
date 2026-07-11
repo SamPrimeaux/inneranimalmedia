@@ -5151,6 +5151,23 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     }
   }
 
+  // ── POST /api/agent/run/:runId/cancel — flip D1 flag; tool loop polls between steps ──
+  const runCancelMatch = path.match(/^\/api\/agent\/run\/([^/]+)\/cancel$/);
+  if (runCancelMatch && method === 'POST') {
+    if (!identity?.userId) return jsonResponse({ error: 'unauthenticated' }, 401);
+    const { requestAgentRunCancel } = await import('../core/agent-run-cancel.js');
+    const out = await requestAgentRunCancel(env, runCancelMatch[1], {
+      userId: identity.userId,
+      workspaceId: identity.workspaceId,
+      tenantId: identity.tenantId,
+    });
+    if (!out.ok) {
+      const status = out.error === 'forbidden' ? 403 : out.error === 'run_not_found' ? 404 : 400;
+      return jsonResponse(out, status);
+    }
+    return jsonResponse(out);
+  }
+
   // ── /api/agent/chat ───────────────────────────────────────────────────────
   if (path === '/api/agent/chat' && method === 'POST') {
     const ingestBypass = isIngestSecretAuthorized(request, env);

@@ -4,6 +4,7 @@
  */
 import { loadAgentSamUserPolicy } from './agent-policy.js';
 import { notifySam } from '../cron/notify-sam.js';
+import { getSpendLedgerTotals } from './spend-ledger-canonical.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -28,59 +29,10 @@ const BLOCK_ACTIONS = new Set(['block', 'require_byok', 'hard_stop']);
 export async function getWorkspaceSpendAmounts(env, scope = {}) {
   const tid = trim(scope.tenantId);
   const ws = trim(scope.workspaceId);
-  const uid = trim(scope.userId);
   const sid = trim(scope.sessionId);
   const empty = { daily_usd: 0, monthly_usd: 0, total_usd: 0, session_usd: 0, workspace_daily_usd: 0 };
   if (!env?.DB || !tid) return empty;
-
-  const today = new Date().toISOString().slice(0, 10);
-  const monthPrefix = today.slice(0, 7);
-
-  try {
-    const [tenantDaily, tenantMonthly, tenantTotal, wsDaily, sessionRow] = await Promise.all([
-      env.DB.prepare(
-        `SELECT COALESCE(SUM(cost_usd), 0) AS total FROM agentsam_usage_rollups_daily WHERE tenant_id = ? AND day = ?`,
-      )
-        .bind(tid, today)
-        .first(),
-      env.DB.prepare(
-        `SELECT COALESCE(SUM(cost_usd), 0) AS total FROM agentsam_usage_rollups_daily WHERE tenant_id = ? AND day LIKE ?`,
-      )
-        .bind(tid, `${monthPrefix}%`)
-        .first(),
-      env.DB.prepare(
-        `SELECT COALESCE(SUM(cost_usd), 0) AS total FROM agentsam_usage_rollups_daily WHERE tenant_id = ?`,
-      )
-        .bind(tid)
-        .first(),
-      ws
-        ? env.DB.prepare(
-            `SELECT COALESCE(SUM(cost_usd), 0) AS total FROM agentsam_usage_rollups_daily WHERE tenant_id = ? AND workspace_id = ? AND day = ?`,
-          )
-            .bind(tid, ws, today)
-            .first()
-        : Promise.resolve(null),
-      sid
-        ? env.DB.prepare(
-            `SELECT COALESCE(SUM(cost_usd), 0) AS total FROM agentsam_usage_events
-              WHERE tenant_id = ? AND session_id = ?`,
-          )
-            .bind(tid, sid)
-            .first()
-        : Promise.resolve(null),
-    ]);
-
-    return {
-      daily_usd: Number(tenantDaily?.total ?? 0) || 0,
-      monthly_usd: Number(tenantMonthly?.total ?? 0) || 0,
-      total_usd: Number(tenantTotal?.total ?? 0) || 0,
-      session_usd: Number(sessionRow?.total ?? 0) || 0,
-      workspace_daily_usd: Number(wsDaily?.total ?? 0) || 0,
-    };
-  } catch (e) {
-    console.warn('[workspace-spend-guard] amounts', e?.message ?? e);
-    return empty;
-  }
+  return getSpendLedgerTotals(env, { tenantId: tid, workspaceId: ws || null, sessionId: sid || null });
 }
 
 /**
@@ -164,21 +116,38 @@ function spentForPeriod(period, amounts) {
 async function maybeFireSpendAlert(env, executionCtx, alert, ctx, amounts) {
   if (!env?.DB || alert?.enabled === false) return null;
 
-  const threshold = Number(alert.threshold_usd);
-  if (!Number.isFinite(threshold) || threshold <= 0) return null;
-
   const period = trim(alert.period) || 'total';
   const spent = spentForPeriod(period, amounts);
-  if (spent < threshold) return null;
+  const everyUsd = Number(alert.every_usd);
+  const useStep = Number.isFinite(everyUsd) && everyUsd > 0;
 
-  const alertKey = trim(alert.id) || trim(alert.label) || `spend_${period}_${threshold}`;
+  let threshold = Number(alert.threshold_usd);
+  let alertKey = trim(alert.id) || trim(alert.label) || '';
+  let message = trim(alert.label);
+
+  if (useStep) {
+    // Fire once per whole dollar (or every_usd step) crossed today/session/etc.
+    const step = Math.floor(spent / everyUsd);
+    if (step < 1) return null;
+    threshold = step * everyUsd;
+    alertKey = alertKey || `spend_step_${period}_${everyUsd}`;
+    alertKey = `${alertKey}_n${step}`;
+    message =
+      message ||
+      `Spend step: $${spent.toFixed(2)} crossed $${threshold.toFixed(2)} (${period}, every $${everyUsd})`;
+  } else {
+    if (!Number.isFinite(threshold) || threshold <= 0) return null;
+    if (spent < threshold) return null;
+    alertKey = alertKey || `spend_${period}_${threshold}`;
+    message =
+      message ||
+      `Spend alert: $${spent.toFixed(2)} reached threshold $${threshold.toFixed(2)} (${period})`;
+  }
+
   const tenantId = trim(ctx.tenantId);
   const workspaceId = trim(ctx.workspaceId);
   const severity = trim(alert.severity).toLowerCase() || 'warning';
   const action = trim(alert.action).toLowerCase();
-  const message =
-    trim(alert.label) ||
-    `Spend alert: $${spent.toFixed(2)} reached threshold $${threshold.toFixed(2)} (${period})`;
 
   let deduped = false;
   try {
@@ -243,6 +212,24 @@ async function maybeFireSpendAlert(env, executionCtx, alert, ctx, amounts) {
       },
       executionCtx,
     );
+  }
+
+  const notifyUserId = trim(ctx.userId);
+  if (!deduped && notifyVia.includes('push') && notifyUserId) {
+    try {
+      const { sendWebPushToUser } = await import('./web-push.js');
+      void sendWebPushToUser(env, {
+        userId: notifyUserId,
+        tenantId: tenantId || null,
+        workspaceId: workspaceId || null,
+        title: 'Spend alert',
+        body: message,
+        url: '/dashboard/settings/billing',
+        tag: `spend-${alertKey}`,
+      });
+    } catch (pushErr) {
+      console.warn('[workspace-spend-guard] push_alert', pushErr?.message ?? pushErr);
+    }
   }
 
   if (BLOCK_ACTIONS.has(action)) {
@@ -383,11 +370,14 @@ export async function assertWorkspaceSpendPolicy(env, ctx = {}) {
  * @param {Record<string, unknown>} ctx
  */
 export async function processWorkspaceSpendAlertsAfterUsage(env, executionCtx, ctx) {
-  if (!env?.DB || ctx?.isSuperadmin === true) return;
+  if (!env?.DB) return;
   const workspaceId = trim(ctx.workspaceId);
   if (!workspaceId) return;
   try {
-    await evaluateWorkspaceSpendAlerts(env, executionCtx, ctx, { checkBlock: false });
+    // Superadmin still gets warn/email alerts (stabilization); block actions remain skipped in assertWorkspaceSpendPolicy.
+    await evaluateWorkspaceSpendAlerts(env, executionCtx, ctx, {
+      checkBlock: ctx?.isSuperadmin === true ? false : true,
+    });
   } catch (e) {
     console.warn('[workspace-spend-guard] post-usage alerts', e?.message ?? e);
   }

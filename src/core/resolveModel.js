@@ -622,8 +622,15 @@ export async function resolveModelForTask(env, opts = {}) {
     });
 
     if (candidates && candidates.length > 0) {
+      // Auto routing must not silently burn Opus — require explicit model picker.
+      const allowOpusAuto = opts.allow_opus_auto === true || opts.allowOpusAuto === true;
       // Try arms in Thompson-ranked order — skip degraded/missing
       for (const arm of candidates) {
+        const armMk = String(arm.model_key || '').toLowerCase();
+        if (!allowOpusAuto && /opus/.test(armMk)) {
+          console.warn(`[resolveModel] C skip opus on auto arm=${arm.id} model=${arm.model_key}`);
+          continue;
+        }
         try {
           const resolved = await loadModelRecord(db, arm.model_key, 'thompson', arm.id, cap);
           _log(resolved, t0, 'C', { draw: arm.draw, candidates: candidates.length });

@@ -169,7 +169,7 @@ import {
 } from '../../src/lib/databaseStudioEvents';
 import '../../features/agent-presence/presenceMotion.css';
 import '../../features/agent-presence/presenceIcons.css';
-import { useAgentPresence, AgentPresenceStatus } from '../../features/agent-presence';
+import { useAgentPresence, AgentPresenceStatus, AgentRunChip } from '../../features/agent-presence';
 import { derivePresenceState } from '../../features/agent-presence/iamDerivePresenceState';
 import {
   formatThinkingStepName,
@@ -298,7 +298,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, [agentsamPolicy]);
 
   const [isLoading, setIsLoading] = useState(false);
+  const [streamModelKey, setStreamModelKey] = useState<string | null>(null);
   useEffect(() => { onLoadingChange?.(isLoading); }, [isLoading, onLoadingChange]);
+  useEffect(() => {
+    if (!isLoading) setStreamModelKey(null);
+  }, [isLoading]);
   useEffect(() => {
     setChatActivityBusy(isLoading);
     return () => setChatActivityBusy(false);
@@ -1171,9 +1175,18 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     activePlanRunningCount,
   });
 
-  useEffect(() => {
-    setPresenceState(presence.state);
-  }, [presence.state]);
+  const handleStreamModel = useCallback((modelKey: string | null) => {
+    setStreamModelKey(modelKey?.trim() || null);
+  }, []);
+
+  const runningToolName = useMemo(() => {
+    if (!isLoading) return null;
+    for (let i = toolTraceRows.length - 1; i >= 0; i--) {
+      const row = toolTraceRows[i];
+      if (row?.status === 'running' && row.toolName) return row.toolName;
+    }
+    return presence.toolName || null;
+  }, [isLoading, toolTraceRows, presence.toolName]);
 
   useEffect(() => {
     if (isLoading) {
@@ -1206,6 +1219,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const selectedModelKeyRef = useRef(selectedModelKey);
   const userPinnedModelRef = useRef(!isAutoModelSelection(selectedModelKey));
   selectedModelKeyRef.current = selectedModelKey;
+
+  const displayRunModel =
+    streamModelKey ||
+    (!isAutoModelSelection(selectedModelKey) && selectedModelKey ? selectedModelKey : null);
+
+  useEffect(() => {
+    if (!isLoading) setStreamModelKey(null);
+  }, [isLoading]);
 
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionItems, setMentionItems] = useState<PickerItem[]>([]);
@@ -2225,6 +2246,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           onThinkingEvent: handleThinkingEvent,
           onSubagentEvent: handleSubagentEvent,
           onAgentRunContext,
+          onStreamModel: handleStreamModel,
           onFileSelect: onFileSelect
             ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
             : undefined,
@@ -2415,6 +2437,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           onThinkingEvent: handleThinkingEvent,
           onSubagentEvent: handleSubagentEvent,
           onAgentRunContext,
+          onStreamModel: handleStreamModel,
           onFileSelect: onFileSelect
             ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
             : undefined,
@@ -2453,6 +2476,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       onBrowserNavigate,
       onR2FileUpdated,
       onAgentRunContext,
+      handleStreamModel,
       onFileSelect,
     ],
   );
@@ -2559,6 +2583,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         onThinkingEvent: handleThinkingEvent,
         onSubagentEvent: handleSubagentEvent,
         onAgentRunContext,
+          onStreamModel: handleStreamModel,
         onFileSelect: onFileSelect
           ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
           : undefined,
@@ -2601,6 +2626,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     onBrowserNavigate,
     onR2FileUpdated,
     onAgentRunContext,
+    handleStreamModel,
     onFileSelect,
     onActivePlanChange,
   ]);
@@ -3125,6 +3151,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         onThinkingEvent: handleThinkingEvent,
         onSubagentEvent: handleSubagentEvent,
         onAgentRunContext,
+          onStreamModel: handleStreamModel,
         onFileSelect: onFileSelect
           ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
           : undefined,
@@ -4049,7 +4076,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   <ChevronDown size={12} className="shrink-0 opacity-60" />
                 </button>
               </div>
-              <div className="flex items-center gap-1 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0 min-w-0">
+                <AgentRunChip
+                  isLoading={isLoading}
+                  modelKey={displayRunModel}
+                  toolName={runningToolName}
+                  startedAt={loadingStartedAt}
+                  className="inline-flex max-w-[11rem] sm:max-w-[13rem]"
+                />
                 <AgentComposerMicButton onTranscript={appendSpeechToInput} disabled={isLoading} />
                 <button
                   type="button"
@@ -4074,6 +4108,13 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 type="button"
                 onClick={() => {
                   if (isLoading) {
+                    const runId = agentRunId?.trim();
+                    if (runId) {
+                      fetch(`/api/agent/run/${encodeURIComponent(runId)}/cancel`, {
+                        method: 'POST',
+                        credentials: 'include',
+                      }).catch(() => {});
+                    }
                     abortControllerRef.current?.abort();
                     streamReaderRef.current?.cancel().catch(() => {});
                     setIsLoading(false);

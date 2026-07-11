@@ -26,6 +26,8 @@ import {
 import { scheduleRecordMcpToolExecution, recordMcpToolOtlpSpan } from './mcp-tool-execution.js';
 import { writeTelemetry } from '../api/telemetry.js';
 import { resolveProviderForModelKey } from './usage-event-writer.js';
+import { assertSpendKillSwitch } from './spend-ledger-canonical.js';
+import { isAgentRunCancelRequested } from './agent-run-cancel.js';
 import { notifySam } from './notifications.js';
 import { loadAgentsamToolRow } from './agentsam-tools-catalog.js';
 import {
@@ -232,10 +234,102 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   let ledgerErrorMsg = null;
   let openaiPreviousResponseId = null;
 
+  let telemetryFlushed = false;
+  const scheduleLoopUsageTelemetry = (success = true) => {
+    if (telemetryFlushed) return;
+    if (!totalUsage.input_tokens && !totalUsage.output_tokens && turnCount <= 0) return;
+    telemetryFlushed = true;
+    const aid = attributedRoutingArmId();
+    ctx.waitUntil?.(
+      (async () => {
+        try {
+          const telemetryProvider = await resolveProviderForModelKey(env, modelKey, null);
+          const out = await writeTelemetry(
+            env,
+            {
+              sessionId,
+              tenantId,
+              workspaceId: routingWs || undefined,
+              userId,
+              provider: telemetryProvider,
+              model: modelKey,
+              inputTokens: totalUsage.input_tokens,
+              outputTokens: totalUsage.output_tokens,
+              cacheReadTokens: totalUsage.cache_read_input_tokens,
+              cacheWriteTokens: totalUsage.cache_creation_input_tokens,
+              cacheWriteTtl: cacheWriteTtlForBilling,
+              toolCallCount: toolCallsUsed,
+              success,
+              routingArmId: aid,
+              latencyMs: Date.now() - loopT0,
+              taskType: routingTaskType || 'ask',
+              mode: mode || 'agent',
+              executionCtx: ctx,
+            },
+            null,
+          );
+          if (aid && success) {
+            await applyRoutingArmUsageFeedback(env, {
+              armId: aid,
+              success: true,
+              costUsd: Number(out?.estimatedCostUsd) || 0,
+              durationMs: Date.now() - loopT0,
+            });
+          }
+        } catch (te) {
+          console.warn('[agent] loop_usage_telemetry', te?.message ?? te);
+        }
+      })(),
+    );
+  };
+
+  const isAbortRequested = () => {
+    try {
+      if (abortSignalParam?.aborted) return true;
+      if (request?.signal?.aborted) return true;
+    } catch {
+      /* ignore */
+    }
+    return false;
+  };
+
+  const cancelFlagCache = { at: 0, value: false };
+  const shouldStopRun = async () => {
+    if (isAbortRequested()) return true;
+    if (!chatAgentRunId || !env?.DB) return false;
+    return isAgentRunCancelRequested(env, String(chatAgentRunId), { cache: cancelFlagCache });
+  };
+
+  const exitCancelled = () => {
+    scheduleLoopUsageTelemetry(false);
+    emit('error', { message: 'Stopped by user', code: 'agent_run_cancelled' });
+    safeDone({
+      tool_calls_used: toolCallsUsed,
+      turns: turnCount,
+      code: 'agent_run_cancelled',
+      cancelled: true,
+    });
+    return {
+      totalUsage,
+      toolCallsUsed,
+      executedToolNames,
+      modelKey,
+      turnCount,
+      cancelled: true,
+      workflowRunId: null,
+      agentRunId: chatAgentRunId != null ? String(chatAgentRunId) : null,
+      chainRootId: toolChainRootId,
+    };
+  };
+
   try {
   while (turnCount < maxTurns) {
     turnCount++;
+    if (await shouldStopRun()) {
+      return exitCancelled();
+    }
     if (Date.now() - runStartedAt > maxRunMs) {
+      scheduleLoopUsageTelemetry(false);
       emit('error', { message: 'Agent run timed out', code: 'agent_run_timeout' });
       safeDone({ tool_calls_used: toolCallsUsed, turns: turnCount, code: 'agent_run_timeout' });
       return {
@@ -250,10 +344,87 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         chainRootId: toolChainRootId,
       };
     }
+    const spendGate = await assertSpendKillSwitch(env, {
+      tenantId,
+      workspaceId: routingWs || workspaceId,
+      userId,
+      sessionId,
+      modelKey,
+    });
+    if (!spendGate.ok) {
+      scheduleLoopUsageTelemetry(false);
+      emit('error', {
+        message: spendGate.message || 'Spend cap reached',
+        code: spendGate.error || 'spend_cap_exceeded',
+        spent_usd: spendGate.spent_usd ?? null,
+        cap_usd: spendGate.cap_usd ?? null,
+      });
+      safeDone({
+        tool_calls_used: toolCallsUsed,
+        turns: turnCount,
+        code: spendGate.error || 'spend_cap_exceeded',
+        spend_blocked: true,
+      });
+      return {
+        totalUsage,
+        toolCallsUsed,
+        executedToolNames,
+        modelKey,
+        turnCount,
+        spendBlocked: true,
+        workflowRunId: null,
+        agentRunId: chatAgentRunId != null ? String(chatAgentRunId) : null,
+        chainRootId: toolChainRootId,
+      };
+    }
     const modelT0 = Date.now();
     let stream;
     let isWorkersAiStream = false;
     try {
+      const loopProvider = await resolveProviderForModelKey(env, modelKey, null);
+      emit('runtime_context', {
+        model_key: modelKey,
+        model: modelKey,
+        provider: loopProvider,
+        turn: turnCount,
+        agent_run_id: chatAgentRunId ?? null,
+      });
+      if (chatAgentRunId && env?.DB) {
+        ctx.waitUntil?.(
+          (async () => {
+            try {
+              const cols = await pragmaTableInfo(env.DB, 'agentsam_agent_run');
+              const sets = [];
+              const binds = [];
+              if (cols.has('ai_model_ref')) {
+                sets.push('ai_model_ref = ?');
+                binds.push(String(modelKey).slice(0, 200));
+              }
+              if (cols.has('model_id')) {
+                sets.push('model_id = ?');
+                binds.push(String(modelKey).slice(0, 200));
+              }
+              if (cols.has('model_key')) {
+                sets.push('model_key = ?');
+                binds.push(String(modelKey).slice(0, 200));
+              }
+              if (cols.has('provider')) {
+                sets.push('provider = ?');
+                binds.push(String(loopProvider).slice(0, 80));
+              }
+              if (!sets.length) return;
+              binds.push(String(chatAgentRunId));
+              await env.DB.prepare(
+                `UPDATE agentsam_agent_run SET ${sets.join(', ')} WHERE id = ?`,
+              )
+                .bind(...binds)
+                .run();
+            } catch (pe) {
+              console.warn('[agent] run_model_attribution', pe?.message ?? pe);
+            }
+          })(),
+        );
+      }
       const grModel = await evaluateGuardrails(env, ctx, {
         applies_to: 'model',
         tenant_id: tenantId,
@@ -810,6 +981,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     let chatHaltedForApproval = false;
     for (const call of clientToolCalls) {
       if (chatHaltedForApproval) break;
+      if (await shouldStopRun()) {
+        return exitCancelled();
+      }
       if (toolCallsUsed >= effectiveMaxToolCalls) {
         emit('tool_blocked', { tool: call.name, reason: 'max_tool_calls_reached' });
         toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: 'Tool call limit reached.' });
@@ -1717,6 +1891,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       toolResults.push(tr);
 
       if (Date.now() - runStartedAt > maxRunMs) {
+        scheduleLoopUsageTelemetry(false);
         emit('error', { message: 'Agent run timed out', code: 'agent_run_timeout' });
         if (toolResults.length) conversationMessages.push({ role: 'user', content: toolResults });
         safeDone({ tool_calls_used: toolCallsUsed, turns: turnCount, code: 'agent_run_timeout' });
@@ -1791,46 +1966,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     }
   }
 
-  if (totalUsage.input_tokens || totalUsage.output_tokens || turnCount > 0) {
-    const aid = attributedRoutingArmId();
-    ctx.waitUntil?.(
-      (async () => {
-        const telemetryProvider = await resolveProviderForModelKey(env, modelKey, null);
-        const out = await writeTelemetry(
-          env,
-          {
-            sessionId,
-            tenantId,
-            workspaceId: routingWs || undefined,
-            userId,
-            provider: telemetryProvider,
-            model: modelKey,
-            inputTokens: totalUsage.input_tokens,
-            outputTokens: totalUsage.output_tokens,
-            cacheReadTokens: totalUsage.cache_read_input_tokens,
-            cacheWriteTokens: totalUsage.cache_creation_input_tokens,
-            cacheWriteTtl: cacheWriteTtlForBilling,
-            toolCallCount: toolCallsUsed,
-            success: true,
-            routingArmId: aid,
-            latencyMs: Date.now() - loopT0,
-            taskType: routingTaskType || 'ask',
-            mode: mode || 'agent',
-            executionCtx: ctx,
-          },
-          null,
-        );
-        if (aid) {
-          await applyRoutingArmUsageFeedback(env, {
-            armId: aid,
-            success: true,
-            costUsd: Number(out?.estimatedCostUsd) || 0,
-            durationMs: Date.now() - loopT0,
-          });
-        }
-      })(),
-    );
-  }
+  scheduleLoopUsageTelemetry(true);
 
   const assistantText = extractLastAssistantPlainText(conversationMessages);
   if (assistantText && inferArtifactFromAssistantText(assistantText)) {

@@ -380,6 +380,8 @@ export type ConsumeAgentChatSseContext = {
   }) => void;
   /** First SSE context payload — lifts `agentsam_agent_run.id` to host (BrowserView playwright metadata). */
   onAgentRunContext?: (agentRunId: string | null) => void;
+  /** Resolved model key from SSE context / runtime_context (for run chip). */
+  onStreamModel?: (modelKey: string | null) => void;
   onBrowserNavigate?: (event: {
     type: 'browser_navigate';
     url: string;
@@ -439,6 +441,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
     onThinkingEvent,
     onSubagentEvent,
     onAgentRunContext,
+    onStreamModel,
     mergeIntoLastAssistant = false,
     initialAssistantBuffer = '',
   } = ctx;
@@ -816,6 +819,13 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 ? ctx.agentRunId.trim()
                 : '';
           onAgentRunContext?.(spineRunId || null);
+          const mk =
+            typeof ctx.model === 'string'
+              ? ctx.model.trim()
+              : typeof ctx.model_key === 'string'
+                ? ctx.model_key.trim()
+                : '';
+          if (mk) onStreamModel?.(mk);
           activeAgentRunId = spineRunId || null;
           if (typeof window !== 'undefined') {
             window.dispatchEvent(
@@ -828,9 +838,25 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           });
           continue;
         }
+        if (evType === 'runtime_context' && data && typeof data === 'object') {
+          const rc = data as Record<string, unknown>;
+          const mk =
+            typeof rc.model === 'string'
+              ? rc.model.trim()
+              : typeof rc.model_key === 'string'
+                ? rc.model_key.trim()
+                : '';
+          if (mk) onStreamModel?.(mk);
+          continue;
+        }
         if (evType === 'error') {
+          const d = data as { message?: string; error?: string; detail?: string; code?: string };
+          if (d.code === 'agent_run_cancelled') {
+            streamFinalizedRef.current = true;
+            setIsLoading(false);
+            continue;
+          }
           streamFinalizedRef.current = true;
-          const d = data as { message?: string; error?: string; detail?: string };
           const partsErr = [d.message, d.error, d.detail].filter(Boolean);
           throw new Error(partsErr.join(' — ') || 'Agent stream error');
         }

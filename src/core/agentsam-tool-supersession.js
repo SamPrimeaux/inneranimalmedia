@@ -45,24 +45,26 @@ export const TOOL_SUPERSESSION = Object.freeze({
   github_merge_pr: 'agentsam_github_pr',
   agentsam_github_pr_create: 'agentsam_github_pr',
 
-  // OAuth allowlist dead keys (research / filesystem / network)
-  fs_read_file: 'agentsam_workspace_search',
-  fs_search_files: 'agentsam_workspace_search',
-  fs_write_file: 'agentsam_workspace_search',
-  fs_edit_file: 'agentsam_workspace_search',
+  // OAuth allowlist / network
   http_fetch: 'web_fetch',
   code_semantic_search: 'agentsam_autorag',
   deep_archive_search: 'agentsam_autorag',
   schema_semantic_search: 'agentsam_autorag',
 
-  // Filesystem / workspace (chunk 6 subset)
-  workspace_read_file: 'agentsam_workspace_search',
-  workspace_write_file: 'agentsam_workspace_search',
-  workspace_list_files: 'agentsam_workspace_search',
-  workspace_apply_patch: 'agentsam_workspace_search',
-  workspace_search_semantic: 'agentsam_workspace_search',
-  pty_fs_read: 'agentsam_workspace_search',
-  pty_fs_write: 'agentsam_workspace_search',
+  // Filesystem tools stay filesystem tools (not "workspace" product concepts).
+  // Legacy workspace_* / pty_fs_* names map to fs_* handlers — never to agentsam_workspace_search.
+  workspace_read_file: 'fs_read_file',
+  workspace_write_file: 'fs_write_file',
+  workspace_list_files: 'list_dir',
+  workspace_apply_patch: 'fs_edit_file',
+  workspace_search: 'fs_search_files',
+  workspace_search_semantic: 'agentsam_autorag',
+  pty_fs_read: 'fs_read_file',
+  pty_fs_write: 'fs_write_file',
+  files_apply_patch: 'fs_edit_file',
+  files_read: 'fs_read_file',
+  files_search: 'fs_search_files',
+  files_write: 'fs_write_file',
 
   // Memory / knowledge (chunk 5 subset)
   agentsam_memory_search: 'agentsam_memory_manager',
