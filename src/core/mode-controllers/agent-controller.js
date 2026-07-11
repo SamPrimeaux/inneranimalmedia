@@ -313,6 +313,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         minimalAsk,
         ctx: input.ctx ?? null,
         conversationId: sessionId,
+        activeRepo: activeRepo || null,
       },
     );
   } else {
