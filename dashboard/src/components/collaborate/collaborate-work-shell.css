@@ -145,3 +145,85 @@
   min-height: 0;
   overflow: hidden;
 }
+
+/* ── Mobile calendar header overrides ──────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Shrink the shell topbar to one tight row */
+  .colab-work-shell-topbar {
+    min-height: 44px;
+    padding: 0 10px;
+    gap: 8px;
+  }
+
+  /* Hide "Collaborate /" product prefix — wastes space on 390px */
+  .colab-work-shell-product,
+  .colab-work-shell-sep {
+    display: none;
+  }
+
+  .colab-work-shell-brand {
+    min-width: unset;
+    font-size: 13px;
+  }
+
+  .colab-work-shell-title {
+    font-size: 14px;
+  }
+
+  /* Collapse the secondary calendar day-focus bar (← Week / hint text) */
+  .colab-cal-day-focus-bar {
+    min-height: 36px;
+    padding: 0 10px;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* Hide the verbose hint "Single day — tap times to add events" */
+  .colab-cal-day-focus-label {
+    display: none;
+  }
+
+  /* The ← Week button stays but tighter */
+  .colab-cal-day-focus-bar .colab-cal-pill-btn,
+  .colab-cal-day-focus-bar button {
+    height: 30px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+
+  /* Collapse the internal calendar topbar (Today · ‹ › · view switcher row)
+     This is .colab-cal-topbar inside the CalendarPage — fold it tight */
+  .colab-cal-topbar {
+    min-height: 40px;
+    padding: 0 8px;
+    gap: 6px;
+  }
+
+  .colab-cal-month-title {
+    font-size: 14px;
+    margin: 0 4px;
+  }
+
+  .colab-cal-pill-btn {
+    height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+
+  .colab-cal-icon-btn,
+  .colab-cal-circle-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  /* Hide the view switcher (Day/Week/Month/Year) on mobile — week is default */
+  .colab-cal-view-select {
+    display: none;
+  }
+
+  /* Brand mark on the internal topbar — hide on mobile */
+  .colab-cal-brand {
+    display: none;
+  }
+}
