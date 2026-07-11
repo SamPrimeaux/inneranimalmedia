@@ -74,53 +74,24 @@ export function scheduleAgentsamArtifactFromChatOutput(env, ctx, opts) {
 
 export function scheduleAgentsamToolCallLog(env, ctx, fields) {
   const {
-    tenantId,
-    sessionId,
-    toolName,
-    status,
-    durationMs,
-    costUsd,
-    inputTokens,
-    outputTokens,
-    userId,
-    workspaceId,
-    errorMessage,
-    inputSummary,
-    agent_run_id,
-    agentRunId,
-    conversation_id,
-    conversationId,
-    routingArmId,
-    routing_arm_id,
-    agentId,
-    agent_id,
-    sourceTool,
-    source_tool,
+    tenantId, sessionId, toolName, status, durationMs, costUsd,
+    inputTokens, outputTokens, userId, workspaceId, errorMessage, inputSummary,
+    agent_run_id, agentRunId, conversation_id, conversationId,
+    routingArmId, routing_arm_id, agentId, agent_id, sourceTool, source_tool,
   } = fields;
   const tid = tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : '';
-  const ws =
-    workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : '';
+  const ws = workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : '';
   if (!tid || !ws) return;
   let stat = 'success';
   if (status === 'error') stat = 'error';
   else if (status === 'timeout') stat = 'timeout';
   else if (status === 'blocked') stat = 'blocked';
   else if (status === 'pending') stat = 'pending';
-  const summary = String(inputSummary ?? '').slice(0, 200);
-  const errMsg = errorMessage != null ? String(errorMessage).slice(0, 8000) : null;
   scheduleToolCallLog(env, ctx, {
-    tenantId,
-    workspaceId,
-    sessionId,
-    toolName,
-    status: stat,
-    durationMs,
-    costUsd,
-    inputTokens,
-    outputTokens,
-    userId,
-    errorMessage: errMsg,
-    inputSummary: summary,
+    tenantId, workspaceId, sessionId, toolName,
+    status: stat, durationMs, costUsd, inputTokens, outputTokens, userId,
+    errorMessage: errorMessage != null ? String(errorMessage).slice(0, 8000) : null,
+    inputSummary: String(inputSummary ?? '').slice(0, 200),
     tool_key: fields.tool_key,
     capability_key: fields.capability_key,
     handler_key: fields.handler_key,
@@ -163,21 +134,11 @@ export function toolLogFieldsFromValidation(validation) {
   return out;
 }
 
-export async function resolveBootstrapWorkspaceIdForAgentApi() {
-  return null;
-}
-
-export async function resolvePromptRouteRowForAgentChat() {
-  return null;
-}
-
-export async function resolveAgentsamPromptRoute() {
-  return null;
-}
-
-export async function fetchActivePlanContextFragment() {
-  return '';
-}
+// Stubs — no longer needed but kept to avoid import errors elsewhere
+export async function resolveBootstrapWorkspaceIdForAgentApi() { return null; }
+export async function resolvePromptRouteRowForAgentChat() { return null; }
+export async function resolveAgentsamPromptRoute() { return null; }
+export async function fetchActivePlanContextFragment() { return ''; }
 
 export function isSimpleAskMessage(message = '') {
   const s = String(message || '').trim().toLowerCase();
@@ -186,8 +147,8 @@ export function isSimpleAskMessage(message = '') {
 }
 
 /**
- * Flat static system prompt — no D1 lookups, no KV cache, no layer assembly.
- * The model reads what it needs through tools.
+ * Flat static system prompt — zero D1 lookups, zero KV, zero layer assembly.
+ * The model discovers context through tools.
  */
 export async function buildSystemPrompt(_env, _tenantId, _mode, _contextBlock, _modeConfig, _promptRouteRow, options = {}) {
   const activeRepo = options?.activeRepo ?? '';
