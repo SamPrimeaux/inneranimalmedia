@@ -75,6 +75,23 @@ if [[ "$SKIP_R2" != "1" ]]; then
     --dist "$REPO_ROOT/$DIST" \
     --bucket "$BUCKET" \
     --prefix "$PREFIX"
+
+  # PWA control-plane: services.inneranimalmedia.com must learn new cache_bust or phone SW stays on stale chunks.
+  if [[ "${SKIP_SERVICES_SW_INGEST:-}" == "1" ]]; then
+    echo "[deploy:fast] SKIP_SERVICES_SW_INGEST=1 — skipping services SW ingest"
+  elif [[ -f "$REPO_ROOT/.deploy-sw-tiered-manifest.json" ]]; then
+    echo "→ Services SW manifest ingest (PWA control-plane)…"
+    if ! node "$REPO_ROOT/scripts/post-services-sw-manifest-ingest.mjs" \
+      --manifest="$REPO_ROOT/.deploy-sw-tiered-manifest.json"; then
+      if [[ "${STRICT_SERVICES_SW_INGEST:-}" == "1" ]]; then
+        echo "✗ Services SW ingest failed (STRICT_SERVICES_SW_INGEST=1)" >&2
+        exit 1
+      fi
+      echo "⚠️  Services SW ingest non-zero — phone PWA may keep stale cache_bust until ingest succeeds" >&2
+    fi
+  else
+    echo "⚠️  Missing .deploy-sw-tiered-manifest.json — services SW ingest skipped" >&2
+  fi
 else
   echo "→ DEPLOY_FAST_SKIP_R2=1 — skipping R2"
 fi
@@ -122,4 +139,5 @@ FAST_END=$(date +%s)
 GIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 echo ""
 echo "[deploy:fast] ✓ done in $((FAST_END - FAST_START))s sha=${GIT_SHA} worker=${WORKER_VERSION_ID:-n/a}"
-echo "[deploy:fast] post-hooks skipped — run npm run deploy:full for email/memory/GCP, or ship:remote from VM"
+echo "[deploy:fast] housekeeping skipped (email / D1 memory / GCP VM) — not required for PWA"
+echo "[deploy:fast] PWA requires: R2 delta + services SW ingest (above). Add PUSH_SERVICE_TOKEN as CF Builds secret."
