@@ -19,15 +19,15 @@ export function messageHasBrowserUrlNavigation(text) {
   const hasSchemeUrl = /https?:\/\//i.test(t);
   const hasBareDomain = messageHasBareDomainUrl(t);
   if (!hasSchemeUrl && !hasBareDomain) return false;
-  return (
-    hasSchemeUrl ||
-    (hasBareDomain &&
-      (/\b(go\s+to|visit|open|navigate|load|head\s+to|check\s+out|browse\s+to|in\s+(the\s+|our\s+)?browser)\b/i.test(
-        lower,
-      ) ||
-        /\bopen\s+[\w.-]+\.[\w.-]+/i.test(t))) ||
-    /(?:^|\s)to\s+https?:\/\//i.test(t)
-  );
+  // URLs alone are not navigation — pasted docs/specs often include MDN/Codrops links.
+  // Require an explicit navigate/open/visit cue (same cues as bare-domain path).
+  const navCue =
+    /\b(go\s+to|visit|open|navigate|load|head\s+to|check\s+out|browse\s+to|in\s+(the\s+|our\s+)?browser)\b/i.test(
+      lower,
+    ) ||
+    /\bopen\s+[\w.-]+\.[\w.-]+/i.test(t) ||
+    /(?:^|\s)to\s+https?:\/\//i.test(t);
+  return (hasSchemeUrl || hasBareDomain) && navCue;
 }
 
 /** @param {string} text */
@@ -122,7 +122,8 @@ export function inferIntentHeuristically(text) {
   if (hasWorkflow) return { taskType: 'workflow_orchestration', mode: 'agent' };
   if (hasDeploy) return { taskType: 'deploy', mode: 'agent' };
   if (hasMultitask) return { taskType: 'multitask', mode: 'agent' };
-  if (hasBrowser) return { taskType: 'browser', mode: 'agent' };
+  // Builder/search lanes beat browser: long pastes with URLs + "r3f"/"implement" must not
+  // route to computer-use. Explicit browser only when no stronger engineering signal.
   if (hasSpawn) return { taskType: 'agent_spawn', mode: 'agent' };
   if (hasDbWrite) {
     if (hasSupabase || is(/\b(hyperdrive|postgres|pgvector|supabase)\b/)) {
@@ -149,6 +150,7 @@ export function inferIntentHeuristically(text) {
   if (hasCode) return { taskType: 'code', mode: 'agent' };
   if (hasSkillCreate) return { taskType: 'plan', mode: 'agent' };
   if (hasPlan) return { taskType: 'plan', mode: 'agent' };
+  if (hasBrowser) return { taskType: 'browser', mode: 'agent' };
   if (hasSkill) return { taskType: 'skill_use', mode: 'agent' };
   if (hasTool) return { taskType: 'tool_use', mode: 'agent' };
   if (hasCms) return { taskType: 'cms_edit', mode: 'agent' };
