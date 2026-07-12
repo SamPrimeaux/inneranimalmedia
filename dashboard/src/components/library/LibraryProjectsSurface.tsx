@@ -375,7 +375,17 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
                 )}
               </div>
               <p className="lib-proj-grid-card-desc">{projectDescription(p)}</p>
-              <p className="lib-proj-grid-card-meta">Updated {formatUpdated(p)}</p>
+              <div className="lib-proj-grid-card-footer">
+                <ProjectHealthDonut
+                  taskRatio={p.totalTasks > 0 ? p.completedTasks / p.totalTasks : 0}
+                  healthScore={p.health ?? 0}
+                  budgetRatio={p.budgetTotal > 0 ? p.budgetUsed / p.budgetTotal : 0}
+                  accentColor={`hsl(${hue} 65% 55%)`}
+                  size={44}
+                  label={true}
+                />
+                <p className="lib-proj-grid-card-meta">Updated {formatUpdated(p)}</p>
+              </div>
             </button>
           );
         })}
