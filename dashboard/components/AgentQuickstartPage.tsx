@@ -14,6 +14,8 @@ export type QuickstartTemplate = {
   route_key: string;
   /** Quickstart workspace card slug (e.g. card-slides) for post-intake routing. */
   quickstart_card?: string;
+  /** Open a companion surface when the card starts (e.g. Excalidraw on Draw). */
+  openSurface?: 'excalidraw' | null;
   subagentSlug?: string;
   subagentProfileId?: string | null;
 };

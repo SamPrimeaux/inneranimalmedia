@@ -2587,7 +2587,13 @@ const App: React.FC = () => {
 
   const beginQuickstartTemplate = useCallback(
     (template: QuickstartTemplate) => {
-      navigate(AGENT_HOME_PATH);
+      const openDraw =
+        template.openSurface === 'excalidraw' || template.slug === 'card-flowchart';
+      if (openDraw) {
+        shellOpenDraw();
+      } else {
+        navigate(AGENT_HOME_PATH);
+      }
       startAgentNewThreadWithMessage({
         message: template.seedMessage,
         task_type: template.task_type,
@@ -2597,9 +2603,11 @@ const App: React.FC = () => {
         apply_eto_after_run: true,
         workspace_id: QUICKSTART_WORKSPACE_ID,
         modelKey: 'auto',
+        surface: openDraw ? 'excalidraw' : undefined,
+        ensureAgentPanel: true,
       });
     },
-    [navigate, startAgentNewThreadWithMessage],
+    [navigate, shellOpenDraw, startAgentNewThreadWithMessage],
   );
 
   const selectAgentChatTab = useCallback(

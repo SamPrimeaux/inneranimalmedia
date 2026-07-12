@@ -52,6 +52,25 @@ interface WorkspaceDashboardProps {
 
 type NavTab = AgentHomeTab;
 
+/** Per-card defaults when D1 quickstart templates do not override the slug. */
+const CARD_QUICKSTART_DEFAULTS: Record<
+  string,
+  {
+    seedMessage: string;
+    task_type: string;
+    route_key: string;
+    openSurface?: 'excalidraw' | null;
+  }
+> = {
+  'card-flowchart': {
+    seedMessage:
+      'Quickstart: Flowchart. The Excalidraw Draw canvas is open. Before drawing anything, ask me 2–4 short questions about the diagram I want (what process or system, who it is for, how many main nodes, any must-have labels or swimlanes). Wait for my answers. Then build it on the canvas with illustration_create (intent wireframe or sketch, engine excalidraw) or excalidraw_open / excalidraw_add_elements — never ASCII art or a text box diagram.',
+    task_type: 'plan',
+    route_key: 'design_studio',
+    openSurface: 'excalidraw',
+  },
+};
+
 const TEMPLATE_CARDS = [
   { id: 'start',     slug: 'start-anywhere',    icon: Plus,          label: 'Start anywhere',    sub: 'Add a file and design',    start: true },
   { id: 'slides',    slug: 'card-slides',        icon: Layout,        label: 'Slides',            sub: 'Decks & reviews' },
@@ -499,19 +518,24 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
                     type="button"
                     onClick={() => {
                       if (onBeginTemplate) {
+                        const fromApi = templateMap[card.slug];
+                        const cardDefaults = CARD_QUICKSTART_DEFAULTS[card.slug];
                         onBeginTemplate({
                           id: `card_${card.id}`,
                           slug: card.slug,
                           name: card.label,
                           description: card.sub,
-                          modelHint: 'auto',
-                          seedMessage: templateMap[card.slug]?.seedMessage
+                          modelHint: fromApi?.modelHint ?? 'auto',
+                          seedMessage:
+                            fromApi?.seedMessage
+                            ?? cardDefaults?.seedMessage
                             ?? `Quickstart: ${card.label}. Ask the user what they need before doing anything. Wait for answers before generating.`,
-                          task_type: templateMap[card.slug]?.task_type ?? 'design_intake',
-                          route_key: templateMap[card.slug]?.route_key ?? 'design_intake',
+                          task_type: fromApi?.task_type ?? cardDefaults?.task_type ?? 'design_intake',
+                          route_key: fromApi?.route_key ?? cardDefaults?.route_key ?? 'design_intake',
                           quickstart_card: card.slug,
-                          subagentSlug: templateMap[card.slug]?.subagentSlug,
-                          subagentProfileId: templateMap[card.slug]?.subagentProfileId ?? null,
+                          openSurface: fromApi?.openSurface ?? cardDefaults?.openSurface ?? null,
+                          subagentSlug: fromApi?.subagentSlug,
+                          subagentProfileId: fromApi?.subagentProfileId ?? null,
                         });
                       } else {
                         onQuickstart();
