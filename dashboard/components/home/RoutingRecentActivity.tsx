@@ -1,9 +1,13 @@
 /**
- * Home “Recent activity” — last N routing decisions from D1 (ground truth).
- * GET /api/agent/routing/recent
+ * Home Recent activity — routing decisions + agent notifications.
+ * Polls every 45s while mounted; refresh on focus.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Bell, GitBranch, RefreshCw } from 'lucide-react';
 import './RoutingRecentActivity.css';
+
+type TabId = 'routing' | 'notifications';
 
 type RoutingDecision = {
   id: string;
@@ -22,14 +26,25 @@ type RoutingDecision = {
   created_at: string | number | null;
 };
 
-function relativeTime(raw: string | number | null): string {
+type AgentNotification = {
+  id: string;
+  title?: string | null;
+  subject?: string | null;
+  message?: string | null;
+  status?: string | null;
+  created_at?: string | number | null;
+  href?: string | null;
+  url?: string | null;
+};
+
+function relativeTime(raw: string | number | null | undefined): string {
   if (raw == null) return '';
   let t: number;
   if (typeof raw === 'number') {
     t = raw < 1e12 ? raw * 1000 : raw;
   } else {
     const n = Number(raw);
-    if (Number.isFinite(n) && String(raw).trim() !== '' && !String(raw).includes('-')) {
+    if (Number.isFinite(n) && String(raw).trim() !== '' && !String(raw).includes('-') && !String(raw).includes('T')) {
       t = n < 1e12 ? n * 1000 : n;
     } else {
       t = Date.parse(raw);
@@ -46,80 +61,211 @@ function relativeTime(raw: string | number | null): string {
 function shortModel(key: string | null): string {
   if (!key) return '—';
   const k = key.replace(/^models\//, '');
-  if (k.length <= 28) return k;
-  return `${k.slice(0, 26)}…`;
+  if (k.length <= 32) return k;
+  return `${k.slice(0, 30)}…`;
+}
+
+function taskLabel(task: string | null, matched: string | null): string {
+  const t = (task || 'unknown').replace(/_/g, ' ');
+  const m = matched ? ` · ${matched}` : '';
+  return `${t}${m}`;
 }
 
 export function RoutingRecentActivity() {
+  const navigate = useNavigate();
+  const [tab, setTab] = useState<TabId>('routing');
   const [rows, setRows] = useState<RoutingDecision[]>([]);
+  const [notifs, setNotifs] = useState<AgentNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
+  const load = useCallback(async (silent = false) => {
+    if (!silent) {
       setLoading(true);
       setError(null);
-      try {
-        const res = await fetch('/api/agent/routing/recent?limit=8', {
-          credentials: 'include',
-        });
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-        const data = (await res.json()) as { decisions?: RoutingDecision[]; error?: string };
-        if (cancelled) return;
-        if (data.error) throw new Error(data.error);
-        setRows(Array.isArray(data.decisions) ? data.decisions : []);
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'Failed to load');
-          setRows([]);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+    }
+    try {
+      const [rRes, nRes] = await Promise.all([
+        fetch('/api/agent/routing/recent?limit=10', { credentials: 'include' }),
+        fetch('/api/agent/notifications', { credentials: 'include' }),
+      ]);
+      if (!rRes.ok) throw new Error(`routing HTTP ${rRes.status}`);
+      const rData = (await rRes.json()) as { decisions?: RoutingDecision[]; error?: string };
+      if (rData.error) throw new Error(rData.error);
+      setRows(Array.isArray(rData.decisions) ? rData.decisions : []);
+
+      if (nRes.ok) {
+        const nData = (await nRes.json()) as { notifications?: AgentNotification[] };
+        setNotifs(Array.isArray(nData.notifications) ? nData.notifications.slice(0, 12) : []);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      setUpdatedAt(Date.now());
+    } catch (e) {
+      if (!silent) {
+        setError(e instanceof Error ? e.message : 'Failed to load');
+      }
+    } finally {
+      if (!silent) setLoading(false);
+    }
   }, []);
 
+  useEffect(() => {
+    void load(false);
+    const id = window.setInterval(() => void load(true), 45_000);
+    const onFocus = () => void load(true);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [load]);
+
+  const unreadNotifs = notifs.filter(
+    (n) => String(n.status || '').toLowerCase() !== 'read',
+  ).length;
+
   return (
-    <div className="iam-routing-recent">
+    <div className="iam-activity-panel">
+      <div className="iam-activity-panel__toolbar">
+        <div className="iam-activity-panel__tabs" role="tablist" aria-label="Activity type">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'routing'}
+            className={`iam-activity-panel__tab${tab === 'routing' ? ' is-active' : ''}`}
+            onClick={() => setTab('routing')}
+          >
+            <GitBranch size={14} strokeWidth={1.75} aria-hidden />
+            Routing
+            <span className="iam-activity-panel__count">{rows.length}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'notifications'}
+            className={`iam-activity-panel__tab${tab === 'notifications' ? ' is-active' : ''}`}
+            onClick={() => setTab('notifications')}
+          >
+            <Bell size={14} strokeWidth={1.75} aria-hidden />
+            Notifications
+            {unreadNotifs > 0 ? (
+              <span className="iam-activity-panel__count iam-activity-panel__count--alert">{unreadNotifs}</span>
+            ) : (
+              <span className="iam-activity-panel__count">{notifs.length}</span>
+            )}
+          </button>
+        </div>
+        <button
+          type="button"
+          className="iam-activity-panel__refresh"
+          onClick={() => void load(false)}
+          title="Refresh"
+          aria-label="Refresh activity"
+        >
+          <RefreshCw size={14} strokeWidth={1.75} aria-hidden />
+        </button>
+      </div>
+
+      <p className="iam-activity-panel__hint">
+        {tab === 'routing'
+          ? 'Live D1 routing decisions — updates every 45s and on window focus.'
+          : 'Deployments, chats, and connectivity alerts from /api/agent/notifications.'}
+        {updatedAt ? ` · Updated ${relativeTime(updatedAt)}` : ''}
+      </p>
+
       {loading ? (
-        <p className="iam-routing-recent__empty">Loading routing decisions…</p>
+        <p className="iam-activity-panel__empty">Loading…</p>
       ) : error ? (
-        <p className="iam-routing-recent__empty">Couldn’t load activity ({error}).</p>
-      ) : rows.length === 0 ? (
-        <p className="iam-routing-recent__empty">No routing decisions yet this session.</p>
+        <p className="iam-activity-panel__empty">Couldn’t load ({error}).</p>
+      ) : tab === 'routing' ? (
+        rows.length === 0 ? (
+          <p className="iam-activity-panel__empty">No routing decisions yet — send a chat to see rows appear.</p>
+        ) : (
+          <ul className="iam-activity-panel__list">
+            {rows.map((r) => (
+              <li key={r.id} className="iam-activity-panel__row">
+                <div className="iam-activity-panel__row-top">
+                  <span className="iam-activity-panel__badge">{taskLabel(r.task_type, r.matched_by)}</span>
+                  <time className="iam-activity-panel__time">{relativeTime(r.created_at)}</time>
+                </div>
+                {r.message_excerpt ? (
+                  <p className="iam-activity-panel__excerpt">{r.message_excerpt}</p>
+                ) : null}
+                <div className="iam-activity-panel__meta">
+                  <span className="iam-activity-panel__model" title={r.model_key || undefined}>
+                    {shortModel(r.model_key)}
+                  </span>
+                  {r.latency_ms != null ? <span>{r.latency_ms}ms</span> : null}
+                  {r.confidence != null ? (
+                    <span>{Math.round(Number(r.confidence) * 100)}%</span>
+                  ) : null}
+                  {r.conversation_id ? (
+                    <button
+                      type="button"
+                      className="iam-activity-panel__link"
+                      onClick={() =>
+                        navigate(`/dashboard/agent?conversation=${encodeURIComponent(r.conversation_id!)}`)
+                      }
+                    >
+                      Open chat
+                    </button>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : notifs.length === 0 ? (
+        <p className="iam-activity-panel__empty">No notifications right now.</p>
       ) : (
-        <ul className="iam-routing-recent__list">
-          {rows.map((r) => (
-            <li key={r.id} className="iam-routing-recent__row">
-              <div className="iam-routing-recent__main">
-                <span className="iam-routing-recent__task">{r.task_type || 'unknown'}</span>
-                <span className="iam-routing-recent__model" title={r.model_key || undefined}>
-                  {shortModel(r.model_key)}
-                </span>
-                {r.matched_by ? (
-                  <span className="iam-routing-recent__match">{r.matched_by}</span>
-                ) : null}
-              </div>
-              {r.message_excerpt ? (
-                <p className="iam-routing-recent__excerpt">{r.message_excerpt}</p>
-              ) : null}
-              <div className="iam-routing-recent__meta">
-                <time dateTime={r.created_at != null ? String(r.created_at) : undefined}>
-                  {relativeTime(r.created_at)}
-                </time>
-                {r.latency_ms != null ? <span>{r.latency_ms}ms</span> : null}
-                {r.confidence != null ? (
-                  <span>{Math.round(Number(r.confidence) * 100)}%</span>
-                ) : null}
-              </div>
-            </li>
-          ))}
+        <ul className="iam-activity-panel__list">
+          {notifs.map((n) => {
+            const title = n.title || n.subject || 'Notification';
+            let target = n.href || n.url || null;
+            if (!target && typeof n.id === 'string') {
+              if (n.id.startsWith('conv:')) {
+                target = `/dashboard/agent?conversation=${encodeURIComponent(n.id.slice(5))}`;
+              } else if (n.id.startsWith('deploy:')) {
+                target = '/dashboard/settings/plan';
+              } else if (n.id.startsWith('health:')) {
+                target = '/dashboard/analytics';
+              }
+            }
+            return (
+              <li key={n.id} className="iam-activity-panel__row">
+                <div className="iam-activity-panel__row-top">
+                  <span className="iam-activity-panel__badge iam-activity-panel__badge--notif">
+                    {title}
+                  </span>
+                  <time className="iam-activity-panel__time">{relativeTime(n.created_at)}</time>
+                </div>
+                {n.message ? <p className="iam-activity-panel__excerpt">{n.message}</p> : null}
+                <div className="iam-activity-panel__meta">
+                  {n.status ? <span>{n.status}</span> : null}
+                  {target ? (
+                    <button
+                      type="button"
+                      className="iam-activity-panel__link"
+                      onClick={() => {
+                        if (target.startsWith('http')) window.location.href = target;
+                        else navigate(target);
+                      }}
+                    >
+                      Inspect
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="iam-activity-panel__link"
+                      onClick={() => navigate('/dashboard/settings/notifications')}
+                    >
+                      Settings
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

@@ -348,24 +348,21 @@ export function DashboardHome() {
             <button
               type="button"
               className="iam-home-hero-studio__cta"
-              onClick={() => navigate('/dashboard/designstudio')}
+              onClick={() => startNewAgentChat({ stayOnPage: true })}
             >
-              Continue in Design Studio
-              <ArrowRight size={18} strokeWidth={2} aria-hidden />
+              <Sparkles size={16} strokeWidth={1.85} aria-hidden />
+              Ask Agent Sam
             </button>
             <button
               type="button"
               className="iam-home-hero-studio__cta-secondary"
-              onClick={() => startNewAgentChat({ stayOnPage: true })}
+              onClick={() => navigate('/dashboard/designstudio')}
             >
-              <Sparkles size={15} strokeWidth={1.75} aria-hidden />
-              Ask Agent Sam
+              Continue in Design Studio
+              <ArrowRight size={16} strokeWidth={2} aria-hidden />
             </button>
           </div>
         </div>
-      </section>
-
-      <section className="iam-home-shell">
         <nav className="iam-home-hero-studio__workflow" aria-label="Creation workflow">
           {CREATION_WORKFLOW.map((step) => {
             const Icon = step.icon;
@@ -384,7 +381,9 @@ export function DashboardHome() {
             );
           })}
         </nav>
+      </section>
 
+      <section className="iam-home-shell">
         <section className={`iam-home-section iam-home-section--quick${editMode ? ' iam-home-section--editing' : ''}`} aria-labelledby="quick-starts-title">
           <div className="iam-section-head">
             <div>
@@ -514,12 +513,7 @@ export function DashboardHome() {
         />
 
         <section className="iam-home-section" aria-labelledby="ai-spend-title">
-          <div className="iam-section-head">
-            <div>
-              <h2 id="ai-spend-title">AI spend</h2>
-              <p>Month-to-date · models, providers, and KPI tiles</p>
-            </div>
-          </div>
+          <h2 id="ai-spend-title" className="sr-only">AI spend</h2>
           <AISpendDonut />
         </section>
 
@@ -527,7 +521,7 @@ export function DashboardHome() {
           <div className="iam-section-head">
             <div>
               <h2 id="routing-recent-title">Recent activity</h2>
-              <p>Last routing decisions from D1 — task type, model, match — not a chat summary.</p>
+              <p>Routing decisions and notifications — inspect what you missed.</p>
             </div>
           </div>
           <RoutingRecentActivity />
