@@ -1087,7 +1087,14 @@ export async function resolveRuntimeProfile(env, input) {
   if (!classifiedTaskType && message && env?.DB) {
     try {
       const { classifyIntent } = await import('../api/agent/classify-intent.js');
-      const classified = await classifyIntent(env, message);
+      const classified = await classifyIntent(env, message, {
+        session: {
+          userId: session.userId,
+          workspaceId: session.workspaceId,
+          tenantId: session.tenantId,
+          conversationId: session.conversationId,
+        },
+      });
       classifiedTaskType = String(classified.taskType || '').trim().toLowerCase();
       classifiedIntent = classified.intent != null ? String(classified.intent) : null;
       classifiedMode = classified.mode != null ? String(classified.mode) : null;
@@ -1098,6 +1105,9 @@ export async function resolveRuntimeProfile(env, input) {
             taskType: classifiedTaskType,
             intent: classifiedIntent,
             mode: classifiedMode,
+            matchedBy: classified.matchedBy ?? null,
+            confidence: classified.confidence ?? null,
+            escalated: classified.escalated === true,
           }),
         );
       }

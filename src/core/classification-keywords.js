@@ -25,7 +25,67 @@ const BOOTSTRAP = Object.freeze({
     'presentation', 'client', 'final', 'high-res', 'high res', 'photorealistic', 'production',
     'investor', 'pitch deck', 'print ready', 'marketing hero',
   ],
+  // chat_intent_* — cold-start when D1 empty (parity with migrations/824 seed)
+  chat_intent_workflow_orchestration: ['run workflow', 'start workflow', 'trigger workflow', 'execute workflow', 'agentic run'],
+  chat_intent_deploy: ['deploy', 'wrangler deploy', 'npm run deploy', 'push to prod', 'promote', 'cloudflare build'],
+  chat_intent_multitask: ['orchestrate', 'multi-step', 'multi-agent', 'end-to-end', 'build-and-deploy'],
+  chat_intent_agent_spawn: ['spawn subagent', 'delegate to', 'subagent'],
+  chat_intent_d1_write: ['insert into', 'd1 write', 'bulk insert', 'populate table', 'store in d1'],
+  chat_intent_d1_query: ['d1_query', 'what tables', 'which tables'],
+  chat_intent_r2_ops: ['r2 bucket', 'list r2', 'upload to'],
+  chat_intent_cf_ops: ['wrangler', 'durable object', 'kv namespace', 'd1 migrate'],
+  chat_intent_terminal_execution: ['run command', 'terminal', 'bash'],
+  chat_intent_web_search: ['search the web', 'web search', 'look it up online'],
+  chat_intent_vectorize: ['vectorize', 'semantic search', 'knowledge base'],
+  chat_intent_github: ['github', 'pull request', 'git push'],
+  chat_intent_sql_d1_generation: ['create table', 'alter table'],
+  chat_intent_debug: ['debug', 'not working', 'stack trace', 'diagnose'],
+  chat_intent_search_code: ['grep', 'find in codebase', 'where is', 'find where', 'is defined', 'search codebase', 'locate file'],
+  chat_intent_refactor: ['refactor', 'extract function'],
+  chat_intent_review: ['code review', 'audit'],
+  chat_intent_code: ['implement', 'edit file', 'fix file', 'create file', 'worker.js', '.tsx', '.jsx'],
+  chat_intent_plan: ['roadmap', 'architect', 'wireframe', 'task breakdown'],
+  chat_intent_browser: ['screenshot', 'playwright', 'puppeteer', 'open the browser', 'navigate to', 'dom inspect'],
+  chat_intent_skill_use: ['use skill', 'run skill'],
+  chat_intent_tool_use: ['use tool', 'mcp tool'],
+  chat_intent_cms_edit: ['cms page', 'shopify'],
+  chat_intent_recall: ['recall', 'remind me'],
+  chat_intent_explain: ['explain', 'how does', 'eli5'],
+  chat_intent_escalate: ['maybe', 'not sure', 'figure out', 'help me decide'],
 });
+
+/** Ordered walk for chat intent — must match classify-intent priority law. */
+export const CHAT_INTENT_TASK_PRIORITY = Object.freeze([
+  'workflow_orchestration',
+  'deploy',
+  'multitask',
+  'agent_spawn',
+  'd1_write',
+  'd1_query',
+  'r2_ops',
+  'cf_ops',
+  'terminal_execution',
+  'web_search',
+  'vectorize',
+  'github',
+  'sql_d1_generation',
+  'debug',
+  'search_code',
+  'refactor',
+  'review',
+  'code',
+  'plan',
+  'browser',
+  'skill_use',
+  'tool_use',
+  'cms_edit',
+  'recall',
+  'explain',
+]);
+
+export function chatIntentPurpose(taskType) {
+  return `chat_intent_${String(taskType || '').trim()}`;
+}
 
 /** @type {Map<string, { loadedAt: number, patterns: string[], re: RegExp, source: string }>} */
 const purposeCache = new Map();
@@ -42,7 +102,13 @@ export function compileWordRe(words) {
   const list = [...new Set((words || []).map((w) => String(w || '').trim().toLowerCase()).filter(Boolean))];
   if (!list.length) return /$a/;
   list.sort((a, b) => b.length - a.length);
-  return new RegExp(`\\b(?:${list.map(escapeRe).join('|')})\\b`, 'i');
+  const parts = list.map((w) => {
+    const esc = escapeRe(w);
+    const lead = /^\w/.test(w) ? '\\b' : '';
+    const trail = /\w$/.test(w) ? '\\b' : '';
+    return `${lead}${esc}${trail}`;
+  });
+  return new RegExp(`(?:${parts.join('|')})`, 'i');
 }
 
 /**
