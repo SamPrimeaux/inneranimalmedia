@@ -1473,6 +1473,8 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
       contentTier,
       costUsd: usageAttached.cost_usd ?? usageAttached.usage?.cost_usd ?? null,
       routingArmId,
+      sessionId: ctx.sessionId ?? ctx.conversationId ?? null,
+      conversationId: ctx.conversationId ?? null,
     });
     if (draft.preview_url && !previewUrls.includes(draft.preview_url)) {
       previewUrls.push(draft.preview_url);
@@ -1481,6 +1483,7 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
       ...usageAttached,
       status: 'draft',
       generation_id: draft.generation_id,
+      artifact_id: draft.artifact_id ?? null,
       preview_url: draft.preview_url,
       image_url: draft.preview_url,
       public_url: draft.preview_url,

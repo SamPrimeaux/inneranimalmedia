@@ -73,6 +73,8 @@ export async function maybeConvertDraftToWebp(bytes, contentType) {
  *   contentTier?: string | null;
  *   costUsd?: number | null;
  *   routingArmId?: string | null;
+ *   sessionId?: string | null;
+ *   conversationId?: string | null;
  * }} p
  */
 export async function persistImageDraft(env, p) {
@@ -161,6 +163,33 @@ export async function persistImageDraft(env, p) {
     )
     .run();
 
+  // Surface under /dashboard/artifacts as a draft (best-effort; bytes stay in drafts/).
+  let artifactId = null;
+  try {
+    const { registerImageDraftArtifact } = await import('./image-draft-artifact.js');
+    const reg = await registerImageDraftArtifact(env, {
+      userId,
+      workspaceId: p.workspaceId,
+      tenantId: p.tenantId,
+      generationId,
+      previewUrl,
+      r2Key,
+      r2Bucket: BUCKET,
+      prompt: p.prompt,
+      purpose: p.purpose,
+      provider: p.provider,
+      model: p.model,
+      fileSizeBytes: buf.byteLength,
+      expiresAt,
+      sessionId: p.sessionId ?? p.conversationId ?? null,
+      width: p.width,
+      height: p.height,
+    });
+    artifactId = reg?.artifact_id ?? null;
+  } catch (e) {
+    console.warn('[image-draft] artifact_register_failed', e?.message ?? e);
+  }
+
   return {
     id: generationId,
     generation_id: generationId,
@@ -169,6 +198,7 @@ export async function persistImageDraft(env, p) {
     image_url: previewUrl,
     r2_key: r2Key,
     r2_bucket: BUCKET,
+    artifact_id: artifactId,
     expires_at: new Date(expiresAt * 1000).toISOString(),
     expires_at_unix: expiresAt,
     content_tier: contentTier,
@@ -357,6 +387,13 @@ export async function discardImageDraft(env, generationId, userId) {
   )
     .bind(now, String(generationId), String(userId))
     .run();
+
+  try {
+    const { discardImageDraftArtifact } = await import('./image-draft-artifact.js');
+    await discardImageDraftArtifact(env, { userId: String(userId), generationId: String(generationId) });
+  } catch (e) {
+    console.warn('[image-draft] artifact_discard_failed', e?.message ?? e);
+  }
 
   return { ok: true, generation_id: generationId, status: 'discarded' };
 }
@@ -592,6 +629,19 @@ export async function saveImageDraft(env, ctx, body) {
   )
     .bind(imageId, committedKey, cmsAssetId, publicUrl, now, generationId, userId)
     .run();
+
+  try {
+    const { promoteImageDraftArtifact } = await import('./image-draft-artifact.js');
+    await promoteImageDraftArtifact(env, {
+      userId,
+      generationId,
+      publicUrl,
+      r2Key: committedKey,
+      name: label,
+    });
+  } catch (e) {
+    console.warn('[image-draft] artifact_promote_failed', e?.message ?? e);
+  }
 
   return {
     ok: true,
