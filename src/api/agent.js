@@ -1994,6 +1994,29 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     }
   }
 
+  // DELETE /api/agent/todo/:id — hard-delete task (scoped to tenant/workspace)
+  const todoIdDeleteMatch = path.match(/^\/api\/agent\/todo\/([^/]+)$/);
+  if (todoIdDeleteMatch && method === 'DELETE') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const scope = await resolveAgentDataScope(env, authUser, request, {});
+    if (!scope.tenantId || !scope.workspaceId) return jsonResponse({ error: 'Tenant/workspace required' }, 403);
+    const todoId = String(todoIdDeleteMatch[1]).trim();
+    const existing = await env.DB.prepare(
+      `SELECT id, title FROM agentsam_todo WHERE id = ? AND tenant_id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(todoId, scope.tenantId, scope.workspaceId)
+      .first();
+    if (!existing) return jsonResponse({ error: 'Not found' }, 404);
+    await env.DB.prepare(
+      `DELETE FROM agentsam_todo WHERE id = ? AND tenant_id = ? AND workspace_id = ?`,
+    )
+      .bind(todoId, scope.tenantId, scope.workspaceId)
+      .run();
+    return jsonResponse({ ok: true, deleted: true, id: todoId }, 200);
+  }
+
   // PATCH /api/agent/todo/:id — update task fields
   const todoIdPatchMatch = path.match(/^\/api\/agent\/todo\/([^/]+)$/);
   if (todoIdPatchMatch && method === 'PATCH') {

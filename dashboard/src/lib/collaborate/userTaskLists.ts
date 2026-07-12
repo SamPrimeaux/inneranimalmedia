@@ -26,3 +26,13 @@ export function removeUserTaskList(name: string) {
   const lists = loadUserTaskLists().filter((n) => n !== trimmed);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(lists));
 }
+
+export function renameUserTaskList(oldName: string, newName: string) {
+  const from = String(oldName || '').trim();
+  const to = String(newName || '').trim();
+  if (!from || !to || from === 'My Tasks' || to === 'My Tasks') return false;
+  const lists = loadUserTaskLists().filter((n) => n !== from);
+  if (!lists.includes(to)) lists.push(to);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(lists));
+  return true;
+}

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   Camera,
@@ -165,35 +166,52 @@ function CardMenu({
   onDelete: () => void;
   placement?: 'cover' | 'head';
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const dropRef = useRef<HTMLDivElement>(null);
+  const [dropPos, setDropPos] = useState<{ top: number; right: number } | null>(null);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setDropPos(null);
+      return;
+    }
+    const update = () => {
+      const el = btnRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setDropPos({
+        top: r.bottom + 4,
+        right: Math.max(8, window.innerWidth - r.right),
+      });
+    };
+    update();
     const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+      const t = e.target as Node;
+      if (wrapRef.current?.contains(t) || dropRef.current?.contains(t)) return;
+      onClose();
     };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
     return () => {
       document.removeEventListener('mousedown', onDoc);
       document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
     };
   }, [isOpen, onClose]);
 
-  return (
-    <div className={`pj-menu pj-menu--${placement}`} ref={ref}>
-      <button
-        type="button"
-        className="pj-menu-btn"
-        aria-label={`Options for ${project.name}`}
-        aria-expanded={isOpen}
-        onClick={(e) => { e.stopPropagation(); onToggle(); }}
-      >
-        <MoreHorizontal size={15} />
-      </button>
-      {isOpen && (
-        <div className="pj-menu-drop" role="menu">
+  const menu = isOpen && dropPos
+    ? createPortal(
+        <div
+          ref={dropRef}
+          className="pj-menu-drop pj-menu-drop--portal"
+          role="menu"
+          style={{ top: dropPos.top, right: dropPos.right }}
+        >
           <button type="button" role="menuitem" className="pj-menu-item" onClick={(e) => { e.stopPropagation(); onStar(); }}>
             <Star size={13} fill={project.is_pinned ? 'currentColor' : 'none'} />
             {project.is_pinned ? 'Unstar' : 'Star'}
@@ -208,8 +226,24 @@ function CardMenu({
           <button type="button" role="menuitem" className="pj-menu-item pj-menu-item--danger" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
             <Trash2 size={13} /> Delete
           </button>
-        </div>
-      )}
+        </div>,
+        document.body,
+      )
+    : null;
+
+  return (
+    <div className={`pj-menu pj-menu--${placement}`} ref={wrapRef}>
+      <button
+        type="button"
+        className="pj-menu-btn"
+        ref={btnRef}
+        aria-label={`Options for ${project.name}`}
+        aria-expanded={isOpen}
+        onClick={(e) => { e.stopPropagation(); onToggle(); }}
+      >
+        <MoreHorizontal size={15} />
+      </button>
+      {menu}
     </div>
   );
 }
@@ -1133,6 +1167,11 @@ const PROJECTS_CSS = `
   background: var(--bg-elevated, #151b27);
   box-shadow: 0 16px 40px rgba(0,0,0,0.5);
   z-index: 20;
+}
+
+.pj-menu-drop--portal {
+  position: fixed;
+  z-index: 10050;
 }
 
 .pj-menu-item {

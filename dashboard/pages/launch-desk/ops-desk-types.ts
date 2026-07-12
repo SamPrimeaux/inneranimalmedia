@@ -195,6 +195,13 @@ export async function patchTodo(id: string, payload: Record<string, unknown>) {
 }
 
 export async function deleteTodo(id: string) {
+  return apiJson<{ ok: boolean; deleted?: boolean; id?: string }>(`/api/agent/todo/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+/** Soft-remove from open lists without destroying the row (status → cancelled). */
+export async function cancelTodo(id: string) {
   return patchTodo(id, { status: 'cancelled' });
 }
 

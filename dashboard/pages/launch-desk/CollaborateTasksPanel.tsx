@@ -12,7 +12,13 @@ import {
   Star,
 } from 'lucide-react';
 import type { ClientWorkNavItem } from '../../src/lib/collaborate/clientWorkNav';
-import { loadUserTaskLists, saveUserTaskList } from '../../src/lib/collaborate/userTaskLists';
+import {
+  loadUserTaskLists,
+  removeUserTaskList,
+  renameUserTaskList,
+  saveUserTaskList,
+} from '../../src/lib/collaborate/userTaskLists';
+import { deleteProject } from '../../api/projects';
 import {
   AgentTodo,
   ProjectRow,
@@ -316,6 +322,77 @@ function TaskActionMenu({
   );
 }
 
+function ListOptionsMenu({
+  canRenameList,
+  canDeleteList,
+  projectId,
+  projectName,
+  listTitle,
+  openCount,
+  onRenameList,
+  onDeleteList,
+  onDeleteOpenTasks,
+  onDeleteProject,
+  onClose,
+}: {
+  canRenameList: boolean;
+  canDeleteList: boolean;
+  projectId: string | null;
+  projectName: string | null;
+  listTitle: string;
+  openCount: number;
+  onRenameList: () => void;
+  onDeleteList: () => void;
+  onDeleteOpenTasks: () => void;
+  onDeleteProject: () => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+
+  return (
+    <div ref={ref} className="colab-tasks-action-menu colab-tasks-list-menu" role="menu">
+      {canRenameList ? (
+        <button type="button" role="menuitem" onClick={() => { onRenameList(); onClose(); }}>
+          Rename list
+        </button>
+      ) : null}
+      {openCount > 0 ? (
+        <button type="button" role="menuitem" className="danger" onClick={() => { onDeleteOpenTasks(); onClose(); }}>
+          Delete {openCount} open task{openCount === 1 ? '' : 's'} in “{listTitle}”
+        </button>
+      ) : null}
+      {canDeleteList ? (
+        <button type="button" role="menuitem" className="danger" onClick={() => { onDeleteList(); onClose(); }}>
+          Delete list “{listTitle}”
+        </button>
+      ) : null}
+      {projectId ? (
+        <>
+          <div className="colab-tasks-menu-divider" />
+          <button type="button" role="menuitem" className="danger" onClick={() => { onDeleteProject(); onClose(); }}>
+            Delete project{projectName ? ` “${projectName}”` : ''}…
+          </button>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 export function CollaborateTasksMain({
   todos,
   loading,
@@ -342,6 +419,7 @@ export function CollaborateTasksMain({
   const [dueEditId, setDueEditId] = useState<string | null>(null);
   const [dueDraft, setDueDraft] = useState('');
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  const [listMenuOpen, setListMenuOpen] = useState(false);
 
   const openTodos = useMemo(() => todos.filter(isOpen), [todos]);
 
@@ -357,12 +435,22 @@ export function CollaborateTasksMain({
     [todos, selectedTaskId],
   );
 
+  const linkedProject = useMemo(
+    () => (projectId ? projects.find((p) => p.id === projectId) || null : null),
+    [projectId, projects],
+  );
+
   const listTitle =
     navView === 'client'
       ? clientListTitle || 'Client work'
       : navView === 'starred'
         ? 'Starred'
         : activeList;
+
+  const projectLabel = (id: string | null | undefined) => {
+    if (!id) return null;
+    return projects.find((p) => p.id === id)?.name || id;
+  };
 
   const completeTask = async (todo: AgentTodo) => {
     setSaving(true);
@@ -376,12 +464,115 @@ export function CollaborateTasksMain({
   };
 
   const removeTask = async (todo: AgentTodo) => {
-    if (!window.confirm(`Delete "${todo.title}"?`)) return;
+    if (!window.confirm(`Permanently delete "${todo.title}"? This cannot be undone.`)) return;
     setSaving(true);
     try {
       await deleteTodo(todo.id);
       if (selectedTaskId === todo.id) onSelectedTaskChange?.(null);
       await onReload();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const canManageCustomList =
+    navView === 'list' && activeList !== 'My Tasks' && activeList.trim().length > 0;
+
+  const renameCurrentList = async () => {
+    if (!canManageCustomList) return;
+    const next = window.prompt('Rename list', activeList)?.trim();
+    if (!next || next === activeList || next === 'My Tasks') return;
+    setSaving(true);
+    setComposeError(null);
+    try {
+      renameUserTaskList(activeList, next);
+      const toRename = openTodos.filter((t) => todoListName(t) === activeList);
+      for (const todo of toRename) {
+        await patchTodo(todo.id, { category: next });
+      }
+      onActiveListChange(next);
+      await onReload();
+    } catch (e) {
+      setComposeError(e instanceof Error ? e.message : 'Could not rename list');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteCurrentList = async () => {
+    if (!canManageCustomList) return;
+    const count = filtered.length;
+    const ok = window.confirm(
+      count > 0
+        ? `Delete list “${activeList}” and permanently delete its ${count} open task${count === 1 ? '' : 's'}?`
+        : `Delete empty list “${activeList}”?`,
+    );
+    if (!ok) return;
+    setSaving(true);
+    setComposeError(null);
+    try {
+      for (const todo of filtered) {
+        await deleteTodo(todo.id);
+      }
+      removeUserTaskList(activeList);
+      onActiveListChange('My Tasks');
+      onNavViewChange?.('list');
+      if (selectedTaskId) onSelectedTaskChange?.(null);
+      await onReload();
+    } catch (e) {
+      setComposeError(e instanceof Error ? e.message : 'Could not delete list');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteOpenTasksInView = async () => {
+    if (filtered.length === 0) return;
+    const ok = window.confirm(
+      `Permanently delete ${filtered.length} open task${filtered.length === 1 ? '' : 's'} in “${listTitle}”? This cannot be undone.`,
+    );
+    if (!ok) return;
+    setSaving(true);
+    setComposeError(null);
+    try {
+      for (const todo of filtered) {
+        await deleteTodo(todo.id);
+      }
+      if (selectedTaskId) onSelectedTaskChange?.(null);
+      await onReload();
+    } catch (e) {
+      setComposeError(e instanceof Error ? e.message : 'Could not delete tasks');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteLinkedProject = async () => {
+    if (!linkedProject) {
+      setComposeError(
+        'This view is pinned to a client/account id, not a projects row. Open /dashboard/projects to delete a real project.',
+      );
+      return;
+    }
+    const name = linkedProject.name || linkedProject.id;
+    const ok = window.confirm(
+      `Delete project “${name}” from D1 (projects table)? Linked tasks and dependents will be removed. This cannot be undone.`,
+    );
+    if (!ok) return;
+    const typed = window.prompt(`Type the project name to confirm:\n${name}`);
+    if (typed?.trim() !== name) {
+      setComposeError('Project delete cancelled — name did not match.');
+      return;
+    }
+    setSaving(true);
+    setComposeError(null);
+    try {
+      const res = await deleteProject(linkedProject.id);
+      if (!res.ok) throw new Error(res.error || 'Project delete failed');
+      await onReload();
+      window.location.assign('/dashboard/collaborate?seg=tasks');
+    } catch (e) {
+      setComposeError(e instanceof Error ? e.message : 'Could not delete project');
     } finally {
       setSaving(false);
     }
@@ -478,19 +669,38 @@ export function CollaborateTasksMain({
     onComposingChange?.(true);
   };
 
-  const projectLabel = (id: string | null | undefined) => {
-    if (!id) return null;
-    return projects.find((p) => p.id === id)?.name || id;
-  };
-
   return (
     <section className="colab-tasks-main">
       <div className="colab-tasks-main-inner">
         <div className="colab-tasks-list-head">
           <h2 className="colab-tasks-list-title">{listTitle}</h2>
-          <button type="button" className="colab-cal-icon-btn" aria-label="List options">
-            <MoreVertical size={18} strokeWidth={1.75} />
-          </button>
+          <div className="colab-tasks-list-menu-wrap">
+            <button
+              type="button"
+              className="colab-cal-icon-btn"
+              aria-label="List options"
+              aria-expanded={listMenuOpen}
+              disabled={saving}
+              onClick={() => setListMenuOpen((open) => !open)}
+            >
+              <MoreVertical size={18} strokeWidth={1.75} />
+            </button>
+            {listMenuOpen ? (
+              <ListOptionsMenu
+                canRenameList={canManageCustomList}
+                canDeleteList={canManageCustomList}
+                projectId={linkedProject?.id || null}
+                projectName={linkedProject?.name || null}
+                listTitle={listTitle}
+                openCount={filtered.length}
+                onRenameList={() => void renameCurrentList()}
+                onDeleteList={() => void deleteCurrentList()}
+                onDeleteOpenTasks={() => void deleteOpenTasksInView()}
+                onDeleteProject={() => void deleteLinkedProject()}
+                onClose={() => setListMenuOpen(false)}
+              />
+            ) : null}
+          </div>
         </div>
 
         <div className="colab-tasks-section">

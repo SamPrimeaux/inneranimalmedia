@@ -677,6 +677,22 @@
   flex-direction: column;
   gap: 2px;
 }
+.colab-tasks-list-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.colab-tasks-list-menu {
+  top: calc(100% + 4px);
+  left: auto;
+  right: 0;
+  min-width: 240px;
+  z-index: 40;
+}
+.colab-tasks-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line-soft);
+}
 .colab-tasks-action-menu button {
   border: 0;
   background: transparent;

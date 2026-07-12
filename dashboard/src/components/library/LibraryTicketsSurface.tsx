@@ -123,7 +123,7 @@ export function LibraryTicketsSurface({ onToast }: Props) {
         title,
         priority: newPriority,
         status: 'backlog',
-        project: 'iam-core',
+        project: 'inneranimalmedia',
         subsystem: 'platform',
       });
       setNewTitle('');

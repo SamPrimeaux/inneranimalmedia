@@ -61,7 +61,7 @@ export async function agentsam_ticket_create(params = {}, env, runContext = {}) 
     title: params.title,
     status: params.status || 'backlog',
     status_reason: params.status_reason,
-    project: params.project || 'iam-core',
+    project: params.project || 'inneranimalmedia',
     subsystem: params.subsystem,
     tags: params.tags,
     priority: params.priority || 'P2',
