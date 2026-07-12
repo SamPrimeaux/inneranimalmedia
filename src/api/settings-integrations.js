@@ -340,6 +340,60 @@ async function getConnectedIntegrations(env, authUser) {
 
   const finalItems = withoutGmailRegistry;
 
+  // Enrich Cloudflare with real CF account id (hex) — not au_* and not display name.
+  if (userId && env.DB) {
+    try {
+      const { looksLikeCfAccountId } = await import('../core/cf-token-account.js');
+      const { readUserCfStackSettings } = await import('../core/account-cloudflare-context.js');
+      const oauthCf = await env.DB.prepare(
+        `SELECT account_identifier, account_display, metadata_json, updated_at
+         FROM user_oauth_tokens
+         WHERE user_id = ? AND lower(provider) = 'cloudflare'
+         ORDER BY updated_at DESC LIMIT 1`,
+      )
+        .bind(userId)
+        .first();
+      const stack = await readUserCfStackSettings(env, userId);
+      let cfAccountId = null;
+      const fromTok = String(oauthCf?.account_identifier || '').trim();
+      if (looksLikeCfAccountId(fromTok)) cfAccountId = fromTok;
+      if (!cfAccountId && oauthCf?.metadata_json) {
+        try {
+          const meta = JSON.parse(String(oauthCf.metadata_json));
+          const mid = String(meta?.cloudflare_account_id || meta?.account_id || '').trim();
+          if (looksLikeCfAccountId(mid)) cfAccountId = mid;
+        } catch {
+          /* ignore */
+        }
+      }
+      const fromSettings = String(stack?.cf_account_id || '').trim();
+      if (!cfAccountId && looksLikeCfAccountId(fromSettings)) cfAccountId = fromSettings;
+
+      for (const item of finalItems) {
+        const pk = String(item.connection?.provider_key || '').toLowerCase();
+        if (pk !== 'cloudflare_oauth' && pk !== 'cloudflare') continue;
+        item.connection = {
+          ...item.connection,
+          account_identifier: cfAccountId || item.connection?.account_identifier || null,
+          cloudflare_account_id: cfAccountId,
+          account_display:
+            item.connection?.account_display ||
+            (oauthCf?.account_display != null ? String(oauthCf.account_display) : null) ||
+            (cfAccountId ? 'Cloudflare account' : null),
+        };
+        if (item.integration_status && typeof item.integration_status === 'object') {
+          item.integration_status = {
+            ...item.integration_status,
+            cloudflare_account_id: cfAccountId,
+            oauth_token_present: Boolean(oauthCf),
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('[settings-integrations] cf account enrich failed', e?.message || e);
+    }
+  }
+
   return jsonResponse({
     tenant_id: tenantId,
     items: finalItems,

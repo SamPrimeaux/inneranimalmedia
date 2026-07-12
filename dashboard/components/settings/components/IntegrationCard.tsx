@@ -25,6 +25,9 @@ export type ConnectionRow = {
   display_name?: string;
   status?: string;
   account_display?: string | null;
+  /** Cloudflare account hex id (32-char) — not IAM au_* */
+  account_identifier?: string | null;
+  cloudflare_account_id?: string | null;
   last_sync_at?: string | null;
   last_health_check_at?: string | null;
   last_health_latency_ms?: number | null;
@@ -330,6 +333,21 @@ export function IntegrationCard({
               {connection.account_display}
             </div>
           ) : null}
+          {(() => {
+            const cfId = String(
+              connection?.cloudflare_account_id || connection?.account_identifier || '',
+            ).trim();
+            const isCf =
+              String(connection?.provider_key || '').toLowerCase().includes('cloudflare') &&
+              /^[a-f0-9]{32}$/i.test(cfId);
+            if (!isCf) return null;
+            return (
+              <div className="text-[11px] text-main font-mono break-all">
+                <span className="text-muted font-sans">Cloudflare account ID: </span>
+                {cfId}
+              </div>
+            );
+          })()}
           {connection?.last_sync_at ? (
             <div className="text-[10px] text-muted">
               Last sync: {relTime(connection.last_sync_at)}

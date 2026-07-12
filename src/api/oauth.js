@@ -1609,8 +1609,11 @@ export async function handleOAuthApi(request, env, ctx) {
         } catch (e) {
           console.warn('[cloudflare_oauth] /v4/accounts resolution failed', e?.message || e);
         }
-        const accountId = cfAccount?.id || null;
-        const accountName = cfAccount?.name || null;
+        const { looksLikeCfAccountId } = await import('../core/cf-token-account.js');
+        const rawId = cfAccount?.id != null ? String(cfAccount.id).trim() : '';
+        const accountId = looksLikeCfAccountId(rawId) ? rawId : null;
+        const accountName = cfAccount?.name != null ? String(cfAccount.name).trim() : null;
+        // Never persist CF display name as account_identifier (must be 32-char hex or placeholder).
         await upsertOauthToken(env, {
           user_id: userId,
           tenant_id: tenantId,
@@ -1633,6 +1636,11 @@ export async function handleOAuthApi(request, env, ctx) {
           } catch (e) {
             console.warn('[cloudflare_oauth] cf_stack persist failed', e?.message || e);
           }
+        } else {
+          console.warn(
+            '[cloudflare_oauth] no valid CF account hex id after /v4/accounts; stored placeholder identifier',
+            { user_id: userId },
+          );
         }
       } else if (provider === 'supabase') {
         const mgmtCreds = getSupabaseManagementOAuthCredentials(env);
