@@ -5,14 +5,167 @@
  * Internal lanes (env.DB, R2 object CRUD, Vectorize) stay for gaps CF MCP does not cover.
  */
 
+import { IAM_D1_DATABASE_ID } from './d1-graphql-analytics.js';
+import { logDataPlaneSecurityEvent } from './data-plane-access-guard.js';
+import { isPlatformOperator, resolveOperatorAuthUserRow } from './operator-identity.js';
+
 export const CF_BINDINGS_MCP_URL = 'https://bindings.mcp.cloudflare.com/mcp';
 export const CF_BINDINGS_MCP_SERVER_KEY = 'cloudflare-bindings';
 
-/** Platform D1 (inneranimalmedia-business) — wrangler.production.toml */
-export const PLATFORM_D1_DATABASE_ID = 'cf87b717-d4e2-4cf8-bab0-a81268e32d49';
+/** SSOT: same id as wrangler / IAM_D1_DATABASE_ID — re-export for catalog tests. */
+export const PLATFORM_D1_DATABASE_ID = IAM_D1_DATABASE_ID;
+
+const D1_REMOTE_TOOLS_REQUIRING_OWNERSHIP = new Set([
+  'd1_database_query',
+  'd1_database_get',
+  'd1_database_delete',
+]);
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
+}
+
+/** @param {string|null|undefined} databaseId */
+export function isPlatformD1DatabaseId(databaseId) {
+  const id = trim(databaseId).toLowerCase();
+  return id !== '' && id === IAM_D1_DATABASE_ID.toLowerCase();
+}
+
+/**
+ * List D1 databases visible to a Cloudflare OAuth/API token (all accounts on token).
+ * @param {string} token
+ * @returns {Promise<Array<{ database_id: string, database_name: string, account_id: string }>>}
+ */
+export async function listOAuthAccountD1Catalog(token) {
+  const bearer = trim(token);
+  if (!bearer) return [];
+  const { cfApi } = await import('./customer-cloudflare-dispatch.js');
+  const accounts = await cfApi(bearer, '/accounts');
+  /** @type {Array<{ database_id: string, database_name: string, account_id: string }>} */
+  const out = [];
+  const seen = new Set();
+  for (const acct of Array.isArray(accounts) ? accounts : []) {
+    const accountId = trim(acct?.id);
+    if (!accountId) continue;
+    let databases = [];
+    try {
+      databases = await cfApi(
+        bearer,
+        `/accounts/${encodeURIComponent(accountId)}/d1/database`,
+      );
+    } catch {
+      continue;
+    }
+    for (const db of Array.isArray(databases) ? databases : []) {
+      const databaseId = trim(db?.uuid || db?.id);
+      if (!databaseId) continue;
+      const key = databaseId.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        database_id: databaseId,
+        database_name: trim(db?.name) || databaseId,
+        account_id: accountId,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * @param {any} env
+ * @param {unknown} authUser
+ */
+async function resolveCallerIsPlatformOperator(env, authUser) {
+  const row = await resolveOperatorAuthUserRow(env, authUser);
+  return isPlatformOperator(env, row);
+}
+
+/**
+ * Operator: unscoped (audited). Non-operator: database must belong to caller OAuth account;
+ * platform business D1 id is always rejected.
+ *
+ * @param {any} env
+ * @param {string|null|undefined} userId
+ * @param {string|null|undefined} databaseId
+ * @param {unknown} [authUser]
+ */
+export async function assertCallerOwnsDatabaseId(env, userId, databaseId, authUser = null) {
+  const dbId = trim(databaseId);
+  if (!dbId) {
+    return {
+      ok: false,
+      error: 'database_id_required',
+      user_message: 'Pass database_id for this D1 operation, or list databases first.',
+    };
+  }
+
+  const uid = trim(userId);
+  if (!uid) {
+    return {
+      ok: false,
+      error: 'user_oauth_required',
+      user_message: 'Sign in before using Cloudflare D1 tools.',
+    };
+  }
+
+  const operator = await resolveCallerIsPlatformOperator(env, authUser);
+  if (operator) {
+    logDataPlaneSecurityEvent('platform_operator_d1_access', {
+      user_id: uid,
+      database_id: dbId,
+      auth_scope: 'platform_operator',
+    });
+    return { ok: true, auth_scope: 'platform_operator' };
+  }
+
+  if (isPlatformD1DatabaseId(dbId)) {
+    logDataPlaneSecurityEvent('platform_d1_denied_non_operator', {
+      user_id: uid,
+      database_id: dbId,
+    });
+    return {
+      ok: false,
+      error: 'platform_d1_denied',
+      user_message:
+        'IAM platform D1 is operator-only. Connect your Cloudflare account and use a database from your account.',
+    };
+  }
+
+  const { getOAuthToken } = await import('./user-oauth-token.js');
+  const oauth = await getOAuthToken(env, uid, 'cloudflare');
+  if (!oauth) {
+    return {
+      ok: false,
+      error: 'cloudflare_not_connected',
+      reauth_required: true,
+      user_message: 'Connect Cloudflare in Integrations before using D1 tools.',
+    };
+  }
+
+  const catalog = await listOAuthAccountD1Catalog(oauth);
+  const match = catalog.find((e) => e.database_id.toLowerCase() === dbId.toLowerCase());
+  if (!match) {
+    logDataPlaneSecurityEvent('d1_database_not_in_caller_account', {
+      user_id: uid,
+      database_id: dbId,
+      auth_scope: 'user_account',
+    });
+    return {
+      ok: false,
+      error: 'database_id_not_in_account',
+      user_message:
+        'That D1 database is not in your connected Cloudflare account. List your databases and pick a valid database_id.',
+    };
+  }
+
+  return {
+    ok: true,
+    auth_scope: 'user_account',
+    account_id: match.account_id,
+    database_id: match.database_id,
+    token: oauth,
+  };
 }
 
 /**
@@ -34,17 +187,13 @@ export function isCfMcpCatalogTool(row, config) {
   const mcpUrl = trim(row?.mcp_service_url || config?.mcp_service_url);
   const authSource = trim(config?.auth_source).toLowerCase();
   const dispatchTarget = trim(row?.dispatch_target || config?.dispatch_target).toLowerCase();
-  // explicit remote_tool in handler_config — not derived from operation
   const explicitRemoteTool = trim(config?.remote_tool);
 
   if (serverKey === CF_BINDINGS_MCP_SERVER_KEY) return true;
   if (mcpUrl.includes('bindings.mcp.cloudflare.com')) return true;
   if (authSource === 'user_oauth_cloudflare') return true;
-  // mcp_proxy dispatch requires explicit remote_tool — never infer from operation
   if (dispatchTarget === 'mcp_proxy' && explicitRemoteTool) return true;
 
-  // provider=cloudflare alone does NOT qualify — it is set on internal lanes too.
-  // dispatch_target=both with no explicit remote_tool stays internal.
   return false;
 }
 
@@ -130,12 +279,11 @@ export async function resolveCfMcpBearerToken(env, ctx) {
     return { ok: true, token: oauth, source: 'user_oauth_cloudflare' };
   }
 
-  const authUser = ctx?.authUser;
-  const { userHasSuperadminRole } = await import('./resolve-credential.js');
-  if (userHasSuperadminRole(authUser)) {
+  const operator = await resolveCallerIsPlatformOperator(env, ctx?.authUser);
+  if (operator) {
     const platformToken = trim(env?.CLOUDFLARE_API_TOKEN);
     if (platformToken) {
-      return { ok: true, token: platformToken, source: 'platform_superadmin' };
+      return { ok: true, token: platformToken, source: 'platform_operator' };
     }
   }
 
@@ -150,18 +298,23 @@ export async function resolveCfMcpBearerToken(env, ctx) {
 
 /**
  * Map agentsam catalog params → Cloudflare Bindings MCP tool arguments.
+ * Platform D1 default applies only for platform_operator callers.
+ *
  * @param {string} remoteTool
  * @param {Record<string, unknown>} params
  * @param {Record<string, unknown>} config
  * @param {any} env
+ * @param {{ isPlatformOperator?: boolean }} [scope]
  */
-export function mapAgentsamParamsToCfMcp(remoteTool, params, config, env) {
+export function mapAgentsamParamsToCfMcp(remoteTool, params, config, env, scope = {}) {
   const p = params && typeof params === 'object' ? params : {};
   const rt = trim(remoteTool);
-  const defaultDb =
-    trim(config?.default_database_id) ||
-    trim(env?.PLATFORM_D1_DATABASE_ID) ||
-    PLATFORM_D1_DATABASE_ID;
+  const operator = scope.isPlatformOperator === true;
+  const defaultDb = operator
+    ? trim(config?.default_database_id) ||
+      trim(env?.PLATFORM_D1_DATABASE_ID) ||
+      IAM_D1_DATABASE_ID
+    : '';
 
   if (rt === 'd1_database_query') {
     return {
@@ -229,6 +382,57 @@ export function mapAgentsamParamsToCfMcp(remoteTool, params, config, env) {
   }
 
   return p;
+}
+
+/**
+ * Resolve CF MCP bearer, map params, and enforce D1 database ownership before tools/call.
+ *
+ * @param {any} env
+ * @param {{ userId?: string|null, workspaceId?: string|null, tenantId?: string|null, authUser?: unknown }} ctx
+ * @param {string} remoteTool
+ * @param {Record<string, unknown>} params
+ * @param {Record<string, unknown>} config
+ */
+export async function prepareCfMcpCloudflareCall(env, ctx, remoteTool, params, config) {
+  const tok = await resolveCfMcpBearerToken(env, ctx);
+  if (!tok.ok || !tok.token) {
+    return {
+      ok: false,
+      error: tok.error || 'cloudflare_not_connected',
+      reauth_required: tok.reauth_required === true,
+      user_message: tok.user_message,
+    };
+  }
+
+  const operator = await resolveCallerIsPlatformOperator(env, ctx?.authUser);
+  const mapped = mapAgentsamParamsToCfMcp(remoteTool, params, config, env, {
+    isPlatformOperator: operator,
+  });
+  const rt = trim(remoteTool);
+
+  if (D1_REMOTE_TOOLS_REQUIRING_OWNERSHIP.has(rt)) {
+    const dbId = trim(mapped.database_id);
+    if (!dbId) {
+      return {
+        ok: false,
+        error: 'database_id_required',
+        user_message: operator
+          ? 'Pass database_id or omit only when listing databases first.'
+          : 'Pass database_id from your Cloudflare account (list databases first).',
+      };
+    }
+    const owned = await assertCallerOwnsDatabaseId(env, ctx?.userId, dbId, ctx?.authUser);
+    if (!owned.ok) {
+      return {
+        ok: false,
+        error: owned.error,
+        reauth_required: owned.reauth_required === true,
+        user_message: owned.user_message,
+      };
+    }
+  }
+
+  return { ok: true, token: tok.token, params: mapped, token_source: tok.source };
 }
 
 /**

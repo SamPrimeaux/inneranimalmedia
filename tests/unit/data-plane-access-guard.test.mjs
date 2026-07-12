@@ -1,9 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { IAM_D1_DATABASE_ID } from '../../src/core/d1-graphql-analytics.js';
 import {
   assertDataPlaneAccess,
+  assertUserAccountInfraAccess,
   isPlatformDataPlane,
+  isPlatformD1DatabaseId,
   isPlatformOnlyCatalogTool,
+  USER_ACCOUNT_DATA_PLANE,
 } from '../../src/core/data-plane-access-guard.js';
 
 test('isPlatformDataPlane identifies platform bindings', () => {
@@ -77,4 +81,55 @@ test('platform catalog tools flagged', () => {
     isPlatformOnlyCatalogTool('platform_hyperdrive_agentsam_query', { admin_only: true }),
     true,
   );
+});
+
+test('isPlatformD1DatabaseId matches IAM SSOT', () => {
+  assert.equal(isPlatformD1DatabaseId(IAM_D1_DATABASE_ID), true);
+});
+
+test('assertUserAccountInfraAccess operator short-circuit', () => {
+  const r = assertUserAccountInfraAccess(
+    { is_platform_operator: true, user_id: 'au_sam' },
+    { database_id: IAM_D1_DATABASE_ID, provider: 'cloudflare' },
+  );
+  assert.equal(r.allowed, true);
+  assert.equal(r.reason, 'platform_operator_infra_ok');
+});
+
+test('assertUserAccountInfraAccess denies platform D1 for non-operator', () => {
+  const r = assertUserAccountInfraAccess(
+    { is_platform_operator: false, user_id: 'au_connor' },
+    { database_id: IAM_D1_DATABASE_ID, provider: 'cloudflare' },
+  );
+  assert.equal(r.allowed, false);
+  assert.equal(r.reason, 'platform_d1_denied_non_operator');
+});
+
+test('customer cloudflare d1 oauth-connected user_account allowed', () => {
+  const r = assertDataPlaneAccess(
+    {
+      is_owner: false,
+      is_superadmin: false,
+      is_platform_operator: false,
+      cloudflare_oauth_connected: true,
+    },
+    USER_ACCOUNT_DATA_PLANE,
+    'd1_readonly_query',
+    { database_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' },
+  );
+  assert.equal(r.allowed, true);
+});
+
+test('customer cloudflare d1 without oauth denied', () => {
+  const r = assertDataPlaneAccess(
+    {
+      is_owner: false,
+      is_superadmin: false,
+      cloudflare_oauth_connected: false,
+    },
+    'customer_cloudflare_d1',
+    'd1_readonly_query',
+  );
+  assert.equal(r.allowed, false);
+  assert.equal(r.error, 'cloudflare_not_connected');
 });

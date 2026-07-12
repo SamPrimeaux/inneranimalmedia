@@ -1,23 +1,49 @@
 /**
  * Workspace-scoped D1 execution resolver for agentsam_d1_* (catalog handler_type cf, operation d1.*).
- * Platform env.DB only for superadmin without a customer D1 binding (and when workspace policy allows).
- * Customer workspaces fail closed when no BYO Cloudflare D1 is configured.
+ * platform_operator → env.DB unscoped (audited).
+ * Non-operator → user OAuth account only (remote CF API); never env.DB platform path.
  */
-import { authUserIsSuperadmin } from './auth.js';
 import { IAM_D1_DATABASE_ID } from './d1-graphql-analytics.js';
 import { getDefaultWorkspaceDataBinding } from './workspace-data-bindings.js';
-import { resolveWorkspaceCloudflareCredentials } from './workspace-cloudflare-credentials.js';
 import { logDataPlaneSecurityEvent } from './data-plane-access-guard.js';
-import { workspaceAllowsPlatformFallback } from './workspace-spend-guard.js';
-import { resolveWorkspaceMemberD1Grant } from './workspace-d1-access.js';
+import { isPlatformOperator, resolveOperatorAuthUserRow } from './operator-identity.js';
+import {
+  assertCallerOwnsDatabaseId,
+  listOAuthAccountD1Catalog,
+} from './cf-mcp-proxy.js';
+import { getOAuthToken } from './user-oauth-token.js';
+import { getAgentsamWorkspace, parseWorkspaceMetadata } from './agentsam-workspace.js';
 
 export const CUSTOMER_D1_NOT_CONFIGURED =
-  'No Cloudflare D1 database is configured for this workspace. Add Cloudflare credentials and select a default D1 in Settings.';
+  'Connect Cloudflare in Integrations to use D1. IAM platform D1 is operator-only.';
 
-/** @param {unknown} authUser */
-function resolvePlatformOperatorFlags(authUser) {
-  const isSuperadmin = authUserIsSuperadmin(authUser);
-  return { isSuperadmin };
+function trim(v) {
+  return v == null ? '' : String(v).trim();
+}
+
+/**
+ * Optional workspace default database_id (convenience pin — not a gate).
+ * @param {any} env
+ * @param {string} workspaceId
+ */
+async function resolveWorkspacePinnedDatabaseId(env, workspaceId) {
+  const ws = trim(workspaceId);
+  if (!ws || !env?.DB) return '';
+  const d1Binding = await getDefaultWorkspaceDataBinding(env, ws, 'cloudflare_d1');
+  const fromBinding = trim(d1Binding?.external_database_id);
+  if (fromBinding && fromBinding !== IAM_D1_DATABASE_ID) return fromBinding;
+
+  const row = await getAgentsamWorkspace(env, ws);
+  const meta = parseWorkspaceMetadata(row?.metadata_json);
+  const pinned = trim(row?.d1_database_id);
+  if (pinned && pinned !== IAM_D1_DATABASE_ID) return pinned;
+
+  const arr = meta?.d1_databases;
+  if (Array.isArray(arr) && arr[0] && typeof arr[0] === 'object') {
+    const id = trim(arr[0].database_id);
+    if (id && id !== IAM_D1_DATABASE_ID) return id;
+  }
+  return '';
 }
 
 /**
@@ -80,6 +106,7 @@ export async function executeRemoteCloudflareD1Write(token, accountId, databaseI
  *   user_id?: string|null,
  *   tenant_id?: string|null,
  *   workspace_id?: string|null,
+ *   database_id?: string|null,
  *   authUser?: unknown,
  * }} ctx
  */
@@ -87,7 +114,7 @@ export async function resolveWorkspaceD1Execution(env, ctx) {
   const workspaceId = ctx?.workspace_id != null ? String(ctx.workspace_id).trim() : '';
   const userId = ctx?.user_id != null ? String(ctx.user_id).trim() : '';
   const tenantId = ctx?.tenant_id != null ? String(ctx.tenant_id).trim() : '';
-  const { isSuperadmin } = resolvePlatformOperatorFlags(ctx?.authUser);
+  const requestedDatabaseId = trim(ctx?.database_id);
 
   const meta = {
     workspace_id: workspaceId || null,
@@ -96,114 +123,115 @@ export async function resolveWorkspaceD1Execution(env, ctx) {
     provider: 'cloudflare_d1',
   };
 
-  if (!workspaceId) {
-    return {
-      ok: false,
-      mode: 'denied',
-      error: 'WORKSPACE_CONTEXT_MISSING',
-      user_message: 'Workspace context is required for D1 queries.',
+  const opRow = await resolveOperatorAuthUserRow(env, ctx?.authUser);
+  const operator = await isPlatformOperator(env, opRow);
+
+  if (operator) {
+    logDataPlaneSecurityEvent('platform_operator_d1_unscoped', {
       ...meta,
-    };
-  }
-
-  const d1Binding = await getDefaultWorkspaceDataBinding(env, workspaceId, 'cloudflare_d1');
-  const boundD1Id =
-    d1Binding?.external_database_id != null ? String(d1Binding.external_database_id).trim() : '';
-  const isPlatformD1Binding = boundD1Id && boundD1Id === IAM_D1_DATABASE_ID;
-
-  if (isPlatformD1Binding && isSuperadmin && (await workspaceAllowsPlatformFallback(env, workspaceId))) {
-    logDataPlaneSecurityEvent('workspace_d1_platform', { ...meta, reason: 'platform_d1_id_binding' });
-    return {
-      ok: true,
-      mode: 'platform',
-      binding_id: d1Binding?.id ?? null,
-      database_id: boundD1Id,
-      ...meta,
-    };
-  }
-
-  const hasCustomerD1 = Boolean(boundD1Id);
-
-  if (hasCustomerD1) {
-    const memberGrant = await resolveWorkspaceMemberD1Grant(env, ctx?.authUser, workspaceId);
-    if (memberGrant) {
-      logDataPlaneSecurityEvent('workspace_d1_remote', {
-        ...meta,
-        binding_id: d1Binding?.id ?? null,
-        database_id: memberGrant.database_id,
-        via: memberGrant.via,
-      });
-      return {
-        ok: true,
-        mode: 'remote',
-        token: memberGrant.token,
-        account_id: memberGrant.account_id,
-        database_id: memberGrant.database_id,
-        binding_id: d1Binding?.id != null ? String(d1Binding.id) : null,
-        via: memberGrant.via,
-        ...meta,
-      };
-    }
-
-    const creds = await resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId);
-    if (!creds.ok) {
-      logDataPlaneSecurityEvent('customer_d1_credentials_missing', {
-        ...meta,
-        binding_id: d1Binding?.id ?? null,
-        database_id: d1Binding?.external_database_id ?? null,
-        reason: creds.error,
-      });
-      return {
-        ok: false,
-        mode: 'denied',
-        error: creds.error || 'cloudflare_credentials_missing',
-        user_message: CUSTOMER_D1_NOT_CONFIGURED,
-        binding_id: d1Binding?.id ?? null,
-        database_id: d1Binding?.external_database_id ?? null,
-        account_id: creds.account_id ?? d1Binding?.external_account_id ?? null,
-        ...meta,
-      };
-    }
-
-    logDataPlaneSecurityEvent('workspace_d1_remote', {
-      ...meta,
-      binding_id: d1Binding.id,
-      database_id: d1Binding.external_database_id,
-      account_mask: creds.account_mask,
-      key_id: creds.key_id,
+      auth_scope: 'platform_operator',
     });
-
-    return {
-      ok: true,
-      mode: 'remote',
-      token: creds.token,
-      account_id: creds.account_id || d1Binding.external_account_id,
-      database_id: String(d1Binding.external_database_id),
-      binding_id: d1Binding.id != null ? String(d1Binding.id) : null,
-      key_id: creds.key_id,
-      ...meta,
-    };
-  }
-
-  if (isSuperadmin && (await workspaceAllowsPlatformFallback(env, workspaceId))) {
-    logDataPlaneSecurityEvent('workspace_d1_platform', meta);
     return {
       ok: true,
       mode: 'platform',
       binding_id: null,
-      database_id: null,
+      database_id: requestedDatabaseId || null,
       ...meta,
     };
   }
 
-  logDataPlaneSecurityEvent('customer_d1_not_configured', meta);
+  if (!userId) {
+    return {
+      ok: false,
+      mode: 'denied',
+      error: 'user_oauth_required',
+      user_message: 'Sign in before using D1 tools.',
+      ...meta,
+    };
+  }
+
+  const pinnedDatabaseId = workspaceId ? await resolveWorkspacePinnedDatabaseId(env, workspaceId) : '';
+  const databaseId = requestedDatabaseId || pinnedDatabaseId;
+  if (!databaseId) {
+    const oauth = await getOAuthToken(env, userId, 'cloudflare');
+    if (!oauth) {
+      return {
+        ok: false,
+        mode: 'denied',
+        error: 'cloudflare_not_connected',
+        user_message: CUSTOMER_D1_NOT_CONFIGURED,
+        ...meta,
+      };
+    }
+    return {
+      ok: false,
+      mode: 'denied',
+      error: 'database_id_required',
+      user_message: 'Pass database_id or connect Cloudflare and list your D1 databases first.',
+      ...meta,
+    };
+  }
+
+  const owned = await assertCallerOwnsDatabaseId(env, userId, databaseId, ctx?.authUser);
+  if (!owned.ok) {
+    return {
+      ok: false,
+      mode: 'denied',
+      error: owned.error || 'database_id_not_in_account',
+      user_message: owned.user_message || CUSTOMER_D1_NOT_CONFIGURED,
+      database_id: databaseId,
+      ...meta,
+    };
+  }
+
+  const token = owned.token || (await getOAuthToken(env, userId, 'cloudflare'));
+  if (!token) {
+    return {
+      ok: false,
+      mode: 'denied',
+      error: 'cloudflare_not_connected',
+      user_message: CUSTOMER_D1_NOT_CONFIGURED,
+      ...meta,
+    };
+  }
+
+  let accountId = trim(owned.account_id);
+  if (!accountId) {
+    const catalog = await listOAuthAccountD1Catalog(token);
+    accountId = trim(catalog.find((e) => e.database_id.toLowerCase() === databaseId.toLowerCase())?.account_id);
+  }
+
+  if (!accountId) {
+    return {
+      ok: false,
+      mode: 'denied',
+      error: 'account_id_unresolved',
+      user_message: CUSTOMER_D1_NOT_CONFIGURED,
+      database_id: databaseId,
+      ...meta,
+    };
+  }
+
+  const d1Binding = workspaceId
+    ? await getDefaultWorkspaceDataBinding(env, workspaceId, 'cloudflare_d1')
+    : null;
+
+  logDataPlaneSecurityEvent('workspace_d1_user_account', {
+    ...meta,
+    database_id: databaseId,
+    account_id: accountId,
+    auth_scope: 'user_account',
+    binding_id: d1Binding?.id ?? null,
+  });
+
   return {
-    ok: false,
-    mode: 'denied',
-    error: 'customer_d1_not_configured',
-    user_message: CUSTOMER_D1_NOT_CONFIGURED,
-    binding_id: null,
-    database_id: null,
+    ok: true,
+    mode: 'remote',
+    token,
+    account_id: accountId,
+    database_id: databaseId,
+    binding_id: d1Binding?.id != null ? String(d1Binding.id) : null,
+    via: 'user_oauth_cloudflare',
     ...meta,
   };
 }
@@ -260,7 +288,7 @@ export async function executeWorkspaceD1Query(env, ctx, sql, params = []) {
 }
 
 /**
- * Workspace-scoped D1 write (platform env.DB or remote customer D1 via CF REST).
+ * Workspace-scoped D1 write (platform env.DB for operator only; remote for user_account).
  * @param {any} env
  * @param {Record<string, unknown>} ctx
  * @param {string} sql

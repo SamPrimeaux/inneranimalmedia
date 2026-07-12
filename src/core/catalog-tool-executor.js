@@ -601,26 +601,31 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
       headers.Authorization = `Bearer ${accessToken}`;
       headers.Accept = 'application/json, text/event-stream';
     } else if (needsCloudflareUserToken) {
-      const { resolveCfMcpBearerToken, mapAgentsamParamsToCfMcp, resolveCfMcpRemoteToolName } =
-        await import('./cf-mcp-proxy.js');
-      const tok = await resolveCfMcpBearerToken(env, {
-        userId,
-        workspaceId,
-        tenantId,
-        authUser: runContext?.authUser ?? runContext?.user ?? null,
-      });
-      if (!tok.ok || !tok.token) {
+      const { prepareCfMcpCloudflareCall, resolveCfMcpRemoteToolName } = await import('./cf-mcp-proxy.js');
+      mcpCallName = resolveCfMcpRemoteToolName(config, params) || mcpCallName;
+      const prepared = await prepareCfMcpCloudflareCall(
+        env,
+        {
+          userId,
+          workspaceId,
+          tenantId,
+          authUser: runContext?.authUser ?? runContext?.user ?? null,
+        },
+        mcpCallName,
+        params,
+        config,
+      );
+      if (!prepared.ok || !prepared.token) {
         return {
           ok: false,
-          error: tok.error || 'cloudflare_not_connected',
+          error: prepared.error || 'cloudflare_not_connected',
           failed_tool: toolKey,
-          reauth_required: tok.reauth_required === true,
-          body: { user_message: tok.user_message || 'Connect Cloudflare in Integrations.' },
+          reauth_required: prepared.reauth_required === true,
+          body: { user_message: prepared.user_message || 'Connect Cloudflare in Integrations.' },
         };
       }
-      headers.Authorization = `Bearer ${tok.token}`;
-      mcpCallName = resolveCfMcpRemoteToolName(config, params) || mcpCallName;
-      params = mapAgentsamParamsToCfMcp(mcpCallName, params, config, env);
+      headers.Authorization = `Bearer ${prepared.token}`;
+      params = prepared.params;
     } else {
       const mcpToken = env?.MCP_AUTH_TOKEN != null ? String(env.MCP_AUTH_TOKEN).trim() : '';
       const internalSecret = env?.INTERNAL_API_SECRET != null ? String(env.INTERNAL_API_SECRET).trim() : '';

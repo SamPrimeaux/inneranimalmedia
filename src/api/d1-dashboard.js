@@ -8,7 +8,7 @@
  */
 
 import { jsonResponse } from '../core/responses.js';
-import { getAuthUser, authUserIsSuperadmin } from '../core/auth.js';
+import { getAuthUser } from '../core/auth.js';
 import { iamD1QuoteIdent } from '../core/d1.js';
 import { getDatabaseSqlRunGate } from '../core/database-sql-safety.js';
 import {
@@ -17,9 +17,23 @@ import {
   parseDatabaseFiltersJson,
 } from '../core/database-table-filters.js';
 import { resolveCanonicalUserId } from './auth.js';
-import { resolveUserWorkspaceBinding, resolveD1DashboardContext } from '../core/data-isolation-scope.js';
+import { IAM_D1_DATABASE_ID } from '../core/d1-graphql-analytics.js';
+import {
+  assertCallerOwnsDatabaseId,
+  listOAuthAccountD1Catalog,
+} from '../core/cf-mcp-proxy.js';
+import { logDataPlaneSecurityEvent } from '../core/data-plane-access-guard.js';
+import { isPlatformOperator, resolveOperatorAuthUserRow } from '../core/operator-identity.js';
+import { getOAuthToken } from '../core/user-oauth-token.js';
+import { createRemoteD1Adapter } from '../core/remote-d1-adapter.js';
+import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
+import { getAgentsamWorkspace, parseWorkspaceMetadata } from '../core/agentsam-workspace.js';
 
-export { resolveUserWorkspaceBinding };
+export { resolveUserWorkspaceBinding } from '../core/data-isolation-scope.js';
+
+function trimHeader(v) {
+  return v == null ? '' : String(v).trim();
+}
 
 function d1OnboardingResponse() {
   return jsonResponse(
@@ -33,21 +47,236 @@ function d1OnboardingResponse() {
 }
 
 /**
- * Per-user D1 binding for Database Studio. Platform DB only for superadmin; otherwise null.
- * @param {unknown} env
- * @param {string} userId
- * @param {unknown} authUser
- * @returns {import('@cloudflare/workers-types').D1Database | null}
+ * Optional workspace default database name/id (jump-to default — not a gate).
+ * @param {any} env
+ * @param {string} workspaceId
  */
+async function resolveWorkspacePinnedDatabase(env, workspaceId) {
+  const ws = trimHeader(workspaceId);
+  if (!ws || !env?.DB) return { database_id: '', database_name: '' };
+  const row = await getAgentsamWorkspace(env, ws);
+  const meta = parseWorkspaceMetadata(row?.metadata_json);
+  const arr = meta?.d1_databases;
+  if (Array.isArray(arr) && arr[0] && typeof arr[0] === 'object') {
+    return {
+      database_id: trimHeader(arr[0].database_id),
+      database_name: trimHeader(arr[0].database_name) || trimHeader(row?.workspace_slug),
+    };
+  }
+  const databaseId = trimHeader(row?.d1_database_id);
+  if (databaseId && databaseId !== IAM_D1_DATABASE_ID) {
+    return {
+      database_id: databaseId,
+      database_name: trimHeader(row?.workspace_slug) || databaseId,
+    };
+  }
+  return { database_id: '', database_name: '' };
+}
+
+/**
+ * @param {any} env
+ * @param {unknown} authUser
+ * @param {string} userId
+ */
+async function listOAuthD1DatabasesForDashboard(env, authUser, userId) {
+  const operator = await isPlatformOperator(env, await resolveOperatorAuthUserRow(env, authUser));
+  /** @type {Array<{ database_name: string, database_id: string, workspace_id?: string|null, source: string }>} */
+  const out = [];
+  const seen = new Set();
+
+  if (operator && env?.DB) {
+    const platformName = 'inneranimalmedia-business';
+    seen.add(IAM_D1_DATABASE_ID.toLowerCase());
+    out.push({
+      database_name: platformName,
+      database_id: IAM_D1_DATABASE_ID,
+      workspace_id: null,
+      source: 'platform_operator',
+    });
+  }
+
+  const oauth = await getOAuthToken(env, userId, 'cloudflare');
+  if (!oauth) return { databases: out, cloudflare_connected: false, operator };
+
+  const catalog = await listOAuthAccountD1Catalog(oauth);
+  for (const entry of catalog) {
+    const key = entry.database_id.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      database_name: entry.database_name,
+      database_id: entry.database_id,
+      workspace_id: null,
+      source: 'user_account',
+    });
+  }
+
+  return { databases: out, cloudflare_connected: true, operator, oauth_token: oauth };
+}
+
 /**
  * @param {unknown} env
  * @param {unknown} authUser
+ * @param {Request} request
  */
 async function requireScopedD1(env, authUser, request) {
   const rawId = String(authUser?.id || '').trim();
   const userId = rawId ? await resolveCanonicalUserId(rawId, env).catch(() => rawId) : '';
-  const db = await resolveUserWorkspaceBinding(env, userId, authUser, request);
-  return { db, userId };
+  const opRow = await resolveOperatorAuthUserRow(env, authUser);
+  const operator = await isPlatformOperator(env, opRow);
+
+  const databaseIdHeader = trimHeader(request?.headers?.get?.('x-iam-database-id'));
+  const databaseNameHeader = trimHeader(request?.headers?.get?.('x-iam-database-name'));
+  const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+  const workspaceId = trimHeader(wsRes?.workspaceId);
+  const pinned = workspaceId ? await resolveWorkspacePinnedDatabase(env, workspaceId) : null;
+
+  const listed = await listOAuthD1DatabasesForDashboard(env, authUser, userId);
+
+  if (operator && env?.DB) {
+    let selected = listed.databases.find(
+      (d) =>
+        (databaseIdHeader && d.database_id.toLowerCase() === databaseIdHeader.toLowerCase()) ||
+        (databaseNameHeader && d.database_name.toLowerCase() === databaseNameHeader.toLowerCase()),
+    );
+    if (!selected && databaseIdHeader.toLowerCase() === IAM_D1_DATABASE_ID.toLowerCase()) {
+      selected = listed.databases.find((d) => d.database_id === IAM_D1_DATABASE_ID);
+    }
+    if (!selected && pinned?.database_id) {
+      selected = listed.databases.find((d) => d.database_id === pinned.database_id);
+    }
+    if (!selected && listed.databases.some((d) => d.database_id === IAM_D1_DATABASE_ID)) {
+      selected = listed.databases.find((d) => d.database_id === IAM_D1_DATABASE_ID);
+    }
+
+    if (selected?.source === 'platform_operator' || !selected) {
+      logDataPlaneSecurityEvent('platform_operator_d1_studio', {
+        user_id: userId,
+        database_id: IAM_D1_DATABASE_ID,
+        auth_scope: 'platform_operator',
+      });
+      return { db: env.DB, userId, mode: 'platform_operator', database_id: IAM_D1_DATABASE_ID };
+    }
+
+    if (selected && listed.oauth_token) {
+      const owned = await assertCallerOwnsDatabaseId(env, userId, selected.database_id, authUser);
+      if (owned.ok && owned.account_id) {
+        return {
+          db: createRemoteD1Adapter({
+            token: listed.oauth_token,
+            account_id: owned.account_id,
+            database_id: selected.database_id,
+          }),
+          userId,
+          mode: 'user_account',
+          database_id: selected.database_id,
+        };
+      }
+    }
+
+    logDataPlaneSecurityEvent('platform_operator_d1_studio', {
+      user_id: userId,
+      database_id: IAM_D1_DATABASE_ID,
+      auth_scope: 'platform_operator',
+    });
+    return { db: env.DB, userId, mode: 'platform_operator', database_id: IAM_D1_DATABASE_ID };
+  }
+
+  if (!listed.cloudflare_connected || !listed.oauth_token) {
+    return { db: null, userId, mode: 'onboarding' };
+  }
+
+  if (!listed.databases.length) {
+    return { db: null, userId, mode: 'onboarding' };
+  }
+
+  let selected =
+    listed.databases.find(
+      (d) =>
+        databaseIdHeader &&
+        d.database_id.toLowerCase() === databaseIdHeader.toLowerCase() &&
+        d.source === 'user_account',
+    ) ||
+    listed.databases.find(
+      (d) =>
+        databaseNameHeader &&
+        d.database_name.toLowerCase() === databaseNameHeader.toLowerCase() &&
+        d.source === 'user_account',
+    ) ||
+    listed.databases.find(
+      (d) => pinned?.database_id && d.database_id === pinned.database_id && d.source === 'user_account',
+    ) ||
+    listed.databases.find((d) => d.source === 'user_account') ||
+    null;
+
+  if (!selected) {
+    return { db: null, userId, mode: 'onboarding' };
+  }
+
+  const owned = await assertCallerOwnsDatabaseId(env, userId, selected.database_id, authUser);
+  if (!owned.ok || !owned.account_id) {
+    return { db: null, userId, mode: 'denied', error: owned.error };
+  }
+
+  return {
+    db: createRemoteD1Adapter({
+      token: listed.oauth_token,
+      account_id: owned.account_id,
+      database_id: selected.database_id,
+    }),
+    userId,
+    mode: 'user_account',
+    database_id: selected.database_id,
+  };
+}
+
+/**
+ * @param {any} env
+ * @param {unknown} authUser
+ * @param {Request} request
+ */
+async function buildD1DashboardContext(env, authUser, request) {
+  const rawId = String(authUser?.id || '').trim();
+  const userId = rawId ? await resolveCanonicalUserId(rawId, env).catch(() => rawId) : '';
+  const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+  const workspaceId = trimHeader(wsRes?.workspaceId);
+  const pinned = workspaceId ? await resolveWorkspacePinnedDatabase(env, workspaceId) : null;
+  const listed = await listOAuthD1DatabasesForDashboard(env, authUser, userId);
+
+  const databaseNameHeader = trimHeader(request?.headers?.get?.('x-iam-database-name'));
+  const databaseIdHeader = trimHeader(request?.headers?.get?.('x-iam-database-id'));
+
+  let active = listed.databases.find(
+    (d) =>
+      (databaseIdHeader && d.database_id.toLowerCase() === databaseIdHeader.toLowerCase()) ||
+      (databaseNameHeader && d.database_name.toLowerCase() === databaseNameHeader.toLowerCase()),
+  );
+  if (!active && pinned?.database_id) {
+    active = listed.databases.find((d) => d.database_id === pinned.database_id);
+  }
+  if (!active && listed.operator) {
+    active = listed.databases.find((d) => d.database_id === IAM_D1_DATABASE_ID) || listed.databases[0];
+  }
+  if (!active) {
+    active = listed.databases.find((d) => d.source === 'user_account') || listed.databases[0];
+  }
+
+  return {
+    databases: listed.databases.map((d) => ({
+      database_name: d.database_name,
+      database_id: d.database_id,
+      workspace_id: workspaceId || null,
+      source: d.source,
+    })),
+    active_database_name: active?.database_name || null,
+    active_database_id: active?.database_id || null,
+    pinned_database_id: pinned?.database_id || null,
+    pinned_database_name: pinned?.database_name || null,
+    platform_available: listed.operator,
+    cloudflare_connected: listed.cloudflare_connected,
+    onboarding_required: !listed.operator && !listed.cloudflare_connected,
+    auth_scope: listed.operator ? 'platform_operator' : listed.cloudflare_connected ? 'user_account' : null,
+  };
 }
 
 /**
@@ -63,10 +292,11 @@ export async function handleD1DashboardRoutes(request, url, env) {
   const authUser = await getAuthUser(request, env);
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
-  const { db: userDb } = await requireScopedD1(env, authUser, request);
+  const scoped = await requireScopedD1(env, authUser, request);
+  const userDb = scoped.db;
 
   if (pathLower === '/api/d1/context' && method === 'GET') {
-    const ctx = await resolveD1DashboardContext(env, authUser, request);
+    const ctx = await buildD1DashboardContext(env, authUser, request);
     return jsonResponse(ctx);
   }
 
@@ -96,9 +326,9 @@ export async function handleD1DashboardRoutes(request, url, env) {
         return jsonResponse({ error: 'DROP DATABASE is not permitted via this API' }, 403);
       }
       const trimmed = sql.trim();
-      const isSuperadmin = authUserIsSuperadmin(authUser);
+      const operator = await isPlatformOperator(env, await resolveOperatorAuthUserRow(env, authUser));
       const gate = getDatabaseSqlRunGate(trimmed, {
-        isSuperadmin,
+        isSuperadmin: operator,
         studioApproved: body?.studio_approved === true || body?.studioApproved === true,
         destructiveConfirmed:
           body?.destructive_confirmed === true || body?.destructiveConfirmed === true,
