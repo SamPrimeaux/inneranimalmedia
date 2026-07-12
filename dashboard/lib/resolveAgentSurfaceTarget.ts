@@ -39,13 +39,18 @@ export type AgentSurfaceOpenDetail = {
 };
 
 export type ResolvedAgentSurfaceAction = {
-  surface: 'browser' | 'code' | 'cms' | 'r2' | 'terminal' | 'excalidraw' | 'moviemode' | null;
+  surface: 'browser' | 'code' | 'cms' | 'r2' | 'terminal' | 'excalidraw' | 'sketch' | 'moviemode' | null;
   browserUrl?: string | null;
   cms?: { project_slug: string; page_id?: string | null; panel?: string | null };
   localFile?: { workspace_path: string };
   r2?: { bucket: string; key: string; preview?: boolean };
   github?: { repo: string; path: string; branch?: string };
   excalidraw?: { load_url?: string | null; artifact_id?: string | null };
+  sketch?: {
+    elements?: unknown[];
+    mode?: 'sketch' | 'layout' | 'blueprint';
+    name?: string;
+  };
   automation?: boolean;
   agent_live?: boolean;
   reason?: string;
@@ -189,6 +194,20 @@ export function resolveAgentSurfaceTarget(detail: AgentSurfaceOpenDetail): Resol
         excalidraw: {
           load_url: detail.load_url?.trim() || null,
           artifact_id: detail.artifact_id?.trim() || null,
+        },
+      };
+    }
+    if (s === 'sketch' || s === 'wireframe' || s === 'studio' || s === 'figma') {
+      const elements = Array.isArray((detail as { elements?: unknown[] }).elements)
+        ? ((detail as { elements: unknown[] }).elements)
+        : undefined;
+      return {
+        ...base,
+        surface: 'sketch',
+        sketch: {
+          elements,
+          mode: (detail as { mode?: 'sketch' | 'layout' | 'blueprint' }).mode,
+          name: (detail as { name?: string }).name?.trim() || undefined,
         },
       };
     }

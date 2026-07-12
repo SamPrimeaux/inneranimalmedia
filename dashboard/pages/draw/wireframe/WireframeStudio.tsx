@@ -68,7 +68,8 @@ export type WfElement = {
   label: string;
 };
 
-type Tool = 'select' | 'frame' | 'rect' | 'text' | 'line';
+export type WfTool = 'select' | 'frame' | 'rect' | 'text' | 'line';
+type Tool = WfTool;
 type Fidelity = 'lo' | 'med' | 'hi';
 
 const COMP_DEFAULTS: Record<string, Partial<WfElement> & { w: number; h: number }> = {
@@ -320,12 +321,35 @@ function buildLanding(): WfElement[] {
   ];
 }
 
-export function WireframeStudio() {
+export type WireframeStudioHandle = {
+  getElements: () => WfElement[];
+  setElements: (els: WfElement[]) => void;
+  loadTemplate: (kind: 'landing' | 'dashboard') => void;
+  addComponent: (type: WfCompType, x: number, y: number) => void;
+  setTool: (tool: WfTool) => void;
+  getZoom: () => number;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  undo: () => void;
+  redo: () => void;
+  clear: () => void;
+};
+
+export type WireframeStudioProps = {
+  /** When true, only render canvas (Sketch shell provides chrome). */
+  embedMode?: boolean;
+  /** Visual mode for grid styling. */
+  studioMode?: 'sketch' | 'layout' | 'blueprint';
+  initialElements?: WfElement[];
+};
+
+export const WireframeStudio = React.forwardRef<WireframeStudioHandle, WireframeStudioProps>(
+  function WireframeStudio({ embedMode = false, studioMode = 'layout', initialElements }, ref) {
   const [tool, setTool] = useState<Tool>('select');
   const [fidelity, setFidelity] = useState<Fidelity>('lo');
   const [leftTab, setLeftTab] = useState<'components' | 'layers'>('components');
   const [rightTab, setRightTab] = useState<'format' | 'layout'>('format');
-  const [elements, setElements] = useState<WfElement[]>(() => buildLanding());
+  const [elements, setElements] = useState<WfElement[]>(() => initialElements ?? buildLanding());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
   const [cursor, setCursor] = useState({ x: 0, y: 0 });
@@ -417,7 +441,7 @@ export function WireframeStudio() {
     setElements((prev) => prev.map((el) => (el.id === selectedId ? { ...el, ...patch } : el)));
   };
 
-  const loadTemplate = (kind: 'landing' | 'dashboard') => {
+  const loadTemplate = useCallback((kind: 'landing' | 'dashboard') => {
     pushHistory(elementsRef.current);
     if (kind === 'landing') {
       idCounter.current = 10;
@@ -432,7 +456,146 @@ export function WireframeStudio() {
       idCounter.current = 10;
     }
     setSelectedId(null);
-  };
+  }, [pushHistory]);
+
+  const clearCanvas = useCallback(() => {
+    pushHistory(elementsRef.current);
+    setElements([]);
+    setSelectedId(null);
+  }, [pushHistory]);
+
+  React.useImperativeHandle(
+    ref,
+    () => ({
+      getElements: () => elementsRef.current,
+      setElements: (els: WfElement[]) => {
+        pushHistory(elementsRef.current);
+        setElements(els);
+        setSelectedId(null);
+      },
+      loadTemplate,
+      addComponent,
+      setTool,
+      getZoom: () => zoom,
+      zoomIn: () => setZoom((z) => Math.min(200, z + 10)),
+      zoomOut: () => setZoom((z) => Math.max(25, z - 10)),
+      undo,
+      redo,
+      clear: clearCanvas,
+    }),
+    [addComponent, clearCanvas, loadTemplate, pushHistory, redo, undo, setTool, zoom],
+  );
+
+  const canvasBlock = (
+    <div
+      ref={canvasRef}
+      className={`wf-studio__canvas-wrap wf-studio__canvas-wrap--${studioMode}`}
+      style={{ cursor: tool === 'select' ? 'default' : 'crosshair' }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        if (!dragComp.current) return;
+        const p = canvasPoint(e.clientX, e.clientY);
+        addComponent(dragComp.current, p.x, p.y);
+        dragComp.current = null;
+      }}
+      onMouseMove={(e) => {
+        const p = canvasPoint(e.clientX, e.clientY);
+        setCursor({ x: Math.round(p.x), y: Math.round(p.y) });
+        if (drawStart.current) {
+          const { id, x, y } = drawStart.current;
+          setElements((prev) => prev.map((el) => (el.id === id ? { ...el, w: Math.max(10, p.x - x), h: Math.max(10, p.y - y) } : el)));
+        }
+        if (dragMove.current) {
+          const { id, ox, oy } = dragMove.current;
+          setElements((prev) => prev.map((el) => (el.id === id ? { ...el, x: p.x - ox, y: p.y - oy } : el)));
+        }
+      }}
+      onMouseDown={(e) => {
+        const t = e.target as HTMLElement;
+        if (t !== canvasRef.current && !t.classList.contains('wf-studio__grid') && !t.classList.contains('wf-studio__canvas-content')) return;
+        if (tool === 'select') {
+          setSelectedId(null);
+          return;
+        }
+        const p = canvasPoint(e.clientX, e.clientY);
+        const id = nextId(idCounter.current++);
+        const el: WfElement = {
+          id,
+          type: tool === 'text' ? 'text' : tool === 'line' ? 'line' : tool === 'frame' ? 'frame' : 'rect',
+          x: p.x,
+          y: p.y,
+          w: 2,
+          h: 2,
+          fill: studioMode === 'blueprint' ? '#0f172a' : '#ffffff',
+          stroke: studioMode === 'blueprint' ? '#38bdf8' : '#cccccc',
+          opacity: 1,
+          radius: tool === 'rect' ? 4 : 0,
+          label: tool,
+        };
+        drawStart.current = { x: p.x, y: p.y, id };
+        setElements((prev) => [...prev, el]);
+        setSelectedId(id);
+      }}
+      onMouseUp={() => {
+        if (drawStart.current) {
+          pushHistory(elementsRef.current);
+          drawStart.current = null;
+          setTool('select');
+        }
+        if (dragMove.current) {
+          pushHistory(elementsRef.current);
+          dragMove.current = null;
+        }
+      }}
+    >
+      <div className="wf-studio__grid" />
+      {studioMode === 'blueprint' ? <div className="wf-studio__rulers" aria-hidden /> : null}
+      <div className="wf-studio__canvas-content" style={{ transform: `scale(${zoom / 100})` }}>
+        {elements.map((el) => (
+          <div
+            key={el.id}
+            className={`wf-studio__el${el.id === selectedId ? ' is-selected' : ''}`}
+            style={{
+              left: el.x,
+              top: el.y,
+              width: el.w,
+              height: el.h,
+              background: el.fill === 'transparent' ? 'transparent' : el.fill,
+              border: el.stroke === 'none' ? 'none' : `1px solid ${el.stroke}`,
+              borderRadius: el.radius,
+              opacity: el.opacity,
+            }}
+            onMouseDown={(ev) => {
+              if (tool !== 'select') return;
+              ev.stopPropagation();
+              setSelectedId(el.id);
+              const p = canvasPoint(ev.clientX, ev.clientY);
+              dragMove.current = { id: el.id, ox: p.x - el.x, oy: p.y - el.y };
+            }}
+          >
+            {studioMode === 'blueprint' && el.label ? (
+              <span className="wf-studio__dim-label">{el.label}</span>
+            ) : null}
+            <ElementPreview el={el} />
+          </div>
+        ))}
+      </div>
+      <div className="wf-studio__status">
+        <span>{cursor.x}, {cursor.y}</span>
+        <span>{selected ? `${Math.round(selected.w)} × ${Math.round(selected.h)}` : '—'}</span>
+        <span style={{ marginLeft: 'auto' }}>{elements.length} layer{elements.length === 1 ? '' : 's'}</span>
+      </div>
+    </div>
+  );
+
+  if (embedMode) {
+    return (
+      <div className={`wf-studio wf-studio--embed wf-studio--mode-${studioMode}`} role="application" aria-label="Sketch canvas">
+        {canvasBlock}
+      </div>
+    );
+  }
 
   return (
     <div className="wf-studio" role="application" aria-label="Wireframe studio">
@@ -503,102 +666,7 @@ export function WireframeStudio() {
         </div>
       </aside>
 
-      <div
-        ref={canvasRef}
-        className="wf-studio__canvas-wrap"
-        style={{ cursor: tool === 'select' ? 'default' : 'crosshair' }}
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          e.preventDefault();
-          if (!dragComp.current) return;
-          const p = canvasPoint(e.clientX, e.clientY);
-          addComponent(dragComp.current, p.x, p.y);
-          dragComp.current = null;
-        }}
-        onMouseMove={(e) => {
-          const p = canvasPoint(e.clientX, e.clientY);
-          setCursor({ x: Math.round(p.x), y: Math.round(p.y) });
-          if (drawStart.current) {
-            const { id, x, y } = drawStart.current;
-            setElements((prev) => prev.map((el) => (el.id === id ? { ...el, w: Math.max(10, p.x - x), h: Math.max(10, p.y - y) } : el)));
-          }
-          if (dragMove.current) {
-            const { id, ox, oy } = dragMove.current;
-            setElements((prev) => prev.map((el) => (el.id === id ? { ...el, x: p.x - ox, y: p.y - oy } : el)));
-          }
-        }}
-        onMouseDown={(e) => {
-          const t = e.target as HTMLElement;
-          if (t !== canvasRef.current && !t.classList.contains('wf-studio__grid') && !t.classList.contains('wf-studio__canvas-content')) return;
-          if (tool === 'select') {
-            setSelectedId(null);
-            return;
-          }
-          const p = canvasPoint(e.clientX, e.clientY);
-          const id = nextId(idCounter.current++);
-          const el: WfElement = {
-            id,
-            type: tool === 'text' ? 'text' : tool === 'line' ? 'line' : tool === 'frame' ? 'frame' : 'rect',
-            x: p.x,
-            y: p.y,
-            w: 2,
-            h: 2,
-            fill: '#ffffff',
-            stroke: '#cccccc',
-            opacity: 1,
-            radius: tool === 'rect' ? 4 : 0,
-            label: tool,
-          };
-          drawStart.current = { x: p.x, y: p.y, id };
-          setElements((prev) => [...prev, el]);
-          setSelectedId(id);
-        }}
-        onMouseUp={() => {
-          if (drawStart.current) {
-            pushHistory(elementsRef.current);
-            drawStart.current = null;
-            setTool('select');
-          }
-          if (dragMove.current) {
-            pushHistory(elementsRef.current);
-            dragMove.current = null;
-          }
-        }}
-      >
-        <div className="wf-studio__grid" />
-        <div className="wf-studio__canvas-content" style={{ transform: `scale(${zoom / 100})` }}>
-          {elements.map((el) => (
-            <div
-              key={el.id}
-              className={`wf-studio__el${el.id === selectedId ? ' is-selected' : ''}`}
-              style={{
-                left: el.x,
-                top: el.y,
-                width: el.w,
-                height: el.h,
-                background: el.fill === 'transparent' ? 'transparent' : el.fill,
-                border: el.stroke === 'none' ? 'none' : `1px solid ${el.stroke}`,
-                borderRadius: el.radius,
-                opacity: el.opacity,
-              }}
-              onMouseDown={(ev) => {
-                if (tool !== 'select') return;
-                ev.stopPropagation();
-                setSelectedId(el.id);
-                const p = canvasPoint(ev.clientX, ev.clientY);
-                dragMove.current = { id: el.id, ox: p.x - el.x, oy: p.y - el.y };
-              }}
-            >
-              <ElementPreview el={el} />
-            </div>
-          ))}
-        </div>
-        <div className="wf-studio__status">
-          <span>{cursor.x}, {cursor.y}</span>
-          <span>{selected ? `${Math.round(selected.w)} × ${Math.round(selected.h)}` : '—'}</span>
-          <span style={{ marginLeft: 'auto' }}>{elements.length} layer{elements.length === 1 ? '' : 's'} · {fidelity}-fi</span>
-        </div>
-      </div>
+      {canvasBlock}
 
       <aside className="wf-studio__sidebar wf-studio__sidebar--r">
         <div className="wf-studio__tabs">
@@ -653,6 +721,6 @@ export function WireframeStudio() {
       </aside>
     </div>
   );
-}
+});
 
 export default WireframeStudio;

@@ -374,10 +374,6 @@ export function scheduleRecordMcpToolExecution(env, ctx, fields) {
   const merged = { ...fields, id };
   const p = recordMcpToolExecution(env, merged)
     .then((execId) => {
-      const succ =
-        merged.success !== undefined
-          ? !!merged.success
-          : !merged.error_message && String(merged.status || '').toLowerCase() !== 'error';
       const ws =
         merged.workspace_id != null && String(merged.workspace_id).trim() !== ''
           ? String(merged.workspace_id).trim()
@@ -399,6 +395,29 @@ export function scheduleRecordMcpToolExecution(env, ctx, fields) {
         merged.skipToolCallLog === true ||
         merged.skipToolCallLog === 1;
       if (execId && tid && ws && !skipToolCallLog) {
+        // Finding #3: in-flight pending/awaiting_approval must NEVER map to ledger status=error
+        // via success:false. Prefer explicit status; coerce non-terminal → pending.
+        const statusRaw = String(merged.status || '').toLowerCase().trim();
+        const nonTerminal = new Set([
+          'pending',
+          'awaiting_approval',
+          'pending_approval',
+          'in_flight',
+          'running',
+          'queued',
+        ]);
+        let logStatus;
+        if (nonTerminal.has(statusRaw)) {
+          logStatus = 'pending';
+        } else if (statusRaw === 'success' || statusRaw === 'completed' || statusRaw === 'ok') {
+          logStatus = 'success';
+        } else if (statusRaw === 'error' || statusRaw === 'failed') {
+          logStatus = 'error';
+        } else if (merged.success !== undefined) {
+          logStatus = merged.success ? 'success' : 'error';
+        } else {
+          logStatus = merged.error_message || merged.errorMessage ? 'error' : 'success';
+        }
         // TELEMETRY-003: migrate cost/token merge to extractToolExecUsage — keep local pick() until then.
         scheduleToolCallLog(env, ctx, {
           tenantId: tid,
@@ -410,12 +429,12 @@ export function scheduleRecordMcpToolExecution(env, ctx, fields) {
           toolName: merged.tool_name || merged.tool_key || 'unknown',
           toolKey: merged.tool_key ?? merged.tool_name ?? undefined,
           agentsamToolsId: merged.agentsam_tools_id ?? merged.agentsamToolsId ?? undefined,
-          status: succ ? 'success' : 'error',
+          status: logStatus,
           durationMs: Math.max(0, Math.floor(Number(merged.duration_ms ?? merged.latency_ms) || 0)),
           costUsd: Number(merged.cost_usd) || 0,
           inputTokens: Number(merged.input_tokens) || 0,
           outputTokens: Number(merged.output_tokens) || 0,
-          errorMessage: merged.error_message ?? merged.errorMessage ?? null,
+          errorMessage: logStatus === 'pending' ? null : (merged.error_message ?? merged.errorMessage ?? null),
           inputJson: merged.input_json ?? merged.inputJson,
           outputJson: merged.output_json ?? merged.outputJson,
           policyDecisionJson: merged.policy_decision_json ?? merged.policyDecisionJson,
@@ -424,8 +443,25 @@ export function scheduleRecordMcpToolExecution(env, ctx, fields) {
           sourceTool: merged.source_tool ?? merged.sourceTool ?? 'mcp_proxy',
         });
       }
+      const terminalFail =
+        (() => {
+          const statusRaw = String(merged.status || '').toLowerCase().trim();
+          if (
+            statusRaw === 'pending' ||
+            statusRaw === 'awaiting_approval' ||
+            statusRaw === 'pending_approval' ||
+            statusRaw === 'in_flight' ||
+            statusRaw === 'running' ||
+            statusRaw === 'queued'
+          ) {
+            return false;
+          }
+          return merged.success !== undefined
+            ? !merged.success
+            : !!(merged.error_message || merged.errorMessage) || statusRaw === 'error';
+        })();
       if (
-        !succ &&
+        terminalFail &&
         ctx &&
         ws &&
         tid &&

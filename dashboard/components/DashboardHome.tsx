@@ -32,6 +32,7 @@ import {
 import { ConnectIconEditor } from './home/ConnectIconEditor';
 import { ConnectCatalogSheet } from './home/ConnectCatalogSheet';
 import { CostKpiTiles } from './home/CostKpiTiles';
+import { AISpendDonut } from './home/AISpendDonut';
 import { useWorkspace } from '../src/context/WorkspaceContext';
 import './ui/AppIcon.css';
 import './home/HomeTileEditor.css';
@@ -495,9 +496,10 @@ export function DashboardHome() {
           <div className="iam-section-head">
             <div>
               <h2 id="ai-spend-title">AI spend</h2>
-              <p>Month-to-date · tap any tile to expand</p>
+              <p>Month-to-date · models, providers, and KPI tiles</p>
             </div>
           </div>
+          <AISpendDonut />
           <CostKpiTiles />
         </section>
 

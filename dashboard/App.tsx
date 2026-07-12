@@ -41,6 +41,7 @@ import { EditorWorkbenchLanes } from './components/agent/EditorWorkbenchLanes';
 import type { AgentModeId } from './types/agentHomeScene';
 import { resolveDashboardRouteAgentContext } from './lib/dashboardRouteContext';
 import { resolveAgentSurfaceTarget } from './lib/resolveAgentSurfaceTarget';
+import { SKETCH_PATH, sketchPathForSurface } from './pages/sketch/sketchRoutes';
 import { BREAKPOINTS, PHONE_MQ } from './lib/breakpoints';
 import { sanitizeBrowserNavigateUrl } from './lib/sanitizeBrowserUrl';
 import {
@@ -212,6 +213,9 @@ const MovieModePage = lazy(() =>
 );
 const DrawPage = lazy(() =>
   import('./pages/draw/DrawPage').then((m) => ({ default: m.default })),
+);
+const SketchPage = lazy(() =>
+  import('./pages/sketch/SketchPage').then((m) => ({ default: m.default })),
 );
 const CmsPage = lazy(() =>
   import('./pages/cms/CmsPage').then((m) => ({ default: m.default })),
@@ -534,6 +538,9 @@ const App: React.FC = () => {
   const [drawComposerHost, setDrawComposerHost] = useState<HTMLDivElement | null>(null);
   const [drawMessagesHost, setDrawMessagesHost] = useState<HTMLDivElement | null>(null);
   const [drawEntryPhase, setDrawEntryPhase] = useState(true);
+  const [sketchComposerHost, setSketchComposerHost] = useState<HTMLDivElement | null>(null);
+  const [sketchMessagesHost, setSketchMessagesHost] = useState<HTMLDivElement | null>(null);
+  const [sketchEntryPhase, setSketchEntryPhase] = useState(true);
   const isAgentHomeAtmospheric = useMemo(
     () => isAgentCenterChatHome(location.pathname, location.search),
     [location.pathname, location.search],
@@ -585,6 +592,7 @@ const App: React.FC = () => {
   const mobileTabBarBottom = mobileTabBarBottomOffset(showStatusBar);
   /** TODO: Movie Mode right rail — split Media bin + ChatAssistant (dual panel). */
   const isDrawRoute = location.pathname.startsWith('/dashboard/draw');
+  const isSketchRoute = location.pathname.startsWith('/dashboard/sketch');
   const isCmsRoute = location.pathname.startsWith('/dashboard/cms');
   const cmsRouteParsed = useMemo(() => {
     if (!isCmsRoute) return null;
@@ -919,6 +927,9 @@ const App: React.FC = () => {
     if (location.pathname.startsWith('/dashboard/draw') && drawEntryPhase) {
       return 'center' as const;
     }
+    if (location.pathname.startsWith('/dashboard/sketch') && sketchEntryPhase) {
+      return 'center' as const;
+    }
     return resolveAgentChatLayout({
       pathname: location.pathname,
       search: location.search,
@@ -936,6 +947,7 @@ const App: React.FC = () => {
     isCmsFullscreen,
     designStudioEntryPhase,
     drawEntryPhase,
+    sketchEntryPhase,
     activeFile,
     activeTab,
   ]);
@@ -1342,8 +1354,9 @@ const App: React.FC = () => {
   const isDesignStudioRoute = location.pathname.startsWith('/dashboard/designstudio');
   const designStudioEntryAtmospheric = isDesignStudioRoute && designStudioEntryPhase;
   const drawEntryAtmospheric = isDrawRoute && drawEntryPhase;
+  const sketchEntryAtmospheric = isSketchRoute && sketchEntryPhase;
   const routeEntryAtmospheric =
-    designStudioEntryAtmospheric || drawEntryAtmospheric;
+    designStudioEntryAtmospheric || drawEntryAtmospheric || sketchEntryAtmospheric;
 
   useEffect(() => {
     if (!isDesignStudioRoute) {
@@ -1362,6 +1375,14 @@ const App: React.FC = () => {
   }, [isDrawRoute]);
 
   useEffect(() => {
+    if (!isSketchRoute) {
+      setSketchEntryPhase(true);
+      setSketchComposerHost(null);
+      setSketchMessagesHost(null);
+    }
+  }, [isSketchRoute]);
+
+  useEffect(() => {
     if (!isDesignStudioRoute || isNarrowViewport) return;
     if (designStudioEntryPhase) {
       setAgentPosition('off');
@@ -1378,6 +1399,15 @@ const App: React.FC = () => {
       ensureAgentSidePanel();
     }
   }, [isDrawRoute, drawEntryPhase, isNarrowViewport, ensureAgentSidePanel]);
+
+  useEffect(() => {
+    if (!isSketchRoute || isNarrowViewport) return;
+    if (sketchEntryPhase) {
+      setAgentPosition('off');
+    } else {
+      ensureAgentSidePanel();
+    }
+  }, [isSketchRoute, sketchEntryPhase, isNarrowViewport, ensureAgentSidePanel]);
 
   const agentWorkspaceContext = useMemo<AgentWorkspaceContextPacket>(() => {
     const routeCtx = resolveDashboardRouteAgentContext({
@@ -1753,13 +1783,11 @@ const App: React.FC = () => {
   }, [navigate]);
 
   const shellOpenDraw = useCallback(
-    (detail?: { load_url?: string | null; artifact_id?: string | null; engine?: string | null }) => {
-      const engine =
-        String(detail?.engine || '').trim().toLowerCase() === 'wireframe' ? 'wireframe' : 'excalidraw';
-      navigate(engine === 'wireframe' ? '/dashboard/draw?engine=wireframe' : '/dashboard/draw?engine=excalidraw');
+    (detail?: { load_url?: string | null; artifact_id?: string | null }) => {
+      navigate('/dashboard/draw');
       const load = detail?.load_url?.trim() || '';
       const aid = detail?.artifact_id?.trim() || '';
-      if (engine === 'excalidraw' && (load || aid)) {
+      if (load || aid) {
         queueMicrotask(() => {
           window.dispatchEvent(
             new CustomEvent('iam:excalidraw_load_document', {
@@ -1767,6 +1795,30 @@ const App: React.FC = () => {
                 load_url: load || null,
                 artifact_id: aid || null,
                 replace_workspace: true,
+              },
+            }),
+          );
+        });
+      }
+    },
+    [navigate],
+  );
+
+  const shellOpenSketch = useCallback(
+    (detail?: {
+      elements?: unknown[];
+      mode?: 'sketch' | 'layout' | 'blueprint';
+      name?: string;
+    }) => {
+      navigate(SKETCH_PATH);
+      if (detail?.elements?.length) {
+        queueMicrotask(() => {
+          window.dispatchEvent(
+            new CustomEvent('iam:sketch_load_document', {
+              detail: {
+                elements: detail.elements,
+                mode: detail.mode ?? 'layout',
+                name: detail.name ?? 'Agent concept',
               },
             }),
           );
@@ -2590,13 +2642,17 @@ const App: React.FC = () => {
   const beginQuickstartTemplate = useCallback(
     (template: QuickstartTemplate) => {
       const surface = template.openSurface ?? null;
-      const openDraw = surface === 'excalidraw' || surface === 'wireframe' || template.slug === 'card-flowchart';
-      if (openDraw) {
-        shellOpenDraw({
-          engine: surface === 'wireframe' || template.slug === 'card-wireframe' || template.slug === 'card-blank-canvas'
-            ? 'wireframe'
-            : 'excalidraw',
-        });
+      const openExcalidraw =
+        surface === 'excalidraw' || template.slug === 'card-flowchart';
+      const openSketch =
+        surface === 'sketch' ||
+        surface === 'wireframe' ||
+        template.slug === 'card-wireframe' ||
+        template.slug === 'card-blank-canvas';
+      if (openExcalidraw) {
+        shellOpenDraw();
+      } else if (openSketch) {
+        shellOpenSketch();
       } else {
         navigate(AGENT_HOME_PATH);
       }
@@ -2609,11 +2665,11 @@ const App: React.FC = () => {
         apply_eto_after_run: true,
         workspace_id: QUICKSTART_WORKSPACE_ID,
         modelKey: 'auto',
-        surface: openDraw ? (surface === 'wireframe' ? 'wireframe' : 'excalidraw') : undefined,
+        surface: openExcalidraw ? 'excalidraw' : openSketch ? 'sketch' : undefined,
         ensureAgentPanel: true,
       });
     },
-    [navigate, shellOpenDraw, startAgentNewThreadWithMessage],
+    [navigate, shellOpenDraw, shellOpenSketch, startAgentNewThreadWithMessage],
   );
 
   const selectAgentChatTab = useCallback(
@@ -2852,6 +2908,12 @@ const App: React.FC = () => {
           artifact_id: resolved.excalidraw?.artifact_id ?? null,
         });
         if (isNarrowViewport) setToastMsg('Draw opened. Tap Chat to return to Agent Sam.');
+        return;
+      }
+
+      if (resolved.surface === 'sketch') {
+        shellOpenSketch(resolved.sketch ?? undefined);
+        if (isNarrowViewport) setToastMsg('Sketch studio opened. Tap Chat to return to Agent Sam.');
         return;
       }
 
@@ -4383,7 +4445,9 @@ const App: React.FC = () => {
           : designStudioEntryAtmospheric
           ? 'Describe a 3D model, import a GLB, or ask Agent Sam to create…'
           : drawEntryAtmospheric
-            ? 'Sketch a diagram, wireframe, or plan map with Agent Sam…'
+            ? 'Sketch a diagram or flowchart with Agent Sam on Excalidraw…'
+            : sketchEntryAtmospheric
+              ? 'Concept, layout, or blueprint — describe what to sketch with Agent Sam…'
             : undefined,
       messages: chatMessages,
       setMessages: setChatMessages,
@@ -4420,6 +4484,8 @@ const App: React.FC = () => {
             ? 'cms'
             : isDrawRoute
               ? 'draw'
+              : isSketchRoute
+                ? 'sketch'
               : activeTab,
       browserUrl,
       openFilePaths: agentWorkbenchOpenFiles,
@@ -4443,6 +4509,7 @@ const App: React.FC = () => {
       isDesignStudioRoute,
       designStudioEntryAtmospheric,
       drawEntryAtmospheric,
+      sketchEntryAtmospheric,
       chatMessages,
       setChatMessages,
       shellOpenChatHistory,
@@ -4469,6 +4536,7 @@ const App: React.FC = () => {
       isCmsRoute,
       activeTab,
       isDrawRoute,
+      isSketchRoute,
       browserUrl,
       agentWorkbenchOpenFiles,
       activePlanIdForChat,
@@ -5000,6 +5068,18 @@ const App: React.FC = () => {
                         }
                       />
                       <Route
+                        path="/dashboard/sketch"
+                        element={
+                          <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+                            <SketchPage
+                              onEntryPhaseChange={setSketchEntryPhase}
+                              onComposerHost={setSketchComposerHost}
+                              onMessagesHost={setSketchMessagesHost}
+                            />
+                          </div>
+                        }
+                      />
+                      <Route
                         path="/dashboard/cms/sites"
                         element={<Navigate to="/dashboard/cms" replace />}
                       />
@@ -5522,6 +5602,8 @@ const App: React.FC = () => {
                       ? designStudioComposerHost
                       : drawEntryAtmospheric
                         ? drawComposerHost
+                        : sketchEntryAtmospheric
+                          ? sketchComposerHost
                         : null
                   }
                   messagesPortalTarget={
@@ -5529,6 +5611,8 @@ const App: React.FC = () => {
                       ? designStudioMessagesHost
                       : drawEntryAtmospheric
                         ? drawMessagesHost
+                        : sketchEntryAtmospheric
+                          ? sketchMessagesHost
                         : null
                   }
                 />

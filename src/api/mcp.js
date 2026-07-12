@@ -787,9 +787,9 @@ export async function handleMcpApi(request, url, env, ctx) {
         tool_name: 'mcp_dispatch',
         input_json: '{}',
         output_json: '',
-        success: false,
-        invoked_by: uidAd || 'dashboard',
+        // Finding #3: in-flight dispatch — do not pass success:false (would mirror as error).
         status: 'pending',
+        invoked_by: uidAd || 'dashboard',
       });
       scheduleDispatchToolCallLog(env, ctx, {
         tenantId,
@@ -1122,7 +1122,7 @@ export async function handleMcpApi(request, url, env, ctx) {
         timeout_ms: authDispatch.decision.maxTimeoutMs,
         input_json: JSON.stringify({ prompt: prompt.slice(0, 500) }),
         output_json: '{}',
-        success: false,
+        // Finding #3: in-flight dispatch — status pending, never success:false.
         status: 'pending',
       });
       scheduleDispatchToolCallLog(env, ctx, {

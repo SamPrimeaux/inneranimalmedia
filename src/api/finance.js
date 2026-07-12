@@ -343,29 +343,139 @@ function isMissingTableError(error) {
     return msg.includes('no such table');
 }
 
+/**
+ * MTD AI spend breakdown — models + providers from agentsam_usage_events (accurate),
+ * daily totals from agentsam_usage_rollups_daily (rollup SSOT for day totals).
+ * Legacy `rows` kept for older finance chart callers (provider-keyed day slices).
+ */
 async function handleFinanceSpendByModel(env, authUser) {
     try {
         const monthStart = currentMonthStart();
-        const { sql: scopeSql, binds: scopeBinds } = buildScopeWhere(authUser, { alias: 'r' });
-        const { results } = await env.DB.prepare(`
-            SELECT
-                j.key AS model_key,
-                j.key AS provider_slug,
-                r.day AS day,
-                ROUND(SUM(CAST(json_extract(j.value, '$.cost_usd') AS REAL)), 6) AS total_usd,
-                SUM(CAST(json_extract(j.value, '$.requests') AS INTEGER)) AS request_count
-            FROM agentsam_usage_rollups_daily r,
-                 json_each(COALESCE(r.provider_breakdown_json, '{}')) j
-            WHERE ${scopeSql}
-              AND r.day >= ?
-            GROUP BY j.key, r.day
-            ORDER BY total_usd DESC
-        `).bind(...scopeBinds, monthStart).all();
-        const rows = results || [];
-        const models = [...new Set(rows.map((row) => row.model_key).filter(Boolean))];
-        return jsonResponse({ rows, models });
+        const { sql: eventScope, binds: eventBinds } = buildScopeWhere(authUser);
+        const { sql: rollupScope, binds: rollupBinds } = buildScopeWhere(authUser, { alias: 'r' });
+        const monthStartUnix = Math.floor(new Date(`${monthStart}T00:00:00Z`).getTime() / 1000);
+
+        const [modelRes, providerRes, dailyRes, legacyRes, totalsRes] = await Promise.all([
+            env.DB.prepare(`
+                SELECT
+                  COALESCE(NULLIF(TRIM(model_key), ''), NULLIF(TRIM(model), ''), 'unknown') AS key,
+                  ROUND(SUM(COALESCE(cost_usd, 0)), 6) AS cost_usd,
+                  COUNT(*) AS request_count
+                FROM agentsam_usage_events
+                WHERE ${eventScope}
+                  AND created_at >= ?
+                GROUP BY key
+                HAVING cost_usd > 0 OR request_count > 0
+                ORDER BY cost_usd DESC
+                LIMIT 40
+            `).bind(...eventBinds, monthStartUnix).all(),
+            env.DB.prepare(`
+                SELECT
+                  COALESCE(NULLIF(LOWER(TRIM(provider)), ''), 'unknown') AS key,
+                  ROUND(SUM(COALESCE(cost_usd, 0)), 6) AS cost_usd,
+                  COUNT(*) AS request_count
+                FROM agentsam_usage_events
+                WHERE ${eventScope}
+                  AND created_at >= ?
+                GROUP BY key
+                HAVING cost_usd > 0 OR request_count > 0
+                ORDER BY cost_usd DESC
+                LIMIT 24
+            `).bind(...eventBinds, monthStartUnix).all(),
+            env.DB.prepare(`
+                SELECT r.day AS day,
+                       ROUND(SUM(r.cost_usd), 6) AS cost_usd,
+                       COALESCE(SUM(r.ai_calls), 0) AS request_count
+                FROM agentsam_usage_rollups_daily r
+                WHERE ${rollupScope} AND r.day >= ?
+                GROUP BY r.day
+                ORDER BY r.day ASC
+            `).bind(...rollupBinds, monthStart).all(),
+            env.DB.prepare(`
+                SELECT
+                    j.key AS model_key,
+                    j.key AS provider_slug,
+                    r.day AS day,
+                    ROUND(SUM(CAST(json_extract(j.value, '$.cost_usd') AS REAL)), 6) AS total_usd,
+                    SUM(CAST(json_extract(j.value, '$.requests') AS INTEGER)) AS request_count
+                FROM agentsam_usage_rollups_daily r,
+                     json_each(COALESCE(r.provider_breakdown_json, '{}')) j
+                WHERE ${rollupScope}
+                  AND r.day >= ?
+                GROUP BY j.key, r.day
+                ORDER BY total_usd DESC
+            `).bind(...rollupBinds, monthStart).all(),
+            env.DB.prepare(`
+                SELECT COALESCE(SUM(cost_usd), 0) AS total_usd,
+                       COALESCE(SUM(ai_calls), 0) AS request_count
+                FROM agentsam_usage_rollups_daily
+                WHERE ${eventScope} AND day >= ?
+            `).bind(...eventBinds, monthStart).first(),
+        ]);
+
+        const toSlices = (rows) => {
+            const list = (rows || [])
+                .map((r) => ({
+                    key: String(r.key || 'unknown'),
+                    cost_usd: Number(r.cost_usd) || 0,
+                    request_count: Number(r.request_count) || 0,
+                }))
+                .filter((r) => r.key !== 'unknown' || r.cost_usd > 0);
+            const sum = list.reduce((s, r) => s + r.cost_usd, 0) || 0;
+            return list.map((r) => ({
+                ...r,
+                pct: sum > 0 ? Math.round((r.cost_usd / sum) * 1000) / 10 : 0,
+            }));
+        };
+
+        const models = toSlices(modelRes?.results);
+        const providers = toSlices(providerRes?.results);
+        const daily = (dailyRes?.results || []).map((r) => ({
+            day: String(r.day || ''),
+            cost_usd: Number(r.cost_usd) || 0,
+            request_count: Number(r.request_count) || 0,
+        }));
+        const peak = daily.reduce(
+            (best, d) => (d.cost_usd > (best?.cost_usd || 0) ? d : best),
+            null,
+        );
+        const daysWithSpend = daily.filter((d) => d.cost_usd > 0).length;
+        const totalUsd = Number(totalsRes?.total_usd) || daily.reduce((s, d) => s + d.cost_usd, 0);
+        const requestCount =
+            Number(totalsRes?.request_count) ||
+            daily.reduce((s, d) => s + d.request_count, 0);
+
+        const legacyRows = legacyRes?.results || [];
+        return jsonResponse({
+            period: 'mtd',
+            month_start: monthStart,
+            total_usd: totalUsd,
+            request_count: requestCount,
+            daily_avg: daysWithSpend ? totalUsd / daysWithSpend : 0,
+            peak_day: peak,
+            models,
+            providers,
+            projects: [],
+            daily,
+            rows: legacyRows,
+            model_keys: models.map((m) => m.key),
+        });
     } catch (error) {
-        if (isMissingTableError(error)) return jsonResponse({ rows: [], models: [] });
+        if (isMissingTableError(error)) {
+            return jsonResponse({
+                period: 'mtd',
+                total_usd: 0,
+                request_count: 0,
+                daily_avg: 0,
+                peak_day: null,
+                models: [],
+                providers: [],
+                projects: [],
+                daily: [],
+                rows: [],
+                model_keys: [],
+            });
+        }
         throw error;
     }
 }

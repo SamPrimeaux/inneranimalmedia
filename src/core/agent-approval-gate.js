@@ -90,7 +90,7 @@ export async function createApprovalRequest(env, ctx, opts) {
       tool_name: toolName,
       input_json: argsStr.slice(0, 10000),
       output_json: '',
-      success: false,
+      // Finding #3: awaiting approval is non-terminal — never success:false → ledger error.
       status: 'awaiting_approval',
       requires_approval: 1,
       error_message: null,
