@@ -1,6 +1,59 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { Archive, CheckSquare, Plus, Search, Square, Star } from 'lucide-react';
 import { ProjectHealthDonut } from '../projects/ProjectHealthDonut';
+
+// --- Deploy activity fetch ---
+type DeployDay = {
+  date: string;
+  worker: string;
+  session_start: string;
+  session_end: string;
+  session_minutes: number;
+  build_count: number;
+  commits: string[];
+};
+
+type DeployActivityResponse = {
+  ok: boolean;
+  days: DeployDay[];
+  by_worker: Record<string, { total_minutes: number; active_days: number; last_active: string }>;
+};
+
+async function fetchDeployActivity(days = 30): Promise<DeployActivityResponse | null> {
+  try {
+    const r = await fetch(`/api/projects/deploy-activity?days=${days}`, {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    if (!r.ok) return null;
+    return r.json();
+  } catch {
+    return null;
+  }
+}
+
+// Build per-worker per-day minute map for bar charts
+function buildWorkerDayMap(days: DeployDay[]): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  for (const d of days) {
+    if (!out[d.worker]) out[d.worker] = {};
+    out[d.worker][d.date] = (out[d.worker][d.date] || 0) + d.session_minutes;
+  }
+  return out;
+}
+
+// Last 7 calendar days labels + minutes for a given worker
+function weeklyBars(workerDayMap: Record<string, number>): { label: string; mins: number }[] {
+  const out = [];
+  const now = new Date();
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    out.push({ label: ['Su','Mo','Tu','We','Th','Fr','Sa'][d.getDay()], mins: workerDayMap[key] || 0 });
+  }
+  return out;
+}
 import type { OverviewProject } from '../../../api/projects';
 import { fetchProjectsList, fetchProjectsOverview, updateProject, deleteProject } from '../../../api/projects';
 import { StartProjectWizard } from '../../../components/projects/StartProjectWizard';
