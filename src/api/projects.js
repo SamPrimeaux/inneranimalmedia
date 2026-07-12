@@ -1728,6 +1728,129 @@ async function handleDelete(request, env, authUser, id, url, ctx) {
 }
 
 /**
+ * /api/projects/deploy-activity
+ *
+ * Returns per-project per-day working session windows derived from
+ * agentsam_webhook_events (CF Builds webhooks). Each day a build succeeded,
+ * first createdAt → last stoppedAt = actual session window on that project.
+ *
+ * Query params:
+ *   days   - lookback window in days (default 30, max 90)
+ *   worker - filter to a single worker slug (optional)
+ *
+ * Response shape:
+ *   {
+ *     ok: true,
+ *     days: [
+ *       {
+ *         date: "2026-07-12",
+ *         worker: "inneranimalmedia",
+ *         session_start: "2026-07-12T07:24:57Z",
+ *         session_end:   "2026-07-12T07:31:10Z",
+ *         session_minutes: 6,
+ *         build_count: 7,
+ *         commits: ["feat: add donut", ...]
+ *       },
+ *       ...
+ *     ],
+ *     by_worker: {
+ *       "inneranimalmedia": { total_minutes: 42, active_days: 3, last_active: "2026-07-12" }
+ *     }
+ *   }
+ */
+async function handleDeployActivity(env, authUser, url) {
+  const tenantId = authUser?.tenant_id ? String(authUser.tenant_id) : null;
+  const workspaceId =
+    url.searchParams.get('workspace_id') ||
+    (authUser.active_workspace_id ? String(authUser.active_workspace_id) : null) ||
+    null;
+
+  const daysParam = Math.min(90, Math.max(1, parseInt(url.searchParams.get('days') || '30', 10)));
+  const workerFilter = url.searchParams.get('worker') || null;
+
+  if (!env.DB) return jsonResponse({ ok: false, error: 'db_unavailable' }, 503);
+
+  try {
+    const cutoffUnix = Math.floor(Date.now() / 1000) - daysParam * 86400;
+
+    // Pull succeeded build events — payload has real createdAt/stoppedAt timestamps
+    // and workerName. We group by (date, workerName) client-side since the timestamps
+    // live inside payload_json and SQLite json_extract on a large table is fine for
+    // the ~few-hundred rows this returns over 30 days.
+    const { results } = await env.DB.prepare(`
+      SELECT payload_json, received_at_unix
+      FROM agentsam_webhook_events
+      WHERE event_type = 'cf.workersBuilds.worker.build.succeeded'
+        AND (tenant_id = ? OR workspace_id = ?)
+        AND received_at_unix >= ?
+      ORDER BY received_at_unix ASC
+    `).bind(
+      tenantId || '',
+      workspaceId || '',
+      cutoffUnix,
+    ).all();
+
+    // Parse each event payload and group by (date, workerName)
+    /** @type {Map<string, { start: number, end: number, commits: string[], count: number, worker: string, date: string }>} */
+    const byDayWorker = new Map();
+
+    for (const row of results || []) {
+      let payload;
+      try { payload = JSON.parse(String(row.payload_json || '{}')); } catch { continue; }
+
+      const workerName = payload?.source?.workerName || payload?.payload?.buildTriggerMetadata?.repoName || null;
+      if (!workerName) continue;
+      if (workerFilter && workerName !== workerFilter) continue;
+
+      const createdAt = payload?.payload?.createdAt ? Date.parse(payload.payload.createdAt) / 1000 : null;
+      const stoppedAt = payload?.payload?.stoppedAt ? Date.parse(payload.payload.stoppedAt) / 1000 : null;
+      if (!createdAt || !stoppedAt) continue;
+
+      const date = new Date(createdAt * 1000).toISOString().slice(0, 10);
+      const commitMsg = payload?.payload?.buildTriggerMetadata?.commitMessage || null;
+      const key = `${date}::${workerName}`;
+
+      if (!byDayWorker.has(key)) {
+        byDayWorker.set(key, { start: createdAt, end: stoppedAt, commits: [], count: 0, worker: workerName, date });
+      }
+      const entry = byDayWorker.get(key);
+      if (createdAt < entry.start) entry.start = createdAt;
+      if (stoppedAt > entry.end) entry.end = stoppedAt;
+      entry.count += 1;
+      if (commitMsg && !entry.commits.includes(commitMsg)) entry.commits.push(commitMsg);
+    }
+
+    const days = [...byDayWorker.values()]
+      .map((e) => ({
+        date: e.date,
+        worker: e.worker,
+        session_start: new Date(e.start * 1000).toISOString(),
+        session_end: new Date(e.end * 1000).toISOString(),
+        session_minutes: Math.max(1, Math.round((e.end - e.start) / 60)),
+        build_count: e.count,
+        commits: e.commits.slice(0, 20),
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    // Roll up per-worker totals
+    /** @type {Record<string, { total_minutes: number, active_days: number, last_active: string }>} */
+    const byWorker = {};
+    for (const d of days) {
+      if (!byWorker[d.worker]) byWorker[d.worker] = { total_minutes: 0, active_days: 0, last_active: '' };
+      byWorker[d.worker].total_minutes += d.session_minutes;
+      byWorker[d.worker].active_days += 1;
+      if (!byWorker[d.worker].last_active || d.date > byWorker[d.worker].last_active) {
+        byWorker[d.worker].last_active = d.date;
+      }
+    }
+
+    return projectsJsonResponse({ ok: true, days, by_worker: byWorker, lookback_days: daysParam }, 200, 'private, max-age=60');
+  } catch (e) {
+    return jsonResponse({ ok: false, error: String(e?.message || e) }, 500);
+  }
+}
+
+/**
  * @param {Request} request
  * @param {URL} url
  * @param {any} env
