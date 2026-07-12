@@ -181,6 +181,16 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
     if (initialProjectId) setSelectedId(initialProjectId);
   }, [initialProjectId]);
 
+  useEffect(() => {
+    if (deployFetched.current) return;
+    deployFetched.current = true;
+    fetchDeployActivity(30).then((data) => {
+      if (data?.ok && data.days?.length) {
+        setWorkerDayMap(buildWorkerDayMap(data.days));
+      }
+    });
+  }, []);
+
   const activeProjects = useMemo(
     () =>
       projects.filter((p) => {
