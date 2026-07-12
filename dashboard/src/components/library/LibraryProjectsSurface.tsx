@@ -98,6 +98,32 @@ function mergeOverviewProjects(fast: OverviewProject[], rich: OverviewProject[])
   return out;
 }
 
+function WeeklyDeployBars({ bars, accentColor }: { bars: { label: string; mins: number }[]; accentColor: string }) {
+  const max = Math.max(...bars.map((b) => b.mins), 1);
+  const todayIdx = new Date().getDay();
+  // Sunday=0, we built bars oldest→newest so today is index 6
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 28, flex: 1 }}>
+      {bars.map((b, i) => {
+        const isToday = i === 6;
+        const h = b.mins > 0 ? Math.max(4, Math.round((b.mins / max) * 22)) : 2;
+        return (
+          <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flex: 1 }} title={b.mins > 0 ? `${b.label}: ${b.mins}m` : b.label}>
+            <div style={{
+              width: '100%',
+              height: h,
+              borderRadius: 2,
+              background: isToday && b.mins > 0 ? accentColor : b.mins > 0 ? `${accentColor}66` : 'rgba(0,0,0,0.08)',
+              transition: 'height 0.4s ease',
+            }} />
+            <span style={{ fontSize: 7, color: isToday ? accentColor : 'rgba(0,0,0,0.35)', fontVariantNumeric: 'tabular-nums' }}>{b.label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectChange }: Props) {
   const { workspaceId, canonicalWorkspaceId, workspaces, loading: workspaceLoading } = useWorkspace();
   const effectiveWorkspaceId = workspaceId || canonicalWorkspaceId;
