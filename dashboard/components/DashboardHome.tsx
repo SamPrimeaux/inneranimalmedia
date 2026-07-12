@@ -491,6 +491,16 @@ export function DashboardHome() {
           onConnected={() => void refreshConnectTiles()}
         />
 
+        <section className="iam-home-section" aria-labelledby="ai-spend-title">
+          <div className="iam-section-head">
+            <div>
+              <h2 id="ai-spend-title">AI spend</h2>
+              <p>Month-to-date · tap any tile to expand</p>
+            </div>
+          </div>
+          <CostKpiTiles />
+        </section>
+
         <section className="iam-home-section" aria-labelledby="recent-title">
           <div className="iam-section-head">
             <div>
