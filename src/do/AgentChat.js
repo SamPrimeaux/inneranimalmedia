@@ -988,7 +988,12 @@ export class AgentChatSqlV1 extends DurableObject {
     }
     this.ptSessionTenantId = (url.searchParams.get("tenant_id") || "").trim();
     this.ptPersonUuid = (url.searchParams.get("person_uuid") || "").trim();
+    this.terminalShellOverride = normalizeShellOverride(url.searchParams.get("shell"));
+    this.requestedTargetType = (url.searchParams.get("target_type") || "platform_vm").trim();
+    this.requestedConnectionId = (url.searchParams.get("connection_id") || "").trim();
+    this.selectedTargetType = this.requestedTargetType || "platform_vm";
     await this.ensureWorkspaceSettingsLoaded(workspaceId, { allowPlatformFallback: false });
+    await this.persistPtySessionContext();
 
     let tenantForRow = await this.resolvePtyTenantForSession(this.ptSessionUserId);
     tenantForRow = tenantForRow != null ? String(tenantForRow).trim() : "";
@@ -998,6 +1003,7 @@ export class AgentChatSqlV1 extends DurableObject {
         headers: { "Content-Type": "application/json" },
       });
     }
+    this.ptSessionTenantId = tenantForRow;
     const tokRes = await assertWorkspaceTokenForPty(this.env, workspaceId, tenantForRow);
     if (!tokRes.ok) {
       return new Response(JSON.stringify({ error: "no active workspace token", message: "no active workspace token" }), {
@@ -1024,11 +1030,7 @@ export class AgentChatSqlV1 extends DurableObject {
     }
 
     await this.applyPtyWorkingDir(tenantForRow, this.ptSessionUserId, this.selectedTerminalConnection);
-
-    this.terminalShellOverride = normalizeShellOverride(url.searchParams.get("shell"));
-    this.requestedTargetType = (url.searchParams.get("target_type") || "platform_vm").trim();
-    this.requestedConnectionId = (url.searchParams.get("connection_id") || "").trim();
-    this.selectedTargetType = this.requestedTargetType || "platform_vm";
+    await this.persistPtySessionContext();
 
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
@@ -1059,10 +1061,14 @@ export class AgentChatSqlV1 extends DurableObject {
 
     this.sendStateToWebSocket(server, "connecting");
     try {
-      await this.ensureModeReady(executionMode);
+      await this.ensureModeReady(executionMode, {
+        workspaceId,
+        userId: this.ptSessionUserId,
+        targetType: this.requestedTargetType,
+      });
       if (executionMode === "pty" && this.env?.DB) {
         const doId = this.ctx.id.toString();
-        const wid = String(this.workspaceId || "").trim();
+        const wid = String(this.workspaceId || workspaceId || "").trim();
         let personUuid = personForRow;
         const tid = tenantForRow ? String(tenantForRow).trim() : null;
         if (!tid) throw new Error("PTY tenant_id missing");
@@ -1080,13 +1086,15 @@ export class AgentChatSqlV1 extends DurableObject {
             .run()
             .catch(() => {});
         }
-        await this.env.DB.prepare(
-          `INSERT INTO agentsam_workspace_state (workspace_id, agent_session_id, workspace_type, updated_at)
-           VALUES (?, ?, 'ide', unixepoch())
-           ON CONFLICT(workspace_id) DO UPDATE SET
-             agent_session_id = excluded.agent_session_id,
-             updated_at = excluded.updated_at`,
-        ).bind(this.workspaceId, doId).run().catch(() => {});
+        if (wid) {
+          await this.env.DB.prepare(
+            `INSERT INTO agentsam_workspace_state (workspace_id, agent_session_id, workspace_type, updated_at)
+             VALUES (?, ?, 'ide', unixepoch())
+             ON CONFLICT(workspace_id) DO UPDATE SET
+               agent_session_id = excluded.agent_session_id,
+               updated_at = excluded.updated_at`,
+          ).bind(wid, doId).run().catch(() => {});
+        }
       }
       this.sendStateToWebSocket(server, "connected");
       void this.insertTerminalHistoryRow("system", "terminal session opened", { triggeredBy: "system" });
@@ -1400,8 +1408,8 @@ export class AgentChatSqlV1 extends DurableObject {
     }
   }
 
-  async ensureModeReady(mode) {
-    if (mode === "pty") await this.ensurePtyConnected();
+  async ensureModeReady(mode, opts = {}) {
+    if (mode === "pty") await this.ensurePtyConnected(opts);
     if (mode === "ssh") {
       if (parseSshTargets(this.env).length === 0) throw new Error("SSH targets are not configured");
     }
@@ -1411,7 +1419,71 @@ export class AgentChatSqlV1 extends DurableObject {
     }
   }
 
-  async ensurePtyConnected() {
+  /**
+   * Persist PTY routing context across Durable Object hibernation.
+   * In-memory fields are cleared on wake; without this, keystrokes hit connectPty with empty workspace_id.
+   */
+  async persistPtySessionContext() {
+    try {
+      await this.ctx.storage.put("pty_session_ctx", {
+        workspaceId: String(this.workspaceId || "").trim(),
+        userId: String(this.ptSessionUserId || "").trim(),
+        tenantId: String(this.ptSessionTenantId || "").trim(),
+        personUuid: String(this.ptPersonUuid || "").trim(),
+        targetType: String(this.requestedTargetType || this.selectedTargetType || "").trim(),
+        connectionId: String(this.requestedConnectionId || "").trim(),
+        shell: String(this.terminalShellOverride || "").trim(),
+        updatedAt: Date.now(),
+      });
+    } catch (_) {}
+  }
+
+  async restorePtySessionContext() {
+    try {
+      const ctx = await this.ctx.storage.get("pty_session_ctx");
+      if (!ctx || typeof ctx !== "object") return;
+      if (!String(this.workspaceId || "").trim() && ctx.workspaceId) {
+        this.workspaceId = String(ctx.workspaceId).trim();
+      }
+      if (!String(this.ptSessionUserId || "").trim() && ctx.userId) {
+        this.ptSessionUserId = String(ctx.userId).trim();
+      }
+      if (!String(this.ptSessionTenantId || "").trim() && ctx.tenantId) {
+        this.ptSessionTenantId = String(ctx.tenantId).trim();
+      }
+      if (!String(this.ptPersonUuid || "").trim() && ctx.personUuid) {
+        this.ptPersonUuid = String(ctx.personUuid).trim();
+      }
+      if (ctx.targetType && (!this.requestedTargetType || this.requestedTargetType === "platform_vm")) {
+        this.requestedTargetType = String(ctx.targetType).trim();
+        this.selectedTargetType = this.requestedTargetType;
+      }
+      if (ctx.connectionId && !String(this.requestedConnectionId || "").trim()) {
+        this.requestedConnectionId = String(ctx.connectionId).trim();
+      }
+      if (ctx.shell && !String(this.terminalShellOverride || "").trim()) {
+        this.terminalShellOverride = String(ctx.shell).trim();
+      }
+    } catch (_) {}
+  }
+
+  async ensurePtyConnected(opts = {}) {
+    if (opts?.workspaceId) {
+      const w = String(opts.workspaceId).trim();
+      if (w) this.workspaceId = w;
+    }
+    if (opts?.userId) {
+      const u = String(opts.userId).trim();
+      if (u) this.ptSessionUserId = u;
+    }
+    if (opts?.targetType) {
+      const t = String(opts.targetType).trim();
+      if (t) {
+        this.requestedTargetType = t;
+        this.selectedTargetType = t;
+      }
+    }
+    await this.restorePtySessionContext();
     if (this.ptyWs && this.ptyWs.readyState === 1) return;
     if (this.ptyConnectPromise) return this.ptyConnectPromise;
     this.ptyConnectPromise = this.connectPty().finally(() => {
@@ -1421,6 +1493,7 @@ export class AgentChatSqlV1 extends DurableObject {
   }
 
   async connectPty() {
+    await this.restorePtySessionContext();
     const wid = String(this.workspaceId || "").trim();
     if (!wid) throw new Error("PTY workspace_id missing");
     const uid = String(this.ptSessionUserId || "").trim();
@@ -1428,6 +1501,8 @@ export class AgentChatSqlV1 extends DurableObject {
     let tid = await this.resolvePtyTenantForSession(uid);
     tid = tid != null ? String(tid).trim() : "";
     if (!tid) throw new Error("PTY tenant_id missing");
+    this.ptSessionTenantId = tid;
+    await this.persistPtySessionContext();
 
     let conn = null;
     if (this.env?.DB) {
@@ -1450,7 +1525,7 @@ export class AgentChatSqlV1 extends DurableObject {
     }
 
     const targetType = String(
-      conn?.target_type || this.selectedTargetType || this.requestedTargetType || "platform_vm",
+      this.requestedTargetType || this.selectedTargetType || conn?.target_type || "platform_vm",
     ).trim();
 
     if (targetType === "ssh_target") throw new Error("ssh_target_not_enabled");

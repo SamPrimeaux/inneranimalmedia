@@ -150,6 +150,31 @@ async function fetchOAuthRow(env, userId, provider, accountIdentifier) {
 }
 
 /**
+ * Refresh Cloudflare OAuth access token (requires refresh_token from offline_access grant).
+ * @returns {Promise<object|null>}
+ */
+export async function refreshCloudflareAccessToken(env, refreshToken) {
+  if (!env?.CLOUDFLARE_OAUTH_CLIENT_ID || !env?.CLOUDFLARE_OAUTH_CLIENT_SECRET || !refreshToken) {
+    return null;
+  }
+  const basic = btoa(`${env.CLOUDFLARE_OAUTH_CLIENT_ID}:${env.CLOUDFLARE_OAUTH_CLIENT_SECRET}`);
+  const res = await fetch('https://dash.cloudflare.com/oauth2/token', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      Authorization: `Basic ${basic}`,
+    },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: String(refreshToken),
+    }).toString(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.access_token) return null;
+  return data;
+}
+
+/**
  * Persist refreshed Google access token to D1 (access_token, access_token_encrypted, expires_at).
  * @returns {Promise<string|null>} New access token or null on failure.
  */
@@ -235,6 +260,63 @@ export async function getIntegrationOAuthRow(env, userId, provider, accountIdent
   if (isExpired && isGoogleOAuthRefreshProvider(prov) && refreshToken) {
     const newAccess = await refreshGoogleToken(env, userId, prov, refreshToken, row);
     if (newAccess) accessToken = newAccess;
+  }
+
+  // Cloudflare OAuth (~24h access) — refresh when offline_access issued a refresh_token.
+  const needsCfRefresh =
+    prov === 'cloudflare' &&
+    refreshToken &&
+    (isExpired || (exp != null && Number.isFinite(exp) && exp <= now + 300));
+  if (needsCfRefresh) {
+    try {
+      const tok = await refreshCloudflareAccessToken(env, refreshToken);
+      if (tok?.access_token) {
+        accessToken = tok.access_token;
+        const newExpiry = now + (Number(tok.expires_in) || 3600);
+        const nextRefresh = tok.refresh_token || refreshToken;
+        const cols2 = await pragmaColumns(env.DB, 'user_oauth_tokens');
+        let encrypted = null;
+        if (cols2.has('access_token_encrypted') && isVaultConfigured(env)) {
+          encrypted = await encryptWithVault(env, accessToken).catch(() => null);
+        }
+        let refreshEncrypted = null;
+        if (cols2.has('refresh_token_encrypted') && isVaultConfigured(env) && nextRefresh) {
+          refreshEncrypted = await encryptWithVault(env, nextRefresh).catch(() => null);
+        }
+        const sets = [];
+        const binds = [];
+        if (cols2.has('access_token')) {
+          sets.push('access_token = ?');
+          binds.push(accessToken);
+        }
+        if (cols2.has('access_token_encrypted')) {
+          sets.push('access_token_encrypted = ?');
+          binds.push(encrypted);
+        }
+        if (cols2.has('refresh_token') && nextRefresh) {
+          sets.push('refresh_token = ?');
+          binds.push(nextRefresh);
+        }
+        if (cols2.has('refresh_token_encrypted') && refreshEncrypted) {
+          sets.push('refresh_token_encrypted = ?');
+          binds.push(refreshEncrypted);
+        }
+        sets.push('expires_at = ?');
+        binds.push(newExpiry);
+        if (cols2.has('updated_at')) sets.push('updated_at = unixepoch()');
+        const accountId = row?.account_identifier != null ? String(row.account_identifier) : '';
+        binds.push(String(canonicalUserId), 'cloudflare', accountId);
+        await env.DB.prepare(
+          `UPDATE user_oauth_tokens SET ${sets.join(', ')}
+           WHERE user_id = ? AND provider = ? AND account_identifier = ?`,
+        )
+          .bind(...binds)
+          .run();
+        refreshToken = nextRefresh;
+      }
+    } catch (e) {
+      console.warn('[oauth] cloudflare refresh failed', e?.message || e);
+    }
   }
 
   return {
