@@ -792,32 +792,89 @@ export async function rollupOtlpTracesDaily(env) {
 }
 
 export async function runAgentsamMemoryDecay(env) {
-  if (!env?.DB) return;
-  try {
-    const r1 = await env.DB.prepare(
-      `UPDATE agentsam_memory
-       SET decay_score = MAX(0, decay_score - 0.1),
-           updated_at = unixepoch()
-       WHERE (
-           (last_recalled_at IS NOT NULL AND last_recalled_at < unixepoch('now', '-14 days'))
-           OR (last_recalled_at IS NULL AND created_at < unixepoch('now', '-14 days'))
-         )`,
-    ).run();
-    const n1 = r1.meta?.changes ?? r1.changes ?? 0;
-    if (n1 > 0) console.log('[cron] agentsam_memory decay_score adjusted:', n1);
+  let d1Changes = 0;
+  let pgChanges = 0;
 
-    const r2 = await env.DB.prepare(
-      `UPDATE agentsam_memory
-       SET expires_at = unixepoch('now', '+7 days'),
-           updated_at = unixepoch()
-       WHERE decay_score <= 0
-         AND expires_at IS NULL`,
-    ).run();
-    const n2 = r2.meta?.changes ?? r2.changes ?? 0;
-    if (n2 > 0) console.log('[cron] agentsam_memory expires_at set for decayed rows:', n2);
-  } catch (e) {
-    console.warn('[cron] agentsam_memory decay failed', e?.message ?? e);
+  if (env?.DB) {
+    try {
+      const r1 = await env.DB.prepare(
+        `UPDATE agentsam_memory
+         SET decay_score = MAX(0, decay_score - 0.1),
+             updated_at = unixepoch()
+         WHERE COALESCE(is_pinned, 0) = 0
+           AND (
+             (last_recalled_at IS NOT NULL AND last_recalled_at < unixepoch('now', '-14 days'))
+             OR (last_recalled_at IS NULL AND created_at < unixepoch('now', '-14 days'))
+           )`,
+      ).run();
+      const n1 = r1.meta?.changes ?? r1.changes ?? 0;
+      d1Changes += n1;
+      if (n1 > 0) console.log('[cron] agentsam_memory decay_score adjusted:', n1);
+
+      const r2 = await env.DB.prepare(
+        `UPDATE agentsam_memory
+         SET expires_at = unixepoch('now', '+7 days'),
+             updated_at = unixepoch()
+         WHERE decay_score <= 0
+           AND expires_at IS NULL
+           AND COALESCE(is_pinned, 0) = 0`,
+      ).run();
+      const n2 = r2.meta?.changes ?? r2.changes ?? 0;
+      d1Changes += n2;
+      if (n2 > 0) console.log('[cron] agentsam_memory expires_at set for decayed rows:', n2);
+    } catch (e) {
+      console.warn('[cron] agentsam_memory D1 decay failed', e?.message ?? e);
+    }
   }
+
+  // Canonical scored memory lives in Supabase — age confidence/importance for non-pinned rows.
+  try {
+    const { isHyperdriveUsable, runHyperdriveQuery } = await import('./hyperdrive-query.js');
+    if (isHyperdriveUsable(env)) {
+      const conf = await runHyperdriveQuery(
+        env,
+        `UPDATE agentsam.agentsam_memory
+         SET confidence = GREATEST(0.05, confidence - 0.05),
+             importance = CASE
+               WHEN is_pinned = true THEN importance
+               ELSE GREATEST(1, importance - 1)
+             END,
+             updated_at = now()
+         WHERE is_archived = false
+           AND is_pinned = false
+           AND updated_at < now() - interval '14 days'
+           AND (expires_at IS NULL OR expires_at > now())`,
+        [],
+      );
+      if (conf.ok) {
+        pgChanges = Number(conf.rowCount ?? conf.rows?.length ?? 0) || 0;
+        if (pgChanges > 0) console.log('[cron] agentsam.agentsam_memory decayed:', pgChanges);
+      } else {
+        console.warn('[cron] pg memory decay failed', conf.error);
+      }
+
+      // Soft-archive very stale low-value facts (not pinned, confidence bottomed out).
+      await runHyperdriveQuery(
+        env,
+        `UPDATE agentsam.agentsam_memory
+         SET is_archived = true, updated_at = now()
+         WHERE is_archived = false
+           AND is_pinned = false
+           AND confidence <= 0.1
+           AND importance <= 3
+           AND updated_at < now() - interval '45 days'`,
+        [],
+      );
+    }
+  } catch (e) {
+    console.warn('[cron] supabase memory decay failed', e?.message ?? e);
+  }
+
+  return {
+    rowsRead: 0,
+    rowsWritten: d1Changes + pgChanges,
+    metadata: { d1_changes: d1Changes, pg_changes: pgChanges },
+  };
 }
 
 /** Upsert a row; mirrors to private agentsam.agentsam_memory when Hyperdrive is available. */

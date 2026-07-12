@@ -1636,17 +1636,27 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
             );
           })}
           {!filteredTables.length && (
-            <p className="p-4 text-center font-mono text-[11px] text-muted">
-              {!pageReady
-                ? 'Loading tables…'
-                : d1LoadError
-                  ? d1LoadError
-                  : loadingTables
-                    ? 'Loading tables…'
-                    : sidebarEmptyMuted
-                      ? '—'
-                      : 'No tables match'}
-            </p>
+            <div className="p-4 text-center font-mono text-[11px] text-muted">
+              <p>
+                {!pageReady
+                  ? 'Loading tables…'
+                  : d1LoadError
+                    ? d1LoadError
+                    : loadingTables
+                      ? 'Loading tables…'
+                      : sidebarEmptyMuted
+                        ? '—'
+                        : 'No tables match'}
+              </p>
+              {d1OnboardingRequired ? (
+                <a
+                  href={`/api/oauth/cloudflare/start?return_to=${encodeURIComponent('/dashboard/database?studio=1')}`}
+                  className="mt-3 inline-flex items-center justify-center rounded-lg border border-[color-mix(in_srgb,var(--solar-cyan)_40%,transparent)] bg-[color-mix(in_srgb,var(--solar-cyan)_12%,transparent)] px-3 py-2 text-[11px] font-bold text-[var(--solar-cyan)] no-underline"
+                >
+                  Connect Cloudflare (official OAuth)
+                </a>
+              ) : null}
+            </div>
           )}
         </div>
       </aside>

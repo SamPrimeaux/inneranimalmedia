@@ -2680,42 +2680,7 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         }
       }
 
-      // Delivery queue visibility (email/system outbox) — not the inbox, but useful for missed digests.
-      if (tenantId) {
-        try {
-          const outQ = await env.DB.prepare(
-            `SELECT id, channel, to_address, subject, body_text, status, event_type, created_at
-             FROM notification_outbox
-             WHERE tenant_id = ?
-             ORDER BY created_at DESC
-             LIMIT 12`,
-          ).bind(tenantId).all();
-          for (const r of outQ.results || []) {
-            const ts = toUnixSeconds(r.created_at);
-            const title =
-              r.subject != null && String(r.subject).trim()
-                ? String(r.subject).trim()
-                : `Outbox ${r.channel || 'message'}`;
-            normalized.push({
-              id: `outbox:${r.id}`,
-              type: 'outbox',
-              channel: r.channel ?? null,
-              title,
-              message:
-                (r.body_text != null ? String(r.body_text).slice(0, 240) : '') ||
-                `${r.status || 'pending'} · ${r.to_address || '—'}`,
-              created_at: ts,
-              read: String(r.status || '') === 'sent',
-              status: r.status ?? null,
-              meta: r,
-              subject: title,
-              href: '/dashboard/settings/notifications',
-            });
-          }
-        } catch {
-          /* outbox optional */
-        }
-      }
+      // Delivery queue lives on /dashboard/mail → Outbound (notification_outbox).
 
       for (const r of deployRows) {
         const worker = r.worker_name != null ? String(r.worker_name) : 'worker';

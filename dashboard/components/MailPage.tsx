@@ -18,7 +18,7 @@ import {
   Archive, Bot, ChevronLeft, ChevronRight, Circle, Clock,
   Forward, Inbox, Mail, Paperclip, Plus, RefreshCw, Reply,
   Search, Send, Settings, Star, Tag, Trash2, X,
-  CheckCircle, AlertTriangle, Filter, MoreHorizontal,
+  Bell,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -43,6 +43,14 @@ interface Email {
   category?: string;
   has_attachments: number;
   account?: string;
+  _outbox?: {
+    status?: string | null;
+    event_type?: string | null;
+    attempts?: number | null;
+    max_attempts?: number | null;
+    last_error?: string | null;
+    body_text?: string | null;
+  };
 }
 
 interface EmailDetail {
@@ -63,7 +71,7 @@ interface ComposeState {
   thread_id: string;
 }
 
-type Folder = 'inbox' | 'starred' | 'archived' | 'sent' | 'templates';
+type Folder = 'inbox' | 'starred' | 'archived' | 'sent' | 'outbound' | 'templates';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -202,6 +210,7 @@ function SidebarContent({
     { id: 'inbox', label: 'Inbox', icon: <Inbox size={14} /> },
     { id: 'starred', label: 'Starred', icon: <Star size={14} /> },
     { id: 'sent', label: 'Sent', icon: <Send size={14} /> },
+    { id: 'outbound', label: 'Outbound', icon: <Bell size={14} /> },
     { id: 'archived', label: 'Archived', icon: <Archive size={14} /> },
   ];
 
@@ -301,8 +310,11 @@ export function MailPage() {
   const [listPage, setListPage] = useState(1);
   const [listTotal, setListTotal] = useState(0);
   const [listPageSize, setListPageSize] = useState(50);
-  const [listSource, setListSource] = useState<'gmail' | 'd1' | ''>('');
+  const [listSource, setListSource] = useState<'gmail' | 'd1' | 'outbox' | ''>('');
   const [gmailPageTokens, setGmailPageTokens] = useState<Record<number, string>>({});
+  const gmailPageTokensRef = useRef<Record<number, string>>({});
+  const listSourceRef = useRef<'gmail' | 'd1' | 'outbox' | ''>('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   // Compose
   const [composing, setComposing] = useState(false);
@@ -420,15 +432,22 @@ export function MailPage() {
   const loadEmails = useCallback(async () => {
     setLoadingList(true);
     try {
-      const endpoint = folder === 'sent' ? '/api/mail/sent' : `/api/mail/${folder}`;
+      const endpoint =
+        folder === 'sent'
+          ? '/api/mail/sent'
+          : folder === 'outbound'
+            ? '/api/mail/outbound'
+            : `/api/mail/${folder}`;
       const params = new URLSearchParams();
-      if (activeAccount && activeAccount !== 'all' && activeAccount !== 'platform') {
+      if (folder !== 'outbound' && activeAccount && activeAccount !== 'all' && activeAccount !== 'platform') {
         const acctVal = activeAccount.startsWith('gmail:') ? activeAccount.slice(6) : activeAccount;
         if (acctVal) params.set('account', acctVal);
       }
-      if (listPage > 1 && gmailPageTokens[listPage]) {
-        params.set('page_token', gmailPageTokens[listPage]);
-      } else if (listPage > 1 && listSource !== 'gmail') {
+      const tokens = gmailPageTokensRef.current;
+      const src = listSourceRef.current;
+      if (listPage > 1 && tokens[listPage]) {
+        params.set('page_token', tokens[listPage]);
+      } else if (listPage > 1 && src !== 'gmail' && folder !== 'outbound') {
         params.set('page', String(listPage));
       }
       const url = params.toString() ? `${endpoint}?${params}` : endpoint;
@@ -442,53 +461,108 @@ export function MailPage() {
       setEmails(list);
       setListTotal(data.total ?? list.length);
       setListPageSize(data.page_size ?? 50);
-      setListSource(data.source === 'gmail' ? 'gmail' : 'd1');
+      const nextSource = data.source === 'gmail' ? 'gmail' : data.source === 'outbox' ? 'outbox' : 'd1';
+      listSourceRef.current = nextSource;
+      setListSource(nextSource);
       if (data.next_page_token) {
-        setGmailPageTokens((prev) => ({ ...prev, [listPage + 1]: data.next_page_token }));
+        setGmailPageTokens((prev) => {
+          if (prev[listPage + 1] === data.next_page_token) return prev;
+          const next = { ...prev, [listPage + 1]: data.next_page_token };
+          gmailPageTokensRef.current = next;
+          return next;
+        });
       }
-      setStats(s => ({ ...s, total: data.total ?? list.length, unread: data.unread_count ?? s.unread }));
-    } catch { setEmails([]); }
-    finally { setLoadingList(false); }
-  }, [folder, activeAccount, listPage, gmailPageTokens, listSource]);
+      setStats((s) => ({ ...s, total: data.total ?? list.length, unread: data.unread_count ?? s.unread }));
+    } catch {
+      setEmails([]);
+    } finally {
+      setLoadingList(false);
+    }
+  }, [folder, activeAccount, listPage]);
 
   const loadStats = useCallback(async () => {
+    if (folder === 'outbound') return;
     try {
       const res = await fetch(`/api/mail/stats${accountQuery(activeAccount)}`, { credentials: 'same-origin' });
-      if (res.ok) { const d = await res.json(); setStats({ total: d.total, unread: d.unread, starred: d.starred }); }
-    } catch { /* skip */ }
-  }, [activeAccount]);
+      if (res.ok) {
+        const d = await res.json();
+        setStats({ total: d.total, unread: d.unread, starred: d.starred });
+      }
+    } catch {
+      /* skip */
+    }
+  }, [activeAccount, folder]);
 
-  useEffect(() => { loadAccounts(); }, [loadAccounts]);
+  useEffect(() => {
+    loadAccounts();
+  }, [loadAccounts]);
   useEffect(() => {
     setListPage(1);
     setGmailPageTokens({});
+    gmailPageTokensRef.current = {};
     setListSource('');
+    listSourceRef.current = '';
+    setSelectedIds(new Set());
   }, [folder, activeAccount]);
-  useEffect(() => { loadEmails(); loadStats(); setSelected(null); setDetail(null); }, [folder, activeAccount, listPage, loadEmails, loadStats]);
+  // Clear open pane only when the list context changes — not when loadEmails identity churns.
+  useEffect(() => {
+    setSelected(null);
+    setDetail(null);
+    setSelectedIds(new Set());
+  }, [folder, activeAccount, listPage]);
+  useEffect(() => {
+    void loadEmails();
+    void loadStats();
+  }, [loadEmails, loadStats]);
 
   // ── Load email detail ──────────────────────────────────────────────────────
-  const openEmail = useCallback(async (email: Email) => {
-    setSelected(email);
-    setDetail(null);
-    setLoadingDetail(true);
-    try {
-      const acctQs = email.account ? `?account=${encodeURIComponent(email.account)}` : accountQuery(activeAccount);
-      const res = await fetch(`/api/mail/email/${encodeURIComponent(email.id)}${acctQs}`, { credentials: 'same-origin' });
-      if (!res.ok) throw new Error(`${res.status}`);
-      const d = await res.json();
-      setDetail(d);
-      if (!email.is_read) {
-        setEmails(prev => prev.map(e => e.id === email.id ? { ...e, is_read: 1 } : e));
-        const patchAcct = email.account || (activeAccount !== 'all' ? activeAccount.replace(/^gmail:/, '') : '');
-        fetch(`/api/mail/email/${encodeURIComponent(email.id)}`, {
-          method: 'PATCH', credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ is_read: 1, ...(patchAcct ? { account: patchAcct } : {}) }),
-        }).catch(() => {});
+  const openEmail = useCallback(
+    async (email: Email) => {
+      setSelected(email);
+      setDetail(null);
+      setLoadingDetail(true);
+      try {
+        if (folder === 'outbound' || email.account === 'outbound') {
+          const body =
+            email._outbox?.body_text ||
+            [
+              `Status: ${email._outbox?.status || '—'}`,
+              `To: ${email.to_address || '—'}`,
+              `Channel: ${email.category || '—'}`,
+              email._outbox?.event_type ? `Event: ${email._outbox.event_type}` : null,
+              email._outbox?.last_error ? `Error: ${email._outbox.last_error}` : null,
+            ]
+              .filter(Boolean)
+              .join('\n');
+          setDetail({ email, body, attachments: [], thread: [] });
+          return;
+        }
+        const acctQs = email.account ? `?account=${encodeURIComponent(email.account)}` : accountQuery(activeAccount);
+        const res = await fetch(`/api/mail/email/${encodeURIComponent(email.id)}${acctQs}`, {
+          credentials: 'same-origin',
+        });
+        if (!res.ok) throw new Error(`${res.status}`);
+        const d = await res.json();
+        setDetail(d);
+        if (!email.is_read) {
+          setEmails((prev) => prev.map((e) => (e.id === email.id ? { ...e, is_read: 1 } : e)));
+          const patchAcct =
+            email.account || (activeAccount !== 'all' ? activeAccount.replace(/^gmail:/, '') : '');
+          fetch(`/api/mail/email/${encodeURIComponent(email.id)}`, {
+            method: 'PATCH',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_read: 1, ...(patchAcct ? { account: patchAcct } : {}) }),
+          }).catch(() => {});
+        }
+      } catch {
+        /* show empty detail */
+      } finally {
+        setLoadingDetail(false);
       }
-    } catch { /* show error in detail */ }
-    finally { setLoadingDetail(false); }
-  }, [activeAccount]);
+    },
+    [activeAccount, folder],
+  );
 
   // ── CRUD ops ───────────────────────────────────────────────────────────────
   const patchEmail = useCallback(async (id: string, patch: Partial<Email>, account?: string) => {
@@ -503,23 +577,26 @@ export function MailPage() {
   }, [selected]);
 
   const archiveEmail = useCallback(async (email: Email) => {
+    if (folder === 'outbound' || email.account === 'outbound') return;
     await patchEmail(email.id, { is_archived: 1 }, email.account);
     setEmails(prev => prev.filter(e => e.id !== email.id));
     if (selected?.id === email.id) { setSelected(null); setDetail(null); }
-  }, [patchEmail, selected]);
+  }, [patchEmail, selected, folder]);
 
   const deleteEmail = useCallback(async (email: Email) => {
+    if (folder === 'outbound' || email.account === 'outbound') return;
     const acctQs = email.account
       ? `?account=${encodeURIComponent(email.account)}`
       : accountQuery(activeAccount);
     await fetch(`/api/mail/email/${encodeURIComponent(email.id)}${acctQs}`, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {});
     setEmails(prev => prev.filter(e => e.id !== email.id));
     if (selected?.id === email.id) { setSelected(null); setDetail(null); }
-  }, [selected, activeAccount]);
+  }, [selected, activeAccount, folder]);
 
   const toggleStar = useCallback((email: Email) => {
+    if (folder === 'outbound') return;
     patchEmail(email.id, { is_starred: email.is_starred ? 0 : 1 }, email.account);
-  }, [patchEmail]);
+  }, [patchEmail, folder]);
 
   // ── Send ───────────────────────────────────────────────────────────────────
   const sendEmail = useCallback(async () => {
@@ -603,6 +680,39 @@ export function MailPage() {
     ) : emails;
   }, [emails, search]);
 
+  const toggleSelectId = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectAllFiltered = useCallback(() => {
+    setSelectedIds(new Set(filtered.map((e) => e.id)));
+  }, [filtered]);
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  const bulkArchive = useCallback(async () => {
+    if (folder === 'outbound' || selectedIds.size === 0) return;
+    const targets = emails.filter((e) => selectedIds.has(e.id));
+    for (const email of targets) {
+      await archiveEmail(email);
+    }
+    setSelectedIds(new Set());
+  }, [folder, selectedIds, emails, archiveEmail]);
+
+  const bulkDelete = useCallback(async () => {
+    if (folder === 'outbound' || selectedIds.size === 0) return;
+    const targets = emails.filter((e) => selectedIds.has(e.id));
+    for (const email of targets) {
+      await deleteEmail(email);
+    }
+    setSelectedIds(new Set());
+  }, [folder, selectedIds, emails, deleteEmail]);
+
   const sidebarProps = {
     accounts, activeAccount, setActiveAccount,
     folder, setFolder, stats,
@@ -646,7 +756,34 @@ export function MailPage() {
         <>
         {/* Toolbar */}
         <div className="mail-list-toolbar" style={{ height: 48, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
-          <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: 0.1, textTransform: 'capitalize' }}>{folder}</span>
+          <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: 0.1, textTransform: 'capitalize' }}>
+            {folder === 'outbound' ? 'Outbound' : folder}
+          </span>
+          {folder !== 'outbound' ? (
+            <>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text-muted)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                  onChange={(e) => (e.target.checked ? selectAllFiltered() : clearSelection())}
+                />
+                All
+              </label>
+              {selectedIds.size > 0 ? (
+                <>
+                  <Btn onClick={() => void bulkArchive()} small title="Archive selected">
+                    <Archive size={12} />Archive ({selectedIds.size})
+                  </Btn>
+                  <Btn onClick={() => void bulkDelete()} small danger title="Delete selected">
+                    <Trash2 size={12} />Delete
+                  </Btn>
+                  <Btn onClick={clearSelection} small>Clear</Btn>
+                </>
+              ) : null}
+            </>
+          ) : (
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Platform digests & system email queue</span>
+          )}
           <Btn onClick={handleMailAgent} small title="Open mail assistant in Agent Sam"><Bot size={12} />Triage</Btn>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <button
@@ -686,7 +823,17 @@ export function MailPage() {
             <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No messages</div>
           )}
           {filtered.map(email => (
-            <div key={email.id} onClick={() => openEmail(email)} className={`mail-list-row${selected?.id === email.id ? ' is-selected' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer', transition: 'background 0.1s' }}>
+            <div key={email.id} onClick={() => openEmail(email)} className={`mail-list-row${selected?.id === email.id ? ' is-selected' : ''}${selectedIds.has(email.id) ? ' is-checked' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer', transition: 'background 0.1s' }}>
+              {folder !== 'outbound' ? (
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(email.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={() => toggleSelectId(email.id)}
+                  title="Select"
+                  style={{ flexShrink: 0 }}
+                />
+              ) : null}
               {/* Avatar */}
               <div style={{ width: 34, height: 34, borderRadius: 99, background: avatarColor(email.from_address), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: '#000', flexShrink: 0 }}>
                 {initials(email.from_address)}

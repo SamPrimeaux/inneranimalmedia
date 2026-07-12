@@ -100,6 +100,13 @@ function scheduleOneAmMaintenance(env, ctx) {
       }),
     ),
   );
+  // Standalone memory decay (also runs after 6am RAG chain — ledger here so hangs upstream cannot skip it).
+  ctx.waitUntil(
+    cronLedgerWrap(env, 'agentsam_memory_decay', CRON_ONE_AM, async () => {
+      const { runAgentsamMemoryDecay } = await import('../core/memory.js');
+      return runAgentsamMemoryDecay(env);
+    }),
+  );
 }
 
 /**

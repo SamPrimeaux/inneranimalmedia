@@ -716,6 +716,59 @@ export async function handleMailApi(request, url, env, ctx) {
       });
     }
 
+    // GET /api/mail/outbound — platform notification_outbox (digest / system email queue)
+    if (method === 'GET' && p === '/api/mail/outbound') {
+      const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 50) || 50, 1), 100);
+      if (!mailTenantId) {
+        return jsonResponse({ emails: [], total: 0, source: 'outbox', unread_count: 0 });
+      }
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT id, channel, to_address, subject, body_text, status, event_type,
+                  attempts, max_attempts, last_error, created_at, updated_at
+           FROM notification_outbox
+           WHERE tenant_id = ?
+           ORDER BY created_at DESC
+           LIMIT ?`,
+        )
+          .bind(mailTenantId, limit)
+          .all();
+        const emails = (results || []).map((row) => ({
+          id: String(row.id),
+          from_address: 'notifications@inneranimalmedia.com',
+          to_address: String(row.to_address || ''),
+          subject: String(row.subject || '(no subject)'),
+          date_received:
+            row.created_at != null
+              ? new Date(Number(row.created_at) < 1e12 ? Number(row.created_at) * 1000 : Number(row.created_at)).toISOString()
+              : '',
+          is_read: String(row.status || '') === 'sent' ? 1 : 0,
+          is_starred: 0,
+          is_archived: 0,
+          has_attachments: 0,
+          category: String(row.channel || 'email'),
+          account: 'outbound',
+          _outbox: {
+            status: row.status,
+            event_type: row.event_type,
+            attempts: row.attempts,
+            max_attempts: row.max_attempts,
+            last_error: row.last_error,
+            body_text: row.body_text,
+          },
+        }));
+        return jsonResponse({
+          emails,
+          total: emails.length,
+          page_size: limit,
+          source: 'outbox',
+          unread_count: emails.filter((e) => !e.is_read).length,
+        });
+      } catch (e) {
+        return jsonResponse({ error: String(e?.message || e), emails: [], total: 0 }, 500);
+      }
+    }
+
     // GET /api/mail/sent — Gmail SENT label when connected; D1 email_logs fallback + platform audit rows
     if (method === 'GET' && p === '/api/mail/sent') {
       const accountParam = url.searchParams.get('account');
