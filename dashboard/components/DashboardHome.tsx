@@ -31,6 +31,7 @@ import {
 } from './home/HomeTileEditor';
 import { ConnectIconEditor } from './home/ConnectIconEditor';
 import { ConnectCatalogSheet } from './home/ConnectCatalogSheet';
+import { CostKpiTiles } from './home/CostKpiTiles';
 import { useWorkspace } from '../src/context/WorkspaceContext';
 import './ui/AppIcon.css';
 import './home/HomeTileEditor.css';
