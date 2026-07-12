@@ -34,20 +34,20 @@
   outline-offset: 2px;
 }
 
-/* Clean icon shell — no card chrome */
+/* Clean icon shell — iOS-style continuous squircle */
 .iam-app-icon-hit {
   width: 100%;
   height: 100%;
   padding: 0;
   border: 0;
-  border-radius: 22%;
+  border-radius: 22.37%;
   background: transparent;
   box-shadow: none;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 140ms ease, opacity 140ms ease;
+  transition: transform 140ms ease, opacity 140ms ease, box-shadow 140ms ease;
   cursor: pointer;
 }
 
@@ -55,18 +55,22 @@
   transform: scale(1.04);
 }
 
+/* Integration logos — uniform white squircle so brands match app tiles */
 .iam-app-icon-shell--brand .iam-app-icon-hit {
-  background: transparent;
+  background: #ffffff;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    0 6px 16px rgba(0, 0, 0, 0.12);
 }
 
 .iam-app-icon-shell--app .iam-app-icon-hit {
   background: transparent;
 }
 
-/* Integration logos (Google Drive, Cloudflare, …) */
+/* Integration logos (Google Drive, Cloudflare, …) — inset on squircle */
 .iam-app-icon-brand {
-  width: var(--iam-icon-art-scale, 100%);
-  height: var(--iam-icon-art-scale, 100%);
+  width: 62%;
+  height: 62%;
   object-fit: contain;
   object-position: center;
   display: block;

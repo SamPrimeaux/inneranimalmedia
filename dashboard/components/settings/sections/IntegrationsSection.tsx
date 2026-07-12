@@ -3,12 +3,20 @@ import {
   oauthConnectReturnTo,
   openIntegrationOAuthPopup,
 } from '../../../src/lib/integrationOAuthPopup';
-import { IntegrationCard, type CatalogRow, type ConnectionRow } from '../components/IntegrationCard';
+import { IntegrationDrawer } from '../components/IntegrationDrawer';
+import '../components/IntegrationDrawer.css';
 import { IntegrationIconTile } from '../components/IntegrationIconTile';
-import { catalogSlugForRegistry, isSlugConnected, registrySlugForCatalog } from '../../../lib/integrationSlugAliases';
+import type { CatalogRow, ConnectionRow } from '../components/IntegrationCard';
+import {
+  CLOUDFLARE_CAPABILITY_LABELS,
+  catalogSlugForRegistry,
+  canonicalCloudflareRegistryKey,
+  isCloudflareFamilyKey,
+  isSlugConnected,
+  registrySlugForCatalog,
+} from '../../../lib/integrationSlugAliases';
 import {
   CfStackWizard,
-  CfStackSummary,
   type CfStackConfig,
 } from './CfStackWizard';
 
@@ -21,6 +29,10 @@ type ConnectedItem = {
   iam_hosted: boolean;
   integration_status?: { connected?: boolean; error?: string };
 };
+
+type DrawerTarget =
+  | { kind: 'connected'; item: ConnectedItem; foldedCapabilities?: string[] }
+  | { kind: 'available'; catalog: CatalogRow };
 
 export type IntegrationsSectionProps = {
   userId?: string | null;
@@ -78,7 +90,7 @@ export function IntegrationsSection({
   const [customAuth, setCustomAuth] = useState<'none' | 'bearer' | 'oauth'>('none');
   const [customBearer, setCustomBearer] = useState('');
   const [customBusy, setCustomBusy] = useState(false);
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+  const [drawer, setDrawer] = useState<DrawerTarget | null>(null);
 
   const loadConnected = useCallback(async () => {
     const data = await fetchJson<{
@@ -178,11 +190,94 @@ export function IntegrationsSection({
     () =>
       connected.some(
         (item) =>
-          String(item.connection?.provider_key || '').toLowerCase() === 'cloudflare_oauth' &&
+          isCloudflareFamilyKey(String(item.connection?.provider_key || item.catalog?.slug || '')) &&
           String(item.connection?.status || '').toLowerCase() === 'connected',
       ),
     [connected],
   );
+
+  const connectedTiles = useMemo(() => {
+    const tiles: Array<{
+      key: string;
+      title: string;
+      iconSlug: string;
+      imageUrl?: string | null;
+      item: ConnectedItem;
+      status: 'warning' | 'error' | null;
+      subtitle: string;
+      foldedCapabilities?: string[];
+    }> = [];
+
+    let cfPrimary: ConnectedItem | null = null;
+    const cfCaps: string[] = [];
+    const cfStatuses: Array<'warning' | 'error' | null> = [];
+
+    for (const item of connected) {
+      const rawKey = String(item.connection?.provider_key || item.catalog?.slug || '').trim();
+      const key = rawKey.toLowerCase();
+      if (isCloudflareFamilyKey(key)) {
+        const label =
+          CLOUDFLARE_CAPABILITY_LABELS[key] ||
+          String(item.catalog?.name || item.connection?.display_name || key);
+        if (!cfCaps.includes(label)) cfCaps.push(label);
+        cfStatuses.push(integrationTileStatus(item));
+        const isOauth = key === 'cloudflare_oauth' || key === 'cloudflare';
+        if (!cfPrimary || isOauth) cfPrimary = item;
+        continue;
+      }
+      tiles.push({
+        key: rawKey || String(tiles.length),
+        title: String(item.catalog?.name || item.connection?.display_name || rawKey),
+        iconSlug: String(item.catalog?.icon_slug || catalogSlugForRegistry(rawKey) || rawKey),
+        imageUrl: item.catalog?.icon_url,
+        item,
+        status: integrationTileStatus(item),
+        subtitle: integrationSubtitle(item),
+      });
+    }
+
+    if (cfPrimary) {
+      const worst =
+        cfStatuses.includes('error') ? 'error' : cfStatuses.includes('warning') ? 'warning' : null;
+      tiles.unshift({
+        key: canonicalCloudflareRegistryKey(),
+        title: 'Cloudflare',
+        iconSlug: 'cloudflare',
+        imageUrl: cfPrimary.catalog?.icon_url || null,
+        item: {
+          ...cfPrimary,
+          catalog: {
+            ...(cfPrimary.catalog || {}),
+            name: 'Cloudflare',
+            slug: 'cloudflare',
+            icon_slug: 'cloudflare',
+            description:
+              cfPrimary.catalog?.description ||
+              'Developer Platform OAuth — D1, R2, Workers, Pages, Vectorize, Images, Browser Rendering, and related CF APIs under one connection.',
+          },
+          connection: {
+            ...(cfPrimary.connection || {}),
+            provider_key: canonicalCloudflareRegistryKey(),
+            display_name: 'Cloudflare',
+          },
+        },
+        status: worst,
+        subtitle: cfOAuthConnected ? 'Connected' : integrationSubtitle(cfPrimary),
+        foldedCapabilities: cfCaps,
+      });
+    }
+
+    return tiles;
+  }, [connected, cfOAuthConnected]);
+
+  const availableCatalog = useMemo(() => {
+    // Hide satellite CF catalog rows if any appear later — one Cloudflare tile only.
+    return filteredCatalog.filter((row) => {
+      const slug = String(row.slug || '').toLowerCase();
+      if (!isCloudflareFamilyKey(slug)) return true;
+      return slug === 'cloudflare';
+    });
+  }, [filteredCatalog]);
 
   const cfStackConfigured = Boolean(cfStackConfig?.cf_stack_configured_at);
 
@@ -305,106 +400,35 @@ export function IntegrationsSection({
 
       {tab === 'connected' ? (
         <div className="flex flex-col gap-4">
-          {connected.length === 0 && !loading ? (
+          {connectedTiles.length === 0 && !loading ? (
             <div className="text-[11px] text-muted">
               No integration rows for this workspace yet. Use Available to connect.
             </div>
           ) : null}
-          {connected.length ? (
+          {connectedTiles.length ? (
             <div className="iam-app-icon-grid max-w-4xl">
-              {connected.map((item, idx) => {
-                const slug = String(
-                  item.connection?.provider_key || item.catalog?.slug || idx,
-                );
-                const tileKey = `${slug}-${idx}`;
-                const catalogSlug = catalogSlugForRegistry(slug);
-                const title = String(item.catalog?.name || item.connection?.display_name || slug);
-                const isSelected = selectedSlug === slug;
-                return (
-                  <IntegrationIconTile
-                    key={tileKey}
-                    title={title}
-                    iconSlug={item.catalog?.icon_slug || catalogSlug}
-                    imageUrl={item.catalog?.icon_url}
-                    status={integrationTileStatus(item)}
-                    subtitle={integrationSubtitle(item)}
-                    onClick={() => setSelectedSlug(isSelected ? null : slug)}
-                  />
-                );
-              })}
+              {connectedTiles.map((tile) => (
+                <IntegrationIconTile
+                  key={tile.key}
+                  title={tile.title}
+                  iconSlug={tile.iconSlug}
+                  imageUrl={tile.imageUrl}
+                  status={tile.status}
+                  subtitle={tile.subtitle}
+                  onClick={() =>
+                    setDrawer({
+                      kind: 'connected',
+                      item: tile.item,
+                      foldedCapabilities: tile.foldedCapabilities,
+                    })
+                  }
+                />
+              ))}
             </div>
           ) : null}
-          {selectedSlug ? (
-            connected
-              .filter((item) => {
-                const slug = String(item.connection?.provider_key || item.catalog?.slug || '');
-                return slug === selectedSlug;
-              })
-              .map((item) => {
-                const slug = String(item.connection?.provider_key || item.catalog?.slug || selectedSlug);
-                return (
-                  <div key={`detail-${slug}`} className="flex flex-col gap-3">
-                    <IntegrationCard
-                      mode="connected"
-                      initialExpanded
-                      catalog={item.catalog}
-                      connection={item.connection}
-                      legacy={item.legacy}
-                      iamHosted={item.iam_hosted}
-                      onConnectOAuth={onConnectOAuth}
-                      onConnectApiKey={onConnectApiKey}
-                      onDisconnect={onDisconnect}
-                      onTest={onTest}
-                      onOpenInMonaco={onOpenInMonaco}
-                    />
-                    {slug === 'cloudflare_oauth' && cfOAuthConnected ? (
-                      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-4 flex flex-col gap-2">
-                        <div className="text-[12px] font-semibold text-[var(--text-heading)]">
-                          Cloudflare stack
-                        </div>
-                        {cfStackConfigured ? (
-                          <>
-                            <p className="text-[10px] text-muted">
-                              Workspace bindings are configured.
-                            </p>
-                            <CfStackSummary config={cfStackConfig} />
-                            <button
-                              type="button"
-                              onClick={() => setCfWizardOpen(true)}
-                              className="text-[11px] px-3 py-2 rounded-lg border border-[var(--border-subtle)] text-main w-fit mt-1"
-                            >
-                              Reconfigure stack
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <p className="text-[10px] text-muted">
-                              OAuth is connected. Pick which D1, Worker, and Tunnel belong to this
-                              workspace.
-                            </p>
-                            <button
-                              type="button"
-                              disabled={!workspaceId?.trim()}
-                              onClick={() => setCfWizardOpen(true)}
-                              className="text-[11px] px-3 py-2 rounded-lg bg-[var(--solar-blue)] text-[var(--toggle-knob)] w-fit disabled:opacity-50"
-                            >
-                              Configure your CF stack →
-                            </button>
-                            {!workspaceId?.trim() ? (
-                              <p className="text-[10px] text-[var(--accent-warning)]">
-                                Select an active workspace to configure stack bindings.
-                              </p>
-                            ) : null}
-                          </>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })
-          ) : connected.length ? (
+          {connectedTiles.length ? (
             <p className="text-[10px] text-muted">
-              Tap an app icon to manage connection, test, or disconnect.
+              Tap an app icon to open health, reconnect, and connection details.
             </p>
           ) : null}
         </div>
@@ -439,34 +463,49 @@ export function IntegrationsSection({
               </button>
             ))}
           </div>
-          {filteredCatalog.length === 0 ? (
+          {availableCatalog.length === 0 ? (
             <div className="text-[11px] text-muted">
               No catalog entries returned. Ensure integration_catalog is populated in D1.
             </div>
           ) : (
             <div className="flex flex-col gap-4">
               <div className="iam-app-icon-grid max-w-4xl">
-                {filteredCatalog.map((row) => {
+                {availableCatalog.map((row) => {
                   const slug = String(row.slug || '').toLowerCase();
                   const isConn = isSlugConnected(slug, connectedSlugs);
                   const isIam =
                     String(row.category || '').toLowerCase() === 'iam_hosted' ||
                     ['agentsam', 'autodidact'].includes(slug);
+                  const title =
+                    slug === 'cloudflare' ? 'Cloudflare' : String(row.name || slug);
                   return (
                     <IntegrationIconTile
                       key={slug || String(row.id)}
-                      title={String(row.name || slug)}
+                      title={title}
                       iconSlug={row.icon_slug || slug}
                       imageUrl={row.icon_url}
                       subtitle={isConn ? 'Connected' : isIam ? 'Hosted' : 'Connect'}
                       onClick={() => {
-                        if (isIam) {
-                          setSelectedSlug(slug);
-                          return;
-                        }
-                        if (isConn) {
-                          setTab('connected');
-                          setSelectedSlug(registrySlugForCatalog(slug));
+                        if (isIam || isConn) {
+                          if (isConn) {
+                            const registryKey = isCloudflareFamilyKey(slug)
+                              ? canonicalCloudflareRegistryKey()
+                              : registrySlugForCatalog(slug);
+                            const tile = connectedTiles.find((t) => t.key === registryKey);
+                            if (tile) {
+                              setDrawer({
+                                kind: 'connected',
+                                item: tile.item,
+                                foldedCapabilities: tile.foldedCapabilities,
+                              });
+                              setTab('connected');
+                              return;
+                            }
+                          }
+                          setDrawer({
+                            kind: 'available',
+                            catalog: { ...row, name: title },
+                          });
                           return;
                         }
                         onConnectOAuth(slug);
@@ -475,33 +514,9 @@ export function IntegrationsSection({
                   );
                 })}
               </div>
-              {selectedSlug ? (
-                filteredCatalog
-                  .filter((row) => String(row.slug || '').toLowerCase() === selectedSlug)
-                  .map((row) => {
-                    const slug = String(row.slug || '').toLowerCase();
-                    const isConn = isSlugConnected(slug, connectedSlugs);
-                    const isIam =
-                      String(row.category || '').toLowerCase() === 'iam_hosted' ||
-                      ['agentsam', 'autodidact'].includes(slug);
-                    return (
-                      <IntegrationCard
-                        key={`available-detail-${slug}`}
-                        mode="available"
-                        catalog={row}
-                        connection={null}
-                        connected={isConn}
-                        iamHosted={isIam}
-                        onConnectOAuth={isIam ? undefined : onConnectOAuth}
-                        onConnectApiKey={isIam ? undefined : onConnectApiKey}
-                      />
-                    );
-                  })
-              ) : (
-                <p className="text-[10px] text-muted">
-                  Tap an icon to connect OAuth or view hosted MCP details.
-                </p>
-              )}
+              <p className="text-[10px] text-muted">
+                Tap an icon to connect OAuth or open connection details in the side panel.
+              </p>
             </div>
           )}
         </div>
@@ -591,6 +606,58 @@ export function IntegrationsSection({
           workspaceId={workspaceId.trim()}
           onClose={() => setCfWizardOpen(false)}
           onComplete={() => void loadCfStackConfig()}
+        />
+      ) : null}
+
+      {drawer?.kind === 'connected' ? (
+        <IntegrationDrawer
+          open
+          onClose={() => setDrawer(null)}
+          title={String(
+            drawer.item.catalog?.name ||
+              drawer.item.connection?.display_name ||
+              'Integration',
+          )}
+          mode="connected"
+          catalog={drawer.item.catalog}
+          connection={drawer.item.connection}
+          legacy={drawer.item.legacy}
+          iamHosted={drawer.item.iam_hosted}
+          onConnectOAuth={onConnectOAuth}
+          onConnectApiKey={onConnectApiKey}
+          onDisconnect={async (slug) => {
+            await onDisconnect(slug);
+            setDrawer(null);
+          }}
+          onTest={onTest}
+          onOpenInMonaco={onOpenInMonaco}
+          showCfStack={isCloudflareFamilyKey(
+            String(drawer.item.connection?.provider_key || drawer.item.catalog?.slug || ''),
+          )}
+          cfOAuthConnected={cfOAuthConnected}
+          cfStackConfigured={cfStackConfigured}
+          cfStackConfig={cfStackConfig}
+          workspaceId={workspaceId}
+          onOpenCfWizard={() => setCfWizardOpen(true)}
+          foldedCapabilities={drawer.foldedCapabilities}
+        />
+      ) : null}
+
+      {drawer?.kind === 'available' ? (
+        <IntegrationDrawer
+          open
+          onClose={() => setDrawer(null)}
+          title={String(drawer.catalog.name || drawer.catalog.slug || 'Integration')}
+          mode="available"
+          catalog={drawer.catalog}
+          connection={null}
+          connected={isSlugConnected(String(drawer.catalog.slug || ''), connectedSlugs)}
+          iamHosted={
+            String(drawer.catalog.category || '').toLowerCase() === 'iam_hosted' ||
+            ['agentsam', 'autodidact'].includes(String(drawer.catalog.slug || '').toLowerCase())
+          }
+          onConnectOAuth={onConnectOAuth}
+          onConnectApiKey={onConnectApiKey}
         />
       ) : null}
     </div>

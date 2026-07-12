@@ -3,6 +3,52 @@ export const REGISTRY_TO_CATALOG_SLUG: Record<string, string> = {
   supabase_oauth: 'supabase',
 };
 
+/** Registry / catalog keys that fold into one Cloudflare tile in Settings → Integrations. */
+export const CLOUDFLARE_FAMILY_KEYS = new Set([
+  'cloudflare',
+  'cloudflare_oauth',
+  'cloudflare_r2',
+  'cloudflare_images',
+  'cloudflare_kv',
+  'cloudflare_d1',
+  'cloudflare_do',
+  'cloudflare_workers',
+  'cloudflare_pages',
+  'cloudflare_tunnel',
+  'cloudflare_stream',
+  'cloudflare_ai',
+  'vectorize',
+  'browser_rendering',
+]);
+
+export const CLOUDFLARE_CAPABILITY_LABELS: Record<string, string> = {
+  cloudflare_oauth: 'Developer Platform (OAuth)',
+  cloudflare: 'Developer Platform',
+  cloudflare_r2: 'R2',
+  cloudflare_images: 'Images',
+  vectorize: 'Vectorize',
+  browser_rendering: 'Browser Rendering',
+  cloudflare_kv: 'KV',
+  cloudflare_d1: 'D1',
+  cloudflare_pages: 'Pages',
+  cloudflare_workers: 'Workers',
+  cloudflare_tunnel: 'Tunnel',
+};
+
+export function isCloudflareFamilyKey(key: string): boolean {
+  const k = String(key || '')
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, '_');
+  if (!k) return false;
+  if (CLOUDFLARE_FAMILY_KEYS.has(k)) return true;
+  return k.startsWith('cloudflare_');
+}
+
+export function canonicalCloudflareRegistryKey(): string {
+  return 'cloudflare_oauth';
+}
+
 export function registrySlugForCatalog(catalogSlug: string): string {
   const slug = String(catalogSlug || '').trim().toLowerCase();
   for (const [registry, catalog] of Object.entries(REGISTRY_TO_CATALOG_SLUG)) {
@@ -22,6 +68,11 @@ export function isSlugConnected(slug: string, connectedSlugs: Set<string>): bool
   if (connectedSlugs.has(s)) return true;
   for (const [registry, catalog] of Object.entries(REGISTRY_TO_CATALOG_SLUG)) {
     if (catalog === s && connectedSlugs.has(registry)) return true;
+  }
+  if (isCloudflareFamilyKey(s)) {
+    for (const key of connectedSlugs) {
+      if (isCloudflareFamilyKey(key)) return true;
+    }
   }
   return false;
 }
