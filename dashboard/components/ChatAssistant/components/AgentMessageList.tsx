@@ -123,6 +123,8 @@ export type AgentMessageListProps = {
   isDarkTheme: boolean;
   toolTraceRows: AgentToolTraceRow[];
   setToolTraceRows: React.Dispatch<React.SetStateAction<AgentToolTraceRow[]>>;
+  /** Resolved model for the active/last turn (shown in Done footer). */
+  runModelKey?: string | null;
   workspaceId: string | null;
   workflowLedger: WorkflowLedgerState;
   activeSubagents?: ActiveSubagentRow[];
@@ -531,6 +533,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   isDarkTheme,
   toolTraceRows,
   setToolTraceRows,
+  runModelKey = null,
   workspaceId,
   workflowLedger,
   activeSubagents = [],
@@ -617,6 +620,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                     workspaceId={workspaceId}
                     compact={isNarrow}
                     showDoneFooter={!isLoading}
+                    runModelKey={runModelKey}
                     onOpenInEditor={
                       onFileSelect
                         ? (file) =>
@@ -715,6 +719,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                       workspaceId={workspaceId}
                       compact={isNarrow}
                       showDoneFooter={!isLoading}
+                      runModelKey={runModelKey}
                       onOpenInEditor={
                         onFileSelect
                           ? (file) =>

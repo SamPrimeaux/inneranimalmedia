@@ -325,9 +325,10 @@ const PRODUCT_NAME = 'Agent Sam';
 function buildAgentSamGreeting(workspaceDisplayLine: string): string {
   const w = workspaceDisplayLine.trim();
   if (!w || w === 'No workspace') {
-    return `${PRODUCT_NAME}: pick a workspace in Settings or open a local folder, then tell me what you want to build.`;
+    return `Hi! I'm ${PRODUCT_NAME}. Open a GitHub repo in the explorer (or pick a workspace), then tell me what to work on.`;
   }
-  return `Hi! I'm ${PRODUCT_NAME}. Current workspace: ${w}. What should we work on?`;
+  // Prefer exact owner/repo when the explorer has one open — this is not the IAM workspace id.
+  return `Hi! I'm ${PRODUCT_NAME}. Looking at ${w}. What should we work on?`;
 }
 
 const QUICK_COMMANDS = [
@@ -1040,7 +1041,8 @@ const App: React.FC = () => {
   const workspaceContextLabel = useMemo(
     () =>
       resolveWorkspaceContextLabel({
-        githubRepo: coalesceLabel(activeWorkspaceRow?.github_repo ?? gitRepoFullName ?? null, ''),
+        // Explorer-open repo wins over D1 workspace.github_repo (often still pinned to platform).
+        githubRepo: coalesceLabel(gitRepoFullName ?? activeWorkspaceRow?.github_repo ?? null, ''),
         workspaceSlug: coalesceLabel(activeWorkspaceRow?.slug ?? null, ''),
         workspaceId: authWorkspaceId,
         ideWorkspace,
@@ -2202,6 +2204,23 @@ const App: React.FC = () => {
       window.removeEventListener(IAM_AGENT_COLLAPSE_PANEL, collapsePanel);
     };
   }, [isAgentHomeAtmospheric, isNarrowViewport]);
+
+  // Greeting / status line follow the open GitHub explorer repo (not only D1 workspace.github_repo).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onExplorerRepo = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ active_repo?: string | null }>).detail;
+      const repo = detail?.active_repo != null ? String(detail.active_repo).trim() : '';
+      if (repo) setGitRepoFullName(repo);
+    };
+    window.addEventListener('iam_explorer_active_repo', onExplorerRepo);
+    try {
+      window.dispatchEvent(new CustomEvent('iam_explorer_request_active_repo'));
+    } catch {
+      /* ignore */
+    }
+    return () => window.removeEventListener('iam_explorer_active_repo', onExplorerRepo);
+  }, []);
 
   const hydrateAgentTabMessages = useCallback(
     async (tabId: string, convId: string, force = false) => {

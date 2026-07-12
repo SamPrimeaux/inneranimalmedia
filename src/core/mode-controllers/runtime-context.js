@@ -10,8 +10,9 @@
  * @param {{ modelOverride?: string|null }} [meta]
  */
 export function runtimeContextPayload(profile, meta = {}) {
-  const allow = profile?.tool_policy?.allowlist || [];
+  const allow = profile?.tool_policy?.allowlist || profile?.tool_allowlist || [];
   const deny = profile?.tool_policy?.denylist || [];
+  const toolNames = Array.isArray(allow) ? allow.map((t) => String(t)).filter(Boolean) : [];
   return {
     mode: profile.mode,
     mode_controller: profile.mode_controller,
@@ -21,11 +22,15 @@ export function runtimeContextPayload(profile, meta = {}) {
     write_policy: profile.write_policy,
     tool_profile: profile.tool_profile,
     tool_policy: {
-      allowlist_count: allow.length,
+      allowlist_count: toolNames.length || allow.length,
       denylist_count: deny.length,
       max_tool_calls: profile?.tool_policy?.max_tool_calls ?? profile.max_tool_calls ?? null,
     },
     model: profile.model_key,
+    model_key: profile.model_key,
+    provider: profile.selected_provider ?? null,
+    routing_arm_id: profile.routing_arm_id ?? null,
+    tool_names: toolNames.slice(0, 24),
     ...(meta.modelOverride != null ? { auto_model: !meta.modelOverride } : {}),
   };
 }

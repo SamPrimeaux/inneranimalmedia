@@ -22,6 +22,8 @@ export type ExecutionTimelineProps = {
   onClear?: () => void;
   onCadJobTerminal?: (rowId: string) => void;
   showDoneFooter?: boolean;
+  /** Resolved model for this turn (e.g. gpt-5.6-terra) — shown in Done footer. */
+  runModelKey?: string | null;
   onOpenInEditor?: (file: { name: string; content: string }) => void;
 };
 
@@ -34,6 +36,7 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
   onClear,
   onCadJobTerminal,
   showDoneFooter = false,
+  runModelKey = null,
   onOpenInEditor,
 }) => {
   const [showRunner, setShowRunner] = useState(false);
@@ -98,7 +101,24 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
             <span className="tool-trace-done-mark" aria-hidden>
               ✓
             </span>
-            Done
+            <span>Done</span>
+            {runModelKey?.trim() ? (
+              <span className="tool-trace-done-meta" title={runModelKey.trim()}>
+                · {runModelKey.trim()}
+              </span>
+            ) : null}
+            {rows.length > 0 ? (
+              <span
+                className="tool-trace-done-meta"
+                title={rows.map((r) => r.toolName).filter(Boolean).join(', ')}
+              >
+                ·{' '}
+                {Array.from(new Set(rows.map((r) => r.toolName).filter(Boolean)))
+                  .slice(0, 4)
+                  .join(', ')}
+                {rows.length > 4 ? ` +${rows.length - 4}` : ''}
+              </span>
+            ) : null}
           </div>
         ) : null}
       </div>

@@ -288,6 +288,16 @@
   font-weight: 700;
 }
 
+.tool-trace-done-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  opacity: 0.85;
+}
+
 .tool-trace-sql-result {
   min-width: 0;
 }

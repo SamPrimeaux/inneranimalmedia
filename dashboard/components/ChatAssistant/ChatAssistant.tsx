@@ -301,9 +301,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [streamModelKey, setStreamModelKey] = useState<string | null>(null);
   useEffect(() => { onLoadingChange?.(isLoading); }, [isLoading, onLoadingChange]);
   useEffect(() => {
-    if (!isLoading) setStreamModelKey(null);
-  }, [isLoading]);
-  useEffect(() => {
     setChatActivityBusy(isLoading);
     return () => setChatActivityBusy(false);
   }, [isLoading]);
@@ -1246,9 +1243,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     streamModelKey ||
     (!isAutoModelSelection(selectedModelKey) && selectedModelKey ? selectedModelKey : null);
 
-  useEffect(() => {
-    if (!isLoading) setStreamModelKey(null);
-  }, [isLoading]);
+  // Keep last resolved Auto model for the run chip afterglow (do not clear on stream end).
 
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionItems, setMentionItems] = useState<PickerItem[]>([]);
@@ -2806,6 +2801,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     // race where the UI clears input, renders nothing, then re-renders on first SSE chunk.
     setMessages([...newMessages, { role: 'assistant', content: '' }]);
     setIsLoading(true);
+    setStreamModelKey(null);
     setMentionOpen(false);
     setSlashOpen(false);
     setToolTraceRows((prev) => preserveLiveCadTraceRows(prev));
@@ -3704,6 +3700,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             isDarkTheme={isDarkTheme}
             toolTraceRows={toolTraceRows}
             setToolTraceRows={setToolTraceRows}
+            runModelKey={displayRunModel}
             workspaceId={workspaceId ?? null}
             workflowLedger={workflowLedger}
             onFileSelect={onFileSelect}
