@@ -26,11 +26,12 @@ type SpendBreakdown = {
 
 type TabId = 'providers' | 'models' | 'projects';
 
-const GAP = 2.5;
-const R = 90;
-const STROKE = 22;
-const CX = 130;
-const CY = 130;
+const GAP = 2;
+const R = 52;
+const STROKE = 12;
+const CX = 72;
+const CY = 72;
+const VIEW = 144;
 
 const PALETTE = [
   '#e8825a',
@@ -230,10 +231,11 @@ export function AISpendDonut() {
           <div className="iam-ai-spend__state">No billable AI spend this month yet.</div>
         ) : (
           <>
+            <div className="iam-ai-spend__body">
             <div className="iam-ai-spend__chart">
               <svg
                 className="iam-ai-spend__svg"
-                viewBox="0 0 260 260"
+                viewBox={`0 0 ${VIEW} ${VIEW}`}
                 role="img"
                 aria-label={`Total AI spend ${fmtUsd(total)}`}
               >
@@ -250,7 +252,7 @@ export function AISpendDonut() {
                       fill="none"
                       stroke={arc.color}
                       strokeWidth={isActive ? STROKE + 4 : STROKE}
-                      strokeLinecap="round"
+                      strokeLinecap="butt"
                       className={`iam-ai-spend__arc${isActive ? ' is-active' : ''}`}
                       style={
                         {
@@ -267,18 +269,18 @@ export function AISpendDonut() {
                 })}
                 <text
                   x={CX}
-                  y={CY - 10}
+                  y={CY - 4}
                   textAnchor="middle"
                   className="iam-ai-spend__center-main"
                   fill={hovered ? hovered.color : 'currentColor'}
-                  fontSize={hovered ? 13 : 22}
+                  fontSize={hovered ? 9 : 14}
                 >
                   {hovered ? hovered.label.split(' ')[0] : fmtUsd(total)}
                 </text>
-                <text x={CX} y={CY + 14} textAnchor="middle" className="iam-ai-spend__center-sub">
+                <text x={CX} y={CY + 10} textAnchor="middle" className="iam-ai-spend__center-sub">
                   {hovered
                     ? `${fmtUsd(hovered.value)} · ${hovered.pct}%`
-                    : 'TOTAL SPEND'}
+                    : 'TOTAL'}
                 </text>
               </svg>
             </div>
@@ -314,6 +316,7 @@ export function AISpendDonut() {
                 {showAll ? 'Show less' : 'Show more'}
               </button>
             ) : null}
+            </div>
           </>
         )}
 
