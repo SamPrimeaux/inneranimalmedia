@@ -538,12 +538,29 @@ export function LibraryProjectDetail({ project, onBack, onToast, onRefresh }: Pr
         <aside className="lib-proj-detail-side">
           <section className="lib-proj-card">
             <div className="lib-proj-card-head">
-              <h3>Memory</h3>
-              <span className="lib-proj-pill">Only you</span>
+              <h3>Health</h3>
+              <span className="lib-proj-pill">Live</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10 }}>
+              <ProjectHealthDonut
+                taskRatio={project.totalTasks > 0 ? project.completedTasks / project.totalTasks : 0}
+                healthScore={project.health ?? 0}
+                budgetRatio={project.budgetTotal > 0 ? project.budgetUsed / project.budgetTotal : 0}
+                accentColor={`hsl(${hue} 65% 55%)`}
+                size={80}
+                label={true}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <DonutLegendRow color={`hsl(${hue} 65% 55%)`} label="Tasks" value={project.totalTasks > 0 ? `${project.completedTasks}/${project.totalTasks}` : '—'} />
+                  <DonutLegendRow color="#6366F1" label="Health" value={project.health > 0 ? `${Math.round(project.health)}%` : '—'} />
+                  <DonutLegendRow color="#EC4899" label="Budget" value={project.budgetTotal > 0 ? `${Math.round((project.budgetUsed / project.budgetTotal) * 100)}%` : '—'} />
+                </div>
+              </div>
             </div>
             <p>
               {project.description
-                ? project.description.slice(0, 240)
+                ? project.description.slice(0, 180)
                 : 'Purpose and context for this project — add a description when creating the project.'}
             </p>
             <p className="lib-proj-card-meta">Updated {updatedLabel || 'recently'}</p>
