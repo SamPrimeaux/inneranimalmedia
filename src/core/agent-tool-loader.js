@@ -31,6 +31,7 @@ import {
   IN_APP_MCP_PARITY_TOOL_LIMIT,
   selectOAuthMcpParityToolsForAgentChat,
 } from './in-app-mcp-oauth-parity.js';
+import { resolveUseOAuthParity } from './d1-tool-profile.js';
 import {
   resolveAgentChatRouteToolRequirements,
   effectiveAgentChatToolCap,
@@ -808,7 +809,11 @@ export async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
       taskType: opts.taskType,
       modeSlug,
     });
-    const useOAuthParity = opts.mcpOAuthParity !== false;
+    const useOAuthParity = resolveUseOAuthParity({
+      mcpOAuthParity: opts.mcpOAuthParity,
+      taskSpec: opts.taskSpec,
+      routeKey: opts.routeKey,
+    });
     const parityCap = Math.min(
       IN_APP_MCP_PARITY_TOOL_LIMIT,
       Math.max(lim, Number(opts.catalogLimit) || IN_APP_MCP_PARITY_TOOL_LIMIT),

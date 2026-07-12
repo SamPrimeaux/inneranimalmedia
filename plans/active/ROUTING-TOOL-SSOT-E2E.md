@@ -1,6 +1,6 @@
 # ROUTING-TOOL-SSOT — End-to-end fix + gate harness
 
-**Status:** Phase 0 **implemented** — gate harness + D1 proof ledger; product SSOT (Phase 1+) waits until gate green ×2  
+**Status:** Phase 1 **implemented** — D1 `agentsam_tool_profiles` + default-deny oauth; gate green ×2 required for `shipped`  
 **D1 ticket:** `tkt_routing_tool_ssot`  
 **Owner:** Agent Sam / Cursor  
 **Why:** Weekend burn from JS pin profiles fighting oauth dump. Stop symptom patches. One SSOT path + a gate that fails the ship if we regress.
@@ -57,13 +57,21 @@ message
 | G-pty-status | D1 `command_template` on `pty_git_status` |
 | G-ask-repo | no Gemini x-enum / no terminal-requires-command |
 | G-inspect | inspect-ish TaskSpec; no gmail schema errors |
-| G-d1 | not image_generation |
-| G-image | image_generation / fastPath |
+| G-d1 | `task_type=d1_query` **and** `d1_query`/`agentsam_d1_*` in SSE or `agentsam_tool_call_log` |
+| G-image | **opt-in** (`--include-image`) — image fast path skips tool loop; proven elsewhere |
 
-## Phase 1+ (blocked on gate green ×2)
+## Phase 1 — D1 tool profiles (implemented)
 
-D1 owns tool profiles; oauth default deny; demote JS pin modules to cold-start only.  
-**No new `*-tool-profile.js` files.**
+- `migrations/841_agentsam_tool_profiles_ssot.sql` — `agentsam_tool_profiles` SSOT
+- `src/core/d1-tool-profile.js` — compile from D1; JS pin modules cold-start only
+- **Default deny oauth** — `resolveUseOAuthParity()` opt-in only (`mcp_panel`, explicit flag)
+- Pinned profiles never oauth-fallback on empty compile
+
+Gate must green ×2 before `shipped`.
+
+## Phase 2+ (future)
+
+Demote remaining JS route augments; profile edits via D1 migration only.
 
 ---
 

@@ -32,6 +32,12 @@ import {
   shouldUseInspectToolProfile,
   compileInspectToolRows,
 } from './inspect-tool-profile.js';
+import {
+  compileD1ToolProfileRows,
+  PINNED_PROFILE_KEYS,
+  resolveD1ToolProfileKey,
+  resolveUseOAuthParity,
+} from './d1-tool-profile.js';
 
 const TERMINAL_TOOL_NAMES = ['terminal_run', 'terminal_execute', 'run_command', 'bash'];
 
@@ -583,7 +589,7 @@ async function hashRuntimeProfile(profile) {
  * @param {{ message: string, mode: string, taskType: string, tenantId?: string|null, workspaceId: string, userId: string, maxTools: number }} p
  */
 async function compileCatalogToolsForModeFallback(env, p) {
-  const useOAuthParity = p.mcpOAuthParity !== false;
+  const useOAuthParity = resolveUseOAuthParity(p);
   if (useOAuthParity) {
     const { selectOAuthMcpParityToolsForAgentChat } = await import('./in-app-mcp-oauth-parity.js');
     const det = await selectOAuthMcpParityToolsForAgentChat(
@@ -663,7 +669,7 @@ export async function compileModeProfile(env, input) {
   const workspaceId = input.workspaceId != null ? String(input.workspaceId).trim() : null;
   const userId = input.userId != null ? String(input.userId).trim() : null;
   const compileLane = input.compile_lane === 'live' ? 'live' : 'shadow';
-  const useOAuthParity = input.mcpOAuthParity !== false;
+  const useOAuthParity = resolveUseOAuthParity(input);
   const isSuperadmin = input.isSuperadmin === true;
 
   const { row: promptRouteRow, refinedRouteKey } = await resolvePromptRouteForCompile(env, {
@@ -748,6 +754,13 @@ export async function compileModeProfile(env, input) {
         mode,
         message,
       }));
+
+  const activeProfileKey = resolveD1ToolProfileKey({
+    taskSpec: input.taskSpec,
+    taskType,
+    useInspect: useInspectProfile,
+    useCodeDevelop: useCodeDevelopProfile,
+  });
 
   const promptRouteMax =
     promptRouteRow?.max_tools != null && String(promptRouteRow.max_tools).trim() !== ''
@@ -845,58 +858,59 @@ export async function compileModeProfile(env, input) {
           pinned: scoredRows.map((r) => r.name || r.tool_key).filter(Boolean),
         }),
       );
-    } else if (useCodeDevelopProfile) {
-      const det = await compileCodeDevelopToolRows(
+    } else if (activeProfileKey) {
+      const det = await compileD1ToolProfileRows(
         env,
         { userId, tenantId, workspaceId, isSuperadmin },
         {
+          profileKey: activeProfileKey,
           maxTools,
           taskType,
           modeSlug: mode,
           message,
           routeToolRequirements: effectiveRouteReq || routeToolRequirements,
+          jsFallback: async () => {
+            if (activeProfileKey === 'code_develop') {
+              return compileCodeDevelopToolRows(
+                env,
+                { userId, tenantId, workspaceId, isSuperadmin },
+                {
+                  maxTools,
+                  taskType,
+                  modeSlug: mode,
+                  message,
+                  routeToolRequirements: effectiveRouteReq || routeToolRequirements,
+                },
+              );
+            }
+            if (activeProfileKey === 'inspect' || activeProfileKey === 'd1_read' || activeProfileKey === 'ask') {
+              return compileInspectToolRows(env, { userId, tenantId, workspaceId }, { maxTools });
+            }
+            return { rows: [], missingPinned: [], pinned_count: 0, total: 0 };
+          },
         },
       );
       scoredRows = det.rows || [];
       if (det.missingPinned?.length) {
-        console.warn('[runtime-profile] code_develop_missing_pinned', {
+        console.warn('[runtime-profile] d1_tool_profile_missing_pinned', {
+          profile_key: activeProfileKey,
           missing: det.missingPinned,
           pinned_count: det.pinned_count,
+          source: det.source,
         });
       }
       console.info(
-        '[runtime-profile] code_develop_tool_profile',
+        '[runtime-profile] d1_tool_profile',
         JSON.stringify({
+          profile_key: activeProfileKey,
+          source: det.source,
+          d1_row_id: det.d1_row_id,
           task_type: taskType,
           route_key: routeKey,
           pinned_count: det.pinned_count,
           selected: scoredRows.length,
           max_tools: maxTools,
           tools: scoredRows.map((r) => r.name || r.tool_key).filter(Boolean).slice(0, 24),
-        }),
-      );
-    } else if (useInspectProfile) {
-      const det = await compileInspectToolRows(
-        env,
-        { userId, tenantId, workspaceId },
-        { maxTools },
-      );
-      scoredRows = det.rows || [];
-      if (det.missingPinned?.length) {
-        console.warn('[runtime-profile] inspect_missing_pinned', {
-          missing: det.missingPinned,
-          pinned_count: det.pinned_count,
-        });
-      }
-      console.info(
-        '[runtime-profile] inspect_tool_profile',
-        JSON.stringify({
-          task_type: taskType,
-          route_key: routeKey,
-          pinned_count: det.pinned_count,
-          selected: scoredRows.length,
-          max_tools: maxTools,
-          tools: scoredRows.map((r) => r.name || r.tool_key).filter(Boolean).slice(0, 16),
         }),
       );
     } else if (useOAuthParity) {
@@ -1009,7 +1023,16 @@ export async function compileModeProfile(env, input) {
 
   const modesWithCatalogFallback =
     mode === 'multitask' || mode === 'agent' || mode === 'debug' || mode === 'plan';
-  if (modesWithCatalogFallback && toolAllowlist.length === 0 && env?.DB && workspaceId && userId) {
+  const blockOAuthEmptyFallback =
+    activeProfileKey != null && PINNED_PROFILE_KEYS.has(activeProfileKey);
+  if (
+    modesWithCatalogFallback &&
+    toolAllowlist.length === 0 &&
+    !blockOAuthEmptyFallback &&
+    env?.DB &&
+    workspaceId &&
+    userId
+  ) {
     const fallbackRows = await compileCatalogToolsForModeFallback(env, {
       message,
       mode,
@@ -1018,7 +1041,7 @@ export async function compileModeProfile(env, input) {
       userId,
       workspaceId,
       maxTools,
-      mcpOAuthParity: useOAuthParity,
+      mcpOAuthParity: false,
       isSuperadmin,
     });
     if (fallbackRows.length) {
@@ -1027,11 +1050,21 @@ export async function compileModeProfile(env, input) {
         .map((r) => String(r.name || r.tool_key || r.tool_name || '').trim())
         .filter(Boolean);
     }
+  } else if (blockOAuthEmptyFallback && toolAllowlist.length === 0) {
+    console.error(
+      '[runtime-profile] pinned_profile_empty_no_oauth_fallback',
+      JSON.stringify({ profile_key: activeProfileKey, task_type: taskType, route_key: routeKey }),
+    );
   }
 
   const modeContract = AGENT_MODE_CONTRACT[mode] || AGENT_MODE_CONTRACT.agent;
 
-  const writePolicy = useInspectProfile
+  const readOnlyToolProfile =
+    useInspectProfile ||
+    activeProfileKey === 'inspect' ||
+    activeProfileKey === 'd1_read' ||
+    activeProfileKey === 'ask';
+  const writePolicy = readOnlyToolProfile
     ? {
         can_edit_files: false,
         can_terminal: false,
@@ -1108,14 +1141,15 @@ export async function compileModeProfile(env, input) {
         ? `${input.taskSpec.domain}.${input.taskSpec.operation}`
         : null,
       task_spec_tool_profile: input.taskSpec?.toolProfile ?? null,
+      d1_tool_profile_key: activeProfileKey,
     },
     refined_route_key: refinedRouteKey,
     color: modeContract.color,
-    tool_profile: useCodeDevelopProfile
+    tool_profile: activeProfileKey || (useCodeDevelopProfile
       ? 'code_develop'
       : useInspectProfile
         ? 'inspect'
-        : modeContract.tool_profile,
+        : modeContract.tool_profile),
     tool_capable_required:
       toolAllowlist.length > 0 ||
       mode === 'agent' ||

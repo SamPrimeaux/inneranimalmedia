@@ -6,6 +6,7 @@
  * Usage (repo root, .env.cloudflare present):
  *   npm run gate:agent-routing
  *   npm run gate:agent-routing -- --cases=G-ask-repo,G-pty-status
+ *   npm run gate:agent-routing -- --include-image   # opt-in; image fast path already proven elsewhere
  *   npm run gate:agent-routing -- --rounds=2
  *
  * Receipts: tmp/gate-agent-routing/<ts>.json
@@ -40,14 +41,17 @@ const TICKET_ID = 'tkt_routing_tool_ssot';
  *   httpStatus?: number,
  *   sseText?: string,
  *   toolNames?: string[],
+ *   d1ToolCalls?: Record<string, unknown>[],
  *   toolErrors?: string[],
  *   streamErrors?: string[],
  *   decision?: Record<string, unknown>|null,
+ *   decisions?: Record<string, unknown>[],
  *   d1Rows?: Record<string, unknown>[],
  * }} GateCaseCtx */
 
+/** Default gate — routing + tool health only (image fast path proven separately). */
 /** @type {GateCase[]} */
-const CASES = [
+const CORE_CASES = [
   {
     id: 'G-pty-status',
     kind: 'd1',
@@ -72,6 +76,8 @@ const CASES = [
     mode: 'agent',
     assert: assertInspectishChat({
       maxToolsFromDecisionMeta: 20,
+      requireMinTools: 1,
+      maxDistinctTools: 20,
       banSubstrings: [
         'x-google-enum-descriptions',
         'terminal tool requires command',
@@ -89,6 +95,8 @@ const CASES = [
     assert: assertInspectishChat({
       expectTaskSpecKeyIncludes: 'inspect',
       maxToolsFromDecisionMeta: 20,
+      requireMinTools: 1,
+      maxDistinctTools: 20,
       banSubstrings: [
         'x-google-enum-descriptions',
         'terminal tool requires command',
@@ -101,7 +109,7 @@ const CASES = [
   {
     id: 'G-d1',
     kind: 'chat',
-    prompt: 'what tables are in D1? answer briefly',
+    prompt: 'Use agentsam_d1_query: what tables are in our D1 database? Answer briefly from query results only.',
     mode: 'agent',
     assert: (ctx) => {
       const fails = assertNoBannedErrors(ctx, [
@@ -109,13 +117,26 @@ const CASES = [
         'Gemini 400',
         '__IAM_PROVIDER_HTTP__',
       ]);
-      if (ctx.decision?.task_type === 'image_generation') {
+      const tt = String(ctx.decision?.task_type || '');
+      if (tt === 'image_generation') {
         fails.push('G-d1 must not be image_generation');
       }
-      if (!ctx.decision) fails.push('missing agentsam_intent_decisions row');
+      if (!ctx.decision) {
+        fails.push('missing agentsam_intent_decisions row');
+        return fails;
+      }
+      if (tt !== 'd1_query') {
+        fails.push(`expected task_type=d1_query, got ${tt || '?'}`);
+      }
+      fails.push(...assertRequiredToolCall(ctx, /d1_query|d1_schema|agentsam_d1/i, 'G-d1'));
       return fails;
     },
   },
+];
+
+/** Opt-in — image fast path skips tool loop; routing-only check when explicitly requested. */
+/** @type {GateCase[]} */
+const OPTIONAL_CASES = [
   {
     id: 'G-image',
     kind: 'chat',
@@ -165,9 +186,42 @@ const CASES = [
   },
 ];
 
+/** @type {GateCase[]} */
+const CASES = [...CORE_CASES, ...OPTIONAL_CASES];
+
+/**
+ * Merge SSE tool names with D1 agentsam_tool_call_log (SSE alone is not trusted).
+ * @param {GateCaseCtx} ctx
+ * @param {RegExp} pattern
+ * @param {string} label
+ * @returns {string[]}
+ */
+function assertRequiredToolCall(ctx, pattern, label) {
+  const names = mergedToolNames(ctx);
+  if (!names.some((n) => pattern.test(n))) {
+    return [
+      `${label}: required tool invocation missing (need ${pattern}; sse=${(ctx.toolNames || []).join(',') || 'none'} d1_log=${(ctx.d1ToolCalls || []).map((r) => r.tool_name).join(',') || 'none'})`,
+    ];
+  }
+  return [];
+}
+
+/** @param {GateCaseCtx} ctx */
+function mergedToolNames(ctx) {
+  /** @type {string[]} */
+  const names = [...(ctx.toolNames || [])];
+  for (const row of ctx.d1ToolCalls || []) {
+    const n = row.tool_name != null ? String(row.tool_name).trim() : '';
+    if (n) names.push(n);
+  }
+  return [...new Set(names)];
+}
+
 /**
  * @param {{
  *   expectTaskSpecKeyIncludes?: string,
+ *   maxDistinctTools?: number,
+ *   requireMinTools?: number,
  *   maxToolsFromDecisionMeta?: number,
  *   banSubstrings?: string[],
  *   banToolPrefixes?: string[],
@@ -176,6 +230,17 @@ const CASES = [
 function assertInspectishChat(opts) {
   return (ctx) => {
     const fails = assertNoBannedErrors(ctx, opts.banSubstrings || []);
+    const proofTools = mergedToolNames(ctx);
+    if (opts.requireMinTools != null && proofTools.length < opts.requireMinTools) {
+      fails.push(
+        `${ctx.caseId || 'inspect'}: expected >=${opts.requireMinTools} tools, got ${proofTools.length} (${proofTools.join(',') || 'none'})`,
+      );
+    }
+    if (opts.maxDistinctTools != null && proofTools.length > opts.maxDistinctTools) {
+      fails.push(
+        `${ctx.caseId || 'inspect'}: oauth dump suspected — ${proofTools.length} tools (max ${opts.maxDistinctTools})`,
+      );
+    }
     if (!ctx.decision) {
       fails.push('missing agentsam_intent_decisions row');
       return fails;
@@ -235,14 +300,22 @@ function assertNoBannedErrors(ctx, ban) {
 }
 
 function parseArgs(argv) {
-  /** @type {{ cases: string[]|null, rounds: number, skipChat: boolean }} */
-  const out = { cases: null, rounds: 1, skipChat: false };
+  /** @type {{ cases: string[]|null, rounds: number, skipChat: boolean, includeImage: boolean }} */
+  const out = { cases: null, rounds: 1, skipChat: false, includeImage: false };
   for (const a of argv) {
     if (a.startsWith('--cases=')) out.cases = a.slice(8).split(',').map((s) => s.trim()).filter(Boolean);
     if (a.startsWith('--rounds=')) out.rounds = Math.max(1, Number(a.slice(9)) || 1);
     if (a === '--d1-only') out.skipChat = true;
+    if (a === '--include-image') out.includeImage = true;
   }
   return out;
+}
+
+/** @param {{ cases: string[]|null, includeImage: boolean }} args */
+function resolveCases(args) {
+  if (args.cases) return CASES.filter((c) => args.cases.includes(c.id));
+  if (args.includeImage) return CASES;
+  return CORE_CASES;
 }
 
 /**
@@ -319,7 +392,14 @@ function parseSse(raw) {
     const t = evt.type;
     if (t === 'text' || t === 'thinking') {
       if (evt.text) textParts.push(String(evt.text));
-    } else if (t === 'tool_call' || t === 'tool_start' || t === 'tool') {
+    } else if (
+      t === 'tool_call' ||
+      t === 'tool_start' ||
+      t === 'tool' ||
+      t === 'tool_use' ||
+      t === 'tool_blocked' ||
+      t === 'tool_error'
+    ) {
       const name = evt.name || evt.tool_name || evt.tool || evt.toolName;
       if (name) toolNames.push(String(name));
     } else if (t === 'tool_output' || t === 'tool_result') {
@@ -382,6 +462,21 @@ function loadPtyGitStatus() {
      WHERE tool_key = 'pty_git_status'
      LIMIT 1`,
   );
+}
+
+/** @param {string} conversationId */
+function loadToolCallsFromD1(conversationId) {
+  try {
+    return d1Query(
+      `SELECT tool_name, status, error_message, created_at
+       FROM agentsam_tool_call_log
+       WHERE conversation_id = ${sqlQuote(conversationId)}
+       ORDER BY created_at DESC
+       LIMIT 20`,
+    );
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -464,8 +559,7 @@ async function main() {
   const shaProc = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' });
   const gitShaVal = (shaProc.stdout || '').trim() || 'unknown';
 
-  let cases = CASES;
-  if (args.cases) cases = CASES.filter((c) => args.cases.includes(c.id));
+  let cases = resolveCases(args);
   if (args.skipChat) cases = cases.filter((c) => c.kind === 'd1');
 
   console.log(`[gate:agent-routing] base=${BASE_URL} workspace=${WORKSPACE_ID} cases=${cases.map((c) => c.id).join(',')} rounds=${args.rounds}`);
@@ -510,6 +604,7 @@ async function main() {
           ctx.decision = dec.decision;
           ctx.decisions = dec.decisions;
           ctx.decisionCount = dec.decisionCount;
+          ctx.d1ToolCalls = loadToolCallsFromD1(conversationId);
           Object.assign(ctx, { sawDone: chat.sawDone, latencyMs: chat.latencyMs });
         }
         const fails = c.assert(ctx);
@@ -524,13 +619,14 @@ async function main() {
         }
         const ok = fails.length === 0;
         if (!ok) roundOk = false;
+        const proofTools = mergedToolNames(ctx);
         console.log(
           ok ? `PASS ${c.id}` : `FAIL ${c.id}`,
           ok
             ? ''
             : fails.join('; '),
           c.kind === 'chat'
-            ? `task=${ctx.decision?.task_type || '?'} tools=${(ctx.toolNames || []).slice(0, 8).join(',')}`
+            ? `task=${ctx.decision?.task_type || '?'} tools=${proofTools.slice(0, 8).join(',') || '(none)'}`
             : '',
         );
         caseResults.push({
@@ -542,6 +638,11 @@ async function main() {
           matched_by: ctx.decision?.matched_by || null,
           metadata_json: ctx.decision?.metadata_json || null,
           toolNames: ctx.toolNames || [],
+          d1ToolCalls: (ctx.d1ToolCalls || []).map((r) => ({
+            tool_name: r.tool_name,
+            status: r.status,
+          })),
+          proofTools,
           toolErrors: ctx.toolErrors || [],
           streamErrors: ctx.streamErrors || [],
           httpStatus: ctx.httpStatus || null,
@@ -575,7 +676,7 @@ async function main() {
     summaryFailures,
     receiptPath,
     created_at: new Date().toISOString(),
-    law: 'Deploy success does not pass this gate. Code + D1 decision + stream proof required. Ticket shipped only after consecutive_pass_count>=2.',
+    law: 'Deploy success does not pass this gate. Code + D1 decision + tool invocation proof (SSE or agentsam_tool_call_log) required. G-image opt-in only. Ticket shipped only after consecutive_pass_count>=2.',
   };
   writeFileSync(receiptPath, JSON.stringify(receipt, null, 2));
   console.log(`\n[gate] receipt ${receiptPath}`);
