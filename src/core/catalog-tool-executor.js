@@ -2654,8 +2654,31 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     }
 
     case 'git': {
+      // D1-owned: handler_config.command_template (migration 839+). Do not invent
+      // per-tool_key command maps here — missing template is a catalog bug.
+      const gitCommand = String(
+        params.command || params.cmd || config.command_template || '',
+      ).trim();
+      if (!gitCommand) {
+        result = {
+          ok: false,
+          error: `git tool missing command_template in handler_config (tool_key=${toolKey})`,
+          body: {
+            tool_key: toolKey,
+            hint: 'Set agentsam_tools.handler_config.command_template for this pty_git_* row.',
+          },
+        };
+        break;
+      }
       const termRow = { ...row, handler_type: 'terminal' };
-      return executeCatalogTool(env, termRow, config, params, runContext, credentials);
+      return executeCatalogTool(
+        env,
+        termRow,
+        config,
+        { ...params, command: gitCommand },
+        runContext,
+        credentials,
+      );
     }
 
     case 'memory': {

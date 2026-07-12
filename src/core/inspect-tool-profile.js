@@ -25,7 +25,6 @@ export const INSPECT_CORE_PINNED_TOOLS = Object.freeze([
   'agentsam_d1_query',
   'agentsam_memory_manager',
   'agentsam_autorag',
-  'pty_git_status',
 ]);
 
 /**
