@@ -31,6 +31,8 @@
   padding: 0 12px;
   border-bottom: 1px solid var(--wf-border);
   background: var(--wf-surface-2);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .wf-studio__logo {
@@ -39,6 +41,8 @@
   padding-right: 12px;
   border-right: 1px solid var(--wf-border);
   margin-right: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .wf-studio__tb-btn {
@@ -52,6 +56,9 @@
   background: transparent;
   color: var(--wf-muted);
   cursor: pointer;
+  flex-shrink: 0;
+  min-width: 28px;
+  min-height: 28px;
 }
 
 .wf-studio__tb-btn:hover,
@@ -65,6 +72,7 @@
   height: 20px;
   background: var(--wf-border);
   margin: 0 4px;
+  flex-shrink: 0;
 }
 
 .wf-studio__right {
@@ -72,6 +80,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .wf-studio__zoom {
@@ -84,6 +93,7 @@
   border-radius: var(--wf-radius);
   padding: 4px 8px;
   border: 1px solid var(--wf-border);
+  white-space: nowrap;
 }
 
 .wf-studio__sidebar {
@@ -105,6 +115,7 @@
 .wf-studio__tabs {
   display: flex;
   border-bottom: 1px solid var(--wf-border);
+  flex-shrink: 0;
 }
 
 .wf-studio__tab {
@@ -116,6 +127,7 @@
   color: var(--wf-muted);
   border: none;
   background: none;
+  white-space: nowrap;
 }
 
 .wf-studio__tab.is-active {
@@ -127,6 +139,7 @@
 .wf-studio__panel {
   flex: 1;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 8px;
   min-height: 0;
 }
@@ -187,6 +200,7 @@
   align-items: center;
   gap: 4px;
   font-size: 10px;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .wf-studio__comp:hover {
@@ -234,6 +248,7 @@
   z-index: 3;
   font-size: 11px;
   color: var(--wf-muted);
+  overflow: hidden;
 }
 
 .wf-studio__el {
@@ -242,6 +257,8 @@
   overflow: hidden;
   box-sizing: border-box;
   user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }
 
 .wf-studio__el.is-selected {
@@ -324,15 +341,139 @@
   margin-bottom: 6px;
 }
 
-@media (max-width: 900px) {
+/* ─── Tablet: compress sidebars ─── */
+@media (max-width: 900px) and (min-width: 431px) {
+  .wf-studio {
+    grid-template-columns: 180px 1fr 200px;
+  }
+}
+
+/* ─── Phone: stack vertically — topbar / left panel / canvas / right panel ─── */
+@media (max-width: 430px) {
   .wf-studio {
     grid-template-columns: 1fr;
     grid-template-rows: 44px auto 1fr auto;
+    font-size: 12px;
   }
-  .wf-studio__sidebar--l,
-  .wf-studio__sidebar--r {
-    max-height: 180px;
-    border: none;
+
+  /* Left sidebar goes below topbar as a horizontal scroll strip */
+  .wf-studio__sidebar--l {
+    grid-row: 2;
+    border-right: none;
     border-bottom: 1px solid var(--wf-border);
+    max-height: 190px;
+    min-height: 0;
+  }
+
+  /* Right sidebar goes below canvas as a compact format panel */
+  .wf-studio__sidebar--r {
+    grid-row: 4;
+    border-left: none;
+    border-top: 1px solid var(--wf-border);
+    max-height: 160px;
+    min-height: 0;
+  }
+
+  /* Canvas fills row 3 */
+  .wf-studio__canvas-wrap {
+    grid-row: 3;
+    min-height: 0;
+  }
+
+  /* Topbar: shrink logo, hide zoom label text, keep buttons tappable */
+  .wf-studio__logo {
+    font-size: 11px;
+    padding-right: 8px;
+  }
+
+  .wf-studio__zoom span {
+    display: none;
+  }
+
+  .wf-studio__zoom {
+    padding: 4px 6px;
+    gap: 2px;
+  }
+
+  /* Component grid: 4 columns on phone for compact palette */
+  .wf-studio__comp-grid {
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 4px;
+  }
+
+  .wf-studio__comp {
+    padding: 6px 4px;
+    font-size: 9px;
+    gap: 3px;
+    border-radius: 6px;
+  }
+
+  /* Panel: horizontal scroll for component strips */
+  .wf-studio__panel {
+    padding: 6px;
+    overflow-x: auto;
+    overflow-y: auto;
+  }
+
+  /* Fidelity toggle: smaller */
+  .wf-studio__fidelity button {
+    font-size: 10px;
+    padding: 3px 0;
+  }
+
+  /* Section labels: hide on phone to save space */
+  .wf-studio__section {
+    margin: 6px 0 4px;
+    font-size: 9px;
+  }
+
+  /* Right panel compact prop rows */
+  .wf-studio__prop-row {
+    margin-bottom: 6px;
+  }
+
+  .wf-studio__prop-label {
+    font-size: 10px;
+  }
+
+  .wf-studio__input {
+    padding: 4px 6px;
+    font-size: 11px;
+  }
+
+  .wf-studio__swatch {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* Ghost buttons smaller */
+  .wf-studio__ghost-btn {
+    font-size: 11px;
+    padding: 4px 6px;
+    margin-bottom: 4px;
+  }
+
+  /* Status bar: hide cursor coords, just show layer count */
+  .wf-studio__status {
+    gap: 8px;
+    padding: 0 8px;
+    font-size: 10px;
+  }
+
+  /* Tab buttons: bigger tap targets */
+  .wf-studio__tab {
+    padding: 10px 0;
+    font-size: 11px;
+  }
+
+  /* Toolbar buttons: bigger tap targets on phone */
+  .wf-studio__tb-btn {
+    min-width: 32px;
+    min-height: 32px;
+    padding: 6px;
+  }
+
+  .wf-studio__sep {
+    margin: 0 2px;
   }
 }
