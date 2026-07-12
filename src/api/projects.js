@@ -1738,6 +1738,10 @@ export async function handleProjectsApi(request, url, env, authUser, ctx = null)
   const method = request.method.toUpperCase();
   const sub = pathLower.startsWith('/api/projects/') ? pathLower.slice('/api/projects/'.length) : '';
 
+  if (pathLower === '/api/projects/deploy-activity' && method === 'GET') {
+    return handleDeployActivity(env, authUser, url);
+  }
+
   if (pathLower === '/api/projects/context-audit' && method === 'GET') {
     return handleProjectContextAudit(env, authUser, url);
   }
