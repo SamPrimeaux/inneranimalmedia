@@ -8,6 +8,24 @@ export function cfImageVariants(url: string | null | undefined) {
   return { src: publicUrl, srcSet: `${smallUrl} 1x, ${publicUrl} 2x` };
 }
 
+/**
+ * Responsive wallpaper URLs for full-bleed heroes.
+ * `/hero` for large viewports, `/public` default, `/small` for narrow.
+ */
+export function cfHeroWallpaper(url: string | null | undefined) {
+  const raw = (url || '').trim();
+  if (!raw) return { small: '', public: '', hero: '' };
+  if (!raw.includes('imagedelivery.net')) {
+    return { small: raw, public: raw, hero: raw };
+  }
+  const publicUrl = raw.replace(/\/(small|thumbnail|avatar|hero|public)$/, '/public');
+  return {
+    small: publicUrl.replace(/\/public$/, '/small'),
+    public: publicUrl,
+    hero: publicUrl.replace(/\/public$/, '/hero'),
+  };
+}
+
 export function projectInitials(name: string): string {
   const parts = String(name || '')
     .trim()

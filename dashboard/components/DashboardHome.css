@@ -50,39 +50,42 @@
   gap: 6px;
 }
 
-/* ── Design Studio hero (full-bleed image + copy overlay) ───────────────── */
+/* ── Design Studio hero WALLPAPER (full-bleed, not a card) ───────────────── */
 .iam-home-hero-studio {
   position: relative;
   display: block;
   isolation: isolate;
   overflow: hidden;
-  /* Break out of .iam-home-shell horizontal padding for true full-bleed. */
-  width: calc(100% + 56px);
+  width: 100%;
   max-width: none;
-  margin: -8px -28px 18px;
-  min-height: min(440px, 62vh);
-  max-height: 560px;
-  padding: 40px 40px 44px;
-  border-radius: 0;
+  margin: 0;
+  /* Viewport-scaled band — wallpaper crops via object-fit: cover */
+  min-height: clamp(300px, 46vh, 560px);
+  height: clamp(300px, 46vh, 560px);
+  padding: clamp(28px, 4.5vw, 56px) clamp(20px, 4vw, 48px);
   border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--iam-home-border) 70%, transparent);
-  background: #06080c;
+  border-radius: 0;
   box-shadow: none;
+  background: #06080c;
 }
 
-.iam-home-hero-studio__media {
+.iam-home-hero-studio__wallpaper {
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
 }
 
-.iam-home-hero-studio__media-img {
+.iam-home-hero-studio__wallpaper picture,
+.iam-home-hero-studio__wallpaper-img {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.iam-home-hero-studio__wallpaper-img {
   object-fit: cover;
-  object-position: 58% 40%;
+  object-position: 58% 38%;
 }
 
 .iam-home-hero-studio__scrim {
@@ -91,12 +94,12 @@
   background:
     linear-gradient(
       105deg,
-      rgba(6, 8, 12, 0.94) 0%,
-      rgba(6, 8, 12, 0.78) 28%,
-      rgba(6, 8, 12, 0.35) 52%,
-      rgba(6, 8, 12, 0.18) 100%
+      rgba(6, 8, 12, 0.92) 0%,
+      rgba(6, 8, 12, 0.74) 30%,
+      rgba(6, 8, 12, 0.32) 56%,
+      rgba(6, 8, 12, 0.16) 100%
     ),
-    linear-gradient(to top, rgba(6, 8, 12, 0.55) 0%, transparent 48%);
+    linear-gradient(to top, rgba(6, 8, 12, 0.5) 0%, transparent 50%);
   pointer-events: none;
 }
 
@@ -104,7 +107,7 @@
   position: relative;
   z-index: 2;
   min-width: 0;
-  max-width: 540px;
+  max-width: min(540px, 100%);
 }
 
 .iam-home-hero-studio__eyebrow {
@@ -948,10 +951,7 @@
   }
 
   .iam-home-hero-studio {
-    width: calc(100% + 72px);
-    margin-left: -36px;
-    margin-right: -36px;
-    padding: 48px 44px 52px;
+    padding: clamp(40px, 5vw, 64px) clamp(28px, 4vw, 56px);
   }
 
   .iam-tool-grid {
@@ -970,14 +970,12 @@
 
 @media (max-width: 960px) {
   .iam-home-hero-studio {
-    width: calc(100% + 56px);
-    margin: -4px -28px 16px;
-    min-height: min(380px, 54vh);
-    max-height: none;
-    padding: 28px 24px 32px;
+    min-height: clamp(280px, 42vh, 420px);
+    height: clamp(280px, 42vh, 420px);
+    padding: 28px 20px 32px;
   }
 
-  .iam-home-hero-studio__media-img {
+  .iam-home-hero-studio__wallpaper-img {
     object-position: 70% 40%;
   }
 
@@ -1008,10 +1006,9 @@
   }
 
   .iam-home-hero-studio {
-    width: calc(100% + 32px);
-    margin-left: -16px;
-    margin-right: -16px;
-    padding: 26px 18px 30px;
+    min-height: clamp(260px, 40vh, 360px);
+    height: clamp(260px, 40vh, 360px);
+    padding: 24px 16px 28px;
   }
 
   .iam-home-hero-studio__title {

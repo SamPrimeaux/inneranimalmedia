@@ -15,7 +15,7 @@ import {
 import { startNewAgentChat } from '../lib/openAgentConversation';
 import { fetchProjectsList, type OverviewProject } from '../api/projects';
 import { readIamProjectsCache, writeIamProjectsCache } from '../src/iamProjectsCache';
-import { cfImageVariants, projectAccentHue, projectInitials } from '../src/lib/projectBranding';
+import { cfImageVariants, cfHeroWallpaper, projectAccentHue, projectInitials } from '../src/lib/projectBranding';
 import {
   fetchDashboardHomeTiles,
   saveDashboardHomeTiles,
@@ -284,10 +284,10 @@ export function DashboardHome() {
     [quickTiles],
   );
 
-  const homeHeroCover = useMemo(() => {
+  const homeHeroWallpaper = useMemo(() => {
     const heroTile = quickTiles.find((t) => t.tile_key === HOME_HERO_TILE_KEY && t.is_enabled);
     const url = (heroTile?.image_url || DEFAULT_HOME_HERO_IMAGE).trim();
-    return cfImageVariants(url || DEFAULT_HOME_HERO_IMAGE);
+    return cfHeroWallpaper(url || DEFAULT_HOME_HERO_IMAGE);
   }, [quickTiles]);
 
   const editingConnectTile = useMemo(
@@ -312,52 +312,59 @@ export function DashboardHome() {
 
   return (
     <main className={`iam-home ${editMode ? 'iam-home-edit-mode' : ''}`} aria-label="Dashboard home">
-      <section className="iam-home-shell">
-        <section className="iam-home-hero-studio" aria-labelledby="home-title">
-          <div className="iam-home-hero-studio__media" aria-hidden>
+      {/* Wallpaper band — outside shell so it is never an inset card. */}
+      <section className="iam-home-hero-studio" aria-labelledby="home-title">
+        <div className="iam-home-hero-studio__wallpaper" aria-hidden>
+          <picture>
+            <source media="(min-width: 1100px)" srcSet={homeHeroWallpaper.hero} />
+            <source media="(min-width: 640px)" srcSet={homeHeroWallpaper.public} />
             <img
-              src={homeHeroCover.src}
-              srcSet={homeHeroCover.srcSet}
+              src={homeHeroWallpaper.public}
+              srcSet={`${homeHeroWallpaper.small} 640w, ${homeHeroWallpaper.public} 1280w, ${homeHeroWallpaper.hero} 1920w`}
+              sizes="100vw"
               alt=""
-              className="iam-home-hero-studio__media-img"
+              className="iam-home-hero-studio__wallpaper-img"
               loading="eager"
               decoding="async"
+              fetchPriority="high"
             />
-            <div className="iam-home-hero-studio__scrim" />
+          </picture>
+          <div className="iam-home-hero-studio__scrim" />
+        </div>
+        <div className="iam-home-hero-studio__copy">
+          <p className="iam-home-hero-studio__eyebrow">Design Studio</p>
+          <h1 id="home-title" className="iam-home-hero-studio__title">
+            Design<span className="iam-home-hero-studio__dot">.</span>
+            <br />
+            Create<span className="iam-home-hero-studio__dot">.</span>
+            <br />
+            Ship<span className="iam-home-hero-studio__dot">.</span>
+          </h1>
+          <p className="iam-home-hero-studio__sub">
+            Build interfaces, products, and digital assets. Generate. Refine. Deploy.
+          </p>
+          <div className="iam-home-hero-studio__actions">
+            <button
+              type="button"
+              className="iam-home-hero-studio__cta"
+              onClick={() => navigate('/dashboard/designstudio')}
+            >
+              Continue in Design Studio
+              <ArrowRight size={18} strokeWidth={2} aria-hidden />
+            </button>
+            <button
+              type="button"
+              className="iam-home-hero-studio__cta-secondary"
+              onClick={() => startNewAgentChat({ stayOnPage: true })}
+            >
+              <Sparkles size={15} strokeWidth={1.75} aria-hidden />
+              Ask Agent Sam
+            </button>
           </div>
-          <div className="iam-home-hero-studio__copy">
-            <p className="iam-home-hero-studio__eyebrow">Design Studio</p>
-            <h1 id="home-title" className="iam-home-hero-studio__title">
-              Design<span className="iam-home-hero-studio__dot">.</span>
-              <br />
-              Create<span className="iam-home-hero-studio__dot">.</span>
-              <br />
-              Ship<span className="iam-home-hero-studio__dot">.</span>
-            </h1>
-            <p className="iam-home-hero-studio__sub">
-              Build interfaces, products, and digital assets. Generate. Refine. Deploy.
-            </p>
-            <div className="iam-home-hero-studio__actions">
-              <button
-                type="button"
-                className="iam-home-hero-studio__cta"
-                onClick={() => navigate('/dashboard/designstudio')}
-              >
-                Continue in Design Studio
-                <ArrowRight size={18} strokeWidth={2} aria-hidden />
-              </button>
-              <button
-                type="button"
-                className="iam-home-hero-studio__cta-secondary"
-                onClick={() => startNewAgentChat({ stayOnPage: true })}
-              >
-                <Sparkles size={15} strokeWidth={1.75} aria-hidden />
-                Ask Agent Sam
-              </button>
-            </div>
-          </div>
-        </section>
+        </div>
+      </section>
 
+      <section className="iam-home-shell">
         <nav className="iam-home-hero-studio__workflow" aria-label="Creation workflow">
           {CREATION_WORKFLOW.map((step) => {
             const Icon = step.icon;
