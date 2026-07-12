@@ -19,6 +19,8 @@ export const IN_APP_AGENT_SPINE_TOOL_KEYS = Object.freeze([
   'agentsam_github_tree',
   'agentsam_github_read',
   'agentsam_github_read_many',
+  'agentsam_github_search',
+  'agentsam_github_repo_list',
   'agentsam_d1_query',
 ]);
 

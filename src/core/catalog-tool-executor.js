@@ -2066,6 +2066,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         get_tree: 'github_get_tree',
         read_dir: 'github_read_dir',
         batch_read: 'github_batch_read',
+        patch_file: 'github_patch_file',
         get_commit: 'github_get_commit',
         compare_commits: 'github_compare_commits',
         get_pr: 'github_get_pr',
@@ -2101,6 +2102,28 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       };
       let handlerName = opMap[op] || null;
       if (!handlerName && toolKey === 'agentsam_github_write') handlerName = 'github_upsert_file';
+      if (!handlerName && toolKey === 'agentsam_github_read') handlerName = 'github_get_file';
+      if (
+        !handlerName &&
+        (toolKey === 'agentsam_github_read_many' || toolKey === 'agentsam_github_batch_read')
+      ) {
+        handlerName = 'github_batch_read';
+      }
+      if (!handlerName && toolKey === 'agentsam_github_patch') handlerName = 'github_patch_file';
+      if (!handlerName && (toolKey === 'agentsam_github_pr' || toolKey === 'agentsam_github_pr_create')) {
+        handlerName = 'github_create_pr';
+      }
+      if (!handlerName && toolKey === 'agentsam_github_repo_list') handlerName = 'github_repos';
+      if (!handlerName && toolKey === 'agentsam_github_list_commits') handlerName = 'github_list_commits';
+      // Issue tool: args.operation wins over handler_config (schema allows create|get|list|close|update).
+      if (toolKey === 'agentsam_github_issue') {
+        const issueOp = String(params?.operation || op || 'create').toLowerCase();
+        if (issueOp === 'list' || issueOp === 'list_issues') handlerName = 'github_list_issues';
+        else if (issueOp === 'get' || issueOp === 'get_issue') handlerName = 'github_get_issue';
+        else if (issueOp === 'close' || issueOp === 'close_issue') handlerName = 'github_close_issue';
+        else if (issueOp === 'update' || issueOp === 'update_issue') handlerName = 'github_update_issue';
+        else handlerName = 'github_create_issue';
+      }
       if (!handlerName && toolKey === 'github_file') handlerName = 'github_get_file';
       if (!handlerName && toolKey === 'github_update_file') handlerName = 'github_update_file';
       if (!handlerName && toolKey === 'github_create_file') handlerName = 'github_create_file';
@@ -2197,6 +2220,20 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       ghParams.repo = repoScope.repo;
       let handlerNameResolved = handlerName;
       let opResolved = op;
+      // Sync op label when tool-key fallbacks picked a handler without config.operation.
+      if (handlerNameResolved === 'github_batch_read') opResolved = 'batch_read';
+      if (handlerNameResolved === 'github_patch_file') opResolved = 'patch_file';
+      if (handlerNameResolved === 'github_get_tree') opResolved = 'get_tree';
+      if (handlerNameResolved === 'github_get_file') opResolved = 'get_file';
+      if (handlerNameResolved === 'github_repos') opResolved = 'list_repos';
+      if (handlerNameResolved === 'github_list_commits') opResolved = 'list_commits';
+      if (handlerNameResolved === 'github_create_pr') opResolved = 'create_pr';
+      if (handlerNameResolved === 'github_list_issues') opResolved = 'list_issues';
+      if (handlerNameResolved === 'github_get_issue') opResolved = 'get_issue';
+      if (handlerNameResolved === 'github_close_issue') opResolved = 'close_issue';
+      if (handlerNameResolved === 'github_update_issue') opResolved = 'update_issue';
+      if (handlerNameResolved === 'github_create_issue') opResolved = 'create_issue';
+      if (handlerNameResolved === 'github_search_code') opResolved = 'search_code';
       if (
         (handlerNameResolved === 'github_get_file' || opResolved === 'get_file') &&
         !String(ghParams.path || '').trim() &&
@@ -2284,7 +2321,23 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           case 'read_dir':
             return { ok: true, repo: ghParamsWithMeta.repo ?? null, path: ghParamsWithMeta.path ?? null, entries: out.entries || [] };
           case 'batch_read':
-            return { ok: true, files: out.files || [] };
+            return {
+              ok: true,
+              files: out.files || [],
+              truncated: out.truncated === true,
+              hint: out.hint || null,
+            };
+          case 'patch_file': {
+            const commitSha = out.commit?.sha ?? null;
+            const sha = out.content?.sha ?? null;
+            return {
+              ok: true,
+              path: ghParamsWithMeta.path ?? null,
+              sha,
+              commit_sha: commitSha,
+              created: out.created === true,
+            };
+          }
           case 'get_commit': {
             const c = out.commit || {};
             return {

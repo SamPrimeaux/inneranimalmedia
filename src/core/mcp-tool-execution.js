@@ -56,24 +56,33 @@ export function isSubstantiveToolOutput(toolName, value) {
   }
   if (n.includes('github') && (n.includes('tree') || n.includes('get_tree'))) {
     return (
-      (Array.isArray(value.tree) && value.tree.length > 0) ||
-      (typeof value.tree_count === 'number' && value.tree_count > 0)
+      (Array.isArray(value.tree) && value.tree.length >= 0) ||
+      (typeof value.tree_count === 'number' && value.tree_count >= 0) ||
+      typeof value.error === 'string'
     );
   }
   if (n.includes('github') && n.includes('search')) {
-    return Array.isArray(value.items) && value.items.length > 0;
+    // Empty items is a real answer (no matches) — do not treat as stale envelope.
+    return Array.isArray(value.items) || typeof value.error === 'string';
   }
   if (
     n.includes('github') &&
     (n.includes('read_many') || n.includes('batch_read'))
   ) {
-    return (
-      Array.isArray(value.files) &&
-      value.files.some((f) => typeof f?.text === 'string' && f.text.length > 0)
+    if (!Array.isArray(value.files)) return typeof value.error === 'string';
+    // Usable when any file has text OR a structured per-path error (dir/glob/404).
+    return value.files.some(
+      (f) =>
+        (typeof f?.text === 'string' && f.text.length > 0) ||
+        (typeof f?.error === 'string' && f.error.length > 0),
     );
   }
   if (n.includes('github') && (n.includes('read') || n.includes('file'))) {
-    return typeof value.text === 'string' && value.text.length > 0;
+    return (
+      (typeof value.text === 'string' && value.text.length > 0) ||
+      typeof value.error === 'string' ||
+      value.is_directory === true
+    );
   }
   return true;
 }

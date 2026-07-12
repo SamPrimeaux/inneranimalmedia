@@ -137,9 +137,20 @@ export async function resolveGithubRepoForToolCall(env, input) {
   }
 
   if (requested && isSuperadmin) {
-    const normalized = requested.replace(/^https?:\/\/(www\.)?github\.com\//i, '').replace(/\.git$/i, '');
+    const normalized = requested
+      .replace(/^https?:\/\/(www\.)?github\.com\//i, '')
+      .replace(/\.git$/i, '')
+      .trim();
     if (normalized.includes('/')) {
       return { repo: normalized, reason: 'superadmin_direct' };
+    }
+    // Bare slug (e.g. "inneranimalmedia") — expand platform repos for operator.
+    const slugLower = normalized.toLowerCase();
+    if (PLATFORM_REPO_SLUGS.has(slugLower)) {
+      return { repo: `SamPrimeaux/${normalized}`, reason: 'superadmin_platform_slug' };
+    }
+    if (normalized) {
+      return { repo: `SamPrimeaux/${normalized}`, reason: 'superadmin_bare_slug' };
     }
   }
 

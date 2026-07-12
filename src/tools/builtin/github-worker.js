@@ -264,6 +264,22 @@ export const handlers = {
     if (missing.length) return missingRequiredInput(params, missing);
     const repo = String(params.repo).trim();
     const path = String(params.path).trim();
+    if (path === '.' || path === '/' || path === './') {
+      return structuredError(
+        params,
+        'is_directory',
+        'path "." is a directory. Use agentsam_github_tree for the file tree, then agentsam_github_read with concrete file paths.',
+        { is_directory: true, path, repo },
+      );
+    }
+    if (/[*?[\]{}]/.test(path)) {
+      return structuredError(
+        params,
+        'glob_not_supported',
+        `Globs are not supported on Contents API (${path}). Use agentsam_github_tree or agentsam_github_search, then read exact paths.`,
+        { path, repo },
+      );
+    }
     const t = await ghGetToken(env, params);
     if (t.success === false || t.error) return t;
     const enc = path
@@ -275,12 +291,31 @@ export const handlers = {
     const qs = ref ? `?ref=${encodeURIComponent(ref)}` : '';
     const res = await ghJson(t.token, 'GET', `/repos/${repo}/contents/${enc}${qs}`, null);
     if (res?.success === false) return { ...res, ...toolMeta(params) };
-    const data = res.data || {};
+    const data = res.data;
+    // Contents API returns an array for directories — never treat as file text.
+    if (Array.isArray(data)) {
+      return structuredError(
+        params,
+        'is_directory',
+        `"${path}" is a directory (${data.length} entries). Use agentsam_github_tree or agentsam_github_read with a file path.`,
+        {
+          is_directory: true,
+          path,
+          repo,
+          entries: data.slice(0, 50).map((e) => ({
+            name: e.name,
+            path: e.path,
+            type: e.type,
+          })),
+        },
+      );
+    }
+    const file = data || {};
     let text = '';
-    if (typeof data.content === 'string' && data.encoding === 'base64') {
+    if (typeof file.content === 'string' && file.encoding === 'base64') {
       try {
         text = new TextDecoder().decode(
-          Uint8Array.from(atob(data.content.replace(/\n/g, '')), (c) => c.charCodeAt(0)),
+          Uint8Array.from(atob(file.content.replace(/\n/g, '')), (c) => c.charCodeAt(0)),
         );
       } catch {
         text = '';
@@ -290,9 +325,9 @@ export const handlers = {
       success: true,
       path,
       repo,
-      sha: data.sha || null,
-      size: data.size ?? null,
-      encoding: data.encoding || null,
+      sha: file.sha || null,
+      size: file.size ?? null,
+      encoding: file.encoding || null,
       text,
     };
   },
@@ -461,10 +496,10 @@ export const handlers = {
   },
 
   async github_get_tree(params, env) {
-    const missing = missingNonEmptyStrings(params, ['user_id', 'repo', 'branch']);
+    const missing = missingNonEmptyStrings(params, ['user_id', 'repo']);
     if (missing.length) return missingRequiredInput(params, missing);
     const repo = trim(params.repo);
-    const branch = trim(params.branch);
+    const branch = trim(params.branch) || trim(params.ref) || 'main';
     const recursive = params.recursive == null ? true : Boolean(params.recursive);
     const t = await ghGetToken(env, params);
     if (t.success === false || t.error) return t;
@@ -485,30 +520,102 @@ export const handlers = {
   async github_batch_read(params, env) {
     const missing = missingNonEmptyStrings(params, ['user_id', 'repo']);
     if (missing.length) return missingRequiredInput(params, missing);
-    const files = Array.isArray(params.files) ? params.files : null;
-    if (!files || files.length === 0) return missingRequiredInput(params, ['files']);
-    const repo = trim(params.repo);
-    const out = [];
-    for (const f of files) {
-      const path = trim(f?.path ?? f);
-      if (!path) continue;
-      const got = await handlers.github_get_file(
-        {
-          ...params,
-          repo,
-          path,
-          ref: f?.ref ?? params.ref,
-          branch: f?.branch ?? params.branch,
-        },
-        env,
-      );
-      if (got?.success === false) {
-        out.push({ path, sha: null, text: '', error: got?.message || got?.error || 'read_failed' });
-        continue;
-      }
-      out.push({ path, sha: got?.sha ?? null, text: got?.text ?? '' });
+    // Accept `paths` as alias — models often pass paths instead of files.
+    const rawList = Array.isArray(params.files)
+      ? params.files
+      : Array.isArray(params.paths)
+        ? params.paths
+        : null;
+    if (!rawList || rawList.length === 0) {
+      return {
+        ...missingRequiredInput(params, ['files']),
+        user_message:
+          'agentsam_github_read_many requires files: string[] of exact repo paths (no globs, no directories). Use agentsam_github_tree first.',
+      };
     }
-    return { success: true, files: out };
+    const repo = trim(params.repo);
+    const MAX_BATCH = 20;
+    const files = rawList.slice(0, MAX_BATCH);
+    const out = await Promise.all(
+      files.map(async (f) => {
+        const path = trim(f?.path ?? f);
+        if (!path) {
+          return { path: '', sha: null, text: '', error: 'empty_path' };
+        }
+        const got = await handlers.github_get_file(
+          {
+            ...params,
+            repo,
+            path,
+            ref: f?.ref ?? params.ref,
+            branch: f?.branch ?? params.branch,
+          },
+          env,
+        );
+        if (got?.success === false) {
+          return {
+            path,
+            sha: null,
+            text: '',
+            error: got?.message || got?.error || 'read_failed',
+            is_directory: got?.is_directory === true,
+            entries: got?.entries || undefined,
+          };
+        }
+        return { path, sha: got?.sha ?? null, text: got?.text ?? '' };
+      }),
+    );
+    const truncated = rawList.length > MAX_BATCH;
+    return {
+      success: true,
+      files: out,
+      truncated,
+      hint: truncated
+        ? `Only first ${MAX_BATCH} paths were read. Pass fewer concrete file paths.`
+        : undefined,
+    };
+  },
+
+  async github_patch_file(params, env) {
+    const missing = [
+      ...missingNonEmptyStrings(params, ['user_id', 'repo', 'path', 'find']),
+      ...missingDefined(params, ['replace']),
+    ];
+    if (missing.length) return missingRequiredInput(params, [...new Set(missing)]);
+    const find = String(params.find);
+    const replace = String(params.replace);
+    const replaceAll = params.replace_all === true || params.replaceAll === true;
+    const message = trim(params.message) || `patch: ${trim(params.path)}`;
+    const got = await handlers.github_get_file(params, env);
+    if (got?.success === false) return got;
+    const text = typeof got.text === 'string' ? got.text : '';
+    if (!text.includes(find)) {
+      return structuredError(
+        params,
+        'find_not_found',
+        'find string not present in current file content',
+        { path: got.path, sha: got.sha },
+      );
+    }
+    const occurrences = text.split(find).length - 1;
+    if (!replaceAll && occurrences !== 1) {
+      return structuredError(
+        params,
+        'find_not_unique',
+        `find matched ${occurrences} times; set replace_all=true or use a more specific find string`,
+        { path: got.path, sha: got.sha, occurrences },
+      );
+    }
+    const next = replaceAll ? text.split(find).join(replace) : text.replace(find, replace);
+    return handlers.github_upsert_file(
+      {
+        ...params,
+        content: next,
+        message,
+        sha: got.sha,
+      },
+      env,
+    );
   },
 
   async github_create_pr(params, env) {

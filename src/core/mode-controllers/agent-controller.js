@@ -211,18 +211,27 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         agentToolNameOf,
         inputSchemaFromAgentsamToolRow,
       } = await import('../agent-tool-loader.js');
-      const names = ['agentsam_github_tree', 'agentsam_github_read', 'agentsam_github_read_many'];
+      const names = [
+        'agentsam_github_tree',
+        'agentsam_github_read',
+        'agentsam_github_read_many',
+        'agentsam_github_search',
+        'agentsam_github_repo_list',
+        'agentsam_github_list_commits',
+      ];
       const have = new Set(tools.map((t) => agentToolNameOf(t)).filter(Boolean));
       const missing = names.filter((n) => !have.has(n));
       if (missing.length) {
         const rows = await fetchAgentsamToolRowsByName(env, missing);
         const cap = Math.max(tools.length + missing.length, Number(profile.max_tools) || 12);
         const seen = new Set(have);
+        const injected = [];
         for (const row of rows) {
           const nm = String(row.tool_name || '');
           if (!nm || seen.has(nm)) continue;
           if (tools.length >= cap) break;
           seen.add(nm);
+          injected.push(nm);
           tools.unshift({
             name: nm,
             description: String(row.description || nm).slice(0, 4000),
@@ -230,6 +239,16 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
             tool_category: String(row.tool_category || 'builtin'),
             requires_approval: Number(row.requires_approval || 0) === 1,
           });
+        }
+        // Manifest alone is not enough — validator enforces tool_policy.allowlist.
+        if (injected.length) {
+          const allow = Array.isArray(profile.tool_allowlist) ? profile.tool_allowlist : [];
+          for (const nm of injected) {
+            if (!allow.includes(nm)) allow.push(nm);
+          }
+          profile.tool_allowlist = allow;
+          if (!profile.tool_policy) profile.tool_policy = {};
+          profile.tool_policy.allowlist = allow;
         }
       }
     } catch (e) {

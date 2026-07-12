@@ -170,6 +170,16 @@ export function applyActiveFileDefaultsToToolInput(toolName, toolInput, envelope
     } else if (!out.path && !out.file_path && envelope.github_path) {
       out.path = envelope.github_path;
     }
+    // read_many expects `files`, not a single path — seed from envelope when omitted.
+    const isBatch =
+      n.includes('read_many') || n.includes('batch_read');
+    if (isBatch && envelope.github_path) {
+      const hasFiles = Array.isArray(out.files) && out.files.length > 0;
+      const hasPaths = Array.isArray(out.paths) && out.paths.length > 0;
+      if (!hasFiles && !hasPaths) {
+        out.files = [envelope.github_path];
+      }
+    }
     const branch = envelope.github_branch || 'main';
     if (!out.branch) out.branch = branch;
     if (!out.ref) out.ref = branch;
