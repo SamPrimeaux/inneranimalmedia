@@ -429,6 +429,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     runTokensIn: number | null;
     runTokensOut: number | null;
     lastError: string | null;
+    status?: 'idle' | 'running' | 'completed' | 'failed' | null;
   }>({
     runId: null,
     stepsTotal: null,
@@ -438,6 +439,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     runTokensIn: null,
     runTokensOut: null,
     lastError: null,
+    status: 'idle',
   });
   const activePlanIdRef = useRef<string | null>(activePlanId?.trim() || null);
   const totalStagedBytes = useMemo(
@@ -1203,6 +1205,17 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       return;
     }
     setLoadingStartedAt(null);
+    // Stream ended (done, error, or Worker cancel) — never leave the workstreams banner stuck.
+    setWorkflowLedger((prev) =>
+      prev.runId
+        ? {
+            ...prev,
+            runId: null,
+            currentNodeKey: null,
+            status: prev.lastError ? 'failed' : 'completed',
+          }
+        : prev,
+    );
   }, [isLoading]);
 
   const heroThinking = deriveHeroThinkingState({
@@ -2767,6 +2780,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       runTokensIn: null,
       runTokensOut: null,
       lastError: null,
+      status: 'idle',
     });
     setInput('');
     requestAnimationFrame(() => {

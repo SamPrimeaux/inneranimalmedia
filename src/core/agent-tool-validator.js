@@ -118,22 +118,27 @@ export async function appendChatToolSessionLedgerStep(env, emit, ledger, stepEnt
   return null;
 }
 
-export async function finalizeChatToolSessionLedger(_env, _ctx, emit, ledger, { ok, errorMessage } = {}) {
+export function finalizeChatToolSessionLedger(_env, _ctx, emit, ledger, { ok, errorMessage } = {}) {
   if (!ledger?.runId) return;
   const err = ok ? null : String(errorMessage || 'chat_tool_session_failed').slice(0, 4000);
   const base = chatToolSessionSseBase(ledger);
+  const completed = ledger.steps.length;
   if (ok) {
     emit('workflow_complete', {
       ...base,
       status: 'completed',
-      message: `Executed ${ledger.steps.length} tool call(s).`,
-      steps_completed: ledger.steps.length,
+      message: `Executed ${completed} tool call(s).`,
+      steps_completed: completed,
+      // Honest denominator — never the max-tool budget (that made the UI stuck at 5/12).
+      steps_total: Math.max(completed, 1),
     });
   } else {
     emit('workflow_error', {
       ...base,
       status: 'failed',
       message: err || 'failed',
+      steps_completed: completed,
+      steps_total: Math.max(completed, 1),
     });
   }
 }

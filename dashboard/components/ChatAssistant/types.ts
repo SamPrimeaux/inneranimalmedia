@@ -585,6 +585,7 @@ export type WorkflowLedgerState = {
   runTokensIn: number | null;
   runTokensOut: number | null;
   lastError: string | null;
+  status?: 'idle' | 'running' | 'completed' | 'failed' | null;
 };
 
 export type ExecPanelState = {

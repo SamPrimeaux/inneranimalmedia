@@ -139,6 +139,14 @@ export function isProjectReadOnlyChatMessage(message) {
   if (mutationIntent && !codeContextIntent(t)) return false;
   if (askDataPlaneIntent(t)) return false;
   if (codeContextIntent(t)) return false;
+  // Repo analysis / tree / skills inventory needs github_* tools — not memory-only QnA.
+  if (
+    /\b(this repo|the repo|codebase|repository)\b/i.test(t) &&
+    /\b(analy[sz]e|summar(?:y|ize)|skills?|tree|structure|overview|audit|inventory|list)\b/i.test(t)
+  ) {
+    return false;
+  }
+  if (/\b(github_tree|github_read|top-?level tree|file tree)\b/i.test(t)) return false;
   if (/\b(terminal|sandbox|wrangler deploy|github_write|commit|push)\b/i.test(t)) return false;
   if (/\bbinding(s)?\b/i.test(t) && !/\b(iam|inneranimalmedia|platform)\b/i.test(t)) return true;
   return true;

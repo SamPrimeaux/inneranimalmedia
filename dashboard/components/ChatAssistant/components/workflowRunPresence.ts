@@ -16,6 +16,7 @@ export function resolveWorkflowRunPresence(
   const { status, workflowKey, stepsTotal, stepsCompleted, currentNodeKey, errorMessage, runId } =
     runState;
   if (status === 'idle' || !runId) return null;
+  if (status === 'completed') return null;
 
   const progress =
     status === 'running' && stepsCompleted === 0
@@ -24,7 +25,9 @@ export function resolveWorkflowRunPresence(
         : 'Running…'
       : stepsTotal > 0
         ? `${stepsCompleted} / ${stepsTotal} steps`
-        : `${stepsCompleted} steps`;
+        : currentNodeKey
+          ? currentNodeKey
+          : `${stepsCompleted} tool call${stepsCompleted === 1 ? '' : 's'}`;
 
   if (status === 'awaiting_approval') {
     return {
@@ -33,16 +36,6 @@ export function resolveWorkflowRunPresence(
       description: 'This workflow node is paused until you allow or deny.',
       meta: currentNodeKey ? `${workflowKey} · ${currentNodeKey}` : workflowKey ?? undefined,
       pill: 'approval',
-    };
-  }
-
-  if (status === 'completed') {
-    return {
-      state: 'complete',
-      title: 'Workflow complete',
-      description: workflowKey ?? undefined,
-      meta: progress,
-      pill: 'done',
     };
   }
 
@@ -56,11 +49,11 @@ export function resolveWorkflowRunPresence(
     };
   }
 
-  const fanout =
-    mode === 'multitask' || (stepsTotal != null && stepsTotal > 3);
+  // Chat tool sessions are sequential — never label them as parallel fanout.
+  const fanout = mode === 'multitask';
   return {
     state: fanout ? 'multitask_fanout' : 'task_queue',
-    title: fanout ? 'Running parallel workstreams' : 'Working through the task queue',
+    title: fanout ? 'Running parallel workstreams' : 'Working through tools',
     description: workflowKey ?? undefined,
     meta: [progress, currentNodeKey].filter(Boolean).join(' · ') || runId.slice(0, 18),
     pill: fanout ? 'fanout' : 'queue',

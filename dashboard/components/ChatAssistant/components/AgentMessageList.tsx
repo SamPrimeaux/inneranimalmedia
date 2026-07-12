@@ -855,9 +855,9 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
         </div>
       ))}
 
-      {workflowLedger.runId ? (
+      {workflowLedger.runId && isLoading ? (
         <div className="mx-0 mb-1">
-          <WorkflowRunPresenceBanner ledger={workflowLedger} mode={mode} />
+          <WorkflowRunPresenceBanner ledger={workflowLedger} mode={mode} active={isLoading} />
         </div>
       ) : null}
 

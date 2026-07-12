@@ -1760,6 +1760,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             runId: spineRunId || prev.runId,
             stepsTotal: w.steps_total != null ? Number(w.steps_total) : prev.stepsTotal,
             lastError: null,
+            status: 'running' as const,
           }));
           continue;
         }
@@ -1845,8 +1846,22 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const spineRunId = sseSpineRunId(w);
           setWorkflowLedger((prev) => ({
             ...prev,
-            runId: spineRunId || prev.runId,
+            runId: w.type === 'workflow_complete' ? null : spineRunId || prev.runId,
             lastError: w.type === 'workflow_error' ? String(w.message || 'workflow_error') : null,
+            status:
+              w.type === 'workflow_complete'
+                ? ('completed' as const)
+                : w.type === 'workflow_error'
+                  ? ('failed' as const)
+                  : prev.status,
+            stepsCompleted:
+              w.type === 'workflow_complete' && typeof (w as { steps_completed?: number }).steps_completed === 'number'
+                ? Number((w as { steps_completed: number }).steps_completed)
+                : prev.stepsCompleted,
+            stepsTotal:
+              typeof (w as { steps_total?: number }).steps_total === 'number'
+                ? Number((w as { steps_total: number }).steps_total)
+                : prev.stepsTotal,
           }));
           if (w.type === 'workflow_complete') {
             onThinkingEvent?.({ type: 'workflow_complete' });

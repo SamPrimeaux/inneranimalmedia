@@ -75,6 +75,8 @@ export function codeContextIntent(message) {
     /\b(where is|where are|find|which file|grep|defined in|set before|set in|called from|implemented in|configured in|look up|search (?:the )?(?:repo|codebase|code|project))\b/i.test(
       message,
     ) ||
+    /\b(analy[sz]e|summar(?:y|ize)|skills?|inventory|overview)\b/i.test(message) &&
+      /\b(repo|codebase|repository|project|skills?)\b/i.test(message) ||
     /\b(agentsam_|src\/|dashboard\/|migrations\/|\.js\b|\.tsx\b|\.sql\b|handler_key|route_key|workflow_key|tool_key|fs_read_file|fs_search_files|github_file)\b/i.test(
       message,
     ) ||

@@ -36,7 +36,8 @@ function sseSpineRunId(d: { agent_run_id?: unknown; run_id?: unknown }): string 
 // ─── Components ───────────────────────────────────────────────────────────────
 export function WorkflowRunPresenceBanner({
   ledger,
-  mode = 'multitask',
+  mode = 'agent',
+  active = true,
 }: {
   ledger: {
     runId: string | null;
@@ -44,14 +45,18 @@ export function WorkflowRunPresenceBanner({
     stepsCompleted: number;
     currentNodeKey: string | null;
     lastError: string | null;
+    status?: 'idle' | 'running' | 'completed' | 'failed' | null;
   };
   mode?: AgentMode;
+  /** When false (stream ended), hide even if runId lingered. */
+  active?: boolean;
 }) {
-  if (!ledger.runId) return null;
+  if (!ledger.runId || !active) return null;
+  if (ledger.status === 'completed' || ledger.status === 'idle') return null;
   const runState: WorkflowRunState = {
     runId: ledger.runId,
     workflowKey: ledger.currentNodeKey,
-    status: ledger.lastError ? 'failed' : 'running',
+    status: ledger.lastError || ledger.status === 'failed' ? 'failed' : 'running',
     stepsTotal: ledger.stepsTotal ?? 0,
     stepsCompleted: ledger.stepsCompleted,
     currentNodeKey: ledger.currentNodeKey,
@@ -66,7 +71,7 @@ export function WorkflowRunPresenceBanner({
     ledger.stepsTotal != null && ledger.stepsTotal > 0
       ? Math.min(100, (ledger.stepsCompleted / ledger.stepsTotal) * 100)
       : null;
-  const indeterminate = pct === 0 && !ledger.lastError;
+  const indeterminate = (pct == null || pct === 0) && !ledger.lastError;
 
   return (
     <div className="min-w-0 space-y-2">

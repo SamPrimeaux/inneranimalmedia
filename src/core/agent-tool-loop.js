@@ -1251,7 +1251,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             userId,
             sessionId,
             modelKey,
-            stepsTotal: effectiveMaxToolCalls,
+            // Do not advertise max tool budget as "steps" — UI treated 12 as a real plan.
+            stepsTotal: 0,
             chatAgentRunId,
             routingArmId: attributedRoutingArmId(),
             requestedMode: mode,
@@ -1259,7 +1260,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           if (chatToolLedger) {
             emit('workflow_start', {
               ...chatToolSessionSseBase(chatToolLedger),
-              steps_total: chatToolLedger.stepsTotal,
+              steps_total: null,
             });
           }
         } catch (e) {
