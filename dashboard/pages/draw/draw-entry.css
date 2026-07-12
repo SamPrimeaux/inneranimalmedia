@@ -13,6 +13,7 @@
   overflow-x: hidden;
   position: relative;
   z-index: 1;
+  -webkit-overflow-scrolling: touch;
 }
 
 .draw-entry__stack {
@@ -92,6 +93,38 @@
 
 @keyframes draw-entry-spin {
   to { transform: rotate(360deg); }
+}
+
+/* ─── Mobile: switch from centered column to top-aligned scroll ─── */
+@media (max-width: 430px) {
+  .draw-entry {
+    /* Don't center — top-align so content isn't clipped by short viewports */
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: max(16px, env(safe-area-inset-top, 12px)) 12px
+             max(20px, env(safe-area-inset-bottom, 12px));
+    overflow-y: auto;
+  }
+
+  /* Stack fills full width */
+  .draw-entry__stack {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* Hero: left-align on phone to save vertical space */
+  .draw-entry__hero {
+    text-align: left;
+  }
+
+  .draw-entry__hero .draw-entry__brand {
+    justify-content: flex-start;
+  }
+
+  /* Limit messages host height on phone */
+  .draw-entry__messages-host {
+    max-height: min(30vh, 200px);
+  }
 }
 
 /* Library panel */
@@ -307,6 +340,8 @@
   padding: 6px 10px;
   border-bottom: 1px solid var(--dashboard-border);
   background: var(--dashboard-panel);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .draw-canvas-toolbar__back {
@@ -321,6 +356,8 @@
   font-size: 0.6875rem;
   font-weight: 500;
   cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .draw-canvas-toolbar__back:hover {
@@ -331,6 +368,11 @@
   font-size: 0.6875rem;
   color: var(--dashboard-muted);
   margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .draw-engine-toggle {
@@ -340,6 +382,7 @@
   border-radius: 999px;
   border: 1px solid var(--dashboard-border);
   background: var(--dashboard-canvas);
+  flex-shrink: 0;
 }
 
 .draw-engine-toggle__btn {
@@ -351,6 +394,7 @@
   padding: 5px 10px;
   border-radius: 999px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .draw-engine-toggle__btn.is-active {
@@ -363,6 +407,28 @@
   color: var(--dashboard-text);
 }
 
+/* Mobile: toolbar label hidden to save space */
+@media (max-width: 430px) {
+  .draw-canvas-toolbar__label {
+    display: none;
+  }
+
+  .draw-canvas-toolbar {
+    padding: 5px 8px;
+    gap: 6px;
+  }
+
+  .draw-canvas-toolbar__back {
+    padding: 5px 8px;
+    font-size: 0.625rem;
+  }
+
+  .draw-engine-toggle__btn {
+    padding: 4px 8px;
+    font-size: 0.625rem;
+  }
+}
+
 .draw-plan-templates {
   flex-shrink: 0;
   display: flex;
@@ -371,6 +437,7 @@
   overflow-x: auto;
   border-bottom: 1px solid var(--dashboard-border);
   background: color-mix(in srgb, var(--dashboard-panel) 92%, transparent);
+  -webkit-overflow-scrolling: touch;
 }
 
 .draw-plan-templates__chip {
