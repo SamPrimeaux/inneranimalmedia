@@ -15,7 +15,7 @@
  */
 
 import { pragmaTableInfo } from './retention.js';
-import { CODE_DEVELOP_ROUTE_KEYS, CODE_DEVELOP_TASK_TYPES } from './code-develop-tool-profile.js';
+import { CODE_DEVELOP_ROUTE_KEYS, CODE_DEVELOP_SOFT_ROUTE_KEYS, CODE_DEVELOP_TASK_TYPES } from './code-develop-tool-profile.js';
 
 /** @typedef {{
  *   route_key: string,
@@ -493,7 +493,7 @@ function resolveRouteRequirementsLookupKey(modeSlug, routeKey, taskType) {
   const mode = String(modeSlug || '').trim().toLowerCase();
   const rk = routeKey != null ? String(routeKey).trim().toLowerCase() : '';
   const tt = taskType != null ? String(taskType).trim().toLowerCase() : '';
-  if (CODE_DEVELOP_ROUTE_KEYS.has(rk)) return rk;
+  if (CODE_DEVELOP_ROUTE_KEYS.has(rk) || CODE_DEVELOP_SOFT_ROUTE_KEYS.has(rk)) return rk;
   if (
     (mode === 'agent' || mode === 'multitask' || mode === 'debug' || mode === 'plan') &&
     CODE_DEVELOP_TASK_TYPES.has(tt)

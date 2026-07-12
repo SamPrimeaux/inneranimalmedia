@@ -78,6 +78,11 @@ export async function runAgentsamMemoryVectorSync(env, opts = {}) {
   let failed = 0;
   let rowsRead = 0;
   const errors = [];
+  const skipReasons = {
+    incomplete_row: 0,
+    workspace_unresolved: 0,
+    already_embedded: 0,
+  };
 
   try {
     const { results: pending } = await env.DB.prepare(
@@ -106,6 +111,7 @@ export async function runAgentsamMemoryVectorSync(env, opts = {}) {
       const content = String(row.value || '').trim();
       if (!d1WorkspaceId || !memoryKey || !content) {
         skipped += 1;
+        skipReasons.incomplete_row += 1;
         continue;
       }
 
@@ -116,7 +122,8 @@ export async function runAgentsamMemoryVectorSync(env, opts = {}) {
       }
       if (!workspaceUuid) {
         skipped += 1;
-        errors.push({ id: row.id, error: 'workspace_unresolved' });
+        skipReasons.workspace_unresolved += 1;
+        errors.push({ id: row.id, error: 'workspace_unresolved', workspace_id: d1WorkspaceId });
         continue;
       }
 
@@ -140,6 +147,7 @@ export async function runAgentsamMemoryVectorSync(env, opts = {}) {
           .bind(row.id)
           .run();
         skipped += 1;
+        skipReasons.already_embedded += 1;
         continue;
       }
 
@@ -256,18 +264,20 @@ export async function runAgentsamMemoryVectorSync(env, opts = {}) {
       skipped,
       failed,
       rows_read: rowsRead,
+      skip_reasons: skipReasons,
       table: `agentsam.${PG_TABLE}`,
       errors: errors.slice(0, 10),
     };
     console.log(
       `[memory-vector-sync] agentsam_memory_oai3large_1536 embedded=${embedded} skipped=${skipped} failed=${failed}`,
+      JSON.stringify(skipReasons),
     );
 
     if (runId) {
       await completeCronRun(env, runId, startedAt, {
         rowsRead,
         rowsWritten: embedded,
-        metadata: { embedded, skipped, failed, table: PG_TABLE },
+        metadata: { embedded, skipped, failed, skip_reasons: skipReasons, table: PG_TABLE },
       });
     }
     return summary;
