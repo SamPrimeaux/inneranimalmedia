@@ -69,10 +69,7 @@ export function isSlugConnected(slug: string, connectedSlugs: Set<string>): bool
   for (const [registry, catalog] of Object.entries(REGISTRY_TO_CATALOG_SLUG)) {
     if (catalog === s && connectedSlugs.has(registry)) return true;
   }
-  if (isCloudflareFamilyKey(s)) {
-    for (const key of connectedSlugs) {
-      if (isCloudflareFamilyKey(key)) return true;
-    }
-  }
+  // Intentionally do NOT treat satellite CF bindings (R2, Images, Vectorize, …)
+  // as the Developer Platform OAuth connection — that blocked real CF OAuth reconnect.
   return false;
 }

@@ -397,9 +397,9 @@ export function IntegrationCard({
               <button
                 type="button"
                 onClick={() => onConnectOAuth?.(slug)}
-                className="text-[11px] px-2 py-1 rounded-lg bg-[var(--bg-hover)] border border-[var(--border-subtle)]"
+                className="text-[11px] px-2 py-1 rounded-lg bg-[var(--solar-blue)] text-[var(--toggle-knob)]"
               >
-                Re-authorize
+                {status === 'connected' ? 'Re-authorize' : 'Connect OAuth'}
               </button>
             ) : null}
             {(authType === 'api_key' || authType === 'oauth_or_key') && (

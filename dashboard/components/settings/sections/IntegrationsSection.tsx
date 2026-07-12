@@ -27,7 +27,12 @@ type ConnectedItem = {
   connection: ConnectionRow | null;
   legacy: { is_connected?: number; last_used?: string } | null;
   iam_hosted: boolean;
-  integration_status?: { connected?: boolean; error?: string };
+  derived_status?: string;
+  integration_status?: {
+    connected?: boolean;
+    error?: string;
+    reconnect_required?: boolean;
+  };
 };
 
 type DrawerTarget =
@@ -43,20 +48,22 @@ export type IntegrationsSectionProps = {
 type TabId = 'connected' | 'available' | 'custom';
 
 function integrationTileStatus(item: ConnectedItem): 'warning' | 'error' | null {
-  const st = String(item.connection?.status || '').toLowerCase();
+  const st = String(item.derived_status || item.connection?.status || '').toLowerCase();
   if (st === 'auth_expired') return 'error';
   if (st === 'degraded') return 'warning';
   if (item.integration_status?.error === 'token_expired') return 'error';
   if (item.integration_status?.error === 'tunnel_unreachable') return 'warning';
+  if (item.integration_status?.reconnect_required) return 'error';
   return null;
 }
 
 function integrationSubtitle(item: ConnectedItem): string {
-  const st = String(item.connection?.status || '').toLowerCase();
-  if (st === 'connected') return 'Connected';
+  const st = String(item.derived_status || item.connection?.status || '').toLowerCase();
   if (st === 'auth_expired') return 'Reconnect';
-  if (st === 'degraded') return 'Issue';
-  return st || 'Setup';
+  if (item.integration_status?.reconnect_required) return 'Reconnect';
+  if (st === 'degraded') return 'Degraded';
+  if (st === 'connected') return 'Connected';
+  return st ? st.replace(/_/g, ' ') : 'Available';
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -188,11 +195,15 @@ export function IntegrationsSection({
 
   const cfOAuthConnected = useMemo(
     () =>
-      connected.some(
-        (item) =>
-          isCloudflareFamilyKey(String(item.connection?.provider_key || item.catalog?.slug || '')) &&
-          String(item.connection?.status || '').toLowerCase() === 'connected',
-      ),
+      connected.some((item) => {
+        const key = String(item.connection?.provider_key || item.catalog?.slug || '')
+          .trim()
+          .toLowerCase()
+          .replace(/-/g, '_');
+        if (key !== 'cloudflare_oauth' && key !== 'cloudflare') return false;
+        const st = String(item.derived_status || item.connection?.status || '').toLowerCase();
+        return st === 'connected' && item.integration_status?.connected !== false;
+      }),
     [connected],
   );
 
@@ -239,6 +250,14 @@ export function IntegrationsSection({
     if (cfPrimary) {
       const worst =
         cfStatuses.includes('error') ? 'error' : cfStatuses.includes('warning') ? 'warning' : null;
+      const oauthStatus = cfOAuthConnected
+        ? 'Connected'
+        : cfPrimary &&
+            ['auth_expired', 'disconnected'].includes(
+              String(cfPrimary.derived_status || cfPrimary.connection?.status || '').toLowerCase(),
+            )
+          ? 'Reconnect'
+          : 'Connect OAuth';
       tiles.unshift({
         key: canonicalCloudflareRegistryKey(),
         title: 'Cloudflare',
@@ -251,6 +270,7 @@ export function IntegrationsSection({
             name: 'Cloudflare',
             slug: 'cloudflare',
             icon_slug: 'cloudflare',
+            auth_type: 'oauth',
             description:
               cfPrimary.catalog?.description ||
               'Developer Platform OAuth — D1, R2, Workers, Pages, Vectorize, Images, Browser Rendering, and related CF APIs under one connection.',
@@ -259,10 +279,16 @@ export function IntegrationsSection({
             ...(cfPrimary.connection || {}),
             provider_key: canonicalCloudflareRegistryKey(),
             display_name: 'Cloudflare',
+            status: cfOAuthConnected
+              ? 'connected'
+              : String(cfPrimary.derived_status || cfPrimary.connection?.status || 'disconnected'),
           },
+          derived_status: cfOAuthConnected
+            ? 'connected'
+            : String(cfPrimary.derived_status || cfPrimary.connection?.status || 'disconnected'),
         },
-        status: worst,
-        subtitle: cfOAuthConnected ? 'Connected' : integrationSubtitle(cfPrimary),
+        status: cfOAuthConnected ? worst : 'error',
+        subtitle: oauthStatus,
         foldedCapabilities: cfCaps,
       });
     }
@@ -284,6 +310,16 @@ export function IntegrationsSection({
   const onConnectOAuth = useCallback(
     async (slug: string) => {
       const returnTo = encodeURIComponent(oauthConnectReturnTo());
+      const s = String(slug || '')
+        .trim()
+        .toLowerCase()
+        .replace(/-/g, '_');
+      // Cloudflare authorize must be top-level navigation. Popup OAuth yields a broken /
+      // "phony" surface (login shim / Connected.Closing) instead of dash.cloudflare.com.
+      if (s === 'cloudflare' || s === 'cloudflare_oauth') {
+        window.location.assign(`/api/oauth/cloudflare/start?return_to=${returnTo}`);
+        return;
+      }
       const connectUrl = `/api/integrations/${encodeURIComponent(slug)}/connect?return_to=${returnTo}`;
       const result = await openIntegrationOAuthPopup(connectUrl, slug);
       if (result.ok) {
@@ -486,6 +522,17 @@ export function IntegrationsSection({
                       imageUrl={row.icon_url}
                       subtitle={isConn ? 'Connected' : isIam ? 'Hosted' : 'Connect'}
                       onClick={() => {
+                        const oauthReady = isSlugConnected(slug, connectedSlugs);
+                        // CF satellites (R2/Images) can be "connected" while OAuth is not —
+                        // still start the real top-level CF OAuth flow.
+                        if (
+                          isCloudflareFamilyKey(slug) &&
+                          slug === 'cloudflare' &&
+                          !oauthReady
+                        ) {
+                          void onConnectOAuth('cloudflare');
+                          return;
+                        }
                         if (isIam || isConn) {
                           if (isConn) {
                             const registryKey = isCloudflareFamilyKey(slug)
@@ -508,7 +555,7 @@ export function IntegrationsSection({
                           });
                           return;
                         }
-                        onConnectOAuth(slug);
+                        void onConnectOAuth(slug);
                       }}
                     />
                   );

@@ -546,6 +546,17 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
         );
       }
 
+      // Cloudflare: never forward stale catalog scopes — oauth.js uses the expanded
+      // CLOUDFLARE_OAUTH_SCOPES allowlist. Catalog rows lagged and broke reconnect UX.
+      if (start === 'cloudflare') {
+        let cfExtra = '';
+        if (url.searchParams.get('popup') === '1') cfExtra = '&popup=1';
+        return Response.redirect(
+          `${origin}/api/oauth/cloudflare/start?return_to=${returnTo}${cfExtra}`,
+          302,
+        );
+      }
+
       let extra = '';
       const authType = String(cat?.auth_type || '').toLowerCase();
       if (cat && (authType === 'oauth' || authType === 'oauth_or_key')) {
@@ -692,19 +703,32 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
     await revokeIntegrationByokKey(env, authUser, slugRaw);
 
     const slugNormDisconnectRegistry = normalizeIntegrationSlug(slugRaw);
-    const registrySql =
-      slugNormDisconnectRegistry === 'local_tunnel'
-        ? `UPDATE integration_registry SET status = 'disconnected', config_json = '{}', account_display = NULL, updated_at = datetime('now')
-           WHERE tenant_id = ? AND LOWER(provider_key) = LOWER(?)`
-        : `UPDATE integration_registry SET status = 'disconnected', account_display = NULL, updated_at = datetime('now')
-           WHERE tenant_id = ? AND LOWER(provider_key) = LOWER(?)`;
-    try {
-      await env.DB.prepare(registrySql).bind(tenantId, slugRaw).run();
-    } catch (e) {
-      console.warn('[integrations/connect] registry update', e?.message || e);
+    const registryKeys =
+      slugNormDisconnect === 'cloudflare' || slugNormDisconnect === 'cloudflare_oauth'
+        ? ['cloudflare_oauth', 'cloudflare']
+        : [slugRaw];
+    for (const registryKey of registryKeys) {
+      const registrySql =
+        slugNormDisconnectRegistry === 'local_tunnel'
+          ? `UPDATE integration_registry SET status = 'disconnected', config_json = '{}', account_display = NULL, updated_at = datetime('now')
+             WHERE tenant_id = ? AND LOWER(provider_key) = LOWER(?)`
+          : `UPDATE integration_registry SET status = 'disconnected', account_display = NULL, updated_at = datetime('now')
+             WHERE tenant_id = ? AND LOWER(provider_key) = LOWER(?)`;
+      try {
+        await env.DB.prepare(registrySql).bind(tenantId, registryKey).run();
+      } catch (e) {
+        console.warn('[integrations/connect] registry update', registryKey, e?.message || e);
+      }
     }
 
     await touchUserIntegrationsDisconnected(env.DB, String(authUser.email || '').trim(), slugRaw);
+    if (slugNormDisconnect === 'cloudflare' || slugNormDisconnect === 'cloudflare_oauth') {
+      await touchUserIntegrationsDisconnected(
+        env.DB,
+        String(authUser.email || '').trim(),
+        'cloudflare_oauth',
+      );
+    }
 
     return jsonResponse({ disconnected: true, provider_key: slugRaw });
   }

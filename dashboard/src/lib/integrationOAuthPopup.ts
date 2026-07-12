@@ -59,6 +59,10 @@ export function providerMatchesExpected(messageProvider: string, expectedProvide
 /**
  * Open same-origin OAuth in a popup; resolves when callback postMessages or popup closes.
  * Must be called synchronously from a user gesture (iOS Safari).
+ *
+ * Cloudflare is special: dash.cloudflare.com/oauth2 does not work reliably in a
+ * named popup (users get a phony IAM shim / instant "Connected. Closing…" instead
+ * of the real CF authorize UI). Use top-level navigation for CF only.
  */
 export function openIntegrationOAuthPopup(
   connectUrl: string,
@@ -73,14 +77,37 @@ export function openIntegrationOAuthPopup(
     return Promise.resolve({ ok: true, provider: expectedProviderKey });
   }
 
+  const expected = normalizeOAuthPopupProvider(expectedProviderKey);
+  if (expected === 'cloudflare') {
+    // Prefer canonical oauth start when caller passed integrations/connect.
+    let href = withOAuthPopupParam(connectUrl);
+    try {
+      const u = new URL(connectUrl, window.location.origin);
+      if (u.pathname.includes('/api/integrations/') && u.pathname.endsWith('/connect')) {
+        const returnTo = u.searchParams.get('return_to') || oauthConnectReturnTo();
+        href = `/api/oauth/cloudflare/start?return_to=${encodeURIComponent(returnTo)}`;
+      } else {
+        // Top-level: drop popup=1 so callback returns to dashboard, not postMessage HTML.
+        const clean = new URL(connectUrl, window.location.origin);
+        clean.searchParams.delete('popup');
+        if (!clean.searchParams.get('return_to')) {
+          clean.searchParams.set('return_to', oauthConnectReturnTo());
+        }
+        href = `${clean.pathname}${clean.search}`;
+      }
+    } catch {
+      href = `/api/oauth/cloudflare/start?return_to=${encodeURIComponent(oauthConnectReturnTo())}`;
+    }
+    window.location.assign(href);
+    return Promise.resolve({ ok: true, provider: expectedProviderKey });
+  }
+
   const popupUrl = withOAuthPopupParam(connectUrl);
   const popup = window.open(popupUrl, POPUP_NAME, POPUP_FEATURES);
   if (!popup) {
     window.location.href = popupUrl;
     return Promise.resolve({ ok: false, provider: expectedProviderKey, error: 'popup_blocked' });
   }
-
-  const expected = normalizeOAuthPopupProvider(expectedProviderKey);
 
   return new Promise((resolve) => {
     let settled = false;
