@@ -114,6 +114,8 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [workerDayMap, setWorkerDayMap] = useState<Record<string, Record<string, number>>>({});
+  const deployFetched = useRef(false);
 
   const refresh = useCallback(async () => {
     const wsId = effectiveWorkspaceId?.trim() || '';
