@@ -627,7 +627,6 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
   const request = opts.request;
   const parsed = parseImageEditRequest(message);
   const prompt = parsed.prompt || message;
-  const toolName = parsed.isEdit && parsed.imageUrl ? 'imgx_edit_image' : 'imgx_generate_image';
 
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
@@ -650,6 +649,46 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
 
   (async () => {
     try {
+      // Same-thread revision: attach prior draft → imgx_edit_image (not a fresh generate).
+      let priorDraftUrl = parsed.imageUrl || null;
+      let priorGenerationId = null;
+      let toolName =
+        parsed.isEdit && parsed.imageUrl ? 'imgx_edit_image' : 'imgx_generate_image';
+
+      const { isImageRevisionFollowUpCue } = await import('../core/image-intent-gate.js');
+      const matchedBy =
+        opts.turnDecision?.imageIntent?.matchedBy ||
+        opts.turnDecision?.matchedBy ||
+        null;
+      const wantsRevision =
+        matchedBy === 'revision_followup' ||
+        isImageRevisionFollowUpCue(message) ||
+        /\b(edit|modify|change|update|adjust|alter|recolor)\b.{0,48}\b(image|photo|pic|barn|it|this|that)\b/i.test(
+          message,
+        );
+
+      if (!priorDraftUrl && wantsRevision && userId) {
+        try {
+          const { resolvePriorDraftPreviewUrl } = await import('../core/image-draft-store.js');
+          const prior = await resolvePriorDraftPreviewUrl(env, {
+            userId: String(userId),
+            conversationId: sessionId,
+          });
+          if (prior?.previewUrl) {
+            priorDraftUrl = prior.previewUrl;
+            priorGenerationId = prior.generationId;
+            toolName = 'imgx_edit_image';
+            console.log('[image_generation] revision_prior_draft', {
+              generation_id: priorGenerationId,
+              preview_url: priorDraftUrl,
+              matched_by: matchedBy,
+            });
+          }
+        } catch (e) {
+          console.warn('[image_generation] prior_draft_lookup_failed', e?.message ?? e);
+        }
+      }
+
       emit('context', {
         intent: 'image_generation',
         mode: 'image_generation',
@@ -657,6 +696,7 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
         tool: toolName,
         session_id: sessionId,
         prompt,
+        ...(priorDraftUrl ? { edited_from: priorDraftUrl, prior_generation_id: priorGenerationId } : {}),
       });
 
       if (sessionId && userId && message) {
@@ -679,7 +719,7 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
         tenantId,
         userId,
       });
-      const lane = imageLaneFromTier(tier, !!(referenceImageB64 || parsed.imageUrl), prompt);
+      const lane = imageLaneFromTier(tier, !!(referenceImageB64 || priorDraftUrl), prompt);
       const imageModel = ws
         ? await pickImageModelFromDb(env, ws, prompt, {
             tenantId,
@@ -695,6 +735,7 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
           tier_matched_by: tierMatchedBy,
           model_key: imageModel.model_key,
           tool: toolName,
+          ...(priorDraftUrl ? { edited_from: priorDraftUrl } : {}),
         });
       }
       const sseCtx = {
@@ -704,11 +745,12 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
         userId,
         origin,
         secretKeyName: imageModel?.keyName ?? null,
+        conversationId: sessionId,
       };
       const sseParams = {
         prompt,
         persist: false,
-        ...(parsed.imageUrl ? { image_url: parsed.imageUrl } : {}),
+        ...(priorDraftUrl ? { image_url: priorDraftUrl } : {}),
         ...(imageModel
           ? {
               model: imageModel.model_key,

@@ -200,6 +200,82 @@ export async function getImageDraftForUser(env, generationId, userId) {
   return row;
 }
 
+const DRAFT_ASSET_URL_RE =
+  /https?:\/\/[^\s"'<>]+\/assets\/drafts\/images\/[^/\s"'<>]+\/(igen_[a-zA-Z0-9]+)(?:\.(jpg|jpeg|png|webp))?/i;
+
+/**
+ * Resolve the most recent draft image URL for a same-thread revision.
+ * Prefer conversation assistant messages; fall back to latest user draft (2h).
+ * @param {unknown} env
+ * @param {{
+ *   userId: string,
+ *   conversationId?: string|null,
+ * }} opts
+ * @returns {Promise<{ previewUrl: string, generationId: string|null }|null>}
+ */
+export async function resolvePriorDraftPreviewUrl(env, opts) {
+  const userId = String(opts.userId || '').trim();
+  if (!userId || !env?.DB) return null;
+  const conversationId =
+    opts.conversationId != null ? String(opts.conversationId).trim() : '';
+
+  if (conversationId) {
+    try {
+      const { getChatMessages } = await import('./agentsam-chat-sessions.js');
+      const messages = await getChatMessages(env, conversationId);
+      const list = Array.isArray(messages) ? messages : [];
+      for (let i = list.length - 1; i >= 0; i--) {
+        const msg = list[i];
+        if (!msg || String(msg.role || '') !== 'assistant') continue;
+        const content =
+          typeof msg.content === 'string'
+            ? msg.content
+            : msg.content != null
+              ? JSON.stringify(msg.content)
+              : '';
+        const match = content.match(DRAFT_ASSET_URL_RE);
+        if (!match) continue;
+        const generationId = match[1];
+        const draft = await getImageDraftForUser(env, generationId, userId);
+        if (draft?.expired) continue;
+        const previewUrl =
+          (draft?.preview_url != null && String(draft.preview_url).trim()) ||
+          String(match[0]).trim();
+        if (previewUrl) {
+          return { previewUrl, generationId };
+        }
+      }
+    } catch (e) {
+      console.warn('[image-draft] prior_from_chat_failed', e?.message ?? e);
+    }
+  }
+
+  try {
+    const row = await env.DB.prepare(
+      `SELECT id, preview_url FROM image_generation_drafts
+       WHERE user_id = ?
+         AND status = 'draft'
+         AND expires_at > unixepoch()
+         AND created_at >= unixepoch() - 7200
+         AND preview_url IS NOT NULL
+         AND TRIM(preview_url) != ''
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    )
+      .bind(userId)
+      .first();
+    if (row?.preview_url) {
+      return {
+        previewUrl: String(row.preview_url).trim(),
+        generationId: row.id != null ? String(row.id) : null,
+      };
+    }
+  } catch (e) {
+    console.warn('[image-draft] prior_from_d1_failed', e?.message ?? e);
+  }
+  return null;
+}
+
 /**
  * @param {unknown} env
  * @param {string} generationId

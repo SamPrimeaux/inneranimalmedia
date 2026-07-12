@@ -164,6 +164,7 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
         sessionId,
         authUser,
         turnDecisionId: turnDecision.decisionId,
+        turnDecision,
       });
     }
   }
