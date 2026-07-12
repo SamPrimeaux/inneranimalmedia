@@ -273,6 +273,7 @@ import {
   validateToolCall,
   dispatchToolCall,
   dispatchToolCallWithBudget,
+  resolveToolExecutionBudgetMs,
   formatToolApprovalPreview,
   chatToolSessionSseBase,
   createChatToolSessionLedger,
