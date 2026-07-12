@@ -4078,3 +4078,300 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
     grid-template-columns: 1fr;
   }
 }
+
+/* —— Tickets playbook (Canvas-style acceptance contracts) —— */
+.lib-playbook {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding-bottom: 24px;
+}
+
+.lib-playbook__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.lib-playbook__stat {
+  border: 1px solid #e0e3e7;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lib-playbook__stat strong {
+  font-size: 28px;
+  line-height: 1.1;
+  color: #202124;
+  font-weight: 600;
+}
+
+.lib-playbook__stat span {
+  font-size: 12px;
+  color: #5f6368;
+}
+
+.lib-playbook__stat.is-p0 strong {
+  color: #c5221f;
+}
+
+.lib-playbook__stat.is-p1 strong {
+  color: #e37400;
+}
+
+.lib-playbook__stat.is-blocked strong {
+  color: #d93025;
+}
+
+.lib-playbook__callout {
+  border: 1px solid #c2d7f7;
+  background: #eef3fd;
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: #174ea6;
+}
+
+.lib-playbook__callout strong {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.lib-playbook__callout p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.lib-playbook__batch,
+.lib-playbook__deps {
+  border: 1px solid #e0e3e7;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fff;
+}
+
+.lib-playbook__batch h2,
+.lib-playbook__deps h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #202124;
+}
+
+.lib-playbook__batch table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.lib-playbook__batch th,
+.lib-playbook__batch td {
+  text-align: left;
+  padding: 8px 6px;
+  border-top: 1px solid #edf2fa;
+  vertical-align: top;
+}
+
+.lib-playbook__batch th {
+  color: #5f6368;
+  font-weight: 600;
+  border-top: 0;
+}
+
+.lib-playbook__batch code {
+  font-size: 11px;
+}
+
+.lib-playbook__deps ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: #3c4043;
+  line-height: 1.55;
+}
+
+.lib-playbook-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lib-playbook-section__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  padding: 4px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #202124;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.lib-playbook-section__toggle em {
+  font-style: normal;
+  font-size: 11px;
+  background: #edf2fa;
+  border-radius: 999px;
+  padding: 1px 7px;
+  color: #3c4043;
+}
+
+.lib-playbook-section__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lib-playbook-card {
+  border: 1px solid #e0e3e7;
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px 16px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.lib-playbook-card.is-selected {
+  border-color: #0b57d0;
+  box-shadow: inset 3px 0 0 #0b57d0;
+}
+
+.lib-playbook-card__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 6px;
+}
+
+.lib-playbook-card__head code {
+  font-size: 11px;
+  color: #5f6368;
+}
+
+.lib-playbook-card__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.lib-playbook-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #edf2fa;
+  color: #3c4043;
+}
+
+.lib-playbook-card h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #202124;
+  line-height: 1.35;
+}
+
+.lib-playbook-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lib-playbook-card__body section strong {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #0b57d0;
+  margin-bottom: 2px;
+}
+
+.lib-playbook-card__body p,
+.lib-playbook-card__fallback {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #3c4043;
+}
+
+.lib-playbook-card__pf {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.lib-playbook-card__meta {
+  font-size: 11px !important;
+  color: #5f6368 !important;
+}
+
+.lib-playbook__howto {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #5f6368;
+  line-height: 1.45;
+}
+
+.lib-playbook__selected {
+  border: 1px solid #e0e3e7;
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: #f8f9fa;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lib-playbook__selected h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.lib-playbook__selected-pass {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #3c4043;
+}
+
+.lib-tickets__playbook-snip {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #eef3fd;
+  color: #174ea6;
+  font-size: 13px;
+}
+
+.lib-tickets__playbook-snip strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.lib-tickets__playbook-snip p {
+  margin: 0;
+  line-height: 1.4;
+}
+
+@media (max-width: 960px) {
+  .lib-playbook__stats {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .lib-playbook-card__pf {
+    grid-template-columns: 1fr;
+  }
+}

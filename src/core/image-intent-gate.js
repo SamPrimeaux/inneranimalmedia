@@ -18,6 +18,35 @@ const PLANNING_RE =
   /\b(make|create|write|build|draft)\s+(a\s+)?plan\b|\bplan\s+(for|to)\b|\b(roadmap|strategy|breakdown)\b.*\b(campaign|branding|workflow|multi[- ]?step)\b/i;
 
 /**
+ * Pasted ticket playbooks / engineering dumps mention "image" + "generate" many times
+ * but are not creative image asks — must not take the Gemini fast path.
+ * @param {string} m
+ */
+export function isEngineeringTicketOrPlaybookDump(m) {
+  const text = String(m || '');
+  if (!text.trim()) return false;
+  const tktHits = (text.match(/\btkt_[a-z0-9_]+\b/gi) || []).length;
+  if (tktHits >= 3) return true;
+  if (/\bopen tickets playbook\b/i.test(text)) return true;
+  if (
+    tktHits >= 1 &&
+    /\b(what it is|recommended steps|deliverable)\b/i.test(text) &&
+    /\b(pass|fail)\b/i.test(text)
+  ) {
+    return true;
+  }
+  // Long paste with ticket/status board language
+  if (
+    text.length >= 2500 &&
+    tktHits >= 1 &&
+    /\b(in_review|blocked_by|status_reason|agentsam_tickets)\b/i.test(text)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * @param {string} message
  */
 export function isExplicitImagePlanningIntent(message) {
@@ -272,6 +301,7 @@ async function classifyImageIntentWithModel(env, message, ctx) {
 export function isPrimaryImageGenerationIntentSync(message, kw = null) {
   const m = stripUserTextForIntent(message).trim();
   if (!m || isExplicitImagePlanningIntent(m)) return false;
+  if (isEngineeringTicketOrPlaybookDump(m)) return false;
   const nounsVerbs = kw || {
     nounRe:
       /\b(images?|photos?|photographs?|product\s+photos?|heroes?|hero\s+images?|posters?|wallpapers?|illustrations?|artworks?|graphics?|thumbnails?|banners?|logos?|renders?|concept\s+arts?|covers?|visuals?|backgrounds?|icons?|avatars?|pictures?|art|mockups?|favicons?|og\s+images?|social\s+cards?|app\s+icons?|splash\s+screens?|ui\s+assets?)\b/i,
@@ -318,6 +348,16 @@ export async function resolvePrimaryImageGenerationIntent(env, message, ctx = {}
       matched_by: 'rejected_guard',
       is_match: false,
       reason: 'explicit_planning',
+    });
+    return { isMatch: false, matchedBy: 'rejected_guard' };
+  }
+
+  if (isEngineeringTicketOrPlaybookDump(m)) {
+    await logIntentDecision(env, {
+      ...baseLog,
+      matched_by: 'rejected_guard',
+      is_match: false,
+      reason: 'engineering_ticket_dump',
     });
     return { isMatch: false, matchedBy: 'rejected_guard' };
   }
@@ -393,7 +433,7 @@ export async function resolvePrimaryImageGenerationIntent(env, message, ctx = {}
  */
 export function hasImageGenerationIntentSync(message, kw = null) {
   const m = stripUserTextForIntent(message).trim();
-  if (!m || isExplicitImagePlanningIntent(m)) return false;
+  if (!m || isExplicitImagePlanningIntent(m) || isEngineeringTicketOrPlaybookDump(m)) return false;
   if (isPrimaryImageGenerationIntentSync(m, kw)) return true;
   if (
     /\b(also|and then|plus|as well|while you'?re at it|when done)\b[\s\S]{0,48}\b(generate|create|make|design|render|draw)\b/i.test(
