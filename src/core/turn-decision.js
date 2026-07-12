@@ -180,13 +180,15 @@ export async function resolveTurnDecision(env, message, ctx = {}, opts = {}) {
 
   // Same-thread revision: prior image_generation + "edit it / make it blue" must stay on image path
   // (otherwise chat classifier invents cms_edit / code).
-  if (!imageEval.isMatch && isImageRevisionFollowUpCue(m)) {
+  if (isImageRevisionFollowUpCue(m)) {
     const priorImage = await conversationHasRecentImageGeneration(env, session.conversationId);
     if (priorImage) {
       imageEval = {
         isMatch: true,
         matchedBy: 'revision_followup',
-        reason: 'prior_image_generation_in_conversation',
+        reason: imageEval.isMatch
+          ? 'upgrade_fresh_gen_to_revision'
+          : 'prior_image_generation_in_conversation',
       };
     }
   }

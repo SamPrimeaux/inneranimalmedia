@@ -663,7 +663,7 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
       const wantsRevision =
         matchedBy === 'revision_followup' ||
         isImageRevisionFollowUpCue(message) ||
-        /\b(edit|modify|change|update|adjust|alter|recolor)\b.{0,48}\b(image|photo|pic|barn|it|this|that)\b/i.test(
+        /\b(edit|modify|change|update|adjust|alter|recolor)\b.{0,48}\b(image|photo|pic|barn|scene|background|exterior|sky|it|this|that)\b/i.test(
           message,
         );
 
@@ -681,7 +681,7 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
             console.log('[image_generation] revision_prior_draft', {
               generation_id: priorGenerationId,
               preview_url: priorDraftUrl,
-              matched_by: matchedBy,
+              matched_by: matchedBy || 'revision_cue',
             });
           }
         } catch (e) {
@@ -751,6 +751,7 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
         prompt,
         persist: false,
         ...(priorDraftUrl ? { image_url: priorDraftUrl } : {}),
+        ...(priorGenerationId ? { prior_generation_id: priorGenerationId } : {}),
         ...(imageModel
           ? {
               model: imageModel.model_key,
@@ -927,11 +928,38 @@ export async function uploadImageBytesToR2(env, bytes, contentType, ctx = {}) {
 }
 
 /**
- * @param {unknown} env
+ * Prefer R2 for draft asset URLs (Worker→public origin often 522s). HTTP only for external refs.
  * @param {string} url
+ * @param {{ env?: unknown, userId?: string|null }} [opts]
  */
-async function fetchImageBytes(url) {
-  const res = await fetch(url, {
+async function fetchImageBytes(url, opts = {}) {
+  const env = opts.env ?? null;
+  const userId = opts.userId != null ? String(opts.userId).trim() : '';
+  const src = String(url || '').trim();
+  if (!src) throw new Error('image url required');
+
+  if (env && /\/assets\/drafts\/images\//i.test(src)) {
+    try {
+      const { loadDraftImageBytesFromR2 } = await import('../core/image-draft-store.js');
+      const fromR2 = await loadDraftImageBytesFromR2(env, {
+        previewUrl: src,
+        userId: userId || null,
+      });
+      if (fromR2?.bytes?.byteLength) {
+        console.log('[image_generation] reference_from_r2', {
+          generation_id: fromR2.generationId,
+          bytes: fromR2.bytes.byteLength,
+          content_type: fromR2.contentType,
+        });
+        return { bytes: fromR2.bytes, contentType: fromR2.contentType };
+      }
+      console.warn('[image_generation] reference_r2_miss', { url: src.slice(0, 120) });
+    } catch (e) {
+      console.warn('[image_generation] reference_r2_failed', e?.message ?? e);
+    }
+  }
+
+  const res = await fetch(src, {
     redirect: 'follow',
     headers: { 'User-Agent': 'InnerAnimalMedia-ImageGen/1.0' },
   });
@@ -962,7 +990,7 @@ async function generateOpenAI(env, opts) {
   const url = typeof row.url === 'string' ? row.url : null;
   const b64 = typeof row.b64_json === 'string' ? row.b64_json : null;
   if (url) {
-    const fetched = await fetchImageBytes(url);
+    const fetched = await fetchImageBytes(url, { env, userId: opts.userId });
     return {
       provider: 'openai',
       model: modelKey,
@@ -1096,7 +1124,7 @@ async function generateImagenPredict(apiKey, modelKey, prompt, aspectRatio) {
 
 /**
  * @param {unknown} env
- * @param {{ model?: string; prompt: string; size?: string; userId?: string | null; image_url?: string | null }} opts
+ * @param {{ model?: string; prompt: string; size?: string; userId?: string | null; image_url?: string | null; requireReference?: boolean }} opts
  */
 async function generateGoogle(env, opts) {
   const modelKey = String(opts.model || '').trim();
@@ -1112,11 +1140,18 @@ async function generateGoogle(env, opts) {
   const isGeminiModel = modelKey.startsWith('gemini-');
   let referenceImage = null;
   const refUrl = opts.image_url != null ? String(opts.image_url).trim() : '';
+  const requireReference = opts.requireReference === true;
   if (isGeminiModel && refUrl) {
     try {
-      referenceImage = await fetchImageBytes(refUrl);
+      referenceImage = await fetchImageBytes(refUrl, { env, userId: opts.userId });
     } catch (e) {
       console.warn('[image_generation] reference_fetch_failed', e?.message ?? e);
+      if (requireReference) {
+        throw new Error(`Image edit reference unavailable: ${e?.message || e}`);
+      }
+    }
+    if (requireReference && !referenceImage?.bytes?.byteLength) {
+      throw new Error('Image edit reference unavailable (draft not found in R2)');
     }
   }
   if (isGeminiModel) {
@@ -1260,7 +1295,7 @@ export async function editImage(env, params) {
   const apiKey = await resolveModelApiKey(env, 'openai', modelKey, params.userId);
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
-  const { bytes, contentType } = await fetchImageBytes(src);
+  const { bytes, contentType } = await fetchImageBytes(src, { env, userId: params.userId });
   const dims = parseImageDimensions(params.size);
 
   const form = new FormData();
@@ -1283,7 +1318,7 @@ export async function editImage(env, params) {
   const url = typeof row?.url === 'string' ? row.url : null;
   const b64 = typeof row?.b64_json === 'string' ? row.b64_json : null;
   if (url) {
-    const fetched = await fetchImageBytes(url);
+    const fetched = await fetchImageBytes(url, { env, userId: params.userId });
     return {
       provider: 'openai',
       model: modelKey,
@@ -1358,6 +1393,7 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
         size: resolvedParams.size,
         userId: ctx.userId,
         image_url: refUrl,
+        requireReference: true,
       })
     : isEdit
       ? await editImage(env, {

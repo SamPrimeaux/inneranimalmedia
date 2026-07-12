@@ -201,7 +201,67 @@ export async function getImageDraftForUser(env, generationId, userId) {
 }
 
 const DRAFT_ASSET_URL_RE =
-  /https?:\/\/[^\s"'<>]+\/assets\/drafts\/images\/[^/\s"'<>]+\/(igen_[a-zA-Z0-9]+)(?:\.(jpg|jpeg|png|webp))?/i;
+  /https?:\/\/[^\s"'<>]+\/assets\/drafts\/images\/([^/\s"'<>]+)\/(igen_[a-zA-Z0-9]+)(?:\.(jpg|jpeg|png|webp))?/i;
+
+/**
+ * Load draft image bytes from R2 (never via public HTTP — Worker→origin fetches can 522).
+ * @param {unknown} env
+ * @param {{ generationId?: string|null, userId?: string|null, previewUrl?: string|null }} opts
+ * @returns {Promise<{ bytes: Uint8Array, contentType: string, generationId: string|null, r2Key: string|null }|null>}
+ */
+export async function loadDraftImageBytesFromR2(env, opts = {}) {
+  if (!env?.DB) return null;
+  let generationId = opts.generationId != null ? String(opts.generationId).trim() : '';
+  const userId = opts.userId != null ? String(opts.userId).trim() : '';
+  const previewUrl = opts.previewUrl != null ? String(opts.previewUrl).trim() : '';
+
+  if (!generationId && previewUrl) {
+    const m = previewUrl.match(DRAFT_ASSET_URL_RE);
+    if (m) generationId = m[2];
+  }
+  if (!generationId) return null;
+
+  let row = null;
+  try {
+    if (userId) {
+      row = await getImageDraftForUser(env, generationId, userId);
+    } else {
+      row = await env.DB.prepare(
+        `SELECT * FROM image_generation_drafts WHERE id = ? LIMIT 1`,
+      )
+        .bind(generationId)
+        .first();
+    }
+  } catch (e) {
+    console.warn('[image-draft] r2_lookup_failed', e?.message ?? e);
+    return null;
+  }
+  if (!row || row.expired) return null;
+  const r2Key = row.r2_key != null ? String(row.r2_key).trim() : '';
+  if (!r2Key) return null;
+
+  try {
+    const binding = getR2Binding(env, String(row.r2_bucket || BUCKET).trim() || BUCKET);
+    if (!binding?.get) return null;
+    const obj = await binding.get(r2Key);
+    if (!obj) {
+      console.warn('[image-draft] r2_object_missing', { generationId, r2Key });
+      return null;
+    }
+    const ab = await obj.arrayBuffer();
+    const ct =
+      (obj.httpMetadata?.contentType || 'image/jpeg').split(';')[0].trim() || 'image/jpeg';
+    return {
+      bytes: new Uint8Array(ab),
+      contentType: ct,
+      generationId,
+      r2Key,
+    };
+  } catch (e) {
+    console.warn('[image-draft] r2_get_failed', e?.message ?? e);
+    return null;
+  }
+}
 
 /**
  * Resolve the most recent draft image URL for a same-thread revision.
@@ -235,7 +295,7 @@ export async function resolvePriorDraftPreviewUrl(env, opts) {
               : '';
         const match = content.match(DRAFT_ASSET_URL_RE);
         if (!match) continue;
-        const generationId = match[1];
+        const generationId = match[2];
         const draft = await getImageDraftForUser(env, generationId, userId);
         if (draft?.expired) continue;
         const previewUrl =

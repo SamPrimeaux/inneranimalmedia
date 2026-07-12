@@ -29,14 +29,14 @@ export function isImageRevisionFollowUpCue(m) {
   if (isExplicitImagePlanningIntent(text)) return false;
   // Pronoun / deictic revision of a prior visual
   if (
-    /\b(edit|change|modify|adjust|alter|tweak|update|recolor|repaint|redo)\b.{0,40}\b(it|this|that|the\s+(barn|image|photo|picture|render|logo|poster|banner|illustration))\b/i.test(
+    /\b(edit|change|modify|adjust|alter|tweak|update|recolor|repaint|redo)\b.{0,48}\b(it|this|that|the\s+(barn|image|photo|picture|render|logo|poster|banner|illustration|scene|background|lighting|exterior|sky))\b/i.test(
       text,
     )
   ) {
     return true;
   }
   if (
-    /\b(make|turn|paint|color)\s+(it|this|that)\b.{0,48}\b(blue|red|green|warmer|cooler|darker|lighter|brighter|bigger|smaller|wider|taller)\b/i.test(
+    /\b(make|turn|paint|color)\s+(it|this|that)\b.{0,48}\b(blue|red|green|black|warmer|cooler|darker|lighter|brighter|bigger|smaller|wider|taller|night|starry)\b/i.test(
       text,
     )
   ) {
@@ -44,6 +44,15 @@ export function isImageRevisionFollowUpCue(m) {
   }
   if (/\b(make\s+it|change\s+it\s+to|edit\s+it\s+to)\b/i.test(text)) return true;
   if (/\b(more|less)\s+(contrast|saturation|detail|shadows?|warmth)\b/i.test(text)) return true;
+  // Scene / lighting revisions without explicit "image" noun
+  if (
+    /\b(edit|change|update|adjust)\b.{0,40}\b(scene|background|lighting|sky|time\s+of\s+day|night\s*time|starry)\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  if (/\b(starry\s+night|night\s*time\s+scene|make\s+it\s+night)\b/i.test(text)) return true;
   return false;
 }
 
