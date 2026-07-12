@@ -466,17 +466,40 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
                 )}
               </div>
               <p className="lib-proj-grid-card-desc">{projectDescription(p)}</p>
-              <div className="lib-proj-grid-card-footer">
-                <ProjectHealthDonut
-                  taskRatio={p.totalTasks > 0 ? p.completedTasks / p.totalTasks : 0}
-                  healthScore={p.health ?? 0}
-                  budgetRatio={p.budgetTotal > 0 ? p.budgetUsed / p.budgetTotal : 0}
-                  accentColor={`hsl(${hue} 65% 55%)`}
-                  size={44}
-                  label={true}
-                />
-                <p className="lib-proj-grid-card-meta">Updated {formatUpdated(p)}</p>
-              </div>
+              {(() => {
+                // Derive worker slug from workspace_id or project slug
+                // e.g. ws_inneranimalmedia → "inneranimalmedia", ws_companionscpas → "companionscpas"
+                const wsSlug = (p.workspace_id || '').replace(/^ws_/, '');
+                const workerDays = workerDayMap[wsSlug] || {};
+                const bars = weeklyBars(workerDays);
+                const hasActivity = bars.some((b) => b.mins > 0);
+                const accentHex = `hsl(${hue} 65% 52%)`;
+                const totalMinsThisWeek = bars.reduce((s, b) => s + b.mins, 0);
+                return (
+                  <div className="lib-proj-grid-card-footer">
+                    <ProjectHealthDonut
+                      taskRatio={p.totalTasks > 0 ? p.completedTasks / p.totalTasks : 0}
+                      healthScore={p.health ?? 0}
+                      budgetRatio={p.budgetTotal > 0 ? p.budgetUsed / p.budgetTotal : 0}
+                      accentColor={accentHex}
+                      size={44}
+                      label={true}
+                    />
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {hasActivity ? (
+                        <>
+                          <WeeklyDeployBars bars={bars} accentColor={accentHex} />
+                          <p className="lib-proj-grid-card-meta" style={{ margin: 0 }}>
+                            {Math.round(totalMinsThisWeek / 60 * 10) / 10}h this week
+                          </p>
+                        </>
+                      ) : (
+                        <p className="lib-proj-grid-card-meta">Updated {formatUpdated(p)}</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </button>
           );
         })}
