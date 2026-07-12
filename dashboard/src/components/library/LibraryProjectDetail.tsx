@@ -181,6 +181,18 @@ function AddChatsModal({
   );
 }
 
+function DonutLegendRow({ color, label, value }: { color: string; label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+        <span style={{ fontSize: 11, color: 'var(--dashboard-muted, #94A3B8)' }}>{label}</span>
+      </div>
+      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--dashboard-text, #E2E8F0)', fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+    </div>
+  );
+}
+
 export function LibraryProjectDetail({ project, onBack, onToast, onRefresh }: Props) {
   const navigate = useNavigate();
   const { workspaceId } = useWorkspace();
