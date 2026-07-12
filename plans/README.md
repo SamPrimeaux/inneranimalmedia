@@ -90,7 +90,8 @@ This split is deliberate. Do **not** merge Collaborate client tasks into `agents
 - API: `GET/POST /api/tickets`, `GET /api/tickets/analytics`, `PATCH /api/tickets/:id`, `POST /api/tickets/:id/status`, events.
 - Does **not** replace kanban, `agentsam_todo`, or `project_issues`.
 - UI: Work sidebar → **Tickets** (`/dashboard/artifacts` rail) for CRUD list of platform tickets.
-- **New plan file → ticket same session** (never leave an active plan without a queryable ticket).
+- **New plan file → ticket same session** (never leave an active plan without a queryable ticket). Run `npm run sync:active-plan-tickets -- --apply`.
+- **Verification law (LOCKED):** `deploy:fast` / `deploy:full` success does **not** close a ticket. Status `shipped` requires `consecutive_pass_count >= required_pass_count` (default 2) with `agentsam_gate_runs` rows + on-disk receipt. Use `npm run gate:agent-routing` then `npm run assert:ticket-shippable -- --ticket=…`.
 - Events carry `actor_type` / `actor_id` (dashboard_user | claude_mcp | chatgpt_mcp | agent_sam).
 - Create supports `dedup_key` (unique) so MCP/agent retries do not double-insert.
 - Standing Cursor rule: any time you say follow-up / later / backlog / not in scope — create the ticket via API in the same turn.

@@ -4,6 +4,7 @@
  * Run: node scripts/database-sql-safety-smoke.mjs
  */
 import {
+  assertDatabaseReadQuery,
   classifyDatabaseSqlStatement,
   evaluateDatabaseSqlSafety,
   getDatabaseSqlRunGate,
@@ -88,6 +89,18 @@ if (!requiresConfirmTypingForSql('DROP TABLE x')) {
 const ro = evaluateDatabaseSqlSafety('INSERT INTO x VALUES (1)', { isSuperadmin: false });
 if (ro.allowed) {
   console.error('FAIL safety: non-superadmin insert should block');
+  failed += 1;
+}
+
+const trailingSemi = assertDatabaseReadQuery('SELECT * FROM agentsam_tools;');
+if (!trailingSemi.ok) {
+  console.error('FAIL read gate: trailing semicolon on single SELECT should pass');
+  failed += 1;
+}
+
+const batch = assertDatabaseReadQuery('SELECT 1; SELECT 2');
+if (batch.ok) {
+  console.error('FAIL read gate: multi-statement batch should fail');
   failed += 1;
 }
 

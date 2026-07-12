@@ -30,6 +30,34 @@
  * @property {boolean} imageFastPath
  */
 
+/** Shared inspect axes — used when classifier drifts (e.g. review) on repo/architecture asks. */
+function inspectRepoAxes() {
+  return {
+    domain: /** @type {TaskDomain} */ ('code'),
+    operation: /** @type {TaskOperation} */ ('inspect'),
+    target: 'repo',
+    authority: /** @type {TaskAuthority} */ ('read'),
+    sideEffect: /** @type {TaskSideEffect} */ ('none'),
+    toolProfile: /** @type {ToolProfileHint} */ ('inspect'),
+    conceptualLane: /** @type {ConceptualLane} */ ('L4'),
+  };
+}
+
+/**
+ * Repo / architecture / tool-structure ask — must not fall through to oauth_parity.
+ * @param {string} message
+ */
+export function isRepoInspectMessage(message) {
+  const t = String(message || '');
+  if (!t.trim()) return false;
+  return (
+    /\b(inspect|propose|improve|structure|architecture|overview|audit|tool structure|task.?type|how (?:do|can|should) we|what should we)\b/i.test(
+      t,
+    ) &&
+    /\b(repo|codebase|tool|agent|routing|profile|workspace|samprimeaux|inneranimalmedia)\b/i.test(t)
+  );
+}
+
 /**
  * @param {string} taskType
  * @param {{ imageFastPath?: boolean, message?: string|null, mode?: string|null }} [ctx]
@@ -57,39 +85,14 @@ export function mapTaskTypeToSpecAxes(taskType, ctx = {}) {
     tt === 'project_question' ||
     tt === 'readonly_repo_audit' ||
     tt === 'summary' ||
-    tt === 'research'
+    tt === 'research' ||
+    tt === 'review' ||
+    isRepoInspectMessage(message)
   ) {
-    return {
-      domain: 'code',
-      operation: 'inspect',
-      target: 'repo',
-      authority: 'read',
-      sideEffect: 'none',
-      toolProfile: 'inspect',
-      conceptualLane: 'L4',
-    };
+    return inspectRepoAxes();
   }
 
   if (tt === 'ask' || tt === 'chat' || tt === 'simple_ask_greeting' || tt === 'project_qna_fast') {
-    // Repo/architecture asks still want inspect tools even when classifier says chat/ask.
-    if (
-      /\b(inspect|propose|improve|structure|architecture|overview|audit|tool structure|task.?type)\b/i.test(
-        message,
-      ) &&
-      /\b(repo|codebase|tool|agent|routing|profile|workspace|samprimeaux|inneranimalmedia)\b/i.test(
-        message,
-      )
-    ) {
-      return {
-        domain: 'code',
-        operation: 'inspect',
-        target: 'repo',
-        authority: 'read',
-        sideEffect: 'none',
-        toolProfile: 'inspect',
-        conceptualLane: 'L4',
-      };
-    }
     return {
       domain: 'chat',
       operation: 'ask',
@@ -204,6 +207,10 @@ export function mapTaskTypeToSpecAxes(taskType, ctx = {}) {
       toolProfile: 'exempt',
       conceptualLane: 'L6',
     };
+  }
+
+  if (isRepoInspectMessage(message)) {
+    return inspectRepoAxes();
   }
 
   return {

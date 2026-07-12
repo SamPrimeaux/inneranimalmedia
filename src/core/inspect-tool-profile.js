@@ -12,6 +12,7 @@ export const INSPECT_TASK_TYPES = new Set([
   'summary',
   'chat',
   'research',
+  'review',
   'readonly_repo_audit',
 ]);
 
@@ -58,10 +59,17 @@ export function shouldUseInspectToolProfile(ctx) {
   const message = String(ctx.message || '');
   if (tt === 'project_question') return true;
   if (tt === 'readonly_repo_audit') return true;
-  if ((tt === 'chat' || tt === 'ask' || tt === 'summary' || tt === 'research') && isRepoInspectIntent(message)) {
+  if (tt === 'review' && isRepoInspectIntent(message)) return true;
+  if (
+    (tt === 'chat' || tt === 'ask' || tt === 'summary' || tt === 'research' || tt === 'review') &&
+    isRepoInspectIntent(message)
+  ) {
     return true;
   }
   if (!tt && isRepoInspectIntent(message)) return true;
+  if (isRepoInspectIntent(message) && !['code', 'code_implementation', 'deploy', 'debug'].includes(tt)) {
+    return true;
+  }
   return false;
 }
 

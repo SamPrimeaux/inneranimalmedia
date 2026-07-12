@@ -275,15 +275,23 @@ export function assertDatabaseReadQuery(sql) {
   if (!raw) return { ok: false, error: 'SQL query required', kind: 'unknown' };
 
   const stripped = stripSqlComments(raw);
-  if (stripped.includes(';')) {
+  const statements = stripped
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (statements.length > 1) {
     return {
       ok: false,
       error: 'Only a single read-only statement is allowed (no semicolon batching).',
       kind: 'unknown',
     };
   }
+  if (!statements.length) {
+    return { ok: false, error: 'Empty or unsupported SQL statement', kind: 'unknown' };
+  }
 
-  const kind = classifyDatabaseSqlStatement(raw);
+  const single = statements[0];
+  const kind = classifyDatabaseSqlStatement(single);
   if (kind === 'read' || kind === 'explain') {
     return { ok: true, kind };
   }

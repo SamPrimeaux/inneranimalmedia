@@ -37,6 +37,16 @@ test('image fast path maps to media.generate', () => {
   assert.equal(spec.imageFastPath, true);
 });
 
+test('review + architecture ask maps to inspect (not oauth_parity)', () => {
+  const axes = mapTaskTypeToSpecAxes('review', {
+    message:
+      'can you inspect the repo/propose how we can improve the tool structure/agent to tool/task type?',
+  });
+  assert.equal(axes.toolProfile, 'inspect');
+  assert.equal(axes.domain, 'code');
+  assert.equal(axes.operation, 'inspect');
+});
+
 test('code mutate maps to code_develop', () => {
   const spec = buildTaskSpec({ taskType: 'code_implementation', message: 'fix the migration' });
   assert.equal(spec.toolProfile, 'code_develop');
