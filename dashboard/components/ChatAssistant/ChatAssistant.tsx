@@ -59,7 +59,6 @@ import {
 } from '../../agentChatConstants';
 import {
   buildChatProjectContext,
-  CHAT_RUNTIME_LANE_USER_APP,
 } from '../../lib/chatProjectContext';
 import { notifyAgentChatSessionsRefresh } from '../../lib/openAgentConversation';
 import { replaceAgentConversationUrl, isAgentCenterChatHome } from '../../lib/agentRoutes';
@@ -3097,7 +3096,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       activeFilePath: activePathForProject || null,
     });
     form.append('project', JSON.stringify(projectPayload));
-    form.append('runtime_lane', CHAT_RUNTIME_LANE_USER_APP);
+    form.append('runtime_lane', 'tenant_saas');
 
     const contextEnvelopePayload = buildGithubContextEnvelope({
       conversationId: effectiveConvId,

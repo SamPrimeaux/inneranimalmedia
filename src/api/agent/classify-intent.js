@@ -99,6 +99,9 @@ function buildResult(taskType, mode, extra = {}) {
   };
 }
 
+/** @deprecated use buildClassifyResult — spine export */
+export const buildClassifyResult = buildResult;
+
 /**
  * Sync bootstrap (no D1). Kept for parity / cold path.
  * @param {string} text
@@ -229,8 +232,10 @@ export function inferIntentHeuristically(text) {
  * Layer 1: D1 keyword bundles (bootstrap fallback per purpose).
  * @param {unknown} env
  * @param {string} lastMessageText
+ * @param {{ spineMode?: boolean }} [opts] — spine: no parallel image/heuristic reroutes
  */
-export async function inferIntentFromKeywords(env, lastMessageText) {
+export async function inferIntentFromKeywords(env, lastMessageText, opts = {}) {
+  const spineMode = opts.spineMode === true;
   const stripped = stripUserTextForIntent(lastMessageText);
   if (isReadOnlyFileContextIntent(stripped)) {
     return { taskType: 'ask', mode: 'agent', confidence: 0.85, matchedBy: 'special', source: 'special' };
@@ -238,7 +243,7 @@ export async function inferIntentFromKeywords(env, lastMessageText) {
   const t = stripped.toLowerCase();
   if (!t) return { taskType: 'ask', mode: 'auto', confidence: 0.5, matchedBy: 'empty', source: 'empty' };
 
-  if (isPrimaryImageGenerationIntent(t)) {
+  if (!spineMode && isPrimaryImageGenerationIntent(t)) {
     return { taskType: 'agent', mode: 'agent', confidence: 0.9, matchedBy: 'image_primary', source: 'special' };
   }
 
@@ -286,7 +291,18 @@ export async function inferIntentFromKeywords(env, lastMessageText) {
     };
   }
 
-  // Compound leftovers that flat keywords miss
+  if (spineMode) {
+    return {
+      taskType: 'chat',
+      mode: 'agent',
+      confidence: 0.45,
+      matchedBy: 'neither',
+      source: 'no_keyword',
+      escalateCue: escalateCue || true,
+    };
+  }
+
+  // Compound leftovers that flat keywords miss (bootstrap only — not spine authority)
   const boot = inferIntentHeuristically(stripped);
   return { ...boot, escalateCue: escalateCue || boot.confidence < 0.8 };
 }
@@ -415,104 +431,19 @@ export async function classifyIntentWithModel(env, message, ctx = {}) {
   };
 }
 
-async function logChatIntentDecision(env, row) {
-  if (!env?.DB) return;
-  try {
-    await env.DB.prepare(
-      `INSERT INTO agentsam_intent_decisions (
-         id, tenant_id, workspace_id, user_id, conversation_id, task_type,
-         message_excerpt, matched_by, is_match, confidence, model_key, provider,
-         routing_arm_id, reason, latency_ms, metadata_json, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`,
-    )
-      .bind(
-        row.id || `idc_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`,
-        row.tenant_id ?? null,
-        row.workspace_id ?? null,
-        row.user_id ?? null,
-        row.conversation_id ?? null,
-        row.task_type || 'chat_intent',
-        row.message_excerpt ?? null,
-        row.matched_by || 'keyword',
-        row.is_match ? 1 : 0,
-        row.confidence ?? null,
-        row.model_key ?? null,
-        row.provider ?? null,
-        row.routing_arm_id ?? null,
-        row.reason ?? null,
-        row.latency_ms ?? null,
-        row.metadata_json || '{}',
-      )
-      .run();
-  } catch (e) {
-    console.warn('[chat-intent] log failed', e?.message ?? e);
-  }
-}
-
 /**
  * @param {any} env
  * @param {string} lastMessageText
- * @param {{ session?: { userId?: string, workspaceId?: string, tenantId?: string, conversationId?: string }, skipEscalate?: boolean }} [opts]
+ * @param {{ session?: { userId?: string, workspaceId?: string, tenantId?: string, conversationId?: string }, skipEscalate?: boolean, turnDecision?: import('../core/turn-decision.js').TurnDecision|null }} [opts]
  */
 export async function classifyIntent(env, lastMessageText, opts = {}) {
-  const t0 = Date.now();
-  const session = opts.session || {};
-  const message = String(lastMessageText || '');
-
-  let kw;
-  try {
-    kw = env?.DB
-      ? await inferIntentFromKeywords(env, message)
-      : inferIntentHeuristically(message);
-  } catch (e) {
-    console.warn('[chat-intent] keyword path failed', e?.message ?? e);
-    kw = inferIntentHeuristically(message);
+  if (opts.turnDecision?.chatResult) {
+    return opts.turnDecision.chatResult;
   }
 
-  let final = kw;
-  let escalated = false;
-
-  if (!opts.skipEscalate && shouldEscalateChatIntent(message, kw)) {
-    escalated = true;
-    const classified = await classifyIntentWithModel(env, message, {
-      userId: session.userId || null,
-      workspaceId: session.workspaceId || null,
-      tenantId: session.tenantId || null,
-      fallbackTaskType: kw.taskType,
-    });
-    if (classified.confidence >= 0.5 || classified.matchedBy === 'classifier') {
-      final = classified;
-    }
-  }
-
-  const result = buildResult(final.taskType, final.mode, {
-    confidence: final.confidence,
-    matchedBy: final.matchedBy || kw.matchedBy,
-    escalated,
+  const { resolveTurnDecision } = await import('../core/turn-decision.js');
+  const td = await resolveTurnDecision(env, lastMessageText, opts.session || {}, {
+    skipChatEscalate: opts.skipEscalate === true,
   });
-
-  void logChatIntentDecision(env, {
-    tenant_id: session.tenantId ?? null,
-    workspace_id: session.workspaceId ?? null,
-    user_id: session.userId ?? null,
-    conversation_id: session.conversationId ?? null,
-    task_type: 'chat_intent',
-    message_excerpt: message.slice(0, 240),
-    matched_by: escalated ? 'classifier' : result.matchedBy || 'keyword',
-    is_match: 1,
-    confidence: result.confidence ?? null,
-    model_key: final.modelKey ?? null,
-    provider: final.provider ?? null,
-    routing_arm_id: final.armId ?? null,
-    reason: `${result.taskType}:${final.reason || result.matchedBy || ''}`,
-    latency_ms: Date.now() - t0,
-    metadata_json: JSON.stringify({
-      keyword_task: kw.taskType,
-      keyword_confidence: kw.confidence,
-      escalated,
-      final_task: result.taskType,
-    }),
-  });
-
-  return result;
+  return td.chatResult;
 }

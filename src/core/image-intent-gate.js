@@ -315,95 +315,50 @@ export function isPrimaryImageGenerationIntentSync(message, kw = null) {
 }
 
 /**
- * Full gate: keyword fast-path → optional classifier escalate → always log.
+ * Evaluate image fast-path without logging — spine logs once via turn-decision.
  * @param {unknown} env
- * @param {string} message
- * @param {{
- *   tenantId?: string|null,
- *   workspaceId?: string|null,
- *   userId?: string|null,
- *   conversationId?: string|null,
- * }} [ctx]
- * @returns {Promise<{ isMatch: boolean, matchedBy: string, decisionId?: string }>}
+ * @param {string} message stripped intent text
+ * @param {{ tenantId?: string|null, workspaceId?: string|null, userId?: string|null }} [ctx]
  */
-export async function resolvePrimaryImageGenerationIntent(env, message, ctx = {}) {
-  const m = stripUserTextForIntent(message).trim();
-  const baseLog = {
-    tenant_id: ctx.tenantId ?? null,
-    workspace_id: ctx.workspaceId ?? null,
-    user_id: ctx.userId ?? null,
-    conversation_id: ctx.conversationId ?? null,
-    task_type: 'image_generation',
-    message_excerpt: m,
-  };
+export async function evaluatePrimaryImageGenerationIntent(env, message, ctx = {}) {
+  const m = String(message || '').trim();
 
   if (!m) {
-    await logIntentDecision(env, { ...baseLog, matched_by: 'neither', is_match: false, reason: 'empty' });
-    return { isMatch: false, matchedBy: 'neither' };
+    return { isMatch: false, matchedBy: 'neither', reason: 'empty' };
   }
 
   if (isExplicitImagePlanningIntent(m)) {
-    await logIntentDecision(env, {
-      ...baseLog,
-      matched_by: 'rejected_guard',
-      is_match: false,
-      reason: 'explicit_planning',
-    });
-    return { isMatch: false, matchedBy: 'rejected_guard' };
+    return { isMatch: false, matchedBy: 'rejected_guard', reason: 'explicit_planning' };
   }
 
   if (isEngineeringTicketOrPlaybookDump(m)) {
-    await logIntentDecision(env, {
-      ...baseLog,
-      matched_by: 'rejected_guard',
-      is_match: false,
-      reason: 'engineering_ticket_dump',
-    });
-    return { isMatch: false, matchedBy: 'rejected_guard' };
+    return { isMatch: false, matchedBy: 'rejected_guard', reason: 'engineering_ticket_dump' };
   }
 
-  // Keyword match BEFORE code_implementation / combined_work guards — otherwise
-  // "Create a visual for … site plan" is wrongly rejected as code (create…site).
   const kw = await loadIntentKeywords(env, 'image_generation');
   if (matchesKeywordPrimary(m, kw)) {
-    await logIntentDecision(env, {
-      ...baseLog,
-      matched_by: 'keyword',
-      is_match: true,
+    return {
+      isMatch: true,
+      matchedBy: 'keyword',
       reason: `keyword_source=${kw.source}`,
       metadata: { keyword_source: kw.source },
-    });
-    return { isMatch: true, matchedBy: 'keyword' };
+    };
   }
 
   if (isCodeImplementationIntent(m)) {
-    await logIntentDecision(env, {
-      ...baseLog,
-      matched_by: 'rejected_guard',
-      is_match: false,
-      reason: 'code_implementation',
-    });
-    return { isMatch: false, matchedBy: 'rejected_guard' };
+    return { isMatch: false, matchedBy: 'rejected_guard', reason: 'code_implementation' };
   }
   if (COMBINED_WORK_RE.test(m) && m.split(/\s+/).filter(Boolean).length > 14) {
-    await logIntentDecision(env, {
-      ...baseLog,
-      matched_by: 'rejected_guard',
-      is_match: false,
-      reason: 'combined_work',
-    });
-    return { isMatch: false, matchedBy: 'rejected_guard' };
+    return { isMatch: false, matchedBy: 'rejected_guard', reason: 'combined_work' };
   }
 
   if (!shouldEscalateToClassifier(m, kw)) {
-    await logIntentDecision(env, {
-      ...baseLog,
-      matched_by: 'neither',
-      is_match: false,
+    return {
+      isMatch: false,
+      matchedBy: 'neither',
       reason: 'no_keyword_no_escalate_cue',
       metadata: { keyword_source: kw.source },
-    });
-    return { isMatch: false, matchedBy: 'neither' };
+    };
   }
 
   const classified = await classifyImageIntentWithModel(env, m, {
@@ -411,19 +366,38 @@ export async function resolvePrimaryImageGenerationIntent(env, message, ctx = {}
     workspaceId: ctx.workspaceId,
     tenantId: ctx.tenantId,
   });
-  await logIntentDecision(env, {
-    ...baseLog,
-    matched_by: 'classifier',
-    is_match: classified.isMatch,
-    confidence: Number.isFinite(classified.confidence) ? classified.confidence : null,
-    model_key: classified.modelKey,
-    provider: classified.provider,
-    routing_arm_id: classified.armId,
+  return {
+    isMatch: !!classified.isMatch,
+    matchedBy: 'classifier',
     reason: classified.reason,
-    latency_ms: classified.latencyMs,
+    confidence: classified.confidence,
+    modelKey: classified.modelKey,
+    provider: classified.provider,
+    armId: classified.armId,
+    latencyMs: classified.latencyMs,
     metadata: { keyword_source: kw.source },
-  });
-  return { isMatch: !!classified.isMatch, matchedBy: 'classifier' };
+  };
+}
+
+/**
+ * Image fast-path slice — use precomputedTurnDecision from spine when present.
+ */
+export async function resolvePrimaryImageGenerationIntent(env, message, ctx = {}) {
+  if (ctx.precomputedTurnDecision) {
+    const td = ctx.precomputedTurnDecision;
+    return {
+      isMatch: td.imageFastPath === true,
+      matchedBy: td.imageIntent?.matchedBy || 'neither',
+      decisionId: td.decisionId,
+    };
+  }
+  const { resolveTurnDecision } = await import('./turn-decision.js');
+  const td = await resolveTurnDecision(env, message, ctx, {});
+  return {
+    isMatch: td.imageFastPath === true,
+    matchedBy: td.imageIntent?.matchedBy || 'neither',
+    decisionId: td.decisionId,
+  };
 }
 
 /**

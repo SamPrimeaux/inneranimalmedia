@@ -118,27 +118,29 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     skip_rws_fanout: designStudioOverrides?.skip_rws_fanout === true,
   };
 
-  // Image fast path BEFORE chat Thompson / project_qna compile — pure image turns must not
-  // pick gpt-5/kimi or inject the full tool catalog. Composer chip can force the path.
   const forceImage =
     body.force_image_generation === true ||
     body.force_image_generation === 1 ||
     body.force_image_generation === '1' ||
     body.force_image_generation === 'true' ||
     String(body.composer_action || '').trim().toLowerCase() === 'create_image';
+
+  const turnCtx = {
+    tenantId,
+    workspaceId,
+    userId,
+    conversationId: sessionId,
+  };
+
+  const { resolveTurnDecision } = await import('../core/turn-decision.js');
+  const turnDecision = await resolveTurnDecision(env, message, turnCtx, {
+    forceImage,
+    composerAction: body.composer_action != null ? String(body.composer_action) : null,
+  });
+
   if (!requireVision) {
-    const { resolvePrimaryImageGenerationIntent, handleDirectImageGenerationChatStream } = await import(
-      '../tools/image_generation.js'
-    );
-    const intent = forceImage
-      ? { isMatch: true, matchedBy: 'composer_action' }
-      : await resolvePrimaryImageGenerationIntent(env, message, {
-          tenantId,
-          workspaceId,
-          userId,
-          conversationId: sessionId,
-        });
-    if (intent.isMatch) {
+    const { handleDirectImageGenerationChatStream } = await import('../tools/image_generation.js');
+    if (turnDecision.imageFastPath) {
       scheduleChatSessionTitleInsert(env, ctx, {
         conversationId: sessionId,
         tenantId,
@@ -161,6 +163,7 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
         workspaceId,
         sessionId,
         authUser,
+        turnDecisionId: turnDecision.decisionId,
       });
     }
   }
@@ -193,11 +196,13 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
             overrides: runtimeOverrides,
             compile_lane: 'live',
             requireVision,
+            turnDecision,
           }),
     { maxAttempts: 2, delays: [40, 120] },
   );
 
   profile.source.compile_lane = 'live';
+  profile.source.turn_decision_id = turnDecision.decisionId;
   logRuntimeProfile(profile, { path: 'executeAgentChatSpine', conversation_id: sessionId, live: true });
   logRouteContract(profile, {
     requestedMode: requestedMode,

@@ -1084,7 +1084,21 @@ export async function resolveRuntimeProfile(env, input) {
   let classifiedTaskType = overrides.task_type ? String(overrides.task_type).trim().toLowerCase() : '';
   let classifiedIntent = null;
   let classifiedMode = null;
-  if (!classifiedTaskType && message && env?.DB) {
+  const precomputed = input.turnDecision;
+  if (!classifiedTaskType && precomputed?.chatResult) {
+    classifiedTaskType = String(precomputed.chatResult.taskType || '').trim().toLowerCase();
+    classifiedIntent = precomputed.chatResult.intent != null ? String(precomputed.chatResult.intent) : null;
+    classifiedMode = precomputed.chatResult.mode != null ? String(precomputed.chatResult.mode) : null;
+    console.info(
+      '[runtime-profile] turn_decision',
+      JSON.stringify({
+        decisionId: precomputed.decisionId,
+        taskType: classifiedTaskType,
+        imageFastPath: precomputed.imageFastPath === true,
+        matchedBy: precomputed.matchedBy ?? null,
+      }),
+    );
+  } else if (!classifiedTaskType && message && env?.DB) {
     try {
       const { classifyIntent } = await import('../api/agent/classify-intent.js');
       const classified = await classifyIntent(env, message, {
@@ -1094,6 +1108,7 @@ export async function resolveRuntimeProfile(env, input) {
           tenantId: session.tenantId,
           conversationId: session.conversationId,
         },
+        turnDecision: precomputed || undefined,
       });
       classifiedTaskType = String(classified.taskType || '').trim().toLowerCase();
       classifiedIntent = classified.intent != null ? String(classified.intent) : null;
@@ -1124,12 +1139,14 @@ export async function resolveRuntimeProfile(env, input) {
 
   // project_qna_fast: short-circuit tool compilation — answer from project memory + RAG.
   // Never strip tools for image generation asks (photo/image/logo/etc.).
-  let hasImageAsk = false;
-  try {
-    const { hasImageGenerationIntent } = await import('../tools/image_generation.js');
-    hasImageAsk = hasImageGenerationIntent(message);
-  } catch {
-    hasImageAsk = false;
+  let hasImageAsk = precomputed?.imageFastPath === true;
+  if (!hasImageAsk) {
+    try {
+      const { hasImageGenerationIntent } = await import('../tools/image_generation.js');
+      hasImageAsk = hasImageGenerationIntent(message);
+    } catch {
+      hasImageAsk = false;
+    }
   }
   const isProjectQnaFast =
     classifiedIntent === 'project_qna_fast' &&

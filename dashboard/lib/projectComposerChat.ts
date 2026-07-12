@@ -10,7 +10,6 @@ import type { Dispatch, SetStateAction } from 'react';
 import { consumeAgentChatSseBody } from '../components/ChatAssistant/hooks/useAgentChatStream';
 import type { ChatComposerSource } from '../components/ChatAssistant/composer/types';
 import { WEB_SEARCH_SOURCE_ID } from '../components/ChatAssistant/composer/types';
-import { CHAT_RUNTIME_LANE_USER_APP } from './chatProjectContext';
 import { notifyAgentChatSessionsRefresh } from './openAgentConversation';
 import {
   flattenSessionEnabledTools,
@@ -79,7 +78,7 @@ export async function sendProjectComposerChat(opts: SendProjectChatOpts): Promis
   form.append('message', messageForApi);
   form.append('conversationId', conversationId);
   form.append('project_id', projectId);
-  form.append('runtime_lane', CHAT_RUNTIME_LANE_USER_APP);
+  form.append('runtime_lane', 'tenant_saas');
   form.append('mode', 'agent');
   form.append('agent_mode', 'agent');
   form.append('runtime_intent_mode', 'agent');

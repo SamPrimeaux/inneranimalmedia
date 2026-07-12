@@ -97,11 +97,15 @@ export function resolveRuntimeLane(body, pre = {}) {
 }
 
 /**
+ * Hard-paused 2026-07-12 — routing spine uses tenant_saas compile only.
+ * Project-scoped helpers remain; lane branch in spine is disabled until re-enabled via D1 flag.
  * @param {Record<string, unknown>|null|undefined} body
  * @param {Record<string, unknown>|null|undefined} [pre]
  */
 export function shouldUseUserAppRuntimeLane(body, pre = {}) {
-  return resolveRuntimeLane(body, pre) === RUNTIME_LANE_USER_APP;
+  void body;
+  void pre;
+  return false;
 }
 
 /**

@@ -55,15 +55,15 @@ export const TICKET_PLAYBOOK_NEXT_BATCH: {
 /** Playbook contracts keyed by agentsam_tickets.id */
 export const TICKET_PLAYBOOK_BY_ID: Record<string, TicketPlaybookEntry> = {
   tkt_p0_infer_intent_heuristically: {
-    what: 'Hot-path taskType still comes from ~30 hardcoded regexes in classify-intent.js. That poisons prompt routes / models before D1 intent_decisions can win.',
+    what: 'Spine slice shipped: resolveTurnDecision logs once per turn. Remaining: demote inferIntentHeuristically to no-D1 cold start only; kill parallel regex authority.',
     needed:
-      'Front-door: message → agentsam_classification_keywords → write agentsam_intent_decisions → consumers read decision only. Demote inferIntentHeuristically so it cannot override D1.',
-    pass: 'Image + code + ask prompts produce intent_decisions rows; taskType matches decision; no console-only heuristic as sole authority.',
-    fail: 'Same prompt still flips taskType via regex with no decision row, or decision exists but route ignores it.',
-    deliverable: 'Code change + decision-log proof for 5 golden prompts; update findings doc Phase status.',
-    steps:
-      '1) Read classify-intent.js + image-intent-gate. 2) Wire keyword→decision before taskType. 3) Keep JS as fallback only if logged. 4) node --check + chat E2E. 5) Mark in_review with sample decision ids.',
+      'Verify golden G1–G5 in prod; no second decision row; code-implementation hub next tranche.',
+    pass: 'One decision row per turn (metadata spine=turn-decision-v1); [turn-decision] log; no bootstrap matched_by when D1 up.',
+    fail: 'Duplicate decision rows, bootstrap-only route, or regex hub still sets taskType without decision.',
+    deliverable: 'Golden matrix + SQL proof; mark in_review then shipped after Sam E2E.',
+    steps: 'Run G1–G5 → paste decision ids → grep tail for [turn-decision] → close when green.',
     batch_rank: 3,
+    doc: 'plans/active/ROUTING-SPINE-ONE-FRONT-DOOR.md',
   },
   tkt_classification_keywords_unify: {
     what: 'Intent nouns and tier cues (draft/standard/quality) should live in one D1 table, not split JS/legacy tables.',
