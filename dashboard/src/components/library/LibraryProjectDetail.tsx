@@ -31,6 +31,7 @@ import { patchAgentSession } from '../../../hooks/useAgentChatSessions';
 import { openAgentConversation } from '../../../lib/openAgentConversation';
 import WorkspaceKanban from '../kanban/WorkspaceKanban';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { ProjectHealthDonut } from '../projects/ProjectHealthDonut';
 import { ProjectQuickCreateMenu } from './ProjectQuickCreateMenu';
 
 type ProjectTab = 'overview' | 'tasks';
