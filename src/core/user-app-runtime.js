@@ -193,7 +193,13 @@ export async function resolveChatGithubRepoContext(env, input) {
 
   let candidate = trim(project?.github_repo);
   if (!candidate) {
-    candidate = trim(input.body?.github_repo_context ?? input.body?.githubRepoContext);
+    candidate = trim(
+      input.body?.active_repo ??
+        input.body?.activeRepo ??
+        input.body?.github_repo_context ??
+        input.body?.githubRepoContext ??
+        input.body?.selectedGithubRepoContext,
+    );
   }
   if (!candidate) {
     candidate = trim(input.activeFileEnvelope?.github_repo);

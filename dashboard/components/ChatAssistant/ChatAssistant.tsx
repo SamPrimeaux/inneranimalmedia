@@ -745,6 +745,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       if (repo) setGithubRepoContext(repo);
     };
     window.addEventListener('iam_explorer_active_repo', onExplorerRepo);
+    // Recover if explorer already had a repo open before chat mounted.
+    try {
+      window.dispatchEvent(new CustomEvent('iam_explorer_request_active_repo'));
+    } catch {
+      /* ignore */
+    }
     return () => window.removeEventListener('iam_explorer_active_repo', onExplorerRepo);
   }, []);
 

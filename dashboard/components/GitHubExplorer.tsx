@@ -522,6 +522,27 @@ export const GitHubExplorer: React.FC<{
     onExpandRepoConsumed?.();
   }, [expandRepoFullName, isLoading, expandedRepo, toggleRepo, onExpandRepoConsumed]);
 
+  // Re-broadcast open repo when chat mounts after explorer (or on expand change).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const publish = () => {
+      if (!expandedRepo) return;
+      try {
+        window.dispatchEvent(
+          new CustomEvent('iam_explorer_active_repo', {
+            detail: { active_repo: expandedRepo, branch: defaultBranchFor(expandedRepo) },
+          }),
+        );
+      } catch {
+        /* ignore */
+      }
+    };
+    const onRequest = () => publish();
+    window.addEventListener('iam_explorer_request_active_repo', onRequest);
+    publish();
+    return () => window.removeEventListener('iam_explorer_request_active_repo', onRequest);
+  }, [expandedRepo, defaultBranchFor]);
+
   if (!isAuthenticated) {
     return (
       <div className="w-full h-full bg-[var(--bg-panel)] flex flex-col items-center justify-center p-6 text-center">

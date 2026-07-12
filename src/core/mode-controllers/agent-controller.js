@@ -367,7 +367,19 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         ctx: input.ctx ?? null,
         authUser: sessionAuthUser ?? input.session?.authUser ?? null,
         conversationId: sessionId,
-        // activeRepo intentionally not ambient — discover via tools / @ attachments
+        activeRepo:
+          activeRepo ||
+          String(body.selectedGithubRepoContext ?? body.github_repo_context ?? body.githubRepoContext ?? '').trim() ||
+          null,
+        active_repo:
+          activeRepo ||
+          String(body.selectedGithubRepoContext ?? body.github_repo_context ?? body.githubRepoContext ?? '').trim() ||
+          null,
+        githubRepoContext:
+          String(body.selectedGithubRepoContext ?? body.github_repo_context ?? body.githubRepoContext ?? '').trim() ||
+          activeRepo ||
+          null,
+        activeBranch: String(body.active_branch ?? body.activeBranch ?? body.github_branch ?? 'main').trim() || 'main',
       },
     );
   } else {

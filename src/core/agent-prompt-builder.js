@@ -150,16 +150,39 @@ export function isSimpleAskMessage(message = '') {
 }
 
 /**
- * Flat static system prompt — ambient identity only.
- * Place/repo/file/surface context is discovered via tools or explicit @ attachments — never pre-dumped.
+ * Flat static system prompt — ambient identity + optional locked client context.
+ * Full dumps of place/file trees stay out of the prompt; an explicit active_repo from the
+ * explorer/context hub is a locked turn pin (not ambient guessing).
  */
 export async function buildSystemPrompt(_env, _tenantId, _mode, _contextBlock, _modeConfig, _promptRouteRow, options = {}) {
-  // contextBlock / activeRepo intentionally ignored for ambient prompt (payload diet).
   void _contextBlock;
   const message = options?.message != null ? String(options.message) : '';
-  const base =
-    'You are Agent Sam, an AI coding and operations assistant. Use tools to read files, query databases, run commands, and deploy. Do not assume an active repo, file, or dashboard surface — discover job context through tools or explicit user attachments (@file, @browser, etc.).';
+  const activeRepo = String(
+    options?.activeRepo ??
+      options?.active_repo ??
+      options?.githubRepoContext ??
+      options?.github_repo_context ??
+      '',
+  ).trim();
+  const activeBranch = String(options?.activeBranch ?? options?.active_branch ?? 'main').trim() || 'main';
+
+  const base = activeRepo
+    ? 'You are Agent Sam, an AI coding and operations assistant. Use tools to read files, query databases, run commands, and deploy.'
+    : 'You are Agent Sam, an AI coding and operations assistant. Use tools to read files, query databases, run commands, and deploy. Do not assume an active repo, file, or dashboard surface — discover job context through tools or explicit user attachments (@file, @browser, etc.).';
   const parts = [base];
+
+  if (activeRepo) {
+    parts.push(
+      [
+        '## Active GitHub repo (locked this turn)',
+        `repo: ${activeRepo}`,
+        `default_branch: ${activeBranch}`,
+        'When the user says "this repo", "the open repo", "the current repo", or "here", use this exact owner/name.',
+        `Call agentsam_github_tree({ repo: "${activeRepo}", branch: "${activeBranch}", recursive: false }) for a top-level listing.`,
+        'Do NOT ask which repo. Do NOT call agentsam_github_repo_list first unless they ask to list their repos or switch repos.',
+      ].join('\n'),
+    );
+  }
 
   try {
     const { formatAmbientIdentityForAgent } = await import('./workspace-studio-context.js');
