@@ -5141,6 +5141,70 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     }
   }
 
+  // ── GET /api/agent/routing/recent — last N intent/routing decisions (D1 ground truth) ──
+  if (path === '/api/agent/routing/recent' && method === 'GET') {
+    if (!identity?.userId) return jsonResponse({ error: 'unauthenticated' }, 401);
+    if (!env?.DB) return jsonResponse({ error: 'D1 unavailable' }, 503);
+    const url = new URL(request.url);
+    const limitRaw = Number(url.searchParams.get('limit') || 12);
+    const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 12, 1), 40);
+    const workspaceId =
+      String(url.searchParams.get('workspace_id') || identity.workspaceId || '').trim() || null;
+    const scopeUser = String(identity.userId).trim();
+    try {
+      let rows = [];
+      if (workspaceId) {
+        const { results } = await env.DB.prepare(
+          `SELECT id, tenant_id, workspace_id, user_id, conversation_id, task_type,
+                  message_excerpt, matched_by, is_match, confidence, model_key, provider,
+                  routing_arm_id, reason, latency_ms, created_at
+           FROM agentsam_intent_decisions
+           WHERE workspace_id = ? AND user_id = ?
+           ORDER BY created_at DESC
+           LIMIT ?`,
+        )
+          .bind(workspaceId, scopeUser, limit)
+          .all();
+        rows = results || [];
+      } else {
+        const { results } = await env.DB.prepare(
+          `SELECT id, tenant_id, workspace_id, user_id, conversation_id, task_type,
+                  message_excerpt, matched_by, is_match, confidence, model_key, provider,
+                  routing_arm_id, reason, latency_ms, created_at
+           FROM agentsam_intent_decisions
+           WHERE user_id = ?
+           ORDER BY created_at DESC
+           LIMIT ?`,
+        )
+          .bind(scopeUser, limit)
+          .all();
+        rows = results || [];
+      }
+      return jsonResponse({
+        ok: true,
+        count: rows.length,
+        decisions: rows.map((r) => ({
+          id: r.id,
+          task_type: r.task_type,
+          matched_by: r.matched_by,
+          is_match: Number(r.is_match) === 1,
+          confidence: r.confidence,
+          model_key: r.model_key,
+          provider: r.provider,
+          routing_arm_id: r.routing_arm_id,
+          reason: r.reason,
+          message_excerpt: r.message_excerpt,
+          latency_ms: r.latency_ms,
+          conversation_id: r.conversation_id,
+          workspace_id: r.workspace_id,
+          created_at: r.created_at,
+        })),
+      });
+    } catch (e) {
+      return jsonResponse({ ok: false, error: String(e?.message || e) }, 500);
+    }
+  }
+
   // ── POST /api/agent/routing/apply-eto — flush pending ETO → Thompson arms (test batches) ──
   if (path === '/api/agent/routing/apply-eto' && method === 'POST') {
     if (!identity?.userId) return jsonResponse({ error: 'unauthenticated' }, 401);

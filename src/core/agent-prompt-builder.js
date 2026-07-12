@@ -150,12 +150,10 @@ export function isSimpleAskMessage(message = '') {
 }
 
 /**
- * Flat static system prompt — ambient identity + optional locked client context.
- * Full dumps of place/file trees stay out of the prompt; an explicit active_repo from the
- * explorer/context hub is a locked turn pin (not ambient guessing).
+ * Flat static system prompt — ambient identity + optional locked client context +
+ * hard-scoped memory digest + optional lane RAG block.
  */
 export async function buildSystemPrompt(_env, _tenantId, _mode, _contextBlock, _modeConfig, _promptRouteRow, options = {}) {
-  void _contextBlock;
   const message = options?.message != null ? String(options.message) : '';
   const activeRepo = String(
     options?.activeRepo ??
@@ -165,6 +163,9 @@ export async function buildSystemPrompt(_env, _tenantId, _mode, _contextBlock, _
       '',
   ).trim();
   const activeBranch = String(options?.activeBranch ?? options?.active_branch ?? 'main').trim() || 'main';
+  const userId = String(options?.userId ?? options?.ctx?.authUser?.id ?? '').trim();
+  const workspaceId = String(options?.workspaceId ?? options?.ctx?.authUser?.active_workspace_id ?? '').trim();
+  const tenantId = String(_tenantId ?? options?.ctx?.authUser?.tenant_id ?? '').trim();
 
   const base = activeRepo
     ? 'You are Agent Sam, an AI coding and operations assistant. Use tools to read files, query databases, run commands, and deploy.'
@@ -193,17 +194,38 @@ export async function buildSystemPrompt(_env, _tenantId, _mode, _contextBlock, _
       auth?.is_superadmin === 1 ||
       Number(auth?.is_superadmin) === 1;
     const identityBlock = formatAmbientIdentityForAgent({
-      user_id: options?.userId ?? auth?.id ?? null,
+      user_id: userId || auth?.id || null,
       email: auth?.email ?? null,
       role: auth?.role ?? (isSuperadmin ? 'superadmin' : 'user'),
       is_superadmin: isSuperadmin ? 1 : 0,
-      tenant_id: _tenantId ?? auth?.tenant_id ?? null,
-      workspace_id: options?.workspaceId ?? auth?.active_workspace_id ?? null,
+      tenant_id: tenantId || auth?.tenant_id || null,
+      workspace_id: workspaceId || auth?.active_workspace_id || null,
       credential_lane: isSuperadmin ? 'platform' : 'byok',
     });
     if (identityBlock) parts.push(`## Session\n${identityBlock}`);
   } catch (_) {
     /* optional */
+  }
+
+  // Always-on private memory digest — only when all three scopes are present.
+  if (tenantId && userId && workspaceId && _env) {
+    try {
+      const { loadPinnedMemoryDigestForPrompt } = await import('./agentsam-private-memory.js');
+      const mem = await loadPinnedMemoryDigestForPrompt(_env, {
+        tenantId,
+        workspaceId,
+        userId,
+        limit: 16,
+      });
+      if (mem) parts.push(mem.trim());
+    } catch (e) {
+      console.warn('[agent-prompt] memory digest skipped', e?.message ?? e);
+    }
+  }
+
+  const laneCtx = _contextBlock != null ? String(_contextBlock).trim() : '';
+  if (laneCtx) {
+    parts.push(`## Lane context\n${laneCtx.slice(0, 6000)}`);
   }
 
   try {

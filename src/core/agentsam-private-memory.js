@@ -274,14 +274,12 @@ export async function mirrorD1MemoryToPrivatePg(env, d1Row, opts = {}) {
 export async function searchPrivateAgentsamMemory(env, opts) {
   const tenantId = String(opts.tenantId ?? '').trim();
   const userId = String(opts.userId ?? '').trim();
-  const workspaceId =
-    opts.workspaceId != null && String(opts.workspaceId).trim() !== ''
-      ? String(opts.workspaceId).trim()
-      : null;
+  const workspaceId = String(opts.workspaceId ?? '').trim();
   const limit = Math.min(Math.max(Number(opts.limit) || 20, 1), 50);
   const q = String(opts.query ?? '').trim();
 
-  if (!tenantId || !userId) {
+  // Hard scope — never search without tenant + user + workspace (no cross-tenant bleed).
+  if (!tenantId || !userId || !workspaceId) {
     return { ok: false, error: 'missing_scope', results: [] };
   }
   if (!isHyperdriveUsable(env)) {
@@ -291,17 +289,13 @@ export async function searchPrivateAgentsamMemory(env, opts) {
   const conditions = [
     'tenant_id = $1',
     'user_id = $2',
+    'workspace_id = $3',
     'is_archived = false',
     '(expires_at IS NULL OR expires_at > now())',
   ];
-  const binds = [tenantId, userId];
-  let n = 3;
+  const binds = [tenantId, userId, workspaceId];
+  let n = 4;
 
-  if (workspaceId) {
-    conditions.push(`workspace_id = $${n}`);
-    binds.push(workspaceId);
-    n += 1;
-  }
   if (opts.memoryKey) {
     conditions.push(`memory_key = $${n}`);
     binds.push(String(opts.memoryKey));
@@ -346,55 +340,72 @@ export async function searchPrivateAgentsamMemory(env, opts) {
 }
 
 /**
+ * Compact always-on memory digest for chat system prompts.
+ * Hard-requires tenant_id + user_id + workspace_id (no cross-tenant bleed).
+ * Selects pinned OR importance >= 8 — same bar as Claude-style periodic synthesis.
+ *
+ * @param {any} env
+ * @param {{ tenantId: string, workspaceId: string, userId: string, limit?: number }} ctx
+ * @returns {Promise<string>}
+ */
+export async function loadPinnedMemoryDigestForPrompt(env, ctx = {}) {
+  const tenantId = String(ctx.tenantId ?? '').trim();
+  const workspaceId = String(ctx.workspaceId ?? '').trim();
+  const userId = String(ctx.userId ?? '').trim();
+  const limit = Math.min(Math.max(Number(ctx.limit) || 16, 1), 24);
+
+  if (!tenantId || !workspaceId || !userId) return '';
+  if (!isHyperdriveUsable(env)) return '';
+
+  try {
+    const r = await runHyperdriveQuery(
+      env,
+      `SELECT memory_type, memory_key, title, content, summary, importance, is_pinned
+       FROM agentsam.agentsam_memory
+       WHERE tenant_id = $1
+         AND user_id = $2
+         AND workspace_id = $3
+         AND is_archived = false
+         AND (expires_at IS NULL OR expires_at > now())
+         AND (is_pinned = true OR importance >= 8)
+       ORDER BY is_pinned DESC, importance DESC, updated_at DESC
+       LIMIT $4`,
+      [tenantId, userId, workspaceId, limit],
+    );
+    if (!r.ok || !r.rows?.length) return '';
+    return formatPrivateMemoryBlock(r.rows);
+  } catch (e) {
+    console.warn('[private-memory] digest failed', e?.message ?? e);
+    return '';
+  }
+}
+
+/**
+ * Message-aware private memory for prompts. Hard-requires tenant + user + workspace.
  * @param {any} env
  * @param {{
  *   tenantId: string,
- *   workspaceId?: string|null,
- *   userId?: string|null,
+ *   workspaceId: string,
+ *   userId: string,
  *   userMessage?: string,
  *   limit?: number,
  * }} ctx
  */
 export async function loadPrivateMemoryForPrompt(env, ctx = {}) {
   const tenantId = String(ctx.tenantId ?? '').trim();
-  const workspaceId =
-    ctx.workspaceId != null && String(ctx.workspaceId).trim() !== ''
-      ? String(ctx.workspaceId).trim()
-      : null;
-  const userId =
-    ctx.userId != null && String(ctx.userId).trim() !== ''
-      ? String(ctx.userId).trim()
-      : null;
+  const workspaceId = String(ctx.workspaceId ?? '').trim();
+  const userId = String(ctx.userId ?? '').trim();
   const q = String(ctx.userMessage ?? '').trim();
 
-  if (!tenantId || !isHyperdriveUsable(env)) return '';
+  if (!tenantId || !workspaceId || !userId || !isHyperdriveUsable(env)) return '';
 
-  const searchOpts = {
+  const { results } = await searchPrivateAgentsamMemory(env, {
     tenantId,
     workspaceId,
-    userId: userId || '',
+    userId,
     query: q.length >= 4 ? q.slice(0, 500) : undefined,
     limit: ctx.limit ?? 12,
-  };
-  if (!searchOpts.userId) {
-    const r = await runHyperdriveQuery(
-      env,
-      `SELECT memory_type, memory_key, title, content, summary, importance, is_pinned
-       FROM agentsam.agentsam_memory
-       WHERE tenant_id = $1
-         AND ($2::text IS NULL OR workspace_id = $2)
-         AND is_archived = false
-         AND (expires_at IS NULL OR expires_at > now())
-         AND (is_pinned = true OR memory_type IN ('policy','decision','state','error'))
-       ORDER BY is_pinned DESC, importance DESC, updated_at DESC
-       LIMIT $3`,
-      [tenantId, workspaceId, searchOpts.limit],
-    );
-    if (!r.ok || !r.rows?.length) return '';
-    return formatPrivateMemoryBlock(r.rows);
-  }
-
-  const { results } = await searchPrivateAgentsamMemory(env, searchOpts);
+  });
   if (!results?.length) return '';
   return formatPrivateMemoryBlock(results);
 }

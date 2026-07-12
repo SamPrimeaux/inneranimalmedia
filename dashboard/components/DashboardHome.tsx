@@ -32,6 +32,7 @@ import {
 import { ConnectIconEditor } from './home/ConnectIconEditor';
 import { ConnectCatalogSheet } from './home/ConnectCatalogSheet';
 import { AISpendDonut } from './home/AISpendDonut';
+import { RoutingRecentActivity } from './home/RoutingRecentActivity';
 import { useWorkspace } from '../src/context/WorkspaceContext';
 import './ui/AppIcon.css';
 import './home/HomeTileEditor.css';
@@ -520,6 +521,16 @@ export function DashboardHome() {
             </div>
           </div>
           <AISpendDonut />
+        </section>
+
+        <section className="iam-home-section" aria-labelledby="routing-recent-title">
+          <div className="iam-section-head">
+            <div>
+              <h2 id="routing-recent-title">Recent activity</h2>
+              <p>Last routing decisions from D1 — task type, model, match — not a chat summary.</p>
+            </div>
+          </div>
+          <RoutingRecentActivity />
         </section>
 
         <section className="iam-home-section" aria-labelledby="recent-title">
