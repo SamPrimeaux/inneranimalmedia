@@ -68,6 +68,7 @@ import {
   buildProjectChatFirstMessage,
   openAgentConversation,
   persistAgentConversationId,
+  resumeAgentChatSession,
   type OpenAgentThreadDetail,
   type StartNewAgentChatDetail,
 } from './lib/openAgentConversation';
@@ -1739,9 +1740,10 @@ const App: React.FC = () => {
       if (agentPosition === 'off') setAgentPosition('right');
       return;
     }
+    // Work / Collaborate / Projects / Mail: keep the current route; only open the side rail.
+    // Navigating to /dashboard/agent/new was yanking users out of context into a "fresh" agent home.
     if (isLibraryShellPath(location.pathname)) {
       if (agentPosition === 'off') setAgentPosition('right');
-      navigate(AGENT_NEW_CHAT_PATH);
       return;
     }
     if (!isAgentShellPath(location.pathname)) {
@@ -1751,7 +1753,7 @@ const App: React.FC = () => {
     }
     if (isAgentHomeAtmospheric && !isNarrowViewport) return;
     ensureAgentSidePanel();
-  }, [location.pathname, navigate, isAgentHomeAtmospheric, isNarrowViewport, ensureAgentSidePanel]);
+  }, [location.pathname, navigate, isAgentHomeAtmospheric, isNarrowViewport, ensureAgentSidePanel, agentPosition]);
 
   const shellOpenChats = useCallback(() => {
     navigate('/dashboard/chats');
@@ -1765,9 +1767,15 @@ const App: React.FC = () => {
     (conversationId: string, title?: string) => {
       const id = String(conversationId || '').trim();
       if (!id) return;
+      // On Work / Collaborate / Projects / Mail: resume in the side rail — do not full-screen navigate.
+      if (isLibraryShellPath(location.pathname)) {
+        openAgentConversation({ id, title, force: true });
+        if (agentPosition === 'off') setAgentPosition('right');
+        return;
+      }
       resumeAgentChatSession({ id, title, force: true });
     },
-    [],
+    [location.pathname, agentPosition],
   );
 
   const shellDeleteActiveChat = useCallback(
@@ -2336,9 +2344,9 @@ const App: React.FC = () => {
       ) {
         return;
       }
-      // Stay in the editor workbench — conversation id lives in tab/localStorage, not URL.
-      // Navigating to /dashboard/agent/{id} drops the file explorer and feels like a "new chat" redirect.
-      if (isAgentEditorPath(location.pathname)) {
+      // Stay in the editor / Work shell — conversation id lives in tab/localStorage, not URL.
+      // Navigating to /dashboard/agent/{id} drops the page context and feels like a "new chat" redirect.
+      if (isAgentEditorPath(location.pathname) || isLibraryShellPath(location.pathname)) {
         try {
           localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id);
         } catch {
@@ -5012,6 +5020,8 @@ const App: React.FC = () => {
                       />
                       <Route path="/dashboard/library" element={<Navigate to="/dashboard/artifacts" replace />} />
                       <Route path="/dashboard/artifacts" element={<LibraryPage />} />
+                      <Route path="/dashboard/artifacts/tickets" element={<LibraryPage />} />
+                      <Route path="/dashboard/artifacts/*" element={<LibraryPage />} />
                       <Route path="/dashboard/projects" element={<ProjectsPage />} />
                       <Route path="/dashboard/projects/:projectId" element={<ProjectDetailPage />} />
                       <Route path="/dashboard/tasks" element={<TasksPage />} />

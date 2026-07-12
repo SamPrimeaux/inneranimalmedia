@@ -46,6 +46,7 @@ export function LibraryTicketsSurface({ onToast }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newPriority, setNewPriority] = useState('P2');
+  const [newProject, setNewProject] = useState('');
   const [busy, setBusy] = useState(false);
   const [blockReason, setBlockReason] = useState('');
 
@@ -119,14 +120,16 @@ export function LibraryTicketsSurface({ onToast }: Props) {
     if (!title) return;
     setBusy(true);
     try {
+      const project = newProject.trim() || undefined;
       const ticket = await createTicket({
         title,
         priority: newPriority,
         status: 'backlog',
-        project: 'inneranimalmedia',
+        ...(project ? { project } : {}),
         subsystem: 'platform',
       });
       setNewTitle('');
+      setNewProject('');
       setCreateOpen(false);
       setSelectedId(ticket.id);
       onToast?.(`Created ${ticket.id}`);
@@ -269,6 +272,12 @@ export function LibraryTicketsSurface({ onToast }: Props) {
             onChange={(e) => setNewTitle(e.target.value)}
             placeholder="Ticket title"
             aria-label="Ticket title"
+          />
+          <input
+            value={newProject}
+            onChange={(e) => setNewProject(e.target.value)}
+            placeholder="projects.id (optional — e.g. inneranimalmedia)"
+            aria-label="Project id"
           />
           <select
             value={newPriority}

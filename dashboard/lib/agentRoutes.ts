@@ -152,15 +152,20 @@ export function isAgentExamplesPath(pathname: string): boolean {
   return normalizePath(pathname) === AGENT_EXAMPLES_PATH;
 }
 
-/** Routes that render dashboard content beside the agent column (stay put on new chat). */
+/** Routes that render dashboard content beside the agent column (stay put on new chat / resume). */
 export function isLibraryShellPath(pathname: string): boolean {
   const p = normalizePath(pathname);
   return (
     p === '/dashboard/artifacts' ||
+    p.startsWith('/dashboard/artifacts/') ||
     p === '/dashboard/chats' ||
     p === '/dashboard/tasks' ||
     p === '/dashboard/collaborate' ||
+    p === '/dashboard/mail' ||
+    p === '/dashboard/projects' ||
+    p.startsWith('/dashboard/projects/') ||
     p === '/dashboard/home' ||
-    p === '/dashboard/overview'
+    p === '/dashboard/overview' ||
+    p === '/dashboard/library'
   );
 }

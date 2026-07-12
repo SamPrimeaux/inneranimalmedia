@@ -158,10 +158,13 @@ export function ArtifactsDriveShell() {
   const canManageSharedDrives = hasDriveManageScope(ws.driveStatus);
   const showSharedDriveTools = ws.driveView === 'shared-drives' || ws.driveView === 'shared-drive';
   const isProjectsRoute = location.pathname === '/dashboard/projects' || location.pathname.startsWith('/dashboard/projects/');
+  const isArtifactsTicketsRoute =
+    location.pathname === '/dashboard/artifacts/tickets' ||
+    location.pathname.startsWith('/dashboard/artifacts/tickets/');
   const routeProjectMatch = location.pathname.match(/^\/dashboard\/projects\/([^/?#]+)/);
   const routeProjectId = routeProjectMatch?.[1] ? decodeURIComponent(routeProjectMatch[1]) : null;
   const isProjectsView = isProjectsRoute || ws.filters.rail === 'projects';
-  const isTicketsView = !isProjectsView && ws.filters.rail === 'tickets';
+  const isTicketsView = !isProjectsView && (isArtifactsTicketsRoute || ws.filters.rail === 'tickets');
   const isHomeLanes = !isProjectsView && !isTicketsView && ws.filters.rail === 'all';
   const projectIdParam = isProjectsRoute ? routeProjectId : searchParams.get('project');
 
@@ -241,12 +244,16 @@ export function ArtifactsDriveShell() {
       );
       return;
     }
+    if (isArtifactsTicketsRoute && ws.filters.rail !== 'tickets') {
+      ws.setNavKey('tickets');
+      return;
+    }
     if (isProjectsRoute && ws.filters.rail !== 'projects') {
       ws.setNavKey('projects');
     } else if (view === 'projects' && ws.filters.rail !== 'projects') {
       ws.setNavKey('projects');
     }
-  }, [searchParams, ws, location.pathname, navigate, isProjectsRoute]);
+  }, [searchParams, ws, location.pathname, navigate, isProjectsRoute, isArtifactsTicketsRoute]);
 
   const handleProjectChange = useCallback(
     (projectId: string | null) => {
@@ -491,10 +498,17 @@ export function ArtifactsDriveShell() {
                     }
                     if (item.key === 'tickets') {
                       ws.setNavKey('tickets');
+                      if (location.pathname !== '/dashboard/artifacts/tickets') {
+                        navigate('/dashboard/artifacts/tickets');
+                      }
                       return;
                     }
-                    if (rail) ws.setNavKey(item.key);
-                    else showToast(`${item.label} — coming soon`);
+                    if (rail) {
+                      ws.setNavKey(item.key);
+                      if (location.pathname.startsWith('/dashboard/artifacts/tickets')) {
+                        navigate('/dashboard/artifacts');
+                      }
+                    } else showToast(`${item.label} — coming soon`);
                   }}
                 >
                   <NavIcon name={item.icon} />
