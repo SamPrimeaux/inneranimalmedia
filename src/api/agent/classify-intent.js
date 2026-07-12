@@ -441,7 +441,7 @@ export async function classifyIntent(env, lastMessageText, opts = {}) {
     return opts.turnDecision.chatResult;
   }
 
-  const { resolveTurnDecision } = await import('../core/turn-decision.js');
+  const { resolveTurnDecision } = await import('../../core/turn-decision.js');
   const td = await resolveTurnDecision(env, lastMessageText, opts.session || {}, {
     skipChatEscalate: opts.skipEscalate === true,
   });
