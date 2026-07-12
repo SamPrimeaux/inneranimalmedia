@@ -47,7 +47,9 @@ const CREATION_WORKFLOW: { id: string; label: string; path: string; icon: Lucide
   { id: 'deploy', label: 'Deploy', path: '/dashboard/workflows', icon: Rocket },
 ];
 
-const HOME_HERO_IMAGE = `${import.meta.env.BASE_URL}assets/home/design-studio-hero.png`;
+const HOME_HERO_IMAGE =
+  'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/cb28eb31-cdf8-4e80-7969-1952d96d9600/public';
+const HOME_HERO_COVER = cfImageVariants(HOME_HERO_IMAGE);
 
 const FALLBACK_QUICK_TILES: DashboardHomeTile[] = [
   {
@@ -303,6 +305,17 @@ export function DashboardHome() {
     <main className={`iam-home ${editMode ? 'iam-home-edit-mode' : ''}`} aria-label="Dashboard home">
       <section className="iam-home-shell">
         <section className="iam-home-hero-studio" aria-labelledby="home-title">
+          <div className="iam-home-hero-studio__media" aria-hidden>
+            <img
+              src={HOME_HERO_COVER.src}
+              srcSet={HOME_HERO_COVER.srcSet}
+              alt=""
+              className="iam-home-hero-studio__media-img"
+              loading="eager"
+              decoding="async"
+            />
+            <div className="iam-home-hero-studio__scrim" />
+          </div>
           <div className="iam-home-hero-studio__copy">
             <p className="iam-home-hero-studio__eyebrow">Design Studio</p>
             <h1 id="home-title" className="iam-home-hero-studio__title">
@@ -333,36 +346,27 @@ export function DashboardHome() {
                 Ask Agent Sam
               </button>
             </div>
-            <nav className="iam-home-hero-studio__workflow" aria-label="Creation workflow">
-              {CREATION_WORKFLOW.map((step) => {
-                const Icon = step.icon;
-                return (
-                  <button
-                    key={step.id}
-                    type="button"
-                    className="iam-home-hero-studio__workflow-step"
-                    onClick={() => navigate(step.path)}
-                  >
-                    <span className="iam-home-hero-studio__workflow-icon" aria-hidden>
-                      <Icon size={18} strokeWidth={1.6} />
-                    </span>
-                    <span>{step.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
-          <div className="iam-home-hero-studio__visual" aria-hidden>
-            <div className="iam-home-hero-studio__visual-glow" />
-            <img
-              src={HOME_HERO_IMAGE}
-              alt=""
-              className="iam-home-hero-studio__visual-img"
-              loading="eager"
-              decoding="async"
-            />
           </div>
         </section>
+
+        <nav className="iam-home-hero-studio__workflow" aria-label="Creation workflow">
+          {CREATION_WORKFLOW.map((step) => {
+            const Icon = step.icon;
+            return (
+              <button
+                key={step.id}
+                type="button"
+                className="iam-home-hero-studio__workflow-step"
+                onClick={() => navigate(step.path)}
+              >
+                <span className="iam-home-hero-studio__workflow-icon" aria-hidden>
+                  <Icon size={18} strokeWidth={1.6} />
+                </span>
+                <span>{step.label}</span>
+              </button>
+            );
+          })}
+        </nav>
 
         <section className={`iam-home-section iam-home-section--quick${editMode ? ' iam-home-section--editing' : ''}`} aria-labelledby="quick-starts-title">
           <div className="iam-section-head">
