@@ -143,7 +143,7 @@ async function resolveTenantScope(env, authUser, request) {
 
 /**
  * @param {URL} url
- * @param {{ isSa: boolean, tenantId: string | null }} scope
+ * @param {{ isSa: boolean, tenantId: string | null, userId?: string | null, workspaceId?: string | null }} scope
  */
 function buildListFilters(url, scope) {
   const sp = url.searchParams;
@@ -158,28 +158,42 @@ function buildListFilters(url, scope) {
   const workspace_id = (sp.get('workspace_id') || '').trim();
   const project_key = (sp.get('project_key') || '').trim();
   const session_id = (sp.get('session_id') || '').trim();
+  // Ops-only: tenant-wide list. Default My artifacts stays user-scoped even for superadmin.
+  const tenantWide = scope.isSa && (sp.get('scope') === 'tenant' || sp.get('all') === '1');
 
   const where = [];
   const binds = [];
 
-  if (!scope.isSa) {
-    if (!scope.userId || !scope.workspaceId) {
-      where.push('1 = 0');
-    } else {
-      where.push('a.user_id = ?');
-      binds.push(scope.userId);
-      where.push('a.workspace_id = ?');
-      binds.push(scope.workspaceId);
-      if (scope.tenantId) {
-        where.push('a.tenant_id = ?');
-        binds.push(scope.tenantId);
-      }
+  if (tenantWide) {
+    if (scope.tenantId) {
+      where.push('a.tenant_id = ?');
+      binds.push(scope.tenantId);
     }
-  } else if (scope.tenantId) {
-    where.push('a.tenant_id = ?');
-    binds.push(scope.tenantId);
+  } else if (!scope.userId) {
+    where.push('1 = 0');
+  } else {
+    // Own artifacts OR shared via project membership (collaborator / owner).
+    where.push(`(
+      a.user_id = ?
+      OR (
+        a.project_key IS NOT NULL
+        AND TRIM(a.project_key) != ''
+        AND (
+          EXISTS (
+            SELECT 1 FROM project_collaborators pc
+            WHERE pc.project_id = a.project_key AND pc.user_id = ?
+          )
+          OR EXISTS (
+            SELECT 1 FROM projects p
+            WHERE p.id = a.project_key AND p.owner_user_id = ?
+          )
+        )
+      )
+    )`);
+    binds.push(scope.userId, scope.userId, scope.userId);
   }
-  if (workspace_id && scope.isSa) {
+
+  if (workspace_id) {
     where.push('a.workspace_id = ?');
     binds.push(workspace_id);
   }
@@ -247,35 +261,47 @@ function buildListFilters(url, scope) {
       workspace_id,
       project_key,
       session_id,
+      scope: tenantWide ? 'tenant' : 'user',
     },
   };
 }
 
-/** KPI scope: tenant + optional workspace/project from URL, no text/type filters */
+/** KPI scope: user-owned (+ shared project) by default; optional workspace/project filters */
 function buildKpiScope(url, scope) {
   const sp = url.searchParams;
   const workspace_id = (sp.get('workspace_id') || '').trim();
   const project_key = (sp.get('project_key') || '').trim();
+  const tenantWide = scope.isSa && (sp.get('scope') === 'tenant' || sp.get('all') === '1');
   const where = [];
   const binds = [];
-  if (!scope.isSa) {
-    if (!scope.userId || !scope.workspaceId) {
-      where.push('1 = 0');
-    } else {
-      where.push('user_id = ?');
-      binds.push(scope.userId);
-      where.push('workspace_id = ?');
-      binds.push(scope.workspaceId);
-      if (scope.tenantId) {
-        where.push('tenant_id = ?');
-        binds.push(scope.tenantId);
-      }
+  if (tenantWide) {
+    if (scope.tenantId) {
+      where.push('tenant_id = ?');
+      binds.push(scope.tenantId);
     }
-  } else if (scope.tenantId) {
-    where.push('tenant_id = ?');
-    binds.push(scope.tenantId);
+  } else if (!scope.userId) {
+    where.push('1 = 0');
+  } else {
+    where.push(`(
+      user_id = ?
+      OR (
+        project_key IS NOT NULL
+        AND TRIM(project_key) != ''
+        AND (
+          EXISTS (
+            SELECT 1 FROM project_collaborators pc
+            WHERE pc.project_id = project_key AND pc.user_id = ?
+          )
+          OR EXISTS (
+            SELECT 1 FROM projects p
+            WHERE p.id = project_key AND p.owner_user_id = ?
+          )
+        )
+      )
+    )`);
+    binds.push(scope.userId, scope.userId, scope.userId);
   }
-  if (workspace_id && scope.isSa) {
+  if (workspace_id) {
     where.push('workspace_id = ?');
     binds.push(workspace_id);
   }
@@ -290,21 +316,56 @@ function buildKpiScope(url, scope) {
 /**
  * @param {any} env
  * @param {string} artifactId
- * @param {{ isSa: boolean, tenantId: string | null }} scope
+ * @param {{ isSa: boolean, tenantId: string | null, userId?: string | null }} scope
+ * @param {{ mutate?: boolean }} [opts] mutate=true requires owner (CRUD); read may allow shared project
  */
-async function assertArtifactAccess(env, artifactId, scope) {
-  const row = await env.DB.prepare(`SELECT id, tenant_id, user_id FROM agentsam_artifacts WHERE id = ?`)
+async function assertArtifactAccess(env, artifactId, scope, opts = {}) {
+  const mutate = opts.mutate === true;
+  const row = await env.DB.prepare(
+    `SELECT id, tenant_id, user_id, project_key, visibility, is_public FROM agentsam_artifacts WHERE id = ?`,
+  )
     .bind(artifactId)
     .first();
   if (!row) return { ok: false, status: 404, error: 'Not found' };
-  if (!scope.isSa) {
-    if (!scope.userId || !scope.workspaceId) return { ok: false, status: 403, error: 'Forbidden' };
-    if (String(row.user_id || '') !== String(scope.userId)) return { ok: false, status: 403, error: 'Forbidden' };
-    if (scope.tenantId && String(row.tenant_id || '') !== String(scope.tenantId)) {
+
+  const ownerId = String(row.user_id || '');
+  const callerId = scope.userId != null ? String(scope.userId) : '';
+
+  if (scope.isSa && !mutate && !callerId) {
+    return { ok: true, row };
+  }
+
+  if (!callerId) return { ok: false, status: 403, error: 'Forbidden' };
+
+  if (ownerId === callerId) {
+    if (scope.tenantId && String(row.tenant_id || '') !== String(scope.tenantId) && !scope.isSa) {
       return { ok: false, status: 403, error: 'Forbidden' };
     }
+    return { ok: true, row };
   }
-  return { ok: true, row };
+
+  // Non-owners: never mutate. Read only when shared via project membership.
+  if (mutate) return { ok: false, status: 403, error: 'Forbidden' };
+
+  const projectKey = row.project_key != null ? String(row.project_key).trim() : '';
+  if (projectKey) {
+    const collab = await env.DB.prepare(
+      `SELECT 1 AS ok FROM project_collaborators WHERE project_id = ? AND user_id = ? LIMIT 1`,
+    )
+      .bind(projectKey, callerId)
+      .first()
+      .catch(() => null);
+    if (collab) return { ok: true, row };
+    const owner = await env.DB.prepare(
+      `SELECT 1 AS ok FROM projects WHERE id = ? AND owner_user_id = ? LIMIT 1`,
+    )
+      .bind(projectKey, callerId)
+      .first()
+      .catch(() => null);
+    if (owner) return { ok: true, row };
+  }
+
+  return { ok: false, status: 403, error: 'Forbidden' };
 }
 
 /**
@@ -522,7 +583,7 @@ export async function handleAgentArtifactsApi(request, url, env) {
 
     if (oneMatch && method === 'PATCH') {
       const id = oneMatch[1];
-      const gate = await assertArtifactAccess(env, id, scope);
+      const gate = await assertArtifactAccess(env, id, scope, { mutate: true });
       if (!gate.ok) return jsonResponse({ ok: false, error: gate.error }, gate.status);
 
       const body = await request.json().catch(() => ({}));
@@ -574,7 +635,7 @@ export async function handleAgentArtifactsApi(request, url, env) {
 
     if (oneMatch && method === 'DELETE') {
       const id = oneMatch[1];
-      const gate = await assertArtifactAccess(env, id, scope);
+      const gate = await assertArtifactAccess(env, id, scope, { mutate: true });
       if (!gate.ok) return jsonResponse({ ok: false, error: gate.error }, gate.status);
 
       const row = await env.DB.prepare(

@@ -1,14 +1,21 @@
 /**
  * Canonical agentsam_artifacts R2 key builder + type contracts.
  *
- * artifact_type (D1) = content **format** — backward compatible with 232 existing rows.
- * artifact_kind (metadata_json.kind or source_tool_key) = semantic **role**.
+ * Default bucket (Worker binding ARTIFACTS → R2 bucket `artifacts`):
+ *   user/{au_*}/{kind}/{artifact_id}.{ext}
+ *
+ * Isolation law (LOCKED):
+ * - Each auth user only CRUD-owns keys under their `user/{au_*}/` prefix.
+ * - No cross-user mixing unless the artifact is explicitly shared
+ *   (project collaborator / project owner) or marked public for content read.
+ * - workspace_id lives in D1 only — never in the R2 path.
  *
  * Legacy prefix chaos (pre-policy rows) — map via inferLegacyArtifactBucket():
  *   workspaces/…          → inneranimalmedia-autorag
  *   agentsam/plans/…      → inneranimalmedia-autorag
  *   cms/test-runs/…       → inneranimalmedia
  *   draw/…                → inneranimalmedia
+ *   artifacts/user/ws_*…  → artifacts (legacy wrong path; still readable via D1 user_id)
  *   artifacts/rebuilt/…   → (tombstone — no object)
  */
 
@@ -120,6 +127,28 @@ export function buildArtifactR2Key(p) {
   const format = normalizeArtifactFormat(p.format || kind);
   const ext = ARTIFACT_EXT[format] || ARTIFACT_EXT.other;
   return `user/${uid}/${kind}/${id}.${ext}`;
+}
+
+/**
+ * Strict user prefix for ARTIFACTS R2: `user/{au_*}/`
+ * @param {string} userId
+ */
+export function userArtifactKeyPrefix(userId) {
+  const uid = safeSegment(userId);
+  return uid ? `user/${uid}/` : null;
+}
+
+/**
+ * True when r2_key is owned by this user under the canonical prefix.
+ * Legacy `artifacts/user/…` keys are NOT treated as owned by path — access is D1 user_id only.
+ * @param {string} userId
+ * @param {string} r2Key
+ */
+export function isOwnedArtifactR2Key(userId, r2Key) {
+  const prefix = userArtifactKeyPrefix(userId);
+  const key = String(r2Key || '').trim();
+  if (!prefix || !key) return false;
+  return key.startsWith(prefix);
 }
 
 /**

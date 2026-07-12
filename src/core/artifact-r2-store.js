@@ -247,17 +247,9 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
   const wsByokBucket = resolveWorkspaceByokR2Bucket(wsRow);
   const byokCreds = !isSuper ? await loadUserCloudflareR2Credentials(env, userId) : null;
 
-  if (!isSuper && !byokCreds) {
-    return {
-      ok: true,
-      skipped_r2: true,
-      reason: 'tenant_r2_byok_required',
-      content_base64: contentToBase64(content),
-      artifact_type: normalizeArtifactFormat(String(opts.artifactType || 'other')),
-      user_message:
-        'Connect Cloudflare R2 in Settings → Storage to persist artifacts. Content returned inline as base64.',
-    };
-  }
+  // Default artifact lane = platform ARTIFACTS binding (bucket `artifacts`) under user/{au_*}/.
+  // Explicit tenantR2Bucket / forceTenantR2 opts into customer BYOK S3 instead.
+  const forceTenantR2 = Boolean(opts.tenantR2Bucket || opts.forceTenantR2);
 
   const artifactId = String(opts.artifactId || newArtifactId()).trim();
   const artifactType = String(opts.artifactType || 'other').toLowerCase().slice(0, 64);
@@ -285,7 +277,8 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
   const contentType = artifactContentType(artifactType);
   let putOk = false;
 
-  if (isSuper) {
+  if (!forceTenantR2) {
+    r2BucketName = defaultArtifactBucket();
     const bucket = resolveArtifactR2Binding(env, r2BucketName);
     if (!bucket?.put) {
       await logArtifactR2WriteFailure(env, ctx, {
@@ -313,8 +306,18 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
       return { ok: false, error: 'r2_put_failed', user_message: ARTIFACT_WRITE_USER_ERROR };
     }
   } else {
+    if (!byokCreds && !isSuper) {
+      return {
+        ok: true,
+        skipped_r2: true,
+        reason: 'tenant_r2_byok_required',
+        content_base64: contentToBase64(content),
+        artifact_type: normalizeArtifactFormat(String(opts.artifactType || 'other')),
+        user_message:
+          'Connect Cloudflare R2 in Settings → Storage to persist tenant-bucket artifacts. Content returned inline as base64.',
+      };
+    }
     let userEnv = await mergeR2S3EnvFromUserStorage(env, authUser || { id: userId });
-    // key row cf_account_id → workspace column → platform env (do not trust merge fallback alone)
     const keyCfAccountId = trim(byokCreds?.cfAccountId);
     const resolvedAccountId =
       keyCfAccountId || wsCfAccountId || trim(env.CLOUDFLARE_ACCOUNT_ID) || null;
@@ -371,6 +374,9 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
   }
   if (cols.has('scope')) {
     row.scope = artifactScope.slice(0, 32);
+  }
+  if (cols.has('visibility')) {
+    row.visibility = 'private';
   }
   if (opts.expiresAt != null && cols.has('expires_at')) {
     row.expires_at = Number(opts.expiresAt) || null;

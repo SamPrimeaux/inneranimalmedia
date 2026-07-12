@@ -172,16 +172,36 @@ export async function handleStudioSessionApi(request, url, env, ctx) {
     if (artifactMatch && method === 'GET') {
       const artifactId = artifactMatch[1];
       const artifact = await env.DB.prepare(
-        'SELECT r2_key, r2_bucket, artifact_type, is_public, user_id FROM agentsam_artifacts WHERE id = ?',
+        'SELECT r2_key, r2_bucket, artifact_type, is_public, user_id, project_key FROM agentsam_artifacts WHERE id = ?',
       ).bind(artifactId).first();
 
       if (!artifact) return new Response('Not found', { status: 404 });
 
       if (!artifact.is_public) {
         const authUser = await getAuthUser(request, env);
-        if (!authUser || authUser.id !== artifact.user_id) {
-          return new Response('Unauthorized', { status: 401 });
+        if (!authUser) return new Response('Unauthorized', { status: 401 });
+        const callerId = String(authUser.id || '');
+        const ownerId = String(artifact.user_id || '');
+        let allowed = callerId && ownerId === callerId;
+        if (!allowed && artifact.project_key) {
+          const pk = String(artifact.project_key).trim();
+          const collab = await env.DB.prepare(
+            `SELECT 1 AS ok FROM project_collaborators WHERE project_id = ? AND user_id = ? LIMIT 1`,
+          )
+            .bind(pk, callerId)
+            .first()
+            .catch(() => null);
+          const owner = collab
+            ? null
+            : await env.DB.prepare(
+                `SELECT 1 AS ok FROM projects WHERE id = ? AND owner_user_id = ? LIMIT 1`,
+              )
+                .bind(pk, callerId)
+                .first()
+                .catch(() => null);
+          allowed = Boolean(collab || owner);
         }
+        if (!allowed) return new Response('Unauthorized', { status: 401 });
       }
 
       const { readWorkspaceArtifact } = await import('../core/artifact-r2-store.js');

@@ -522,7 +522,11 @@ export function ArtifactsDriveShell() {
               <div className="meter">
                 <div className="bar" />
               </div>
-              <small>{ws.storageLabel ?? (ws.r2Bucket ? `${ws.r2Bucket} · R2` : 'Storage')}</small>
+              <small>
+                {ws.filters.rail === 'artifacts'
+                  ? 'ARTIFACTS · user/au_*'
+                  : ws.storageLabel ?? (ws.r2Bucket ? `${ws.r2Bucket} · R2` : 'Storage')}
+              </small>
             </div>
           </nav>
         </aside>

@@ -7,6 +7,7 @@ export const artifactsProvider: LibraryProvider = {
   label: 'My artifacts',
   async list(params) {
     try {
+      // User-scoped ARTIFACTS R2 lane (user/{au_*}/…) via /api/agent/artifacts — not workspace-wide.
       const data = await fetchArtifacts({
         limit: 200,
         offset: 0,
