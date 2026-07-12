@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { Archive, CheckSquare, Plus, Search, Square, Star } from 'lucide-react';
+import { ProjectHealthDonut } from '../projects/ProjectHealthDonut';
 import type { OverviewProject } from '../../../api/projects';
 import { fetchProjectsList, fetchProjectsOverview, updateProject, deleteProject } from '../../../api/projects';
 import { StartProjectWizard } from '../../../components/projects/StartProjectWizard';
