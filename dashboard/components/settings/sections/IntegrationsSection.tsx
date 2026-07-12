@@ -145,6 +145,28 @@ export function IntegrationsSection({
   }, [workspaceId]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const u = new URL(window.location.href);
+      const oauthErr = u.searchParams.get('error');
+      const detail = u.searchParams.get('detail');
+      if (!oauthErr) return;
+      const msg =
+        oauthErr === 'invalid_scope'
+          ? `Cloudflare OAuth scope rejected: ${detail || oauthErr}. Enable that scope on the OAuth client, or remove it from the request.`
+          : oauthErr === 'missing_params'
+            ? 'Cloudflare OAuth returned without an auth code (often invalid_scope). Check Integrations error detail and retry.'
+            : detail || oauthErr;
+      setErr(msg);
+      u.searchParams.delete('error');
+      u.searchParams.delete('detail');
+      window.history.replaceState({}, '', `${u.pathname}${u.search}${u.hash}`);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);

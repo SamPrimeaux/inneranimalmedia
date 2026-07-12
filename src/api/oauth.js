@@ -404,8 +404,12 @@ function googleAuthUrl(env, state, oauthScopeString) {
 
 const CLOUDFLARE_OAUTH_REDIRECT_URI = 'https://inneranimalmedia.com/api/oauth/cloudflare/callback';
 /**
- * Must be a subset of scopes enabled on the IAM Cloudflare OAuth client.
- * offline_access → refresh_token when the client grant_types include refresh_token.
+ * Must be a subset of scopes enabled on the IAM Cloudflare OAuth client
+ * (Manage Account → OAuth clients). Requesting a scope not on the client
+ * returns invalid_scope and no code — previously mislabeled as missing_params.
+ *
+ * Do NOT include workers-kv-storage.* until that scope is enabled on the client.
+ * Override at runtime with wrangler secret/var CLOUDFLARE_OAUTH_SCOPES (space-separated).
  */
 const CLOUDFLARE_OAUTH_SCOPES = [
   'account-settings.read',
@@ -429,10 +433,17 @@ const CLOUDFLARE_OAUTH_SCOPES = [
   'workers-routes.write',
   'workers-scripts.read',
   'workers-scripts.write',
-  'workers-kv-storage.read',
-  'workers-kv-storage.write',
   'offline_access',
 ].join(' ');
+
+function resolveCloudflareOAuthScopes(env, oauthScopeString) {
+  if (oauthScopeString != null && String(oauthScopeString).trim()) {
+    return String(oauthScopeString).trim();
+  }
+  const fromEnv = env?.CLOUDFLARE_OAUTH_SCOPES != null ? String(env.CLOUDFLARE_OAUTH_SCOPES).trim() : '';
+  if (fromEnv) return fromEnv.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+  return CLOUDFLARE_OAUTH_SCOPES;
+}
 
 function cloudflareAuthUrl(env, state, oauthScopeString) {
   if (!env.CLOUDFLARE_OAUTH_CLIENT_ID) return null;
@@ -440,12 +451,7 @@ function cloudflareAuthUrl(env, state, oauthScopeString) {
   u.searchParams.set('response_type', 'code');
   u.searchParams.set('client_id', env.CLOUDFLARE_OAUTH_CLIENT_ID);
   u.searchParams.set('redirect_uri', CLOUDFLARE_OAUTH_REDIRECT_URI);
-  u.searchParams.set(
-    'scope',
-    (oauthScopeString && String(oauthScopeString).trim())
-      ? String(oauthScopeString).trim()
-      : CLOUDFLARE_OAUTH_SCOPES,
-  );
+  u.searchParams.set('scope', resolveCloudflareOAuthScopes(env, oauthScopeString));
   u.searchParams.set('state', state);
   return u.toString();
 }
@@ -1512,12 +1518,27 @@ export async function handleOAuthApi(request, env, ctx) {
 
     const state = url.searchParams.get('state') || '';
     const code = url.searchParams.get('code') || '';
+    const oauthError = url.searchParams.get('error') || '';
+    const oauthErrorDesc = url.searchParams.get('error_description') || '';
     const origin = new URL(request.url).origin;
+    const integrationsReturn = `${origin}/dashboard/settings/integrations`;
+    if (oauthError) {
+      const detail = oauthErrorDesc || oauthError;
+      console.warn('[oauth_callback] provider error', {
+        provider,
+        error: oauthError,
+        detail: detail.slice(0, 240),
+      });
+      return Response.redirect(
+        `${integrationsReturn}?error=${encodeURIComponent(oauthError)}&detail=${encodeURIComponent(detail.slice(0, 300))}`,
+        302,
+      );
+    }
     if (!state || !code) {
       if (provider === 'google' || provider === 'github') {
         return Response.redirect(`${origin}/auth/login?error=missing`, 302);
       }
-      return Response.redirect(`${origin}/dashboard/settings?section=Integrations&error=missing_params`, 302);
+      return Response.redirect(`${integrationsReturn}?error=missing_params`, 302);
     }
 
     // GitHub: login flow uses oauth_state_github_* — must run before integration (oauth_state_*).
