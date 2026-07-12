@@ -48,6 +48,22 @@ Operational locks: `.cursor/rules/iam-core.mdc` — not duplicated here.
 
 ---
 
+## Proposed agent portfolio (platform)
+
+| Agent slug | Lane | Primary | Purpose |
+|---|---|---|---|
+| `platform_architect` | L4 | Sol | Cross-service architecture |
+| `agent_architect` | L4 | Sonnet 5 | Agent specs, workflows |
+| `implementation_engineer` | L2 | Codex | Worker/D1/terminal |
+| `code_navigator` | L3 | Sonnet 5 + DeepSeek flash | search_code |
+| `daily_operator` | L1 | Terra | Chat, tool orchestration |
+| `volume_scribe` | L1 | Luna | Drafts, bounded workers |
+
+Lanes: [`plans/active/AGENTSAM-CONCEPTUAL-LANES-2026-07.md`](../../plans/active/AGENTSAM-CONCEPTUAL-LANES-2026-07.md)  
+Full roster: [`plans/active/AGENTSAM-PORTFOLIO-PROPOSALS-2026-07.md`](../../plans/active/AGENTSAM-PORTFOLIO-PROPOSALS-2026-07.md)
+
+---
+
 ## Related
 
 - [../../shared/AGENT_RUNTIME.md](../../shared/AGENT_RUNTIME.md)

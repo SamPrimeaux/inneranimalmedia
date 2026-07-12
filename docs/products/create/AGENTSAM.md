@@ -44,6 +44,19 @@ illustration_create
 
 ---
 
+## Proposed agent portfolio
+
+| Agent slug | Lane | Primary | Purpose |
+|---|---|---|---|
+| `create_router` | L0 | Luna | Phase pick: sketch vs CAD vs mesh |
+| `cad_planner` | L4 | Sonnet 5 | Engine routing, intent |
+| `cad_builder` | L2 | Codex | Script mutation |
+| `cad_verifier` | L5 | Gemini 3.5 Flash | GLB / dimension QA |
+
+Full roster: [`plans/active/AGENTSAM-PORTFOLIO-PROPOSALS-2026-07.md`](../../plans/active/AGENTSAM-PORTFOLIO-PROPOSALS-2026-07.md)
+
+---
+
 ## Related
 
 - [../agent-sam/AGENTSAM.md](../agent-sam/AGENTSAM.md)
