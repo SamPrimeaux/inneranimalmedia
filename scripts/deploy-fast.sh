@@ -3,9 +3,11 @@
 #   1. Vite build + cache bump (unless DEPLOY_FAST_SKIP_BUILD=1)
 #   2. Content-hash R2 delta sync (no rclone, no --checksum crawl)
 #   3. wrangler deploy worker
+#   4. Fire-and-forget D1 deployments row via post-deploy-record.sh (non-blocking)
 #
 # No blocking post-hooks (email, memory sync, GCP VM sync, games/marketing uploads,
 # lane registry, embed-sitemap). Those belong in deploy:full / fire-and-forget.
+# Opt out of the async ledger write: SKIP_DEPLOY_RECORD=1
 #
 # Safe hosts: Mac, Cloudflare Workers Builds, any CI with R2 S3 keys.
 # Unsafe: GCP iam-tunnel for Vite — use npm run ship:remote instead (push → CF Builds).
@@ -136,8 +138,33 @@ else
 fi
 
 FAST_END=$(date +%s)
+DEPLOY_SECONDS=$((FAST_END - FAST_START))
 GIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 echo ""
-echo "[deploy:fast] ✓ done in $((FAST_END - FAST_START))s sha=${GIT_SHA} worker=${WORKER_VERSION_ID:-n/a}"
+echo "[deploy:fast] ✓ done in ${DEPLOY_SECONDS}s sha=${GIT_SHA} worker=${WORKER_VERSION_ID:-n/a}"
+
+# Keep deployments Overview true on the fast path without waiting on D1.
+# Sole writer remains scripts/post-deploy-record.sh (one INSERT). Background so
+# wrangler d1 latency never extends the critical path.
+if [[ "${SKIP_DEPLOY_RECORD:-0}" == "1" ]]; then
+  echo "[deploy:fast] SKIP_DEPLOY_RECORD=1 — skipping deployments D1 insert"
+else
+  (
+    set +e
+    export CLOUDFLARE_VERSION_ID="${WORKER_VERSION_ID:-}"
+    export DEPLOY_SECONDS
+    export TRIGGERED_BY="${TRIGGERED_BY:-deploy_fast}"
+    export DEPLOYED_BY="${DEPLOYED_BY:-deploy_fast}"
+    export DEPLOYMENT_NOTES="${DEPLOYMENT_NOTES:-deploy:fast vite→R2→wrangler sha=${GIT_SHA}}"
+    if bash "$REPO_ROOT/scripts/post-deploy-record.sh"; then
+      echo "[deploy:fast] deployments D1 record ok"
+    else
+      echo "[deploy:fast] warning: deployments D1 record failed (non-fatal)" >&2
+    fi
+  ) &
+  disown 2>/dev/null || true
+  echo "[deploy:fast] deployments D1 record queued (async via post-deploy-record.sh)"
+fi
+
 echo "[deploy:fast] housekeeping skipped (email / D1 memory / GCP VM) — not required for PWA"
 echo "[deploy:fast] PWA requires: R2 delta + services SW ingest (above). Add PUSH_SERVICE_TOKEN as CF Builds secret."

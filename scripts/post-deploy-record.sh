@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Insert one row into deployments so each deploy shows in Overview / deployment tracking.
+# Sole writer in the repo for deployments INSERT.
+# Callers:
+#   - deploy-with-record.sh (blocking, after full timed deploy)
+#   - deploy-fast.sh (fire-and-forget background — does not wait on D1)
 # Run after: npm run deploy (or: wrangler deploy --config wrangler.production.toml).
 # Loads .env.cloudflare if present so CLOUDFLARE_API_TOKEN is set for --remote. Run from repo root.
-# Expects DEPLOY_SECONDS from environment (set by deploy-with-record.sh); uses 0 if unset.
+# Expects DEPLOY_SECONDS from environment (set by deploy-with-record.sh / deploy-fast.sh); uses 0 if unset.
 #
 # Set CLOUDFLARE_VERSION_ID (or WRANGLER_VERSION_ID) to the Wrangler "Current Version ID" when available
 # so deployments.id matches the worker revision. If unset, a UUID is used.
