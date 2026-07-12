@@ -1,5 +1,6 @@
 /**
- * Home AI spend donut — MTD from /api/finance/spend-by-model (usage_events + rollups).
+ * Home AI spend card — large donut + 2×2 KPI grid (~500×300).
+ * Data from /api/finance/spend-by-model (no separate KPI fetch).
  */
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -27,11 +28,11 @@ type SpendBreakdown = {
 type TabId = 'providers' | 'models' | 'projects';
 
 const GAP = 2;
-const R = 52;
-const STROKE = 12;
-const CX = 72;
-const CY = 72;
-const VIEW = 144;
+const R = 78;
+const STROKE = 18;
+const CX = 100;
+const CY = 100;
+const VIEW = 200;
 
 const PALETTE = [
   '#e8825a',
@@ -70,7 +71,7 @@ function polarToXY(cx: number, cy: number, r: number, angleDeg: number) {
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }
 
-function buildArcs(data: { pct: number; color: string; label: string; value: number }[]) {
+function buildArcs(data: { pct: number; color: string; label: string; value: number; key: string }[]) {
   const totalPct = data.reduce((s, d) => s + Math.max(d.pct, 0.01), 0) || 1;
   const gaps = data.length * GAP;
   const available = 360 - gaps;
@@ -97,12 +98,18 @@ function monthLabel(monthStart?: string): string {
   return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
+function peakDaySub(peak: SpendBreakdown['peak_day']): string {
+  if (!peak?.day) return '—';
+  const d = new Date(`${peak.day}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return peak.day;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 export function AISpendDonut() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<TabId>('models');
   const [active, setActive] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
-  const [showAll, setShowAll] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<SpendBreakdown | null>(null);
@@ -164,19 +171,40 @@ export function AISpendDonut() {
     }));
   }, [source]);
 
-  const legendRows = showAll
-    ? source.map((r, i) => ({
-        label: prettyLabel(r.key),
-        value: r.cost_usd,
-        pct: r.pct,
-        color: colorForKey(r.key, i),
-        key: r.key,
-      }))
-    : chartRows.filter((r) => r.key !== '__other__').slice(0, 5);
-
   const arcs = useMemo(() => buildArcs(chartRows), [chartRows]);
   const hovered = active != null ? chartRows[active] : null;
   const total = data?.total_usd ?? chartRows.reduce((s, r) => s + r.value, 0);
+
+  const kpis = [
+    {
+      id: 'mtd',
+      label: 'MTD spend',
+      value: fmtUsd(total),
+      sub: monthLabel(data?.month_start),
+      accent: '#e8825a',
+    },
+    {
+      id: 'peak',
+      label: 'Peak day',
+      value: data?.peak_day ? fmtUsd(data.peak_day.cost_usd) : '—',
+      sub: peakDaySub(data?.peak_day ?? null),
+      accent: '#e87a9a',
+    },
+    {
+      id: 'avg',
+      label: 'Daily avg',
+      value: fmtUsd(data?.daily_avg || 0),
+      sub: 'per active day',
+      accent: '#5ab4e8',
+    },
+    {
+      id: 'requests',
+      label: 'AI requests',
+      value: (data?.request_count || 0).toLocaleString('en-US'),
+      sub: 'this month',
+      accent: '#5ae8a0',
+    },
+  ] as const;
 
   return (
     <section
@@ -211,7 +239,6 @@ export function AISpendDonut() {
               onClick={() => {
                 setTab(id);
                 setActive(null);
-                setShowAll(false);
               }}
             >
               {label}
@@ -230,8 +257,7 @@ export function AISpendDonut() {
         ) : chartRows.length === 0 || total <= 0 ? (
           <div className="iam-ai-spend__state">No billable AI spend this month yet.</div>
         ) : (
-          <>
-            <div className="iam-ai-spend__body">
+          <div className="iam-ai-spend__body">
             <div className="iam-ai-spend__chart">
               <svg
                 className="iam-ai-spend__svg"
@@ -251,14 +277,10 @@ export function AISpendDonut() {
                       d={path}
                       fill="none"
                       stroke={arc.color}
-                      strokeWidth={isActive ? STROKE + 4 : STROKE}
+                      strokeWidth={isActive ? STROKE + 5 : STROKE}
                       strokeLinecap="butt"
                       className={`iam-ai-spend__arc${isActive ? ' is-active' : ''}`}
-                      style={
-                        {
-                          '--arc-color': arc.color,
-                        } as CSSProperties
-                      }
+                      style={{ '--arc-color': arc.color } as CSSProperties}
                       onMouseEnter={() => setActive(i)}
                       onMouseLeave={() => setActive(null)}
                       onFocus={() => setActive(i)}
@@ -269,75 +291,35 @@ export function AISpendDonut() {
                 })}
                 <text
                   x={CX}
-                  y={CY - 4}
+                  y={CY - 6}
                   textAnchor="middle"
                   className="iam-ai-spend__center-main"
                   fill={hovered ? hovered.color : 'currentColor'}
-                  fontSize={hovered ? 9 : 14}
+                  fontSize={hovered ? 11 : 18}
                 >
                   {hovered ? hovered.label.split(' ')[0] : fmtUsd(total)}
                 </text>
-                <text x={CX} y={CY + 10} textAnchor="middle" className="iam-ai-spend__center-sub">
-                  {hovered
-                    ? `${fmtUsd(hovered.value)} · ${hovered.pct}%`
-                    : 'TOTAL'}
+                <text x={CX} y={CY + 14} textAnchor="middle" className="iam-ai-spend__center-sub">
+                  {hovered ? `${fmtUsd(hovered.value)} · ${hovered.pct}%` : 'TOTAL'}
                 </text>
               </svg>
             </div>
 
-            <div className="iam-ai-spend__legend">
-              {legendRows.map((d, i) => (
-                <button
-                  key={d.key}
-                  type="button"
-                  className={`iam-ai-spend__legend-item${active === i ? ' is-active' : ''}`}
-                  onMouseEnter={() => setActive(Math.min(i, chartRows.length - 1))}
-                  onMouseLeave={() => setActive(null)}
-                  onFocus={() => setActive(Math.min(i, chartRows.length - 1))}
-                  onBlur={() => setActive(null)}
+            <div className="iam-ai-spend__kpi-grid" aria-label="Spend KPIs">
+              {kpis.map((k) => (
+                <div
+                  key={k.id}
+                  className="iam-ai-spend__kpi"
+                  style={{ '--kpi-accent': k.accent } as CSSProperties}
                 >
-                  <span className="iam-ai-spend__swatch" style={{ background: d.color }} />
-                  <span className="iam-ai-spend__legend-copy">
-                    <span className="iam-ai-spend__legend-name">{d.label}</span>
-                    <span className="iam-ai-spend__legend-val" style={{ color: active === i ? d.color : undefined }}>
-                      {fmtUsd(d.value)}
-                    </span>
-                  </span>
-                </button>
+                  <div className="iam-ai-spend__kpi-label">{k.label}</div>
+                  <div className="iam-ai-spend__kpi-value">{k.value}</div>
+                  <div className="iam-ai-spend__kpi-sub">{k.sub}</div>
+                </div>
               ))}
             </div>
-
-            {source.length > 5 ? (
-              <button
-                type="button"
-                className="iam-ai-spend__more"
-                onClick={() => setShowAll((v) => !v)}
-              >
-                {showAll ? 'Show less' : 'Show more'}
-              </button>
-            ) : null}
-            </div>
-          </>
+          </div>
         )}
-
-        <footer className="iam-ai-spend__foot">
-          <div>
-            <div className="iam-ai-spend__foot-label">Peak day</div>
-            <div className="iam-ai-spend__foot-val">
-              {data?.peak_day ? fmtUsd(data.peak_day.cost_usd) : '—'}
-            </div>
-          </div>
-          <div>
-            <div className="iam-ai-spend__foot-label">Daily avg</div>
-            <div className="iam-ai-spend__foot-val">{fmtUsd(data?.daily_avg || 0)}</div>
-          </div>
-          <div>
-            <div className="iam-ai-spend__foot-label">AI requests</div>
-            <div className="iam-ai-spend__foot-val iam-ai-spend__foot-val--accent">
-              {(data?.request_count || 0).toLocaleString('en-US')}
-            </div>
-          </div>
-        </footer>
 
         <button
           type="button"

@@ -1,4 +1,4 @@
-/* Home AI spend — ~500×300 card (matches Design Studio hero visual scale) */
+/* Home AI spend — ~500×300: large donut left, 2×2 KPI grid right */
 
 .iam-ai-spend {
   width: 100%;
@@ -24,7 +24,6 @@
   border-radius: 20px;
   display: flex;
   flex-direction: column;
-  gap: 0;
   overflow: hidden;
   background: color-mix(in srgb, var(--dashboard-panel, #141417) 94%, #0d0d0f);
   border: 1px solid color-mix(in srgb, var(--iam-home-border, #fff) 90%, transparent);
@@ -41,7 +40,6 @@
   align-items: flex-start;
   gap: 10px;
   flex-shrink: 0;
-  margin-bottom: 2px;
 }
 
 .iam-ai-spend__eyebrow {
@@ -103,95 +101,85 @@
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: 132px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
   align-items: stretch;
-  gap: 6px 14px;
+  gap: 10px 14px;
 }
 
 .iam-ai-spend__chart {
-  grid-row: 1;
   display: flex;
   justify-content: center;
   align-items: center;
-  width: 132px;
   min-width: 0;
-  align-self: center;
+  min-height: 0;
 }
 
 .iam-ai-spend__svg {
-  width: 132px;
-  height: 132px;
+  width: min(100%, 196px);
+  height: auto;
+  max-height: 196px;
   aspect-ratio: 1;
 }
 
-.iam-ai-spend__legend {
-  grid-row: 1;
+.iam-ai-spend__kpi-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 8px;
   min-width: 0;
   min-height: 0;
+}
+
+.iam-ai-spend__kpi {
+  box-sizing: border-box;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #fff 6%, transparent);
+  background: color-mix(in srgb, #fff 3%, transparent);
 }
 
-.iam-ai-spend__more {
-  grid-column: 1 / -1;
-  grid-row: 2;
-  margin-top: 0;
-  padding: 2px 0 0;
+.iam-ai-spend__kpi-label {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #555;
 }
 
-@media (max-width: 520px) {
-  .iam-ai-spend__card {
-    width: 100%;
-    max-width: none;
-    height: auto;
-    min-height: 280px;
-    max-height: none;
-  }
+.iam-ai-spend__kpi-value {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--kpi-accent, #fff);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
-  .iam-ai-spend__body {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    justify-items: center;
-  }
-
-  .iam-ai-spend__chart {
-    grid-row: 1;
-    width: clamp(110px, 42vw, 132px);
-  }
-
-  .iam-ai-spend__svg {
-    width: 100%;
-    height: auto;
-    max-width: 132px;
-  }
-
-  .iam-ai-spend__legend {
-    grid-row: 2;
-    width: 100%;
-    max-height: 140px;
-  }
-
-  .iam-ai-spend__more {
-    grid-row: 3;
-  }
+.iam-ai-spend__kpi-sub {
+  font-size: 9px;
+  color: #666;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .iam-ai-spend__arc {
-  opacity: 0.82;
+  opacity: 0.85;
   cursor: pointer;
-  transition: stroke-width 0.2s ease, opacity 0.2s ease, filter 0.2s ease;
+  transition: stroke-width 0.2s ease, opacity 0.2s ease;
   outline: none;
 }
 
 .iam-ai-spend__arc.is-active,
 .iam-ai-spend__arc:focus-visible {
   opacity: 1;
-  filter: none;
 }
 
 .iam-ai-spend__center-main {
@@ -203,73 +191,8 @@
 
 .iam-ai-spend__center-sub {
   fill: #555;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  font-family: inherit;
-}
-
-.iam-ai-spend__legend-item {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  padding: 4px 6px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  text-align: left;
-  font-family: inherit;
-  transition: background 0.15s;
-}
-
-.iam-ai-spend__legend-item.is-active {
-  background: color-mix(in srgb, #fff 5%, transparent);
-}
-
-.iam-ai-spend__swatch {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.iam-ai-spend__legend-copy {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.iam-ai-spend__legend-name {
   font-size: 11px;
-  color: #aaa;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.iam-ai-spend__legend-item.is-active .iam-ai-spend__legend-name {
-  color: #fff;
-}
-
-.iam-ai-spend__legend-val {
-  flex-shrink: 0;
-  font-size: 10px;
-  color: #555;
-  font-variant-numeric: tabular-nums;
-}
-
-.iam-ai-spend__more {
-  display: block;
-  width: 100%;
-  border: none;
-  background: transparent;
-  font-size: 10px;
-  letter-spacing: 0.05em;
-  color: #5ab4e8;
+  letter-spacing: 0.08em;
   font-family: inherit;
 }
 
@@ -289,41 +212,11 @@
   color: #f87171;
 }
 
-.iam-ai-spend__foot {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  flex-shrink: 0;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid color-mix(in srgb, #fff 5%, transparent);
-}
-
-.iam-ai-spend__foot-label {
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: #444;
-  margin-bottom: 1px;
-  text-align: center;
-}
-
-.iam-ai-spend__foot-val {
-  font-size: 12px;
-  color: #fff;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.iam-ai-spend__foot-val--accent {
-  color: #5ae8a0;
-}
-
 .iam-ai-spend__link {
   display: block;
   width: 100%;
   flex-shrink: 0;
-  margin-top: 4px;
+  margin-top: 6px;
   padding: 2px 0 0;
   border: none;
   background: transparent;
@@ -338,8 +231,25 @@
   color: #5ab4e8;
 }
 
-@media (max-width: 420px) {
-  .iam-ai-spend__foot-label {
-    letter-spacing: 0.06em;
+@media (max-width: 520px) {
+  .iam-ai-spend__card {
+    width: 100%;
+    max-width: none;
+    height: auto;
+    min-height: 320px;
+  }
+
+  .iam-ai-spend__body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    justify-items: center;
+  }
+
+  .iam-ai-spend__svg {
+    width: min(100%, 180px);
+  }
+
+  .iam-ai-spend__kpi-grid {
+    width: 100%;
   }
 }

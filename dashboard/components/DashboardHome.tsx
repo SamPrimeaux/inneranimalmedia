@@ -31,13 +31,17 @@ import {
 } from './home/HomeTileEditor';
 import { ConnectIconEditor } from './home/ConnectIconEditor';
 import { ConnectCatalogSheet } from './home/ConnectCatalogSheet';
-import { CostKpiTiles } from './home/CostKpiTiles';
 import { AISpendDonut } from './home/AISpendDonut';
 import { useWorkspace } from '../src/context/WorkspaceContext';
 import './ui/AppIcon.css';
 import './home/HomeTileEditor.css';
 import './home/ConnectCatalogSheet.css';
 import './DashboardHome.css';
+
+/** Fallback when D1 `home_hero` tile is missing — update via dashboard_home_tiles.image_url. */
+const DEFAULT_HOME_HERO_IMAGE =
+  'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/cb28eb31-cdf8-4e80-7969-1952d96d9600/public';
+const HOME_HERO_TILE_KEY = 'home_hero';
 
 const CREATION_WORKFLOW: { id: string; label: string; path: string; icon: LucideIcon }[] = [
   { id: 'design', label: 'Design', path: '/dashboard/draw', icon: PenLine },
@@ -46,10 +50,6 @@ const CREATION_WORKFLOW: { id: string; label: string; path: string; icon: Lucide
   { id: 'prototype', label: 'Prototype', path: '/dashboard/cms', icon: Code2 },
   { id: 'deploy', label: 'Deploy', path: '/dashboard/workflows', icon: Rocket },
 ];
-
-const HOME_HERO_IMAGE =
-  'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/cb28eb31-cdf8-4e80-7969-1952d96d9600/public';
-const HOME_HERO_COVER = cfImageVariants(HOME_HERO_IMAGE);
 
 const FALLBACK_QUICK_TILES: DashboardHomeTile[] = [
   {
@@ -277,9 +277,18 @@ export function DashboardHome() {
   );
 
   const quickGrid = useMemo(
-    () => quickTiles.filter((t) => t.is_enabled).sort((a, b) => a.sort_order - b.sort_order),
+    () =>
+      quickTiles
+        .filter((t) => t.is_enabled && t.tile_key !== HOME_HERO_TILE_KEY)
+        .sort((a, b) => a.sort_order - b.sort_order),
     [quickTiles],
   );
+
+  const homeHeroCover = useMemo(() => {
+    const heroTile = quickTiles.find((t) => t.tile_key === HOME_HERO_TILE_KEY && t.is_enabled);
+    const url = (heroTile?.image_url || DEFAULT_HOME_HERO_IMAGE).trim();
+    return cfImageVariants(url || DEFAULT_HOME_HERO_IMAGE);
+  }, [quickTiles]);
 
   const editingConnectTile = useMemo(
     () => connectTiles.find((t) => t.provider_key === editingConnectKey) || null,
@@ -307,8 +316,8 @@ export function DashboardHome() {
         <section className="iam-home-hero-studio" aria-labelledby="home-title">
           <div className="iam-home-hero-studio__media" aria-hidden>
             <img
-              src={HOME_HERO_COVER.src}
-              srcSet={HOME_HERO_COVER.srcSet}
+              src={homeHeroCover.src}
+              srcSet={homeHeroCover.srcSet}
               alt=""
               className="iam-home-hero-studio__media-img"
               loading="eager"
@@ -504,7 +513,6 @@ export function DashboardHome() {
             </div>
           </div>
           <AISpendDonut />
-          <CostKpiTiles />
         </section>
 
         <section className="iam-home-section" aria-labelledby="recent-title">

@@ -56,14 +56,18 @@
   display: block;
   isolation: isolate;
   overflow: hidden;
-  min-height: min(420px, 58vh);
-  max-height: 520px;
-  margin-bottom: 18px;
-  padding: 36px 32px 40px;
-  border-radius: 20px;
-  border: 1px solid color-mix(in srgb, var(--iam-home-border) 90%, transparent);
+  /* Break out of .iam-home-shell horizontal padding for true full-bleed. */
+  width: calc(100% + 56px);
+  max-width: none;
+  margin: -8px -28px 18px;
+  min-height: min(440px, 62vh);
+  max-height: 560px;
+  padding: 40px 40px 44px;
+  border-radius: 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--iam-home-border) 70%, transparent);
   background: #06080c;
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.4);
+  box-shadow: none;
 }
 
 .iam-home-hero-studio__media {
@@ -78,7 +82,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 62% 42%;
+  object-position: 58% 40%;
 }
 
 .iam-home-hero-studio__scrim {
@@ -87,12 +91,12 @@
   background:
     linear-gradient(
       105deg,
-      rgba(6, 8, 12, 0.92) 0%,
-      rgba(6, 8, 12, 0.72) 34%,
-      rgba(6, 8, 12, 0.28) 58%,
-      rgba(6, 8, 12, 0.12) 100%
+      rgba(6, 8, 12, 0.94) 0%,
+      rgba(6, 8, 12, 0.78) 28%,
+      rgba(6, 8, 12, 0.35) 52%,
+      rgba(6, 8, 12, 0.18) 100%
     ),
-    linear-gradient(to top, rgba(6, 8, 12, 0.45) 0%, transparent 42%);
+    linear-gradient(to top, rgba(6, 8, 12, 0.55) 0%, transparent 48%);
   pointer-events: none;
 }
 
@@ -100,7 +104,7 @@
   position: relative;
   z-index: 2;
   min-width: 0;
-  max-width: 520px;
+  max-width: 540px;
 }
 
 .iam-home-hero-studio__eyebrow {
@@ -943,6 +947,13 @@
     padding: 42px 36px 48px;
   }
 
+  .iam-home-hero-studio {
+    width: calc(100% + 72px);
+    margin-left: -36px;
+    margin-right: -36px;
+    padding: 48px 44px 52px;
+  }
+
   .iam-tool-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -959,9 +970,11 @@
 
 @media (max-width: 960px) {
   .iam-home-hero-studio {
-    min-height: min(360px, 52vh);
+    width: calc(100% + 56px);
+    margin: -4px -28px 16px;
+    min-height: min(380px, 54vh);
     max-height: none;
-    padding: 28px 20px 32px;
+    padding: 28px 24px 32px;
   }
 
   .iam-home-hero-studio__media-img {
@@ -972,9 +985,9 @@
     background:
       linear-gradient(
         180deg,
-        rgba(6, 8, 12, 0.78) 0%,
+        rgba(6, 8, 12, 0.82) 0%,
         rgba(6, 8, 12, 0.55) 45%,
-        rgba(6, 8, 12, 0.7) 100%
+        rgba(6, 8, 12, 0.72) 100%
       );
   }
 
@@ -992,6 +1005,13 @@
   .iam-home-shell {
     width: 100%;
     padding: 22px 16px 28px;
+  }
+
+  .iam-home-hero-studio {
+    width: calc(100% + 32px);
+    margin-left: -16px;
+    margin-right: -16px;
+    padding: 26px 18px 30px;
   }
 
   .iam-home-hero-studio__title {
