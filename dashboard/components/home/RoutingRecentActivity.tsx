@@ -229,6 +229,8 @@ export function RoutingRecentActivity() {
                 target = '/dashboard/settings/plan';
               } else if (n.id.startsWith('health:')) {
                 target = '/dashboard/analytics';
+              } else if (n.id.startsWith('outbox:') || n.channel === 'email') {
+                target = '/dashboard/settings/notifications';
               }
             }
             return (

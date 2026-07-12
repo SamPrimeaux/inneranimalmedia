@@ -755,6 +755,23 @@ export async function runDailyMemoryPipeline(env, opts) {
     });
     partial.email = true;
 
+    // Mirror into the in-app notifications spine so home Recent activity / status bar see digests.
+    try {
+      const { insertPushNotification } = await import('../../core/web-push.js');
+      await insertPushNotification(env, {
+        recipientId: String(owner.userId || userId),
+        channel: 'email',
+        subject,
+        message: String(fullMd || '').slice(0, 500),
+        entityType: 'daily_digest',
+        entityId: r2Key || dateDisplay,
+        status: 'sent',
+        data: { mode, to_email: deliverTo, r2_key: r2Key || null },
+      });
+    } catch (e) {
+      console.warn('[daily-digest] notifications mirror failed', e?.message ?? e);
+    }
+
     if (runId) {
       await completeCronRun(env, runId, startedAt, {
         rowsRead: triageBatch.items?.length || 0,

@@ -384,6 +384,57 @@ export function DashboardHome() {
       </section>
 
       <section className="iam-home-shell">
+        <section className="iam-home-section" aria-labelledby="recent-title">
+          <div className="iam-section-head">
+            <div>
+              <h2 id="recent-title">Recent projects</h2>
+              <p>Your workspace — not shared across tenants.</p>
+            </div>
+            <button type="button" onClick={() => navigate('/dashboard/projects')}>View all</button>
+          </div>
+          <div className="iam-project-lane">
+            {projectsLoading ? (
+              <div className="iam-project-loading">Loading projects…</div>
+            ) : recentProjects.length === 0 ? (
+              <div className="iam-project-loading">No projects yet — create one to see it here.</div>
+            ) : (
+              recentProjects.map((project) => {
+                const cover = cfImageVariants(project.cover_image_url);
+                const hue = projectAccentHue(project.id);
+                return (
+                  <button
+                    key={project.id}
+                    type="button"
+                    className="iam-project-card iam-project-card--dynamic"
+                    onClick={() => navigate(projectHref(project))}
+                  >
+                    <span className="iam-project-cover">
+                      {cover.src ? (
+                        <img src={cover.src} srcSet={cover.srcSet} alt="" loading="lazy" decoding="async" />
+                      ) : (
+                        <span
+                          className="iam-project-cover-fallback"
+                          style={{ background: `linear-gradient(135deg, hsl(${hue} 42% 32%), hsl(${hue} 28% 18%))` }}
+                          aria-hidden
+                        >
+                          {projectInitials(project.name)}
+                        </span>
+                      )}
+                    </span>
+                    <strong>{project.name}</strong>
+                    <small>{projectUpdatedLabel(project)}</small>
+                  </button>
+                );
+              })
+            )}
+            <button type="button" className="iam-project-card iam-project-card--new" onClick={() => setStartProjectOpen(true)}>
+              <span><Plus size={22} strokeWidth={1.75} aria-hidden /></span>
+              <strong>New project</strong>
+              <small>Guided stack + kanban setup</small>
+            </button>
+          </div>
+        </section>
+
         <section className={`iam-home-section iam-home-section--quick${editMode ? ' iam-home-section--editing' : ''}`} aria-labelledby="quick-starts-title">
           <div className="iam-section-head">
             <div>
@@ -525,57 +576,6 @@ export function DashboardHome() {
             </div>
           </div>
           <RoutingRecentActivity />
-        </section>
-
-        <section className="iam-home-section" aria-labelledby="recent-title">
-          <div className="iam-section-head">
-            <div>
-              <h2 id="recent-title">Recent projects</h2>
-              <p>Your workspace — not shared across tenants.</p>
-            </div>
-            <button type="button" onClick={() => navigate('/dashboard/projects')}>View all</button>
-          </div>
-          <div className="iam-project-lane">
-            {projectsLoading ? (
-              <div className="iam-project-loading">Loading projects…</div>
-            ) : recentProjects.length === 0 ? (
-              <div className="iam-project-loading">No projects yet — create one to see it here.</div>
-            ) : (
-              recentProjects.map((project) => {
-                const cover = cfImageVariants(project.cover_image_url);
-                const hue = projectAccentHue(project.id);
-                return (
-                  <button
-                    key={project.id}
-                    type="button"
-                    className="iam-project-card iam-project-card--dynamic"
-                    onClick={() => navigate(projectHref(project))}
-                  >
-                    <span className="iam-project-cover">
-                      {cover.src ? (
-                        <img src={cover.src} srcSet={cover.srcSet} alt="" loading="lazy" decoding="async" />
-                      ) : (
-                        <span
-                          className="iam-project-cover-fallback"
-                          style={{ background: `linear-gradient(135deg, hsl(${hue} 42% 32%), hsl(${hue} 28% 18%))` }}
-                          aria-hidden
-                        >
-                          {projectInitials(project.name)}
-                        </span>
-                      )}
-                    </span>
-                    <strong>{project.name}</strong>
-                    <small>{projectUpdatedLabel(project)}</small>
-                  </button>
-                );
-              })
-            )}
-            <button type="button" className="iam-project-card iam-project-card--new" onClick={() => setStartProjectOpen(true)}>
-              <span><Plus size={22} strokeWidth={1.75} aria-hidden /></span>
-              <strong>New project</strong>
-              <small>Guided stack + kanban setup</small>
-            </button>
-          </div>
         </section>
       </section>
 

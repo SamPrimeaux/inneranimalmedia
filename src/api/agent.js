@@ -2637,6 +2637,86 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
 
       const normalized = [];
 
+      // Canonical in-app inbox spine (D1 notifications) — daily digests / push / billing should land here.
+      if (userId) {
+        try {
+          const inboxQ = await env.DB.prepare(
+            `SELECT id, channel, subject, message, status, entity_type, entity_id,
+                    priority, sent_at, read_at, created_at, data
+             FROM notifications
+             WHERE recipient_id = ?
+             ORDER BY created_at DESC
+             LIMIT 30`,
+          ).bind(userId).all();
+          for (const r of inboxQ.results || []) {
+            const ts = toUnixSeconds(r.created_at ?? r.sent_at);
+            const title =
+              r.subject != null && String(r.subject).trim()
+                ? String(r.subject).trim()
+                : r.channel
+                  ? `${String(r.channel)} notification`
+                  : 'Notification';
+            normalized.push({
+              id: String(r.id),
+              type: 'inbox',
+              channel: r.channel ?? null,
+              title,
+              message: r.message != null ? String(r.message).slice(0, 400) : '',
+              created_at: ts,
+              read: r.read_at != null,
+              status: r.status ?? null,
+              meta: r,
+              subject: title,
+              href:
+                r.entity_type === 'conversation' && r.entity_id
+                  ? `/dashboard/agent?conversation=${encodeURIComponent(String(r.entity_id))}`
+                  : r.channel === 'email'
+                    ? '/dashboard/settings/notifications'
+                    : null,
+            });
+          }
+        } catch {
+          /* notifications table optional */
+        }
+      }
+
+      // Delivery queue visibility (email/system outbox) — not the inbox, but useful for missed digests.
+      if (tenantId) {
+        try {
+          const outQ = await env.DB.prepare(
+            `SELECT id, channel, to_address, subject, body_text, status, event_type, created_at
+             FROM notification_outbox
+             WHERE tenant_id = ?
+             ORDER BY created_at DESC
+             LIMIT 12`,
+          ).bind(tenantId).all();
+          for (const r of outQ.results || []) {
+            const ts = toUnixSeconds(r.created_at);
+            const title =
+              r.subject != null && String(r.subject).trim()
+                ? String(r.subject).trim()
+                : `Outbox ${r.channel || 'message'}`;
+            normalized.push({
+              id: `outbox:${r.id}`,
+              type: 'outbox',
+              channel: r.channel ?? null,
+              title,
+              message:
+                (r.body_text != null ? String(r.body_text).slice(0, 240) : '') ||
+                `${r.status || 'pending'} · ${r.to_address || '—'}`,
+              created_at: ts,
+              read: String(r.status || '') === 'sent',
+              status: r.status ?? null,
+              meta: r,
+              subject: title,
+              href: '/dashboard/settings/notifications',
+            });
+          }
+        } catch {
+          /* outbox optional */
+        }
+      }
+
       for (const r of deployRows) {
         const worker = r.worker_name != null ? String(r.worker_name) : 'worker';
         const gh = r.git_hash != null ? String(r.git_hash) : '';
@@ -2738,7 +2818,25 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
   if (notifReadMatch && method === 'PATCH') {
     const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-    return jsonResponse({ success: true });
+    if (!env?.DB) return jsonResponse({ error: 'D1 unavailable' }, 503);
+    const notifId = decodeURIComponent(notifReadMatch[1] || '').trim();
+    const userId = String(authUser.id || '').trim();
+    // Synthetic ids (deploy:/conv:/…) are UI-only — acknowledge without write.
+    if (!notifId || notifId.includes(':')) {
+      return jsonResponse({ success: true, synthetic: true });
+    }
+    try {
+      await env.DB.prepare(
+        `UPDATE notifications
+         SET read_at = COALESCE(read_at, unixepoch()), status = CASE WHEN status = 'pending' THEN 'read' ELSE status END
+         WHERE id = ? AND recipient_id = ?`,
+      )
+        .bind(notifId, userId)
+        .run();
+      return jsonResponse({ success: true });
+    } catch (e) {
+      return jsonResponse({ error: String(e?.message || e) }, 500);
+    }
   }
 
   // ── /api/agent/keyboard-shortcuts ────────────────────────────────────────

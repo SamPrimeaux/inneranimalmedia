@@ -162,57 +162,67 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   margin-top: 24px;
 }
 
-.iam-home-hero-studio__cta {
+/* Unified glass CTAs — semi-rect, high contrast on hero wallpaper */
+.iam-home-hero-studio__cta,
+.iam-home-hero-studio__cta-secondary {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   min-height: 48px;
-  padding: 0 22px;
-  border: 0;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #2f8cff 0%, #1a6fe8 100%);
+  padding: 0 20px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+
+.iam-home-hero-studio__cta {
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.1) 100%),
+    color-mix(in srgb, #4ea7ff 55%, transparent);
   color: #fff;
-  font-size: 15px;
-  font-weight: 750;
-  letter-spacing: -0.02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, #6eb4ff 35%, transparent),
-    0 14px 40px color-mix(in srgb, var(--iam-home-blue) 42%, transparent);
-  transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+    0 0 0 1px rgba(78, 167, 255, 0.35),
+    0 10px 28px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
 .iam-home-hero-studio__cta:hover {
   transform: translateY(-1px);
-  filter: brightness(1.06);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.36) 0%, rgba(255, 255, 255, 0.14) 100%),
+    color-mix(in srgb, #6eb8ff 62%, transparent);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, #8ec8ff 50%, transparent),
-    0 18px 48px color-mix(in srgb, var(--iam-home-blue) 50%, transparent);
+    0 0 0 1px rgba(142, 200, 255, 0.55),
+    0 14px 36px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
 
 .iam-home-hero-studio__cta-secondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 0 16px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, #fff 18%, transparent);
-  background: color-mix(in srgb, #0d1016 55%, transparent);
-  color: color-mix(in srgb, #e8eaf0 88%, transparent);
-  font-size: 13px;
-  font-weight: 700;
-  backdrop-filter: blur(12px);
-  transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.14);
+  color: #f5f7fb;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  box-shadow:
+    0 8px 22px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 
 .iam-home-hero-studio__cta-secondary:hover {
-  border-color: color-mix(in srgb, var(--iam-home-blue) 50%, transparent);
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.22);
   color: #fff;
-  background: color-mix(in srgb, var(--iam-home-blue) 16%, transparent);
 }
 
 .iam-home-hero-studio__workflow {
