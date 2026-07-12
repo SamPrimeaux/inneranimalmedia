@@ -187,20 +187,55 @@ export async function upsertOauthToken(
         : providerForDb;
 
   if (!skipRegistry) {
+    const display =
+      account_display || account_email || account_identifier || null;
+    const tid = String(tenant_id || '');
+    const displayNameByKey = {
+      cloudflare_oauth: 'Cloudflare Developer Platform',
+      supabase_oauth: 'Supabase',
+      google_drive: 'Google Drive',
+      github: 'GitHub',
+    };
+    const displayName = displayNameByKey[registryKey] || registryKey;
+    const categoryByKey = {
+      cloudflare_oauth: 'deployment',
+      supabase_oauth: 'database',
+      google_drive: 'storage',
+      github: 'source_control',
+    };
+    const category = categoryByKey[registryKey] || 'other';
     try {
       await env.DB.prepare(
-        `UPDATE integration_registry
-         SET status = 'connected', account_display = COALESCE(?, account_display), updated_at = datetime('now')
-         WHERE tenant_id = ? AND provider_key = ?`,
+        `INSERT INTO integration_registry (
+           id, tenant_id, provider_key, display_name, category, auth_type, status,
+           account_display, sort_order, updated_at
+         ) VALUES (?, ?, ?, ?, ?, 'oauth2', 'connected', ?, 50, datetime('now'))
+         ON CONFLICT(tenant_id, provider_key) DO UPDATE SET
+           status = 'connected',
+           account_display = COALESCE(excluded.account_display, integration_registry.account_display),
+           updated_at = datetime('now')`,
       )
         .bind(
-          account_display || account_email || account_identifier || null,
-          String(tenant_id || ''),
+          `int_${registryKey}_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`,
+          tid,
           registryKey,
+          displayName,
+          category,
+          display,
         )
         .run();
     } catch {
-      /* ignore */
+      try {
+        await env.DB.prepare(
+          `UPDATE integration_registry
+           SET status = 'connected', account_display = COALESCE(?, account_display), updated_at = datetime('now')
+           WHERE tenant_id = ? AND provider_key = ?`,
+        )
+          .bind(display, tid, registryKey)
+          .run();
+      } catch {
+        /* ignore */
+      }
     }
 
     try {
@@ -209,11 +244,11 @@ export async function upsertOauthToken(
          VALUES (?, ?, 'connected', ?, ?, ?)`,
       )
         .bind(
-          String(tenant_id || ''),
+          tid,
           registryKey,
           String(canonicalUserId),
           'OAuth connection established',
-          JSON.stringify({ account_display: account_display || null }),
+          JSON.stringify({ account_display: display }),
         )
         .run();
     } catch {

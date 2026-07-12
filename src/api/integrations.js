@@ -333,6 +333,10 @@ async function ensureIntegrationTables(env, tenantId) {
             updated_at TEXT DEFAULT (datetime('now')),
             UNIQUE(tenant_id, provider_key)
         )`),
+        env.DB.prepare(
+          `CREATE UNIQUE INDEX IF NOT EXISTS uq_integration_registry_tenant_provider
+           ON integration_registry (tenant_id, provider_key)`,
+        ),
         env.DB.prepare(`CREATE TABLE IF NOT EXISTS integration_health_checks (
             id TEXT PRIMARY KEY DEFAULT ('ihc_'||lower(hex(randomblob(8)))),
             tenant_id TEXT NOT NULL,

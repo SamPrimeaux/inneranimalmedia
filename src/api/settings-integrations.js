@@ -525,8 +525,15 @@ async function saveCustomMcp(env, authUser, request) {
   try {
     await env.DB.prepare(
       `INSERT INTO integration_registry
-        (id, tenant_id, provider_key, display_name, category, auth_type, status, scopes_json, config_json, account_display, sort_order)
-       VALUES (?, ?, ?, ?, 'other', ?, 'connected', '[]', ?, ?, 200)`,
+        (id, tenant_id, provider_key, display_name, category, auth_type, status, scopes_json, config_json, account_display, sort_order, updated_at)
+       VALUES (?, ?, ?, ?, 'other', ?, 'connected', '[]', ?, ?, 200, datetime('now'))
+       ON CONFLICT(tenant_id, provider_key) DO UPDATE SET
+         display_name = excluded.display_name,
+         auth_type = excluded.auth_type,
+         status = 'connected',
+         config_json = excluded.config_json,
+         account_display = excluded.account_display,
+         updated_at = datetime('now')`,
     )
       .bind(
         rid,

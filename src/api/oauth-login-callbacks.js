@@ -608,10 +608,21 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
       scope: tokens.scope ?? null,
     });
     await env.DB.prepare(
-      `INSERT OR REPLACE INTO integration_registry (tenant_id, provider_key, status, connected_at)
-       VALUES (?, 'google_drive', 'connected', datetime('now'))`,
+      `INSERT INTO integration_registry (
+         id, tenant_id, provider_key, display_name, category, auth_type, status,
+         account_display, sort_order, updated_at
+       ) VALUES (?, ?, 'google_drive', 'Google Drive', 'storage', 'oauth2', 'connected',
+         ?, 20, datetime('now'))
+       ON CONFLICT(tenant_id, provider_key) DO UPDATE SET
+         status = 'connected',
+         account_display = COALESCE(excluded.account_display, integration_registry.account_display),
+         updated_at = datetime('now')`,
     )
-      .bind(driveTenantId)
+      .bind(
+        `int_gdrive_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`,
+        driveTenantId,
+        oauthEmail || null,
+      )
       .run();
     return new Response(oauthPopupCompleteHtml('google_drive'), {
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
