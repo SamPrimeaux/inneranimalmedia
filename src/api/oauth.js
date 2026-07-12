@@ -403,9 +403,36 @@ function googleAuthUrl(env, state, oauthScopeString) {
 }
 
 const CLOUDFLARE_OAUTH_REDIRECT_URI = 'https://inneranimalmedia.com/api/oauth/cloudflare/callback';
-/** Include offline_access so CF may issue a refresh_token (requires OAuth client grant_types include refresh_token). */
-const CLOUDFLARE_OAUTH_SCOPES =
-  'account-settings.read zone.read workers-scripts.read workers-scripts.write d1.read d1.write workers-r2.read workers-kv-storage.read workers-kv-storage.write offline_access';
+/**
+ * Must be a subset of scopes enabled on the IAM Cloudflare OAuth client.
+ * offline_access → refresh_token when the client grant_types include refresh_token.
+ */
+const CLOUDFLARE_OAUTH_SCOPES = [
+  'account-settings.read',
+  'zone.read',
+  'cf-agents.write',
+  'd1.read',
+  'd1.write',
+  'query-cache.read',
+  'query-cache.write',
+  'mcp-portals.read',
+  'mcp-portals.write',
+  'page.read',
+  'page.write',
+  'vectorize.read',
+  'vectorize.write',
+  'workers-r2.read',
+  'workers-r2.write',
+  'workers-r2-bucket-item.read',
+  'workers-r2-bucket-item.write',
+  'workers-routes.read',
+  'workers-routes.write',
+  'workers-scripts.read',
+  'workers-scripts.write',
+  'workers-kv-storage.read',
+  'workers-kv-storage.write',
+  'offline_access',
+].join(' ');
 
 function cloudflareAuthUrl(env, state, oauthScopeString) {
   if (!env.CLOUDFLARE_OAUTH_CLIENT_ID) return null;
