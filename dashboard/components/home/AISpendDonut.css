@@ -92,7 +92,7 @@
 
 .iam-ai-spend__body {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(84px, 132px) minmax(0, 1fr);
   align-items: center;
   gap: 14px 18px;
 }
@@ -101,13 +101,15 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  width: 132px;
-  flex-shrink: 0;
+  width: 100%;
+  max-width: 132px;
+  min-width: 84px;
+  flex-shrink: 1;
 }
 
 .iam-ai-spend__svg {
-  width: 132px;
-  height: 132px;
+  width: 100%;
+  height: auto;
   max-width: 132px;
   aspect-ratio: 1;
 }
@@ -127,6 +129,10 @@
   .iam-ai-spend__body {
     grid-template-columns: 1fr;
     justify-items: center;
+  }
+
+  .iam-ai-spend__chart {
+    width: clamp(96px, 40vw, 132px);
   }
 
   .iam-ai-spend__legend {
