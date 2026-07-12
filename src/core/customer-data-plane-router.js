@@ -191,12 +191,37 @@ export async function resolveCustomerDataPlane(env, input) {
     project_ref = binding?.external_project_ref != null ? String(binding.external_project_ref) : null;
     external_project_id =
       binding?.external_project_id != null ? String(binding.external_project_id) : external_project_id;
-    customer_connection_ok = Boolean(project_ref || external_project_id);
-    if (!customer_connection_ok) {
-      degraded_reason = degraded_reason || 'supabase_project_not_selected';
+    let oauthConnected = false;
+    if (userId) {
+      try {
+        const { getUserSupabaseToken } = await import('../api/oauth.js');
+        const tok = await getUserSupabaseToken(env, userId, workspaceId);
+        oauthConnected = Boolean(tok?.access_token);
+      } catch {
+        oauthConnected = false;
+      }
     }
-    permissions = { read: true, write: false, ddl: false };
+    customer_connection_ok = Boolean(project_ref || external_project_id || oauthConnected);
+    if (!customer_connection_ok) {
+      degraded_reason = degraded_reason || 'supabase_not_connected';
+    }
+    permissions = { read: true, write: true, ddl: false };
     requires_approval = true;
+  }
+
+  if (data_plane === 'customer_supabase' && !workspaceId && userId) {
+    connection_id = 'supabase_oauth';
+    try {
+      const { getUserSupabaseToken } = await import('../api/oauth.js');
+      const tok = await getUserSupabaseToken(env, userId, null);
+      customer_connection_ok = Boolean(tok?.access_token);
+    } catch {
+      customer_connection_ok = false;
+    }
+    if (!customer_connection_ok) {
+      degraded_reason = degraded_reason || 'supabase_not_connected';
+    }
+    permissions = { read: true, write: true, ddl: false };
   }
 
   if (data_plane === 'customer_cloudflare_d1' && workspaceId) {

@@ -188,23 +188,28 @@ export function assertDataPlaneAccess(resolvedContext, dataPlane, operation = ''
   }
 
   if (plane === 'customer_supabase') {
+    if (ctx.is_platform_operator === true) {
+      return allow('platform_operator_infra_ok');
+    }
     const connected =
       ctx.customer_connection_ok === true ||
+      ctx.supabase_oauth_connected === true ||
       (ctx.project_ref != null && String(ctx.project_ref).trim() !== '') ||
       (ctx.external_project_id != null && String(ctx.external_project_id).trim() !== '');
     if (!connected) {
       logDataPlaneSecurityEvent('customer_connection_required', { ...meta, provider: 'supabase' });
       return deny(
-        'customer_database_not_connected',
-        'Connect your Supabase project in integrations and select a workspace default before running SQL.',
+        'supabase_not_connected',
+        'Connect Supabase in Integrations, then pick a project from your account.',
       );
     }
     logDataPlaneSecurityEvent('selected_customer_data_plane', {
       ...meta,
       provider: 'supabase',
       project_ref: ctx.project_ref ?? null,
+      auth_scope: USER_ACCOUNT_DATA_PLANE,
     });
-    return allow('customer_supabase_ok');
+    return allow('user_account_supabase_ok');
   }
 
   if (plane === 'customer_cloudflare_d1' || plane === USER_ACCOUNT_DATA_PLANE) {
@@ -271,6 +276,8 @@ function deny(reason, userMessage) {
       ? 'customer_database_not_connected'
       : reason === 'cloudflare_not_connected'
         ? 'cloudflare_not_connected'
+        : reason === 'supabase_not_connected'
+          ? 'supabase_not_connected'
         : reason === 'platform_d1_denied_non_operator'
           ? 'platform_d1_denied'
           : 'access_denied';

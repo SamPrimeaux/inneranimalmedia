@@ -26,6 +26,8 @@ import { assertDataPlaneAccess, isPlatformDataPlane } from './data-plane-access-
  *   approval_id?: string|null,
  *   agent_run_id?: string|null,
  *   data_plane?: string|null,
+ *   project_ref?: string|null,
+ *   project_id?: string|null,
  * }} opts
  */
 export async function dispatchCustomerDataPlaneOperation(env, opts) {
@@ -39,10 +41,21 @@ export async function dispatchCustomerDataPlaneOperation(env, opts) {
     authUser: opts.authUser,
   });
 
-  const access = assertDataPlaneAccess(plane, plane.data_plane, opts.operation, {
-    sql: opts.sql,
-    migration_sql: opts.migration_sql,
-  });
+  const access = assertDataPlaneAccess(
+    {
+      ...plane,
+      cloudflare_oauth_connected: plane.customer_connection_ok === true && plane.data_plane === 'customer_cloudflare_d1',
+      supabase_oauth_connected: plane.customer_connection_ok === true && plane.data_plane === 'customer_supabase',
+      database_id: opts.project_id,
+    },
+    plane.data_plane,
+    opts.operation,
+    {
+      sql: opts.sql,
+      migration_sql: opts.migration_sql,
+      database_id: opts.project_ref || opts.project_id,
+    },
+  );
 
   if (!access.allowed) {
     return {
@@ -53,7 +66,10 @@ export async function dispatchCustomerDataPlaneOperation(env, opts) {
       reason: access.reason,
       user_message: access.user_message,
       duration_ms: 0,
-      onboarding_required: access.reason === 'customer_database_not_connected',
+      onboarding_required:
+        access.reason === 'customer_database_not_connected' ||
+        access.error === 'cloudflare_not_connected' ||
+        access.error === 'supabase_not_connected',
     };
   }
 
@@ -71,6 +87,8 @@ export async function dispatchCustomerDataPlaneOperation(env, opts) {
     authUser: opts.authUser,
     query: opts.sql,
     limit: 25,
+    project_ref: opts.project_ref ?? plane.project_ref ?? null,
+    project_id: opts.project_id ?? null,
   };
 
   switch (plane.data_plane) {

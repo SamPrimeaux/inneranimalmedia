@@ -38,7 +38,7 @@ test('non-owner agentsam sql denied even on ambiguous plane', () => {
   assert.equal(r.reason, 'agentsam_schema_denied_non_owner');
 });
 
-test('customer supabase without connection returns customer_database_not_connected', () => {
+test('customer supabase without connection returns supabase_not_connected', () => {
   const r = assertDataPlaneAccess(
     {
       is_owner: false,
@@ -49,7 +49,7 @@ test('customer supabase without connection returns customer_database_not_connect
     'run_readonly_sql',
   );
   assert.equal(r.allowed, false);
-  assert.equal(r.error, 'customer_database_not_connected');
+  assert.equal(r.error, 'supabase_not_connected');
 });
 
 test('customer supabase with project allowed', () => {

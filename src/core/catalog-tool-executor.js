@@ -39,6 +39,7 @@ import {
   catalogOperationRequiresSql,
   resolveCatalogDataPlaneOperation,
   resolveCatalogDataPlaneProvider,
+  resolveCustomerSupabaseDataPlane,
 } from './catalog-data-plane-operation.js';
 import {
   resolveRepoRootForHost,
@@ -1380,6 +1381,13 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
 
       const authUser = runContext.authUser ?? runContext.user ?? null;
       const { dispatchCustomerDataPlaneOperation } = await import('./customer-data-plane-dispatch.js');
+      const customerPlane =
+        resolveCustomerSupabaseDataPlane(toolKey, config) ||
+        String(config.data_plane || '').trim() ||
+        null;
+      const projectRef = String(
+        params.project_ref || params.projectRef || params.project_id || params.projectId || '',
+      ).trim();
       const routed = await dispatchCustomerDataPlaneOperation(env, {
         operation: dispatchOperation,
         sql,
@@ -1390,8 +1398,10 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         workspace_id: workspaceId,
         agent_run_id: agentRunId,
         approval_id: params.approval_id ?? params.approvalId ?? null,
-        requested_provider: requestedProvider,
-        data_plane: config.data_plane || null,
+        requested_provider: requestedProvider || (customerPlane === 'customer_supabase' ? 'supabase' : null),
+        data_plane: customerPlane,
+        project_ref: projectRef || null,
+        project_id: projectRef || null,
       });
       if (!routed.ok) {
         result = {
@@ -1949,11 +1959,19 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         const operation = String(
           params.operation || config.operation || 'inspect_schema',
         ).trim();
-        const dataPlane = String(params.data_plane || config.data_plane || '').trim() || null;
+        const customerPlane = resolveCustomerSupabaseDataPlane(toolKey, config);
+        const dataPlane =
+          String(params.data_plane || config.data_plane || customerPlane || '').trim() || null;
+        const projectRef = String(
+          params.project_ref || params.projectRef || params.project_id || params.projectId || '',
+        ).trim();
         const out = await dispatchCustomerDataPlaneOperation(env, {
           operation,
           message: params.message != null ? String(params.message) : '',
-          requested_provider: params.provider || config.provider || null,
+          requested_provider:
+            params.provider ||
+            config.provider ||
+            (dataPlane === 'customer_supabase' ? 'supabase' : null),
           data_plane: dataPlane,
           authUser: runContext.authUser ?? runContext.user ?? null,
           user_id: userId,
@@ -1965,6 +1983,8 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           migration_sql: params.migration_sql != null ? String(params.migration_sql) : '',
           approval_id: params.approval_id ?? null,
           agent_run_id: agentRunId,
+          project_ref: projectRef || null,
+          project_id: projectRef || null,
         });
         result = { ok: out?.ok !== false, body: out };
         break;

@@ -342,10 +342,14 @@ function isGitHubLoginOAuthStart(url) {
   return false;
 }
 
-/** Workspace-scoped Supabase OAuth row key (multi-workspace per user). */
+/**
+ * Supabase Management OAuth row key.
+ * Account-level SSOT is `Supabase` (same model as Cloudflare OAuth).
+ * Legacy rows may still use `workspace:<id>` — getUserSupabaseToken reads both.
+ */
 export function supabaseOAuthAccountIdentifier(workspaceId) {
-  const w = String(workspaceId || '').trim();
-  return w ? `workspace:${w}` : 'Supabase';
+  void workspaceId;
+  return 'Supabase';
 }
 
 async function fetchSupabaseManagementProjects(accessToken) {
@@ -1697,20 +1701,50 @@ async function refreshSupabaseAccessToken(env, refreshToken) {
 }
 
 /**
- * Decrypted Supabase OAuth token for Management API; includes linked projects from stored metadata.
- * Rows are scoped per workspace via account_identifier workspace:<workspace_id> when workspace_id was set at connect time.
+ * Decrypted Supabase Management OAuth token (account-level).
+ * Prefers account_identifier `Supabase`, then any legacy workspace:* row for the user.
+ * Optional workspaceId only influences preference / metadata refresh — not a hard gate.
  */
 export async function getUserSupabaseToken(env, userId, workspaceId = null) {
   if (!env?.DB || !userId || !isVaultConfigured(env)) return null;
   await ensureOauthTokenColumns(env.DB);
-  const acct = supabaseOAuthAccountIdentifier(workspaceId);
-  const fullRow = await env.DB.prepare(
-    `SELECT * FROM user_oauth_tokens
-     WHERE user_id = ? AND provider IN ('supabase_management', 'supabase') AND account_identifier = ?
-     ORDER BY updated_at DESC LIMIT 1`,
-  )
-    .bind(String(userId), acct)
-    .first();
+  const uid = String(userId);
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  const accountKey = supabaseOAuthAccountIdentifier(ws);
+
+  let fullRow =
+    (await env.DB.prepare(
+      `SELECT * FROM user_oauth_tokens
+       WHERE user_id = ? AND provider IN ('supabase_management', 'supabase') AND account_identifier = ?
+       ORDER BY updated_at DESC LIMIT 1`,
+    )
+      .bind(uid, accountKey)
+      .first()) || null;
+
+  if (!fullRow && ws) {
+    fullRow = await env.DB.prepare(
+      `SELECT * FROM user_oauth_tokens
+       WHERE user_id = ? AND provider IN ('supabase_management', 'supabase')
+         AND account_identifier = ?
+       ORDER BY updated_at DESC LIMIT 1`,
+    )
+      .bind(uid, `workspace:${ws}`)
+      .first();
+  }
+
+  if (!fullRow) {
+    fullRow = await env.DB.prepare(
+      `SELECT * FROM user_oauth_tokens
+       WHERE user_id = ? AND provider IN ('supabase_management', 'supabase')
+       ORDER BY
+         CASE WHEN account_identifier = 'Supabase' THEN 0 ELSE 1 END,
+         CASE WHEN workspace_id = ? THEN 0 ELSE 1 END,
+         updated_at DESC
+       LIMIT 1`,
+    )
+      .bind(uid, ws || '')
+      .first();
+  }
   if (!fullRow) return null;
 
   let access =
@@ -1735,6 +1769,16 @@ export async function getUserSupabaseToken(env, userId, workspaceId = null) {
       access = tok.access_token;
       refresh = tok.refresh_token || refresh;
       const newExp = tok.expires_in ? nowSeconds() + Number(tok.expires_in) : exp;
+      let metadata_json = fullRow.metadata_json || null;
+      try {
+        const projects = await fetchSupabaseManagementProjects(access);
+        metadata_json = JSON.stringify({
+          projects,
+          workspace_id: (fullRow.workspace_id ?? ws) || null,
+        });
+      } catch {
+        /* keep prior metadata */
+      }
       await upsertOauthToken(env, {
         user_id: fullRow.user_id,
         tenant_id: fullRow.tenant_id || '',
@@ -1744,11 +1788,11 @@ export async function getUserSupabaseToken(env, userId, workspaceId = null) {
         refresh_token: refresh,
         scope: tok.scope || fullRow.scope || null,
         expires_at: newExp,
-        account_identifier: acct,
+        account_identifier: accountKey,
         account_email: fullRow.account_email || null,
         account_display: fullRow.account_display || 'Supabase',
         workspace_id: fullRow.workspace_id ?? workspaceId,
-        metadata_json: fullRow.metadata_json || null,
+        metadata_json,
       });
     }
   }
@@ -1763,5 +1807,6 @@ export async function getUserSupabaseToken(env, userId, workspaceId = null) {
     access_token: access,
     projects: Array.isArray(meta.projects) ? meta.projects : [],
     metadata: meta,
+    account_identifier: fullRow.account_identifier != null ? String(fullRow.account_identifier) : accountKey,
   };
 }

@@ -1,5 +1,7 @@
 /**
- * Customer-owned Supabase projects — Management API + workspace bindings (never env.HYPERDRIVE IAM).
+ * Customer / account Supabase — Management API SQL (never env.HYPERDRIVE IAM for this lane).
+ * platform_operator → unscoped across Management OAuth projects (audited).
+ * user_account → any project in caller's live /v1/projects list; workspace pin is optional default.
  */
 import { getUserSupabaseToken } from '../api/oauth.js';
 import {
@@ -11,6 +13,12 @@ import { evaluateDataPlaneOperation } from './database-operation-policy.js';
 import { logCustomerDataPlaneEvent } from './customer-data-plane-telemetry.js';
 import { generateRollbackStub } from './database-assistant-dispatch.js';
 import { classifyDatabaseSqlStatement } from './database-sql-safety.js';
+import { logDataPlaneSecurityEvent, USER_ACCOUNT_DATA_PLANE } from './data-plane-access-guard.js';
+import { isPlatformOperator, resolveOperatorAuthUserRow } from './operator-identity.js';
+
+function trim(v) {
+  return v == null ? '' : String(v).trim();
+}
 
 /**
  * @param {string} accessToken
@@ -35,6 +43,124 @@ async function managementFetch(accessToken, path, init = {}) {
 }
 
 /**
+ * Live project catalog for the caller's Management OAuth token.
+ * @param {string} accessToken
+ * @returns {Promise<Array<{ id: string, name: string, ref: string, region?: string|null }>>}
+ */
+export async function listOAuthAccountSupabaseProjects(accessToken) {
+  const data = await managementFetch(accessToken, '/v1/projects');
+  const rows = Array.isArray(data) ? data : [];
+  return rows.map((p) => ({
+    id: p.id != null ? String(p.id) : '',
+    name: p.name != null ? String(p.name) : '',
+    ref: p.ref != null ? String(p.ref) : '',
+    region: p.region != null ? String(p.region) : null,
+  })).filter((p) => p.ref || p.id);
+}
+
+/**
+ * Operator: unscoped (audited). Non-operator: project must appear in live Management catalog.
+ *
+ * @param {any} env
+ * @param {string|null|undefined} userId
+ * @param {string|null|undefined} projectRefOrId
+ * @param {unknown} [authUser]
+ * @param {string|null} [workspaceId]
+ */
+export async function assertCallerOwnsProjectRef(
+  env,
+  userId,
+  projectRefOrId,
+  authUser = null,
+  workspaceId = null,
+) {
+  const wanted = trim(projectRefOrId);
+  if (!wanted) {
+    return {
+      ok: false,
+      error: 'project_ref_required',
+      user_message: 'Pass project_ref (or select a project) before running SQL.',
+    };
+  }
+
+  const uid = trim(userId);
+  if (!uid) {
+    return {
+      ok: false,
+      error: 'user_oauth_required',
+      user_message: 'Sign in before using Supabase tools.',
+    };
+  }
+
+  const opRow = await resolveOperatorAuthUserRow(env, authUser);
+  const operator = await isPlatformOperator(env, opRow);
+  if (operator) {
+    logDataPlaneSecurityEvent('platform_operator_supabase_access', {
+      user_id: uid,
+      project_ref: wanted,
+      auth_scope: 'platform_operator',
+    });
+    const tok = await getUserSupabaseToken(env, uid, workspaceId);
+    return {
+      ok: true,
+      auth_scope: 'platform_operator',
+      access_token: tok?.access_token || null,
+      project_ref: wanted,
+      projects: Array.isArray(tok?.projects) ? tok.projects : [],
+    };
+  }
+
+  const tok = await getUserSupabaseToken(env, uid, workspaceId);
+  if (!tok?.access_token) {
+    return {
+      ok: false,
+      error: 'supabase_not_connected',
+      reauth_required: true,
+      user_message: 'Connect Supabase in Integrations before using Postgres tools.',
+    };
+  }
+
+  let catalog = [];
+  try {
+    catalog = await listOAuthAccountSupabaseProjects(tok.access_token);
+  } catch (e) {
+    return {
+      ok: false,
+      error: 'supabase_projects_list_failed',
+      user_message: e?.message ? String(e.message) : 'Could not list Supabase projects for your account.',
+    };
+  }
+
+  const match = catalog.find(
+    (p) =>
+      p.ref.toLowerCase() === wanted.toLowerCase() ||
+      p.id.toLowerCase() === wanted.toLowerCase(),
+  );
+  if (!match) {
+    logDataPlaneSecurityEvent('supabase_project_not_in_caller_account', {
+      user_id: uid,
+      project_ref: wanted,
+      auth_scope: USER_ACCOUNT_DATA_PLANE,
+    });
+    return {
+      ok: false,
+      error: 'project_ref_not_in_account',
+      user_message:
+        'That Supabase project is not in your connected Management account. List projects and pick a valid project_ref.',
+    };
+  }
+
+  return {
+    ok: true,
+    auth_scope: USER_ACCOUNT_DATA_PLANE,
+    access_token: tok.access_token,
+    project_ref: match.ref || wanted,
+    project_id: match.id,
+    projects: catalog,
+  };
+}
+
+/**
  * @param {any} env
  * @param {string} userId
  * @param {string|null} workspaceId
@@ -43,28 +169,22 @@ export async function customerSupabaseListProjects(env, userId, workspaceId = nu
   const tok = await getUserSupabaseToken(env, userId, workspaceId);
   if (!tok?.access_token) return { ok: false, projects: [], error: 'supabase_not_connected' };
 
-  let projects = Array.isArray(tok.projects) ? tok.projects : [];
-  if (!projects.length) {
-    try {
-      const res = await fetch('https://api.supabase.com/v1/projects', {
-        headers: { Authorization: `Bearer ${tok.access_token}`, Accept: 'application/json' },
-      });
-      const data = await res.json().catch(() => []);
-      if (Array.isArray(data)) {
-        projects = data.map((p) => ({
-          id: p.id,
-          name: p.name,
-          ref: p.ref,
-          region: p.region,
-        }));
-      }
-    } catch {
-      /* keep empty */
-    }
+  let projects = [];
+  try {
+    projects = await listOAuthAccountSupabaseProjects(tok.access_token);
+  } catch {
+    projects = Array.isArray(tok.projects) ? tok.projects : [];
   }
 
   const bindings = workspaceId ? await listWorkspaceDataBindings(env, workspaceId, 'supabase') : [];
-  return { ok: true, projects, bindings };
+  const pinned = workspaceId ? await getDefaultWorkspaceDataBinding(env, workspaceId, 'supabase') : null;
+  return {
+    ok: true,
+    projects,
+    bindings,
+    pinned_project_ref: pinned?.external_project_ref != null ? String(pinned.external_project_ref) : null,
+    auth_scope: USER_ACCOUNT_DATA_PLANE,
+  };
 }
 
 /**
@@ -76,17 +196,22 @@ export async function customerSupabaseListProjects(env, userId, workspaceId = nu
  *   project_id: string,
  *   project_ref?: string|null,
  *   display_name?: string|null,
+ *   authUser?: unknown,
  * }} opts
  */
 export async function customerSupabaseSelectProjectForWorkspace(env, opts) {
-  const tok = await getUserSupabaseToken(env, opts.user_id, opts.workspace_id);
-  if (!tok?.access_token) return { ok: false, error: 'supabase_not_connected' };
+  const projectId = String(opts.project_id || opts.project_ref || '').trim();
+  const owned = await assertCallerOwnsProjectRef(
+    env,
+    opts.user_id,
+    projectId,
+    opts.authUser || null,
+    opts.workspace_id,
+  );
+  if (!owned.ok) return { ok: false, error: owned.error, user_message: owned.user_message };
+  if (!owned.access_token) return { ok: false, error: 'supabase_not_connected' };
 
-  const projectId = String(opts.project_id || '').trim();
-  const project =
-    (tok.projects || []).find((p) => String(p.id) === projectId || String(p.ref) === projectId) ||
-    null;
-  const ref = opts.project_ref || project?.ref || projectId;
+  const ref = owned.project_ref || projectId;
   const id = `wsbind_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
 
   await upsertWorkspaceDataBinding(env, {
@@ -96,16 +221,21 @@ export async function customerSupabaseSelectProjectForWorkspace(env, opts) {
     workspace_id: opts.workspace_id,
     provider: 'supabase',
     connection_id: 'supabase_oauth',
-    external_project_id: project?.id != null ? String(project.id) : projectId,
-    external_project_ref: ref != null ? String(ref) : null,
-    display_name: opts.display_name || project?.name || ref,
+    external_project_id: owned.project_id || projectId,
+    external_project_ref: ref,
+    display_name: opts.display_name || ref,
     selected_as_default: true,
-    capabilities_json: JSON.stringify({ readonly_sql: true, schema_inspect: true, migrations_propose: true }),
+    capabilities_json: JSON.stringify({
+      readonly_sql: true,
+      write_sql: true,
+      schema_inspect: true,
+      migrations_propose: true,
+    }),
     health_status: 'selected',
     last_verified_at: Math.floor(Date.now() / 1000),
   });
 
-  return { ok: true, binding_id: id, project_ref: ref, project_id: project?.id || projectId };
+  return { ok: true, binding_id: id, project_ref: ref, project_id: owned.project_id || projectId };
 }
 
 /**
@@ -124,22 +254,47 @@ async function customerSupabaseRunQuery(accessToken, projectRef, sql) {
 }
 
 /**
+ * Resolve Management token + project_ref. Workspace pin is optional default only.
  * @param {any} env
  * @param {string} userId
  * @param {string} workspaceId
+ * @param {{ project_ref?: string|null, project_id?: string|null, authUser?: unknown }} [opts]
  */
-async function resolveProjectRef(env, userId, workspaceId) {
-  const binding = await getDefaultWorkspaceDataBinding(env, workspaceId, 'supabase');
-  const tok = await getUserSupabaseToken(env, userId, workspaceId);
-  if (!tok?.access_token) return { error: 'supabase_not_connected' };
-  const ref =
-    binding?.external_project_ref != null
-      ? String(binding.external_project_ref)
-      : tok.projects?.[0]?.ref != null
-        ? String(tok.projects[0].ref)
-        : null;
-  if (!ref) return { error: 'no_supabase_project_selected' };
-  return { access_token: tok.access_token, project_ref: ref, binding };
+async function resolveProjectRef(env, userId, workspaceId, opts = {}) {
+  const requested = trim(opts.project_ref || opts.project_id);
+  const binding = workspaceId
+    ? await getDefaultWorkspaceDataBinding(env, workspaceId, 'supabase')
+    : null;
+  const pinned = binding?.external_project_ref != null ? String(binding.external_project_ref) : '';
+  const candidate = requested || pinned;
+
+  if (!candidate) {
+    const tok = await getUserSupabaseToken(env, userId, workspaceId);
+    if (!tok?.access_token) return { error: 'supabase_not_connected' };
+    return { error: 'project_ref_required', access_token: tok.access_token };
+  }
+
+  const owned = await assertCallerOwnsProjectRef(
+    env,
+    userId,
+    candidate,
+    opts.authUser || null,
+    workspaceId,
+  );
+  if (!owned.ok) {
+    return {
+      error: owned.error || 'project_ref_not_in_account',
+      user_message: owned.user_message,
+    };
+  }
+  if (!owned.access_token) return { error: 'supabase_not_connected' };
+
+  return {
+    access_token: owned.access_token,
+    project_ref: owned.project_ref,
+    binding,
+    auth_scope: owned.auth_scope,
+  };
 }
 
 /**
@@ -154,6 +309,8 @@ async function resolveProjectRef(env, userId, workspaceId) {
  *   approval_id?: string|null,
  *   schema?: string,
  *   table?: string,
+ *   project_ref?: string|null,
+ *   project_id?: string|null,
  *   authUser?: unknown,
  *   agent_run_id?: string|null,
  * }} opts
@@ -164,10 +321,24 @@ export async function dispatchCustomerSupabase(env, opts) {
   const userId = String(opts.user_id || '');
   const workspaceId = String(opts.workspace_id || '');
 
-  const resolved = await resolveProjectRef(env, userId, workspaceId);
+  if (operation === 'list_projects') {
+    const out = await customerSupabaseListProjects(env, userId, workspaceId || null);
+    return {
+      ...out,
+      operation,
+      data_plane: 'customer_supabase',
+      duration_ms: Date.now() - t0,
+    };
+  }
+
+  const resolved = await resolveProjectRef(env, userId, workspaceId, {
+    project_ref: opts.project_ref,
+    project_id: opts.project_id || opts.table,
+    authUser: opts.authUser,
+  });
   if (resolved.error) {
     const err =
-      resolved.error === 'supabase_not_connected' || resolved.error === 'no_supabase_project_selected'
+      resolved.error === 'supabase_not_connected'
         ? 'customer_database_not_connected'
         : resolved.error;
     return {
@@ -177,8 +348,11 @@ export async function dispatchCustomerSupabase(env, opts) {
       error: err,
       reason: err,
       user_message:
-        'Connect your Supabase project in integrations and select a workspace default before running SQL.',
-      onboarding_required: true,
+        resolved.user_message ||
+        (resolved.error === 'project_ref_required'
+          ? 'Select a Supabase project (or pass project_ref) before running SQL.'
+          : 'Connect Supabase in Integrations, then pick a project from your account.'),
+      onboarding_required: resolved.error === 'supabase_not_connected',
       duration_ms: Date.now() - t0,
     };
   }
@@ -188,15 +362,15 @@ export async function dispatchCustomerSupabase(env, opts) {
 
   /** @type {Record<string, () => Promise<Record<string, unknown>>>} */
   const handlers = {
-    list_projects: async () => customerSupabaseListProjects(env, userId, workspaceId),
     select_project_for_workspace: async () =>
       customerSupabaseSelectProjectForWorkspace(env, {
         user_id: userId,
         tenant_id: String(opts.tenant_id || ''),
         workspace_id: workspaceId,
-        project_id: String(opts.table || opts.project_id || ''),
-        project_ref: opts.schema,
+        project_id: String(opts.project_id || opts.table || project_ref || ''),
+        project_ref: opts.project_ref || project_ref,
         display_name: opts.table,
+        authUser: opts.authUser,
       }),
     inspect_schema: async () => {
       const data = await managementFetch(
@@ -211,9 +385,11 @@ export async function dispatchCustomerSupabase(env, opts) {
       const table = String(opts.table || '').trim();
       if (!table) throw new Error('table required');
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) throw new Error('invalid table identifier');
+      const schema = trim(opts.schema) || 'public';
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schema)) throw new Error('invalid schema identifier');
       const sql = `SELECT column_name, data_type, is_nullable, column_default
          FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = '${table}'
+        WHERE table_schema = '${schema}' AND table_name = '${table}'
         ORDER BY ordinal_position`;
       return customerSupabaseRunQuery(access_token, project_ref, sql);
     },
@@ -261,7 +437,14 @@ export async function dispatchCustomerSupabase(env, opts) {
       }
       return customerSupabaseRunQuery(access_token, project_ref, sql);
     },
-    execute_sql: async () => handlers.run_write_sql(),
+    execute_sql: async () => {
+      const sql = String(opts.sql || '').trim();
+      const stmtKind = classifyDatabaseSqlStatement(sql);
+      if (stmtKind === 'read' || stmtKind === 'explain') {
+        return handlers.run_readonly_sql();
+      }
+      return handlers.run_write_sql();
+    },
     supabase_write: async () => handlers.run_write_sql(),
     customer_supabase_readonly_query: async () => handlers.run_readonly_sql(),
     propose_migration: async () => {
@@ -339,6 +522,7 @@ export async function dispatchCustomerSupabase(env, opts) {
       owner_type: 'customer',
       project_ref,
       connection_id,
+      auth_scope: resolved.auth_scope || USER_ACCOUNT_DATA_PLANE,
       duration_ms: Date.now() - t0,
       read_only: ['run_readonly_sql', 'list_tables', 'inspect_schema', 'describe_table'].includes(operation),
       write_path: ['run_write_sql', 'execute_sql', 'supabase_write', 'apply_approved_migration'].includes(

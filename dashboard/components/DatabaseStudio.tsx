@@ -230,16 +230,22 @@ function Drawer({
 }
 
 function SetupCard({ title, body, to }: { title: string; body: string; to: string }) {
+  const external = to.startsWith('/api/') || to.startsWith('http');
+  const className =
+    'mt-4 inline-flex rounded-lg bg-[var(--color-accent,var(--solar-cyan))]/15 px-3 py-2 text-[11px] font-bold text-[var(--color-accent,var(--solar-cyan))] no-underline hover:bg-[var(--color-accent,var(--solar-cyan))]/25';
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-6 shadow-sm">
       <h3 className="text-sm font-semibold text-main">{title}</h3>
       <p className="mt-2 text-[12px] leading-relaxed text-muted">{body}</p>
-      <Link
-        to={to}
-        className="mt-4 inline-flex rounded-lg bg-[var(--color-accent,var(--solar-cyan))]/15 px-3 py-2 text-[11px] font-bold text-[var(--color-accent,var(--solar-cyan))] hover:bg-[var(--color-accent,var(--solar-cyan))]/25"
-      >
-        Open settings
-      </Link>
+      {external ? (
+        <a href={to} className={className}>
+          Connect
+        </a>
+      ) : (
+        <Link to={to} className={className}>
+          Open
+        </Link>
+      )}
     </div>
   );
 }
@@ -322,6 +328,13 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   const [learningTables, setLearningTables] = useState<TableMeta[]>([]);
   const [learningStatus, setLearningStatus] = useState<LoadStatus>('idle');
   const [supabaseConnected, setSupabaseConnected] = useState(false);
+  const [supabaseProjects, setSupabaseProjects] = useState<
+    Array<{ id?: string; name?: string; ref: string; region?: string | null }>
+  >([]);
+  const [supabaseProjectRef, setSupabaseProjectRef] = useState<string>('');
+  const [supabaseConnectUrl, setSupabaseConnectUrl] = useState(
+    '/api/oauth/supabase/start?return_to=%2Fdashboard%2Fdatabase%3Fstudio%3D1',
+  );
   const [capLoaded, setCapLoaded] = useState(false);
   const [pageReady, setPageReady] = useState(false);
   const [hyperHealthBad, setHyperHealthBad] = useState(false);
@@ -362,23 +375,27 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     databaseName?.trim() || (!isSuperadmin && studioSection === 'workspace_d1') ? 'd1' : datasource;
 
   const activeTables =
-    !isSuperadmin && studioSection === 'public_learning'
+    studioSection === 'public_learning'
       ? learningTables
-      : !isSuperadmin && studioSection === 'workspace_d1'
-        ? tables.d1
-        : tables[datasource];
+      : studioSection === 'customer_supabase'
+        ? tables.hyperdrive
+        : !isSuperadmin && studioSection === 'workspace_d1'
+          ? tables.d1
+          : tables[datasource];
   const datasourceLabel =
     databaseName?.trim()
       ? `${databaseName.trim()} · Cloudflare D1`
-      : !isSuperadmin && studioSection === 'public_learning'
+      : studioSection === 'public_learning'
       ? 'Public learning (public.iam_*)'
       : !isSuperadmin && studioSection === 'workspace_d1'
         ? 'Workspace D1 (Cloudflare SQLite)'
-        : !isSuperadmin && studioSection === 'customer_supabase'
-          ? 'My Supabase project'
+        : studioSection === 'customer_supabase'
+          ? supabaseProjectRef
+            ? `My Supabase · ${supabaseProjectRef}`
+            : 'My Supabase (Management OAuth)'
           : datasource === 'd1'
             ? 'Cloudflare D1 (SQLite)'
-            : 'Supabase via Hyperdrive (Postgres)';
+            : 'IAM Platform Supabase via Hyperdrive (Postgres)';
   const selectedTableMeta = useMemo(
     () => (selectedTable ? activeTables.find((t) => t.name === selectedTable) : undefined),
     [activeTables, selectedTable],
@@ -494,8 +511,16 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
         banner?: string;
         active_data_plane?: string;
         connections?: { supabase?: boolean };
+        supabase_projects?: Array<{ id?: string; name?: string; ref: string; region?: string | null }>;
+        pinned_supabase_project_ref?: string | null;
+        supabase_connect_url?: string;
       }>('/api/data-plane/context');
       setSupabaseConnected(ctx.connections?.supabase === true);
+      if (ctx.supabase_connect_url) setSupabaseConnectUrl(ctx.supabase_connect_url);
+      const projects = Array.isArray(ctx.supabase_projects) ? ctx.supabase_projects.filter((p) => p?.ref) : [];
+      setSupabaseProjects(projects);
+      const pinned = (ctx.pinned_supabase_project_ref || '').trim();
+      setSupabaseProjectRef((prev) => prev || pinned || projects[0]?.ref || '');
       if (!superadmin && !databaseName?.trim() && ctx.active_data_plane === 'customer_supabase' && ctx.connections?.supabase) {
         setStudioSection('customer_supabase');
       }
@@ -503,6 +528,34 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       /* ignore */
     }
   }, [databaseName]);
+
+  const loadCustomerSupabaseTables = useCallback(async (projectRef: string) => {
+    if (!projectRef.trim()) {
+      setTables((prev) => ({ ...prev, hyperdrive: [] }));
+      setHyperStatus('ok');
+      return;
+    }
+    setHyperStatus('loading');
+    setLoadingTables(true);
+    try {
+      const payload = await fetchJson<{
+        tables?: Array<{ name: string; table_schema?: string }>;
+        error?: string;
+      }>(`/api/data-plane/customer-supabase/tables?project_ref=${encodeURIComponent(projectRef.trim())}`);
+      const list = (payload.tables || []).map((t) => ({
+        name: String(t.name || ''),
+        table_schema: t.table_schema || 'public',
+      }));
+      setTables((prev) => ({ ...prev, hyperdrive: list.filter((t) => t.name) }));
+      setHyperStatus('ok');
+    } catch (e) {
+      setTables((prev) => ({ ...prev, hyperdrive: [] }));
+      setHyperStatus('error');
+      setSqlError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingTables(false);
+    }
+  }, []);
 
   const loadPublicLearningTables = useCallback(async () => {
     setLearningStatus('loading');
@@ -676,6 +729,18 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   }, [pageReady, workspaceId, databaseName, isSuperadmin, sidebarSource, loadTables]);
 
   useEffect(() => {
+    if (!pageReady || studioSection !== 'customer_supabase') return;
+    if (!supabaseConnected || !supabaseProjectRef.trim()) return;
+    void loadCustomerSupabaseTables(supabaseProjectRef);
+  }, [
+    pageReady,
+    studioSection,
+    supabaseConnected,
+    supabaseProjectRef,
+    loadCustomerSupabaseTables,
+  ]);
+
+  useEffect(() => {
     if (!capLoaded || isSuperadmin || databaseName?.trim() || !workspaceD1Available) return;
     setStudioSection((prev) => (prev === 'public_learning' ? 'workspace_d1' : prev));
     setSidebarSource('d1');
@@ -774,9 +839,9 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       const t0 = performance.now();
       try {
         const endpoint =
-          !isSuperadmin && studioSection === 'public_learning'
+          studioSection === 'public_learning'
             ? '/api/data-plane/public-learning/query'
-            : !isSuperadmin && studioSection === 'customer_supabase'
+            : studioSection === 'customer_supabase'
               ? '/api/data-plane/customer-supabase/query'
               : effectiveDatasource === 'd1'
                 ? '/api/d1/query'
@@ -788,6 +853,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
           body: JSON.stringify({
             sql: raw,
             params: [],
+            project_ref: studioSection === 'customer_supabase' ? supabaseProjectRef || undefined : undefined,
             studio_approved: opts.studioApproved === true,
             destructive_confirmed: opts.destructiveConfirmed === true,
           }),
@@ -817,7 +883,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
         setLastRowsRead(0);
       }
     },
-    [effectiveDatasource, fetchD1Json, isSuperadmin, studioSection],
+    [effectiveDatasource, fetchD1Json, isSuperadmin, studioSection, supabaseProjectRef],
   );
 
   const requestRunSql = useCallback(
@@ -1384,17 +1450,17 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     void refreshTableRows(1);
   }, [refreshTableRows, selectedTable]);
 
-  const onboardingEligible = capLoaded && pageReady && !isSuperadmin;
+  const onboardingEligible = capLoaded && pageReady;
   const showD1Setup = false;
   const showHyperSetup = onboardingEligible && studioSection === 'customer_supabase' && !supabaseConnected;
-  const showLearningSetup = onboardingEligible && studioSection === 'public_learning' && learningStatus === 'error';
+  const showLearningSetup = onboardingEligible && studioSection === 'public_learning' && learningStatus === 'error' && !isSuperadmin;
   const dsNeedsSetup = studioSection === 'customer_supabase' ? showHyperSetup : showLearningSetup;
   const bothDisconnected =
-    onboardingEligible && !supabaseConnected && learningStatus === 'error';
+    onboardingEligible && !isSuperadmin && !supabaseConnected && learningStatus === 'error';
   const sidebarEmptyMuted = onboardingEligible && dsNeedsSetup;
 
   const setupContent =
-    !pageReady || isSuperadmin
+    !pageReady
       ? null
       : bothDisconnected
         ? (
@@ -1409,8 +1475,8 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
             <div className="w-full max-w-md">
               <SetupCard
                 title="Connect your Supabase"
-                body="Link Supabase OAuth in integrations, then select your project as the workspace default."
-                to="/dashboard/settings/integrations"
+                body="Authorize Supabase Management OAuth, then pick any project in your account for full SQL CRUD."
+                to={supabaseConnectUrl}
               />
             </div>
           </div>
@@ -1422,14 +1488,14 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                 {studioSection === 'customer_supabase' ? (
                   <SetupCard
                     title="Supabase not connected"
-                    body="Connect Supabase via OAuth, select a project for this workspace, then return here."
-                    to="/dashboard/settings/integrations"
+                    body="Connect Supabase Management OAuth to list and query every project in your account."
+                    to={supabaseConnectUrl}
                   />
                 ) : (
                   <SetupCard
                     title="Public learning unavailable"
                     body="Could not load public.iam_* tables. Try again or connect your own Supabase."
-                    to="/dashboard/settings/integrations"
+                    to={supabaseConnectUrl}
                   />
                 )}
               </div>
@@ -1452,7 +1518,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                     setSelectedTable(null);
                   }}
                   className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
-                    sidebarSource === 'd1' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-muted hover:bg-[var(--bg-hover)]'
+                    sidebarSource === 'd1' && studioSection !== 'customer_supabase' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-muted hover:bg-[var(--bg-hover)]'
                   }`}
                 >
                   D1
@@ -1465,10 +1531,23 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                     setSelectedTable(null);
                   }}
                   className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
-                    sidebarSource === 'hyperdrive' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-muted hover:bg-[var(--bg-hover)]'
+                    sidebarSource === 'hyperdrive' && studioSection === 'platform_hyperdrive' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-muted hover:bg-[var(--bg-hover)]'
                   }`}
                 >
                   Platform
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStudioSection('customer_supabase');
+                    setSelectedTable(null);
+                    if (supabaseProjectRef) void loadCustomerSupabaseTables(supabaseProjectRef);
+                  }}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
+                    studioSection === 'customer_supabase' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-muted hover:bg-[var(--bg-hover)]'
+                  }`}
+                >
+                  My DB
                 </button>
               </>
             ) : (
@@ -1509,6 +1588,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                   onClick={() => {
                     setStudioSection('customer_supabase');
                     setSelectedTable(null);
+                    if (supabaseProjectRef) void loadCustomerSupabaseTables(supabaseProjectRef);
                   }}
                   className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
                     studioSection === 'customer_supabase' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-muted hover:bg-[var(--bg-hover)]'
@@ -1524,7 +1604,8 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
               type="button"
               title="Refresh tables"
               onClick={() => {
-                if (studioSection === 'workspace_d1' || effectiveDatasource === 'd1') void loadTables('d1');
+                if (studioSection === 'customer_supabase') void loadCustomerSupabaseTables(supabaseProjectRef);
+                else if (studioSection === 'workspace_d1' || effectiveDatasource === 'd1') void loadTables('d1');
                 else void loadTables(datasource);
               }}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-subtle)] text-muted hover:bg-[var(--bg-hover)] hover:text-main"
@@ -1549,6 +1630,45 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
         </div>
 
         <div className="border-b border-[var(--border-subtle)] p-3">
+          {studioSection === 'customer_supabase' && supabaseConnected ? (
+            <div className="mb-2">
+              <label className="mb-1 block text-[9px] font-black uppercase tracking-widest text-muted">
+                Supabase project
+              </label>
+              <select
+                value={supabaseProjectRef}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setSupabaseProjectRef(next);
+                  setSelectedTable(null);
+                  void loadCustomerSupabaseTables(next);
+                  if (workspaceId && next) {
+                    void fetchJson('/api/data-plane/customer-supabase/select', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ project_ref: next, project_id: next }),
+                    }).catch(() => {});
+                  }
+                }}
+                className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1.5 font-mono text-[11px] text-main outline-none"
+              >
+                {!supabaseProjects.length ? <option value="">No projects</option> : null}
+                {supabaseProjects.map((p) => (
+                  <option key={p.ref} value={p.ref}>
+                    {p.name ? `${p.name} (${p.ref})` : p.ref}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+          {studioSection === 'customer_supabase' && !supabaseConnected ? (
+            <a
+              href={supabaseConnectUrl}
+              className="mb-2 flex w-full items-center justify-center rounded-lg border border-[color-mix(in_srgb,var(--solar-cyan)_40%,transparent)] bg-[color-mix(in_srgb,var(--solar-cyan)_12%,transparent)] px-2 py-2 text-[10px] font-bold text-[var(--solar-cyan)] no-underline"
+            >
+              Connect Supabase OAuth
+            </a>
+          ) : null}
           <div className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1.5">
             <Search size={12} className="shrink-0 text-muted" />
             <input
