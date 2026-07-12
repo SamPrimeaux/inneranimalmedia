@@ -1753,11 +1753,13 @@ const App: React.FC = () => {
   }, [navigate]);
 
   const shellOpenDraw = useCallback(
-    (detail?: { load_url?: string | null; artifact_id?: string | null }) => {
-      navigate('/dashboard/draw');
+    (detail?: { load_url?: string | null; artifact_id?: string | null; engine?: string | null }) => {
+      const engine =
+        String(detail?.engine || '').trim().toLowerCase() === 'wireframe' ? 'wireframe' : 'excalidraw';
+      navigate(engine === 'wireframe' ? '/dashboard/draw?engine=wireframe' : '/dashboard/draw?engine=excalidraw');
       const load = detail?.load_url?.trim() || '';
       const aid = detail?.artifact_id?.trim() || '';
-      if (load || aid) {
+      if (engine === 'excalidraw' && (load || aid)) {
         queueMicrotask(() => {
           window.dispatchEvent(
             new CustomEvent('iam:excalidraw_load_document', {
@@ -2587,10 +2589,14 @@ const App: React.FC = () => {
 
   const beginQuickstartTemplate = useCallback(
     (template: QuickstartTemplate) => {
-      const openDraw =
-        template.openSurface === 'excalidraw' || template.slug === 'card-flowchart';
+      const surface = template.openSurface ?? null;
+      const openDraw = surface === 'excalidraw' || surface === 'wireframe' || template.slug === 'card-flowchart';
       if (openDraw) {
-        shellOpenDraw();
+        shellOpenDraw({
+          engine: surface === 'wireframe' || template.slug === 'card-wireframe' || template.slug === 'card-blank-canvas'
+            ? 'wireframe'
+            : 'excalidraw',
+        });
       } else {
         navigate(AGENT_HOME_PATH);
       }
@@ -2603,7 +2609,7 @@ const App: React.FC = () => {
         apply_eto_after_run: true,
         workspace_id: QUICKSTART_WORKSPACE_ID,
         modelKey: 'auto',
-        surface: openDraw ? 'excalidraw' : undefined,
+        surface: openDraw ? (surface === 'wireframe' ? 'wireframe' : 'excalidraw') : undefined,
         ensureAgentPanel: true,
       });
     },

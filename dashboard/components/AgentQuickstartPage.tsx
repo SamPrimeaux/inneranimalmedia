@@ -14,8 +14,8 @@ export type QuickstartTemplate = {
   route_key: string;
   /** Quickstart workspace card slug (e.g. card-slides) for post-intake routing. */
   quickstart_card?: string;
-  /** Open a companion surface when the card starts (e.g. Excalidraw on Draw). */
-  openSurface?: 'excalidraw' | null;
+  /** Open a companion surface when the card starts (Draw engines). */
+  openSurface?: 'excalidraw' | 'wireframe' | null;
   subagentSlug?: string;
   subagentProfileId?: string | null;
 };
@@ -29,6 +29,7 @@ type ApiQuickstartTemplate = {
   seed_message: string;
   task_type: string;
   route_key: string;
+  open_surface?: 'excalidraw' | 'wireframe' | null;
   subagent_slug?: string;
   subagent_profile_id?: string | null;
   sort_order?: number;
@@ -46,6 +47,10 @@ function mapApiTemplate(row: ApiQuickstartTemplate): QuickstartTemplate {
     seedMessage: row.seed_message,
     task_type: row.task_type || 'chat',
     route_key: row.route_key || 'chat',
+    openSurface:
+      row.open_surface === 'excalidraw' || row.open_surface === 'wireframe'
+        ? row.open_surface
+        : null,
     subagentSlug: row.subagent_slug ?? row.slug,
     subagentProfileId: row.subagent_profile_id ?? null,
   };

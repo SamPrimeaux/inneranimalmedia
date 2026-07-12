@@ -59,7 +59,7 @@ const CARD_QUICKSTART_DEFAULTS: Record<
     seedMessage: string;
     task_type: string;
     route_key: string;
-    openSurface?: 'excalidraw' | null;
+    openSurface?: 'excalidraw' | 'wireframe' | null;
   }
 > = {
   'card-flowchart': {
@@ -68,6 +68,20 @@ const CARD_QUICKSTART_DEFAULTS: Record<
     task_type: 'plan',
     route_key: 'design_studio',
     openSurface: 'excalidraw',
+  },
+  'card-wireframe': {
+    seedMessage:
+      'Quickstart: Product wireframe. The Wireframe studio (Figma-like UI canvas) is open on Draw. Before placing components, ask me 2–4 short questions: which screen(s), desktop/tablet/mobile, primary user goal, and any must-have blocks (nav, hero, form, table). Wait for my answers. Then guide me in Wireframe studio or place a starter layout — do not output ASCII wireframes.',
+    task_type: 'plan',
+    route_key: 'design_studio',
+    openSurface: 'wireframe',
+  },
+  'card-blank-canvas': {
+    seedMessage:
+      'Quickstart: Blank canvas. Wireframe studio is open for a freeform UI sketch. Ask what screen I want to design, then help me build it with the component palette.',
+    task_type: 'plan',
+    route_key: 'design_studio',
+    openSurface: 'wireframe',
   },
 };
 
@@ -147,10 +161,32 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
   useEffect(() => {
     fetch('/api/agent/quickstart/templates', { credentials: 'same-origin' })
       .then((r) => r.json())
-      .then((body: { templates?: import('./AgentQuickstartPage').QuickstartTemplate[] }) => {
+      .then((body: {
+        templates?: Array<
+          import('./AgentQuickstartPage').QuickstartTemplate & {
+            seed_message?: string;
+            model_hint?: string;
+            open_surface?: 'excalidraw' | 'wireframe' | null;
+          }
+        >;
+      }) => {
         if (!Array.isArray(body.templates)) return;
         const map: Record<string, import('./AgentQuickstartPage').QuickstartTemplate> = {};
-        for (const t of body.templates) map[t.slug] = t;
+        for (const t of body.templates) {
+          map[t.slug] = {
+            id: t.id,
+            slug: t.slug,
+            name: t.name,
+            description: t.description ?? '',
+            modelHint: t.modelHint || t.model_hint || 'auto',
+            seedMessage: t.seedMessage || t.seed_message || '',
+            task_type: t.task_type || 'chat',
+            route_key: t.route_key || 'chat',
+            openSurface: t.openSurface ?? t.open_surface ?? null,
+            subagentSlug: t.subagentSlug,
+            subagentProfileId: t.subagentProfileId ?? null,
+          };
+        }
         setTemplateMap(map);
       })
       .catch(() => { /* silently fall back to hardcoded seeds */ });

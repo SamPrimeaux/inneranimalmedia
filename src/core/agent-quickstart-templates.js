@@ -144,7 +144,14 @@ function quickstartConfigFromRow(row) {
     seed_message = `Quickstart: ${name}. ${String(row.description).trim()}`;
   }
 
-  return { task_type, route_key, model_hint, seed_message };
+  let open_surface = null;
+  const rawSurface = qs.open_surface ?? qs.openSurface ?? null;
+  if (rawSurface != null && String(rawSurface).trim() !== '') {
+    const s = String(rawSurface).trim().toLowerCase();
+    if (s === 'excalidraw' || s === 'wireframe') open_surface = s;
+  }
+
+  return { task_type, route_key, model_hint, seed_message, open_surface };
 }
 
 /**
@@ -165,6 +172,7 @@ export function mapSubagentRowToQuickstartTemplate(row) {
     seed_message: cfg.seed_message || `Quickstart: ${name}. How can I help?`,
     task_type: cfg.task_type,
     route_key: cfg.route_key,
+    open_surface: cfg.open_surface,
     subagent_slug: slug,
     sort_order: Number(row.sort_order) || 0,
     icon: String(row.icon ?? '').trim(),

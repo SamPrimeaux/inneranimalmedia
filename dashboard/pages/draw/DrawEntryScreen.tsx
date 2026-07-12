@@ -11,6 +11,7 @@ import './draw-entry.css';
 
 export type DrawEntryScreenProps = {
   onOpenCanvas: () => void;
+  onOpenWireframe?: () => void;
   onNewSketch: () => void;
   libraryPanelOpen: boolean;
   onLibraryPanelOpenChange: (open: boolean) => void;
@@ -21,6 +22,7 @@ export type DrawEntryScreenProps = {
 
 export function DrawEntryScreen({
   onOpenCanvas,
+  onOpenWireframe,
   onNewSketch,
   libraryPanelOpen,
   onLibraryPanelOpenChange,
@@ -37,7 +39,7 @@ export function DrawEntryScreen({
           </div>
           <p className="text-[15px] font-semibold text-[var(--dashboard-text)]">What should we sketch?</p>
           <p className="text-[12px] text-[var(--dashboard-muted)] leading-relaxed max-w-sm">
-            Diagrams, wireframes, and plan maps — with Agent Sam and your shape libraries.
+            Excalidraw for diagrams — or Wireframe studio for Figma-like UI mockups — with Agent Sam.
           </p>
         </header>
 
@@ -58,6 +60,7 @@ export function DrawEntryScreen({
 
         <DrawStartupChips
           onOpenCanvas={onOpenCanvas}
+          onOpenWireframe={onOpenWireframe}
           onBrowseLibraries={() => onLibraryPanelOpenChange(true)}
           onNewSketch={onNewSketch}
         />

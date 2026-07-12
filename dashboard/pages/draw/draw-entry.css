@@ -330,6 +330,37 @@
 .draw-canvas-toolbar__label {
   font-size: 0.6875rem;
   color: var(--dashboard-muted);
+  margin-left: auto;
+}
+
+.draw-engine-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--dashboard-canvas);
+}
+
+.draw-engine-toggle__btn {
+  border: none;
+  background: transparent;
+  color: var(--dashboard-muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.draw-engine-toggle__btn.is-active {
+  background: var(--dashboard-panel);
+  color: var(--dashboard-text);
+  box-shadow: 0 0 0 1px var(--dashboard-border);
+}
+
+.draw-engine-toggle__btn:hover:not(.is-active) {
+  color: var(--dashboard-text);
 }
 
 .draw-plan-templates {
