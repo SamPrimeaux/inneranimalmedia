@@ -14,6 +14,20 @@ import {
   inferIntentHeuristically,
   shouldEscalateChatIntent,
 } from '../api/agent/classify-intent.js';
+import { buildTaskSpec, taskSpecKey } from './task-spec.js';
+
+/**
+ * @param {object} partial
+ * @param {import('./task-spec.js').TaskSpec} taskSpec
+ */
+function withTaskSpec(partial, taskSpec) {
+  return {
+    ...partial,
+    taskSpec,
+    /** @deprecated use taskSpec.taskType — kept for consumers */
+    taskType: taskSpec.taskType,
+  };
+}
 
 /**
  * Prior image turn in this conversation (spine authority for revision follow-ups).
@@ -127,6 +141,14 @@ export async function resolveTurnDecision(env, message, ctx = {}, opts = {}) {
       matchedBy: 'composer_action',
       escalated: false,
     });
+    const taskSpec = buildTaskSpec({
+      taskType: 'image_generation',
+      imageFastPath: true,
+      message: m,
+      mode: 'agent',
+      confidence: 1,
+      matchedBy: 'composer_action',
+    });
     await logTurnDecision(env, {
       ...baseLog,
       task_type: 'image_generation',
@@ -135,18 +157,26 @@ export async function resolveTurnDecision(env, message, ctx = {}, opts = {}) {
       confidence: 1,
       reason: 'composer_force_image',
       latency_ms: Date.now() - t0,
-      metadata: { spine: 'turn-decision-v1', imageFastPath: true, chatTaskType: chatResult.taskType },
+      metadata: {
+        spine: 'turn-decision-v1',
+        imageFastPath: true,
+        chatTaskType: chatResult.taskType,
+        taskSpec,
+        taskSpecKey: taskSpecKey(taskSpec),
+      },
     });
-    return {
-      decisionId,
-      imageFastPath: true,
-      imageIntent: { isMatch: true, matchedBy: 'composer_action' },
-      chatResult,
-      taskType: chatResult.taskType,
-      matchedBy: 'composer_action',
-      confidence: 1,
-      escalated: false,
-    };
+    return withTaskSpec(
+      {
+        decisionId,
+        imageFastPath: true,
+        imageIntent: { isMatch: true, matchedBy: 'composer_action' },
+        chatResult,
+        matchedBy: 'composer_action',
+        confidence: 1,
+        escalated: false,
+      },
+      taskSpec,
+    );
   }
 
   if (!m) {
@@ -155,6 +185,14 @@ export async function resolveTurnDecision(env, message, ctx = {}, opts = {}) {
       matchedBy: 'empty',
       escalated: false,
     });
+    const taskSpec = buildTaskSpec({
+      taskType: chatResult.taskType,
+      imageFastPath: false,
+      message: '',
+      mode: chatResult.mode,
+      confidence: 0.5,
+      matchedBy: 'neither',
+    });
     await logTurnDecision(env, {
       ...baseLog,
       task_type: 'chat',
@@ -162,18 +200,25 @@ export async function resolveTurnDecision(env, message, ctx = {}, opts = {}) {
       is_match: false,
       reason: 'empty',
       latency_ms: Date.now() - t0,
-      metadata: { spine: 'turn-decision-v1', imageFastPath: false },
+      metadata: {
+        spine: 'turn-decision-v1',
+        imageFastPath: false,
+        taskSpec,
+        taskSpecKey: taskSpecKey(taskSpec),
+      },
     });
-    return {
-      decisionId,
-      imageFastPath: false,
-      imageIntent: { isMatch: false, matchedBy: 'neither' },
-      chatResult,
-      taskType: chatResult.taskType,
-      matchedBy: 'neither',
-      confidence: 0.5,
-      escalated: false,
-    };
+    return withTaskSpec(
+      {
+        decisionId,
+        imageFastPath: false,
+        imageIntent: { isMatch: false, matchedBy: 'neither' },
+        chatResult,
+        matchedBy: 'neither',
+        confidence: 0.5,
+        escalated: false,
+      },
+      taskSpec,
+    );
   }
 
   let imageEval = await evaluatePrimaryImageGenerationIntent(env, m, session);
@@ -239,6 +284,15 @@ export async function resolveTurnDecision(env, message, ctx = {}, opts = {}) {
   const primaryTaskType = imageFastPath ? 'image_generation' : chatResult.taskType;
   const primaryMatchedBy = imageFastPath ? imageEval.matchedBy : chatResult.matchedBy || 'keyword';
 
+  const taskSpec = buildTaskSpec({
+    taskType: primaryTaskType,
+    imageFastPath,
+    message: m,
+    mode: chatResult.mode,
+    confidence: imageFastPath ? 0.95 : chatResult.confidence,
+    matchedBy: primaryMatchedBy,
+  });
+
   await logTurnDecision(env, {
     ...baseLog,
     task_type: primaryTaskType,
@@ -261,6 +315,8 @@ export async function resolveTurnDecision(env, message, ctx = {}, opts = {}) {
       keyword_confidence: kw.confidence,
       escalated,
       final_task: chatResult.taskType,
+      taskSpec,
+      taskSpecKey: taskSpecKey(taskSpec),
     },
   });
 
@@ -271,25 +327,29 @@ export async function resolveTurnDecision(env, message, ctx = {}, opts = {}) {
       imageFastPath,
       taskType: primaryTaskType,
       chatTaskType: chatResult.taskType,
+      taskSpecKey: taskSpecKey(taskSpec),
+      toolProfile: taskSpec.toolProfile,
       matchedBy: primaryMatchedBy,
       escalated,
     }),
   );
 
-  return {
-    decisionId,
-    imageFastPath,
-    imageIntent: {
-      isMatch: imageEval.isMatch,
-      matchedBy: imageEval.matchedBy,
-      reason: imageEval.reason,
+  return withTaskSpec(
+    {
+      decisionId,
+      imageFastPath,
+      imageIntent: {
+        isMatch: imageEval.isMatch,
+        matchedBy: imageEval.matchedBy,
+        reason: imageEval.reason,
+      },
+      chatResult,
+      intent: chatResult.intent,
+      mode: chatResult.mode,
+      matchedBy: primaryMatchedBy,
+      confidence: chatResult.confidence,
+      escalated,
     },
-    chatResult,
-    taskType: chatResult.taskType,
-    intent: chatResult.intent,
-    mode: chatResult.mode,
-    matchedBy: primaryMatchedBy,
-    confidence: chatResult.confidence,
-    escalated,
-  };
+    taskSpec,
+  );
 }

@@ -28,6 +28,10 @@ import {
   shouldUseCodeDevelopToolProfile,
   compileCodeDevelopToolRows,
 } from './code-develop-tool-profile.js';
+import {
+  shouldUseInspectToolProfile,
+  compileInspectToolRows,
+} from './inspect-tool-profile.js';
 
 const TERMINAL_TOOL_NAMES = ['terminal_run', 'terminal_execute', 'run_command', 'bash'];
 
@@ -725,13 +729,25 @@ export async function compileModeProfile(env, input) {
 
   const modeToolPolicy = await loadModeToolPolicy(env, mode, { routeKey, taskType });
 
-  const useCodeDevelopProfile = shouldUseCodeDevelopToolProfile({
-    taskType,
-    routeKey,
-    routeKeyPin: input.routeKeyPin,
-    mode,
-    message,
-  });
+  const useCodeDevelopProfile =
+    input.taskSpec?.toolProfile === 'code_develop' ||
+    shouldUseCodeDevelopToolProfile({
+      taskType,
+      routeKey,
+      routeKeyPin: input.routeKeyPin,
+      mode,
+      message,
+    });
+  const useInspectProfile =
+    !useCodeDevelopProfile &&
+    (input.taskSpec?.toolProfile === 'inspect' ||
+      shouldUseInspectToolProfile({
+        taskType,
+        routeKey,
+        routeKeyPin: input.routeKeyPin,
+        mode,
+        message,
+      }));
 
   const promptRouteMax =
     promptRouteRow?.max_tools != null && String(promptRouteRow.max_tools).trim() !== ''
@@ -739,7 +755,9 @@ export async function compileModeProfile(env, input) {
       : null;
   const developModelCap = maxModelToolsForAgentTask(taskType, mode);
   const modelCap =
-    useCodeDevelopProfile || !useOAuthParity ? developModelCap : IN_APP_MCP_PARITY_TOOL_LIMIT;
+    useCodeDevelopProfile || useInspectProfile || !useOAuthParity
+      ? developModelCap
+      : IN_APP_MCP_PARITY_TOOL_LIMIT;
   const maxTools = useCodeDevelopProfile
     ? effectiveAgentChatToolCap({
         promptRouteMax,
@@ -747,14 +765,21 @@ export async function compileModeProfile(env, input) {
         modelCap: developModelCap,
         requestLimit: 20,
       })
-    : useOAuthParity
-      ? IN_APP_MCP_PARITY_TOOL_LIMIT
-      : effectiveAgentChatToolCap({
+    : useInspectProfile
+      ? effectiveAgentChatToolCap({
           promptRouteMax,
-          routeReqMax: effectiveRouteReq?.max_tools ?? routeToolRequirements?.max_tools,
-          modelCap,
-          requestLimit: 20,
-        });
+          routeReqMax: 12,
+          modelCap: 12,
+          requestLimit: 12,
+        })
+      : useOAuthParity
+        ? IN_APP_MCP_PARITY_TOOL_LIMIT
+        : effectiveAgentChatToolCap({
+            promptRouteMax,
+            routeReqMax: effectiveRouteReq?.max_tools ?? routeToolRequirements?.max_tools,
+            modelCap,
+            requestLimit: 20,
+          });
 
   /** @type {string[]} */
   let toolAllowlist = [];
@@ -848,6 +873,30 @@ export async function compileModeProfile(env, input) {
           selected: scoredRows.length,
           max_tools: maxTools,
           tools: scoredRows.map((r) => r.name || r.tool_key).filter(Boolean).slice(0, 24),
+        }),
+      );
+    } else if (useInspectProfile) {
+      const det = await compileInspectToolRows(
+        env,
+        { userId, tenantId, workspaceId },
+        { maxTools },
+      );
+      scoredRows = det.rows || [];
+      if (det.missingPinned?.length) {
+        console.warn('[runtime-profile] inspect_missing_pinned', {
+          missing: det.missingPinned,
+          pinned_count: det.pinned_count,
+        });
+      }
+      console.info(
+        '[runtime-profile] inspect_tool_profile',
+        JSON.stringify({
+          task_type: taskType,
+          route_key: routeKey,
+          pinned_count: det.pinned_count,
+          selected: scoredRows.length,
+          max_tools: maxTools,
+          tools: scoredRows.map((r) => r.name || r.tool_key).filter(Boolean).slice(0, 16),
         }),
       );
     } else if (useOAuthParity) {
@@ -982,7 +1031,16 @@ export async function compileModeProfile(env, input) {
 
   const modeContract = AGENT_MODE_CONTRACT[mode] || AGENT_MODE_CONTRACT.agent;
 
-  const writePolicy = defaultWritePolicyForMode(mode);
+  const writePolicy = useInspectProfile
+    ? {
+        can_edit_files: false,
+        can_terminal: false,
+        can_d1_write: false,
+        can_deploy: false,
+        can_browser_automation: false,
+        can_memory_write: false,
+      }
+    : defaultWritePolicyForMode(mode);
   const executionKind = resolveExecutionKind(mode);
   const modeController = resolveModeController(mode);
 
@@ -1046,10 +1104,18 @@ export async function compileModeProfile(env, input) {
       route_requirements_id: routeToolRequirements?.route_key ?? null,
       compiled_at: Math.floor(Date.now() / 1000),
       compile_lane: compileLane,
+      task_spec_key: input.taskSpec
+        ? `${input.taskSpec.domain}.${input.taskSpec.operation}`
+        : null,
+      task_spec_tool_profile: input.taskSpec?.toolProfile ?? null,
     },
     refined_route_key: refinedRouteKey,
     color: modeContract.color,
-    tool_profile: useCodeDevelopProfile ? 'code_develop' : modeContract.tool_profile,
+    tool_profile: useCodeDevelopProfile
+      ? 'code_develop'
+      : useInspectProfile
+        ? 'inspect'
+        : modeContract.tool_profile,
     tool_capable_required:
       toolAllowlist.length > 0 ||
       mode === 'agent' ||
@@ -1145,6 +1211,10 @@ export async function resolveRuntimeProfile(env, input) {
         taskType: classifiedTaskType,
         imageFastPath: precomputed.imageFastPath === true,
         matchedBy: precomputed.matchedBy ?? null,
+        taskSpecKey: precomputed.taskSpec
+          ? `${precomputed.taskSpec.domain}.${precomputed.taskSpec.operation}`
+          : null,
+        toolProfile: precomputed.taskSpec?.toolProfile ?? null,
       }),
     );
   } else if (!classifiedTaskType && message && env?.DB) {
@@ -1211,6 +1281,7 @@ export async function resolveRuntimeProfile(env, input) {
     workspaceId: session.userId ? session.workspaceId : session.workspaceId,
     userId: session.userId,
     taskType,
+    taskSpec: precomputed?.taskSpec || null,
     routeKeyPin: isProjectQnaFast ? 'project_qna_fast' : overrides.route_key,
     compile_lane: input.compile_lane || 'shadow',
     mcpOAuthParity: input.mcpOAuthParity,

@@ -47,6 +47,7 @@ ORDER BY created_at DESC LIMIT 1;
 
 ## Remaining (next tranches)
 
+- **TaskSpec (in progress):** `resolveTurnDecision` returns `taskSpec` (`domain` / `operation` / `authority` / `toolProfile` / `conceptualLane`); consumers keep `taskType` as legacy projection. Inspect profile skips OAuth dump for `project_question` / architecture asks.
 - P0#2: `code-implementation-intent.js` → consume decision only
 - P0#3: remove silent image JS veto after keyword match
 - P0#6: Design Studio pin → decision consumer

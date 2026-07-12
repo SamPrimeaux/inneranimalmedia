@@ -46,6 +46,7 @@ const NON_DEVELOP_TASK_TYPES = new Set([
   'mail_triage',
   'simple_ask_greeting',
   'project_qna_fast',
+  'project_question',
 ]);
 
 /**
