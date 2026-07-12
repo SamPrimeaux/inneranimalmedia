@@ -172,7 +172,7 @@ export function AISpendDonut() {
         color: colorForKey(r.key, i),
         key: r.key,
       }))
-    : chartRows.filter((r) => r.key !== '__other__').slice(0, 6);
+    : chartRows.filter((r) => r.key !== '__other__').slice(0, 5);
 
   const arcs = useMemo(() => buildArcs(chartRows), [chartRows]);
   const hovered = active != null ? chartRows[active] : null;
@@ -307,7 +307,7 @@ export function AISpendDonut() {
               ))}
             </div>
 
-            {source.length > 6 ? (
+            {source.length > 5 ? (
               <button
                 type="button"
                 className="iam-ai-spend__more"
