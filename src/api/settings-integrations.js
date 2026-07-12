@@ -107,6 +107,8 @@ async function getConnectedIntegrations(env, authUser) {
   const userId = await resolveIntegrationUserId(env, authUser);
   const tokProviders = new Set();
   const byokProviders = new Set();
+  /** @type {{ present: boolean, accountId: string|null, display: string|null, expired: boolean, invalidIdentifier: boolean }|null} */
+  let cfOauthHealth = null;
   if (userId && env.DB) {
     const tokenUserKeys = [userId];
     if (email && email.toLowerCase() !== userId.toLowerCase()) tokenUserKeys.push(email);
@@ -123,6 +125,51 @@ async function getConnectedIntegrations(env, authUser) {
       } catch {
         /* ignore */
       }
+    }
+    try {
+      const { looksLikeCfAccountId } = await import('../core/cf-token-account.js');
+      const oauthCf = await env.DB.prepare(
+        `SELECT account_identifier, account_display, metadata_json, expires_at, updated_at
+         FROM user_oauth_tokens
+         WHERE user_id = ? AND lower(provider) = 'cloudflare'
+         ORDER BY updated_at DESC LIMIT 1`,
+      )
+        .bind(userId)
+        .first();
+      if (oauthCf) {
+        const nowSec = Math.floor(Date.now() / 1000);
+        const exp = oauthCf.expires_at != null ? Number(oauthCf.expires_at) : null;
+        const expired = Number.isFinite(exp) && exp > 0 && exp < nowSec;
+        let accountId = null;
+        const fromTok = String(oauthCf.account_identifier || '').trim();
+        if (looksLikeCfAccountId(fromTok)) accountId = fromTok;
+        if (!accountId && oauthCf.metadata_json) {
+          try {
+            const meta = JSON.parse(String(oauthCf.metadata_json));
+            const mid = String(meta?.cloudflare_account_id || meta?.account_id || '').trim();
+            if (looksLikeCfAccountId(mid)) accountId = mid;
+          } catch {
+            /* ignore */
+          }
+        }
+        cfOauthHealth = {
+          present: true,
+          accountId,
+          display: oauthCf.account_display != null ? String(oauthCf.account_display) : null,
+          expired,
+          invalidIdentifier: !accountId,
+        };
+      } else {
+        cfOauthHealth = {
+          present: false,
+          accountId: null,
+          display: null,
+          expired: false,
+          invalidIdentifier: false,
+        };
+      }
+    } catch {
+      /* ignore */
     }
     try {
       const tenantIdForKeys = await resolveTenantIdOrFetch(env, authUser);
@@ -203,7 +250,12 @@ async function getConnectedIntegrations(env, authUser) {
     ) {
       derived_status = 'connected';
     } else if (pk === 'cloudflare_oauth' && tokProviders.has('cloudflare')) {
-      derived_status = 'connected';
+      // Row present is not enough: expired tokens / "Cloudflare" app-name identifiers need reconnect.
+      if (cfOauthHealth?.expired || cfOauthHealth?.invalidIdentifier) {
+        derived_status = 'auth_expired';
+      } else {
+        derived_status = 'connected';
+      }
     } else if (['anthropic', 'openai', 'resend', 'google_ai', 'cursor'].includes(pk)) {
       const byokSlug = integrationSlugToByokProvider(pk);
       if (
@@ -223,8 +275,11 @@ async function getConnectedIntegrations(env, authUser) {
 
     const regStatus = String(row.status || '').toLowerCase();
     let integrationError;
-    if (regStatus === 'auth_expired') integrationError = 'token_expired';
-    else if (pk === 'local_tunnel' && regStatus === 'degraded') integrationError = 'tunnel_unreachable';
+    if (regStatus === 'auth_expired' || derived_status === 'auth_expired') {
+      integrationError = 'token_expired';
+    } else if (pk === 'local_tunnel' && regStatus === 'degraded') {
+      integrationError = 'tunnel_unreachable';
+    }
 
     const lastVerified =
       typeof cfg.last_verified_at === 'number' && Number.isFinite(cfg.last_verified_at)
@@ -345,27 +400,8 @@ async function getConnectedIntegrations(env, authUser) {
     try {
       const { looksLikeCfAccountId } = await import('../core/cf-token-account.js');
       const { readUserCfStackSettings } = await import('../core/account-cloudflare-context.js');
-      const oauthCf = await env.DB.prepare(
-        `SELECT account_identifier, account_display, metadata_json, updated_at
-         FROM user_oauth_tokens
-         WHERE user_id = ? AND lower(provider) = 'cloudflare'
-         ORDER BY updated_at DESC LIMIT 1`,
-      )
-        .bind(userId)
-        .first();
       const stack = await readUserCfStackSettings(env, userId);
-      let cfAccountId = null;
-      const fromTok = String(oauthCf?.account_identifier || '').trim();
-      if (looksLikeCfAccountId(fromTok)) cfAccountId = fromTok;
-      if (!cfAccountId && oauthCf?.metadata_json) {
-        try {
-          const meta = JSON.parse(String(oauthCf.metadata_json));
-          const mid = String(meta?.cloudflare_account_id || meta?.account_id || '').trim();
-          if (looksLikeCfAccountId(mid)) cfAccountId = mid;
-        } catch {
-          /* ignore */
-        }
-      }
+      let cfAccountId = cfOauthHealth?.accountId || null;
       const fromSettings = String(stack?.cf_account_id || '').trim();
       if (!cfAccountId && looksLikeCfAccountId(fromSettings)) cfAccountId = fromSettings;
 
@@ -378,14 +414,17 @@ async function getConnectedIntegrations(env, authUser) {
           cloudflare_account_id: cfAccountId,
           account_display:
             item.connection?.account_display ||
-            (oauthCf?.account_display != null ? String(oauthCf.account_display) : null) ||
+            cfOauthHealth?.display ||
             (cfAccountId ? 'Cloudflare account' : null),
         };
         if (item.integration_status && typeof item.integration_status === 'object') {
           item.integration_status = {
             ...item.integration_status,
             cloudflare_account_id: cfAccountId,
-            oauth_token_present: Boolean(oauthCf),
+            oauth_token_present: Boolean(cfOauthHealth?.present),
+            reconnect_required: Boolean(
+              cfOauthHealth?.expired || cfOauthHealth?.invalidIdentifier,
+            ),
           };
         }
       }
