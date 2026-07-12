@@ -673,7 +673,7 @@ export async function handleCalendarApi(request, url, env, ctx) {
           tenantId,
           workspaceId,
           projectRef: projectId,
-          source: 'timer',
+          source: 'auto',
         });
         if (!out.ok) return jsonResponse(out, 400);
         return jsonResponse({

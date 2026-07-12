@@ -11,6 +11,20 @@ export function userIdVariants(userId) {
   return [...new Set([uid, base, `user_${base}`].filter(Boolean))];
 }
 
+/**
+ * D1 CHECK: source IN ('auto','manual','derived','import','backtrack').
+ * Legacy callers used 'timer' / 'heartbeat' — map those to 'auto'.
+ * @param {string|null|undefined} source
+ */
+export function normalizeTimeEntrySource(source) {
+  const s = String(source || '').trim().toLowerCase();
+  if (s === 'manual' || s === 'derived' || s === 'import' || s === 'backtrack' || s === 'auto') {
+    return s;
+  }
+  // timer / heartbeat / unknown → autonomous tracking
+  return 'auto';
+}
+
 /** @param {Record<string, unknown>|null|undefined} row @param {number} [nowSec] */
 export function entryDurationSeconds(row, nowSec = Math.floor(Date.now() / 1000)) {
   if (!row) return 0;
@@ -221,7 +235,7 @@ export async function startProjectTimer(env, p) {
     description,
     resolved.rateCents,
     now,
-    p.source || 'timer',
+    normalizeTimeEntrySource(p.source || 'auto'),
     p.billable != null ? p.billable : resolved.billable,
   ).run();
 
@@ -311,7 +325,7 @@ export async function heartbeatActiveTimer(env, p) {
   for (const uid of ids) {
     activeRow = await env.DB.prepare(
       `SELECT id, project_id, description, started_at FROM time_entries
-       WHERE user_id = ? AND ended_at IS NULL AND source IN ('timer', 'heartbeat', 'manual')
+       WHERE user_id = ? AND ended_at IS NULL AND source IN ('auto', 'manual')
        ORDER BY started_at DESC LIMIT 1`,
     ).bind(uid).first().catch(() => null);
     if (activeRow) break;
@@ -345,7 +359,7 @@ export async function heartbeatActiveTimer(env, p) {
     workspaceId: p.workspaceId ?? null,
     projectRef: canonicalProject === '_session' ? 'inneranimalmedia' : canonicalProject,
     description,
-    source: 'heartbeat',
+    source: 'auto',
   });
   return { ok: true, ...started, running: true };
 }
