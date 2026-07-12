@@ -22,6 +22,7 @@ Consumers must not re-regex for authority. Bootstrap regex (`inferIntentHeuristi
 | ID | Prompt | Pass | Fail |
 |----|--------|------|------|
 | G1 | Generate an image of a red barn | `task_type=image_generation`, image fast path | Chat-only |
+| G1b | Same thread: edit it to be a blue barn | `matched_by=revision_followup` (or keyword), image fast path | `cms_edit` / chat-only |
 | G2 | Open tickets playbook + tkt_* paste | `task_type=chat`, NOT image | Gemini image error |
 | G3 | create a site plan image | image path | code rejection |
 | G4 | create a Next.js site with auth | code/agent tools | image fast path |

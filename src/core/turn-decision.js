@@ -5,8 +5,7 @@
 import { stripUserTextForIntent } from './active-file-envelope.js';
 import {
   evaluatePrimaryImageGenerationIntent,
-  isEngineeringTicketOrPlaybookDump,
-  isExplicitImagePlanningIntent,
+  isImageRevisionFollowUpCue,
 } from './image-intent-gate.js';
 import {
   buildClassifyResult,
@@ -15,6 +14,34 @@ import {
   inferIntentHeuristically,
   shouldEscalateChatIntent,
 } from '../api/agent/classify-intent.js';
+
+/**
+ * Prior image turn in this conversation (spine authority for revision follow-ups).
+ * @param {unknown} env
+ * @param {string|null|undefined} conversationId
+ * @returns {Promise<boolean>}
+ */
+async function conversationHasRecentImageGeneration(env, conversationId) {
+  const cid = conversationId != null ? String(conversationId).trim() : '';
+  if (!cid || !env?.DB) return false;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT id FROM agentsam_intent_decisions
+       WHERE conversation_id = ?
+         AND task_type = 'image_generation'
+         AND is_match = 1
+         AND created_at >= unixepoch() - 7200
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    )
+      .bind(cid)
+      .first();
+    return !!(row && row.id);
+  } catch (e) {
+    console.warn('[turn-decision] prior image lookup failed', e?.message ?? e);
+    return false;
+  }
+}
 
 /**
  * @param {unknown} env
@@ -149,7 +176,20 @@ export async function resolveTurnDecision(env, message, ctx = {}, opts = {}) {
     };
   }
 
-  const imageEval = await evaluatePrimaryImageGenerationIntent(env, m, session);
+  let imageEval = await evaluatePrimaryImageGenerationIntent(env, m, session);
+
+  // Same-thread revision: prior image_generation + "edit it / make it blue" must stay on image path
+  // (otherwise chat classifier invents cms_edit / code).
+  if (!imageEval.isMatch && isImageRevisionFollowUpCue(m)) {
+    const priorImage = await conversationHasRecentImageGeneration(env, session.conversationId);
+    if (priorImage) {
+      imageEval = {
+        isMatch: true,
+        matchedBy: 'revision_followup',
+        reason: 'prior_image_generation_in_conversation',
+      };
+    }
+  }
 
   let kw;
   try {
@@ -163,10 +203,18 @@ export async function resolveTurnDecision(env, message, ctx = {}, opts = {}) {
       : inferIntentHeuristically(raw);
   }
 
-  let finalKw = kw;
+  // When image fast path wins, do not let chat escalate invent cms_edit / skill_use.
+  let finalKw = imageEval.isMatch
+    ? {
+        taskType: 'image_generation',
+        mode: 'agent',
+        confidence: 0.95,
+        matchedBy: imageEval.matchedBy || 'keyword',
+      }
+    : kw;
   let escalated = false;
 
-  if (!opts.skipChatEscalate && shouldEscalateChatIntent(raw, kw)) {
+  if (!imageEval.isMatch && !opts.skipChatEscalate && shouldEscalateChatIntent(raw, kw)) {
     escalated = true;
     const classified = await classifyIntentWithModel(env, raw, {
       userId: session.userId,

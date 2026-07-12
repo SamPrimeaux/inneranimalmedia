@@ -18,6 +18,36 @@ const PLANNING_RE =
   /\b(make|create|write|build|draft)\s+(a\s+)?plan\b|\bplan\s+(for|to)\b|\b(roadmap|strategy|breakdown)\b.*\b(campaign|branding|workflow|multi[- ]?step)\b/i;
 
 /**
+ * Same-thread image revision cues ("make it blue", "edit it to be a red barn").
+ * Alone these are weak; with a prior image_generation decision in the conversation they win.
+ * @param {string} m
+ */
+export function isImageRevisionFollowUpCue(m) {
+  const text = String(m || '').trim();
+  if (!text || text.length > 800) return false;
+  if (isEngineeringTicketOrPlaybookDump(text)) return false;
+  if (isExplicitImagePlanningIntent(text)) return false;
+  // Pronoun / deictic revision of a prior visual
+  if (
+    /\b(edit|change|modify|adjust|alter|tweak|update|recolor|repaint|redo)\b.{0,40}\b(it|this|that|the\s+(barn|image|photo|picture|render|logo|poster|banner|illustration))\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(make|turn|paint|color)\s+(it|this|that)\b.{0,48}\b(blue|red|green|warmer|cooler|darker|lighter|brighter|bigger|smaller|wider|taller)\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  if (/\b(make\s+it|change\s+it\s+to|edit\s+it\s+to)\b/i.test(text)) return true;
+  if (/\b(more|less)\s+(contrast|saturation|detail|shadows?|warmth)\b/i.test(text)) return true;
+  return false;
+}
+
+/**
  * Pasted ticket playbooks / engineering dumps mention "image" + "generate" many times
  * but are not creative image asks — must not take the Gemini fast path.
  * @param {string} m
@@ -69,7 +99,10 @@ function matchesKeywordPrimary(m, kw) {
   if (/^(what|how|why|when|where|explain|describe|define)\b/i.test(m) && !kw.verbRe.test(m)) {
     return false;
   }
-  if (/\b(edit|modify|change|upscale|remove\s+background|inpaint|outpaint)\b/i.test(m) && kw.nounRe.test(m)) {
+  if (
+    /\b(edit|modify|change|upscale|remove\s+background|inpaint|outpaint|recolor)\b/i.test(m) &&
+    (kw.nounRe.test(m) || isImageRevisionFollowUpCue(m))
+  ) {
     return true;
   }
   if (/\b(hero\s+image|dashboard\s+hero|landing\s+page\s+hero|hero\s+banner|hero\s+section)\b/i.test(m)) {
@@ -104,6 +137,7 @@ function shouldEscalateToClassifier(m, kw) {
   if (words < 4) return false;
   if (kw.verbRe.test(m)) return true;
   if (kw.escalateRe && kw.escalateRe.test(m)) return true;
+  if (isImageRevisionFollowUpCue(m)) return true;
   // Descriptive "of a …" creatives without listed noun (the photo/mug class of bugs)
   if (/\b(of|showing|featuring)\s+(a|an|the)\b/i.test(m) && words >= 6) return true;
   if (/\b(clean|cinematic|product|brand|mockup|lifestyle)\b/i.test(m) && words >= 6) return true;
