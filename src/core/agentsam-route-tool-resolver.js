@@ -15,6 +15,7 @@
  */
 
 import { pragmaTableInfo } from './retention.js';
+import { CODE_DEVELOP_ROUTE_KEYS, CODE_DEVELOP_TASK_TYPES } from './code-develop-tool-profile.js';
 
 /** @typedef {{
  *   route_key: string,
@@ -483,6 +484,27 @@ export function effectiveAgentChatToolCap(p) {
 }
 
 /**
+ * Route requirements lookup key — develop task types must not collapse to mode=agent.
+ * @param {string} modeSlug
+ * @param {string|null|undefined} routeKey
+ * @param {string|null|undefined} taskType
+ */
+function resolveRouteRequirementsLookupKey(modeSlug, routeKey, taskType) {
+  const mode = String(modeSlug || '').trim().toLowerCase();
+  const rk = routeKey != null ? String(routeKey).trim().toLowerCase() : '';
+  const tt = taskType != null ? String(taskType).trim().toLowerCase() : '';
+  if (CODE_DEVELOP_ROUTE_KEYS.has(rk)) return rk;
+  if (
+    (mode === 'agent' || mode === 'multitask' || mode === 'debug' || mode === 'plan') &&
+    CODE_DEVELOP_TASK_TYPES.has(tt)
+  ) {
+    return tt;
+  }
+  if (mode === 'agent' || mode === 'multitask' || mode === 'debug' || mode === 'plan') return mode;
+  return rk || tt || 'chat';
+}
+
+/**
  * @param {any} env
  * @param {{ routeKey?: string|null, taskType?: string|null, modeSlug?: string|null }} q
  * @returns {Promise<RouteToolRequirements>}
@@ -490,13 +512,9 @@ export function effectiveAgentChatToolCap(p) {
 export async function resolveAgentChatRouteToolRequirements(env, q) {
   const modeSlug = q.modeSlug != null ? String(q.modeSlug).trim().toLowerCase() : '';
   const routeKeyRaw =
-    modeSlug === 'agent' || modeSlug === 'multitask' || modeSlug === 'debug' || modeSlug === 'plan'
-      ? modeSlug
-      : q.routeKey != null
-        ? String(q.routeKey).trim().toLowerCase()
-        : '';
+    q.routeKey != null ? String(q.routeKey).trim().toLowerCase() : '';
   const taskTypeRaw = q.taskType != null ? String(q.taskType).trim().toLowerCase() : '';
-  const lookup = routeKeyRaw || taskTypeRaw || 'chat';
+  const lookup = resolveRouteRequirementsLookupKey(modeSlug, routeKeyRaw, taskTypeRaw);
   const base = defaultForKey(lookup);
 
   let d1Row = null;
@@ -504,7 +522,7 @@ export async function resolveAgentChatRouteToolRequirements(env, q) {
   if (env?.DB) {
     const cols = await pragmaTableInfo(env.DB, 'agentsam_route_requirements');
     if (cols.has('route_key')) {
-      const bindKey = routeKeyRaw || taskTypeRaw;
+      const bindKey = lookup;
       if (bindKey) {
         d1Row = await env.DB
           .prepare(`SELECT * FROM agentsam_route_requirements WHERE route_key = ? LIMIT 1`)

@@ -147,6 +147,25 @@ export function resolveDashboardRouteAgentContext(opts: {
     };
   }
 
+  if (path.startsWith('/dashboard/agent/editor') || path.startsWith('/dashboard/agent/workspace')) {
+    return {
+      route_key: 'agent_code',
+      context_label: path.startsWith('/dashboard/agent/editor') ? 'Agent · Editor' : 'Agent · Workspace',
+      contextMode: 'agent_code',
+      workspaceContext: basePacket,
+      quickActions: [
+        {
+          id: 'agent-code-scratch',
+          label: 'Scratch file edit',
+          message:
+            'List files matching a path I specify, then make a small test edit under .scratch/ and show the diff.',
+          route_key: 'agent_code',
+          task_type: 'code',
+        },
+      ],
+    };
+  }
+
   if (path.startsWith('/dashboard/agent')) {
     const tab = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search).get('tab');
     const cms = opts.cmsContext;

@@ -24,6 +24,10 @@ import {
 import { RUNTIME_PROFILE_VERSION } from './runtime-profile.types.js';
 import { messageHasBrowserUrlNavigation } from '../api/agent/classify-intent.js';
 import { IN_APP_MCP_PARITY_TOOL_LIMIT } from './in-app-mcp-oauth-parity.js';
+import {
+  shouldUseCodeDevelopToolProfile,
+  compileCodeDevelopToolRows,
+} from './code-develop-tool-profile.js';
 
 const TERMINAL_TOOL_NAMES = ['terminal_run', 'terminal_execute', 'run_command', 'bash'];
 
@@ -721,21 +725,36 @@ export async function compileModeProfile(env, input) {
 
   const modeToolPolicy = await loadModeToolPolicy(env, mode, { routeKey, taskType });
 
+  const useCodeDevelopProfile = shouldUseCodeDevelopToolProfile({
+    taskType,
+    routeKey,
+    routeKeyPin: input.routeKeyPin,
+    mode,
+    message,
+  });
+
   const promptRouteMax =
     promptRouteRow?.max_tools != null && String(promptRouteRow.max_tools).trim() !== ''
       ? Number(promptRouteRow.max_tools)
       : null;
-  const modelCap = useOAuthParity
-    ? IN_APP_MCP_PARITY_TOOL_LIMIT
-    : maxModelToolsForAgentTask(taskType, mode);
-  const maxTools = useOAuthParity
-    ? IN_APP_MCP_PARITY_TOOL_LIMIT
-    : effectiveAgentChatToolCap({
+  const developModelCap = maxModelToolsForAgentTask(taskType, mode);
+  const modelCap =
+    useCodeDevelopProfile || !useOAuthParity ? developModelCap : IN_APP_MCP_PARITY_TOOL_LIMIT;
+  const maxTools = useCodeDevelopProfile
+    ? effectiveAgentChatToolCap({
         promptRouteMax,
         routeReqMax: effectiveRouteReq?.max_tools ?? routeToolRequirements?.max_tools,
-        modelCap,
+        modelCap: developModelCap,
         requestLimit: 20,
-      });
+      })
+    : useOAuthParity
+      ? IN_APP_MCP_PARITY_TOOL_LIMIT
+      : effectiveAgentChatToolCap({
+          promptRouteMax,
+          routeReqMax: effectiveRouteReq?.max_tools ?? routeToolRequirements?.max_tools,
+          modelCap,
+          requestLimit: 20,
+        });
 
   /** @type {string[]} */
   let toolAllowlist = [];
@@ -799,6 +818,36 @@ export async function compileModeProfile(env, input) {
         JSON.stringify({
           route_key: exemptAllowlistKeyEarly,
           pinned: scoredRows.map((r) => r.name || r.tool_key).filter(Boolean),
+        }),
+      );
+    } else if (useCodeDevelopProfile) {
+      const det = await compileCodeDevelopToolRows(
+        env,
+        { userId, tenantId, workspaceId, isSuperadmin },
+        {
+          maxTools,
+          taskType,
+          modeSlug: mode,
+          message,
+          routeToolRequirements: effectiveRouteReq || routeToolRequirements,
+        },
+      );
+      scoredRows = det.rows || [];
+      if (det.missingPinned?.length) {
+        console.warn('[runtime-profile] code_develop_missing_pinned', {
+          missing: det.missingPinned,
+          pinned_count: det.pinned_count,
+        });
+      }
+      console.info(
+        '[runtime-profile] code_develop_tool_profile',
+        JSON.stringify({
+          task_type: taskType,
+          route_key: routeKey,
+          pinned_count: det.pinned_count,
+          selected: scoredRows.length,
+          max_tools: maxTools,
+          tools: scoredRows.map((r) => r.name || r.tool_key).filter(Boolean).slice(0, 24),
         }),
       );
     } else if (useOAuthParity) {
@@ -1000,7 +1049,7 @@ export async function compileModeProfile(env, input) {
     },
     refined_route_key: refinedRouteKey,
     color: modeContract.color,
-    tool_profile: modeContract.tool_profile,
+    tool_profile: useCodeDevelopProfile ? 'code_develop' : modeContract.tool_profile,
     tool_capable_required:
       toolAllowlist.length > 0 ||
       mode === 'agent' ||
