@@ -10,13 +10,14 @@ import { listTerminalWorkspaceSessions } from '../src/lib/terminalWorkspacePrefs
 
 export type SplashAction = 'local' | 'cloud' | 'sandbox' | 'sdk';
 
+/** Full composite asset; CSS crops to gorilla + logo only (no baked Start/HUD). */
 const SPLASH_IMG = `${import.meta.env.BASE_URL}terminal/gorilla-splash.png`;
 
-const LANE_OPTIONS: { action: SplashAction; label: string }[] = [
-  { action: 'local', label: 'Local' },
-  { action: 'cloud', label: 'VM' },
-  { action: 'sandbox', label: 'Container' },
-  { action: 'sdk', label: 'SDK' },
+const LANE_OPTIONS: { action: SplashAction; label: string; hint: string }[] = [
+  { action: 'local', label: 'Local', hint: 'Your machine' },
+  { action: 'cloud', label: 'VM', hint: 'GCP remote' },
+  { action: 'sandbox', label: 'Container', hint: 'CF sandbox' },
+  { action: 'sdk', label: 'SDK', hint: 'agentsam CLI' },
 ];
 
 function laneToneColor(tone: SplashLaneTone): string {
@@ -43,23 +44,17 @@ function StatusCell({
 }) {
   const isWorkspace = variant === 'workspace';
   const primary = isWorkspace && lane.name ? lane.name : lane.value;
-  const secondary = isWorkspace
-    ? lane.value
-    : lane.cwd
-      ? lane.cwd
-      : lane.detail;
+  const secondary = isWorkspace ? lane.value : lane.cwd ? lane.cwd : lane.detail;
 
   return (
     <div
       className="iam-terminal-splash-status-cell"
       style={{
-        flex: '1 1 0',
         minWidth: 0,
         display: 'flex',
         alignItems: 'center',
         gap: '8px',
-        padding: '0 12px',
-        borderRight: '1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent)',
+        padding: '8px 10px',
       }}
     >
       <Icon size={14} strokeWidth={1.75} style={{ color: 'var(--solar-cyan)', flexShrink: 0 }} />
@@ -215,24 +210,53 @@ export function TerminalWelcomeSplash({
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '20px 16px 12px',
-          gap: '20px',
+          padding: '16px 16px 8px',
+          gap: '16px',
+          overflow: 'auto',
         }}
       >
-        <img
-          src={SPLASH_IMG}
-          alt="Inner Animal Media"
+        {/* Crop composite PNG: show gorilla + logo only (top ~48%). */}
+        <div
+          aria-hidden
           style={{
-            width: 'min(520px, 100%)',
-            height: 'auto',
-            maxHeight: 'min(42vh, 280px)',
-            objectFit: 'contain',
-            imageRendering: 'pixelated',
-            userSelect: 'none',
-            pointerEvents: 'none',
+            width: 'min(480px, 92%)',
+            maxHeight: 'min(28vh, 200px)',
+            aspectRatio: '1024 / 320',
+            overflow: 'hidden',
+            borderRadius: '4px',
+            flexShrink: 0,
           }}
-          draggable={false}
-        />
+        >
+          <img
+            src={SPLASH_IMG}
+            alt=""
+            style={{
+              width: '100%',
+              height: 'auto',
+              display: 'block',
+              objectFit: 'cover',
+              objectPosition: 'top center',
+              imageRendering: 'pixelated',
+              userSelect: 'none',
+              pointerEvents: 'none',
+              transform: 'scale(1)',
+              transformOrigin: 'top center',
+            }}
+            draggable={false}
+          />
+        </div>
+        <div
+          style={{
+            fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+            fontSize: 'clamp(14px, 2.5vw, 18px)',
+            fontWeight: 700,
+            letterSpacing: '0.12em',
+            color: 'var(--solar-yellow, #b58900)',
+            textAlign: 'center',
+          }}
+        >
+          INNER ANIMAL MEDIA
+        </div>
 
         {!showLanes ? (
           <button
@@ -243,23 +267,23 @@ export function TerminalWelcomeSplash({
               alignItems: 'center',
               gap: '10px',
               background: 'transparent',
-              border: 'none',
+              border: '1px solid color-mix(in srgb, var(--solar-yellow, #b58900) 45%, transparent)',
               cursor: 'pointer',
               fontFamily: '"JetBrains Mono", "Fira Code", "SF Mono", monospace',
-              fontSize: 'clamp(22px, 4vw, 32px)',
+              fontSize: 'clamp(18px, 3.2vw, 26px)',
               fontWeight: 700,
               color: 'var(--solar-yellow, #b58900)',
               letterSpacing: '0.02em',
-              padding: '8px 12px',
+              padding: '10px 18px',
               borderRadius: '6px',
             }}
             className="hover:bg-[var(--bg-hover)]/30 transition-colors"
           >
             Start
-            <Play size={22} fill="currentColor" strokeWidth={0} style={{ color: 'var(--solar-cyan)' }} />
+            <Play size={20} fill="currentColor" strokeWidth={0} style={{ color: 'var(--solar-cyan)' }} />
           </button>
         ) : (
-          <div style={{ width: 'min(320px, 100%)' }}>
+          <div style={{ width: 'min(360px, 100%)' }}>
             <div
               style={{
                 fontSize: '10px',
@@ -273,7 +297,7 @@ export function TerminalWelcomeSplash({
               Choose lane
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              {LANE_OPTIONS.map(({ action, label }, index) => (
+              {LANE_OPTIONS.map(({ action, label, hint }, index) => (
                 <button
                   key={action}
                   type="button"
@@ -288,15 +312,22 @@ export function TerminalWelcomeSplash({
                     color: 'var(--text-main)',
                     padding: '10px 8px',
                     display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    gap: '2px',
+                    textAlign: 'left',
                   }}
                   className="hover:border-[var(--solar-cyan)]/50 transition-colors"
                 >
-                  <span style={{ color: 'var(--solar-yellow)', fontWeight: 700, minWidth: '16px' }}>
-                    {index + 1}
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ color: 'var(--solar-yellow)', fontWeight: 700, minWidth: '16px' }}>
+                      {index + 1}
+                    </span>
+                    {label}
                   </span>
-                  {label}
+                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', paddingLeft: '24px' }}>
+                    {hint}
+                  </span>
                 </button>
               ))}
             </div>
@@ -325,8 +356,11 @@ export function TerminalWelcomeSplash({
               margin: 0,
               fontSize: '11px',
               color: 'var(--text-muted)',
-              opacity: 0.65,
+              opacity: 0.7,
               fontFamily: '"JetBrains Mono", monospace',
+              textAlign: 'center',
+              maxWidth: '360px',
+              lineHeight: 1.45,
             }}
           >
             Enter to start ·{' '}
@@ -346,6 +380,11 @@ export function TerminalWelcomeSplash({
             >
               pick lane
             </button>
+            <br />
+            Local device:{' '}
+            <code style={{ fontSize: '10px', opacity: 0.9 }}>npx agentsam start-local</code>
+            {' · '}
+            <code style={{ fontSize: '10px', opacity: 0.9 }}>npx agentsam tunnel</code>
           </p>
         )}
       </div>
@@ -358,19 +397,17 @@ export function TerminalWelcomeSplash({
         }}
       >
         <div
+          className="iam-terminal-splash-hud"
           style={{
-            display: 'flex',
-            alignItems: 'stretch',
-            minHeight: '52px',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
             fontFamily: '"JetBrains Mono", monospace',
           }}
         >
           <StatusCell icon={FolderOpen} lane={lanes.workspace} variant="workspace" />
           <StatusCell icon={Cloud} lane={lanes.runtime} />
           <StatusCell icon={Network} lane={lanes.tunnel} />
-          <div style={{ flex: '1 1 0', minWidth: 0, borderRight: 'none' }}>
-            <StatusCell icon={Bot} lane={lanes.agent} />
-          </div>
+          <StatusCell icon={Bot} lane={lanes.agent} />
         </div>
         {otherSessions.length > 0 ? (
           <div
@@ -421,8 +458,10 @@ export function TerminalWelcomeSplash({
         @keyframes iam-splash-blink {
           50% { opacity: 0; }
         }
-        .iam-terminal-splash-status-cell:last-child > div {
-          border-right: none;
+        @media (min-width: 640px) {
+          .iam-terminal-splash-hud {
+            grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+          }
         }
       `}</style>
     </div>

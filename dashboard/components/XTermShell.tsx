@@ -1091,23 +1091,8 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                 <div
                   className={`relative iam-terminal-chrome-fill ${splitEnabled ? 'md:w-1/2 md:max-w-[50%]' : 'w-full'}`}
                 >
-                  {/* Match OUTPUT/PROBLEMS geometry: explicit filled box so xterm FitAddon gets non-zero height */}
-                  <div className="absolute inset-0 flex flex-col min-h-0 min-w-0">
-                    <TerminalSessionPane
-                      ref={primaryPaneRef}
-                      workspaceId={workspaceId}
-                      targetType={terminalTarget}
-                      shell={shellPref}
-                      ptySlot=""
-                      visible={terminalAreaVisible}
-                      connectEnabled={terminalConnectEnabled}
-                      onConnectionChange={setPrimaryStatus}
-                      onSessionIdChange={setPrimarySessionId}
-                      onTerminalOutputLine={onOutputLine}
-                      onHardFailure={handleTerminalHardFailure}
-                    />
-                  </div>
-                  {showSplash && showIamWelcomeBar && (
+                  {/* xterm only after splash — avoids FitAddon/zero-size + ghost ANSI under the overlay */}
+                  {showSplash && showIamWelcomeBar ? (
                     <TerminalWelcomeSplash
                       workspaceId={workspaceId}
                       workspaceLabel={workspaceLabel}
@@ -1115,6 +1100,22 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                       splashStatusLoading={splashStatusLoading}
                       onAction={handleSplashAction}
                     />
+                  ) : (
+                    <div className="absolute inset-0 flex flex-col min-h-0 min-w-0">
+                      <TerminalSessionPane
+                        ref={primaryPaneRef}
+                        workspaceId={workspaceId}
+                        targetType={terminalTarget}
+                        shell={shellPref}
+                        ptySlot=""
+                        visible={terminalAreaVisible}
+                        connectEnabled={terminalConnectEnabled}
+                        onConnectionChange={setPrimaryStatus}
+                        onSessionIdChange={setPrimarySessionId}
+                        onTerminalOutputLine={onOutputLine}
+                        onHardFailure={handleTerminalHardFailure}
+                      />
+                    </div>
                   )}
                 </div>
 

@@ -6,6 +6,8 @@
  * POST /api/sdk/auth/exchange
  * GET  /api/sdk/context
  * POST /api/sdk/scaffold  (NDJSON stream)
+ * POST /api/sdk/terminal/register-local
+ * POST /api/sdk/terminal/tunnel/provision
  */
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
@@ -328,6 +330,124 @@ async function handleSdkScaffold(request, env) {
   });
 }
 
+/**
+ * Register a user-hosted local PTY tunnel URL for the SDK caller.
+ * POST /api/sdk/terminal/register-local  { ws_url, platform?, shell? }
+ */
+async function handleSdkRegisterLocal(request, env) {
+  const authUser = await authUserFromSdkBearer(env, request);
+  if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+  const workspaceId = trim(authUser.workspace_id);
+  if (!workspaceId) return jsonResponse({ error: 'workspace_context_missing' }, 400);
+
+  let body = {};
+  try {
+    body = await request.json();
+  } catch (_) {}
+
+  const {
+    provisionUserHostedTunnelConnection,
+    activateUserHostedTunnelConnection,
+  } = await import('../core/terminal.js');
+
+  const provisioned = await provisionUserHostedTunnelConnection(env, authUser, workspaceId, {
+    platform: body?.platform,
+    shell: body?.shell,
+  });
+  if (!provisioned.ok) {
+    return jsonResponse(
+      { error: provisioned.error, detail: provisioned.detail ?? null },
+      provisioned.status || 500,
+    );
+  }
+
+  const activated = await activateUserHostedTunnelConnection(env, authUser, workspaceId, {
+    connection_id: provisioned.connection?.id,
+    ws_url: body?.ws_url,
+  });
+  if (!activated.ok) {
+    return jsonResponse({ error: activated.error }, activated.status || 500);
+  }
+
+  return jsonResponse({
+    ok: true,
+    connection: activated.connection,
+    provisioned: provisioned.created === true,
+  });
+}
+
+/**
+ * Named CF tunnel provision (BYOK) for SDK CLI.
+ * POST /api/sdk/terminal/tunnel/provision
+ */
+async function handleSdkTunnelProvision(request, env) {
+  const authUser = await authUserFromSdkBearer(env, request);
+  if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+  const workspaceId = trim(authUser.workspace_id);
+  if (!workspaceId) return jsonResponse({ error: 'workspace_context_missing' }, 400);
+
+  let body = {};
+  try {
+    body = await request.json();
+  } catch (_) {}
+
+  const tunnelName = trim(body?.tunnel_name);
+  const hostname = trim(body?.hostname);
+  const zoneId = trim(body?.zone_id);
+  if (!tunnelName || !hostname || !zoneId) {
+    return jsonResponse({ error: 'tunnel_name, hostname, and zone_id required' }, 400);
+  }
+
+  const tenantId = await resolvePtyTenantIdForUser(env, authUser, authUser.id);
+  if (!tenantId) return jsonResponse({ error: 'tenant_missing' }, 403);
+
+  const { resolveWorkspaceCloudflareCredentials } = await import(
+    '../core/workspace-cloudflare-credentials.js'
+  );
+  const creds = await resolveWorkspaceCloudflareCredentials(
+    env,
+    authUser.id,
+    tenantId,
+    workspaceId,
+  );
+  if (!creds.ok || !creds.token) {
+    return jsonResponse(
+      {
+        error: 'cloudflare_credentials_required',
+        message: 'Connect Cloudflare OAuth in the IAM dashboard (or set a CF API token) first.',
+      },
+      400,
+    );
+  }
+
+  const { provisionPtyTunnel } = await import('../core/pty-tunnel-provisioner.js');
+  const result = await provisionPtyTunnel(env, {
+    userId: authUser.id,
+    tenantId,
+    workspaceId,
+    tunnelName,
+    hostname,
+    zoneId,
+    port: body?.port ?? 3099,
+    platform: body?.platform,
+    shell: body?.shell,
+  });
+  if (!result.ok) {
+    return jsonResponse(
+      { error: result.error, step_failed: result.step_failed ?? null },
+      500,
+    );
+  }
+  return jsonResponse({
+    ok: true,
+    tunnel_id: result.tunnel_id,
+    hostname: result.hostname,
+    ws_url: result.ws_url,
+    connection_id: result.connection_id,
+    run_token: result.run_token,
+  });
+}
+
 export async function handleSdkApi(request, url, env, ctx) {
   const path = url.pathname;
   const method = request.method.toUpperCase();
@@ -360,6 +480,12 @@ export async function handleSdkApi(request, url, env, ctx) {
   }
   if (path === '/api/sdk/scaffold' && method === 'POST') {
     return handleSdkScaffold(request, env);
+  }
+  if (path === '/api/sdk/terminal/register-local' && method === 'POST') {
+    return handleSdkRegisterLocal(request, env);
+  }
+  if (path === '/api/sdk/terminal/tunnel/provision' && method === 'POST') {
+    return handleSdkTunnelProvision(request, env);
   }
 
   return jsonResponse({ error: 'Not found', path }, 404);
