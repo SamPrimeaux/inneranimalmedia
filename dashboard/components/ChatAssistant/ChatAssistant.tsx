@@ -4045,7 +4045,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                     setIsModeOpen(false);
                     setAttachMenuOpen(false);
                   }}
-                  className={`${composerPillClass} max-w-[10rem]`}
+                  className={`${composerPillClass} max-w-[10rem] ${isNarrow && isLoading ? 'hidden' : ''}`}
                   title={
                     isAutoModelSelection(selectedModelKey)
                       ? 'Model: Auto (Thompson routing)'
@@ -4053,19 +4053,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   }
                   aria-expanded={isModelPickerOpen}
                   aria-haspopup="listbox"
+                  aria-hidden={isNarrow && isLoading ? true : undefined}
+                  tabIndex={isNarrow && isLoading ? -1 : undefined}
                 >
                   <span className="truncate">{modelPickerLabel}</span>
                   <ChevronDown size={12} className="shrink-0 opacity-60" />
                 </button>
               </div>
               <div className="flex items-center gap-1.5 shrink-0 min-w-0">
-                <AgentRunChip
-                  isLoading={isLoading}
-                  modelKey={displayRunModel}
-                  toolName={runningToolName}
-                  startedAt={loadingStartedAt}
-                  className="inline-flex max-w-[11rem] sm:max-w-[13rem]"
-                />
                 <AgentComposerMicButton onTranscript={appendSpeechToInput} disabled={isLoading} />
                 <button
                   type="button"
@@ -4134,6 +4129,13 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               </div>
             </div>
           </div>
+          <AgentRunChip
+            isLoading={isLoading}
+            modelKey={displayRunModel}
+            idleLabel={modelPickerLabel}
+            toolName={runningToolName}
+            startedAt={loadingStartedAt}
+          />
           {showMobileRepoConnector && (
             <button
               type="button"

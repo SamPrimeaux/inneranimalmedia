@@ -1,6 +1,6 @@
 /**
- * Minimal run chip — provider-colored model + live tool + elapsed time.
- * Stays visible briefly after the stream ends so Auto → resolved model is readable.
+ * Composer status line — model + run state under the glass, never inside the toolbar.
+ * One row, one job: no pill chrome competing with the model picker.
  */
 import React, { useEffect, useState } from 'react';
 import { deriveModelRunChipStyle, formatRunElapsed } from './modelRunChipStyle';
@@ -10,6 +10,8 @@ const AFTERGLOW_MS = 8000;
 export type AgentRunChipProps = {
   isLoading: boolean;
   modelKey?: string | null;
+  /** Idle / Auto label when no resolved stream model yet */
+  idleLabel?: string | null;
   toolName?: string | null;
   startedAt?: number | null;
   className?: string;
@@ -18,6 +20,7 @@ export type AgentRunChipProps = {
 export const AgentRunChip: React.FC<AgentRunChipProps> = ({
   isLoading,
   modelKey,
+  idleLabel = null,
   toolName,
   startedAt = null,
   className = '',
@@ -59,43 +62,62 @@ export const AgentRunChip: React.FC<AgentRunChipProps> = ({
     return () => window.clearTimeout(t);
   }, [isLoading, heldModel]);
 
-  if (!isLoading && !afterglow) return null;
-
-  const style = deriveModelRunChipStyle(heldModel || modelKey);
+  const active = isLoading || afterglow;
+  const resolvedKey = (heldModel || modelKey || '').trim();
+  const style = deriveModelRunChipStyle(resolvedKey || null);
+  const label =
+    resolvedKey
+      ? style.shortLabel
+      : (idleLabel?.trim() || 'Auto');
   const tool = (isLoading ? toolName : heldTool)?.trim() || null;
   const elapsed = isLoading && startedAt ? formatRunElapsed(elapsedSec) : null;
 
   return (
     <div
-      className={`inline-flex items-center gap-1.5 max-w-full min-w-0 rounded-md border bg-[var(--scene-bg)]/80 px-2 py-0.5 text-[10px] font-mono ${className}`}
-      style={{ borderColor: style.borderColor, color: style.textColor, opacity: isLoading ? 1 : 0.85 }}
+      className={`iam-composer-status-row ${active ? 'iam-composer-status-row--active' : ''} ${className}`}
       role="status"
       aria-live="polite"
       data-agent-run-chip="1"
       data-provider={style.provider}
-      title={[style.shortLabel, tool, elapsed].filter(Boolean).join(' · ')}
+      data-loading={isLoading ? '1' : '0'}
+      title={[label, tool, elapsed].filter(Boolean).join(' · ')}
     >
       <span
-        className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${isLoading ? 'agent-send-pulse' : ''}`}
-        style={{ backgroundColor: style.dotColor }}
+        className={`iam-composer-status-dot ${isLoading ? 'agent-send-pulse' : ''}`}
+        style={{
+          backgroundColor: active ? style.dotColor : 'transparent',
+          opacity: active ? 1 : 0,
+        }}
         aria-hidden
       />
-      <span className="truncate opacity-95">{style.shortLabel}</span>
+      <span
+        className="iam-composer-status-model truncate"
+        style={{ color: active ? style.textColor : undefined }}
+      >
+        {label}
+      </span>
+      {isLoading && !tool ? (
+        <>
+          <span className="iam-composer-status-sep" aria-hidden>
+            ·
+          </span>
+          <span className="iam-composer-status-meta truncate">running</span>
+        </>
+      ) : null}
       {tool ? (
         <>
-          <span className="opacity-40 shrink-0">·</span>
-          <span className="truncate opacity-90 max-w-[6.5rem]">{tool}</span>
-        </>
-      ) : isLoading ? (
-        <>
-          <span className="opacity-40 shrink-0">·</span>
-          <span className="truncate opacity-70">running</span>
+          <span className="iam-composer-status-sep" aria-hidden>
+            ·
+          </span>
+          <span className="iam-composer-status-meta truncate">{tool}</span>
         </>
       ) : null}
       {elapsed ? (
         <>
-          <span className="opacity-40 shrink-0">·</span>
-          <span className="shrink-0 opacity-75 tabular-nums">{elapsed}</span>
+          <span className="iam-composer-status-sep" aria-hidden>
+            ·
+          </span>
+          <span className="iam-composer-status-elapsed tabular-nums">{elapsed}</span>
         </>
       ) : null}
     </div>

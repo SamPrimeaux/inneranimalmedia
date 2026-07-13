@@ -13,6 +13,66 @@
   overflow: visible;
 }
 
+/* Under-composer status — plain text row, never a competing pill inside the glass */
+.iam-composer-status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 1.25rem;
+  max-width: 100%;
+  padding: 0.4rem 0.35rem 0.1rem;
+  margin: 0;
+  font-size: 0.6875rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: 1.2;
+  color: var(--dashboard-muted);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.iam-composer-status-row--active {
+  color: var(--dashboard-text);
+}
+
+.iam-composer-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  transition: opacity 160ms ease, background-color 160ms ease;
+}
+
+.iam-composer-status-model {
+  min-width: 0;
+  max-width: min(14rem, 52vw);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.iam-composer-status-sep {
+  flex-shrink: 0;
+  opacity: 0.35;
+}
+
+.iam-composer-status-meta {
+  min-width: 0;
+  max-width: 7rem;
+  opacity: 0.72;
+}
+
+.iam-composer-status-elapsed {
+  flex-shrink: 0;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iam-composer-status-dot {
+    transition: none;
+  }
+}
+
 .iam-chat-composer-glass {
   background: color-mix(in srgb, var(--dashboard-panel) 74%, transparent);
   backdrop-filter: blur(20px) saturate(1.25);
