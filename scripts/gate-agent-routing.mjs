@@ -77,7 +77,8 @@ const CORE_CASES = [
   {
     id: 'G-ask-repo',
     kind: 'chat',
-    prompt: 'what repo am i connected to',
+    prompt:
+      'Use fs_read_file path package.json — from the file contents only, what is the npm package name for this repo?',
     mode: 'agent',
     assert: assertInspectishChat({
       maxToolsFromDecisionMeta: 20,

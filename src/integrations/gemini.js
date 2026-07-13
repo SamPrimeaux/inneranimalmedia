@@ -24,6 +24,26 @@ export function withGeminiCodeExecutionTool(geminiTools, cap) {
   return list;
 }
 
+/** Gemini rejects mixing built-in code_execution with function_declarations unless enabled. */
+export function buildGeminiToolsRequest(geminiTools) {
+  if (!Array.isArray(geminiTools) || geminiTools.length === 0) return {};
+  const hasCodeExecution = geminiTools.some(
+    (t) => t && typeof t === 'object' && 'code_execution' in t,
+  );
+  const hasFunctionDeclarations = geminiTools.some(
+    (t) =>
+      t &&
+      typeof t === 'object' &&
+      Array.isArray(t.function_declarations) &&
+      t.function_declarations.length > 0,
+  );
+  const payload = { tools: geminiTools };
+  if (hasCodeExecution && hasFunctionDeclarations) {
+    payload.tool_config = { include_server_side_tool_invocations: true };
+  }
+  return payload;
+}
+
 /**
  * Google Gemini Service Integration.
  *
@@ -448,7 +468,7 @@ export async function chatWithToolsGemini(env, request, params) {
   const body = {
     contents,
     ...(systemPrompt ? { system_instruction: { parts: [{ text: systemPrompt }] } } : {}),
-    ...(geminiTools && geminiTools.length ? { tools: geminiTools } : {}),
+    ...buildGeminiToolsRequest(geminiTools),
     generationConfig: buildGeminiGenerationConfig(
       { mode: params.mode, lane: params.lane, taskType: params.taskType },
       { maxOutputTokens: params.maxOutputTokens, modelId: normalizedModelId },
@@ -581,7 +601,7 @@ export async function completeWithGemini(env, params) {
   const body = {
     contents,
     ...(systemPrompt ? { system_instruction: { parts: [{ text: systemPrompt }] } } : {}),
-    ...(geminiTools && geminiTools.length ? { tools: geminiTools } : {}),
+    ...buildGeminiToolsRequest(geminiTools),
     generationConfig: buildGeminiGenerationConfig(
       { mode: params.mode, lane: params.lane, taskType: params.taskType },
       { maxOutputTokens: params.maxOutputTokens, modelId: resolvedModel },
