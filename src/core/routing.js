@@ -27,6 +27,7 @@ import {
   routingArmSlugScopeSql,
 } from './routing-arms-agent-slug.js';
 import { applyTtftPenaltyToAlpha, TTFT_INTERACTIVE_PENALTY_MS } from './exec-context-tier.js';
+import { catalogChatFallbackSqlGuard } from './catalog-chat-fallback-guard.js';
 
 export { TTFT_INTERACTIVE_PENALTY_MS };
 
@@ -473,15 +474,12 @@ export async function loadActiveCatalogModelKeysOrdered(env) {
   const hasDegraded = cols.has('is_degraded');
   const scope = hasTenant ? `AND COALESCE(tenant_id,'') = '' AND COALESCE(workspace_id,'') = ''` : '';
   const degradedClause = hasDegraded ? `AND COALESCE(is_degraded,0) = 0` : '';
-  const chatGuard = `AND model_key NOT LIKE '%bge%'
-         AND model_key NOT LIKE '%embed%'
-         AND model_key NOT LIKE '%mxbai%'
-         AND model_key NOT LIKE '%whisper%'
-         AND model_key NOT LIKE '%tts%'
-         AND model_key NOT LIKE '%image%'
-         AND model_key NOT LIKE 'workers_ai_audio%'
-         AND model_key NOT LIKE 'workers_ai_embed%'
-         AND model_key NOT LIKE 'workers_ai_image%'`;
+  const chatGuard = catalogChatFallbackSqlGuard({
+    openaiModelIdExpr: cols.has('openai_model_id') ? 'openai_model_id' : null,
+    hasSupportsTools: cols.has('supports_tools'),
+    hasRoutingLane: cols.has('routing_lane'),
+    requireTools: true,
+  });
   const orderBy = hasTier
     ? `CASE LOWER(COALESCE(tier,'')) WHEN 'micro' THEN 0 WHEN 'flash' THEN 1 WHEN 'standard' THEN 2 WHEN 'power' THEN 3 WHEN 'reasoning' THEN 4 WHEN 'frontier' THEN 5 ELSE 9 END, model_key ASC`
     : 'model_key ASC';

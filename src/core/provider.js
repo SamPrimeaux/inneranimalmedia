@@ -18,6 +18,10 @@ import { isThompsonRoutingSamplingEnabled } from './routing-thompson-flag.js';
 import { pragmaTableInfo }     from './retention.js';
 import { queryRoutingArmsCandidates, filterArmsForRouteKey } from './routing.js';
 import { dispatchCursorComposerStream } from '../api/cursor-agent.js';
+import {
+  catalogChatFallbackSqlGuard,
+  isNonChatCatalogModel,
+} from './catalog-chat-fallback-guard.js';
 
 /** Thrown when Ollama is skipped so the agent model chain can try the next provider (no SSE error text). */
 export const OLLAMA_SKIP_MESSAGE = 'ollama_skip';
@@ -40,16 +44,12 @@ async function pickFallbackCatalogModelKey(db, allowDegraded) {
   const scope = hasTenant ? `AND COALESCE(tenant_id,'') = '' AND COALESCE(workspace_id,'') = ''` : '';
   const degradedClause =
     !allowDegraded && hasDegraded ? 'AND COALESCE(is_degraded,0) = 0' : '';
-  // never pick embedding / audio / image models as a chat fallback
-  const chatGuard = `AND model_key NOT LIKE '%bge%'
-     AND model_key NOT LIKE '%embed%'
-     AND model_key NOT LIKE '%mxbai%'
-     AND model_key NOT LIKE '%whisper%'
-     AND model_key NOT LIKE '%tts%'
-     AND model_key NOT LIKE '%image%'
-     AND model_key NOT LIKE 'workers_ai_audio%'
-     AND model_key NOT LIKE 'workers_ai_embed%'
-     AND model_key NOT LIKE 'workers_ai_image%'`;
+  const chatGuard = catalogChatFallbackSqlGuard({
+    openaiModelIdExpr: cols.has('openai_model_id') ? 'openai_model_id' : null,
+    hasSupportsTools: cols.has('supports_tools'),
+    hasRoutingLane: cols.has('routing_lane'),
+    requireTools: true,
+  });
   const orderBy = hasTier
     ? `CASE LOWER(COALESCE(tier,'')) WHEN 'micro' THEN 0 WHEN 'flash' THEN 1 WHEN 'standard' THEN 2 WHEN 'power' THEN 3 WHEN 'reasoning' THEN 4 WHEN 'frontier' THEN 5 ELSE 9 END, model_key ASC`
     : 'model_key ASC';
@@ -694,7 +694,7 @@ export async function dispatchComplete(env, params) {
   );
 }
 
-/** Prefer an active OpenAI catalog row for Workers AI → OpenAI failover (no hardcoded SKU). */
+/** Prefer an active OpenAI *chat* catalog row for Workers AI → OpenAI failover (never STT/TTS). */
 async function pickOpenAiFallbackModelKeyFromCatalog(env) {
   const db = env?.DB;
   if (!db) return null;
@@ -707,21 +707,30 @@ async function pickOpenAiFallbackModelKeyFromCatalog(env) {
   const hasTier = cols.has('tier');
   const hasDegraded = cols.has('is_degraded');
   const degradedClause = hasDegraded ? `AND COALESCE(is_degraded,0) = 0` : '';
+  const chatGuard = catalogChatFallbackSqlGuard({
+    openaiModelIdExpr: cols.has('openai_model_id') ? 'openai_model_id' : null,
+    hasSupportsTools: cols.has('supports_tools'),
+    hasRoutingLane: cols.has('routing_lane'),
+    requireTools: true,
+  });
   const orderBy = hasTier
     ? `CASE LOWER(COALESCE(tier,'')) WHEN 'micro' THEN 0 WHEN 'flash' THEN 1 WHEN 'standard' THEN 2 WHEN 'power' THEN 3 WHEN 'reasoning' THEN 4 WHEN 'frontier' THEN 5 ELSE 9 END, model_key ASC`
     : 'model_key ASC';
   try {
     const row = await db
       .prepare(
-        `SELECT model_key FROM agentsam_model_catalog
+        `SELECT model_key, openai_model_id, routing_lane, supports_tools FROM agentsam_model_catalog
          WHERE is_active = 1 ${degradedClause}
            AND LOWER(TRIM(provider)) = 'openai'
            ${scope}
+           ${chatGuard}
          ORDER BY ${orderBy}
          LIMIT 1`,
       )
       .first();
-    return row?.model_key != null ? String(row.model_key).trim() : null;
+    const key = row?.model_key != null ? String(row.model_key).trim() : null;
+    if (!key || isNonChatCatalogModel(key, row)) return null;
+    return key;
   } catch {
     return null;
   }
@@ -734,9 +743,12 @@ async function pickOpenAiFallbackModelKeyFromCatalog(env) {
  * @param {{ maxTokens?: number, stream?: boolean }} [opts]
  */
 function buildWorkersAiPayload(messages, arm, opts = {}) {
+  const maxTok = opts.maxTokens ?? 2048;
+  // CF docs (MiniMax M3, etc.) use max_tokens; OpenAI-compat lanes also accept max_completion_tokens.
   const payload = {
     messages,
-    max_completion_tokens: opts.maxTokens ?? 2048,
+    max_tokens: maxTok,
+    max_completion_tokens: maxTok,
     ...(opts.stream != null ? { stream: opts.stream } : {}),
   };
 
@@ -746,7 +758,10 @@ function buildWorkersAiPayload(messages, arm, opts = {}) {
 
   // Kimi (and similar reasoning models) need json_object paired with reasoning_effort=none
   // to emit content instead of reasoning_content only (benchmark 2026-05-30).
-  if (arm?.reasoning_effort === 'none') {
+  // Do not force json_object on MiniMax / general chat pins — it breaks plain replies.
+  const modelHint = String(opts.modelKey || opts.providerModelId || '').toLowerCase();
+  const isKimi = modelHint.includes('kimi');
+  if (arm?.reasoning_effort === 'none' && isKimi) {
     payload.response_format = { type: 'json_object' };
   }
 
@@ -846,30 +861,64 @@ async function dispatchWorkersAI(env, request, params) {
   const waiPayload = buildWorkersAiPayload(waiMessages, arm, {
     maxTokens: maxOutputTokens ?? 2048,
     stream: true,
+    modelKey,
+    providerModelId,
   });
 
+  const pinnedExplicit =
+    modelKey != null &&
+    String(modelKey).trim() !== '' &&
+    String(modelKey).trim().toLowerCase() !== 'auto' &&
+    !(params?.routingArmId || params?.routing_arm_id);
+
   const openAiFallback = async (reason) => {
+    const detail = String(reason?.message || reason || 'workers_ai_failed');
+    // Explicit picker pin: surface WAI failure — do not silently swap to OpenAI.
+    if (pinnedExplicit) {
+      console.warn('[provider] Workers AI pinned model failed (no silent OpenAI swap)', modelKey, detail);
+      return jsonResponse(
+        {
+          error: 'Workers AI model failed',
+          model: modelKey,
+          workers_ai_model: waiModel,
+          detail,
+          hint:
+            'Enable/enroll this model for the account in Workers AI (MiniMax M3 = minimax/m3). STT models like gpt-4o-mini-transcribe are never used as chat fallbacks.',
+        },
+        502,
+      );
+    }
     const fbKey =
       (await pickOpenAiFallbackModelKeyFromCatalog(env)) ||
       (await pickFallbackCatalogModelKey(env.DB, false)) ||
       (await pickFallbackCatalogModelKey(env.DB, true));
-    console.warn('[provider] Workers AI → OpenAI fallback', fbKey || '(none)', reason?.message || String(reason));
-    if (!fbKey) {
+    console.warn('[provider] Workers AI → OpenAI fallback', fbKey || '(none)', detail);
+    if (!fbKey || isNonChatCatalogModel(fbKey)) {
       return jsonResponse(
         {
-          error: 'Workers AI failed and no OpenAI fallback model is configured in agentsam_model_catalog',
-          detail: String(reason?.message || reason),
+          error: 'Workers AI failed and no chat-capable OpenAI fallback is configured in agentsam_model_catalog',
+          detail,
         },
         503,
       );
     }
     const fbMeta = await resolveModelMeta(env, fbKey);
+    if (isNonChatCatalogModel(fbKey, fbMeta)) {
+      return jsonResponse(
+        {
+          error: 'Workers AI failed; refused non-chat OpenAI fallback',
+          detail,
+          refused_fallback: fbKey,
+        },
+        503,
+      );
+    }
     const openaiKey = await resolveOpenAiApiKey(env, fbKey, userId, {
       secretKeyName: fbMeta?.secret_key_name,
     });
     if (!openaiKey) {
       return jsonResponse(
-        { error: 'Workers AI failed and OpenAI is not configured', detail: String(reason?.message || reason) },
+        { error: 'Workers AI failed and OpenAI is not configured', detail },
         503,
       );
     }
@@ -967,34 +1016,47 @@ async function dispatchWorkersAI(env, request, params) {
     } catch (e) {
       console.warn('[provider] Workers AI stream failed mid-flight', e?.message || e);
       try {
-        const fbKey =
-          (await pickOpenAiFallbackModelKeyFromCatalog(env)) ||
-          (await pickFallbackCatalogModelKey(env.DB, false)) ||
-          (await pickFallbackCatalogModelKey(env.DB, true));
-        const fbMeta = fbKey ? await resolveModelMeta(env, fbKey) : null;
-        const fb = fbKey
-          ? await chatWithToolsOpenAI(env, request, {
-              ...params,
-              modelKey: fbKey,
-              providerModelId:
-                fbMeta?.provider_model_id != null && String(fbMeta.provider_model_id).trim() !== ''
-                  ? String(fbMeta.provider_model_id).trim()
-                  : null,
-              secretKeyName: fbMeta?.secret_key_name ?? null,
-            })
-          : null;
-        if (fb instanceof Response && fb.ok && fb.body) {
-          const rdr = fb.body.getReader();
-          while (true) {
-            const { done, value } = await rdr.read();
-            if (done) break;
-            if (value?.byteLength) await writer.write(value);
+        if (pinnedExplicit) {
+          await writer.write(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                error: 'workers_ai_failed',
+                model: modelKey,
+                detail: String(e?.message || e),
+              })}\n\n`,
+            ),
+          );
+        } else {
+          const fbKey =
+            (await pickOpenAiFallbackModelKeyFromCatalog(env)) ||
+            (await pickFallbackCatalogModelKey(env.DB, false)) ||
+            (await pickFallbackCatalogModelKey(env.DB, true));
+          const fbMeta = fbKey && !isNonChatCatalogModel(fbKey) ? await resolveModelMeta(env, fbKey) : null;
+          const fb =
+            fbKey && fbMeta && !isNonChatCatalogModel(fbKey, fbMeta)
+              ? await chatWithToolsOpenAI(env, request, {
+                  ...params,
+                  modelKey: fbKey,
+                  providerModelId:
+                    fbMeta?.provider_model_id != null && String(fbMeta.provider_model_id).trim() !== ''
+                      ? String(fbMeta.provider_model_id).trim()
+                      : null,
+                  secretKeyName: fbMeta?.secret_key_name ?? null,
+                })
+              : null;
+          if (fb instanceof Response && fb.ok && fb.body) {
+            const rdr = fb.body.getReader();
+            while (true) {
+              const { done, value } = await rdr.read();
+              if (done) break;
+              if (value?.byteLength) await writer.write(value);
+            }
+          } else if (fb instanceof Response) {
+            console.warn('[provider] Workers AI OpenAI fallback HTTP', fb.status);
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ error: 'stream_unavailable' })}\n\n`));
+          } else if (!fb) {
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ error: 'stream_unavailable' })}\n\n`));
           }
-        } else if (fb instanceof Response) {
-          console.warn('[provider] Workers AI OpenAI fallback HTTP', fb.status);
-          await writer.write(encoder.encode(`data: ${JSON.stringify({ error: 'stream_unavailable' })}\n\n`));
-        } else if (!fb) {
-          await writer.write(encoder.encode(`data: ${JSON.stringify({ error: 'stream_unavailable' })}\n\n`));
         }
       } catch (e2) {
         console.warn('[provider] Workers AI OpenAI fallback threw', e2?.message ?? e2);
