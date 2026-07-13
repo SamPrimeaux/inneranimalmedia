@@ -1600,8 +1600,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
                 target: path ? { kind: 'local_file', workspace_path: path } : { kind: 'surface_only', surface: 'code' },
               };
             }
-            if (call.name === 'excalidraw_open') {
-              return { surface: 'excalidraw', reason: 'excalidraw_open', tool_name: call.name };
+            if (call.name === 'excalidraw_open' || call.name === 'agentsam_excalidraw') {
+              return { surface: 'excalidraw', reason: 'agentsam_excalidraw', tool_name: call.name };
             }
             if (
               call.name === 'cms_read' ||

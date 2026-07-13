@@ -117,48 +117,82 @@ export async function runExcalidrawCapabilityAction(p) {
   const scene = buildScene(message);
   const registry = await loadAvailableToolsForCapability(env, tenantId, workspaceId, userId, 'excalidraw');
 
-  const has = (n) => registry.some((r) => r.tool_name === n);
+  const has = (n) =>
+    registry.some((r) => {
+      const nm = String(r.tool_name || r.tool_key || '').trim();
+      return nm === n;
+    });
+
+  const { handlers: mediaHandlers } = await import('../../tools/builtin/media.js');
 
   let openRes = null;
-  if (has('excalidraw_open') && !toolRequiresApproval('excalidraw_open', registry.find((r) => r.tool_name === 'excalidraw_open'))) {
-    openRes = await dispatchCatalogToolResult(env, 'excalidraw_open', {
-      user_id: userId,
-      workspace_id: workspaceId,
-      session: { user_id: userId, workspace_id: workspaceId },
-    }, { tenantId, workspaceId, userId });
+  const openCatalogKey = has('agentsam_excalidraw')
+    ? 'agentsam_excalidraw'
+    : has('excalidraw_open')
+      ? 'excalidraw_open'
+      : null;
+  if (
+    openCatalogKey &&
+    !toolRequiresApproval(openCatalogKey, registry.find((r) => r.tool_name === openCatalogKey))
+  ) {
+    openRes = await dispatchCatalogToolResult(
+      env,
+      openCatalogKey,
+      {
+        user_id: userId,
+        workspace_id: workspaceId,
+        session: { user_id: userId, workspace_id: workspaceId },
+      },
+      { tenantId, workspaceId, userId },
+    );
   }
-  pushStep('excalidraw_open', {
+  pushStep('agentsam_excalidraw', {
     ok: !openRes?.error,
-    tool: 'excalidraw_open',
+    tool: openCatalogKey || 'agentsam_excalidraw',
     result: openRes,
-    skipped: !has('excalidraw_open'),
+    skipped: !openCatalogKey,
   });
 
+  // Private adapter path — excalidraw_add_elements is NOT a model-facing catalog tool.
   let addRes = null;
-  if (has('excalidraw_add_elements') && !toolRequiresApproval('excalidraw_add_elements', registry.find((r) => r.tool_name === 'excalidraw_add_elements'))) {
-    addRes = await dispatchCatalogToolResult(env, 'excalidraw_add_elements', {
-      elements: scene.elements,
-      user_id: userId,
-      workspace_id: workspaceId,
-      session: { user_id: userId, workspace_id: workspaceId },
-    }, { tenantId, workspaceId, userId });
+  try {
+    addRes = await mediaHandlers.excalidraw_add_elements(
+      {
+        elements: scene.elements,
+        user_id: userId,
+        workspace_id: workspaceId,
+        session: { user_id: userId, workspace_id: workspaceId },
+      },
+      env,
+    );
+  } catch (e) {
+    addRes = { error: e?.message != null ? String(e.message) : String(e) };
   }
-  pushStep('excalidraw_add_elements', {
+  pushStep('excalidraw_add_elements_private', {
     ok: !addRes?.error,
     tool: 'excalidraw_add_elements',
     result: addRes,
     element_count: scene.elements.length,
-    skipped: !has('excalidraw_add_elements'),
+    skipped: false,
+    private_handler: true,
   });
 
   let exportRes = null;
-  if (has('excalidraw_export') && !toolRequiresApproval('excalidraw_export', registry.find((r) => r.tool_name === 'excalidraw_export'))) {
-    exportRes = await dispatchCatalogToolResult(env, 'excalidraw_export', {
-      scene,
-      user_id: userId,
-      workspace_id: workspaceId,
-      session: { user_id: userId, workspace_id: workspaceId },
-    }, { tenantId, workspaceId, userId });
+  if (
+    has('excalidraw_export') &&
+    !toolRequiresApproval('excalidraw_export', registry.find((r) => r.tool_name === 'excalidraw_export'))
+  ) {
+    exportRes = await dispatchCatalogToolResult(
+      env,
+      'excalidraw_export',
+      {
+        scene,
+        user_id: userId,
+        workspace_id: workspaceId,
+        session: { user_id: userId, workspace_id: workspaceId },
+      },
+      { tenantId, workspaceId, userId },
+    );
   }
   pushStep('excalidraw_export', {
     ok: !exportRes?.error,

@@ -2,7 +2,6 @@
  * Canonical agentsam_tools.tool_key resolution for dispatch + validation.
  * Keeps OAuth allowlist aliases (github_get_tree) and model aliases (agentsam_github_tree) in sync.
  */
-import { loadAgentsamToolRow } from './agentsam-tools-catalog.js';
 
 /** Legacy terminal tool names → canonical sandbox catalog row. */
 export const LEGACY_TERMINAL_TOOL_REDIRECT = Object.freeze({
@@ -37,6 +36,8 @@ export const LEGACY_CATALOG_TOOL_KEY_REDIRECT = Object.freeze({
   code_interpreter: 'agentsam_code_interpreter',
   python_execute: 'agentsam_code_interpreter',
   agentsam_python_execute: 'agentsam_code_interpreter',
+  // Draw / Excalidraw — open surface only (848)
+  excalidraw_open: 'agentsam_excalidraw',
 });
 
 /**
@@ -62,6 +63,7 @@ export function resolveCatalogDispatchToolKey(rawKey) {
 export async function loadCatalogToolRowForDispatch(env, rawKey) {
   const raw = String(rawKey ?? '').trim();
   if (!env?.DB || !raw) return null;
+  const { loadAgentsamToolRow } = await import('./agentsam-tools-catalog.js');
   const primary = resolveCatalogDispatchToolKey(raw);
   let row = await loadAgentsamToolRow(env, primary);
   if (!row && primary !== raw) row = await loadAgentsamToolRow(env, raw);

@@ -632,9 +632,10 @@ export async function ensureBrowserCapabilityTools(env, tools, effectiveMaxTools
 export async function mergeToolsFromPromptRouteKeys(env, tools, promptRouteRow, effectiveMaxTools) {
   const keys = parseJsonSafe(promptRouteRow?.tool_keys, null);
   if (!Array.isArray(keys) || !keys.length || !env?.DB) return tools;
+  const { resolveCatalogDispatchToolKey } = await import('./catalog-tool-key-resolve.js');
   const have = new Set((tools || []).map((t) => agentToolNameOf(t)).filter(Boolean));
   const missing = keys
-    .map((k) => String(k || '').trim())
+    .map((k) => resolveCatalogDispatchToolKey(String(k || '').trim()) || String(k || '').trim())
     .filter((k) => k && !have.has(k));
   if (!missing.length) return tools;
   const rows = await fetchAgentsamToolRowsByName(env, missing);

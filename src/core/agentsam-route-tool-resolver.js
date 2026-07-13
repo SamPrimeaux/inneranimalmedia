@@ -135,7 +135,7 @@ const DEFAULT_ROUTE_TOOL = /** @type {Record<string, Omit<RouteToolRequirements,
   plan: {
     allowed_lanes: ['think', 'design', 'research'],
     required_capabilities: [],
-    optional_capabilities: ['knowledge_search', 'excalidraw_open', 'd1_query'],
+    optional_capabilities: ['knowledge_search', 'agentsam_excalidraw', 'd1_query'],
     blocked_capabilities: ['terminal_execute', 'terminal_run'],
     max_tools: 8,
     approval_policy: { high_risk_requires_approval: true },

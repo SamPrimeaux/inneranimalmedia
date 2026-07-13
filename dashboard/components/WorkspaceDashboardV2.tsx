@@ -64,7 +64,7 @@ const CARD_QUICKSTART_DEFAULTS: Record<
 > = {
   'card-flowchart': {
     seedMessage:
-      'Quickstart: Flowchart. The Excalidraw Draw canvas is open. Before drawing anything, ask me 2–4 short questions about the diagram I want (what process or system, who it is for, how many main nodes, any must-have labels or swimlanes). Wait for my answers. Then build it on the canvas with illustration_create (intent wireframe or sketch, engine excalidraw) or excalidraw_open / excalidraw_add_elements — never ASCII art or a text box diagram.',
+      'Quickstart: Flowchart. The Excalidraw Draw canvas is open. Before drawing anything, ask me 2–4 short questions about the diagram I want (what process or system, who it is for, how many main nodes, any must-have labels or swimlanes). Wait for my answers. Then build it on the canvas with illustration_create (intent wireframe or sketch, engine excalidraw) and agentsam_excalidraw — never ASCII art or a text box diagram.',
     task_type: 'plan',
     route_key: 'design_studio',
     openSurface: 'excalidraw',

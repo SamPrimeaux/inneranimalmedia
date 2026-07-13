@@ -58,7 +58,9 @@ export const PLAN_ARTIFACT_TOOL_NAMES = Object.freeze([
   'plan_create',
   'task_create',
   'agentsam_plan_create',
-  'excalidraw_open',
+  'agentsam_excalidraw',
+  'excalidraw_plan_map_create',
+  'illustration_create',
   'artifact_write',
 ]);
 

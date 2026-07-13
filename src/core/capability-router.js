@@ -314,7 +314,7 @@ export function capabilityRouterPromptBlock(decision) {
     'Use it to choose tools intentionally:',
     '- Browser: when should_use_browser is true, prefer browser_navigate → browser_content or playwright_screenshot (and cdt_* for interaction). Respect trusted origins (agentsam_browser_trusted_origin).',
     '- Monaco/files: when should_use_monaco is true, emit concrete file content; the dashboard may open the editor from tool results or code blocks.',
-    '- Excalidraw: when should_use_excalidraw is true, you MUST call illustration_create (intent wireframe or sketch, engine excalidraw, brief from user) OR excalidraw_open + excalidraw_add_elements with real Excalidraw element JSON. NEVER output ASCII art, text box diagrams, or write wireframes to agent_output.text — the Excalidraw canvas artifact is the deliverable. P0 libraries (lofi-wireframe, web-kit, universal-ui-kit) load on /dashboard/draw.',
+    '- Excalidraw: when should_use_excalidraw is true, you MUST call illustration_create (intent wireframe or sketch, engine excalidraw, brief from user) and agentsam_excalidraw to open /dashboard/draw. NEVER output ASCII art, text box diagrams, or write wireframes to agent_output.text — the Excalidraw canvas artifact is the deliverable. P0 libraries (lofi-wireframe, web-kit, universal-ui-kit) load via excalidraw_load_library.',
     '- Artifacts/R2: when should_use_artifact_r2 is true, use existing r2/artifact tools and register rows when appropriate.',
     '- D1: when should_use_d1 is true, prefer read-only D1/query tools unless user explicitly requests writes (approval).',
     '- GitHub: when should_use_github is true, use github_* tools (OAuth-linked account required).',

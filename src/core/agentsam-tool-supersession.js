@@ -74,6 +74,9 @@ export const TOOL_SUPERSESSION = Object.freeze({
   knowledge_search: 'agentsam_autorag',
   memory_semantic_search: 'agentsam_memory_manager',
 
+  // Draw / Excalidraw — open only (848); do not alias add_elements → illustration_create
+  excalidraw_open: 'agentsam_excalidraw',
+
   // Terminal / deploy (chunk 9 subset) — legacy names → CF Container sandbox
   terminal_execute: 'agentsam_terminal_sandbox',
   terminal_run: 'agentsam_terminal_sandbox',

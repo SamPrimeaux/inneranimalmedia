@@ -159,7 +159,12 @@ const CAPABILITY_GROUPS = (() => {
     g(['wrangler.d1.migrate'], ['d1_migrations_draft']),
     g(['wrangler.cli'], ['terminal_wrangler']),
     g(['context_search'], ['context_search', 'context_chunk', 'context_summarize_code']),
-    g(['excalidraw_open'], ['excalidraw_open', 'excalidraw_export', 'excalidraw_add_elements']),
+    g(['excalidraw_open', 'excalidraw.open', 'agentsam_excalidraw'], [
+      'agentsam_excalidraw',
+      'excalidraw_export',
+      'excalidraw_load_library',
+      'illustration_create',
+    ]),
     g(['mcp_catalog_read', 'mcp.catalog.read'], ['list_skills', 'list_workers', 'list_clients']),
     g(['email.broadcast', 'email_broadcast'], ['send_email', 'resend_send_email', 'generate_daily_summary_email']),
     g(['secret.write', 'secret_write'], ['workspace_token_create', 'workspace_token_revoke']),
