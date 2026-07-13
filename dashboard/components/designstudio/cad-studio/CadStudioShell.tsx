@@ -610,6 +610,9 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         case 'exportGlb':
           onDownloadLatestGlb();
           break;
+        case 'resetScene':
+          handleNewScene();
+          break;
         case 'wireframe':
           patchUi({ wireframe: !ui.wireframe });
           break;
@@ -637,9 +640,24 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
       ui.solidShading,
       onDeleteSelected,
       onDownloadLatestGlb,
+      handleNewScene,
       handleRenderViewport,
       onFrameAll,
     ],
+  );
+
+  const runLocalOperator = useCallback(
+    (operatorId: string) => {
+      const dockId =
+        operatorId === 'deleteSelected'
+          ? 'delete'
+          : operatorId === 'exportGLB'
+            ? 'exportGlb'
+            : operatorId;
+      handleDockLocalAction(dockId);
+      protocol.toast('Viewport', `Ran ${operatorId} in 3D scene`);
+    },
+    [handleDockLocalAction, protocol],
   );
 
   useEffect(() => {
@@ -1191,6 +1209,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         selectedObjectId={selectedId}
         sceneId={currentSceneId}
         initialOperatorId={operatorInitialId}
+        onRunLocalOperator={runLocalOperator}
       />
 
       <GenerateCadModal

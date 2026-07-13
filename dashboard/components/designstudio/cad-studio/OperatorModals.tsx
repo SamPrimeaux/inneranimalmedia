@@ -1,5 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { CAD_OPERATORS, DEFAULT_OPERATOR_PROMPT, type CadOperator } from './operators';
+import {
+  CAD_OPERATORS,
+  DEFAULT_OPERATOR_PROMPT,
+  isViewportLocalOperator,
+  type CadOperator,
+} from './operators';
 import { dispatchCadChat, dispatchGenerateCadObject } from './dispatchCadChat';
 
 export type OperatorSearchModalProps = {
@@ -9,6 +14,8 @@ export type OperatorSearchModalProps = {
   selectedObjectId: string | null;
   sceneId: string | null;
   initialOperatorId?: string;
+  /** Runs viewport-local operators (Add Cube, etc.) without Agent chat. */
+  onRunLocalOperator?: (operatorId: string) => void;
 };
 
 export function OperatorSearchModal({
@@ -18,6 +25,7 @@ export function OperatorSearchModal({
   selectedObjectId,
   sceneId,
   initialOperatorId,
+  onRunLocalOperator,
 }: OperatorSearchModalProps) {
   const [filter, setFilter] = useState('');
   const [selected, setSelected] = useState<CadOperator>(
@@ -46,7 +54,14 @@ export function OperatorSearchModal({
   const needsPrompt =
     selected.id.startsWith('generate') || selected.id === 'repairGeometry';
 
+  const isLocal = selected.execution === 'local' || isViewportLocalOperator(selected.id);
+
   const submit = () => {
+    if (isLocal) {
+      onRunLocalOperator?.(selected.id);
+      onClose();
+      return;
+    }
     dispatchCadChat({
       operator: selected,
       prompt: needsPrompt ? prompt : undefined,
@@ -101,13 +116,15 @@ export function OperatorSearchModal({
                 onChange={(e) => setPrompt(e.target.value)}
               />
             ) : null}
-            <pre className="cad-studio__mini-code">{`operator: iamcad.operator.${selected.id}\nroute: ChatAssistant → Agent tools\nworkspace: ${workspace}`}</pre>
+            <pre className="cad-studio__mini-code">{`operator: iamcad.operator.${selected.id}\nroute: ${
+              isLocal ? 'Viewport → AgentSamEngine (local)' : 'ChatAssistant → Agent tools'
+            }\nworkspace: ${workspace}`}</pre>
             <div className="cad-studio__operator-actions">
               <button type="button" className="cad-studio__secondary-btn" onClick={onClose}>
                 Cancel
               </button>
               <button type="button" className="cad-studio__primary-btn" onClick={submit}>
-                Send to Agent
+                {isLocal ? 'Run in viewport' : 'Send to Agent'}
               </button>
             </div>
           </div>

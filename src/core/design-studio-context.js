@@ -154,7 +154,7 @@ export function formatDesignStudioContextForAgent(raw) {
   }
 
   lines.push(
-    'creative_actions: 2D floor plans / blueprints / sketches → build a good prompt from user + project context, then imgx_generate_image (pass prompt only — tool picks model tier) OR emit an inline ```svg sketch in chat for quick drafts. 3D massing only → illustration_create (intent model_3d, engine openscad/freecad). Do not route 2D house plans to OpenSCAD.',
+    'creative_actions: Viewport SCENE operators (addCube, deleteSelected, resetScene) are handled locally in AgentSamEngine — do NOT call illustration_create or open Draw/Excalidraw for them. 2D floor plans / blueprints / sketches → imgx_generate_image OR inline ```svg. 3D massing / CAD jobs → illustration_create (intent model_3d, engine openscad/freecad/meshy) with open_designstudio when a job is created. Do not route 2D house plans to OpenSCAD.',
   );
 
   return lines.join('\n');

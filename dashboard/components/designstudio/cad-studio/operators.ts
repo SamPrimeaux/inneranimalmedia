@@ -4,7 +4,21 @@ export type CadOperator = {
   type: string;
   engine: string;
   description: string;
+  /** `local` = run in Three.js viewport (AgentSamEngine); `agent` = ChatAssistant tool loop */
+  execution?: 'local' | 'agent';
 };
+
+/** Viewport primitives — never route through illustration_create / Draw. */
+export const VIEWPORT_LOCAL_OPERATOR_IDS = new Set([
+  'addCube',
+  'deleteSelected',
+  'resetScene',
+  'exportGLB',
+]);
+
+export function isViewportLocalOperator(operatorId: string): boolean {
+  return VIEWPORT_LOCAL_OPERATOR_IDS.has(String(operatorId || '').trim());
+}
 
 export const CAD_OPERATORS: CadOperator[] = [
   {
@@ -48,6 +62,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     type: 'EXPORT',
     engine: 'Artifact',
     description: 'Download the latest job GLB or selected model URL.',
+    execution: 'local',
   },
   {
     id: 'repairGeometry',
@@ -62,6 +77,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     type: 'SCENE',
     engine: 'Viewport',
     description: 'Add a voxel cube primitive to the scene.',
+    execution: 'local',
   },
   {
     id: 'deleteSelected',
@@ -69,6 +85,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     type: 'SCENE',
     engine: 'Viewport',
     description: 'Remove the selected object from the viewport.',
+    execution: 'local',
   },
   {
     id: 'resetScene',
@@ -76,6 +93,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     type: 'SCENE',
     engine: 'Viewport',
     description: 'Clear all objects from the viewport.',
+    execution: 'local',
   },
 ];
 
