@@ -39,6 +39,8 @@ export function meshyTaskTypeFromPayload(payload) {
   if (raw.includes('image-to-3d')) return 'image-to-3d';
   if (raw.includes('retexture') || raw.includes('texture')) return 'retexture';
   if (raw.includes('remesh')) return 'remesh';
+  if (raw.includes('convert')) return 'convert';
+  if (raw.includes('resize')) return 'resize';
   if (raw.includes('text-to-image') || raw.includes('text_to_image')) return 'text-to-image';
   if (raw.includes('animate') || raw === 'animation') return 'animation';
   if (raw.includes('uv-unwrap') || raw.includes('uv_unwrap')) return 'uv-unwrap';
@@ -183,6 +185,8 @@ function isFinalMeshyStage(taskPayload, job) {
     type === 'rigging' ||
     type === 'retexture' ||
     type === 'remesh' ||
+    type === 'convert' ||
+    type === 'resize' ||
     type === 'text-to-image' ||
     type === 'animation' ||
     type === 'uv-unwrap' ||
@@ -191,6 +195,8 @@ function isFinalMeshyStage(taskPayload, job) {
     String(job?.task_type) === 'rigging' ||
     String(job?.task_type) === 'retexture' ||
     String(job?.task_type) === 'remesh' ||
+    String(job?.task_type) === 'convert' ||
+    String(job?.task_type) === 'resize' ||
     String(job?.task_type) === 'text-to-image' ||
     String(job?.task_type) === 'animation' ||
     String(job?.task_type) === 'uv-unwrap' ||

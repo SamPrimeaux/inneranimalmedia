@@ -84,6 +84,10 @@ const ANIMATE_ACTIONS: DockAction[] = [
 
 const AGENT_ACTIONS: DockAction[] = [
   { id: 'operatorSearch', label: 'Operator Search', icon: Search, kind: 'panel' },
+  { id: 'meshyRemesh', label: 'Remesh (Meshy)', icon: Wrench, kind: 'operator', operatorId: 'meshyRemesh' },
+  { id: 'meshyConvert', label: 'Convert (Meshy)', icon: Download, kind: 'operator', operatorId: 'meshyConvert' },
+  { id: 'meshyResize', label: 'Resize (Meshy)', icon: Move3d, kind: 'operator', operatorId: 'meshyResize' },
+  { id: 'meshyUvUnwrap', label: 'UV Unwrap (Meshy)', icon: Box, kind: 'operator', operatorId: 'meshyUvUnwrap' },
   { id: 'repair', label: 'Repair Geometry', icon: Wrench, kind: 'operator', operatorId: 'repairGeometry' },
   { id: 'executeScript', label: 'Run Script', icon: PenLine, kind: 'operator', operatorId: 'executeScript' },
 ];
@@ -105,11 +109,14 @@ function modelActionsForWorkspace(ws: WorkspaceId): DockAction[] {
       ];
     case 'UV Editing':
       return [
-        { id: 'unwrap', label: 'Smart UV', icon: Box, kind: 'operator', operatorId: 'generateBlender' },
+        { id: 'unwrap', label: 'UV Unwrap (Meshy)', icon: Box, kind: 'operator', operatorId: 'meshyUvUnwrap' },
         { id: 'pack', label: 'Pack Islands', icon: Box, kind: 'operator', operatorId: 'generateBlender' },
       ];
     case 'Texture Paint':
-      return [{ id: 'paint', label: 'Texture Paint', icon: Palette, kind: 'operator', operatorId: 'generateObject' }];
+      return [
+        { id: 'paint', label: 'Texture Paint', icon: Palette, kind: 'operator', operatorId: 'generateObject' },
+        { id: 'retexture', label: 'Retexture (Meshy)', icon: Palette, kind: 'operator', operatorId: 'meshyRetexture' },
+      ];
     case 'Compositing':
       return [{ id: 'composite', label: 'Composite', icon: Layers, kind: 'operator', operatorId: 'generateBlender' }];
     case 'Geometry Nodes':

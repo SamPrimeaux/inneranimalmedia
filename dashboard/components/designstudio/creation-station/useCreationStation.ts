@@ -369,12 +369,26 @@ export function useCreationStation(cad: CadHook) {
       appendLog('Paste a source model task ID', 'warn');
       return;
     }
-    await submitMeshyTask(
-      'post-process',
-      { input_task_id: sourceTaskId.trim(), target_formats: ['glb', 'fbx'] },
-      'remesh',
-    );
-  }, [sourceTaskId, submitMeshyTask]);
+    const path = '/api/cad/meshy/remesh';
+    const body = {
+      input_task_id: sourceTaskId.trim(),
+      target_formats: ['glb', 'fbx'],
+      topology: 'triangle' as const,
+      target_polycount: 30000,
+    };
+    setLastRequest(buildCurl('POST', path, body));
+    appendLog('Starting Meshy remesh…', 'info', { open: true });
+    try {
+      const result = await cad.runMeshyRemesh(body);
+      setLastResponse(JSON.stringify(result, null, 2));
+      appendLog(`Remesh job ${result?.job_id ?? 'queued'}`, 'ok');
+      void refreshBalance();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLastResponse(JSON.stringify({ error: msg }, null, 2));
+      appendLog(msg, 'error');
+    }
+  }, [sourceTaskId, cad, appendLog, refreshBalance]);
 
   const runPrintExport = useCallback(async () => {
     if (!sourceTaskId.trim()) {

@@ -12,6 +12,10 @@ import {
   meshyCreateTask,
   meshyCreateAnimation,
   meshyCreateImageTo3d,
+  meshyCreateRemesh,
+  meshyCreateConvert,
+  meshyCreateResize,
+  meshyUvUnwrap,
   generateOpenScad,
   generateBlenderScript,
   generateFreecadScript,
@@ -446,6 +450,82 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
     [scopeBody, refreshJobs],
   );
 
+  const runMeshyRemesh = useCallback(
+    async (body: Parameters<typeof meshyCreateRemesh>[0]) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await meshyCreateRemesh({ ...body, ...scopeBody() });
+        setActiveJobId(result.job_id);
+        await refreshJobs();
+        return result;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [scopeBody, refreshJobs],
+  );
+
+  const runMeshyConvert = useCallback(
+    async (body: Parameters<typeof meshyCreateConvert>[0]) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await meshyCreateConvert({ ...body, ...scopeBody() });
+        setActiveJobId(result.job_id);
+        await refreshJobs();
+        return result;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [scopeBody, refreshJobs],
+  );
+
+  const runMeshyResize = useCallback(
+    async (body: Parameters<typeof meshyCreateResize>[0]) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await meshyCreateResize({ ...body, ...scopeBody() });
+        setActiveJobId(result.job_id);
+        await refreshJobs();
+        return result;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [scopeBody, refreshJobs],
+  );
+
+  const runMeshyUvUnwrap = useCallback(
+    async (body: Parameters<typeof meshyUvUnwrap>[0]) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await meshyUvUnwrap({ ...body, ...scopeBody() });
+        setActiveJobId(result.job_id);
+        await refreshJobs();
+        return result;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [scopeBody, refreshJobs],
+  );
+
   const runMeshyTask = useCallback(
     async (taskType: string, body: Record<string, unknown> = {}) => {
       if (!taskType.trim()) {
@@ -633,6 +713,10 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
     runMeshyPrintMultiColor,
     runMeshyImageTo3d,
     runMeshyAnimation,
+    runMeshyRemesh,
+    runMeshyConvert,
+    runMeshyResize,
+    runMeshyUvUnwrap,
     runMeshyTask,
     runMeshyPreview,
     runMeshyRefine,

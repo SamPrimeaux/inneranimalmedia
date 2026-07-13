@@ -102,8 +102,125 @@ const MESHY_TASK_TYPE_ALIASES = {
   'multi-color': 'print-multi-color',
   'print-multi-color': 'print-multi-color',
   unwrap: 'uv-unwrap',
-  'uvunwrap': 'uv-unwrap',
+  uvunwrap: 'uv-unwrap',
+  'uv_unwrap': 'uv-unwrap',
 };
+
+/**
+ * Build remesh body per https://docs.meshy.ai/en/api/remesh
+ * Prefer dedicated Resize/Convert APIs for size/format-only work.
+ * @param {Record<string, unknown>} body
+ */
+function buildMeshyRemeshPayload(body) {
+  const inputTaskId = String(body.input_task_id || body.model_task_id || '').trim();
+  const modelUrl = String(body.model_url || '').trim();
+  if (!inputTaskId && !modelUrl) throw new Error('input_task_id or model_url required');
+
+  /** @type {Record<string, unknown>} */
+  const payload = {
+    ...(inputTaskId ? { input_task_id: inputTaskId } : {}),
+    ...(modelUrl ? { model_url: modelUrl } : {}),
+    target_formats: Array.isArray(body.target_formats)
+      ? body.target_formats
+      : body.target_formats
+        ? [body.target_formats]
+        : ['glb'],
+    topology: body.topology === 'quad' ? 'quad' : 'triangle',
+  };
+
+  if (body.decimation_mode != null && body.decimation_mode !== '') {
+    const mode = Number(body.decimation_mode);
+    if (![1, 2, 3, 4].includes(mode)) {
+      throw new Error('decimation_mode must be 1|2|3|4 (ultra|high|medium|low)');
+    }
+    payload.decimation_mode = mode;
+  } else if (body.target_polycount != null && body.target_polycount !== '') {
+    payload.target_polycount = Number(body.target_polycount);
+  }
+
+  if (body.alpha_thumbnail === true) payload.alpha_thumbnail = true;
+
+  // Deprecated remesh resize/convert flags — accepted for compat; prefer /resize and /convert.
+  const hasResizeHeight = body.resize_height != null && Number(body.resize_height) > 0;
+  const hasLongest = body.resize_longest_side != null && Number(body.resize_longest_side) > 0;
+  const hasAuto = body.auto_size === true;
+  const resizeCount = [hasResizeHeight, hasLongest, hasAuto].filter(Boolean).length;
+  if (resizeCount > 1) {
+    throw new Error('auto_size, resize_height, and resize_longest_side are mutually exclusive');
+  }
+  if (hasResizeHeight) payload.resize_height = Number(body.resize_height);
+  if (hasLongest) payload.resize_longest_side = Number(body.resize_longest_side);
+  if (hasAuto) {
+    payload.auto_size = true;
+    if (body.origin_at === 'center' || body.origin_at === 'bottom') {
+      payload.origin_at = body.origin_at;
+    }
+  }
+  if (body.convert_format_only === true) {
+    payload.convert_format_only = true;
+    if (!payload.target_formats?.length) {
+      throw new Error('target_formats required when convert_format_only is true');
+    }
+  }
+
+  return { payload, inputTaskId, modelUrl };
+}
+
+/**
+ * Build convert body per https://docs.meshy.ai/en/api/convert
+ * @param {Record<string, unknown>} body
+ */
+function buildMeshyConvertPayload(body) {
+  const inputTaskId = String(body.input_task_id || body.model_task_id || '').trim();
+  const modelUrl = String(body.model_url || '').trim();
+  if (!inputTaskId && !modelUrl) throw new Error('input_task_id or model_url required');
+  const formats = Array.isArray(body.target_formats)
+    ? body.target_formats
+    : body.target_formats
+      ? [body.target_formats]
+      : [];
+  if (!formats.length) throw new Error('target_formats required');
+  return {
+    payload: {
+      ...(inputTaskId ? { input_task_id: inputTaskId } : {}),
+      ...(modelUrl ? { model_url: modelUrl } : {}),
+      target_formats: formats,
+    },
+    inputTaskId,
+    modelUrl,
+  };
+}
+
+/**
+ * Build resize body per https://docs.meshy.ai/en/api/resize
+ * @param {Record<string, unknown>} body
+ */
+function buildMeshyResizePayload(body) {
+  const inputTaskId = String(body.input_task_id || body.model_task_id || '').trim();
+  const modelUrl = String(body.model_url || '').trim();
+  if (!inputTaskId && !modelUrl) throw new Error('input_task_id or model_url required');
+
+  const hasHeight = body.resize_height != null && Number(body.resize_height) > 0;
+  const hasLongest = body.resize_longest_side != null && Number(body.resize_longest_side) > 0;
+  const hasAuto = body.auto_size === true;
+  const modeCount = [hasHeight, hasLongest, hasAuto].filter(Boolean).length;
+  if (modeCount !== 1) {
+    throw new Error('Exactly one of resize_height, resize_longest_side, or auto_size is required');
+  }
+
+  /** @type {Record<string, unknown>} */
+  const payload = {
+    ...(inputTaskId ? { input_task_id: inputTaskId } : {}),
+    ...(modelUrl ? { model_url: modelUrl } : {}),
+  };
+  if (hasHeight) payload.resize_height = Number(body.resize_height);
+  if (hasLongest) payload.resize_longest_side = Number(body.resize_longest_side);
+  if (hasAuto) payload.auto_size = true;
+  if (body.origin_at === 'center' || body.origin_at === 'bottom') {
+    payload.origin_at = body.origin_at;
+  }
+  return { payload, inputTaskId, modelUrl };
+}
 
 function meshyAuthCtx(reqCtx) {
   return { userId: reqCtx.userId, tenant_id: reqCtx.tenantId };
@@ -174,15 +291,14 @@ async function startMeshyCadJob(env, authRequest, authUser, body, taskType, mesh
     const built = buildMeshyPrintMultiColorPayload(body);
     payload = built.payload;
   } else if (normalized === 'remesh') {
-    if (!inputTaskId && !modelUrl) throw new Error('input_task_id or model_url required');
-    const isPrint = taskType === 'print';
-    payload = {
-      ...(inputTaskId ? { input_task_id: inputTaskId } : {}),
-      ...(modelUrl ? { model_url: modelUrl } : {}),
-      target_formats: body.target_formats || (isPrint ? ['stl', '3mf'] : ['glb']),
-      topology: body.topology || 'triangle',
-      target_polycount: body.target_polycount,
-    };
+    const built = buildMeshyRemeshPayload(body);
+    payload = built.payload;
+  } else if (normalized === 'convert') {
+    const built = buildMeshyConvertPayload(body);
+    payload = built.payload;
+  } else if (normalized === 'resize') {
+    const built = buildMeshyResizePayload(body);
+    payload = built.payload;
   } else if (normalized === 'text-to-image') {
     const prompt = String(body.prompt || '').trim();
     if (!prompt) throw new Error('prompt required');
@@ -869,6 +985,68 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
           ...result,
           key_source: meshyAuth.source,
           face_count_warning: 'Meshy UV unwrap supports models up to 40,000 faces (5 credits).',
+          docs: 'https://docs.meshy.ai/en/api/uv-unwrap',
+        });
+      } catch (e) {
+        const mapped = meshyErrorResponseBody(e);
+        if (mapped.status !== 500) return jsonResponse(mapped.body, mapped.status);
+        return jsonResponse({ error: String(e?.message || e) }, 400);
+      }
+    }
+
+    if (path === '/api/cad/meshy/remesh' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+      if (isMeshyAuthMissing(meshyAuth)) {
+        return jsonResponse({ stub: true, key_source: 'none', message: meshyStubMessage() });
+      }
+      try {
+        const result = await startJob(authRequest, authUser, body, 'remesh', meshyAuth);
+        return jsonResponse({
+          ...result,
+          key_source: meshyAuth.source,
+          docs: 'https://docs.meshy.ai/en/api/remesh',
+          note: 'For format-only or size-only jobs prefer /api/cad/meshy/convert and /api/cad/meshy/resize.',
+        });
+      } catch (e) {
+        const mapped = meshyErrorResponseBody(e);
+        if (mapped.status !== 500) return jsonResponse(mapped.body, mapped.status);
+        return jsonResponse({ error: String(e?.message || e) }, 400);
+      }
+    }
+
+    if (path === '/api/cad/meshy/convert' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+      if (isMeshyAuthMissing(meshyAuth)) {
+        return jsonResponse({ stub: true, key_source: 'none', message: meshyStubMessage() });
+      }
+      try {
+        const result = await startJob(authRequest, authUser, body, 'convert', meshyAuth);
+        return jsonResponse({
+          ...result,
+          key_source: meshyAuth.source,
+          docs: 'https://docs.meshy.ai/en/api/convert',
+        });
+      } catch (e) {
+        const mapped = meshyErrorResponseBody(e);
+        if (mapped.status !== 500) return jsonResponse(mapped.body, mapped.status);
+        return jsonResponse({ error: String(e?.message || e) }, 400);
+      }
+    }
+
+    if (path === '/api/cad/meshy/resize' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+      if (isMeshyAuthMissing(meshyAuth)) {
+        return jsonResponse({ stub: true, key_source: 'none', message: meshyStubMessage() });
+      }
+      try {
+        const result = await startJob(authRequest, authUser, body, 'resize', meshyAuth);
+        return jsonResponse({
+          ...result,
+          key_source: meshyAuth.source,
+          docs: 'https://docs.meshy.ai/en/api/resize',
         });
       } catch (e) {
         const mapped = meshyErrorResponseBody(e);
@@ -1594,4 +1772,49 @@ export async function meshyRiggingInProcess(env, ctx, auth, body = {}) {
   const res = await handleCadMeshyApi(req, fakeUrl, env, ctx);
   if (!res) return { error: 'meshy rigging handler missing' };
   return res.json();
+}
+
+/**
+ * @param {any} env
+ * @param {any} ctx
+ * @param {{ userId: string; tenantId?: string; workspaceId?: string }} auth
+ * @param {Record<string, unknown>} body
+ * @param {'remesh'|'convert'|'resize'|'uv-unwrap'} pathKey
+ */
+async function meshyPostProcessInProcess(env, ctx, auth, body, pathKey) {
+  const fakeUrl = new URL(`https://inneranimalmedia.com/api/cad/meshy/${pathKey}`);
+  const req = new Request(fakeUrl.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-User-Id': String(auth.userId),
+      ...(auth.tenantId ? { 'X-Tenant-Id': String(auth.tenantId) } : {}),
+      ...(auth.workspaceId ? { 'X-Workspace-Id': String(auth.workspaceId) } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  await primeRequestAuthForTool(req, env, auth);
+  const res = await handleCadMeshyApi(req, fakeUrl, env, ctx);
+  if (!res) return { error: `meshy ${pathKey} handler missing` };
+  return res.json();
+}
+
+/** @see https://docs.meshy.ai/en/api/remesh */
+export async function meshyRemeshInProcess(env, ctx, auth, body = {}) {
+  return meshyPostProcessInProcess(env, ctx, auth, body, 'remesh');
+}
+
+/** @see https://docs.meshy.ai/en/api/convert */
+export async function meshyConvertInProcess(env, ctx, auth, body = {}) {
+  return meshyPostProcessInProcess(env, ctx, auth, body, 'convert');
+}
+
+/** @see https://docs.meshy.ai/en/api/resize */
+export async function meshyResizeInProcess(env, ctx, auth, body = {}) {
+  return meshyPostProcessInProcess(env, ctx, auth, body, 'resize');
+}
+
+/** @see https://docs.meshy.ai/en/api/uv-unwrap */
+export async function meshyUvUnwrapInProcess(env, ctx, auth, body = {}) {
+  return meshyPostProcessInProcess(env, ctx, auth, body, 'uv-unwrap');
 }

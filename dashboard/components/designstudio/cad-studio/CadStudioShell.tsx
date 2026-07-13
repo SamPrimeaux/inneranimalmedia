@@ -1223,8 +1223,40 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         </div>
         <ViewportActionBar
           onTexture={() => void handleRunBlenderJob('Apply PBR texture to selected object')}
-          onRemesh={() => void handleRunBlenderJob('Remesh selected object with voxel remesh, resolution 0.02')}
-          onUnwrapUV={() => void handleRunBlenderJob('Smart UV unwrap selected object')}
+          onRemesh={() => {
+            const op = CAD_OPERATORS.find((c) => c.id === 'meshyRemesh');
+            const selectedEntity = entities.find((e) => e.id === selectedId) ?? null;
+            const meshyIds = resolveMeshyIdsFromEntity(selectedEntity);
+            dispatchCadChat({
+              operator: op,
+              operatorId: 'meshyRemesh',
+              prompt:
+                'Remesh selected Meshy model (triangle topology, ~30k poly). Use input_task_id when known; otherwise model_url from viewport GLB.',
+              workspace: ui.workspace,
+              selectedObjectId: selectedId,
+              sceneId: currentSceneId,
+              meshyContext: {
+                model_task_id: meshyIds.model_task_id,
+                rig_task_id: meshyIds.rig_task_id,
+              },
+              send: true,
+            });
+          }}
+          onUnwrapUV={() => {
+            const op = CAD_OPERATORS.find((c) => c.id === 'meshyUvUnwrap');
+            const selectedEntity = entities.find((e) => e.id === selectedId) ?? null;
+            const meshyIds = resolveMeshyIdsFromEntity(selectedEntity);
+            dispatchCadChat({
+              operator: op,
+              operatorId: 'meshyUvUnwrap',
+              prompt: 'UV unwrap selected Meshy model (≤40k faces). Remesh first if over limit.',
+              workspace: ui.workspace,
+              selectedObjectId: selectedId,
+              sceneId: currentSceneId,
+              meshyContext: { model_task_id: meshyIds.model_task_id },
+              send: true,
+            });
+          }}
           onRig={() => { if (animLibVisible) closeAnimLib(); else openAnimLib(); }}
           rigActive={animLibVisible}
           onDownload={onDownloadLatestGlb}

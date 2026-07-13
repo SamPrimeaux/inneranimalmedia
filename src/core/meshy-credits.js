@@ -14,11 +14,17 @@
  * Multi Image to 3D                      | same as Image to 3D
  * Retexture                              | 10 credits
  * Remesh                                 | 5 credits
+ * Convert                                | 1 credit
+ * Resize                                 | 1 credit
+ * UV Unwrap                              | 5 credits
  * Auto-Rigging                           | 5 credits
  * Animation                              | 3 credits
+ *
+ * Docs: https://docs.meshy.ai/en/api/remesh · convert · resize · uv-unwrap ·
+ *       https://docs.meshy.ai/en/api/rigging · https://docs.meshy.ai/en/api/animation
  */
 
-/** @typedef {'text-to-3d-preview' | 'text-to-3d-refine' | 'text-to-3d-full' | 'image-to-3d' | 'multi-image-to-3d' | 'retexture' | 'remesh' | 'rigging' | 'animation' | 'text-to-image' | 'image-to-image' | 'print-repair' | 'print-multi-color' | 'uv-unwrap'} MeshyOperation */
+/** @typedef {'text-to-3d-preview' | 'text-to-3d-refine' | 'text-to-3d-full' | 'image-to-3d' | 'multi-image-to-3d' | 'retexture' | 'remesh' | 'convert' | 'resize' | 'rigging' | 'animation' | 'text-to-image' | 'image-to-image' | 'print-repair' | 'print-multi-color' | 'uv-unwrap'} MeshyOperation */
 
 export const MESHY_CREDIT_COSTS = {
   TEXT_TO_3D_PREVIEW_MESHY6: 20,
@@ -36,6 +42,8 @@ export const MESHY_CREDIT_COSTS = {
   IMAGE_TO_3D_DEFAULT_TEXTURED: 15,
   RETEXTURE: 10,
   REMESH: 5,
+  CONVERT: 1,
+  RESIZE: 1,
   RIGGING: 5,
   ANIMATION: 3,
   TEXT_TO_IMAGE_NANO: 3,
@@ -118,7 +126,12 @@ export function estimateMeshyOperationCost(operation, body = {}) {
     case 'retexture':
       return MESHY_CREDIT_COSTS.RETEXTURE;
     case 'remesh':
+    case 'post-process':
       return MESHY_CREDIT_COSTS.REMESH;
+    case 'convert':
+      return MESHY_CREDIT_COSTS.CONVERT;
+    case 'resize':
+      return MESHY_CREDIT_COSTS.RESIZE;
     case 'print-multi-color':
       return MESHY_CREDIT_COSTS.PRINT_MULTI_COLOR;
     case 'print-repair':
@@ -128,6 +141,7 @@ export function estimateMeshyOperationCost(operation, body = {}) {
     case 'animation':
       return MESHY_CREDIT_COSTS.ANIMATION;
     case 'uv-unwrap':
+    case 'unwrap':
       return MESHY_CREDIT_COSTS.UV_UNWRAP;
     default:
       return MESHY_CREDIT_COSTS.TEXT_TO_3D_FULL_CONSERVATIVE;

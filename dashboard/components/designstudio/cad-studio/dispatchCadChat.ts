@@ -63,8 +63,14 @@ export function dispatchCadChat(opts: CadChatDispatchOpts): void {
         }`
       : null,
     prompt?.trim() ? `\nIntent:\n${prompt.trim()}` : null,
-    opId === 'meshyAnimate' || opId === 'meshyRig'
-      ? '\nUse Meshy catalog tools only. Do **not** call imgx_generate_image to fake progress UI. Do **not** invent Blender frame renders. Rig if needed → animate → poll meshyai_get_task → spawn GLB when public_url is ready.'
+    opId === 'meshyAnimate' ||
+    opId === 'meshyRig' ||
+    opId === 'meshyRemesh' ||
+    opId === 'meshyConvert' ||
+    opId === 'meshyResize' ||
+    opId === 'meshyUvUnwrap' ||
+    opId === 'meshyRetexture'
+      ? '\nUse Meshy catalog tools only. Do **not** call imgx_generate_image to fake progress UI. Do **not** invent Blender frame renders. Poll meshyai_get_task → spawn GLB when public_url is ready. Prefer meshyai_convert / meshyai_resize over deprecated remesh resize/convert flags. CloudConvert is for MovieMode video/PDF — not this lane.'
       : '\nCall the preferred catalog tools (or illustration_create for CAD engines). Freehand parameters from each tool schema. Update the Design Studio viewport when artifacts are ready — never fake status with image generation.',
   ].filter(Boolean);
 

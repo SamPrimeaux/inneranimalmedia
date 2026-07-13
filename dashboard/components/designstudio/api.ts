@@ -410,6 +410,61 @@ export async function meshyUvUnwrap(body: {
   });
 }
 
+/** @see https://docs.meshy.ai/en/api/remesh */
+export async function meshyCreateRemesh(body: {
+  input_task_id?: string;
+  model_task_id?: string;
+  model_url?: string;
+  target_formats?: string[];
+  topology?: 'triangle' | 'quad';
+  target_polycount?: number;
+  decimation_mode?: 1 | 2 | 3 | 4;
+  alpha_thumbnail?: boolean;
+  session_id?: string;
+  scene_snapshot_id?: string;
+}): Promise<{ job_id: string; task_id: string; status: string; external_task_id?: string }> {
+  return jsonFetch('/api/cad/meshy/remesh', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+/** @see https://docs.meshy.ai/en/api/convert */
+export async function meshyCreateConvert(body: {
+  input_task_id?: string;
+  model_task_id?: string;
+  model_url?: string;
+  target_formats: string[];
+  session_id?: string;
+  scene_snapshot_id?: string;
+}): Promise<{ job_id: string; task_id: string; status: string; external_task_id?: string }> {
+  return jsonFetch('/api/cad/meshy/convert', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+/** @see https://docs.meshy.ai/en/api/resize */
+export async function meshyCreateResize(body: {
+  input_task_id?: string;
+  model_task_id?: string;
+  model_url?: string;
+  resize_height?: number;
+  resize_longest_side?: number;
+  auto_size?: boolean;
+  origin_at?: 'bottom' | 'center';
+  session_id?: string;
+  scene_snapshot_id?: string;
+}): Promise<{ job_id: string; task_id: string; status: string; external_task_id?: string }> {
+  return jsonFetch('/api/cad/meshy/resize', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function meshyListImageTo3d(query?: {
   page_num?: number;
   page_size?: number;

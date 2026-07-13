@@ -13,6 +13,8 @@ export const MESHY_TASK_ROUTES = {
   'multi-image-to-3d': { base: '/openapi/v1/multi-image-to-3d', version: 'v1' },
   retexture: { base: '/openapi/v1/retexture', version: 'v1' },
   remesh: { base: '/openapi/v1/remesh', version: 'v1' },
+  convert: { base: '/openapi/v1/convert', version: 'v1' },
+  resize: { base: '/openapi/v1/resize', version: 'v1' },
   rigging: { base: '/openapi/v1/rigging', version: 'v1' },
   animation: { base: '/openapi/v1/animations', version: 'v1' },
   'text-to-image': { base: '/openapi/v1/text-to-image', version: 'v1' },

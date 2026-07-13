@@ -9,7 +9,7 @@ import {
   persistCollabCanvasElements,
   resolveCollabWorkspaceId,
 } from '../../core/collab-broadcast.js';
-import { meshyGenerateInProcess, meshyStatusInProcess, meshyAnimationInProcess, meshyImageTo3dInProcess, meshyRiggingInProcess, meshyRetextureInProcess, meshyPrintMultiColorInProcess } from '../../api/cad-meshy.js';
+import { meshyGenerateInProcess, meshyStatusInProcess, meshyAnimationInProcess, meshyImageTo3dInProcess, meshyRiggingInProcess, meshyRetextureInProcess, meshyPrintMultiColorInProcess, meshyRemeshInProcess, meshyConvertInProcess, meshyResizeInProcess, meshyUvUnwrapInProcess } from '../../api/cad-meshy.js';
 
 async function invokeMediaOp(env, endpoint, method = 'POST', body = null) {
     const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
@@ -382,6 +382,81 @@ export const handlers = {
             rig_task_id: rigTaskId,
             action_id: actionId,
             post_process: params.post_process ?? undefined,
+            session_id: scope.session_id,
+            scene_snapshot_id: scope.scene_snapshot_id,
+            blueprint_id: scope.blueprint_id,
+        });
+    },
+    /** @see https://docs.meshy.ai/en/api/remesh */
+    async meshyai_remesh(params, env, runContext = {}) {
+        const auth = meshyToolAuth(params, runContext);
+        if (!auth.userId) return { error: 'user_id required for meshyai_remesh' };
+        const inputTaskId = String(params.input_task_id ?? params.model_task_id ?? '').trim();
+        const modelUrl = String(params.model_url ?? params.modelUrl ?? '').trim();
+        if (!inputTaskId && !modelUrl) return { error: 'input_task_id or model_url required' };
+        const scope = meshyScopeFields(params, runContext);
+        return meshyRemeshInProcess(env, null, auth, {
+            input_task_id: inputTaskId || undefined,
+            model_url: modelUrl || undefined,
+            target_formats: params.target_formats,
+            topology: params.topology,
+            target_polycount: params.target_polycount,
+            decimation_mode: params.decimation_mode,
+            alpha_thumbnail: params.alpha_thumbnail,
+            session_id: scope.session_id,
+            scene_snapshot_id: scope.scene_snapshot_id,
+            blueprint_id: scope.blueprint_id,
+        });
+    },
+    /** @see https://docs.meshy.ai/en/api/convert — Meshy 3D formats only (not CloudConvert) */
+    async meshyai_convert(params, env, runContext = {}) {
+        const auth = meshyToolAuth(params, runContext);
+        if (!auth.userId) return { error: 'user_id required for meshyai_convert' };
+        const inputTaskId = String(params.input_task_id ?? params.model_task_id ?? '').trim();
+        const modelUrl = String(params.model_url ?? params.modelUrl ?? '').trim();
+        if (!inputTaskId && !modelUrl) return { error: 'input_task_id or model_url required' };
+        if (!params.target_formats) return { error: 'target_formats required' };
+        const scope = meshyScopeFields(params, runContext);
+        return meshyConvertInProcess(env, null, auth, {
+            input_task_id: inputTaskId || undefined,
+            model_url: modelUrl || undefined,
+            target_formats: params.target_formats,
+            session_id: scope.session_id,
+            scene_snapshot_id: scope.scene_snapshot_id,
+            blueprint_id: scope.blueprint_id,
+        });
+    },
+    /** @see https://docs.meshy.ai/en/api/resize */
+    async meshyai_resize(params, env, runContext = {}) {
+        const auth = meshyToolAuth(params, runContext);
+        if (!auth.userId) return { error: 'user_id required for meshyai_resize' };
+        const inputTaskId = String(params.input_task_id ?? params.model_task_id ?? '').trim();
+        const modelUrl = String(params.model_url ?? params.modelUrl ?? '').trim();
+        if (!inputTaskId && !modelUrl) return { error: 'input_task_id or model_url required' };
+        const scope = meshyScopeFields(params, runContext);
+        return meshyResizeInProcess(env, null, auth, {
+            input_task_id: inputTaskId || undefined,
+            model_url: modelUrl || undefined,
+            resize_height: params.resize_height,
+            resize_longest_side: params.resize_longest_side,
+            auto_size: params.auto_size,
+            origin_at: params.origin_at,
+            session_id: scope.session_id,
+            scene_snapshot_id: scope.scene_snapshot_id,
+            blueprint_id: scope.blueprint_id,
+        });
+    },
+    /** @see https://docs.meshy.ai/en/api/uv-unwrap */
+    async meshyai_uv_unwrap(params, env, runContext = {}) {
+        const auth = meshyToolAuth(params, runContext);
+        if (!auth.userId) return { error: 'user_id required for meshyai_uv_unwrap' };
+        const inputTaskId = String(params.input_task_id ?? params.model_task_id ?? '').trim();
+        const modelUrl = String(params.model_url ?? params.modelUrl ?? '').trim();
+        if (!inputTaskId && !modelUrl) return { error: 'input_task_id or model_url required' };
+        const scope = meshyScopeFields(params, runContext);
+        return meshyUvUnwrapInProcess(env, null, auth, {
+            input_task_id: inputTaskId || undefined,
+            model_url: modelUrl || undefined,
             session_id: scope.session_id,
             scene_snapshot_id: scope.scene_snapshot_id,
             blueprint_id: scope.blueprint_id,
