@@ -6,7 +6,7 @@ import {
 } from '../../src/core/code-implementation-intent.js';
 
 const G_ASK_REPO =
-  'Use fs_read_file path package.json — from the file contents only, what is the npm package name for this repo?';
+  'Call fs_read_file once with path package.json. Reply with only the npm package name from the name field.';
 
 test('G-ask-repo prompt is repo search via fs_read_file, not Monaco file-context ask', () => {
   assert.equal(isReadOnlyRepoSearchIntent(G_ASK_REPO), true);

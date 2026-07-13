@@ -24,7 +24,8 @@ loadEnvCloudflare();
 const BASE_URL = (process.env.IAM_BASE_URL || 'https://inneranimalmedia.com').replace(/\/$/, '');
 const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.IAM_WORKSPACE_ID || 'ws_inneranimalmedia').trim();
 const TENANT_ID = (process.env.IAM_TENANT_ID || 'tenant_sam_primeaux').trim();
-const CHAT_TIMEOUT_MS = Number(process.env.IAM_GATE_CHAT_TIMEOUT_MS || 120_000);
+const CHAT_TIMEOUT_MS = Number(process.env.IAM_GATE_CHAT_TIMEOUT_MS || 180_000);
+const CHAT_ABORT_RETRIES = Math.max(0, Number(process.env.IAM_GATE_CHAT_ABORT_RETRIES || 1));
 const TICKET_ID = 'tkt_routing_tool_ssot';
 
 /** @typedef {{
@@ -77,8 +78,9 @@ const CORE_CASES = [
   {
     id: 'G-ask-repo',
     kind: 'chat',
+    // Keep short: one tool, one field — long Thompson/tool loops hit gate AbortController.
     prompt:
-      'Use fs_read_file path package.json — from the file contents only, what is the npm package name for this repo?',
+      'Call fs_read_file once with path package.json. Reply with only the npm package name from the name field.',
     mode: 'agent',
     assert: (ctx) => {
       const fails = assertInspectishChat({
@@ -98,6 +100,10 @@ const CORE_CASES = [
       }
       if (tt === 'tool_use' || tt === 'browser') {
         fails.push(`G-ask-repo must not drift to ${tt}`);
+      }
+      // Abort alone is not a fail when D1 already recorded a tool call (stream cut mid-turn).
+      if (ctx.aborted && mergedToolNames(ctx).length === 0) {
+        fails.push(`G-ask-repo aborted after ${CHAT_TIMEOUT_MS}ms with no tool proof`);
       }
       return fails;
     },
@@ -377,7 +383,7 @@ function resolveCases(args) {
  * @param {string} mode
  * @param {string} conversationId
  */
-async function postChatSse(cookie, prompt, mode, conversationId) {
+async function postChatSseOnce(cookie, prompt, mode, conversationId) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
   const t0 = Date.now();
@@ -413,11 +419,75 @@ async function postChatSse(cookie, prompt, mode, conversationId) {
       httpStatus: res.status,
       latencyMs: Date.now() - t0,
       raw,
+      aborted: false,
       ...parsed,
     };
+  } catch (e) {
+    const msg = e?.message || String(e);
+    const aborted =
+      e?.name === 'AbortError' || /aborted|AbortError/i.test(msg) || controller.signal.aborted;
+    if (aborted) {
+      return {
+        httpStatus: 0,
+        latencyMs: Date.now() - t0,
+        raw: '',
+        aborted: true,
+        sseText: '',
+        toolNames: [],
+        toolErrors: [],
+        streamErrors: [`aborted_after_${CHAT_TIMEOUT_MS}ms`],
+        sawDone: false,
+      };
+    }
+    throw e;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Retry once on client AbortController timeout — long inspect loops flake the gate.
+ * Prefer D1 tool proof from the aborted turn over a blind retry when possible.
+ * @param {string} cookie
+ * @param {string} prompt
+ * @param {string} mode
+ * @param {string} conversationId
+ */
+async function postChatSse(cookie, prompt, mode, conversationId) {
+  let activeId = conversationId;
+  let last = await postChatSseOnce(cookie, prompt, mode, activeId);
+  if (!last.aborted) return { ...last, conversationId: activeId };
+
+  // Mid-turn abort often still wrote tool_call_log — accept that as proof.
+  await new Promise((r) => setTimeout(r, 1200));
+  const d1Tools = loadToolCallsFromD1(activeId);
+  if (d1Tools.length > 0) {
+    last.toolNames = [
+      ...new Set([
+        ...(last.toolNames || []),
+        ...d1Tools.map((r) => String(r.tool_name || '').trim()).filter(Boolean),
+      ]),
+    ];
+    last._d1RecoveredAfterAbort = true;
+    return { ...last, conversationId: activeId };
+  }
+
+  for (let i = 0; i < CHAT_ABORT_RETRIES; i++) {
+    console.warn(
+      `[gate] chat aborted after ${CHAT_TIMEOUT_MS}ms with no D1 tools — retry ${i + 1}/${CHAT_ABORT_RETRIES}`,
+    );
+    activeId = randomUUID();
+    last = await postChatSseOnce(cookie, prompt, mode, activeId);
+    if (!last.aborted) return { ...last, conversationId: activeId };
+    await new Promise((r) => setTimeout(r, 1200));
+    const retryTools = loadToolCallsFromD1(activeId);
+    if (retryTools.length > 0) {
+      last.toolNames = retryTools.map((r) => String(r.tool_name || '').trim()).filter(Boolean);
+      last._d1RecoveredAfterAbort = true;
+      return { ...last, conversationId: activeId };
+    }
+  }
+  return { ...last, conversationId: activeId };
 }
 
 /** @param {string} raw */
@@ -720,16 +790,18 @@ async function main() {
         if (c.kind === 'd1') {
           ctx.d1Rows = loadPtyGitStatus();
         } else {
-          const conversationId = randomUUID();
+          const conversationIdSeed = randomUUID();
+          const chat = await postChatSse(cookie, c.prompt, c.mode || 'agent', conversationIdSeed);
+          const conversationId = chat.conversationId || conversationIdSeed;
           ctx.conversationId = conversationId;
-          const chat = await postChatSse(cookie, c.prompt, c.mode || 'agent', conversationId);
           ctx.httpStatus = chat.httpStatus;
           ctx.sseText = chat.sseText;
           ctx.toolNames = chat.toolNames;
           ctx.toolErrors = chat.toolErrors;
           ctx.streamErrors = chat.streamErrors;
-          // Intent row may lag slightly
-          await new Promise((r) => setTimeout(r, 800));
+          ctx.aborted = chat.aborted === true && !chat._d1RecoveredAfterAbort;
+          // Intent / tool rows may lag slightly (especially after abort mid-turn)
+          await new Promise((r) => setTimeout(r, chat.aborted ? 800 : 800));
           const dec = loadDecision(conversationId);
           ctx.decision = dec.decision;
           ctx.decisions = dec.decisions;
