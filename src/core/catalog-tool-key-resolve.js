@@ -38,6 +38,8 @@ export const LEGACY_CATALOG_TOOL_KEY_REDIRECT = Object.freeze({
   agentsam_python_execute: 'agentsam_code_interpreter',
   // Draw / Excalidraw — open surface only (848)
   excalidraw_open: 'agentsam_excalidraw',
+  // Image generation task_type alias → catalog tool (850)
+  image_generation: 'imgx_generate_image',
 });
 
 /**

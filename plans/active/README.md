@@ -8,6 +8,7 @@ Work **in this order**. Do not parallelize product remasters across these.
 | 1 | [WORKSPACE-001-agent-repo-edit-loop.md](./WORKSPACE-001-agent-repo-edit-loop.md) | `tkt_workspace_001` | One safe repo edit via Agent Sam |
 | 2 | [CMS-001-edit-publish-inneranimalmedia-home.md](./CMS-001-edit-publish-inneranimalmedia-home.md) | `tkt_cms_001` | Homepage edit + publish |
 | 3 | [DESIGNSTUDIO-001-sam-sketch-persistent-artifact.md](./DESIGNSTUDIO-001-sam-sketch-persistent-artifact.md) | `tkt_designstudio_001` | Sketch → persistent model |
+| 4 | [DESIGNSTUDIO-002-dream-home-artifact-engine.md](./DESIGNSTUDIO-002-dream-home-artifact-engine.md) | `tkt_designstudio_002` | OpenSCAD smoke + FreeCAD dream-home MVP (`proj_mrb5shkc_3kos2c`) |
 
 ## Verification law (LOCKED)
 

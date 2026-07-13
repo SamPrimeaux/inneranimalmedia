@@ -317,6 +317,17 @@ export const TICKET_PLAYBOOK_BY_ID: Record<string, TicketPlaybookEntry> = {
     deliverable: 'Decision note + arms or exclusion doc.',
     steps: 'Decide → seed arms or write exclusion → update catalog notes.',
   },
+  tkt_designstudio_002: {
+    what: 'Sam Sketch dream home — Artifact Engine with FreeCAD master, OpenSCAD component generators, Blender derivatives. Replace operator script injection with real executors + human inspector.',
+    needed:
+      'Research receipt (official OpenSCAD CLI + FreeCAD BIM docs); Test A OpenSCAD smoke; Test B FreeCAD 60×40 blockout on proj_mrb5shkc_3kos2c; operators map to catalog tools; DESIGNSTUDIO-001 project binding.',
+    pass: 'Test A 5/5 + Test B 7/7 checklist green; wall edit works in inspector without agent; tool_call_log shows freecad/openscad executor keys; FCStd revisions retained.',
+    fail: 'Operators still only dump chat prompts; no artifact revisions; Meshy default for architectural generate; no web-search research receipt.',
+    deliverable: 'Research URLs in ticket events + R2/D1 proof rows + inspector screenshot + decision row for modify.',
+    steps: 'Web search mandate → trace operators.ts → wire Test A → wire Test B → human GUI panels → close with proof matrix.',
+    batch_rank: 2,
+    doc: 'plans/active/DESIGNSTUDIO-002-dream-home-artifact-engine.md',
+  },
 };
 
 export function getTicketPlaybook(id: string): TicketPlaybookEntry | null {

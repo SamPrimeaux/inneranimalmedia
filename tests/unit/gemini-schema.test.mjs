@@ -43,6 +43,19 @@ test('sanitizeGeminiParameterSchema strips additionalProperties', () => {
   assert.equal(out.type, 'OBJECT');
 });
 
+test('sanitizeGeminiParameterSchema injects items for bare array properties', () => {
+  const out = sanitizeGeminiParameterSchema({
+    type: 'object',
+    properties: {
+      references: { type: 'array' },
+      tags: { type: 'array', items: { type: 'string' } },
+    },
+  });
+  assert.equal(out.properties.references.type, 'ARRAY');
+  assert.deepEqual(out.properties.references.items, { type: 'STRING' });
+  assert.equal(out.properties.tags.items.type, 'STRING');
+});
+
 test('normalizeGeminiTools strips additionalProperties from tool declarations', () => {
   const tools = normalizeGeminiTools([
     {

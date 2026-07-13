@@ -67,6 +67,16 @@ export function sanitizeGeminiParameterSchema(schema) {
         : value;
   }
   if (out.type) out.type = String(out.type).toUpperCase();
+  // Gemini requires array schemas to declare items (OpenAI tolerates bare "type":"array").
+  if (out.type === 'ARRAY') {
+    if (!out.items || typeof out.items !== 'object' || Array.isArray(out.items)) {
+      out.items = { type: 'STRING' };
+    } else if (!out.items.type) {
+      out.items = { ...out.items, type: 'STRING' };
+    } else {
+      out.items.type = String(out.items.type).toUpperCase();
+    }
+  }
   return out;
 }
 
