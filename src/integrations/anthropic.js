@@ -25,7 +25,9 @@ export const ANTHROPIC_CODE_EXECUTION_BETA = 'code-execution-2025-08-25';
 
 /**
  * Anthropic server-side sandbox tool — not deferred (always visible; avoids tool-search-only discovery).
- * Haiku 4.5: no server-side code execution. Sonnet/Opus 4.5+: prefer `code_execution_20260120`.
+ * Haiku: no server-side code execution.
+ * Sonnet/Opus 4.5+ and 5+ (incl. `claude-sonnet-5`): prefer `code_execution_20260120`
+ * (persistent container + programmatic tool calling). Older Sonnet/Opus → `20250825`.
  * @param {string} modelKey
  * @returns {{ type: string, name: string } | null}
  */
@@ -35,11 +37,14 @@ export function anthropicCodeExecutionToolForModel(modelKey) {
   if (mk.includes('haiku')) {
     return null;
   }
-  const is45PlusFamily =
-    (mk.includes('sonnet') || mk.includes('opus')) &&
-    (mk.includes('4-5') || mk.includes('4-6') || mk.includes('4-7') || mk.includes('4-8'));
-  if (is45PlusFamily) {
-    return { type: 'code_execution_20260120', name: 'code_execution' };
+  // claude-sonnet-5, claude-opus-4-6, anthropic_claude-sonnet-4.5, …
+  const ver = mk.match(/(?:sonnet|opus)[-_.]?(\d+)(?:[-_.](\d+))?/);
+  if (ver) {
+    const major = Number(ver[1]);
+    const minor = ver[2] != null ? Number(ver[2]) : 0;
+    if (major > 4 || (major === 4 && minor >= 5)) {
+      return { type: 'code_execution_20260120', name: 'code_execution' };
+    }
   }
   return { type: 'code_execution_20250825', name: 'code_execution' };
 }

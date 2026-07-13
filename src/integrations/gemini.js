@@ -1,11 +1,28 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
 import { resolveModelApiKey } from './tokens.js';
+import { loadCatalogCapabilities } from '../core/model-catalog-capabilities.js';
 export {
   sanitizeGeminiParameterSchema,
   normalizeGeminiTools,
 } from './gemini-schema.js';
 import { normalizeGeminiTools } from './gemini-schema.js';
+
+/**
+ * Append Gemini built-in code_execution when catalog says the model supports it.
+ * Server-side sandbox (no programmatic tool calling — unlike Anthropic 20260120).
+ * @param {unknown[] | undefined} geminiTools
+ * @param {{ supports_code_execution?: boolean } | null | undefined} cap
+ */
+export function withGeminiCodeExecutionTool(geminiTools, cap) {
+  if (!cap?.supports_code_execution) return geminiTools;
+  const list = Array.isArray(geminiTools) ? [...geminiTools] : [];
+  if (list.some((t) => t && typeof t === 'object' && 'code_execution' in t)) {
+    return list;
+  }
+  list.push({ code_execution: {} });
+  return list;
+}
 
 /**
  * Google Gemini Service Integration.
@@ -312,10 +329,38 @@ export function geminiChunkToOpenAI(jsonStr) {
   const out = [];
 
   const textParts = parts.filter(isVisibleGeminiTextPart);
-  if (textParts.length > 0) {
+  // Native code_execution is server-side — surface code + result as visible text
+  // so the agent loop / UI aren't blind to sandbox turns.
+  const codeBits = [];
+  for (const p of parts) {
+    if (p?.executableCode?.code) {
+      codeBits.push(`\`\`\`python\n${String(p.executableCode.code)}\n\`\`\``);
+    }
+    if (p?.codeExecutionResult) {
+      const outcome = p.codeExecutionResult.outcome
+        ? String(p.codeExecutionResult.outcome)
+        : '';
+      const output =
+        p.codeExecutionResult.output != null
+          ? String(p.codeExecutionResult.output)
+          : '';
+      if (outcome || output) {
+        codeBits.push(
+          outcome
+            ? `[code_execution ${outcome}]\n${output}`.trim()
+            : output,
+        );
+      }
+    }
+  }
+  const visible = [
+    ...textParts.map((p) => p.text),
+    ...codeBits,
+  ].filter(Boolean);
+  if (visible.length > 0) {
     out.push({
       choices: [{
-        delta: { content: textParts.map(p => p.text).join('') },
+        delta: { content: visible.join('\n') },
         finish_reason: null,
         index: 0,
       }],
@@ -388,7 +433,11 @@ export async function chatWithToolsGemini(env, request, params) {
     return jsonResponse({ error: 'Google AI API key not configured' }, 503);
   }
 
-  const geminiTools = normalizeGeminiTools(toolDefinitions);
+  const catalogCap = await loadCatalogCapabilities(env, modelKey);
+  const geminiTools = withGeminiCodeExecutionTool(
+    normalizeGeminiTools(toolDefinitions),
+    catalogCap,
+  );
   const normalizedModelId = normalizeGeminiModelId(
     providerModelId != null && String(providerModelId).trim() !== ''
       ? String(providerModelId).trim()
@@ -399,7 +448,7 @@ export async function chatWithToolsGemini(env, request, params) {
   const body = {
     contents,
     ...(systemPrompt ? { system_instruction: { parts: [{ text: systemPrompt }] } } : {}),
-    ...(geminiTools ? { tools: geminiTools } : {}),
+    ...(geminiTools && geminiTools.length ? { tools: geminiTools } : {}),
     generationConfig: buildGeminiGenerationConfig(
       { mode: params.mode, lane: params.lane, taskType: params.taskType },
       { maxOutputTokens: params.maxOutputTokens, modelId: normalizedModelId },
@@ -523,12 +572,16 @@ export async function completeWithGemini(env, params) {
   );
   if (!resolvedModel) throw new Error('modelKey required');
 
-  const geminiTools = normalizeGeminiTools(toolDefinitions);
+  const catalogCap = await loadCatalogCapabilities(env, modelKey);
+  const geminiTools = withGeminiCodeExecutionTool(
+    normalizeGeminiTools(toolDefinitions),
+    catalogCap,
+  );
   const contents = toGeminiContents(messages);
   const body = {
     contents,
     ...(systemPrompt ? { system_instruction: { parts: [{ text: systemPrompt }] } } : {}),
-    ...(geminiTools ? { tools: geminiTools } : {}),
+    ...(geminiTools && geminiTools.length ? { tools: geminiTools } : {}),
     generationConfig: buildGeminiGenerationConfig(
       { mode: params.mode, lane: params.lane, taskType: params.taskType },
       { maxOutputTokens: params.maxOutputTokens, modelId: resolvedModel },
