@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scroll FX Library — reusable scroll components</title>
+<link rel="stylesheet" href="./css/tokens.css" />
+<link rel="stylesheet" href="./css/base.css" />
+<link rel="stylesheet" href="./css/scroll-engine.css" />
+<link rel="stylesheet" href="./css/mask-wipe.css" />
+<link rel="stylesheet" href="./css/letter-stagger.css" />
+<link rel="stylesheet" href="./css/progress-primitives.css" />
+<link rel="stylesheet" href="./css/demo-scenes.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <a class="topbar__mark" href="#top">Scroll FX Library</a>
+  <nav class="topbar__nav">
+    <a href="#wipe">Mask-wipe</a>
+    <a href="#stagger">Letter stagger</a>
+    <a href="#progress">Progress / clip</a>
+    <a href="#parallax">Parallax</a>
+    <a href="#usage">Usage</a>
+  </nav>
+  <span class="topbar__nav" id="chapter-index" style="color:var(--dim)"></span>
+</header>
+
+<main id="top">
+
+  <!-- ============ INTRO ============ -->
+  <section class="intro">
+    <div class="intro__kicker">Reusable scroll components · zero dependencies</div>
+    <h1 class="intro__title">One number drives every effect on this page.</h1>
+    <div class="intro__row">
+      <p>
+        Every animation below is a pure function of a single <code>--progress</code>
+        custom property, written once per frame by <code>scroll-engine.js</code>.
+        Nothing is triggered, nothing has hidden state — scrub up or down and it
+        unwinds perfectly, because it's recomputed, not replayed.
+      </p>
+      <div class="intro__manifest">
+        <span>4 primitives</span>
+        <span>2 core files</span>
+        <span id="progress-readout">—</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CHAPTER 1 — MASK WIPE ============ -->
+  <section class="chapter scene-wipe" id="wipe" data-chapter data-label="mask-wipe" style="--track-h: 300vh">
+    <div class="chapter__sticky">
+      <div class="wipe-stack">
+        <div class="wipe-panel">Directional reveal</div>
+        <div class="wipe-panel wipe-panel--brass mask-wipe">No measuring. No keyframes.</div>
+        <div class="wipe-panel mask-wipe mask-wipe--rtl">One gradient, driven by --progress.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="demo" id="demo-wipe">
+    <div class="demo__label"><span>01 · Primitive</span><span>mask-wipe.css</span></div>
+    <p class="demo__note">
+      <code>--enter</code> sweeps 0%→200% while <code>--leave</code> trails exactly 100%
+      behind it. The 100%-wide gap between them is a soft edge that travels across the
+      element and off the far side — works at any element width, no JS beyond writing
+      the float. Swap the gradient angle for direction; <code>.mask-wipe--iris</code>
+      gives a radial "open" instead.
+    </p>
+    <pre class="code" style="margin-top:16px"><code>.mask-wipe {
+  <span class="k">--enter</span>: calc(var(--progress) * <span class="s">200%</span>);
+  <span class="k">--leave</span>: calc(var(--enter) - <span class="s">100%</span>);
+  mask-image: linear-gradient(<span class="s">90deg</span>, #000 var(--leave), transparent var(--enter));
+}</code></pre>
+  </section>
+
+  <!-- ============ CHAPTER 2 — LETTER STAGGER ============ -->
+  <section class="chapter scene-stagger" id="stagger" data-chapter data-label="letter-stagger" style="--track-h: 260vh">
+    <div class="chapter__sticky">
+      <h2 class="stagger-heading" data-split="chars">Type that arrives with weight.</h2>
+      <p class="stagger-sub" data-split="words">
+        Three axes move at once — position, rotation, and tilt — which is the whole
+        difference between this feeling expensive and feeling like a fade.
+      </p>
+    </div>
+  </section>
+
+  <section class="demo" id="demo-stagger">
+    <div class="demo__label"><span>02 · Primitive</span><span>letter-stagger.css + split-text.js</span></div>
+    <p class="demo__note">
+      <code>splitText()</code> wraps each character in a <code>.ch</code> span with an
+      incremental <code>--d</code> delay. An <code>IntersectionObserver</code> adds
+      <code>.in</code> once, and CSS transitions do every bit of the interpolation —
+      no tween library, no per-letter JS on scroll.
+    </p>
+    <pre class="code" style="margin-top:16px"><code>[data-split] .ch {
+  transform: translateY(<span class="s">80px</span>) rotateX(<span class="s">-60deg</span>) rotateY(<span class="s">-20deg</span>) rotate(<span class="s">-10deg</span>);
+  transition: transform <span class="s">1s</span> var(--ease-house) var(--d);
+}
+[data-split].in .ch { opacity: <span class="s">1</span>; transform: none; }</code></pre>
+  </section>
+
+  <!-- ============ CHAPTER 3 — PROGRESS / CLIP-PATH ============ -->
+  <section class="chapter scene-progress" id="progress" data-chapter data-label="progress-clip" style="--track-h: 280vh">
+    <div class="chapter__sticky">
+      <div class="metric-stack">
+        <div class="metric">
+          <div class="metric__top"><span>Coverage</span><span>Scaled to scroll</span></div>
+          <div class="progress-bar"></div>
+        </div>
+        <div class="metric">
+          <div class="metric__top"><span>Reveal</span><span>clip-path inset</span></div>
+          <div class="progress-bar"></div>
+        </div>
+      </div>
+      <div class="frame-stack">
+        <div class="frame frame--back">base layer</div>
+        <div class="frame frame--front clip-reveal">clip-reveal</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="demo" id="demo-progress">
+    <div class="demo__label"><span>03 · Primitive</span><span>progress-primitives.css</span></div>
+    <p class="demo__note">
+      Bars use <code>transform: scaleX(var(--progress))</code> so the browser
+      compositor handles it, not layout. The frame uses
+      <code>clip-path: inset()</code> driven by the same variable — swap
+      <code>.clip-reveal</code> for <code>--bottom-up</code> or <code>--center</code>
+      to change which edge grows from.
+    </p>
+    <pre class="code" style="margin-top:16px"><code>.progress-bar::after { transform: scaleX(var(--progress)); }
+.clip-reveal { clip-path: inset(0 calc((1 - var(--progress)) * 100%) 0 0); }</code></pre>
+  </section>
+
+  <!-- ============ CHAPTER 4 — PARALLAX ============ -->
+  <section class="chapter scene-parallax" id="parallax" data-chapter data-label="parallax" style="--track-h: 260vh">
+    <div class="chapter__sticky">
+      <div class="depth-field">
+        <div class="depth-layer depth-layer--3 parallax" style="--depth: 0.15">far</div>
+        <div class="depth-layer depth-layer--2 parallax" style="--depth: 0.4">mid</div>
+        <div class="depth-layer depth-layer--1 parallax" style="--depth: 0.75">near</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="demo" id="demo-parallax">
+    <div class="demo__label"><span>04 · Primitive</span><span>progress-primitives.css</span></div>
+    <p class="demo__note">
+      Cheap depth without a 3D engine. Each layer sets its own
+      <code>--depth</code> (0 = fixed, 1 = full travel); one <code>.parallax</code>
+      class computes a <code>translateY</code> offset from the shared
+      <code>--progress</code>. Composited transform only — no reflow.
+    </p>
+    <pre class="code" style="margin-top:16px"><code>.parallax {
+  transform: translateY(calc((var(--progress) - <span class="s">0.5</span>) * var(--depth) * <span class="s">-140px</span>));
+}</code></pre>
+  </section>
+
+  <!-- ============ USAGE ============ -->
+  <section class="section" id="usage">
+    <div class="section__grid">
+      <div>
+        <h2>The pin mechanism</h2>
+        <p>
+          A "chapter" is a tall track (<code>height: var(--track-h)</code>) with a
+          <code>position: sticky; top: 0; height: 100vh</code> child. The child
+          appears frozen while the track's extra height scrolls behind it.
+        </p>
+        <p><strong>Pin duration = track height − 100vh.</strong> No pin-spacer div,
+        no JS-driven position changes, no jank on pin/unpin — the browser was
+        always going to do this for free.</p>
+      </div>
+      <pre class="code"><code>&lt;section class=<span class="s">"chapter"</span> data-chapter style=<span class="s">"--track-h: 300vh"</span>&gt;
+  &lt;div class=<span class="s">"chapter__sticky"</span>&gt;
+    ...
+  &lt;/div&gt;
+&lt;/section&gt;
+
+&lt;script&gt;
+  ScrollEngine.init({ selector: <span class="s">'[data-chapter]'</span> });
+&lt;/script&gt;</code></pre>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section__grid">
+      <div>
+        <h2>Two clocks, not one</h2>
+        <p>
+          Scroll progress should drive narrative position. Anything meant to feel
+          alive — idle motion, ambient drift — should run on its own clock so the
+          page doesn't go rigid the instant the user stops scrolling.
+        </p>
+        <p>This library only ships the scroll clock; wire a
+        <code>requestAnimationFrame</code> ambient loop separately if you need one,
+        and keep the two from feeding the same variable.</p>
+      </div>
+      <div>
+        <h2 style="margin-top:0">Reduced motion</h2>
+        <p>
+          Every primitive here has a <code>prefers-reduced-motion: reduce</code>
+          fallback baked in — chapters collapse to normal flow, masks and clips
+          clear, letters render fully formed. <code>ScrollEngine</code> detects it
+          once at init and skips the frame loop entirely rather than animating to
+          a snap.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="outro">
+    <span>SCROLL FX LIBRARY · 4 primitives, 2 core files, 0 dependencies</span>
+    <span>tokens.css → retheme in one file</span>
+  </footer>
+
+</main>
+
+<script src="./js/scroll-engine.js"></script>
+<script src="./js/split-text.js"></script>
+<script src="./js/demo.js"></script>
+</body>
+</html>

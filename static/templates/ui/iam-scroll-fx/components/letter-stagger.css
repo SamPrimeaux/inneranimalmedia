@@ -1,0 +1,43 @@
+/**
+ * Primitive: per-letter 3D stagger.
+ * Pair with js/split-text.js. Each .ch span gets its own --d delay
+ * (set by splitText()); CSS transitions do all the interpolation —
+ * no tween library required.
+ *
+ * Three axes move at once (Y position, X/Y/Z rotation) — that's the
+ * signature. Most stagger implementations use one axis and read cheap
+ * as a result.
+ */
+[data-split] {
+  perspective: 800px; /* required, or the rotateX/Y reads flat */
+}
+
+[data-split] .ch {
+  display: inline-block;
+  white-space: pre;
+  opacity: 0;
+  transform: translateY(80px) translateX(-20px) rotateX(-60deg) rotateY(-20deg)
+    rotate(-10deg);
+  transition: transform 1s var(--ease-house, cubic-bezier(0.42, 0, 0.33, 1)) var(--d, 0ms),
+    opacity 1s var(--ease-house, cubic-bezier(0.42, 0, 0.33, 1)) var(--d, 0ms);
+  will-change: transform, opacity;
+}
+
+[data-split].in .ch {
+  opacity: 1;
+  transform: none;
+}
+
+/* Softer variant: single-axis rise, for body copy where the full tumble
+   would be too loud. */
+[data-split="words"] .ch {
+  transform: translateY(24px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-split] .ch {
+    transition: none;
+    opacity: 1;
+    transform: none;
+  }
+}

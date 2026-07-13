@@ -1,0 +1,65 @@
+/**
+ * Primitives: progress bar, clip-path reveal, parallax-lite.
+ * All pure functions of --progress. Same rule as everything else in
+ * this library: JS writes one number, CSS derives the rest.
+ */
+
+/* --- Progress bar: fills as the chapter's --progress advances --- */
+.progress-bar {
+  position: relative;
+  height: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.progress-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform-origin: left;
+  transform: scaleX(var(--progress, 0));
+  background: var(--brass);
+  will-change: transform;
+}
+
+/* --- Clip-path reveal: rectangle grows from a chosen edge --- */
+.clip-reveal {
+  clip-path: inset(0 calc((1 - var(--progress, 0)) * 100%) 0 0);
+}
+
+.clip-reveal--bottom-up {
+  clip-path: inset(calc((1 - var(--progress, 0)) * 100%) 0 0 0);
+}
+
+.clip-reveal--center {
+  clip-path: inset(
+    calc((1 - var(--progress, 0)) * 50%) calc((1 - var(--progress, 0)) * 50%)
+  );
+}
+
+/* --- Parallax-lite: cheap depth without a 3D engine.
+       Set --depth per element (0 = fixed to scroll, 1 = full travel). --- */
+.parallax {
+  --depth: 0.3;
+  transform: translateY(calc((var(--progress, 0) - 0.5) * var(--depth) * -140px));
+  will-change: transform;
+}
+
+/* --- Scale-in on progress, e.g. a media frame that grows into place --- */
+.scale-in {
+  transform: scale(calc(0.88 + var(--progress, 0) * 0.12));
+  border-radius: calc(30px - var(--progress, 0) * 22px);
+  will-change: transform, border-radius;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-bar::after,
+  .clip-reveal,
+  .clip-reveal--bottom-up,
+  .clip-reveal--center,
+  .parallax,
+  .scale-in {
+    transform: none;
+    clip-path: none;
+  }
+}

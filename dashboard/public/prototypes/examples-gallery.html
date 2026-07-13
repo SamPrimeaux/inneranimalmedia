@@ -111,6 +111,34 @@
     }
     .preview-card.tall { min-height: 500px; }
     .preview-card.video { min-height: 430px; background: #030303; color: white; }
+    .preview-card.iframe-preview { padding: 0; background: #0c0c0a; }
+    .preview-card.iframe-preview iframe {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 500px;
+      border: 0;
+      background: #0c0c0a;
+    }
+    .preview-card.iframe-preview .hover-label { pointer-events: none; }
+    .preview-card.iframe-preview .open-lab {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      z-index: 8;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: rgba(8,8,8,.72);
+      color: #f8f7f2;
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 760;
+      letter-spacing: .02em;
+    }
+    .preview-card.iframe-preview .open-lab:hover { background: rgba(189,87,63,.92); }
     .hover-label {
       position: absolute;
       right: 12px;
@@ -723,6 +751,29 @@
         <button class="use-prompt" type="button" data-field="button"></button>
       </aside>
     </section>
+
+    <section class="example-row" id="scroll-fx">
+      <div class="preview-card tall iframe-preview">
+        <iframe
+          title="IAM Scroll FX Library demo"
+          loading="lazy"
+          referrerpolicy="no-referrer-when-downgrade"
+          src="https://assets.inneranimalmedia.com/cms/motion/iam-scroll-fx-v1/index.html"
+        ></iframe>
+        <a
+          class="open-lab"
+          href="https://assets.inneranimalmedia.com/cms/motion/iam-scroll-fx-v1/index.html"
+          target="_blank"
+          rel="noopener noreferrer"
+        >Open full lab</a>
+        <span class="hover-label">Scroll inside to preview</span>
+      </div>
+      <aside class="example-copy">
+        <h2 data-field="title"></h2>
+        <p class="prompt" data-field="prompt"></p>
+        <button class="use-prompt" type="button" data-field="button"></button>
+      </aside>
+    </section>
   </main>
 
   <div class="copied" id="copiedToast">Prompt copied</div>
@@ -807,6 +858,13 @@
         nav_label: 'Calculator',
         title: 'Calculator construction kit',
         prompt: 'Create a calculator construction kit \u2014 a simple calculator UI with a lot of tweak controls. I want a design system-style prototype with shell, key shape, spacing, material, and display controls.'
+      },
+      {
+        slug: 'scroll-fx',
+        recipe_id: 'rp_scroll_fx_v1',
+        nav_label: 'Scroll FX',
+        title: 'Scroll FX library',
+        prompt: 'Add IAM Scroll FX to this page using the reusable pack at https://assets.inneranimalmedia.com/cms/motion/iam-scroll-fx-v1/ (drop-in files under /components/). Drive every effect from a single --progress custom property written by scroll-engine.js on sticky [data-chapter] tracks — no GSAP, no Lenis, no WebGL unless I ask. Include mask-wipe (and optional iris), letter-stagger via split-text.js, progress-bar/clip-reveal, and parallax-lite. Bake in prefers-reduced-motion fallbacks from the start. Retheme only via tokens.css.'
       }
     ];
 

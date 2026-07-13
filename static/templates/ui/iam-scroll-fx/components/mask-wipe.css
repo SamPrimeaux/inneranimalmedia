@@ -1,0 +1,59 @@
+/**
+ * Primitive: gradient mask-wipe.
+ * A directional reveal that works at any element width with zero
+ * measuring and zero per-element keyframes — one linear-gradient mask
+ * driven entirely by --progress (0 → 1, written by ScrollEngine or by
+ * hand for non-scroll triggers).
+ *
+ * --enter sweeps 0%→200% while --leave trails exactly 100% behind it.
+ * The 100%-wide gap between them is the soft edge that travels across
+ * the element and off the far side.
+ *
+ * Modifiers change direction only — the math never changes.
+ */
+.mask-wipe {
+  --enter: calc(var(--progress, 0) * 200%);
+  --leave: calc(var(--enter) - 100%);
+  mask-size: cover;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-image: linear-gradient(90deg, #000 var(--leave), transparent var(--enter));
+  -webkit-mask-size: cover;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-image: linear-gradient(90deg, #000 var(--leave), transparent var(--enter));
+}
+
+.mask-wipe--rtl {
+  mask-image: linear-gradient(270deg, #000 var(--leave), transparent var(--enter));
+  -webkit-mask-image: linear-gradient(270deg, #000 var(--leave), transparent var(--enter));
+}
+
+.mask-wipe--up {
+  mask-image: linear-gradient(0deg, #000 var(--leave), transparent var(--enter));
+  -webkit-mask-image: linear-gradient(0deg, #000 var(--leave), transparent var(--enter));
+}
+
+.mask-wipe--down {
+  mask-image: linear-gradient(180deg, #000 var(--leave), transparent var(--enter));
+  -webkit-mask-image: linear-gradient(180deg, #000 var(--leave), transparent var(--enter));
+}
+
+/* Radial variant: same math, a radial gradient instead. Reads as an
+   "iris" opening rather than a directional sweep. */
+.mask-wipe--iris {
+  --r: calc(var(--progress, 0) * 75%);
+  mask-image: radial-gradient(circle at center, #000 var(--r), transparent calc(var(--r) + 18%));
+  -webkit-mask-image: radial-gradient(circle at center, #000 var(--r), transparent calc(var(--r) + 18%));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mask-wipe,
+  .mask-wipe--rtl,
+  .mask-wipe--up,
+  .mask-wipe--down,
+  .mask-wipe--iris {
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+}

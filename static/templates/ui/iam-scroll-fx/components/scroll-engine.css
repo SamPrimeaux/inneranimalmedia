@@ -1,0 +1,40 @@
+/**
+ * The pin mechanism (README Primitive / MM-03): a tall track with a
+ * sticky child. No pin-spacer, no JS-driven position changes, no
+ * layout thrash on pin/unpin — the browser does this for free.
+ *
+ * pin duration = track height − 100vh
+ *
+ * Author chapters by setting --track-h (default 300vh = 200vh of pin
+ * duration on a 100vh viewport).
+ */
+.chapter {
+  position: relative;
+  height: var(--track-h, 300vh);
+}
+
+.chapter__sticky {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: clip;
+}
+
+/* Gate expensive children outside the active window. ScrollEngine sets
+   data-active="false" while a chapter is off-screen. Use sparingly —
+   this is for genuinely expensive content (video, canvas), not for
+   everything. */
+.chapter[data-active="false"] .chapter__expensive {
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chapter {
+    height: auto;
+  }
+  .chapter__sticky {
+    position: relative;
+    height: auto;
+    overflow: visible;
+  }
+}

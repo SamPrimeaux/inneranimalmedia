@@ -1,0 +1,172 @@
+/* Scene-specific visuals. Everything here is presentation for the
+   showcase — the actual reusable mechanics live in mask-wipe.css,
+   letter-stagger.css, progress-primitives.css, scroll-engine.css. */
+
+/* --- Chapter 1: mask-wipe --- */
+.scene-wipe .chapter__sticky {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: center;
+  justify-items: start;
+  padding: 0 var(--gutter);
+  background: var(--bg);
+}
+
+.wipe-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.wipe-panel {
+  width: min(78vw, 720px);
+  padding: 30px clamp(20px, 3vw, 40px);
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  font-family: var(--display);
+  font-size: clamp(22px, 3vw, 34px);
+  font-weight: 500;
+}
+
+.wipe-panel--brass {
+  background: var(--brass-dim);
+  border-color: var(--brass);
+  color: var(--brass);
+}
+
+/* --- Chapter 2: letter stagger --- */
+.scene-stagger .chapter__sticky {
+  display: grid;
+  align-content: center;
+  padding: 0 var(--gutter);
+  background: linear-gradient(160deg, #0f1512, #0b100d 70%);
+}
+
+.stagger-heading {
+  max-width: 20ch;
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: clamp(40px, 7vw, 96px);
+  line-height: 0.98;
+  letter-spacing: -0.01em;
+}
+
+.stagger-sub {
+  max-width: 46ch;
+  margin-top: 26px;
+  color: var(--mute);
+  font-size: clamp(14px, 1.2vw, 18px);
+  line-height: 1.6;
+}
+
+/* --- Chapter 3: progress + clip-path + parallax --- */
+.scene-progress .chapter__sticky {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: clamp(30px, 6vw, 90px);
+  align-items: center;
+  padding: 0 var(--gutter);
+  background: var(--bg);
+}
+
+.metric-stack {
+  display: grid;
+  gap: 22px;
+}
+
+.metric {
+  padding-bottom: 14px;
+}
+
+.metric__top {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mute);
+  margin-bottom: 8px;
+}
+
+.frame-stack {
+  position: relative;
+  height: min(64vh, 560px);
+}
+
+.frame {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.frame--back {
+  background: var(--bg-raised);
+  transform: translate(18px, 18px);
+}
+
+.frame--front {
+  border-color: var(--brass);
+  color: var(--brass);
+}
+
+/* --- Chapter 4: parallax depth --- */
+.scene-parallax .chapter__sticky {
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 30%, #16211b, #0b100d 70%);
+}
+
+.depth-field {
+  position: relative;
+  width: min(84vw, 900px);
+  height: min(60vh, 520px);
+}
+
+.depth-layer {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+  background: var(--bg-panel);
+}
+
+.depth-layer--1 {
+  inset: 22% 30%;
+  z-index: 3;
+  border-color: var(--brass);
+  color: var(--brass);
+  background: var(--brass-dim);
+}
+
+.depth-layer--2 {
+  inset: 10% 12%;
+  z-index: 2;
+  opacity: 0.7;
+}
+
+.depth-layer--3 {
+  inset: 0;
+  z-index: 1;
+  opacity: 0.4;
+}
+
+@media (max-width: 860px) {
+  .scene-progress .chapter__sticky {
+    grid-template-columns: 1fr;
+  }
+}
