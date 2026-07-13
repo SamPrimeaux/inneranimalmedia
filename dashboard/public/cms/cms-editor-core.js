@@ -6,8 +6,24 @@
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
 /* ── API ──────────────────────────────────────────────────── */
+function readBridgeCtx() {
+  const p = new URLSearchParams(location.search);
+  return {
+    bridge: p.get('bridge') === '1',
+    apiProfile: p.get('api_profile') || '',
+    bridgePrefix: p.get('bridge_prefix') || '',
+  };
+}
+
+function cmsApiPath(path) {
+  const bridge = readBridgeCtx();
+  if (!bridge.bridge || !bridge.bridgePrefix || !path.startsWith('/api/cms/')) return path;
+  const rest = path.slice('/api/cms'.length) || '';
+  return `${bridge.bridgePrefix}${rest}`;
+}
+
 async function api(path, opts = {}) {
-  const res = await fetch(path, {
+  const res = await fetch(cmsApiPath(path), {
     credentials: 'include',
     headers: opts.body instanceof FormData ? {} : { 'Content-Type': 'application/json' },
     ...opts,

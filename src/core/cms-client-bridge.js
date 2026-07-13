@@ -35,13 +35,25 @@ export function bridgePrefixForProfile(apiProfile) {
 }
 
 /**
+ * Bridge is available when registry points at a client worker with a known API profile.
+ * Operator-hub picks use cms_hosting "platform" but still bridge_supported.
+ * @param {Record<string, unknown>|null|undefined} siteConfig
+ */
+export function isCmsBridgeEligible(siteConfig) {
+  if (!siteConfig?.bridge_supported) return false;
+  if (!trim(siteConfig.worker_base_url)) return false;
+  return Boolean(bridgePrefixForProfile(siteConfig.api_profile));
+}
+
+/**
  * @param {any} env
  * @param {Request} request
  * @param {{ id?: string, tenant_id?: string }} authUser
  * @param {Record<string, unknown>} siteConfig
  * @param {string} bridgePath
+ * @param {{ method?: string, body?: string, expectHtml?: boolean }} [overrides]
  */
-export async function proxyCmsBridgeRequest(env, request, authUser, siteConfig, bridgePath) {
+export async function proxyCmsBridgeRequest(env, request, authUser, siteConfig, bridgePath, overrides = {}) {
   const base = trim(siteConfig?.worker_base_url);
   if (!base) {
     return { ok: false, status: 503, body: { error: 'CLIENT_WORKER_BASE_URL_MISSING' } };
@@ -63,21 +75,27 @@ export async function proxyCmsBridgeRequest(env, request, authUser, siteConfig, 
     return { ok: false, status: 503, body: { error: e?.message || 'bridge_headers_failed' } };
   }
 
-  const method = request.method.toUpperCase();
+  const method = (overrides.method || request.method).toUpperCase();
   const init = {
     method,
     headers: {
       ...headers,
-      ...(method !== 'GET' && method !== 'HEAD' ? { 'Content-Type': request.headers.get('Content-Type') || 'application/json' } : {}),
+      ...(method !== 'GET' && method !== 'HEAD'
+        ? { 'Content-Type': request.headers.get('Content-Type') || 'application/json' }
+        : {}),
     },
   };
   if (method !== 'GET' && method !== 'HEAD') {
-    init.body = await request.arrayBuffer();
+    init.body =
+      overrides.body != null ? overrides.body : await request.arrayBuffer();
   }
 
   try {
     const res = await fetch(url.toString(), init);
     const text = await res.text();
+    if (overrides.expectHtml) {
+      return { ok: res.ok, status: res.status, body: text, contentType: res.headers.get('Content-Type') };
+    }
     let json;
     try {
       json = JSON.parse(text);

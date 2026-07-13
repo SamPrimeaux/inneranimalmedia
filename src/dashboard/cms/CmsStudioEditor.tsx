@@ -98,6 +98,9 @@ export function CmsStudioEditor({
   workspaceLabel = null,
   publicDomain = null,
   studioUrl = null,
+  bridgeSupported = false,
+  apiProfile = null,
+  bridgePrefix = null,
   onNavigatePath,
 }: {
   projectSlug: string | null | undefined;
@@ -109,6 +112,9 @@ export function CmsStudioEditor({
   workspaceLabel?: string | null;
   publicDomain?: string | null;
   studioUrl?: string | null;
+  bridgeSupported?: boolean;
+  apiProfile?: string | null;
+  bridgePrefix?: string | null;
   onNavigatePath?: (path: string, opts?: { replace?: boolean }) => void;
 }) {
   const navigatePath = useCallback(
@@ -155,6 +161,11 @@ export function CmsStudioEditor({
     if (workspaceId) q.set('workspace_id', workspaceId);
     if (workspaceLabel) q.set('workspace_label', workspaceLabel);
     if (publicDomain) q.set('public_domain', publicDomain);
+    if (bridgeSupported) {
+      q.set('bridge', '1');
+      if (apiProfile) q.set('api_profile', apiProfile);
+      if (bridgePrefix) q.set('bridge_prefix', bridgePrefix);
+    }
     if (typeof window !== 'undefined' && window.parent !== window) {
       q.set('parent_origin', window.location.origin);
     }
@@ -169,6 +180,9 @@ export function CmsStudioEditor({
     publicDomain,
     studioBase,
     studioOrigin,
+    bridgeSupported,
+    apiProfile,
+    bridgePrefix,
   ]);
 
   useEffect(() => {

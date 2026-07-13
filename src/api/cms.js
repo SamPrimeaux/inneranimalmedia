@@ -91,7 +91,8 @@ import { isOperatorCmsHubWorkspace } from '../core/cms-hub-sites.js';
 import { resolveCmsSiteConfig } from '../core/cms-site-config.js';
 import { resolveCmsSitePublicDomain } from '../core/cms-public-domain.js';
 import { resolveCmsTenantByProjectSlug } from '../core/cms-tenant-resolve.js';
-import { mintCmsEmbedSession, proxyCmsBridgeRequest } from '../core/cms-client-bridge.js';
+import { mintCmsEmbedSession, proxyCmsBridgeRequest, isCmsBridgeEligible } from '../core/cms-client-bridge.js';
+import { tryBridgedCpasCmsRequest } from '../core/cms-bridge-cpas-adapter.js';
 import {
   isFullHtmlDocument,
   normalizeFullPageHtml,
@@ -376,8 +377,8 @@ export async function handleCmsApi(request, url, env, ctx) {
       return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: projectSlug }, 403);
     }
     const cfg = await resolveCmsSiteConfig(env, workspaceId, projectSlug);
-    if (cfg.cms_hosting !== 'client_worker') {
-      return jsonResponse({ error: 'CMS_BRIDGE_NOT_APPLICABLE', cms_hosting: cfg.cms_hosting }, 409);
+    if (!isCmsBridgeEligible(cfg)) {
+      return jsonResponse({ error: 'CMS_BRIDGE_NOT_APPLICABLE', cms_hosting: cfg.cms_hosting, bridge_supported: cfg.bridge_supported }, 409);
     }
     const mint = await mintCmsEmbedSession(env, authUser, { ...cfg, project_slug: projectSlug });
     if (!mint.ok) {
@@ -405,11 +406,29 @@ export async function handleCmsApi(request, url, env, ctx) {
       return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: slug || null }, 403);
     }
     const cfg = await resolveCmsSiteConfig(env, workspaceId, slug);
-    if (cfg.cms_hosting !== 'client_worker') {
-      return jsonResponse({ error: 'CMS_BRIDGE_NOT_APPLICABLE', cms_hosting: cfg.cms_hosting }, 409);
+    if (!isCmsBridgeEligible(cfg)) {
+      return jsonResponse({ error: 'CMS_BRIDGE_NOT_APPLICABLE', cms_hosting: cfg.cms_hosting, bridge_supported: cfg.bridge_supported }, 409);
     }
     const proxied = await proxyCmsBridgeRequest(env, request, authUser, { ...cfg, project_slug: slug }, path);
     return jsonResponse(proxied.body, proxied.status || (proxied.ok ? 200 : 502));
+  }
+
+  const bridgeProjectSlug = String(
+    explicitProjectSlug || url.searchParams.get('project_slug') || url.searchParams.get('site') || siteConfig.project_slug || '',
+  ).trim();
+
+  if (bridgeProjectSlug && cmsScope.allowedSlugs.has(bridgeProjectSlug) && !path.startsWith('/api/cms/workspace-context')) {
+    const bridgeCfg = await resolveCmsSiteConfig(env, workspaceId, bridgeProjectSlug);
+    if (isCmsBridgeEligible(bridgeCfg)) {
+      const bridged = await tryBridgedCpasCmsRequest(env, request, authUser, {
+        path,
+        method,
+        url,
+        siteConfig: { ...bridgeCfg, project_slug: bridgeProjectSlug },
+        projectSlug: bridgeProjectSlug,
+      });
+      if (bridged) return bridged;
+    }
   }
 
   if (siteConfig.cms_hosting === 'client_worker' && !path.startsWith('/api/cms/workspace-context')) {

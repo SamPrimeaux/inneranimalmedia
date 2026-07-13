@@ -357,6 +357,15 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
               workspaceLabel={context?.ui_label || context?.workspace_name || null}
               publicDomain={context?.public_domain || null}
               studioUrl={context?.studio_url || null}
+              bridgeSupported={Boolean(context?.bridge_supported)}
+              apiProfile={context?.api_profile || null}
+              bridgePrefix={
+                context?.api_profile === 'fuel_admin'
+                  ? '/api/cms/bridge/admin/cms'
+                  : context?.bridge_supported
+                    ? '/api/cms/bridge/cms'
+                    : null
+              }
               onNavigatePath={cmsNavigatePath}
             />
           </Suspense>
