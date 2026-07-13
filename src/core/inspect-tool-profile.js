@@ -1,7 +1,7 @@
 /**
- * Inspect / project-question tool profile — read-only repo + D1 evidence.
- * Used when task is project_question / inspect / chat-with-repo-ask so we never
- * dump ~100 oauth_visible tools (Gmail MCP schemas break Gemini).
+ * Inspect / project-question tool profile — cold-start fallback only.
+ * Live pins: agentsam_tool_profiles.profile_key=inspect
+ * Live task_type map: agentsam_tool_profile_bindings
  */
 import { codeContextIntent } from './ask-evidence-tools.js';
 import { resolveCatalogDispatchToolKey } from './catalog-tool-key-resolve.js';
@@ -23,6 +23,7 @@ export const INSPECT_CORE_PINNED_TOOLS = Object.freeze([
   'agentsam_github_tree',
   'agentsam_github_read_many',
   'agentsam_github_search',
+  'agentsam_github_list_commits',
   'agentsam_d1_query',
   'agentsam_memory_manager',
   'agentsam_autorag',
@@ -35,6 +36,8 @@ export function isRepoInspectIntent(message) {
   const t = String(message || '');
   if (!t.trim()) return false;
   if (codeContextIntent(t)) return true;
+  // Narrow bridge — prefer D1 bindings for classifier task_types (github/browser/…).
+  // DELETE-BY: tkt_routing_tool_ssot when message-only inspect is unused.
   return (
     /\b(inspect|propose|improve|structure|architecture|how (?:do|can|should) we|what should we|overview|inventory|audit|trace)\b/i.test(
       t,
@@ -57,16 +60,9 @@ export function isRepoInspectIntent(message) {
 export function shouldUseInspectToolProfile(ctx) {
   const tt = String(ctx.taskType || '').trim().toLowerCase();
   const message = String(ctx.message || '');
+  // Prefer D1 bindings for task_type; this heuristic is message-only cold-start.
   if (tt === 'project_question') return true;
   if (tt === 'readonly_repo_audit') return true;
-  if (tt === 'review' && isRepoInspectIntent(message)) return true;
-  if (
-    (tt === 'chat' || tt === 'ask' || tt === 'summary' || tt === 'research' || tt === 'review') &&
-    isRepoInspectIntent(message)
-  ) {
-    return true;
-  }
-  if (!tt && isRepoInspectIntent(message)) return true;
   if (isRepoInspectIntent(message) && !['code', 'code_implementation', 'deploy', 'debug'].includes(tt)) {
     return true;
   }

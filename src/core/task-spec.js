@@ -50,6 +50,8 @@ function inspectRepoAxes() {
 export function isRepoInspectMessage(message) {
   const t = String(message || '');
   if (!t.trim()) return false;
+  // Keep narrow — new task_type → agentsam_tool_profile_bindings row (no deploy).
+  // DELETE-BY: tkt_routing_tool_ssot Phase 2 when bindings cover message-only inspect.
   return (
     /\b(inspect|propose|improve|structure|architecture|overview|audit|tool structure|task.?type|how (?:do|can|should) we|what should we)\b/i.test(
       t,
@@ -213,13 +215,14 @@ export function mapTaskTypeToSpecAxes(taskType, ctx = {}) {
     return inspectRepoAxes();
   }
 
+  // Default deny oauth dump — unknown classifiers get ask (route-scoped), never oauth_parity.
   return {
     domain: 'unknown',
     operation: 'ask',
     target: null,
     authority: 'read',
     sideEffect: 'none',
-    toolProfile: 'oauth_parity',
+    toolProfile: 'ask',
     conceptualLane: 'L1',
   };
 }

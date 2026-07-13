@@ -63,15 +63,16 @@ message
 ## Phase 1 — D1 tool profiles (implemented)
 
 - `migrations/841_agentsam_tool_profiles_ssot.sql` — `agentsam_tool_profiles` SSOT
-- `src/core/d1-tool-profile.js` — compile from D1; JS pin modules cold-start only
-- **Default deny oauth** — `resolveUseOAuthParity()` opt-in only (`mcp_panel`, explicit flag)
-- Pinned profiles never oauth-fallback on empty compile
+- `migrations/842_tool_profile_task_bindings.sql` — **task_type → profile_key** (new case = D1 row, not deploy)
+- `src/core/d1-tool-profile.js` — bindings-first resolve; apply `write_policy_json`; JS cold-start only
+- **Default deny oauth** — never from `toolProfile=oauth_parity`
+- Gate `G-tool-profiles` — every `tool_keys_json` key must resolve to live `agentsam_tools`
 
-Gate must green ×2 before `shipped`.
+**Diagnostic law:** new task_type → `INSERT agentsam_tool_profile_bindings`. New tools → `UPDATE tool_keys_json`. If you edit `resolveD1ToolProfileKey` / inspect regex for a new case, you failed the diagnostic.
 
 ## Phase 2+ (future)
 
-Demote remaining JS route augments; profile edits via D1 migration only.
+Demote remaining JS message heuristics (`isRepoInspectIntent`) — DELETE-BY on this ticket when unused.
 
 ---
 

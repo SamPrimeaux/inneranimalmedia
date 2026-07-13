@@ -78,11 +78,11 @@ INSERT OR REPLACE INTO agentsam_tool_profiles (
   'atprof_d1_read',
   'd1_read',
   'D1 read / schema discovery',
-  '["agentsam_d1_query","d1_query","d1_schema","agentsam_memory_manager"]',
+  '["agentsam_d1_query","agentsam_cf_d1_list","agentsam_memory_manager"]',
   6,
   1,
   '{"can_edit_files":false,"can_terminal":false,"can_d1_write":false,"can_deploy":false}',
-  'd1_query task_type — must invoke d1_query tool',
+  'd1_query task_type — must invoke agentsam_d1_query',
   1,
   35,
   unixepoch()

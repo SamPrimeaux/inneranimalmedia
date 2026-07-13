@@ -755,12 +755,15 @@ export async function compileModeProfile(env, input) {
         message,
       }));
 
-  const activeProfileKey = resolveD1ToolProfileKey({
+  const profileResolve = await resolveD1ToolProfileKey(env, {
     taskSpec: input.taskSpec,
     taskType,
     useInspect: useInspectProfile,
     useCodeDevelop: useCodeDevelopProfile,
   });
+  const activeProfileKey = profileResolve.profileKey;
+  /** @type {Record<string, boolean>} */
+  let d1WritePolicy = {};
 
   const promptRouteMax =
     promptRouteRow?.max_tools != null && String(promptRouteRow.max_tools).trim() !== ''
@@ -890,13 +893,36 @@ export async function compileModeProfile(env, input) {
           },
         },
       );
+      if (det.write_policy && typeof det.write_policy === 'object') {
+        d1WritePolicy = det.write_policy;
+      }
       scoredRows = det.rows || [];
+      // Empty default_route → fall through to route-scoped catalog (not oauth)
+      if (!scoredRows.length && (det.source === 'd1_default_route_empty' || activeProfileKey === 'default_route')) {
+        const { selectAgentsamToolsForAgentChat } = await import('./agentsam-tools-catalog.js');
+        const routeDet = await selectAgentsamToolsForAgentChat(
+          env.DB,
+          { userId, tenantId, workspaceId },
+          {
+            routeToolRequirements: effectiveRouteReq || routeToolRequirements,
+            message,
+            taskType,
+            modeSlug: mode,
+            catalogLimit: Math.min(96, maxTools * 4),
+            outputLimit: maxTools,
+          },
+        );
+        scoredRows = routeDet.rows || [];
+        missingRequiredCapabilities = routeDet.missingRequiredCapabilities || [];
+        allowedDomains = routeDet.allowedDomains || [];
+      }
       if (det.missingPinned?.length) {
         console.warn('[runtime-profile] d1_tool_profile_missing_pinned', {
           profile_key: activeProfileKey,
           missing: det.missingPinned,
           pinned_count: det.pinned_count,
           source: det.source,
+          binding_source: profileResolve.source,
         });
       }
       console.info(
@@ -904,6 +930,7 @@ export async function compileModeProfile(env, input) {
         JSON.stringify({
           profile_key: activeProfileKey,
           source: det.source,
+          binding_source: profileResolve.source,
           d1_row_id: det.d1_row_id,
           task_type: taskType,
           route_key: routeKey,
@@ -1059,21 +1086,25 @@ export async function compileModeProfile(env, input) {
 
   const modeContract = AGENT_MODE_CONTRACT[mode] || AGENT_MODE_CONTRACT.agent;
 
-  const readOnlyToolProfile =
-    useInspectProfile ||
+  const baseWrite =
     activeProfileKey === 'inspect' ||
     activeProfileKey === 'd1_read' ||
-    activeProfileKey === 'ask';
-  const writePolicy = readOnlyToolProfile
-    ? {
-        can_edit_files: false,
-        can_terminal: false,
-        can_d1_write: false,
-        can_deploy: false,
-        can_browser_automation: false,
-        can_memory_write: false,
-      }
-    : defaultWritePolicyForMode(mode);
+    activeProfileKey === 'ask' ||
+    useInspectProfile
+      ? {
+          can_edit_files: false,
+          can_terminal: false,
+          can_d1_write: false,
+          can_deploy: false,
+          can_browser_automation: false,
+          can_memory_write: false,
+        }
+      : defaultWritePolicyForMode(mode);
+  // D1 write_policy_json overlays when present (SSOT — column must be read)
+  const writePolicy = {
+    ...baseWrite,
+    ...d1WritePolicy,
+  };
   const executionKind = resolveExecutionKind(mode);
   const modeController = resolveModeController(mode);
 
@@ -1142,6 +1173,7 @@ export async function compileModeProfile(env, input) {
         : null,
       task_spec_tool_profile: input.taskSpec?.toolProfile ?? null,
       d1_tool_profile_key: activeProfileKey,
+      d1_tool_profile_binding_source: profileResolve.source,
     },
     refined_route_key: refinedRouteKey,
     color: modeContract.color,

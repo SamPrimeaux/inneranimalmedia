@@ -53,6 +53,11 @@ const TICKET_ID = 'tkt_routing_tool_ssot';
 /** @type {GateCase[]} */
 const CORE_CASES = [
   {
+    id: 'G-tool-profiles',
+    kind: 'd1',
+    assert: () => assertToolProfilesResolveToCatalog(),
+  },
+  {
     id: 'G-pty-status',
     kind: 'd1',
     assert: (ctx) => {
@@ -106,7 +111,7 @@ const CORE_CASES = [
       banToolPrefixes: ['gmail_', 'agentsam_gmail'],
     }),
   },
-  {
+    {
     id: 'G-d1',
     kind: 'chat',
     prompt: 'Use agentsam_d1_query: what tables are in our D1 database? Answer briefly from query results only.',
@@ -462,6 +467,83 @@ function loadPtyGitStatus() {
      WHERE tool_key = 'pty_git_status'
      LIMIT 1`,
   );
+}
+
+/**
+ * Every active profile tool_keys_json entry must resolve to an active catalog row
+ * (tool_key or tool_name). Empty keys on default_route are allowed.
+ * @returns {string[]}
+ */
+function assertToolProfilesResolveToCatalog() {
+  const fails = [];
+  let profiles;
+  try {
+    profiles = d1Query(
+      `SELECT profile_key, tool_keys_json
+       FROM agentsam_tool_profiles
+       WHERE COALESCE(is_active, 1) = 1`,
+    );
+  } catch (e) {
+    return [`agentsam_tool_profiles query failed: ${e?.message || e}`];
+  }
+  if (!profiles.length) {
+    return ['no active agentsam_tool_profiles rows'];
+  }
+  let catalog;
+  try {
+    catalog = d1Query(
+      `SELECT lower(trim(tool_key)) AS k, lower(trim(COALESCE(tool_name, ''))) AS n
+       FROM agentsam_tools
+       WHERE COALESCE(is_active, 1) = 1`,
+    );
+  } catch (e) {
+    return [`agentsam_tools query failed: ${e?.message || e}`];
+  }
+  const live = new Set();
+  for (const row of catalog) {
+    if (row.k) live.add(String(row.k));
+    if (row.n) live.add(String(row.n));
+  }
+  for (const p of profiles) {
+    const key = String(p.profile_key || '');
+    let keys = [];
+    try {
+      const parsed = JSON.parse(String(p.tool_keys_json || '[]'));
+      if (!Array.isArray(parsed)) {
+        fails.push(`${key}: tool_keys_json is not an array`);
+        continue;
+      }
+      keys = parsed.map((k) => String(k).trim().toLowerCase()).filter(Boolean);
+    } catch {
+      fails.push(`${key}: tool_keys_json not valid JSON`);
+      continue;
+    }
+    if (key === 'default_route' && keys.length === 0) continue;
+    if (!keys.length) {
+      fails.push(`${key}: empty tool_keys_json (only default_route may be empty)`);
+      continue;
+    }
+    for (const tk of keys) {
+      if (!live.has(tk)) {
+        fails.push(`${key}: tool_key "${tk}" not in active agentsam_tools`);
+      }
+    }
+  }
+  try {
+    const bad = d1Query(
+      `SELECT b.task_type, b.profile_key
+       FROM agentsam_tool_profile_bindings b
+       LEFT JOIN agentsam_tool_profiles p
+         ON p.profile_key = b.profile_key AND COALESCE(p.is_active, 1) = 1
+       WHERE COALESCE(b.is_active, 1) = 1 AND p.profile_key IS NULL`,
+    );
+    for (const r of bad) {
+      fails.push(`binding task_type=${r.task_type} → missing profile_key=${r.profile_key}`);
+    }
+  } catch (e) {
+    fails.push(`agentsam_tool_profile_bindings check failed: ${e?.message || e}`);
+  }
+  return fails;
 }
 
 /** @param {string} conversationId */

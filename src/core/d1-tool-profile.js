@@ -1,6 +1,9 @@
 /**
- * D1-owned tool profiles (Phase 1 ROUTING-TOOL-SSOT).
- * agentsam_tool_profiles is SSOT; *-tool-profile.js modules are cold-start fallback only.
+ * D1-owned tool profiles (ROUTING-TOOL-SSOT).
+ *
+ * Diagnostic law: new task_type → INSERT agentsam_tool_profile_bindings row (no deploy).
+ * New tools on a profile → UPDATE agentsam_tool_profiles.tool_keys_json (no deploy).
+ * JS *-tool-profile.js / resolveD1ToolProfileKey cold-start only when D1 empty.
  */
 import { resolveCatalogDispatchToolKey } from './catalog-tool-key-resolve.js';
 
@@ -11,35 +14,146 @@ export const PINNED_PROFILE_KEYS = new Set([
   'ask',
   'd1_read',
   'mail',
+  'default_route',
 ]);
+
+/** @type {Map<string, string>|null} */
+let _bindingsCache = null;
+let _bindingsCacheAt = 0;
+const BINDINGS_TTL_MS = 60_000;
 
 /**
  * OAuth parity is opt-in only — default deny for in-app Agent Sam.
- * @param {{ mcpOAuthParity?: boolean|null, taskSpec?: { toolProfile?: string|null }|null, routeKey?: string|null, routeKeyPin?: string|null }} input
+ * Never unlock from TaskSpec.toolProfile=oauth_parity (unknown classifiers used that).
+ * @param {{ mcpOAuthParity?: boolean|null, routeKey?: string|null, routeKeyPin?: string|null }} input
  */
 export function resolveUseOAuthParity(input) {
   if (input?.mcpOAuthParity === true) return true;
-  const tp = String(input?.taskSpec?.toolProfile || '').trim().toLowerCase();
-  if (tp === 'oauth_parity') return true;
   const rk = String(input?.routeKeyPin || input?.routeKey || '').trim().toLowerCase();
   if (rk === 'mcp_panel') return true;
   return false;
 }
 
 /**
- * Map TaskSpec.toolProfile + task_type to D1 profile_key.
- * @param {{ taskSpec?: { toolProfile?: string|null }|null, taskType?: string|null, useInspect?: boolean, useCodeDevelop?: boolean }} ctx
- * @returns {string|null}
+ * @param {string|null|undefined} raw
+ * @returns {Record<string, boolean>}
  */
-export function resolveD1ToolProfileKey(ctx) {
+export function parseWritePolicyJson(raw) {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(String(raw));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    /** @type {Record<string, boolean>} */
+    const out = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === 'boolean') out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Load task_type → profile_key from D1 (cached briefly per isolate).
+ * @param {unknown} env
+ * @returns {Promise<Map<string, string>>}
+ */
+export async function loadToolProfileBindingsMap(env) {
+  const now = Date.now();
+  if (_bindingsCache && now - _bindingsCacheAt < BINDINGS_TTL_MS) {
+    return _bindingsCache;
+  }
+  /** @type {Map<string, string>} */
+  const map = new Map();
+  if (!env?.DB) {
+    _bindingsCache = map;
+    _bindingsCacheAt = now;
+    return map;
+  }
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT task_type, profile_key
+       FROM agentsam_tool_profile_bindings
+       WHERE COALESCE(is_active, 1) = 1
+       ORDER BY priority ASC`,
+    ).all();
+    for (const row of results || []) {
+      const tt = String(row.task_type || '')
+        .trim()
+        .toLowerCase();
+      const pk = String(row.profile_key || '')
+        .trim()
+        .toLowerCase();
+      if (tt && pk && !map.has(tt)) map.set(tt, pk);
+    }
+  } catch (e) {
+    console.warn('[d1-tool-profile] bindings_load_failed', e?.message ?? e);
+  }
+  _bindingsCache = map;
+  _bindingsCacheAt = now;
+  return map;
+}
+
+/** Test/helper — clear bindings cache */
+export function clearToolProfileBindingsCache() {
+  _bindingsCache = null;
+  _bindingsCacheAt = 0;
+}
+
+/**
+ * Cold-start only when D1 bindings table empty/unavailable.
+ * @param {{ taskSpec?: { toolProfile?: string|null }|null, taskType?: string|null, useInspect?: boolean, useCodeDevelop?: boolean }} ctx
+ * @returns {string}
+ */
+function resolveD1ToolProfileKeyColdStart(ctx) {
   if (ctx.useCodeDevelop) return 'code_develop';
   if (ctx.useInspect) return 'inspect';
-  const tp = String(ctx.taskSpec?.toolProfile || '').trim().toLowerCase();
-  const tt = String(ctx.taskType || '').trim().toLowerCase();
-  if (tp === 'inspect' || tp === 'code_develop' || tp === 'ask' || tp === 'mail') return tp;
-  if (tp === 'd1_read' || tt === 'd1_query' || tt === 'sql_d1_generation') return 'd1_read';
+  const tp = String(ctx.taskSpec?.toolProfile || '')
+    .trim()
+    .toLowerCase();
+  const tt = String(ctx.taskType || '')
+    .trim()
+    .toLowerCase();
+  if (tp === 'inspect' || tp === 'code_develop' || tp === 'ask' || tp === 'mail' || tp === 'd1_read') {
+    return tp;
+  }
+  if (tp === 'image' || tp === 'exempt') return 'default_route';
+  if (tt === 'd1_query' || tt === 'sql_d1_generation') return 'd1_read';
   if (tt === 'mail_triage' || tt === 'gmail') return 'mail';
-  return null;
+  // Unknown → ask (never oauth, never null)
+  return 'ask';
+}
+
+/**
+ * Map task_type → D1 profile_key. Prefer bindings table; cold-start JS only if empty.
+ * Always returns a profile_key (never null) — unknown → ask.
+ * @param {unknown} env
+ * @param {{ taskSpec?: { toolProfile?: string|null }|null, taskType?: string|null, useInspect?: boolean, useCodeDevelop?: boolean }} ctx
+ * @returns {Promise<{ profileKey: string, source: 'd1_binding'|'js_cold_start'|'task_spec' }>}
+ */
+export async function resolveD1ToolProfileKey(env, ctx) {
+  const tt = String(ctx.taskType || '')
+    .trim()
+    .toLowerCase();
+  const bindings = await loadToolProfileBindingsMap(env);
+  if (bindings.size > 0 && tt && bindings.has(tt)) {
+    return { profileKey: /** @type {string} */ (bindings.get(tt)), source: 'd1_binding' };
+  }
+  // Intentional develop/inspect from message heuristics (bridge) — still a named profile
+  if (ctx.useCodeDevelop) return { profileKey: 'code_develop', source: 'js_cold_start' };
+  if (ctx.useInspect) return { profileKey: 'inspect', source: 'js_cold_start' };
+  const tp = String(ctx.taskSpec?.toolProfile || '')
+    .trim()
+    .toLowerCase();
+  if (tp === 'inspect' || tp === 'code_develop' || tp === 'ask' || tp === 'mail' || tp === 'd1_read') {
+    return { profileKey: tp, source: 'task_spec' };
+  }
+  if (bindings.size === 0) {
+    return { profileKey: resolveD1ToolProfileKeyColdStart(ctx), source: 'js_cold_start' };
+  }
+  // D1 up, unknown task_type → ask (route-scoped pins), never oauth
+  return { profileKey: 'ask', source: 'd1_binding' };
 }
 
 /**
@@ -161,6 +275,7 @@ export async function compileD1ToolProfileRows(env, scope, opts) {
   const maxTools = Math.max(1, Number(opts.maxTools) || 12);
   const d1Row = await loadToolProfileRow(env, profileKey);
   let pinnedKeys = parseToolProfileKeysJson(d1Row?.tool_keys_json);
+  const writePolicy = parseWritePolicyJson(d1Row?.write_policy_json);
 
   if (!pinnedKeys.length && typeof opts.jsFallback === 'function') {
     const fb = await opts.jsFallback();
@@ -172,6 +287,23 @@ export async function compileD1ToolProfileRows(env, scope, opts) {
       source: 'js_cold_start',
       profile_key: profileKey,
       d1_row_id: d1Row?.id ?? null,
+      write_policy: writePolicy,
+      d1_row: d1Row,
+    };
+  }
+
+  // default_route with empty pins → caller uses route-scoped select (not oauth)
+  if (profileKey === 'default_route' && !pinnedKeys.length) {
+    return {
+      rows: [],
+      missingPinned: [],
+      pinned_count: 0,
+      total: 0,
+      source: 'd1_default_route_empty',
+      profile_key: profileKey,
+      d1_row_id: d1Row?.id ?? null,
+      write_policy: writePolicy,
+      d1_row: d1Row,
     };
   }
 
@@ -230,10 +362,19 @@ export async function compileD1ToolProfileRows(env, scope, opts) {
     result.total = result.rows.length;
   }
 
+  if (result.missingPinned?.length) {
+    console.warn(
+      '[d1-tool-profile] missing_pinned_catalog',
+      JSON.stringify({ profile_key: profileKey, missing: result.missingPinned }),
+    );
+  }
+
   return {
     ...result,
     source: d1Row ? 'd1_tool_profile' : 'js_cold_start',
     profile_key: profileKey,
     d1_row_id: d1Row?.id ?? null,
+    write_policy: writePolicy,
+    d1_row: d1Row,
   };
 }

@@ -22,9 +22,11 @@
   max-width: 100%;
   padding: 0.4rem 0.35rem 0.1rem;
   margin: 0;
-  font-size: 0.6875rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  line-height: 1.2;
+  font-size: 0.75rem;
+  font-family: var(--font-sans, 'Assistant', ui-sans-serif, system-ui, sans-serif);
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
   color: var(--dashboard-muted);
   user-select: none;
   -webkit-user-select: none;
@@ -47,7 +49,6 @@
   min-width: 0;
   max-width: min(14rem, 52vw);
   font-weight: 500;
-  letter-spacing: -0.01em;
 }
 
 .iam-composer-status-sep {
@@ -59,12 +60,16 @@
   min-width: 0;
   max-width: 7rem;
   opacity: 0.72;
+  font-weight: 400;
 }
 
 .iam-composer-status-elapsed {
   flex-shrink: 0;
   opacity: 0.65;
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.6875rem;
+  font-weight: 400;
 }
 
 @media (prefers-reduced-motion: reduce) {
