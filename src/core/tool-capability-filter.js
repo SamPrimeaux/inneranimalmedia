@@ -123,9 +123,11 @@ export function inferSqlSchemaInspectionIntent(message) {
 function inferWantsD1FromMessage(message, capabilityDecision) {
   if (capabilityDecision && capabilityDecision.should_use_d1) return true;
   const m = String(message || '');
+  // Do NOT match bare `agentsam_` — that steals github/fs catalog tool pins (agentsam_github_tree).
   return (
-    /\b(agentsam_|d1\b|hyperdrive|sqlite_master|pragma\b|\bselect\b|\bcount\s*\(|\bfrom\s+\w)/i.test(m) ||
-    /\b(workflow_runs|agentsam_todo|agentsam_tools|agentsam_model_catalog)\b/i.test(m)
+    /\b(agentsam_d1|d1_query|d1_write|d1_schema|d1\b|hyperdrive|sqlite_master|pragma\b|\bselect\b|\bcount\s*\(|\bfrom\s+\w)/i.test(
+      m,
+    ) || /\b(workflow_runs|agentsam_todo|agentsam_tools|agentsam_model_catalog)\b/i.test(m)
   );
 }
 
@@ -253,9 +255,11 @@ export async function filterToolsForCapabilityDecision(env, tools, capabilityDec
     next = await narrowToToolNames(env, pickCreateSubagentTools(tools), [CREATE_SUBAGENT_TOOL_NAME]);
   } else if (wantsAgentMgmt) {
     next = await narrowToToolNames(env, tools, AGENT_MGMT_TOOL_NAMES);
-  } else if (wantsD1 && d1ReadOnly) {
+  } else if (wantsGh && !wantsD1) {
+    next = tools.filter((t) => isGithubToolName(t.name));
+  } else if (wantsD1 && d1ReadOnly && !wantsGh) {
     next = await narrowToToolNames(env, tools, ['agentsam_d1_query']);
-  } else if (wantsD1 && !d1ReadOnly) {
+  } else if (wantsD1 && !d1ReadOnly && !wantsGh) {
     next = await narrowToToolNames(env, tools, [
       'agentsam_d1_query',
       'agentsam_d1_write',
