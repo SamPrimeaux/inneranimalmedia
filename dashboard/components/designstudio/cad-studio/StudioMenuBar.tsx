@@ -152,9 +152,9 @@ export function StudioMenuBar({
           <MenuItem label="Deselect All" onClick={onDeselect} />
           <Sep label="Render" />
           <MenuItem label="Render Viewport" onClick={onRenderViewport} />
-          <MenuItem label="Render Turntable" onClick={() => onRenderViaChat('Render 360 turntable animation')} />
+          <MenuItem label="Render Turntable" onClick={() => onRenderViaChat('Render 360 turntable (Meshy animate or Blender camera orbit)')} />
           <MenuItem label="Render Product Shot" onClick={() => onRenderViaChat('Render product hero shot')} />
-          <MenuItem label="Render Animation" onClick={() => onRenderViaChat('Render scene animation')} />
+          <MenuItem label="Apply Meshy Animation" onClick={() => onRenderViaChat('Apply Meshy animation clip to selected / active Meshy model')} />
           <Sep label="View" />
           <MenuItem label="Toggle Timeline" onClick={onToggleTimeline} />
           <MenuItem label="Command Palette" shortcut="⌘K" onClick={onOperatorSearch} />

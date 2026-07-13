@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import type { WorkspaceId } from './cadStudioTypes';
 import { buildDockDomains, type DockAction, type DockDomainId } from './toolDockRegistry';
 import { dispatchCadChat } from './dispatchCadChat';
+import { CAD_OPERATORS } from './operators';
 
 export type CreativeToolDockProps = {
   workspace: WorkspaceId;
@@ -150,14 +151,22 @@ export function CreativeToolDock({
 
 export function openOperatorDraft(
   operatorId: string,
-  opts: { prompt?: string; workspace?: string; selectedObjectId?: string | null; sceneId?: string | null },
+  opts: {
+    prompt?: string;
+    workspace?: string;
+    selectedObjectId?: string | null;
+    sceneId?: string | null;
+    send?: boolean;
+  },
 ): void {
+  const operator = CAD_OPERATORS.find((c) => c.id === operatorId);
   dispatchCadChat({
+    operator,
     operatorId,
     prompt: opts.prompt,
     workspace: opts.workspace,
     selectedObjectId: opts.selectedObjectId,
     sceneId: opts.sceneId,
-    send: false,
+    send: opts.send ?? false,
   });
 }

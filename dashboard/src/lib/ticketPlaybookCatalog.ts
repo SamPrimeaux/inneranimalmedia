@@ -328,6 +328,17 @@ export const TICKET_PLAYBOOK_BY_ID: Record<string, TicketPlaybookEntry> = {
     batch_rank: 2,
     doc: 'plans/active/DESIGNSTUDIO-002-dream-home-artifact-engine.md',
   },
+  tkt_designstudio_003: {
+    what: 'Architectural plan lane — PlanGraph bridge between visual_canvas and FreeCAD (not Excalidraw-as-master, not imgx floor plans).',
+    needed:
+      'architectural_plan D1 profile + plan_graph_* catalog tools; iam.plan_graph.v1 schema; human review for unresolved[]; promote_plan → FCStd on proj_mrb5shkc_3kos2c.',
+    pass: 'Sketch/upload → PlanGraph with Confirmed/Needs confirmation → promote → FCStd v1 + GLB; prompt copy never steers house plans to imgx_generate_image.',
+    fail: '2D plans still fake via imgx; Excalidraw treated as dimensional master; no PlanGraph lineage.',
+    deliverable: 'PlanGraph artifact + promote receipt + D1 profile green + DESIGNSTUDIO-003 plan acceptance checks.',
+    steps: 'Schema + D1 lane → review UI → promote_plan → gate ×2.',
+    batch_rank: 3,
+    doc: 'plans/active/DESIGNSTUDIO-003-architectural-plan-lane.md',
+  },
 };
 
 export function getTicketPlaybook(id: string): TicketPlaybookEntry | null {

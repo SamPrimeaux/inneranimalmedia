@@ -13,6 +13,9 @@ export type AnimationLibraryPanelProps = {
   addedActionIds: number[];
   onSelect: (clip: AnimationClip) => void;
   onToggleAdded: (actionId: number) => void;
+  /** Apply selected clip via Meshy API (or agent compose fallback). */
+  onApplySelected?: (clip: AnimationClip) => void | Promise<void>;
+  applyBusy?: boolean;
   onClose?: () => void;
   loading?: boolean;
 };
@@ -34,6 +37,8 @@ export function AnimationLibraryPanel({
   addedActionIds,
   onSelect,
   onToggleAdded,
+  onApplySelected,
+  applyBusy = false,
   onClose,
   loading = false,
 }: AnimationLibraryPanelProps) {
@@ -130,6 +135,21 @@ export function AnimationLibraryPanel({
           </div>
         )}
       </div>
+      {onApplySelected ? (
+        <div className="cad-anim-lib__footer">
+          <button
+            type="button"
+            className="cad-studio__primary-btn"
+            disabled={applyBusy || selectedActionId == null}
+            onClick={() => {
+              const clip = source.find((c) => c.action_id === selectedActionId);
+              if (clip) void onApplySelected(clip);
+            }}
+          >
+            {applyBusy ? 'Applying…' : 'Apply clip (Meshy)'}
+          </button>
+        </div>
+      ) : null}
     </aside>
   );
 }

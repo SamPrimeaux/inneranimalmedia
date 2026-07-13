@@ -154,7 +154,7 @@ export function formatDesignStudioContextForAgent(raw) {
   }
 
   lines.push(
-    'creative_actions: Viewport SCENE operators (addCube, deleteSelected, resetScene) are handled locally in AgentSamEngine — do NOT call illustration_create or open Draw/Excalidraw for them. 2D floor plans / blueprints / sketches → imgx_generate_image OR inline ```svg. 3D massing / CAD jobs → illustration_create (intent model_3d, engine openscad/freecad/meshy) with open_designstudio when a job is created. Do not route 2D house plans to OpenSCAD.',
+    'creative_actions: Viewport SCENE operators (addCube, deleteSelected, resetScene) are handled locally in AgentSamEngine — do NOT call illustration_create or open Draw/Excalidraw for them. Character animation → meshyai_rigging then meshyai_animation (+ meshyai_get_task); never fake Blender frame renders with imgx_generate_image. 2D floor plans / blueprints / architectural sketches → visual_canvas / architectural_plan (PlanGraph) — not imgx_generate_image as plan authority. 3D massing / CAD jobs → illustration_create (intent model_3d, engine freecad|openscad|meshy) with open_designstudio when a job is created. Do not route 2D house plans to OpenSCAD.',
   );
 
   return lines.join('\n');

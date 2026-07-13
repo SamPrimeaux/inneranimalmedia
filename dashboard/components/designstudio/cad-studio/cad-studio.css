@@ -2210,6 +2210,16 @@
   place-items: center;
 }
 
+.cad-anim-lib__footer {
+  flex-shrink: 0;
+  padding: 8px 10px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.cad-anim-lib__footer .cad-studio__primary-btn {
+  width: 100%;
+}
+
 .cad-outliner__toolbar {
   display: flex;
   align-items: center;

@@ -46,8 +46,36 @@ import './cad-studio.css';
 import { InspectorPanel, type InspectorTab } from './InspectorPanel';
 import { StudioLoadingScreen } from './StudioLoadingScreen';
 import { DEFAULT_STUDIO_SCENE_ENV, type EntityMaterialPatch, type StudioSceneEnvPatch } from './studioEnvironment';
+import { CAD_OPERATORS } from './operators';
+import { dispatchCadChat } from './dispatchCadChat';
 
 const DEFAULT_SCENE_ENV_CONFIG = DEFAULT_STUDIO_SCENE_ENV;
+
+function resolveMeshyIdsFromEntity(entity: GameEntity | null | undefined): {
+  model_task_id?: string;
+  rig_task_id?: string;
+} {
+  const meta = (entity?.behavior?.metadata ?? {}) as Record<string, unknown>;
+  const model =
+    meta.meshy_task_id ?? meta.model_task_id ?? meta.input_task_id ?? meta.external_task_id ?? null;
+  const rig = meta.meshy_rig_task_id ?? meta.rig_task_id ?? null;
+  return {
+    model_task_id: model != null ? String(model) : undefined,
+    rig_task_id: rig != null ? String(rig) : undefined,
+  };
+}
+
+function resolveRigTaskIdFromJobs(jobs: CadJobRow[]): string | undefined {
+  const rigJob = jobs.find(
+    (j) =>
+      String(j.task_type || '').toLowerCase() === 'rigging' &&
+      /succeed|complete|done/i.test(String(j.status || '')) &&
+      j.external_task_id,
+  );
+  if (rigJob?.external_task_id) return String(rigJob.external_task_id);
+  const anyRig = jobs.find((j) => j.rig_task_id);
+  return anyRig?.rig_task_id ? String(anyRig.rig_task_id) : undefined;
+}
 
 export type CadStudioShellProps = {
   engineContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -625,6 +653,10 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         case 'frameAll':
           onFrameAll?.();
           break;
+        case 'animLib':
+          if (animLibVisible) closeAnimLib();
+          else openAnimLib();
+          break;
         default:
           break;
       }
@@ -643,6 +675,9 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
       handleNewScene,
       handleRenderViewport,
       onFrameAll,
+      animLibVisible,
+      closeAnimLib,
+      openAnimLib,
     ],
   );
 
@@ -843,6 +878,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         loading={animationClipsLoading}
         selectedActionId={selectedAnimationActionId}
         addedActionIds={addedAnimationIds}
+        applyBusy={cad.busy}
         onSelect={(clip) => {
           setSelectedAnimationActionId(clip.action_id);
           protocol.toast('Animation', clip.name);
@@ -851,6 +887,44 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           setAddedAnimationIds((prev) =>
             prev.includes(actionId) ? prev.filter((id) => id !== actionId) : [...prev, actionId],
           );
+        }}
+        onApplySelected={async (clip) => {
+          setSelectedAnimationActionId(clip.action_id);
+          const selectedEntity = entities.find((e) => e.id === selectedId) ?? null;
+          const fromEntity = resolveMeshyIdsFromEntity(selectedEntity);
+          const rigTaskId =
+            fromEntity.rig_task_id || resolveRigTaskIdFromJobs(cad.jobs || []);
+          if (rigTaskId) {
+            try {
+              protocolSetStatus(`Meshy animate: ${clip.name}…`, 'executing');
+              const result = await cad.runMeshyAnimation({
+                rig_task_id: rigTaskId,
+                action_id: clip.action_id,
+              });
+              protocol.toast('Meshy', `Animation job ${result?.job_id ?? 'queued'}`);
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e);
+              protocolToast('Meshy animate failed', msg);
+              protocolSetStatus(msg, 'failed');
+            }
+            return;
+          }
+          const op = CAD_OPERATORS.find((c) => c.id === 'meshyAnimate');
+          dispatchCadChat({
+            operator: op,
+            operatorId: 'meshyAnimate',
+            prompt: `Apply Meshy animation clip "${clip.name}" (action_id=${clip.action_id}). Rig first if needed.`,
+            workspace: ui.workspace,
+            selectedObjectId: selectedId,
+            sceneId: currentSceneId,
+            meshyContext: {
+              model_task_id: fromEntity.model_task_id,
+              action_id: clip.action_id,
+              action_name: clip.name,
+            },
+            send: true,
+          });
+          protocol.toast('Agent', 'No local rig_task_id — sent Meshy animate intent to Agent Sam');
         }}
         onClose={closeAnimLib}
       />
@@ -1036,12 +1110,34 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         }}
         onOperatorSearch={() => openOperator()}
         onRenderViewport={handleRenderViewport}
-        onRenderViaChat={(intent) =>
-          openOperatorDraft('generateBlender', {
-            prompt: intent, workspace: ui.workspace,
-            selectedObjectId: selectedId, sceneId: currentSceneId,
-          })
-        }
+        onRenderViaChat={(intent) => {
+          const wantsMeshyAnim = /meshy|animation clip|animate/i.test(intent);
+          const op = CAD_OPERATORS.find((c) =>
+            wantsMeshyAnim ? c.id === 'meshyAnimate' : c.id === 'generateBlender',
+          );
+          const selectedEntity = entities.find((e) => e.id === selectedId) ?? null;
+          const meshyIds = resolveMeshyIdsFromEntity(selectedEntity);
+          const rigFromJobs = resolveRigTaskIdFromJobs(cad.jobs || []);
+          const clip =
+            selectedAnimationActionId != null
+              ? animationClips.find((c) => c.action_id === selectedAnimationActionId)
+              : null;
+          dispatchCadChat({
+            operator: op,
+            operatorId: op?.id ?? 'meshyAnimate',
+            prompt: intent,
+            workspace: ui.workspace,
+            selectedObjectId: selectedId,
+            sceneId: currentSceneId,
+            meshyContext: {
+              model_task_id: meshyIds.model_task_id,
+              rig_task_id: meshyIds.rig_task_id || rigFromJobs,
+              action_id: selectedAnimationActionId,
+              action_name: clip?.name ?? null,
+            },
+            send: true,
+          });
+        }}
         onShowDiagnostics={() => void showDiagnostics()}
         activeTool={ui.viewTool as ViewTool}
         onToolChange={(t) => {

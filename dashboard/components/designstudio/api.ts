@@ -29,6 +29,9 @@ export type CadJobRow = {
   scene_snapshot_id?: string | null;
   project_id?: string | null;
   task_type?: string | null;
+  external_task_id?: string | null;
+  parent_task_id?: string | null;
+  rig_task_id?: string | null;
   model_formats?: Record<string, string> | null;
   texture_data?: unknown;
   created_at?: number;

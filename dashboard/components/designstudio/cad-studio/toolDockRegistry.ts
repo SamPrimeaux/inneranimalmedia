@@ -77,8 +77,9 @@ const SHADE_ACTIONS: DockAction[] = [
 ];
 
 const ANIMATE_ACTIONS: DockAction[] = [
-  { id: 'keyframe', label: 'Insert Keyframe', icon: Clapperboard, kind: 'operator', operatorId: 'generateBlender' },
-  { id: 'rig', label: 'Rig / Animate', icon: Clapperboard, kind: 'operator', operatorId: 'generateObject' },
+  { id: 'meshyRig', label: 'Rig Character', icon: Clapperboard, kind: 'operator', operatorId: 'meshyRig' },
+  { id: 'meshyAnimate', label: 'Apply Animation', icon: Clapperboard, kind: 'operator', operatorId: 'meshyAnimate' },
+  { id: 'animLib', label: 'Animation Library', icon: Clapperboard, kind: 'panel' },
 ];
 
 const AGENT_ACTIONS: DockAction[] = [

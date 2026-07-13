@@ -197,9 +197,9 @@ export function CadMenuBar({
 
           <Sep label="Render" />
           <Item label="Render Viewport" onClick={onRenderViewport} />
-          <Item label="Render Turntable" onClick={() => onRenderViaChat('Render 360 turntable animation')} />
+          <Item label="Render Turntable" onClick={() => onRenderViaChat('Render 360 turntable (Meshy animate or Blender camera orbit)')} />
           <Item label="Render Product Shot" onClick={() => onRenderViaChat('Render product hero shot')} />
-          <Item label="Render Animation" onClick={() => onRenderViaChat('Render scene animation')} />
+          <Item label="Apply Meshy Animation" onClick={() => onRenderViaChat('Apply Meshy animation clip to selected / active Meshy model')} />
 
           <Sep label="Panels" />
           <Item label={`${animationLibraryOpen ? 'Hide' : 'Show'} Animation Library`} onClick={onToggleAnimationLibrary} />
