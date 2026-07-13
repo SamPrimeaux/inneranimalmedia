@@ -26,6 +26,10 @@ import {
 } from '../skill-spawn-orchestrator.js';
 import { executeSkillSpawnByRoute } from '../skill-spawn-pipelines-ext.js';
 import { filterToolsForCapabilityDecision } from '../tool-capability-filter.js';
+import {
+  extractMailSurfaceContext,
+  formatMailSurfaceContextForAgent,
+} from '../mail-studio-context.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -340,6 +344,22 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       console.warn('[agent-controller] lane_context_failed', e?.message ?? e);
       contextBlock = '';
     }
+  }
+
+  const mailSurfaceRaw = extractMailSurfaceContext(browserContextPayload, body);
+  const mailSurfaceBlock = formatMailSurfaceContextForAgent(mailSurfaceRaw);
+  if (mailSurfaceBlock) {
+    contextBlock = contextBlock
+      ? `${contextBlock}\n\n## Mail context\n\n${mailSurfaceBlock}`
+      : `## Mail context\n\n${mailSurfaceBlock}`;
+    console.info(
+      '[agent-controller] mail_surface_context_injected',
+      JSON.stringify({
+        route: profile.refined_route_key || profile.routing_task_type,
+        chars: mailSurfaceBlock.length,
+        preview_count: Array.isArray(mailSurfaceRaw?.inboxPreview) ? mailSurfaceRaw.inboxPreview.length : 0,
+      }),
+    );
   }
 
   let systemPrompt;

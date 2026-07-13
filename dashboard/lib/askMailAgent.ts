@@ -51,11 +51,7 @@ export function openMailAgent(opts?: {
     );
   } else if (opts?.inboxPreview?.length) {
     chunks.push(
-      `Inbox snapshot (${opts.inboxPreview.length} messages, metadata only):\n${JSON.stringify(
-        opts.inboxPreview.slice(0, 30),
-        null,
-        0,
-      )}`,
+      `I have ${opts.inboxPreview.length} messages visible in Collaborate Mail (metadata is in ## Mail context on your side). Triage from gmail_list_inbox / gmail_get_message — do not claim you lack inbox access.`,
     );
   }
 

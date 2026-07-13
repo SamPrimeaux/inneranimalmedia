@@ -1431,7 +1431,8 @@ export async function handleMailApi(request, url, env, ctx) {
     }
 
 
-    // POST /api/mail/agent  -- Agent Sam AI assist (summarize / triage / draft / sweep)
+    // POST /api/mail/agent  -- LEGACY: direct Gemini JSON (no tools, no agent loop).
+    // Mail UI uses openMailAgent → /api/agent/chat (SSOT). Keep for external callers only.
     // Body: { action, email?, emails?, thread?, instruction? }
     if (method === 'POST' && p === '/api/mail/agent') {
       const body = await readJsonBody(request);
