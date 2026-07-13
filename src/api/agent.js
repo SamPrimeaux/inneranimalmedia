@@ -1041,7 +1041,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   /** @type {{ turnId: string, assistantMessageId: string }|null} */
   let chatTurnMeta = null;
 
-  return startAgentChatEarlySse(async ({ emit, pipeResponse, streamLifecycle, bindTurnOutbox }) => {
+  return startAgentChatEarlySse(
+    async ({ emit, pipeResponse, streamLifecycle, bindTurnOutbox }) => {
     const heartbeat = setInterval(() => {
       void emit('status', { phase: 'preflight', heartbeat: true });
     }, 12000);
@@ -1423,6 +1424,35 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         await markChatTurnStatus(env, sessionId, 'done_no_token', 'stream_done_no_text', turnOpts);
       } else if (result?.saw_token) {
         await markChatTurnStatus(env, sessionId, 'completed', null, turnOpts);
+      }
+      // Terminal status safety net — delay so the controller finalize waitUntil can win first.
+      try {
+        const { finalizeRunningAgentRunsForConversation } = await import(
+          '../core/agent-run-routing.js'
+        );
+        const reason =
+          result?.saw_error
+            ? 'sse_close_error'
+            : !result?.saw_done
+              ? 'sse_closed_without_done'
+              : 'sse_close_running_sweep';
+        const sweep = () =>
+          finalizeRunningAgentRunsForConversation(env, {
+            conversationId: sessionId,
+            userId,
+            reason,
+          });
+        if (ctx?.waitUntil) {
+          ctx.waitUntil(
+            new Promise((r) => setTimeout(r, 2500))
+              .then(sweep)
+              .catch((e) => console.warn('[agent] agent_run sse close finalize', e?.message ?? e)),
+          );
+        } else {
+          await sweep();
+        }
+      } catch (e) {
+        console.warn('[agent] agent_run sse close finalize', e?.message ?? e);
       }
     },
   });

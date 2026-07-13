@@ -637,8 +637,9 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         return;
       }
 
+      let agentRunStartPromise = null;
       if (chatAgentRunId && userId && workspaceId) {
-        scheduleAgentsamChatAgentRunStart(env, ctx, {
+        agentRunStartPromise = scheduleAgentsamChatAgentRunStart(env, ctx, {
           runId: chatAgentRunId,
           run_group_id: chatAgentRunId,
           userId,
@@ -726,6 +727,12 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       };
 
       let loopStats = null;
+      let clientAborted = false;
+      const reqSignal = input.request?.signal ?? null;
+      if (reqSignal) {
+        if (reqSignal.aborted) clientAborted = true;
+        else reqSignal.addEventListener('abort', () => { clientAborted = true; }, { once: true });
+      }
         loopStats = await withTimeout(
           runAgentToolLoop(env, ctx, emit, {
             request: input.request,
@@ -764,8 +771,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
             runtimeProfile: profile,
             codemodeRuntime,
             chatTurnMeta,
-            // Client Stop aborts fetch → request.signal; honor between tool turns.
-            signal: input.request?.signal ?? null,
+            signal: reqSignal,
           }),
           maxRunMs + 5000,
         );
@@ -774,9 +780,26 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           emit('done', {});
         }
       } catch (e) {
+        const msg = String(e?.message || e || '');
+        const isTimeout = msg.includes('agent_run_timeout') || /\bTimeout\b/i.test(msg);
         const isAbort =
-          e?.name === 'AbortError' || String(e?.message || '').includes('Timeout');
-        if (!isAbort) {
+          clientAborted || e?.name === 'AbortError' || /aborted|AbortError/i.test(msg);
+        if (isTimeout) {
+          loopStats = {
+            timedOut: true,
+            cancelled: false,
+            totalUsage: {},
+            modelKey: profile.model_key,
+          };
+          emit('error', { message: 'Agent run timed out', code: 'agent_run_timeout' });
+        } else if (isAbort) {
+          loopStats = {
+            cancelled: true,
+            timedOut: false,
+            totalUsage: {},
+            modelKey: profile.model_key,
+          };
+        } else {
           console.warn('[agent-controller] loop_failed', e?.message ?? e);
           if (!e?.alreadyEmitted) {
             emit('error', { message: e?.message ?? 'Agent loop failed', code: e?.code || 'agent_spine_error' });
@@ -787,7 +810,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         }
       } finally {
         if (chatAgentRunId && userId && workspaceId) {
-          const cancelled = loopStats?.cancelled === true;
+          const cancelled = loopStats?.cancelled === true || clientAborted;
           const timedOut = loopStats?.timedOut === true;
           const inputTokens = Math.max(0, Math.floor(Number(loopStats?.totalUsage?.input_tokens) || 0));
           const outputTokens = Math.max(
@@ -812,7 +835,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
                 ? 'agent_spine_error'
                 : null;
 
-          scheduleAgentsamChatAgentRunInsert(env, ctx, {
+          const finalizePayload = {
             runId: chatAgentRunId,
             userId,
             tenantId,
@@ -837,7 +860,18 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
             fallbackReason: null,
             modelsTried: mk ? [mk] : [],
             quickstartBatch: quickstartBatch || null,
-          });
+          };
+          if (agentRunStartPromise) {
+            ctx.waitUntil(
+              agentRunStartPromise
+                .catch(() => {})
+                .then(() => {
+                  scheduleAgentsamChatAgentRunInsert(env, ctx, finalizePayload);
+                }),
+            );
+          } else {
+            scheduleAgentsamChatAgentRunInsert(env, ctx, finalizePayload);
+          }
 
           const isSuperadmin =
             sessionAuthUser?.role === 'superadmin' ||

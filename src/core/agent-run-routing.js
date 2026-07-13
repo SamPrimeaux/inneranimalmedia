@@ -375,11 +375,10 @@ export function newChatAgentRunId(opts = {}) {
 }
 
 /**
- * Insert `status = running` for POST /api/agent/chat traceability; finalized via
- * {@link scheduleAgentsamChatAgentRunInsert} with the same `runId`.
+ * Insert `status=running` row. Returns the promise so finalize can chain after it
+ * (avoids UPDATE-before-INSERT races that leave runs stuck in running).
  *
  * @param {any} env
- * @param {any} ctx
  * @param {{
  *   runId: string,
  *   userId: string,
@@ -419,115 +418,159 @@ export function newChatAgentRunId(opts = {}) {
  *   parent_run_id?: string | null,
  * }} p
  */
-export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
-  if (!env?.DB || !ctx?.waitUntil) return;
+export async function insertAgentsamChatAgentRunStart(env, p) {
+  if (!env?.DB) return;
   const uid = p.userId != null ? String(p.userId).trim() : '';
   const ws = p.workspaceId != null ? String(p.workspaceId).trim() : '';
   const rid = p.runId != null ? String(p.runId).trim() : '';
   if (!uid || !ws || !rid) return;
 
+  const cols = await pragmaTableInfo(env.DB, 'agentsam_agent_run');
+  if (!cols.size) return;
+
+  const parts = [];
+  const binds = [];
+  const add = (name, val) => {
+    if (!cols.has(name)) return;
+    parts.push(name);
+    binds.push(val);
+  };
+
+  add('id', rid);
+  add('user_id', uid);
+  add('tenant_id', p.tenantId != null ? String(p.tenantId).trim() : null);
+  add('workspace_id', ws);
+  add('conversation_id', p.conversationId != null ? String(p.conversationId).slice(0, 200) : null);
+  add('routing_arm_id', p.routingArmId != null ? String(p.routingArmId).slice(0, 120) : null);
+  add('mode', p.mode != null ? normalizeChatRunMode(p.mode) : null);
+  add('task_type', p.taskType != null ? String(p.taskType).slice(0, 120) : null);
+  add(
+    'trigger',
+    p.trigger != null && String(p.trigger).trim() !== '' ? String(p.trigger).slice(0, 80) : 'chat_sse',
+  );
+  add('status', 'running');
+  const mk = p.modelKey != null ? String(p.modelKey).slice(0, 200) : null;
+  add('ai_model_ref', mk);
+  add('model_id', mk);
+  add('model_key', mk);
+  let providerVal =
+    p.provider != null && String(p.provider).trim() !== '' ? String(p.provider).trim() : null;
+  if (!providerVal && mk) {
+    try {
+      const { resolveProviderForModelKey } = await import('./usage-event-writer.js');
+      providerVal = await resolveProviderForModelKey(env, mk, null);
+    } catch {
+      providerVal = deriveProvider(mk);
+    }
+  }
+  add('provider', providerVal != null ? String(providerVal).slice(0, 80) : null);
+  add('input_tokens', 0);
+  add('output_tokens', 0);
+  add('cost_usd', 0);
+  add('agent_id', p.agentId != null ? String(p.agentId).trim().slice(0, 200) : null);
+  add('person_uuid', p.personUuid != null ? String(p.personUuid).trim().slice(0, 120) : null);
+  add('command_id', p.commandId != null ? String(p.commandId).trim().slice(0, 200) : null);
+  add('work_session_id', p.workSessionId != null ? String(p.workSessionId).slice(0, 200) : null);
+  add('agent_ai_id', p.agentAiId != null ? String(p.agentAiId).trim().slice(0, 200) : null);
+  add('model_catalog_id', p.modelCatalogId != null ? String(p.modelCatalogId).trim().slice(0, 200) : null);
+
+  const parentRunId =
+    p.parentRunId != null
+      ? String(p.parentRunId).trim()
+      : p.parent_run_id != null
+        ? String(p.parent_run_id).trim()
+        : '';
+  let chainRootId =
+    p.chainRootId != null
+      ? String(p.chainRootId).trim()
+      : p.chain_root_id != null
+        ? String(p.chain_root_id).trim()
+        : '';
+  if (parentRunId) {
+    add('parent_run_id', parentRunId.slice(0, 120));
+    if (!chainRootId && cols.has('chain_root_id')) {
+      chainRootId = (await resolveChainRootIdForParentRun(env.DB, parentRunId)) || parentRunId;
+    }
+  }
+  if (chainRootId) {
+    add('chain_root_id', chainRootId.slice(0, 120));
+  }
+
+  const isoNow = new Date().toISOString();
+  const unixNow = agentRunUnixNow();
+  if (cols.has('started_at')) {
+    parts.push('started_at');
+    binds.push(isoNow);
+  }
+  if (cols.has('created_at')) {
+    parts.push('created_at');
+    binds.push(isoNow);
+  }
+  add('created_at_unix', unixNow);
+
+  if (parts.length < 3) return;
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO agentsam_agent_run (${parts.join(', ')}) VALUES (${parts.map(() => '?').join(', ')})`,
+    )
+      .bind(...binds)
+      .run();
+  } catch (e) {
+    console.warn('[agentsam_agent_run] chat start insert', e?.message ?? e);
+  }
+}
+
+export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
+  if (!env?.DB || !ctx?.waitUntil) return null;
+  const uid = p.userId != null ? String(p.userId).trim() : '';
+  const ws = p.workspaceId != null ? String(p.workspaceId).trim() : '';
+  const rid = p.runId != null ? String(p.runId).trim() : '';
+  if (!uid || !ws || !rid) return null;
+
   buildChatRoutingDecisionPayload(env, p)
     .then((routingDecisionPayload) => writeSupabaseRoutingDecision(env, routingDecisionPayload))
     .catch(() => {});
 
-  ctx.waitUntil(
-    (async () => {
-      const cols = await pragmaTableInfo(env.DB, 'agentsam_agent_run');
-      if (!cols.size) return;
+  const startPromise = insertAgentsamChatAgentRunStart(env, p);
+  ctx.waitUntil(startPromise);
+  return startPromise;
+}
 
-      const parts = [];
-      const binds = [];
-      const add = (name, val) => {
-        if (!cols.has(name)) return;
-        parts.push(name);
-        binds.push(val);
-      };
-
-      add('id', rid);
-      add('user_id', uid);
-      add('tenant_id', p.tenantId != null ? String(p.tenantId).trim() : null);
-      add('workspace_id', ws);
-      add('conversation_id', p.conversationId != null ? String(p.conversationId).slice(0, 200) : null);
-      add('routing_arm_id', p.routingArmId != null ? String(p.routingArmId).slice(0, 120) : null);
-      add('mode', p.mode != null ? normalizeChatRunMode(p.mode) : null);
-      add('task_type', p.taskType != null ? String(p.taskType).slice(0, 120) : null);
-      add(
-        'trigger',
-        p.trigger != null && String(p.trigger).trim() !== '' ? String(p.trigger).slice(0, 80) : 'chat_sse',
-      );
-      add('status', 'running');
-      const mk = p.modelKey != null ? String(p.modelKey).slice(0, 200) : null;
-      add('ai_model_ref', mk);
-      add('model_id', mk);
-      add('model_key', mk);
-      let providerVal =
-        p.provider != null && String(p.provider).trim() !== '' ? String(p.provider).trim() : null;
-      if (!providerVal && mk) {
-        try {
-          const { resolveProviderForModelKey } = await import('./usage-event-writer.js');
-          providerVal = await resolveProviderForModelKey(env, mk, null);
-        } catch {
-          providerVal = deriveProvider(mk);
-        }
-      }
-      add('provider', providerVal != null ? String(providerVal).slice(0, 80) : null);
-      add('input_tokens', 0);
-      add('output_tokens', 0);
-      add('cost_usd', 0);
-      add('agent_id', p.agentId != null ? String(p.agentId).trim().slice(0, 200) : null);
-      add('person_uuid', p.personUuid != null ? String(p.personUuid).trim().slice(0, 120) : null);
-      add('command_id', p.commandId != null ? String(p.commandId).trim().slice(0, 200) : null);
-      add('work_session_id', p.workSessionId != null ? String(p.workSessionId).slice(0, 200) : null);
-      add('agent_ai_id', p.agentAiId != null ? String(p.agentAiId).trim().slice(0, 200) : null);
-      add('model_catalog_id', p.modelCatalogId != null ? String(p.modelCatalogId).trim().slice(0, 200) : null);
-
-      const parentRunId =
-        p.parentRunId != null
-          ? String(p.parentRunId).trim()
-          : p.parent_run_id != null
-            ? String(p.parent_run_id).trim()
-            : '';
-      let chainRootId =
-        p.chainRootId != null
-          ? String(p.chainRootId).trim()
-          : p.chain_root_id != null
-            ? String(p.chain_root_id).trim()
-            : '';
-      if (parentRunId) {
-        add('parent_run_id', parentRunId.slice(0, 120));
-        if (!chainRootId && cols.has('chain_root_id')) {
-          chainRootId = (await resolveChainRootIdForParentRun(env.DB, parentRunId)) || parentRunId;
-        }
-      }
-      if (chainRootId) {
-        add('chain_root_id', chainRootId.slice(0, 120));
-      }
-
-      const isoNow = new Date().toISOString();
-      const unixNow = agentRunUnixNow();
-      if (cols.has('started_at')) {
-        parts.push('started_at');
-        binds.push(isoNow);
-      }
-      if (cols.has('created_at')) {
-        parts.push('created_at');
-        binds.push(isoNow);
-      }
-      add('created_at_unix', unixNow);
-
-      if (parts.length < 3) return;
-
-      try {
-        await env.DB.prepare(
-          `INSERT INTO agentsam_agent_run (${parts.join(', ')}) VALUES (${parts.map(() => '?').join(', ')})`,
-        )
-          .bind(...binds)
-          .run();
-      } catch (e) {
-        console.warn('[agentsam_agent_run] chat start insert', e?.message ?? e);
-      }
-    })(),
-  );
+/**
+ * SSE / client disconnect safety net — only touches still-running rows.
+ * @param {any} env
+ * @param {{ conversationId?: string|null, userId?: string|null, reason?: string }} p
+ */
+export async function finalizeRunningAgentRunsForConversation(env, p) {
+  if (!env?.DB) return { changes: 0 };
+  const conversationId = p.conversationId != null ? String(p.conversationId).trim() : '';
+  const userId = p.userId != null ? String(p.userId).trim() : '';
+  if (!conversationId) return { changes: 0 };
+  const reason = String(p.reason || 'sse_closed_without_terminal_status').slice(0, 500);
+  try {
+    const cols = await pragmaTableInfo(env.DB, 'agentsam_agent_run');
+    const sets = [
+      `status = 'cancelled'`,
+      `error_message = COALESCE(error_message, ?)`,
+      `completed_at = COALESCE(completed_at, datetime('now'))`,
+    ];
+    const binds = [reason];
+    if (cols.has('updated_at_unix')) {
+      sets.push(`updated_at_unix = strftime('%s','now')`);
+    }
+    let sql = `UPDATE agentsam_agent_run SET ${sets.join(', ')} WHERE conversation_id = ? AND status = 'running'`;
+    binds.push(conversationId);
+    if (userId) {
+      sql += ` AND user_id = ?`;
+      binds.push(userId);
+    }
+    const r = await env.DB.prepare(sql).bind(...binds).run();
+    return { changes: Number(r.meta?.changes ?? r.changes ?? 0) || 0 };
+  } catch (e) {
+    console.warn('[agentsam_agent_run] sse close finalize', e?.message ?? e);
+    return { changes: 0 };
+  }
 }
 
 /**
@@ -659,7 +702,57 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
         if (!sets.length) return;
         binds.push(runId);
         try {
-          await env.DB.prepare(`UPDATE agentsam_agent_run SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
+          const upd = await env.DB.prepare(`UPDATE agentsam_agent_run SET ${sets.join(', ')} WHERE id = ?`)
+            .bind(...binds)
+            .run();
+          const changed = Number(upd.meta?.changes ?? upd.changes ?? 0) || 0;
+          // Start insert raced behind finalize — land a terminal row instead of leaving a ghost.
+          if (changed === 0) {
+            const parts = [];
+            const ib = [];
+            const add = (name, val) => {
+              if (!cols.has(name)) return;
+              parts.push(name);
+              ib.push(val);
+            };
+            add('id', runId);
+            add('user_id', uid);
+            add('tenant_id', p.tenantId != null ? String(p.tenantId).trim() : null);
+            add('workspace_id', ws);
+            add('conversation_id', p.conversationId != null ? String(p.conversationId).slice(0, 200) : null);
+            add('routing_arm_id', outcomeArmId != null ? String(outcomeArmId).slice(0, 120) : null);
+            add('task_type', p.taskType != null ? String(p.taskType).slice(0, 120) : null);
+            add('trigger', 'chat_sse');
+            add('status', p.cancelled ? 'cancelled' : p.success ? 'completed' : 'failed');
+            add('ai_model_ref', mk);
+            add('model_id', mk);
+            add('model_key', mk);
+            add('input_tokens', tin);
+            add('output_tokens', tout);
+            add('cost_usd', costUsd);
+            add('error_message', p.errorMessage != null ? String(p.errorMessage).slice(0, 8000) : null);
+            const isoNowIns = new Date().toISOString();
+            if (cols.has('started_at')) {
+              parts.push('started_at');
+              ib.push(isoNowIns);
+            }
+            if (cols.has('completed_at')) {
+              parts.push('completed_at');
+              ib.push(isoNowIns);
+            }
+            if (cols.has('created_at')) {
+              parts.push('created_at');
+              ib.push(isoNowIns);
+            }
+            add('created_at_unix', agentRunUnixNow());
+            if (parts.length >= 3) {
+              await env.DB.prepare(
+                `INSERT INTO agentsam_agent_run (${parts.join(', ')}) VALUES (${parts.map(() => '?').join(', ')})`,
+              )
+                .bind(...ib)
+                .run();
+            }
+          }
           await applyThompsonLoopFromAgentRun(env, runId);
         } catch (e) {
           console.warn('[agentsam_agent_run] chat finalize update', e?.message ?? e);

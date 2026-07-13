@@ -191,12 +191,14 @@ async function sweepStaleAgentRuns(env) {
     const result = await env.DB.prepare(`
       UPDATE agentsam_agent_run
       SET status = 'failed',
-          error_message = 'run exceeded 35min without terminal status — swept by cron',
-          completed_at = datetime('now'),
+          error_message = COALESCE(error_message, 'run exceeded 35min without terminal status — swept by cron'),
+          completed_at = COALESCE(completed_at, datetime('now')),
           updated_at_unix = strftime('%s','now')
       WHERE status = 'running'
-        AND created_at_unix < ?
-        AND created_at_unix > 0
+        AND (
+          (created_at_unix > 0 AND created_at_unix < ?)
+          OR (COALESCE(created_at_unix, 0) = 0 AND started_at IS NOT NULL AND started_at < datetime('now', '-35 minutes'))
+        )
     `).bind(cutoff).run();
     if (result?.meta?.changes > 0) {
       console.log('[cron] sweepStaleAgentRuns: marked', result.meta.changes, 'runs as failed_stale');
