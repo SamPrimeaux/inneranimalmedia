@@ -152,6 +152,7 @@
     "rotate:platform-secrets": "bash scripts/rotate-iam-mcp-platform-secrets.sh",
     "rotate:cf-api-token": "bash scripts/rotate-cloudflare-api-token.sh",
     "rotate:cf-api-token:paste": "bash scripts/rotate-cloudflare-api-token.sh --paste",
+    "rotate:cf-api-token:worker": "bash scripts/rotate-cloudflare-api-token.sh --also-worker-secret",
     "rotate:cf-api-token:smoke": "bash scripts/smoke-cloudflare-api-token.sh",
     "smoke:post-deploy": "./scripts/post-deploy-smoke.sh",
     "verify:agentsam-telemetry": "./scripts/verify-agentsam-telemetry-after-deploy.sh",

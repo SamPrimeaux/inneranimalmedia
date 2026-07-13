@@ -13,26 +13,32 @@
 #   ./scripts/rotate-cloudflare-api-token.sh --paste   # read from clipboard
 #
 # Notes:
-#   - This updates LOCAL operator env (.env.cloudflare) used by with-cloudflare-env.sh / wrangler.
-#   - It does NOT put CLOUDFLARE_API_TOKEN into Worker secrets (that token is for CLI/API, not the Worker).
-#   - Workers AI binding (env.AI) uses account identity — separate from this token.
+#   - Updates LOCAL .env.cloudflare (wrangler CLI / with-cloudflare-env.sh).
+#   - Also syncs the same token into the Worker secret CLOUDFLARE_API_TOKEN
+#     (platform REST: KV, GraphQL analytics, PTY CF env inject, Images fallback).
+#   - Workers AI binding (env.AI.run) does NOT use this token — that's account AI binding.
+#     MiniMax 2021 is separate from CLI/Worker API-token sync.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env.cloudflare"
 MODE="hidden"
+SYNC_WORKER="ask" # ask | yes | no
+WRANGLER_CONFIG="${WRANGLER_CONFIG:-wrangler.production.toml}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --paste) MODE="paste"; shift ;;
     --visible) MODE="visible"; shift ;;
     --hidden) MODE="hidden"; shift ;;
+    --also-worker-secret) SYNC_WORKER="yes"; shift ;;
+    --local-only) SYNC_WORKER="no"; shift ;;
     -h|--help)
-      sed -n '2,18p' "$0" | sed 's/^# \?//'
+      sed -n '2,20p' "$0" | sed 's/^# \?//'
       exit 0
       ;;
     *)
-      echo "Unknown option: $1 (try --hidden, --paste, --visible)" >&2
+      echo "Unknown option: $1 (try --hidden, --paste, --also-worker-secret, --local-only)" >&2
       exit 1
       ;;
   esac
@@ -218,14 +224,49 @@ upsert(env_path, "CLOUDFLARE_API_TOKEN", token)
 
 print(f"✓ Updated {env_path.name}")
 print(f"  CLOUDFLARE_API_TOKEN len={len(token)} prefix={prefix}… (value not printed)")
-print("  Wrangler will pick this up via: ./scripts/with-cloudflare-env.sh …")
-print("  Smoke: npm run rotate:cf-api-token:smoke")
+print("  Local wrangler picks this up via: ./scripts/with-cloudflare-env.sh …")
 PY
 
-# Ensure shell leftovers are cleared
-unset _CF_ROTATE_TOKEN _CF_ROTATE_ACCOUNT_ID _CF_ROTATE_ENV_FILE
+# Re-load token only from the just-written env file for optional Worker sync (still not printed).
+# shellcheck disable=SC1090
+set -a
+# shellcheck source=/dev/null
+source "$ENV_FILE"
+set +a
+
+do_worker_sync() {
+  echo "→ Syncing CLOUDFLARE_API_TOKEN → Worker secret (-c ${WRANGLER_CONFIG})…"
+  # stdin put — token not on argv
+  printf '%s' "${CLOUDFLARE_API_TOKEN}" | ./scripts/with-cloudflare-env.sh npx wrangler secret put CLOUDFLARE_API_TOKEN -c "$WRANGLER_CONFIG"
+  if [[ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+    printf '%s' "${CLOUDFLARE_ACCOUNT_ID}" | ./scripts/with-cloudflare-env.sh npx wrangler secret put CLOUDFLARE_ACCOUNT_ID -c "$WRANGLER_CONFIG" || true
+  fi
+  echo "✓ Worker secrets updated (value not printed)"
+}
+
+case "$SYNC_WORKER" in
+  yes) do_worker_sync ;;
+  no) echo "→ Skipped Worker secret sync (--local-only)" ;;
+  ask)
+    if [[ -t 0 ]]; then
+      echo ""
+      echo "Also push this token to the live Worker secret CLOUDFLARE_API_TOKEN?"
+      echo "  (needed for platform CF REST from the Worker: KV, analytics, PTY inject, etc.)"
+      printf "  [Y/n] "
+      read -r ans || ans="Y"
+      case "${ans:-Y}" in
+        n|N|no|NO) echo "→ Skipped Worker secret sync" ;;
+        *) do_worker_sync ;;
+      esac
+    else
+      echo "→ Non-interactive: skipped Worker secret sync (pass --also-worker-secret)"
+    fi
+    ;;
+esac
+
+unset _CF_ROTATE_TOKEN _CF_ROTATE_ACCOUNT_ID _CF_ROTATE_ENV_FILE CLOUDFLARE_API_TOKEN
 
 echo ""
-echo "Done. Next (optional smoke — no secret printed):"
+echo "Done. Smoke (no secret printed):"
 echo "  npm run rotate:cf-api-token:smoke"
 echo "  ./scripts/with-cloudflare-env.sh npx wrangler whoami"
