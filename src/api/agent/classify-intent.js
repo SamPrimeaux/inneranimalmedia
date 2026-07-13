@@ -34,6 +34,8 @@ const INTENT_ROUTE_MAP = {
   d1_migrate: 'd1_migrate',
   supabase_write: 'supabase_write',
   supabase_query: 'supabase_query',
+  supabase_migration: 'supabase_migration',
+  supabase_vector: 'supabase_vector',
   db_write: 'db_write',
   db_read: 'db_read',
   r2_ops: 'r2_ops',
