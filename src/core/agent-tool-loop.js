@@ -38,7 +38,7 @@ import {
   CODEMODE_TOOL_NAME,
   enqueueCodemodePendingActions,
 } from './codemode-agent-bridge.js';
-import { resolveForcedExplicitCatalogTool } from './code-implementation-intent.js';
+import { resolveForcedExplicitCatalogTool, buildExplicitCatalogToolInput } from './code-implementation-intent.js';
 import { isImageGenerationTool, streamImageGenerationSse } from '../tools/image_generation.js';
 import { imageGenerationShouldPersist } from './image-draft-store.js';
 import { mergeResolvedContextIntoRunContext } from './agent-chat-resolved-context.js';
@@ -352,6 +352,137 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   };
 
   try {
+  // Deterministic first call when the user names a catalog tool — do not wait on model tool_choice.
+  let explicitCatalogPreinvoked = false;
+  {
+    const userText = lastUserMessageText(conversationMessages);
+    const preName = resolveForcedExplicitCatalogTool(userText, tools);
+    if (preName && effectiveMaxToolCalls > 0) {
+      const callId = `explicit_${Date.now().toString(36)}`;
+      const callInput = buildExplicitCatalogToolInput(preName, userText);
+      console.info(
+        '[agent] explicit_catalog_preinvoke',
+        JSON.stringify({ tool: preName, args: callInput }),
+      );
+      const validation = await validateToolCall(
+        env,
+        mcpCtx?.runtimeProfile || mode,
+        { name: preName, input: callInput, id: callId },
+        mcpCtx,
+        userPolicy,
+      );
+      if (validation.allowed) {
+        toolCallsUsed++;
+        executedToolNames.push(preName);
+        emit('tool_call', { tool: preName, args: callInput });
+        emit('tool_start', {
+          tool_name: preName,
+          tool_call_id: callId,
+          input_preview: JSON.stringify(callInput).slice(0, 200),
+        });
+        const toolT0 = Date.now();
+        let toolOutput = '';
+        let execErr = null;
+        try {
+          const toolBudgetMs = resolveToolExecutionBudgetMs(preName, {});
+          const execResult = await abortScope.race(
+            dispatchToolCallWithBudget(
+              env,
+              preName,
+              callInput,
+              mergeResolvedContextIntoRunContext(
+                {
+                  sessionId,
+                  tenantId,
+                  userId,
+                  workspaceId,
+                  authUser: mcpCtx.authUser ?? authUserParam ?? null,
+                  personUuid: mcpCtx.personUuid,
+                  isSuperadmin: mcpCtx.isSuperadmin,
+                  request,
+                  activeFileEnvelope: activeFileEnvelopeParam,
+                  selectedGithubRepoContext:
+                    mcpCtx.selectedGithubRepoContext ?? mcpCtx.github_repo_context ?? null,
+                  github_repo_context:
+                    mcpCtx.github_repo_context ?? mcpCtx.selectedGithubRepoContext ?? null,
+                  userMessage: userText || mcpCtx.userMessage || mcpCtx.message || null,
+                  skipToolCallLog: true,
+                  ledgerOwner: 'tool_loop',
+                  ...runSpineIds,
+                },
+                resolvedContextParam,
+              ),
+              toolBudgetMs,
+            ),
+          );
+          toolOutput =
+            typeof execResult === 'string' ? execResult : JSON.stringify(execResult ?? {});
+        } catch (e) {
+          execErr = e;
+          toolOutput = String(e?.message || e || 'explicit_catalog_preinvoke_failed').slice(0, 4000);
+        }
+        const durationMs = Math.max(0, Date.now() - toolT0);
+        emit('tool_output', {
+          tool_name: preName,
+          tool_call_id: callId,
+          output: String(toolOutput).slice(0, TOOL_OUTPUT_SSE_MAX),
+          ok: !execErr,
+        });
+        emit('tool_done', {
+          tool_name: preName,
+          tool_call_id: callId,
+          duration_ms: durationMs,
+          ok: !execErr,
+        });
+        emit('tool_result', {
+          tool: preName,
+          tool_call_id: callId,
+          result: String(toolOutput).slice(0, TOOL_OUTPUT_SSE_MAX),
+          ok: !execErr,
+        });
+        scheduleAgentsamToolCallLog(env, ctx, {
+          tenantId,
+          sessionId,
+          toolName: preName,
+          status: execErr ? 'error' : 'success',
+          durationMs,
+          costUsd: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          userId,
+          workspaceId,
+          errorMessage: execErr ? String(execErr.message || execErr).slice(0, 4000) : null,
+          inputSummary: JSON.stringify(callInput).slice(0, 200),
+          routingArmId: attributedRoutingArmId(),
+          ...toolLogFieldsFromValidation(validation),
+          ...runSpineIds,
+          ...ledgerIdentityFields,
+        });
+        conversationMessages.push({
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: callId, name: preName, input: callInput }],
+        });
+        conversationMessages.push({
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: callId,
+              content: String(toolOutput).slice(0, 120_000),
+              is_error: !!execErr,
+            },
+          ],
+        });
+        explicitCatalogPreinvoked = true;
+      } else {
+        console.warn(
+          '[agent] explicit_catalog_preinvoke_blocked',
+          JSON.stringify({ tool: preName, reason: validation.reason }),
+        );
+      }
+    }
+  }
+
   while (turnCount < maxTurns) {
     turnCount++;
     if (await shouldStopRun()) {
@@ -472,7 +603,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       }
       // Provider resolved inside dispatchStream from agentsam_ai.api_platform (Workers AI → OAI-shaped SSE).
       const forcedToolName =
-        turnCount === 0
+        !explicitCatalogPreinvoked && turnCount === 1
           ? resolveForcedExplicitCatalogTool(lastUserMessageText(conversationMessages), tools)
           : null;
       if (forcedToolName) {

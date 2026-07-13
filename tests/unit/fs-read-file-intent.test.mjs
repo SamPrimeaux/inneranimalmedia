@@ -6,6 +6,7 @@ import {
   isExplicitGithubCatalogToolIntent,
   extractExplicitCatalogToolKeys,
   resolveForcedExplicitCatalogTool,
+  buildExplicitCatalogToolInput,
 } from '../../src/core/code-implementation-intent.js';
 
 const G_ASK_REPO_FS =
@@ -30,6 +31,10 @@ test('agentsam_github_tree gate prompt is explicit github catalog intent', () =>
     'agentsam_github_tree',
   );
   assert.equal(resolveForcedExplicitCatalogTool(G_ASK_REPO_GH, [{ name: 'agentsam_d1_query' }]), null);
+  assert.deepEqual(buildExplicitCatalogToolInput('agentsam_github_tree', G_ASK_REPO_GH), {
+    repo: 'SamPrimeaux/inneranimalmedia',
+    recursive: false,
+  });
 });
 
 test('Monaco describe-this-file still counts as read-only file context', () => {

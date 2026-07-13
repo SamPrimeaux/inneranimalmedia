@@ -65,6 +65,47 @@ export function resolveForcedExplicitCatalogTool(message, tools) {
 }
 
 /**
+ * Best-effort args for a named catalog tool from the user message (gate / pin prompts).
+ * @param {string} toolName
+ * @param {unknown} message
+ * @returns {Record<string, unknown>}
+ */
+export function buildExplicitCatalogToolInput(toolName, message) {
+  const m = stripForIntent(message);
+  const name = String(toolName || '')
+    .trim()
+    .toLowerCase();
+  if (name === 'agentsam_github_tree' || name === 'github_tree') {
+    const repo = m.match(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/);
+    return {
+      ...(repo ? { repo: repo[1] } : {}),
+      recursive: false,
+    };
+  }
+  if (name === 'agentsam_github_read' || name === 'agentsam_github_read_many') {
+    const repo = m.match(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/);
+    const pathMatch =
+      m.match(/\bpath\s+[\"']?([^\s\"']+)[\"']?/i) ||
+      m.match(/\b([\w./-]+\.(?:md|json|js|ts|tsx|jsx|py|css|html))\b/i);
+    return {
+      ...(repo ? { repo: repo[1] } : {}),
+      ...(pathMatch ? { path: pathMatch[1] } : {}),
+    };
+  }
+  if (name === 'fs_read_file') {
+    const pathMatch =
+      m.match(/\bpath\s+[\"']?([^\s\"']+)[\"']?/i) ||
+      m.match(/\b([\w./-]+\.(?:md|json|js|ts|tsx|jsx|py|css|html))\b/i);
+    return { path: pathMatch ? pathMatch[1] : 'package.json' };
+  }
+  if (name === 'fs_search_files') {
+    const q = m.match(/\b(?:query|search for|find)\s+[\"']?([^\"'\n]+)[\"']?/i);
+    return { query: q ? q[1].trim() : m.slice(0, 120) };
+  }
+  return {};
+}
+
+/**
  * Read-only explain/summarize/describe current file (Monaco buffer / active file) — no workflow.
  * @param {unknown} message
  */
