@@ -65,8 +65,16 @@ export function resolveTemplatePreviewUrl(
 
 export function isHtmlTemplate(template: CmsTemplateRow): boolean {
   const type = String(template.template_type || '').toLowerCase();
-  if (type === 'loading_screen' || type === 'marketing_page') return true;
-  return Boolean(template.source_html_r2_key || template.r2_key);
+  if (
+    type === 'loading_screen' ||
+    type === 'marketing_page' ||
+    type === 'motion_system' ||
+    type === 'interactive'
+  ) {
+    return true;
+  }
+  const key = String(template.r2_key || template.source_html_r2_key || '');
+  return /\.html?(?:$|\?)/i.test(key) || Boolean(template.source_html_r2_key || template.r2_key);
 }
 
 export function isInlineComponentTemplate(template: CmsTemplateRow): boolean {

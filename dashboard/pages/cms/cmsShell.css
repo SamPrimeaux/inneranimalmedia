@@ -1471,7 +1471,8 @@
 .iam-tpl-card { background: var(--cms-panel); border: 1px solid var(--cms-border); border-radius: 10px; overflow: hidden; cursor: pointer; transition: border-color .12s; position: relative; }
 .iam-tpl-card:hover { border-color: var(--cms-teal); }
 .iam-tpl-preview { height: 120px; overflow: hidden; position: relative; }
-.iam-tpl-preview img { width: 100%; height: 100%; object-fit: cover; }
+.iam-tpl-preview img,
+.iam-tpl-preview iframe { width: 100%; height: 100%; object-fit: cover; border: 0; display: block; pointer-events: none; }
 .iam-tpl-body { padding: 10px 12px; }
 .iam-tpl-name { font-size: 12px; font-weight: 700; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .iam-tpl-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; min-height: 18px; }

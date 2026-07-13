@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, Fragment, type DragE
 import { IAM_AGENT_CHAT_COMPOSE } from '@/agentChatConstants';
 import { TemplatePreviewModal } from './TemplatePreviewModal';
 import {
+  isHtmlTemplate,
   parseIamTags,
   parseTemplateMeta,
   resolveTemplatePreviewUrl,
@@ -669,6 +670,7 @@ export function TemplateLibraryStudio({
                 const id = String(t.id);
                 const tags = parseIamTags(t.iam_tags);
                 const previewUrl = t.preview_image_url || resolveTemplatePreviewUrl(t);
+                const htmlPreview = Boolean(previewUrl && isHtmlTemplate(t) && !t.preview_image_url);
                 const isFav = favs.has(id);
                 return (
                   <div key={id} className="iam-tpl-card">
@@ -687,7 +689,16 @@ export function TemplateLibraryStudio({
                       className="iam-tpl-preview"
                       style={{ background: previewUrl ? undefined : categoryBg(t) }}
                     >
-                      {previewUrl ? (
+                      {previewUrl && htmlPreview ? (
+                        <iframe
+                          title={`${t.template_name || t.slug || 'template'} preview`}
+                          src={previewUrl}
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                          sandbox="allow-scripts allow-same-origin"
+                        />
+                      ) : null}
+                      {previewUrl && !htmlPreview ? (
                         <img src={previewUrl} alt="" loading="lazy" />
                       ) : null}
                     </div>
