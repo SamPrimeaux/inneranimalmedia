@@ -120,6 +120,9 @@ function resolveD1ToolProfileKeyColdStart(ctx) {
     tp === 'code_develop' ||
     tp === 'ask' ||
     tp === 'mail' ||
+    tp === 'mail_triage' ||
+    tp === 'mail_compose' ||
+    tp === 'mail_sweep' ||
     tp === 'd1_read' ||
     tp === 'visual_canvas'
   ) {
@@ -127,7 +130,10 @@ function resolveD1ToolProfileKeyColdStart(ctx) {
   }
   if (tp === 'image' || tp === 'exempt') return 'default_route';
   if (tt === 'd1_query' || tt === 'sql_d1_generation') return 'd1_read';
-  if (tt === 'mail_triage' || tt === 'gmail') return 'mail';
+  if (tt === 'mail_triage') return 'mail_triage';
+  if (tt === 'mail_compose') return 'mail_compose';
+  if (tt === 'mail_sweep') return 'mail_sweep';
+  if (tt === 'gmail') return 'mail';
   if (tt === 'visual_canvas') return 'visual_canvas';
   // Unknown → ask (never oauth, never null)
   return 'ask';
@@ -159,6 +165,9 @@ export async function resolveD1ToolProfileKey(env, ctx) {
     tp === 'code_develop' ||
     tp === 'ask' ||
     tp === 'mail' ||
+    tp === 'mail_triage' ||
+    tp === 'mail_compose' ||
+    tp === 'mail_sweep' ||
     tp === 'd1_read' ||
     tp === 'visual_canvas'
   ) {

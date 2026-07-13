@@ -281,12 +281,14 @@ export function resolveDashboardRouteAgentContext(opts: {
           message:
             'Triage my visible inbox: what needs a reply, what can wait, and what should I archive?',
           route_key: 'mail_triage',
+          task_type: 'mail_triage',
         },
         {
           id: 'mail-summarize-unread',
           label: 'Summarize unread',
           message: 'Summarize my unread inbox messages from the last 24 hours.',
           route_key: 'mail_triage',
+          task_type: 'mail_triage',
         },
       ],
     };

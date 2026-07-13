@@ -187,6 +187,30 @@ export function mapTaskTypeToSpecAxes(taskType, ctx = {}) {
     };
   }
 
+  if (tt === 'mail_compose') {
+    return {
+      domain: 'mail',
+      operation: 'mutate',
+      target: 'gmail',
+      authority: 'approve_mutate',
+      sideEffect: 'external_write',
+      toolProfile: 'mail',
+      conceptualLane: 'L1',
+    };
+  }
+
+  if (tt === 'mail_sweep') {
+    return {
+      domain: 'mail',
+      operation: 'triage',
+      target: 'gmail',
+      authority: 'approve_mutate',
+      sideEffect: 'external_write',
+      toolProfile: 'mail',
+      conceptualLane: 'L1',
+    };
+  }
+
   if (tt === 'search_code' || tt === 'vectorize') {
     return {
       domain: 'code',

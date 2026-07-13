@@ -69,6 +69,33 @@ const EXEMPT_ROUTE_TOOL_ALLOWLIST_FALLBACK = {
     'gmail_send',
     'agentsam_gmail_mcp_search_threads',
     'agentsam_gmail_mcp_get_thread',
+    'agentsam_gmail_mcp_list_labels',
+    'agentsam_gmail_mcp_label_message',
+    'agentsam_gmail_mcp_unlabel_message',
+  ],
+  mail_compose: [
+    'gmail_send',
+    'agentsam_gmail_mcp_create_draft',
+    'agentsam_gmail_mcp_list_drafts',
+    'agentsam_gmail_mcp_get_thread',
+  ],
+  mail_sweep: [
+    'agentsam_gmail_mcp_search_threads',
+    'gmail_modify_message',
+    'agentsam_gmail_mcp_label_thread',
+    'agentsam_gmail_mcp_unlabel_thread',
+    'agentsam_gmail_mcp_apply_sensitive_thread_label',
+  ],
+  gmail: [
+    'gmail_list_inbox',
+    'gmail_get_message',
+    'gmail_modify_message',
+    'gmail_send',
+    'agentsam_gmail_mcp_search_threads',
+    'agentsam_gmail_mcp_get_thread',
+    'agentsam_gmail_mcp_list_labels',
+    'agentsam_gmail_mcp_label_message',
+    'agentsam_gmail_mcp_unlabel_message',
   ],
 };
 

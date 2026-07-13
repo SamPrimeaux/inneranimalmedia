@@ -144,6 +144,43 @@ const CORE_CASES = [
 /** @type {GateCase[]} */
 const OPTIONAL_CASES = [
   {
+    id: 'G-mail',
+    kind: 'chat',
+    prompt: 'Check my inbox — how many unread emails do I have? Use Gmail tools only, not D1.',
+    mode: 'agent',
+    assert: (ctx) => {
+      const fails = assertNoBannedErrors(ctx, ['Gemini 400', '__IAM_PROVIDER_HTTP__']);
+      if (!ctx.decision) {
+        fails.push('missing agentsam_intent_decisions row');
+        return fails;
+      }
+      const tt = String(ctx.decision.task_type || '');
+      if (!['gmail', 'mail_triage'].includes(tt)) {
+        fails.push(`expected task_type=gmail|mail_triage, got ${tt || '?'}`);
+      }
+      let meta = {};
+      try {
+        meta = JSON.parse(String(ctx.decision.metadata_json || '{}'));
+      } catch {
+        fails.push('metadata_json not JSON');
+      }
+      const kwTask = String(meta.keyword_task || '');
+      const kwConf = Number(meta.keyword_confidence);
+      if (kwTask === 'gmail' && kwConf >= 0.8) {
+        /* keyword path — good */
+      } else if (tt === 'mail_triage') {
+        /* explicit route/task pin from harness is acceptable */
+      } else if (kwConf < 0.8) {
+        fails.push(`gmail keyword miss — keyword_task=${kwTask || '?'} confidence=${kwConf || '?'}`);
+      }
+      const tools = mergedToolNames(ctx);
+      if (tools.some((n) => /agentsam_d1_query|d1_query/i.test(n))) {
+        fails.push('mail lane must not invoke D1 query tools');
+      }
+      return fails;
+    },
+  },
+  {
     id: 'G-image',
     kind: 'chat',
     prompt: 'Generate an image of a red barn',

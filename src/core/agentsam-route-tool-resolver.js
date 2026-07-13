@@ -158,9 +158,57 @@ const DEFAULT_ROUTE_TOOL = /** @type {Record<string, Omit<RouteToolRequirements,
       'gmail_send',
       'agentsam_gmail_mcp_search_threads',
       'agentsam_gmail_mcp_get_thread',
+      'agentsam_gmail_mcp_list_labels',
+      'agentsam_gmail_mcp_label_message',
+      'agentsam_gmail_mcp_unlabel_message',
     ],
     blocked_capabilities: ['terminal_execute', 'terminal_run', 'worker_deploy'],
-    max_tools: 6,
+    max_tools: 12,
+    approval_policy: { high_risk_requires_approval: true },
+  },
+  mail_compose: {
+    allowed_lanes: ['think', 'general'],
+    required_capabilities: [],
+    optional_capabilities: [
+      'gmail_send',
+      'agentsam_gmail_mcp_create_draft',
+      'agentsam_gmail_mcp_list_drafts',
+      'agentsam_gmail_mcp_get_thread',
+    ],
+    blocked_capabilities: ['terminal_execute', 'terminal_run', 'worker_deploy'],
+    max_tools: 8,
+    approval_policy: { high_risk_requires_approval: true },
+  },
+  mail_sweep: {
+    allowed_lanes: ['think', 'research', 'general'],
+    required_capabilities: [],
+    optional_capabilities: [
+      'agentsam_gmail_mcp_search_threads',
+      'gmail_modify_message',
+      'agentsam_gmail_mcp_label_thread',
+      'agentsam_gmail_mcp_unlabel_thread',
+      'agentsam_gmail_mcp_apply_sensitive_thread_label',
+    ],
+    blocked_capabilities: ['terminal_execute', 'terminal_run', 'worker_deploy'],
+    max_tools: 10,
+    approval_policy: { high_risk_requires_approval: true },
+  },
+  gmail: {
+    allowed_lanes: ['think', 'research', 'general'],
+    required_capabilities: [],
+    optional_capabilities: [
+      'gmail_list_inbox',
+      'gmail_get_message',
+      'gmail_modify_message',
+      'gmail_send',
+      'agentsam_gmail_mcp_search_threads',
+      'agentsam_gmail_mcp_get_thread',
+      'agentsam_gmail_mcp_list_labels',
+      'agentsam_gmail_mcp_label_message',
+      'agentsam_gmail_mcp_unlabel_message',
+    ],
+    blocked_capabilities: ['terminal_execute', 'terminal_run', 'worker_deploy'],
+    max_tools: 12,
     approval_policy: { high_risk_requires_approval: true },
   },
   terminal_execution: {
@@ -441,6 +489,9 @@ function defaultForKey(key) {
   }
   if (k === 'agent_tool_orchestration' || k === 'agent_smoke_test') return DEFAULT_ROUTE_TOOL.workflow_orchestration;
   if (k === 'mail_triage') return DEFAULT_ROUTE_TOOL.mail_triage;
+  if (k === 'mail_compose') return DEFAULT_ROUTE_TOOL.mail_compose;
+  if (k === 'mail_sweep') return DEFAULT_ROUTE_TOOL.mail_sweep;
+  if (k === 'gmail') return DEFAULT_ROUTE_TOOL.gmail;
   if (k === 'agent_general' || k === 'ollama-local-workflow-pinstest') return DEFAULT_ROUTE_TOOL.chat;
   if (k === 'readonly_repo_audit' || k === 'multitask_report_child' || k === 'ask_evidence_child') {
     return DEFAULT_ROUTE_TOOL.readonly_repo_audit;

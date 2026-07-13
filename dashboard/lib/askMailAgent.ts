@@ -69,6 +69,7 @@ export function openMailAgent(opts?: {
         ensureAgentPanel: true,
         surface: 'mail',
         route_key: 'mail_triage',
+        task_type: 'mail_triage',
       },
     }),
   );
