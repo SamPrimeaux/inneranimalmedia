@@ -15,15 +15,12 @@
  * Performance notes:
  *   - Chat cases run in PARALLEL (Promise.allSettled) — wall time = max(latency), not sum.
  *   - D1 cases run first (sync, fast) so any catalog problems surface before hitting the API.
- *   - Default timeout is 45 s (IAM_GATE_CHAT_TIMEOUT_MS).
+ *   - Default timeout is 90 s (IAM_GATE_CHAT_TIMEOUT_MS).
  *   - CHAT_ABORT_RETRIES defaults to 0 — retries mask routing bugs; re-enable for CI.
  *
  * Case design rationale:
- *   G-inspect proves github tool routing end-to-end (review → inspect profile → github tree).
- *   G-ask-repo was dropped: it routed to `github` task but Thompson-sampled gpt-5.4-nano
- *   kept picking agentsam_d1_query from the 8-tool inspect profile instead of tree/read.
- *   That's a model-variance problem, not a routing bug — G-inspect covers the same invariant
- *   more reliably with gemini on the review route.
+ *   G-ask-repo pins agentsam_github_tree by name (no escalate / no D1 steal).
+ *   G-inspect proves review → inspect profile → github tree end-to-end.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -37,7 +34,8 @@ loadEnvCloudflare();
 const BASE_URL = (process.env.IAM_BASE_URL || 'https://inneranimalmedia.com').replace(/\/$/, '');
 const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.IAM_WORKSPACE_ID || 'ws_inneranimalmedia').trim();
 const TENANT_ID = (process.env.IAM_TENANT_ID || 'tenant_sam_primeaux').trim();
-const CHAT_TIMEOUT_MS = Number(process.env.IAM_GATE_CHAT_TIMEOUT_MS || 45_000);
+const CHAT_TIMEOUT_MS = Number(process.env.IAM_GATE_CHAT_TIMEOUT_MS || 90_000);
+// Default 0: retries hide routing bugs. Set IAM_GATE_CHAT_ABORT_RETRIES=1 in CI if needed.
 const CHAT_ABORT_RETRIES = Math.max(0, Number(process.env.IAM_GATE_CHAT_ABORT_RETRIES || 0));
 const TICKET_ID = 'tkt_routing_tool_ssot';
 
@@ -83,6 +81,52 @@ const CORE_CASES = [
       const cfg = String(row.handler_config || '');
       if (!cfg.includes('command_template')) {
         fails.push('pty_git_status.handler_config missing command_template');
+      }
+      return fails;
+    },
+  },
+  {
+    id: 'G-ask-repo',
+    kind: 'chat',
+    // Explicit agentsam_github_tree — runtime pins that tool and drops d1_query from the allowlist.
+    prompt:
+      'List the top-level files and folders in the SamPrimeaux/inneranimalmedia repo using agentsam_github_tree. Reply with just the list.',
+    mode: 'agent',
+    assert: (ctx) => {
+      const fails = assertInspectishChat({
+        maxToolsFromDecisionMeta: 20,
+        requireMinTools: 1,
+        maxDistinctTools: 20,
+        banSubstrings: [
+          'x-google-enum-descriptions',
+          'terminal tool requires command',
+          'Gemini 400',
+        ],
+        banToolPrefixes: ['gmail_', 'agentsam_gmail'],
+      })(ctx);
+      const tt = String(ctx.decision?.task_type || '');
+      if (!['search_code', 'ask', 'review', 'github'].includes(tt)) {
+        fails.push(`G-ask-repo expected search_code|ask|review|github, got ${tt || '?'}`);
+      }
+      if (tt === 'tool_use' || tt === 'browser') {
+        fails.push(`G-ask-repo must not drift to ${tt}`);
+      }
+      fails.push(
+        ...assertRequiredToolCall(
+          ctx,
+          /agentsam_github|github_tree|github_read|github_search|github_repo/i,
+          'G-ask-repo',
+        ),
+      );
+      const tools = mergedToolNames(ctx);
+      if (
+        tools.some((n) => /agentsam_d1_query|d1_query/i.test(n)) &&
+        !tools.some((n) => /agentsam_github|github_/i.test(n))
+      ) {
+        fails.push('G-ask-repo must not answer with D1-only tools when github_tree was requested');
+      }
+      if (ctx.aborted && tools.length === 0) {
+        fails.push(`G-ask-repo aborted after ${CHAT_TIMEOUT_MS}ms with no tool proof`);
       }
       return fails;
     },

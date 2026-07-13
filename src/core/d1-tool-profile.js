@@ -6,6 +6,7 @@
  * JS *-tool-profile.js / resolveD1ToolProfileKey cold-start only when D1 empty.
  */
 import { resolveCatalogDispatchToolKey } from './catalog-tool-key-resolve.js';
+import { extractExplicitCatalogToolKeys } from './code-implementation-intent.js';
 
 /** Profile keys that must never fall back to oauth_visible dump when compile yields zero tools. */
 export const PINNED_PROFILE_KEYS = new Set([
@@ -332,6 +333,45 @@ export async function compileD1ToolProfileRows(env, scope, opts) {
   }
 
   let result = await compilePinnedToolKeysToRows(env, scope, pinnedKeys, maxTools);
+
+  // When the user names a catalog tool (e.g. agentsam_github_tree), put it first and
+  // drop d1_query so nano/mini models cannot steal the turn with a wrong tool.
+  const explicitKeys = extractExplicitCatalogToolKeys(opts.message);
+  if (explicitKeys.length && result.rows?.length) {
+    const byName = new Map(
+      result.rows.map((r) => {
+        const n = String(r.name || r.tool_key || r.tool_name || '')
+          .trim()
+          .toLowerCase();
+        return [n, r];
+      }),
+    );
+    /** @type {typeof result.rows} */
+    const ordered = [];
+    const seen = new Set();
+    for (const k of explicitKeys) {
+      const row = byName.get(k);
+      if (row && !seen.has(k)) {
+        ordered.push(row);
+        seen.add(k);
+      }
+    }
+    const dropD1 = explicitKeys.some((k) => k.startsWith('agentsam_github_') || k.startsWith('fs_'));
+    for (const r of result.rows) {
+      const n = String(r.name || r.tool_key || r.tool_name || '')
+        .trim()
+        .toLowerCase();
+      if (!n || seen.has(n)) continue;
+      if (dropD1 && (n === 'agentsam_d1_query' || n === 'd1_query')) continue;
+      ordered.push(r);
+      seen.add(n);
+    }
+    result = {
+      ...result,
+      rows: ordered.slice(0, maxTools),
+      total: Math.min(ordered.length, maxTools),
+    };
+  }
 
   if (
     profileKey === 'code_develop' &&

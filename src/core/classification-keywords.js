@@ -41,7 +41,16 @@ const BOOTSTRAP = Object.freeze({
   chat_intent_terminal_execution: ['run command', 'terminal', 'bash'],
   chat_intent_web_search: ['search the web', 'web search', 'look it up online'],
   chat_intent_vectorize: ['vectorize', 'semantic search', 'knowledge base'],
-  chat_intent_github: ['github', 'pull request', 'git push'],
+  chat_intent_github: [
+    'github',
+    'pull request',
+    'git push',
+    'agentsam_github_tree',
+    'agentsam_github_read',
+    'agentsam_github_search',
+    'agentsam_github_list_commits',
+    'github_tree',
+  ],
   chat_intent_sql_d1_generation: ['create table', 'alter table'],
   chat_intent_debug: ['debug', 'not working', 'stack trace', 'diagnose'],
   chat_intent_search_code: [

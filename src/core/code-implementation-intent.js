@@ -9,6 +9,35 @@ function stripForIntent(message) {
 }
 
 /**
+ * Explicit GitHub catalog tool names in the user message (gate / tool-pin prompts).
+ * @param {unknown} message
+ */
+export function isExplicitGithubCatalogToolIntent(message) {
+  const m = stripForIntent(message);
+  return /\bagentsam_github_(tree|read|read_many|search|list_commits)\b/i.test(m) ||
+    /\bgithub_tree\b/i.test(m);
+}
+
+/**
+ * Catalog tool keys explicitly named in the message (for allowlist reordering).
+ * @param {unknown} message
+ * @returns {string[]}
+ */
+export function extractExplicitCatalogToolKeys(message) {
+  const m = stripForIntent(message);
+  /** @type {string[]} */
+  const keys = [];
+  const re =
+    /\b(agentsam_github_tree|agentsam_github_read_many|agentsam_github_read|agentsam_github_search|agentsam_github_list_commits|agentsam_d1_query|fs_read_file|fs_search_files)\b/gi;
+  let match;
+  while ((match = re.exec(m)) != null) {
+    const k = String(match[1] || '').toLowerCase();
+    if (k && !keys.includes(k)) keys.push(k);
+  }
+  return keys;
+}
+
+/**
  * Read-only explain/summarize/describe current file (Monaco buffer / active file) — no workflow.
  * @param {unknown} message
  */

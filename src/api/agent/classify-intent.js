@@ -6,6 +6,7 @@ import { stripUserTextForIntent } from '../../core/active-file-envelope.js';
 import {
   isReadOnlyFileContextIntent,
   isReadOnlyRepoSearchIntent,
+  isExplicitGithubCatalogToolIntent,
 } from '../../core/code-implementation-intent.js';
 import { isPrimaryImageGenerationIntent } from '../../tools/image_generation.js';
 import {
@@ -119,6 +120,9 @@ export const buildClassifyResult = buildResult;
  */
 export function inferIntentHeuristically(text) {
   const stripped = stripUserTextForIntent(text);
+  if (isExplicitGithubCatalogToolIntent(stripped)) {
+    return { taskType: 'github', mode: 'agent', confidence: 0.95, matchedBy: 'bootstrap_special' };
+  }
   if (isReadOnlyRepoSearchIntent(stripped)) {
     return { taskType: 'search_code', mode: 'agent', confidence: 0.9, matchedBy: 'bootstrap_special' };
   }
@@ -251,7 +255,16 @@ export function inferIntentHeuristically(text) {
 export async function inferIntentFromKeywords(env, lastMessageText, opts = {}) {
   const spineMode = opts.spineMode === true;
   const stripped = stripUserTextForIntent(lastMessageText);
-  // Explicit fs_* catalog tools → inspect/search_code before soft-ask / LLM escalate.
+  // Explicit catalog tools → pin lane before soft-ask / LLM escalate.
+  if (isExplicitGithubCatalogToolIntent(stripped)) {
+    return {
+      taskType: 'github',
+      mode: 'agent',
+      confidence: 0.95,
+      matchedBy: 'special',
+      source: 'special',
+    };
+  }
   if (isReadOnlyRepoSearchIntent(stripped)) {
     return {
       taskType: 'search_code',
