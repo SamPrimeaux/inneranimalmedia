@@ -1,4 +1,5 @@
 const IAM_ASSETS_ORIGIN = 'https://assets.inneranimalmedia.com';
+const CMS_R2_PUBLIC_ORIGIN = 'https://cms.inneranimalmedia.com';
 
 export type CmsTemplateRow = {
   id?: string;
@@ -46,10 +47,23 @@ export function parseTemplateMeta(template: CmsTemplateRow): Record<string, unkn
   }
 }
 
-export function r2KeyToAssetsUrl(key: string | null | undefined): string | null {
+/** Public URL for a template R2 key. CMS catalog lives on `cms`; legacy static/ on ASSETS. */
+export function r2KeyToPublicUrl(key: string | null | undefined): string | null {
   const trimmed = String(key || '').trim().replace(/^\/+/, '');
   if (!trimmed) return null;
+  if (
+    trimmed.startsWith('templates/') ||
+    trimmed.startsWith('instructions/') ||
+    trimmed.startsWith('cms/')
+  ) {
+    return `${CMS_R2_PUBLIC_ORIGIN}/${trimmed}`;
+  }
   return `${IAM_ASSETS_ORIGIN}/${trimmed}`;
+}
+
+/** @deprecated Prefer r2KeyToPublicUrl — kept for callers that assumed ASSETS-only. */
+export function r2KeyToAssetsUrl(key: string | null | undefined): string | null {
+  return r2KeyToPublicUrl(key);
 }
 
 /** Resolve a public preview URL for HTML / marketing templates. */
@@ -60,7 +74,7 @@ export function resolveTemplatePreviewUrl(
   const m = meta ?? parseTemplateMeta(template);
   const direct = m.preview_url ?? m.source_url;
   if (direct && /^https?:\/\//i.test(String(direct))) return String(direct).trim();
-  return r2KeyToAssetsUrl(template.r2_key) ?? r2KeyToAssetsUrl(template.source_html_r2_key);
+  return r2KeyToPublicUrl(template.r2_key) ?? r2KeyToPublicUrl(template.source_html_r2_key);
 }
 
 export function isHtmlTemplate(template: CmsTemplateRow): boolean {
@@ -69,7 +83,8 @@ export function isHtmlTemplate(template: CmsTemplateRow): boolean {
     type === 'loading_screen' ||
     type === 'marketing_page' ||
     type === 'motion_system' ||
-    type === 'interactive'
+    type === 'interactive' ||
+    type === 'section'
   ) {
     return true;
   }

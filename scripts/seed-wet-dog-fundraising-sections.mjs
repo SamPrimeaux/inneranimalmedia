@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Split wet-dog competition layouts into 4 standalone section templates,
- * write to static/templates/sections/fundraising/*, upload to R2 (inneranimalmedia),
+ * write to cms/templates/sections/fundraising/*, upload to R2 CMS_BUCKET (`cms`),
  * apply migration 855 to D1.
  */
 import { execSync, spawnSync } from 'node:child_process';
@@ -12,7 +12,9 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, '..');
 const CONFIG = path.join(REPO, 'wrangler.production.toml');
-const BUCKET = process.env.IAM_R2_BUCKET || 'inneranimalmedia';
+const BUCKET = process.env.IAM_CMS_R2_BUCKET || 'cms';
+const OLD_ASSETS_BUCKET = 'inneranimalmedia';
+const OLD_KEY_PREFIX = 'static/templates/sections/fundraising';
 
 const SHARED_STYLE = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -306,10 +308,10 @@ const SECTIONS = {
 };
 
 const R2_KEYS = {
-  'wet-dog-3col': 'static/templates/sections/fundraising/wet-dog-3col/index.html',
-  'wet-dog-4col': 'static/templates/sections/fundraising/wet-dog-4col/index.html',
-  'wet-dog-2x2': 'static/templates/sections/fundraising/wet-dog-2x2/index.html',
-  'wet-dog-hero3': 'static/templates/sections/fundraising/wet-dog-hero3/index.html',
+  'wet-dog-3col': 'templates/sections/fundraising/wet-dog-3col/index.html',
+  'wet-dog-4col': 'templates/sections/fundraising/wet-dog-4col/index.html',
+  'wet-dog-2x2': 'templates/sections/fundraising/wet-dog-2x2/index.html',
+  'wet-dog-hero3': 'templates/sections/fundraising/wet-dog-hero3/index.html',
 };
 
 function wrapSection(sectionHtml) {
@@ -343,17 +345,29 @@ function putR2(key, file) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
+function deleteOldAssetsKey(key) {
+  const args = [
+    'npx', 'wrangler', 'r2', 'object', 'delete',
+    `${OLD_ASSETS_BUCKET}/${key}`,
+    '--config', CONFIG,
+    '--remote',
+  ];
+  console.log('→ delete misplaced', `${OLD_ASSETS_BUCKET}/${key}`);
+  spawnSync('./scripts/with-cloudflare-env.sh', args, { cwd: REPO, stdio: 'inherit' });
+}
+
 const written = [];
 for (const [slug, sectionHtml] of Object.entries(SECTIONS)) {
-  const outDir = path.join(REPO, 'static/templates/sections/fundraising', slug);
+  const outDir = path.join(REPO, 'cms/templates/sections/fundraising', slug);
   fs.mkdirSync(outDir, { recursive: true });
   const outFile = path.join(outDir, 'index.html');
   fs.writeFileSync(outFile, wrapSection(sectionHtml), 'utf8');
   written.push({ slug, outFile, key: R2_KEYS[slug] });
 }
 
-for (const { outFile, key } of written) {
+for (const { outFile, key, slug } of written) {
   putR2(key, outFile);
+  deleteOldAssetsKey(`${OLD_KEY_PREFIX}/${slug}/index.html`);
 }
 
 const migration = path.join(REPO, 'migrations/855_wet_dog_fundraising_section_templates.sql');
@@ -367,4 +381,4 @@ const verify = execSync(
   { cwd: REPO, encoding: 'utf8' },
 );
 console.log(verify);
-console.log('Done — 4 wet-dog section templates uploaded and registered.');
+console.log('Done — 4 wet-dog section templates on CMS_BUCKET (cms) and registered.');

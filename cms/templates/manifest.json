@@ -35,6 +35,46 @@
         { "section_type": "services", "section_name": "capabilities", "sort_order": 20 },
         { "section_type": "cta", "section_name": "closing-cta", "sort_order": 30 }
       ]
+    },
+    {
+      "id": "tpl_wetdog_3col",
+      "slug": "wet-dog-3col",
+      "name": "Competition Entry — 3 Column Cards",
+      "description": "Fundraising competition entry — 3 category cards",
+      "template_type": "section",
+      "category": "fundraising",
+      "r2_key": "templates/sections/fundraising/wet-dog-3col/index.html",
+      "is_default": false
+    },
+    {
+      "id": "tpl_wetdog_4col",
+      "slug": "wet-dog-4col",
+      "name": "Competition Entry — 4 Column Shelf",
+      "description": "Fundraising competition entry — 4 column shelf",
+      "template_type": "section",
+      "category": "fundraising",
+      "r2_key": "templates/sections/fundraising/wet-dog-4col/index.html",
+      "is_default": false
+    },
+    {
+      "id": "tpl_wetdog_2x2",
+      "slug": "wet-dog-2x2",
+      "name": "Competition Entry — 2x2 Grid",
+      "description": "Fundraising competition entry — 2x2 grid",
+      "template_type": "section",
+      "category": "fundraising",
+      "r2_key": "templates/sections/fundraising/wet-dog-2x2/index.html",
+      "is_default": false
+    },
+    {
+      "id": "tpl_wetdog_hero3",
+      "slug": "wet-dog-hero3",
+      "name": "Competition Entry — Hero + 3",
+      "description": "Fundraising competition entry — hero + three supporting lanes",
+      "template_type": "section",
+      "category": "fundraising",
+      "r2_key": "templates/sections/fundraising/wet-dog-hero3/index.html",
+      "is_default": false
     }
   ]
 }

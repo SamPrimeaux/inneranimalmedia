@@ -28,10 +28,22 @@ Rendered via `renderCmsSectionTreeHtmlWithInjections` when sections exist.
 templates/manifest.json
 templates/blank-canvas/index.html
 templates/starter-page/index.html
+templates/sections/{category}/{slug}/index.html
 instructions/manifest.json
 instructions/RUNTIME_CONTRACT.md
 instructions/*.md
 ```
+
+Section HTML catalog examples (fundraising):
+
+```
+templates/sections/fundraising/wet-dog-3col/index.html
+templates/sections/fundraising/wet-dog-4col/index.html
+templates/sections/fundraising/wet-dog-2x2/index.html
+templates/sections/fundraising/wet-dog-hero3/index.html
+```
+
+`cms_component_templates.source_html_r2_key` for these rows must point at the **cms** bucket keys above (not `static/` on ASSETS).
 
 ## Liquid imports
 

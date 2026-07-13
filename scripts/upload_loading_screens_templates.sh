@@ -31,7 +31,9 @@ if [ -f "$REPO_ROOT/static/templates/ui/agent-sam-loading-states-clean-lab/index
     "$REPO_ROOT/static/templates/ui/agent-sam-loading-states-clean-lab/index.html"
 fi
 
-# Static template paths (CMS source_html_r2_key)
+# Static template paths (legacy ASSETS bucket — loading screens / motion stay on ASSETS).
+# Section HTML catalog belongs in CMS_BUCKET (`cms`) under templates/sections/ — see
+# scripts/seed-wet-dog-fundraising-sections.mjs and ./scripts/upload-cms-bucket-assets.sh.
 for dir in agent-sam-loading-states-lab agent-sam-loading-states-clean-lab iam-offline-runner; do
   src="$REPO_ROOT/static/templates/ui/$dir/index.html"
   if [ -f "$src" ]; then

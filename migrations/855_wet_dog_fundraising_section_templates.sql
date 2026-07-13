@@ -1,4 +1,4 @@
--- 855: Wet Dog Competition fundraising section templates (Companions / nonprofit)
+-- 855: Wet Dog Competition fundraising section templates (CMS_BUCKET / cms)
 
 INSERT OR IGNORE INTO cms_component_templates (
   id, template_name, template_type, category,
@@ -12,7 +12,7 @@ INSERT OR IGNORE INTO cms_component_templates (
  'inneranimalmedia', 'active',
  '["fundraising","competition","cards","nonprofit"]',
  0, 40,
- 'static/templates/sections/fundraising/wet-dog-3col/index.html',
+ 'templates/sections/fundraising/wet-dog-3col/index.html',
  '{"layout":"3-column","categories":3}',
  datetime('now'), datetime('now')),
 
@@ -22,7 +22,7 @@ INSERT OR IGNORE INTO cms_component_templates (
  'inneranimalmedia', 'active',
  '["fundraising","competition","cards","nonprofit"]',
  0, 41,
- 'static/templates/sections/fundraising/wet-dog-4col/index.html',
+ 'templates/sections/fundraising/wet-dog-4col/index.html',
  '{"layout":"4-column","categories":4}',
  datetime('now'), datetime('now')),
 
@@ -32,7 +32,7 @@ INSERT OR IGNORE INTO cms_component_templates (
  'inneranimalmedia', 'active',
  '["fundraising","competition","cards","nonprofit"]',
  0, 42,
- 'static/templates/sections/fundraising/wet-dog-2x2/index.html',
+ 'templates/sections/fundraising/wet-dog-2x2/index.html',
  '{"layout":"2x2","categories":4}',
  datetime('now'), datetime('now')),
 
@@ -42,6 +42,27 @@ INSERT OR IGNORE INTO cms_component_templates (
  'inneranimalmedia', 'active',
  '["fundraising","competition","cards","nonprofit"]',
  0, 43,
- 'static/templates/sections/fundraising/wet-dog-hero3/index.html',
+ 'templates/sections/fundraising/wet-dog-hero3/index.html',
  '{"layout":"hero-3","categories":4}',
  datetime('now'), datetime('now'));
+
+-- Correct keys if an earlier seed wrote ASSETS-bucket paths
+UPDATE cms_component_templates
+SET source_html_r2_key = 'templates/sections/fundraising/wet-dog-3col/index.html',
+    updated_at = datetime('now')
+WHERE id = 'tpl_wetdog_3col';
+
+UPDATE cms_component_templates
+SET source_html_r2_key = 'templates/sections/fundraising/wet-dog-4col/index.html',
+    updated_at = datetime('now')
+WHERE id = 'tpl_wetdog_4col';
+
+UPDATE cms_component_templates
+SET source_html_r2_key = 'templates/sections/fundraising/wet-dog-2x2/index.html',
+    updated_at = datetime('now')
+WHERE id = 'tpl_wetdog_2x2';
+
+UPDATE cms_component_templates
+SET source_html_r2_key = 'templates/sections/fundraising/wet-dog-hero3/index.html',
+    updated_at = datetime('now')
+WHERE id = 'tpl_wetdog_hero3';
