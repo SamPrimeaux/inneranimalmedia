@@ -19,6 +19,7 @@ import {
   DailyPlanError,
   gatherMorningPlanContext,
   generateWithGemini,
+  generateWithGeminiRetry,
   listDailyMemoryRecipients,
   resolveDailyDigestScope,
   resolveDailyPlanNotifyUser,
@@ -154,17 +155,27 @@ async function putAutoragText(env, key, text) {
 /** @param {*} env @param {object} email */
 async function triageOneEmail(env, email) {
   if (isDeployNotificationEmail(email)) {
-    return triageDeployNotificationEmail(email);
+    const triage = triageDeployNotificationEmail(email);
+    return { ...email, triage, _log: { model_key: null, source: 'deploy_email_parser', latency_ms: 0 } };
   }
 
+  const t0 = Date.now();
   try {
     const triage = await triageWithGemini(env, email, FLASH_MODEL);
-    return { ...email, triage };
+    return { ...email, triage, _log: { model_key: FLASH_MODEL, source: 'gemini', latency_ms: Date.now() - t0 } };
   } catch (primaryErr) {
+    const t1 = Date.now();
     try {
       const triage = await triageWithGemini(env, email, FLASH_LITE_MODEL);
-      return { ...email, triage, triage_fallback_model: FLASH_LITE_MODEL };
+      return {
+        ...email,
+        triage,
+        triage_fallback_model: FLASH_LITE_MODEL,
+        _log: { model_key: FLASH_LITE_MODEL, source: 'flash_lite_fallback', latency_ms: Date.now() - t1 },
+      };
     } catch {
+      // Both models failed — rethrow the primary error; triageEmailsParallel logs it as a failure row.
+      primaryErr._triage_latency_ms = Date.now() - t0;
       throw primaryErr;
     }
   }
@@ -185,7 +196,15 @@ export async function triageEmailsParallel(env, emails, concurrency = TRIAGE_CON
       if (s.status === 'fulfilled') items.push(s.value);
       else {
         failed += 1;
-        items.push({ ...batch[j], triage_error: String(s.reason?.message || s.reason) });
+        items.push({
+          ...batch[j],
+          triage_error: String(s.reason?.message || s.reason),
+          _log: {
+            model_key: FLASH_LITE_MODEL,
+            source: 'error',
+            latency_ms: s.reason?._triage_latency_ms ?? null,
+          },
+        });
       }
     }
   }
@@ -195,6 +214,56 @@ export async function triageEmailsParallel(env, emails, concurrency = TRIAGE_CON
     failed,
     summary: `${items.length} emails triaged (${critical} high/critical, ${failed} flash errors).`,
   };
+}
+
+/**
+ * Per-email visibility into cron triage, keyed by cron_run_id — a child of
+ * agentsam_cron_runs, not a stuffed metadata_json blob and not
+ * agentsam_tool_call_log (this isn't a chat tool-loop turn).
+ * Non-blocking: a logging failure never fails the digest.
+ * @see migrations/901_agentsam_cron_triage_log.sql
+ * @param {*} env
+ * @param {{ runId: string|null, tenantId: string|null, workspaceId: string|null, userId: string|null, items: object[] }} p
+ */
+async function logCronTriageBatch(env, { runId, tenantId, workspaceId, userId, items }) {
+  if (!env?.DB || !runId || !Array.isArray(items) || !items.length) return;
+  try {
+    const stmts = items.map((item) => {
+      const log = item._log || {};
+      const t = item.triage || {};
+      const id = `actl_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+      return env.DB.prepare(
+        `INSERT INTO agentsam_cron_triage_log (
+          id, cron_run_id, tenant_id, workspace_id, user_id, email_id, account,
+          model_key, source, label, urgency, needs_action, suggested_action, project_tag,
+          latency_ms, error_message, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`,
+      ).bind(
+        id,
+        runId,
+        tenantId || null,
+        workspaceId || null,
+        userId || null,
+        item.id || null,
+        item.account || null,
+        log.model_key || null,
+        log.source || (item.triage_error ? 'error' : null),
+        t.label || null,
+        t.urgency || null,
+        t.needs_action != null ? (t.needs_action ? 1 : 0) : null,
+        t.suggested_action || null,
+        t.project_tag || null,
+        log.latency_ms != null ? Number(log.latency_ms) : null,
+        item.triage_error ? String(item.triage_error).slice(0, 500) : null,
+      );
+    });
+    const CHUNK = 50;
+    for (let i = 0; i < stmts.length; i += CHUNK) {
+      await env.DB.batch(stmts.slice(i, i + CHUNK));
+    }
+  } catch (e) {
+    console.warn('[daily-memory] cron triage log write failed', e?.message ?? e);
+  }
 }
 
 function platformContextJson(ctxData) {
@@ -290,7 +359,7 @@ ${platformContextJson(ctxData)}
 
 Rules: Personal workspace digest only. Use inbox triage + workspace context JSON — nothing else. Never mention other users, other tenants, platform operations, billing, revenue, cron health, migrations, or Inner Animal Media internals. If triage failed, say so — do not invent blockers. 1-3 minute read. No emojis. No JSON.`;
 
-  return generateWithGemini(env, {
+  return generateWithGeminiRetry(env, {
     modelKey: PRO_MODEL,
     stage: 'evening_synthesis',
     systemInstruction: isOp
@@ -355,7 +424,7 @@ ${platformContextJson(ctxData)}
 
 Rules: Shorter personal digest — 1-2 minute read. Action-first. Never mention other users, tenants, platform operations, billing, or Inner Animal Media internals. ALERTS = "None." if clean. If triage failed, say so — do not invent regressions. No emojis. Markdown only.`;
 
-  return generateWithGemini(env, {
+  return generateWithGeminiRetry(env, {
     modelKey: PRO_MODEL,
     stage: 'morning_synthesis',
     systemInstruction: isOp
@@ -365,6 +434,43 @@ Rules: Shorter personal digest — 1-2 minute read. Action-first. Never mention 
     maxOutputTokens: isOp ? 2800 : 2000,
     temperature: 0.2,
   });
+}
+
+/**
+ * Fallback digest body when Pro synthesis fails even after retry — raw
+ * triage rows as a markdown table instead of a silent missed digest.
+ * @param {object} triageBatch
+ * @param {'evening'|'morning'} mode
+ */
+function buildPartialDigestMd(triageBatch, mode) {
+  const grouped = groupTriageBatchForSynthesis(triageBatch);
+  const header = mode === 'evening'
+    ? '### Email Summary (partial — synthesis unavailable)'
+    : '### INBOX PRIORITY (partial — synthesis unavailable)';
+  const lines = [
+    header,
+    '',
+    '_Gemini Pro synthesis failed after retry; showing raw triage rows instead of a summary._',
+    '',
+  ];
+  const items = grouped.humanEmails.slice(0, 40);
+  if (!items.length) {
+    lines.push('No triaged inbox rows available for this window.');
+  } else {
+    lines.push('| Urgency | Label | Subject | Suggested Action |', '|---|---|---|---|');
+    for (const e of items) {
+      const t = e.triage || {};
+      const subject = String(e.subject || '(no subject)').replace(/\|/g, '/').slice(0, 80);
+      lines.push(`| ${t.urgency || '-'} | ${t.label || '-'} | ${subject} | ${t.suggested_action || '-'} |`);
+    }
+  }
+  if (grouped.verifiedDeploys.length) {
+    lines.push('', '### Platform Health (partial)', '');
+    for (const d of grouped.verifiedDeploys.slice(0, 20)) {
+      lines.push(`- ${d.deploy_sha || '?'} — ${d.latest_commit_message || d.summary || ''}`);
+    }
+  }
+  return lines.join('\n');
 }
 
 /** @param {string} md */
@@ -660,6 +766,7 @@ export async function runDailyMemoryPipeline(env, opts) {
   });
   const r2Key = memoryR2Key(dateIso, userId);
   const partial = { r2: false, d1: false, embed: false, email: false };
+  let synthesisFailed = false;
 
   try {
     const gmailSnapshot = await snapshotGmailInboxForUser(env, {
@@ -672,6 +779,17 @@ export async function runDailyMemoryPipeline(env, opts) {
     });
 
     const triageBatch = await triageEmailsParallel(env, gmailSnapshot.emails || []);
+
+    if (runId) {
+      await logCronTriageBatch(env, {
+        runId,
+        tenantId: tid,
+        workspaceId: WORKSPACE_ID,
+        userId: owner.userId,
+        items: triageBatch.items,
+      });
+    }
+
     const digestScope = await resolveDailyDigestScope(env, owner);
     const ctxData = await gatherMorningPlanContext(env, tid, owner, digestScope);
 
@@ -679,16 +797,26 @@ export async function runDailyMemoryPipeline(env, opts) {
     const yesterdayIso = chicagoDateIso(new Date(Date.now() - 86400000));
     const yesterdayMd = await readAutoragText(env, memoryR2Key(yesterdayIso, userId));
 
-    const sectionBody = mode === 'evening'
-      ? await synthesizeEveningMd(env, { triageBatch, ctxData, dateIso, dateDisplay })
-      : await synthesizeMorningMd(env, {
-        triageBatch,
-        ctxData,
-        priorMd: digestScope.isPlatformOperator ? existingMd : '',
-        yesterdayMd,
-        dateIso,
-        dateDisplay,
-      });
+    let sectionBody;
+    try {
+      sectionBody = mode === 'evening'
+        ? await synthesizeEveningMd(env, { triageBatch, ctxData, dateIso, dateDisplay })
+        : await synthesizeMorningMd(env, {
+          triageBatch,
+          ctxData,
+          priorMd: digestScope.isPlatformOperator ? existingMd : '',
+          yesterdayMd,
+          dateIso,
+          dateDisplay,
+        });
+    } catch (synthErr) {
+      synthesisFailed = true;
+      console.error(
+        `[daily-memory/${mode}] Pro synthesis failed after retry, falling back to partial digest`,
+        synthErr?.message ?? synthErr,
+      );
+      sectionBody = buildPartialDigestMd(triageBatch, mode);
+    }
 
     const fullMd = mergeDailyMemoryMd(dateIso, existingMd, mode, sectionBody);
     partial.r2 = true;
@@ -728,6 +856,7 @@ export async function runDailyMemoryPipeline(env, opts) {
               to_email: deliverTo,
               user_id: userId,
               partial,
+              synthesis_failed: synthesisFailed,
             },
           });
         }
@@ -787,6 +916,7 @@ export async function runDailyMemoryPipeline(env, opts) {
           inbox_count: gmailSnapshot.emails?.length || 0,
           embed_chunks: persist.embedded,
           persist_errors: persist.errors,
+          synthesis_failed: synthesisFailed,
         },
       });
     }
@@ -794,7 +924,7 @@ export async function runDailyMemoryPipeline(env, opts) {
     await alertDailyPlan(env, {
       ok: true,
       title: mode === 'evening' ? 'Evening memory sent' : 'Morning brief sent',
-      body: `${subject} → ${deliverTo} · R2 ${r2Key}`,
+      body: `${subject} → ${deliverTo} · R2 ${r2Key}${synthesisFailed ? ' · Pro synthesis failed — partial digest sent' : ''}`,
       userId: owner.userId,
       tenantId: tid,
       tag: mode === 'evening' ? 'evening-memory-ok' : 'morning-focus-ok',
@@ -808,6 +938,7 @@ export async function runDailyMemoryPipeline(env, opts) {
       md: fullMd,
       persist,
       partial,
+      synthesisFailed,
       userId,
       toEmail: deliverTo,
       gmail_count: gmailSnapshot.emails?.length || 0,
