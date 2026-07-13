@@ -291,6 +291,9 @@ export async function runBuiltinTool(env, toolName, params, runContext = {}) {
             return await termHandlers.run_command?.({ ...params, tool_name: toolName }, env, runContext);
 
         case toolName === 'python_execute':
+        case toolName === 'agentsam_code_interpreter':
+        case toolName === 'code_interpreter':
+        case toolName === 'code_execution':
             return await python_execute(params, env);
 
         // ── CATEGORY: intelligence / llm ops (6 Tools) ──────────────────

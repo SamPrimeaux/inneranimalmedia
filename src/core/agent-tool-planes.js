@@ -49,6 +49,9 @@ export const READ_EVIDENCE_TOOL_NAMES = Object.freeze([
   'logs_read',
   'hyperdrive_query',
   'hyperdrive_schema',
+  'agentsam_code_interpreter',
+  'code_interpreter',
+  'code_execution',
 ]);
 
 export const PLAN_ARTIFACT_TOOL_NAMES = Object.freeze([
@@ -68,7 +71,7 @@ export const EXECUTION_TOOL_NAMES = Object.freeze([
   'terminal_execute',
   'run_command',
   'bash',
-  'python_execute',
+  // agentsam_code_interpreter / python crunch is second-step math — not repo mutation
   'd1_write',
   'd1_batch_write',
   'supabase_write',
@@ -136,7 +139,9 @@ export function isMutationOrExecutionTool(toolName) {
   if (MUTATION_SET.has(n)) return true;
   const nl = n.toLowerCase();
   if (nl.includes('write') || nl.includes('_put') || nl.includes('_delete')) return true;
-  if (nl.includes('terminal') || nl.includes('deploy') || nl.includes('python_execute')) return true;
+  if (nl.includes('terminal') || nl.includes('deploy')) return true;
+  // python_execute / agentsam_code_interpreter = scratch crunch, not repo execution plane
+  if (nl.includes('migrate') && nl.includes('d1')) return true;
   return false;
 }
 

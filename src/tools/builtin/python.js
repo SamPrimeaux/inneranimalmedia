@@ -9,35 +9,31 @@ const PTY_EXEC_URL = 'http://localhost:3099/exec';
 
 export const PYTHON_TOOLS = [
   {
-    name: 'python_execute',
-    description: `Execute a Python script or command in a persistent PTY session on the IAM server.
-Use this for: data analysis, automation scripts, file processing, API calls, math/statistics,
-JSON/CSV manipulation, generating reports, installing packages with pip, and any task where
-Python is more efficient than shell commands. The session persists environment variables and
-installed packages across calls within the same conversation. Returns stdout, stderr, and
-exit code. For multi-step scripts, prefer a single well-structured script over multiple calls.
-Do NOT use for: deploying to Cloudflare (use deploy tools), modifying dashboard source files
-(use R2/GitHub tools), or tasks better handled by existing IAM tools.`,
+    name: 'agentsam_code_interpreter',
+    description: `Run short Python for math, stats, transforms, and plots on data ALREADY in this turn
+(after agentsam_d1_query / fs_read_file / github read). Second step only — do not fetch data with this tool,
+and do not use it for repo edits, deploys, or shell (use fs_*/agentsam_github_*/agentsam_terminal_sandbox).
+Scratch Python environment; inline any D1/CSV payloads in the script. Returns stdout, stderr, exit_code.`,
     input_schema: {
       type: 'object',
       properties: {
         script: {
           type: 'string',
           description:
-            'The Python script or command to execute. Full scripts preferred over one-liners for complex tasks.',
+            'Python source. Prefer one structured script. Inline prior tool results as literals.',
         },
         pip_install: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Optional pip packages to install before running, e.g. ["pandas","requests"].',
+          description: 'Optional pip packages before running, e.g. ["pandas","numpy"].',
         },
         working_dir: {
           type: 'string',
-          description: 'Optional working directory on the PTY host (passed as cwd to /exec).',
+          description: 'Optional working directory on the exec host.',
         },
         timeout_seconds: {
           type: 'number',
-          description: 'Reserved for future PTY timeout support; currently ignored by /exec.',
+          description: 'Reserved for future timeout support; may be ignored by current exec backend.',
         },
       },
       required: ['script'],

@@ -113,7 +113,12 @@ const CAPABILITY_GROUPS = (() => {
       'terminal_run',
     ]),
     g(['container.exec', 'container_exec', 'cloud.sandbox', 'cloud_sandbox'], ['agentsam_container_exec']),
-    g(['python.execute', 'python_execute'], ['python_execute']),
+    g(['python.execute', 'python_execute', 'code_execution', 'code_interpreter'], [
+      'agentsam_code_interpreter',
+      'python_execute',
+      'code_interpreter',
+      'code_execution',
+    ]),
     g(['d1.read', 'd1_read', 'd1_query', 'database.read'], ['d1_query']),
     g(['d1.write', 'd1_write'], ['d1_write']),
     g(['d1.batch_write', 'd1_batch_write'], ['d1_batch_write', 'd1_write']),

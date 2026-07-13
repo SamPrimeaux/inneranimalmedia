@@ -32,6 +32,11 @@ export const LEGACY_CATALOG_TOOL_KEY_REDIRECT = Object.freeze({
   d1_query: 'agentsam_d1_query',
   d1_write: 'agentsam_d1_write',
   d1_migrate: 'agentsam_d1_migrate',
+  // Provider-native names + legacy builtin → in-app catalog crunch tool
+  code_execution: 'agentsam_code_interpreter',
+  code_interpreter: 'agentsam_code_interpreter',
+  python_execute: 'agentsam_code_interpreter',
+  agentsam_python_execute: 'agentsam_code_interpreter',
 });
 
 /**

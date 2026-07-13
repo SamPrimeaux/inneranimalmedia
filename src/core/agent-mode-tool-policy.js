@@ -19,7 +19,6 @@ const MODE_BLOCKED_CAPABILITIES = {
     'terminal_run',
     'worker_deploy',
     'd1_write',
-    'python_execute',
     'memory.write',
   ],
   plan: ['terminal_execute', 'terminal_run'],
