@@ -55,7 +55,7 @@ const BOOTSTRAP = Object.freeze({
   chat_intent_cms_edit: ['cms page', 'shopify'],
   chat_intent_recall: ['recall', 'remind me'],
   chat_intent_explain: ['explain', 'how does', 'eli5'],
-  chat_intent_escalate: ['maybe', 'not sure', 'figure out', 'help me decide'],
+  chat_intent_escalate: ['maybe', 'not sure', 'figure out', 'help me decide', 'which is better', 'should i', 'pros and cons', 'either way', 'not certain', 'torn between', 'what would you do'],
 });
 
 /** Ordered walk for chat intent — must match classify-intent priority law. */
