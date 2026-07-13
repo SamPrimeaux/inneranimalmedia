@@ -80,17 +80,27 @@ const CORE_CASES = [
     prompt:
       'Use fs_read_file path package.json — from the file contents only, what is the npm package name for this repo?',
     mode: 'agent',
-    assert: assertInspectishChat({
-      maxToolsFromDecisionMeta: 20,
-      requireMinTools: 1,
-      maxDistinctTools: 20,
-      banSubstrings: [
-        'x-google-enum-descriptions',
-        'terminal tool requires command',
-        'Gemini 400',
-      ],
-      banToolPrefixes: ['gmail_', 'agentsam_gmail'],
-    }),
+    assert: (ctx) => {
+      const fails = assertInspectishChat({
+        maxToolsFromDecisionMeta: 20,
+        requireMinTools: 1,
+        maxDistinctTools: 20,
+        banSubstrings: [
+          'x-google-enum-descriptions',
+          'terminal tool requires command',
+          'Gemini 400',
+        ],
+        banToolPrefixes: ['gmail_', 'agentsam_gmail'],
+      })(ctx);
+      const tt = String(ctx.decision?.task_type || '');
+      if (!['search_code', 'ask', 'review', 'github'].includes(tt)) {
+        fails.push(`G-ask-repo expected search_code|ask|review|github, got ${tt || '?'}`);
+      }
+      if (tt === 'tool_use' || tt === 'browser') {
+        fails.push(`G-ask-repo must not drift to ${tt}`);
+      }
+      return fails;
+    },
   },
   {
     id: 'G-inspect',

@@ -16,6 +16,8 @@ export function isReadOnlyFileContextIntent(message) {
   const m = stripForIntent(message).toLowerCase();
   if (!m) return false;
   if (messageExplicitlyRequestsBrowserInspection(m)) return false;
+  // Explicit catalog tools are workspace/repo reads — not Monaco buffer explain.
+  if (/\bfs_read_file\b/i.test(m) || /\bfs_search_files\b/i.test(m)) return false;
   if (isReadOnlyRepoSearchIntent(message)) return false;
 
   const writeCue =
@@ -51,6 +53,7 @@ export function isReadOnlyRepoSearchIntent(message) {
   if (messageExplicitlyRequestsBrowserInspection(m)) return false;
 
   if (/\bfs_search_files\b/i.test(m)) return true;
+  if (/\bfs_read_file\b/i.test(m)) return true;
 
   const searchVerb =
     /\b(find|search|locate|grep|ripgrep|\brg\b|where is|which file|look for)\b/i.test(m) ||

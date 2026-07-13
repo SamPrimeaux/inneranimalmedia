@@ -137,7 +137,7 @@ async function updateSkillFilePath(env, skillId, skillKey) {
   try {
     await env.DB.prepare(
       `UPDATE agentsam_skill
-       SET file_path = ?, retrieval_strategy = 'r2_vectorize', updated_at = datetime('now')
+       SET file_path = ?, retrieval_strategy = 'vectorize', updated_at = datetime('now')
        WHERE id = ?`
     ).bind(`${SKILLS_R2_PREFIX}${skillKey}/SKILL.md`, skillId).run();
   } catch (e) {

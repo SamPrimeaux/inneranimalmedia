@@ -3,7 +3,10 @@
  * Bootstrap = sync heuristic (parity / no DB). Priority order is law.
  */
 import { stripUserTextForIntent } from '../../core/active-file-envelope.js';
-import { isReadOnlyFileContextIntent } from '../../core/code-implementation-intent.js';
+import {
+  isReadOnlyFileContextIntent,
+  isReadOnlyRepoSearchIntent,
+} from '../../core/code-implementation-intent.js';
 import { isPrimaryImageGenerationIntent } from '../../tools/image_generation.js';
 import {
   CHAT_INTENT_TASK_PRIORITY,
@@ -116,6 +119,9 @@ export const buildClassifyResult = buildResult;
  */
 export function inferIntentHeuristically(text) {
   const stripped = stripUserTextForIntent(text);
+  if (isReadOnlyRepoSearchIntent(stripped)) {
+    return { taskType: 'search_code', mode: 'agent', confidence: 0.9, matchedBy: 'bootstrap_special' };
+  }
   if (isReadOnlyFileContextIntent(stripped)) {
     return { taskType: 'ask', mode: 'agent', confidence: 0.85, matchedBy: 'bootstrap_special' };
   }
@@ -245,6 +251,16 @@ export function inferIntentHeuristically(text) {
 export async function inferIntentFromKeywords(env, lastMessageText, opts = {}) {
   const spineMode = opts.spineMode === true;
   const stripped = stripUserTextForIntent(lastMessageText);
+  // Explicit fs_* catalog tools → inspect/search_code before soft-ask / LLM escalate.
+  if (isReadOnlyRepoSearchIntent(stripped)) {
+    return {
+      taskType: 'search_code',
+      mode: 'agent',
+      confidence: 0.9,
+      matchedBy: 'special',
+      source: 'special',
+    };
+  }
   if (isReadOnlyFileContextIntent(stripped)) {
     return { taskType: 'ask', mode: 'agent', confidence: 0.85, matchedBy: 'special', source: 'special' };
   }
@@ -331,6 +347,15 @@ export function shouldEscalateChatIntent(text, kw) {
   if (words < 5) return false;
   if (kw.escalateCue) return true;
   if (Number(kw.confidence) < 0.8) return true;
+  // High-confidence special lanes (fs_read_file → search_code, Monaco ask, etc.)
+  // must not soft-escalate into LLM drift (tool_use / browser).
+  const matchedBy = String(kw.matchedBy || '');
+  if (
+    Number(kw.confidence) >= 0.8 &&
+    (matchedBy === 'special' || matchedBy === 'bootstrap_special')
+  ) {
+    return false;
+  }
   const soft = ['chat', 'ask', 'explain', 'project_question'].includes(String(kw.taskType || ''));
   return soft && words >= 8;
 }

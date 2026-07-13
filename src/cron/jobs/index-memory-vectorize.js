@@ -17,7 +17,8 @@ export async function indexMemoryMarkdownToVectorize(env) {
   const startedAt = begun?.startedAt ?? Date.now();
 
   const keys = [];
-  if (env.R2.list) {
+  // Cron env may omit R2 on some worker entrypoints — guard before .list.
+  if (env.R2?.list) {
     for (const prefix of ['memory/daily/', 'memory/compacted-chats/', 'knowledge/', 'docs/']) {
       let cursor;
       do {
