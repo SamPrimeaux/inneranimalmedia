@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, ExternalLink, MoreHorizontal, Plus } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowRight, ExternalLink, Plus } from 'lucide-react';
 import type { CmsWorkspaceContext, CmsWorkspaceSite } from '../../hooks/useCmsWorkspaceContext';
 import type { CmsBootstrapData } from '../../../src/types/cms';
 import { buildCmsHubPath, buildCmsPath } from './cmsRoute';
 import { resolveStorefrontUrl, storefrontDisplayHost } from '../../../src/dashboard/cms/cmsStorefrontUrl';
 import { CmsIntegrationsStrip } from './CmsIntegrationsStrip';
 import { CmsSiteStructurePanel } from './CmsSiteStructurePanel';
+import { CmsSiteSwitcher } from './CmsSiteSwitcher';
 import { useCmsConnectedIntegrations } from './useCmsConnectedIntegrations';
 import { useCmsLinkedProject } from './useCmsLinkedProject';
 import { AppIcon } from '../../components/ui/AppIcon';
@@ -143,11 +144,9 @@ export function CmsDashboard({
   onSelectSite,
   onOpenDeployWizard,
 }: Props) {
-  const [siteMenuOpen, setSiteMenuOpen] = useState(false);
   const [structureOpen, setStructureOpen] = useState(false);
   const [iconUploading, setIconUploading] = useState(false);
   const [localIconUrl, setLocalIconUrl] = useState<string | null>(null);
-  const siteMenuRef = useRef<HTMLDivElement>(null);
   const [boot, setBoot] = useState<CmsBootstrapData | null>(null);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
   const [bootLoading, setBootLoading] = useState(false);
@@ -212,17 +211,6 @@ export function CmsDashboard({
   useEffect(() => {
     setLocalIconUrl(null);
   }, [siteSlug, linkedProject?.cover_image_url]);
-
-  useEffect(() => {
-    if (!siteMenuOpen) return;
-    const onDoc = (e: MouseEvent) => {
-      if (siteMenuRef.current && !siteMenuRef.current.contains(e.target as Node)) {
-        setSiteMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [siteMenuOpen]);
 
   const pages = boot?.pages || [];
   const themes = boot?.themes || [];
@@ -365,11 +353,20 @@ export function CmsDashboard({
               <h2 className="iam-cms-site-hero__name">Setup your site</h2>
               <p className="iam-cms-site-hero__meta">
                 Deploy a CMS site for {context?.ui_label || 'this workspace'} to manage content, media, theme, and
-                storefront.
+                storefront — or refresh if customer builds should already appear here.
               </p>
             </div>
+            <CmsSiteSwitcher
+              sites={sites}
+              activeSlug={siteSlug}
+              size="sm"
+              onSelect={(slug) => {
+                if (onSelectSite) void onSelectSite(slug, buildCmsHubPath(slug));
+              }}
+              onNewSite={onOpenDeployWizard}
+            />
           </div>
-          <div className="iam-cms-site-hero__stats">
+          <div className="iam-cms-site-hero__stats" aria-label="Site readiness">
             <div className="iam-cms-stat">
               <div className="iam-cms-stat__label">Pages</div>
               <div className="iam-cms-stat__value">—</div>
@@ -383,7 +380,7 @@ export function CmsDashboard({
               <div className="iam-cms-stat__value">—</div>
             </div>
             <div className="iam-cms-stat">
-              <div className="iam-cms-stat__label">Themes</div>
+              <div className="iam-cms-stat__label">Theme</div>
               <div className="iam-cms-stat__value">—</div>
             </div>
           </div>
@@ -410,6 +407,15 @@ export function CmsDashboard({
               <h2 className="iam-cms-site-hero__name">Choose a site</h2>
               <p className="iam-cms-site-hero__meta">Pick which CMS site to open in this command center.</p>
             </div>
+            <CmsSiteSwitcher
+              sites={sites}
+              activeSlug={siteSlug}
+              size="sm"
+              onSelect={(slug) => {
+                if (onSelectSite) void onSelectSite(slug, buildCmsHubPath(slug));
+              }}
+              onNewSite={onOpenDeployWizard}
+            />
           </div>
           <div className="iam-cms-site-picker">
             {sites.map((row) => (
@@ -478,54 +484,20 @@ export function CmsDashboard({
               <i aria-hidden />
               Live
             </span>
-            {sites.length > 1 && onSelectSite ? (
-              <div className="iam-cms-site-menu" ref={siteMenuRef}>
-                <button
-                  type="button"
-                  className="iam-cms-site-menu__trigger"
-                  aria-label="Switch site"
-                  aria-expanded={siteMenuOpen}
-                  onClick={() => setSiteMenuOpen((v) => !v)}
-                >
-                  <MoreHorizontal size={18} />
-                </button>
-                {siteMenuOpen ? (
-                  <div className="iam-cms-site-menu__list" role="menu">
-                    {sites.map((row) => (
-                      <button
-                        key={row.slug}
-                        type="button"
-                        role="menuitem"
-                        className={row.slug === siteSlug ? 'is-active' : ''}
-                        onClick={() => {
-                          setSiteMenuOpen(false);
-                          void onSelectSite(row.slug, buildCmsHubPath(row.slug));
-                        }}
-                      >
-                        {row.name || row.slug}
-                      </button>
-                    ))}
-                    {onOpenDeployWizard ? (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="iam-cms-site-menu__new"
-                        onClick={() => {
-                          setSiteMenuOpen(false);
-                          onOpenDeployWizard();
-                        }}
-                      >
-                        <Plus size={14} aria-hidden />
-                        New site
-                      </button>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
+            {onSelectSite ? (
+              <CmsSiteSwitcher
+                sites={sites}
+                activeSlug={siteSlug}
+                size="sm"
+                onSelect={(slug) => {
+                  void onSelectSite(slug, buildCmsHubPath(slug));
+                }}
+                onNewSite={onOpenDeployWizard}
+              />
             ) : null}
           </div>
         </div>
-        <div className="iam-cms-site-hero__stats">
+        <div className="iam-cms-site-hero__stats" aria-label="Site readiness">
           <div className="iam-cms-stat">
             <div className="iam-cms-stat__label">Pages</div>
             <div className="iam-cms-stat__value">{pages.length}</div>
@@ -539,7 +511,7 @@ export function CmsDashboard({
             <div className="iam-cms-stat__value">{connectedCount}</div>
           </div>
           <div className="iam-cms-stat">
-            <div className="iam-cms-stat__label">Themes</div>
+            <div className="iam-cms-stat__label">Theme</div>
             <div className="iam-cms-stat__value">{themes.length}</div>
           </div>
         </div>

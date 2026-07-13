@@ -9,6 +9,7 @@ import {
   IAM_AGENT_PANEL_CHANGED,
 } from '../../agentChatConstants';
 import { CmsAgentComposeBar } from './CmsAgentComposeBar';
+import { CmsSiteSwitcher } from './CmsSiteSwitcher';
 import { buildCmsHubPath, buildCmsPath } from './cmsRoute';
 import './cmsShell.css';
 
@@ -17,6 +18,7 @@ export type CmsShellNav = 'hub' | 'pages' | 'theme-editor' | 'online-store' | 't
 type Props = {
   siteSlug: string;
   site?: CmsWorkspaceSite | null;
+  sites?: CmsWorkspaceSite[];
   context?: CmsWorkspaceContext | null;
   activeNav: CmsShellNav;
   children: React.ReactNode;
@@ -25,6 +27,8 @@ type Props = {
   onComposeToggle?: (open: boolean) => void;
   /** Editor routes use global Agent Sam rail toggle instead of compose strip. */
   editorMode?: boolean;
+  onSelectSite?: (slug: string, path: string) => void | Promise<void>;
+  onOpenDeployWizard?: () => void;
 };
 
 function siteInitials(name?: string | null, slug?: string | null): string {
@@ -47,17 +51,28 @@ function displayDomain(site?: CmsWorkspaceSite | null, context?: CmsWorkspaceCon
 export function CmsShellLayout({
   siteSlug,
   site,
+  sites = [],
   context,
   activeNav,
   children,
   showComposeBar = false,
   onComposeToggle,
   editorMode = false,
+  onSelectSite,
+  onOpenDeployWizard,
 }: Props) {
   const navigate = useNavigate();
   const siteName = site?.name || context?.project_name || siteSlug;
   const domain = displayDomain(site, context);
   const [agentPanelOpen, setAgentPanelOpen] = useState(false);
+  const siteRows = useMemo(() => {
+    if (sites.length) return sites;
+    if (site?.slug) return [site];
+    if (siteSlug) {
+      return [{ slug: siteSlug, name: siteName, domain: domain || null } satisfies CmsWorkspaceSite];
+    }
+    return [];
+  }, [sites, site, siteSlug, siteName, domain]);
 
   useEffect(() => {
     const onPanelChanged = (e: Event) => {
@@ -141,6 +156,17 @@ export function CmsShellLayout({
     [navigate, siteSlug],
   );
 
+  const switchSite = useCallback(
+    (slug: string) => {
+      if (onSelectSite) {
+        void onSelectSite(slug, buildCmsHubPath(slug));
+        return;
+      }
+      navigate(buildCmsHubPath(slug));
+    },
+    [navigate, onSelectSite],
+  );
+
   const agentOpen = editorMode ? agentPanelOpen : showComposeBar;
   const shellClass = `iam-cms-shell${editorMode ? ' iam-cms-shell--editor' : ''}`;
 
@@ -166,6 +192,16 @@ export function CmsShellLayout({
             </div>
           </div>
           <div className="iam-cms-shell__actions">
+            {siteRows.length > 0 ? (
+              <CmsSiteSwitcher
+                sites={siteRows}
+                activeSlug={siteSlug}
+                size="sm"
+                className="iam-cms-shell__site-switcher"
+                onSelect={switchSite}
+                onNewSite={onOpenDeployWizard}
+              />
+            ) : null}
             <button
               type="button"
               className={`iam-cms-shell__agent-btn${agentOpen ? ' is-active' : ''}`}

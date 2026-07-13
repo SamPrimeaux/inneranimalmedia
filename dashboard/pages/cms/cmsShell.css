@@ -351,8 +351,10 @@
   .iam-cms-site-hero,
   .iam-cms-site-hero--setup,
   .iam-cms-site-hero--skeleton {
-    grid-column: span 2;
+    /* Wider column so 4 status chips (Pages…Theme) are not crushed */
+    grid-column: span 3;
     grid-row: span 1;
+    min-width: 0;
   }
 
   .iam-cms-modules {
@@ -373,6 +375,10 @@
   flex-direction: column;
   gap: 14px;
   min-height: 148px;
+  min-width: 0;
+  overflow: visible;
+  container-type: inline-size;
+  container-name: cms-site-hero;
 }
 
 .iam-cms-site-hero__head {
@@ -417,21 +423,26 @@
 
 .iam-cms-site-hero__stats {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
 }
 
-@media (min-width: 520px) {
+/* Prefer card width over viewport so Theme isn't clipped in a narrow hero column */
+@container cms-site-hero (min-width: 440px) {
   .iam-cms-site-hero__stats {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
 .iam-cms-stat {
-  padding: 12px;
+  padding: 10px 12px;
   border-radius: 12px;
   background: var(--cms-bg);
   border: 1px solid var(--cms-border);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .iam-cms-stat__label {
@@ -440,6 +451,9 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--cms-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .iam-cms-stat__value {
@@ -447,6 +461,9 @@
   font-size: 20px;
   font-weight: 850;
   letter-spacing: -0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .iam-cms-site-hero__actions {
@@ -1278,11 +1295,17 @@
 .iam-cms-hub-page__toolbar--compact {
   align-items: center;
   padding-top: 8px;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .iam-cms-hub-page__toolbar--compact .iam-cms-shell__kicker {
   margin: 0;
-  flex: 1;
+  flex: 0 0 auto;
+}
+
+.iam-cms-shell__site-switcher {
+  max-width: min(260px, 42vw);
 }
 
 .iam-cms-import-strip {
@@ -1438,6 +1461,150 @@
   border-radius: 0 0 8px 8px !important;
   color: var(--cms-teal) !important;
   font-weight: 700;
+}
+
+.iam-cms-site-switcher {
+  position: relative;
+  min-width: 0;
+  max-width: min(320px, 100%);
+}
+
+.iam-cms-site-switcher__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--cms-border);
+  background: var(--cms-panel);
+  color: var(--cms-text);
+  cursor: pointer;
+  text-align: left;
+  box-shadow: 0 1px 0 rgba(26, 26, 26, 0.03);
+}
+
+.iam-cms-site-switcher__trigger.size-sm {
+  padding: 6px 10px;
+  border-radius: 10px;
+}
+
+.iam-cms-site-switcher__trigger:hover:not(:disabled),
+.iam-cms-site-switcher.is-open .iam-cms-site-switcher__trigger {
+  border-color: color-mix(in srgb, var(--cms-teal) 40%, var(--cms-border));
+  background: color-mix(in srgb, var(--cms-teal-soft) 55%, var(--cms-panel));
+}
+
+.iam-cms-site-switcher__trigger:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.iam-cms-site-switcher__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.iam-cms-site-switcher__eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cms-muted);
+}
+
+.iam-cms-site-switcher__label {
+  font-size: 13px;
+  font-weight: 750;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.iam-cms-site-switcher__hint {
+  font-size: 11px;
+  color: var(--cms-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.iam-cms-site-switcher__menu {
+  position: absolute;
+  right: 0;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  max-height: min(360px, 50vh);
+  overflow: auto;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--cms-border);
+  background: var(--cms-panel);
+  box-shadow: var(--cms-shadow);
+}
+
+.iam-cms-site-switcher__option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cms-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.iam-cms-site-switcher__option:hover,
+.iam-cms-site-switcher__option.is-active {
+  background: var(--cms-teal-soft);
+  color: var(--cms-teal);
+}
+
+.iam-cms-site-switcher__option-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.iam-cms-site-switcher__option-name {
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.iam-cms-site-switcher__option-hint {
+  font-size: 11px;
+  color: var(--cms-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.iam-cms-site-switcher__option--new {
+  margin-top: 4px;
+  border-top: 1px solid var(--cms-border);
+  border-radius: 0 0 8px 8px;
+  color: var(--cms-teal);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.iam-cms-hub-page__toolbar .iam-cms-site-switcher {
+  flex: 1;
+  max-width: 280px;
 }
 
 .iam-cms-runtime {

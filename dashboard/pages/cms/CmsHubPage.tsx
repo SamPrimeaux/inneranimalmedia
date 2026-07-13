@@ -4,6 +4,7 @@ import type { CmsWorkspaceContext, CmsWorkspaceSite } from '../../hooks/useCmsWo
 import { CmsDashboard, type CmsDashboardSetupMode } from './CmsDashboard';
 import { CmsGuidedChatHero } from './CmsGuidedChatHero';
 import { CmsHubImportStrip } from './CmsHubImportStrip';
+import { CmsSiteSwitcher } from './CmsSiteSwitcher';
 import { buildCmsHubPath } from './cmsRoute';
 import './cmsShell.css';
 
@@ -80,6 +81,16 @@ export function CmsHubPage({
         <div className="iam-cms-hub-page__body">
           <div className="iam-cms-hub-page__toolbar iam-cms-hub-page__toolbar--compact">
             <p className="iam-cms-shell__kicker">CMS command center</p>
+            <CmsSiteSwitcher
+              sites={sites}
+              activeSlug={resolvedSiteSlug}
+              size="sm"
+              disabled={loading}
+              onSelect={(slug) => {
+                void onSelectSite(slug, buildCmsHubPath(slug));
+              }}
+              onNewSite={onOpenDeployWizard}
+            />
             <div className="iam-cms-shell__actions">
               <button type="button" className="iam-cms-shell__nav-link" onClick={() => onRetry()} disabled={loading}>
                 <RefreshCw size={14} className={loading ? 'animate-spin' : ''} aria-hidden />

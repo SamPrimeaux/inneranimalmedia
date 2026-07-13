@@ -280,10 +280,13 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
         <CmsShellLayout
           siteSlug={hubSiteSlug || shellSiteSlug}
           site={shellSite}
+          sites={sitesList}
           context={context}
           activeNav="hub"
           showComposeBar={composeOpen}
           onComposeToggle={setComposeOpen}
+          onSelectSite={handleSelectSite}
+          onOpenDeployWizard={() => setWizardOpen(true)}
         >
           <CmsHubPage
             context={context ? { ...context, sites: sitesList } : null}
@@ -319,9 +322,12 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
         <CmsShellLayout
           siteSlug={shellSiteSlug}
           site={shellSite}
+          sites={sitesList}
           context={context}
           activeNav="templates"
           editorMode
+          onSelectSite={handleSelectSite}
+          onOpenDeployWizard={() => setWizardOpen(true)}
         >
           <TemplateLibraryStudio
             projectSlug={shellSiteSlug}
@@ -334,9 +340,12 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
         <CmsShellLayout
           siteSlug={studioProjectSlug}
           site={shellSite}
+          sites={sitesList}
           context={context}
           activeNav={shellActiveNav}
           editorMode
+          onSelectSite={handleSelectSite}
+          onOpenDeployWizard={() => setWizardOpen(true)}
         >
           <Suspense fallback={<StudioShellFallback themeEditor={studioPanel === 'theme-editor'} />}>
             <CmsStudioEditor

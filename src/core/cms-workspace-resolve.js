@@ -411,7 +411,12 @@ export async function resolveCmsWorkspaceContext(env, request, authUser, cache =
     });
 
     const projectSlug = project.project_slug;
-    sites = sortSitesForWorkspace(env, sites, { primarySlug: projectSlug, workspaceSlug, workspaceId });
+    // Must await — without it, `sites` is a Promise and JSON becomes {}, so the hub shows zero sites.
+    sites = await sortSitesForWorkspace(env, sites, {
+      primarySlug: projectSlug,
+      workspaceSlug,
+      workspaceId,
+    });
     return {
       error: null,
       user_id: userId,
