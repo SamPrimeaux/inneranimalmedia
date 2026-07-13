@@ -38,6 +38,7 @@ import {
   CODEMODE_TOOL_NAME,
   enqueueCodemodePendingActions,
 } from './codemode-agent-bridge.js';
+import { resolveForcedExplicitCatalogTool } from './code-implementation-intent.js';
 import { isImageGenerationTool, streamImageGenerationSse } from '../tools/image_generation.js';
 import { imageGenerationShouldPersist } from './image-draft-store.js';
 import { mergeResolvedContextIntoRunContext } from './agent-chat-resolved-context.js';
@@ -102,6 +103,28 @@ function cadToolSseExtrasFromOutput(toolName, toolOutput) {
   } catch {
     return {};
   }
+}
+
+/** Last user text in the conversation (for explicit catalog tool pin / force). */
+function lastUserMessageText(messages) {
+  if (!Array.isArray(messages)) return '';
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (!m || m.role !== 'user') continue;
+    const c = m.content;
+    if (typeof c === 'string') return c;
+    if (Array.isArray(c)) {
+      return c
+        .map((b) => {
+          if (typeof b === 'string') return b;
+          if (b && typeof b === 'object' && typeof b.text === 'string') return b.text;
+          return '';
+        })
+        .filter(Boolean)
+        .join('\n');
+    }
+  }
+  return '';
 }
 
 export async function runAgentToolLoop(env, ctx, emit, params) {
@@ -448,11 +471,22 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         throw new Error(`GUARDRAIL_BLOCKED:${grModel.decision?.reason || 'model_blocked'}`);
       }
       // Provider resolved inside dispatchStream from agentsam_ai.api_platform (Workers AI → OAI-shaped SSE).
+      const forcedToolName =
+        turnCount === 0
+          ? resolveForcedExplicitCatalogTool(lastUserMessageText(conversationMessages), tools)
+          : null;
+      if (forcedToolName) {
+        console.info(
+          '[agent] forced_explicit_catalog_tool',
+          JSON.stringify({ tool: forcedToolName, turn: turnCount }),
+        );
+      }
       stream = await dispatchStream(env, request, {
         modelKey,
         systemPrompt,
         messages: conversationMessages,
         tools,
+        ...(forcedToolName ? { forcedToolName } : {}),
         reasoningEffort:
           dispatchSpineParam?.routing_decision?.reasoning_effort ??
           modeConfig?.gate_reasoning_effort ??

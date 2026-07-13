@@ -403,6 +403,9 @@ export async function chatWithToolsOpenAI(env, request, params) {
     messages: oaiMessages,
     stream:   true,
     ...(oaiTools?.length   ? { tools:     oaiTools                   } : {}),
+    ...(oaiTools?.length && params.forcedToolName
+      ? { tool_choice: { type: 'function', function: { name: String(params.forcedToolName) } } }
+      : {}),
     ...(reasoningEffort    ? { reasoning: { effort: reasoningEffort } } : {}),
     ...(verbosity          ? { text:      { verbosity }               } : {}),
   };
@@ -489,7 +492,14 @@ export async function chatWithToolsOpenAIResponses(env, request, params) {
     stream: true,
     ...(prev ? { previous_response_id: prev } : {}),
     ...(!prev && systemPrompt ? { instructions: String(systemPrompt) } : {}),
-    ...(oaiTools?.length ? { tools: oaiTools, tool_choice: 'auto' } : {}),
+    ...(oaiTools?.length
+      ? {
+          tools: oaiTools,
+          tool_choice: params.forcedToolName
+            ? { type: 'function', name: String(params.forcedToolName) }
+            : 'auto',
+        }
+      : {}),
     ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
     ...(verbosity ? { text: { verbosity } } : {}),
   };
@@ -577,7 +587,14 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
     stream: false,
     ...(prev ? { previous_response_id: prev } : {}),
     ...(!prev && systemPrompt ? { instructions: String(systemPrompt) } : {}),
-    ...(oaiTools?.length ? { tools: oaiTools, tool_choice: 'auto' } : {}),
+    ...(oaiTools?.length
+      ? {
+          tools: oaiTools,
+          tool_choice: params.forcedToolName
+            ? { type: 'function', name: String(params.forcedToolName) }
+            : 'auto',
+        }
+      : {}),
     ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
     ...(verbosity ? { text: { verbosity } } : {}),
   };

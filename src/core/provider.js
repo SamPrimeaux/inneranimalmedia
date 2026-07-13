@@ -539,6 +539,9 @@ export async function dispatchStream(env, request, params) {
     provider: meta?.provider ?? null,
     apiPlatform: platform,
     openaiPreviousResponseId: params.openaiPreviousResponseId ?? null,
+    ...(params.forcedToolName
+      ? { forcedToolName: String(params.forcedToolName).trim() }
+      : {}),
     ...options,
     ...(maxOutputTokens != null ? { maxOutputTokens } : {}),
     ...(routingArmId != null && String(routingArmId).trim() !== ''
@@ -597,6 +600,9 @@ export async function dispatchStream(env, request, params) {
             ? { reasoningEffort: params.reasoningEffort }
             : {}),
           ...anthropicOptions,
+          ...(params.forcedToolName
+            ? { tool_choice: { type: 'tool', name: String(params.forcedToolName) } }
+            : {}),
           ...(anthropicContainerId != null && String(anthropicContainerId).trim() !== ''
             ? { container: String(anthropicContainerId).trim() }
             : {}),

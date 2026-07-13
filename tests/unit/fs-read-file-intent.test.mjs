@@ -5,6 +5,7 @@ import {
   isReadOnlyRepoSearchIntent,
   isExplicitGithubCatalogToolIntent,
   extractExplicitCatalogToolKeys,
+  resolveForcedExplicitCatalogTool,
 } from '../../src/core/code-implementation-intent.js';
 
 const G_ASK_REPO_FS =
@@ -21,6 +22,14 @@ test('fs_read_file prompt is repo search, not Monaco file-context ask', () => {
 test('agentsam_github_tree gate prompt is explicit github catalog intent', () => {
   assert.equal(isExplicitGithubCatalogToolIntent(G_ASK_REPO_GH), true);
   assert.deepEqual(extractExplicitCatalogToolKeys(G_ASK_REPO_GH), ['agentsam_github_tree']);
+  assert.equal(
+    resolveForcedExplicitCatalogTool(G_ASK_REPO_GH, [
+      { name: 'agentsam_github_tree' },
+      { name: 'agentsam_d1_query' },
+    ]),
+    'agentsam_github_tree',
+  );
+  assert.equal(resolveForcedExplicitCatalogTool(G_ASK_REPO_GH, [{ name: 'agentsam_d1_query' }]), null);
 });
 
 test('Monaco describe-this-file still counts as read-only file context', () => {

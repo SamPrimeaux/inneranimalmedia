@@ -334,8 +334,8 @@ export async function compileD1ToolProfileRows(env, scope, opts) {
 
   let result = await compilePinnedToolKeysToRows(env, scope, pinnedKeys, maxTools);
 
-  // When the user names a catalog tool (e.g. agentsam_github_tree), put it first and
-  // drop d1_query so nano/mini models cannot steal the turn with a wrong tool.
+  // When the user names a catalog tool (e.g. agentsam_github_tree), pin only those
+  // tools (drop d1 + siblings) so mini/nano cannot hallucinate a wrong call.
   const explicitKeys = extractExplicitCatalogToolKeys(opts.message);
   if (explicitKeys.length && result.rows?.length) {
     const byName = new Map(
@@ -356,21 +356,30 @@ export async function compileD1ToolProfileRows(env, scope, opts) {
         seen.add(k);
       }
     }
-    const dropD1 = explicitKeys.some((k) => k.startsWith('agentsam_github_') || k.startsWith('fs_'));
-    for (const r of result.rows) {
-      const n = String(r.name || r.tool_key || r.tool_name || '')
-        .trim()
-        .toLowerCase();
-      if (!n || seen.has(n)) continue;
-      if (dropD1 && (n === 'agentsam_d1_query' || n === 'd1_query')) continue;
-      ordered.push(r);
-      seen.add(n);
+    const pinOnly = explicitKeys.some((k) => k.startsWith('agentsam_github_') || k.startsWith('fs_'));
+    if (pinOnly && ordered.length) {
+      result = {
+        ...result,
+        rows: ordered.slice(0, maxTools),
+        total: Math.min(ordered.length, maxTools),
+      };
+    } else {
+      const dropD1 = pinOnly;
+      for (const r of result.rows) {
+        const n = String(r.name || r.tool_key || r.tool_name || '')
+          .trim()
+          .toLowerCase();
+        if (!n || seen.has(n)) continue;
+        if (dropD1 && (n === 'agentsam_d1_query' || n === 'd1_query')) continue;
+        ordered.push(r);
+        seen.add(n);
+      }
+      result = {
+        ...result,
+        rows: ordered.slice(0, maxTools),
+        total: Math.min(ordered.length, maxTools),
+      };
     }
-    result = {
-      ...result,
-      rows: ordered.slice(0, maxTools),
-      total: Math.min(ordered.length, maxTools),
-    };
   }
 
   if (

@@ -118,7 +118,7 @@ const CORE_CASES = [
           'G-ask-repo',
         ),
       );
-      const tools = mergedToolNames(ctx);
+      const tools = successfulToolNames(ctx);
       if (
         tools.some((n) => /agentsam_d1_query|d1_query/i.test(n)) &&
         !tools.some((n) => /agentsam_github|github_/i.test(n))
@@ -292,13 +292,35 @@ const CASES = [...CORE_CASES, ...OPTIONAL_CASES];
  * @returns {string[]}
  */
 function assertRequiredToolCall(ctx, pattern, label) {
-  const names = mergedToolNames(ctx);
+  const names = successfulToolNames(ctx);
   if (!names.some((n) => pattern.test(n))) {
     return [
-      `${label}: required tool invocation missing (need ${pattern}; sse=${(ctx.toolNames || []).join(',') || 'none'} d1_log=${(ctx.d1ToolCalls || []).map((r) => r.tool_name).join(',') || 'none'})`,
+      `${label}: required tool invocation missing (need ${pattern}; sse=${(ctx.toolNames || []).join(',') || 'none'} d1_log=${(ctx.d1ToolCalls || []).map((r) => `${r.tool_name}:${r.status || '?'}`).join(',') || 'none'})`,
     ];
   }
   return [];
+}
+
+/** Successful / non-blocked tool names (blocked hallucinations must not count as proof). */
+function successfulToolNames(ctx) {
+  const blocked = new Set();
+  for (const row of ctx.d1ToolCalls || []) {
+    if (String(row.status || '').toLowerCase() === 'blocked') {
+      const n = row.tool_name != null ? String(row.tool_name).trim() : '';
+      if (n) blocked.add(n);
+    }
+  }
+  const names = [];
+  for (const n of ctx.toolNames || []) {
+    if (n && !blocked.has(n)) names.push(n);
+  }
+  for (const row of ctx.d1ToolCalls || []) {
+    const n = row.tool_name != null ? String(row.tool_name).trim() : '';
+    if (!n) continue;
+    if (String(row.status || '').toLowerCase() === 'blocked') continue;
+    names.push(n);
+  }
+  return [...new Set(names)];
 }
 
 /** @param {GateCaseCtx} ctx */

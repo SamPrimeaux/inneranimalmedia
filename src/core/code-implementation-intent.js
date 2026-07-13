@@ -38,6 +38,33 @@ export function extractExplicitCatalogToolKeys(message) {
 }
 
 /**
+ * First explicit github/fs catalog tool that is also in the live allowlist.
+ * Used to force tool_choice on turn 0 so models cannot invent agentsam_d1_query.
+ * @param {unknown} message
+ * @param {unknown[]} tools
+ * @returns {string|null}
+ */
+export function resolveForcedExplicitCatalogTool(message, tools) {
+  const keys = extractExplicitCatalogToolKeys(message).filter(
+    (k) => k.startsWith('agentsam_github_') || k.startsWith('fs_'),
+  );
+  if (!keys.length || !Array.isArray(tools) || !tools.length) return null;
+  const names = new Set(
+    tools
+      .map((t) =>
+        String(t?.name || t?.tool_key || t?.tool_name || t?.function?.name || '')
+          .trim()
+          .toLowerCase(),
+      )
+      .filter(Boolean),
+  );
+  for (const k of keys) {
+    if (names.has(k)) return k;
+  }
+  return null;
+}
+
+/**
  * Read-only explain/summarize/describe current file (Monaco buffer / active file) — no workflow.
  * @param {unknown} message
  */
