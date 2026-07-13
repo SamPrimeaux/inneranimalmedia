@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # Rotate CLOUDFLARE_API_TOKEN -> .env.cloudflare (+ optional Worker secret).
-# ASCII-only prompts. Junk in the paste (arrows/labels) is stripped, not rejected.
 #
+#   npm run rotate:cf-api-token:paste    # preferred: copy token, then run
 #   npm run rotate:cf-api-token
-#   npm run rotate:cf-api-token:paste      # from clipboard
-#   npm run rotate:cf-api-token:worker     # also wrangler secret put
+#   npm run rotate:cf-api-token:worker
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env.cloudflare"
-MODE="stdin_prompt" # stdin_prompt | paste | visible
+MODE="prompt"
 SYNC_WORKER="ask"
 WRANGLER_CONFIG="${WRANGLER_CONFIG:-wrangler.production.toml}"
 
@@ -17,23 +16,21 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --paste) MODE="paste"; shift ;;
     --visible) MODE="visible"; shift ;;
-    --hidden|--prompt) MODE="stdin_prompt"; shift ;;
+    --hidden|--prompt) MODE="prompt"; shift ;;
     --also-worker-secret) SYNC_WORKER="yes"; shift ;;
     --local-only) SYNC_WORKER="no"; shift ;;
     -h|--help)
       echo "Usage: $0 [--paste|--visible|--also-worker-secret|--local-only]"
       exit 0
       ;;
-    *)
-      echo "Unknown option: $1" >&2
-      exit 1
-      ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
 echo ""
 echo "Cloudflare API token -> .env.cloudflare"
-echo "Create token: https://dash.cloudflare.com/profile/api-tokens"
+echo "Create/copy token: https://dash.cloudflare.com/profile/api-tokens"
+echo "IMPORTANT: use the token you just verified (same length). Old saved tokens often 401."
 echo ""
 
 ACCOUNT_ID="$(
@@ -54,7 +51,7 @@ PY
 if [[ -z "${ACCOUNT_ID}" ]]; then
   printf "CLOUDFLARE_ACCOUNT_ID: "
   read -r ACCOUNT_ID
-  ACCOUNT_ID="$(printf '%s' "$ACCOUNT_ID" | tr -d '[:space:]"'\''')"
+  ACCOUNT_ID="$(printf '%s' "$ACCOUNT_ID" | tr -d '[:space:]"'"'")"
 fi
 if [[ ${#ACCOUNT_ID} -lt 16 ]]; then
   echo "ERROR: bad CLOUDFLARE_ACCOUNT_ID" >&2
@@ -64,55 +61,58 @@ fi
 RAW=""
 case "$MODE" in
   paste)
-    if ! command -v pbpaste >/dev/null 2>&1; then
-      echo "ERROR: pbpaste missing; use without --paste" >&2
-      exit 1
-    fi
-    echo "Reading token from clipboard..."
+    command -v pbpaste >/dev/null || { echo "ERROR: pbpaste missing" >&2; exit 1; }
+    echo "Reading clipboard..."
     RAW="$(pbpaste || true)"
     ;;
   visible)
-    printf "Paste token (visible), then Enter: "
+    printf "Paste token (visible), Enter: "
     read -r RAW
     ;;
   *)
-    # Default: hidden. Prompt is ASCII only — no unicode arrows.
-    printf "Paste token (hidden), then Enter: "
+    printf "Paste token (hidden), Enter: "
     read -rs RAW
     echo ""
     ;;
 esac
+
+# Minimal clean in bash (no charset stripping that can corrupt tokens)
+RAW="$(printf '%s' "$RAW" | sed $'s/\xEF\xBB\xBF//g' | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^"//;s/"$//;s/^'"'"'//;s/'"'"'$//')"
+# Drop accidental KEY= prefix only
+case "$RAW" in
+  CLOUDFLARE_API_TOKEN=*|CF_API_TOKEN=*) RAW="${RAW#*=}" ;;
+esac
+RAW="$(printf '%s' "$RAW" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+if [[ ${#RAW} -lt 20 ]]; then
+  echo "ERROR: paste too short (len=${#RAW}). Copy the full token from CF dashboard." >&2
+  exit 1
+fi
+
+echo "Got paste: len=${#RAW} prefix=${RAW:0:4}... suffix=...${RAW: -4}"
+echo "If this does not match the token you curl-verified, copy again and re-run."
 
 export _CF_ROTATE_TOKEN="$RAW"
 export _CF_ROTATE_ACCOUNT_ID="$ACCOUNT_ID"
 export _CF_ROTATE_ENV_FILE="$ENV_FILE"
 unset RAW
 
+# Prefer curl (same as dashboard/manual verify) over urllib
 python3 <<'PY'
-import json, os, re, ssl, sys, urllib.error, urllib.request
+import json, os, ssl, sys, urllib.error, urllib.request
 from pathlib import Path
 
-raw = os.environ.pop("_CF_ROTATE_TOKEN", "") or ""
+token = os.environ.pop("_CF_ROTATE_TOKEN", "") or ""
 account_id = (os.environ.get("_CF_ROTATE_ACCOUNT_ID") or "").strip()
 env_path = Path(os.environ.get("_CF_ROTATE_ENV_FILE") or "")
 
-# Keep only CF-token charset; drop arrows, labels, quotes, whitespace, unicode.
-cleaned = re.sub(r"(?i)^(?:CLOUDFLARE_API_TOKEN|CF_API_TOKEN)\s*[:=]?\s*", "", raw.strip())
-token = "".join(ch for ch in cleaned if ch.isascii() and (ch.isalnum() or ch in "_-."))
-dropped = len(cleaned) - len(token) if cleaned else 0
-# Also drop non-ascii from cleaned length accounting
-if any(ord(c) > 127 for c in cleaned):
-    dropped = max(dropped, 1)
-
-if not token or len(token) < 20:
-    print("ERROR: could not find a token in what you pasted (need 20+ ascii chars).", file=sys.stderr)
-    print("Copy the token from the Cloudflare dashboard, then re-run.", file=sys.stderr)
-    print(f"  raw_len={len(raw)} cleaned_len={len(token)}", file=sys.stderr)
+# Only strip ASCII whitespace leftover; never drop token charset chars
+token = "".join(ch for ch in token if ch not in "\r\n\t ").strip()
+if not token:
+    print("ERROR: empty token", file=sys.stderr)
     sys.exit(1)
 
-print(f"Validating (len={len(token)} prefix={token[:4]}... account={account_id[:8]}...)")
-if dropped:
-    print("(stripped non-token characters from paste)")
+print(f"Validating len={len(token)} prefix={token[:4]}... suffix=...{token[-4:]} account={account_id[:8]}...")
 
 ctx = ssl.create_default_context()
 
@@ -131,10 +131,10 @@ def cf_get(url: str):
         try:
             data = json.loads(body) if body else {}
         except Exception:
-            data = {"raw": body[:300]}
+            data = {"raw": body[:200]}
         return e.code, data
     except Exception as e:
-        print(f"ERROR: network/verify failed: {e}", file=sys.stderr)
+        print(f"ERROR: request failed: {type(e).__name__}: {e}", file=sys.stderr)
         sys.exit(2)
 
 status, verify = cf_get("https://api.cloudflare.com/client/v4/user/tokens/verify")
@@ -144,8 +144,14 @@ if not ok:
     msg = errs[0].get("message") if errs and isinstance(errs[0], dict) else verify
     print(f"ERROR: token verify failed (HTTP {status}): {msg}", file=sys.stderr)
     print("Nothing written.", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("Your curl succeeded with a DIFFERENT token value than this paste.", file=sys.stderr)
+    print("Fix: create/copy token again in the dashboard, then immediately:", file=sys.stderr)
+    print("  npm run rotate:cf-api-token:paste", file=sys.stderr)
     sys.exit(2)
-print("OK tokens/verify active")
+
+tok_id = (verify.get("result") or {}).get("id")
+print(f"OK tokens/verify active id={tok_id}")
 
 st2, acct = cf_get(f"https://api.cloudflare.com/client/v4/accounts/{account_id}")
 if not acct.get("success"):
@@ -178,7 +184,7 @@ if not env_path.exists():
 
 upsert(env_path, "CLOUDFLARE_ACCOUNT_ID", account_id)
 upsert(env_path, "CLOUDFLARE_API_TOKEN", token)
-print(f"OK wrote {env_path.name} (token len={len(token)}, not printed)")
+print(f"OK wrote {env_path.name}")
 PY
 
 set -a
