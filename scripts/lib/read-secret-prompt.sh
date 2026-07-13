@@ -27,16 +27,15 @@ read_secret_interactive() {
       ;;
     hidden)
       echo ""
-      echo "→ ${label}"
-      echo "  Paste below (hidden). Press Enter when done:"
+      echo "Paste ${label} only (raw value — no arrows/labels)."
+      echo "Hidden input. Press Enter when done:"
       read -rs val
       echo ""
       ;;
     visible|*)
       echo ""
-      echo "→ ${label}"
-      echo "  1. Copy the key from the provider console"
-      echo "  2. Paste below (visible) and press Enter:"
+      echo "Paste ${label} only (raw value — no arrows/labels)."
+      echo "Visible paste, then Enter:"
       read -r val
       ;;
   esac

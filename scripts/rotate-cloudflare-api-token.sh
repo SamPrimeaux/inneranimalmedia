@@ -124,15 +124,32 @@ env_path = Path(os.environ.get("_CF_ROTATE_ENV_FILE") or "")
 # Scrub from this process env ASAP after copy
 os.environ.pop("_CF_ROTATE_TOKEN", None)
 
+# Strip accidental prompt/label paste (e.g. "→ CLOUDFLARE_API_TOKEN" or "KEY=…")
+token = token.lstrip("\ufeff").strip()
+token = re.sub(r"^→\s*", "", token)
+token = re.sub(r"^(CLOUDFLARE_API_TOKEN|CF_API_TOKEN)\s*[:=]?\s*", "", token, flags=re.I)
+token = re.sub(r"[\r\n\t ]+", "", token)
+# HTTP Authorization must be latin-1; reject leftover UI glyphs
+if any(ord(c) > 127 for c in token):
+    print(
+        "ERROR: token contains non-ASCII (often a pasted prompt arrow →). "
+        "Paste only the raw token from the Cloudflare dashboard.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
 if not token:
     print("ERROR: empty token", file=sys.stderr)
     sys.exit(1)
 if not env_path:
     print("ERROR: missing env file path", file=sys.stderr)
     sys.exit(1)
+if len(token) < 20:
+    print(f"ERROR: token too short (len={len(token)}) — paste the full API token only", file=sys.stderr)
+    sys.exit(1)
 
 prefix = token[:4]
-print(f"→ Validating token (len={len(token)} prefix={prefix}… account={account_id[:8]}…)")
+print(f"Validating token (len={len(token)} prefix={prefix}… account={account_id[:8]}…)")
 
 ctx = ssl.create_default_context()
 
