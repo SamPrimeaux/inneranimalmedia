@@ -167,4 +167,8 @@ else
 fi
 
 echo "[deploy:fast] housekeeping skipped (email / D1 memory / GCP VM) — not required for PWA"
-echo "[deploy:fast] PWA requires: R2 delta + services SW ingest (above). Add PUSH_SERVICE_TOKEN as CF Builds secret."
+if [[ -z "${PUSH_SERVICE_TOKEN:-}" ]]; then
+  echo "[deploy:fast] note: PUSH_SERVICE_TOKEN unset here — SW ingest skipped; set in .env.cloudflare and CF Builds secrets"
+else
+  echo "[deploy:fast] PUSH_SERVICE_TOKEN present — SW ingest auth available (also keep as CF Builds secret for ship:remote)"
+fi
