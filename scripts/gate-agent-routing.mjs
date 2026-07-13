@@ -431,6 +431,8 @@ async function postChatSseOnce(cookie, prompt, mode, conversationId) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
   const t0 = Date.now();
+  let raw = '';
+  let httpStatus = 0;
   try {
     const res = await fetch(`${BASE_URL}/api/agent/chat`, {
       method: 'POST',
@@ -457,23 +459,42 @@ async function postChatSseOnce(cookie, prompt, mode, conversationId) {
       }),
       signal: controller.signal,
     });
-    const raw = await res.text();
+    httpStatus = res.status;
+    if (!res.body || typeof res.body.getReader !== 'function') {
+      raw = await res.text();
+    } else {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        raw += decoder.decode(value, { stream: true });
+        // Stop early once the stream signals completion — keep wall time down under parallel load.
+        if (/\ndata:\s*\{[^}]*"type"\s*:\s*"done"/m.test(raw) || /\ndata:\s*\[DONE\]/m.test(raw)) {
+          try {
+            await reader.cancel();
+          } catch {
+            /* ignore */
+          }
+          break;
+        }
+      }
+      raw += decoder.decode();
+    }
     const parsed = parseSse(raw);
-    return { httpStatus: res.status, latencyMs: Date.now() - t0, raw, aborted: false, ...parsed };
+    return { httpStatus, latencyMs: Date.now() - t0, raw, aborted: false, ...parsed };
   } catch (e) {
     const msg = e?.message || String(e);
     const aborted = e?.name === 'AbortError' || /aborted|AbortError/i.test(msg) || controller.signal.aborted;
     if (aborted) {
+      const parsed = parseSse(raw);
       return {
-        httpStatus: 0,
+        httpStatus,
         latencyMs: Date.now() - t0,
-        raw: '',
+        raw,
         aborted: true,
-        sseText: '',
-        toolNames: [],
-        toolErrors: [],
-        streamErrors: [`aborted_after_${CHAT_TIMEOUT_MS}ms`],
-        sawDone: false,
+        ...parsed,
+        streamErrors: [...(parsed.streamErrors || []), `aborted_after_${CHAT_TIMEOUT_MS}ms`],
       };
     }
     throw e;

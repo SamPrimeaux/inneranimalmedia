@@ -355,12 +355,26 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   // Deterministic first call when the user names a catalog tool — do not wait on model tool_choice.
   let explicitCatalogPreinvoked = false;
   {
-    const userText = lastUserMessageText(conversationMessages);
+    const userText =
+      lastUserMessageText(conversationMessages) ||
+      String(mcpCtx?.userMessage || mcpCtx?.message || '').trim();
     const preName = resolveForcedExplicitCatalogTool(userText, tools);
+    if (!preName) {
+      console.log(
+        '[agent] explicit_catalog_preinvoke_skip',
+        JSON.stringify({
+          has_user_text: !!userText,
+          tool_count: Array.isArray(tools) ? tools.length : 0,
+          tool_names: Array.isArray(tools)
+            ? tools.map((t) => t?.name || t?.tool_key || '').filter(Boolean).slice(0, 12)
+            : [],
+        }),
+      );
+    }
     if (preName && effectiveMaxToolCalls > 0) {
       const callId = `explicit_${Date.now().toString(36)}`;
       const callInput = buildExplicitCatalogToolInput(preName, userText);
-      console.info(
+      console.log(
         '[agent] explicit_catalog_preinvoke',
         JSON.stringify({ tool: preName, args: callInput }),
       );
