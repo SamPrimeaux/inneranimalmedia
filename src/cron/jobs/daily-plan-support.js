@@ -681,6 +681,22 @@ export async function generateWithGemini(env, opts) {
   return text;
 }
 
+/**
+ * Same contract as generateWithGemini, but retries once with a short backoff
+ * before giving up. Used for the daily-memory Pro synthesis calls, where a
+ * single call covers the whole digest and a bare failure means a silent miss.
+ * @param {*} env @param {Parameters<typeof generateWithGemini>[1]} opts @param {number} [retries]
+ */
+export async function generateWithGeminiRetry(env, opts, retries = 1) {
+  try {
+    return await generateWithGemini(env, opts);
+  } catch (err) {
+    if (retries <= 0) throw err;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    return generateWithGeminiRetry(env, opts, retries - 1);
+  }
+}
+
 /** @param {*} env @param {object[]} emails */
 export async function triageInboxForDailyPlan(env, emails) {
   if (!Array.isArray(emails) || !emails.length) {
