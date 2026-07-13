@@ -15,6 +15,7 @@ export type SpawnGlbOpts = {
   scale?: number;
   normalize?: boolean;
   position?: { x: number; y: number; z: number };
+  metadata?: Record<string, unknown>;
 };
 
 export async function spawnGlbInEngine(
@@ -29,7 +30,11 @@ export async function spawnGlbInEngine(
   }
   try {
     const sidecar = await fetchPlacementSidecarForGlb(raw);
-    const metadata = sidecar ? spawnMetadataFromSidecar(sidecar) : undefined;
+    const sidecarMeta = sidecar ? spawnMetadataFromSidecar(sidecar) : undefined;
+    const metadata = {
+      ...(sidecarMeta || {}),
+      ...(opts.metadata || {}),
+    };
     await engine.spawnEntity({
       id: `glb_${Date.now()}`,
       name: opts.name || 'CAD Model',
@@ -37,7 +42,10 @@ export async function spawnGlbInEngine(
       modelUrl: raw,
       scale: opts.scale ?? 1,
       position: opts.position ?? { x: 0, y: 1, z: 0 },
-      behavior: { type: 'static', metadata },
+      behavior: {
+        type: 'static',
+        metadata: Object.keys(metadata).length ? metadata : undefined,
+      },
     });
     return true;
   } catch (e) {

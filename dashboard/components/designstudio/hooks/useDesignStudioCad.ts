@@ -66,7 +66,7 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
 
   const refreshJobs = useCallback(async () => {
     try {
-      const rows = await fetchCadJobs(20);
+      const rows = await fetchCadJobs(50);
       setJobs(rows);
     } catch (e) {
       console.warn('[useDesignStudioCad] jobs', e);

@@ -2195,6 +2195,20 @@
   white-space: nowrap;
 }
 
+.cad-anim-lib__hint {
+  margin: 0;
+  padding: 0 10px 6px;
+  font-size: 9px;
+  color: var(--cs-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cad-anim-lib__card.ready .cad-anim-lib__silhouette {
+  background: linear-gradient(180deg, #3a4a3a 0%, #2a3530 100%);
+}
+
 .cad-anim-lib__badge {
   position: absolute;
   top: 6px;
@@ -2208,6 +2222,16 @@
   font-weight: 700;
   display: grid;
   place-items: center;
+}
+
+.cad-anim-lib__badge--ready {
+  width: auto;
+  height: auto;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 8px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .cad-anim-lib__footer {

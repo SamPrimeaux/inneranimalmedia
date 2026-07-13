@@ -1292,7 +1292,10 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
         rig_task_id: built.rigTaskId,
         credits_consumed: MESHY_CREDIT_COSTS.ANIMATION,
         texture_data: textureDataWithMeshySource(
-          body.post_process ? { post_process: built.payload.post_process } : null,
+          {
+            action_id: built.actionId,
+            ...(body.post_process ? { post_process: built.payload.post_process } : {}),
+          },
           meshyAuth.source === 'byok' ? 'byok' : 'platform',
         ),
       });
@@ -1308,6 +1311,182 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
         rig_task_id: built.rigTaskId,
         workspace_id: scope.workspaceId,
         key_source: meshyAuth.source,
+      });
+    }
+
+    if (path === '/api/cad/meshy/animations/packs' && method === 'GET') {
+      const rigTaskId = String(url.searchParams.get('rig_task_id') || '').trim();
+      if (!rigTaskId) return jsonResponse({ error: 'rig_task_id required' }, 400);
+
+      const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+      let basicAnimations = null;
+      let meshyTask = null;
+      if (!isMeshyAuthMissing(meshyAuth)) {
+        try {
+          meshyTask = await getMeshyTask(env, 'rigging', rigTaskId, meshyAuth);
+          const basic = meshyTask?.result?.basic_animations;
+          if (basic && typeof basic === 'object') basicAnimations = basic;
+          if (ctx) {
+            try {
+              await applyMeshyTaskToCadJob(env, ctx, meshyTask);
+            } catch {
+              /* best-effort sync */
+            }
+          }
+        } catch {
+          /* packs still return from D1 */
+        }
+      }
+
+      let jobRows = [];
+      if (env.DB) {
+        try {
+          const { results } = await env.DB.prepare(
+            `SELECT id, prompt, status, result_url, r2_key, r2_bucket, task_type, model_formats,
+                    texture_data, external_task_id, parent_task_id, rig_task_id, created_at
+             FROM agentsam_cad_jobs
+             WHERE user_id = ? AND engine = 'meshy'
+               AND (
+                 (task_type = 'rigging' AND external_task_id = ?)
+                 OR (task_type = 'animation' AND (rig_task_id = ? OR parent_task_id = ?))
+               )
+             ORDER BY created_at DESC
+             LIMIT 50`,
+          )
+            .bind(authUser.id, rigTaskId, rigTaskId, rigTaskId)
+            .all();
+          jobRows = (results || []).map((row) => {
+            let model_formats = null;
+            let texture_data = null;
+            try {
+              model_formats = row.model_formats ? JSON.parse(String(row.model_formats)) : null;
+            } catch {
+              model_formats = null;
+            }
+            try {
+              texture_data = row.texture_data ? JSON.parse(String(row.texture_data)) : null;
+            } catch {
+              texture_data = null;
+            }
+            return {
+              ...row,
+              model_formats,
+              texture_data,
+              public_url:
+                row.r2_key && !String(row.r2_key).startsWith('b64:')
+                  ? buildCadAssetPublicUrl(row.r2_key)
+                  : null,
+            };
+          });
+        } catch (e) {
+          return jsonResponse({ error: String(e?.message || e) }, 500);
+        }
+      }
+
+      const packsByAction = new Map();
+      const BASIC_IDS = { walking: 92, running: 93 };
+
+      const upsert = (pack) => {
+        const id = Number(pack.action_id);
+        if (!Number.isFinite(id)) return;
+        const prev = packsByAction.get(id);
+        if (!prev) {
+          packsByAction.set(id, pack);
+          return;
+        }
+        packsByAction.set(id, {
+          ...prev,
+          ...pack,
+          name: pack.name || prev.name,
+          glb_url: pack.glb_url || prev.glb_url,
+          ready: Boolean(pack.glb_url || prev.glb_url || pack.ready || prev.ready),
+          job_id: pack.job_id || prev.job_id,
+        });
+      };
+
+      if (basicAnimations) {
+        for (const [key, actionId] of Object.entries(BASIC_IDS)) {
+          const glb =
+            (typeof basicAnimations[`${key}_glb_url`] === 'string' &&
+              basicAnimations[`${key}_glb_url`]) ||
+            (typeof basicAnimations[`${key}_armature_glb_url`] === 'string' &&
+              basicAnimations[`${key}_armature_glb_url`]) ||
+            null;
+          if (!glb && basicAnimations[`${key}_glb_url`] == null) continue;
+          upsert({
+            action_id: actionId,
+            name: key === 'walking' ? 'Walking' : 'Running',
+            category: 'basic',
+            glb_url: glb,
+            ready: Boolean(glb),
+            source: 'meshy_rig',
+          });
+        }
+      }
+
+      for (const job of jobRows) {
+        const taskType = String(job.task_type || '').toLowerCase();
+        const formats =
+          job.model_formats && typeof job.model_formats === 'object' ? job.model_formats : {};
+        const done = /^(done|complete|succeed)/i.test(String(job.status || ''));
+
+        if (taskType === 'rigging' && done) {
+          for (const [key, actionId] of Object.entries(BASIC_IDS)) {
+            const glb =
+              (typeof formats[`${key}_glb_url`] === 'string' && formats[`${key}_glb_url`]) ||
+              (typeof formats[`${key}_armature_glb_url`] === 'string' &&
+                formats[`${key}_armature_glb_url`]) ||
+              null;
+            if (!glb) continue;
+            upsert({
+              action_id: actionId,
+              name: key === 'walking' ? 'Walking' : 'Running',
+              category: 'basic',
+              glb_url: glb,
+              ready: true,
+              job_id: job.id,
+              source: 'cad_job',
+            });
+          }
+        }
+
+        if (taskType === 'animation' && done) {
+          let actionId = null;
+          const td = job.texture_data;
+          if (td && typeof td === 'object' && td.action_id != null) {
+            actionId = Number(td.action_id);
+          }
+          if (!Number.isFinite(actionId)) {
+            const m = String(job.prompt || '').match(/animate:(\d+)/i);
+            actionId = m ? Number(m[1]) : null;
+          }
+          if (!Number.isFinite(actionId)) continue;
+          const glb =
+            (typeof formats.animation_glb_url === 'string' && formats.animation_glb_url) ||
+            job.public_url ||
+            job.result_url ||
+            null;
+          upsert({
+            action_id: actionId,
+            name: `Clip ${actionId}`,
+            category: 'applied',
+            glb_url: glb,
+            ready: Boolean(glb),
+            job_id: job.id,
+            source: 'cad_job',
+          });
+        }
+      }
+
+      return jsonResponse({
+        rig_task_id: rigTaskId,
+        packs: Array.from(packsByAction.values()).sort((a, b) => {
+          if (Boolean(a.ready) !== Boolean(b.ready)) return a.ready ? -1 : 1;
+          return String(a.name).localeCompare(String(b.name));
+        }),
+        jobs: jobRows.length,
+        meshy_synced: Boolean(meshyTask),
+        key_source: meshyAuth?.source || 'none',
       });
     }
 

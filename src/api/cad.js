@@ -718,6 +718,7 @@ export async function handleCadApi(request, url, env, ctx) {
         `SELECT id, engine, prompt, mode, status, result_url, r2_key, r2_bucket, error,
                 workspace_id, tenant_id, project_id, scene_snapshot_id, progress_pct,
                 task_type, model_formats, texture_data,
+                external_task_id, parent_task_id, rig_task_id,
                 created_at, updated_at
          FROM agentsam_cad_jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`,
       )

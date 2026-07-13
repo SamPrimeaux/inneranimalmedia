@@ -6,7 +6,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { PanelLeftOpen, PanelRightOpen } from 'lucide-react';
 import type { CadJobRow } from '../api';
-import { fetchCadJob, fetchMeshyAnimationLibrary } from '../api';
+import {
+  fetchCadJob,
+  fetchMeshyAnimationLibrary,
+  fetchMeshyCharacterAnimationPacks,
+} from '../api';
 import type { SavedSceneRow } from '../shared/ScenePanel';
 import type { useDesignStudioCad } from '../hooks/useDesignStudioCad';
 import { useCadStudioProtocol } from './useCadStudioProtocol';
@@ -27,6 +31,12 @@ import { CreationPanelEditor } from './editors/CreationPanelEditor';
 import { CreativeToolDock, openOperatorDraft } from './CreativeToolDock';
 import { AssetLibraryFlyout } from './AssetLibraryFlyout';
 import { AnimationLibraryPanel, type AnimationClip } from './AnimationLibraryPanel';
+import {
+  buildCharacterAnimationPacks,
+  normalizeRemotePacks,
+  resolveMeshyIdsFromEntity,
+  resolveRigTaskIdFromJobs,
+} from './characterAnimationPacks';
 import { useVerticalResize } from './useVerticalResize';
 import type { DockDomainId } from './toolDockRegistry';
 import {
@@ -50,32 +60,6 @@ import { CAD_OPERATORS } from './operators';
 import { dispatchCadChat } from './dispatchCadChat';
 
 const DEFAULT_SCENE_ENV_CONFIG = DEFAULT_STUDIO_SCENE_ENV;
-
-function resolveMeshyIdsFromEntity(entity: GameEntity | null | undefined): {
-  model_task_id?: string;
-  rig_task_id?: string;
-} {
-  const meta = (entity?.behavior?.metadata ?? {}) as Record<string, unknown>;
-  const model =
-    meta.meshy_task_id ?? meta.model_task_id ?? meta.input_task_id ?? meta.external_task_id ?? null;
-  const rig = meta.meshy_rig_task_id ?? meta.rig_task_id ?? null;
-  return {
-    model_task_id: model != null ? String(model) : undefined,
-    rig_task_id: rig != null ? String(rig) : undefined,
-  };
-}
-
-function resolveRigTaskIdFromJobs(jobs: CadJobRow[]): string | undefined {
-  const rigJob = jobs.find(
-    (j) =>
-      String(j.task_type || '').toLowerCase() === 'rigging' &&
-      /succeed|complete|done/i.test(String(j.status || '')) &&
-      j.external_task_id,
-  );
-  if (rigJob?.external_task_id) return String(rigJob.external_task_id);
-  const anyRig = jobs.find((j) => j.rig_task_id);
-  return anyRig?.rig_task_id ? String(anyRig.rig_task_id) : undefined;
-}
 
 export type CadStudioShellProps = {
   engineContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -107,7 +91,12 @@ export type CadStudioShellProps = {
   onUpdateGenConfig?: (c: Partial<GenerationConfig>) => void;
   sceneConfig?: SceneConfig;
   onUpdateSceneConfig?: (c: Partial<SceneConfig>) => void;
-  onSpawnModel?: (name: string, url: string, scale: number) => boolean | Promise<boolean>;
+  onSpawnModel?: (
+    name: string,
+    url: string,
+    scale: number,
+    metadata?: Record<string, unknown>,
+  ) => boolean | Promise<boolean>;
   onSpawnProcedural?: (key: AgentSamGeneratorKey) => void;
   onAddCustomAsset?: (name: string, url: string) => void | Promise<void>;
   onRemoveCustomAsset?: (id: string) => void | Promise<void>;
@@ -361,8 +350,31 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   const [animationClipsLoading, setAnimationClipsLoading] = useState(false);
   const [selectedAnimationActionId, setSelectedAnimationActionId] = useState<number | null>(null);
   const [addedAnimationIds, setAddedAnimationIds] = useState<number[]>([]);
+  const [remoteCharacterPacks, setRemoteCharacterPacks] = useState<AnimationClip[]>([]);
+  const [characterPacksLoading, setCharacterPacksLoading] = useState(false);
 
   const animLibVisible = ui.panelVisibility.animationLibrary;
+
+  const activeRigTaskId = useMemo(() => {
+    const selectedEntity = entities.find((e) => e.id === selectedId) ?? null;
+    return (
+      resolveMeshyIdsFromEntity(selectedEntity).rig_task_id ||
+      resolveRigTaskIdFromJobs(cad.jobs || []) ||
+      null
+    );
+  }, [entities, selectedId, cad.jobs]);
+
+  const characterPacks = useMemo(
+    () =>
+      buildCharacterAnimationPacks({
+        entity: entities.find((e) => e.id === selectedId) ?? null,
+        jobs: cad.jobs || [],
+        rigTaskId: activeRigTaskId,
+        catalog: animationClips,
+        remotePacks: remoteCharacterPacks,
+      }),
+    [entities, selectedId, cad.jobs, activeRigTaskId, animationClips, remoteCharacterPacks],
+  );
 
   /** Grid-embedded outliner/properties replaced by unified InspectorPanel flyout. */
   const layoutPanelVisibility = useMemo(
@@ -436,6 +448,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
             action_id: Number(row.action_id),
             name: String(row.name || 'Animation'),
             category: row.category != null ? String(row.category) : undefined,
+            pack_source: 'catalog' as const,
           }))
           .filter((row) => Number.isFinite(row.action_id));
         setAnimationClips(clips);
@@ -450,6 +463,30 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeRigTaskId || !animLibVisible) {
+      setRemoteCharacterPacks([]);
+      setCharacterPacksLoading(false);
+      return;
+    }
+    setCharacterPacksLoading(true);
+    void fetchMeshyCharacterAnimationPacks(activeRigTaskId)
+      .then((res) => {
+        if (cancelled) return;
+        setRemoteCharacterPacks(normalizeRemotePacks(res.packs));
+      })
+      .catch(() => {
+        if (!cancelled) setRemoteCharacterPacks([]);
+      })
+      .finally(() => {
+        if (!cancelled) setCharacterPacksLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRigTaskId, animLibVisible, cad.jobs?.length]);
 
   const setWorkspace = useCallback((ws: WorkspaceId) => {
     patchUi({ workspace: ws });
@@ -875,13 +912,19 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     animationLibrary: (
       <AnimationLibraryPanel
         clips={animationClips}
+        characterPacks={characterPacks}
         loading={animationClipsLoading}
+        characterLoading={characterPacksLoading}
+        rigTaskId={activeRigTaskId}
         selectedActionId={selectedAnimationActionId}
         addedActionIds={addedAnimationIds}
         applyBusy={cad.busy}
         onSelect={(clip) => {
           setSelectedAnimationActionId(clip.action_id);
-          protocol.toast('Animation', clip.name);
+          protocol.toast(
+            'Animation',
+            clip.ready ? `${clip.name} (ready)` : clip.name,
+          );
         }}
         onToggleAdded={(actionId) => {
           setAddedAnimationIds((prev) =>
@@ -893,7 +936,33 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           const selectedEntity = entities.find((e) => e.id === selectedId) ?? null;
           const fromEntity = resolveMeshyIdsFromEntity(selectedEntity);
           const rigTaskId =
-            fromEntity.rig_task_id || resolveRigTaskIdFromJobs(cad.jobs || []);
+            fromEntity.rig_task_id || resolveRigTaskIdFromJobs(cad.jobs || []) || activeRigTaskId;
+
+          if (clip.ready && clip.glb_url && onSpawnModel) {
+            try {
+              protocolSetStatus(`Spawn pack: ${clip.name}…`, 'executing');
+              const ok = await onSpawnModel(clip.name, clip.glb_url, 1, {
+                meshy_rig_task_id: rigTaskId || undefined,
+                rig_task_id: rigTaskId || undefined,
+                meshy_action_id: clip.action_id,
+                meshy_task_type: 'animation',
+                cad_job_id: clip.job_id,
+              });
+              if (ok) {
+                protocol.toast('Animation', `Spawned ${clip.name}`);
+                protocolSetStatus(`Spawned ${clip.name}`, 'complete');
+              } else {
+                protocolToast('Spawn failed', clip.name);
+                protocolSetStatus('Spawn failed', 'failed');
+              }
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e);
+              protocolToast('Spawn failed', msg);
+              protocolSetStatus(msg, 'failed');
+            }
+            return;
+          }
+
           if (rigTaskId) {
             try {
               protocolSetStatus(`Meshy animate: ${clip.name}…`, 'executing');

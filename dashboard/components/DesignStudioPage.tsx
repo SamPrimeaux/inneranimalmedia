@@ -20,6 +20,7 @@ import {
 } from '../lib/cadPlacement';
 import { useDesignStudioCad } from './designstudio/hooks/useDesignStudioCad';
 import { spawnGlbInEngine } from './designstudio/spawnGlb';
+import { meshyMetadataFromJob } from './designstudio/cad-studio/characterAnimationPacks';
 import { useDesignStudioContext } from './designstudio/DesignStudioContext';
 import type { CadJobRow } from './designstudio/api';
 import { downloadCadAsset } from './designstudio/cadExportFormats';
@@ -209,6 +210,7 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
     const ok = await spawnGlbInEngine(engineRef.current, {
       url: normalizedUrl,
       name,
+      metadata: meshyMetadataFromJob(job),
     });
     if (ok) {
       setLinkedCadJobId(job.id);
@@ -594,15 +596,21 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
   }, []);
 
   const handleSpawnModel = useCallback(
-    async (name: string, url: string, scale: number): Promise<boolean> => {
+    async (
+      name: string,
+      url: string,
+      scale: number,
+      extraMeta?: Record<string, unknown>,
+    ): Promise<boolean> => {
       const normalized = normalizeGlbUrl(url) ?? url;
       if (!normalized) {
         console.warn('[DesignStudio] spawn: could not resolve URL for', name, url);
         return false;
       }
-      let placementMeta: Record<string, unknown> = {};
+      let placementMeta: Record<string, unknown> = { ...(extraMeta || {}) };
       if (isDesignStudioBimExampleUrl(normalized)) {
         placementMeta = {
+          ...placementMeta,
           spawn_profile: 'bim',
           source_units: 'mm',
           up_axis: 'Z',

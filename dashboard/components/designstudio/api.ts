@@ -556,6 +556,25 @@ export async function fetchMeshyAnimationLibrary(): Promise<{
   return jsonFetch('/api/cad/meshy/animations/library');
 }
 
+export async function fetchMeshyCharacterAnimationPacks(rigTaskId: string): Promise<{
+  rig_task_id: string;
+  packs: {
+    action_id: number;
+    name: string;
+    category?: string;
+    glb_url?: string | null;
+    ready?: boolean;
+    job_id?: string;
+    source?: string;
+  }[];
+  jobs?: number;
+  meshy_synced?: boolean;
+}> {
+  return jsonFetch(
+    `/api/cad/meshy/animations/packs?rig_task_id=${encodeURIComponent(rigTaskId)}`,
+  );
+}
+
 export async function meshyTextTo3dPreview(body: Record<string, unknown>): Promise<{
   job_id?: string;
   task_id?: string;
