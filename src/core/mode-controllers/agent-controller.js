@@ -29,6 +29,7 @@ import { filterToolsForCapabilityDecision } from '../tool-capability-filter.js';
 import {
   resolveForcedExplicitCatalogTool,
   buildExplicitCatalogToolInput,
+  isExplicitGithubCatalogToolIntent,
 } from '../code-implementation-intent.js';
 import {
   extractMailSurfaceContext,
@@ -737,7 +738,22 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         if (reqSignal.aborted) clientAborted = true;
         else reqSignal.addEventListener('abort', () => { clientAborted = true; }, { once: true });
       }
-      const explicitToolName = resolveForcedExplicitCatalogTool(message, tools);
+      let explicitToolName = resolveForcedExplicitCatalogTool(message, tools);
+      // github special/route with tree in allowlist — always seed even if message was rewritten
+      if (
+        !explicitToolName &&
+        Array.isArray(tools) &&
+        /^(github|review|search_code)$/i.test(String(profile.routing_task_type || ''))
+      ) {
+        const hasTree = tools.some(
+          (t) => String(t?.name || '').trim().toLowerCase() === 'agentsam_github_tree',
+        );
+        if (hasTree && isExplicitGithubCatalogToolIntent(message)) {
+          explicitToolName = 'agentsam_github_tree';
+        } else if (hasTree && /\bgithub_tree\b|\bagentsam_github_/i.test(message)) {
+          explicitToolName = 'agentsam_github_tree';
+        }
+      }
       const explicitCatalogSeed = explicitToolName
         ? {
             name: explicitToolName,
@@ -750,6 +766,8 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           tool: explicitCatalogSeed?.name || null,
           args: explicitCatalogSeed?.input || null,
           tool_count: Array.isArray(tools) ? tools.length : 0,
+          task_type: profile.routing_task_type || null,
+          message_head: String(message || '').slice(0, 120),
         }),
       );
         loopStats = await withTimeout(

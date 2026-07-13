@@ -502,6 +502,33 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           ],
         });
         explicitCatalogPreinvoked = true;
+        // Named-tool prompts ("using agentsam_github_tree…") — return tool output directly.
+        // Skipping the model avoids nano/mini inventing agentsam_d1_query and hanging the gate.
+        if (!execErr && /^agentsam_github_|^fs_/.test(preName)) {
+          const summary =
+            typeof toolOutput === 'string' && toolOutput.trim()
+              ? toolOutput.slice(0, 12000)
+              : `Ran ${preName}.`;
+          emit('text', { text: summary });
+          safeDone({
+            tool_calls_used: toolCallsUsed,
+            turns: 0,
+            code: 'explicit_catalog_preinvoke_complete',
+            explicit_catalog_tool: preName,
+          });
+          abortScope.dispose();
+          return {
+            totalUsage,
+            toolCallsUsed,
+            executedToolNames,
+            modelKey,
+            turnCount: 0,
+            workflowRunId: null,
+            agentRunId: chatAgentRunId != null ? String(chatAgentRunId) : null,
+            chainRootId: toolChainRootId,
+            explicitCatalogPreinvoked: true,
+          };
+        }
       } else {
         console.warn(
           '[agent] explicit_catalog_preinvoke_blocked',
