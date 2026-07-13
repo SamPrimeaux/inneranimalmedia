@@ -11,6 +11,8 @@ export type DashboardRouteQuickAction = {
 
 export type DashboardRouteAgentContext = {
   route_key: string;
+  /** When set, composer POSTs this as body.task_type (classifier skipped). */
+  task_type?: string;
   context_label: string;
   contextMode: string;
   workspaceContext: Partial<AgentWorkspaceContextPacket>;
@@ -105,6 +107,7 @@ export function resolveDashboardRouteAgentContext(opts: {
   if (path.startsWith('/dashboard/designstudio')) {
     return {
       route_key: 'design_studio',
+      task_type: 'design_studio',
       context_label: 'Design Studio',
       contextMode: 'design_studio',
       workspaceContext: basePacket,
@@ -114,6 +117,48 @@ export function resolveDashboardRouteAgentContext(opts: {
           label: 'Scene help',
           message: 'Help me with the active Design Studio scene — materials, lighting, and export.',
           route_key: 'design_studio',
+          task_type: 'design_studio',
+        },
+      ],
+    };
+  }
+
+  if (path.startsWith('/dashboard/draw')) {
+    const planMode = (() => {
+      try {
+        const q = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+        return q.get('from') === 'designstudio' && q.get('mode') === 'plan';
+      } catch {
+        return false;
+      }
+    })();
+    return {
+      route_key: 'visual_canvas',
+      task_type: 'visual_canvas',
+      context_label: planMode ? 'Draw · Plan sketch' : 'Draw · Excalidraw',
+      contextMode: 'visual_canvas',
+      workspaceContext: {
+        ...basePacket,
+        activeTab: 'excalidraw',
+        capabilities: ['excalidraw', 'illustration', 'visual_canvas'],
+        linked_route: path + (search || ''),
+      },
+      quickActions: [
+        {
+          id: 'draw-flowchart',
+          label: 'Flowchart',
+          message:
+            'Help me sketch a flowchart on Excalidraw. Ask 2–4 short questions first, then use illustration_create (engine excalidraw) — never ASCII art.',
+          route_key: 'visual_canvas',
+          task_type: 'visual_canvas',
+        },
+        {
+          id: 'draw-wireframe',
+          label: 'Wireframe',
+          message:
+            'Help me build a lo-fi UI wireframe on the Draw canvas. Ask which screen and device, then use illustration_create with intent wireframe.',
+          route_key: 'visual_canvas',
+          task_type: 'visual_canvas',
         },
       ],
     };

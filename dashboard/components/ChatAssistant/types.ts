@@ -318,6 +318,8 @@ export interface ChatAssistantProps {
   cmsContext?: AgentWorkspaceContextPacket | null;
   /** Route-aware default route_key from dashboard surface. */
   dashboardRouteKey?: string | null;
+  /** Route-aware default task_type — when set, classifier is skipped for this turn. */
+  dashboardTaskType?: string | null;
   /** Human label for active dashboard route context. */
   dashboardRouteLabel?: string | null;
   /** Per-route quick actions (Fuel admin pattern). */

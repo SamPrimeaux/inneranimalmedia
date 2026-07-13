@@ -115,12 +115,20 @@ function resolveD1ToolProfileKeyColdStart(ctx) {
   const tt = String(ctx.taskType || '')
     .trim()
     .toLowerCase();
-  if (tp === 'inspect' || tp === 'code_develop' || tp === 'ask' || tp === 'mail' || tp === 'd1_read') {
+  if (
+    tp === 'inspect' ||
+    tp === 'code_develop' ||
+    tp === 'ask' ||
+    tp === 'mail' ||
+    tp === 'd1_read' ||
+    tp === 'visual_canvas'
+  ) {
     return tp;
   }
   if (tp === 'image' || tp === 'exempt') return 'default_route';
   if (tt === 'd1_query' || tt === 'sql_d1_generation') return 'd1_read';
   if (tt === 'mail_triage' || tt === 'gmail') return 'mail';
+  if (tt === 'visual_canvas') return 'visual_canvas';
   // Unknown → ask (never oauth, never null)
   return 'ask';
 }
@@ -146,7 +154,14 @@ export async function resolveD1ToolProfileKey(env, ctx) {
   const tp = String(ctx.taskSpec?.toolProfile || '')
     .trim()
     .toLowerCase();
-  if (tp === 'inspect' || tp === 'code_develop' || tp === 'ask' || tp === 'mail' || tp === 'd1_read') {
+  if (
+    tp === 'inspect' ||
+    tp === 'code_develop' ||
+    tp === 'ask' ||
+    tp === 'mail' ||
+    tp === 'd1_read' ||
+    tp === 'visual_canvas'
+  ) {
     return { profileKey: tp, source: 'task_spec' };
   }
   if (bindings.size === 0) {

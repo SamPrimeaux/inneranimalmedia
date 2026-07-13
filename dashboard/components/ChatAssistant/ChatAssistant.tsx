@@ -271,6 +271,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   cmsContext = null,
   hostWorkspaceContext = null,
   dashboardRouteKey = null,
+  dashboardTaskType = null,
   dashboardRouteLabel = null,
   routeQuickActions = [],
   atmosphericHomeMode = false,
@@ -2904,6 +2905,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       form.append('active_repo', activeRepoForTurn);
     }
     if (sendOpts?.task_type?.trim()) form.append('task_type', sendOpts.task_type.trim());
+    else if (dashboardTaskType?.trim()) form.append('task_type', dashboardTaskType.trim());
     else if (
       designStudioSurfaceRef.current?.surface === 'design_studio' &&
       /\billustration_create\b|\b(openscad|freecad|model_3d)\b|\b(make|create|generate)\b.*\b(chair|model|glb|3d|object|cube)\b/i.test(
