@@ -20,6 +20,8 @@ const CANONICAL_TASK_TYPES = new Set([
   'project_question',
   'supabase_write',
   'supabase_query',
+  'supabase_migration',
+  'supabase_vector',
 ]);
 
 const INTENT_ROUTE_MAP = {
