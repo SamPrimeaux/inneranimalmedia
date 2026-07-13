@@ -11,6 +11,12 @@
  *
  * Receipts: tmp/gate-agent-routing/<ts>.json
  * D1: agentsam_gate_runs (+ ticket consecutive_pass_count when migration 840 applied)
+ *
+ * Performance notes:
+ *   - Chat cases run in PARALLEL (Promise.allSettled) — wall time = max(latency), not sum.
+ *   - D1 cases run first (sync, fast) so any catalog problems surface before hitting the API.
+ *   - Default timeout is 45 s (IAM_GATE_CHAT_TIMEOUT_MS). 180 s was the old default.
+ *   - CHAT_ABORT_RETRIES defaults to 0 — retries mask routing bugs; re-enable for CI.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,8 +30,10 @@ loadEnvCloudflare();
 const BASE_URL = (process.env.IAM_BASE_URL || 'https://inneranimalmedia.com').replace(/\/$/, '');
 const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.IAM_WORKSPACE_ID || 'ws_inneranimalmedia').trim();
 const TENANT_ID = (process.env.IAM_TENANT_ID || 'tenant_sam_primeaux').trim();
-const CHAT_TIMEOUT_MS = Number(process.env.IAM_GATE_CHAT_TIMEOUT_MS || 180_000);
-const CHAT_ABORT_RETRIES = Math.max(0, Number(process.env.IAM_GATE_CHAT_ABORT_RETRIES || 1));
+// Reduced from 180 s — real turns finish in 10–30 s under normal conditions.
+const CHAT_TIMEOUT_MS = Number(process.env.IAM_GATE_CHAT_TIMEOUT_MS || 45_000);
+// Default 0: retries hide routing bugs. Set IAM_GATE_CHAT_ABORT_RETRIES=1 in CI if needed.
+const CHAT_ABORT_RETRIES = Math.max(0, Number(process.env.IAM_GATE_CHAT_ABORT_RETRIES || 0));
 const TICKET_ID = 'tkt_routing_tool_ssot';
 
 /** @typedef {{
@@ -78,9 +86,10 @@ const CORE_CASES = [
   {
     id: 'G-ask-repo',
     kind: 'chat',
-    // Keep short: one tool, one field — long Thompson/tool loops hit gate AbortController.
+    // Explicitly requests a GitHub codebase search so the agent MUST call agentsam_github_search,
+    // not fall back to D1. Short, one-tool prompt to avoid Thompson loops hitting the timeout.
     prompt:
-      'Call fs_read_file once with path package.json. Reply with only the npm package name from the name field.',
+      'Use agentsam_github_search to find where resolveCredential is defined in the SamPrimeaux/inneranimalmedia repo. Reply with only the filename.',
     mode: 'agent',
     assert: (ctx) => {
       const fails = assertInspectishChat({
@@ -101,6 +110,8 @@ const CORE_CASES = [
       if (tt === 'tool_use' || tt === 'browser') {
         fails.push(`G-ask-repo must not drift to ${tt}`);
       }
+      // Must have called a github search tool, not just D1.
+      fails.push(...assertRequiredToolCall(ctx, /agentsam_github_search|github_search/i, 'G-ask-repo'));
       // Abort alone is not a fail when D1 already recorded a tool call (stream cut mid-turn).
       if (ctx.aborted && mergedToolNames(ctx).length === 0) {
         fails.push(`G-ask-repo aborted after ${CHAT_TIMEOUT_MS}ms with no tool proof`);
@@ -114,21 +125,29 @@ const CORE_CASES = [
     prompt:
       'can you inspect the repo/propose how we can improve the tool structure/agent to tool/task type?',
     mode: 'agent',
-    assert: assertInspectishChat({
-      expectTaskSpecKeyIncludes: 'inspect',
-      maxToolsFromDecisionMeta: 20,
-      requireMinTools: 1,
-      maxDistinctTools: 20,
-      banSubstrings: [
-        'x-google-enum-descriptions',
-        'terminal tool requires command',
-        'Gemini 400',
-        '__IAM_PROVIDER_HTTP__',
-      ],
-      banToolPrefixes: ['gmail_', 'agentsam_gmail'],
-    }),
+    assert: (ctx) => {
+      // Wrap in try/catch — assertInspectishChat returns a function; call failures must not
+      // propagate as an uncaught exception that terminates the whole gate run.
+      try {
+        return assertInspectishChat({
+          expectTaskSpecKeyIncludes: 'inspect',
+          maxToolsFromDecisionMeta: 20,
+          requireMinTools: 1,
+          maxDistinctTools: 20,
+          banSubstrings: [
+            'x-google-enum-descriptions',
+            'terminal tool requires command',
+            'Gemini 400',
+            '__IAM_PROVIDER_HTTP__',
+          ],
+          banToolPrefixes: ['gmail_', 'agentsam_gmail'],
+        })(ctx);
+      } catch (e) {
+        return [`G-inspect assert threw: ${e?.message || e}`];
+      }
+    },
   },
-    {
+  {
     id: 'G-d1',
     kind: 'chat',
     prompt: 'Use agentsam_d1_query: what tables are in our D1 database? Answer briefly from query results only.',
@@ -446,7 +465,7 @@ async function postChatSseOnce(cookie, prompt, mode, conversationId) {
 }
 
 /**
- * Retry once on client AbortController timeout — long inspect loops flake the gate.
+ * Retry on client AbortController timeout — long inspect loops flake the gate.
  * Prefer D1 tool proof from the aborted turn over a blind retry when possible.
  * @param {string} cookie
  * @param {string} prompt
@@ -459,7 +478,7 @@ async function postChatSse(cookie, prompt, mode, conversationId) {
   if (!last.aborted) return { ...last, conversationId: activeId };
 
   // Mid-turn abort often still wrote tool_call_log — accept that as proof.
-  await new Promise((r) => setTimeout(r, 1200));
+  await new Promise((r) => setTimeout(r, 1500));
   const d1Tools = loadToolCallsFromD1(activeId);
   if (d1Tools.length > 0) {
     last.toolNames = [
@@ -479,7 +498,7 @@ async function postChatSse(cookie, prompt, mode, conversationId) {
     activeId = randomUUID();
     last = await postChatSseOnce(cookie, prompt, mode, activeId);
     if (!last.aborted) return { ...last, conversationId: activeId };
-    await new Promise((r) => setTimeout(r, 1200));
+    await new Promise((r) => setTimeout(r, 1500));
     const retryTools = loadToolCallsFromD1(activeId);
     if (retryTools.length > 0) {
       last.toolNames = retryTools.map((r) => String(r.tool_name || '').trim()).filter(Boolean);
@@ -680,6 +699,53 @@ function loadToolCallsFromD1(conversationId) {
 }
 
 /**
+ * Run a single chat gate case end-to-end and return a result object.
+ * Isolated so it can be called via Promise.allSettled in parallel.
+ * @param {string} cookie
+ * @param {GateCase} c
+ * @returns {Promise<object>}
+ */
+async function runChatCase(cookie, c) {
+  const ctx = /** @type {GateCaseCtx} */ ({ caseId: c.id });
+  const conversationIdSeed = randomUUID();
+  const chat = await postChatSse(cookie, c.prompt, c.mode || 'agent', conversationIdSeed);
+  const conversationId = chat.conversationId || conversationIdSeed;
+  ctx.conversationId = conversationId;
+  ctx.httpStatus = chat.httpStatus;
+  ctx.sseText = chat.sseText;
+  ctx.toolNames = chat.toolNames;
+  ctx.toolErrors = chat.toolErrors;
+  ctx.streamErrors = chat.streamErrors;
+  ctx.aborted = chat.aborted === true && !chat._d1RecoveredAfterAbort;
+  // D1 lag: aborted turns need more breathing room; normal turns settle fast.
+  await new Promise((r) => setTimeout(r, chat.aborted ? 1500 : 300));
+  const dec = loadDecision(conversationId);
+  ctx.decision = dec.decision;
+  ctx.decisions = dec.decisions;
+  ctx.decisionCount = dec.decisionCount;
+  ctx.d1ToolCalls = loadToolCallsFromD1(conversationId);
+  Object.assign(ctx, { sawDone: chat.sawDone, latencyMs: chat.latencyMs });
+
+  const fails = c.assert(ctx);
+  if (
+    c.id !== 'G-image' &&
+    ctx.decisionCount != null &&
+    ctx.decisionCount > 1
+  ) {
+    fails.push(`expected 1 intent decision, got ${ctx.decisionCount}`);
+  }
+  const ok = fails.length === 0;
+  const proofTools = mergedToolNames(ctx);
+  return {
+    id: c.id,
+    ok,
+    fails,
+    ctx,
+    proofTools,
+  };
+}
+
+/**
  * @param {object} receipt
  */
 function persistGateRun(receipt) {
@@ -783,56 +849,54 @@ async function main() {
     const caseResults = [];
     let roundOk = true;
 
-    for (const c of cases) {
-      /** @type {GateCaseCtx} */
-      const ctx = { caseId: c.id };
+    // --- D1 cases first (sync, fast) ---
+    for (const c of cases.filter((c) => c.kind === 'd1')) {
+      const ctx = /** @type {GateCaseCtx} */ ({ caseId: c.id });
       try {
-        if (c.kind === 'd1') {
-          ctx.d1Rows = loadPtyGitStatus();
-        } else {
-          const conversationIdSeed = randomUUID();
-          const chat = await postChatSse(cookie, c.prompt, c.mode || 'agent', conversationIdSeed);
-          const conversationId = chat.conversationId || conversationIdSeed;
-          ctx.conversationId = conversationId;
-          ctx.httpStatus = chat.httpStatus;
-          ctx.sseText = chat.sseText;
-          ctx.toolNames = chat.toolNames;
-          ctx.toolErrors = chat.toolErrors;
-          ctx.streamErrors = chat.streamErrors;
-          ctx.aborted = chat.aborted === true && !chat._d1RecoveredAfterAbort;
-          // Intent / tool rows may lag slightly (especially after abort mid-turn)
-          await new Promise((r) => setTimeout(r, chat.aborted ? 800 : 800));
-          const dec = loadDecision(conversationId);
-          ctx.decision = dec.decision;
-          ctx.decisions = dec.decisions;
-          ctx.decisionCount = dec.decisionCount;
-          ctx.d1ToolCalls = loadToolCallsFromD1(conversationId);
-          Object.assign(ctx, { sawDone: chat.sawDone, latencyMs: chat.latencyMs });
-        }
+        ctx.d1Rows = loadPtyGitStatus();
         const fails = c.assert(ctx);
-        // G-image asserts its own decision-count rules; other chat cases want one spine row
-        if (
-          c.kind === 'chat' &&
-          c.id !== 'G-image' &&
-          ctx.decisionCount != null &&
-          ctx.decisionCount > 1
-        ) {
-          fails.push(`expected 1 intent decision, got ${ctx.decisionCount}`);
-        }
         const ok = fails.length === 0;
         if (!ok) roundOk = false;
-        const proofTools = mergedToolNames(ctx);
+        console.log(ok ? `PASS ${c.id}` : `FAIL ${c.id}`, ok ? '' : fails.join('; '));
+        caseResults.push({ id: c.id, ok, fails });
+        if (!ok) summaryFailures.push(...fails.map((f) => `${c.id}: ${f}`));
+      } catch (e) {
+        roundOk = false;
+        const msg = e?.message || String(e);
+        console.log(`FAIL ${c.id}`, msg);
+        caseResults.push({ id: c.id, ok: false, fails: [msg] });
+        summaryFailures.push(`${c.id}: ${msg}`);
+      }
+    }
+
+    // --- Chat cases in parallel (wall time = max latency, not sum) ---
+    const chatCases = cases.filter((c) => c.kind === 'chat');
+    if (chatCases.length > 0) {
+      console.log(`[gate] firing ${chatCases.length} chat cases in parallel (timeout=${CHAT_TIMEOUT_MS}ms each)…`);
+      const settled = await Promise.allSettled(
+        chatCases.map((c) => runChatCase(cookie, c)),
+      );
+
+      for (let i = 0; i < chatCases.length; i++) {
+        const c = chatCases[i];
+        const result = settled[i];
+        if (result.status === 'rejected') {
+          roundOk = false;
+          const msg = result.reason?.message || String(result.reason);
+          console.log(`FAIL ${c.id}`, msg);
+          caseResults.push({ id: c.id, ok: false, fails: [msg] });
+          summaryFailures.push(`${c.id}: ${msg}`);
+          continue;
+        }
+        const { id, ok, fails, ctx, proofTools } = result.value;
+        if (!ok) roundOk = false;
         console.log(
-          ok ? `PASS ${c.id}` : `FAIL ${c.id}`,
-          ok
-            ? ''
-            : fails.join('; '),
-          c.kind === 'chat'
-            ? `task=${ctx.decision?.task_type || '?'} tools=${proofTools.slice(0, 8).join(',') || '(none)'}`
-            : '',
+          ok ? `PASS ${id}` : `FAIL ${id}`,
+          ok ? '' : fails.join('; '),
+          `task=${ctx.decision?.task_type || '?'} tools=${proofTools.slice(0, 8).join(',') || '(none)'}`,
         );
         caseResults.push({
-          id: c.id,
+          id,
           ok,
           fails,
           conversationId: ctx.conversationId || null,
@@ -849,13 +913,7 @@ async function main() {
           streamErrors: ctx.streamErrors || [],
           httpStatus: ctx.httpStatus || null,
         });
-        if (!ok) summaryFailures.push(...fails.map((f) => `${c.id}: ${f}`));
-      } catch (e) {
-        roundOk = false;
-        const msg = e?.message || String(e);
-        console.log(`FAIL ${c.id}`, msg);
-        caseResults.push({ id: c.id, ok: false, fails: [msg] });
-        summaryFailures.push(`${c.id}: ${msg}`);
+        if (!ok) summaryFailures.push(...fails.map((f) => `${id}: ${f}`));
       }
     }
 
