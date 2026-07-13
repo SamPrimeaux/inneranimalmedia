@@ -133,7 +133,11 @@ function inferWantsD1FromMessage(message, capabilityDecision) {
 
 function inferGithubIntentMessage(message, capabilityDecision) {
   if (capabilityDecision && capabilityDecision.should_use_github) return true;
-  return /\bgithub\b|github\.com\/|pull request|create_pr|\.git\b/i.test(String(message || ''));
+  return (
+    /\bagentsam_github_|\bgithub\b|github\.com\/|pull request|create_pr|\.git\b/i.test(
+      String(message || ''),
+    )
+  );
 }
 
 export function inferAgentManagementIntent(message) {
