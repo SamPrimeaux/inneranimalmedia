@@ -27,6 +27,10 @@ import {
 import { executeSkillSpawnByRoute } from '../skill-spawn-pipelines-ext.js';
 import { filterToolsForCapabilityDecision } from '../tool-capability-filter.js';
 import {
+  resolveForcedExplicitCatalogTool,
+  buildExplicitCatalogToolInput,
+} from '../code-implementation-intent.js';
+import {
   extractMailSurfaceContext,
   formatMailSurfaceContextForAgent,
 } from '../mail-studio-context.js';
@@ -733,6 +737,21 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         if (reqSignal.aborted) clientAborted = true;
         else reqSignal.addEventListener('abort', () => { clientAborted = true; }, { once: true });
       }
+      const explicitToolName = resolveForcedExplicitCatalogTool(message, tools);
+      const explicitCatalogSeed = explicitToolName
+        ? {
+            name: explicitToolName,
+            input: buildExplicitCatalogToolInput(explicitToolName, message),
+          }
+        : null;
+      console.log(
+        '[agent] explicit_catalog_seed',
+        JSON.stringify({
+          tool: explicitCatalogSeed?.name || null,
+          args: explicitCatalogSeed?.input || null,
+          tool_count: Array.isArray(tools) ? tools.length : 0,
+        }),
+      );
         loopStats = await withTimeout(
           runAgentToolLoop(env, ctx, emit, {
             request: input.request,
@@ -772,6 +791,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
             codemodeRuntime,
             chatTurnMeta,
             signal: reqSignal,
+            explicitCatalogSeed,
           }),
           maxRunMs + 5000,
         );

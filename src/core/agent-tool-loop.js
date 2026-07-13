@@ -155,6 +155,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     handoffDepth: handoffDepthParam = 0,
     rootSessionId: rootSessionIdParam = null,
     signal: abortSignalParam = null,
+    /** @type {{ name: string, input?: Record<string, unknown> }|null|undefined} */
+    explicitCatalogSeed: explicitCatalogSeedParam = null,
   } = params;
   const cacheWriteTtlForBilling =
     cacheWriteTtlParam != null && String(cacheWriteTtlParam).trim() !== ''
@@ -355,15 +357,24 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   // Deterministic first call when the user names a catalog tool — do not wait on model tool_choice.
   let explicitCatalogPreinvoked = false;
   {
+    const seeded =
+      explicitCatalogSeedParam &&
+      typeof explicitCatalogSeedParam === 'object' &&
+      explicitCatalogSeedParam.name
+        ? explicitCatalogSeedParam
+        : null;
     const userText =
       lastUserMessageText(conversationMessages) ||
       String(mcpCtx?.userMessage || mcpCtx?.message || '').trim();
-    const preName = resolveForcedExplicitCatalogTool(userText, tools);
+    const preName =
+      (seeded?.name && String(seeded.name).trim()) ||
+      resolveForcedExplicitCatalogTool(userText, tools);
     if (!preName) {
       console.log(
         '[agent] explicit_catalog_preinvoke_skip',
         JSON.stringify({
           has_user_text: !!userText,
+          has_seed: !!seeded,
           tool_count: Array.isArray(tools) ? tools.length : 0,
           tool_names: Array.isArray(tools)
             ? tools.map((t) => t?.name || t?.tool_key || '').filter(Boolean).slice(0, 12)
@@ -373,7 +384,10 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     }
     if (preName && effectiveMaxToolCalls > 0) {
       const callId = `explicit_${Date.now().toString(36)}`;
-      const callInput = buildExplicitCatalogToolInput(preName, userText);
+      const callInput =
+        seeded?.input && typeof seeded.input === 'object'
+          ? { ...seeded.input }
+          : buildExplicitCatalogToolInput(preName, userText);
       console.log(
         '[agent] explicit_catalog_preinvoke',
         JSON.stringify({ tool: preName, args: callInput }),
