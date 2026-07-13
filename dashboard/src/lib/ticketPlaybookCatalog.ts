@@ -329,15 +329,26 @@ export const TICKET_PLAYBOOK_BY_ID: Record<string, TicketPlaybookEntry> = {
     doc: 'plans/active/DESIGNSTUDIO-002-dream-home-artifact-engine.md',
   },
   tkt_designstudio_003: {
-    what: 'Architectural plan lane — PlanGraph bridge between visual_canvas and FreeCAD (not Excalidraw-as-master, not imgx floor plans).',
+    what: 'Architectural plan lane — PlanGraph bridge between visual_canvas and FreeCAD, with stable semantic IDs and VisualizationPackage lineage hooks for Blender (004).',
     needed:
-      'architectural_plan D1 profile + plan_graph_* catalog tools; iam.plan_graph.v1 schema; human review for unresolved[]; promote_plan → FCStd on proj_mrb5shkc_3kos2c.',
-    pass: 'Sketch/upload → PlanGraph with Confirmed/Needs confirmation → promote → FCStd v1 + GLB; prompt copy never steers house plans to imgx_generate_image.',
-    fail: '2D plans still fake via imgx; Excalidraw treated as dimensional master; no PlanGraph lineage.',
-    deliverable: 'PlanGraph artifact + promote receipt + D1 profile green + DESIGNSTUDIO-003 plan acceptance checks.',
-    steps: 'Schema + D1 lane → review UI → promote_plan → gate ×2.',
+      'architectural_plan D1 profile + plan_graph_* tools; iam.plan_graph.v1 with semantic IDs; promote_plan returns FCStd id + units/coords; post-promotion visualization_package_create hook (stub OK); design_visualization route shell; linked tkt_designstudio_004.',
+    pass: 'Sketch/upload → PlanGraph (IDs) → promote → FCStd v1 + GLB derivative; lineage fields; flow metadata includes visualization_blender; 004 ticket blocked_by 003.',
+    fail: '2D plans still fake via imgx; no semantic IDs; Blender treated as geometry master; no viz hook surface.',
+    deliverable: 'PlanGraph artifact + promote receipt + D1 profiles + DESIGNSTUDIO-003 acceptance checks.',
+    steps: 'Schema + D1 lane → review UI → promote_plan + hook stub → gate ×2. Do not implement Blender executor (004).',
     batch_rank: 3,
     doc: 'plans/active/DESIGNSTUDIO-003-architectural-plan-lane.md',
+  },
+  tkt_designstudio_004: {
+    what: 'FreeCAD → VisualizationPackage → Blender presentation lane (persistent design_visualization branch).',
+    needed:
+      '003 semantic IDs + promote hook green; VisualizationPackage writer; CAD_SYNC Blender import; one exterior camera + lighting preset + preview render; sync policy preview_then_apply / archive_orphaned.',
+    pass: 'PlanGraph→FCStd→VizPackage→BLEND→preview; wall move → FCStd v2 → sync preserves materials/cameras → BLEND v2 → rerender.',
+    fail: 'FCStd→random GLB→Blender with no semantic IDs; Blender becomes architectural master; auto-delete orphans.',
+    deliverable: 'BLEND + manifest + render-recipe + preview lineage on Sam Sketch.',
+    steps: 'Wait for 003 → package writer → Blender CAD_SYNC → exterior preview only.',
+    batch_rank: 4,
+    doc: 'plans/active/DESIGNSTUDIO-004-freecad-blender-visualization.md',
   },
 };
 

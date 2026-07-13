@@ -9,7 +9,8 @@ Work **in this order**. Do not parallelize product remasters across these.
 | 2 | [CMS-001-edit-publish-inneranimalmedia-home.md](./CMS-001-edit-publish-inneranimalmedia-home.md) | `tkt_cms_001` | Homepage edit + publish |
 | 3 | [DESIGNSTUDIO-001-sam-sketch-persistent-artifact.md](./DESIGNSTUDIO-001-sam-sketch-persistent-artifact.md) | `tkt_designstudio_001` | Sketch → persistent model |
 | 4 | [DESIGNSTUDIO-002-dream-home-artifact-engine.md](./DESIGNSTUDIO-002-dream-home-artifact-engine.md) | `tkt_designstudio_002` | OpenSCAD smoke + FreeCAD dream-home MVP (`proj_mrb5shkc_3kos2c`) |
-| 5 | [DESIGNSTUDIO-003-architectural-plan-lane.md](./DESIGNSTUDIO-003-architectural-plan-lane.md) | `tkt_designstudio_003` | PlanGraph bridge → FreeCAD (not imgx / Excalidraw master) |
+| 5 | [DESIGNSTUDIO-003-architectural-plan-lane.md](./DESIGNSTUDIO-003-architectural-plan-lane.md) | `tkt_designstudio_003` | PlanGraph bridge → FreeCAD + viz lineage contracts for 004 |
+| 6 | [DESIGNSTUDIO-004-freecad-blender-visualization.md](./DESIGNSTUDIO-004-freecad-blender-visualization.md) | `tkt_designstudio_004` | FreeCAD → VisualizationPackage → Blender (deferred; blocked by 003) |
 
 ## Verification law (LOCKED)
 
