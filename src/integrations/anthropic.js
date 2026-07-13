@@ -37,7 +37,7 @@ export function anthropicCodeExecutionToolForModel(modelKey) {
   if (mk.includes('haiku')) {
     return null;
   }
-  // claude-sonnet-5, claude-opus-4-6, anthropic_claude-sonnet-4.5, …
+  // claude-sonnet-5, claude-opus-4-8, anthropic_claude-sonnet-4.5, …
   const ver = mk.match(/(?:sonnet|opus)[-_.]?(\d+)(?:[-_.](\d+))?/);
   if (ver) {
     const major = Number(ver[1]);

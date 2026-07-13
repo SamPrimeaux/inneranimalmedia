@@ -60,7 +60,7 @@ loadEnvCloudflare();
 const MODELS = {
   sonnet: 'claude-sonnet-4-6',
   haiku: 'claude-haiku-4-5-20251001',
-  opus: 'claude-opus-4-6', // gated — requires OPUS_GATED=true
+  opus: 'claude-opus-4-8', // gated — requires OPUS_GATED=true
 };
 
 const CODE_EXEC_TOOL_VERSION = 'code_execution_20260120'; // supports programmatic calling

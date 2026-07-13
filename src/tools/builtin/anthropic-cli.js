@@ -9,7 +9,7 @@ import { handlers as termHandlers } from '../terminal.js';
 export const handlers = {
     /**
      * Executes an 'ant' CLI command.
-     * Example: ant messages create --model claude-opus-4-6 --message 'Hello'
+     * Example: ant messages create --model claude-opus-4-8 --message 'Hello'
      */
     anthropic_cli: async ({ command, format = 'json' }, env) => {
         if (!command) throw new Error('No ant command provided');

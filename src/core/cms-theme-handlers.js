@@ -14,7 +14,6 @@ import { assertOpenAiImageModelActive, RETIRED_OPENAI_IMAGE_MODEL_KEYS } from '.
 const D1_ID = 'cf87b717-d4e2-4cf8-bab0-a81268e32d49';
 const CF_ACCOUNT = 'ede6590ac0d2fb7daf155b35653457b2';
 const EXCLUDED_MODELS = [
-  'claude-opus-4-6','claude-opus-4-7',
   'claude-sonnet-4-6','claude-sonnet-4-5',
   ...RETIRED_OPENAI_IMAGE_MODEL_KEYS,
 ];

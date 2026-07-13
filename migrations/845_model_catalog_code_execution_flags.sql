@@ -12,8 +12,6 @@ WHERE model_key IN (
   'claude-sonnet-5',
   'claude-sonnet-4-6',
   'claude-opus-4-8',
-  'claude-opus-4-7',
-  'claude-opus-4-6',
   'gemini-3.5-flash',
   'gemini-3.1-pro-preview',
   'gemini-3.1-pro-preview-customtools',
