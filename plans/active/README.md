@@ -12,6 +12,14 @@ Work **in this order**. Do not parallelize product remasters across these.
 | 5 | [DESIGNSTUDIO-003-architectural-plan-lane.md](./DESIGNSTUDIO-003-architectural-plan-lane.md) | `tkt_designstudio_003` | PlanGraph bridge → FreeCAD + viz lineage contracts for 004 |
 | 6 | [DESIGNSTUDIO-004-freecad-blender-visualization.md](./DESIGNSTUDIO-004-freecad-blender-visualization.md) | `tkt_designstudio_004` | FreeCAD → VisualizationPackage → Blender (deferred; blocked by 003) |
 
+## Parallel P0 (ops / SDK — not remaster queue)
+
+| Ticket | D1 id | Project |
+|--------|-------|---------|
+| [CLOSED-LOOP-FEEDBACK-BLINDSPOTS-2026-07-14.md](./CLOSED-LOOP-FEEDBACK-BLINDSPOTS-2026-07-14.md) | `tkt_closed_loop_feedback_blindspots_2026_07_14` | `inneranimalmedia` |
+| [SDK-SCAFFOLD-WINDOWS-POWERSHELL-2026-07-14.md](./SDK-SCAFFOLD-WINDOWS-POWERSHELL-2026-07-14.md) | `tkt_agentsam_sdk_scaffold_windows_2026_07_14` | `proj_agentsam_sdk` |
+| [CLOSED-LOOP-CODE-RAG-2026-07-14.md](./CLOSED-LOOP-CODE-RAG-2026-07-14.md) | `tkt_closed_loop_code_rag_2026_07_14` | overnight reindex / morning proof |
+
 ## Verification law (LOCKED — dual-pass E2E)
 
 - **Deploy success ≠ pass.** A ticket may **not** move to `shipped` until it has **two independent end-to-end validations**.
