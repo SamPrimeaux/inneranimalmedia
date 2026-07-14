@@ -80,3 +80,71 @@ fi
 echo "Recording deploy in D1 (deployments.id=$VERSION_ID, timestamp=$DEPLOY_TIMESTAMP local, deploy_time_seconds=$DEPLOY_SECONDS, triggered_by=$TRIGGERED_BY, tenant_id=$TENANT_ID, workspace_id=$WORKSPACE_ID, project_id=${PROJECT_ID:-<null>})"
 npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --command "INSERT INTO deployments (id, timestamp, version, git_hash, description, status, deployed_by, environment, deploy_time_seconds, worker_name, triggered_by, notes, tenant_id, workspace_id, project_id) VALUES ('$VID_ESC', '$TS_ESC', '$VS_ESC', '$GH_ESC', '$DESC_ESC', 'success', '$DBY_ESC', 'production', $DEPLOY_SECONDS, 'inneranimalmedia', '$TB_ESC', '$DN_ESC', '$TID_ESC', '$WID_ESC', $PID_SQL)"
 echo "Done. Overview / deployment tracking will show this deploy."
+
+# Mirror to Supabase agentsam.agentsam_deploy_events (OS ledger). Non-fatal.
+# Same sink as post-deploy Worker handler / midnight deployments rollup.
+if [[ "${SKIP_SUPABASE_DEPLOY_EVENT:-0}" == "1" ]]; then
+  echo "[post-deploy-record] SKIP_SUPABASE_DEPLOY_EVENT=1 — skipping agentsam_deploy_events"
+else
+  SUPABASE_URL="${SUPABASE_URL:-https://dpmuvynqixblxsilnlut.supabase.co}"
+  SUPABASE_SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
+  SUPABASE_WORKSPACE_UUID="${IAM_SUPABASE_WORKSPACE_ID:-${SUPABASE_WORKSPACE_UUID:-}}"
+  if [[ -z "$SUPABASE_WORKSPACE_UUID" ]]; then
+    case "$WORKSPACE_ID" in
+      ws_inneranimalmedia) SUPABASE_WORKSPACE_UUID="fa1f12a8-c841-4b79-a26c-d53a78b17dac" ;;
+    esac
+  fi
+  case "$SUPABASE_WORKSPACE_UUID" in
+    ws_*|'') SUPABASE_WORKSPACE_UUID="" ;;
+  esac
+
+  DEPLOY_FULL_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "$GIT_HASH")"
+  DEPLOY_TIME_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+  if [[ -z "$SUPABASE_SERVICE_KEY" || -z "$SUPABASE_WORKSPACE_UUID" ]]; then
+    echo "[post-deploy-record] SUPABASE_SERVICE_ROLE_KEY or workspace UUID unset — skipping agentsam_deploy_events" >&2
+  elif command -v jq >/dev/null 2>&1; then
+    PAYLOAD=$(
+      jq -n \
+        --arg ws "$SUPABASE_WORKSPACE_UUID" \
+        --arg d1_ws "$WORKSPACE_ID" \
+        --arg ver "$VERSION_ID" \
+        --arg sha "$DEPLOY_FULL_SHA" \
+        --arg notes "$DESCRIPTION" \
+        --arg time "$DEPLOY_TIME_UTC" \
+        --arg by "$TRIGGERED_BY" \
+        --arg secs "$DEPLOY_SECONDS" \
+        '{
+          workspace_id: $ws,
+          worker_name: "inneranimalmedia",
+          worker_version: $ver,
+          deploy_status: "success",
+          commit_sha: $sha,
+          notes: $notes,
+          metadata: {
+            sync_source: "post_deploy_record",
+            d1_deployment_id: $ver,
+            d1_workspace_id: $d1_ws,
+            triggered_by: $by,
+            deploy_time_seconds: ($secs | tonumber)
+          },
+          created_at: $time
+        }'
+    )
+    HTTP_CODE=$(curl -sS -o /tmp/iam-agentsam-deploy-events.out -w "%{http_code}" -X POST "${SUPABASE_URL}/rest/v1/agentsam_deploy_events" \
+      -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+      -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+      -H "Content-Type: application/json" \
+      -H "Accept-Profile: agentsam" \
+      -H "Content-Profile: agentsam" \
+      -H "Prefer: return=minimal" \
+      -d "$PAYLOAD" || echo "000")
+    if [[ "$HTTP_CODE" == "201" || "$HTTP_CODE" == "200" ]]; then
+      echo "[post-deploy-record] Supabase agentsam_deploy_events ok (worker_version=$VERSION_ID)"
+    else
+      echo "[post-deploy-record] Supabase agentsam_deploy_events failed HTTP ${HTTP_CODE} (non-fatal): $(head -c 300 /tmp/iam-agentsam-deploy-events.out 2>/dev/null || true)" >&2
+    fi
+  else
+    echo "[post-deploy-record] jq missing — skipping agentsam_deploy_events POST" >&2
+  fi
+fi

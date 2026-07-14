@@ -164,6 +164,7 @@ else
   ) &
   disown 2>/dev/null || true
   echo "[deploy:fast] deployments D1 record queued (async via post-deploy-record.sh)"
+  echo "[deploy:fast] post-deploy-record also mirrors agentsam_deploy_events when SUPABASE_SERVICE_ROLE_KEY is set"
 fi
 
 echo "[deploy:fast] housekeeping skipped (email / D1 memory / GCP VM) — not required for PWA"

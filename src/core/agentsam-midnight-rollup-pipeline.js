@@ -184,10 +184,11 @@ export async function syncUsageEventsBatchToSupabase(env) {
 }
 
 /**
- * Step 3 — Batch sync recent D1 cicd_events → agentsam.agentsam_deploy_events (Hyperdrive).
+ * Step 3 — Batch sync recent D1 deployments → agentsam.agentsam_deploy_events (Hyperdrive).
+ * SSOT for deploys is D1 `deployments` (post-deploy-record / deploy:fast), not cicd_events.
  * @param {any} env
  */
-export async function syncCicdDeployEventsBatchToSupabase(env) {
+export async function syncDeploymentsBatchToSupabase(env) {
   if (!isHyperdriveUsable(env)) {
     return { ok: false, skipped: true, reason: 'hyperdrive_unavailable' };
   }
@@ -195,66 +196,83 @@ export async function syncCicdDeployEventsBatchToSupabase(env) {
     return { ok: false, skipped: true, reason: 'no_db' };
   }
 
-  const cicdCols = await pragmaTableInfo(env.DB, 'cicd_events');
-  if (!cicdCols.has('created_at')) {
-    return { ok: false, skipped: true, reason: 'cicd_events_missing' };
+  const deployCols = await pragmaTableInfo(env.DB, 'deployments');
+  if (!deployCols.has('id') || !deployCols.has('timestamp')) {
+    return { ok: false, skipped: true, reason: 'deployments_missing' };
   }
 
   const { results } = await env.DB.prepare(
-    `SELECT id, source, event_type, git_commit_sha, worker_name, raw_payload_json, created_at
-     FROM cicd_events
-     WHERE created_at >= unixepoch('now', '-${DEPLOY_SYNC_DAYS} days')
-     ORDER BY created_at ASC
-     LIMIT 500`,
+    `SELECT id, timestamp, version, git_hash, description, status, deployed_by,
+            environment, worker_name, triggered_by, notes, workspace_id, project_id,
+            deploy_time_seconds
+       FROM deployments
+      WHERE timestamp >= datetime('now', '-${DEPLOY_SYNC_DAYS} days')
+      ORDER BY timestamp ASC
+      LIMIT 500`,
   ).all();
 
   const rowsRead = (results || []).length;
   if (!rowsRead) {
-    return { ok: true, rowsRead: 0, rowsInserted: 0, skipped: true, reason: 'no_cicd_rows' };
+    return { ok: true, rowsRead: 0, rowsInserted: 0, skipped: true, reason: 'no_deployment_rows' };
   }
 
-  const payload = (results || []).map((r) => {
-    let payloadJson = {};
-    try {
-      payloadJson =
-        typeof r.raw_payload_json === 'string'
-          ? JSON.parse(r.raw_payload_json || '{}')
-          : r.raw_payload_json && typeof r.raw_payload_json === 'object'
-            ? r.raw_payload_json
-            : {};
-    } catch {
-      payloadJson = {};
-    }
-    const workerVersion =
-      payloadJson.worker_version_id != null
-        ? String(payloadJson.worker_version_id)
-        : payloadJson.version != null
-          ? String(payloadJson.version)
-          : null;
+  const { resolveSupabaseWorkspaceId } = await import('./rag-lanes.js');
+  const DEFAULT_WS = 'ws_inneranimalmedia';
+  const payload = [];
+
+  for (const r of results || []) {
+    const d1Ws = r.workspace_id != null && String(r.workspace_id).trim()
+      ? String(r.workspace_id).trim()
+      : DEFAULT_WS;
+    const workspaceUuid = await resolveSupabaseWorkspaceId(env, d1Ws);
+    if (!workspaceUuid) continue;
+
+    const statusRaw = String(r.status || 'success').toLowerCase();
     const deployStatus =
-      String(r.event_type || '').includes('fail') || String(r.event_type || '').includes('error')
+      statusRaw.includes('fail') || statusRaw.includes('error')
         ? 'failed'
-        : 'success';
-    return {
-      d1_cicd_id: String(r.id),
+        : statusRaw.includes('rollback')
+          ? 'rollback'
+          : 'success';
+
+    const ts = r.timestamp != null ? String(r.timestamp).trim() : null;
+    const createdAt =
+      ts && /^\d{4}-\d{2}-\d{2}/.test(ts)
+        ? ts.includes('T')
+          ? ts
+          : ts.replace(' ', 'T') + (ts.endsWith('Z') ? '' : 'Z')
+        : new Date().toISOString();
+
+    payload.push({
+      d1_deployment_id: String(r.id),
+      workspace_id: workspaceUuid,
       worker_name: r.worker_name != null ? String(r.worker_name) : 'inneranimalmedia',
-      worker_version: workerVersion,
+      worker_version: String(r.id),
       deploy_status: deployStatus,
-      commit_sha: r.git_commit_sha != null ? String(r.git_commit_sha) : null,
-      notes: `${r.source || 'cicd'}:${r.event_type || 'event'}`.slice(0, 500),
+      commit_sha: r.git_hash != null ? String(r.git_hash) : null,
+      notes: String(r.notes || r.description || `${r.triggered_by || 'deploy'}`).slice(0, 500),
       metadata_json: JSON.stringify({
-        d1_cicd_id: String(r.id),
-        source: r.source ?? null,
-        event_type: r.event_type ?? null,
-        raw_payload: payloadJson,
-        sync_source: 'rollup_usage_events_daily',
+        d1_deployment_id: String(r.id),
+        version: r.version ?? null,
+        deployed_by: r.deployed_by ?? null,
+        environment: r.environment ?? null,
+        triggered_by: r.triggered_by ?? null,
+        project_id: r.project_id ?? null,
+        d1_workspace_id: d1Ws,
+        deploy_time_seconds: r.deploy_time_seconds ?? null,
+        sync_source: 'midnight_deployments_rollup',
       }),
-      created_at: isoFromUnixSec(r.created_at),
-    };
-  });
+      created_at: createdAt,
+    });
+  }
+
+  if (!payload.length) {
+    return { ok: true, rowsRead, rowsInserted: 0, skipped: true, reason: 'no_resolvable_workspaces' };
+  }
 
   const sql = `
     INSERT INTO agentsam.agentsam_deploy_events (
+      workspace_id,
       worker_name,
       worker_version,
       deploy_status,
@@ -264,6 +282,7 @@ export async function syncCicdDeployEventsBatchToSupabase(env) {
       created_at
     )
     SELECT
+      r.workspace_id::uuid,
       r.worker_name,
       r.worker_version,
       r.deploy_status,
@@ -272,7 +291,8 @@ export async function syncCicdDeployEventsBatchToSupabase(env) {
       r.metadata_json::jsonb,
       r.created_at::timestamptz
     FROM jsonb_to_recordset($1::jsonb) AS r(
-      d1_cicd_id text,
+      d1_deployment_id text,
+      workspace_id text,
       worker_name text,
       worker_version text,
       deploy_status text,
@@ -283,18 +303,24 @@ export async function syncCicdDeployEventsBatchToSupabase(env) {
     )
     WHERE NOT EXISTS (
       SELECT 1 FROM agentsam.agentsam_deploy_events d
-      WHERE d.metadata->>'d1_cicd_id' = r.d1_cicd_id
+      WHERE d.metadata->>'d1_deployment_id' = r.d1_deployment_id
+         OR (d.worker_version IS NOT NULL AND d.worker_version = r.worker_version)
     )
   `;
 
   const hd = await runHyperdriveTransaction(env, async (client) => client.query(sql, [JSON.stringify(payload)]));
   if (!hd.ok) {
-    console.warn('[syncCicdDeployEventsBatchToSupabase]', hd.error);
+    console.warn('[syncDeploymentsBatchToSupabase]', hd.error);
     return { ok: false, rowsRead, rowsInserted: 0, error: hd.error };
   }
 
   const rowsInserted = Number(hd.result?.rowCount ?? 0) || 0;
   return { ok: true, rowsRead, rowsInserted };
+}
+
+/** @deprecated Use syncDeploymentsBatchToSupabase — cicd_events is not the deploy SSOT. */
+export async function syncCicdDeployEventsBatchToSupabase(env) {
+  return syncDeploymentsBatchToSupabase(env);
 }
 
 /**
@@ -304,7 +330,7 @@ export async function syncCicdDeployEventsBatchToSupabase(env) {
 export async function runMidnightUsageRollupPipeline(env) {
   const d1Rollup = await runD1UsageRollupDaily(env);
   const usageSync = await syncUsageEventsBatchToSupabase(env);
-  const deploySync = await syncCicdDeployEventsBatchToSupabase(env);
+  const deploySync = await syncDeploymentsBatchToSupabase(env);
 
   const rowsWritten =
     (Number(d1Rollup?.changes) || 0) +
