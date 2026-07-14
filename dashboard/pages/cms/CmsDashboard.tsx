@@ -613,15 +613,6 @@ export function CmsDashboard({
         />
       ) : null}
 
-      <CmsIntegrationsStrip
-        items={connectedIntegrations}
-        loading={setupMode === 'loading' || integrationsLoading}
-        error={integrationsError}
-        onRetry={() => {
-          void refreshIntegrations();
-        }}
-      />
-
       <div className="iam-cms-dashboard__grid iam-cms-dashboard__grid--two">
         <section className="iam-cms-card">
           <div className="iam-cms-panel-head">Recent activity</div>
@@ -690,6 +681,15 @@ export function CmsDashboard({
           )}
         </section>
       </div>
+
+      <CmsIntegrationsStrip
+        items={connectedIntegrations}
+        loading={setupMode === 'loading' || integrationsLoading}
+        error={integrationsError}
+        onRetry={() => {
+          void refreshIntegrations();
+        }}
+      />
 
       {context && setupMode === 'active' ? (
         <div className="iam-cms-runtime iam-cms-muted">

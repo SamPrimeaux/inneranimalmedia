@@ -224,8 +224,8 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           sites={sitesList}
           context={context}
           activeNav="hub"
-          showComposeBar={composeOpen}
-          onComposeToggle={setComposeOpen}
+          hubMinimal
+          showComposeBar={false}
           onSelectSite={handleSelectSite}
           onOpenDeployWizard={() => setWizardOpen(true)}
         >

@@ -8,7 +8,7 @@ import type { AgentLogoMotion } from './presenceTypes';
 import { presenceIconMarkup, presenceStateToIcon } from './presenceIcons';
 
 const DEFAULT_LOGO =
-  'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/527ab85a-01bb-4125-57bb-694fe8be8700/public';
+  'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail';
 
 /** Static avatar when presence is idle (no active stream). */
 export const AGENT_PRESENCE_IDLE_AVATAR =

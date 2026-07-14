@@ -306,6 +306,10 @@
   background: #2563eb;
   color: #fff;
 }
+.ts-section-row.is-hover:not(.is-active) {
+  background: #eef2ff;
+  box-shadow: inset 3px 0 0 #6366f1;
+}
 .ts-section-row.is-active .ts-section-row__subtitle {
   color: rgba(255, 255, 255, 0.7);
 }
@@ -746,12 +750,10 @@
   display: block;
 }
 
-.ts-media-picker__busy {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: rgba(255, 255, 255, 0.7);
-  font-weight: 700;
+.ts-inject-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 8px;
 }
 

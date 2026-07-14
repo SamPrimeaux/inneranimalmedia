@@ -5,6 +5,7 @@
 
 export const CMS_EMBED_PICK_STYLE = `<style>
 [data-section-key],[data-cms-section]{scroll-margin-top:24px;cursor:pointer}
+[data-section-key]:hover,[data-cms-section]:hover{outline:2px dashed rgba(37,99,235,.55);outline-offset:-2px}
 [data-cms-selected],[data-cms-section].iam-cms-section-focus{outline:2px solid #2563eb;outline-offset:-2px}
 [data-cms-editable].iam-cms-field-focus,[data-cms-field].iam-cms-field-focus{outline:2px dashed #0d9488;outline-offset:2px}
 .cms-action-pill{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:6px 14px;display:flex;align-items:center;gap:8px;box-shadow:0 2px 8px rgba(0,0,0,.12);z-index:9999;white-space:nowrap;font:12px/1.2 system-ui,sans-serif;color:#374151}

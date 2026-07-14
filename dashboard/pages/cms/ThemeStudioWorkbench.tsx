@@ -74,6 +74,27 @@ type Props = {
   onNavigatePath?: (path: string, opts?: { replace?: boolean }) => void;
 };
 
+const INJECT_META_KEYS = new Set([
+  'r2_key',
+  'r2_bucket',
+  'public_url',
+  'html_source',
+  'inject_position',
+  'content_sha256',
+  'updated_at',
+  'full_page_document',
+  'zone',
+  'raw',
+]);
+
+type SiteShellPart = {
+  id: string;
+  label: string;
+  published_key?: string;
+  has_published?: boolean;
+  has_draft?: boolean;
+};
+
 const BLANK_BASELINE: Array<{
   section_type: string;
   section_name: string;
@@ -179,6 +200,10 @@ export function ThemeStudioWorkbench({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [canvasNonce, setCanvasNonce] = useState(0);
   const [themeLogoOverride, setThemeLogoOverride] = useState<string | null>(null);
+  const [siteShell, setSiteShell] = useState<SiteShellPart[]>([]);
+  const [hoveredSectionKey, setHoveredSectionKey] = useState<string | null>(null);
+  const [canvasSectionKeys, setCanvasSectionKeys] = useState<string[]>([]);
+  const [shellPartId, setShellPartId] = useState<string | null>(null);
 
   const go = useCallback(
     (path: string, opts?: { replace?: boolean }) => {
@@ -240,6 +265,27 @@ export function ThemeStudioWorkbench({
       cancelled = true;
     };
   }, [reloadBootstrap]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/cms/site-shell?project_slug=${encodeURIComponent(projectSlug)}`, {
+      credentials: 'include',
+      cache: 'no-store',
+    })
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        const shell = data.site_shell || data;
+        const parts = Array.isArray(shell.parts) ? shell.parts : Array.isArray(data.parts) ? data.parts : [];
+        setSiteShell(parts);
+      })
+      .catch(() => {
+        if (!cancelled) setSiteShell([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectSlug]);
 
   useEffect(() => {
     if (railMode !== 'app-embeds') return;
@@ -363,9 +409,18 @@ export function ThemeStudioWorkbench({
     const onMsg = (e: MessageEvent) => {
       const d = e.data;
       if (!d || typeof d !== 'object') return;
+      if (d.type === 'cms:section-hovered' && d.sectionKey) {
+        setHoveredSectionKey(String(d.sectionKey));
+      }
+      if (d.type === 'cms:sections-ready' && Array.isArray(d.sections)) {
+        setCanvasSectionKeys(
+          d.sections.map((s: { key?: string }) => String(s.key || '')).filter(Boolean),
+        );
+      }
       if (d.type === 'cms:section-clicked' && d.sectionKey) {
         const key = String(d.sectionKey);
         setActiveSectionKey(key);
+        setShellPartId(null);
         setRailMode('sections');
         const sec = sections.find((s) => sectionKeyOf(s) === key || s.id === key);
         if (sec) void loadSectionDetail(sec);
@@ -564,10 +619,14 @@ export function ThemeStudioWorkbench({
   }, [activeSection, activePage, reloadBootstrap]);
 
   const contentKeys = useMemo(() => {
-    const keys = Object.keys(draftFields).filter((k) => typeof draftFields[k] !== 'object');
-    if (!keys.length) return ['headline', 'subheadline', 'body'];
+    const keys = Object.keys(draftFields).filter(
+      (k) => !INJECT_META_KEYS.has(k) && typeof draftFields[k] !== 'object',
+    );
     return keys.slice(0, 12);
   }, [draftFields]);
+
+  const isInjected = String(draftFields.html_source || '') === 'injected' || !!draftFields.r2_key;
+  const selectedShell = siteShell.find((p) => p.id === shellPartId) || null;
 
   return (
     <div className="ts-shell">
@@ -744,27 +803,61 @@ export function ThemeStudioWorkbench({
               <p className="ts-rail__empty">{error}</p>
             ) : railMode === 'sections' ? (
               <>
+                {siteShell.length ? (
+                  <div>
+                    <div className="ts-section-group-label">SITE CHROME (R2)</div>
+                    {siteShell.map((part) => (
+                      <button
+                        key={part.id}
+                        type="button"
+                        className={`ts-section-row${shellPartId === part.id ? ' is-active' : ''}`}
+                        onClick={() => {
+                          setShellPartId(part.id);
+                          setActiveSectionKey(null);
+                          setDraftFields({});
+                          setDirty(false);
+                        }}
+                      >
+                        <LayoutGrid size={14} className="ts-section-row__icon" />
+                        <span className="ts-section-row__text">
+                          <span className="ts-section-row__name">{part.label}</span>
+                          <span className="ts-section-row__subtitle">
+                            {part.published_key || part.id}
+                            {part.has_draft ? ' · draft' : part.has_published ? ' · live' : ''}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 {(['HEADER', 'TEMPLATE', 'FOOTER'] as const).map((group) =>
                   grouped[group].length ? (
                     <div key={group}>
-                      <div className="ts-section-group-label">{group}</div>
+                      <div className="ts-section-group-label">{group} (page)</div>
                       {grouped[group].map((s) => {
                         const key = sectionKeyOf(s);
                         const visible = s.is_visible !== 0 && s.is_visible !== false;
+                        const hovered = hoveredSectionKey === key;
                         return (
                           <button
                             key={s.id}
                             type="button"
                             data-section-key={key}
-                            className={`ts-section-row${activeSectionKey === key ? ' is-active' : ''}`}
-                            onClick={() => selectSection(key)}
+                            className={`ts-section-row${activeSectionKey === key ? ' is-active' : ''}${hovered ? ' is-hover' : ''}`}
+                            onClick={() => {
+                              setShellPartId(null);
+                              selectSection(key);
+                            }}
                           >
                             <LayoutGrid size={14} className="ts-section-row__icon" />
                             <span className="ts-section-row__text">
                               <span className="ts-section-row__name">
                                 {s.section_name || s.section_type || key}
                               </span>
-                              <span className="ts-section-row__subtitle">{s.section_type || key}</span>
+                              <span className="ts-section-row__subtitle">
+                                {s.section_type || key}
+                                {canvasSectionKeys.includes(key) ? '' : ' · not on canvas'}
+                              </span>
                             </span>
                             <span
                               className="ts-section-row__eye"
@@ -792,15 +885,10 @@ export function ThemeStudioWorkbench({
                 )}
                 {!sections.length ? (
                   <div className="ts-rail__empty-stack">
-                    <p className="ts-rail__empty">No sections on this page yet.</p>
-                    <button
-                      type="button"
-                      className="ts-btn ts-btn--primary ts-btn--sm"
-                      disabled={seeding || !activePage}
-                      onClick={() => void seedBaseline()}
-                    >
-                      {seeding ? 'Adding…' : 'Add baseline layout'}
-                    </button>
+                    <p className="ts-rail__empty">
+                      No page sections in D1 yet. Canvas should still show live HTML from R2. Prefer
+                      mapping real DOM sections — do not invent mock content.
+                    </p>
                   </div>
                 ) : null}
               </>
@@ -923,19 +1011,10 @@ export function ThemeStudioWorkbench({
                   </button>
                 </div>
                 <p className="ts-drawer__hint">
-                  Templates load from the cms catalog bucket. Applying writes into this site&apos;s
-                  draft — not live publish.
+                  Prefer inventorying the live page DOM and site chrome (iam-header / iam-footer in
+                  R2). Only use catalog templates when intentionally inserting a new section —
+                  never invent a parallel mock page.
                 </p>
-                <button
-                  type="button"
-                  className="ts-section-picker-item"
-                  onClick={() => {
-                    setAddOpen(false);
-                    void seedBaseline();
-                  }}
-                >
-                  Add baseline layout (header + 3 + footer)
-                </button>
                 <button
                   type="button"
                   className="ts-section-picker-item"
@@ -945,6 +1024,20 @@ export function ThemeStudioWorkbench({
                   }}
                 >
                   Browse template library
+                </button>
+                <button
+                  type="button"
+                  className="ts-section-picker-item"
+                  onClick={() => {
+                    setAddOpen(false);
+                    if (window.confirm(
+                      'This invents header/hero/body/featured/footer D1 rows — not your live R2 site. Continue only for empty sandbox pages?',
+                    )) {
+                      void seedBaseline();
+                    }
+                  }}
+                >
+                  Emergency: seed blank D1 stubs
                 </button>
               </div>
               <button
@@ -970,7 +1063,30 @@ export function ThemeStudioWorkbench({
               </button>
             ))}
           </div>
-          {activeSection ? (
+          {selectedShell ? (
+            <>
+              <div className="ts-rp-section-header">
+                <span>Site chrome · {selectedShell.label}</span>
+              </div>
+              <div className="ts-setting-row">
+                <div className="ts-setting-label">R2 key</div>
+                <div className="ts-setting-value">{selectedShell.published_key || '—'}</div>
+              </div>
+              <p className="ts-rail__empty" style={{ padding: '0 12px 12px' }}>
+                Global header/footer live in the ASSETS bucket (
+                <code>src/components/iam-*.html</code>), not as page inject stubs. Edit via site-shell
+                APIs / Agent Sam HTML remaster — not as a fabricated page section.
+              </p>
+              <button
+                type="button"
+                className="ts-btn ts-btn--ghost"
+                style={{ margin: '0 12px 12px' }}
+                onClick={openAgent}
+              >
+                Ask Agent Sam to edit {selectedShell.label}
+              </button>
+            </>
+          ) : activeSection ? (
             <>
               <div className="ts-rp-section-header">
                 <span>&lt;&gt; {sectionKeyOf(activeSection)}</span>
@@ -997,6 +1113,33 @@ export function ThemeStudioWorkbench({
                       }}
                     />
                   </div>
+                  {isInjected ? (
+                    <div className="ts-inject-meta">
+                      <p className="ts-image-picker-hint">
+                        Live HTML fragment ({String(draftFields.html_source || 'injected')}). Do not
+                        treat storage metadata as copy fields.
+                      </p>
+                      {draftFields.public_url ? (
+                        <a
+                          className="ts-btn ts-btn--ghost ts-btn--sm"
+                          href={String(draftFields.public_url)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Open fragment URL
+                        </a>
+                      ) : null}
+                      {draftFields.r2_key ? (
+                        <div className="ts-setting-row">
+                          <div className="ts-setting-label">R2 key</div>
+                          <div className="ts-setting-value">{String(draftFields.r2_key)}</div>
+                        </div>
+                      ) : null}
+                      <button type="button" className="ts-btn ts-btn--ghost ts-btn--sm" onClick={openAgent}>
+                        Remaster this fragment with Agent Sam
+                      </button>
+                    </div>
+                  ) : null}
                   {contentKeys.map((key) => (
                     <div key={key} className="ts-setting-row">
                       <div className="ts-setting-label">{key}</div>
@@ -1008,6 +1151,9 @@ export function ThemeStudioWorkbench({
                       />
                     </div>
                   ))}
+                  {!isInjected && !contentKeys.length ? (
+                    <p className="ts-rail__empty">No editable text fields on this section yet.</p>
+                  ) : null}
                 </>
               ) : null}
               {rightTab === 'design' ? (
@@ -1022,6 +1168,14 @@ export function ThemeStudioWorkbench({
                     <div className="ts-setting-label">Section id</div>
                     <div className="ts-setting-value">{activeSection.id}</div>
                   </div>
+                  {Object.entries(draftFields)
+                    .filter(([k]) => INJECT_META_KEYS.has(k))
+                    .map(([k, v]) => (
+                      <div key={k} className="ts-setting-row">
+                        <div className="ts-setting-label">{k}</div>
+                        <div className="ts-setting-value">{String(v ?? '—')}</div>
+                      </div>
+                    ))}
                   {workspaceId ? (
                     <div className="ts-setting-row">
                       <div className="ts-setting-label">Workspace</div>
@@ -1035,7 +1189,7 @@ export function ThemeStudioWorkbench({
               </button>
             </>
           ) : (
-            <p className="ts-rail__empty">Select a section on the canvas or in the rail.</p>
+            <p className="ts-rail__empty">Hover/click a section on the live canvas or choose one in the rail.</p>
           )}
         </aside>
       </div>

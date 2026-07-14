@@ -32,6 +32,8 @@ type Props = {
   editorMode?: boolean;
   /** Hide hub top/nav — ThemeStudioWorkbench owns the Shopify topbar. */
   themeStudio?: boolean;
+  /** Hub overview — no duplicate CMS chrome; dashboard owns the layout. */
+  hubMinimal?: boolean;
   onSelectSite?: (slug: string, path: string) => void | Promise<void>;
   onOpenDeployWizard?: () => void;
 };
@@ -64,6 +66,7 @@ export function CmsShellLayout({
   onComposeToggle,
   editorMode = false,
   themeStudio = false,
+  hubMinimal = false,
   onSelectSite,
   onOpenDeployWizard,
 }: Props) {
@@ -187,11 +190,11 @@ export function CmsShellLayout({
   const agentOpen = editorMode ? agentPanelOpen : showComposeBar;
   const shellClass = `iam-cms-shell${editorMode ? ' iam-cms-shell--editor' : ''}${
     themeStudio ? ' iam-cms-shell--theme-studio' : ''
-  }`;
+  }${hubMinimal ? ' iam-cms-shell--hub-minimal' : ''}`;
 
   return (
     <div className={shellClass}>
-      {!themeStudio ? (
+      {!themeStudio && !hubMinimal ? (
       <header className="iam-cms-shell__top">
         <div className="iam-cms-shell__bar">
           <button
@@ -256,7 +259,7 @@ export function CmsShellLayout({
         </nav>
       </header>
       ) : null}
-      {showComposeBar && !editorMode ? (
+      {showComposeBar && !editorMode && !hubMinimal ? (
         <CmsAgentComposeBar siteSlug={siteSlug} siteName={siteName} />
       ) : null}
       <div className="iam-cms-shell__body">{children}</div>

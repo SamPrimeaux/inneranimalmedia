@@ -115,7 +115,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
       <div className="flex flex-col items-center mb-6 text-center animate-in fade-in slide-in-from-bottom-4 duration-700">
         <div className="w-16 h-16 mb-4 rounded-2xl flex items-center justify-center grayscale opacity-80">
           <img
-            src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/527ab85a-01bb-4125-57bb-694fe8be8700/public"
+            src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail"
             alt="Inner Animal Media"
             className="w-full h-full object-contain"
           />
