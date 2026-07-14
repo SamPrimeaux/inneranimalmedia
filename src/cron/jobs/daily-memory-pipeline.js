@@ -343,7 +343,7 @@ ${JSON.stringify({ items: grouped.humanEmails, failed: grouped.failed, summary: 
 PLATFORM CONTEXT:
 ${platformContextJson(ctxData)}
 
-Rules: Professional narrative markdown. Treat PLATFORM CONTEXT.activeBlockers and agentCompletion as FIRST-CLASS alerts — ### Active Blockers must quote current_blockers verbatim when present; ### Agent Completion Alert must state last_24h and all_time completion rates and flag if last_24h completed is 0 while failed > 0 (chat_spine terminal-status gap). Surface escalationsRecent if any. Cross-thread dedupe human emails only. VERIFIED DEPLOYS are platform ground truth. Do not invent blockers. 1-5 minute read. No emojis. No JSON.`
+Rules: Professional narrative markdown. Treat PLATFORM CONTEXT.activeBlockers and agentCompletion as FIRST-CLASS alerts — ### Active Blockers must quote current_blockers verbatim when present; ### Agent Completion Alert must state last_24h and all_time completion rates from numbers only (if completed is 0 and failed > 0, say so from the counts — do not invent a \"missing Durable Object teardown\" or \"chat_spine terminal-status gap\" story unless ctxData explicitly says that). Surface escalationsRecent if any. Cross-thread dedupe human emails only. VERIFIED DEPLOYS are platform ground truth. Do not invent blockers. Do not resurrect Moon Glass worker.js CSS bleed, DesignStudio SSE unwired, master_daily_retention scores undefined, or Meshy proxy missing unless they appear in current_blockers. Prefer LAST NIGHT MEMORY for continuity of open work only — drop items that contradict current_blockers or verified code status. 1-5 minute read. No emojis. No JSON.`
     : `Date: ${dateDisplay} (${dateIso})
 
 Write the ## Evening section body ONLY (no ## Evening header). Use ### subsections exactly:
@@ -406,7 +406,7 @@ ${JSON.stringify({ items: grouped.humanEmails, failed: grouped.failed, summary: 
 PLATFORM DELTA:
 ${platformContextJson(ctxData)}
 
-Rules: Shorter than evening — 1-3 minute read. Action-first. ALERTS must lead with PLATFORM DELTA.activeBlockers (quote current_blockers) and agentCompletion (last_24h + all_time; scream if 24h failed>0 and completed=0 — chat_spine terminal gap). Include escalationsRecent when present. Do not carry forward blockers that are resolved in D1 memory. If triage failed, lead ALERTS with triage degradation — do not invent regressions. VERIFIED DEPLOYS are production ground truth for ### VELOCITY. No emojis. Markdown only.`
+Rules: Shorter than evening — 1-3 minute read. Action-first. ALERTS must lead with PLATFORM DELTA.activeBlockers (quote current_blockers) and agentCompletion (last_24h + all_time from counts only — if failed>0 and completed=0 state the numbers without inventing DO teardown / Moon Glass / scores-undefined narratives). Include escalationsRecent when present. Do not carry forward blockers absent from current_blockers. Do not resurrect cleared myths (DesignStudio SSE unwired, Meshy proxy missing, retention scores ReferenceError). If triage failed, lead ALERTS with triage degradation — do not invent regressions. VERIFIED DEPLOYS are production ground truth for ### VELOCITY. No emojis. Markdown only.`
     : `Date: ${dateDisplay} (${dateIso})
 
 Write the ## Morning section body ONLY (no ## Morning header). Use ### subsections in order:

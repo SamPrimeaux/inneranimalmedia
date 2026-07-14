@@ -65,16 +65,21 @@ while true; do
 
   if [[ "$code" -eq 0 ]]; then
     echo "[reindex-runtime:safe] completed successfully"
+    # Email + receipt: summary + smart next steps (skip with SKIP_REINDEX_NOTIFY=1)
+    ./scripts/with-cloudflare-env.sh node scripts/notify-reindex-runtime.mjs --status=completed || \
+      echo "[reindex-runtime:safe] notify failed (non-fatal)" >&2
     exit 0
   fi
 
   if [[ -f "$STOP_FILE" ]]; then
     echo "[reindex-runtime:safe] STOP file set after exit $code — stopping"
+    ./scripts/with-cloudflare-env.sh node scripts/notify-reindex-runtime.mjs --status=stopped --exit-code="$code" || true
     exit "$code"
   fi
 
   if [[ "$attempt" -ge "$MAX_RESTARTS" ]]; then
     echo "[reindex-runtime:safe] hit MAX_RESTARTS=$MAX_RESTARTS (last exit $code)" >&2
+    ./scripts/with-cloudflare-env.sh node scripts/notify-reindex-runtime.mjs --status=failed --exit-code="$code" || true
     exit "$code"
   fi
 

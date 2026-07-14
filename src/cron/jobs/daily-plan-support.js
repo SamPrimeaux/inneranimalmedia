@@ -655,7 +655,7 @@ export async function gatherMorningPlanContext(env, tenantId, owner, presetScope
       open_or_stuck: Number(lifetime.open_or_stuck) || 0,
     },
     note:
-      'Use created_at_unix for day windows. chat_spine runs often stay non-terminal until DO teardown writes status.',
+      'Use created_at_unix for day windows. Report completion rates from counts above only. Stale non-terminal rows may exist; a 35m sweeper marks long-running as failed — do not invent a missing DO teardown narrative.',
   };
 
   return {
