@@ -150,7 +150,7 @@ INSERT OR IGNORE INTO agentsam_tickets (
   'Image intent — D1 keywords + classifier escalate-on-miss + decision log',
   'active',
   NULL,
-  'iam-core',
+  'inneranimalmedia',
   'routing',
   '["intent","keywords","classifier"]',
   'P0',
