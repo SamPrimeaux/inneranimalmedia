@@ -204,11 +204,12 @@ export async function loadPreviouslyIndexedPaths(client, workspaceUuid) {
 }
 
 /**
- * @param {{ eligiblePaths: string[], indexedPaths: Set<string> }} p
+ * @param {{ eligiblePaths: string[], indexedPaths: Set<string>, requiredFiles?: readonly string[] }} p
  */
 export function summarizeManifestDrift(p) {
   const eligibleSet = new Set(p.eligiblePaths);
   const indexed = p.indexedPaths;
+  const required = p.requiredFiles ?? DASHBOARD_EXPLICIT_REQUIRED_FILES;
 
   const newEligible = p.eligiblePaths.filter((path) => !indexed.has(path));
   const staleIndexed = [...indexed].filter((path) => !eligibleSet.has(path)).sort();
@@ -218,7 +219,7 @@ export function summarizeManifestDrift(p) {
     indexedCount: indexed.size,
     newEligible,
     staleIndexed,
-    requiredIncluded: DASHBOARD_EXPLICIT_REQUIRED_FILES.every((f) => eligibleSet.has(f)),
+    requiredIncluded: required.every((f) => eligibleSet.has(f)),
   };
 }
 
