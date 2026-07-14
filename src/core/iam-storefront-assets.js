@@ -75,6 +75,24 @@ export function storefrontAssetDraftKey(publishedKey) {
 }
 
 /**
+ * R2 keys for a new IAM marketing page (not yet in IAM_STOREFRONT_ASSET_PAGES catalog).
+ * @param {string} slug
+ */
+export function iamMarketingPageR2Keys(slug) {
+  const seg = String(slug || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'page';
+  const published_key = `pages/${seg}/index.html`;
+  return {
+    bucket: IAM_STOREFRONT_BUCKET,
+    published_key,
+    draft_key: storefrontAssetDraftKey(published_key),
+  };
+}
+
+/**
  * @param {string} publishedKey
  * @param {{ preferDraft?: boolean }} [opts]
  */

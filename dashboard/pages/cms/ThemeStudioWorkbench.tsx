@@ -16,7 +16,7 @@ import {
   Sparkles,
   Tablet,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   IAM_AGENT_CHAT_COMPOSE,
   IAM_AGENT_ENSURE_PANEL,
@@ -74,6 +74,22 @@ type Props = {
   onNavigatePath?: (path: string, opts?: { replace?: boolean }) => void;
 };
 
+type EditableField = {
+  path: string;
+  label: string;
+  value: string;
+  kind: 'scalar' | 'json' | 'fragment';
+};
+
+function slugFromTitle(title: string): string {
+  return String(title || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+}
+
 const INJECT_META_KEYS = new Set([
   'r2_key',
   'r2_bucket',
@@ -85,6 +101,7 @@ const INJECT_META_KEYS = new Set([
   'full_page_document',
   'zone',
   'raw',
+  'role',
 ]);
 
 type SiteShellPart = {
@@ -170,6 +187,7 @@ export function ThemeStudioWorkbench({
   onNavigatePath,
 }: Props) {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const railRef = useRef<HTMLDivElement | null>(null);
 
@@ -204,6 +222,19 @@ export function ThemeStudioWorkbench({
   const [hoveredSectionKey, setHoveredSectionKey] = useState<string | null>(null);
   const [canvasSectionKeys, setCanvasSectionKeys] = useState<string[]>([]);
   const [shellPartId, setShellPartId] = useState<string | null>(null);
+  const [editableFields, setEditableFields] = useState<EditableField[]>([]);
+  const [fieldEdits, setFieldEdits] = useState<Record<string, string>>({});
+  const [createPageOpen, setCreatePageOpen] = useState(false);
+  const [createTitle, setCreateTitle] = useState('');
+  const [createSlug, setCreateSlug] = useState('');
+  const [createRoute, setCreateRoute] = useState('');
+  const [creatingPage, setCreatingPage] = useState(false);
+  const [pageMetaDraft, setPageMetaDraft] = useState({
+    title: '',
+    seo_title: '',
+    meta_description: '',
+    route_path: '',
+  });
 
   const go = useCallback(
     (path: string, opts?: { replace?: boolean }) => {
@@ -319,6 +350,25 @@ export function ThemeStudioWorkbench({
     [pages, activePageId],
   );
 
+  useEffect(() => {
+    if (!activePage) return;
+    setPageMetaDraft({
+      title: String(activePage.title || ''),
+      seo_title: String((activePage as BootPage & { seo_title?: string }).seo_title || activePage.title || ''),
+      meta_description: String((activePage as BootPage & { meta_description?: string }).meta_description || ''),
+      route_path: String(activePage.route_path || `/${activePage.slug || ''}`),
+    });
+  }, [activePage?.id, activePage?.title, activePage?.route_path, activePage?.slug]);
+
+  useEffect(() => {
+    if (searchParams.get('create') === '1') {
+      setCreatePageOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete('create');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   const sections = useMemo(() => {
     if (!activePage) return [];
     const list = sectionsByPage[activePage.id] || [];
@@ -367,17 +417,30 @@ export function ThemeStudioWorkbench({
 
   const loadSectionDetail = useCallback(async (section: BootSection) => {
     setDraftFields(parseSectionData(section.section_data));
+    setFieldEdits({});
+    setEditableFields([]);
     try {
-      const res = await fetch(`/api/cms/sections?page_id=${encodeURIComponent(section.page_id)}`, {
-        credentials: 'include',
-        cache: 'no-store',
-      });
-      const data = (await res.json().catch(() => ({}))) as {
+      const [detailRes, fieldsRes] = await Promise.all([
+        fetch(`/api/cms/sections?page_id=${encodeURIComponent(section.page_id)}`, {
+          credentials: 'include',
+          cache: 'no-store',
+        }),
+        fetch(`/api/cms/sections/${encodeURIComponent(section.id)}/editable-fields`, {
+          credentials: 'include',
+          cache: 'no-store',
+        }),
+      ]);
+      const data = (await detailRes.json().catch(() => ({}))) as {
         sections?: BootSection[];
+      };
+      const fieldsJson = (await fieldsRes.json().catch(() => ({}))) as {
+        fields?: EditableField[];
+        error?: string;
       };
       const found = (data.sections || []).find((s) => s.id === section.id);
       if (found) {
-        setDraftFields(parseSectionData(found.section_data));
+        const parsed = parseSectionData(found.section_data);
+        setDraftFields(parsed);
         setSectionsByPage((prev) => {
           const list = prev[section.page_id] || [];
           return {
@@ -386,6 +449,11 @@ export function ThemeStudioWorkbench({
           };
         });
       }
+      const fields = Array.isArray(fieldsJson.fields) ? fieldsJson.fields : [];
+      setEditableFields(fields);
+      const initialEdits: Record<string, string> = {};
+      for (const f of fields) initialEdits[f.path] = f.value;
+      setFieldEdits(initialEdits);
     } catch {
       /* keep local parse */
     }
@@ -492,6 +560,67 @@ export function ThemeStudioWorkbench({
     setDirty(true);
   }, []);
 
+  const updateEditableField = useCallback((path: string, value: string) => {
+    setFieldEdits((prev) => ({ ...prev, [path]: value }));
+    setDirty(true);
+  }, []);
+
+  const handleCreatePage = useCallback(async () => {
+    const title = createTitle.trim();
+    const slug = (createSlug.trim() || slugFromTitle(title)).trim();
+    const route = (createRoute.trim() || `/${slug}`).trim();
+    if (!title || !slug) {
+      setActionMsg('Title and slug are required');
+      return;
+    }
+    setCreatingPage(true);
+    setActionMsg(null);
+    try {
+      const res = await fetch('/api/cms/pages', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: projectSlug,
+          title,
+          slug,
+          route_path: route.startsWith('/') ? route : `/${route}`,
+          status: 'draft',
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        id?: string;
+        error?: string;
+        route_path?: string;
+      };
+      if (!res.ok) throw new Error(data.error || `Create failed (${res.status})`);
+      setCreatePageOpen(false);
+      setCreateTitle('');
+      setCreateSlug('');
+      setCreateRoute('');
+      await reloadBootstrap();
+      if (data.id) {
+        setActivePageId(data.id);
+        setActiveSectionKey(null);
+        setDirty(false);
+        go(
+          buildCmsPath({
+            panel: 'pages',
+            pageId: data.id,
+            siteSlug: projectSlug,
+          }),
+          { replace: true },
+        );
+      }
+      setCanvasNonce((n) => n + 1);
+      setActionMsg(`Page created · ${title}`);
+    } catch (e) {
+      setActionMsg(e instanceof Error ? e.message : 'Create page failed');
+    } finally {
+      setCreatingPage(false);
+    }
+  }, [createRoute, createSlug, createTitle, go, projectSlug, reloadBootstrap]);
+
   const handleSave = useCallback(async () => {
     if (!activePage) return;
     setSaving(true);
@@ -504,8 +633,26 @@ export function ThemeStudioWorkbench({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             section_data: draftFields,
+            field_edits: fieldEdits,
             section_name: activeSection.section_name,
             section_type: activeSection.section_type,
+            sort_order: activeSection.sort_order,
+            is_visible: activeSection.is_visible,
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) throw new Error(data.error || `Save failed (${res.status})`);
+      } else if (dirty) {
+        const res = await fetch(`/api/cms/pages/${encodeURIComponent(activePage.id)}`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            project_slug: projectSlug,
+            title: pageMetaDraft.title,
+            seo_title: pageMetaDraft.seo_title,
+            meta_description: pageMetaDraft.meta_description,
+            route_path: pageMetaDraft.route_path,
           }),
         });
         const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -525,7 +672,7 @@ export function ThemeStudioWorkbench({
     } finally {
       setSaving(false);
     }
-  }, [activePage, activeSection, draftFields, projectSlug, reloadBootstrap]);
+  }, [activePage, activeSection, draftFields, fieldEdits, pageMetaDraft, dirty, projectSlug, reloadBootstrap]);
 
   const handlePublish = useCallback(async () => {
     if (!activePage) return;
@@ -619,13 +766,17 @@ export function ThemeStudioWorkbench({
   }, [activeSection, activePage, reloadBootstrap]);
 
   const contentKeys = useMemo(() => {
+    if (editableFields.length) return [];
     const keys = Object.keys(draftFields).filter(
       (k) => !INJECT_META_KEYS.has(k) && typeof draftFields[k] !== 'object',
     );
     return keys.slice(0, 12);
-  }, [draftFields]);
+  }, [draftFields, editableFields.length]);
 
-  const isInjected = String(draftFields.html_source || '') === 'injected' || !!draftFields.r2_key;
+  const isInjected =
+    String(draftFields.html_source || '') === 'injected' ||
+    String(draftFields.html_source || '') === 'assembled' ||
+    !!draftFields.r2_key;
   const selectedShell = siteShell.find((p) => p.id === shellPartId) || null;
 
   return (
@@ -696,7 +847,7 @@ export function ThemeStudioWorkbench({
                 className="ts-page-menu__row ts-page-menu__row--create"
                 onClick={() => {
                   setPageMenuOpen(false);
-                  go(buildCmsPath({ panel: 'pages', siteSlug: projectSlug }));
+                  setCreatePageOpen(true);
                 }}
               >
                 + Create new page
@@ -1116,8 +1267,8 @@ export function ThemeStudioWorkbench({
                   {isInjected ? (
                     <div className="ts-inject-meta">
                       <p className="ts-image-picker-hint">
-                        Live HTML fragment ({String(draftFields.html_source || 'injected')}). Do not
-                        treat storage metadata as copy fields.
+                        Markup on R2 ({String(draftFields.html_source || 'injected')}). Edit typed
+                        fields below; fragment markers update the HTML blob on Save.
                       </p>
                       {draftFields.public_url ? (
                         <a
@@ -1136,37 +1287,110 @@ export function ThemeStudioWorkbench({
                         </div>
                       ) : null}
                       <button type="button" className="ts-btn ts-btn--ghost ts-btn--sm" onClick={openAgent}>
-                        Remaster this fragment with Agent Sam
+                        Remaster layout with Agent Sam
                       </button>
                     </div>
                   ) : null}
-                  {contentKeys.map((key) => (
-                    <div key={key} className="ts-setting-row">
-                      <div className="ts-setting-label">{key}</div>
-                      <textarea
-                        className="ts-setting-input ts-setting-input--area"
-                        rows={key === 'body' ? 4 : 2}
-                        value={String(draftFields[key] ?? '')}
-                        onChange={(e) => updateField(key, e.target.value)}
-                      />
-                    </div>
-                  ))}
-                  {!isInjected && !contentKeys.length ? (
+                  {editableFields.length
+                    ? editableFields.map((field) => (
+                        <div key={field.path} className="ts-setting-row">
+                          <div className="ts-setting-label">
+                            {field.label}
+                            {field.kind === 'fragment' ? (
+                              <span className="ts-setting-tag">R2</span>
+                            ) : null}
+                          </div>
+                          <textarea
+                            className="ts-setting-input ts-setting-input--area"
+                            rows={field.kind === 'json' ? 4 : field.value.length > 80 ? 3 : 2}
+                            value={fieldEdits[field.path] ?? field.value}
+                            onChange={(e) => updateEditableField(field.path, e.target.value)}
+                          />
+                        </div>
+                      ))
+                    : contentKeys.map((key) => (
+                        <div key={key} className="ts-setting-row">
+                          <div className="ts-setting-label">{key}</div>
+                          <textarea
+                            className="ts-setting-input ts-setting-input--area"
+                            rows={key === 'body' ? 4 : 2}
+                            value={String(draftFields[key] ?? '')}
+                            onChange={(e) => updateField(key, e.target.value)}
+                          />
+                        </div>
+                      ))}
+                  {!editableFields.length && !contentKeys.length && !isInjected ? (
                     <p className="ts-rail__empty">No editable text fields on this section yet.</p>
+                  ) : null}
+                  {!editableFields.length && isInjected && !contentKeys.length ? (
+                    <p className="ts-rail__empty">
+                      Fragment has no data-cms-field markers yet — use Agent Sam to remaster, or add
+                      typed keys in D1.
+                    </p>
                   ) : null}
                 </>
               ) : null}
               {rightTab === 'design' ? (
-                <div className="ts-setting-row">
-                  <div className="ts-setting-label">Type</div>
-                  <div className="ts-setting-value">{activeSection.section_type || '—'}</div>
-                </div>
+                <>
+                  <div className="ts-setting-row">
+                    <div className="ts-setting-label">Type</div>
+                    <div className="ts-setting-value">{activeSection.section_type || '—'}</div>
+                  </div>
+                  <div className="ts-setting-row">
+                    <div className="ts-setting-label">Sort order</div>
+                    <input
+                      className="ts-setting-input"
+                      type="number"
+                      value={String(activeSection.sort_order ?? 0)}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        setSectionsByPage((prev) => {
+                          const list = prev[activeSection.page_id] || [];
+                          return {
+                            ...prev,
+                            [activeSection.page_id]: list.map((s) =>
+                              s.id === activeSection.id ? { ...s, sort_order: v } : s,
+                            ),
+                          };
+                        });
+                        setDirty(true);
+                      }}
+                    />
+                  </div>
+                  <div className="ts-setting-row">
+                    <div className="ts-setting-label">Visible</div>
+                    <label className="ts-setting-value">
+                      <input
+                        type="checkbox"
+                        checked={activeSection.is_visible !== 0 && activeSection.is_visible !== false}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          setSectionsByPage((prev) => {
+                            const list = prev[activeSection.page_id] || [];
+                            return {
+                              ...prev,
+                              [activeSection.page_id]: list.map((s) =>
+                                s.id === activeSection.id ? { ...s, is_visible: next ? 1 : 0 } : s,
+                              ),
+                            };
+                          });
+                          setDirty(true);
+                        }}
+                      />{' '}
+                      Show on canvas
+                    </label>
+                  </div>
+                </>
               ) : null}
               {rightTab === 'advanced' ? (
                 <>
                   <div className="ts-setting-row">
                     <div className="ts-setting-label">Section id</div>
                     <div className="ts-setting-value">{activeSection.id}</div>
+                  </div>
+                  <div className="ts-setting-row">
+                    <div className="ts-setting-label">Page id</div>
+                    <div className="ts-setting-value">{activeSection.page_id}</div>
                   </div>
                   {Object.entries(draftFields)
                     .filter(([k]) => INJECT_META_KEYS.has(k))
@@ -1188,6 +1412,110 @@ export function ThemeStudioWorkbench({
                 Remove section
               </button>
             </>
+          ) : activePage ? (
+            <>
+              <div className="ts-rp-section-header">
+                <span>Page · {activePage.title || activePage.slug}</span>
+              </div>
+              {rightTab === 'content' ? (
+                <>
+                  <p className="ts-image-picker-hint" style={{ padding: '0 12px' }}>
+                    Save writes D1 + R2 draft. Publish promotes to live — no Worker redeploy needed.
+                  </p>
+                  <div className="ts-setting-row">
+                    <div className="ts-setting-label">Title</div>
+                    <input
+                      className="ts-setting-input"
+                      value={pageMetaDraft.title}
+                      onChange={(e) => {
+                        setPageMetaDraft((p) => ({ ...p, title: e.target.value }));
+                        setDirty(true);
+                      }}
+                    />
+                  </div>
+                  <div className="ts-setting-row">
+                    <div className="ts-setting-label">SEO title</div>
+                    <input
+                      className="ts-setting-input"
+                      value={pageMetaDraft.seo_title}
+                      onChange={(e) => {
+                        setPageMetaDraft((p) => ({ ...p, seo_title: e.target.value }));
+                        setDirty(true);
+                      }}
+                    />
+                  </div>
+                  <div className="ts-setting-row">
+                    <div className="ts-setting-label">Meta description</div>
+                    <textarea
+                      className="ts-setting-input ts-setting-input--area"
+                      rows={3}
+                      value={pageMetaDraft.meta_description}
+                      onChange={(e) => {
+                        setPageMetaDraft((p) => ({ ...p, meta_description: e.target.value }));
+                        setDirty(true);
+                      }}
+                    />
+                  </div>
+                  <div className="ts-setting-row">
+                    <div className="ts-setting-label">Route</div>
+                    <input
+                      className="ts-setting-input"
+                      value={pageMetaDraft.route_path}
+                      onChange={(e) => {
+                        setPageMetaDraft((p) => ({ ...p, route_path: e.target.value }));
+                        setDirty(true);
+                      }}
+                    />
+                  </div>
+                </>
+              ) : null}
+              {rightTab === 'design' ? (
+                <>
+                  <div className="ts-setting-row">
+                    <div className="ts-setting-label">Status</div>
+                    <div className="ts-setting-value">{activePage.status || 'draft'}</div>
+                  </div>
+                  <div className="ts-setting-row">
+                    <div className="ts-setting-label">Page type</div>
+                    <div className="ts-setting-value">{activePage.page_type || 'custom'}</div>
+                  </div>
+                </>
+              ) : null}
+              {rightTab === 'advanced' ? (
+                <>
+                  <div className="ts-setting-row">
+                    <div className="ts-setting-label">Page id</div>
+                    <div className="ts-setting-value">{activePage.id}</div>
+                  </div>
+                  {activePage.live_url ? (
+                    <div className="ts-setting-row">
+                      <div className="ts-setting-label">Live URL</div>
+                      <a
+                        className="ts-setting-value"
+                        href={activePage.live_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {activePage.live_url}
+                      </a>
+                    </div>
+                  ) : null}
+                  {activePage.preview_draft_url ? (
+                    <div className="ts-setting-row">
+                      <div className="ts-setting-label">Draft preview</div>
+                      <a
+                        className="ts-setting-value"
+                        href={activePage.preview_draft_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Open draft
+                      </a>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+            </>
           ) : (
             <p className="ts-rail__empty">Hover/click a section on the live canvas or choose one in the rail.</p>
           )}
@@ -1204,6 +1532,68 @@ export function ThemeStudioWorkbench({
           setActionMsg('Logo selected — Save to keep (site brand row updates separately)');
         }}
       />
+
+      {createPageOpen ? (
+        <div className="ts-modal-backdrop" role="dialog" aria-modal="true" aria-label="Create new page">
+          <div className="ts-modal">
+            <h2 className="ts-modal__title">Create new page</h2>
+            <p className="ts-modal__hint">
+              Draft saves to R2 under <code>pages/.draft/…</code>. Publish goes live without redeploying
+              the Worker.
+            </p>
+            <div className="ts-setting-row">
+              <div className="ts-setting-label">Title</div>
+              <input
+                className="ts-setting-input"
+                value={createTitle}
+                onChange={(e) => {
+                  const t = e.target.value;
+                  setCreateTitle(t);
+                  if (!createSlug.trim()) setCreateSlug(slugFromTitle(t));
+                  if (!createRoute.trim()) setCreateRoute(`/${slugFromTitle(t)}`);
+                }}
+                placeholder="e.g. Partner program"
+              />
+            </div>
+            <div className="ts-setting-row">
+              <div className="ts-setting-label">Slug</div>
+              <input
+                className="ts-setting-input"
+                value={createSlug}
+                onChange={(e) => setCreateSlug(e.target.value)}
+                placeholder="partner-program"
+              />
+            </div>
+            <div className="ts-setting-row">
+              <div className="ts-setting-label">Route</div>
+              <input
+                className="ts-setting-input"
+                value={createRoute}
+                onChange={(e) => setCreateRoute(e.target.value)}
+                placeholder="/partner-program"
+              />
+            </div>
+            <div className="ts-modal__actions">
+              <button
+                type="button"
+                className="ts-btn ts-btn--ghost"
+                disabled={creatingPage}
+                onClick={() => setCreatePageOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="ts-btn ts-btn--primary"
+                disabled={creatingPage}
+                onClick={() => void handleCreatePage()}
+              >
+                {creatingPage ? 'Creating…' : 'Create page'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

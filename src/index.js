@@ -36,8 +36,10 @@ import { loadSiteShellInjectionHtml } from './core/cms-site-shell.js';
 import {
   iamAssetRoutesMap,
   iamCmsHydrateRouteForAssetKey,
+  resolveIamPageHtmlKeys,
   resolveStorefrontAssetServeKey,
 } from './core/iam-storefront-assets.js';
+import { cmsPageHtmlKey } from './core/cms-edit-safety.js';
 import { hydrateWorkDetailPageHtml } from './core/cms-work-detail-hydrate.js';
 import { assetPassthroughCacheControl } from './core/asset-passthrough-cache.js';
 import { resolveIdentity } from './core/identity.js';
@@ -498,20 +500,25 @@ export default {
           });
           if (bundle.page?.r2_key) {
             const pageR2Key = String(bundle.page.r2_key);
-            const draftKey = pageR2Key.includes('/published.html')
-              ? pageR2Key.replace('/published.html', '/draft.html')
-              : pageR2Key.includes('/draft.html')
-                ? pageR2Key
-                : pageR2Key.replace(/\.html$/, '.draft.html');
+            const layout = resolveIamPageHtmlKeys(
+              bundle.page,
+              String(bundle.page.workspace_id || env.WORKSPACE_ID || '').trim(),
+              cmsPageHtmlKey,
+            );
             const preferDraft =
               previewCtx.previewMode === 'draft' ||
               (previewCtx.cmsEmbed && String(bundle.page.status || '').toLowerCase() === 'draft');
-            const r2Key = preferDraft ? draftKey : pageR2Key;
+            const serveKeys = resolveStorefrontAssetServeKey(layout.published_key || pageR2Key, {
+              preferDraft,
+            });
+            const r2Key = serveKeys.key || (preferDraft ? layout.draft_key : layout.published_key) || pageR2Key;
             const obj = await env.ASSETS.get(r2Key).catch(() => null);
             const publishedObj =
               obj ||
-              (await env.ASSETS.get(pageR2Key).catch(() => null)) ||
-              (preferDraft ? await env.ASSETS.get(draftKey).catch(() => null) : null);
+              (await env.ASSETS.get(layout.published_key || pageR2Key).catch(() => null)) ||
+              (preferDraft
+                ? await env.ASSETS.get(layout.draft_key || pageR2Key).catch(() => null)
+                : null);
             if (publishedObj) {
               let htmlText = await publishedObj.text();
               try {

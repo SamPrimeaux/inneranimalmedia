@@ -86,6 +86,22 @@ export function saveCmsPageDraft(pageId: string, body: Record<string, unknown>) 
   });
 }
 
+export function createCmsPage(body: {
+  project_id: string;
+  title: string;
+  slug: string;
+  route_path?: string;
+  status?: string;
+  sections?: unknown[];
+}) {
+  return cmsApi<{
+    id: string;
+    route_path: string;
+    preview_urls?: CmsPreviewUrls;
+    error?: string;
+  }>('/api/cms/pages', { method: 'POST', body });
+}
+
 /** Full-page HTML remaster — maps to PUT /api/cms/pages/:id { content } */
 export function saveCmsPageHtml(
   pageId: string,

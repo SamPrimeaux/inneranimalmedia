@@ -330,7 +330,7 @@ export function CmsDashboard({
 
   const quickActions = useMemo(
     () => [
-      { label: 'Create new page', path: siteSlug ? buildCmsPath({ panel: 'theme-editor', siteSlug }) : '' },
+      { label: 'Create new page', path: siteSlug ? `${buildCmsPath({ panel: 'pages', siteSlug })}&create=1` : '' },
       { label: 'Browse templates', path: siteSlug ? buildCmsPath({ panel: 'templates', siteSlug }) : '' },
       { label: 'Upload media', path: siteSlug ? buildCmsPath({ panel: 'media', siteSlug }) : '' },
       { label: 'Import theme', action: 'import' as const },

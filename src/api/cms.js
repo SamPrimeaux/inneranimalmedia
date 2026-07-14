@@ -905,6 +905,42 @@ export async function handleCmsApi(request, url, env, ctx) {
       String(route_path || `/${slug}`).trim().startsWith('/')
         ? String(route_path || `/${slug}`).trim()
         : `/${String(route_path || slug).trim()}`;
+
+    if (String(project_id).trim() === 'inneranimalmedia') {
+      try {
+        const { createIamCmsPage } = await import('../core/iam-cms-page-create.js');
+        const result = await createIamCmsPage(env, {
+          project_id,
+          slug,
+          title,
+          route_path: normalizedRoute,
+          workspaceId,
+          tenantId,
+          userId: authUser.id,
+          personUuid,
+          sections: Array.isArray(body.sections) ? body.sections : undefined,
+          status: String(body.status || 'draft'),
+        });
+        if (!result.ok) {
+          const status =
+            result.error === 'route_exists' ? 409 : result.error === 'invalid_slug' ? 400 : 500;
+          return jsonResponse({ error: result.error, page_id: result.page_id || null }, status);
+        }
+        return jsonResponse({
+          success: true,
+          id: result.id,
+          r2_key: result.r2_key,
+          draft_r2_key: result.draft_r2_key,
+          route_path: result.route_path,
+          status: result.status,
+          sections: result.sections,
+          preview_urls: result.preview_urls,
+        });
+      } catch (e) {
+        return jsonResponse({ error: e.message }, 500);
+      }
+    }
+
     const pageType = String(body.page_type || 'custom').trim() || 'custom';
     const pageStatus = String(body.status || 'draft').trim() === 'published' ? 'published' : 'draft';
     const r2Variant = pageStatus === 'published' ? 'published' : 'draft';
@@ -1257,6 +1293,68 @@ export async function handleCmsApi(request, url, env, ctx) {
   }
 
   /**
+   * GET /api/cms/sections/:id/editable-fields
+   * Typed D1 fields + optional R2 fragment markers for Theme Studio panels.
+   */
+  const sectionFieldsMatch = path.match(/^\/api\/cms\/sections\/([^/]+)\/editable-fields$/);
+  if (sectionFieldsMatch && method === 'GET') {
+    const sectionId = sectionFieldsMatch[1];
+    try {
+      const scoped = await fetchCmsSectionInScope(env, sectionId, cmsScope);
+      if (!scoped) return jsonResponse({ error: 'Section not found' }, 404);
+      const row = scoped.section;
+      let sectionData = {};
+      try {
+        sectionData =
+          typeof row.section_data === 'string'
+            ? JSON.parse(row.section_data)
+            : row.section_data || {};
+      } catch {
+        sectionData = {};
+      }
+      const {
+        flattenSectionDataForEditor,
+        extractCmsFieldMarkersFromHtml,
+        CMS_SECTION_INJECT_META_KEYS,
+      } = await import('../core/cms-section-fields.js');
+      const typed = flattenSectionDataForEditor(sectionData);
+      const r2Key = String(sectionData.r2_key || '').trim();
+      const htmlSource = String(sectionData.html_source || '').trim();
+      let fragment = [];
+      if (r2Key || htmlSource === 'injected') {
+        const page = await env.DB.prepare(
+          `SELECT r2_bucket FROM cms_pages WHERE id = ? LIMIT 1`,
+        )
+          .bind(row.page_id)
+          .first()
+          .catch(() => null);
+        const bucket = String(sectionData.r2_bucket || page?.r2_bucket || CMS_DEFAULT_R2_BUCKET).trim();
+        const binding = getCmsR2Binding(env, bucket);
+        if (binding && r2Key) {
+          const obj = await binding.get(r2Key).catch(() => null);
+          if (obj) {
+            const html = await obj.text();
+            fragment = extractCmsFieldMarkersFromHtml(html);
+          }
+        }
+      }
+      return jsonResponse({
+        section_id: sectionId,
+        section_name: row.section_name,
+        section_type: row.section_type,
+        html_source: htmlSource || null,
+        r2_key: r2Key || null,
+        fields: [...typed, ...fragment],
+        inject_meta: Object.fromEntries(
+          Object.entries(sectionData).filter(([k]) => CMS_SECTION_INJECT_META_KEYS.has(k)),
+        ),
+      });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  /**
    * PUT /api/cms/sections/:id
    * Update section_data JSON for a page section.
    */
@@ -1281,8 +1379,89 @@ export async function handleCmsApi(request, url, env, ctx) {
       if (!scoped) return jsonResponse({ error: 'Section not found' }, 404);
       const row = scoped.section;
       if (hasSectionData) {
-        const payload =
-          typeof sectionData === 'string' ? sectionData : JSON.stringify(sectionData);
+        const {
+          normalizeSectionDataForWrite,
+          applyEditorFieldValues,
+          applyCmsFieldValuesToHtml,
+        } = await import('../core/cms-section-fields.js');
+        let parsed =
+          typeof sectionData === 'string'
+            ? (() => {
+                try {
+                  return JSON.parse(sectionData);
+                } catch {
+                  return { raw: sectionData };
+                }
+              })()
+            : { ...(sectionData || {}) };
+
+        if (body.field_edits && typeof body.field_edits === 'object') {
+          const typedEdits = {};
+          const fragmentEdits = {};
+          for (const [path, val] of Object.entries(body.field_edits)) {
+            if (String(path).startsWith('fragment.')) {
+              fragmentEdits[String(path).slice('fragment.'.length)] = String(val ?? '');
+            } else {
+              typedEdits[String(path)] = String(val ?? '');
+            }
+          }
+          if (Object.keys(typedEdits).length) {
+            parsed = applyEditorFieldValues(parsed, typedEdits);
+          }
+          const fragKey = String(parsed.r2_key || '').trim();
+          if (Object.keys(fragmentEdits).length && fragKey) {
+            const pageRow = await env.DB.prepare(
+              `SELECT slug, route_path, r2_bucket, project_slug FROM cms_pages WHERE id = ? LIMIT 1`,
+            )
+              .bind(row.page_id)
+              .first()
+              .catch(() => null);
+            const bucket = String(parsed.r2_bucket || pageRow?.r2_bucket || CMS_DEFAULT_R2_BUCKET).trim();
+            const binding = getCmsR2Binding(env, bucket);
+            if (binding) {
+              const obj = await binding.get(fragKey).catch(() => null);
+              if (obj) {
+                const html = await applyCmsFieldValuesToHtml(await obj.text(), fragmentEdits);
+                const hash = await cmsContentSha256(html);
+                const pageSlug =
+                  String(pageRow?.slug || pageRow?.route_path || row.page_id).replace(/^\//, '') ||
+                  'page';
+                const newKey = cmsSectionHtmlKey(
+                  pageSlug,
+                  String(row.section_name || 'section'),
+                  hash,
+                );
+                const encoded = new TextEncoder().encode(html);
+                await binding.put(newKey, encoded, {
+                  httpMetadata: { contentType: 'text/html; charset=utf-8' },
+                });
+                if (bucket !== CMS_DEFAULT_R2_BUCKET) {
+                  const cmsBinding = getCmsR2Binding(env, CMS_DEFAULT_R2_BUCKET);
+                  if (cmsBinding) {
+                    await cmsBinding.put(newKey, encoded, {
+                      httpMetadata: { contentType: 'text/html; charset=utf-8' },
+                    }).catch(() => null);
+                  }
+                }
+                const publicUrl =
+                  (await presignR2GetObjectUrl(env, bucket, newKey)) ||
+                  cmsR2PublicUrlFromRequest(request, bucket, newKey);
+                parsed = {
+                  ...parsed,
+                  r2_key: newKey,
+                  r2_bucket: bucket,
+                  public_url: publicUrl,
+                  html_source: 'injected',
+                  content_sha256: hash,
+                  updated_at: Math.floor(Date.now() / 1000),
+                };
+              }
+            }
+          }
+        }
+
+        parsed = normalizeSectionDataForWrite(parsed);
+        const payload = JSON.stringify(parsed);
         await env.DB.prepare(
           `UPDATE cms_page_sections SET section_data = ?, updated_at = datetime('now') WHERE id = ?`,
         )
