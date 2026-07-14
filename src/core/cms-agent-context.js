@@ -2,10 +2,15 @@
  * CMS context injection for Agent Sam chat spine.
  */
 import { normalizeWorkspaceContextPacket } from './workspace-studio-context.js';
+import {
+  buildAgentSiteContext,
+  formatAgentSiteContextForPrompt,
+  getCmsCodeSpine,
+} from './cms-site-spine.js';
 
 const CMS_PROTOCOL_LINES = [
-  'Loop: agentsam_cms_read → agentsam_cms_save_page_html|save_injected|save_site_shell|cms_write → agentsam_cms_publish|publish_site_shell → agentsam_cms_verify_live',
-  'Always verify live_url after publish — reject Clean canvas / 404 as incomplete.',
+  'Loop: read site spine → D1/R2 (or thin cms helpers) against those keys → publish assemble → verify live_url',
+  'Always verify live_url after publish — reject Clean canvas / synthetic CMS Preview / 404 as incomplete.',
 ].join('\n');
 
 /**
@@ -22,12 +27,36 @@ export function extractCmsAgentContext(body, browserContext) {
   const fromBody = b.cms_context ?? b.cmsContext;
   const ws = normalizeWorkspaceContextPacket(browserContext, body);
 
+  const projectSlug =
+    (fromBody && typeof fromBody === 'object' ? fromBody.project_slug : null) ??
+    ws?.project_slug ??
+    bc.project_slug ??
+    null;
+
+  const fromPacket =
+    (fromBody && typeof fromBody === 'object' && fromBody.agent_site_context) ||
+    ws?.agent_site_context ||
+    bc.agent_site_context ||
+    null;
+
+  const spine =
+    (fromPacket && typeof fromPacket === 'object' ? fromPacket : null) ||
+    buildAgentSiteContext(projectSlug, {
+      api_profile: ws?.api_profile ?? bc.api_profile,
+      cms_hosting: ws?.cms_hosting ?? bc.cms_hosting,
+      r2_bucket: ws?.r2_bucket ?? bc.r2_bucket,
+      public_domain: ws?.public_domain ?? bc.public_domain,
+      d1_database_id: ws?.d1_database_id ?? bc.d1_database_id,
+    }, {
+      page_id: ws?.page_id ?? bc.page_id,
+      r2_key: ws?.r2_key ?? bc.r2_key,
+      route_path: ws?.route_path ?? bc.route_path,
+    });
+
+  const codeSpine = getCmsCodeSpine(projectSlug);
+
   const merged = {
-    project_slug:
-      (fromBody && typeof fromBody === 'object' ? fromBody.project_slug : null) ??
-      ws?.project_slug ??
-      bc.project_slug ??
-      null,
+    project_slug: projectSlug,
     page_id:
       (fromBody && typeof fromBody === 'object' ? fromBody.page_id : null) ??
       ws?.page_id ??
@@ -42,14 +71,15 @@ export function extractCmsAgentContext(body, browserContext) {
     collab_room: ws?.collab_room ?? bc.collab_room ?? null,
     bootstrap_cache_key: ws?.bootstrap_cache_key ?? bc.bootstrap_cache_key ?? null,
     preview_url: ws?.preview_url ?? bc.preview_url ?? null,
-    public_domain: ws?.public_domain ?? bc.public_domain ?? null,
-    cms_hosting: ws?.cms_hosting ?? bc.cms_hosting ?? null,
-    api_profile: ws?.api_profile ?? bc.api_profile ?? null,
+    public_domain: ws?.public_domain ?? bc.public_domain ?? spine?.public_domain ?? null,
+    cms_hosting: ws?.cms_hosting ?? bc.cms_hosting ?? spine?.cms_mode ?? null,
+    api_profile: ws?.api_profile ?? bc.api_profile ?? spine?.api_profile ?? null,
     picked_element: ws?.picked_element ?? bc.picked_element ?? bc.selected_element ?? null,
-    r2_bucket: ws?.r2_bucket ?? bc.r2_bucket ?? null,
+    r2_bucket: ws?.r2_bucket ?? bc.r2_bucket ?? spine?.r2_bucket ?? null,
     r2_key: ws?.r2_key ?? bc.r2_key ?? null,
+    agent_site_context: spine,
     do_binding: 'IAM_COLLAB',
-    kv_binding: 'SESSION_CACHE',
+    kv_binding: spine?.kv_binding || codeSpine?.kv_binding || 'SESSION_CACHE',
   };
 
   const hasSignal =
@@ -80,6 +110,14 @@ export function formatCmsContextForAgent(cms) {
         : 'api_profile=primetch (or default): PrimeTech read → save → publish → verify.',
     'Instruction SSOT is D1 skills/rules/routes — do not invent system prompts from R2 markdown.',
   ].join(' ');
+  const spineBlock = formatAgentSiteContextForPrompt(
+    cms.agent_site_context && typeof cms.agent_site_context === 'object'
+      ? cms.agent_site_context
+      : buildAgentSiteContext(cms.project_slug, cms, {
+          page_id: cms.page_id,
+          r2_key: cms.r2_key,
+        }),
+  );
   const lines = [
     '[CMS editor context — follow site lock. Do not invent page ids.]',
     siteLock,
@@ -92,12 +130,12 @@ export function formatCmsContextForAgent(cms) {
     `section_type: ${cms.section_type || '(none)'}`,
     `live_session_id: ${cms.live_session_id || '(none)'}`,
     `collab_room (IAM_COLLAB): ${cms.collab_room || '(none)'}`,
-    `bootstrap_cache_key (SESSION_CACHE): ${cms.bootstrap_cache_key || '(none)'}`,
+    `bootstrap_cache_key: ${cms.bootstrap_cache_key || '(none)'}`,
     `preview_url: ${cms.preview_url || '(none)'}`,
     `public_domain: ${cms.public_domain || '(none)'}`,
     `cms_hosting: ${cms.cms_hosting || '(none)'}`,
     `r2_bucket: ${cms.r2_bucket || '(none)'}`,
     `r2_key: ${cms.r2_key || '(none)'}`,
   ].filter(Boolean);
-  return `## CMS context\n${lines.join('\n')}`;
+  return `## CMS context\n${lines.join('\n')}${spineBlock ? `\n\n${spineBlock}` : ''}`;
 }

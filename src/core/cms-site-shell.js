@@ -1,8 +1,10 @@
 /**
  * Project-level marketing chrome (iam-header / iam-footer) stored in R2 ASSETS.
  * Draft keys live beside published keys — no hardcoded routes in presets.
+ * Nav link lists are patched at inject time (iam-site-nav) — CPAS-shaped dynamics.
  */
 import { getCmsR2Binding } from './cms-r2-binding.js';
+import { loadIamNavVisibility, patchIamHeaderNavHtml } from './iam-site-nav.js';
 
 /** @typedef {{ id: string, label: string, published_key: string, slot: 'prepend' | 'append' }} SiteShellPartDef */
 
@@ -201,10 +203,14 @@ export async function loadSiteShellInjectionHtml(env, opts = {}) {
     return obj ? await obj.text() : '';
   }
 
-  const [headerHtml, footerHtml] = await Promise.all([
+  const [rawHeader, footerHtml, visibilityMap] = await Promise.all([
     loadPart(headerDef),
     loadPart(footerDef),
+    loadIamNavVisibility(env),
   ]);
 
-  return { headerHtml, footerHtml };
+  // Prefer R2 chrome template + dynamic nav; empty R2 yields empty inject (page must self-contain).
+  const headerHtml = patchIamHeaderNavHtml(rawHeader, visibilityMap);
+
+  return { headerHtml, footerHtml, nav_dynamic: true };
 }

@@ -36,6 +36,7 @@ import { buildCmsPageUrls } from './cms-preview-route.js';
 import { CMS_DEFAULT_R2_BUCKET, getCmsR2Binding } from './cms-r2-binding.js';
 import { isFullHtmlDocument } from './cms-injected-sections.js';
 import { resolveIamPageHtmlKeys } from './iam-storefront-assets.js';
+import { assembleAndPutIamPilotPage, isIamAssemblePilotRoute } from './iam-cms-assemble.js';
 import { emitInnerAnimalProEvent } from './inneranimalpro-stream.js';
 
 /** Copy draft R2 → published, update D1, bust caches. */
@@ -148,7 +149,10 @@ export async function executeCmsPagePublish(
     draftHtml = new TextDecoder().decode(draftBuffer);
   }
 
-  if (!draftObj && !storefrontHydrate) {
+  const routePathEarly = String(page.route_path || `/${page.slug || ''}`).trim();
+  const pilotAssembleEarly = isIamAssemblePilotRoute(routePathEarly);
+
+  if (!draftObj && !storefrontHydrate && !pilotAssembleEarly) {
     await releaseCmsPublishLock(env, workspaceId, projectSlug, userId);
     return { ok: false, error: 'No draft found to publish' };
   }
@@ -205,14 +209,37 @@ export async function executeCmsPagePublish(
     );
   }
 
+  const routePath = routePathEarly;
+  const pilotAssemble = pilotAssembleEarly;
+  let assembleResult: Record<string, unknown> | null = null;
+
+  if (pilotAssemble) {
+    assembleResult = (await assembleAndPutIamPilotPage(env, {
+      page: { ...page, id: pageId },
+      r2Binding,
+      preferDraft: false,
+    })) as Record<string, unknown>;
+    if (!assembleResult?.ok) {
+      await releaseCmsPublishLock(env, workspaceId, projectSlug, userId);
+      return {
+        ok: false,
+        error: String(assembleResult?.error || 'assemble_failed'),
+        assemble: assembleResult,
+      };
+    }
+  }
+
   const shouldCopyDraftR2 =
+    !pilotAssemble &&
     draftBuffer != null &&
     draftHtml != null &&
     (!storefrontHydrate || isFullHtmlDocument(draftHtml));
 
   // Hoist contentByteLength so it's accessible in the return statement regardless of branch.
   let contentByteLength = 0;
-  if (shouldCopyDraftR2 && draftBuffer != null) {
+  if (pilotAssemble && assembleResult) {
+    contentByteLength = Number(assembleResult.bytes) || 0;
+  } else if (shouldCopyDraftR2 && draftBuffer != null) {
     contentByteLength = draftBuffer.byteLength;
     await r2Binding.put(publishedKey, draftBuffer, {
       httpMetadata: { contentType: page.content_type || 'text/html' },
@@ -292,7 +319,7 @@ export async function executeCmsPagePublish(
   return {
     ok: true,
     status: 'published',
-    phase: 'published_live',
+    phase: pilotAssemble ? 'assembled_live' : 'published_live',
     page_id: pageId,
     r2_key: publishedKey,
     r2_bucket: String(r2Bucket),
@@ -302,5 +329,6 @@ export async function executeCmsPagePublish(
     preview_urls: previewUrls,
     live_url: previewUrls.live_url,
     agent_applied: agentApplied,
+    assemble: assembleResult,
   };
 }

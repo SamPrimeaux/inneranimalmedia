@@ -411,7 +411,18 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     systemPrompt = 'You are Agent Sam. Be direct and helpful.';
   }
 
-  // systemPrompt is now the flat static prompt from buildSystemPrompt — no appends.
+  // CMS Working On → site spine (buckets/keys/conventions). Not ambient IDE dump.
+  try {
+    const { extractCmsAgentContext, formatCmsContextForAgent } = await import('../cms-agent-context.js');
+    const cmsCtx = extractCmsAgentContext(body, browserContextPayload);
+    if (cmsCtx) {
+      const cmsBlock = formatCmsContextForAgent(cmsCtx);
+      if (cmsBlock) systemPrompt = `${systemPrompt}\n\n${cmsBlock}`;
+    }
+  } catch (e) {
+    console.warn('[agent-controller] cms site spine skipped', e?.message ?? e);
+  }
+
   const capabilityDecision = null;
 
   const chatAgentRunId =

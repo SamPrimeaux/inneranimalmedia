@@ -1316,8 +1316,18 @@ const App: React.FC = () => {
       cms_hosting: cmsWorkspaceContext?.cms_hosting || null,
       api_profile: cmsWorkspaceContext?.api_profile || null,
       capabilities: slug ? ['cms'] : null,
-      r2_bucket: null,
+      r2_bucket:
+        (cmsWorkspaceContext as { r2_bucket?: string | null } | null)?.r2_bucket ||
+        (cmsWorkspaceContext as { agent_site_context?: { r2_bucket?: string } } | null)
+          ?.agent_site_context?.r2_bucket ||
+        null,
       r2_key: null,
+      agent_site_context:
+        (cmsWorkspaceContext as { agent_site_context?: Record<string, unknown> } | null)
+          ?.agent_site_context || null,
+      d1_database_id:
+        (cmsWorkspaceContext as { d1_database_id?: string | null } | null)?.d1_database_id ||
+        null,
     };
   }, [
     cmsWorkspaceContext,

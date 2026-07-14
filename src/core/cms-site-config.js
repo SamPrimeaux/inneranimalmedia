@@ -12,6 +12,7 @@ import {
 import { resolvePlatformCmsStudioUrl } from './cms-studio-lane.js';
 import { resolveCmsSitePublicDomain } from './cms-public-domain.js';
 import { resolveClientAppByProjectSlug, deriveCmsApiProfile } from './cms-client-app-resolve.js';
+import { buildAgentSiteContext } from './cms-site-spine.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -176,7 +177,7 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
     (Array.isArray(clientApp?.d1_databases) && clientApp.d1_databases[0]) ||
     null;
 
-  return {
+  const baseConfig = {
     workspace_id: ws,
     runtime_workspace_id: isOperatorHubPick ? clientRuntimeWs || effectiveWs : effectiveWs,
     client_runtime_workspace_id: clientRuntimeWs,
@@ -208,5 +209,16 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
     logo_url: trim(clientApp?.logo_url) || null,
     kv_namespace: trim(isOperatorHubPick ? clientMeta.kv_namespace : meta.kv_namespace) || null,
     inventory_source: clientApp ? 'client_apps' : 'agentsam_workspace',
+  };
+
+  const agent_site_context = buildAgentSiteContext(
+    baseConfig.app_key || slug,
+    baseConfig,
+    null,
+  );
+
+  return {
+    ...baseConfig,
+    agent_site_context,
   };
 }

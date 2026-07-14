@@ -328,7 +328,9 @@ export async function handleCmsApi(request, url, env, ctx) {
         website_r2: siteConfig.website_r2 || app.website_r2,
         catalog_r2: siteConfig.catalog_r2 || app.catalog_r2,
         r2_bucket: siteConfig.r2_bucket || app.website_r2?.bucket_name || null,
+        d1_database_id: siteConfig.d1_database_id || null,
         inventory_source: siteConfig.inventory_source || 'client_apps',
+        agent_site_context: siteConfig.agent_site_context || null,
         workspace_id: workspaceId,
         project_slug: projectSlug,
       });

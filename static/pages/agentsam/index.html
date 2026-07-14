@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agent Sam — Inner Animal Media</title>
+<meta name="description" content="Agent Sam is Inner Animal Media's cloud-native operator agent — tools, memory, and site workflows with your stack.">
+<style>
+  :root { --ink:#f8fbff; --muted:#9daac2; --bg:#050713; --line:rgba(255,255,255,.12); --blue:#2f7bff; --cyan:#67e8ff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Nunito, Inter, system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+  main { padding-top: 76px; }
+  .iam-cms-section { padding: clamp(64px, 8vw, 120px) clamp(20px, 6vw, 92px); border-bottom: 1px solid var(--line); }
+  .iam-cms-section-inner { max-width: 1100px; margin: 0 auto; }
+  .eyebrow { text-transform: uppercase; letter-spacing: .16em; color: var(--cyan); font-size: 12px; font-weight: 800; }
+  h1 { font-size: clamp(42px, 7vw, 88px); letter-spacing: -0.06em; line-height: 0.95; margin: 12px 0 18px; }
+  h2 { font-size: clamp(28px, 4vw, 48px); letter-spacing: -0.04em; margin: 0 0 14px; }
+  p { color: var(--muted); font-size: clamp(16px, 1.6vw, 20px); line-height: 1.55; max-width: 720px; }
+  .cta { display: inline-flex; margin-top: 22px; padding: 12px 18px; border-radius: 999px; background: rgba(47,123,255,.2); border: 1px solid rgba(47,123,255,.45); color: #fff; text-decoration: none; font-weight: 700; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 28px; }
+  .card { border: 1px solid var(--line); border-radius: 22px; padding: 22px; background: rgba(255,255,255,.05); }
+  .card h3 { margin: 0 0 8px; font-size: 1.15rem; }
+  .card p { margin: 0; font-size: 15px; }
+</style>
+</head>
+<body data-footer-theme="dark" data-route="/agentsam">
+<main class="iam-public-page" data-route="/agentsam">
+
+<section class="iam-cms-section" data-section-key="hero" data-cms-section="hero" data-section-type="hero">
+  <div class="iam-cms-section-inner">
+    <div class="eyebrow">Inner Animal Media / Agent Sam</div>
+    <h1>Operator agent for real cloud work</h1>
+    <p>Agent Sam reads your workspace, edits D1 and R2 against the right site spine, and ships through the same dashboard publish loop your CMS uses.</p>
+    <a class="cta" href="/contact">Talk to us about Agent Sam</a>
+  </div>
+</section>
+
+<section class="iam-cms-section" data-section-key="capabilities" data-cms-section="capabilities" data-section-type="feature_cards">
+  <div class="iam-cms-section-inner">
+    <h2>Built for production surfaces</h2>
+    <p>Not a toy chat window — scoped tools, site context, and publish contracts that match live Workers.</p>
+    <div class="grid">
+      <article class="card">
+        <h3>Site spine aware</h3>
+        <p>Knows which R2 bucket, D1, and key conventions apply when you switch Working On.</p>
+      </article>
+      <article class="card">
+        <h3>CMS + code</h3>
+        <p>Section stacks, shell/nav, and worker routes stay aligned so dashboard edits reach the public URL.</p>
+      </article>
+      <article class="card">
+        <h3>Cloud native</h3>
+        <p>Workers, D1, R2, KV, and browser verify — the same lane your storefront already runs on.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="iam-cms-section" data-section-key="cta" data-cms-section="cta" data-section-type="cta_banner">
+  <div class="iam-cms-section-inner">
+    <h2>Ready when you are</h2>
+    <p>Use Theme Studio to edit these sections, then Publish — assemble writes the storefront artifact Agent Sam and humans both verify live.</p>
+    <a class="cta" href="/dashboard/cms?site=inneranimalmedia">Open CMS</a>
+  </div>
+</section>
+
+</main>
+</body>
+</html>

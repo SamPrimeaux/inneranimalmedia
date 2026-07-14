@@ -86,6 +86,9 @@ export type AgentWorkspaceContextPacket = {
   capabilities?: string[] | null;
   r2_bucket?: string | null;
   r2_key?: string | null;
+  /** Code-proven CMS spine for Working On app (buckets/keys/conventions). */
+  agent_site_context?: Record<string, unknown> | null;
+  d1_database_id?: string | null;
   /** Active IAM workspace id — session anchor (Cursor-style opened workspace). */
   workspace_id?: string | null;
   /** Primary source lane: github | r2 | local | mixed | general */

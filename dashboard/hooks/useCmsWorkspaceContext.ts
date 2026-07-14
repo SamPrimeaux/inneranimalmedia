@@ -33,6 +33,9 @@ export type CmsWorkspaceContext = {
   bridge_supported?: boolean;
   worker_base_url?: string | null;
   public_domain?: string | null;
+  r2_bucket?: string | null;
+  d1_database_id?: string | null;
+  agent_site_context?: Record<string, unknown> | null;
   is_operator_hub?: boolean;
   error?: string | null;
 };
