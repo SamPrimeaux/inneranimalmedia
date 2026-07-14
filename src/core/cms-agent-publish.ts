@@ -215,9 +215,9 @@ export async function executeCmsPagePublish(
 
   if (pilotAssemble) {
     assembleResult = (await assembleAndPutIamPilotPage(env, {
-      page: { ...page, id: pageId },
+      page: { ...page, id: pageId, route_path: routePath, slug: page.slug },
       r2Binding,
-      preferDraft: false,
+      draftOnly: false,
     })) as Record<string, unknown>;
     if (!assembleResult?.ok) {
       await releaseCmsPublishLock(env, workspaceId, projectSlug, userId);

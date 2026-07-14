@@ -1,6 +1,6 @@
 /**
- * IAM pilot assemble pipeline (CPAS-shaped): D1 sections → page HTML → R2.
- * Pilot routes only until more pages are extracted.
+ * IAM assemble pipeline (CPAS-shaped): D1 sections → page HTML → R2 draft + published.
+ * Pilot: /agentsam multi-section landing with page CSS/JS + story rail wrap.
  */
 
 import { normalizeCmsRoutePath } from './cms-page-hydrate-dispatch.js';
@@ -16,6 +16,8 @@ const PILOT_ROUTES = new Set(
     normalizeCmsRoutePath(r),
   ),
 );
+
+const STORY_SECTION_KEYS = new Set(['secure', 'scale', 'state', 'observe']);
 
 function esc(v) {
   return String(v ?? '')
@@ -75,10 +77,16 @@ export function renderIamPilotSectionHtml(section) {
   const key = slugSeg(section.section_name || section.section_key || section.id, 'section');
   const type = String(section.section_type || 'html_block').trim() || 'html_block';
   const data = parseSectionData(section.section_data);
-  const htmlFromData = String(data.html || data.body_html || data.content_html || '').trim();
+  const role = String(data.role || '').trim();
+  if (role === 'page_css' || type === 'page_css' || key === 'page_styles') return '';
+  if (role === 'page_js' || type === 'page_js' || key === 'page_scripts') return '';
+  if (role === 'story_chrome' || type === 'story_chrome') return '';
 
+  const htmlFromData = String(data.html || data.body_html || data.content_html || '').trim();
   if (htmlFromData) {
-    if (/^<section[\s>]/i.test(htmlFromData)) return htmlFromData;
+    if (/^<section[\s>]/i.test(htmlFromData) || /^<aside[\s>]/i.test(htmlFromData)) {
+      return htmlFromData;
+    }
     return `<section data-section-key="${esc(key)}" data-cms-section="${esc(key)}" data-section-type="${esc(type)}">${htmlFromData}</section>`;
   }
 
@@ -94,15 +102,56 @@ export function renderIamPilotSectionHtml(section) {
 
 /**
  * @param {Record<string, unknown>} page
- * @param {string[]} sectionHtmls
+ * @param {Array<Record<string, unknown>>} sections
+ * @param {{ pageCss?: string, pageJs?: string, storyChrome?: string }} extras
  */
-export function assembleIamPilotPageHtml(page, sectionHtmls) {
+export function assembleIamPilotPageHtml(page, sections, extras = {}) {
   const title = esc(page.seo_title || page.title || 'Inner Animal Media');
   const description = esc(
     page.meta_description || `${page.title || 'Page'} — Inner Animal Media`,
   );
   const route = esc(normalizeCmsRoutePath(page.route_path || `/${page.slug || ''}`));
-  const body = (sectionHtmls || []).join('\n');
+  const pageCss = String(extras.pageCss || '').trim();
+  const pageJs = String(extras.pageJs || '').trim();
+  const storyChrome = String(extras.storyChrome || '').trim();
+
+  const visible = (sections || []).filter((s) => {
+    const key = slugSeg(s.section_name || s.id, 'section');
+    const data = parseSectionData(s.section_data);
+    const role = String(data.role || '').trim();
+    if (role === 'page_css' || role === 'page_js' || role === 'story_chrome') return false;
+    if (key === 'page_styles' || key === 'page_scripts' || key === 'story_chrome') return false;
+    return s.is_visible === 1 || s.is_visible === true || s.is_visible == null;
+  });
+
+  const before = [];
+  const story = [];
+  const after = [];
+  for (const section of visible) {
+    const key = slugSeg(section.section_name || section.id, 'section');
+    const html = renderIamPilotSectionHtml(section);
+    if (!html) continue;
+    if (STORY_SECTION_KEYS.has(key)) story.push(html);
+    else if (story.length === 0 && key !== 'cta') before.push(html);
+    else after.push(html);
+  }
+
+  let body = before.join('\n');
+  if (story.length || storyChrome) {
+    body += `\n<div class="story">\n${storyChrome}\n${story.join('\n')}\n</div>\n`;
+  }
+  body += after.join('\n');
+
+  const styleBlock = pageCss
+    ? `<style id="agentsam-page-css">\n${pageCss}\n</style>`
+    : `<style>
+  :root { --ink:#f8fbff; --muted:#9daac2; --bg:#050713; --line:rgba(255,255,255,.12); --blue:#2f7bff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+  main.agentsam-landing { padding-top: 76px; }
+</style>`;
+
+  const scriptBlock = pageJs ? `<script>\n${pageJs}\n</script>` : '';
 
   return `<!doctype html>
 <html lang="en">
@@ -111,32 +160,22 @@ export function assembleIamPilotPageHtml(page, sectionHtmls) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
 <meta name="description" content="${description}">
-<style>
-  :root { --ink:#f8fbff; --muted:#9daac2; --bg:#050713; --line:rgba(255,255,255,.12); --blue:#2f7bff; }
-  * { box-sizing: border-box; }
-  body { margin: 0; font-family: Nunito, Inter, system-ui, sans-serif; background: var(--bg); color: var(--ink); }
-  main { padding-top: 76px; }
-  .iam-cms-section { padding: clamp(64px, 8vw, 120px) clamp(20px, 6vw, 92px); border-bottom: 1px solid var(--line); }
-  .iam-cms-section-inner { max-width: 1100px; margin: 0 auto; }
-  .iam-cms-section h1 { font-size: clamp(42px, 7vw, 88px); letter-spacing: -0.06em; line-height: 0.95; margin: 0 0 18px; }
-  .iam-cms-section h2 { font-size: clamp(28px, 4vw, 48px); letter-spacing: -0.04em; margin: 0 0 14px; }
-  .iam-cms-section p { color: var(--muted); font-size: clamp(16px, 1.6vw, 20px); line-height: 1.55; max-width: 720px; }
-  .iam-cms-section .cta { display: inline-flex; margin-top: 22px; padding: 12px 18px; border-radius: 999px; background: rgba(47,123,255,.2); border: 1px solid rgba(47,123,255,.45); color: #fff; text-decoration: none; font-weight: 700; }
-</style>
+${styleBlock}
 </head>
 <body data-footer-theme="dark" data-route="${route}">
-<main class="iam-public-page" data-route="${route}">
+<main id="top" class="iam-public-page agentsam-landing" data-route="${route}">
 ${body || '<!-- no visible sections -->'}
 </main>
+${scriptBlock}
 </body>
 </html>
 `;
 }
 
 /**
- * Load sections and assemble pilot storefront HTML into R2.
+ * Load sections and assemble pilot storefront HTML into R2 (draft + published).
  * @param {any} env
- * @param {{ page: Record<string, unknown>, r2Binding: any, preferDraft?: boolean }} opts
+ * @param {{ page: Record<string, unknown>, r2Binding: any, preferDraft?: boolean, publish?: boolean }} opts
  */
 export async function assembleAndPutIamPilotPage(env, opts) {
   const page = opts?.page || {};
@@ -159,16 +198,32 @@ export async function assembleAndPutIamPilotPage(env, opts) {
     .all()
     .catch(() => ({ results: [] }));
 
-  const visible = (sections || []).filter(
-    (s) => s.is_visible === 1 || s.is_visible === true || s.is_visible == null,
-  );
-  const sectionHtmls = [];
-  const fragKeys = [];
-
-  for (const section of visible.length ? visible : sections || []) {
+  let pageCss = '';
+  let pageJs = '';
+  let storyChrome = '';
+  for (const section of sections || []) {
+    const data = parseSectionData(section.section_data);
+    const role = String(data.role || '').trim();
     const key = slugSeg(section.section_name || section.id, 'section');
-    const html = renderIamPilotSectionHtml(section);
-    sectionHtmls.push(html);
+    if (role === 'page_css' || key === 'page_styles' || section.section_type === 'page_css') {
+      pageCss = String(data.css || data.html || '').trim();
+    }
+    if (role === 'page_js' || key === 'page_scripts' || section.section_type === 'page_js') {
+      pageJs = String(data.js || data.html || '').trim();
+    }
+    if (role === 'story_chrome' || key === 'story_chrome' || section.section_type === 'story_chrome') {
+      storyChrome = String(data.html || '').trim();
+    }
+  }
+
+  const fragKeys = [];
+  for (const section of sections || []) {
+    const key = slugSeg(section.section_name || section.id, 'section');
+    const data = parseSectionData(section.section_data);
+    const role = String(data.role || '').trim();
+    if (role === 'page_css' || role === 'page_js') continue;
+    const html = role === 'story_chrome' ? String(data.html || '') : renderIamPilotSectionHtml(section);
+    if (!html) continue;
     const fragKey = iamSectionFragmentKey(page, key);
     fragKeys.push(fragKey);
     await opts.r2Binding.put(fragKey, html, {
@@ -176,16 +231,30 @@ export async function assembleAndPutIamPilotPage(env, opts) {
     });
   }
 
-  const fullHtml = assembleIamPilotPageHtml(page, sectionHtmls);
+  if (pageCss) {
+    const cssKey = `pages/${slugSeg(page.slug || 'agentsam')}/page.css`;
+    await opts.r2Binding.put(cssKey, pageCss, {
+      httpMetadata: { contentType: 'text/css; charset=utf-8' },
+    });
+  }
+
+  const fullHtml = assembleIamPilotPageHtml(page, sections || [], {
+    pageCss,
+    pageJs,
+    storyChrome,
+  });
   const asset = resolveIamStorefrontAssetForPage(page);
   const publishedKey = asset?.r2_key || `pages/${slugSeg(page.slug || route)}/index.html`;
   const draftKey = storefrontAssetDraftKey(publishedKey);
 
-  await opts.r2Binding.put(publishedKey, fullHtml, {
+  // Always keep draft in sync so Theme Studio ?preview=draft&cms=1 can canvas-preview.
+  await opts.r2Binding.put(draftKey, fullHtml, {
     httpMetadata: { contentType: 'text/html; charset=utf-8' },
   });
-  if (opts.preferDraft) {
-    await opts.r2Binding.put(draftKey, fullHtml, {
+
+  const draftOnly = opts.draftOnly === true;
+  if (!draftOnly) {
+    await opts.r2Binding.put(publishedKey, fullHtml, {
       httpMetadata: { contentType: 'text/html; charset=utf-8' },
     });
   }
@@ -196,8 +265,9 @@ export async function assembleAndPutIamPilotPage(env, opts) {
     published_key: publishedKey,
     draft_key: draftKey,
     bucket: IAM_STOREFRONT_BUCKET,
-    section_count: sectionHtmls.length,
+    section_count: (sections || []).length,
     fragment_keys: fragKeys,
     bytes: fullHtml.length,
+    draft_only: draftOnly,
   };
 }

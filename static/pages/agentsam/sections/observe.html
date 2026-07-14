@@ -1,0 +1,38 @@
+<section class="section" id="observe" data-section-key="observe" data-cms-section="observe" data-section="observe" aria-labelledby="observe-title">
+          <div class="section-copy">
+            <h2 id="observe-title">Observe every agent run before it ships</h2>
+            <p class="section-lead">AgentSam needs more than a terminal. It needs traces, approvals, cost controls, logs, artifacts, and a clear path from experiment to production.</p>
+            <div class="feature-list">
+              <article class="feature">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" aria-hidden="true"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+                <div><h3>Trace the decision path</h3><p>See which model, tool, repo, file, command, and sandbox produced each result.</p></div>
+              </article>
+              <article class="feature">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" aria-hidden="true"><path d="M12 3v18"/><path d="M5 8h14"/><path d="M7 16h10"/><path d="M8 8l-3 8"/><path d="M16 8l3 8"/></svg>
+                <div><h3>Human approval gates</h3><p>Let agents build aggressively, then require review before deploys, credential use, data writes, or billing-impacting actions.</p></div>
+              </article>
+            </div>
+          </div>
+
+          <div class="mock-wrap">
+            <article class="mock-card observe-card" aria-label="Agent run observability mockup">
+              <div class="mock-top">
+                <div class="mock-title">Control Plane / agent-run-9074</div>
+                <div class="mock-actions"><span class="chip ready">approved</span><span class="chip">cost: $0.31</span></div>
+              </div>
+              <div class="mock-body">
+                <div class="agent-grid">
+                  <div class="agent-card"><b>Planner</b><p>Reads the issue, creates a safe task graph, and asks for sandboxed execution.</p><div class="mini-progress"><span></span></div></div>
+                  <div class="agent-card"><b>Builder</b><p>Runs code, installs packages, executes tests, and returns only promoted artifacts.</p><div class="connector-row"><span>GitHub</span><span>D1</span><span>R2</span></div></div>
+                  <div class="agent-card"><b>Browser</b><p>Opens tunnel previews, captures screenshots, and reports UI regressions.</p><div class="connector-row"><span>Preview</span><span>Screenshot</span></div></div>
+                  <div class="agent-card"><b>Reviewer</b><p>Summarizes diffs, commands, logs, failures, risk, and what changed.</p><div class="connector-row"><span>Diff</span><span>Logs</span><span>Approval</span></div></div>
+                </div>
+                <div>
+                  <div class="trace-row"><span class="name">spawn</span><span class="desc">sandbox-8530bec8 from repo image</span><span class="latency">184ms</span></div>
+                  <div class="trace-row"><span class="name">execute</span><span class="desc">npm test, wrangler dry-run, static preview</span><span class="latency">31.4s</span></div>
+                  <div class="trace-row"><span class="name">promote</span><span class="desc">artifact bundle + review summary ready</span><span class="latency">2.1s</span></div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>

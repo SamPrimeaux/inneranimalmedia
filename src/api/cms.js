@@ -1326,7 +1326,8 @@ export async function handleCmsApi(request, url, env, ctx) {
         .first();
 
       const page = await env.DB.prepare(
-        `SELECT id, project_slug, project_id, slug, r2_bucket, content_type FROM cms_pages WHERE id = ? LIMIT 1`,
+        `SELECT id, project_slug, project_id, slug, route_path, r2_bucket, content_type, title, seo_title, meta_description
+           FROM cms_pages WHERE id = ? LIMIT 1`,
       )
         .bind(row.page_id)
         .first()
@@ -1373,12 +1374,30 @@ export async function handleCmsApi(request, url, env, ctx) {
         }),
       );
       if (page) {
-        await writeCmsDraftHtmlToR2(env, {
-          workspaceId,
-          page,
-          userId: authUser.id,
-          draftData: draftPayload,
-        });
+        const { isIamAssemblePilotRoute, assembleAndPutIamPilotPage } = await import(
+          '../core/iam-cms-assemble.js'
+        );
+        const pageRoute = String(page.route_path || `/${page.slug || ''}`).trim();
+        if (isIamAssemblePilotRoute(pageRoute)) {
+          const { resolveIamPageHtmlKeys } = await import('../core/iam-storefront-assets.js');
+          const { cmsPageHtmlKey } = await import('../core/cms-edit-safety.js');
+          const layout = resolveIamPageHtmlKeys(page, workspaceId, cmsPageHtmlKey);
+          const binding = getCmsR2Binding(env, layout.bucket || page.r2_bucket || CMS_DEFAULT_R2_BUCKET);
+          if (binding) {
+            await assembleAndPutIamPilotPage(env, {
+              page: { ...page, route_path: pageRoute },
+              r2Binding: binding,
+              draftOnly: true,
+            });
+          }
+        } else {
+          await writeCmsDraftHtmlToR2(env, {
+            workspaceId,
+            page,
+            userId: authUser.id,
+            draftData: draftPayload,
+          });
+        }
       }
       ctx.waitUntil(
         logCmsActivity(env, {

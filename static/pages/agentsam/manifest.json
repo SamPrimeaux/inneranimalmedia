@@ -1,0 +1,51 @@
+{
+  "page_id": "5de91aa0-10cc-45e5-9607-199d5c2f8467",
+  "css_bytes": 24468,
+  "sections": [
+    {
+      "id": "sec_agentsam_hero",
+      "name": "hero",
+      "type": "hero",
+      "sort": 10,
+      "file": "sections/hero.html"
+    },
+    {
+      "id": "sec_agentsam_secure",
+      "name": "secure",
+      "type": "feature_split",
+      "sort": 20,
+      "file": "sections/secure.html"
+    },
+    {
+      "id": "sec_agentsam_scale",
+      "name": "scale",
+      "type": "feature_split",
+      "sort": 30,
+      "file": "sections/scale.html"
+    },
+    {
+      "id": "sec_agentsam_state",
+      "name": "state",
+      "type": "feature_split",
+      "sort": 40,
+      "file": "sections/state.html"
+    },
+    {
+      "id": "sec_agentsam_observe",
+      "name": "observe",
+      "type": "feature_split",
+      "sort": 50,
+      "file": "sections/observe.html"
+    },
+    {
+      "id": "sec_agentsam_cta",
+      "name": "cta",
+      "type": "cta_banner",
+      "sort": 60,
+      "file": "sections/cta.html"
+    }
+  ],
+  "rail": "progress-rail.html",
+  "css": "page.css",
+  "js": "page.js"
+}

@@ -1,0 +1,48 @@
+<section class="section" id="secure" data-section-key="secure" data-cms-section="secure" data-section="secure" aria-labelledby="secure-title">
+          <div class="section-copy">
+            <h2 id="secure-title">Run untrusted code safely</h2>
+            <p class="section-lead">AgentSam can explore packages, run commands, inspect files, and execute generated code without touching your core app infrastructure.</p>
+            <div class="feature-list">
+              <article class="feature">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" aria-hidden="true"><path d="M12 3 20 6v6c0 5-3.4 7.7-8 9-4.6-1.3-8-4-8-9V6l8-3Z"/><path d="m9 12 2 2 4-5"/></svg>
+                <div><h3>MicroVM isolation</h3><p>Every risky action runs in a dedicated cloud sandbox instead of your live dashboard, repo, or customer system.</p></div>
+              </article>
+              <article class="feature">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14v2"/></svg>
+                <div><h3>Auth proxy for credentials</h3><p>Secrets stay behind policy. Agents receive scoped access to only the services, files, and routes that task requires.</p></div>
+              </article>
+              <article class="feature">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" aria-hidden="true"><path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/><path d="M4 6c2 0 3 6 8 6s6-6 8-6"/><path d="M7 12c1.4 0 2.2 6 5 6s3.6-6 5-6"/></svg>
+                <div><h3>Clean blast-radius boundaries</h3><p>Sandbox file systems, environment variables, package installs, and generated assets are disposable unless promoted.</p></div>
+              </article>
+            </div>
+          </div>
+
+          <div class="mock-wrap">
+            <article class="mock-card wide" aria-label="Sandbox fleet mockup">
+              <div class="mock-top">
+                <div class="mock-title">AgentSam / Sandboxes</div>
+                <div class="mock-actions">
+                  <span class="chip ready">policy: locked</span>
+                  <span class="chip">root isolated</span>
+                </div>
+              </div>
+              <div class="mock-body">
+                <div class="usage">
+                  <span>Resource usage</span>
+                  <div class="bar" aria-hidden="true"><span></span></div>
+                  <span>CPU</span>
+                </div>
+                <table aria-label="Running sandboxes">
+                  <thead><tr><th>Sandbox</th><th>Started</th><th>Status</th></tr></thead>
+                  <tbody>
+                    <tr><td><span class="mini-dot"></span>sandbox-4f7eb1</td><td>runs agent-5</td><td class="running">running</td></tr>
+                    <tr><td><span class="mini-dot"></span>sandbox-b72da4</td><td>runs agent-8</td><td class="running">running</td></tr>
+                    <tr><td><span class="mini-dot"></span>sandbox-193af0</td><td>runs agent-2</td><td class="running">running</td></tr>
+                    <tr><td><span class="mini-dot off"></span>sandbox-567cbb</td><td>—</td><td class="pending">start soon</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </section>

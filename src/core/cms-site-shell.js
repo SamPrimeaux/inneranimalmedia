@@ -4,7 +4,11 @@
  * Nav link lists are patched at inject time (iam-site-nav) — CPAS-shaped dynamics.
  */
 import { getCmsR2Binding } from './cms-r2-binding.js';
-import { loadIamNavVisibility, patchIamHeaderNavHtml } from './iam-site-nav.js';
+import {
+  loadIamNavVisibility,
+  patchIamFooterNavHtml,
+  patchIamHeaderNavHtml,
+} from './iam-site-nav.js';
 
 /** @typedef {{ id: string, label: string, published_key: string, slot: 'prepend' | 'append' }} SiteShellPartDef */
 
@@ -203,14 +207,15 @@ export async function loadSiteShellInjectionHtml(env, opts = {}) {
     return obj ? await obj.text() : '';
   }
 
-  const [rawHeader, footerHtml, visibilityMap] = await Promise.all([
+  const [rawHeader, rawFooter, visibilityMap] = await Promise.all([
     loadPart(headerDef),
     loadPart(footerDef),
     loadIamNavVisibility(env),
   ]);
 
-  // Prefer R2 chrome template + dynamic nav; empty R2 yields empty inject (page must self-contain).
+  // Prefer R2 chrome template + dynamic nav/footer; empty R2 yields empty inject.
   const headerHtml = patchIamHeaderNavHtml(rawHeader, visibilityMap);
+  const footerHtml = patchIamFooterNavHtml(rawFooter, visibilityMap);
 
   return { headerHtml, footerHtml, nav_dynamic: true };
 }
