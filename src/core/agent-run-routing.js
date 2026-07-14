@@ -532,7 +532,23 @@ export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
     .then((routingDecisionPayload) => writeSupabaseRoutingDecision(env, routingDecisionPayload))
     .catch(() => {});
 
-  const startPromise = insertAgentsamChatAgentRunStart(env, p);
+  const startPromise = insertAgentsamChatAgentRunStart(env, p).then(async (result) => {
+    try {
+      const { scheduleSupabaseWorkflowRunStart } = await import('./agentsam-supabase-telemetry.js');
+      scheduleSupabaseWorkflowRunStart(env, ctx, {
+        agentRunId: rid,
+        workspaceId: ws,
+        modelKey: p.modelKey,
+        taskType: p.taskType,
+        mode: p.mode,
+        sessionId: p.conversationId,
+        workflowKey: 'agent_chat',
+      });
+    } catch (_) {
+      /* non-blocking */
+    }
+    return result;
+  });
   ctx.waitUntil(startPromise);
   return startPromise;
 }

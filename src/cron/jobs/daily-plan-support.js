@@ -585,6 +585,79 @@ export async function gatherMorningPlanContext(env, tenantId, owner, presetScope
      ORDER BY updated_at ASC LIMIT 8`,
     effectiveTenant);
 
+  const agentRunLifetime = wsIn.binds.length
+    ? await safe(
+        env.DB.prepare(
+          `SELECT
+             COUNT(*) AS total_all_time,
+             SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed_all_time,
+             SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_all_time,
+             SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_all_time,
+             SUM(CASE WHEN status IN ('queued','running','stuck') OR status IS NULL THEN 1 ELSE 0 END) AS open_or_stuck
+           FROM agentsam_agent_run
+           WHERE ${wsIn.clause}`,
+        )
+          .bind(...wsIn.binds)
+          .first(),
+      )
+    : null;
+
+  let escalationsRecent = EMPTY_ALL;
+  try {
+    escalationsRecent = wsIn.binds.length
+      ? await env.DB.prepare(
+          `SELECT id, reason, status, severity, created_at, workspace_id
+             FROM agentsam_escalation
+            WHERE ${wsIn.clause}
+              AND COALESCE(created_at_unix, unixepoch(created_at)) > unixepoch('now', '-7 days')
+            ORDER BY COALESCE(created_at_unix, unixepoch(created_at)) DESC
+            LIMIT 12`,
+        )
+          .bind(...wsIn.binds)
+          .all()
+      : EMPTY_ALL;
+  } catch {
+    escalationsRecent = EMPTY_ALL;
+  }
+
+  const activeBlockers = [];
+  if (platformCtx?.current_blockers) {
+    activeBlockers.push({
+      project: platformCtx.project_name || 'ctx_inneranimalmedia',
+      current_blockers: platformCtx.current_blockers,
+      status: platformCtx.status || null,
+    });
+  }
+  for (const row of clientCtxRows?.results || []) {
+    if (row?.current_blockers) {
+      activeBlockers.push({
+        project: row.project_name,
+        current_blockers: row.current_blockers,
+        status: row.status || null,
+      });
+    }
+  }
+
+  const runs24 = recentRuns || {};
+  const lifetime = agentRunLifetime || {};
+  const agentCompletion = {
+    last_24h: {
+      total: Number(runs24.total_runs) || 0,
+      completed: Number(runs24.completed) || 0,
+      failed: Number(runs24.failed) || 0,
+      stuck_running: Number(runs24.stuck_running) || 0,
+    },
+    all_time: {
+      total: Number(lifetime.total_all_time) || 0,
+      completed: Number(lifetime.completed_all_time) || 0,
+      failed: Number(lifetime.failed_all_time) || 0,
+      cancelled: Number(lifetime.cancelled_all_time) || 0,
+      open_or_stuck: Number(lifetime.open_or_stuck) || 0,
+    },
+    note:
+      'Use created_at_unix for day windows. chat_spine runs often stay non-terminal until DO teardown writes status.',
+  };
+
   return {
     digestScope,
     memoryRows,
@@ -628,6 +701,9 @@ export async function gatherMorningPlanContext(env, tenantId, owner, presetScope
     taskActivityRecent,
     trackedTimeToday,
     chronicBlockers,
+    activeBlockers,
+    agentCompletion,
+    escalationsRecent,
   };
 }
 

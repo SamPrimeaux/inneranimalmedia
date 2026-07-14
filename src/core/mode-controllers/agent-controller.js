@@ -351,6 +351,23 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     }
   }
 
+  // Always try daily briefing when we have a workspace (Wave 1 closed loop).
+  if (env && workspaceId) {
+    try {
+      const { fetchLatestDailyMemoryBriefing } = await import('../agentsam-supabase-telemetry.js');
+      const dailyBlock = await fetchLatestDailyMemoryBriefing(env, workspaceId, { userId });
+      if (dailyBlock) {
+        contextBlock = contextBlock ? `${dailyBlock}\n\n${contextBlock}` : dailyBlock;
+        console.info(
+          '[agent-controller] daily_memory_preflight',
+          JSON.stringify({ chars: dailyBlock.length, workspaceId }),
+        );
+      }
+    } catch (e) {
+      console.warn('[agent-controller] daily_memory_preflight_failed', e?.message ?? e);
+    }
+  }
+
   const mailSurfaceRaw = extractMailSurfaceContext(browserContextPayload, body);
   const mailSurfaceBlock = formatMailSurfaceContextForAgent(mailSurfaceRaw);
   if (mailSurfaceBlock) {

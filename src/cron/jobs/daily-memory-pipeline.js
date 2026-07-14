@@ -326,6 +326,8 @@ Write the ## Evening section body ONLY (no ## Evening header). Use ### subsectio
 ### Email Summary
 ### Cross-Thread Patterns
 ### Priority Stack
+### Active Blockers
+### Agent Completion Alert
 ### Client Status
 ### Platform Health
 ### Action Items
@@ -341,7 +343,7 @@ ${JSON.stringify({ items: grouped.humanEmails, failed: grouped.failed, summary: 
 PLATFORM CONTEXT:
 ${platformContextJson(ctxData)}
 
-Rules: Professional narrative markdown. Cross-thread dedupe human emails only (same client/topic = one action). VERIFIED DEPLOYS are platform ground truth — surface every SHA and commit message in ### Platform Health. Platform health also uses D1 context. Do not resurrect resolved/closed memory items as active blockers. Only list blockers with verified source (triage JSON or D1 context) — if triage failed, say so instead of inferring. 1-5 minute read. No emojis. No JSON.`
+Rules: Professional narrative markdown. Treat PLATFORM CONTEXT.activeBlockers and agentCompletion as FIRST-CLASS alerts — ### Active Blockers must quote current_blockers verbatim when present; ### Agent Completion Alert must state last_24h and all_time completion rates and flag if last_24h completed is 0 while failed > 0 (chat_spine terminal-status gap). Surface escalationsRecent if any. Cross-thread dedupe human emails only. VERIFIED DEPLOYS are platform ground truth. Do not invent blockers. 1-5 minute read. No emojis. No JSON.`
     : `Date: ${dateDisplay} (${dateIso})
 
 Write the ## Evening section body ONLY (no ## Evening header). Use ### subsections exactly:
@@ -404,7 +406,7 @@ ${JSON.stringify({ items: grouped.humanEmails, failed: grouped.failed, summary: 
 PLATFORM DELTA:
 ${platformContextJson(ctxData)}
 
-Rules: Shorter than evening — 1-3 minute read. Action-first. ALERTS = "None." if clean. Do not carry forward blockers that are resolved in D1 memory. If triage failed, lead ALERTS with triage degradation — do not invent regressions. VERIFIED DEPLOYS are production ground truth for ### VELOCITY. No emojis. Markdown only.`
+Rules: Shorter than evening — 1-3 minute read. Action-first. ALERTS must lead with PLATFORM DELTA.activeBlockers (quote current_blockers) and agentCompletion (last_24h + all_time; scream if 24h failed>0 and completed=0 — chat_spine terminal gap). Include escalationsRecent when present. Do not carry forward blockers that are resolved in D1 memory. If triage failed, lead ALERTS with triage degradation — do not invent regressions. VERIFIED DEPLOYS are production ground truth for ### VELOCITY. No emojis. Markdown only.`
     : `Date: ${dateDisplay} (${dateIso})
 
 Write the ## Morning section body ONLY (no ## Morning header). Use ### subsections in order:
@@ -422,7 +424,7 @@ ${JSON.stringify({ items: grouped.humanEmails, failed: grouped.failed, summary: 
 WORKSPACE DELTA (this user's tenant/workspaces only):
 ${platformContextJson(ctxData)}
 
-Rules: Shorter personal digest — 1-2 minute read. Action-first. Never mention other users, tenants, platform operations, billing, or Inner Animal Media internals. ALERTS = "None." if clean. If triage failed, say so — do not invent regressions. No emojis. Markdown only.`;
+Rules: Shorter personal digest — 1-2 minute read. Action-first. Never mention other users, tenants, platform operations, billing, or Inner Animal Media internals. ALERTS must include WORKSPACE DELTA.activeBlockers and agentCompletion when present. If triage failed, say so — do not invent regressions. No emojis. Markdown only.`;
 
   return generateWithGeminiRetry(env, {
     modelKey: PRO_MODEL,

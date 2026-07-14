@@ -313,6 +313,24 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
               durationMs: Date.now() - loopT0,
             });
           }
+          if (chatAgentRunId && (routingWs || workspaceId)) {
+            const { scheduleSupabaseWorkflowRunFinish } = await import('./agentsam-supabase-telemetry.js');
+            scheduleSupabaseWorkflowRunFinish(env, ctx, {
+              agentRunId: chatAgentRunId,
+              workspaceId: routingWs || workspaceId,
+              tenantId,
+              userId,
+              sessionId,
+              success,
+              modelKey,
+              provider: telemetryProvider,
+              inputTokens: totalUsage.input_tokens,
+              outputTokens: totalUsage.output_tokens,
+              costUsd: Number(out?.estimatedCostUsd) || 0,
+              durationMs: Date.now() - loopT0,
+              errorMessage: success ? null : ledgerErrorMsg,
+            });
+          }
         } catch (te) {
           console.warn('[agent] loop_usage_telemetry', te?.message ?? te);
         }
@@ -2136,6 +2154,24 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         skip_tool_call_log: true,
         ...runSpineIds,
       });
+      if (chatAgentRunId && (routingWs || workspaceId)) {
+        try {
+          const { scheduleSupabaseToolCallEvent } = await import('./agentsam-supabase-telemetry.js');
+          scheduleSupabaseToolCallEvent(env, ctx, {
+            agentRunId: chatAgentRunId,
+            workspaceId: routingWs || workspaceId,
+            toolName: call.name,
+            success: !execErr,
+            durationMs: toolDurMs,
+            costUsd: toolUsage.totalCostUsd,
+            inputTokens: toolUsage.inputTokens,
+            outputTokens: toolUsage.outputTokens,
+            errorMessage: execErr ? String(execErr.message || execErr).slice(0, 2000) : null,
+          });
+        } catch (_) {
+          /* non-blocking */
+        }
+      }
       const canonicalToolChainUserId = await resolveCanonicalUserId(userId, env);
       previousToolChainId = await fireForgetAgentToolChainRow(env, {
         toolName: call.name,
@@ -2236,6 +2272,35 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     }
     ledgerLoopThrew = true;
     ledgerErrorMsg = e?.message != null ? String(e.message) : String(e);
+    if (chatAgentRunId && (routingWs || workspaceId)) {
+      try {
+        const { scheduleSupabaseErrorEvent, scheduleSupabaseWorkflowRunFinish } = await import(
+          './agentsam-supabase-telemetry.js'
+        );
+        scheduleSupabaseErrorEvent(env, ctx, {
+          agentRunId: chatAgentRunId,
+          workspaceId: routingWs || workspaceId,
+          errorMessage: ledgerErrorMsg,
+          source: 'agent_tool_loop',
+          severity: 'error',
+        });
+        scheduleSupabaseWorkflowRunFinish(env, ctx, {
+          agentRunId: chatAgentRunId,
+          workspaceId: routingWs || workspaceId,
+          tenantId,
+          userId,
+          sessionId,
+          success: false,
+          modelKey,
+          errorMessage: ledgerErrorMsg,
+          durationMs: Date.now() - loopT0,
+          inputTokens: totalUsage.input_tokens,
+          outputTokens: totalUsage.output_tokens,
+        });
+      } catch (_) {
+        /* non-blocking */
+      }
+    }
     throw e;
   } finally {
     if (chatToolLedger?.runId) {
