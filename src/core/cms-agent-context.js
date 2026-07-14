@@ -69,10 +69,23 @@ export function extractCmsAgentContext(body, browserContext) {
  */
 export function formatCmsContextForAgent(cms) {
   if (!cms || typeof cms !== 'object') return '';
+  const profile = String(cms.api_profile || '').trim();
+  const siteLock = [
+    'SITE LOCK: Only edit this project_slug. Refuse other sites.',
+    'Do not invent page_id / section_id / section_name — use values below or read first.',
+    profile === 'cpas_fragment'
+      ? 'api_profile=cpas_fragment: use bridge section save/publish — not PrimeTech full-page remaster.'
+      : profile === 'fuel_admin'
+        ? 'api_profile=fuel_admin: Fuel admin CMS tools only.'
+        : 'api_profile=primetch (or default): PrimeTech read → save → publish → verify.',
+    'Instruction SSOT is D1 skills/rules/routes — do not invent system prompts from R2 markdown.',
+  ].join(' ');
   const lines = [
-    '[CMS editor context — PrimeTech protocol: read → save → publish → verify. Do not invent page ids.]',
-    CMS_PROTOCOL_LINES,
+    '[CMS editor context — follow site lock. Do not invent page ids.]',
+    siteLock,
+    profile === 'cpas_fragment' || profile === 'fuel_admin' ? '' : CMS_PROTOCOL_LINES,
     `project_slug: ${cms.project_slug || '(none)'}`,
+    `api_profile: ${profile || '(none)'}`,
     `page_id: ${cms.page_id || '(none)'}`,
     `studio_panel: ${cms.studio_panel || '(none)'}`,
     `section_id: ${cms.section_id || '(none)'}`,
@@ -85,6 +98,6 @@ export function formatCmsContextForAgent(cms) {
     `cms_hosting: ${cms.cms_hosting || '(none)'}`,
     `r2_bucket: ${cms.r2_bucket || '(none)'}`,
     `r2_key: ${cms.r2_key || '(none)'}`,
-  ];
+  ].filter(Boolean);
   return `## CMS context\n${lines.join('\n')}`;
 }

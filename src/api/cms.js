@@ -89,6 +89,7 @@ import {
 } from '../core/cms-site-shell.js';
 import { isOperatorCmsHubWorkspace } from '../core/cms-hub-sites.js';
 import { resolveCmsSiteConfig } from '../core/cms-site-config.js';
+import { resolveClientAppByProjectSlug } from '../core/cms-client-app-resolve.js';
 import { resolveCmsSitePublicDomain } from '../core/cms-public-domain.js';
 import { resolveCmsTenantByProjectSlug } from '../core/cms-tenant-resolve.js';
 import { mintCmsEmbedSession, proxyCmsBridgeRequest, isCmsBridgeEligible } from '../core/cms-client-bridge.js';
@@ -112,6 +113,7 @@ import {
   CMS_DEFAULT_R2_BUCKET,
   cmsR2PublicObjectUrl,
   getCmsR2Binding,
+  getCmsR2DualBinding,
 } from '../core/cms-r2-binding.js';
 
 export { CMS_DEFAULT_R2_BUCKET };
@@ -291,6 +293,134 @@ export async function handleCmsApi(request, url, env, ctx) {
         sites = await listCmsSitesForScope(env, { tenantId: authTenantId, workspaceId });
       } catch (_) {}
       return jsonResponse({ error: e.message, sites }, 500);
+    }
+  }
+
+  // NEW: Resolve full client_apps inventory by project_slug (= app_key)
+  if (path === '/api/cms/app-context' && method === 'GET') {
+    const projectSlug =
+      url.searchParams.get('project_slug') ||
+      url.searchParams.get('site') ||
+      url.searchParams.get('app_key') ||
+      null;
+    if (!projectSlug) return jsonResponse({ error: 'project_slug required' }, 400);
+    try {
+      if (!cmsScope.allowedSlugs.has(String(projectSlug).trim())) {
+        return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: projectSlug }, 403);
+      }
+      const app = await resolveClientAppByProjectSlug(env, projectSlug);
+      if (!app) {
+        return jsonResponse(
+          {
+            error: 'CLIENT_APP_NOT_FOUND',
+            message: `No active client_apps row for app_key=${projectSlug}`,
+            project_slug: projectSlug,
+          },
+          404,
+        );
+      }
+      const siteConfig = await resolveCmsSiteConfig(env, workspaceId, projectSlug);
+      return jsonResponse({
+        ...app,
+        // Prefer resolver-normalized dialect (platform IAM → primetch)
+        cms_api_profile: siteConfig.cms_api_profile || siteConfig.api_profile || app.cms_api_profile,
+        api_profile: siteConfig.api_profile || app.cms_api_profile,
+        website_r2: siteConfig.website_r2 || app.website_r2,
+        catalog_r2: siteConfig.catalog_r2 || app.catalog_r2,
+        r2_bucket: siteConfig.r2_bucket || app.website_r2?.bucket_name || null,
+        inventory_source: siteConfig.inventory_source || 'client_apps',
+        workspace_id: workspaceId,
+        project_slug: projectSlug,
+      });
+    } catch (e) {
+      return jsonResponse({ error: e.message || 'app_context_failed' }, 500);
+    }
+  }
+
+  // NEW: App embeds from client_integrations for this client_apps row
+  if (path === '/api/cms/client-integrations' && method === 'GET') {
+    const projectSlug =
+      url.searchParams.get('project_slug') ||
+      url.searchParams.get('site') ||
+      null;
+    if (!projectSlug) return jsonResponse({ error: 'project_slug required' }, 400);
+    try {
+      const app = await resolveClientAppByProjectSlug(env, projectSlug);
+      if (!app?.client_id) {
+        return jsonResponse({
+          connected: [],
+          recommended: [],
+          error: app ? null : 'CLIENT_APP_NOT_FOUND',
+          client_id: null,
+          project_slug: projectSlug,
+        }, app ? 200 : 404);
+      }
+      const { results: connected = [] } = await env.DB.prepare(
+        `SELECT ci.id, ci.client_id, ci.integration_id, ci.is_active, ci.config, ci.last_sync_at, ci.created_at,
+                COALESCE(ir.display_name, ci.integration_id) AS display_name,
+                ir.provider_key, ir.custom_icon_url AS icon_url, ir.category
+           FROM client_integrations ci
+           LEFT JOIN integration_registry ir
+             ON ir.provider_key = ci.integration_id
+            AND (ir.tenant_id = ? OR ir.tenant_id IS NULL OR ir.tenant_id = '')
+          WHERE ci.client_id = ? AND COALESCE(ci.is_active, 1) = 1
+          ORDER BY display_name`,
+      )
+        .bind(authTenantId, app.client_id)
+        .all()
+        .catch(() => ({ results: [] }));
+
+      const connectedKeys = new Set(
+        (connected || []).map((r) => String(r.integration_id || r.provider_key || '').trim()).filter(Boolean),
+      );
+
+      const { results: recommended = [] } = await env.DB.prepare(
+        `SELECT provider_key, display_name, custom_icon_url AS icon_url, category, status
+           FROM integration_registry
+          WHERE COALESCE(is_enabled, 1) = 1
+            AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '' OR tenant_id = 'tenant_platform')
+          ORDER BY COALESCE(sort_order, 999), display_name
+          LIMIT 40`,
+      )
+        .bind(authTenantId)
+        .all()
+        .catch(() => ({ results: [] }));
+
+      return jsonResponse({
+        project_slug: projectSlug,
+        client_id: app.client_id,
+        app_key: app.app_key,
+        connected: (connected || []).map((r) => ({
+          id: r.id,
+          integration_id: r.integration_id,
+          provider_key: r.provider_key || r.integration_id,
+          display_name: r.display_name || r.integration_id,
+          icon_url: r.icon_url || null,
+          category: r.category || null,
+          is_active: !!r.is_active,
+          last_sync_at: r.last_sync_at || null,
+          config: (() => {
+            try {
+              return r.config ? JSON.parse(r.config) : null;
+            } catch {
+              return null;
+            }
+          })(),
+        })),
+        recommended: (recommended || [])
+          .filter((r) => {
+            const key = String(r.provider_key || '').trim();
+            return key && !connectedKeys.has(key);
+          })
+          .map((r) => ({
+            provider_key: r.provider_key,
+            display_name: r.display_name || r.provider_key,
+            icon_url: r.icon_url || null,
+            category: r.category || null,
+          })),
+      });
+    } catch (e) {
+      return jsonResponse({ error: e.message || 'client_integrations_failed' }, 500);
     }
   }
 
@@ -2653,18 +2783,30 @@ export async function handleCmsApi(request, url, env, ctx) {
       const pageSlug = String(page.slug || page.route_path || pageId).replace(/^\//, '') || 'page';
       const hash = await cmsContentSha256(html);
       const r2Key = cmsSectionHtmlKey(pageSlug, sectionName, hash);
-      const r2Bucket = CMS_DEFAULT_R2_BUCKET;
+      // Write into the same R2 bucket the page HTML uses so storefront hydrate finds fragments.
+      const htmlKeys = resolveIamPageHtmlKeys(page, workspaceId, cmsPageKey);
+      const r2Bucket = String(
+        page.r2_bucket || htmlKeys.bucket || CMS_DEFAULT_R2_BUCKET,
+      ).trim();
       const r2Binding = getCmsR2Binding(env, r2Bucket);
       if (!r2Binding) return jsonResponse({ error: 'R2 storage unavailable' }, 503);
-      await r2Binding.put(r2Key, new TextEncoder().encode(html), {
-        httpMetadata: { contentType: 'text/html; charset=utf-8' },
-      });
+      const putOpts = { httpMetadata: { contentType: 'text/html; charset=utf-8' } };
+      const encoded = new TextEncoder().encode(html);
+      await r2Binding.put(r2Key, encoded, putOpts);
+      // Dual-write to CMS catalog bucket when page lives on ASSETS so templates/catalog stay in sync.
+      if (r2Bucket !== CMS_DEFAULT_R2_BUCKET) {
+        const cmsBinding = getCmsR2Binding(env, CMS_DEFAULT_R2_BUCKET);
+        if (cmsBinding) {
+          await cmsBinding.put(r2Key, encoded, putOpts).catch(() => null);
+        }
+      }
       const publicUrl =
         (await presignR2GetObjectUrl(env, r2Bucket, r2Key)) ||
         cmsR2PublicUrlFromRequest(request, r2Bucket, r2Key);
       const zone = String(body.zone || body.section_zone || '').trim();
       const sectionData = {
         r2_key: r2Key,
+        r2_bucket: r2Bucket,
         public_url: publicUrl,
         html_source: 'injected',
         inject_position: position,
@@ -2803,13 +2945,19 @@ export async function handleCmsApi(request, url, env, ctx) {
       const pageSlug = String(page.slug || page.route_path || pageId).replace(/^\//, '');
       const hash = await cmsContentSha256(html);
       const r2Key = cmsSectionHtmlKey(pageSlug, sectionName, hash);
-      const r2Bucket = CMS_DEFAULT_R2_BUCKET;
+      const htmlKeys = resolveIamPageHtmlKeys(page, workspaceId, cmsPageKey);
+      const r2Bucket = String(
+        page.r2_bucket || htmlKeys.bucket || CMS_DEFAULT_R2_BUCKET,
+      ).trim();
       const r2Binding = getCmsR2Binding(env, r2Bucket);
       if (!r2Binding) return jsonResponse({ error: 'R2 storage unavailable' }, 503);
       const contentBuffer = new TextEncoder().encode(html);
-      await r2Binding.put(r2Key, contentBuffer, {
-        httpMetadata: { contentType: 'text/html; charset=utf-8' },
-      });
+      const putOpts = { httpMetadata: { contentType: 'text/html; charset=utf-8' } };
+      await r2Binding.put(r2Key, contentBuffer, putOpts);
+      if (r2Bucket !== CMS_DEFAULT_R2_BUCKET) {
+        const cmsBinding = getCmsR2Binding(env, CMS_DEFAULT_R2_BUCKET);
+        if (cmsBinding) await cmsBinding.put(r2Key, contentBuffer, putOpts).catch(() => null);
+      }
       const publicUrl =
         (await presignR2GetObjectUrl(env, r2Bucket, r2Key)) ||
         cmsR2PublicUrlFromRequest(request, r2Bucket, r2Key);

@@ -29,3 +29,30 @@ export function cmsR2PublicObjectUrl(bucket, key) {
   if (b === 'inneranimalmedia') return `https://assets.inneranimalmedia.com/${k}`;
   return null;
 }
+
+/**
+ * Prefer primary R2 binding, then fallback (fixes inject written to `cms`
+ * while storefront hydrate historically only queried ASSETS).
+ * @param {unknown} primary
+ * @param {unknown} fallback
+ */
+export function getCmsR2DualBinding(primary, fallback) {
+  if (!primary && !fallback) return null;
+  if (!fallback || fallback === primary) return primary || fallback;
+  if (!primary) return fallback;
+  return {
+    async get(key) {
+      const a = await primary.get(key).catch(() => null);
+      if (a) return a;
+      return fallback.get(key).catch(() => null);
+    },
+    async put(key, value, opts) {
+      return primary.put(key, value, opts);
+    },
+    async head(key) {
+      const a = await primary.head?.(key).catch(() => null);
+      if (a) return a;
+      return fallback.head?.(key).catch(() => null);
+    },
+  };
+}

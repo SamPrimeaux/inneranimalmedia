@@ -1,8 +1,3 @@
-/**
- * Agent Sam: Modular Worker Entry Point
- * Orchestrates domain-specific services and handles request routing.
- * Replaces the monolithic worker.js.
- */
 import { dispatchProductionDomainRoutes } from './core/router.js';
 import { recordWorkerAnalyticsError, writeTelemetry } from './api/telemetry';
 import {
@@ -36,6 +31,7 @@ import {
   hydrateCmsRoutePageHtml,
   normalizeCmsRoutePath,
 } from './core/cms-page-hydrate-dispatch.js';
+import { getCmsR2Binding, getCmsR2DualBinding, CMS_DEFAULT_R2_BUCKET } from './core/cms-r2-binding.js';
 import { loadSiteShellInjectionHtml } from './core/cms-site-shell.js';
 import {
   iamAssetRoutesMap,
@@ -108,6 +104,9 @@ function getMimeType(key) {
 }
 import { createTracer } from './core/tracer.js';
 import { isLikelyWordPressProbePath } from './core/wp-probe-path.js';
+
+import { CMS_EMBED_PICK_SCRIPT, CMS_EMBED_PICK_STYLE } from './core/cms-embed-client-script.js';
+
 
 // --- Durable Objects (ACTIVE: 6 production classes incl. MyContainer + IamCadWorkerContainer) ---
 export { IAMCollaborationSession } from './do/Collaboration.js';
@@ -462,10 +461,8 @@ export default {
               .on('head', {
                 element(el) {
                   if (!isCmsEmbed) return;
-                  el.append(
-                    '<style>[data-cms-section]{scroll-margin-top:24px}[data-cms-section].iam-cms-section-focus{outline:2px solid #3b82f6;outline-offset:2px;transition:outline-color .2s}</style>',
-                    { html: true },
-                  );
+                  el.append(CMS_EMBED_PICK_STYLE, { html: true });
+                  el.append(CMS_EMBED_PICK_SCRIPT, { html: true });
                 },
               })
               .on('body', {
@@ -522,7 +519,7 @@ export default {
                   htmlText,
                   cmsRoute,
                   bundle.sections,
-                  env.ASSETS,
+                  getCmsR2DualBinding(env.ASSETS, getCmsR2Binding(env, CMS_DEFAULT_R2_BUCKET)),
                 );
               } catch (e) {
                 console.warn('[cms-dynamic] hydrate failed:', e?.message);
@@ -542,10 +539,8 @@ export default {
                       );
                     }
                     if (!isCmsEmbed) return;
-                    el.append(
-                      '<style>[data-cms-section]{scroll-margin-top:24px}[data-cms-section].iam-cms-section-focus{outline:2px solid #3b82f6;outline-offset:2px;transition:outline-color .2s}</style>',
-                      { html: true },
-                    );
+                    el.append(CMS_EMBED_PICK_STYLE, { html: true });
+                    el.append(CMS_EMBED_PICK_SCRIPT, { html: true });
                   },
                 })
                 .transform(
@@ -642,7 +637,7 @@ export default {
               htmlText,
               cmsRoute,
               bundle.sections,
-              env.ASSETS,
+              getCmsR2DualBinding(env.ASSETS, getCmsR2Binding(env, CMS_DEFAULT_R2_BUCKET)),
             );
           } catch (e) {
             console.warn(`[cms/${cmsRoute}] hydrate failed (serving static shell):`, e?.message);
@@ -661,7 +656,11 @@ export default {
               }
               if (!isCmsEmbed) return;
               el.append(
-                '<style>[data-cms-section]{scroll-margin-top:24px}[data-cms-section].iam-cms-section-focus{outline:2px solid #3b82f6;outline-offset:2px;transition:outline-color .2s}</style>',
+                CMS_EMBED_PICK_STYLE,
+                { html: true },
+              );
+              el.append(
+                CMS_EMBED_PICK_SCRIPT,
                 { html: true },
               );
             },

@@ -129,8 +129,9 @@ export async function hydratePageWithInjectedSections(html, sections, r2Binding)
 
     for (const key of keys) {
       const safe = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // Include header/footer — ZONE_HTML_STARTERS and chrome blocks use those tags.
       const sectionRe = new RegExp(
-        `(<(?:section|div|article)[^>]*\\sdata-cms-section="${safe}"[^>]*>)([\\s\\S]*?)(</(?:section|div|article)>)`,
+        `(<(?:section|div|article|header|footer|main)[^>]*\\sdata-cms-section="${safe}"[^>]*>)([\\s\\S]*?)(</(?:section|div|article|header|footer|main)>)`,
         'i',
       );
       if (sectionRe.test(out)) {
@@ -139,7 +140,7 @@ export async function hydratePageWithInjectedSections(html, sections, r2Binding)
         break;
       }
       const idRe = new RegExp(
-        `(<(?:section|div|article)[^>]*\\sid="${safe}"[^>]*>)([\\s\\S]*?)(</(?:section|div|article)>)`,
+        `(<(?:section|div|article|header|footer|main)[^>]*\\sid="${safe}"[^>]*>)([\\s\\S]*?)(</(?:section|div|article|header|footer|main)>)`,
         'i',
       );
       if (idRe.test(out)) {
@@ -217,7 +218,7 @@ export async function renderCmsSectionTreeHtmlWithInjections(
       const injected = await fetchInjectedSectionHtml(r2Binding, r2Key);
       if (injected?.trim()) {
         parts.push(
-          `<div class="cms-injected-wrap${hidden ? ' hidden' : ''}" data-section="${s.id}" data-cms-section="${slugSegment(s.section_name || s.section_type)}">`,
+          `<div class="cms-injected-wrap${hidden ? ' hidden' : ''}" data-section="${s.id}" data-cms-section="${slugSegment(s.section_name || s.section_type)}" data-section-key="${slugSegment(s.section_name || s.section_type || s.id)}">`,
           injected,
           '</div>',
         );

@@ -11,6 +11,7 @@ import {
 } from './cms-hub-sites.js';
 import { resolvePlatformCmsStudioUrl } from './cms-studio-lane.js';
 import { resolveCmsSitePublicDomain } from './cms-public-domain.js';
+import { resolveClientAppByProjectSlug, deriveCmsApiProfile } from './cms-client-app-resolve.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -114,15 +115,33 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
     : await hasRegisteredCmsSiteContext(env, effectiveWs);
   const isClientWorker = isOperatorHubPick ? false : isClientWorkerCms(wsRow, hasRegistry);
   const cmsHosting = isClientWorker ? 'client_worker' : 'platform';
-  const apiProfile = isOperatorHubPick
+
+  // Prefer client_apps inventory (SSOT) over workspace metadata for dialect + storage.
+  const clientApp = slug ? await resolveClientAppByProjectSlug(env, slug) : null;
+  const appMeta = clientApp?.metadata_json && typeof clientApp.metadata_json === 'object'
+    ? clientApp.metadata_json
+    : {};
+
+  const apiProfileFromApp = deriveCmsApiProfile(appMeta);
+  const metaProfile = isOperatorHubPick
     ? deriveApiProfile(clientMeta, clientWsRow?.worker_name)
     : isClientWorker
       ? deriveApiProfile(meta, wsRow?.worker_name)
       : 'primetch';
+  let apiProfile = apiProfileFromApp || metaProfile || 'primetch';
+  const runtimeWorkerName =
+    trim(clientApp?.worker_id) ||
+    trim(isOperatorHubPick ? clientWsRow?.worker_name : wsRow?.worker_name) ||
+    null;
+  // Platform worker always uses local primetch dialect — ignore client_apps drift.
+  if (runtimeWorkerName === PLATFORM_WORKER_NAME || (!isClientWorker && !isOperatorHubPick)) {
+    apiProfile = 'primetch';
+  }
 
-  const workerBaseUrl = isOperatorHubPick
-    ? resolveWorkerBaseUrl(clientMeta, clientWsRow)
-    : resolveWorkerBaseUrl(meta, wsRow);
+  const workerBaseUrl = trim(appMeta.worker_base_url)
+    || (isOperatorHubPick
+      ? resolveWorkerBaseUrl(clientMeta, clientWsRow)
+      : resolveWorkerBaseUrl(meta, wsRow));
   const studioPath = resolveStudioPath(isOperatorHubPick ? clientMeta : meta);
   const studioUrl = isClientWorker
     ? workerBaseUrl
@@ -146,29 +165,48 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
     publicDomain = hostnameFromDeployUrl(workerBaseUrl);
   }
 
+  const websiteBucket =
+    trim(clientApp?.website_r2?.bucket_name) ||
+    trim(isOperatorHubPick ? clientWsRow?.r2_bucket : wsRow?.r2_bucket) ||
+    trim(isOperatorHubPick ? clientMeta.r2_bucket : meta.r2_bucket) ||
+    null;
+  const primaryD1 =
+    (Array.isArray(clientApp?.d1_databases) &&
+      clientApp.d1_databases.find((d) => d.role === 'primary')) ||
+    (Array.isArray(clientApp?.d1_databases) && clientApp.d1_databases[0]) ||
+    null;
+
   return {
     workspace_id: ws,
     runtime_workspace_id: isOperatorHubPick ? clientRuntimeWs || effectiveWs : effectiveWs,
     client_runtime_workspace_id: clientRuntimeWs,
     project_slug: slug || trim(wsRow?.workspace_slug) || null,
+    app_key: clientApp?.app_key || slug || null,
+    client_app_id: clientApp?.id || null,
     cms_hosting: cmsHosting,
     cms_shell: isOperatorHubPick || !isClientWorker ? 'iam_unified' : 'client_worker_legacy',
     api_profile: apiProfile,
-    worker_name: trim(isOperatorHubPick ? clientWsRow?.worker_name : wsRow?.worker_name) || null,
+    cms_api_profile: apiProfile,
+    worker_name: runtimeWorkerName,
     worker_base_url: workerBaseUrl,
-    public_domain: publicDomain,
+    public_domain: publicDomain || trim(appMeta.public_domain) || null,
     studio_path: studioPath,
     studio_url: studioUrl,
     bridge_supported: bridgeSupported,
-    deploy_hook_url: trim(isOperatorHubPick ? clientMeta.deploy_hook_url : meta.deploy_hook_url) || null,
+    deploy_hook_url:
+      trim(appMeta.deploy_hook_url) ||
+      trim(isOperatorHubPick ? clientMeta.deploy_hook_url : meta.deploy_hook_url) ||
+      null,
     d1_database_id:
+      trim(primaryD1?.database_id) ||
       trim(isOperatorHubPick ? clientWsRow?.d1_database_id : wsRow?.d1_database_id) ||
       trim(isOperatorHubPick ? clientMeta.d1_database_id : meta.d1_database_id) ||
       null,
-    r2_bucket:
-      trim(isOperatorHubPick ? clientWsRow?.r2_bucket : wsRow?.r2_bucket) ||
-      trim(isOperatorHubPick ? clientMeta.r2_bucket : meta.r2_bucket) ||
-      null,
+    r2_bucket: websiteBucket,
+    website_r2: clientApp?.website_r2 || null,
+    catalog_r2: clientApp?.catalog_r2 || null,
+    logo_url: trim(clientApp?.logo_url) || null,
     kv_namespace: trim(isOperatorHubPick ? clientMeta.kv_namespace : meta.kv_namespace) || null,
+    inventory_source: clientApp ? 'client_apps' : 'agentsam_workspace',
   };
 }

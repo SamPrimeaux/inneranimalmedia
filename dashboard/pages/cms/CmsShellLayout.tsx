@@ -27,6 +27,8 @@ type Props = {
   onComposeToggle?: (open: boolean) => void;
   /** Editor routes use global Agent Sam rail toggle instead of compose strip. */
   editorMode?: boolean;
+  /** Hide hub top/nav — ThemeStudioWorkbench owns the Shopify topbar. */
+  themeStudio?: boolean;
   onSelectSite?: (slug: string, path: string) => void | Promise<void>;
   onOpenDeployWizard?: () => void;
 };
@@ -58,6 +60,7 @@ export function CmsShellLayout({
   showComposeBar = false,
   onComposeToggle,
   editorMode = false,
+  themeStudio = false,
   onSelectSite,
   onOpenDeployWizard,
 }: Props) {
@@ -84,15 +87,20 @@ export function CmsShellLayout({
   }, []);
 
   const navItems = useMemo(
-    () =>
-      [
+    () => {
+      const items = [
         { id: 'hub' as const, label: 'Overview' },
         { id: 'pages' as const, label: 'Content' },
         { id: 'theme-editor' as const, label: 'Theme' },
-        { id: 'online-store' as const, label: 'Store' },
         { id: 'templates' as const, label: 'Templates' },
-      ] satisfies { id: CmsShellNav; label: string }[],
-    [],
+      ] satisfies { id: CmsShellNav; label: string }[];
+      const profile = String(context?.api_profile || '').toLowerCase();
+      if (profile === 'fuel_admin') {
+        items.splice(3, 0, { id: 'online-store' as const, label: 'Store' });
+      }
+      return items;
+    },
+    [context?.api_profile],
   );
 
   const toggleAgentPanel = useCallback(() => {
@@ -168,10 +176,13 @@ export function CmsShellLayout({
   );
 
   const agentOpen = editorMode ? agentPanelOpen : showComposeBar;
-  const shellClass = `iam-cms-shell${editorMode ? ' iam-cms-shell--editor' : ''}`;
+  const shellClass = `iam-cms-shell${editorMode ? ' iam-cms-shell--editor' : ''}${
+    themeStudio ? ' iam-cms-shell--theme-studio' : ''
+  }`;
 
   return (
     <div className={shellClass}>
+      {!themeStudio ? (
       <header className="iam-cms-shell__top">
         <div className="iam-cms-shell__bar">
           <button
@@ -231,11 +242,12 @@ export function CmsShellLayout({
           ))}
         </nav>
       </header>
+      ) : null}
       {showComposeBar && !editorMode ? (
         <CmsAgentComposeBar siteSlug={siteSlug} siteName={siteName} />
       ) : null}
       <div className="iam-cms-shell__body">{children}</div>
-      {editorMode && !agentPanelOpen ? (
+      {editorMode && !agentPanelOpen && !themeStudio ? (
         <button
           type="button"
           className="iam-cms-shell__agent-fab"
