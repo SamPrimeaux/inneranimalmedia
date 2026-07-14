@@ -388,6 +388,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleSummarizeSession(request, env, ctx);
   }
 
+  if (pathLower === '/api/internal/agent-run-telemetry' && methodUpper === 'POST') {
+    const { handleAgentRunTelemetry } = await import('../api/agent-run-telemetry.js');
+    return handleAgentRunTelemetry(request, env, ctx);
+  }
+
   if (pathLower === '/api/internal/health-kv-dirty' && methodUpper === 'GET') {
     const { handleHealthKvDirty } = await import('../api/health-kv-dirty.js');
     return handleHealthKvDirty(request, env);

@@ -91,7 +91,7 @@ const CRON_HOURLY = '0 * * * *';
 export async function processQueues(env) {
   if (!env.DB) return;
   const begun = await startCronRun(env, {
-    jobName: 'agent_request_queue_drain',
+    jobName: 'agentsam_request_queue_drain',
     cronExpression: CRON_HOURLY,
     tenantId: null,
     workspaceId: null,
@@ -102,34 +102,49 @@ export async function processQueues(env) {
   let rowsWritten = 0;
   try {
     const { results: sessions } = await env.DB.prepare(
-      `SELECT DISTINCT session_id FROM agent_request_queue WHERE status = 'queued'`,
+      `SELECT DISTINCT session_id FROM agentsam_request_queue WHERE status = 'queued'`,
     ).all();
     rowsRead = (sessions || []).length;
     for (const { session_id } of sessions || []) {
       const task = await env.DB.prepare(
-        `SELECT * FROM agent_request_queue WHERE session_id = ? AND status = 'queued' ORDER BY position ASC, created_at ASC LIMIT 1`,
+        `SELECT * FROM agentsam_request_queue
+          WHERE session_id = ? AND status = 'queued'
+          ORDER BY position ASC, created_at ASC LIMIT 1`,
       )
         .bind(session_id)
         .first();
       if (!task) continue;
       try {
         await env.DB.prepare(
-          `UPDATE agent_request_queue SET status = 'running', updated_at = unixepoch() WHERE id = ?`,
+          `UPDATE agentsam_request_queue SET status = 'running', updated_at = unixepoch() WHERE id = ?`,
         )
           .bind(task.id)
           .run();
         const payload = task.payload_json ? JSON.parse(task.payload_json) : {};
+        // Drain marks done with payload receipt — full auto-resume chat is Wave 3.
         await env.DB.prepare(
-          `UPDATE agent_request_queue SET status = 'done', result_json = ?, updated_at = unixepoch() WHERE id = ?`,
+          `UPDATE agentsam_request_queue
+              SET status = 'done', result_json = ?, updated_at = unixepoch()
+            WHERE id = ?`,
         )
-          .bind(JSON.stringify({ success: true, payload: payload }), task.id)
+          .bind(
+            JSON.stringify({
+              success: true,
+              drained: true,
+              note: 'queued by agent_run_stop consecutive-fail; auto-resume pending Wave 3',
+              payload,
+            }),
+            task.id,
+          )
           .run();
         rowsWritten += 2;
       } catch (e) {
         await env.DB.prepare(
-          `UPDATE agent_request_queue SET status = 'failed', result_json = ?, updated_at = unixepoch() WHERE id = ?`,
+          `UPDATE agentsam_request_queue
+              SET status = 'failed', result_json = ?, error_message = ?, updated_at = unixepoch()
+            WHERE id = ?`,
         )
-          .bind(JSON.stringify({ error: String(e?.message || e) }), task.id)
+          .bind(JSON.stringify({ error: String(e?.message || e) }), String(e?.message || e).slice(0, 500), task.id)
           .run();
         rowsWritten += 2;
       }
@@ -237,7 +252,7 @@ export async function runHourlyRoutingJobs(env, ctx) {
   ctx.waitUntil(enforceTaskSlosFromRoutingMemory(env).catch(e => console.warn('[cron/hourly] enforceSlos', e?.message)));
   ctx.waitUntil(enforceEvalSlosPauseArms(env, { lookbackDays: 7 }).catch(e => console.warn('[cron/hourly] enforceEvalSlos', e?.message)));
   // routing_analytics_rollups disabled — duplicated execution_performance rollup with 0 writes.
-  ctx.waitUntil(processQueues(env).catch((e) => console.warn('[cron/hourly] agent_request_queue_drain', e?.message)));
+  ctx.waitUntil(processQueues(env).catch((e) => console.warn('[cron/hourly] agentsam_request_queue_drain', e?.message)));
   ctx.waitUntil(scanErrorLogThresholds(env).catch(e => console.warn('[cron/hourly] errorLogThresholds', e?.message)));
   ctx.waitUntil(applyEtoToRoutingArms(env, {}).catch(e => console.warn('[cron/hourly] applyEtoToRoutingArms', e?.message)));
   ctx.waitUntil(

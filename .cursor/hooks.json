@@ -1,9 +1,16 @@
 {
-  "hooks": [
-    {
-      "event": "beforeShellExecution",
-      "command": "node scripts/cursor-shell-guard.js",
-      "timeout": 5000
-    }
-  ]
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "node scripts/cursor-shell-guard.js",
+        "timeout": 5000
+      }
+    ],
+    "stop": [
+      {
+        "command": "bun run .cursor/hooks/track-stop.ts"
+      }
+    ]
+  }
 }

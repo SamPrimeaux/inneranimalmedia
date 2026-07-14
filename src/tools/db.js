@@ -5,6 +5,7 @@
 
 import { d1_query as d1QueryCore } from '../core/d1.js';
 import { assertD1ReadOnlySelect } from '../core/d1-read-validator.js';
+import { assertD1SqlNotPostgresOnly } from '../core/d1-postgres-table-guard.js';
 import { evaluateDatabaseSqlSafety } from '../core/database-sql-safety.js';
 import { isHyperdriveUsable, runHyperdriveQuery } from '../core/hyperdrive-query.js';
 import { recordMcpToolExecution } from '../core/mcp-tool-execution.js';
@@ -143,6 +144,17 @@ export const handlers = {
       };
     }
 
+    const pgOnly = assertD1SqlNotPostgresOnly(sql);
+    if (pgOnly.blocked) {
+      await logPolicyBlock(env, {
+        ...params,
+        sql,
+        error: pgOnly.error,
+        tool_name: 'd1_query',
+      });
+      return { error: pgOnly.error, user_message: pgOnly.user_message, wrong_data_plane: true };
+    }
+
     try {
       const rows = await d1QueryCore({ sql, params: bindings }, env);
       return { success: true, results: rows || [], meta: {} };
@@ -203,6 +215,17 @@ export const handlers = {
     if (!gate.ok) {
       await logPolicyBlock(env, { ...params, tool_name: 'd1_explain' });
       return { error: `${gate.error} EXPLAIN is read-only.` };
+    }
+
+    const pgOnly = assertD1SqlNotPostgresOnly(sql);
+    if (pgOnly.blocked) {
+      await logPolicyBlock(env, {
+        ...params,
+        sql,
+        error: pgOnly.error,
+        tool_name: 'd1_explain',
+      });
+      return { error: pgOnly.error, user_message: pgOnly.user_message, wrong_data_plane: true };
     }
 
     const explainSql = /^\s*EXPLAIN\b/i.test(sql) ? sql : `EXPLAIN QUERY PLAN ${sql}`;

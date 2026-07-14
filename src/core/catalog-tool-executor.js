@@ -367,6 +367,17 @@ async function executeCatalogCfD1(env, row, config, params, runContext) {
       };
     }
 
+    const { assertD1SqlNotPostgresOnly } = await import('./d1-postgres-table-guard.js');
+    const pgOnly = assertD1SqlNotPostgresOnly(sql);
+    if (pgOnly.blocked) {
+      return {
+        ok: false,
+        error: pgOnly.error,
+        user_message: pgOnly.user_message,
+        wrong_data_plane: true,
+      };
+    }
+
     if (op === 'execute' || op === 'write' || op === 'migrate') {
       const { executeWorkspaceD1Write } = await import('./workspace-d1-execution.js');
       const writeOut = await executeWorkspaceD1Write(env, d1Ctx, sql, params.params);
