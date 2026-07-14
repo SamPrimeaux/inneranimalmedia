@@ -1,19 +1,19 @@
 <section class="section" id="state" data-section-key="state" data-cms-section="state" data-section="state" aria-labelledby="state-title">
           <div class="section-copy">
-            <h2 id="state-title">Built for long-running, stateful work</h2>
-            <p class="section-lead">Sessions stream over WebSockets, retain state across threads, and stay alive only as long as the job needs.</p>
+            <h2 id="state-title">Sessions the SDK can actually resume</h2>
+            <p class="section-lead">Agent Sam sessions stream over the control plane the SDK talks to — keep state across turns, tunnel previews, then tear down when the job is done.</p>
             <div class="feature-list">
               <article class="feature">
                 <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" aria-hidden="true"><path d="M6 3h12"/><path d="M6 21h12"/><path d="M8 3c0 5 8 5 8 9s-8 4-8 9"/><path d="M16 3c0 5-8 5-8 9s8 4 8 9"/></svg>
-                <div><h3>Configurable TTLs</h3><p>Expire idle sessions automatically, cap total runtime, and keep build experiments from becoming surprise infrastructure.</p></div>
+                <div><h3>Configurable TTLs</h3><p>Expire idle sessions automatically so SDK experiments stay cheap and do not become surprise infrastructure.</p></div>
               </article>
               <article class="feature">
                 <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" aria-hidden="true"><path d="M6 3v18"/><path d="M18 6v12"/><circle cx="6" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><path d="M6 8c0 4 12 2 12 8"/></svg>
-                <div><h3>Snapshot and fork</h3><p>Capture a running sandbox, restore it later, or branch alternatives so agents can explore safely in parallel.</p></div>
+                <div><h3>Snapshot and fork</h3><p>Snapshot a sandbox the SDK opened, restore it later, or fork alternatives so agents explore safely in parallel.</p></div>
               </article>
               <article class="feature">
                 <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" aria-hidden="true"><path d="M4 8h10a4 4 0 0 1 0 8H9"/><path d="m7 12-3-4 3-4"/><path d="M20 16H10a4 4 0 0 1 0-8h5"/><path d="m17 12 3 4-3 4"/></svg>
-                <div><h3>Port tunneling</h3><p>Preview a running app, API endpoint, model viewer, CAD job, or static build without exposing the whole machine.</p></div>
+                <div><h3>Port tunneling</h3><p>Tunnel a preview the SDK opened — app, API, or build — without exposing the whole machine.</p></div>
               </article>
             </div>
           </div>
@@ -22,7 +22,7 @@
             <article class="mock-card wide" aria-label="Live terminal mockup">
               <div class="terminal-shell">
                 <aside class="app-rail">
-                  <strong>AgentSam</strong>
+                  <strong>agentsam-sdk</strong>
                   <div class="rail-menu">
                     <span><i></i> All applications</span>
                     <span><i></i> Search</span>
@@ -44,11 +44,11 @@
                     <pre class="terminal-output" id="terminalOutput"><span class="prompt">root@agentsam:~#</span> <span class="command">uname &amp;&amp; node -v</span>
 Linux
 v22.11.0
-<span class="prompt">root@agentsam:~#</span> <span class="command">npm test -- --runInBand</span>
+<span class="prompt">root@agentsam:~#</span> <span class="command">npm i @inneranimalmedia/agentsam-sdk && agentsam --version</span>
 <span class="ok">✓</span> auth proxy policy validated
 <span class="ok">✓</span> worker bindings mocked
 <span class="ok">✓</span> preview tunnel listening on :8787
-<span class="muted">streaming logs to AgentSam control plane...</span></pre>
+<span class="muted">streaming logs to Agent Sam control plane...</span></pre>
                   </div>
                 </div>
               </div>
