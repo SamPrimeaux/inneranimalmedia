@@ -22,6 +22,14 @@
 
 Encoded in `scripts/lib/runtime-code-index-manifest.mjs`. Prune is **off** for `--runtime` so existing `dashboard/` chunks stay until you intentionally replace them.
 
+## D1 bookkeeping (`agentsam_code_index_job`)
+Live reindex (not `--dry-run`) updates job **`cidx_src_reindex_v1`** (override with `CODE_INDEX_JOB_ID`):
+- start → `status=running`, `file_count`, cleared error
+- per file (every 1 or 10) → `indexed_file_count`, `chunk_count`, `progress_percent`
+- end → `status=completed` / `failed` + timestamps
+
+Opt out: `SKIP_CODE_INDEX_JOB=1`.
+
 ## Batch 1 (small validate) — already shipped
 ```bash
 npm run run:reindex_src_worker_batch1:dry-run

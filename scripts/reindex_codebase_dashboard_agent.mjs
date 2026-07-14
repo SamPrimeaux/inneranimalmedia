@@ -52,6 +52,10 @@ import { buildCreateSurfacesManifest } from './lib/create-surfaces-manifest.mjs'
 import { MILESTONE_WORKER_CODE_PATHS } from './lib/milestone-worker-code-paths.mjs';
 import { SRC_WORKER_BATCH1_PATHS } from './lib/src-worker-batch1-paths.mjs';
 import { buildRuntimeEligibleManifest, RUNTIME_REQUIRED_FILES } from './lib/runtime-code-index-manifest.mjs';
+import {
+  createCodeIndexJobTracker,
+  resolveCodeIndexJobId,
+} from './lib/code-index-job-d1.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -659,12 +663,45 @@ async function main() {
   const vectorizeQueue = [];
   const approvedPaths = new Set(eligiblePaths);
 
+  /** @type {ReturnType<typeof createCodeIndexJobTracker> | null} */
+  let jobTracker = null;
+  if (!DRY_RUN && process.env.SKIP_CODE_INDEX_JOB !== '1') {
+    try {
+      jobTracker = createCodeIndexJobTracker({
+        jobId: resolveCodeIndexJobId({ srcBatch1: SRC_BATCH1, runtime: RUNTIME }),
+        triggeredBy: SCRIPT_KEY,
+        fileCount: eligiblePaths.length,
+        sourcePath: RUNTIME_PREFIX
+          ? RUNTIME_PREFIX
+          : SRC_BATCH1
+            ? 'src-batch1'
+            : RUNTIME
+              ? 'runtime'
+              : 'dashboard-agent',
+        repoFullName: REPO,
+        vectorBackend: 'supabase_pgvector+vectorize',
+        progressEvery: eligiblePaths.length > 50 ? 10 : 1,
+      });
+      jobTracker.markRunning();
+    } catch (e) {
+      console.warn(
+        `[code-index-job] D1 bookkeeping start failed (continuing embed): ${e?.message || e}`,
+      );
+      jobTracker = null;
+    }
+  }
+
   try {
     for (const filePath of eligiblePaths) {
       const abs = join(ROOT, filePath);
       if (!existsSync(abs)) {
         console.error(`  missing: ${filePath}`);
         stats.missing++;
+        try {
+          jobTracker?.tick({ failed: true });
+        } catch (e) {
+          console.warn(`[code-index-job] progress failed: ${e?.message || e}`);
+        }
         continue;
       }
 
@@ -678,6 +715,11 @@ async function main() {
         if (existing?.content_hash === hash) {
           if (VERBOSE) console.log(`  skip (unchanged): ${filePath}`);
           stats.filesSkipped++;
+          try {
+            jobTracker?.tick({ chunksAdded: 0 });
+          } catch (e) {
+            console.warn(`[code-index-job] progress failed: ${e?.message || e}`);
+          }
           continue;
         }
       }
@@ -685,6 +727,11 @@ async function main() {
       const chunks = chunkFile(raw, language);
       if (!chunks.length) {
         if (VERBOSE) console.log(`  skip (empty): ${filePath}`);
+        try {
+          jobTracker?.tick({ chunksAdded: 0 });
+        } catch (e) {
+          console.warn(`[code-index-job] progress failed: ${e?.message || e}`);
+        }
         continue;
       }
 
@@ -757,6 +804,11 @@ async function main() {
 
       stats.filesIndexed++;
       console.log(`  indexed: ${filePath} (${chunks.length} chunks)`);
+      try {
+        jobTracker?.tick({ chunksAdded: chunks.length });
+      } catch (e) {
+        console.warn(`[code-index-job] progress failed: ${e?.message || e}`);
+      }
     }
 
     if (stats.missing > 0) {
@@ -781,7 +833,18 @@ async function main() {
         console.log('  nothing to prune');
       }
     }
+
+    try {
+      jobTracker?.complete();
+    } catch (e) {
+      console.warn(`[code-index-job] complete failed: ${e?.message || e}`);
+    }
   } catch (err) {
+    try {
+      jobTracker?.fail(err);
+    } catch {
+      /* already logged inside fail */
+    }
     if (!DRY_RUN) {
       try {
         writeRunReceipt(stats, 'failed', err?.message || String(err));
@@ -802,6 +865,7 @@ async function main() {
     writeRunReceipt(stats, 'ok');
     console.log(`Vectorize index: ${VECTORIZE_INDEX} (propagation ~5–10s after upsert)`);
     console.log(`D1 sync log: ${RUN_SYNC_CHUNK_ID} (+ history ${RUN_SYNC_CHUNK_ID}:${RUN_ID})`);
+    if (jobTracker) console.log(`D1 code index job: ${jobTracker.jobId}`);
   }
   console.log(`${'═'.repeat(60)}\n`);
 
