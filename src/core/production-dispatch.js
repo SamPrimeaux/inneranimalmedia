@@ -383,6 +383,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleSummarizeBackfill(request, env);
   }
 
+  if (pathLower === '/api/internal/summarize-session' && methodUpper === 'POST') {
+    const { handleSummarizeSession } = await import('../api/summarize-session.js');
+    return handleSummarizeSession(request, env, ctx);
+  }
+
   if (pathLower === '/api/internal/health-kv-dirty' && methodUpper === 'GET') {
     const { handleHealthKvDirty } = await import('../api/health-kv-dirty.js');
     return handleHealthKvDirty(request, env);

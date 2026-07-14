@@ -1,68 +1,34 @@
 /**
- * Supabase Edge Function: summarize-thread → session_summaries (+ embeddings).
- * Non-blocking callers: compaction cron and one-shot backfill API.
+ * Session summarize helpers — Wave 2 Worker bridge (R2 → agentsam_memory).
+ * Edge summarize-thread remains 410; callers use agentsam-session-summarize.js.
  */
 import { isHyperdriveUsable, runHyperdriveQuery } from './hyperdrive-query.js';
-
-const SUMMARIZE_THREAD_PATH = '/functions/v1/summarize-thread';
-const MIN_MESSAGES_FOR_SUMMARY = 20;
-const DEFAULT_MAX_MESSAGES = 40;
-
-/** @param {any} env */
-function supabaseBase(env) {
-  const raw = env?.SUPABASE_URL;
-  if (!raw || !String(raw).trim()) return null;
-  return String(raw).trim().replace(/\/$/, '');
-}
-
-/** @param {any} env */
-function serviceRoleKey(env) {
-  const key = env?.SUPABASE_SERVICE_ROLE_KEY;
-  return key && String(key).trim() ? String(key).trim() : null;
-}
+import {
+  maybeSummarizeSessionAfterCompaction,
+  summarizeSessionFromR2,
+  MIN_MESSAGES_FOR_SESSION_SUMMARY,
+  DEFAULT_MAX_MESSAGES,
+} from './agentsam-session-summarize.js';
 
 /**
  * @param {any} env
  * @param {{ session_id: string, tenant_id?: string|null, workspace_id?: string|null, max_messages?: number }} payload
+ * @deprecated Edge invoke retired — forwards to Worker-side summarizeSessionFromR2
  */
 export async function invokeSummarizeThreadEdgeFunction(env, payload) {
-  const base = supabaseBase(env);
-  const key = serviceRoleKey(env);
   const sessionId = String(payload?.session_id || '').trim();
-  if (!base || !key || !sessionId) {
-    return { ok: false, skipped: true, reason: 'supabase_not_configured_or_missing_session_id' };
+  const workspaceId = String(payload?.workspace_id || '').trim();
+  if (!sessionId || !workspaceId) {
+    return { ok: false, skipped: true, reason: 'missing_session_or_workspace' };
   }
-
-  const body = {
-    session_id: sessionId,
-    tenant_id: payload.tenant_id != null ? String(payload.tenant_id) : undefined,
-    workspace_id: payload.workspace_id != null ? String(payload.workspace_id) : undefined,
-    max_messages: Math.min(80, Math.max(1, Number(payload.max_messages) || DEFAULT_MAX_MESSAGES)),
-  };
-
-  try {
-    const res = await fetch(`${base}${SUMMARIZE_THREAD_PATH}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${key}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    if (!res.ok) {
-      return { ok: false, status: res.status, error: text.slice(0, 500) };
-    }
-    let json = null;
-    try {
-      json = text ? JSON.parse(text) : null;
-    } catch {
-      json = { raw: text.slice(0, 200) };
-    }
-    return { ok: true, status: res.status, result: json };
-  } catch (e) {
-    return { ok: false, error: String(e?.message || e) };
-  }
+  const result = await summarizeSessionFromR2(env, {
+    sessionId,
+    workspaceId,
+    tenantId: payload.tenant_id,
+    maxMessages: payload.max_messages,
+    force: false,
+  });
+  return { ok: Boolean(result.ok || result.skipped), status: 200, result };
 }
 
 /**
@@ -72,46 +38,37 @@ export async function invokeSummarizeThreadEdgeFunction(env, payload) {
 export async function sessionHasSummaryRow(env, sessionId) {
   const sid = String(sessionId || '').trim();
   if (!sid || !isHyperdriveUsable(env)) return false;
+  const key = `conversation_summary:${sid}`;
   const out = await runHyperdriveQuery(
+    env,
+    `SELECT 1 AS ok FROM agentsam.agentsam_memory_oai3large_1536
+      WHERE memory_key = $1 LIMIT 1`,
+    [key],
+  );
+  if (out.ok && (out.rows || []).length) return true;
+  // Legacy public.session_summaries (may already be gone)
+  const legacy = await runHyperdriveQuery(
     env,
     `SELECT 1 AS ok FROM public.session_summaries WHERE session_id = $1 LIMIT 1`,
     [sid],
-  );
-  return out.ok && (out.rows || []).length > 0;
+  ).catch(() => ({ ok: false, rows: [] }));
+  return Boolean(legacy.ok && (legacy.rows || []).length);
 }
 
 /**
- * After RAG compaction archives a conversation — optional summarize (never throws).
+ * After chat compaction — Worker summarize (never throws).
  * @param {any} env
- * @param {{ sessionId: string, messageCount: number, tenantId?: string|null, workspaceId?: string|null }} opts
+ * @param {{ sessionId: string, messageCount: number, tenantId?: string|null, workspaceId?: string|null, userId?: string|null, ctx?: any }} opts
  */
 export async function maybeSummarizeThreadAfterCompaction(env, opts) {
-  const sessionId = String(opts?.sessionId || '').trim();
-  const messageCount = Number(opts?.messageCount) || 0;
-  if (!sessionId || messageCount <= MIN_MESSAGES_FOR_SUMMARY) {
-    return { invoked: false, reason: 'below_message_threshold' };
-  }
-  if (!supabaseBase(env) || !serviceRoleKey(env)) {
-    return { invoked: false, reason: 'supabase_not_configured' };
-  }
-  try {
-    if (await sessionHasSummaryRow(env, sessionId)) {
-      return { invoked: false, reason: 'summary_exists' };
-    }
-    const result = await invokeSummarizeThreadEdgeFunction(env, {
-      session_id: sessionId,
-      tenant_id: opts.tenantId ?? undefined,
-      workspace_id: opts.workspaceId ?? undefined,
-      max_messages: DEFAULT_MAX_MESSAGES,
-    });
-    if (!result.ok) {
-      console.debug('[summarize-thread] compaction invoke failed', sessionId, result.error || result.status);
-    }
-    return { invoked: true, ok: result.ok, result };
-  } catch (e) {
-    console.debug('[summarize-thread] compaction skipped', sessionId, e?.message ?? e);
-    return { invoked: false, reason: 'error', error: String(e?.message || e) };
-  }
+  return maybeSummarizeSessionAfterCompaction(env, {
+    sessionId: opts.sessionId,
+    messageCount: opts.messageCount,
+    tenantId: opts.tenantId,
+    workspaceId: opts.workspaceId,
+    userId: opts.userId,
+    ctx: opts.ctx,
+  });
 }
 
 /**
@@ -122,30 +79,18 @@ export async function d1SessionContext(db, sessionId) {
   try {
     const row = await db
       .prepare(
-        `SELECT s.id, s.tenant_id,
-          (SELECT COUNT(*) FROM agent_messages am WHERE am.conversation_id = s.id) AS message_count
-         FROM agent_sessions s
-         WHERE s.id = ?
-         LIMIT 1`,
+        `SELECT conversation_id, user_id, workspace_id, tenant_id
+           FROM agentsam_chat_sessions WHERE conversation_id = ? LIMIT 1`,
       )
       .bind(sessionId)
       .first();
     if (!row) return null;
-    let workspaceId = null;
-    try {
-      const ws = await db
-        .prepare(`SELECT workspace_id FROM agent_sessions WHERE id = ? LIMIT 1`)
-        .bind(sessionId)
-        .first();
-      workspaceId = ws?.workspace_id != null ? String(ws.workspace_id) : null;
-    } catch {
-      workspaceId = null;
-    }
     return {
-      session_id: String(row.id),
+      session_id: String(row.conversation_id),
       tenant_id: row.tenant_id != null ? String(row.tenant_id) : null,
-      workspace_id: workspaceId,
-      message_count: Number(row.message_count) || 0,
+      workspace_id: row.workspace_id != null ? String(row.workspace_id) : null,
+      user_id: row.user_id != null ? String(row.user_id) : null,
+      message_count: 0,
     };
   } catch {
     return null;
@@ -153,7 +98,7 @@ export async function d1SessionContext(db, sessionId) {
 }
 
 /**
- * Sessions in D1 with >20 messages and no Supabase session_summaries row.
+ * Chat sessions needing summary (D1 meta + missing memory_key in PG).
  * @param {any} env
  * @param {{ limit?: number }} [opts]
  */
@@ -164,14 +109,14 @@ export async function listD1SessionsNeedingSummary(env, opts = {}) {
   try {
     const { results } = await db
       .prepare(
-        `SELECT s.id AS session_id, s.tenant_id,
-          (SELECT COUNT(*) FROM agent_messages am WHERE am.conversation_id = s.id) AS message_count
-         FROM agent_sessions s
-         WHERE (SELECT COUNT(*) FROM agent_messages am WHERE am.conversation_id = s.id) > ?
-         ORDER BY s.updated_at DESC
-         LIMIT ?`,
+        `SELECT conversation_id AS session_id, tenant_id, workspace_id, user_id,
+                COALESCE(digest_count, 0) AS digest_count
+           FROM agentsam_chat_sessions
+          WHERE r2_messages_key IS NOT NULL
+          ORDER BY updated_at DESC
+          LIMIT ?`,
       )
-      .bind(MIN_MESSAGES_FOR_SUMMARY, limit * 3)
+      .bind(limit * 3)
       .all();
     const rows = results || [];
     const need = [];
@@ -179,12 +124,12 @@ export async function listD1SessionsNeedingSummary(env, opts = {}) {
       const sessionId = String(r.session_id || '').trim();
       if (!sessionId) continue;
       if (await sessionHasSummaryRow(env, sessionId)) continue;
-      const ctx = await d1SessionContext(db, sessionId);
       need.push({
         session_id: sessionId,
-        tenant_id: ctx?.tenant_id ?? (r.tenant_id != null ? String(r.tenant_id) : null),
-        workspace_id: ctx?.workspace_id ?? null,
-        message_count: Number(r.message_count) || ctx?.message_count || 0,
+        tenant_id: r.tenant_id != null ? String(r.tenant_id) : null,
+        workspace_id: r.workspace_id != null ? String(r.workspace_id) : null,
+        user_id: r.user_id != null ? String(r.user_id) : null,
+        message_count: Math.max(MIN_MESSAGES_FOR_SESSION_SUMMARY + 1, Number(r.digest_count) || 0),
       });
       if (need.length >= limit) break;
     }
@@ -199,7 +144,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * @param {any} env
- * @param {Array<{ session_id: string, tenant_id?: string|null, workspace_id?: string|null, message_count?: number }>} sessions
+ * @param {Array<{ session_id: string, tenant_id?: string|null, workspace_id?: string|null, user_id?: string|null, message_count?: number }>} sessions
  * @param {{ batchSize?: number, delayMs?: number }} [opts]
  */
 export async function queueSummarizeThreadBatch(env, sessions, opts = {}) {
@@ -209,11 +154,16 @@ export async function queueSummarizeThreadBatch(env, sessions, opts = {}) {
   for (let i = 0; i < sessions.length; i += batchSize) {
     const chunk = sessions.slice(i, i + batchSize);
     for (const s of chunk) {
-      const out = await maybeSummarizeThreadAfterCompaction(env, {
+      if (!s.workspace_id) {
+        results.push({ session_id: s.session_id, invoked: false, reason: 'missing_workspace' });
+        continue;
+      }
+      const out = await maybeSummarizeSessionAfterCompaction(env, {
         sessionId: s.session_id,
-        messageCount: Number(s.message_count) || MIN_MESSAGES_FOR_SUMMARY + 1,
+        messageCount: Number(s.message_count) || MIN_MESSAGES_FOR_SESSION_SUMMARY + 1,
         tenantId: s.tenant_id,
         workspaceId: s.workspace_id,
+        userId: s.user_id,
       });
       results.push({ session_id: s.session_id, ...out });
     }
@@ -223,12 +173,13 @@ export async function queueSummarizeThreadBatch(env, sessions, opts = {}) {
 }
 
 /**
- * On-demand /summarize — force invoke edge function (non-blocking, never throws).
+ * On-demand /summarize — Worker bridge (never throws).
  * @param {any} env
  * @param {{
  *   sessionId: string,
  *   tenantId?: string|null,
  *   workspaceId?: string|null,
+ *   userId?: string|null,
  *   messageCount?: number,
  *   force?: boolean,
  *   max_messages?: number,
@@ -236,37 +187,33 @@ export async function queueSummarizeThreadBatch(env, sessions, opts = {}) {
  */
 export async function summarizeThreadOnDemand(env, opts) {
   const sessionId = String(opts?.sessionId || '').trim();
+  const workspaceId = String(opts?.workspaceId || '').trim();
   const messageCount = Number(opts?.messageCount) || 0;
   const force = opts?.force === true;
 
-  if (!sessionId) {
-    return { invoked: false, reason: 'missing_session_id' };
-  }
-  if (!force && messageCount <= MIN_MESSAGES_FOR_SUMMARY) {
+  if (!sessionId) return { invoked: false, reason: 'missing_session_id' };
+  if (!workspaceId) return { invoked: false, reason: 'missing_workspace_id' };
+  if (!force && messageCount > 0 && messageCount < MIN_MESSAGES_FOR_SESSION_SUMMARY) {
     return { invoked: false, reason: 'below_message_threshold' };
-  }
-  if (!supabaseBase(env) || !serviceRoleKey(env)) {
-    return { invoked: false, reason: 'supabase_not_configured' };
   }
 
   try {
     if (!force && (await sessionHasSummaryRow(env, sessionId))) {
       return { invoked: false, reason: 'summary_exists' };
     }
-    const result = await invokeSummarizeThreadEdgeFunction(env, {
-      session_id: sessionId,
-      tenant_id: opts.tenantId ?? undefined,
-      workspace_id: opts.workspaceId ?? undefined,
-      max_messages: opts.max_messages,
+    const result = await summarizeSessionFromR2(env, {
+      sessionId,
+      workspaceId,
+      tenantId: opts.tenantId,
+      userId: opts.userId,
+      maxMessages: opts.max_messages,
+      force,
     });
-    if (!result.ok) {
-      console.debug('[summarize-thread] on_demand failed', sessionId, result.error || result.status);
-    }
-    return { invoked: true, ok: result.ok, result };
+    return { invoked: true, ok: Boolean(result.ok || result.skipped), result };
   } catch (e) {
-    console.debug('[summarize-thread] on_demand skipped', sessionId, e?.message ?? e);
+    console.warn('[summarize-thread] on_demand', sessionId, e?.message ?? e);
     return { invoked: false, reason: 'error', error: String(e?.message || e) };
   }
 }
 
-export { MIN_MESSAGES_FOR_SUMMARY, DEFAULT_MAX_MESSAGES };
+export { MIN_MESSAGES_FOR_SESSION_SUMMARY, DEFAULT_MAX_MESSAGES };

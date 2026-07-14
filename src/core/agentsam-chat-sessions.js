@@ -759,6 +759,19 @@ export async function maybeCompactChatSession(env, conversationId) {
     console.warn('[maybeCompactChatSession] D1 update failed', e?.message ?? e);
   }
 
+  try {
+    const { maybeSummarizeSessionAfterCompaction } = await import('./agentsam-session-summarize.js');
+    await maybeSummarizeSessionAfterCompaction(env, {
+      sessionId: convId,
+      messageCount: messages.length,
+      tenantId: row.tenant_id != null ? String(row.tenant_id) : null,
+      workspaceId: String(row.workspace_id),
+      userId: String(row.user_id),
+    });
+  } catch (e) {
+    console.warn('[maybeCompactChatSession] summarize-session', e?.message ?? e);
+  }
+
   return { ok: true, digest_key: digestKey, token_est: tokenEst };
 }
 

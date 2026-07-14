@@ -159,8 +159,8 @@ export async function runThreadActionOnDemand(env, ctx, opts) {
         action,
         error: sum.reason || 'summarize_skipped',
         user_message:
-          sum.reason === 'supabase_not_configured'
-            ? 'Thread summarize requires Supabase (summarize-thread edge function). Compaction (/compact) still works on-platform.'
+          sum.reason === 'missing_workspace_id'
+            ? 'Thread summarize needs workspace context. Compaction (/compact) still works on-platform.'
             : `Summarize skipped: ${sum.reason || 'unknown'}.`,
       };
     }
@@ -172,8 +172,8 @@ export async function runThreadActionOnDemand(env, ctx, opts) {
       summarize: sum,
       message_count: messages.length,
       user_message: sum.ok
-        ? `Thread summary queued (${messages.length} messages). Long-term recall will update via session_summaries.`
-        : `Summarize request failed: ${String(sum.result?.error || sum.error || 'edge_error').slice(0, 200)}`,
+        ? `Thread summary saved (${messages.length} messages) to managed memory + memory lane.`
+        : `Summarize request failed: ${String(sum.result?.error || sum.error || 'summarize_error').slice(0, 200)}`,
     };
   } catch (e) {
     console.warn('[thread-on-demand] summarize', e?.message ?? e);

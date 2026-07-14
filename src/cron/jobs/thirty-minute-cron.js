@@ -245,4 +245,16 @@ export async function runHourlyRoutingJobs(env, ctx) {
       console.warn('[cron/hourly] agentsam_memory_oai3large_1536_sync', e?.message ?? e),
     ),
   );
+  ctx.waitUntil(
+    import('../../core/agentsam-vector-sync-outbox.js')
+      .then(({ drainVectorSyncOutbox }) => drainVectorSyncOutbox(env, { limit: 40 }))
+      .catch((e) => console.warn('[cron/hourly] vector_sync_outbox', e?.message ?? e)),
+  );
+  ctx.waitUntil(
+    import('../../core/agentsam-deep-archive-promote.js')
+      .then(({ promoteEligibleMemoryToDeepArchive }) =>
+        promoteEligibleMemoryToDeepArchive(env, { limit: 15 }),
+      )
+      .catch((e) => console.warn('[cron/hourly] deep_archive_promote', e?.message ?? e)),
+  );
 }

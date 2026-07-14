@@ -168,6 +168,20 @@ export async function writeMemoryLane(env, params = {}) {
         metadata: { workspace_id: d1WorkspaceId, memory_key: memoryKey, title, source },
       },
     ]);
+  } else {
+    try {
+      const { enqueueVectorSyncOutbox } = await import('./agentsam-vector-sync-outbox.js');
+      await enqueueVectorSyncOutbox(env, {
+        workspaceId,
+        sourceTable: table,
+        sourceId: savedId,
+        vectorIndex: vectorizeBinding || 'AGENTSAM_VECTORIZE_MEMORY',
+        operation: 'upsert',
+        embeddingDims: 1536,
+      });
+    } catch (e) {
+      console.warn('[writeMemoryLane] outbox', e?.message ?? e);
+    }
   }
   return { ok: true, id: savedId, memory_key: memoryKey };
 }
