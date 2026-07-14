@@ -616,3 +616,142 @@
 .iam-cms-shell--theme-studio {
   height: 100%;
 }
+
+.ts-toast {
+  position: absolute;
+  top: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  background: #111827;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.ts-shell {
+  position: relative;
+}
+
+.ts-setting-input {
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  background: #fff;
+  color: #111827;
+}
+
+.ts-setting-input--area {
+  resize: vertical;
+  min-height: 48px;
+  font-family: inherit;
+}
+
+.ts-rail__empty-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.ts-btn--sm {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+.ts-btn.is-active {
+  border-color: #111827;
+  color: #111827;
+}
+
+.ts-media-picker {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+}
+
+.ts-media-picker__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(17, 24, 39, 0.45);
+  cursor: pointer;
+}
+
+.ts-media-picker__panel {
+  position: relative;
+  z-index: 1;
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(80vh, 640px);
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ts-media-picker__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ts-media-picker__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.ts-media-picker__search {
+  flex: 1;
+  min-width: 140px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.ts-media-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.ts-media-picker__tile {
+  position: relative;
+  aspect-ratio: 1;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  padding: 0;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.ts-media-picker__tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ts-media-picker__busy {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.7);
+  font-weight: 700;
+}
+

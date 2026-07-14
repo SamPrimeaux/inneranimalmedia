@@ -105,6 +105,18 @@
   color: #fff;
   background: var(--cms-teal);
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.iam-cms-shell__mark-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.iam-cms-shell__mark-wrap {
+  flex-shrink: 0;
 }
 
 .iam-cms-shell__title-wrap {
@@ -464,6 +476,56 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.iam-cms-site-hero__identity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.iam-cms-site-hero__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--cms-border);
+}
+
+.iam-cms-site-hero__footer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--cms-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.iam-cms-site-hero__footer-link:hover {
+  color: var(--cms-text);
+}
+
+.iam-cms-import-strip--compact {
+  flex: 1;
+  min-width: 180px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  gap: 8px;
+}
+
+.iam-cms-import-strip--compact .iam-cms-import-strip__drop {
+  min-height: 36px;
+  padding: 6px 12px;
+  font-size: 12px;
 }
 
 .iam-cms-site-hero__actions {

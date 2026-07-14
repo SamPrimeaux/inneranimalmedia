@@ -1,9 +1,8 @@
 import React, { useMemo } from 'react';
-import { Plus, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import type { CmsWorkspaceContext, CmsWorkspaceSite } from '../../hooks/useCmsWorkspaceContext';
 import { CmsDashboard, type CmsDashboardSetupMode } from './CmsDashboard';
 import { CmsGuidedChatHero } from './CmsGuidedChatHero';
-import { CmsHubImportStrip } from './CmsHubImportStrip';
 import { CmsSiteSwitcher } from './CmsSiteSwitcher';
 import { buildCmsHubPath } from './cmsRoute';
 import './cmsShell.css';
@@ -80,7 +79,6 @@ export function CmsHubPage({
 
         <div className="iam-cms-hub-page__body">
           <div className="iam-cms-hub-page__toolbar iam-cms-hub-page__toolbar--compact">
-            <p className="iam-cms-shell__kicker">CMS command center</p>
             <CmsSiteSwitcher
               sites={sites}
               activeSlug={resolvedSiteSlug}
@@ -96,10 +94,6 @@ export function CmsHubPage({
                 <RefreshCw size={14} className={loading ? 'animate-spin' : ''} aria-hidden />
                 Refresh
               </button>
-              <button type="button" className="iam-cms-shell__agent-btn" onClick={onOpenDeployWizard}>
-                <Plus size={14} strokeWidth={1.75} aria-hidden />
-                New site
-              </button>
             </div>
           </div>
 
@@ -111,10 +105,6 @@ export function CmsHubPage({
                 Retry
               </button>
             </div>
-          ) : null}
-
-          {resolvedSiteSlug && setupMode === 'active' ? (
-            <CmsHubImportStrip projectSlug={resolvedSiteSlug} />
           ) : null}
 
           <CmsDashboard

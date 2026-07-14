@@ -5,6 +5,7 @@ import type { CmsBootstrapData } from '../../../src/types/cms';
 import { buildCmsHubPath, buildCmsPath } from './cmsRoute';
 import { resolveStorefrontUrl, storefrontDisplayHost } from '../../../src/dashboard/cms/cmsStorefrontUrl';
 import { CmsIntegrationsStrip } from './CmsIntegrationsStrip';
+import { CmsHubImportStrip } from './CmsHubImportStrip';
 import { CmsSiteStructurePanel } from './CmsSiteStructurePanel';
 import { CmsSiteSwitcher } from './CmsSiteSwitcher';
 import { useCmsConnectedIntegrations } from './useCmsConnectedIntegrations';
@@ -390,8 +391,15 @@ export function CmsDashboard({
               className="iam-cms-btn iam-cms-btn--primary"
               onClick={() => onOpenDeployWizard?.()}
             >
-              Deploy site
+              New site
               <ArrowRight size={16} strokeWidth={2} aria-hidden />
+            </button>
+            <button
+              type="button"
+              className="iam-cms-btn"
+              onClick={() => onOpenDeployWizard?.()}
+            >
+              Import theme
             </button>
           </div>
         </section>
@@ -405,7 +413,7 @@ export function CmsDashboard({
             <div>
               <p className="iam-cms-site-hero__suite">Active site</p>
               <h2 className="iam-cms-site-hero__name">Choose a site</h2>
-              <p className="iam-cms-site-hero__meta">Pick which CMS site to open in this command center.</p>
+              <p className="iam-cms-site-hero__meta">Pick which CMS site to open.</p>
             </div>
             <CmsSiteSwitcher
               sites={sites}
@@ -536,6 +544,15 @@ export function CmsDashboard({
               View site
               <ExternalLink size={14} strokeWidth={2} aria-hidden />
             </a>
+          ) : null}
+        </div>
+        <div className="iam-cms-site-hero__footer">
+          {siteSlug ? <CmsHubImportStrip projectSlug={siteSlug} compact /> : null}
+          {onOpenDeployWizard ? (
+            <button type="button" className="iam-cms-site-hero__footer-link" onClick={() => onOpenDeployWizard()}>
+              <Plus size={14} aria-hidden />
+              New site
+            </button>
           ) : null}
         </div>
       </section>

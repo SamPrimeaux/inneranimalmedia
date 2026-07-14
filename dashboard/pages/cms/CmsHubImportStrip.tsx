@@ -19,9 +19,12 @@ function isArchive(name: string) {
 export function CmsHubImportStrip({
   projectSlug,
   onReady,
+  compact = false,
 }: {
   projectSlug: string;
   onReady?: (packageId: string) => void;
+  /** Footreprint under Active Site card — drop zone still works. */
+  compact?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -105,11 +108,16 @@ export function CmsHubImportStrip({
   );
 
   return (
-    <section className="iam-cms-import-strip" aria-label="Theme import">
-      <div className="iam-cms-import-strip__label">
-        <FileArchive size={15} aria-hidden />
-        Import theme
-      </div>
+    <section
+      className={`iam-cms-import-strip${compact ? ' iam-cms-import-strip--compact' : ''}`}
+      aria-label="Theme import"
+    >
+      {!compact ? (
+        <div className="iam-cms-import-strip__label">
+          <FileArchive size={15} aria-hidden />
+          Import theme
+        </div>
+      ) : null}
       <label
         className={`iam-cms-import-strip__drop${dragOver ? ' is-dragover' : ''}${busy ? ' is-busy' : ''}`}
         onDragEnter={(e) => {
@@ -124,7 +132,11 @@ export function CmsHubImportStrip({
         onDrop={onDrop}
       >
         <Upload size={15} aria-hidden />
-        {busy ? 'Working…' : 'Drop Shopify .zip / .tar.gz here or tap to browse'}
+        {busy
+          ? 'Working…'
+          : compact
+            ? 'Import theme (.zip)'
+            : 'Drop Shopify .zip / .tar.gz here or tap to browse'}
         <input
           ref={inputRef}
           type="file"

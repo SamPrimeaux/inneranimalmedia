@@ -8,10 +8,13 @@ import {
   IAM_AGENT_ENSURE_PANEL,
   IAM_AGENT_PANEL_CHANGED,
 } from '../../agentChatConstants';
+import { AppIcon } from '../../components/ui/AppIcon';
 import { CmsAgentComposeBar } from './CmsAgentComposeBar';
 import { CmsSiteSwitcher } from './CmsSiteSwitcher';
 import { buildCmsHubPath, buildCmsPath } from './cmsRoute';
+import { resolveCmsLogoUrl } from './resolveCmsBranding';
 import './cmsShell.css';
+import '../../components/ui/AppIcon.css';
 
 export type CmsShellNav = 'hub' | 'pages' | 'theme-editor' | 'online-store' | 'templates' | 'imports';
 
@@ -67,6 +70,12 @@ export function CmsShellLayout({
   const navigate = useNavigate();
   const siteName = site?.name || context?.project_name || siteSlug;
   const domain = displayDomain(site, context);
+  const { logo_url: shellLogo } = resolveCmsLogoUrl({
+    appKey: siteSlug,
+    clientAppsLogo: site?.logo_url,
+    tenantLogo: null,
+    propLogo: null,
+  });
   const [agentPanelOpen, setAgentPanelOpen] = useState(false);
   const siteRows = useMemo(() => {
     if (sites.length) return sites;
@@ -194,8 +203,12 @@ export function CmsShellLayout({
             <ArrowLeft size={16} strokeWidth={1.75} />
           </button>
           <div className="iam-cms-shell__brand">
-            <span className="iam-cms-shell__mark" aria-hidden>
-              {siteInitials(siteName, siteSlug)}
+            <span className="iam-cms-shell__mark-wrap" aria-hidden>
+              {shellLogo ? (
+                <AppIcon title={siteName} imageUrl={shellLogo} size="sm" />
+              ) : (
+                <span className="iam-cms-shell__mark">{siteInitials(siteName, siteSlug)}</span>
+              )}
             </span>
             <div className="iam-cms-shell__title-wrap">
               <h1 className="iam-cms-shell__title">{siteName}</h1>

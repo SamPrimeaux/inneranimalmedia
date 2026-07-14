@@ -40,4 +40,4 @@ export function movieModeTabPath(tab: MovieModeShellTab, projectId?: string | nu
 }
 
 export const IAM_LOGO_URL =
-  'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail';
+  'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/527ab85a-01bb-4125-57bb-694fe8be8700/public';

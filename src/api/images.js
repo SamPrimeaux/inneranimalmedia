@@ -754,6 +754,7 @@ async function handleGetImages(request, url, env, authUser, identity) {
   const tagFilter = (url.searchParams.get('tag') || '').trim().toLowerCase();
   const searchQ = (url.searchParams.get('q') || url.searchParams.get('search') || '').trim();
   const projectIdFilter = (url.searchParams.get('project_id') || '').trim();
+  const projectSlugFilter = (url.searchParams.get('project_slug') || '').trim().toLowerCase();
   const categoryFilter = (url.searchParams.get('category') || '').trim().toLowerCase();
   const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
   const origin = url.origin;
@@ -765,6 +766,10 @@ async function handleGetImages(request, url, env, authUser, identity) {
     }
     if (projectIdFilter) {
       if (String(item.project_id || '') !== projectIdFilter) return false;
+    }
+    if (projectSlugFilter) {
+      const slug = String(item.meta?.project_slug || '').trim().toLowerCase();
+      if (slug !== projectSlugFilter) return false;
     }
     if (categoryFilter) {
       const cat = String(item.meta?.category || '').toLowerCase();

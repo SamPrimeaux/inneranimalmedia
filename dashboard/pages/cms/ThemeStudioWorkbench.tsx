@@ -13,9 +13,17 @@ import {
   Plus,
   Settings2,
   Smartphone,
+  Sparkles,
   Tablet,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import {
+  IAM_AGENT_CHAT_COMPOSE,
+  IAM_AGENT_ENSURE_PANEL,
+} from '../../agentChatConstants';
+import { publishCmsPage, saveCmsPageDraft } from '../../../src/dashboard/cms/cmsApi';
+import { CmsImagePicker } from './CmsImagePicker';
+import { resolveCmsLogoUrl } from './resolveCmsBranding';
 import { buildCmsHubPath, buildCmsPath } from './cmsRoute';
 import './themeStudio.css';
 
@@ -52,6 +60,7 @@ type BootSection = {
   section_name?: string;
   sort_order?: number;
   is_visible?: number | boolean;
+  section_data?: Record<string, unknown> | string | null;
 };
 
 type Props = {
@@ -64,6 +73,44 @@ type Props = {
   apiProfile?: string | null;
   onNavigatePath?: (path: string, opts?: { replace?: boolean }) => void;
 };
+
+const BLANK_BASELINE: Array<{
+  section_type: string;
+  section_name: string;
+  sort_order: number;
+  section_data: Record<string, unknown>;
+}> = [
+  {
+    section_type: 'header',
+    section_name: 'Header',
+    sort_order: 10,
+    section_data: { headline: 'Site header', links: [] },
+  },
+  {
+    section_type: 'hero',
+    section_name: 'Hero',
+    sort_order: 20,
+    section_data: { headline: 'Welcome', subheadline: 'Edit this draft section', cta: 'Get started' },
+  },
+  {
+    section_type: 'rich_text',
+    section_name: 'Body',
+    sort_order: 30,
+    section_data: { body: 'Replace this copy with your story.' },
+  },
+  {
+    section_type: 'featured_collection',
+    section_name: 'Featured',
+    sort_order: 40,
+    section_data: { title: 'Featured', items: [] },
+  },
+  {
+    section_type: 'footer',
+    section_name: 'Footer',
+    sort_order: 90,
+    section_data: { copyright: '' },
+  },
+];
 
 function sectionKeyOf(s: BootSection): string {
   const raw = String(s.section_name || s.section_type || s.id || '')
@@ -79,6 +126,16 @@ function groupForSection(s: BootSection): 'HEADER' | 'TEMPLATE' | 'FOOTER' {
   if (t.includes('header') || t.includes('nav')) return 'HEADER';
   if (t.includes('footer')) return 'FOOTER';
   return 'TEMPLATE';
+}
+
+function parseSectionData(raw: BootSection['section_data']): Record<string, unknown> {
+  if (!raw) return {};
+  if (typeof raw === 'object') return { ...raw };
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return { raw };
+  }
 }
 
 export function ThemeStudioWorkbench({
@@ -113,6 +170,15 @@ export function ThemeStudioWorkbench({
   }>({ connected: [], recommended: [] });
   const [embedsLoading, setEmbedsLoading] = useState(false);
   const [themeCatsOpen, setThemeCatsOpen] = useState<Record<string, boolean>>({ Logo: true });
+  const [draftFields, setDraftFields] = useState<Record<string, unknown>>({});
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [seeding, setSeeding] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [canvasNonce, setCanvasNonce] = useState(0);
+  const [themeLogoOverride, setThemeLogoOverride] = useState<string | null>(null);
 
   const go = useCallback(
     (path: string, opts?: { replace?: boolean }) => {
@@ -122,48 +188,48 @@ export function ThemeStudioWorkbench({
     [navigate, onNavigatePath],
   );
 
+  const reloadBootstrap = useCallback(async () => {
+    const qs = encodeURIComponent(projectSlug);
+    const [appRes, bootRes] = await Promise.all([
+      fetch(`/api/cms/app-context?project_slug=${qs}`, { credentials: 'include', cache: 'no-store' }),
+      fetch(`/api/cms/bootstrap?project_slug=${qs}&site=${qs}`, {
+        credentials: 'include',
+        cache: 'no-store',
+      }),
+    ]);
+    const appJson = (await appRes.json().catch(() => ({}))) as AppContext & { error?: string };
+    const bootJson = (await bootRes.json().catch(() => ({}))) as {
+      pages?: BootPage[];
+      sections_by_page?: Record<string, BootSection[]>;
+      error?: string;
+      home_page?: { id?: string };
+    };
+    if (appRes.ok) setApp(appJson);
+    else if (appRes.status !== 404) setError(appJson.error || 'app_context_failed');
+    if (!bootRes.ok) {
+      setError(bootJson.error || 'bootstrap_failed');
+      setPages([]);
+      return;
+    }
+    const list = Array.isArray(bootJson.pages) ? bootJson.pages : [];
+    setPages(list);
+    setSectionsByPage(bootJson.sections_by_page || {});
+    const focus =
+      pageId ||
+      list.find((p) => p.is_homepage)?.id ||
+      bootJson.home_page?.id ||
+      list[0]?.id ||
+      null;
+    setActivePageId((prev) => prev || focus);
+  }, [projectSlug, pageId]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       setError(null);
       try {
-        const qs = encodeURIComponent(projectSlug);
-        const [appRes, bootRes] = await Promise.all([
-          fetch(`/api/cms/app-context?project_slug=${qs}`, { credentials: 'include', cache: 'no-store' }),
-          fetch(`/api/cms/bootstrap?project_slug=${qs}&site=${qs}`, {
-            credentials: 'include',
-            cache: 'no-store',
-          }),
-        ]);
-        const appJson = (await appRes.json().catch(() => ({}))) as AppContext & { error?: string };
-        const bootJson = (await bootRes.json().catch(() => ({}))) as {
-          pages?: BootPage[];
-          sections_by_page?: Record<string, BootSection[]>;
-          error?: string;
-          home_page?: { id?: string };
-        };
-        if (cancelled) return;
-        if (!appRes.ok && appRes.status !== 404) {
-          setError(appJson.error || 'app_context_failed');
-        } else if (appRes.ok) {
-          setApp(appJson);
-        }
-        if (!bootRes.ok) {
-          setError(bootJson.error || 'bootstrap_failed');
-          setPages([]);
-        } else {
-          const list = Array.isArray(bootJson.pages) ? bootJson.pages : [];
-          setPages(list);
-          setSectionsByPage(bootJson.sections_by_page || {});
-          const focus =
-            pageId ||
-            list.find((p) => p.is_homepage)?.id ||
-            bootJson.home_page?.id ||
-            list[0]?.id ||
-            null;
-          setActivePageId(focus);
-        }
+        await reloadBootstrap();
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'load_failed');
       } finally {
@@ -173,7 +239,7 @@ export function ThemeStudioWorkbench({
     return () => {
       cancelled = true;
     };
-  }, [projectSlug, pageId]);
+  }, [reloadBootstrap]);
 
   useEffect(() => {
     if (railMode !== 'app-embeds') return;
@@ -236,11 +302,12 @@ export function ThemeStudioWorkbench({
       u.searchParams.set('cms', '1');
       u.searchParams.set('preview', 'draft');
       if (activePage.id) u.searchParams.set('page_id', activePage.id);
+      u.searchParams.set('_ts', String(canvasNonce));
       return u.toString();
     } catch {
-      return `${base}${base.includes('?') ? '&' : '?'}cms=1&preview=draft`;
+      return `${base}${base.includes('?') ? '&' : '?'}cms=1&preview=draft&_ts=${canvasNonce}`;
     }
-  }, [activePage, publicDomain]);
+  }, [activePage, publicDomain, canvasNonce]);
 
   const postSelect = useCallback((key: string | null) => {
     const win = iframeRef.current?.contentWindow;
@@ -252,15 +319,44 @@ export function ThemeStudioWorkbench({
     win.postMessage({ type: 'cms:select-section', sectionKey: key }, '*');
   }, []);
 
+  const loadSectionDetail = useCallback(async (section: BootSection) => {
+    setDraftFields(parseSectionData(section.section_data));
+    try {
+      const res = await fetch(`/api/cms/sections?page_id=${encodeURIComponent(section.page_id)}`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        sections?: BootSection[];
+      };
+      const found = (data.sections || []).find((s) => s.id === section.id);
+      if (found) {
+        setDraftFields(parseSectionData(found.section_data));
+        setSectionsByPage((prev) => {
+          const list = prev[section.page_id] || [];
+          return {
+            ...prev,
+            [section.page_id]: list.map((s) => (s.id === found.id ? { ...s, ...found } : s)),
+          };
+        });
+      }
+    } catch {
+      /* keep local parse */
+    }
+  }, []);
+
   const selectSection = useCallback(
     (key: string) => {
       setActiveSectionKey(key);
       setRailMode('sections');
+      setDirty(false);
       postSelect(key);
       const row = railRef.current?.querySelector(`[data-section-key="${CSS.escape(key)}"]`);
       row?.scrollIntoView({ block: 'nearest' });
+      const sec = sections.find((s) => sectionKeyOf(s) === key);
+      if (sec) void loadSectionDetail(sec);
     },
-    [postSelect],
+    [loadSectionDetail, postSelect, sections],
   );
 
   useEffect(() => {
@@ -268,27 +364,32 @@ export function ThemeStudioWorkbench({
       const d = e.data;
       if (!d || typeof d !== 'object') return;
       if (d.type === 'cms:section-clicked' && d.sectionKey) {
-        setActiveSectionKey(String(d.sectionKey));
+        const key = String(d.sectionKey);
+        setActiveSectionKey(key);
         setRailMode('sections');
-        const row = railRef.current?.querySelector(
-          `[data-section-key="${CSS.escape(String(d.sectionKey))}"]`,
-        );
+        const sec = sections.find((s) => sectionKeyOf(s) === key || s.id === key);
+        if (sec) void loadSectionDetail(sec);
+        const row = railRef.current?.querySelector(`[data-section-key="${CSS.escape(key)}"]`);
         row?.scrollIntoView({ block: 'nearest' });
       }
       if (d.type === 'iam-cms-select-section' && d.section_name) {
         setActiveSectionKey(String(d.section_name));
       }
       if (d.type === 'cms:section-action') {
-        // Wire to existing mutate APIs later; surface in right panel for now.
         setActiveSectionKey(String(d.sectionKey || ''));
       }
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
-  }, []);
+  }, [loadSectionDetail, sections]);
 
+  const branding = resolveCmsLogoUrl({
+    appKey: projectSlug,
+    clientAppsLogo: app?.logo_url,
+    propLogo: logoUrl,
+  });
   const brand = app?.display_name || siteName || projectSlug;
-  const mark = app?.logo_url || logoUrl;
+  const mark = themeLogoOverride || branding.logo_url;
   const profile = app?.cms_api_profile || apiProfile || 'primetch';
   const activeSection = sections.find((s) => sectionKeyOf(s) === activeSectionKey) || null;
 
@@ -303,6 +404,170 @@ export function ThemeStudioWorkbench({
     'Media',
     'Brand information',
   ];
+
+  const openAgent = useCallback(() => {
+    window.dispatchEvent(new CustomEvent(IAM_AGENT_ENSURE_PANEL));
+    const sectionHint = activeSection
+      ? `Selected section: ${activeSection.section_name || activeSection.section_type} (${activeSection.id}) on page ${activePage?.title || activePage?.id || ''}.`
+      : `Editing CMS page ${activePage?.title || activePage?.id || ''} for ${projectSlug}.`;
+    window.dispatchEvent(
+      new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
+        detail: {
+          message: '',
+          send: false,
+          ensureAgentPanel: true,
+          project_slug: projectSlug,
+          surface: 'cms',
+          context: {
+            cms: {
+              project_slug: projectSlug,
+              page_id: activePage?.id || null,
+              section_id: activeSection?.id || null,
+              section_key: activeSectionKey,
+              hint: sectionHint,
+            },
+          },
+        },
+      }),
+    );
+  }, [activePage, activeSection, activeSectionKey, projectSlug]);
+
+  const updateField = useCallback((key: string, value: unknown) => {
+    setDraftFields((prev) => ({ ...prev, [key]: value }));
+    setDirty(true);
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (!activePage) return;
+    setSaving(true);
+    setActionMsg(null);
+    try {
+      if (activeSection) {
+        const res = await fetch(`/api/cms/sections/${encodeURIComponent(activeSection.id)}`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            section_data: draftFields,
+            section_name: activeSection.section_name,
+            section_type: activeSection.section_type,
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) throw new Error(data.error || `Save failed (${res.status})`);
+      } else {
+        await saveCmsPageDraft(activePage.id, {
+          title: activePage.title,
+          project_slug: projectSlug,
+        });
+      }
+      setDirty(false);
+      setActionMsg('Draft saved');
+      setCanvasNonce((n) => n + 1);
+      await reloadBootstrap();
+    } catch (e) {
+      setActionMsg(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }, [activePage, activeSection, draftFields, projectSlug, reloadBootstrap]);
+
+  const handlePublish = useCallback(async () => {
+    if (!activePage) return;
+    setPublishing(true);
+    setActionMsg(null);
+    try {
+      if (dirty && activeSection) {
+        await handleSave();
+      }
+      await publishCmsPage(activePage.id, { project_slug: projectSlug });
+      setActionMsg('Published');
+      setCanvasNonce((n) => n + 1);
+      await reloadBootstrap();
+    } catch (e) {
+      setActionMsg(e instanceof Error ? e.message : 'Publish failed');
+    } finally {
+      setPublishing(false);
+    }
+  }, [activePage, dirty, activeSection, handleSave, projectSlug, reloadBootstrap]);
+
+  const seedBaseline = useCallback(async () => {
+    if (!activePage) return;
+    setSeeding(true);
+    setActionMsg(null);
+    try {
+      for (const seed of BLANK_BASELINE) {
+        const res = await fetch('/api/cms/sections', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            page_id: activePage.id,
+            project_slug: projectSlug,
+            ...seed,
+          }),
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(data.error || `Seed failed (${res.status})`);
+        }
+      }
+      setActionMsg('Baseline layout added (draft)');
+      await reloadBootstrap();
+      setCanvasNonce((n) => n + 1);
+    } catch (e) {
+      setActionMsg(e instanceof Error ? e.message : 'Seed failed');
+    } finally {
+      setSeeding(false);
+    }
+  }, [activePage, projectSlug, reloadBootstrap]);
+
+  const toggleVisibility = useCallback(
+    async (section: BootSection) => {
+      const next = !(section.is_visible !== 0 && section.is_visible !== false);
+      await fetch(`/api/cms/sections/${encodeURIComponent(section.id)}/visibility`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_visible: next }),
+      }).catch(() => null);
+      setSectionsByPage((prev) => {
+        const list = prev[section.page_id] || [];
+        return {
+          ...prev,
+          [section.page_id]: list.map((s) =>
+            s.id === section.id ? { ...s, is_visible: next ? 1 : 0 } : s,
+          ),
+        };
+      });
+      setCanvasNonce((n) => n + 1);
+    },
+    [],
+  );
+
+  const removeSection = useCallback(async () => {
+    if (!activeSection || !activePage) return;
+    const res = await fetch(`/api/cms/sections/${encodeURIComponent(activeSection.id)}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      setActionMsg(data.error || 'Remove failed');
+      return;
+    }
+    setActiveSectionKey(null);
+    setDraftFields({});
+    setDirty(false);
+    await reloadBootstrap();
+    setCanvasNonce((n) => n + 1);
+  }, [activeSection, activePage, reloadBootstrap]);
+
+  const contentKeys = useMemo(() => {
+    const keys = Object.keys(draftFields).filter((k) => typeof draftFields[k] !== 'object');
+    if (!keys.length) return ['headline', 'subheadline', 'body'];
+    return keys.slice(0, 12);
+  }, [draftFields]);
 
   return (
     <div className="ts-shell">
@@ -323,7 +588,7 @@ export function ThemeStudioWorkbench({
               <span className="ts-topbar__logo-fallback">{brand.slice(0, 2).toUpperCase()}</span>
             )}
             <span className="ts-topbar__name">{brand}</span>
-            <span className="ts-theme-status">Draft</span>
+            <span className="ts-theme-status">{dirty ? 'Unsaved' : 'Draft'}</span>
             <span className="ts-topbar__profile" title="cms_api_profile">
               {profile}
             </span>
@@ -351,6 +616,7 @@ export function ThemeStudioWorkbench({
                     setActivePageId(p.id);
                     setPageMenuOpen(false);
                     setActiveSectionKey(null);
+                    setDirty(false);
                     go(
                       buildCmsPath({
                         panel: 'pages',
@@ -381,6 +647,15 @@ export function ThemeStudioWorkbench({
         </div>
 
         <div className="ts-topbar__right">
+          <button
+            type="button"
+            className="ts-icon-btn"
+            aria-label="Open Agent Sam"
+            title="Agent Sam"
+            onClick={openAgent}
+          >
+            <Sparkles size={15} strokeWidth={1.75} />
+          </button>
           <div className="ts-viewport" role="group" aria-label="Viewport">
             {(
               [
@@ -401,14 +676,25 @@ export function ThemeStudioWorkbench({
               </button>
             ))}
           </div>
-          <button type="button" className="ts-btn ts-btn--ghost" disabled title="Save draft (existing APIs)">
-            Save
+          <button
+            type="button"
+            className="ts-btn ts-btn--ghost"
+            disabled={saving || !activePage}
+            onClick={() => void handleSave()}
+          >
+            {saving ? 'Saving…' : 'Save'}
           </button>
-          <button type="button" className="ts-btn ts-btn--primary" disabled title="Publish (existing APIs)">
-            Publish
+          <button
+            type="button"
+            className="ts-btn ts-btn--primary"
+            disabled={publishing || !activePage}
+            onClick={() => void handlePublish()}
+          >
+            {publishing ? 'Publishing…' : 'Publish'}
           </button>
         </div>
       </header>
+      {actionMsg ? <div className="ts-toast">{actionMsg}</div> : null}
 
       <div className="ts-body">
         <aside className="ts-rail">
@@ -480,7 +766,22 @@ export function ThemeStudioWorkbench({
                               </span>
                               <span className="ts-section-row__subtitle">{s.section_type || key}</span>
                             </span>
-                            <span className="ts-section-row__eye" title={visible ? 'Visible' : 'Hidden'}>
+                            <span
+                              className="ts-section-row__eye"
+                              title={visible ? 'Visible' : 'Hidden'}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void toggleVisibility(s);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.stopPropagation();
+                                  void toggleVisibility(s);
+                                }
+                              }}
+                              role="button"
+                              tabIndex={0}
+                            >
                               {visible ? <Eye size={14} /> : <EyeOff size={14} />}
                             </span>
                           </button>
@@ -490,7 +791,17 @@ export function ThemeStudioWorkbench({
                   ) : null,
                 )}
                 {!sections.length ? (
-                  <p className="ts-rail__empty">No sections on this page yet.</p>
+                  <div className="ts-rail__empty-stack">
+                    <p className="ts-rail__empty">No sections on this page yet.</p>
+                    <button
+                      type="button"
+                      className="ts-btn ts-btn--primary ts-btn--sm"
+                      disabled={seeding || !activePage}
+                      onClick={() => void seedBaseline()}
+                    >
+                      {seeding ? 'Adding…' : 'Add baseline layout'}
+                    </button>
+                  </div>
                 ) : null}
               </>
             ) : railMode === 'theme-settings' ? (
@@ -513,16 +824,19 @@ export function ThemeStudioWorkbench({
                           <div className="ts-image-picker">
                             {mark ? (
                               <img src={mark} alt="" className="ts-image-picker__thumb" />
-                            ) : (
-                              <button type="button" className="ts-image-picker-btn">
-                                Select
-                              </button>
-                            )}
+                            ) : null}
+                            <button
+                              type="button"
+                              className="ts-image-picker-btn"
+                              onClick={() => setPickerOpen(true)}
+                            >
+                              {mark ? 'Change' : 'Select'}
+                            </button>
                             <p className="ts-image-picker-hint">
-                              Media root:{' '}
+                              Source: {branding.branding_source} ·{' '}
                               {app?.website_r2?.bucket_name ||
                                 app?.website_r2?.custom_domain ||
-                                'resolve from client_apps'}
+                                'client_apps inventory'}
                             </p>
                           </div>
                         </div>
@@ -587,9 +901,7 @@ export function ThemeStudioWorkbench({
         </aside>
 
         <main className="ts-canvas">
-          <div
-            className={`ts-canvas__frame ts-canvas__frame--${viewport}`}
-          >
+          <div className={`ts-canvas__frame ts-canvas__frame--${viewport}`}>
             {canvasSrc ? (
               <iframe
                 ref={iframeRef}
@@ -614,6 +926,16 @@ export function ThemeStudioWorkbench({
                   Templates load from the cms catalog bucket. Applying writes into this site&apos;s
                   draft — not live publish.
                 </p>
+                <button
+                  type="button"
+                  className="ts-section-picker-item"
+                  onClick={() => {
+                    setAddOpen(false);
+                    void seedBaseline();
+                  }}
+                >
+                  Add baseline layout (header + 3 + footer)
+                </button>
                 <button
                   type="button"
                   className="ts-section-picker-item"
@@ -653,23 +975,62 @@ export function ThemeStudioWorkbench({
               <div className="ts-rp-section-header">
                 <span>&lt;&gt; {sectionKeyOf(activeSection)}</span>
               </div>
-              <div className="ts-setting-row">
-                <div className="ts-setting-label">Section name</div>
-                <div className="ts-setting-value">
-                  {activeSection.section_name || activeSection.section_type}
-                </div>
-              </div>
-              <div className="ts-setting-row">
-                <div className="ts-setting-label">Type</div>
-                <div className="ts-setting-value">{activeSection.section_type || '—'}</div>
-              </div>
-              {workspaceId ? (
+              {rightTab === 'content' ? (
+                <>
+                  <div className="ts-setting-row">
+                    <div className="ts-setting-label">Section name</div>
+                    <input
+                      className="ts-setting-input"
+                      value={String(activeSection.section_name || '')}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setSectionsByPage((prev) => {
+                          const list = prev[activeSection.page_id] || [];
+                          return {
+                            ...prev,
+                            [activeSection.page_id]: list.map((s) =>
+                              s.id === activeSection.id ? { ...s, section_name: v } : s,
+                            ),
+                          };
+                        });
+                        setDirty(true);
+                      }}
+                    />
+                  </div>
+                  {contentKeys.map((key) => (
+                    <div key={key} className="ts-setting-row">
+                      <div className="ts-setting-label">{key}</div>
+                      <textarea
+                        className="ts-setting-input ts-setting-input--area"
+                        rows={key === 'body' ? 4 : 2}
+                        value={String(draftFields[key] ?? '')}
+                        onChange={(e) => updateField(key, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </>
+              ) : null}
+              {rightTab === 'design' ? (
                 <div className="ts-setting-row">
-                  <div className="ts-setting-label">Workspace</div>
-                  <div className="ts-setting-value">{workspaceId}</div>
+                  <div className="ts-setting-label">Type</div>
+                  <div className="ts-setting-value">{activeSection.section_type || '—'}</div>
                 </div>
               ) : null}
-              <button type="button" className="ts-remove-section" disabled>
+              {rightTab === 'advanced' ? (
+                <>
+                  <div className="ts-setting-row">
+                    <div className="ts-setting-label">Section id</div>
+                    <div className="ts-setting-value">{activeSection.id}</div>
+                  </div>
+                  {workspaceId ? (
+                    <div className="ts-setting-row">
+                      <div className="ts-setting-label">Workspace</div>
+                      <div className="ts-setting-value">{workspaceId}</div>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+              <button type="button" className="ts-remove-section" onClick={() => void removeSection()}>
                 Remove section
               </button>
             </>
@@ -678,6 +1039,17 @@ export function ThemeStudioWorkbench({
           )}
         </aside>
       </div>
+
+      <CmsImagePicker
+        projectSlug={projectSlug}
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(url) => {
+          setThemeLogoOverride(url);
+          setDirty(true);
+          setActionMsg('Logo selected — Save to keep (site brand row updates separately)');
+        }}
+      />
     </div>
   );
 }

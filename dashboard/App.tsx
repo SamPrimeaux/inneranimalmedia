@@ -4614,7 +4614,7 @@ const App: React.FC = () => {
                 aria-label="Switch workspace"
               >
                 <img
-                  src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail"
+                  src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/527ab85a-01bb-4125-57bb-694fe8be8700/public"
                   alt=""
                   className="w-7 h-7 object-contain drop-shadow shrink-0 opacity-80 group-hover:opacity-100 transition-opacity"
                 />
