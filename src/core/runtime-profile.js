@@ -34,6 +34,7 @@ import {
 } from './inspect-tool-profile.js';
 import {
   compileD1ToolProfileRows,
+  compilePinnedToolKeysToRows,
   PINNED_PROFILE_KEYS,
   resolveD1ToolProfileKey,
   resolveUseOAuthParity,
@@ -699,7 +700,7 @@ export async function compileModeProfile(env, input) {
     normalizeAgentRuntimeMode(input.mode) === 'auto' ? 'agent' : normalizeAgentRuntimeMode(input.mode)
   );
   const message = String(input.message || '');
-  const taskType = String(input.taskType || mode).toLowerCase();
+  let taskType = String(input.taskType || mode).toLowerCase();
   const tenantId = input.tenantId != null ? String(input.tenantId).trim() : null;
   const workspaceId = input.workspaceId != null ? String(input.workspaceId).trim() : null;
   const userId = input.userId != null ? String(input.userId).trim() : null;
@@ -720,6 +721,16 @@ export async function compileModeProfile(env, input) {
     (input.routeKeyPin ? String(input.routeKeyPin).trim() : null) ||
     (promptRouteRow?.route_key != null ? String(promptRouteRow.route_key).trim() : null) ||
     mode;
+
+  // Classifier often labels CMS studio turns as chat/explain — pin task_type for tool + ledger truth.
+  if (
+    String(routeKey).toLowerCase() === 'cms_edit' &&
+    mode !== 'ask' &&
+    mode !== 'plan' &&
+    taskType !== 'cms_edit'
+  ) {
+    taskType = 'cms_edit';
+  }
 
   const routeToolRequirements = env?.DB
     ? await (
@@ -795,6 +806,9 @@ export async function compileModeProfile(env, input) {
     taskType,
     useInspect: useInspectProfile,
     useCodeDevelop: useCodeDevelopProfile,
+    routeKey,
+    routeKeyPin: input.routeKeyPin,
+    mode,
   });
   const activeProfileKey = profileResolve.profileKey;
   /** @type {Record<string, boolean>} */
@@ -923,6 +937,42 @@ export async function compileModeProfile(env, input) {
             }
             if (activeProfileKey === 'inspect' || activeProfileKey === 'd1_read' || activeProfileKey === 'ask') {
               return compileInspectToolRows(env, { userId, tenantId, workspaceId }, { maxTools });
+            }
+            if (activeProfileKey === 'cms_edit') {
+              // Cold-start pins when D1 profile row missing — keep parity with migration 859.
+              return compilePinnedToolKeysToRows(
+                env,
+                { workspaceId },
+                [
+                  'agentsam_cms_read',
+                  'agentsam_cms_write',
+                  'agentsam_cms_save_page_html',
+                  'agentsam_cms_save_injected',
+                  'agentsam_cms_publish',
+                  'agentsam_cms_verify_live',
+                  'agentsam_cms_save_site_shell',
+                  'agentsam_cms_publish_site_shell',
+                  'cms_pipeline_prototype',
+                  'fs_read_file',
+                  'agentsam_d1_query',
+                  'agentsam_memory_manager',
+                ],
+                maxTools,
+              ).then((rows) => ({
+                rows,
+                missingPinned: [],
+                pinned_count: rows.length,
+                total: rows.length,
+                source: 'js_cold_start',
+                write_policy: {
+                  can_edit_files: true,
+                  can_terminal: false,
+                  can_d1_write: true,
+                  can_deploy: true,
+                  can_browser_automation: false,
+                  can_memory_write: true,
+                },
+              }));
             }
             return { rows: [], missingPinned: [], pinned_count: 0, total: 0 };
           },

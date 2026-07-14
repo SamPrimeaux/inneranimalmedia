@@ -16,6 +16,7 @@ export const PINNED_PROFILE_KEYS = new Set([
   'd1_read',
   'mail',
   'default_route',
+  'cms_edit',
 ]);
 
 /** @type {Map<string, string>|null} */
@@ -136,6 +137,7 @@ function resolveD1ToolProfileKeyColdStart(ctx) {
   if (tt === 'mail_sweep') return 'mail_sweep';
   if (tt === 'gmail') return 'mail';
   if (tt === 'visual_canvas') return 'visual_canvas';
+  if (tt === 'cms_edit' || tt === 'cms_page' || tt === 'cms_publish') return 'cms_edit';
   // Unknown → ask (never oauth, never null)
   return 'ask';
 }
@@ -143,14 +145,43 @@ function resolveD1ToolProfileKeyColdStart(ctx) {
 /**
  * Map task_type → D1 profile_key. Prefer bindings table; cold-start JS only if empty.
  * Always returns a profile_key (never null) — unknown → ask.
+ * When on CMS studio surface (route_key=cms_edit) and mode is not pure ask,
+ * prefer cms_edit profile even if the classifier labeled the turn chat/explain.
  * @param {unknown} env
- * @param {{ taskSpec?: { toolProfile?: string|null }|null, taskType?: string|null, useInspect?: boolean, useCodeDevelop?: boolean }} ctx
- * @returns {Promise<{ profileKey: string, source: 'd1_binding'|'js_cold_start'|'task_spec' }>}
+ * @param {{
+ *   taskSpec?: { toolProfile?: string|null }|null,
+ *   taskType?: string|null,
+ *   useInspect?: boolean,
+ *   useCodeDevelop?: boolean,
+ *   routeKey?: string|null,
+ *   routeKeyPin?: string|null,
+ *   mode?: string|null,
+ * }} ctx
+ * @returns {Promise<{ profileKey: string, source: 'd1_binding'|'js_cold_start'|'task_spec'|'route_cms_edit' }>}
  */
 export async function resolveD1ToolProfileKey(env, ctx) {
   const tt = String(ctx.taskType || '')
     .trim()
     .toLowerCase();
+  const mode = String(ctx.mode || '')
+    .trim()
+    .toLowerCase();
+  const rk = String(ctx.routeKeyPin || ctx.routeKey || '')
+    .trim()
+    .toLowerCase();
+
+  // CMS studio / Theme Studio: never trap writable agent turns in ask/chat profile.
+  if (rk === 'cms_edit' && mode !== 'ask' && mode !== 'plan') {
+    return { profileKey: 'cms_edit', source: 'route_cms_edit' };
+  }
+  if (tt === 'cms_edit') {
+    const bindingsEarly = await loadToolProfileBindingsMap(env);
+    if (bindingsEarly.has('cms_edit')) {
+      return { profileKey: /** @type {string} */ (bindingsEarly.get('cms_edit')), source: 'd1_binding' };
+    }
+    return { profileKey: 'cms_edit', source: 'js_cold_start' };
+  }
+
   const bindings = await loadToolProfileBindingsMap(env);
   if (bindings.size > 0 && tt && bindings.has(tt)) {
     return { profileKey: /** @type {string} */ (bindings.get(tt)), source: 'd1_binding' };
@@ -170,7 +201,8 @@ export async function resolveD1ToolProfileKey(env, ctx) {
     tp === 'mail_compose' ||
     tp === 'mail_sweep' ||
     tp === 'd1_read' ||
-    tp === 'visual_canvas'
+    tp === 'visual_canvas' ||
+    tp === 'cms_edit'
   ) {
     return { profileKey: tp, source: 'task_spec' };
   }

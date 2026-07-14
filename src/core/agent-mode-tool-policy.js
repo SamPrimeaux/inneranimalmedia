@@ -132,7 +132,27 @@ export async function loadModeToolPolicy(env, modeSlug, opts = {}) {
   };
 }
 
-const FILE_MUTATION_TOOLS = ['fs_write_file', 'fs_edit_file', 'github_create_file', 'github_update_file'];
+const FILE_MUTATION_TOOLS = [
+  'fs_write_file',
+  'fs_edit_file',
+  'github_create_file',
+  'github_update_file',
+  'agentsam_cms_write',
+  'agentsam_cms_save_page_html',
+  'agentsam_cms_save_injected',
+  'agentsam_cms_save_site_shell',
+  'cms_write',
+  'cms_save_page_html',
+  'cms_save_injected',
+  'cms_save_site_shell',
+];
+
+const CMS_PUBLISH_TOOLS = [
+  'agentsam_cms_publish',
+  'agentsam_cms_publish_site_shell',
+  'cms_publish',
+  'cms_publish_site_shell',
+];
 
 /**
  * Secondary gate from RuntimeProfile.write_policy (Ask/Plan read-only contract).
@@ -152,7 +172,7 @@ export function toolBlockedByWritePolicy(writePolicy, toolName, opts = {}) {
     return true;
   }
   if (!writePolicy.can_terminal && TERMINAL_TOOLS.includes(n)) return true;
-  if (!writePolicy.can_deploy && DEPLOY_TOOLS.includes(n)) return true;
+  if (!writePolicy.can_deploy && (DEPLOY_TOOLS.includes(n) || CMS_PUBLISH_TOOLS.includes(n))) return true;
   if (!writePolicy.can_d1_write && ['d1_write', 'd1_batch_write', 'supabase_write', 'd1_migrate'].includes(n)) {
     return true;
   }
