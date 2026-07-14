@@ -272,13 +272,6 @@ export function scheduleMirrorDeployEventToSupabase(env, ctx, params) {
   const rawWorkspaceId = params.workspace_id != null ? String(params.workspace_id).trim() : '';
   if (!rawWorkspaceId || !workerName) return;
 
-  const metadata =
-    params.metadata != null && typeof params.metadata === 'object'
-      ? JSON.stringify(params.metadata)
-      : params.metadata_json != null
-        ? String(params.metadata_json)
-        : JSON.stringify({ sync_source: params.sync_source || 'post-deploy' });
-
   const write = async () => {
     const workspaceUuid = await resolveMirrorWorkspaceUuid(env, rawWorkspaceId);
     if (!workspaceUuid) {
@@ -288,11 +281,42 @@ export function scheduleMirrorDeployEventToSupabase(env, ctx, params) {
       );
       return;
     }
+
+    const { resolvePlatformSupabaseUserId, resolvePlatformD1AuthUserId } = await import(
+      './platform-identity-constants.js'
+    );
+    const userUuid =
+      params.user_id != null && isValidUuid(String(params.user_id).trim())
+        ? String(params.user_id).trim()
+        : resolvePlatformSupabaseUserId(env);
+    const d1UserId =
+      params.d1_user_id != null && String(params.d1_user_id).trim()
+        ? String(params.d1_user_id).trim()
+        : resolvePlatformD1AuthUserId(env);
+
+    let metadataObj =
+      params.metadata != null && typeof params.metadata === 'object'
+        ? { ...params.metadata }
+        : params.metadata_json != null
+          ? (() => {
+              try {
+                return JSON.parse(String(params.metadata_json));
+              } catch {
+                return { sync_source: params.sync_source || 'post-deploy' };
+              }
+            })()
+          : { sync_source: params.sync_source || 'post-deploy' };
+    if (!metadataObj.d1_user_id) metadataObj.d1_user_id = d1UserId;
+    if (!metadataObj.d1_workspace_id && !isValidUuid(rawWorkspaceId)) {
+      metadataObj.d1_workspace_id = rawWorkspaceId;
+    }
+
     await hyperdriveInsert(
       env,
       'agentsam_deploy_events',
       [
         'workspace_id',
+        'user_id',
         'worker_name',
         'worker_version',
         'deploy_status',
@@ -303,12 +327,13 @@ export function scheduleMirrorDeployEventToSupabase(env, ctx, params) {
       ],
       [
         workspaceUuid,
+        userUuid,
         workerName,
         params.worker_version != null ? String(params.worker_version) : null,
         normalizeDeployStatus(params.deploy_status),
         params.commit_sha != null ? String(params.commit_sha) : null,
         params.notes != null ? String(params.notes).slice(0, 500) : null,
-        metadata,
+        JSON.stringify(metadataObj),
         isoFromUnix(params.created_at),
       ],
       { onConflict: 'DO NOTHING' },

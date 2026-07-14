@@ -285,8 +285,15 @@ export async function handlePostDeploy(request, env, ctx) {
     );
 
     if (workspaceId) {
+      const {
+        resolvePlatformSupabaseUserId,
+        resolvePlatformD1AuthUserId,
+        resolvePlatformSupabaseWorkspaceUuid,
+      } = await import('../core/platform-identity-constants.js');
       scheduleMirrorDeployEventToSupabase(env, ctx, {
         workspace_id: workspaceId,
+        user_id: resolvePlatformSupabaseUserId(env),
+        d1_user_id: resolvePlatformD1AuthUserId(env),
         worker_name: 'inneranimalmedia',
         worker_version: workerVersion,
         deploy_status: 'success',
@@ -298,6 +305,9 @@ export async function handlePostDeploy(request, env, ctx) {
           dashboard_version: version,
           keys_written: keysWritten,
           sync_source: 'post-deploy-handler',
+          d1_user_id: resolvePlatformD1AuthUserId(env),
+          d1_workspace_id: workspaceId,
+          supabase_workspace_id: resolvePlatformSupabaseWorkspaceUuid(env),
         },
         created_at: now,
       });

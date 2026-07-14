@@ -100,6 +100,9 @@ else
 
   DEPLOY_FULL_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "$GIT_HASH")"
   DEPLOY_TIME_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  # Supabase auth.users UUID (FK on agentsam_deploy_events.user_id) — not D1 au_*.
+  SUPABASE_USER_UUID="${IAM_SUPABASE_USER_ID:-${SUPABASE_USER_ID:-6cbd71f8-1d57-4530-9736-9bf03be1adad}}"
+  D1_AUTH_USER_ID="${IAM_D1_AUTH_USER_ID:-${D1_AUTH_USER_ID:-au_871d920d1233cbd1}}"
 
   if [[ -z "$SUPABASE_SERVICE_KEY" || -z "$SUPABASE_WORKSPACE_UUID" ]]; then
     echo "[post-deploy-record] SUPABASE_SERVICE_ROLE_KEY or workspace UUID unset — skipping agentsam_deploy_events" >&2
@@ -107,6 +110,8 @@ else
     PAYLOAD=$(
       jq -n \
         --arg ws "$SUPABASE_WORKSPACE_UUID" \
+        --arg uid "$SUPABASE_USER_UUID" \
+        --arg d1_uid "$D1_AUTH_USER_ID" \
         --arg d1_ws "$WORKSPACE_ID" \
         --arg ver "$VERSION_ID" \
         --arg sha "$DEPLOY_FULL_SHA" \
@@ -116,6 +121,7 @@ else
         --arg secs "$DEPLOY_SECONDS" \
         '{
           workspace_id: $ws,
+          user_id: $uid,
           worker_name: "inneranimalmedia",
           worker_version: $ver,
           deploy_status: "success",
@@ -125,6 +131,7 @@ else
             sync_source: "post_deploy_record",
             d1_deployment_id: $ver,
             d1_workspace_id: $d1_ws,
+            d1_user_id: $d1_uid,
             triggered_by: $by,
             deploy_time_seconds: ($secs | tonumber)
           },

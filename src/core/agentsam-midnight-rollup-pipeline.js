@@ -217,7 +217,14 @@ export async function syncDeploymentsBatchToSupabase(env) {
   }
 
   const { resolveSupabaseWorkspaceId } = await import('./rag-lanes.js');
-  const DEFAULT_WS = 'ws_inneranimalmedia';
+  const {
+    resolvePlatformSupabaseUserId,
+    resolvePlatformD1AuthUserId,
+    PLATFORM_D1_WORKSPACE_ID,
+  } = await import('./platform-identity-constants.js');
+  const DEFAULT_WS = PLATFORM_D1_WORKSPACE_ID;
+  const platformUserUuid = resolvePlatformSupabaseUserId(env);
+  const platformD1UserId = resolvePlatformD1AuthUserId(env);
   const payload = [];
 
   for (const r of results || []) {
@@ -246,6 +253,7 @@ export async function syncDeploymentsBatchToSupabase(env) {
     payload.push({
       d1_deployment_id: String(r.id),
       workspace_id: workspaceUuid,
+      user_id: platformUserUuid,
       worker_name: r.worker_name != null ? String(r.worker_name) : 'inneranimalmedia',
       worker_version: String(r.id),
       deploy_status: deployStatus,
@@ -259,6 +267,7 @@ export async function syncDeploymentsBatchToSupabase(env) {
         triggered_by: r.triggered_by ?? null,
         project_id: r.project_id ?? null,
         d1_workspace_id: d1Ws,
+        d1_user_id: platformD1UserId,
         deploy_time_seconds: r.deploy_time_seconds ?? null,
         sync_source: 'midnight_deployments_rollup',
       }),
@@ -273,6 +282,7 @@ export async function syncDeploymentsBatchToSupabase(env) {
   const sql = `
     INSERT INTO agentsam.agentsam_deploy_events (
       workspace_id,
+      user_id,
       worker_name,
       worker_version,
       deploy_status,
@@ -283,6 +293,7 @@ export async function syncDeploymentsBatchToSupabase(env) {
     )
     SELECT
       r.workspace_id::uuid,
+      NULLIF(r.user_id, '')::uuid,
       r.worker_name,
       r.worker_version,
       r.deploy_status,
@@ -293,6 +304,7 @@ export async function syncDeploymentsBatchToSupabase(env) {
     FROM jsonb_to_recordset($1::jsonb) AS r(
       d1_deployment_id text,
       workspace_id text,
+      user_id text,
       worker_name text,
       worker_version text,
       deploy_status text,

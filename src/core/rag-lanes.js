@@ -77,6 +77,21 @@ export async function resolveSupabaseWorkspaceId(env, d1WorkspaceId) {
   if (!key) return null;
   if (isSupabaseWorkspaceUuid(key)) return key;
 
+  // Prefer D1 registry column when present (WS ↔ UUID SSOT).
+  if (env?.DB) {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT supabase_workspace_id FROM agentsam_workspace WHERE id = ? LIMIT 1`,
+      )
+        .bind(key)
+        .first();
+      const fromD1 = row?.supabase_workspace_id != null ? String(row.supabase_workspace_id).trim() : '';
+      if (fromD1 && isSupabaseWorkspaceUuid(fromD1)) return fromD1;
+    } catch {
+      /* column may be missing on old DBs */
+    }
+  }
+
   const known = KNOWN_SUPABASE_WORKSPACE_UUIDS[key];
   if (known) return known;
 
