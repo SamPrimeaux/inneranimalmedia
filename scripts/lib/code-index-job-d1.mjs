@@ -47,16 +47,20 @@ export function patchCodeIndexJob(jobId, patch) {
  *   repoFullName?: string,
  *   vectorBackend?: string,
  *   progressEvery?: number,
+ *   resume?: boolean,
+ *   initialIndexed?: number,
+ *   initialChunks?: number,
+ *   initialFailed?: number,
  * }} opts
  */
 export function createCodeIndexJobTracker(opts) {
   const jobId = opts.jobId;
   const fileCount = Math.max(0, Number(opts.fileCount) || 0);
   const progressEvery = Math.max(1, Number(opts.progressEvery) || (fileCount > 50 ? 10 : 1));
-  let indexed = 0;
-  let chunks = 0;
-  let failed = 0;
-  let lastProgressAt = 0;
+  let indexed = Math.max(0, Number(opts.initialIndexed) || 0);
+  let chunks = Math.max(0, Number(opts.initialChunks) || 0);
+  let failed = Math.max(0, Number(opts.initialFailed) || 0);
+  let lastProgressAt = indexed;
 
   function progressPercent() {
     if (!fileCount) return 100;
@@ -64,16 +68,17 @@ export function createCodeIndexJobTracker(opts) {
   }
 
   function markRunning() {
+    const resume = Boolean(opts.resume) && indexed > 0;
     patchCodeIndexJob(jobId, {
       status: 'running',
-      triggered_by: opts.triggeredBy,
+      triggered_by: resume ? `${opts.triggeredBy}:resume` : opts.triggeredBy,
       file_count: fileCount,
-      indexed_file_count: 0,
-      chunk_count: 0,
-      failed_file_count: 0,
-      progress_percent: 0,
+      indexed_file_count: indexed,
+      chunk_count: chunks,
+      failed_file_count: failed,
+      progress_percent: progressPercent(),
       last_error: null,
-      started_at: new Date().toISOString(),
+      ...(resume ? {} : { started_at: new Date().toISOString() }),
       completed_at: null,
       finished_at: null,
       last_sync_at: null,
@@ -82,7 +87,9 @@ export function createCodeIndexJobTracker(opts) {
       source_type: 'github',
       ...(opts.sourcePath != null ? { source_path: opts.sourcePath } : {}),
     });
-    console.log(`D1 agentsam_code_index_job: ${jobId} → running (file_count=${fileCount})`);
+    console.log(
+      `D1 agentsam_code_index_job: ${jobId} → running${resume ? ' (resume)' : ''} (indexed=${indexed}/${fileCount}, chunks=${chunks})`,
+    );
   }
 
   function flushProgress(force = false) {
@@ -125,6 +132,25 @@ export function createCodeIndexJobTracker(opts) {
     );
   }
 
+  /** Leave job idle so another process can resume without looking “failed”. */
+  function interrupt(reason = 'interrupted') {
+    const msg = String(reason).slice(0, 500);
+    try {
+      patchCodeIndexJob(jobId, {
+        status: 'idle',
+        triggered_by: 'resume',
+        indexed_file_count: indexed,
+        chunk_count: chunks,
+        failed_file_count: failed,
+        progress_percent: progressPercent(),
+        last_error: msg,
+      });
+      console.warn(`D1 agentsam_code_index_job: ${jobId} → idle (${msg})`);
+    } catch (e) {
+      console.error('D1 job interrupt patch error:', e?.message || e);
+    }
+  }
+
   /**
    * @param {unknown} err
    */
@@ -148,5 +174,5 @@ export function createCodeIndexJobTracker(opts) {
     }
   }
 
-  return { jobId, markRunning, tick, complete, fail, flushProgress };
+  return { jobId, markRunning, tick, complete, fail, interrupt, flushProgress };
 }

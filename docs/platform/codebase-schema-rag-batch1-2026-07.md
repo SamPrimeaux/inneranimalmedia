@@ -36,14 +36,12 @@ npm run run:reindex_src_worker_batch1:dry-run
 npm run run:reindex_src_worker_batch1
 ```
 
-## Full runtime (long) — count first, then embed
+## Full runtime overnight (safe — caffeinate + resume)
 ```bash
-# Print eligible file counts by root (~900 files on current tree)
-npm run run:reindex_runtime:dry-run
-
-# Overnight / long terminal — full live embed (delete-chunks-then-insert per file)
-npm run run:reindex_runtime
+git pull
+npm run run:reindex_runtime:safe
 ```
+Keeps the Mac awake while running, writes `.scratch/code-reindex-checkpoint-*.json` after each file, auto-restarts on crash/sleep-kill, skips finished files. Stop: `touch .scratch/STOP_REINDEX_RUNTIME` or Ctrl-C twice. Wipe and restart: `npm run run:reindex_runtime:safe -- --fresh`.
 
 ## Progressive prefixes (recommended after Batch 1)
 ```bash

@@ -23,8 +23,9 @@
  *   ./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs --src-batch1
  *   ./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs --runtime --dry-run
  *   ./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs --runtime --runtime-prefix=src/api
+ *   npm run run:reindex_runtime:safe   # caffeinate + auto-restart + resume checkpoint
  */
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, unlinkSync } from 'fs';
 import { resolve, dirname, extname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
@@ -56,6 +57,16 @@ import {
   createCodeIndexJobTracker,
   resolveCodeIndexJobId,
 } from './lib/code-index-job-d1.mjs';
+import {
+  checkpointPath,
+  loadCheckpoint,
+  createEmptyCheckpoint,
+  saveCheckpoint,
+  markFileDone,
+  markFileFailed,
+  isCheckpointDone,
+  summarizeCheckpoint,
+} from './lib/code-reindex-checkpoint.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -102,6 +113,10 @@ const NO_PRUNE =
   SRC_BATCH1 ||
   RUNTIME;
 const VERBOSE = process.argv.includes('--verbose');
+const FRESH = process.argv.includes('--fresh');
+const NO_RESUME = process.argv.includes('--no-resume');
+/** Auto-resume via .scratch checkpoint for long runtime / batch1 runs (unless --fresh / --no-resume). */
+const USE_CHECKPOINT = !DRY_RUN && !FRESH && !NO_RESUME && (RUNTIME || SRC_BATCH1 || process.argv.includes('--resume'));
 const LANE = LANE_CONTRACTS.code;
 const RUN_ID = createRunId();
 const GIT_COMMIT_SHA = resolveGitCommitSha(ROOT);
@@ -492,13 +507,35 @@ function writeRunReceipt(stats, status = 'ok', error = null) {
 
 async function fetchExistingFileHash(client, filePath) {
   const res = await client.query(
-    `SELECT id, metadata->>'content_hash' AS content_hash
+    `SELECT id,
+            metadata->>'content_hash' AS content_hash,
+            COALESCE((metadata->>'total_chunks')::int, -1) AS total_chunks
      FROM agentsam.agentsam_codebase_files_oai3large_1536
      WHERE workspace_id = $1::uuid AND file_path = $2
      LIMIT 1`,
     [WORKSPACE_UUID, filePath],
   );
   return res.rows[0] ?? null;
+}
+
+async function countChunksForFile(client, filePath) {
+  const res = await client.query(
+    `SELECT COUNT(*)::int AS n
+     FROM agentsam.agentsam_codebase_chunks_oai3large_1536
+     WHERE workspace_id = $1::uuid AND file_path = $2`,
+    [WORKSPACE_UUID, filePath],
+  );
+  return Number(res.rows[0]?.n) || 0;
+}
+
+function isPgConnectionError(err) {
+  const msg = String(err?.message || err || '');
+  const code = String(err?.code || '');
+  return (
+    /connection terminated|Connection terminated|ECONNRESET|EPIPE|not queryable|Connection refused|timeout|57P01|08006|08003/i.test(
+      msg,
+    ) || ['ECONNRESET', 'EPIPE', '57P01', '08006', '08003'].includes(code)
+  );
 }
 
 async function upsertFileRow(client, { filePath, language, sizeBytes, hash, totalChunks }) {
@@ -663,8 +700,80 @@ async function main() {
   const vectorizeQueue = [];
   const approvedPaths = new Set(eligiblePaths);
 
+  const cpPath = checkpointPath(ROOT, SCRIPT_KEY, RUNTIME_PREFIX);
+  /** @type {ReturnType<typeof createEmptyCheckpoint> | null} */
+  let checkpoint = null;
+  if (FRESH && existsSync(cpPath)) {
+    unlinkSync(cpPath);
+    console.log(`checkpoint: wiped --fresh (${cpPath})`);
+  }
+  if (!DRY_RUN && (RUNTIME || SRC_BATCH1 || process.argv.includes('--resume'))) {
+    checkpoint = USE_CHECKPOINT ? loadCheckpoint(cpPath) : null;
+    if (!checkpoint) {
+      checkpoint = createEmptyCheckpoint({
+        absPath: cpPath,
+        scriptKey: SCRIPT_KEY,
+        prefix: RUNTIME_PREFIX,
+        gitCommitSha: GIT_COMMIT_SHA,
+        fileCount: eligiblePaths.length,
+      });
+    } else {
+      checkpoint.fileCount = eligiblePaths.length;
+      checkpoint.gitCommitSha = GIT_COMMIT_SHA;
+      checkpoint.status = 'running';
+      const sum = summarizeCheckpoint(checkpoint, eligiblePaths);
+      console.log(
+        `checkpoint: resume ${sum.doneCount}/${eligiblePaths.length} done, ${sum.remaining} remaining, chunks≈${sum.chunksTotal}`,
+      );
+      console.log(`  path: ${cpPath}`);
+    }
+    saveCheckpoint(cpPath, checkpoint);
+  }
+
+  let shuttingDown = false;
+  const onSignal = (sig) => {
+    if (shuttingDown) {
+      console.warn(`\n[${sig}] second signal — force exit`);
+      process.exit(130);
+    }
+    shuttingDown = true;
+    console.warn(`\n[${sig}] finishing current file then pausing for resume…`);
+  };
+  process.on('SIGINT', () => onSignal('SIGINT'));
+  process.on('SIGTERM', () => onSignal('SIGTERM'));
+
+  async function ensurePgClient() {
+    if (!DB_URL) return null;
+    if (client) return client;
+    client = new pg.Client(pgClientOptions());
+    await client.connect();
+    return client;
+  }
+
+  async function withPg(fn) {
+    await ensurePgClient();
+    try {
+      return await fn(client);
+    } catch (err) {
+      if (!isPgConnectionError(err)) throw err;
+      console.warn(`[pg] reconnect after: ${err?.message || err}`);
+      try {
+        await client?.end();
+      } catch {
+        /* ignore */
+      }
+      client = null;
+      await ensurePgClient();
+      return await fn(client);
+    }
+  }
+
   /** @type {ReturnType<typeof createCodeIndexJobTracker> | null} */
   let jobTracker = null;
+  const initialDone = checkpoint
+    ? eligiblePaths.filter((p) => checkpoint.done?.[p]).length
+    : 0;
+  const initialChunks = checkpoint ? Number(checkpoint.chunksTotal) || 0 : 0;
   if (!DRY_RUN && process.env.SKIP_CODE_INDEX_JOB !== '1') {
     try {
       jobTracker = createCodeIndexJobTracker({
@@ -681,6 +790,10 @@ async function main() {
         repoFullName: REPO,
         vectorBackend: 'supabase_pgvector+vectorize',
         progressEvery: eligiblePaths.length > 50 ? 10 : 1,
+        resume: initialDone > 0,
+        initialIndexed: initialDone,
+        initialChunks,
+        initialFailed: checkpoint ? Object.keys(checkpoint.failed || {}).length : 0,
       });
       jobTracker.markRunning();
     } catch (e) {
@@ -693,10 +806,28 @@ async function main() {
 
   try {
     for (const filePath of eligiblePaths) {
+      if (shuttingDown) {
+        if (checkpoint) {
+          checkpoint.status = 'interrupted';
+          saveCheckpoint(cpPath, checkpoint);
+        }
+        try {
+          jobTracker?.interrupt('signal_interrupt');
+        } catch {
+          /* ignore */
+        }
+        console.warn('paused — re-run the same command to resume from checkpoint');
+        process.exit(130);
+      }
+
       const abs = join(ROOT, filePath);
       if (!existsSync(abs)) {
         console.error(`  missing: ${filePath}`);
         stats.missing++;
+        if (checkpoint) {
+          markFileFailed(checkpoint, filePath, 'missing_on_disk');
+          saveCheckpoint(cpPath, checkpoint);
+        }
         try {
           jobTracker?.tick({ failed: true });
         } catch (e) {
@@ -709,24 +840,53 @@ async function main() {
       const hash = contentHash(raw);
       const language = languageFromPath(filePath);
       const sizeBytes = Buffer.byteLength(raw, 'utf8');
+      const chunks = chunkFile(raw, language);
 
-      if (client) {
-        const existing = await fetchExistingFileHash(client, filePath);
-        if (existing?.content_hash === hash) {
-          if (VERBOSE) console.log(`  skip (unchanged): ${filePath}`);
-          stats.filesSkipped++;
-          try {
-            jobTracker?.tick({ chunksAdded: 0 });
-          } catch (e) {
-            console.warn(`[code-index-job] progress failed: ${e?.message || e}`);
+      if (checkpoint && isCheckpointDone(checkpoint, filePath, hash)) {
+        if (VERBOSE) console.log(`  skip (checkpoint): ${filePath}`);
+        stats.filesSkipped++;
+        // Already counted in jobTracker initialIndexed/initialChunks — do not tick again.
+        continue;
+      }
+
+      if (client || DB_URL) {
+        try {
+          const existing = await withPg((c) => fetchExistingFileHash(c, filePath));
+          if (existing?.content_hash === hash && chunks.length > 0) {
+            const liveCount = await withPg((c) => countChunksForFile(c, filePath));
+            const metaChunks = Number(existing.total_chunks);
+            const okCount =
+              liveCount === chunks.length ||
+              (metaChunks > 0 && liveCount === metaChunks);
+            if (okCount) {
+              if (VERBOSE) console.log(`  skip (unchanged): ${filePath}`);
+              stats.filesSkipped++;
+              if (checkpoint) {
+                markFileDone(checkpoint, filePath, { hash, chunks: liveCount || chunks.length });
+                saveCheckpoint(cpPath, checkpoint);
+              }
+              try {
+                jobTracker?.tick({ chunksAdded: liveCount || chunks.length });
+              } catch (e) {
+                console.warn(`[code-index-job] progress failed: ${e?.message || e}`);
+              }
+              continue;
+            }
+            console.warn(
+              `  reindex (incomplete prior write): ${filePath} hash ok but chunks=${liveCount} expected=${chunks.length}`,
+            );
           }
-          continue;
+        } catch (e) {
+          console.warn(`  hash check failed for ${filePath}: ${e?.message || e}`);
         }
       }
 
-      const chunks = chunkFile(raw, language);
       if (!chunks.length) {
         if (VERBOSE) console.log(`  skip (empty): ${filePath}`);
+        if (checkpoint) {
+          markFileDone(checkpoint, filePath, { hash, chunks: 0 });
+          saveCheckpoint(cpPath, checkpoint);
+        }
         try {
           jobTracker?.tick({ chunksAdded: 0 });
         } catch (e) {
@@ -749,65 +909,104 @@ async function main() {
         continue;
       }
 
-      const fileId = await upsertFileRow(client, {
-        filePath,
-        language,
-        sizeBytes,
-        hash,
-        totalChunks: chunks.length,
-      });
-      if (!fileId) throw new Error(`file upsert returned no id: ${filePath}`);
-
-      await deleteChunksForFile(client, filePath);
-
-      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-        const content = chunks[chunkIndex];
-        const tokenCount = estimateTokens(content);
-        const embedding = await embedText(content);
-        await sleep(EMBED_DELAY_MS);
-
-        const chunkId = randomUUID();
-        const rowId = await insertChunkRow(client, {
-          chunkId,
-          fileId,
-          filePath,
-          content,
-          chunkIndex,
-          tokenCount,
-          embedding,
-        });
-
-        vectorizeQueue.push({
-          id: rowId,
-          values: embedding,
-          metadata: {
-            file_path: filePath,
-            chunk_index: chunkIndex,
-            source: SOURCE,
-            workspace_id: WORKSPACE_KEY,
-            workspace_uuid: WORKSPACE_UUID,
-            repo: REPO,
-            branch: BRANCH,
-          },
-        });
-
-        if (vectorizeQueue.length >= VECTORIZE_BATCH) {
-          await vectorizeUpsertBatch(vectorizeQueue.splice(0, VECTORIZE_BATCH));
-        }
-
-        stats.chunksEmbedded++;
-      }
-
-      if (vectorizeQueue.length > 0) {
-        await vectorizeUpsertBatch(vectorizeQueue.splice(0));
-      }
-
-      stats.filesIndexed++;
-      console.log(`  indexed: ${filePath} (${chunks.length} chunks)`);
       try {
-        jobTracker?.tick({ chunksAdded: chunks.length });
-      } catch (e) {
-        console.warn(`[code-index-job] progress failed: ${e?.message || e}`);
+        await withPg(async (c) => {
+          await deleteChunksForFile(c, filePath);
+          // Placeholder file row without final hash until chunks succeed (resume-safe).
+          const fileId = await upsertFileRow(c, {
+            filePath,
+            language,
+            sizeBytes,
+            hash: `partial:${hash}`,
+            totalChunks: chunks.length,
+          });
+          if (!fileId) throw new Error(`file upsert returned no id: ${filePath}`);
+
+          for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+            if (shuttingDown) {
+              throw Object.assign(new Error('signal_interrupt_mid_file'), { code: 'INTERRUPT' });
+            }
+            const content = chunks[chunkIndex];
+            const tokenCount = estimateTokens(content);
+            const embedding = await embedText(content);
+            await sleep(EMBED_DELAY_MS);
+
+            const chunkId = randomUUID();
+            const rowId = await insertChunkRow(c, {
+              chunkId,
+              fileId,
+              filePath,
+              content,
+              chunkIndex,
+              tokenCount,
+              embedding,
+            });
+
+            vectorizeQueue.push({
+              id: rowId,
+              values: embedding,
+              metadata: {
+                file_path: filePath,
+                chunk_index: chunkIndex,
+                source: SOURCE,
+                workspace_id: WORKSPACE_KEY,
+                workspace_uuid: WORKSPACE_UUID,
+                repo: REPO,
+                branch: BRANCH,
+              },
+            });
+
+            if (vectorizeQueue.length >= VECTORIZE_BATCH) {
+              await vectorizeUpsertBatch(vectorizeQueue.splice(0, VECTORIZE_BATCH));
+            }
+
+            stats.chunksEmbedded++;
+          }
+
+          if (vectorizeQueue.length > 0) {
+            await vectorizeUpsertBatch(vectorizeQueue.splice(0));
+          }
+
+          // Final hash only after all chunks + vectorize flush — mid-file crash will reindex.
+          await upsertFileRow(c, {
+            filePath,
+            language,
+            sizeBytes,
+            hash,
+            totalChunks: chunks.length,
+          });
+        });
+
+        stats.filesIndexed++;
+        console.log(`  indexed: ${filePath} (${chunks.length} chunks)`);
+        if (checkpoint) {
+          markFileDone(checkpoint, filePath, { hash, chunks: chunks.length });
+          saveCheckpoint(cpPath, checkpoint);
+        }
+        try {
+          jobTracker?.tick({ chunksAdded: chunks.length });
+        } catch (e) {
+          console.warn(`[code-index-job] progress failed: ${e?.message || e}`);
+        }
+      } catch (err) {
+        if (err?.code === 'INTERRUPT' || shuttingDown) {
+          if (checkpoint) {
+            checkpoint.status = 'interrupted';
+            saveCheckpoint(cpPath, checkpoint);
+          }
+          try {
+            jobTracker?.interrupt('signal_interrupt_mid_file');
+          } catch {
+            /* ignore */
+          }
+          console.warn(`paused mid-file ${filePath} — will reindex that file on resume`);
+          process.exit(130);
+        }
+        if (checkpoint) {
+          markFileFailed(checkpoint, filePath, err);
+          saveCheckpoint(cpPath, checkpoint);
+        }
+        throw err;
       }
     }
 
@@ -834,12 +1033,20 @@ async function main() {
       }
     }
 
+    if (checkpoint) {
+      checkpoint.status = 'completed';
+      saveCheckpoint(cpPath, checkpoint);
+    }
     try {
       jobTracker?.complete();
     } catch (e) {
       console.warn(`[code-index-job] complete failed: ${e?.message || e}`);
     }
   } catch (err) {
+    if (checkpoint && !DRY_RUN) {
+      checkpoint.status = 'failed';
+      saveCheckpoint(cpPath, checkpoint);
+    }
     try {
       jobTracker?.fail(err);
     } catch {
@@ -866,6 +1073,7 @@ async function main() {
     console.log(`Vectorize index: ${VECTORIZE_INDEX} (propagation ~5–10s after upsert)`);
     console.log(`D1 sync log: ${RUN_SYNC_CHUNK_ID} (+ history ${RUN_SYNC_CHUNK_ID}:${RUN_ID})`);
     if (jobTracker) console.log(`D1 code index job: ${jobTracker.jobId}`);
+    if (checkpoint) console.log(`checkpoint: ${cpPath} (status=${checkpoint.status})`);
   }
   console.log(`${'═'.repeat(60)}\n`);
 
