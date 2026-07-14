@@ -19,6 +19,8 @@
  *   ./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs --dry-run --verbose
  *   ./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs
  *   ./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs --no-prune
+ *   ./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs --src-batch1 --dry-run
+ *   ./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs --src-batch1
  */
 import { readFileSync, existsSync } from 'fs';
 import { resolve, dirname, extname, join } from 'path';
@@ -46,6 +48,7 @@ import {
 } from './lib/dashboard-index-manifest.mjs';
 import { buildCreateSurfacesManifest } from './lib/create-surfaces-manifest.mjs';
 import { MILESTONE_WORKER_CODE_PATHS } from './lib/milestone-worker-code-paths.mjs';
+import { SRC_WORKER_BATCH1_PATHS } from './lib/src-worker-batch1-paths.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -71,7 +74,6 @@ const EMBED_MODEL = 'text-embedding-3-large';
 const EMBED_DIMS = 1536;
 const REPO = 'SamPrimeaux/inneranimalmedia';
 const BRANCH = 'main';
-const SOURCE = 'reindex_dashboard_agent';
 
 const MIN_TOKENS = 10;
 const MAX_TOKENS = 400;
@@ -82,16 +84,30 @@ const VECTORIZE_BATCH = 100;
 const DRY_RUN = process.argv.includes('--dry-run');
 const CREATE_SURFACES_ONLY = process.argv.includes('--create-surfaces-only');
 const MILESTONE_WORKER_ONLY = process.argv.includes('--milestone-worker-only');
-const NO_PRUNE = process.argv.includes('--no-prune') || CREATE_SURFACES_ONLY || MILESTONE_WORKER_ONLY;
+const SRC_BATCH1 = process.argv.includes('--src-batch1');
+const NO_PRUNE =
+  process.argv.includes('--no-prune') ||
+  CREATE_SURFACES_ONLY ||
+  MILESTONE_WORKER_ONLY ||
+  SRC_BATCH1;
 const VERBOSE = process.argv.includes('--verbose');
 const LANE = LANE_CONTRACTS.code;
 const RUN_ID = createRunId();
 const GIT_COMMIT_SHA = resolveGitCommitSha(ROOT);
-const SCRIPT_KEY = MILESTONE_WORKER_ONLY
-  ? 'reindex_milestone_worker_code'
-  : CREATE_SURFACES_ONLY
-    ? 'ingest_create_surfaces_rag'
-    : 'reindex_codebase_dashboard_agent';
+const SCRIPT_KEY = SRC_BATCH1
+  ? 'reindex_src_worker_batch1'
+  : MILESTONE_WORKER_ONLY
+    ? 'reindex_milestone_worker_code'
+    : CREATE_SURFACES_ONLY
+      ? 'ingest_create_surfaces_rag'
+      : 'reindex_codebase_dashboard_agent';
+const SOURCE = SRC_BATCH1
+  ? 'reindex_src_batch1'
+  : MILESTONE_WORKER_ONLY
+    ? 'reindex_milestone_worker_code'
+    : CREATE_SURFACES_ONLY
+      ? 'ingest_create_surfaces_rag'
+      : 'reindex_dashboard_agent';
 const RUN_SYNC_CHUNK_ID = `run:${SCRIPT_KEY}`;
 
 const OPENAI_KEY = (process.env.OPENAI_API_KEY || '').trim();
@@ -539,24 +555,28 @@ async function main() {
     throw new Error('Script constants diverge from LANE_CONTRACTS.code — fix before run');
   }
 
-  const manifest = MILESTONE_WORKER_ONLY
-    ? { paths: MILESTONE_WORKER_CODE_PATHS.filter((p) => existsSync(join(ROOT, p))), deniedSkipped: 0 }
-    : CREATE_SURFACES_ONLY
-      ? buildCreateSurfacesManifest(ROOT)
-      : buildEligibleManifest(ROOT);
+  const manifest = SRC_BATCH1
+    ? { paths: SRC_WORKER_BATCH1_PATHS.filter((p) => existsSync(join(ROOT, p))), deniedSkipped: 0 }
+    : MILESTONE_WORKER_ONLY
+      ? { paths: MILESTONE_WORKER_CODE_PATHS.filter((p) => existsSync(join(ROOT, p))), deniedSkipped: 0 }
+      : CREATE_SURFACES_ONLY
+        ? buildCreateSurfacesManifest(ROOT)
+        : buildEligibleManifest(ROOT);
   const { paths: eligiblePaths, deniedSkipped } = manifest;
 
-  console.log(`\n${SCRIPT_KEY}.mjs`);
+  console.log(`\n${SCRIPT_KEY}`);
   console.log(`mode: ${DRY_RUN ? 'DRY RUN (zero writes)' : 'LIVE'}`);
   console.log(`run_id: ${RUN_ID}`);
   console.log(`git_commit_sha: ${GIT_COMMIT_SHA}`);
   console.log(
     `manifest: ${
-      MILESTONE_WORKER_ONLY
-        ? 'milestone worker/execos/cad paths'
-        : CREATE_SURFACES_ONLY
-          ? 'create-surfaces focused'
-          : 'git ls-files + policy'
+      SRC_BATCH1
+        ? 'src worker batch1 (delete-before-insert validate)'
+        : MILESTONE_WORKER_ONLY
+          ? 'milestone worker/execos/cad paths'
+          : CREATE_SURFACES_ONLY
+            ? 'create-surfaces focused'
+            : 'git ls-files + policy'
     } (${eligiblePaths.length} eligible)`,
   );
   console.log(`workspace: ${WORKSPACE_UUID} (${WORKSPACE_KEY})`);
@@ -589,7 +609,7 @@ async function main() {
   stats.drift = drift;
   printManifestDriftSummary(drift, deniedSkipped);
 
-  if (!CREATE_SURFACES_ONLY && !drift.requiredIncluded) {
+  if (!CREATE_SURFACES_ONLY && !MILESTONE_WORKER_ONLY && !SRC_BATCH1 && !drift.requiredIncluded) {
     throw new Error('Required paths missing from eligible manifest — aborting');
   }
 

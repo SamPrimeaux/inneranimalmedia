@@ -46,8 +46,13 @@ TRIGGERED_BY="${TRIGGERED_BY:-cli_post_deploy}"
 DEPLOYMENT_NOTES="${DEPLOYMENT_NOTES:-}"
 DEPLOY_VERSION="${DEPLOY_VERSION:-}"
 GIT_HASH="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo '')"
+GIT_MSG="$(git -C "$REPO_ROOT" log -1 --pretty=format:'%s' 2>/dev/null || echo '')"
 VERSION_SLUG="${DEPLOY_VERSION:-${GIT_HASH:-deploy-$(date +%s)}}"
 DEPLOYED_BY="${DEPLOYED_BY:-sam_primeaux}"
+# Prefer explicit DEPLOY_DESCRIPTION / DEPLOYMENT_NOTES; else use commit subject.
+if [[ -z "$DEPLOYMENT_NOTES" && -n "$GIT_MSG" ]]; then
+  DEPLOYMENT_NOTES="$GIT_MSG"
+fi
 DESCRIPTION="${DEPLOY_DESCRIPTION:-${DEPLOYMENT_NOTES:-Worker deploy (inneranimalmedia)}}"
 
 # DORA/spend attribution scope -- defaults are this repo's own platform identity.

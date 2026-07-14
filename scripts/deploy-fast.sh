@@ -140,6 +140,7 @@ fi
 FAST_END=$(date +%s)
 DEPLOY_SECONDS=$((FAST_END - FAST_START))
 GIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+GIT_MSG="$(git -C "$REPO_ROOT" log -1 --pretty=format:'%s' 2>/dev/null || echo '')"
 echo ""
 echo "[deploy:fast] ✓ done in ${DEPLOY_SECONDS}s sha=${GIT_SHA} worker=${WORKER_VERSION_ID:-n/a}"
 
@@ -155,7 +156,7 @@ else
     export DEPLOY_SECONDS
     export TRIGGERED_BY="${TRIGGERED_BY:-deploy_fast}"
     export DEPLOYED_BY="${DEPLOYED_BY:-deploy_fast}"
-    export DEPLOYMENT_NOTES="${DEPLOYMENT_NOTES:-deploy:fast vite→R2→wrangler sha=${GIT_SHA}}"
+    export DEPLOYMENT_NOTES="${DEPLOYMENT_NOTES:-${GIT_MSG:-deploy:fast sha=${GIT_SHA}}}"
     if bash "$REPO_ROOT/scripts/post-deploy-record.sh"; then
       echo "[deploy:fast] deployments D1 record ok"
     else
