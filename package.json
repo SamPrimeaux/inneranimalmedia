@@ -140,6 +140,7 @@
     "gate:agent-routing:twice": "node scripts/gate-agent-routing.mjs --rounds=2",
     "sync:active-plan-tickets": "node scripts/sync-active-plans-tickets.mjs",
     "assert:ticket-shippable": "node scripts/assert-ticket-shippable.mjs",
+    "record:ticket-e2e-pass": "node scripts/record-ticket-e2e-pass.mjs",
     "smoke:codemode": "node scripts/codemode-smoke.mjs",
     "smoke:code-execution-e2e": "node scripts/test-code-execution-e2e.mjs",
     "smoke:database-sql-safety": "node scripts/database-sql-safety-smoke.mjs",

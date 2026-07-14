@@ -2,7 +2,7 @@
 
 **Platform identity (read before any product work):** `docs/platform/PLATFORM_CONSTITUTION.md` → `docs/workspace/WORKSPACE_CONSTITUTION.md` → `docs/products/PRODUCT_REGISTRY.md`
 
-**Always-on rules:** `.cursor/rules/iam-core.mdc` · `.cursor/rules/iam-ship-lanes.mdc` (Mac vs VM vs CF Builds — **never** `deploy:full` on GCP) · `.cursor/rules/iam-ship-gate.mdc` · `.cursor/rules/iam-agent-delivery-workflow.mdc`
+**Always-on rules:** `.cursor/rules/iam-core.mdc` · `.cursor/rules/iam-ship-lanes.mdc` (Mac vs VM vs CF Builds — **never** `deploy:full` on GCP) · `.cursor/rules/iam-ship-gate.mdc` · `.cursor/rules/iam-agent-delivery-workflow.mdc` · `.cursor/rules/iam-ticket-dual-pass-e2e.mdc` (2× E2E before ticket `shipped`)
 
 **Ship gate:** local → commit/push → deploy **by host** (Mac: `deploy:full`/`deploy:fast`; GCP VM: `ship:remote` → CF Builds). SSOT: `docs/platform/mac-free-ship-lanes-2026-07.md`.
 

@@ -157,11 +157,19 @@ Expect **`src/core/…` citations**, not only `dashboard/…`.
 
 ## Acceptance (close this ticket when)
 
+**Dual-pass E2E law (LOCKED):** do **not** set `shipped` until two independent E2E proofs are recorded:
+
+```bash
+npm run record:ticket-e2e-pass -- --ticket=tkt_closed_loop_code_rag_2026_07_14 --detail='PASS1: …'
+npm run record:ticket-e2e-pass -- --ticket=tkt_closed_loop_code_rag_2026_07_14 --detail='PASS2: …'
+npm run assert:ticket-shippable -- --ticket=tkt_closed_loop_code_rag_2026_07_14 --set-shipped
+```
+
 1. Runtime index: ≥800 of ~911 runtime paths present in Supabase CODE lane with fresh timestamps (or documented intentional skips).
-2. In-app chat returns correct Worker file citations for ≥3 backend prompts.
+2. In-app chat returns correct Worker file citations for ≥3 backend prompts (**pass 1** overnight/AM; **pass 2** separate later retest).
 3. `cidx_src_reindex_v1` shows completed with honest file/chunk counts.
 4. Schema RAG deduped + re-ingested (or filed follow-up with owner/date).
-5. Short note in `status_reason` or a ticket event linking final commit SHA + proof timestamps.
+5. Short note in `status_reason` or ticket events linking final commit SHA + proof timestamps.
 
 ---
 

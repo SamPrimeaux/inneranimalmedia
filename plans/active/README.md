@@ -12,14 +12,22 @@ Work **in this order**. Do not parallelize product remasters across these.
 | 5 | [DESIGNSTUDIO-003-architectural-plan-lane.md](./DESIGNSTUDIO-003-architectural-plan-lane.md) | `tkt_designstudio_003` | PlanGraph bridge → FreeCAD + viz lineage contracts for 004 |
 | 6 | [DESIGNSTUDIO-004-freecad-blender-visualization.md](./DESIGNSTUDIO-004-freecad-blender-visualization.md) | `tkt_designstudio_004` | FreeCAD → VisualizationPackage → Blender (deferred; blocked by 003) |
 
-## Verification law (LOCKED)
+## Verification law (LOCKED — dual-pass E2E)
 
-- **Deploy success ≠ pass.** A ticket may not move to `shipped` until `consecutive_pass_count >= required_pass_count` (default **2**) with rows in `agentsam_gate_runs` and a receipt under `tmp/gate-agent-routing/`.
+- **Deploy success ≠ pass.** A ticket may **not** move to `shipped` until it has **two independent end-to-end validations**.
+- Default: `consecutive_pass_count >= required_pass_count` (**2**) **and** either:
+  - ≥2 green rows in `agentsam_gate_runs`, **or**
+  - ≥2 `agentsam_ticket_events` with `event_type = 'e2e_pass'` (each with durable proof IDs in `detail`).
+- One visual success mid-session without a second later retest = keep `in_review` / `active`.
 - Commands:
-  - `npm run gate:agent-routing` — mint session, live chat goldens, D1 decision proof
-  - `npm run gate:agent-routing:twice` — two consecutive rounds
+  - `npm run record:ticket-e2e-pass -- --ticket=tkt_… --detail='PASS1: …'`
+  - `npm run record:ticket-e2e-pass -- --ticket=tkt_… --detail='PASS2: …'`
+  - `npm run assert:ticket-shippable -- --ticket=tkt_…` — refuse ship without proof
+  - `npm run assert:ticket-shippable -- --ticket=tkt_… --set-shipped` — only when green
+  - `npm run gate:agent-routing` / `gate:agent-routing:twice` — mint session goldens when applicable
   - `npm run sync:active-plan-tickets` — every `plans/active/*.md` must have a D1 ticket (`--apply` to insert)
-  - `npm run assert:ticket-shippable -- --ticket=tkt_…` — refuse ship without proof; `--set-shipped` only when green
+
+Cursor: `.cursor/rules/iam-ticket-dual-pass-e2e.mdc` · D1 `rule_ticket_dual_pass_e2e`
 
 Operating rule for Cursor: see each ticket and `plans/README.md`.
 

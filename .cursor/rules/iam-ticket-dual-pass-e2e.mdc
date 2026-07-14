@@ -1,0 +1,35 @@
+---
+description: Tickets require two end-to-end validated passes before status=shipped
+alwaysApply: true
+---
+
+# Ticket dual-pass E2E (LOCKED)
+
+**Never** move an `agentsam_tickets` row to `shipped` after a single happy path, visual glance, or “deploy succeeded.”
+
+## Law
+
+1. **`required_pass_count` default = 2** (unless ticket explicitly documents otherwise).
+2. A ticket needs **two separate end-to-end validations** before `shipped`:
+   - Different moments (not the same minute twice).
+   - Each pass records proof IDs in D1 (intent rows, tool_call_log ids, drafts, deploy events, SQL receipts, etc.).
+3. **Deploy ≠ pass.** Code live without operator E2E proof does not ship the ticket.
+4. Closing after one proof = **violation** — leave `in_review` / `active`, record pass #1, schedule pass #2.
+
+## How to record a pass
+
+```bash
+npm run record:ticket-e2e-pass -- --ticket=tkt_… --detail='PASS1: … proof ids …'
+npm run record:ticket-e2e-pass -- --ticket=tkt_… --detail='PASS2: … proof ids …'
+npm run assert:ticket-shippable -- --ticket=tkt_… --set-shipped
+```
+
+Assert refuses `--set-shipped` unless `consecutive_pass_count >= required_pass_count` **and** (≥2 `agentsam_gate_runs` ok **or** ≥2 `agentsam_ticket_events` with `event_type=e2e_pass`).
+
+## Agent behavior
+
+- After implementing + first manual/prod proof → write `e2e_pass` event, keep status `in_review` (or `active`).
+- After second independent E2E proof → second `e2e_pass`, then `assert:ticket-shippable --set-shipped`.
+- Do **not** UPDATE `status='shipped'` ad hoc in SQL unless assert is green (or operator overrides with `SKIP_TICKET_DUAL_PASS=1` + explicit note — rare).
+
+SSOT: `plans/active/README.md` · D1 `rule_ticket_dual_pass_e2e` · `scripts/assert-ticket-shippable.mjs`
