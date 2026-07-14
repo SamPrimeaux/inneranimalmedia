@@ -86,7 +86,7 @@ CODE_SPINES: dict[str, dict[str, Any]] = {
         "public_domain": "inneranimalmedia.com",
         "r2_custom_domain": "assets.inneranimalmedia.com",
         "page_artifact_convention": "pages/{slug}/index.html  # e.g. pages/home/index.html",
-        "section_fragment_convention": "injected section HTML via D1 cms_page_sections + R2 page hydrate (NOT static/pages/...)",
+        "section_fragment_convention": "pages/{slug}/sections/{section_key}.html  # pilot assemble; legacy inject hydrate still on some routes",
         "global_header_key": "src/components/iam-header.html",
         "global_footer_key": "src/components/iam-footer.html",
         "global_css_key": None,
