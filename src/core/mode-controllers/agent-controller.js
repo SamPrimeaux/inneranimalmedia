@@ -208,6 +208,26 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
 
   const promptRouteRow = profile._prompt_route_row ?? null;
   let tools = toolsManifestFromCompiledRows(profile._compiled_tool_rows || []);
+  if (
+    env?.DB &&
+    (profile.mode === 'agent' || profile.mode === 'debug' || profile.mode === 'multitask')
+  ) {
+    try {
+      const { ensureWorkspaceRgTools, agentToolNameOf } = await import('../agent-tool-loader.js');
+      const cap = Math.max(tools.length + 2, Number(profile.max_tools) || 12);
+      tools = await ensureWorkspaceRgTools(env, tools, cap);
+      const allow = Array.isArray(profile.tool_allowlist) ? [...profile.tool_allowlist] : [];
+      for (const t of tools) {
+        const nm = agentToolNameOf(t);
+        if (nm && !allow.includes(nm)) allow.push(nm);
+      }
+      profile.tool_allowlist = allow;
+      if (!profile.tool_policy) profile.tool_policy = {};
+      profile.tool_policy.allowlist = allow;
+    } catch (e) {
+      console.warn('[agent-controller] ensure_workspace_rg_tools', e?.message ?? e);
+    }
+  }
   if (activeFileEnvelope && env?.DB) {
     const { ensureActiveFileCapabilityTools } = await import('../../api/agent.js');
     const cap = Math.max(tools.length, Number(profile.max_tools) || 8);

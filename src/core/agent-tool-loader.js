@@ -534,6 +534,76 @@ export async function ensureCodeCapabilityTools(env, tools, effectiveMaxTools) {
   return out;
 }
 
+/** Always offered in Agent/Debug/Multitask so live rg is in the model context (not catalog-score dependent). */
+export const AGENT_MODE_WORKSPACE_RG_TOOLS = Object.freeze(['fs_search_files', 'fs_read_file']);
+
+/**
+ * Pin workspace ripgrep + read tools into an in-flight tools manifest.
+ * @param {any} env
+ * @param {Array<Record<string, unknown>>} tools
+ * @param {number} effectiveMaxTools
+ * @returns {Promise<Array<Record<string, unknown>>>}
+ */
+export async function ensureWorkspaceRgTools(env, tools, effectiveMaxTools) {
+  if (!env?.DB || !Array.isArray(tools)) return tools || [];
+  const have = new Set(tools.map((t) => agentToolNameOf(t)).filter(Boolean));
+  const missing = AGENT_MODE_WORKSPACE_RG_TOOLS.filter((n) => !have.has(n));
+  if (!missing.length) return tools;
+  const rows = await fetchAgentsamToolRowsByName(env, missing);
+  const out = [...tools];
+  const seen = new Set(have);
+  const cap = Math.max(1, Number(effectiveMaxTools) || tools.length + missing.length);
+  for (const row of rows) {
+    const nm = String(row.tool_name || '');
+    if (!nm || seen.has(nm)) continue;
+    seen.add(nm);
+    out.unshift({
+      name: nm,
+      description: String(row.description || nm).slice(0, 4000),
+      input_schema: inputSchemaFromAgentsamToolRow(row),
+      tool_category: String(row.tool_category || 'builtin'),
+      requires_approval: Number(row.requires_approval || 0) === 1,
+    });
+  }
+  // Prefer keeping rg tools; drop from the end if over cap.
+  if (out.length > cap) {
+    const keep = new Set(AGENT_MODE_WORKSPACE_RG_TOOLS);
+    const pinned = out.filter((t) => keep.has(agentToolNameOf(t)));
+    const rest = out.filter((t) => !keep.has(agentToolNameOf(t)));
+    return [...pinned, ...rest].slice(0, cap);
+  }
+  return out;
+}
+
+/**
+ * Merge fs_search_files / fs_read_file into compiled catalog rows (compileModeProfile path).
+ * @param {any} env
+ * @param {{ scoredRows?: Array<Record<string, unknown>>, maxTools: number, workspaceId?: string|null }} opts
+ */
+export async function ensureWorkspaceRgCompiledRows(env, opts) {
+  const scoredRows = Array.isArray(opts.scoredRows) ? opts.scoredRows : [];
+  const maxTools = Math.max(2, Number(opts.maxTools) || 20);
+  if (!env?.DB) return { mergedRows: scoredRows };
+
+  const { listAgentsamToolsByKeys, mapCatalogRowsToAgentTools } = await import('./agentsam-tools-catalog.js');
+  const rawPinned = await listAgentsamToolsByKeys(
+    env,
+    new Set(AGENT_MODE_WORKSPACE_RG_TOOLS.map((n) => n.toLowerCase())),
+    { workspaceId: opts.workspaceId, limit: AGENT_MODE_WORKSPACE_RG_TOOLS.length },
+  );
+  const pinnedRows = mapCatalogRowsToAgentTools(rawPinned);
+  const seen = new Set(pinnedRows.map((r) => String(r.name || '').trim()).filter(Boolean));
+  const merged = [...pinnedRows];
+  for (const row of scoredRows) {
+    const name = String(row.name || row.tool_name || '').trim();
+    if (!name || seen.has(name)) continue;
+    merged.push(row);
+    seen.add(name);
+    if (merged.length >= maxTools) break;
+  }
+  return { pinnedRows, mergedRows: merged.slice(0, maxTools) };
+}
+
 /** Inject GitHub/R2 tools when the editor has an open bound buffer. */
 export async function ensureActiveFileCapabilityTools(env, tools, effectiveMaxTools, envelope) {
   if (!env?.DB || !Array.isArray(tools) || !envelope) return tools;

@@ -1085,6 +1085,16 @@ export async function compileModeProfile(env, input) {
       });
       scoredRows = pinned.mergedRows;
     }
+    // Agent/Debug/Multitask: always surface live ripgrep — catalog score alone often omits it.
+    if (mode === 'agent' || mode === 'debug' || mode === 'multitask') {
+      const { ensureWorkspaceRgCompiledRows } = await import('./agent-tool-loader.js');
+      const rgPinned = await ensureWorkspaceRgCompiledRows(env, {
+        scoredRows,
+        maxTools,
+        workspaceId,
+      });
+      scoredRows = rgPinned.mergedRows;
+    }
     compiledToolRows = scoredRows;
     toolAllowlist = compiledToolRows.map((r) => String(r.name || r.tool_key || r.tool_name || '').trim()).filter(Boolean);
   }
