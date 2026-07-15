@@ -1,7 +1,7 @@
 # CLOSED-LOOP + CODE RAG — 2026-07-14
 
 **Ticket:** `tkt_closed_loop_code_rag_2026_07_14`  
-**Status:** `active` (overnight reindex in flight; morning validation)  
+**Status:** `failed_partial` — experimental corpus only; **not promoted** (707/911 checkpoint abandoned; do not resume as authoritative)  
 **Project:** `inneranimalmedia` · **Subsystem:** `rag` + `agentsam-closed-loop`  
 **Priority:** P0  
 **Cursor plan (doctrine):** `~/.cursor/plans/supabase_closed_loop_4918b9c6.plan.md`
@@ -63,18 +63,17 @@ Chat / agent run
 
 ---
 
-## Overnight (in flight)
+## Overnight result (failed_partial — do not promote)
 
-```bash
-npm run run:reindex_runtime:safe
-```
+Abandoned `run:reindex_runtime:safe` as an authoritative baseline:
 
-- Keeps Mac awake (`caffeinate -dims`)
-- Checkpoint: `.scratch/code-reindex-checkpoint-reindex_runtime_code.json`
-- Auto-restart / resume; D1 job `cidx_src_reindex_v1`
-- Stop: `touch .scratch/STOP_REINDEX_RUNTIME`
+- Incomplete (~707/911), mixed across commits, ~222 stale dashboard paths in mirror, unstable Supabase/Vectorize
+- D1 `cidx_src_reindex_v1` → `failed_partial`; receipt + evidence under `.scratch/code-reindex-failed-partial-evidence.json`
+- Treat Vectorize/code mirror as experimental only; AgentSam code truth = live `rg`/fs + symbol search; embeddings = accelerator with path/hash/commit verify
 
-**Batch1 already proven:** 10 files / 240 chunks in Supabase (`src/core/*`, `src/api/post-deploy.js`, `src/tools/db.js`) ~2026-07-14T07:58–08:01Z.
+Reliability hardening shipped (min pass): commit pin (abort on HEAD drift / refuse mismatched checkpoint), Supabase mirror nonfatal, pg `error` handler, retryable `fetch failed`, smaller Vectorize batches, safe-wrapper exit 78 does not restart.
+
+**Next index:** focused stable corpus from one pinned commit → verify (eligible=indexed) → promote; do not chase the old 911 checkpoint.
 
 ---
 

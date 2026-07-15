@@ -79,6 +79,21 @@ export function isRetryableHttpStatus(status) {
 }
 
 /**
+ * Transient network / undici failures (no HTTP status) that should back off.
+ * @param {unknown} err
+ */
+export function isRetryableNetworkError(err) {
+  const msg = String(err?.message || err || '');
+  const code = String(err?.code || '');
+  const causeCode = String(err?.cause?.code || '');
+  if (err?.retryable === true) return true;
+  if (/fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EADDRNOTAVAIL|socket hang up|UND_ERR_/i.test(msg)) {
+    return true;
+  }
+  return ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'EADDRNOTAVAIL'].includes(code || causeCode);
+}
+
+/**
  * @template T
  * @param {() => Promise<T>} fn
  * @param {{ maxAttempts?: number, baseDelayMs?: number, maxDelayMs?: number, label?: string }} [opts]
@@ -98,7 +113,8 @@ export async function withRetryBackoff(fn, opts = {}) {
       lastErr = err;
       const retryable =
         err?.retryable === true ||
-        (typeof err?.status === 'number' && isRetryableHttpStatus(err.status));
+        (typeof err?.status === 'number' && isRetryableHttpStatus(err.status)) ||
+        (err?.status == null && isRetryableNetworkError(err));
       if (!retryable || attempt >= maxAttempts) throw err;
       const delay = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
       const jitter = Math.floor(Math.random() * 250);

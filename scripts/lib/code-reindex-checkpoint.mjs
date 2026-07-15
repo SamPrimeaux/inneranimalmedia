@@ -42,9 +42,10 @@ export function loadCheckpoint(absPath) {
  */
 export function createEmptyCheckpoint(p) {
   return {
-    version: 1,
+    version: 2,
     scriptKey: p.scriptKey,
     prefix: p.prefix || null,
+    /** Pinned for the whole run — never rewrite on resume when HEAD drifts. */
     gitCommitSha: p.gitCommitSha || null,
     fileCount: p.fileCount || 0,
     status: 'running',
@@ -54,6 +55,32 @@ export function createEmptyCheckpoint(p) {
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Resume is only valid when checkpoint is pinned to the same commit as this process.
+ * @param {object | null} cp
+ * @param {string} pinnedSha
+ * @returns {{ ok: true } | { ok: false, reason: string }}
+ */
+export function assertCheckpointCommitPin(cp, pinnedSha) {
+  if (!cp) return { ok: true };
+  const pinned = String(pinnedSha || '').trim();
+  const cpSha = String(cp.gitCommitSha || '').trim();
+  if (!cpSha) {
+    return { ok: false, reason: 'checkpoint missing gitCommitSha — use --fresh to start a pinned run' };
+  }
+  if (!pinned || pinned === 'unknown') {
+    return { ok: false, reason: 'unable to resolve HEAD for commit pin' };
+  }
+  if (cpSha !== pinned) {
+    return {
+      ok: false,
+      reason:
+        `checkpoint pinned to ${cpSha.slice(0, 12)} but HEAD is ${pinned.slice(0, 12)} — abort (use --fresh or --allow-commit-drift)`,
+    };
+  }
+  return { ok: true };
 }
 
 /**
@@ -112,11 +139,20 @@ export function isCheckpointDone(cp, filePath, hash) {
 }
 
 /**
+ * Count done entries that still match current on-disk content hashes when provided.
+ * Path-only counts overstate progress after edits.
  * @param {object} cp
  * @param {string[]} eligiblePaths
+ * @param {Map<string, string> | null} [pathToHash]
  */
-export function summarizeCheckpoint(cp, eligiblePaths) {
-  const doneCount = eligiblePaths.filter((p) => cp.done?.[p]).length;
+export function summarizeCheckpoint(cp, eligiblePaths, pathToHash = null) {
+  const doneCount = eligiblePaths.filter((p) => {
+    if (!cp.done?.[p]) return false;
+    if (!pathToHash) return true;
+    const expect = pathToHash.get(p);
+    if (expect == null) return Boolean(cp.done[p]);
+    return String(cp.done[p].hash || '') === String(expect);
+  }).length;
   return {
     doneCount,
     remaining: eligiblePaths.length - doneCount,

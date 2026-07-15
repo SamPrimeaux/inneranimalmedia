@@ -174,5 +174,29 @@ export function createCodeIndexJobTracker(opts) {
     }
   }
 
-  return { jobId, markRunning, tick, complete, fail, interrupt, flushProgress };
+  /**
+   * Incomplete / untrusted corpus — do not promote. Distinct from hard `failed`.
+   * @param {unknown} err
+   */
+  function failPartial(err) {
+    const msg = String(err?.message || err).slice(0, 500);
+    const now = new Date().toISOString();
+    try {
+      patchCodeIndexJob(jobId, {
+        status: 'failed_partial',
+        indexed_file_count: indexed,
+        chunk_count: chunks,
+        failed_file_count: failed,
+        progress_percent: Math.min(99, progressPercent()),
+        last_error: msg,
+        finished_at: now,
+        completed_at: now,
+      });
+      console.error(`D1 agentsam_code_index_job: ${jobId} → failed_partial: ${msg}`);
+    } catch (e) {
+      console.error('D1 job fail_partial patch error:', e?.message || e);
+    }
+  }
+
+  return { jobId, markRunning, tick, complete, fail, failPartial, interrupt, flushProgress };
 }

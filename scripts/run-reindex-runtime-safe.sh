@@ -71,6 +71,13 @@ while true; do
     exit 0
   fi
 
+  # 78 = commit-pin abort / failed_partial checkpoint — do not thrash restarts
+  if [[ "$code" -eq 78 ]]; then
+    echo "[reindex-runtime:safe] terminal exit 78 (commit pin / abandoned run) — not restarting" >&2
+    ./scripts/with-cloudflare-env.sh node scripts/notify-reindex-runtime.mjs --status=failed --exit-code="$code" || true
+    exit 78
+  fi
+
   if [[ -f "$STOP_FILE" ]]; then
     echo "[reindex-runtime:safe] STOP file set after exit $code — stopping"
     ./scripts/with-cloudflare-env.sh node scripts/notify-reindex-runtime.mjs --status=stopped --exit-code="$code" || true

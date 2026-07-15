@@ -66,6 +66,7 @@ import {
   markFileFailed,
   isCheckpointDone,
   summarizeCheckpoint,
+  assertCheckpointCommitPin,
 } from './lib/code-reindex-checkpoint.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -97,7 +98,10 @@ const MIN_TOKENS = 10;
 const MAX_TOKENS = 400;
 const OVERLAP_TOKENS = 0;
 const EMBED_DELAY_MS = 200;
-const VECTORIZE_BATCH = 100;
+/** Smaller uploads reduce Vectorize timeout surface on long runs. */
+const VECTORIZE_BATCH = 25;
+/** Exit code for safe-wrapper: do not auto-restart (commit pin / abandoned run). */
+const EXIT_TERMINAL = 78;
 
 const DRY_RUN = process.argv.includes('--dry-run');
 const CREATE_SURFACES_ONLY = process.argv.includes('--create-surfaces-only');
@@ -115,11 +119,15 @@ const NO_PRUNE =
 const VERBOSE = process.argv.includes('--verbose');
 const FRESH = process.argv.includes('--fresh');
 const NO_RESUME = process.argv.includes('--no-resume');
+/** Opt-in only: resume a checkpoint when HEAD no longer matches the pinned SHA (discouraged). */
+const ALLOW_COMMIT_DRIFT = process.argv.includes('--allow-commit-drift');
 /** Auto-resume via .scratch checkpoint for long runtime / batch1 runs (unless --fresh / --no-resume). */
 const USE_CHECKPOINT = !DRY_RUN && !FRESH && !NO_RESUME && (RUNTIME || SRC_BATCH1 || process.argv.includes('--resume'));
 const LANE = LANE_CONTRACTS.code;
 const RUN_ID = createRunId();
+/** Pinned at process start — abort if HEAD moves mid-run. */
 const GIT_COMMIT_SHA = resolveGitCommitSha(ROOT);
+const CORPUS_ID = `code:${GIT_COMMIT_SHA}`;
 const SCRIPT_KEY = RUNTIME
   ? RUNTIME_PREFIX
     ? `reindex_runtime_${RUNTIME_PREFIX.replace(/[^\w.-]+/g, '_')}`
@@ -155,9 +163,9 @@ if (!DRY_RUN) {
     console.error('Missing CLOUDFLARE_API_TOKEN');
     process.exit(1);
   }
+  // Supabase mirror is preferred but nonfatal — Vectorize + checkpoint can proceed without it.
   if (!DB_URL) {
-    console.error('Missing SUPABASE_DB_URL');
-    process.exit(1);
+    console.warn('Missing SUPABASE_DB_URL — continuing without Supabase mirror (Vectorize-only)');
   }
 }
 
@@ -475,15 +483,21 @@ function writeRunReceipt(stats, status = 'ok', error = null) {
     files_deleted: stats.filesDeleted ?? 0,
     status,
     error,
-    extra: stats.drift
-      ? {
-          eligible_count: stats.drift.eligibleCount,
-          indexed_count: stats.drift.indexedCount,
-          new_eligible_count: stats.drift.newEligible.length,
-          stale_indexed_count: stats.drift.staleIndexed.length,
-          manifest_source: 'git_ls_files_policy',
-        }
-      : { manifest_source: 'git_ls_files_policy' },
+    extra: {
+      corpus_id: CORPUS_ID,
+      mirror_errors: stats.mirrorErrors ?? 0,
+      supabase_mirror: stats.supabaseMirror ?? null,
+      promoted: false,
+      ...(stats.drift
+        ? {
+            eligible_count: stats.drift.eligibleCount,
+            indexed_count: stats.drift.indexedCount,
+            new_eligible_count: stats.drift.newEligible.length,
+            stale_indexed_count: stats.drift.staleIndexed.length,
+            manifest_source: 'git_ls_files_policy',
+          }
+        : { manifest_source: 'git_ls_files_policy' }),
+    },
   });
   writeVectorizeSyncReceipt({
     root: ROOT,
@@ -532,10 +546,21 @@ function isPgConnectionError(err) {
   const msg = String(err?.message || err || '');
   const code = String(err?.code || '');
   return (
-    /connection terminated|Connection terminated|ECONNRESET|EPIPE|not queryable|Connection refused|timeout|57P01|08006|08003/i.test(
+    /connection terminated|Connection terminated|ECONNRESET|EPIPE|not queryable|Connection refused|timeout|EADDRNOTAVAIL|ENOTFOUND|getaddrinfo|57P01|08006|08003|08001/i.test(
       msg,
-    ) || ['ECONNRESET', 'EPIPE', '57P01', '08006', '08003'].includes(code)
+    ) || ['ECONNRESET', 'EPIPE', 'EADDRNOTAVAIL', 'ENOTFOUND', '57P01', '08006', '08003', '08001'].includes(code)
   );
+}
+
+function assertPinnedHeadOrAbort() {
+  const head = resolveGitCommitSha(ROOT);
+  if (head !== GIT_COMMIT_SHA) {
+    const err = new Error(
+      `HEAD drifted during reindex: pinned ${GIT_COMMIT_SHA.slice(0, 12)} → now ${head.slice(0, 12)} — abort (restart with --fresh on one commit)`,
+    );
+    err.code = 'COMMIT_PIN_ABORT';
+    throw err;
+  }
 }
 
 async function upsertFileRow(client, { filePath, language, sizeBytes, hash, totalChunks }) {
@@ -547,6 +572,8 @@ async function upsertFileRow(client, { filePath, language, sizeBytes, hash, tota
     file_path: filePath,
     total_chunks: totalChunks,
     embedding_model: EMBED_MODEL,
+    git_commit_sha: GIT_COMMIT_SHA,
+    corpus_id: CORPUS_ID,
   };
   const res = await client.query(
     `INSERT INTO agentsam.agentsam_codebase_files_oai3large_1536 (
@@ -572,7 +599,7 @@ async function deleteChunksForFile(client, filePath) {
   );
 }
 
-async function insertChunkRow(client, { chunkId, fileId, filePath, content, chunkIndex, tokenCount, embedding }) {
+async function insertChunkRow(client, { chunkId, fileId, filePath, content, chunkIndex, tokenCount, embedding, contentHash: fileContentHash }) {
   const metadata = {
     repo: REPO,
     branch: BRANCH,
@@ -582,6 +609,9 @@ async function insertChunkRow(client, { chunkId, fileId, filePath, content, chun
     workspace_id: WORKSPACE_KEY,
     workspace_uuid: WORKSPACE_UUID,
     embedding_model: EMBED_MODEL,
+    git_commit_sha: GIT_COMMIT_SHA,
+    content_hash: fileContentHash || null,
+    corpus_id: CORPUS_ID,
   };
   const vecLiteral = `[${embedding.join(',')}]`;
   const res = await client.query(
@@ -649,8 +679,10 @@ async function main() {
   }
   console.log(`workspace: ${WORKSPACE_UUID} (${WORKSPACE_KEY})`);
   console.log(`vectorize_index: ${VECTORIZE_INDEX}`);
+  console.log(`corpus_id: ${CORPUS_ID}`);
   console.log(`prune: ${NO_PRUNE ? 'disabled' : 'enabled after successful full run'}`);
-  console.log(`chunk bounds: min=${MIN_TOKENS} max=${MAX_TOKENS} overlap=${OVERLAP_TOKENS}\n`);
+  console.log(`chunk bounds: min=${MIN_TOKENS} max=${MAX_TOKENS} overlap=${OVERLAP_TOKENS}`);
+  console.log(`vectorize_batch: ${VECTORIZE_BATCH}\n`);
 
   const stats = {
     filesIndexed: 0,
@@ -658,21 +690,48 @@ async function main() {
     chunksEmbedded: 0,
     missing: 0,
     filesDeleted: 0,
+    mirrorErrors: 0,
+    supabaseMirror: Boolean(DB_URL),
     drift: null,
   };
 
   /** @type {pg.Client | null} */
   let client = null;
-  if (!DRY_RUN || DB_URL) {
-    if (DB_URL) {
-      client = new pg.Client(pgClientOptions());
+  let supabaseMirrorOk = Boolean(DB_URL);
+  let filesSinceReconnect = 0;
+
+  async function attachPgClient(c) {
+    if (!c) return c;
+    c.on('error', (err) => {
+      console.warn(`[pg] client error (nonfatal): ${err?.message || err}`);
+      if (client === c) client = null;
+    });
+    return c;
+  }
+
+  if (DB_URL) {
+    try {
+      client = await attachPgClient(new pg.Client(pgClientOptions()));
       await client.connect();
+    } catch (e) {
+      supabaseMirrorOk = false;
+      stats.supabaseMirror = false;
+      client = null;
+      console.warn(
+        `[supabase] connect failed (nonfatal — Vectorize continues): ${e?.message || e}`,
+      );
     }
   }
 
-  const indexedPaths = client
-    ? await loadPreviouslyIndexedPaths(client, WORKSPACE_UUID)
-    : new Set();
+  let indexedPaths = new Set();
+  if (client) {
+    try {
+      indexedPaths = await loadPreviouslyIndexedPaths(client, WORKSPACE_UUID);
+    } catch (e) {
+      console.warn(`[supabase] load indexed paths failed (nonfatal): ${e?.message || e}`);
+      indexedPaths = new Set();
+    }
+  }
   const drift = summarizeManifestDrift({
     eligiblePaths,
     indexedPaths,
@@ -709,6 +768,12 @@ async function main() {
   }
   if (!DRY_RUN && (RUNTIME || SRC_BATCH1 || process.argv.includes('--resume'))) {
     checkpoint = USE_CHECKPOINT ? loadCheckpoint(cpPath) : null;
+    if (checkpoint?.status === 'failed_partial') {
+      console.error(
+        `checkpoint is failed_partial (${cpPath}) — do not resume this run. Use --fresh on a pinned commit for a new index.`,
+      );
+      process.exit(EXIT_TERMINAL);
+    }
     if (!checkpoint) {
       checkpoint = createEmptyCheckpoint({
         absPath: cpPath,
@@ -718,14 +783,23 @@ async function main() {
         fileCount: eligiblePaths.length,
       });
     } else {
+      const pin = assertCheckpointCommitPin(checkpoint, GIT_COMMIT_SHA);
+      if (!pin.ok && !ALLOW_COMMIT_DRIFT) {
+        console.error(`commit pin: ${pin.reason}`);
+        process.exit(EXIT_TERMINAL);
+      }
+      if (!pin.ok && ALLOW_COMMIT_DRIFT) {
+        console.warn(`commit pin: ${pin.reason} — continuing with --allow-commit-drift (not recommended)`);
+      }
       checkpoint.fileCount = eligiblePaths.length;
-      checkpoint.gitCommitSha = GIT_COMMIT_SHA;
+      // Keep original checkpoint.gitCommitSha — never rewrite pin to drifting HEAD.
       checkpoint.status = 'running';
       const sum = summarizeCheckpoint(checkpoint, eligiblePaths);
       console.log(
         `checkpoint: resume ${sum.doneCount}/${eligiblePaths.length} done, ${sum.remaining} remaining, chunks≈${sum.chunksTotal}`,
       );
       console.log(`  path: ${cpPath}`);
+      console.log(`  pinned: ${checkpoint.gitCommitSha}`);
     }
     saveCheckpoint(cpPath, checkpoint);
   }
@@ -743,17 +817,26 @@ async function main() {
   process.on('SIGTERM', () => onSignal('SIGTERM'));
 
   async function ensurePgClient() {
-    if (!DB_URL) return null;
+    if (!DB_URL || !supabaseMirrorOk) return null;
     if (client) return client;
-    client = new pg.Client(pgClientOptions());
-    await client.connect();
-    return client;
+    try {
+      client = await attachPgClient(new pg.Client(pgClientOptions()));
+      await client.connect();
+      return client;
+    } catch (e) {
+      supabaseMirrorOk = false;
+      stats.supabaseMirror = false;
+      client = null;
+      console.warn(`[supabase] reconnect failed (mirror disabled): ${e?.message || e}`);
+      return null;
+    }
   }
 
   async function withPg(fn) {
-    await ensurePgClient();
+    const c = await ensurePgClient();
+    if (!c) return null;
     try {
-      return await fn(client);
+      return await fn(c);
     } catch (err) {
       if (!isPgConnectionError(err)) throw err;
       console.warn(`[pg] reconnect after: ${err?.message || err}`);
@@ -763,9 +846,24 @@ async function main() {
         /* ignore */
       }
       client = null;
-      await ensurePgClient();
-      return await fn(client);
+      const c2 = await ensurePgClient();
+      if (!c2) return null;
+      return await fn(c2);
     }
+  }
+
+  async function reconnectPgBetweenBatches() {
+    if (!DB_URL || !supabaseMirrorOk || !client) return;
+    filesSinceReconnect += 1;
+    if (filesSinceReconnect < 15) return;
+    filesSinceReconnect = 0;
+    try {
+      await client.end();
+    } catch {
+      /* ignore */
+    }
+    client = null;
+    await ensurePgClient();
   }
 
   /** @type {ReturnType<typeof createCodeIndexJobTracker> | null} */
@@ -820,6 +918,30 @@ async function main() {
         process.exit(130);
       }
 
+      try {
+        assertPinnedHeadOrAbort();
+      } catch (err) {
+        if (checkpoint) {
+          checkpoint.status = 'failed';
+          checkpoint.lastError = String(err.message || err).slice(0, 500);
+          saveCheckpoint(cpPath, checkpoint);
+        }
+        try {
+          jobTracker?.fail(err);
+        } catch {
+          /* ignore */
+        }
+        if (!DRY_RUN) {
+          try {
+            writeRunReceipt(stats, 'failed', err?.message || String(err));
+          } catch (receiptErr) {
+            console.error('Failed to write error receipt:', receiptErr?.message || receiptErr);
+          }
+        }
+        console.error(err.message || err);
+        process.exit(EXIT_TERMINAL);
+      }
+
       const abs = join(ROOT, filePath);
       if (!existsSync(abs)) {
         console.error(`  missing: ${filePath}`);
@@ -849,35 +971,40 @@ async function main() {
         continue;
       }
 
-      if (client || DB_URL) {
+      if (supabaseMirrorOk && DB_URL) {
         try {
           const existing = await withPg((c) => fetchExistingFileHash(c, filePath));
           if (existing?.content_hash === hash && chunks.length > 0) {
             const liveCount = await withPg((c) => countChunksForFile(c, filePath));
-            const metaChunks = Number(existing.total_chunks);
-            const okCount =
-              liveCount === chunks.length ||
-              (metaChunks > 0 && liveCount === metaChunks);
-            if (okCount) {
-              if (VERBOSE) console.log(`  skip (unchanged): ${filePath}`);
-              stats.filesSkipped++;
-              if (checkpoint) {
-                markFileDone(checkpoint, filePath, { hash, chunks: liveCount || chunks.length });
-                saveCheckpoint(cpPath, checkpoint);
+            if (liveCount == null) {
+              /* mirror unavailable — fall through to re-embed */
+            } else {
+              const metaChunks = Number(existing.total_chunks);
+              const okCount =
+                liveCount === chunks.length ||
+                (metaChunks > 0 && liveCount === metaChunks);
+              if (okCount) {
+                if (VERBOSE) console.log(`  skip (unchanged): ${filePath}`);
+                stats.filesSkipped++;
+                if (checkpoint) {
+                  markFileDone(checkpoint, filePath, { hash, chunks: liveCount || chunks.length });
+                  saveCheckpoint(cpPath, checkpoint);
+                }
+                try {
+                  jobTracker?.tick({ chunksAdded: liveCount || chunks.length });
+                } catch (e) {
+                  console.warn(`[code-index-job] progress failed: ${e?.message || e}`);
+                }
+                continue;
               }
-              try {
-                jobTracker?.tick({ chunksAdded: liveCount || chunks.length });
-              } catch (e) {
-                console.warn(`[code-index-job] progress failed: ${e?.message || e}`);
-              }
-              continue;
+              console.warn(
+                `  reindex (incomplete prior write): ${filePath} hash ok but chunks=${liveCount} expected=${chunks.length}`,
+              );
             }
-            console.warn(
-              `  reindex (incomplete prior write): ${filePath} hash ok but chunks=${liveCount} expected=${chunks.length}`,
-            );
           }
         } catch (e) {
-          console.warn(`  hash check failed for ${filePath}: ${e?.message || e}`);
+          console.warn(`  hash check failed for ${filePath} (nonfatal): ${e?.message || e}`);
+          stats.mirrorErrors++;
         }
       }
 
@@ -910,72 +1037,97 @@ async function main() {
       }
 
       try {
-        await withPg(async (c) => {
-          await deleteChunksForFile(c, filePath);
-          // Placeholder file row without final hash until chunks succeed (resume-safe).
-          const fileId = await upsertFileRow(c, {
-            filePath,
-            language,
-            sizeBytes,
-            hash: `partial:${hash}`,
-            totalChunks: chunks.length,
+        /** @type {{ id: string, values: number[], metadata: object, content: string, tokenCount: number, chunkIndex: number }[]} */
+        const prepared = [];
+
+        for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+          if (shuttingDown) {
+            throw Object.assign(new Error('signal_interrupt_mid_file'), { code: 'INTERRUPT' });
+          }
+          const content = chunks[chunkIndex];
+          const tokenCount = estimateTokens(content);
+          const embedding = await embedText(content);
+          await sleep(EMBED_DELAY_MS);
+          const chunkId = randomUUID();
+          prepared.push({
+            id: chunkId,
+            values: embedding,
+            content,
+            tokenCount,
+            chunkIndex,
+            metadata: {
+              file_path: filePath,
+              chunk_index: chunkIndex,
+              source: SOURCE,
+              workspace_id: WORKSPACE_KEY,
+              workspace_uuid: WORKSPACE_UUID,
+              repo: REPO,
+              branch: BRANCH,
+              git_commit_sha: GIT_COMMIT_SHA,
+              content_hash: hash,
+              corpus_id: CORPUS_ID,
+            },
           });
-          if (!fileId) throw new Error(`file upsert returned no id: ${filePath}`);
+        }
 
-          for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-            if (shuttingDown) {
-              throw Object.assign(new Error('signal_interrupt_mid_file'), { code: 'INTERRUPT' });
-            }
-            const content = chunks[chunkIndex];
-            const tokenCount = estimateTokens(content);
-            const embedding = await embedText(content);
-            await sleep(EMBED_DELAY_MS);
+        for (const row of prepared) {
+          vectorizeQueue.push({
+            id: row.id,
+            values: row.values,
+            metadata: row.metadata,
+          });
+          if (vectorizeQueue.length >= VECTORIZE_BATCH) {
+            await vectorizeUpsertBatch(vectorizeQueue.splice(0, VECTORIZE_BATCH));
+          }
+          stats.chunksEmbedded++;
+        }
+        if (vectorizeQueue.length > 0) {
+          await vectorizeUpsertBatch(vectorizeQueue.splice(0));
+        }
 
-            const chunkId = randomUUID();
-            const rowId = await insertChunkRow(c, {
-              chunkId,
-              fileId,
+        // Supabase mirror after Vectorize — failure must not abort a successful embed/upsert.
+        try {
+          await withPg(async (c) => {
+            if (!c) return;
+            await deleteChunksForFile(c, filePath);
+            const fileId = await upsertFileRow(c, {
               filePath,
-              content,
-              chunkIndex,
-              tokenCount,
-              embedding,
+              language,
+              sizeBytes,
+              hash: `partial:${hash}`,
+              totalChunks: chunks.length,
             });
+            if (!fileId) throw new Error(`file upsert returned no id: ${filePath}`);
 
-            vectorizeQueue.push({
-              id: rowId,
-              values: embedding,
-              metadata: {
-                file_path: filePath,
-                chunk_index: chunkIndex,
-                source: SOURCE,
-                workspace_id: WORKSPACE_KEY,
-                workspace_uuid: WORKSPACE_UUID,
-                repo: REPO,
-                branch: BRANCH,
-              },
-            });
-
-            if (vectorizeQueue.length >= VECTORIZE_BATCH) {
-              await vectorizeUpsertBatch(vectorizeQueue.splice(0, VECTORIZE_BATCH));
+            for (const row of prepared) {
+              await insertChunkRow(c, {
+                chunkId: row.id,
+                fileId,
+                filePath,
+                content: row.content,
+                chunkIndex: row.chunkIndex,
+                tokenCount: row.tokenCount,
+                embedding: row.values,
+                contentHash: hash,
+              });
             }
 
-            stats.chunksEmbedded++;
-          }
-
-          if (vectorizeQueue.length > 0) {
-            await vectorizeUpsertBatch(vectorizeQueue.splice(0));
-          }
-
-          // Final hash only after all chunks + vectorize flush — mid-file crash will reindex.
-          await upsertFileRow(c, {
-            filePath,
-            language,
-            sizeBytes,
-            hash,
-            totalChunks: chunks.length,
+            await upsertFileRow(c, {
+              filePath,
+              language,
+              sizeBytes,
+              hash,
+              totalChunks: chunks.length,
+            });
           });
-        });
+        } catch (mirrorErr) {
+          stats.mirrorErrors++;
+          console.warn(
+            `  [supabase] mirror failed for ${filePath} (nonfatal): ${mirrorErr?.message || mirrorErr}`,
+          );
+        }
+
+        await reconnectPgBetweenBatches();
 
         stats.filesIndexed++;
         console.log(`  indexed: ${filePath} (${chunks.length} chunks)`);
@@ -1066,7 +1218,7 @@ async function main() {
 
   console.log(`\n${'═'.repeat(60)}`);
   console.log(
-    `done — files indexed: ${stats.filesIndexed}, skipped (unchanged): ${stats.filesSkipped}, chunks embedded: ${stats.chunksEmbedded}, missing: ${stats.missing}, pruned: ${stats.filesDeleted}`,
+    `done — files indexed: ${stats.filesIndexed}, skipped (unchanged): ${stats.filesSkipped}, chunks embedded: ${stats.chunksEmbedded}, missing: ${stats.missing}, pruned: ${stats.filesDeleted}, mirror_errors: ${stats.mirrorErrors}`,
   );
   if (!DRY_RUN) {
     writeRunReceipt(stats, 'ok');
