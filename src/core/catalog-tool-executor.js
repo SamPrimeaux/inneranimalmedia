@@ -415,6 +415,17 @@ async function executeCatalogCfD1(env, row, config, params, runContext) {
       };
     }
 
+    const { assertD1SqlCompoundSelectBudget } = await import('./d1-read-validator.js');
+    const compoundGate = assertD1SqlCompoundSelectBudget(sql);
+    if (!compoundGate.ok) {
+      return {
+        ok: false,
+        error: compoundGate.error,
+        user_message: compoundGate.user_message,
+        compound_select_terms: compoundGate.term_count ?? null,
+      };
+    }
+
     if (op === 'execute' || op === 'write' || op === 'migrate') {
       const { executeWorkspaceD1Write } = await import('./workspace-d1-execution.js');
       const writeOut = await executeWorkspaceD1Write(env, d1Ctx, sql, params.params);

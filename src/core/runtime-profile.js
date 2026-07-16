@@ -1449,6 +1449,7 @@ export function logRuntimeProfile(profile, meta = {}) {
       tool_profile: profile.tool_profile,
       tool_capable_required: profile.tool_capable_required,
       source: profile.source,
+      project_qna_fast_lane: profile._project_qna_fast_lane === true || meta.project_qna_fast_lane === true,
     }),
   );
 }

@@ -19,6 +19,20 @@ import { askDataPlaneIntent, codeContextIntent } from './ask-evidence-tools.js';
 export const USER_APP_PROJECT_QNA_ROUTE = 'project_qna_fast';
 
 /**
+ * Dashboard injects Project memory / Project instructions into the user turn when a project is open.
+ * @param {string} message
+ */
+export function messageHasInjectedProjectBrief(message) {
+  const s = String(message || '');
+  return (
+    /^Project memory:/im.test(s) ||
+    /\nProject memory:/im.test(s) ||
+    /^Project instructions:/im.test(s) ||
+    /\nProject instructions:/im.test(s)
+  );
+}
+
+/**
  * Classify intent on the user's turn only — ignore client-prepended project memory/instructions.
  * @param {string} message
  */
@@ -167,10 +181,39 @@ export function isProjectReadOnlyChatMessage(message) {
  * @param {string} message
  */
 export function shouldUseProjectQnaFastLane(body, projectContext, mode, message) {
-  if (!hasUserAppProjectScope(body, projectContext)) return false;
+  const scoped =
+    hasUserAppProjectScope(body, projectContext) || messageHasInjectedProjectBrief(message);
+  if (!scoped) return false;
   const normalized = normalizeAgentRuntimeMode(mode);
   if (normalized === 'debug' || normalized === 'multitask' || normalized === 'plan') return false;
   return isProjectReadOnlyChatMessage(message);
+}
+
+/**
+ * Session spine compiles a full tool menu; project QnA must answer from injected memory / RAG
+ * without github_tree / d1 fanout. Mutates profile in place.
+ * @param {Record<string, unknown>} profile
+ */
+export function applyProjectQnaFastLaneToSessionProfile(profile) {
+  if (!profile || typeof profile !== 'object') return profile;
+  profile._project_qna_fast_lane = true;
+  profile.refined_route_key = USER_APP_PROJECT_QNA_ROUTE;
+  profile.routing_task_type = USER_APP_PROJECT_QNA_ROUTE;
+  profile.tool_allowlist = [];
+  profile.tool_denylist = [];
+  profile.tool_policy = { allowlist: [], denylist: [] };
+  profile._compiled_tool_rows = [];
+  profile.max_tool_calls = 0;
+  profile.max_tools = 0;
+  profile.tool_capable_required = false;
+  profile.context_policy = {
+    ...(profile.context_policy && typeof profile.context_policy === 'object'
+      ? profile.context_policy
+      : {}),
+    include_rag: true,
+    include_memory: true,
+  };
+  return profile;
 }
 
 /**

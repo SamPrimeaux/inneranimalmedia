@@ -21,6 +21,8 @@ import { normalizePlanModeMessage } from '../core/plan-mode-utils.js';
 import {
   shouldUseUserAppRuntimeLane,
   parseProjectContextFromBody,
+  shouldUseProjectQnaFastLane,
+  applyProjectQnaFastLaneToSessionProfile,
 } from '../core/user-app-runtime.js';
 import { parseSessionProjectIdFromChatBody } from '../core/project-chat-link.js';
 import { loadSessionProjectContextSystemBlock } from '../core/project-session-context.js';
@@ -99,6 +101,12 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
   const projectContext =
     pre.projectContext ?? parseProjectContextFromBody(body) ?? null;
   const userAppLane = shouldUseUserAppRuntimeLane(body, pre);
+  const projectQnaFastLane = shouldUseProjectQnaFastLane(
+    body,
+    projectContext,
+    requestedMode === 'auto' ? 'agent' : requestedMode,
+    message,
+  );
 
   const { resolveDesignStudioChatOverrides } = await import('../core/design-studio-context.js');
   const designStudioOverrides = resolveDesignStudioChatOverrides(browserContextPayload, body, message);
@@ -171,13 +179,13 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
   try {
     const { resolveModelForTask } = await import('../core/resolveModel.js');
     const resolved = await resolveModelForTask(env, {
-      task_type: composerMode === 'ask' ? 'ask' : 'agent',
+      task_type: composerMode === 'ask' || projectQnaFastLane ? 'ask' : 'agent',
       mode: composerMode,
       workspace_id: workspaceId,
       tenant_id: tenantId,
       user_id: userId,
       requested_model_key: modelOverride,
-      require_tools: true,
+      require_tools: !projectQnaFastLane && composerMode !== 'ask',
       require_vision: requireVision,
     });
     modelKey = resolved?.model_key || modelKey;
@@ -191,18 +199,22 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
 
   const profile = buildSessionRuntimeProfile({
     mode: composerMode,
-    tools: sessionCtx.tools,
+    tools: projectQnaFastLane ? [] : sessionCtx.tools,
     writePolicy: sessionCtx.writePolicy,
     modelKey,
     routingArmId,
   });
   profile._session_roots = sessionCtx.roots;
   profile._fsa_root = sessionCtx.roots?.fsa_root === true;
+  if (projectQnaFastLane) {
+    applyProjectQnaFastLaneToSessionProfile(profile);
+  }
 
   logRuntimeProfile(profile, {
     path: 'executeAgentChatSpine.session_context',
     conversation_id: sessionId,
     live: true,
+    project_qna_fast_lane: projectQnaFastLane,
   });
   logRouteContract(profile, {
     requestedMode: requestedMode,

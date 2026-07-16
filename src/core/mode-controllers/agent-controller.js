@@ -232,8 +232,10 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       (profile.mode === 'agent' && isSimpleAskMessage(message)));
 
   const promptRouteRow = profile._prompt_route_row ?? null;
+  const projectQnaFastLane = profile._project_qna_fast_lane === true;
   let tools = toolsManifestFromCompiledRows(profile._compiled_tool_rows || []);
   if (
+    !projectQnaFastLane &&
     env?.DB &&
     (profile.mode === 'agent' || profile.mode === 'debug' || profile.mode === 'multitask')
   ) {
@@ -253,12 +255,12 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       console.warn('[agent-controller] ensure_workspace_rg_tools', e?.message ?? e);
     }
   }
-  if (activeFileEnvelope && env?.DB) {
+  if (!projectQnaFastLane && activeFileEnvelope && env?.DB) {
     const { ensureActiveFileCapabilityTools } = await import('../../api/agent.js');
     const cap = Math.max(tools.length, Number(profile.max_tools) || 8);
     tools = await ensureActiveFileCapabilityTools(env, tools, cap, activeFileEnvelope);
   }
-  if (activeRepo && env?.DB) {
+  if (!projectQnaFastLane && activeRepo && env?.DB) {
     try {
       const {
         fetchAgentsamToolRowsByName,
