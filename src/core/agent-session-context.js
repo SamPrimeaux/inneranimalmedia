@@ -5,19 +5,32 @@
  * LAW: never dump full oauth_visible (~100+) into the in-app model loop —
  * that hangs the Worker after the first tool_call (CPU/stream death).
  * Catalog discovery stays OAuth/MCP-sized; in-app session uses a working spine.
+ *
+ * SSOT: the in-app tool menu is agentsam_tool_profile_bindings (task_type -> profile_key)
+ * joined to agentsam_tool_profiles (tool_keys_json). Editing the menu is a D1 UPDATE,
+ * not a code deploy. EMERGENCY_FALLBACK_TOOL_KEYS below only fires if that D1 lookup
+ * itself fails (row missing / DB unreachable) and always logs loudly when it does —
+ * it is a degraded-mode safety net, not a second source of truth.
  */
 import { inputSchemaFromAgentsamToolRow } from './agentsam-tools-catalog.js';
+import {
+  loadExecutableHandlerTypes,
+  validateHandlerConfigForExecution,
+  EXECUTABLE_HANDLER_TYPES,
+} from './agentsam-tools-catalog.js';
+import { parseHandlerConfig } from './resolve-credential.js';
 import { normalizeAgentRuntimeMode } from './agent-mode.js';
 
 /** Soft cap — above this, DO cache is treated as stale mega-catalog and rebuilt. */
 export const SESSION_TOOL_CACHE_SOFT_MAX = 40;
 
 /**
- * Curated in-app Agent session tools (proven lanes). Keep under SESSION_TOOL_CACHE_SOFT_MAX.
- * Full oauth_visible remains for ChatGPT/Claude MCP tools/list — not this path.
+ * Degraded-mode fallback ONLY — used when agentsam_tool_profile_bindings /
+ * agentsam_tool_profiles cannot be read for the current mode. Every use of this
+ * array is logged at warn level with reason=profile_lookup_failed so it shows up
+ * in dashboards instead of silently becoming the permanent behavior again.
  */
-export const SESSION_WORKING_TOOL_KEYS = Object.freeze([
-  'agentsam_ping',
+export const EMERGENCY_FALLBACK_TOOL_KEYS = Object.freeze([
   'agentsam_d1_query',
   'agentsam_d1_write',
   'agentsam_github_tree',
@@ -28,20 +41,19 @@ export const SESSION_WORKING_TOOL_KEYS = Object.freeze([
   'agentsam_github_patch',
   'agentsam_github_list_commits',
   'agentsam_github_repo_list',
-  'agentsam_terminal_local',
-  'agentsam_terminal_remote',
   'agentsam_terminal_sandbox',
   'agentsam_memory_manager',
   'agentsam_r2_list',
   'agentsam_r2_get',
   'agentsam_cf_workers_list',
+  'agentsam_cf_d1_list',
   'fs_read_file',
   'fs_search_files',
   'fs_edit_file',
-  'agentsam_ticket_list',
-  'agentsam_ticket_get',
-  'agentsam_ticket_create',
 ]);
+
+/** Back-compat alias — do not add new call sites against this name. */
+export const SESSION_WORKING_TOOL_KEYS = EMERGENCY_FALLBACK_TOOL_KEYS;
 
 /**
  * @param {string} mode
@@ -90,34 +102,135 @@ export function modeControllerForComposerMode(mode) {
   return { mode_controller: 'agent_controller', execution_kind: 'agent_tool_loop' };
 }
 
+function parseJsonArraySafe(raw, fallback = []) {
+  if (raw == null || raw === '') return fallback;
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed) ? parsed.map((x) => String(x).trim()).filter(Boolean) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 /**
- * Load curated working tools for in-app Agent session (not full oauth_visible dump).
+ * D1-SSOT profile lookup: task_type (composer mode) -> profile_key -> tool_keys_json.
+ * Falls back to profile_key='default_route', then to null (caller uses EMERGENCY_FALLBACK_TOOL_KEYS).
  * @param {unknown} db
+ * @param {string} composerMode
  */
-export async function loadOauthVisibleToolsForSession(db) {
+export async function loadToolProfileForMode(db, composerMode) {
+  if (!db?.prepare) return null;
+  const mode = String(composerMode || '').trim().toLowerCase();
+  if (!mode) return null;
+  try {
+    const row = await db
+      .prepare(
+        `SELECT p.profile_key, p.tool_keys_json, p.max_tools, p.write_policy_json
+         FROM agentsam_tool_profile_bindings b
+         JOIN agentsam_tool_profiles p ON p.profile_key = b.profile_key AND COALESCE(p.is_active, 1) = 1
+         WHERE b.task_type = ? AND COALESCE(b.is_active, 1) = 1
+         ORDER BY b.priority ASC
+         LIMIT 1`,
+      )
+      .bind(mode)
+      .first()
+      .catch(() => null);
+    if (row) {
+      return {
+        profile_key: row.profile_key,
+        tool_keys: parseJsonArraySafe(row.tool_keys_json, []),
+        max_tools: Number(row.max_tools) > 0 ? Number(row.max_tools) : SESSION_TOOL_CACHE_SOFT_MAX,
+      };
+    }
+  } catch (e) {
+    console.warn('[agent-session-context] profile_binding_query_failed', mode, e?.message ?? e);
+  }
+
+  // Named binding missing — try the explicit default_route profile before giving up.
+  try {
+    const row = await db
+      .prepare(
+        `SELECT profile_key, tool_keys_json, max_tools
+         FROM agentsam_tool_profiles
+         WHERE profile_key = 'default_route' AND COALESCE(is_active, 1) = 1
+         LIMIT 1`,
+      )
+      .first()
+      .catch(() => null);
+    const keys = parseJsonArraySafe(row?.tool_keys_json, []);
+    if (row && keys.length) {
+      return {
+        profile_key: row.profile_key,
+        tool_keys: keys,
+        max_tools: Number(row.max_tools) > 0 ? Number(row.max_tools) : SESSION_TOOL_CACHE_SOFT_MAX,
+      };
+    }
+  } catch (e) {
+    console.warn('[agent-session-context] default_route_query_failed', e?.message ?? e);
+  }
+
+  return null;
+}
+
+/**
+ * Load curated working tools for in-app Agent session from the D1 tool-profile SSOT.
+ * Every row is validated through the same fail-closed handler_type check every other
+ * tool-loading path in the codebase uses (agentsam-tools-catalog.js) — a tool with no
+ * executor branch (e.g. handler_type='telemetry') can no longer reach the model here.
+ *
+ * @param {unknown} env Worker env bindings (needs env.DB, optionally env.SESSION_CACHE)
+ * @param {string} composerMode
+ */
+export async function loadOauthVisibleToolsForSession(env, composerMode) {
+  const db = env?.DB ?? env; // back-compat: earlier signature took `db` directly
   if (!db?.prepare) return [];
-  const keys = [...SESSION_WORKING_TOOL_KEYS];
+
+  const profile = await loadToolProfileForMode(db, composerMode);
+  let keys = profile?.tool_keys?.length ? profile.tool_keys : null;
+  const maxTools = profile?.max_tools || SESSION_TOOL_CACHE_SOFT_MAX;
+
+  if (!keys) {
+    console.warn(
+      '[agent-session-context] profile_lookup_failed_using_emergency_fallback',
+      JSON.stringify({ composerMode, reason: 'no_active_binding_or_profile' }),
+    );
+    keys = [...EMERGENCY_FALLBACK_TOOL_KEYS];
+  }
+
   const placeholders = keys.map(() => '?').join(', ');
   const { results } = await db
     .prepare(
       `SELECT tool_key, tool_name, description, input_schema, handler_config, tool_category,
-              requires_approval, risk_level
+              handler_type, requires_approval, risk_level
        FROM agentsam_tools
        WHERE COALESCE(is_active, 1) = 1
          AND COALESCE(is_degraded, 0) = 0
          AND (tool_key IN (${placeholders}) OR tool_name IN (${placeholders}))
        ORDER BY COALESCE(sort_priority, 50) ASC, tool_name ASC
-       LIMIT 40`,
+       LIMIT ?`,
     )
-    .bind(...keys, ...keys)
+    .bind(...keys, ...keys, Math.min(maxTools, SESSION_TOOL_CACHE_SOFT_MAX))
     .all()
     .catch(() => ({ results: [] }));
+
+  const executableTypes = await loadExecutableHandlerTypes(env?.DB ? env : { DB: db }).catch(
+    () => EXECUTABLE_HANDLER_TYPES,
+  );
 
   const byKey = new Map();
   for (const row of results || []) {
     const name = String(row.tool_name || row.tool_key || '').trim();
     if (!name) continue;
     const key = String(row.tool_key || name).trim();
+
+    // Fail closed: no executor branch for this handler_type -> never offer it to the model.
+    const cfg = parseHandlerConfig(row.handler_config);
+    const v = validateHandlerConfigForExecution(row, cfg, executableTypes || EXECUTABLE_HANDLER_TYPES);
+    if (!v.ok) {
+      console.warn('[agent-session-context] skip_unexecutable_tool', key, v.error);
+      continue;
+    }
+
     byKey.set(key, {
       name,
       tool_name: name,
@@ -130,7 +243,7 @@ export async function loadOauthVisibleToolsForSession(db) {
     });
   }
 
-  // Preserve SESSION_WORKING_TOOL_KEYS order for stable model menus.
+  // Preserve D1 profile key order for stable model menus.
   const ordered = [];
   for (const k of keys) {
     const hit = byKey.get(k) || [...byKey.values()].find((t) => t.name === k || t.tool_key === k);
@@ -311,7 +424,7 @@ export async function loadOrBootstrapSessionContext(env, opts) {
     }
   }
 
-  const tools = await loadOauthVisibleToolsForSession(env.DB);
+  const tools = await loadOauthVisibleToolsForSession(env, composerMode);
   const writePolicy = writePolicyFromComposerMode(composerMode);
   const rootsWithMode = { ...roots, mode: composerMode };
   if (stub) {
