@@ -181,9 +181,11 @@ export function isProjectReadOnlyChatMessage(message) {
  * @param {string} message
  */
 export function shouldUseProjectQnaFastLane(body, projectContext, mode, message) {
-  const scoped =
-    hasUserAppProjectScope(body, projectContext) || messageHasInjectedProjectBrief(message);
-  if (!scoped) return false;
+  // Require injected Project memory/instructions. project_id alone is not enough —
+  // "what can you tell me about companionscpas" after cf_d1_list still needs tools.
+  void body;
+  void projectContext;
+  if (!messageHasInjectedProjectBrief(message)) return false;
   const normalized = normalizeAgentRuntimeMode(mode);
   if (normalized === 'debug' || normalized === 'multitask' || normalized === 'plan') return false;
   return isProjectReadOnlyChatMessage(message);
