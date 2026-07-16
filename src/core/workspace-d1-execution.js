@@ -129,7 +129,37 @@ export async function resolveWorkspaceD1Execution(env, ctx) {
   };
 
   // Preferred: plain CF database name → account catalog (not workspace_slug).
+  // Platform IAM business D1: operators skip catalog REST and use env.DB immediately.
   if (nameHint || requestedDatabaseId) {
+    const opRowNamedEarly = await resolveOperatorAuthUserRow(env, ctx?.authUser);
+    const operatorEarly = await isPlatformOperator(env, opRowNamedEarly);
+    const platformName =
+      nameHint && nameHint.toLowerCase() === 'inneranimalmedia-business';
+    const platformId =
+      requestedDatabaseId && isPlatformD1DatabaseId(requestedDatabaseId);
+    if (operatorEarly && (platformName || platformId || (!nameHint && !requestedDatabaseId))) {
+      const dbId = platformId
+        ? requestedDatabaseId
+        : platformName
+          ? IAM_D1_DATABASE_ID
+          : requestedDatabaseId || IAM_D1_DATABASE_ID;
+      logDataPlaneSecurityEvent('platform_operator_d1_unscoped', {
+        ...meta,
+        database_id: dbId,
+        database_name: platformName ? 'inneranimalmedia-business' : meta.database_name,
+        auth_scope: 'platform_operator',
+        via: 'platform_binding_fastpath',
+      });
+      return {
+        ok: true,
+        mode: 'platform',
+        binding_id: null,
+        database_id: dbId,
+        database_name: platformName ? 'inneranimalmedia-business' : null,
+        ...meta,
+      };
+    }
+
     const byName = await resolveCallerD1ByNameOrId(
       env,
       userId,

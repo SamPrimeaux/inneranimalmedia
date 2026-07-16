@@ -1,9 +1,47 @@
 /**
  * Session-scoped agent context — tools + write_policy + roots cached on AgentChatSqlV1.
  * Bootstrap once; chat messages reuse. No per-turn profile/classify.
+ *
+ * LAW: never dump full oauth_visible (~100+) into the in-app model loop —
+ * that hangs the Worker after the first tool_call (CPU/stream death).
+ * Catalog discovery stays OAuth/MCP-sized; in-app session uses a working spine.
  */
 import { inputSchemaFromAgentsamToolRow } from './agentsam-tools-catalog.js';
 import { normalizeAgentRuntimeMode } from './agent-mode.js';
+
+/** Soft cap — above this, DO cache is treated as stale mega-catalog and rebuilt. */
+export const SESSION_TOOL_CACHE_SOFT_MAX = 40;
+
+/**
+ * Curated in-app Agent session tools (proven lanes). Keep under SESSION_TOOL_CACHE_SOFT_MAX.
+ * Full oauth_visible remains for ChatGPT/Claude MCP tools/list — not this path.
+ */
+export const SESSION_WORKING_TOOL_KEYS = Object.freeze([
+  'agentsam_ping',
+  'agentsam_d1_query',
+  'agentsam_d1_write',
+  'agentsam_github_tree',
+  'agentsam_github_read',
+  'agentsam_github_read_many',
+  'agentsam_github_search',
+  'agentsam_github_write',
+  'agentsam_github_patch',
+  'agentsam_github_list_commits',
+  'agentsam_github_repo_list',
+  'agentsam_terminal_local',
+  'agentsam_terminal_remote',
+  'agentsam_terminal_sandbox',
+  'agentsam_memory_manager',
+  'agentsam_r2_list',
+  'agentsam_r2_get',
+  'agentsam_cf_workers_list',
+  'fs_read_file',
+  'fs_search_files',
+  'fs_edit_file',
+  'agentsam_ticket_list',
+  'agentsam_ticket_get',
+  'agentsam_ticket_create',
+]);
 
 /**
  * @param {string} mode
@@ -53,10 +91,13 @@ export function modeControllerForComposerMode(mode) {
 }
 
 /**
+ * Load curated working tools for in-app Agent session (not full oauth_visible dump).
  * @param {unknown} db
  */
 export async function loadOauthVisibleToolsForSession(db) {
   if (!db?.prepare) return [];
+  const keys = [...SESSION_WORKING_TOOL_KEYS];
+  const placeholders = keys.map(() => '?').join(', ');
   const { results } = await db
     .prepare(
       `SELECT tool_key, tool_name, description, input_schema, handler_config, tool_category,
@@ -64,28 +105,38 @@ export async function loadOauthVisibleToolsForSession(db) {
        FROM agentsam_tools
        WHERE COALESCE(is_active, 1) = 1
          AND COALESCE(is_degraded, 0) = 0
-         AND COALESCE(oauth_visible, 0) = 1
+         AND (tool_key IN (${placeholders}) OR tool_name IN (${placeholders}))
        ORDER BY COALESCE(sort_priority, 50) ASC, tool_name ASC
-       LIMIT 256`,
+       LIMIT 40`,
     )
+    .bind(...keys, ...keys)
     .all()
     .catch(() => ({ results: [] }));
-  return (results || [])
-    .map((row) => {
-      const name = String(row.tool_name || row.tool_key || '').trim();
-      if (!name) return null;
-      return {
-        name,
-        tool_name: name,
-        tool_key: String(row.tool_key || name).trim(),
-        description: String(row.description || name).slice(0, 4000),
-        input_schema: inputSchemaFromAgentsamToolRow(row),
-        tool_category: row.tool_category != null ? String(row.tool_category) : null,
-        requires_approval: Number(row.requires_approval || 0) === 1,
-        risk_level: row.risk_level != null ? String(row.risk_level) : null,
-      };
-    })
-    .filter(Boolean);
+
+  const byKey = new Map();
+  for (const row of results || []) {
+    const name = String(row.tool_name || row.tool_key || '').trim();
+    if (!name) continue;
+    const key = String(row.tool_key || name).trim();
+    byKey.set(key, {
+      name,
+      tool_name: name,
+      tool_key: key,
+      description: String(row.description || name).slice(0, 4000),
+      input_schema: inputSchemaFromAgentsamToolRow(row),
+      tool_category: row.tool_category != null ? String(row.tool_category) : null,
+      requires_approval: Number(row.requires_approval || 0) === 1,
+      risk_level: row.risk_level != null ? String(row.risk_level) : null,
+    });
+  }
+
+  // Preserve SESSION_WORKING_TOOL_KEYS order for stable model menus.
+  const ordered = [];
+  for (const k of keys) {
+    const hit = byKey.get(k) || [...byKey.values()].find((t) => t.name === k || t.tool_key === k);
+    if (hit && !ordered.some((t) => t.tool_key === hit.tool_key)) ordered.push(hit);
+  }
+  return ordered;
 }
 
 /**
@@ -222,19 +273,21 @@ export async function loadOrBootstrapSessionContext(env, opts) {
 
   if (stub && !opts.forceRefresh) {
     const cached = await doGetSessionContext(stub).catch(() => null);
-    if (
+    const cachedCount = Array.isArray(cached?.tools) ? cached.tools.length : 0;
+    // Stale mega-catalog (pre-spine) — rebuild so this conversation stops hanging.
+    const cacheUsable =
       cached &&
-      Array.isArray(cached.tools) &&
-      cached.tools.length > 0 &&
-      String(cached.mode || '') === composerMode
-    ) {
+      cachedCount > 0 &&
+      cachedCount <= SESSION_TOOL_CACHE_SOFT_MAX &&
+      String(cached.mode || '') === composerMode;
+    if (cacheUsable) {
       const mergedRoots = { ...(cached.roots || {}), ...roots };
       if (JSON.stringify(mergedRoots) !== JSON.stringify(cached.roots || {})) {
         await doSetSessionContext(stub, cached.tools, cached.writePolicy, mergedRoots).catch(() => {});
       }
       console.info(
         '[agent-session-context] cache_hit',
-        JSON.stringify({ conversationId, tools: cached.tools.length, mode: composerMode }),
+        JSON.stringify({ conversationId, tools: cachedCount, mode: composerMode }),
       );
       return {
         tools: cached.tools,
@@ -243,6 +296,12 @@ export async function loadOrBootstrapSessionContext(env, opts) {
         mode: composerMode,
         fromCache: true,
       };
+    }
+    if (cachedCount > SESSION_TOOL_CACHE_SOFT_MAX) {
+      console.info(
+        '[agent-session-context] cache_invalidate_mega',
+        JSON.stringify({ conversationId, tools: cachedCount, soft_max: SESSION_TOOL_CACHE_SOFT_MAX }),
+      );
     }
   }
 

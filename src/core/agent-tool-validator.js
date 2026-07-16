@@ -689,9 +689,11 @@ export function resolveToolExecutionBudgetMs(toolName, input) {
   }
   if (
     n === 'd1_query' ||
+    n === 'agentsam_d1_query' ||
     n === 'd1_explain' ||
     n === 'd1_schema_introspect' ||
-    (n.startsWith('d1_') && n.includes('query'))
+    (n.startsWith('d1_') && n.includes('query')) ||
+    (n.startsWith('agentsam_d1_') && (n.includes('query') || n.includes('write') || n.includes('migrate')))
   ) {
     if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout <= 10000) return Math.floor(rawTimeout);
     return 10000;
