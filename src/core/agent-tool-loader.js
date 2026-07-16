@@ -592,14 +592,23 @@ export async function ensureWorkspaceRgCompiledRows(env, opts) {
     { workspaceId: opts.workspaceId, limit: AGENT_MODE_WORKSPACE_RG_TOOLS.length },
   );
   const pinnedRows = mapCatalogRowsToAgentTools(rawPinned);
-  const seen = new Set(pinnedRows.map((r) => String(r.name || '').trim()).filter(Boolean));
-  const merged = [...pinnedRows];
+  // Profile/scored tools win. RG is additive only — never displace d1_read pins
+  // (prepending fs_* caused agentsam_d1_query to fall off the allowlist → blocked).
+  const merged = [];
+  const seen = new Set();
   for (const row of scoredRows) {
-    const name = String(row.name || row.tool_name || '').trim();
+    const name = String(row.name || row.tool_name || row.tool_key || '').trim();
     if (!name || seen.has(name)) continue;
     merged.push(row);
     seen.add(name);
     if (merged.length >= maxTools) break;
+  }
+  for (const row of pinnedRows) {
+    const name = String(row.name || row.tool_name || row.tool_key || '').trim();
+    if (!name || seen.has(name)) continue;
+    if (merged.length >= maxTools) break;
+    merged.push(row);
+    seen.add(name);
   }
   return { pinnedRows, mergedRows: merged.slice(0, maxTools) };
 }

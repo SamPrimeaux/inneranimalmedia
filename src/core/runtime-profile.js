@@ -1085,8 +1085,17 @@ export async function compileModeProfile(env, input) {
       });
       scoredRows = pinned.mergedRows;
     }
-    // Agent/Debug/Multitask: always surface live ripgrep — catalog score alone often omits it.
-    if (mode === 'agent' || mode === 'debug' || mode === 'multitask') {
+    // Agent/Debug/Multitask: surface live ripgrep when the profile is not a tight DB/mail pin.
+    // d1_read / supabase_* / mail_* must keep their D1 tool_keys_json allowlist intact —
+    // prepending fs_* previously displaced agentsam_d1_query and blocked execution.
+    const skipRgInject =
+      activeProfileKey === 'd1_read' ||
+      String(activeProfileKey || '').startsWith('supabase_') ||
+      String(activeProfileKey || '').startsWith('mail');
+    if (
+      !skipRgInject &&
+      (mode === 'agent' || mode === 'debug' || mode === 'multitask')
+    ) {
       const { ensureWorkspaceRgCompiledRows } = await import('./agent-tool-loader.js');
       const rgPinned = await ensureWorkspaceRgCompiledRows(env, {
         scoredRows,
