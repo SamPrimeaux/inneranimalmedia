@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Sync provider keys from gitignored .env.cloudflare into dashboard BYOK (user_api_keys).
- * Scoped to canonical OPERATOR_USER_ID + ws_inneranimalmedia — does not touch other users.
+ * Scoped to canonical OPERATOR_USER_ID — Cloudflare keys are account-wide (scope=user).
+ * Other providers may still attach to ws_inneranimalmedia for org defaults.
  *
  * Usage (repo root):
  *   npm run sync:operator-keys
@@ -81,15 +82,17 @@ async function listPersonal(cookie) {
 
 async function upsertProvider(cookie, row, apiKey, existing) {
   const accountId = row.accountIdEnv ? firstEnv([row.accountIdEnv]) : '';
+  // Cloudflare is account-wide — never jail the operator key to one workspace.
+  const isCloudflare = row.provider === 'cloudflare';
   const payload = {
     category: 'provider',
     provider: row.provider,
     label: row.label,
     api_key: apiKey,
-    scope: 'workspace',
+    scope: isCloudflare ? 'user' : 'workspace',
     validate: true,
   };
-  if (row.provider === 'cloudflare' && accountId) {
+  if (isCloudflare && accountId) {
     payload.cloudflare_account_id = accountId;
   }
 
