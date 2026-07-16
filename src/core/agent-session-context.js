@@ -31,8 +31,13 @@ export const SESSION_TOOL_CACHE_SOFT_MAX = 40;
  * in dashboards instead of silently becoming the permanent behavior again.
  */
 export const EMERGENCY_FALLBACK_TOOL_KEYS = Object.freeze([
+  'agentsam_cf_d1_list',
   'agentsam_d1_query',
   'agentsam_d1_write',
+  'agentsam_cf_workers_list',
+  'agentsam_r2_list',
+  'agentsam_r2_get',
+  'agentsam_github_repo_list',
   'agentsam_github_tree',
   'agentsam_github_read',
   'agentsam_github_read_many',
@@ -40,16 +45,14 @@ export const EMERGENCY_FALLBACK_TOOL_KEYS = Object.freeze([
   'agentsam_github_write',
   'agentsam_github_patch',
   'agentsam_github_list_commits',
-  'agentsam_github_repo_list',
+  'agentsam_terminal_local',
+  'agentsam_terminal_remote',
   'agentsam_terminal_sandbox',
   'agentsam_memory_manager',
-  'agentsam_r2_list',
-  'agentsam_r2_get',
-  'agentsam_cf_workers_list',
-  'agentsam_cf_d1_list',
   'fs_read_file',
   'fs_search_files',
   'fs_edit_file',
+  'pty_git_status',
 ]);
 
 /** Back-compat alias — do not add new call sites against this name. */
@@ -393,12 +396,21 @@ export async function loadOrBootstrapSessionContext(env, opts) {
   if (stub && !opts.forceRefresh) {
     const cached = await doGetSessionContext(stub).catch(() => null);
     const cachedCount = Array.isArray(cached?.tools) ? cached.tools.length : 0;
-    // Stale mega-catalog (pre-spine) — rebuild so this conversation stops hanging.
+    const cachedKeys = new Set(
+      (Array.isArray(cached?.tools) ? cached.tools : [])
+        .map((t) => String(t?.tool_key || t?.name || '').trim())
+        .filter(Boolean),
+    );
+    // Profile upgrades (e.g. CF+GitHub spine) must not stick on an old DO cache.
+    const requiresCfCatalog =
+      composerMode === 'agent' || composerMode === 'multitask' || composerMode === 'debug';
+    const missingCfList = requiresCfCatalog && !cachedKeys.has('agentsam_cf_d1_list');
     const cacheUsable =
       cached &&
       cachedCount > 0 &&
       cachedCount <= SESSION_TOOL_CACHE_SOFT_MAX &&
-      String(cached.mode || '') === composerMode;
+      String(cached.mode || '') === composerMode &&
+      !missingCfList;
     if (cacheUsable) {
       const mergedRoots = { ...(cached.roots || {}), ...roots };
       if (JSON.stringify(mergedRoots) !== JSON.stringify(cached.roots || {})) {
@@ -415,6 +427,12 @@ export async function loadOrBootstrapSessionContext(env, opts) {
         mode: composerMode,
         fromCache: true,
       };
+    }
+    if (missingCfList && cachedCount > 0) {
+      console.info(
+        '[agent-session-context] cache_invalidate_profile_upgrade',
+        JSON.stringify({ conversationId, tools: cachedCount, missing: 'agentsam_cf_d1_list' }),
+      );
     }
     if (cachedCount > SESSION_TOOL_CACHE_SOFT_MAX) {
       console.info(
