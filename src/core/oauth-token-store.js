@@ -30,6 +30,12 @@ export async function ensureOauthTokenColumns(DB) {
     ['metadata_json', 'TEXT'],
     ['created_at', 'INTEGER'],
     ['updated_at', 'INTEGER'],
+    ['is_active', 'INTEGER NOT NULL DEFAULT 1'],
+    ['revoked_at', 'INTEGER'],
+    ['revoked_by', 'TEXT'],
+    ['last_refresh_at', 'INTEGER'],
+    ['last_refresh_error_code', 'TEXT'],
+    ['refresh_failure_count', 'INTEGER NOT NULL DEFAULT 0'],
   ];
   for (const [name, type] of want) {
     if (!cols.has(name)) alters.push(`ALTER TABLE user_oauth_tokens ADD COLUMN ${name} ${type}`);
@@ -126,56 +132,42 @@ export async function upsertOauthToken(
     throw new Error(`account_identifier missing for provider ${provider}`);
   }
 
-  const sql = `
-    INSERT OR REPLACE INTO user_oauth_tokens
-      (user_id, tenant_id, person_uuid, provider, account_identifier,
-       ${hasPlain ? 'access_token,' : ''} ${cols.has('refresh_token') ? 'refresh_token,' : ''}
-       ${hasEncrypted ? 'access_token_encrypted, refresh_token_encrypted,' : ''}
-       ${cols.has('scope') ? 'scope,' : ''} ${cols.has('scopes') ? 'scopes,' : ''}
-       expires_at,
-       ${cols.has('workspace_id') ? 'workspace_id,' : ''}
-       ${cols.has('metadata_json') ? 'metadata_json,' : ''}
-       ${cols.has('account_email') ? 'account_email,' : ''} ${cols.has('account_display') ? 'account_display,' : ''}
-       ${cols.has('created_at') ? 'created_at,' : ''} ${cols.has('updated_at') ? 'updated_at,' : ''}
-       created_at
-      )
-    VALUES (
-      ?, ?, ?, ?, ?,
-      ${hasPlain ? '?,' : ''} ${cols.has('refresh_token') ? '?,' : ''}
-      ${hasEncrypted ? '?, ?,': ''}
-      ${cols.has('scope') ? '?,' : ''} ${cols.has('scopes') ? '?,' : ''}
-      ?,
-      ${cols.has('workspace_id') ? '?,' : ''}
-      ${cols.has('metadata_json') ? '?,' : ''}
-      ${cols.has('account_email') ? '?,' : ''} ${cols.has('account_display') ? '?,' : ''}
-      ${cols.has('created_at') ? '?,' : ''} ${cols.has('updated_at') ? '?,' : ''}
-      ?
-    )
-  `.replace(/\s+/g, ' ').trim();
-
-  const binds = [
-    canonicalUserId,
-    String(tenant_id || ''),
-    String(person_uuid || ''),
-    providerForDb,
-    String(accountIdVal || providerForDb),
+  const insert = [
+    ['user_id', canonicalUserId],
+    ['tenant_id', String(tenant_id || '')],
+    ['person_uuid', String(person_uuid || '')],
+    ['provider', providerForDb],
+    ['account_identifier', String(accountIdVal || providerForDb)],
   ];
-  if (hasPlain) binds.push(accessPlain);
-  if (cols.has('refresh_token')) binds.push(refreshPlain);
-  if (hasEncrypted) {
-    binds.push(encryptedAccess);
-    binds.push(encryptedRefresh);
-  }
-  if (cols.has('scope')) binds.push(scopesVal);
-  if (cols.has('scopes')) binds.push(scopesVal);
-  binds.push(expires_at || null);
-  if (cols.has('workspace_id')) binds.push(workspace_id ?? null);
-  if (cols.has('metadata_json')) binds.push(metadata_json ?? null);
-  if (cols.has('account_email')) binds.push(account_email || null);
-  if (cols.has('account_display')) binds.push(account_display || null);
-  if (cols.has('created_at')) binds.push(createdAt);
-  if (cols.has('updated_at')) binds.push(updatedAt);
-  binds.push(createdAt);
+  const add = (name, value) => {
+    if (cols.has(name)) insert.push([name, value]);
+  };
+  if (hasPlain) insert.push(['access_token', accessPlain]);
+  add('refresh_token', refreshPlain);
+  add('access_token_encrypted', encryptedAccess);
+  add('refresh_token_encrypted', encryptedRefresh);
+  add('scope', scopesVal);
+  add('scopes', scopesVal);
+  insert.push(['expires_at', expires_at || null]);
+  add('workspace_id', workspace_id ?? null);
+  add('metadata_json', metadata_json ?? null);
+  add('account_email', account_email || null);
+  add('account_display', account_display || null);
+  add('created_at', createdAt);
+  add('updated_at', updatedAt);
+  add('is_active', 1);
+  add('revoked_at', null);
+  add('revoked_by', null);
+  add('last_refresh_at', null);
+  add('last_refresh_error_code', null);
+  add('refresh_failure_count', 0);
+
+  // Reconnecting is an explicit reactivation: INSERT OR REPLACE clears any prior
+  // revocation and refresh-failure state while preserving compatibility with legacy schemas.
+  const sql = `INSERT OR REPLACE INTO user_oauth_tokens
+    (${insert.map(([name]) => name).join(', ')})
+    VALUES (${insert.map(() => '?').join(', ')})`;
+  const binds = insert.map(([, value]) => value);
 
   await env.DB.prepare(sql).bind(...binds).run();
 

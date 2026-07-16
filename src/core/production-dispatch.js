@@ -481,6 +481,13 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleGoogleTokenRefresh(env, request);
   }
 
+  if (pathLower === '/api/internal/cloudflare/resolve-token' && methodUpper === 'POST') {
+    const { handleInternalCloudflareResolveToken } = await import(
+      '../api/internal-cloudflare-refresh.js'
+    );
+    return handleInternalCloudflareResolveToken(request, env);
+  }
+
   if (pathLower.startsWith('/api/internal/workflow/')) {
     const { handleInternalWorkflowRequest } = await import('../api/internal-workflow.js');
     const wfResp = await handleInternalWorkflowRequest(request, env, url);

@@ -111,8 +111,8 @@ async function insertMcpOAuthTokenRow(env, row) {
         repo_path, github_repo, rate_limit_per_hour, is_active, created_at, expires_at, user_id,
         token_type, created_by, scopes_json, allowed_capability_keys_json,
         allowed_lanes_json, allowed_risk_levels_json, allowed_domains_json, audience,
-        refresh_token_hash, refresh_expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        refresh_token_hash, refresh_expires_at, client_id, external_client_key, authorization_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       row.id,
@@ -136,6 +136,9 @@ async function insertMcpOAuthTokenRow(env, row) {
       row.audience,
       row.refresh_token_hash,
       row.refresh_expires_at,
+      row.client_id,
+      row.external_client_key,
+      row.authorization_id,
     )
     .run();
 }
@@ -217,12 +220,14 @@ async function buildAuthorizationCodeTokenContext(env, request, body) {
   }
 
   let boundResource = IAM_MCP_RESOURCE_URL;
+  let authorizationId = null;
   try {
     const authz = await env.DB.prepare(
-      `SELECT metadata_json FROM oauth_authorizations WHERE authorization_code_hash = ? LIMIT 1`,
+      `SELECT id, metadata_json FROM oauth_authorizations WHERE authorization_code_hash = ? LIMIT 1`,
     )
       .bind(codeHash)
       .first();
+    authorizationId = authz?.id || null;
     const meta = parseMcpOAuthAuthorizationMetadata(authz?.metadata_json);
     if (meta.resource) boundResource = String(meta.resource);
     else if (meta.audience) boundResource = String(meta.audience);
@@ -319,6 +324,7 @@ async function buildAuthorizationCodeTokenContext(env, request, body) {
     scopeWithAgent,
     resourceCheck,
     externalClientKey,
+    authorizationId,
     oauthAllowedToolsJson,
     entitlements,
     domainsPayload,
@@ -399,6 +405,9 @@ async function issueMcpOAuthTokens(env, request, ctx) {
     audience: ctx.resourceCheck.resource,
     refresh_token_hash: refreshHash,
     refresh_expires_at: refreshExpiresAt,
+    client_id: ctx.authCodeRow?.client_id || ctx.clientId || null,
+    external_client_key: ctx.externalClientKey || null,
+    authorization_id: ctx.authorizationId || null,
   });
 
   await logMcpTokenIssued(env, request, ctx.userId, {
