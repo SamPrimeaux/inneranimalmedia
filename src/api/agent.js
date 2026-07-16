@@ -1425,7 +1425,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       } else if (result?.saw_token) {
         await markChatTurnStatus(env, sessionId, 'completed', null, turnOpts);
       }
-      // Terminal status safety net — delay so the controller finalize waitUntil can win first.
+      // Terminal status safety net — run via waitUntil immediately (no artificial delay;
+      // a 2.5s sleep here extended isolate lifetime and tipped long turns into CPU cancels).
       try {
         const { finalizeRunningAgentRunsForConversation } = await import(
           '../core/agent-run-routing.js'
@@ -1444,7 +1445,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           });
         if (ctx?.waitUntil) {
           ctx.waitUntil(
-            new Promise((r) => setTimeout(r, 2500))
+            Promise.resolve()
               .then(sweep)
               .catch((e) => console.warn('[agent] agent_run sse close finalize', e?.message ?? e)),
           );
