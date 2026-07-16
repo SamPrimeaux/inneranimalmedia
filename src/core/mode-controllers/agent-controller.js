@@ -414,6 +414,22 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     );
   }
 
+  // Project memory/instructions belong in system context — never the visible user bubble.
+  const sessionProjectBlock = String(input.sessionProjectContextBlock || '').trim();
+  const workspaceProjectBlock = String(input.projectContextBlock || '').trim();
+  const projectBlock = sessionProjectBlock || workspaceProjectBlock;
+  if (projectBlock) {
+    contextBlock = contextBlock ? `${contextBlock}\n\n${projectBlock}` : projectBlock;
+    console.info(
+      '[agent-controller] project_session_context_injected',
+      JSON.stringify({
+        chars: projectBlock.length,
+        source: sessionProjectBlock ? 'session_project' : 'workspace_project',
+        project_ref: input.sessionProjectRef ?? null,
+      }),
+    );
+  }
+
   let systemPrompt;
   if (env?.DB) {
     systemPrompt = await buildSystemPrompt(

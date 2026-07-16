@@ -8,6 +8,22 @@ export type AgentShellMessage = {
 
 const MD_IMAGE_RE = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/i;
 
+/** Hide legacy client-prepended Project memory/instructions from the chat bubble. */
+export function stripInjectedProjectBriefForDisplay(content: string): string {
+  let s = String(content || '');
+  if (!/^Project memory:/im.test(s) && !/^Project instructions:/im.test(s)) return s;
+  const parts = s.split(/\r?\n\r?\n---\r?\n\r?\n/);
+  if (parts.length > 1) {
+    s = parts[parts.length - 1].trim();
+  } else {
+    s = s
+      .replace(/^Project memory:\s*[\s\S]*?(?=\n\nProject instructions:|\n\n---\n\n|$)/i, '')
+      .replace(/^Project instructions:\s*[\s\S]*?(?=\n\n---\n\n|$)/i, '')
+      .trim();
+  }
+  return s;
+}
+
 function readTextFromUnknown(value: unknown): string {
   if (value == null) return '';
   if (typeof value === 'string') return value;
@@ -104,10 +120,10 @@ export function mapAgentSessionMessages(rows: unknown): AgentShellMessage[] {
     if (!content && !imageGenerationState) {
       if (status === 'pending' || role === 'assistant') continue;
     }
-    // Image-only assistant turns: keep markdown for persistence; UI uses imageGenerationState.
-    const displayContent =
+    const displayContent = stripInjectedProjectBriefForDisplay(
       content ||
-      (imageGenerationState ? `![Generated image](${imageGenerationState.imageUrl})` : '');
+        (imageGenerationState ? `![Generated image](${imageGenerationState.imageUrl})` : ''),
+    );
     if (!displayContent && !imageGenerationState) continue;
     mapped.push({
       role,

@@ -35,15 +35,11 @@ export type SendProjectChatOpts = {
 };
 
 function buildProjectMessage(raw: string, memory: string, instructions: string, isNewThread: boolean): string {
-  const base = raw.trim();
-  if (!isNewThread) return base;
-  const parts: string[] = [];
-  const mem = memory.trim();
-  const instr = instructions.trim();
-  if (mem) parts.push(`Project memory:\n${mem}`);
-  if (instr) parts.push(`Project instructions:\n${instr}`);
-  if (!parts.length) return base;
-  return `${parts.join('\n\n')}\n\n---\n\n${base}`;
+  // Server injects memory/instructions via project_id → system context.
+  void memory;
+  void instructions;
+  void isNewThread;
+  return raw.trim();
 }
 
 /** Send from project detail composer — stays on page; links session to project_id. */

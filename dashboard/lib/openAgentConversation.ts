@@ -109,15 +109,11 @@ export function buildProjectChatFirstMessage(
   memory?: string,
   instructions?: string,
 ): string {
-  const base = String(raw || '').trim();
-  const parts: string[] = [];
-  const mem = String(memory || '').trim();
-  const instr = String(instructions || '').trim();
-  if (mem) parts.push(`Project memory:\n${mem}`);
-  if (instr) parts.push(`Project instructions:\n${instr}`);
-  if (!parts.length) return base;
-  if (!base) return parts.join('\n\n');
-  return `${parts.join('\n\n')}\n\n---\n\n${base}`;
+  // Memory/instructions are loaded server-side from project_id (system context).
+  // Never concatenate into the user-visible chat bubble.
+  void memory;
+  void instructions;
+  return String(raw || '').trim();
 }
 
 export function startProjectAgentChat(detail: StartProjectAgentChatDetail): void {
