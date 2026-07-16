@@ -1,12 +1,22 @@
 /**
- * Resolve Cloudflare API token + account id for a workspace.
- * Superadmin → platform Wrangler secrets (account-wide). Everyone else → BYOK user_api_keys only.
+ * Cloudflare credentials — ONE account-wide spine (not per-workspace jail).
+ *
+ * Law:
+ *   1. Resolve a validated token (superadmin platform → same-account platform → OAuth → BYOK).
+ *   2. Derive account_id from that token's /accounts list (preferred hint only if in scope).
+ *   3. Workspace is soft org context only — never required to unlock CF utilities.
+ *   4. D1 REST pairing (elsewhere): token → catalog → match.account_id for that database.
+ *
+ * Same law as MCP `resolveUserCloudflareCredentials` (inneranimalmedia-mcp-server).
  */
 import { getAESKey, aesGcmDecryptFromB64 } from './crypto-vault.js';
 import { getDefaultWorkspaceDataBinding } from './workspace-data-bindings.js';
 import { userHasSuperadminRole } from './resolve-credential.js';
-import { workspaceAllowsPlatformFallback } from './workspace-spend-guard.js';
-import { resolveCfAccountIdFromToken, looksLikeCfAccountId, healCloudflareOAuthAccountIfNeeded } from './cf-token-account.js';
+import {
+  listCfAccountsForToken,
+  looksLikeCfAccountId,
+  healCloudflareOAuthAccountIfNeeded,
+} from './cf-token-account.js';
 import { getIntegrationOAuthRow } from './user-oauth-token.js';
 
 function trim(v) {
@@ -55,135 +65,141 @@ async function userApiKeysColumnSet(db) {
 }
 
 /**
+ * Account id must come from the token's accessible accounts.
+ * Soft hints (workspace / OAuth / BYOK meta) win only when they appear in that list.
+ *
+ * @param {string} token
+ * @param {string|null|undefined} preferredAccountId
+ */
+export async function finalizeCloudflareAccountForToken(token, preferredAccountId = null) {
+  const tok = trim(token);
+  if (!tok) {
+    return { ok: false, error: 'token_missing', account_id: null, account_id_source: null };
+  }
+  const listed = await listCfAccountsForToken(tok);
+  if (!listed.ok || !listed.accounts?.length) {
+    return {
+      ok: false,
+      error: listed.error || 'accounts_list_failed',
+      account_id: null,
+      account_id_source: null,
+      accessible_accounts: listed.accounts || [],
+    };
+  }
+  const preferred = trim(preferredAccountId);
+  if (preferred && listed.accounts.some((a) => a.id.toLowerCase() === preferred.toLowerCase())) {
+    return {
+      ok: true,
+      account_id: preferred,
+      account_id_source: 'hint_verified_in_token_scope',
+      accessible_accounts: listed.accounts,
+    };
+  }
+  return {
+    ok: true,
+    account_id: listed.accounts[0].id,
+    account_id_source: 'token_accounts_first',
+    accessible_accounts: listed.accounts,
+  };
+}
+
+/**
+ * Soft org hint only — never used as REST account_id unless verified against the token.
+ * @param {any} env
+ * @param {string} workspaceId
+ */
+async function loadWorkspaceAccountHint(env, workspaceId) {
+  const ws = trim(workspaceId);
+  if (!ws || !env?.DB) return { accountId: null, bindingId: null };
+  const accountBinding = await getDefaultWorkspaceDataBinding(env, ws, 'cloudflare');
+  return {
+    accountId: trim(accountBinding?.external_account_id) || null,
+    bindingId: accountBinding?.id != null ? String(accountBinding.id) : null,
+  };
+}
+
+/**
+ * @param {any} env
+ * @param {string} userId
+ */
+async function loadUserValidatedAccountHint(env, userId) {
+  const uid = trim(userId);
+  if (!uid || !env?.DB) return null;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT settings_json FROM user_settings WHERE user_id = ? LIMIT 1`,
+    )
+      .bind(uid)
+      .first();
+    const prefs =
+      row?.settings_json == null
+        ? {}
+        : typeof row.settings_json === 'object'
+          ? row.settings_json
+          : (() => {
+              try {
+                return JSON.parse(String(row.settings_json));
+              } catch {
+                return {};
+              }
+            })();
+    const stack = prefs?.cf_stack && typeof prefs.cf_stack === 'object' ? prefs.cf_stack : prefs;
+    const fromStack =
+      trim(stack?.cf_account_id) ||
+      trim(stack?.cloudflare_account_id) ||
+      trim(prefs?.cf_account_id) ||
+      trim(prefs?.cloudflare_account_id);
+    if (fromStack) return fromStack;
+  } catch (_) {
+    /* ignore */
+  }
+  return null;
+}
+
+/**
+ * BYOK Cloudflare keys: prefer workspace_id NULL (account-scoped), then any active row.
  * @param {any} env
  * @param {string} userId
  * @param {string} tenantId
- * @param {string} workspaceId
  */
-export async function resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId) {
-  if (!env?.DB || !userId || !tenantId || !workspaceId) {
-    return { ok: false, error: 'missing_scope', token: null, account_id: null, key_id: null };
-  }
-
-  const uid = String(userId).trim();
-  const tid = String(tenantId).trim();
-  const ws = String(workspaceId).trim();
-
-  let accountId = null;
-  let bindingId = null;
-
-  const accountBinding = await getDefaultWorkspaceDataBinding(env, ws, 'cloudflare');
-  if (accountBinding?.external_account_id) {
-    accountId = String(accountBinding.external_account_id).trim();
-    bindingId = accountBinding.id != null ? String(accountBinding.id) : null;
-  }
-
-  const authUser = await loadAuthUserForCredentials(env, uid);
-  const platformFallbackOk = await workspaceAllowsPlatformFallback(env, ws);
-  if (userHasSuperadminRole(authUser) && platformFallbackOk) {
-    const token = trim(env?.CLOUDFLARE_API_TOKEN);
-    const platformAccountId = trim(env?.CLOUDFLARE_ACCOUNT_ID);
-    if (token && platformAccountId) {
-      return {
-        ok: true,
-        error: null,
-        token,
-        account_id: platformAccountId,
-        account_mask: maskAccountId(platformAccountId),
-        key_id: null,
-        binding_id: bindingId,
-        platform_bypass: 'superadmin_role',
-      };
-    }
-  }
-
-  const oauthRow = await getIntegrationOAuthRow(env, uid, 'cloudflare');
-  const oauthToken = oauthRow?.access_token ? trim(oauthRow.access_token) : null;
-  if (oauthToken) {
-    let oauthAccountId = null;
-    const fromId = trim(oauthRow?.account_identifier);
-    if (looksLikeCfAccountId(fromId)) oauthAccountId = fromId;
-    if (!oauthAccountId && oauthRow?.metadata_json) {
-      try {
-        const meta = JSON.parse(String(oauthRow.metadata_json));
-        oauthAccountId =
-          trim(meta?.cloudflare_account_id) || trim(meta?.account_id) || null;
-      } catch {
-        oauthAccountId = null;
-      }
-    }
-    if (!oauthAccountId) {
-      oauthAccountId = await healCloudflareOAuthAccountIfNeeded(env, uid, oauthToken, oauthRow);
-    }
-    if (oauthAccountId) {
-      return {
-        ok: true,
-        error: null,
-        token: oauthToken,
-        account_id: oauthAccountId,
-        account_mask: maskAccountId(oauthAccountId),
-        key_id: null,
-        binding_id: bindingId,
-        credential_source: 'oauth',
-      };
-    }
-  }
-
+async function loadCloudflareByokRow(env, userId, tenantId) {
+  if (!env?.DB || !userId) return null;
   const cols = await userApiKeysColumnSet(env.DB);
   const selectCols = ['id', 'vault_secret_id', 'key_hash', 'metadata_json', 'workspace_id'];
   if (cols.has('status')) selectCols.push('status');
-  const where = [
-    'tenant_id = ?',
-    'user_id = ?',
-    "LOWER(provider) = 'cloudflare'",
+  const where = ["LOWER(provider) = 'cloudflare'", 'user_id = ?'];
+  const binds = [trim(userId)];
+  if (trim(tenantId)) {
+    where.push('(tenant_id IS NULL OR tenant_id = \'\' OR tenant_id = ?)');
+    binds.push(trim(tenantId));
+  }
+  if (cols.has('status')) where.push("COALESCE(status, 'active') = 'active'");
+  if (cols.has('is_active')) where.push('COALESCE(is_active, 1) = 1');
+  const orderParts = [
+    "CASE WHEN workspace_id IS NULL OR workspace_id = '' THEN 0 ELSE 1 END",
   ];
-  const binds = [tid, uid];
-  if (cols.has('status')) {
-    where.push("COALESCE(status, 'active') = 'active'");
-  }
-  if (cols.has('is_active')) {
-    where.push('COALESCE(is_active, 1) = 1');
-  }
-  const order =
-    cols.has('updated_at') && cols.has('created_at')
-      ? 'ORDER BY updated_at DESC, created_at DESC'
-      : cols.has('updated_at')
-        ? 'ORDER BY updated_at DESC'
-        : cols.has('created_at')
-          ? 'ORDER BY created_at DESC'
-          : '';
+  if (cols.has('updated_at')) orderParts.push('updated_at DESC');
+  if (cols.has('created_at')) orderParts.push('created_at DESC');
 
-  const row = await env.DB.prepare(
+  return env.DB.prepare(
     `SELECT ${selectCols.join(', ')} FROM user_api_keys
-     WHERE ${where.join(' AND ')} ${order} LIMIT 1`,
+     WHERE ${where.join(' AND ')}
+     ORDER BY ${orderParts.join(', ')}
+     LIMIT 1`,
   )
     .bind(...binds)
     .first()
     .catch(() => null);
+}
 
-  if (!row) {
-    return {
-      ok: false,
-      error: 'cloudflare_key_missing',
-      token: null,
-      account_id: accountId,
-      key_id: null,
-      binding_id: bindingId,
-    };
-  }
-
-  const meta = parseMeta(row.metadata_json);
-  if (!accountId) {
-    accountId =
-      meta.cloudflare_account_id != null
-        ? String(meta.cloudflare_account_id).trim()
-        : meta.account_id != null
-          ? String(meta.account_id).trim()
-          : null;
-  }
-
-  let token = null;
-  const vaultSecretId = row.vault_secret_id != null ? String(row.vault_secret_id).trim() : '';
+/**
+ * @param {any} env
+ * @param {Record<string, unknown>} row
+ * @param {string} userId
+ */
+async function decryptByokToken(env, row, userId) {
+  const uid = trim(userId);
+  const vaultSecretId = row?.vault_secret_id != null ? String(row.vault_secret_id).trim() : '';
   if (vaultSecretId) {
     const secretRow = await env.DB.prepare(
       `SELECT secret_value_encrypted FROM user_secrets
@@ -194,55 +210,162 @@ export async function resolveWorkspaceCloudflareCredentials(env, userId, tenantI
       .catch(() => null);
     if (secretRow?.secret_value_encrypted) {
       const { vaultDecrypt } = await import('../api/vault.js');
-      token = await vaultDecrypt(env, secretRow.secret_value_encrypted);
+      return await vaultDecrypt(env, secretRow.secret_value_encrypted);
     }
   }
-  if (!token && row.key_hash) {
+  if (row?.key_hash) {
     try {
       const aesKey = await getAESKey(env, ['decrypt']);
-      token = await aesGcmDecryptFromB64(row.key_hash, aesKey);
+      return await aesGcmDecryptFromB64(row.key_hash, aesKey);
     } catch {
-      token = null;
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Account-wide Cloudflare credentials. workspace_id is optional soft context only.
+ *
+ * @param {any} env
+ * @param {{
+ *   user_id?: string|null,
+ *   tenant_id?: string|null,
+ *   workspace_id?: string|null,
+ * }} [scope]
+ */
+export async function resolveUserCloudflareCredentials(env, scope = {}) {
+  const userId = trim(scope?.user_id);
+  const tenantId = trim(scope?.tenant_id);
+  const workspaceId = trim(scope?.workspace_id);
+  const platformToken = trim(env?.CLOUDFLARE_API_TOKEN);
+  const platformAccountId = trim(env?.CLOUDFLARE_ACCOUNT_ID);
+
+  if (!userId) {
+    return { ok: false, error: 'missing_user_id', token: null, account_id: null, key_id: null };
+  }
+
+  const { accountId: workspaceHint, bindingId } = await loadWorkspaceAccountHint(env, workspaceId);
+  const userHint = await loadUserValidatedAccountHint(env, userId);
+  const softPreferred = userHint || workspaceHint || platformAccountId || null;
+
+  const authUser = await loadAuthUserForCredentials(env, userId);
+
+  // Lane 1: superadmin → platform Wrangler secrets
+  if (userHasSuperadminRole(authUser) && platformToken) {
+    const finalized = await finalizeCloudflareAccountForToken(
+      platformToken,
+      softPreferred || platformAccountId,
+    );
+    if (finalized.ok) {
+      return {
+        ok: true,
+        error: null,
+        token: platformToken,
+        account_id: finalized.account_id,
+        account_mask: maskAccountId(finalized.account_id),
+        account_id_source: finalized.account_id_source,
+        key_id: null,
+        binding_id: bindingId,
+        platform_bypass: 'superadmin_role',
+        scope: 'account',
+        credential_source: 'platform',
+      };
     }
   }
 
-  if (!token) {
+  // Lane 2: user's validated CF account == platform account → platform token
+  if (platformToken && platformAccountId && userHint && userHint === platformAccountId) {
+    const finalized = await finalizeCloudflareAccountForToken(platformToken, platformAccountId);
+    if (finalized.ok) {
+      return {
+        ok: true,
+        error: null,
+        token: platformToken,
+        account_id: finalized.account_id,
+        account_mask: maskAccountId(finalized.account_id),
+        account_id_source: finalized.account_id_source,
+        key_id: null,
+        binding_id: bindingId,
+        platform_bypass: 'platform_account_user_validated',
+        scope: 'account',
+        credential_source: 'platform',
+      };
+    }
+  }
+
+  // Lane 3: Cloudflare OAuth (account-wide)
+  const oauthRow = await getIntegrationOAuthRow(env, userId, 'cloudflare');
+  const oauthToken = oauthRow?.access_token ? trim(oauthRow.access_token) : null;
+  if (oauthToken) {
+    let oauthHint = null;
+    const fromId = trim(oauthRow?.account_identifier);
+    if (looksLikeCfAccountId(fromId)) oauthHint = fromId;
+    if (!oauthHint && oauthRow?.metadata_json) {
+      try {
+        const meta = JSON.parse(String(oauthRow.metadata_json));
+        oauthHint = trim(meta?.cloudflare_account_id) || trim(meta?.account_id) || null;
+      } catch {
+        oauthHint = null;
+      }
+    }
+    if (!oauthHint) {
+      oauthHint = await healCloudflareOAuthAccountIfNeeded(env, userId, oauthToken, oauthRow);
+    }
+    const finalized = await finalizeCloudflareAccountForToken(
+      oauthToken,
+      oauthHint || softPreferred,
+    );
+    if (finalized.ok) {
+      return {
+        ok: true,
+        error: null,
+        token: oauthToken,
+        account_id: finalized.account_id,
+        account_mask: maskAccountId(finalized.account_id),
+        account_id_source: finalized.account_id_source,
+        key_id: null,
+        binding_id: bindingId,
+        scope: 'account',
+        credential_source: 'oauth',
+      };
+    }
+  }
+
+  // Lane 4: BYOK — prefer workspace_id NULL
+  if (!env?.DB) {
     return {
       ok: false,
-      error: 'cloudflare_token_decrypt_failed',
+      error: 'cloudflare_key_missing',
       token: null,
-      account_id: accountId,
-      key_id: row.id != null ? String(row.id) : null,
+      account_id: null,
+      key_id: null,
       binding_id: bindingId,
     };
   }
 
-  if (!accountId) {
-    const resolved = await resolveCfAccountIdFromToken(String(token));
-    if (resolved.ok && resolved.account_id) {
-      accountId = resolved.account_id;
-      const keyId = row.id != null ? String(row.id) : null;
-      if (keyId) {
-        const nextMeta = {
-          ...meta,
-          cloudflare_account_id: accountId,
-          account_id: accountId,
-        };
-        await env.DB.prepare(
-          `UPDATE user_api_keys SET metadata_json = ?, updated_at = COALESCE(updated_at, unixepoch())
-           WHERE id = ? AND user_id = ?`,
-        )
-          .bind(JSON.stringify(nextMeta), keyId, uid)
-          .run()
-          .catch(() => null);
-      }
-    }
-  }
-
-  if (!accountId) {
+  const row = await loadCloudflareByokRow(env, userId, tenantId);
+  if (!row) {
     return {
       ok: false,
-      error: 'cloudflare_account_id_missing',
+      error: 'cloudflare_key_missing',
+      token: null,
+      account_id: null,
+      key_id: null,
+      binding_id: bindingId,
+      user_message:
+        'Connect Cloudflare in Settings → Integrations (OAuth) or Keys (account-wide BYOK). Workspace is not required.',
+    };
+  }
+
+  const meta = parseMeta(row.metadata_json);
+  const byokHint =
+    trim(meta.cloudflare_account_id) || trim(meta.account_id) || softPreferred || null;
+  const token = await decryptByokToken(env, row, userId);
+  if (!token) {
+    return {
+      ok: false,
+      error: 'cloudflare_token_decrypt_failed',
       token: null,
       account_id: null,
       key_id: row.id != null ? String(row.id) : null,
@@ -250,15 +373,51 @@ export async function resolveWorkspaceCloudflareCredentials(env, userId, tenantI
     };
   }
 
+  const finalized = await finalizeCloudflareAccountForToken(token, byokHint);
+  if (!finalized.ok) {
+    return {
+      ok: false,
+      error: finalized.error || 'cloudflare_account_id_missing',
+      token: null,
+      account_id: null,
+      key_id: row.id != null ? String(row.id) : null,
+      binding_id: bindingId,
+      accessible_accounts: finalized.accessible_accounts || null,
+    };
+  }
+
   return {
     ok: true,
     error: null,
     token: String(token),
-    account_id: accountId,
-    account_mask: maskAccountId(accountId),
+    account_id: finalized.account_id,
+    account_mask: maskAccountId(finalized.account_id),
+    account_id_source: finalized.account_id_source,
     key_id: row.id != null ? String(row.id) : null,
     binding_id: bindingId,
+    scope: 'account',
+    credential_source: 'byok',
   };
+}
+
+/**
+ * Compatibility wrapper — workspace_id is soft context, not a gate.
+ * Callers that only have userId still succeed.
+ *
+ * @param {any} env
+ * @param {string} userId
+ * @param {string} [tenantId]
+ * @param {string} [workspaceId]
+ */
+export async function resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId) {
+  if (!userId) {
+    return { ok: false, error: 'missing_scope', token: null, account_id: null, key_id: null };
+  }
+  return resolveUserCloudflareCredentials(env, {
+    user_id: userId,
+    tenant_id: tenantId,
+    workspace_id: workspaceId,
+  });
 }
 
 export { maskAccountId };

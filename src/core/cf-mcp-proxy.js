@@ -116,6 +116,23 @@ export async function assertCallerOwnsDatabaseId(env, userId, databaseId, authUs
       database_id: dbId,
       auth_scope: 'platform_operator',
     });
+    // Still pair token→catalog→account when a remote REST call needs credentials.
+    const { resolveUserCloudflareCredentials } = await import('./workspace-cloudflare-credentials.js');
+    const cf = await resolveUserCloudflareCredentials(env, { user_id: uid });
+    const token = trim(cf.token) || trim(env?.CLOUDFLARE_API_TOKEN);
+    if (token) {
+      const catalog = await listOAuthAccountD1Catalog(token);
+      const match = catalog.find((e) => e.database_id.toLowerCase() === dbId.toLowerCase());
+      if (match) {
+        return {
+          ok: true,
+          auth_scope: 'platform_operator',
+          account_id: match.account_id,
+          database_id: match.database_id,
+          token,
+        };
+      }
+    }
     return { ok: true, auth_scope: 'platform_operator' };
   }
 
@@ -132,30 +149,35 @@ export async function assertCallerOwnsDatabaseId(env, userId, databaseId, authUs
     };
   }
 
-  const { getOAuthToken } = await import('./user-oauth-token.js');
-  const oauth = await getOAuthToken(env, uid, 'cloudflare');
-  if (!oauth) {
+  const { resolveUserCloudflareCredentials } = await import('./workspace-cloudflare-credentials.js');
+  const cf = await resolveUserCloudflareCredentials(env, { user_id: uid });
+  const token = trim(cf.token);
+  if (!token) {
     return {
       ok: false,
       error: 'cloudflare_not_connected',
       reauth_required: true,
-      user_message: 'Connect Cloudflare in Integrations before using D1 tools.',
+      user_message:
+        cf.user_message ||
+        'Connect Cloudflare in Integrations (OAuth) or Keys (account-wide BYOK) before using D1 tools.',
     };
   }
 
-  const catalog = await listOAuthAccountD1Catalog(oauth);
+  const catalog = await listOAuthAccountD1Catalog(token);
   const match = catalog.find((e) => e.database_id.toLowerCase() === dbId.toLowerCase());
   if (!match) {
     logDataPlaneSecurityEvent('d1_database_not_in_caller_account', {
       user_id: uid,
       database_id: dbId,
       auth_scope: 'user_account',
+      credential_source: cf.credential_source || null,
     });
     return {
       ok: false,
       error: 'database_id_not_in_account',
       user_message:
         'That D1 database is not in your connected Cloudflare account. List your databases and pick a valid database_id.',
+      available: catalog.map((e) => e.database_name).filter(Boolean),
     };
   }
 
@@ -164,7 +186,7 @@ export async function assertCallerOwnsDatabaseId(env, userId, databaseId, authUs
     auth_scope: 'user_account',
     account_id: match.account_id,
     database_id: match.database_id,
-    token: oauth,
+    token,
   };
 }
 
@@ -228,44 +250,31 @@ export async function resolveCallerD1ByNameOrId(env, userId, hint = {}, authUser
   }
 
   const uid = trim(userId);
-  const operator = await resolveCallerIsPlatformOperator(env, authUser);
-  let token = '';
-  let authScope = 'user_account';
-
-  if (operator) {
-    token = trim(env?.CLOUDFLARE_API_TOKEN);
-    authScope = 'platform_operator';
-    if (!token && uid) {
-      const { getOAuthToken } = await import('./user-oauth-token.js');
-      token = trim(await getOAuthToken(env, uid, 'cloudflare'));
-    }
-  } else {
-    if (!uid) {
-      return {
-        ok: false,
-        error: 'user_oauth_required',
-        user_message: 'Sign in before using Cloudflare D1 tools.',
-      };
-    }
-    const { getOAuthToken } = await import('./user-oauth-token.js');
-    token = trim(await getOAuthToken(env, uid, 'cloudflare'));
-    if (!token) {
-      return {
-        ok: false,
-        error: 'cloudflare_not_connected',
-        user_message: 'Connect Cloudflare in Integrations before using D1 tools.',
-      };
-    }
+  if (!uid) {
+    return {
+      ok: false,
+      error: 'user_oauth_required',
+      user_message: 'Sign in before using Cloudflare D1 tools.',
+    };
   }
+
+  const operator = await resolveCallerIsPlatformOperator(env, authUser);
+  const { resolveUserCloudflareCredentials } = await import('./workspace-cloudflare-credentials.js');
+  const cf = await resolveUserCloudflareCredentials(env, { user_id: uid });
+  const token = trim(cf.token) || (operator ? trim(env?.CLOUDFLARE_API_TOKEN) : '');
+  const authScope = operator ? 'platform_operator' : 'user_account';
 
   if (!token) {
     return {
       ok: false,
       error: 'cloudflare_token_missing',
-      user_message: 'No Cloudflare token available to list D1 databases.',
+      user_message:
+        cf.user_message ||
+        'No Cloudflare token available to list D1 databases. Connect OAuth or account-wide BYOK.',
     };
   }
 
+  // Law: account_id for this D1 comes from the catalog under THIS token — never workspace jail.
   const catalog = await listOAuthAccountD1Catalog(token);
   const available = catalog.map((e) => e.database_name).filter(Boolean);
   const needle = nameHint.toLowerCase();
@@ -281,6 +290,7 @@ export async function resolveCallerD1ByNameOrId(env, userId, hint = {}, authUser
       database_name: nameHint || null,
       database_id: idHint || null,
       auth_scope: authScope,
+      credential_source: cf.credential_source || null,
     });
     return {
       ok: false,
