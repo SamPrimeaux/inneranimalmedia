@@ -41,65 +41,11 @@ import {
 
 const TERMINAL_TOOL_NAMES = ['terminal_run', 'terminal_execute', 'run_command', 'bash'];
 
-const AUGMENTATION_EXEMPT_ROUTES = new Set([
-  'design_intake',
-  'cad_generation',
-  'design_studio',
-  'visual_canvas',
-  'cms_code_pass',
-  'mcp_panel',
-  'mail_triage',
-]);
-
-const EXEMPT_ROUTE_TOOL_ALLOWLIST_FALLBACK = {
-  design_intake: ['agentsam_d1_write', 'fs_read_file', 'fs_search_files', 'agentsam_memory_manager'],
-  cad_generation: ['agentsam_d1_write', 'fs_read_file', 'fs_search_files', 'agentsam_memory_manager', 'agentsam_r2_put'],
-  design_studio: ['agentsam_d1_write', 'fs_read_file', 'fs_search_files', 'agentsam_memory_manager', 'agentsam_r2_put'],
-  visual_canvas: [
-    'agentsam_excalidraw',
-    'illustration_create',
-    'excalidraw_export',
-    'excalidraw_load_library',
-    'agentsam_memory_manager',
-  ],
-  mail_triage: [
-    'gmail_list_inbox',
-    'gmail_get_message',
-    'gmail_modify_message',
-    'gmail_send',
-    'agentsam_gmail_mcp_search_threads',
-    'agentsam_gmail_mcp_get_thread',
-    'agentsam_gmail_mcp_list_labels',
-    'agentsam_gmail_mcp_label_message',
-    'agentsam_gmail_mcp_unlabel_message',
-  ],
-  mail_compose: [
-    'gmail_send',
-    'agentsam_gmail_mcp_create_draft',
-    'agentsam_gmail_mcp_list_drafts',
-    'agentsam_gmail_mcp_get_thread',
-  ],
-  mail_sweep: [
-    'agentsam_gmail_mcp_search_threads',
-    'gmail_modify_message',
-    'agentsam_gmail_mcp_label_thread',
-    'agentsam_gmail_mcp_unlabel_thread',
-    'agentsam_gmail_mcp_apply_sensitive_thread_label',
-  ],
-  gmail: [
-    'gmail_list_inbox',
-    'gmail_get_message',
-    'gmail_modify_message',
-    'gmail_send',
-    'agentsam_gmail_mcp_search_threads',
-    'agentsam_gmail_mcp_get_thread',
-    'agentsam_gmail_mcp_list_labels',
-    'agentsam_gmail_mcp_label_message',
-    'agentsam_gmail_mcp_unlabel_message',
-  ],
-};
+/** No JS tool-name presets. Exempt routes use D1 prompt_routes.tool_keys only when present. */
+const AUGMENTATION_EXEMPT_ROUTES = new Set();
 
 /**
+ * Cap only from D1 when set; otherwise full MCP parity ceiling (no 8-tool starve).
  * @param {{ promptRouteMax?: number|null, routeReqMax?: number|null, modelCap?: number|null, requestLimit?: number|null }} p
  */
 function effectiveAgentChatToolCap(p) {
@@ -110,8 +56,8 @@ function effectiveAgentChatToolCap(p) {
   };
   const pr = n(p.promptRouteMax);
   const rr = n(p.routeReqMax);
-  const mc = n(p.modelCap) ?? 8;
-  const rl = n(p.requestLimit) ?? 20;
+  const mc = n(p.modelCap) ?? IN_APP_MCP_PARITY_TOOL_LIMIT;
+  const rl = n(p.requestLimit) ?? IN_APP_MCP_PARITY_TOOL_LIMIT;
   if (pr === 0 || rr === 0) return 0;
   const caps = [];
   if (pr != null && pr > 0) caps.push(Math.floor(pr));
@@ -120,19 +66,9 @@ function effectiveAgentChatToolCap(p) {
   return Math.max(0, Math.min(...caps));
 }
 
-/**
- * @param {string} [taskType]
- * @param {string} [modeSlug]
- */
-function maxModelToolsForAgentTask(taskType, modeSlug) {
-  const tt = String(taskType || '').toLowerCase();
-  const mode = String(modeSlug || '').toLowerCase();
-  if (mode === 'ask') return 8;
-  if (tt === 'debug' || tt === 'tool_use') return 8;
-  if (tt === 'mcp_panel') return 24;
-  if (['code', 'sql_d1_generation', 'terminal_execution', 'deploy', 'cms_edit'].includes(tt)) return 12;
-  if (tt === 'plan') return 6;
-  return 8;
+/** No per-task hardcoded tool-count map — catalog size is the ceiling. */
+function maxModelToolsForAgentTask(_taskType, _modeSlug) {
+  return IN_APP_MCP_PARITY_TOOL_LIMIT;
 }
 
 /**
@@ -862,51 +798,38 @@ export async function compileModeProfile(env, input) {
   ) {
     const { selectAgentsamToolsForAgentChat } = await import('./agentsam-tools-catalog.js');
     let scoredRows = [];
-    // Resolve exempt-route allowlist (mail_triage, design_*, …) before OAuth parity.
-    // OAuth parity lists oauth_visible=1 only — gmail_list_inbox was invisible there and
-    // the model fell back to agentsam_d1_query. Exempt routes must pin their tool_keys.
-    const exemptAllowlistKeyEarly = AUGMENTATION_EXEMPT_ROUTES.has(routeKey)
-      ? routeKey
-      : AUGMENTATION_EXEMPT_ROUTES.has(taskType)
-        ? taskType
-        : AUGMENTATION_EXEMPT_ROUTES.has(input.routeKeyPin)
-          ? input.routeKeyPin
-          : null;
-    let exemptAllowlistEarly = null;
-    if (exemptAllowlistKeyEarly) {
-      if (promptRouteRow?.route_key === exemptAllowlistKeyEarly && promptRouteRow?.tool_keys) {
+    // Cursor-shaped: oauth_visible catalog is the menu. No JS exempt allowlists.
+    // D1 profile pins are not exclusive — they must not starve GitHub/CF tools.
+    if (useOAuthParity) {
+      const { selectOAuthMcpParityToolsForAgentChat } = await import('./in-app-mcp-oauth-parity.js');
+      const det = await selectOAuthMcpParityToolsForAgentChat(
+        env.DB,
+        { userId, tenantId, workspaceId, isSuperadmin },
+        {
+          outputLimit: maxTools,
+          modeSlug: mode,
+          isSuperadmin,
+        },
+      );
+      scoredRows = det.rows || [];
+      // Optional: load write_policy from profile row without replacing the menu.
+      if (activeProfileKey) {
         try {
-          const parsed = JSON.parse(String(promptRouteRow.tool_keys));
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            exemptAllowlistEarly = parsed.map((k) => String(k).trim()).filter(Boolean);
-          }
+          const { loadToolProfileRow, parseWritePolicyJson } = await import('./d1-tool-profile.js');
+          const prow = await loadToolProfileRow(env, activeProfileKey);
+          const wp = parseWritePolicyJson(prow?.write_policy_json);
+          if (wp && typeof wp === 'object') d1WritePolicy = wp;
         } catch (_) {
-          /* fall through */
+          /* ignore */
         }
       }
-      if (!exemptAllowlistEarly) {
-        exemptAllowlistEarly = EXEMPT_ROUTE_TOOL_ALLOWLIST_FALLBACK[exemptAllowlistKeyEarly] || null;
-      }
-    }
-
-    if (useOAuthParity && exemptAllowlistEarly?.length) {
-      const { fetchAgentsamToolRowsByName } = await import('./agent-tool-loader.js');
-      const { mapCatalogRowsToMcpParityAgentTools } = await import('./in-app-mcp-oauth-parity.js');
-      const pinnedRows = await fetchAgentsamToolRowsByName(env, exemptAllowlistEarly);
-      const byName = new Map(
-        (pinnedRows || []).map((r) => [String(r.tool_name || '').trim().toLowerCase(), r]),
-      );
-      const ordered = [];
-      for (const key of exemptAllowlistEarly) {
-        const row = byName.get(String(key).trim().toLowerCase());
-        if (row) ordered.push(row);
-      }
-      scoredRows = mapCatalogRowsToMcpParityAgentTools(ordered).slice(0, Math.max(1, maxTools));
       console.info(
-        '[runtime-profile] exempt_route_oauth_parity_pin',
+        '[runtime-profile] oauth_parity_catalog',
         JSON.stringify({
-          route_key: exemptAllowlistKeyEarly,
-          pinned: scoredRows.map((r) => r.name || r.tool_key).filter(Boolean),
+          profile_key: activeProfileKey,
+          selected: scoredRows.length,
+          max_tools: maxTools,
+          tools: scoredRows.map((r) => r.name || r.tool_key).filter(Boolean).slice(0, 32),
         }),
       );
     } else if (activeProfileKey) {
@@ -937,8 +860,6 @@ export async function compileModeProfile(env, input) {
             if (activeProfileKey === 'inspect' || activeProfileKey === 'd1_read' || activeProfileKey === 'ask') {
               return compileInspectToolRows(env, { userId, tenantId, workspaceId }, { maxTools });
             }
-            // cms_edit: D1 agentsam_tool_profiles.tool_keys_json is SSOT (migration 859).
-            // Do not re-pin tool lists in JS — empty cold-start fails closed until D1 row loads.
             return { rows: [], missingPinned: [], pinned_count: 0, total: 0 };
           },
         },
@@ -947,7 +868,6 @@ export async function compileModeProfile(env, input) {
         d1WritePolicy = det.write_policy;
       }
       scoredRows = det.rows || [];
-      // Empty default_route → fall through to route-scoped catalog (not oauth)
       if (!scoredRows.length && (det.source === 'd1_default_route_empty' || activeProfileKey === 'default_route')) {
         const { selectAgentsamToolsForAgentChat } = await import('./agentsam-tools-catalog.js');
         const routeDet = await selectAgentsamToolsForAgentChat(
@@ -958,7 +878,7 @@ export async function compileModeProfile(env, input) {
             message,
             taskType,
             modeSlug: mode,
-            catalogLimit: Math.min(96, maxTools * 4),
+            catalogLimit: Math.min(256, maxTools * 4),
             outputLimit: maxTools,
           },
         );
@@ -990,76 +910,31 @@ export async function compileModeProfile(env, input) {
           tools: scoredRows.map((r) => r.name || r.tool_key).filter(Boolean).slice(0, 24),
         }),
       );
-    } else if (useOAuthParity) {
-      const { selectOAuthMcpParityToolsForAgentChat } = await import('./in-app-mcp-oauth-parity.js');
-      const det = await selectOAuthMcpParityToolsForAgentChat(
-        env.DB,
-        { userId, tenantId, workspaceId, isSuperadmin },
-        {
-          outputLimit: maxTools,
-          modeSlug: mode,
-          isSuperadmin,
-        },
-      );
-      scoredRows = det.rows || [];
     } else {
-    const exemptAllowlistKey = AUGMENTATION_EXEMPT_ROUTES.has(routeKey)
-      ? routeKey
-      : AUGMENTATION_EXEMPT_ROUTES.has(taskType)
-        ? taskType
-        : AUGMENTATION_EXEMPT_ROUTES.has(input.routeKeyPin)
-          ? input.routeKeyPin
-          : null;
-    // Live source: agentsam_prompt_routes.tool_keys for the row that matches this exempt
-    // route_key (promptRouteRow is resolved by the real route_key, not modeSlug — see
-    // resolvePromptRouteForCompile). Editing that D1 row's tool_keys changes the allowlist
-    // with no deploy. Falls back to the hardcoded map only if that row/column is empty.
-    let exemptAllowlist = null;
-    if (exemptAllowlistKey) {
-      if (promptRouteRow?.route_key === exemptAllowlistKey && promptRouteRow?.tool_keys) {
-        try {
-          const parsed = JSON.parse(String(promptRouteRow.tool_keys));
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            exemptAllowlist = parsed.map((k) => String(k).trim()).filter(Boolean);
-          }
-        } catch (_) {
-          /* fall through to hardcoded fallback */
-        }
-      }
-      if (!exemptAllowlist) {
-        exemptAllowlist = EXEMPT_ROUTE_TOOL_ALLOWLIST_FALLBACK[exemptAllowlistKey] || null;
-      }
-    }
-    const allowlistKeys = exemptAllowlist ? new Set(exemptAllowlist.map((k) => k.toLowerCase())) : null;
-    const det = await selectAgentsamToolsForAgentChat(env.DB, { userId, tenantId, workspaceId }, {
-      allowlistKeys,
-      routeToolRequirements: effectiveRouteReq || {
-        route_key: routeKey,
-        task_type: taskType,
-        allowed_lanes: ['general'],
-        required_capabilities: [],
-        optional_capabilities: [],
-        blocked_capabilities: [],
-        max_tools: maxTools,
-        approval_policy: null,
-        source: 'default',
-      },
-      message,
-      taskType,
-      modeSlug: mode,
-      catalogLimit: Math.min(96, maxTools * 4),
-      outputLimit: maxTools,
-    });
-    let scoredRowsLegacy = det.rows || [];
-    missingRequiredCapabilities = det.missingRequiredCapabilities || [];
-    allowedDomains = det.allowedDomains || [];
-    if (det.droppedUnknownLanes?.length) {
-      console.warn('[runtime-profile] route_unknown_lanes_dropped', {
-        route_key: routeKey,
-        lanes: det.droppedUnknownLanes,
+      const { selectAgentsamToolsForAgentChat } = await import('./agentsam-tools-catalog.js');
+      const det = await selectAgentsamToolsForAgentChat(env.DB, { userId, tenantId, workspaceId }, {
+        allowlistKeys: null,
+        routeToolRequirements: effectiveRouteReq || {
+          route_key: routeKey,
+          task_type: taskType,
+          allowed_lanes: [],
+          allowed_domains: [],
+          required_capabilities: [],
+          optional_capabilities: [],
+          blocked_capabilities: [],
+          max_tools: maxTools,
+          approval_policy: null,
+          source: 'default',
+        },
+        message,
+        taskType,
+        modeSlug: mode,
+        catalogLimit: Math.min(256, maxTools * 4),
+        outputLimit: maxTools,
       });
-    }
-    scoredRows = scoredRowsLegacy;
+      scoredRows = det.rows || [];
+      missingRequiredCapabilities = det.missingRequiredCapabilities || [];
+      allowedDomains = det.allowedDomains || [];
     }
     const readonlyAuditCompile =
       isReadonlyRepoAuditContext(message) ||

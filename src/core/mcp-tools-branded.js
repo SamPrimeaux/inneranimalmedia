@@ -342,19 +342,12 @@ export async function inferMcpCapabilityLane(message, intentSlug, taskType, mode
 }
 
 /**
- * Max tools passed to the model after family/capability filters (not DB fetch limit).
+ * Max tools passed to the model — no per-task hardcoded map (was 4/6/8/12).
  * @param {string} [taskType]
  * @param {string} [modeSlug]
  */
-export function maxModelToolsForAgentTask(taskType, modeSlug) {
-  const tt = String(taskType || '').toLowerCase();
-  const mode = String(modeSlug || '').toLowerCase();
-  if (mode === 'ask' && (tt === 'chat' || tt === 'summary' || !tt)) return 4;
-  if (tt === 'debug' || tt === 'tool_use') return 8;
-  if (tt === 'mcp_panel') return 24;
-  if (['code', 'sql_d1_generation', 'terminal_execution', 'deploy', 'cms_edit'].includes(tt)) return 12;
-  if (tt === 'plan') return 6;
-  return 8;
+export function maxModelToolsForAgentTask(_taskType, _modeSlug) {
+  return 128;
 }
 
 const BRANDED_FROM_TOOLS = `

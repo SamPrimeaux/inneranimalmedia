@@ -28,7 +28,8 @@ function inferLaneFromMessage(message, modeSlug) {
 }
 
 export const CATALOG_ACTIVE_TOOL_COUNT = 76;
-export const DEFAULT_AGENT_TOOL_LIST_LIMIT = 8;
+/** Default = full catalog ceiling — no hardcoded 8-tool starve. */
+export const DEFAULT_AGENT_TOOL_LIST_LIMIT = 128;
 export const MAX_AGENT_TOOL_LIST_LIMIT = 128;
 
 // ─── Dynamic handler type resolution ──────────────────────────────────────────
@@ -240,71 +241,13 @@ async function loadCatalogRowsForMcpTemplate(db, runtimeCtx, serverKeys, limit =
   return out;
 }
 
-export const LANE_TO_TOOL_CATEGORIES = {
-  develop: ['terminal', 'container', 'filesystem', 'd1', 'github', 'deploy', 'cloudflare', 'agent', 'storage', 'cms'],
-  inspect: ['browser', 'ui', 'cms'],
-  research: ['knowledge', 'context', 'memory', 'ai', 'cms'],
-  think: ['ai', 'memory', 'context', 'agent', 'knowledge', 'cms'],
-  design: ['ui', 'media', 'cms'],
-  operate: ['deploy', 'workflow', 'cloudflare', 'agent', 'cms'],
-  integrate: ['integrations', 'email', 'github'],
-  admin: ['agent', 'cloudflare'],
-  observe: ['cloudflare', 'network'],
-  general: ['agent', 'ai', 'context', 'knowledge'],
-  memory: ['memory'],
-  data: ['d1', 'supabase'],
-  terminal: ['terminal', 'container'],
-};
+/** Emptied — lane→category JS maps removed (were starving / mis-scoping the menu). */
+export const LANE_TO_TOOL_CATEGORIES = {};
 
-/**
- * Phase 2 SSOT: route declares domains; lanes map here only for legacy rows.
- * Domain = noun (what system). tool_category = domain.capability.
- */
-export const LANE_TO_DOMAINS = {
-  develop: ['filesystem', 'terminal', 'github', 'git', 'database.d1', 'deploy', 'cloudflare', 'agent', 'storage', 'cms'],
-  inspect: ['browser', 'cms'],
-  research: ['knowledge', 'memory', 'web', 'cms'],
-  think: ['memory', 'knowledge', 'agent', 'cms'],
-  design: ['browser', 'media', 'cms'],
-  operate: ['deploy', 'workflow', 'cloudflare', 'agent', 'cms'],
-  integrate: ['integrations', 'github'],
-  admin: ['agent', 'cloudflare'],
-  observe: ['cloudflare', 'network'],
-  general: ['agent', 'knowledge'],
-  memory: ['memory'],
-  data: ['database.d1', 'database.supabase'],
-  terminal: ['terminal'],
-};
+/** Emptied — lane→domain JS maps removed. Domains come from D1 route requirements only. */
+export const LANE_TO_DOMAINS = {};
 
-const LEGACY_CATEGORY_TO_DOMAIN = /** @type {Record<string, string>} */ ({
-  d1: 'database.d1',
-  supabase: 'database.supabase',
-  shell: 'terminal',
-  terminal: 'terminal',
-  container: 'terminal',
-  filesystem: 'filesystem',
-  github: 'github',
-  git: 'git',
-  deploy: 'deploy',
-  browser: 'browser',
-  ui: 'browser',
-  memory: 'memory',
-  knowledge: 'knowledge',
-  context: 'knowledge',
-  ai: 'web',
-  web: 'web',
-  cloudflare: 'cloudflare',
-  platform: 'cloudflare',
-  agent: 'agent',
-  storage: 'storage',
-  r2: 'storage',
-  integrations: 'integrations',
-  email: 'integrations',
-  workflow: 'workflow',
-  network: 'network',
-  media: 'media',
-  cms: 'cms',
-});
+const LEGACY_CATEGORY_TO_DOMAIN = /** @type {Record<string, string>} */ ({});
 
 function parseJsonStringArray(raw) {
   if (raw == null || raw === '') return [];
@@ -317,35 +260,13 @@ function parseJsonStringArray(raw) {
 }
 
 /**
- * Resolve allowed domains from route requirements (SSOT) with legacy lane fallback.
+ * Resolve allowed domains from D1 route requirements only (no JS lane maps).
+ * Empty → unrestricted at domain layer.
  * @param {{ allowed_domains?: string[], allowed_lanes?: string[] } | null | undefined} req
  */
 export function toolDomainsFromRouteRequirements(req) {
   const explicit = parseJsonStringArray(req?.allowed_domains);
-  if (explicit.length) return [...new Set(explicit)];
-
-  const out = new Set();
-  const unknownLanes = [];
-  for (const lane of req?.allowed_lanes || []) {
-    const key = trim(lane).toLowerCase();
-    if (!key) continue;
-    const domains = LANE_TO_DOMAINS[key];
-    if (domains?.length) {
-      for (const d of domains) out.add(d);
-      continue;
-    }
-    if (LANE_TO_TOOL_CATEGORIES[key]) {
-      for (const cat of LANE_TO_TOOL_CATEGORIES[key]) {
-        out.add(LEGACY_CATEGORY_TO_DOMAIN[cat] || cat);
-      }
-      continue;
-    }
-    unknownLanes.push(key);
-  }
-  if (unknownLanes.length) {
-    console.warn('[agentsam-tools-catalog] unknown_lanes_dropped', { lanes: unknownLanes });
-  }
-  return [...out];
+  return explicit.length ? [...new Set(explicit)] : [];
 }
 
 /**
@@ -487,46 +408,11 @@ async function loadConnectedProviders(db, userId) {
   }
 }
 
-/** Map of tool_name → required OAuth provider. */
-const TOOL_OAUTH_REQUIREMENTS = {
-  agentsam_gdrive: 'google_drive',
-  agentsam_github_repo_list: 'github',
-  agentsam_github_file_read: 'github',
-  agentsam_github_file_write: 'github',
-  agentsam_github_pr_create: 'github',
-  agentsam_github_file_delete: 'github',
-  agentsam_github_branch_list: 'github',
-  agentsam_github_branch_create: 'github',
-  agentsam_github_pr_get: 'github',
-  agentsam_github_pr_list: 'github',
-  agentsam_github_pr_files_list: 'github',
-  agentsam_github_pr_merge: 'github',
-  agentsam_github_comment_create: 'github',
-  agentsam_github_issue_list: 'github',
-  agentsam_github_issue_get: 'github',
-  agentsam_github_issue_create: 'github',
-  agentsam_github_search_code: 'github',
-  agentsam_github_search_issues_prs: 'github',
-  agentsam_github_list_commits: 'github',
-  agentsam_github_read: 'github',
-  agentsam_github_search: 'github',
-  agentsam_github_tree: 'github',
-  agentsam_supabase_project_query: 'supabase',
-  agentsam_supabase_project_write: 'supabase',
-};
+/** Removed hardcoded OAuth/provider gate map — handlers enforce auth at call time. */
+const TOOL_OAUTH_REQUIREMENTS = {};
 
-/** Tools that require workspace_root to be configured in workspace_settings. */
-const TOOLS_REQUIRING_WORKSPACE_ROOT = new Set([
-  'pty_git_commit',
-  'pty_git_diff',
-  'pty_git_log',
-  'pty_git_push',
-  'pty_git_status',
-  'agentsam_terminal_local',
-  'agentsam_workspace_search',
-  'agentsam_worker_deploy',
-  'agentsam_stack_deploy',
-]);
+/** Removed hardcoded workspace_root gate — handlers/PTY enforce at call time. */
+const TOOLS_REQUIRING_WORKSPACE_ROOT = new Set();
 
 /**
  * @param {string[]} lanes
@@ -843,8 +729,6 @@ export async function listAgentsamToolsForContext(env, opts = {}) {
   const categories = (opts.categories || [])
     .map((c) => trim(c).toLowerCase())
     .filter(Boolean);
-  if (!domains.length && !categories.length) return [];
-
   const lim = Math.max(
     1,
     Math.min(MAX_AGENT_TOOL_LIST_LIMIT, Number(opts.limit) || DEFAULT_AGENT_TOOL_LIST_LIMIT),
@@ -855,8 +739,7 @@ export async function listAgentsamToolsForContext(env, opts = {}) {
   try {
     const domainFilter = domains.length ? buildToolDomainFilterClause(domains) : null;
     const categoryFilter = !domainFilter && categories.length ? buildToolCategoryFilterClause(categories) : null;
-    const filter = domainFilter || categoryFilter;
-    if (!filter) return [];
+    const filter = domainFilter || categoryFilter || { clause: '1 = 1', binds: [] };
     const { results: rows } = await env.DB.prepare(
       `SELECT tool_key, tool_name, display_name, tool_category, description,
               input_schema, handler_config, capability_key, risk_level, requires_approval,
@@ -1015,19 +898,14 @@ export async function selectAgentsamToolsForAgentChat(db, runtimeCtx, opts) {
     },
   );
 
-  // ─── Apply ambient credential filter ─────────────────────────────────────
+  // No JS OAuth/workspace_root pre-filters — handlers enforce at call time.
+  void connectedProviders;
+  void workspaceRoot;
+  void TOOL_OAUTH_REQUIREMENTS;
+  void TOOLS_REQUIRING_WORKSPACE_ROOT;
   const filteredRawRows = (rawRows || []).filter((row) => {
     const toolName = trim(row?.tool_name || row?.tool_key);
-    if (!toolName) return false;
-
-    // 1) OAuth requirement check
-    const requiredProvider = TOOL_OAUTH_REQUIREMENTS[toolName];
-    if (requiredProvider && !connectedProviders.has(requiredProvider)) return false;
-
-    // 2) workspace_root requirement check
-    if (TOOLS_REQUIRING_WORKSPACE_ROOT.has(toolName) && !workspaceRoot) return false;
-
-    return true;
+    return !!toolName;
   });
 
   const reqCaps = req.required_capabilities || [];

@@ -8,16 +8,12 @@
 import { resolveCatalogDispatchToolKey } from './catalog-tool-key-resolve.js';
 import { extractExplicitCatalogToolKeys } from './code-implementation-intent.js';
 
-/** Profile keys that must never fall back to oauth_visible dump when compile yields zero tools. */
-export const PINNED_PROFILE_KEYS = new Set([
-  'inspect',
-  'code_develop',
-  'ask',
-  'd1_read',
-  'mail',
-  'default_route',
-  'cms_edit',
-]);
+/**
+ * Was: exclusive pin lock that blocked oauth catalog fallback (starved GitHub/CF).
+ * Emptied — D1 profile pins are optional telemetry, not an exclusive menu.
+ * @type {Set<string>}
+ */
+export const PINNED_PROFILE_KEYS = new Set();
 
 /** @type {Map<string, string>|null} */
 let _bindingsCache = null;
@@ -25,15 +21,13 @@ let _bindingsCacheAt = 0;
 const BINDINGS_TTL_MS = 60_000;
 
 /**
- * OAuth parity is opt-in only — default deny for in-app Agent Sam.
- * Never unlock from TaskSpec.toolProfile=oauth_parity (unknown classifiers used that).
- * @param {{ mcpOAuthParity?: boolean|null, routeKey?: string|null, routeKeyPin?: string|null }} input
+ * OAuth-visible catalog is the default in-app menu (Cursor-shaped).
+ * Opt out only with mcpOAuthParity === false.
+ * @param {{ mcpOAuthParity?: boolean|null, routeKey?: string|null, routeKeyPin?: string|null, mode?: string|null }} input
  */
 export function resolveUseOAuthParity(input) {
-  if (input?.mcpOAuthParity === true) return true;
-  const rk = String(input?.routeKeyPin || input?.routeKey || '').trim().toLowerCase();
-  if (rk === 'mcp_panel') return true;
-  return false;
+  if (input?.mcpOAuthParity === false) return false;
+  return true;
 }
 
 /**
