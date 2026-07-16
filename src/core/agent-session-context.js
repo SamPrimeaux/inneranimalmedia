@@ -137,7 +137,7 @@ export async function loadOauthVisibleToolsForSession(db) {
     if (hit && !ordered.some((t) => t.tool_key === hit.tool_key)) {
       if (hit.tool_key === 'agentsam_d1_query' || hit.name === 'agentsam_d1_query') {
         hit.description =
-          'Run read-only SQL on Cloudflare D1. Platform IAM default database is inneranimalmedia-business — omit database or pass database="inneranimalmedia-business". Do NOT pass table names (e.g. agentsam) as database. Example: sql="SELECT COUNT(*) AS c FROM agentsam_tools WHERE is_active=1".';
+          'Run read-only SQL on a Cloudflare D1 database in the caller\'s CF account. Pass database as the Cloudflare D1 *name* (from the account catalog), or omit database to use the workspace pin / account default. Never pass a SQL table name as database (e.g. agentsam is a table prefix, not a D1). On database_not_in_account, retry using a name from the returned available list.';
       }
       ordered.push(hit);
     }
