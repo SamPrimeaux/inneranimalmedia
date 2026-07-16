@@ -4,6 +4,7 @@ Work **in this order**. Do not parallelize product remasters across these.
 
 | Order | Ticket | D1 id | Outcome |
 |-------|--------|-------|---------|
+| **P0** | [AGENTSAM-SPINE-E2E-CURSOR-PARITY-2026-07.md](./AGENTSAM-SPINE-E2E-CURSOR-PARITY-2026-07.md) | `tkt_agentsam_spine_e2e_20260716` | Vision + thread memory + real tools (D1/CF/GitHub/FSA) — Cursor replacement gate |
 | 0 | [ROUTING-TOOL-SSOT-E2E.md](./ROUTING-TOOL-SSOT-E2E.md) | `tkt_routing_tool_ssot` | Gate green ×2 before any more tool-profile JS |
 | 1 | [WORKSPACE-001-agent-repo-edit-loop.md](./WORKSPACE-001-agent-repo-edit-loop.md) | `tkt_workspace_001` | One safe repo edit via Agent Sam |
 | 2 | [CMS-001-edit-publish-inneranimalmedia-home.md](./CMS-001-edit-publish-inneranimalmedia-home.md) | `tkt_cms_001` | Homepage edit + publish |
