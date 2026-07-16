@@ -17,6 +17,7 @@
  */
 
 import { loadAgentsamToolPolicyKeySet } from './agentsam-tool-policy-keys.js';
+import { expandToolKeyAliases, resolveCatalogDispatchToolKey } from './catalog-tool-key-resolve.js';
 
 const RISK_ORDER = { none: 0, low: 1, medium: 2, high: 3, critical: 4 };
 
@@ -270,19 +271,34 @@ export function logMcpPolicyDenial(toolKey, scope, pathTried, reason) {
  * @param {string} toolName
  * @param {object|null} mcpRow
  */
+function policySetHasTool(policySet, toolName) {
+  if (!policySet?.size) return false;
+  const aliases = expandToolKeyAliases(toolName);
+  for (const a of aliases) {
+    if (policySet.has(a)) return true;
+  }
+  for (const k of policySet) {
+    for (const a of expandToolKeyAliases(k)) {
+      if (aliases.has(a)) return true;
+    }
+  }
+  return false;
+}
+
 export async function isToolAllowedByAllowlist(env, policy, scope, toolName, mcpRow, opts = {}) {
   if (!policy || Number(policy.require_allowlist_for_mcp || 0) !== 1) {
     return { allowed: true, reason: null, path: null };
   }
   const name = trimId(toolName);
   if (!name) return { allowed: false, reason: 'missing_tool', path: null };
+  const canonical = resolveCatalogDispatchToolKey(name) || name;
 
   const baselineSafe = await loadAgentsamToolPolicyKeySet(
     env,
     'builtin_safe_allowlist',
     BUILTIN_SAFE_WITH_REQUIRE_ALLOWLIST,
   );
-  if (baselineSafe.has(name)) {
+  if (policySetHasTool(baselineSafe, name)) {
     return { allowed: true, reason: 'baseline_builtin', path: 'baseline_builtin' };
   }
 
@@ -292,7 +308,7 @@ export async function isToolAllowedByAllowlist(env, policy, scope, toolName, mcp
       'agent_chat_essential',
       AGENT_CHAT_ESSENTIAL_TOOL_KEYS,
     );
-    if (chatEssential.has(name)) {
+    if (policySetHasTool(chatEssential, name)) {
       return { allowed: true, reason: 'agent_chat_essential', path: 'agent_chat_essential' };
     }
   }
@@ -300,6 +316,9 @@ export async function isToolAllowedByAllowlist(env, policy, scope, toolName, mcp
   try {
     const { isOAuthMcpParityToolAllowed } = await import('./in-app-mcp-oauth-parity.js');
     if (await isOAuthMcpParityToolAllowed(env, name, scope)) {
+      return { allowed: true, reason: 'oauth_mcp_parity', path: 'oauth_mcp_parity' };
+    }
+    if (canonical !== name && (await isOAuthMcpParityToolAllowed(env, canonical, scope))) {
       return { allowed: true, reason: 'oauth_mcp_parity', path: 'oauth_mcp_parity' };
     }
   } catch (_) {}
@@ -311,8 +330,10 @@ export async function isToolAllowedByAllowlist(env, policy, scope, toolName, mcp
     return { allowed: false, reason: 'tool not in allowlist', path: null };
   }
 
-  const { matched, path } = await findMcpAllowlistMatch(env?.DB, scope, name);
-  if (matched) return { allowed: true, reason: null, path };
+  for (const alias of expandToolKeyAliases(name)) {
+    const { matched, path } = await findMcpAllowlistMatch(env?.DB, scope, alias);
+    if (matched) return { allowed: true, reason: null, path };
+  }
 
   const rowActive =
     mcpRow && Number(mcpRow.enabled ?? mcpRow.is_active ?? 0) === 1;

@@ -59,6 +59,53 @@ export function resolveCatalogDispatchToolKey(rawKey) {
 }
 
 /**
+ * All comparable forms of a tool key (short alias + agentsam_* + catalog redirect).
+ * Used so allowlist checks treat d1_query ≡ agentsam_d1_query.
+ * @param {string} rawKey
+ * @returns {Set<string>}
+ */
+export function expandToolKeyAliases(rawKey) {
+  const out = new Set();
+  const add = (v) => {
+    const s = String(v ?? '').trim();
+    if (!s) return;
+    out.add(s);
+    out.add(s.toLowerCase());
+  };
+  const raw = String(rawKey ?? '').trim();
+  if (!raw) return out;
+  add(raw);
+  const resolved = resolveCatalogDispatchToolKey(raw);
+  add(resolved);
+  const lower = raw.toLowerCase();
+  if (lower.startsWith('agentsam_')) {
+    add(raw.slice('agentsam_'.length));
+    add(resolveCatalogDispatchToolKey(raw.slice('agentsam_'.length)));
+  } else {
+    add(`agentsam_${raw}`);
+    add(resolveCatalogDispatchToolKey(`agentsam_${raw}`));
+  }
+  return out;
+}
+
+/**
+ * @param {string} toolName
+ * @param {Iterable<string>|null|undefined} allowlist
+ */
+export function allowlistHasTool(toolName, allowlist) {
+  if (!allowlist) return false;
+  const list = [...allowlist].filter(Boolean);
+  if (!list.length) return false;
+  const aliases = expandToolKeyAliases(toolName);
+  for (const entry of list) {
+    for (const a of expandToolKeyAliases(entry)) {
+      if (aliases.has(a)) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * @param {any} env
  * @param {string} rawKey
  */

@@ -156,13 +156,20 @@ function summarizeOutput(output) {
   return String(text || '').slice(0, 1000) || null;
 }
 
-/** Parse wrangler-style D1 hints when the model omits sql. */
+/** Parse D1 targeting — preferred: `database` (CF name). workspace_slug is deprecated alias. */
 function parseD1DatabaseHint(params) {
   const p = params && typeof params === 'object' ? params : {};
   const directId = String(p.database_id || p.databaseId || '').trim();
-  const directName = String(p.database_name || p.databaseName || '').trim();
+  const directName = String(
+    p.database || p.database_name || p.databaseName || '',
+  ).trim();
   if (directId || directName) {
     return { database_id: directId || null, database_name: directName || null, binding: null };
+  }
+  // Deprecated silent alias — do not advertise; still accept so old callers don't hard-break.
+  const legacySlug = String(p.workspace_slug || p.workspaceSlug || '').trim();
+  if (legacySlug) {
+    return { database_id: null, database_name: legacySlug, binding: null, via_workspace_slug_alias: true };
   }
   let raw = p.d1_databases;
   if (typeof raw === 'string') {
@@ -337,21 +344,51 @@ async function executeCatalogCfD1(env, row, config, params, runContext) {
     './workspace-d1-execution.js'
   );
   const authUser = runContext.authUser ?? runContext.user ?? null;
+  const d1Hint = parseD1DatabaseHint(params);
+  let resolvedDatabase = d1Hint?.database_name || null;
+  let resolvedDatabaseId = d1Hint?.database_id || null;
+  // Deprecated workspace_slug → registry d1_database_id (not CF name match).
+  if (d1Hint?.via_workspace_slug_alias && d1Hint.database_name && !resolvedDatabaseId && env?.DB) {
+    try {
+      const slug = String(d1Hint.database_name).trim();
+      const row = await env.DB.prepare(
+        `SELECT d1_database_id FROM agentsam_workspace
+         WHERE workspace_slug = ? OR id = ? OR id = ?
+         LIMIT 1`,
+      )
+        .bind(slug, slug, slug.startsWith('ws_') ? slug : `ws_${slug}`)
+        .first();
+      const pin = String(row?.d1_database_id || '').trim();
+      if (pin) {
+        resolvedDatabaseId = pin;
+        resolvedDatabase = null;
+      }
+    } catch (_) {}
+  }
   const d1Ctx = {
     user_id: runContext.userId ?? runContext.user_id,
     tenant_id: runContext.tenantId ?? runContext.tenant_id,
     workspace_id: runContext.workspaceId ?? runContext.workspace_id,
+    database: resolvedDatabase,
+    database_name: resolvedDatabase,
+    database_id: resolvedDatabaseId,
     authUser,
   };
 
-  const op = normalizeCatalogCfD1Op(config, toolKey);
+  let op = normalizeCatalogCfD1Op(config, toolKey);
+  const modeParam = String(params.mode || '').trim().toLowerCase();
+  if (modeParam === 'schema' || modeParam === 'introspect') op = 'schema';
+  if (modeParam === 'explain') op = 'explain';
+
   try {
     if (op === 'introspect' || op === 'schema') {
       return runCatalogD1SchemaIntrospect(env, d1Ctx, params);
     }
 
-    const sql = String(params.sql || params.query || '').trim();
-    const d1Hint = parseD1DatabaseHint(params);
+    let sql = String(params.sql || params.query || '').trim();
+    if (op === 'explain' && sql && !/^\s*explain\b/i.test(sql)) {
+      sql = `EXPLAIN QUERY PLAN ${sql}`;
+    }
     if (!sql) {
       if (params.table != null && String(params.table).trim() !== '') {
         return runCatalogD1SchemaIntrospect(env, d1Ctx, params);
@@ -363,7 +400,7 @@ async function executeCatalogCfD1(env, row, config, params, runContext) {
         ok: false,
         error: `cf d1 tool requires sql in input (operation=${op})`,
         user_message:
-          'Pass sql for a query, or omit sql (or pass database_id / d1_databases) to list tables and schema.',
+          'Pass sql for a query, or pass database + mode=schema to list tables.',
       };
     }
 
@@ -1392,13 +1429,21 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
 
       const authUser = runContext.authUser ?? runContext.user ?? null;
       const { dispatchCustomerDataPlaneOperation } = await import('./customer-data-plane-dispatch.js');
-      const customerPlane =
-        resolveCustomerSupabaseDataPlane(toolKey, config) ||
-        String(config.data_plane || '').trim() ||
-        null;
+      // Preferred: `project` (name or project_ref). When set → customer Management plane.
+      // Operator with no project → platform Hyperdrive (config data_plane).
       const projectRef = String(
-        params.project_ref || params.projectRef || params.project_id || params.projectId || '',
+        params.project ||
+          params.project_ref ||
+          params.projectRef ||
+          params.project_id ||
+          params.projectId ||
+          '',
       ).trim();
+      const customerPlane = projectRef
+        ? 'customer_supabase'
+        : resolveCustomerSupabaseDataPlane(toolKey, config) ||
+          String(config.data_plane || '').trim() ||
+          null;
       const routed = await dispatchCustomerDataPlaneOperation(env, {
         operation: dispatchOperation,
         sql,
@@ -1970,12 +2015,19 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         const operation = String(
           params.operation || config.operation || 'inspect_schema',
         ).trim();
-        const customerPlane = resolveCustomerSupabaseDataPlane(toolKey, config);
+        const projectRef = String(
+          params.project ||
+            params.project_ref ||
+            params.projectRef ||
+            params.project_id ||
+            params.projectId ||
+            '',
+        ).trim();
+        const customerPlane = projectRef
+          ? 'customer_supabase'
+          : resolveCustomerSupabaseDataPlane(toolKey, config);
         const dataPlane =
           String(params.data_plane || config.data_plane || customerPlane || '').trim() || null;
-        const projectRef = String(
-          params.project_ref || params.projectRef || params.project_id || params.projectId || '',
-        ).trim();
         const out = await dispatchCustomerDataPlaneOperation(env, {
           operation,
           message: params.message != null ? String(params.message) : '',

@@ -9,7 +9,9 @@ import { logDataPlaneSecurityEvent } from './data-plane-access-guard.js';
 import { isPlatformOperator, resolveOperatorAuthUserRow } from './operator-identity.js';
 import {
   assertCallerOwnsDatabaseId,
+  isPlatformD1DatabaseId,
   listOAuthAccountD1Catalog,
+  resolveCallerD1ByNameOrId,
 } from './cf-mcp-proxy.js';
 import { getOAuthToken } from './user-oauth-token.js';
 import { getAgentsamWorkspace, parseWorkspaceMetadata } from './agentsam-workspace.js';
@@ -106,6 +108,8 @@ export async function executeRemoteCloudflareD1Write(token, accountId, databaseI
  *   user_id?: string|null,
  *   tenant_id?: string|null,
  *   workspace_id?: string|null,
+ *   database?: string|null,
+ *   database_name?: string|null,
  *   database_id?: string|null,
  *   authUser?: unknown,
  * }} ctx
@@ -114,7 +118,8 @@ export async function resolveWorkspaceD1Execution(env, ctx) {
   const workspaceId = ctx?.workspace_id != null ? String(ctx.workspace_id).trim() : '';
   const userId = ctx?.user_id != null ? String(ctx.user_id).trim() : '';
   const tenantId = ctx?.tenant_id != null ? String(ctx.tenant_id).trim() : '';
-  const requestedDatabaseId = trim(ctx?.database_id);
+  const nameHint = trim(ctx?.database || ctx?.database_name);
+  let requestedDatabaseId = trim(ctx?.database_id);
 
   const meta = {
     workspace_id: workspaceId || null,
@@ -122,6 +127,118 @@ export async function resolveWorkspaceD1Execution(env, ctx) {
     tenant_id: tenantId || null,
     provider: 'cloudflare_d1',
   };
+
+  // Preferred: plain CF database name → account catalog (not workspace_slug).
+  if (nameHint || requestedDatabaseId) {
+    const byName = await resolveCallerD1ByNameOrId(
+      env,
+      userId,
+      { database: nameHint || null, database_id: requestedDatabaseId || null },
+      ctx?.authUser,
+    );
+    if (!byName.ok) {
+      return {
+        ok: false,
+        mode: 'denied',
+        error: byName.error || 'database_not_in_account',
+        user_message: byName.user_message || CUSTOMER_D1_NOT_CONFIGURED,
+        available: byName.available || null,
+        ...meta,
+      };
+    }
+    requestedDatabaseId = trim(byName.database_id);
+    meta.database_name = byName.database_name || nameHint || null;
+
+    const opRowNamed = await resolveOperatorAuthUserRow(env, ctx?.authUser);
+    const operatorNamed = await isPlatformOperator(env, opRowNamed);
+
+    // Platform binding only for IAM business D1 (or no explicit target).
+    if (operatorNamed && (!requestedDatabaseId || isPlatformD1DatabaseId(requestedDatabaseId))) {
+      logDataPlaneSecurityEvent('platform_operator_d1_unscoped', {
+        ...meta,
+        database_id: requestedDatabaseId || IAM_D1_DATABASE_ID,
+        auth_scope: 'platform_operator',
+      });
+      return {
+        ok: true,
+        mode: 'platform',
+        binding_id: null,
+        database_id: requestedDatabaseId || IAM_D1_DATABASE_ID,
+        ...meta,
+      };
+    }
+
+    if (operatorNamed && requestedDatabaseId && !isPlatformD1DatabaseId(requestedDatabaseId)) {
+      const token =
+        trim(byName.token) ||
+        trim(env?.CLOUDFLARE_API_TOKEN) ||
+        trim(await getOAuthToken(env, userId, 'cloudflare'));
+      let accountId = trim(byName.account_id) || trim(env?.CLOUDFLARE_ACCOUNT_ID);
+      if (token && !accountId) {
+        const catalog = await listOAuthAccountD1Catalog(token);
+        accountId = trim(
+          catalog.find((e) => e.database_id.toLowerCase() === requestedDatabaseId.toLowerCase())
+            ?.account_id,
+        );
+      }
+      if (!token || !accountId) {
+        return {
+          ok: false,
+          mode: 'denied',
+          error: 'cloudflare_token_missing',
+          user_message: 'Platform Cloudflare token required to query non-platform D1 by name.',
+          database_id: requestedDatabaseId,
+          ...meta,
+        };
+      }
+      logDataPlaneSecurityEvent('platform_operator_d1_remote_by_name', {
+        ...meta,
+        database_id: requestedDatabaseId,
+        account_id: accountId,
+        auth_scope: 'platform_operator',
+      });
+      return {
+        ok: true,
+        mode: 'remote',
+        token,
+        account_id: accountId,
+        database_id: requestedDatabaseId,
+        binding_id: null,
+        via: 'platform_cf_token',
+        ...meta,
+      };
+    }
+
+    // Non-operator: already ownership-checked via resolveCallerD1ByNameOrId.
+    const token = trim(byName.token) || trim(await getOAuthToken(env, userId, 'cloudflare'));
+    const accountId = trim(byName.account_id);
+    if (!token || !accountId) {
+      return {
+        ok: false,
+        mode: 'denied',
+        error: 'cloudflare_not_connected',
+        user_message: CUSTOMER_D1_NOT_CONFIGURED,
+        database_id: requestedDatabaseId,
+        ...meta,
+      };
+    }
+    logDataPlaneSecurityEvent('workspace_d1_user_account', {
+      ...meta,
+      database_id: requestedDatabaseId,
+      account_id: accountId,
+      auth_scope: 'user_account',
+    });
+    return {
+      ok: true,
+      mode: 'remote',
+      token,
+      account_id: accountId,
+      database_id: requestedDatabaseId,
+      binding_id: null,
+      via: 'user_oauth_cloudflare',
+      ...meta,
+    };
+  }
 
   const opRow = await resolveOperatorAuthUserRow(env, ctx?.authUser);
   const operator = await isPlatformOperator(env, opRow);
@@ -135,7 +252,7 @@ export async function resolveWorkspaceD1Execution(env, ctx) {
       ok: true,
       mode: 'platform',
       binding_id: null,
-      database_id: requestedDatabaseId || null,
+      database_id: null,
       ...meta,
     };
   }
@@ -150,8 +267,9 @@ export async function resolveWorkspaceD1Execution(env, ctx) {
     };
   }
 
+  // Soft default only: session workspace pin (never a slug gate).
   const pinnedDatabaseId = workspaceId ? await resolveWorkspacePinnedDatabaseId(env, workspaceId) : '';
-  const databaseId = requestedDatabaseId || pinnedDatabaseId;
+  const databaseId = pinnedDatabaseId;
   if (!databaseId) {
     const oauth = await getOAuthToken(env, userId, 'cloudflare');
     if (!oauth) {
@@ -166,8 +284,9 @@ export async function resolveWorkspaceD1Execution(env, ctx) {
     return {
       ok: false,
       mode: 'denied',
-      error: 'database_id_required',
-      user_message: 'Pass database_id or connect Cloudflare and list your D1 databases first.',
+      error: 'database_required',
+      user_message:
+        'Pass database (Cloudflare D1 name, e.g. inneranimalmedia-business) or connect a workspace pin.',
       ...meta,
     };
   }

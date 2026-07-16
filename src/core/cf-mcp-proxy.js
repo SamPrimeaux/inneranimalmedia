@@ -5,7 +5,7 @@
  * Internal lanes (env.DB, R2 object CRUD, Vectorize) stay for gaps CF MCP does not cover.
  */
 
-import { IAM_D1_DATABASE_ID } from './d1-graphql-analytics.js';
+import { IAM_D1_DATABASE_ID, IAM_D1_DATABASE_NAME } from './d1-graphql-analytics.js';
 import { logDataPlaneSecurityEvent } from './data-plane-access-guard.js';
 import { isPlatformOperator, resolveOperatorAuthUserRow } from './operator-identity.js';
 
@@ -165,6 +165,149 @@ export async function assertCallerOwnsDatabaseId(env, userId, databaseId, authUs
     account_id: match.account_id,
     database_id: match.database_id,
     token: oauth,
+  };
+}
+
+/**
+ * Resolve plain CF D1 database name (or UUID) against the caller's account catalog.
+ * Preferred targeting for agentsam_d1_* — not agentsam_workspace slug lookup.
+ *
+ * @param {any} env
+ * @param {string|null|undefined} userId
+ * @param {{ database?: string|null, database_id?: string|null, database_name?: string|null }} hint
+ * @param {unknown} [authUser]
+ * @returns {Promise<{
+ *   ok: boolean,
+ *   database_id?: string,
+ *   database_name?: string,
+ *   account_id?: string|null,
+ *   token?: string|null,
+ *   auth_scope?: string,
+ *   error?: string,
+ *   user_message?: string,
+ *   available?: string[],
+ * }>}
+ */
+export async function resolveCallerD1ByNameOrId(env, userId, hint = {}, authUser = null) {
+  const nameHint = trim(hint.database || hint.database_name || '');
+  const idHint = trim(hint.database_id || '');
+  if (!nameHint && !idHint) {
+    return {
+      ok: false,
+      error: 'database_required',
+      user_message:
+        'Pass database (Cloudflare D1 name, e.g. inneranimalmedia-business) or database_id.',
+    };
+  }
+
+  // Fast path: known platform DB name → UUID (operators use env.DB; others still ownership-checked).
+  if (nameHint && nameHint.toLowerCase() === IAM_D1_DATABASE_NAME.toLowerCase()) {
+    const owned = await assertCallerOwnsDatabaseId(env, userId, IAM_D1_DATABASE_ID, authUser);
+    if (!owned.ok) return owned;
+    return {
+      ok: true,
+      database_id: IAM_D1_DATABASE_ID,
+      database_name: IAM_D1_DATABASE_NAME,
+      account_id: owned.account_id || trim(env?.CLOUDFLARE_ACCOUNT_ID) || null,
+      token: owned.token || null,
+      auth_scope: owned.auth_scope || 'platform_operator',
+    };
+  }
+
+  if (idHint && !nameHint) {
+    const owned = await assertCallerOwnsDatabaseId(env, userId, idHint, authUser);
+    if (!owned.ok) return owned;
+    return {
+      ok: true,
+      database_id: owned.database_id || idHint,
+      database_name: null,
+      account_id: owned.account_id || null,
+      token: owned.token || null,
+      auth_scope: owned.auth_scope || null,
+    };
+  }
+
+  const uid = trim(userId);
+  const operator = await resolveCallerIsPlatformOperator(env, authUser);
+  let token = '';
+  let authScope = 'user_account';
+
+  if (operator) {
+    token = trim(env?.CLOUDFLARE_API_TOKEN);
+    authScope = 'platform_operator';
+    if (!token && uid) {
+      const { getOAuthToken } = await import('./user-oauth-token.js');
+      token = trim(await getOAuthToken(env, uid, 'cloudflare'));
+    }
+  } else {
+    if (!uid) {
+      return {
+        ok: false,
+        error: 'user_oauth_required',
+        user_message: 'Sign in before using Cloudflare D1 tools.',
+      };
+    }
+    const { getOAuthToken } = await import('./user-oauth-token.js');
+    token = trim(await getOAuthToken(env, uid, 'cloudflare'));
+    if (!token) {
+      return {
+        ok: false,
+        error: 'cloudflare_not_connected',
+        user_message: 'Connect Cloudflare in Integrations before using D1 tools.',
+      };
+    }
+  }
+
+  if (!token) {
+    return {
+      ok: false,
+      error: 'cloudflare_token_missing',
+      user_message: 'No Cloudflare token available to list D1 databases.',
+    };
+  }
+
+  const catalog = await listOAuthAccountD1Catalog(token);
+  const available = catalog.map((e) => e.database_name).filter(Boolean);
+  const needle = nameHint.toLowerCase();
+  const match =
+    catalog.find((e) => e.database_name.toLowerCase() === needle) ||
+    (idHint
+      ? catalog.find((e) => e.database_id.toLowerCase() === idHint.toLowerCase())
+      : null);
+
+  if (!match) {
+    logDataPlaneSecurityEvent('d1_database_name_not_in_caller_account', {
+      user_id: uid || null,
+      database_name: nameHint || null,
+      database_id: idHint || null,
+      auth_scope: authScope,
+    });
+    return {
+      ok: false,
+      error: 'database_not_in_account',
+      user_message: nameHint
+        ? `D1 database "${nameHint}" is not in your Cloudflare account. Available: ${available.slice(0, 20).join(', ') || '(none)'}.`
+        : 'That D1 database is not in your Cloudflare account.',
+      available,
+    };
+  }
+
+  if (!operator && isPlatformD1DatabaseId(match.database_id)) {
+    return {
+      ok: false,
+      error: 'platform_d1_denied',
+      user_message:
+        'IAM platform D1 is operator-only. Connect your Cloudflare account and use a database from your account.',
+    };
+  }
+
+  return {
+    ok: true,
+    database_id: match.database_id,
+    database_name: match.database_name,
+    account_id: match.account_id,
+    token,
+    auth_scope: authScope,
   };
 }
 

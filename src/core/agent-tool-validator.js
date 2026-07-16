@@ -12,7 +12,11 @@ import {
   collectAllowlistToolKeysForScope,
 } from './agent-policy.js';
 import { loadAgentsamToolRow } from './agentsam-tools-catalog.js';
-import { resolveCatalogDispatchToolKey, loadCatalogToolRowForDispatch } from './catalog-tool-key-resolve.js';
+import {
+  resolveCatalogDispatchToolKey,
+  loadCatalogToolRowForDispatch,
+  allowlistHasTool,
+} from './catalog-tool-key-resolve.js';
 import { normalizeToolName } from '../tools/ai-dispatch.js';
 import { toolLogFieldsFromValidation } from './agent-prompt-builder.js';
 import {
@@ -306,8 +310,9 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
       : (mcpRuntimeContext.runtimeProfile || mcpRuntimeContext.runtime_profile || null);
 
   // Enforce the compiled RuntimeProfile tool policy first (no guessing, no promotions).
+  // Alias-aware: d1_query ≡ agentsam_d1_query (catalog redirects + agentsam_ prefix).
   const compiledToolPolicy = runtimeProfile?.tool_policy || null;
-  if (compiledToolPolicy?.denylist?.includes(name)) {
+  if (compiledToolPolicy?.denylist?.length && allowlistHasTool(name, compiledToolPolicy.denylist)) {
     return {
       allowed: false,
       reason: 'blocked by profile tool_policy denylist',
@@ -323,7 +328,11 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
       agentsamToolsId: null,
     };
   }
-  if (compiledToolPolicy?.require_approval?.includes(name) && !toolInputHasApprovalId(toolInput)) {
+  if (
+    compiledToolPolicy?.require_approval?.length &&
+    allowlistHasTool(name, compiledToolPolicy.require_approval) &&
+    !toolInputHasApprovalId(toolInput)
+  ) {
     return {
       allowed: true,
       reason: 'requires approval',
@@ -339,7 +348,7 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
       agentsamToolsId: null,
     };
   }
-  if (compiledToolPolicy?.allowlist?.length && !compiledToolPolicy.allowlist.includes(name)) {
+  if (compiledToolPolicy?.allowlist?.length && !allowlistHasTool(name, compiledToolPolicy.allowlist)) {
     return {
       allowed: false,
       reason: 'not in profile tool_policy allowlist',
@@ -370,7 +379,7 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
                 : null,
         })
       : { denyTools: [], allowTools: [] };
-  if (policy.denyTools.includes(name)) {
+  if (policy.denyTools?.length && allowlistHasTool(name, policy.denyTools)) {
     return {
       allowed: false,
       reason: 'blocked by legacy mode policy',
