@@ -8,7 +8,6 @@ import { toolsManifestFromCompiledRows, isSimpleAskMessage } from '../runtime-pr
 import { executeRwsSpawnFanout, shouldRunRwsFanout } from '../rws-spawn-fanout.js';
 import { runtimeContextPayload, legacyContextPayload } from './runtime-context.js';
 import { resolveAgentChatLaneContextBlock } from '../agent-chat-lane-context.js';
-import { compactConversationMessagesIfNeeded } from '../conversation-compaction.js';
 import { scheduleChatExecutionContextSnapshot } from '../execution-context-snapshot.js';
 import {
   shouldUseCodemodeForRequest,
@@ -140,6 +139,37 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     Array.isArray(body.messages) && body.messages.length
       ? [...body.messages]
       : [{ role: 'user', content: message }];
+
+  // Hot path: DO/R2 history → model. Never wait on client to resend the thread.
+  if (sessionId && (!Array.isArray(body.messages) || !body.messages.length)) {
+    try {
+      const { getChatMessages } = await import('../agentsam-chat-sessions.js');
+      const prior = await getChatMessages(env, sessionId);
+      if (Array.isArray(prior) && prior.length) {
+        const last = prior[prior.length - 1];
+        const lastContent =
+          typeof last?.content === 'string'
+            ? last.content
+            : Array.isArray(last?.content)
+              ? last.content
+              : null;
+        const sameAsCurrent =
+          last?.role === 'user' &&
+          ((typeof lastContent === 'string' && lastContent === message) ||
+            (Array.isArray(lastContent) &&
+              lastContent.some((p) => p?.type === 'text' && p?.text === message)));
+        chatMessages = sameAsCurrent ? [...prior] : [...prior, { role: 'user', content: message }];
+        console.info('[agent-controller] history_hydrate', {
+          conversation_id: sessionId,
+          prior_count: prior.length,
+          outgoing_count: chatMessages.length,
+        });
+      }
+    } catch (e) {
+      console.warn('[agent-controller] history_hydrate', e?.message ?? e);
+    }
+  }
+
   const {
     resolveChatVisionUpload,
     applyVisionBlocksToChatMessages,
@@ -487,34 +517,34 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     console.warn('[agent-controller] tool_capability_filter', e?.message ?? e);
   }
 
-  const activeToolNames = tools
-    .map((t) => String(t?.name || t?.function?.name || '').trim())
-    .filter(Boolean);
-
   const { parseThreadSlashCommand } = await import('../thread-on-demand.js');
   const threadSlashAction = parseThreadSlashCommand(message);
 
+  // Compaction is COLD path only — never normalize/stringify live provider payloads
+  // (that destroys vision content[] and tool_calls). Snapshot tokens for ops only.
   if (userId && workspaceId && sessionId && !threadSlashAction) {
     try {
-      const compacted = await compactConversationMessagesIfNeeded(env, ctx, {
-        messages: chatMessages,
-        userId,
-        workspaceId,
-        tenantId,
-        conversationId: sessionId,
-        agentRunId: chatAgentRunId,
-        activeTools: activeToolNames,
-      });
-      chatMessages = compacted.messages;
+      const approxTokens = Math.ceil(
+        chatMessages
+          .map((m) => {
+            if (typeof m?.content === 'string') return m.content;
+            try {
+              return JSON.stringify(m?.content ?? '');
+            } catch {
+              return '';
+            }
+          })
+          .join('').length / 4,
+      );
       scheduleChatExecutionContextSnapshot(env, ctx, {
         agentRunId: chatAgentRunId,
         workspaceId,
         tenantId,
         conversationId: sessionId,
-        contextTokens: compacted.estimated ?? 0,
+        contextTokens: approxTokens,
       });
     } catch (e) {
-      console.warn('[agent-controller] compaction_pipeline', e?.message ?? e);
+      console.warn('[agent-controller] context_snapshot', e?.message ?? e);
     }
   }
 
