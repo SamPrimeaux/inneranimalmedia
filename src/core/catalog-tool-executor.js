@@ -661,7 +661,11 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
       headers.Authorization = `Bearer ${accessToken}`;
       headers.Accept = 'application/json, text/event-stream';
     } else if (needsCloudflareUserToken) {
-      const { prepareCfMcpCloudflareCall, resolveCfMcpRemoteToolName } = await import('./cf-mcp-proxy.js');
+      const {
+        prepareCfMcpCloudflareCall,
+        resolveCfMcpRemoteToolName,
+        listOAuthAccountD1Catalog,
+      } = await import('./cf-mcp-proxy.js');
       mcpCallName = resolveCfMcpRemoteToolName(config, params) || mcpCallName;
       const prepared = await prepareCfMcpCloudflareCall(
         env,
@@ -684,8 +688,38 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
           body: { user_message: prepared.user_message || 'Connect Cloudflare in Integrations.' },
         };
       }
+      // Streamable HTTP Bindings MCP requires this Accept (same as Gmail MCP). Missing it → HTTP 406.
+      headers.Accept = 'application/json, text/event-stream';
+      headers['MCP-Protocol-Version'] = '2025-03-26';
       headers.Authorization = `Bearer ${prepared.token}`;
       params = prepared.params;
+
+      // List D1 via account REST catalog — same path as ownership pairing. Avoids Bindings MCP
+      // session/transport flakes for the one op agents need most for targeting.
+      if (mcpCallName === 'd1_databases_list') {
+        try {
+          const databases = await listOAuthAccountD1Catalog(prepared.token);
+          return {
+            ok: true,
+            body: {
+              databases,
+              count: databases.length,
+              source: 'cloudflare_rest_catalog',
+              token_source: prepared.token_source || null,
+            },
+          };
+        } catch (e) {
+          return {
+            ok: false,
+            error: e?.message ?? 'd1_databases_list_failed',
+            failed_tool: toolKey,
+            body: {
+              user_message:
+                'Could not list D1 databases for the connected Cloudflare account. Check token scopes (Account D1 Read) and retry.',
+            },
+          };
+        }
+      }
     } else {
       const mcpToken = env?.MCP_AUTH_TOKEN != null ? String(env.MCP_AUTH_TOKEN).trim() : '';
       const internalSecret = env?.INTERNAL_API_SECRET != null ? String(env.INTERNAL_API_SECRET).trim() : '';
