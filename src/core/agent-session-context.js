@@ -134,7 +134,13 @@ export async function loadOauthVisibleToolsForSession(db) {
   const ordered = [];
   for (const k of keys) {
     const hit = byKey.get(k) || [...byKey.values()].find((t) => t.name === k || t.tool_key === k);
-    if (hit && !ordered.some((t) => t.tool_key === hit.tool_key)) ordered.push(hit);
+    if (hit && !ordered.some((t) => t.tool_key === hit.tool_key)) {
+      if (hit.tool_key === 'agentsam_d1_query' || hit.name === 'agentsam_d1_query') {
+        hit.description =
+          'Run read-only SQL on Cloudflare D1. Platform IAM default database is inneranimalmedia-business — omit database or pass database="inneranimalmedia-business". Do NOT pass table names (e.g. agentsam) as database. Example: sql="SELECT COUNT(*) AS c FROM agentsam_tools WHERE is_active=1".';
+      }
+      ordered.push(hit);
+    }
   }
   return ordered;
 }

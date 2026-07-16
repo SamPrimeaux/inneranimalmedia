@@ -167,6 +167,27 @@ export async function resolveWorkspaceD1Execution(env, ctx) {
       ctx?.authUser,
     );
     if (!byName.ok) {
+      // Operator: invented/wrong CF database names (e.g. "agentsam") must not hard-fail —
+      // default to IAM business D1 binding. Customers still get a clean deny.
+      if (operatorEarly) {
+        logDataPlaneSecurityEvent('platform_operator_d1_name_fallback', {
+          ...meta,
+          requested_database: nameHint || requestedDatabaseId || null,
+          database_id: IAM_D1_DATABASE_ID,
+          database_name: 'inneranimalmedia-business',
+          auth_scope: 'platform_operator',
+          prior_error: byName.error || 'database_not_in_account',
+        });
+        return {
+          ok: true,
+          mode: 'platform',
+          binding_id: null,
+          database_id: IAM_D1_DATABASE_ID,
+          database_name: 'inneranimalmedia-business',
+          fallback_from: nameHint || requestedDatabaseId || null,
+          ...meta,
+        };
+      }
       return {
         ok: false,
         mode: 'denied',
