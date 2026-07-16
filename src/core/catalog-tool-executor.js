@@ -559,6 +559,53 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
   const tenantId = trimMcpValue(runContext.tenantId ?? runContext.tenant_id);
   const userId = trimMcpValue(runContext.userId ?? runContext.user_id);
   const workspaceId = trimMcpValue(runContext.workspaceId ?? runContext.workspace_id);
+
+  // Prefer REST catalog for D1 list — never Bindings MCP tools/call (406 without session/Accept).
+  {
+    const { resolveCfMcpRemoteToolName, listOAuthAccountD1Catalog, resolveCfMcpBearerToken } =
+      await import('./cf-mcp-proxy.js');
+    const remote = resolveCfMcpRemoteToolName(config, params) || mcpCallName;
+    if (remote === 'd1_databases_list' || toolKey === 'agentsam_cf_d1_list') {
+      const tok = await resolveCfMcpBearerToken(env, {
+        userId,
+        workspaceId,
+        tenantId,
+        authUser: runContext?.authUser ?? runContext?.user ?? null,
+      });
+      if (!tok.ok || !tok.token) {
+        return {
+          ok: false,
+          error: tok.error || 'cloudflare_not_connected',
+          failed_tool: toolKey,
+          reauth_required: tok.reauth_required === true,
+          body: { user_message: tok.user_message || 'Connect Cloudflare in Integrations.' },
+        };
+      }
+      try {
+        const databases = await listOAuthAccountD1Catalog(tok.token);
+        return {
+          ok: true,
+          body: {
+            databases,
+            count: databases.length,
+            source: 'cloudflare_rest_catalog',
+            token_source: tok.source || null,
+          },
+        };
+      } catch (e) {
+        return {
+          ok: false,
+          error: e?.message ?? 'd1_databases_list_failed',
+          failed_tool: toolKey,
+          body: {
+            user_message:
+              'Could not list D1 databases for the connected Cloudflare account. Check token scopes (Account D1 Read) and retry.',
+          },
+        };
+      }
+    }
+  }
+
   const toolForResolve = {
     ...mcpRow,
     server_key: mcpRow.server_key || config.server_key,
