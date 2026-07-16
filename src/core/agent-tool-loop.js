@@ -566,6 +566,12 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     }
   }
 
+  // Auth already resolved userId at session entry (usually au_*). Canonicalize once
+  // for tool-chain rows — never re-resolve per tool call inside the loop.
+  const canonicalToolChainUserId = userId
+    ? await resolveCanonicalUserId(userId, env).catch(() => userId)
+    : userId;
+
   while (turnCount < maxTurns) {
     turnCount++;
     if (await shouldStopRun()) {
@@ -2237,7 +2243,6 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           /* non-blocking */
         }
       }
-      const canonicalToolChainUserId = await resolveCanonicalUserId(userId, env);
       previousToolChainId = await fireForgetAgentToolChainRow(env, {
         toolName: call.name,
         agentSessionId: sessionId,
