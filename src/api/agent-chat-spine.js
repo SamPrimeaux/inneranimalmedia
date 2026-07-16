@@ -1,14 +1,9 @@
 /**
- * Agent Sam chat spine — login → mode → RuntimeProfile → model (Thompson if auto) → tool loop.
- * Replaces the boolean maze in agent.js for standard composer chat.
+ * Agent Sam chat spine — session context (DO) → model → tool loop.
+ * No per-turn classify / compileModeProfile.
  */
-import { withD1Retry } from '../core/d1-retry.js';
 import { jsonResponse } from '../core/responses.js';
-import {
-  resolveRuntimeProfile,
-  logRuntimeProfile,
-  logRouteContract,
-} from '../core/runtime-profile.js';
+import { logRuntimeProfile, logRouteContract } from '../core/runtime-profile.js';
 import { normalizeAgentRuntimeMode } from '../core/agent-mode.js';
 import { executeAskTurn } from '../core/mode-controllers/ask-controller.js';
 import { executePlanTurn } from '../core/mode-controllers/plan-controller.js';
@@ -25,12 +20,15 @@ import { loadProjectContextSystemBlock } from '../core/project-context-budget.js
 import { normalizePlanModeMessage } from '../core/plan-mode-utils.js';
 import {
   shouldUseUserAppRuntimeLane,
-  compileUserAppRuntimeProfile,
   parseProjectContextFromBody,
 } from '../core/user-app-runtime.js';
 import { parseSessionProjectIdFromChatBody } from '../core/project-chat-link.js';
 import { loadSessionProjectContextSystemBlock } from '../core/project-session-context.js';
 import { resolveWorkspaceBindings } from '../core/agentsam-workspace.js';
+import {
+  loadOrBootstrapSessionContext,
+  buildSessionRuntimeProfile,
+} from '../core/agent-session-context.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -125,86 +123,87 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     body.force_image_generation === 'true' ||
     String(body.composer_action || '').trim().toLowerCase() === 'create_image';
 
-  const turnCtx = {
-    tenantId,
-    workspaceId,
-    userId,
-    conversationId: sessionId,
-  };
-
-  const { resolveTurnDecision } = await import('../core/turn-decision.js');
-  const turnDecision = await resolveTurnDecision(env, message, turnCtx, {
-    forceImage,
-    composerAction: body.composer_action != null ? String(body.composer_action) : null,
-  });
-
-  if (!requireVision) {
+  if (!requireVision && forceImage) {
     const { handleDirectImageGenerationChatStream } = await import('../tools/image_generation.js');
-    if (turnDecision.imageFastPath) {
-      scheduleChatSessionTitleInsert(env, ctx, {
-        conversationId: sessionId,
-        tenantId,
-        userId,
-        workspaceId,
-        message,
-        modelKey: null,
-        activeFileEnvelope,
-        body,
-      });
-      scheduleWorkspaceStateConversationUpdate(env, ctx, {
-        conversationId: sessionId,
-        workspaceId,
-      });
-      return handleDirectImageGenerationChatStream(env, ctx, {
-        request,
-        message,
-        userId,
-        tenantId,
-        workspaceId,
-        sessionId,
-        authUser,
-        turnDecisionId: turnDecision.decisionId,
-        turnDecision,
-      });
-    }
+    scheduleChatSessionTitleInsert(env, ctx, {
+      conversationId: sessionId,
+      tenantId,
+      userId,
+      workspaceId,
+      message,
+      modelKey: null,
+      activeFileEnvelope,
+      body,
+    });
+    scheduleWorkspaceStateConversationUpdate(env, ctx, {
+      conversationId: sessionId,
+      workspaceId,
+    });
+    return handleDirectImageGenerationChatStream(env, ctx, {
+      request,
+      message,
+      userId,
+      tenantId,
+      workspaceId,
+      sessionId,
+      authUser,
+      turnDecisionId: null,
+      turnDecision: { imageFastPath: true },
+    });
   }
 
-  const profile = await withD1Retry(
-    () =>
-      userAppLane
-        ? compileUserAppRuntimeProfile(env, {
-            mode: requestedMode,
-            message,
-            body,
-            session: { userId, workspaceId, tenantId, conversationId: sessionId, authUser },
-            overrides: {
-              model_key: runtimeOverrides.model_key,
-              subagent_slug: runtimeOverrides.subagent_slug,
-            },
-            projectContext,
-            requireVision,
-            isSuperadmin:
-              authUser?.isSuperadmin === true ||
-              authUser?.is_superadmin === true ||
-              String(authUser?.role || '')
-                .trim()
-                .toLowerCase() === 'superadmin',
-          })
-        : resolveRuntimeProfile(env, {
-            mode: requestedMode,
-            message,
-            session: { userId, workspaceId, tenantId, conversationId: sessionId, authUser },
-            overrides: runtimeOverrides,
-            compile_lane: 'live',
-            requireVision,
-            turnDecision,
-          }),
-    { maxAttempts: 2, delays: [40, 120] },
-  );
+  if (!sessionId) {
+    return jsonResponse({ error: 'conversation_id required for session context' }, 400);
+  }
 
-  profile.source.compile_lane = 'live';
-  profile.source.turn_decision_id = turnDecision.decisionId;
-  logRuntimeProfile(profile, { path: 'executeAgentChatSpine', conversation_id: sessionId, live: true });
+  const sessionCtx = await loadOrBootstrapSessionContext(env, {
+    conversationId: sessionId,
+    mode: requestedMode,
+    workspaceId,
+    body,
+    activeFileEnvelope,
+    forceRefresh: body.refresh_session_context === true,
+  });
+
+  const composerMode = sessionCtx.mode || (requestedMode === 'auto' ? 'agent' : requestedMode);
+  let modelKey = modelOverride;
+  let routingArmId = null;
+  try {
+    const { resolveModelForTask } = await import('../core/resolveModel.js');
+    const resolved = await resolveModelForTask(env, {
+      task_type: composerMode === 'ask' ? 'ask' : 'agent',
+      mode: composerMode,
+      workspace_id: workspaceId,
+      tenant_id: tenantId,
+      user_id: userId,
+      requested_model_key: modelOverride,
+      require_tools: true,
+      require_vision: requireVision,
+    });
+    modelKey = resolved?.model_key || modelKey;
+    routingArmId = resolved?.arm_id || resolved?.routing_arm_id || null;
+  } catch (e) {
+    console.warn('[agent-chat-spine] resolveModelForTask', e?.message ?? e);
+  }
+  if (!modelKey) {
+    return jsonResponse({ error: 'no_model_resolved' }, 503);
+  }
+
+  const profile = buildSessionRuntimeProfile({
+    mode: composerMode,
+    tools: sessionCtx.tools,
+    writePolicy: sessionCtx.writePolicy,
+    modelKey,
+    routingArmId,
+  });
+  profile._session_roots = sessionCtx.roots;
+  profile._fsa_root = sessionCtx.roots?.fsa_root === true;
+
+  logRuntimeProfile(profile, {
+    path: 'executeAgentChatSpine.session_context',
+    conversation_id: sessionId,
+    live: true,
+  });
   logRouteContract(profile, {
     requestedMode: requestedMode,
     routeKey: profile.refined_route_key || profile.mode,

@@ -135,6 +135,7 @@ export class AgentChatSqlV1 extends DurableObject {
     state.blockConcurrencyWhile(async () => {
       this.migrateSessionMessagesSchema();
       this.migrateTurnOutboxSchema();
+      this.migrateSessionAgentContextSchema();
     });
     this.sql.exec(`CREATE TABLE IF NOT EXISTS session_rag_cache (
       query_hash TEXT PRIMARY KEY,
@@ -229,6 +230,159 @@ export class AgentChatSqlV1 extends DurableObject {
     this.sql.exec(
       `CREATE INDEX IF NOT EXISTS idx_turn_outbox_turn ON turn_outbox(turn_id, seq)`,
     );
+  }
+
+  migrateSessionAgentContextSchema() {
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS session_agent_context (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        mode TEXT,
+        tools_json TEXT NOT NULL,
+        write_policy_json TEXT NOT NULL,
+        roots_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )
+    `);
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS fsa_fulfill (
+        call_id TEXT PRIMARY KEY,
+        result_json TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        fulfilled_at INTEGER
+      )
+    `);
+  }
+
+  /**
+   * @param {unknown} tools
+   * @param {unknown} writePolicy
+   * @param {unknown} roots
+   */
+  async setSessionContext(tools, writePolicy, roots) {
+    this.migrateSessionAgentContextSchema();
+    const mode =
+      roots && typeof roots === 'object' && roots.mode != null
+        ? String(roots.mode)
+        : writePolicy && typeof writePolicy === 'object' && writePolicy.mode != null
+          ? String(writePolicy.mode)
+          : null;
+    const toolsJson = JSON.stringify(Array.isArray(tools) ? tools : []);
+    const wpJson = JSON.stringify(writePolicy && typeof writePolicy === 'object' ? writePolicy : {});
+    const rootsObj = roots && typeof roots === 'object' ? { ...roots } : {};
+    if (mode) rootsObj.mode = mode;
+    const rootsJson = JSON.stringify(rootsObj);
+    this.sql.exec(
+      `INSERT INTO session_agent_context (id, mode, tools_json, write_policy_json, roots_json, updated_at)
+       VALUES (1, ?, ?, ?, ?, unixepoch())
+       ON CONFLICT(id) DO UPDATE SET
+         mode = excluded.mode,
+         tools_json = excluded.tools_json,
+         write_policy_json = excluded.write_policy_json,
+         roots_json = excluded.roots_json,
+         updated_at = unixepoch()`,
+      mode,
+      toolsJson,
+      wpJson,
+      rootsJson,
+    );
+    return { ok: true, tools: Array.isArray(tools) ? tools.length : 0 };
+  }
+
+  async getSessionContext() {
+    this.migrateSessionAgentContextSchema();
+    const rows = [...this.sql.exec(
+      `SELECT mode, tools_json, write_policy_json, roots_json, updated_at
+       FROM session_agent_context WHERE id = 1 LIMIT 1`,
+    )];
+    if (!rows.length) return null;
+    const row = rows[0];
+    let tools = [];
+    let writePolicy = {};
+    let roots = {};
+    try {
+      tools = JSON.parse(String(row.tools_json || '[]'));
+    } catch {
+      tools = [];
+    }
+    try {
+      writePolicy = JSON.parse(String(row.write_policy_json || '{}'));
+    } catch {
+      writePolicy = {};
+    }
+    try {
+      roots = JSON.parse(String(row.roots_json || '{}'));
+    } catch {
+      roots = {};
+    }
+    if (!Array.isArray(tools) || !tools.length) return null;
+    return {
+      mode: row.mode != null ? String(row.mode) : roots.mode || null,
+      tools,
+      writePolicy,
+      roots,
+      updated_at: row.updated_at,
+    };
+  }
+
+  /**
+   * Park until client POSTs fulfill (awaits so other DO requests can interleave).
+   * @param {string} callId
+   * @param {{ timeoutMs?: number }} [opts]
+   */
+  async waitForFsaFulfill(callId, opts = {}) {
+    this.migrateSessionAgentContextSchema();
+    const id = String(callId || '').trim();
+    if (!id) throw new Error('fsa_call_id_required');
+    const timeoutMs = Math.min(120000, Math.max(5000, Number(opts.timeoutMs) || 90000));
+    this.sql.exec(
+      `INSERT INTO fsa_fulfill (call_id, result_json, created_at, fulfilled_at)
+       VALUES (?, NULL, unixepoch(), NULL)
+       ON CONFLICT(call_id) DO UPDATE SET result_json = NULL, fulfilled_at = NULL, created_at = unixepoch()`,
+      id,
+    );
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const rows = [
+        ...this.sql.exec(
+          `SELECT result_json, fulfilled_at FROM fsa_fulfill WHERE call_id = ? LIMIT 1`,
+          id,
+        ),
+      ];
+      const row = rows[0];
+      if (row && row.fulfilled_at != null && row.result_json != null) {
+        const raw = String(row.result_json);
+        this.sql.exec(`DELETE FROM fsa_fulfill WHERE call_id = ?`, id);
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return { ok: true, content: raw };
+        }
+      }
+      await scheduler.wait(150);
+    }
+    this.sql.exec(`DELETE FROM fsa_fulfill WHERE call_id = ?`, id);
+    throw new Error('fsa_fulfill_timeout');
+  }
+
+  /**
+   * @param {string} callId
+   * @param {unknown} result
+   */
+  async fulfillFsaRequest(callId, result) {
+    this.migrateSessionAgentContextSchema();
+    const id = String(callId || '').trim();
+    if (!id) return { ok: false, error: 'callId required' };
+    const resultJson = JSON.stringify(result ?? {});
+    this.sql.exec(
+      `INSERT INTO fsa_fulfill (call_id, result_json, created_at, fulfilled_at)
+       VALUES (?, ?, unixepoch(), unixepoch())
+       ON CONFLICT(call_id) DO UPDATE SET
+         result_json = excluded.result_json,
+         fulfilled_at = unixepoch()`,
+      id,
+      resultJson,
+    );
+    return { ok: true, callId: id };
   }
 
   /** @param {Request} request */
@@ -831,6 +985,42 @@ export class AgentChatSqlV1 extends DurableObject {
 
     if (url.pathname === '/designstudio/events' && request.method === 'GET') {
       return this.handleDesignStudioEventStream(url);
+    }
+
+    if (url.pathname === '/session-context' && request.method === 'GET') {
+      const ctx = await this.getSessionContext();
+      if (!ctx) return Response.json({ empty: true });
+      return Response.json(ctx);
+    }
+
+    if (url.pathname === '/session-context' && request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const out = await this.setSessionContext(body.tools, body.writePolicy, {
+        ...(body.roots && typeof body.roots === 'object' ? body.roots : {}),
+        mode: body.mode ?? body.roots?.mode,
+      });
+      return Response.json(out);
+    }
+
+    if (url.pathname === '/fsa/wait' && request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      try {
+        const result = await this.waitForFsaFulfill(body.callId, {
+          timeoutMs: body.timeoutMs,
+        });
+        return Response.json(result);
+      } catch (e) {
+        return Response.json(
+          { error: String(e?.message || e || 'fsa_wait_failed') },
+          { status: 408 },
+        );
+      }
+    }
+
+    if (url.pathname === '/fsa/fulfill' && request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const out = await this.fulfillFsaRequest(body.callId, body.result);
+      return Response.json(out, { status: out.ok ? 200 : 400 });
     }
 
     return new Response('AgentChatSqlV1 DO', { status: 200 });

@@ -122,6 +122,7 @@ import {
   fetchGithubFileContent,
 } from '../../types/contextEnvelope';
 import { detectClientSurface } from '../../src/lib/clientSurface';
+import { loadPersistedLocalDirectoryHandle } from '../../src/lib/library/localHandleStore';
 import { dashboardComposerBottomPad } from '../../config/shellChrome';
 import {
   readStoredExecLane,
@@ -3065,6 +3066,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       if (activeFile.githubSha) form.append('active_file_github_sha', activeFile.githubSha);
       form.append('active_file_drive_id', activeFile.driveFileId ?? '');
       form.append('active_file_workspace_path', activeFile.workspacePath ?? '');
+      if (activeSource === 'local' || activeFile.handle) {
+        form.append('local_fsa_connected', '1');
+        form.append('fsa_root', '1');
+      }
       if (activeFileContent != null && activeFileContent !== '') {
         form.append(
           'active_file_content',
@@ -3083,6 +3088,17 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       }
       if (chatGithubFileContent?.trim()) {
         form.append('active_file_content', chatGithubFileContent.slice(0, 48000));
+      }
+    }
+    if (!form.has('local_fsa_connected')) {
+      try {
+        const localRoot = await loadPersistedLocalDirectoryHandle();
+        if (localRoot) {
+          form.append('local_fsa_connected', '1');
+          form.append('fsa_root', '1');
+        }
+      } catch {
+        /* ignore */
       }
     }
     const ghCtxForm = explorerActiveRepo?.trim() || githubRepoContext?.trim() || '';

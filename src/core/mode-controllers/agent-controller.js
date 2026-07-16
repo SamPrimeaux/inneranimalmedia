@@ -27,11 +27,6 @@ import {
 import { executeSkillSpawnByRoute } from '../skill-spawn-pipelines-ext.js';
 import { filterToolsForCapabilityDecision } from '../tool-capability-filter.js';
 import {
-  resolveForcedExplicitCatalogTool,
-  buildExplicitCatalogToolInput,
-  isExplicitGithubCatalogToolIntent,
-} from '../code-implementation-intent.js';
-import {
   extractMailSurfaceContext,
   formatMailSurfaceContextForAgent,
 } from '../mail-studio-context.js';
@@ -368,23 +363,6 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     } catch (e) {
       console.warn('[agent-controller] lane_context_failed', e?.message ?? e);
       contextBlock = '';
-    }
-  }
-
-  // Always try daily briefing when we have a workspace (Wave 1 closed loop).
-  if (env && workspaceId) {
-    try {
-      const { fetchLatestDailyMemoryBriefing } = await import('../agentsam-supabase-telemetry.js');
-      const dailyBlock = await fetchLatestDailyMemoryBriefing(env, workspaceId, { userId });
-      if (dailyBlock) {
-        contextBlock = contextBlock ? `${dailyBlock}\n\n${contextBlock}` : dailyBlock;
-        console.info(
-          '[agent-controller] daily_memory_preflight',
-          JSON.stringify({ chars: dailyBlock.length, workspaceId }),
-        );
-      }
-    } catch (e) {
-      console.warn('[agent-controller] daily_memory_preflight_failed', e?.message ?? e);
     }
   }
 
@@ -763,6 +741,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         writePolicy: profile.write_policy,
         userMessage: message,
         runtimeProfile: profile,
+        fsa_root: profile._fsa_root === true,
         ...(githubRepoCtx
           ? {
               selectedGithubRepoContext: githubRepoCtx,
@@ -786,38 +765,6 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         if (reqSignal.aborted) clientAborted = true;
         else reqSignal.addEventListener('abort', () => { clientAborted = true; }, { once: true });
       }
-      let explicitToolName = resolveForcedExplicitCatalogTool(message, tools);
-      // github special/route with tree in allowlist — always seed even if message was rewritten
-      if (
-        !explicitToolName &&
-        Array.isArray(tools) &&
-        /^(github|review|search_code)$/i.test(String(profile.routing_task_type || ''))
-      ) {
-        const hasTree = tools.some(
-          (t) => String(t?.name || '').trim().toLowerCase() === 'agentsam_github_tree',
-        );
-        if (hasTree && isExplicitGithubCatalogToolIntent(message)) {
-          explicitToolName = 'agentsam_github_tree';
-        } else if (hasTree && /\bgithub_tree\b|\bagentsam_github_/i.test(message)) {
-          explicitToolName = 'agentsam_github_tree';
-        }
-      }
-      const explicitCatalogSeed = explicitToolName
-        ? {
-            name: explicitToolName,
-            input: buildExplicitCatalogToolInput(explicitToolName, message),
-          }
-        : null;
-      console.log(
-        '[agent] explicit_catalog_seed',
-        JSON.stringify({
-          tool: explicitCatalogSeed?.name || null,
-          args: explicitCatalogSeed?.input || null,
-          tool_count: Array.isArray(tools) ? tools.length : 0,
-          task_type: profile.routing_task_type || null,
-          message_head: String(message || '').slice(0, 120),
-        }),
-      );
         loopStats = await withTimeout(
           runAgentToolLoop(env, ctx, emit, {
             request: input.request,
@@ -857,7 +804,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
             codemodeRuntime,
             chatTurnMeta,
             signal: reqSignal,
-            explicitCatalogSeed,
+            explicitCatalogSeed: null,
           }),
           maxRunMs + 5000,
         );

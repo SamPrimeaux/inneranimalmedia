@@ -5353,6 +5353,31 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     return jsonResponse(out);
   }
 
+  // POST /api/agent/fs/fulfill — browser FSA bridge completes a parked fs_* tool call
+  if (path === '/api/agent/fs/fulfill' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid_json' }, 400);
+    }
+    const callId = String(body.callId || body.call_id || '').trim();
+    const conversationId = String(
+      body.conversationId || body.conversation_id || body.sessionId || body.session_id || '',
+    ).trim();
+    if (!callId || !conversationId) {
+      return jsonResponse({ error: 'callId and conversationId required' }, 400);
+    }
+    if (!env.AGENT_SESSION) {
+      return jsonResponse({ error: 'AGENT_SESSION not configured' }, 503);
+    }
+    const { getAgentSessionStub, doFulfillFsaRequest } = await import('../core/agent-session-context.js');
+    const stub = getAgentSessionStub(env, conversationId);
+    if (!stub) return jsonResponse({ error: 'session_stub_unavailable' }, 503);
+    const out = await doFulfillFsaRequest(stub, callId, body.result ?? {});
+    return jsonResponse(out?.ok === false ? out : { ok: true, callId, ...out });
+  }
+
   // ── /api/agent/chat ───────────────────────────────────────────────────────
   if (path === '/api/agent/chat' && method === 'POST') {
     const ingestBypass = isIngestSecretAuthorized(request, env);

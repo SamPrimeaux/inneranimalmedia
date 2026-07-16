@@ -48,6 +48,7 @@ import {
   isStreamErrorPayload,
 } from '../streamParsing';
 import { markStreamParserError, patchIamAgentStreamDebug } from '../streamDebug';
+import { fulfillClientFsRequest } from '../../../src/lib/library/clientFsFulfill';
 import {
   applyTurnOutboxEvents,
   fetchTurnOutboxReplay,
@@ -1882,6 +1883,33 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const r2evt = data as { type: 'r2_file_updated'; bucket: string; key: string };
           onR2FileUpdated?.(r2evt);
           fileEchoSuppress = false;
+          continue;
+        }
+        if (
+          data &&
+          typeof data === 'object' &&
+          (data as { type?: string }).type === 'client_fs_request'
+        ) {
+          const fsEvt = data as {
+            call_id?: string;
+            callId?: string;
+            path?: string;
+            operation?: string;
+            content?: string | null;
+            conversation_id?: string;
+          };
+          const lsConv =
+            typeof localStorage !== 'undefined'
+              ? String(localStorage.getItem(LS_AGENT_CHAT_CONVERSATION_ID) || '').trim()
+              : '';
+          void fulfillClientFsRequest(fsEvt, {
+            conversationId:
+              fsEvt.conversation_id ||
+              activeConversationId ||
+              lsConv ||
+              pendingConversationUrlSync ||
+              null,
+          });
           continue;
         }
         if (

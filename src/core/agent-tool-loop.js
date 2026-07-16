@@ -379,8 +379,12 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
 
   try {
   // Deterministic first call when the user names a catalog tool — do not wait on model tool_choice.
+  // Session-scoped thin pipe: no pre-invocation (model chooses tools).
   let explicitCatalogPreinvoked = false;
-  {
+  const skipExplicitCatalogPreinvoke =
+    mcpCtx?.runtimeProfile?.source?.session_scoped === true ||
+    mcpCtx?.runtimeProfile?.source?.compile_lane === 'session_context';
+  if (!skipExplicitCatalogPreinvoke) {
     const seeded =
       explicitCatalogSeedParam &&
       typeof explicitCatalogSeedParam === 'object' &&
@@ -1587,6 +1591,61 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
               origin: (env.IAM_ORIGIN || request?.url ? new URL(request.url).origin : '').replace(/\/$/, ''),
             }),
           );
+        } else if (
+          String(call.name || '').startsWith('fs_') &&
+          (mcpCtx.fsa_root === true || mcpCtx.runtimeProfile?._fsa_root === true)
+        ) {
+          let toolInput = call.input && typeof call.input === 'object' ? { ...call.input } : {};
+          if (activeFileEnvelopeParam) {
+            const { applyActiveFileDefaultsToToolInput } = await import('../core/active-file-envelope.js');
+            toolInput = applyActiveFileDefaultsToToolInput(call.name, toolInput, activeFileEnvelopeParam);
+          }
+          const path =
+            String(
+              toolInput.path ||
+                toolInput.workspace_path ||
+                toolInput.file_path ||
+                toolInput.filename ||
+                '',
+            ).trim();
+          const nameLower = String(call.name || '').toLowerCase();
+          const operation = nameLower.includes('search') || nameLower.includes('list')
+            ? 'list'
+            : nameLower.includes('write') || nameLower.includes('edit') || nameLower.includes('create')
+              ? 'write'
+              : 'read';
+          const content =
+            toolInput.content != null
+              ? String(toolInput.content)
+              : toolInput.proposed_content != null
+                ? String(toolInput.proposed_content)
+                : null;
+          emit('client_fs_request', {
+            call_id: call.id,
+            tool_name: call.name,
+            path,
+            operation,
+            content,
+            conversation_id: sessionId,
+          });
+          const { getAgentSessionStub, doWaitForFsaFulfill } = await import(
+            '../core/agent-session-context.js'
+          );
+          const stub = getAgentSessionStub(env, sessionId);
+          if (!stub) {
+            execResult = {
+              ok: false,
+              error: 'fsa_no_session_do',
+              path,
+              operation,
+            };
+          } else {
+            execResult = await abortScope.race(
+              doWaitForFsaFulfill(stub, call.id, {
+                timeoutMs: Math.min(toolBudgetMs || 90000, 90000),
+              }),
+            );
+          }
         } else {
           let toolInput = call.input && typeof call.input === 'object' ? { ...call.input } : {};
           if (call.name === 'fs_search_files') {
