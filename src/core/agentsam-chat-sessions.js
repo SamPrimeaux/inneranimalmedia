@@ -859,6 +859,8 @@ export async function getChatMessages(env, conversationId) {
  *   modelKey?: string|null,
  *   activeFileEnvelope?: { github_repo?: string|null }|null,
  *   body?: Record<string, unknown>|null,
+ *   projectRef?: string|null,
+ *   projectExplicit?: boolean,
  * }} input
  */
 export function scheduleChatSessionTitleInsert(env, ctx, input) {
@@ -882,7 +884,10 @@ export function scheduleChatSessionTitleInsert(env, ctx, input) {
         body: input.body ?? null,
       });
 
-      const projectRef = parseSessionProjectIdFromChatBody(input.body ?? null);
+      const projectRef =
+        Object.prototype.hasOwnProperty.call(input, 'projectRef')
+          ? String(input.projectRef || '').trim() || null
+          : parseSessionProjectIdFromChatBody(input.body ?? null);
       const resolvedProjectId = projectRef
         ? await resolveChatProjectId(env, projectRef, workspaceId)
         : null;
@@ -928,10 +933,19 @@ export function scheduleChatSessionTitleInsert(env, ctx, input) {
              message_count = COALESCE(message_count, 0) + 1,
              model_key = COALESCE(?, model_key),
              github_repo = COALESCE(?, github_repo),
-             project_id = COALESCE(project_id, ?)
+             project_id = CASE WHEN ? = 1 THEN ? ELSE COALESCE(project_id, ?) END
          WHERE conversation_id = ? AND user_id = ? AND tenant_id = ?`,
       )
-        .bind(modelKey, githubRepo, resolvedProjectId, conversationId, userId, tenantId)
+        .bind(
+          modelKey,
+          githubRepo,
+          input.projectExplicit === true ? 1 : 0,
+          resolvedProjectId,
+          resolvedProjectId,
+          conversationId,
+          userId,
+          tenantId,
+        )
         .run();
     } catch (e) {
       console.warn('[agentsam_chat_sessions] title insert', e?.message ?? e);

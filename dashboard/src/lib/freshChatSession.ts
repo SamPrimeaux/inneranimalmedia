@@ -17,6 +17,7 @@ const SESSION_CONNECTORS_KEY = 'iam:session-enabled-connectors';
 const SESSION_TOOLS_KEY = 'iam:session-enabled-tools';
 const SESSION_PROJECT_ID_KEY = 'iam:session-project-id';
 const SESSION_PROJECT_NAME_KEY = 'iam:session-project-name';
+const SESSION_PROJECT_INTENT_KEY = 'iam:session-project-intent';
 
 /** Reset client-side chat context for a new thread (ephemeral until user opts in). */
 export function applyFreshChatSessionDefaults(opts: FreshSessionResetOptions): void {
@@ -42,6 +43,7 @@ export function applyFreshChatSessionDefaults(opts: FreshSessionResetOptions): v
     sessionStorage.removeItem(SESSION_TOOLS_KEY);
     sessionStorage.removeItem(SESSION_PROJECT_ID_KEY);
     sessionStorage.removeItem(SESSION_PROJECT_NAME_KEY);
+    sessionStorage.removeItem(SESSION_PROJECT_INTENT_KEY);
   } catch {
     /* ignore */
   }
@@ -184,15 +186,39 @@ export function readSessionProject(): SessionProject {
   }
 }
 
-export function writeSessionProject(project: SessionProject): void {
+export function writeSessionProject(
+  project: SessionProject,
+  opts: { explicit?: boolean } = { explicit: true },
+): void {
   try {
     if (!project?.id) {
       sessionStorage.removeItem(SESSION_PROJECT_ID_KEY);
       sessionStorage.removeItem(SESSION_PROJECT_NAME_KEY);
+      if (opts.explicit !== false) sessionStorage.setItem(SESSION_PROJECT_INTENT_KEY, 'clear');
+      else sessionStorage.removeItem(SESSION_PROJECT_INTENT_KEY);
       return;
     }
     sessionStorage.setItem(SESSION_PROJECT_ID_KEY, project.id);
     sessionStorage.setItem(SESSION_PROJECT_NAME_KEY, project.name || 'Project');
+    if (opts.explicit !== false) sessionStorage.setItem(SESSION_PROJECT_INTENT_KEY, 'set');
+    else sessionStorage.removeItem(SESSION_PROJECT_INTENT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readSessionProjectIntent(): 'set' | 'clear' | null {
+  try {
+    const value = sessionStorage.getItem(SESSION_PROJECT_INTENT_KEY);
+    return value === 'set' || value === 'clear' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearSessionProjectIntent(): void {
+  try {
+    sessionStorage.removeItem(SESSION_PROJECT_INTENT_KEY);
   } catch {
     /* ignore */
   }

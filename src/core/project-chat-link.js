@@ -39,6 +39,69 @@ export function parseSessionProjectIdFromChatBody(body) {
 }
 
 /**
+ * Resolve the project that may contribute prompt context for one conversation.
+ * Existing D1 session state is authoritative; request state may only change it
+ * when the client marks an explicit project selection/clear.
+ *
+ * @param {any} env
+ * @param {{
+ *   conversationId?: string|null,
+ *   userId?: string|null,
+ *   tenantId?: string|null,
+ *   requestedProjectRef?: string|null,
+ *   explicit?: boolean,
+ *   clear?: boolean,
+ * }} input
+ */
+export async function resolveConversationProjectRef(env, input) {
+  const conversationId = trim(input?.conversationId);
+  const userId = trim(input?.userId);
+  const tenantId = trim(input?.tenantId);
+  const requestedProjectRef = trim(input?.requestedProjectRef);
+  const explicit = input?.explicit === true;
+  const clear = input?.clear === true;
+
+  if (!env?.DB || !conversationId || !userId || !tenantId) {
+    return {
+      projectRef: explicit && !clear ? requestedProjectRef || null : null,
+      source: explicit ? 'explicit_request' : 'unbound',
+      conversationFound: false,
+    };
+  }
+
+  const row = await env.DB.prepare(
+    `SELECT project_id
+     FROM agentsam_chat_sessions
+     WHERE conversation_id = ? AND user_id = ? AND tenant_id = ?
+     LIMIT 1`,
+  )
+    .bind(conversationId, userId, tenantId)
+    .first()
+    .catch(() => null);
+
+  if (row) {
+    if (explicit) {
+      return {
+        projectRef: clear ? null : requestedProjectRef || null,
+        source: clear ? 'explicit_clear' : 'explicit_request',
+        conversationFound: true,
+      };
+    }
+    return {
+      projectRef: trim(row.project_id) || null,
+      source: 'conversation',
+      conversationFound: true,
+    };
+  }
+
+  return {
+    projectRef: explicit && !clear ? requestedProjectRef || null : null,
+    source: explicit ? 'explicit_request' : 'unbound',
+    conversationFound: false,
+  };
+}
+
+/**
  * @param {any} env
  * @param {string|null|undefined} projectRef
  * @param {string|null|undefined} [workspaceId]

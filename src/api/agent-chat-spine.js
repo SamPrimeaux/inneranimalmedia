@@ -16,7 +16,6 @@ import {
   scheduleChatSessionTitleInsert,
   scheduleWorkspaceStateConversationUpdate,
 } from '../core/agentsam-chat-sessions.js';
-import { loadProjectContextSystemBlock } from '../core/project-context-budget.js';
 import { normalizePlanModeMessage } from '../core/plan-mode-utils.js';
 import {
   shouldUseUserAppRuntimeLane,
@@ -24,7 +23,10 @@ import {
   shouldUseProjectQnaFastLane,
   applyProjectQnaFastLaneToSessionProfile,
 } from '../core/user-app-runtime.js';
-import { parseSessionProjectIdFromChatBody } from '../core/project-chat-link.js';
+import {
+  parseSessionProjectIdFromChatBody,
+  resolveConversationProjectRef,
+} from '../core/project-chat-link.js';
 import { loadSessionProjectContextSystemBlock } from '../core/project-session-context.js';
 import { resolveWorkspaceBindings } from '../core/agentsam-workspace.js';
 import {
@@ -131,6 +133,44 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     body.force_image_generation === 'true' ||
     String(body.composer_action || '').trim().toLowerCase() === 'create_image';
 
+  if (!sessionId) {
+    return jsonResponse({ error: 'conversation_id required for session context' }, 400);
+  }
+
+  const requestedSessionProjectRef = parseSessionProjectIdFromChatBody(body);
+  const projectContextExplicit =
+    body.project_context_explicit === true ||
+    body.project_context_explicit === 1 ||
+    body.project_context_explicit === '1' ||
+    String(body.project_context_source || '').trim() === 'project_composer';
+  const projectContextClear =
+    body.project_context_clear === true ||
+    body.project_context_clear === 1 ||
+    body.project_context_clear === '1';
+  const conversationProject = await resolveConversationProjectRef(env, {
+    conversationId: sessionId,
+    userId,
+    tenantId,
+    requestedProjectRef: requestedSessionProjectRef,
+    explicit: projectContextExplicit || projectContextClear,
+    clear: projectContextClear,
+  });
+  const sessionProjectRef = conversationProject.projectRef;
+  console.info(
+    '[agent-chat-spine] project_context_resolved',
+    JSON.stringify({
+      conversation_id: sessionId,
+      project_ref: sessionProjectRef,
+      source: conversationProject.source,
+      ignored_request_ref:
+        !projectContextExplicit &&
+        requestedSessionProjectRef &&
+        requestedSessionProjectRef !== sessionProjectRef
+          ? requestedSessionProjectRef
+          : null,
+    }),
+  );
+
   if (!requireVision && forceImage) {
     const { handleDirectImageGenerationChatStream } = await import('../tools/image_generation.js');
     scheduleChatSessionTitleInsert(env, ctx, {
@@ -142,6 +182,8 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
       modelKey: null,
       activeFileEnvelope,
       body,
+      projectRef: sessionProjectRef,
+      projectExplicit: projectContextExplicit || projectContextClear,
     });
     scheduleWorkspaceStateConversationUpdate(env, ctx, {
       conversationId: sessionId,
@@ -158,10 +200,6 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
       turnDecisionId: null,
       turnDecision: { imageFastPath: true },
     });
-  }
-
-  if (!sessionId) {
-    return jsonResponse({ error: 'conversation_id required for session context' }, 400);
   }
 
   const sessionCtx = await loadOrBootstrapSessionContext(env, {
@@ -231,6 +269,8 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     modelKey: profile.model_key ?? modelOverride,
     activeFileEnvelope,
     body,
+    projectRef: sessionProjectRef,
+    projectExplicit: projectContextExplicit || projectContextClear,
   });
 
   scheduleWorkspaceStateConversationUpdate(env, ctx, {
@@ -238,13 +278,8 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     workspaceId,
   });
 
-  const { isSimpleAskMessage } = await import('../core/runtime-profile.js');
-  const casualChatTurn = isSimpleAskMessage(message) && !activeFileEnvelope && !requireVision;
-  const sessionProjectRef = parseSessionProjectIdFromChatBody(body);
   const workspaceBindingIdentifier = trimIdentifier(
     sessionProjectRef ||
-      body.project_id ||
-      body.projectId ||
       body.workspace_id ||
       body.workspaceId ||
       workspaceId,
@@ -262,10 +297,9 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
   const sessionProjectContextBlock = sessionProjectRef
     ? await loadSessionProjectContextSystemBlock(env, sessionProjectRef, workspaceId)
     : '';
-  const projectContextBlock =
-    casualChatTurn || userAppLane
-      ? ''
-      : await loadProjectContextSystemBlock(env, workspaceId);
+  // Project context is opt-in and conversation-scoped. Never pick an ambient
+  // "active" project from a workspace that contains many unrelated projects.
+  const projectContextBlock = '';
 
   const skillRoute = await resolveSkillSpawnRouting(env, message, body, {
     sessionId,

@@ -131,7 +131,14 @@ import {
   LS_EXEC_LANE_MOBILE,
   type ExecLane,
 } from '../../src/lib/execLane';
-import { applyFreshChatSessionDefaults, readSessionEnabledConnectors, flattenSessionEnabledTools, readSessionProject } from '../../src/lib/freshChatSession';
+import {
+  applyFreshChatSessionDefaults,
+  readSessionEnabledConnectors,
+  flattenSessionEnabledTools,
+  readSessionProject,
+  readSessionProjectIntent,
+  writeSessionProject,
+} from '../../src/lib/freshChatSession';
 import { formatHttpErrorMessage } from './streamParsing';
 import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
 import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug';
@@ -821,6 +828,26 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   useEffect(() => {
     void loadSessions();
   }, [loadSessions, conversationId]);
+
+  useEffect(() => {
+    if (sessionsLoading || !conversationId) return;
+    const canonical = sessions.find(
+      (row) => String(row.conversation_id || row.id || '').trim() === conversationId.trim(),
+    );
+    if (!canonical) return;
+    const projectId = String(canonical.project_id || '').trim();
+    if (!projectId) {
+      writeSessionProject(null, { explicit: false });
+      return;
+    }
+    const project = chatProjects.find(
+      (row) => row.id === projectId || row.chat_project_id === projectId,
+    );
+    writeSessionProject(
+      { id: projectId, name: project?.name || canonical.project_name || 'Project' },
+      { explicit: false },
+    );
+  }, [sessionsLoading, sessions, conversationId, chatProjects]);
 
   useEffect(() => {
     void fetch('/api/projects', { credentials: 'same-origin' })
@@ -2894,7 +2921,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
     form.append('conversationId', effectiveConvId);
     const sessionProject = readSessionProject();
+    const sessionProjectIntent = readSessionProjectIntent();
     if (sessionProject?.id) form.append('project_id', sessionProject.id);
+    if (sessionProjectIntent === 'set') form.append('project_context_explicit', '1');
+    if (sessionProjectIntent === 'clear') form.append('project_context_clear', '1');
     form.append('contextMode', String(activeProject));
     if (designStudioSceneId?.trim()) form.append('scene_snapshot_id', designStudioSceneId.trim());
     if (designStudioBlueprintId?.trim()) form.append('blueprint_id', designStudioBlueprintId.trim());

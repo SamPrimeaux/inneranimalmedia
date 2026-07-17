@@ -418,6 +418,9 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   const sessionProjectBlock = String(input.sessionProjectContextBlock || '').trim();
   const workspaceProjectBlock = String(input.projectContextBlock || '').trim();
   const projectBlock = sessionProjectBlock || workspaceProjectBlock;
+  const scopedProjectRef = Object.prototype.hasOwnProperty.call(input, 'sessionProjectRef')
+    ? input.sessionProjectRef
+    : body.project_id ?? body.projectId ?? null;
   if (projectBlock) {
     contextBlock = contextBlock ? `${contextBlock}\n\n${projectBlock}` : projectBlock;
     console.info(
@@ -449,8 +452,8 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         routeKey: promptRouteRow?.route_key ?? body.route_key ?? body.routeKey ?? null,
         workspaceId,
         userId,
-        projectId: input.sessionProjectRef ?? body.project_id ?? body.projectId ?? null,
-        projectRef: input.sessionProjectRef ?? body.project_id ?? body.projectId ?? null,
+        projectId: scopedProjectRef,
+        projectRef: scopedProjectRef,
         minimalAsk,
         ctx: input.ctx ?? null,
         authUser: sessionAuthUser ?? input.session?.authUser ?? null,
