@@ -20,11 +20,16 @@ import { authUserIsSuperadmin } from './auth.js';
  *   approval_required: boolean,
  * }} DatabaseRuntimeContext */
 
-const OWNER_PLATFORM_SCHEMAS = ['agentsam'];
+const OWNER_PLATFORM_SCHEMAS = ['*'];
 const NON_OWNER_ALLOWED_SCHEMAS = ['public'];
+const PROTECTED_WRITE_SCHEMAS = new Set([
+  'auth',
+  'storage',
+  'realtime',
+  'supabase_migrations',
+]);
 
 const BLOCKED_PATTERNS = [
-  /\bauth\.users\b/i,
   /\bpg_authid\b/i,
   /\buser_secrets\b/i,
   /\bvault\./i,
@@ -104,7 +109,7 @@ export function classifyDatabaseOperation(sql) {
 /**
  * @param {string} sql
  * @param {DatabaseRuntimeContext} ctx
- * @param {{ surface?: string, explicitApprovalId?: string|null }} [opts]
+ * @param {{ surface?: string, explicitApprovalId?: string|null, schema?: string|null }} [opts]
  */
 export function evaluateDatabaseOperation(sql, ctx, opts = {}) {
   const operationClass = classifyDatabaseOperation(sql);
@@ -160,13 +165,25 @@ export function evaluateDatabaseOperation(sql, ctx, opts = {}) {
     };
   }
 
-  if (operationClass === 'owner_approval_required' && !explicitApproval) {
+  const protectedSchema = detectProtectedDatabaseSchema(sql, opts.schema);
+  if (protectedSchema && !explicitApproval) {
     return {
-      allowed: true,
+      allowed: false,
       operation_class: operationClass,
       read_only: false,
-      requires_approval: false,
-      reason: 'owner_direct',
+      requires_approval: true,
+      protected_schema: protectedSchema,
+      reason: 'protected_schema_approval_required',
+    };
+  }
+
+  if (operationClass === 'owner_approval_required' && !explicitApproval) {
+    return {
+      allowed: false,
+      operation_class: operationClass,
+      read_only: false,
+      requires_approval: true,
+      reason: 'owner_approval_required',
     };
   }
 
@@ -175,8 +192,28 @@ export function evaluateDatabaseOperation(sql, ctx, opts = {}) {
     operation_class: operationClass,
     read_only: false,
     requires_approval: operationClass === 'owner_approval_required',
+    protected_schema: protectedSchema,
     reason: explicitApproval ? 'approved_mutation' : 'owner_direct',
   };
+}
+
+/**
+ * @param {string|null|undefined} schemaName
+ */
+export function isProtectedDatabaseSchema(schemaName) {
+  return PROTECTED_WRITE_SCHEMAS.has(String(schemaName || '').trim().toLowerCase());
+}
+
+/**
+ * @param {string} sql
+ * @param {string|null|undefined} [schemaHint]
+ */
+export function detectProtectedDatabaseSchema(sql, schemaHint = null) {
+  if (isProtectedDatabaseSchema(schemaHint)) return String(schemaHint).trim().toLowerCase();
+  const match = String(sql || '').match(
+    /\b(auth|storage|realtime|supabase_migrations)\s*\./i,
+  );
+  return match ? match[1].toLowerCase() : null;
 }
 
 /**
@@ -184,9 +221,9 @@ export function evaluateDatabaseOperation(sql, ctx, opts = {}) {
  * @param {DatabaseRuntimeContext} ctx
  */
 export function isSchemaAllowedForContext(schemaName, ctx) {
-  const schema = String(schemaName || 'agentsam').trim().toLowerCase() || 'agentsam';
+  const schema = String(schemaName || '').trim().toLowerCase();
   if (ctx.is_owner || ctx.is_superadmin) {
-    return ctx.allowed_schemas.includes(schema) || schema === 'information_schema' || schema === 'pg_catalog';
+    return schema === '' || /^[a-z_][a-z0-9_]*$/.test(schema);
   }
   if (schema === 'agentsam' || schema.startsWith('agentsam')) {
     return false;

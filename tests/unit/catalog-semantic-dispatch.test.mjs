@@ -11,11 +11,11 @@ const migrationSrc = readFileSync(
   'utf8',
 );
 
-test('catalog-tool-executor wires semantic_retrieval and database_assistant', () => {
+test('catalog-tool-executor wires semantic retrieval through the explicit data-plane dispatcher', () => {
   assert.ok(catalogSrc.includes("dispatcher === 'semantic_retrieval'"));
   assert.ok(catalogSrc.includes("dispatcher === 'database_assistant'"));
   assert.ok(catalogSrc.includes('dispatchSemanticRetrieval'));
-  assert.ok(catalogSrc.includes('dispatchDatabaseAssistant'));
+  assert.ok(catalogSrc.includes('dispatchCustomerDataPlaneOperation'));
   assert.ok(catalogSrc.includes("dispatcher === 'legacy_unified_rag'"));
 });
 

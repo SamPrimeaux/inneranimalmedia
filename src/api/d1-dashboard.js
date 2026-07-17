@@ -26,8 +26,6 @@ import { logDataPlaneSecurityEvent } from '../core/data-plane-access-guard.js';
 import { isPlatformOperator, resolveOperatorAuthUserRow } from '../core/operator-identity.js';
 import { getOAuthToken } from '../core/user-oauth-token.js';
 import { createRemoteD1Adapter } from '../core/remote-d1-adapter.js';
-import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
-import { getAgentsamWorkspace, parseWorkspaceMetadata } from '../core/agentsam-workspace.js';
 
 export { resolveUserWorkspaceBinding } from '../core/data-isolation-scope.js';
 
@@ -44,33 +42,6 @@ function d1OnboardingResponse() {
     },
     200,
   );
-}
-
-/**
- * Optional workspace default database name/id (jump-to default — not a gate).
- * @param {any} env
- * @param {string} workspaceId
- */
-async function resolveWorkspacePinnedDatabase(env, workspaceId) {
-  const ws = trimHeader(workspaceId);
-  if (!ws || !env?.DB) return { database_id: '', database_name: '' };
-  const row = await getAgentsamWorkspace(env, ws);
-  const meta = parseWorkspaceMetadata(row?.metadata_json);
-  const arr = meta?.d1_databases;
-  if (Array.isArray(arr) && arr[0] && typeof arr[0] === 'object') {
-    return {
-      database_id: trimHeader(arr[0].database_id),
-      database_name: trimHeader(arr[0].database_name) || trimHeader(row?.workspace_slug),
-    };
-  }
-  const databaseId = trimHeader(row?.d1_database_id);
-  if (databaseId && databaseId !== IAM_D1_DATABASE_ID) {
-    return {
-      database_id: databaseId,
-      database_name: trimHeader(row?.workspace_slug) || databaseId,
-    };
-  }
-  return { database_id: '', database_name: '' };
 }
 
 /**
@@ -127,11 +98,9 @@ async function requireScopedD1(env, authUser, request) {
 
   const databaseIdHeader = trimHeader(request?.headers?.get?.('x-iam-database-id'));
   const databaseNameHeader = trimHeader(request?.headers?.get?.('x-iam-database-name'));
-  const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
-  const workspaceId = trimHeader(wsRes?.workspaceId);
-  const pinned = workspaceId ? await resolveWorkspacePinnedDatabase(env, workspaceId) : null;
 
   const listed = await listOAuthD1DatabasesForDashboard(env, authUser, userId);
+  const explicitResourceRequested = Boolean(databaseIdHeader || databaseNameHeader);
 
   if (operator && env?.DB) {
     let selected = listed.databases.find(
@@ -142,14 +111,16 @@ async function requireScopedD1(env, authUser, request) {
     if (!selected && databaseIdHeader.toLowerCase() === IAM_D1_DATABASE_ID.toLowerCase()) {
       selected = listed.databases.find((d) => d.database_id === IAM_D1_DATABASE_ID);
     }
-    if (!selected && pinned?.database_id) {
-      selected = listed.databases.find((d) => d.database_id === pinned.database_id);
-    }
-    if (!selected && listed.databases.some((d) => d.database_id === IAM_D1_DATABASE_ID)) {
-      selected = listed.databases.find((d) => d.database_id === IAM_D1_DATABASE_ID);
+    if (explicitResourceRequested && !selected) {
+      return {
+        db: null,
+        userId,
+        mode: 'denied',
+        error: 'd1_resource_not_in_authenticated_account',
+      };
     }
 
-    if (selected?.source === 'platform_operator' || !selected) {
+    if (selected?.source === 'platform_operator') {
       logDataPlaneSecurityEvent('platform_operator_d1_studio', {
         user_id: userId,
         database_id: IAM_D1_DATABASE_ID,
@@ -174,12 +145,7 @@ async function requireScopedD1(env, authUser, request) {
       }
     }
 
-    logDataPlaneSecurityEvent('platform_operator_d1_studio', {
-      user_id: userId,
-      database_id: IAM_D1_DATABASE_ID,
-      auth_scope: 'platform_operator',
-    });
-    return { db: env.DB, userId, mode: 'platform_operator', database_id: IAM_D1_DATABASE_ID };
+    return { db: null, userId, mode: 'denied', error: 'd1_resource_resolution_failed' };
   }
 
   if (!listed.cloudflare_connected || !listed.oauth_token) {
@@ -203,10 +169,6 @@ async function requireScopedD1(env, authUser, request) {
         d.database_name.toLowerCase() === databaseNameHeader.toLowerCase() &&
         d.source === 'user_account',
     ) ||
-    listed.databases.find(
-      (d) => pinned?.database_id && d.database_id === pinned.database_id && d.source === 'user_account',
-    ) ||
-    listed.databases.find((d) => d.source === 'user_account') ||
     null;
 
   if (!selected) {
@@ -238,9 +200,6 @@ async function requireScopedD1(env, authUser, request) {
 async function buildD1DashboardContext(env, authUser, request) {
   const rawId = String(authUser?.id || '').trim();
   const userId = rawId ? await resolveCanonicalUserId(rawId, env).catch(() => rawId) : '';
-  const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
-  const workspaceId = trimHeader(wsRes?.workspaceId);
-  const pinned = workspaceId ? await resolveWorkspacePinnedDatabase(env, workspaceId) : null;
   const listed = await listOAuthD1DatabasesForDashboard(env, authUser, userId);
 
   const databaseNameHeader = trimHeader(request?.headers?.get?.('x-iam-database-name'));
@@ -251,27 +210,16 @@ async function buildD1DashboardContext(env, authUser, request) {
       (databaseIdHeader && d.database_id.toLowerCase() === databaseIdHeader.toLowerCase()) ||
       (databaseNameHeader && d.database_name.toLowerCase() === databaseNameHeader.toLowerCase()),
   );
-  if (!active && pinned?.database_id) {
-    active = listed.databases.find((d) => d.database_id === pinned.database_id);
-  }
-  if (!active && listed.operator) {
-    active = listed.databases.find((d) => d.database_id === IAM_D1_DATABASE_ID) || listed.databases[0];
-  }
-  if (!active) {
-    active = listed.databases.find((d) => d.source === 'user_account') || listed.databases[0];
-  }
-
   return {
     databases: listed.databases.map((d) => ({
       database_name: d.database_name,
       database_id: d.database_id,
-      workspace_id: workspaceId || null,
       source: d.source,
     })),
     active_database_name: active?.database_name || null,
     active_database_id: active?.database_id || null,
-    pinned_database_id: pinned?.database_id || null,
-    pinned_database_name: pinned?.database_name || null,
+    pinned_database_id: null,
+    pinned_database_name: null,
     platform_available: listed.operator,
     cloudflare_connected: listed.cloudflare_connected,
     onboarding_required: !listed.operator && !listed.cloudflare_connected,
@@ -292,13 +240,20 @@ export async function handleD1DashboardRoutes(request, url, env) {
   const authUser = await getAuthUser(request, env);
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
-  const scoped = await requireScopedD1(env, authUser, request);
-  const userDb = scoped.db;
-
   if (pathLower === '/api/d1/context' && method === 'GET') {
     const ctx = await buildD1DashboardContext(env, authUser, request);
     return jsonResponse(ctx);
   }
+
+  const explicitD1Resource =
+    String(request.headers.get('X-IAM-Database-Name') || '').trim() ||
+    String(request.headers.get('X-IAM-Database-Id') || '').trim();
+  if (!explicitD1Resource) {
+    return jsonResponse({ error: 'explicit_d1_resource_required' }, 400);
+  }
+
+  const scoped = await requireScopedD1(env, authUser, request);
+  const userDb = scoped.db;
 
   if (pathLower === '/api/d1/tables' && method === 'GET') {
     if (!userDb) return d1OnboardingResponse();

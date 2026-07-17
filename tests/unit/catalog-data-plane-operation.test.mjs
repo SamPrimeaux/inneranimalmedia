@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import {
   catalogOperationIsSemanticSearch,
   catalogOperationRequiresSql,
+  isSupabaseManagementOperation,
   resolveCatalogDataPlaneOperation,
   resolveCatalogDataPlaneProvider,
   resolveCatalogSqlDispatchFields,
   resolveCatalogSupabaseDataPlane,
+  resolveSupabaseOperationTransport,
 } from '../../src/core/catalog-data-plane-operation.js';
 
 test('resolveCatalogDataPlaneOperation maps supabase.query and supabase.write', () => {
@@ -35,7 +37,7 @@ test('resolveCatalogSupabaseDataPlane treats Hyperdrive as platform transport, n
       { data_plane: 'platform', binding: 'HYPERDRIVE' },
       null,
     ),
-    'platform_supabase_agentsam',
+    'platform_supabase',
   );
   assert.equal(
     resolveCatalogSupabaseDataPlane('agentsam_supabase_query', { data_plane: 'platform' }, 'project-ref'),
@@ -49,11 +51,13 @@ test('resolveCatalogSqlDispatchFields forwards schema, table, and bound params',
     resolveCatalogSqlDispatchFields({
       schema: ' agentsam ',
       table: ' agentsam_memory ',
+      resource_ref: ' platform_supabase ',
       params: ['memory-id', 5],
     }),
     {
       schema: 'agentsam',
       table: 'agentsam_memory',
+      resource_ref: 'platform_supabase',
       params: ['memory-id', 5],
     },
   );
@@ -64,4 +68,20 @@ test('catalogOperationRequiresSql vs semantic search', () => {
   assert.equal(catalogOperationRequiresSql('run_write_sql'), true);
   assert.equal(catalogOperationIsSemanticSearch('vector_search'), true);
   assert.equal(catalogOperationIsSemanticSearch('run_write_sql'), false);
+});
+
+test('Supabase handler selects transport from the operation and resolved resource', () => {
+  assert.equal(isSupabaseManagementOperation('list_branches'), true);
+  assert.equal(
+    resolveSupabaseOperationTransport('list_branches', 'platform_supabase'),
+    'management_api',
+  );
+  assert.equal(
+    resolveSupabaseOperationTransport('run_readonly_sql', 'platform_supabase'),
+    'hyperdrive',
+  );
+  assert.equal(
+    resolveSupabaseOperationTransport('run_readonly_sql', 'customer_supabase'),
+    'management_api',
+  );
 });

@@ -8,13 +8,8 @@ import {
   type SqlStatementKind,
 } from './databaseSqlSafety';
 
-export type DatabaseDatasource = 'd1' | 'hyperdrive';
-export type DatabaseStudioSection =
-  | 'platform_d1'
-  | 'platform_hyperdrive'
-  | 'public_learning'
-  | 'customer_supabase'
-  | 'workspace_d1';
+export type DatabaseDatasource = 'd1' | 'supabase';
+export type DatabaseResourceScope = 'platform' | 'workspace' | 'connected';
 export type DbApplySqlMode = 'replace' | 'new_tab' | 'append';
 export type DatabaseMainTab = 'schema' | 'data' | 'sql' | 'indexes' | 'relations';
 
@@ -22,8 +17,8 @@ export type DatabaseSurfaceContext = {
   route: '/dashboard/database';
   surface: 'database';
   view: 'studio';
-  studioSection: DatabaseStudioSection;
-  provider: 'cloudflare_d1' | 'supabase';
+  provider: DatabaseDatasource;
+  resourceScope: DatabaseResourceScope;
   resourceRef?: string | null;
   activeSchema?: string | null;
   datasource: DatabaseDatasource;
@@ -110,6 +105,12 @@ export type IamDbActionPayload = {
 const SQL_FENCE_RE = /```(?:sql|postgresql|postgres|sqlite|d1)?\s*\n([\s\S]*?)```/gi;
 const IAM_DB_ACTION_RE = /```(?:json)?\s*\n\s*(\{[\s\S]*?"iam_db_action"\s*:\s*"[^"]+"[\s\S]*?\})\s*```/gi;
 
+function normalizeDatabaseDatasource(value: unknown): DatabaseDatasource | null {
+  if (value === 'd1') return 'd1';
+  if (value === 'supabase' || value === 'hyperdrive') return 'supabase';
+  return null;
+}
+
 export function extractSqlBlocksFromMarkdown(text: string): string[] {
   const blocks: string[] = [];
   let m: RegExpExecArray | null;
@@ -147,10 +148,7 @@ function iamDbActionBindingAllowed(
   if (blockBinding && !activeBinding) {
     return false;
   }
-  const ds =
-    obj.datasource === 'hyperdrive' || obj.datasource === 'd1'
-      ? (obj.datasource as DatabaseDatasource)
-      : null;
+  const ds = normalizeDatabaseDatasource(obj.datasource);
   if (ds && opts.datasource && ds !== opts.datasource) {
     return false;
   }
@@ -166,7 +164,7 @@ export function parseAndDispatchDatabaseStudioActions(
   } = {},
 ) {
   if (typeof window === 'undefined') return;
-  const defaultDs: DatabaseDatasource = opts.datasource === 'hyperdrive' ? 'hyperdrive' : 'd1';
+  const defaultDs: DatabaseDatasource = opts.datasource === 'supabase' ? 'supabase' : 'd1';
   let m: RegExpExecArray | null;
   const re = new RegExp(IAM_DB_ACTION_RE);
   while ((m = re.exec(content)) !== null) {
@@ -174,10 +172,7 @@ export function parseAndDispatchDatabaseStudioActions(
     if (!obj) continue;
     if (!iamDbActionBindingAllowed(obj, opts)) continue;
     const action = String(obj.iam_db_action || '').trim();
-    const ds: DatabaseDatasource =
-      obj.datasource === 'hyperdrive' || obj.datasource === 'd1'
-        ? (obj.datasource as DatabaseDatasource)
-        : defaultDs;
+    const ds: DatabaseDatasource = normalizeDatabaseDatasource(obj.datasource) || defaultDs;
     const runAfterApproval = obj.run_after_approval === true;
     const proposalId =
       obj.proposal_id != null ? String(obj.proposal_id).trim() : '';

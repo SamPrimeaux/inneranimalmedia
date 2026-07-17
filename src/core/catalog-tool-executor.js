@@ -37,11 +37,13 @@ import { getR2Binding, resolveR2BucketName } from '../api/r2-api.js';
 import {
   catalogOperationIsSemanticSearch,
   catalogOperationRequiresSql,
+  isSupabaseManagementOperation,
   resolveCatalogDataPlaneOperation,
   resolveCatalogDataPlaneProvider,
   resolveCatalogSqlDispatchFields,
   resolveCatalogSupabaseDataPlane,
   resolveCustomerSupabaseDataPlane,
+  resolveSupabaseOperationTransport,
 } from './catalog-data-plane-operation.js';
 import {
   resolveRepoRootForHost,
@@ -161,9 +163,16 @@ function summarizeOutput(output) {
 /** Parse D1 targeting — preferred: `database` (CF name). workspace_slug is deprecated alias. */
 function parseD1DatabaseHint(params) {
   const p = params && typeof params === 'object' ? params : {};
-  const directId = String(p.database_id || p.databaseId || '').trim();
+  const resourceRef = String(p.resource_ref || p.resourceRef || '').trim();
+  const resourceLooksLikeId = /^[0-9a-f-]{36}$/i.test(resourceRef);
+  const directId = String(
+    p.database_id || p.databaseId || (resourceLooksLikeId ? resourceRef : ''),
+  ).trim();
   const directName = String(
-    p.database || p.database_name || p.databaseName || '',
+    p.database ||
+      p.database_name ||
+      p.databaseName ||
+      (!resourceLooksLikeId ? resourceRef : ''),
   ).trim();
   if (directId || directName) {
     return { database_id: directId || null, database_name: directName || null, binding: null };
@@ -347,6 +356,13 @@ async function executeCatalogCfD1(env, row, config, params, runContext) {
   );
   const authUser = runContext.authUser ?? runContext.user ?? null;
   const d1Hint = parseD1DatabaseHint(params);
+  if (!d1Hint?.database_id && !d1Hint?.database_name) {
+    return {
+      ok: false,
+      error: 'explicit_d1_resource_required',
+      user_message: 'Select an authorized D1 database before querying or writing.',
+    };
+  }
   let resolvedDatabase = d1Hint?.database_name || null;
   let resolvedDatabaseId = d1Hint?.database_id || null;
   // Deprecated workspace_slug → registry d1_database_id (not CF name match).
@@ -1466,7 +1482,12 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
 
     case 'hyperdrive':
     case 'supabase': {
-      const dispatchOperation = resolveCatalogDataPlaneOperation(config, toolKey);
+      const requestedSupabaseOperation = String(params.operation || '')
+        .trim()
+        .toLowerCase();
+      const dispatchOperation = isSupabaseManagementOperation(requestedSupabaseOperation)
+        ? requestedSupabaseOperation
+        : resolveCatalogDataPlaneOperation(config, toolKey);
       const requestedProvider = resolveCatalogDataPlaneProvider(config);
 
       if (
@@ -1504,7 +1525,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         break;
       }
 
-      if (!catalogOperationRequiresSql(dispatchOperation)) {
+      if (!catalogOperationRequiresSql(dispatchOperation) && !isSupabaseManagementOperation(dispatchOperation)) {
         result = {
           ok: false,
           error: `unsupported catalog operation for sql dispatch: ${dispatchOperation}`,
@@ -1513,7 +1534,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       }
 
       const sql = String(params.sql || '').trim();
-      if (!sql) {
+      if (catalogOperationRequiresSql(dispatchOperation) && !sql) {
         result = {
           ok: false,
           error: `hyperdrive/supabase tool requires sql in input (operation=${dispatchOperation})`,
@@ -1534,11 +1555,13 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           '',
       ).trim();
       const requestedDataPlane = String(params.data_plane || params.dataPlane || '').trim();
-      const customerPlane = resolveCatalogSupabaseDataPlane(
-        toolKey,
-        requestedDataPlane ? { ...config, data_plane: requestedDataPlane } : config,
-        projectRef,
-      );
+      const customerPlane = isSupabaseManagementOperation(dispatchOperation)
+        ? 'customer_supabase'
+        : resolveCatalogSupabaseDataPlane(
+            toolKey,
+            requestedDataPlane ? { ...config, data_plane: requestedDataPlane } : config,
+            projectRef,
+          );
       if (!customerPlane) {
         result = {
           ok: false,
@@ -1549,6 +1572,28 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         break;
       }
       const sqlDispatchFields = resolveCatalogSqlDispatchFields(params);
+      const platformManagementProjectRef =
+        isSupabaseManagementOperation(dispatchOperation) &&
+        sqlDispatchFields.resource_ref === 'platform_supabase'
+          ? String(env?.SUPABASE_PROJECT_REF || '').trim()
+          : '';
+      if (
+        isSupabaseManagementOperation(dispatchOperation) &&
+        dispatchOperation !== 'list_projects' &&
+        sqlDispatchFields.resource_ref === 'platform_supabase' &&
+        !platformManagementProjectRef
+      ) {
+        result = {
+          ok: false,
+          error: 'platform_supabase_management_resource_unresolved',
+          user_message:
+            'The server must resolve the platform Supabase project before management operations can run.',
+        };
+        break;
+      }
+      const resolvedResourceRef =
+        sqlDispatchFields.resource_ref ||
+        (customerPlane === 'platform_supabase' ? 'platform_supabase' : projectRef || null);
       const routed = await dispatchCustomerDataPlaneOperation(env, {
         operation: dispatchOperation,
         sql,
@@ -1560,10 +1605,16 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         agent_run_id: agentRunId,
         approval_id: params.approval_id ?? params.approvalId ?? null,
         ...sqlDispatchFields,
+        resource_ref: resolvedResourceRef,
         requested_provider: requestedProvider || (customerPlane === 'customer_supabase' ? 'supabase' : null),
         data_plane: customerPlane,
-        project_ref: projectRef || null,
-        project_id: projectRef || null,
+        project_ref: platformManagementProjectRef || projectRef || null,
+        project_id: platformManagementProjectRef || projectRef || null,
+        log_sql: params.log_sql != null ? String(params.log_sql) : null,
+        iso_timestamp_start:
+          params.iso_timestamp_start != null ? String(params.iso_timestamp_start) : null,
+        iso_timestamp_end:
+          params.iso_timestamp_end != null ? String(params.iso_timestamp_end) : null,
       });
       if (!routed.ok) {
         result = {
@@ -1577,9 +1628,13 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       result = {
         ok: true,
         body: {
+          ...routed,
           rows: routed.rows || [],
           data_plane: routed.data_plane,
           operation: dispatchOperation,
+          transport:
+            routed.transport ||
+            resolveSupabaseOperationTransport(dispatchOperation, customerPlane),
           read_only: routed.read_only === true,
           write_path: routed.write_path === true,
         },
@@ -2134,6 +2189,13 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           : resolveCustomerSupabaseDataPlane(toolKey, config);
         const dataPlane =
           String(params.data_plane || config.data_plane || customerPlane || '').trim() || null;
+        const resourceRef =
+          String(params.resource_ref || params.resourceRef || '').trim() ||
+          (projectRef
+            ? projectRef
+            : dataPlane === 'platform_supabase'
+              ? 'platform_supabase'
+              : null);
         const out = await dispatchCustomerDataPlaneOperation(env, {
           operation,
           message: params.message != null ? String(params.message) : '',
@@ -2146,8 +2208,9 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           user_id: userId,
           tenant_id: tenantId,
           workspace_id: workspaceId,
-          schema: String(params.schema || config.schema || '').trim() || undefined,
+          schema: String(params.schema || '').trim() || undefined,
           table: params.table != null ? String(params.table).trim() : '',
+          resource_ref: resourceRef,
           sql: params.sql != null ? String(params.sql) : '',
           params: Array.isArray(params.params) ? params.params : [],
           migration_sql: params.migration_sql != null ? String(params.migration_sql) : '',

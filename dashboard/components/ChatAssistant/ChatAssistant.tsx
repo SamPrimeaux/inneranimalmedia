@@ -3297,7 +3297,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       const lastMsg = messagesRef.current[messagesRef.current.length - 1];
       if (lastMsg?.role === 'assistant' && typeof lastMsg.content === 'string') {
         const ds =
-          databaseSurfaceRef.current?.datasource === 'hyperdrive' ? 'hyperdrive' : 'd1';
+          databaseSurfaceRef.current?.datasource === 'supabase' ? 'supabase' : 'd1';
         const isSa = agentsamPolicy?.is_superadmin === true || agentsamPolicy?.is_superadmin === 1;
         const activeDatasourceBinding =
           databaseSurfaceRef.current?.datasource_binding != null

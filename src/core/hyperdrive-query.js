@@ -104,10 +104,12 @@ export async function runHyperdriveTransaction(env, callback) {
 
   if (hyperdriveNativeQueryAvailable(env)) {
     try {
+      await env.HYPERDRIVE.query('BEGIN', []);
       const adapter = {
         query: async (sql, params = []) => env.HYPERDRIVE.query(sql, params),
       };
       const result = await callback(adapter);
+      await env.HYPERDRIVE.query('COMMIT', []);
       return {
         ok: true,
         rows: Array.isArray(result?.rows) ? result.rows : [],
@@ -115,6 +117,7 @@ export async function runHyperdriveTransaction(env, callback) {
         meta: result?.meta ?? {},
       };
     } catch (e) {
+      await env.HYPERDRIVE.query('ROLLBACK', []).catch(() => {});
       return { ok: false, rows: [], error: e?.message ? String(e.message) : String(e) };
     }
   }

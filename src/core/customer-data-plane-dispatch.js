@@ -21,6 +21,7 @@ import { assertDataPlaneAccess, isPlatformDataPlane } from './data-plane-access-
  *   requested_provider?: string|null,
  *   table?: string,
  *   schema?: string,
+ *   resource_ref?: string|null,
  *   sql?: string,
  *   params?: unknown[],
  *   migration_sql?: string,
@@ -29,6 +30,9 @@ import { assertDataPlaneAccess, isPlatformDataPlane } from './data-plane-access-
  *   data_plane?: string|null,
  *   project_ref?: string|null,
  *   project_id?: string|null,
+ *   log_sql?: string|null,
+ *   iso_timestamp_start?: string|null,
+ *   iso_timestamp_end?: string|null,
  * }} opts
  */
 export async function dispatchCustomerDataPlaneOperation(env, opts) {
@@ -74,6 +78,24 @@ export async function dispatchCustomerDataPlaneOperation(env, opts) {
     };
   }
 
+  const explicitResourceRef = String(
+    opts.resource_ref || opts.project_ref || opts.project_id || '',
+  ).trim();
+  if (
+    ['customer_supabase', 'customer_cloudflare_d1'].includes(plane.data_plane) &&
+    !(plane.data_plane === 'customer_supabase' && opts.operation === 'list_projects') &&
+    !explicitResourceRef
+  ) {
+    return {
+      ok: false,
+      operation: opts.operation,
+      data_plane: plane.data_plane,
+      error: 'explicit_resource_required',
+      reason: 'resource_not_selected',
+      duration_ms: 0,
+    };
+  }
+
   const base = {
     operation: opts.operation,
     user_id: opts.user_id ?? plane.user_id,
@@ -81,6 +103,7 @@ export async function dispatchCustomerDataPlaneOperation(env, opts) {
     workspace_id: opts.workspace_id ?? plane.workspace_id,
     table: opts.table,
     schema: opts.schema ?? plane.schema,
+    resource_ref: opts.resource_ref ?? (explicitResourceRef || null),
     sql: opts.sql,
     params: Array.isArray(opts.params) ? opts.params : [],
     migration_sql: opts.migration_sql,
@@ -89,8 +112,11 @@ export async function dispatchCustomerDataPlaneOperation(env, opts) {
     authUser: opts.authUser,
     query: opts.sql,
     limit: 25,
-    project_ref: opts.project_ref ?? plane.project_ref ?? null,
+    project_ref: opts.project_ref ?? (explicitResourceRef || null),
     project_id: opts.project_id ?? null,
+    log_sql: opts.log_sql ?? null,
+    iso_timestamp_start: opts.iso_timestamp_start ?? null,
+    iso_timestamp_end: opts.iso_timestamp_end ?? null,
   };
 
   switch (plane.data_plane) {
@@ -101,6 +127,7 @@ export async function dispatchCustomerDataPlaneOperation(env, opts) {
     case 'customer_cloudflare_d1':
     case 'customer_cloudflare_r2':
       return dispatchCustomerCloudflare(env, base);
+    case 'platform_supabase':
     case 'platform_supabase_agentsam':
     case 'platform_d1':
       if (!isPlatformDataPlane(plane.data_plane)) {
@@ -116,8 +143,9 @@ export async function dispatchCustomerDataPlaneOperation(env, opts) {
         authUser: opts.authUser,
         tenant_id: opts.tenant_id,
         workspace_id: opts.workspace_id,
-        schema: opts.schema || 'agentsam',
+        schema: opts.schema || null,
         table: opts.table,
+        resource_ref: opts.resource_ref ?? null,
         sql: opts.sql,
         params: Array.isArray(opts.params) ? opts.params : [],
         migration_sql: opts.migration_sql,

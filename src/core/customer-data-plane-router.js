@@ -7,7 +7,7 @@ import { getDefaultWorkspaceDataBinding } from './workspace-data-bindings.js';
 import { isPlatformDataPlane, logDataPlaneSecurityEvent } from './data-plane-access-guard.js';
 import { canUsePlatformDataPlane } from './workspace-spend-guard.js';
 
-/** @typedef {'platform_d1'|'platform_supabase_agentsam'|'platform_access_denied'|'public_learning'|'customer_supabase'|'customer_cloudflare_d1'|'customer_cloudflare_r2'|'customer_github'|'customer_drive'} DataPlane */
+/** @typedef {'platform_d1'|'platform_supabase'|'platform_access_denied'|'resource_required'|'public_learning'|'customer_supabase'|'customer_cloudflare_d1'|'customer_cloudflare_r2'|'customer_github'|'customer_drive'} DataPlane */
 
 /**
  * @param {unknown} message
@@ -92,10 +92,10 @@ export async function resolveCustomerDataPlane(env, input) {
   const platformOk = isSuperadmin && (await canUsePlatformDataPlane(env, input.authUser, workspaceId));
 
   /** @type {DataPlane} */
-  let data_plane = 'public_learning';
-  let owner_type = 'public_learning';
-  let provider = 'public';
-  let degraded_reason = null;
+  let data_plane = 'resource_required';
+  let owner_type = 'customer';
+  let provider = null;
+  let degraded_reason = 'resource_not_selected';
   let requires_approval = false;
   let customer_connection_ok = false;
 
@@ -110,8 +110,8 @@ export async function resolveCustomerDataPlane(env, input) {
     drive: 'customer_drive',
     public_learning: 'public_learning',
     platform_d1: 'platform_d1',
-    platform_supabase: 'platform_supabase_agentsam',
-    platform_supabase_agentsam: 'platform_supabase_agentsam',
+    platform_supabase: 'platform_supabase',
+    platform_supabase_agentsam: 'platform_supabase',
   };
 
   const wantsCustomer =
@@ -131,7 +131,7 @@ export async function resolveCustomerDataPlane(env, input) {
     data_plane = 'customer_supabase';
   } else if (messageWantsPlatformAgentsam(message)) {
     if (platformOk) {
-      data_plane = 'platform_supabase_agentsam';
+      data_plane = 'platform_supabase';
     } else {
       data_plane = 'platform_access_denied';
       degraded_reason = isSuperadmin
@@ -143,8 +143,6 @@ export async function resolveCustomerDataPlane(env, input) {
         message_preview: message.slice(0, 120),
       });
     }
-  } else if (platformOk) {
-    data_plane = 'platform_supabase_agentsam';
   } else if (wantsCustomer) {
     data_plane = messageWantsCustomerCloudflareD1(message)
       ? 'customer_cloudflare_d1'
@@ -152,8 +150,8 @@ export async function resolveCustomerDataPlane(env, input) {
         ? 'customer_cloudflare_r2'
         : 'customer_supabase';
   } else {
-    data_plane = 'public_learning';
-    degraded_reason = 'default_public_learning_for_non_owner';
+    data_plane = 'resource_required';
+    degraded_reason = 'resource_not_selected';
   }
 
   if (isPlatformDataPlane(data_plane) && !platformOk) {
@@ -236,8 +234,8 @@ export async function resolveCustomerDataPlane(env, input) {
     requires_approval = true;
   }
 
-  if (data_plane === 'platform_supabase_agentsam' || data_plane === 'platform_d1') {
-    schema = 'agentsam';
+  if (data_plane === 'platform_supabase' || data_plane === 'platform_d1') {
+    schema = null;
     permissions = {
       read: platformOk,
       write: platformOk,

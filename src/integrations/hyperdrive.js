@@ -7,6 +7,9 @@ import {
   parseDatabaseFiltersJson,
 } from '../core/database-table-filters.js';
 import { isHyperdriveUsable, runHyperdriveQuery } from '../core/hyperdrive-query.js';
+import { dispatchDatabaseAssistant } from '../core/database-assistant-dispatch.js';
+
+const PLATFORM_SUPABASE_RESOURCE = 'platform_supabase';
 
 /** @param {string} ident */
 function pgQuoteIdent(ident) {
@@ -17,9 +20,6 @@ function pgQuoteIdent(ident) {
   return `"${s.replace(/"/g, '""')}"`;
 }
 
-const HYPERDRIVE_LIST_SCHEMAS = ['agentsam', 'public'];
-const HYPERDRIVE_DEFAULT_SCHEMA = 'agentsam';
-
 /**
  * @param {string} tableRaw
  * @param {string|null} [schemaParam]
@@ -29,12 +29,12 @@ function parseHyperdriveTableRef(tableRaw, schemaParam = null) {
   const schemaFromQuery = schemaParam != null ? String(schemaParam).trim() : '';
   if (raw.includes('.')) {
     const [schema, table] = raw.split('.', 2);
-    return { schema: schema.trim() || HYPERDRIVE_DEFAULT_SCHEMA, table: table.trim() };
+    return { schema: schema.trim(), table: table.trim() };
   }
   if (schemaFromQuery) {
     return { schema: schemaFromQuery, table: raw };
   }
-  return { schema: HYPERDRIVE_DEFAULT_SCHEMA, table: raw };
+  return { schema: '', table: raw };
 }
 
 /** @param {string} schema @param {string} table */
@@ -58,10 +58,10 @@ async function executeHyperdriveSqlFromRequest(request, env) {
   if (!authUserIsSuperadmin(authUser)) {
     return jsonResponse(
       {
-        error: 'platform_hyperdrive_owner_only',
+        error: 'platform_supabase_owner_only',
         onboarding_required: true,
         message:
-          'IAM platform Supabase (agentsam.*) is owner-only. Use /api/data-plane/* for your connected project or public learning.',
+          'The platform Supabase database is owner-only. Connect a Supabase project for customer data access.',
       },
       403,
     );
@@ -76,6 +76,9 @@ async function executeHyperdriveSqlFromRequest(request, env) {
   const sql = body?.sql;
   const params = Array.isArray(body?.params) ? body.params : [];
   if (!sql || typeof sql !== 'string') return jsonResponse({ error: 'SQL query required' }, 400);
+  if (String(body?.resource_ref || body?.resourceRef || '').trim() !== PLATFORM_SUPABASE_RESOURCE) {
+    return jsonResponse({ error: 'explicit_platform_supabase_resource_required' }, 400);
+  }
   const trimmed = sql.trim();
   if (/^\s*DROP\s+DATABASE\b/i.test(trimmed)) {
     return jsonResponse({ error: 'DROP DATABASE is not permitted via this API' }, 403);
@@ -100,6 +103,24 @@ async function executeHyperdriveSqlFromRequest(request, env) {
       },
       gate.kind === 'unknown' ? 400 : 403,
     );
+  }
+
+  const isRead = gate.kind === 'read' || gate.kind === 'explain';
+  if (!isRead) {
+    const written = await dispatchDatabaseAssistant(env, {
+      operation: 'run_write_sql',
+      authUser,
+      user_id: authUser?.id ?? null,
+      tenant_id: authUser?.tenant_id ?? null,
+      workspace_id: authUser?.workspace_id ?? null,
+      resource_ref: PLATFORM_SUPABASE_RESOURCE,
+      schema: body?.schema != null ? String(body.schema).trim() : null,
+      sql: trimmed,
+      params,
+      approval_id: body?.approval_id ?? body?.approvalId ?? null,
+      agent_run_id: body?.agent_run_id ?? body?.agentRunId ?? null,
+    });
+    return jsonResponse(written, written.ok ? 200 : written.requires_approval ? 403 : 400);
   }
 
   const t0 = Date.now();
@@ -162,12 +183,12 @@ export async function handleHyperdriveRoutes(request, url, env) {
   if (!isSuperadmin) {
     return jsonResponse(
       {
-        error: 'platform_hyperdrive_owner_only',
+        error: 'platform_supabase_owner_only',
         onboarding_required: true,
         message:
-          'IAM platform Supabase (agentsam.*) is owner-only. Connect your Supabase project or explore public learning tables.',
-        data_plane_options: ['public_learning', 'customer_supabase', 'customer_cloudflare_d1'],
-        active_data_plane: 'public_learning',
+          'The platform Supabase database is owner-only. Connect your own Supabase project.',
+        provider_options: ['d1', 'supabase'],
+        active_provider: null,
       },
       403,
     );
@@ -199,6 +220,9 @@ export async function handleHyperdriveRoutes(request, url, env) {
   }
 
   if (pathLower === '/api/hyperdrive/tables' && method === 'GET') {
+    if (url.searchParams.get('resource_ref') !== PLATFORM_SUPABASE_RESOURCE) {
+      return jsonResponse({ error: 'explicit_platform_supabase_resource_required' }, 400);
+    }
     const schemaFilter = url.searchParams.get('schema');
     const cacheKey = `hyperdrive_tables:v1:${schemaFilter || 'all'}`;
     const kv = env?.SESSION_CACHE || env?.KV || null;
@@ -215,23 +239,20 @@ export async function handleHyperdriveRoutes(request, url, env) {
         /* ignore */
       }
     }
-    const schemas =
-      schemaFilter && HYPERDRIVE_LIST_SCHEMAS.includes(schemaFilter)
-        ? [schemaFilter]
-        : HYPERDRIVE_LIST_SCHEMAS;
+    const schemas = schemaFilter ? [schemaFilter] : ['pg_catalog', 'information_schema'];
     const placeholders = schemas.map((_, i) => `$${i + 1}`).join(', ');
     const sql = `SELECT table_schema, table_name, table_type
       FROM information_schema.tables
-      WHERE table_schema IN (${placeholders})
+      WHERE table_schema ${schemaFilter ? 'IN' : 'NOT IN'} (${placeholders})
         AND table_type = 'BASE TABLE'
-      ORDER BY CASE table_schema WHEN 'agentsam' THEN 0 ELSE 1 END, table_name`;
+      ORDER BY table_schema, table_name`;
     try {
       const result = await runHyperdriveQuery(env, sql, schemas);
       if (!result.ok) throw new Error(result.error || 'query_failed');
       const rows = result.rows ?? [];
       const tables = rows
         .map((r) => {
-          const tableSchema = String(r.table_schema || HYPERDRIVE_DEFAULT_SCHEMA).trim();
+          const tableSchema = String(r.table_schema || '').trim();
           const tableName = String(r.table_name || '').trim();
           return {
             name: tableName,
@@ -242,7 +263,7 @@ export async function handleHyperdriveRoutes(request, url, env) {
           };
         })
         .filter((r) => r.name);
-      const body = { tables, default_schema: HYPERDRIVE_DEFAULT_SCHEMA };
+      const body = { tables, default_schema: null, project_wide: !schemaFilter };
       if (kv) {
         kv.put(cacheKey, JSON.stringify({ cachedAt: Date.now(), body }), { expirationTtl: 90 }).catch(() => {});
       }
@@ -258,6 +279,9 @@ export async function handleHyperdriveRoutes(request, url, env) {
 
   const tableRoute = url.pathname.match(/^\/api\/hyperdrive\/table\/([^/]+)\/(schema|data)$/i);
   if (tableRoute && method === 'GET') {
+    if (url.searchParams.get('resource_ref') !== PLATFORM_SUPABASE_RESOURCE) {
+      return jsonResponse({ error: 'explicit_platform_supabase_resource_required' }, 400);
+    }
     const tableRaw = decodeURIComponent(tableRoute[1]);
     const { schema: tableSchema, table: tableName } = parseHyperdriveTableRef(
       tableRaw,

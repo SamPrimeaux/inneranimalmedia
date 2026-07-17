@@ -37,6 +37,26 @@ const CUSTOMER_SUPABASE_PROJECT_TOOLS = new Set([
   'customer_supabase_propose_migration',
 ]);
 
+const SUPABASE_MANAGEMENT_OPERATIONS = new Set([
+  'list_projects',
+  'get_project',
+  'list_branches',
+  'list_migrations',
+  'get_database_context',
+  'query_logs',
+]);
+
+export function isSupabaseManagementOperation(operation) {
+  return SUPABASE_MANAGEMENT_OPERATIONS.has(String(operation || '').trim().toLowerCase());
+}
+
+export function resolveSupabaseOperationTransport(operation, dataPlane) {
+  if (isSupabaseManagementOperation(operation)) return 'management_api';
+  return String(dataPlane || '').trim() === 'platform_supabase'
+    ? 'hyperdrive'
+    : 'management_api';
+}
+
 /**
  * @param {string} [toolKey]
  * @param {Record<string, unknown>|null|undefined} [config]
@@ -70,9 +90,9 @@ export function resolveCatalogSupabaseDataPlane(toolKey = '', config = null, pro
     .trim()
     .toLowerCase();
   if (configured === 'platform' || configured === 'platform_supabase') {
-    return 'platform_supabase_agentsam';
+    return 'platform_supabase';
   }
-  if (configured === 'platform_supabase_agentsam') return configured;
+  if (configured === 'platform_supabase_agentsam') return 'platform_supabase';
   return null;
 }
 
@@ -82,9 +102,16 @@ export function resolveCatalogSupabaseDataPlane(toolKey = '', config = null, pro
  */
 export function resolveCatalogSqlDispatchFields(params = null) {
   const input = params && typeof params === 'object' ? params : {};
+  const resourceRef =
+    input.resource_ref != null
+      ? String(input.resource_ref).trim() || undefined
+      : input.resourceRef != null
+        ? String(input.resourceRef).trim() || undefined
+        : undefined;
   return {
     schema: input.schema != null ? String(input.schema).trim() || undefined : undefined,
     table: input.table != null ? String(input.table).trim() || undefined : undefined,
+    ...(resourceRef ? { resource_ref: resourceRef } : {}),
     params: Array.isArray(input.params) ? input.params : [],
   };
 }

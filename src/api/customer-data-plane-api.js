@@ -67,25 +67,26 @@ export async function handleCustomerDataPlaneApi(request, url, env) {
       supabase_projects: supabaseProjects,
       pinned_supabase_project_ref: plane.project_ref || null,
       bindings,
-      sections: [
-        ...(scope.isSuperadmin
-          ? [
-              { id: 'platform_d1', label: 'IAM Platform D1', owner_only: true },
-              { id: 'platform_supabase_agentsam', label: 'IAM Platform Supabase (agentsam.*)', owner_only: true },
-            ]
-          : []),
-        { id: 'public_learning', label: 'Public Learning (public.iam_*)', read_only: true },
-        { id: 'customer_supabase', label: 'My Supabase', requires_connection: true },
-        { id: 'customer_cloudflare_d1', label: 'My Cloudflare D1', requires_connection: true },
+      provider_faces: [
+        {
+          id: 'd1',
+          label: 'D1',
+          resource_scopes: scope.isSuperadmin
+            ? ['platform', 'workspace', 'connected']
+            : ['workspace', 'connected'],
+        },
+        {
+          id: 'supabase',
+          label: 'Supabase DB',
+          resource_scopes: scope.isSuperadmin ? ['platform', 'connected'] : ['connected'],
+        },
       ],
       banner:
-        plane.data_plane === 'platform_supabase_agentsam'
-          ? 'Agent Sam is operating on: IAM platform data — owner only'
+        plane.data_plane === 'platform_supabase'
+          ? 'Agent Sam is operating on the explicitly selected platform Supabase resource'
           : plane.data_plane === 'customer_supabase' && plane.project_ref
-            ? `Agent Sam is operating on: your Supabase project ${plane.project_ref}`
-            : plane.data_plane === 'public_learning'
-              ? 'Agent Sam is operating on: IAM public learning tables (read-only)'
-              : 'Connect your data source to run queries on your infrastructure',
+            ? `Agent Sam is operating on connected Supabase project ${plane.project_ref}`
+            : 'Select a D1 or Supabase resource before running a query',
       supabase_connect_url:
         '/api/oauth/supabase/start?return_to=' +
         encodeURIComponent('/dashboard/database?studio=1'),
@@ -141,6 +142,9 @@ export async function handleCustomerDataPlaneApi(request, url, env) {
     const body = await request.json().catch(() => ({}));
     const sql = String(body?.sql || '').trim();
     const projectRef = String(body?.project_ref || body?.project_id || '').trim() || null;
+    if (!projectRef) {
+      return jsonResponse({ ok: false, error: 'explicit_supabase_resource_required' }, 400);
+    }
     const { classifyDatabaseSqlStatement } = await import('../core/database-sql-safety.js');
     const kind = classifyDatabaseSqlStatement(sql);
     const operation =
@@ -149,6 +153,9 @@ export async function handleCustomerDataPlaneApi(request, url, env) {
       operation,
       data_plane: 'customer_supabase',
       sql,
+      params: Array.isArray(body?.params) ? body.params : [],
+      schema: body?.schema != null ? String(body.schema).trim() || null : null,
+      resource_ref: projectRef,
       project_ref: projectRef,
       project_id: projectRef,
       user_id: userId,
@@ -162,10 +169,14 @@ export async function handleCustomerDataPlaneApi(request, url, env) {
 
   if (pathLower === '/api/data-plane/customer-supabase/tables' && method === 'GET') {
     const projectRef = String(url.searchParams.get('project_ref') || '').trim() || null;
+    if (!projectRef) {
+      return jsonResponse({ ok: false, error: 'explicit_supabase_resource_required', tables: [] }, 400);
+    }
     const out = await dispatchCustomerDataPlaneOperation(env, {
       operation: 'list_tables',
       data_plane: 'customer_supabase',
       project_ref: projectRef,
+      resource_ref: projectRef,
       user_id: userId,
       tenant_id: tenantId,
       workspace_id: workspaceId,
@@ -185,6 +196,74 @@ export async function handleCustomerDataPlaneApi(request, url, env) {
       });
     }
     return jsonResponse(out, out.ok ? 200 : 400);
+  }
+
+  const supabaseTableRoute = url.pathname.match(
+    /^\/api\/data-plane\/customer-supabase\/table\/([^/]+)\/(schema|data)$/i,
+  );
+  if (supabaseTableRoute && method === 'GET') {
+    const projectRef = String(url.searchParams.get('project_ref') || '').trim();
+    const schema = String(url.searchParams.get('schema') || '').trim();
+    const table = decodeURIComponent(supabaseTableRoute[1]).trim();
+    const action = supabaseTableRoute[2].toLowerCase();
+    if (!projectRef) {
+      return jsonResponse({ ok: false, error: 'explicit_supabase_resource_required' }, 400);
+    }
+    if (!/^[a-z_][a-z0-9_]*$/i.test(schema) || !/^[a-z_][a-z0-9_]*$/i.test(table)) {
+      return jsonResponse({ ok: false, error: 'invalid_schema_or_table' }, 400);
+    }
+    if (action === 'schema') {
+      const out = await dispatchCustomerDataPlaneOperation(env, {
+        operation: 'describe_table',
+        data_plane: 'customer_supabase',
+        project_ref: projectRef,
+        resource_ref: projectRef,
+        schema,
+        table,
+        user_id: userId,
+        tenant_id: tenantId,
+        workspace_id: workspaceId,
+        authUser,
+      });
+      return jsonResponse(
+        {
+          ...out,
+          columns: out.columns || out.rows || [],
+          indexes: out.indexes || [],
+          foreign_keys: out.foreign_keys || [],
+        },
+        out.ok ? 200 : 400,
+      );
+    }
+    const page = Math.max(1, Number(url.searchParams.get('page') || '1'));
+    const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') || '50')));
+    const offset = (page - 1) * limit;
+    const quoted = `"${schema.replace(/"/g, '""')}"."${table.replace(/"/g, '""')}"`;
+    const out = await dispatchCustomerDataPlaneOperation(env, {
+      operation: 'run_readonly_sql',
+      data_plane: 'customer_supabase',
+      project_ref: projectRef,
+      resource_ref: projectRef,
+      schema,
+      table,
+      sql: `SELECT * FROM ${quoted} LIMIT ${limit} OFFSET ${offset}`,
+      user_id: userId,
+      tenant_id: tenantId,
+      workspace_id: workspaceId,
+      authUser,
+    });
+    const rows = Array.isArray(out.rows) ? out.rows : [];
+    return jsonResponse(
+      {
+        ...out,
+        rows,
+        columns: rows.length ? Object.keys(rows[0]) : [],
+        page,
+        total_count: null,
+        total_pages: rows.length < limit ? page : page + 1,
+      },
+      out.ok ? 200 : 400,
+    );
   }
 
   if (pathLower === '/api/data-plane/customer-cloudflare/accounts' && method === 'GET') {
@@ -256,9 +335,12 @@ export async function handleCustomerDataPlaneApi(request, url, env) {
       tenant_id: tenantId,
       workspace_id: workspaceId,
       sql: body?.sql,
+      params: Array.isArray(body?.params) ? body.params : [],
       migration_sql: body?.migration_sql,
       table: body?.table,
       schema: body?.schema,
+      resource_ref: body?.resource_ref,
+      project_ref: body?.project_ref,
       approval_id: body?.approval_id,
       authUser,
     });

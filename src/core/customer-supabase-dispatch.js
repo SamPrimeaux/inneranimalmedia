@@ -10,8 +10,12 @@ import {
   listWorkspaceDataBindings,
 } from './workspace-data-bindings.js';
 import { evaluateDataPlaneOperation } from './database-operation-policy.js';
+import { detectProtectedDatabaseSchema } from './database-operation-policy.js';
 import { logCustomerDataPlaneEvent } from './customer-data-plane-telemetry.js';
-import { generateRollbackStub } from './database-assistant-dispatch.js';
+import {
+  generateRollbackStub,
+  verifyDatabaseApproval,
+} from './database-assistant-dispatch.js';
 import { classifyDatabaseSqlStatement } from './database-sql-safety.js';
 import { logDataPlaneSecurityEvent, USER_ACCOUNT_DATA_PLANE } from './data-plane-access-guard.js';
 import { isPlatformOperator, resolveOperatorAuthUserRow } from './operator-identity.js';
@@ -382,11 +386,59 @@ export async function dispatchCustomerSupabase(env, opts) {
       return { ok: true, tables, project_ref };
     },
     list_tables: async () => handlers.inspect_schema(),
+    get_project: async () => ({
+      ok: true,
+      project: await managementFetch(
+        access_token,
+        `/v1/projects/${encodeURIComponent(project_ref)}`,
+      ),
+    }),
+    list_branches: async () => {
+      const branches = await managementFetch(
+        access_token,
+        `/v1/projects/${encodeURIComponent(project_ref)}/branches`,
+      );
+      return { ok: true, branches: Array.isArray(branches) ? branches : branches?.data || [] };
+    },
+    list_migrations: async () => {
+      const migrations = await managementFetch(
+        access_token,
+        `/v1/projects/${encodeURIComponent(project_ref)}/database/migrations`,
+      );
+      return {
+        ok: true,
+        migrations: Array.isArray(migrations) ? migrations : migrations?.data || [],
+      };
+    },
+    query_logs: async () => {
+      const query = new URLSearchParams();
+      if (trim(opts.log_sql)) query.set('sql', trim(opts.log_sql));
+      if (trim(opts.iso_timestamp_start)) {
+        query.set('iso_timestamp_start', trim(opts.iso_timestamp_start));
+      }
+      if (trim(opts.iso_timestamp_end)) {
+        query.set('iso_timestamp_end', trim(opts.iso_timestamp_end));
+      }
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const logs = await managementFetch(
+        access_token,
+        `/v1/projects/${encodeURIComponent(project_ref)}/analytics/endpoints/logs.all${suffix}`,
+      );
+      return { ok: true, logs };
+    },
+    get_database_context: async () => ({
+      ok: true,
+      context: await managementFetch(
+        access_token,
+        `/v1/projects/${encodeURIComponent(project_ref)}/database/context`,
+      ),
+    }),
     describe_table: async () => {
       const table = String(opts.table || '').trim();
       if (!table) throw new Error('table required');
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) throw new Error('invalid table identifier');
-      const schema = trim(opts.schema) || 'public';
+      const schema = trim(opts.schema);
+      if (!schema) throw new Error('schema required');
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schema)) throw new Error('invalid schema identifier');
       const sql = `SELECT column_name, data_type, is_nullable, column_default
          FROM information_schema.columns
@@ -410,7 +462,7 @@ export async function dispatchCustomerSupabase(env, opts) {
         sql,
         is_owner: false,
         provider: 'supabase',
-        schema: opts.schema || 'public',
+        schema: opts.schema || null,
       });
       if (!policy.allowed) return { ok: false, error: policy.reason, policy };
       const stmtKind = classifyDatabaseSqlStatement(sql);
@@ -425,7 +477,8 @@ export async function dispatchCustomerSupabase(env, opts) {
       return customerSupabaseRunQuery(access_token, project_ref, sql);
     },
     run_write_sql: async () => {
-      const sql = String(opts.sql || '').trim();
+      const sql = String(opts.sql || opts.migration_sql || '').trim();
+      const approvalId = trim(opts.approval_id);
       if (Array.isArray(opts.params) && opts.params.length) {
         return {
           ok: false,
@@ -440,7 +493,7 @@ export async function dispatchCustomerSupabase(env, opts) {
         sql,
         is_owner: false,
         provider: 'supabase',
-        schema: opts.schema || 'public',
+        schema: opts.schema || null,
         explicit_approval_id: opts.approval_id,
       });
       if (!policy.allowed) return { ok: false, error: policy.reason, policy };
@@ -452,7 +505,54 @@ export async function dispatchCustomerSupabase(env, opts) {
           user_message: 'supabase.write requires INSERT, UPDATE, DELETE, or DDL — not SELECT.',
         };
       }
-      return customerSupabaseRunQuery(access_token, project_ref, sql);
+      const approval = await verifyDatabaseApproval(
+        env,
+        approvalId,
+        {
+          user_id: userId,
+          tenant_id: opts.tenant_id || null,
+          workspace_id: workspaceId || null,
+        },
+        sql,
+      );
+      if (!approval.ok) {
+        return {
+          ok: false,
+          error: approval.error,
+          requires_approval: true,
+          protected_schema: detectProtectedDatabaseSchema(sql, opts.schema) || null,
+        };
+      }
+      if (stmtKind === 'mutation' && !/\bRETURNING\b/i.test(sql)) {
+        return {
+          ok: false,
+          error: 'database_write_readback_required',
+          user_message: 'INSERT, UPDATE, and DELETE must include RETURNING for an auditable readback.',
+        };
+      }
+      const out = await customerSupabaseRunQuery(access_token, project_ref, sql);
+      if (out.ok) {
+        await env.DB?.prepare(
+          `UPDATE agentsam_approval_queue
+              SET status = 'consumed', decided_at = COALESCE(decided_at, unixepoch())
+            WHERE id = ? AND status = 'approved'`,
+        )
+          .bind(approvalId)
+          .run()
+          .catch(() => null);
+      }
+      return {
+        ...out,
+        approval_id: approvalId,
+        receipt: {
+          id: `dbwr_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`,
+          provider: 'supabase',
+          resource_ref: project_ref,
+          schema: opts.schema || null,
+          readback_rows: out.rows || [],
+        },
+        refresh: { schema: stmtKind === 'schema', data: stmtKind !== 'schema' },
+      };
     },
     execute_sql: async () => {
       const sql = String(opts.sql || '').trim();
@@ -482,17 +582,56 @@ export async function dispatchCustomerSupabase(env, opts) {
     },
     apply_approved_migration: async () => {
       const migrationSql = String(opts.migration_sql || opts.sql || '').trim();
-      const approvalId = opts.approval_id != null ? String(opts.approval_id).trim() : '';
-      const policy = evaluateDataPlaneOperation({
-        owner_type: 'customer',
-        operation_type: 'apply_migration',
-        sql: migrationSql,
-        explicit_approval_id: approvalId,
-        provider: 'supabase',
-      });
-      if (!policy.allowed) return { ok: false, error: policy.reason, requires_approval: true, policy };
-      const out = await customerSupabaseRunQuery(access_token, project_ref, migrationSql);
-      return { ...out, applied: out.ok, approval_id: approvalId || null };
+      const approvalId = trim(opts.approval_id);
+      if (!migrationSql) return { ok: false, error: 'migration_sql_required' };
+      const approval = await verifyDatabaseApproval(
+        env,
+        approvalId,
+        {
+          user_id: userId,
+          tenant_id: opts.tenant_id || null,
+          workspace_id: workspaceId || null,
+        },
+        migrationSql,
+      );
+      if (!approval.ok) {
+        return { ok: false, error: approval.error, requires_approval: true };
+      }
+      const receiptId = `dbmig_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+      const applied = await managementFetch(
+        access_token,
+        `/v1/projects/${encodeURIComponent(project_ref)}/database/migrations`,
+        {
+          method: 'POST',
+          headers: { 'Idempotency-Key': receiptId },
+          body: JSON.stringify({
+            query: migrationSql,
+            name: trim(opts.migration_name) || `agentsam_${Date.now()}`,
+            ...(trim(opts.rollback_sql) ? { rollback: trim(opts.rollback_sql) } : {}),
+          }),
+        },
+      );
+      await env.DB.prepare(
+        `UPDATE agentsam_approval_queue
+            SET status = 'consumed', decided_at = COALESCE(decided_at, unixepoch())
+          WHERE id = ? AND status = 'approved'`,
+      )
+        .bind(approvalId)
+        .run()
+        .catch(() => null);
+      return {
+        ok: true,
+        applied: true,
+        approval_id: approvalId,
+        transport: 'management_api',
+        receipt: {
+          id: receiptId,
+          provider: 'supabase',
+          resource_ref: project_ref,
+          response: applied,
+        },
+        refresh: { schema: true, data: true },
+      };
     },
     generate_rollback: async () => ({
       ok: true,
@@ -540,6 +679,7 @@ export async function dispatchCustomerSupabase(env, opts) {
       project_ref,
       connection_id,
       auth_scope: resolved.auth_scope || USER_ACCOUNT_DATA_PLANE,
+      transport: 'management_api',
       duration_ms: Date.now() - t0,
       read_only: ['run_readonly_sql', 'list_tables', 'inspect_schema', 'describe_table'].includes(operation),
       write_path: ['run_write_sql', 'execute_sql', 'supabase_write', 'apply_approved_migration'].includes(

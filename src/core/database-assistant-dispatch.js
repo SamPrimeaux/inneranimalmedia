@@ -1,7 +1,11 @@
 /**
- * Hyperdrive / D1 database assistant — schema inspection and read-only SQL (agentsam schema canonical).
+ * Platform Supabase/Postgres assistant. Hyperdrive is transport only.
  */
-import { runHyperdriveQuery, isHyperdriveUsable } from './hyperdrive-query.js';
+import {
+  runHyperdriveQuery,
+  runHyperdriveTransaction,
+  isHyperdriveUsable,
+} from './hyperdrive-query.js';
 import {
   classifyDatabaseOperation,
   evaluateDatabaseOperation,
@@ -10,9 +14,9 @@ import {
 } from './database-operation-policy.js';
 import { classifyDatabaseSqlStatement } from './database-sql-safety.js';
 import { assertDataPlaneAccess, logDataPlaneSecurityEvent } from './data-plane-access-guard.js';
+import { logCustomerDataPlaneEvent } from './customer-data-plane-telemetry.js';
 
-const AGENTSAM_SCHEMA = 'agentsam';
-const DEFAULT_LIST_SCHEMAS = ['agentsam', 'public'];
+const SYSTEM_SCHEMA_EXCLUDES = ['pg_catalog', 'information_schema'];
 
 /** @param {string} ident */
 function pgQuoteIdent(ident) {
@@ -42,19 +46,21 @@ export function resolveDbAssistantContext(authUser, opts = {}) {
 
 /**
  * @param {any} env
- * @param {string[]} schemas
+ * @param {string[]|null} schemas
  */
-async function hyperdriveListTables(env, schemas = DEFAULT_LIST_SCHEMAS) {
+async function hyperdriveListTables(env, schemas = null) {
   if (!isHyperdriveUsable(env)) return { ok: false, tables: [], error: 'hyperdrive_unavailable' };
-  const allowed = schemas.filter((s) => DEFAULT_LIST_SCHEMAS.includes(s) || s === AGENTSAM_SCHEMA);
-  const inList = allowed.length ? allowed : [AGENTSAM_SCHEMA];
-  const placeholders = inList.map((_, i) => `$${i + 1}`).join(', ');
+  const requested = Array.isArray(schemas)
+    ? schemas.map((s) => String(s || '').trim()).filter(Boolean)
+    : [];
+  const params = requested.length ? requested : SYSTEM_SCHEMA_EXCLUDES;
+  const placeholders = params.map((_, i) => `$${i + 1}`).join(', ');
   const sql = `SELECT table_schema, table_name, table_type
      FROM information_schema.tables
-    WHERE table_schema IN (${placeholders})
+    WHERE table_schema ${requested.length ? 'IN' : 'NOT IN'} (${placeholders})
       AND table_type = 'BASE TABLE'
     ORDER BY table_schema, table_name`;
-  const r = await runHyperdriveQuery(env, sql, inList);
+  const r = await runHyperdriveQuery(env, sql, params);
   if (!r.ok) return { ok: false, tables: [], error: r.error || 'list_tables_failed' };
   const tables = (r.rows || []).map((row) => ({
     schema: String(row.table_schema || ''),
@@ -144,6 +150,75 @@ export function generateRollbackStub(migrationSql) {
   return `${rollback.join('\n')}\n-- TODO: author inverse DDL before apply`;
 }
 
+function normalizeSqlForApproval(sql) {
+  return String(sql || '').trim().replace(/\s+/g, ' ');
+}
+
+function approvalInputMatchesSql(inputJson, sql) {
+  if (!inputJson) return false;
+  try {
+    const envelope = typeof inputJson === 'string' ? JSON.parse(inputJson) : inputJson;
+    let args = envelope?.filled_template ?? envelope?.tool_args ?? envelope;
+    if (typeof args === 'string') {
+      try {
+        args = JSON.parse(args);
+      } catch {
+        return false;
+      }
+    }
+    const approvedSql = args?.sql ?? args?.migration_sql ?? null;
+    return normalizeSqlForApproval(approvedSql) === normalizeSqlForApproval(sql);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validate a live, identity-scoped, SQL-matching approval. A non-empty string
+ * is never sufficient by itself.
+ */
+export async function verifyDatabaseApproval(env, approvalId, ctx, sql) {
+  const id = String(approvalId || '').trim();
+  if (!env?.DB || !id) {
+    return { ok: false, error: 'database_write_approval_required' };
+  }
+  const row = await env.DB.prepare(
+    `SELECT id, status, expires_at, user_id, tenant_id, workspace_id, tool_name, input_json
+       FROM agentsam_approval_queue
+      WHERE id = ? LIMIT 1`,
+  )
+    .bind(id)
+    .first()
+    .catch(() => null);
+  if (!row || String(row.status || '').toLowerCase() !== 'approved') {
+    return { ok: false, error: 'database_write_approval_not_approved' };
+  }
+  const expiresAt = Number(row.expires_at);
+  if (Number.isFinite(expiresAt) && expiresAt > 0 && expiresAt <= Math.floor(Date.now() / 1000)) {
+    return { ok: false, error: 'database_write_approval_expired' };
+  }
+  const identityChecks = [
+    ['user_id', ctx.user_id],
+    ['tenant_id', ctx.tenant_id],
+    ['workspace_id', ctx.workspace_id],
+  ];
+  for (const [key, expected] of identityChecks) {
+    const actual = row[key] != null ? String(row[key]).trim() : '';
+    const wanted = expected != null ? String(expected).trim() : '';
+    if (actual && wanted && actual !== wanted) {
+      return { ok: false, error: `database_write_approval_${key}_mismatch` };
+    }
+  }
+  const toolName = String(row.tool_name || '').trim();
+  if (toolName && !['agentsam_supabase_write', 'database_apply_approved_migration'].includes(toolName)) {
+    return { ok: false, error: 'database_write_approval_tool_mismatch' };
+  }
+  if (!approvalInputMatchesSql(row.input_json, sql)) {
+    return { ok: false, error: 'database_write_approval_sql_mismatch' };
+  }
+  return { ok: true, row };
+}
+
 /**
  * @param {any} env
  * @param {{
@@ -153,6 +228,7 @@ export function generateRollbackStub(migrationSql) {
  *   workspace_id?: string,
  *   schema?: string,
  *   table?: string,
+ *   resource_ref?: string,
  *   sql?: string,
  *   params?: unknown[],
  *   migration_sql?: string,
@@ -164,7 +240,7 @@ export async function dispatchDatabaseAssistant(env, opts) {
   const t0 = Date.now();
   const operation = String(opts.operation || '').trim();
   const ctx = resolveDbAssistantContext(opts.authUser, opts);
-  const schema = String(opts.schema || AGENTSAM_SCHEMA).trim() || AGENTSAM_SCHEMA;
+  const schema = opts.schema != null ? String(opts.schema).trim() : '';
   const table = opts.table != null ? String(opts.table).trim() : '';
 
   const platformAccess = assertDataPlaneAccess(
@@ -175,7 +251,7 @@ export async function dispatchDatabaseAssistant(env, opts) {
       tenant_id: ctx.tenant_id,
       workspace_id: ctx.workspace_id,
     },
-    'platform_supabase_agentsam',
+    'platform_supabase',
     operation,
     { sql: opts.sql, migration_sql: opts.migration_sql },
   );
@@ -189,7 +265,8 @@ export async function dispatchDatabaseAssistant(env, opts) {
     return {
       ok: false,
       operation,
-      backend: 'hyperdrive',
+      backend: 'supabase',
+      transport: 'hyperdrive',
       duration_ms: Date.now() - t0,
       error: platformAccess.error,
       reason: platformAccess.reason,
@@ -198,11 +275,23 @@ export async function dispatchDatabaseAssistant(env, opts) {
     };
   }
 
-  if (!isSchemaAllowedForContext(schema, ctx)) {
+  if (String(opts.resource_ref || '').trim() !== 'platform_supabase') {
     return {
       ok: false,
       operation,
-      backend: 'hyperdrive',
+      backend: 'supabase',
+      transport: 'hyperdrive',
+      duration_ms: Date.now() - t0,
+      error: 'explicit_platform_supabase_resource_required',
+    };
+  }
+
+  if (schema && !isSchemaAllowedForContext(schema, ctx)) {
+    return {
+      ok: false,
+      operation,
+      backend: 'supabase',
+      transport: 'hyperdrive',
       duration_ms: Date.now() - t0,
       error: 'schema_not_allowed',
       degraded_reason: 'schema_policy',
@@ -212,27 +301,32 @@ export async function dispatchDatabaseAssistant(env, opts) {
   /** @type {Record<string, () => Promise<Record<string, unknown>>>} */
   const handlers = {
     inspect_schema: async () => {
-      const listed = await hyperdriveListTables(env, ctx.is_owner ? DEFAULT_LIST_SCHEMAS : [AGENTSAM_SCHEMA]);
-      return { ...listed, schema: AGENTSAM_SCHEMA };
+      const listed = await hyperdriveListTables(env, ctx.is_owner ? null : ['public']);
+      return { ...listed, schema: null, project_wide: ctx.is_owner === true };
     },
-    list_tables: async () => hyperdriveListTables(env, [schema]),
+    list_tables: async () => hyperdriveListTables(env, schema ? [schema] : null),
     describe_table: async () => {
       if (!table) throw new Error('table required');
+      if (!schema) throw new Error('schema required for table inspection');
       return hyperdriveDescribeTable(env, schema, table);
     },
     describe_columns: async () => {
       if (!table) throw new Error('table required');
+      if (!schema) throw new Error('schema required for table inspection');
       return hyperdriveDescribeTable(env, schema, table);
     },
     inspect_indexes: async () => {
       if (!table) throw new Error('table required');
+      if (!schema) throw new Error('schema required for index inspection');
       return hyperdriveInspectIndexes(env, schema, table);
     },
     inspect_rls: async () => {
       if (!table) throw new Error('table required');
+      if (!schema) throw new Error('schema required for RLS inspection');
       return hyperdriveInspectRls(env, schema, table);
     },
     inspect_functions: async () => {
+      if (!schema) throw new Error('schema required for function inspection');
       const sql = `SELECT routine_name, routine_type, data_type
          FROM information_schema.routines
         WHERE routine_schema = $1
@@ -245,6 +339,102 @@ export async function dispatchDatabaseAssistant(env, opts) {
       if (!sql) throw new Error('sql required');
       if (!isHyperdriveUsable(env)) return { ok: false, error: 'hyperdrive_unavailable' };
       return hyperdriveReadonlySql(env, sql, Array.isArray(opts.params) ? opts.params : [], ctx);
+    },
+    run_write_sql: async () => {
+      const sql = String(opts.sql || opts.migration_sql || '').trim();
+      const approvalId = opts.approval_id != null ? String(opts.approval_id).trim() : '';
+      const params = Array.isArray(opts.params) ? opts.params : [];
+      if (!sql) throw new Error('sql required');
+      if (!opts.resource_ref || String(opts.resource_ref).trim() !== 'platform_supabase') {
+        return { ok: false, error: 'explicit_platform_supabase_resource_required' };
+      }
+      const statementKind = classifyDatabaseSqlStatement(sql);
+      if (statementKind === 'read' || statementKind === 'explain' || statementKind === 'unknown') {
+        return { ok: false, error: 'write_operation_required' };
+      }
+      const evalResult = evaluateDatabaseOperation(sql, ctx, {
+        explicitApprovalId: approvalId || null,
+        schema,
+      });
+      if (!evalResult.allowed) {
+        return {
+          ok: false,
+          error: evalResult.reason,
+          requires_approval: evalResult.requires_approval === true,
+          protected_schema: evalResult.protected_schema ?? null,
+        };
+      }
+      const approval = await verifyDatabaseApproval(env, approvalId, ctx, sql);
+      if (!approval.ok) {
+        return { ok: false, error: approval.error, requires_approval: true };
+      }
+      if (statementKind === 'mutation' && !/\bRETURNING\b/i.test(sql)) {
+        return {
+          ok: false,
+          error: 'database_write_readback_required',
+          user_message: 'INSERT, UPDATE, and DELETE must include RETURNING for an auditable readback.',
+        };
+      }
+      const tx = await runHyperdriveTransaction(env, async (client) => {
+        const result = await client.query(sql, params);
+        return {
+          rows: result?.rows ?? [],
+          row_count: Number(result?.rowCount ?? result?.meta?.changes ?? 0) || 0,
+          command: result?.command ?? null,
+        };
+      });
+      const receiptId = `dbwr_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+      if (tx.ok) {
+        await env.DB.prepare(
+          `UPDATE agentsam_approval_queue
+              SET status = 'consumed', decided_at = COALESCE(decided_at, unixepoch())
+            WHERE id = ? AND status = 'approved'`,
+        )
+          .bind(approvalId)
+          .run()
+          .catch(() => null);
+      }
+      await logCustomerDataPlaneEvent(env, {
+        user_id: ctx.user_id,
+        tenant_id: ctx.tenant_id,
+        workspace_id: ctx.workspace_id,
+        data_plane: 'platform_supabase',
+        owner_type: 'platform',
+        provider: 'supabase',
+        connection_id: 'HYPERDRIVE',
+        operation_type: 'run_write_sql',
+        sql_class: statementKind,
+        approval_id: approvalId,
+        success: tx.ok,
+        error_message: tx.error ?? null,
+        duration_ms: Date.now() - t0,
+        sql,
+        agent_run_id: opts.agent_run_id ?? null,
+      });
+      return {
+        ok: tx.ok,
+        rows: tx.rows || [],
+        error: tx.error,
+        statement_kind: statementKind,
+        approval_id: approvalId,
+        receipt: {
+          id: receiptId,
+          provider: 'supabase',
+          resource_ref: 'platform_supabase',
+          schema: schema || null,
+          row_count: Number(tx.result?.row_count ?? 0) || 0,
+          command: tx.result?.command ?? null,
+          readback_rows: tx.rows || [],
+        },
+        refresh: { schema: statementKind === 'schema', data: statementKind !== 'schema' },
+      };
+    },
+    execute_sql: async () => {
+      const sql = String(opts.sql || '').trim();
+      const statementKind = classifyDatabaseSqlStatement(sql);
+      return statementKind === 'read' || statementKind === 'explain'
+        ? handlers.run_readonly_sql()
+        : handlers.run_write_sql();
     },
     explain_query: async () => {
       const sql = String(opts.sql || '').trim();
@@ -277,25 +467,7 @@ export async function dispatchDatabaseAssistant(env, opts) {
       const migrationSql = String(opts.migration_sql || opts.sql || '').trim();
       return { ok: true, rollback_sql: generateRollbackStub(migrationSql) };
     },
-    database_apply_approved_migration: async () => {
-      const migrationSql = String(opts.migration_sql || opts.sql || '').trim();
-      const approvalId = opts.approval_id != null ? String(opts.approval_id).trim() : '';
-      const evalResult = evaluateDatabaseOperation(migrationSql, ctx, {
-        explicitApprovalId: approvalId || null,
-      });
-      if (!evalResult.allowed) {
-        return { ok: false, error: evalResult.reason, requires_approval: true };
-      }
-      if (!isHyperdriveUsable(env)) return { ok: false, error: 'hyperdrive_unavailable' };
-      const r = await runHyperdriveQuery(env, migrationSql, []);
-      return {
-        ok: r.ok,
-        rows: r.rows || [],
-        error: r.error,
-        approval_id: approvalId || null,
-        applied: r.ok,
-      };
-    },
+    database_apply_approved_migration: async () => handlers.run_write_sql(),
   };
 
   const handler = handlers[operation];
@@ -303,7 +475,8 @@ export async function dispatchDatabaseAssistant(env, opts) {
     return {
       ok: false,
       operation,
-      backend: 'hyperdrive',
+      backend: 'supabase',
+      transport: 'hyperdrive',
       duration_ms: Date.now() - t0,
       error: `unknown_operation:${operation}`,
     };
@@ -313,7 +486,8 @@ export async function dispatchDatabaseAssistant(env, opts) {
     return {
       ok: false,
       operation,
-      backend: 'hyperdrive',
+      backend: 'supabase',
+      transport: 'hyperdrive',
       duration_ms: Date.now() - t0,
       error: 'hyperdrive_unavailable',
     };
@@ -324,7 +498,8 @@ export async function dispatchDatabaseAssistant(env, opts) {
     return {
       ok: payload.ok !== false,
       operation,
-      backend: operation.startsWith('d1') ? 'd1' : 'hyperdrive',
+      backend: 'supabase',
+      transport: 'hyperdrive',
       schema,
       table: table || null,
       duration_ms: Date.now() - t0,
@@ -338,7 +513,8 @@ export async function dispatchDatabaseAssistant(env, opts) {
     return {
       ok: false,
       operation,
-      backend: 'hyperdrive',
+      backend: 'supabase',
+      transport: 'hyperdrive',
       schema,
       duration_ms: Date.now() - t0,
       error: e?.message ? String(e.message) : String(e),

@@ -17,15 +17,18 @@ export function formatDatabaseContextForAgent(raw) {
     '[Database Studio — live surface context. Use this to answer questions about the open table, schema, SQL editor, filters, and last query error. Do not invent table names or query results.]',
     `route: ${route || '/dashboard/database'}`,
     `view: ${String(raw.view || 'studio')}`,
-    `studio_section: ${String(raw.studioSection || raw.studio_section || 'unknown')}`,
-    `provider: ${String(raw.provider || (raw.datasource === 'd1' ? 'cloudflare_d1' : 'supabase'))}`,
+    `provider: ${String(raw.provider || raw.datasource || 'unknown')}`,
+    `resource_scope: ${String(raw.resourceScope || raw.resource_scope || 'unknown')}`,
     `resource_ref: ${raw.resourceRef || raw.resource_ref || '(unresolved)'}`,
     `datasource: ${String(raw.datasource || 'd1')}`,
-    `dialect: ${String(raw.dialect || (raw.datasource === 'hyperdrive' ? 'postgresql' : 'sqlite'))}`,
+    `dialect: ${String(raw.dialect || (raw.datasource === 'supabase' ? 'postgresql' : 'sqlite'))}`,
     `active_schema: ${raw.activeSchema || raw.active_schema || '(none)'}`,
     `active_tab: ${String(raw.activeMainTab || raw.active_tab || 'schema')}`,
     `selected_table: ${raw.selectedTable != null ? String(raw.selectedTable) : '(none)'}`,
   ];
+  if (!(raw.resourceRef || raw.resource_ref)) {
+    lines.push('execution_blocked: Select an authorized database resource before querying or loading table data.');
+  }
 
   if (raw.capabilities && typeof raw.capabilities === 'object') {
     const cap = /** @type {Record<string, unknown>} */ (raw.capabilities);
@@ -93,7 +96,7 @@ export function formatDatabaseContextForAgent(raw) {
   }
 
   lines.push(
-    'studio_actions: To control the UI emit a fenced JSON block: {"iam_db_action":"apply-sql"|"open-table"|"open-query-analysis",...}. Fields: datasource (d1|hyperdrive), sql, mode (replace|new_tab|append), run (default false), table, tab (schema|data|sql|indexes|relations), error.',
+    'studio_actions: To control the UI emit a fenced JSON block: {"iam_db_action":"apply-sql"|"open-table"|"open-query-analysis",...}. Fields: datasource (d1|supabase), sql, mode (replace|new_tab|append), run (default false), table, tab (schema|data|sql|indexes|relations), error.',
   );
 
   return lines.join('\n');

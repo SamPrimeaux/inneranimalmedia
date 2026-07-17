@@ -54,18 +54,21 @@ import { useWorkspace } from '../src/context/WorkspaceContext';
 import { isPlatformWorkspace } from '../src/lib/databaseStudioRoute';
 import '../components/database/database-page.css';
 
-type Datasource = 'd1' | 'hyperdrive';
-type StudioSection = 'platform_d1' | 'platform_hyperdrive' | 'public_learning' | 'customer_supabase' | 'workspace_d1';
+type Datasource = 'd1' | 'supabase';
+type StudioSection = 'd1' | 'platform_supabase' | 'connected_supabase';
 type MetaPanel = 'schema' | 'indexes' | 'relations';
 
 function parseStudioSection(value: string | null): StudioSection | null {
-  return value === 'platform_d1' ||
-    value === 'platform_hyperdrive' ||
-    value === 'public_learning' ||
-    value === 'customer_supabase' ||
-    value === 'workspace_d1'
-    ? value
-    : null;
+  if (value === 'd1') return 'd1';
+  if (value === 'supabase') return 'platform_supabase';
+  if (
+    value === 'd1' ||
+    value === 'platform_supabase' ||
+    value === 'connected_supabase'
+  ) {
+    return value;
+  }
+  return null;
 }
 type SortDir = 'asc' | 'desc';
 type LoadStatus = 'idle' | 'loading' | 'ok' | 'error';
@@ -132,32 +135,77 @@ function quoteIdent(name: string) {
 
 function qualifiedTableRef(table: TableMeta, datasource: Datasource): string {
   if (datasource === 'd1') return quoteIdent(table.name);
-  const schema = table.table_schema?.trim() || 'agentsam';
+  const schema = table.table_schema?.trim();
+  if (!schema) throw new Error('Select a Supabase schema before querying a table.');
   return `${schema}.${quoteIdent(table.name)}`;
 }
 
 function tableDisplayLabel(table: TableMeta, datasource: Datasource): string {
-  if (datasource === 'd1' || !table.table_schema || table.table_schema === 'agentsam') {
+  if (datasource === 'd1' || !table.table_schema) {
     return table.name;
   }
   return `${table.table_schema}.${table.name}`;
 }
 
-function tableApiPath(table: TableMeta | { name: string; table_schema?: string }, datasource: Datasource, suffix: string) {
+function tableSelectionKey(table: TableMeta, datasource: Datasource): string {
+  return datasource === 'supabase' && table.table_schema
+    ? `${table.table_schema}.${table.name}`
+    : table.name;
+}
+
+function findSelectedTable(
+  tables: TableMeta[],
+  selection: string,
+  datasource: Datasource,
+): TableMeta | undefined {
+  return tables.find(
+    (table) =>
+      tableSelectionKey(table, datasource) === selection ||
+      (!selection.includes('.') && table.name === selection),
+  );
+}
+
+function tableMetaFromSelection(selection: string, datasource: Datasource): TableMeta {
+  if (datasource === 'supabase' && selection.includes('.')) {
+    const dot = selection.indexOf('.');
+    return {
+      table_schema: selection.slice(0, dot),
+      name: selection.slice(dot + 1),
+    };
+  }
+  return { name: selection };
+}
+
+function tableApiPath(
+  table: TableMeta | { name: string; table_schema?: string },
+  datasource: Datasource,
+  suffix: string,
+  connectedProjectRef = '',
+) {
   const base = datasource === 'd1' ? '/api/d1/table' : '/api/hyperdrive/table';
-  const schema = table.table_schema?.trim() || 'agentsam';
-  const q = datasource === 'hyperdrive' ? `?schema=${encodeURIComponent(schema)}` : '';
+  const schema = table.table_schema?.trim();
+  if (datasource === 'supabase' && !schema) {
+    throw new Error('Select a Supabase schema before loading table data.');
+  }
+  if (datasource === 'supabase' && connectedProjectRef.trim()) {
+    return `/api/data-plane/customer-supabase/table/${encodeURIComponent(table.name)}/${suffix}?schema=${encodeURIComponent(schema)}&project_ref=${encodeURIComponent(connectedProjectRef.trim())}`;
+  }
+  const q =
+    datasource === 'supabase'
+      ? `?schema=${encodeURIComponent(schema)}&resource_ref=platform_supabase`
+      : '';
   return `${base}/${encodeURIComponent(table.name)}/${suffix}${q}`;
 }
 
 function readStoredDatasource(): Datasource {
   try {
     const v = localStorage.getItem(LS_DATASOURCE);
-    if (v === 'd1' || v === 'hyperdrive') return v;
+    if (v === 'd1' || v === 'supabase') return v;
+    if (v === 'hyperdrive') return 'supabase';
   } catch {
     /* ignore */
   }
-  return 'hyperdrive';
+  return 'supabase';
 }
 
 function readStoredResultsHeight(): number {
@@ -275,7 +323,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   const [searchParams, setSearchParams] = useSearchParams();
   const [sidebarSource, setSidebarSource] = useState<Datasource>(readStoredDatasource);
   const datasource: Datasource = sidebarSource;
-  const [tables, setTables] = useState<Record<Datasource, TableMeta[]>>({ d1: [], hyperdrive: [] });
+  const [tables, setTables] = useState<Record<Datasource, TableMeta[]>>({ d1: [], supabase: [] });
   const [d1Status, setD1Status] = useState<LoadStatus>('idle');
   const [d1OnboardingRequired, setD1OnboardingRequired] = useState(false);
   const [d1LoadError, setD1LoadError] = useState<string | null>(null);
@@ -338,23 +386,39 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   const [editingCell, setEditingCell] = useState<{ rowKey: string; col: string; value: string } | null>(null);
 
   const [isSuperadmin, setIsSuperadmin] = useState(false);
-  const [studioSection, setStudioSection] = useState<StudioSection>(() =>
-    databaseName?.trim() ? 'workspace_d1' : parseStudioSection(searchParams.get('source')) || 'public_learning',
+  const [studioSection, setStudioSection] = useState<StudioSection>(() => {
+    if (databaseName?.trim()) return 'd1';
+    if (
+      searchParams.get('source') === 'supabase' &&
+      searchParams.get('resource_scope') === 'connected'
+    ) {
+      return 'connected_supabase';
+    }
+    return parseStudioSection(searchParams.get('source')) || 'd1';
+  });
+  const [d1Resources, setD1Resources] = useState<
+    Array<{ database_name: string; database_id?: string | null; source?: string | null }>
+  >([]);
+  const [d1ResourceName, setD1ResourceName] = useState(
+    databaseName?.trim() ||
+      (searchParams.get('source') === 'd1' ? searchParams.get('resource_ref') || '' : ''),
   );
-  const [learningTables, setLearningTables] = useState<TableMeta[]>([]);
-  const [learningStatus, setLearningStatus] = useState<LoadStatus>('idle');
   const [supabaseConnected, setSupabaseConnected] = useState(false);
   const [supabaseProjects, setSupabaseProjects] = useState<
     Array<{ id?: string; name?: string; ref: string; region?: string | null }>
   >([]);
-  const [supabaseProjectRef, setSupabaseProjectRef] = useState<string>('');
+  const [supabaseProjectRef, setSupabaseProjectRef] = useState<string>(
+    searchParams.get('source') === 'supabase' &&
+      searchParams.get('resource_scope') === 'connected'
+      ? searchParams.get('resource_ref') || ''
+      : '',
+  );
   const [supabaseConnectUrl, setSupabaseConnectUrl] = useState(
     '/api/oauth/supabase/start?return_to=%2Fdashboard%2Fdatabase%3Fstudio%3D1',
   );
   const [capLoaded, setCapLoaded] = useState(false);
   const [pageReady, setPageReady] = useState(false);
   const [hyperHealthBad, setHyperHealthBad] = useState(false);
-  const [workspaceD1Available, setWorkspaceD1Available] = useState(false);
 
   const d1FetchInit = useCallback(
     (init?: RequestInit): RequestInit => {
@@ -363,12 +427,12 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       };
       const ws = workspaceId?.trim();
       if (ws) headers['X-IAM-Workspace-Id'] = ws;
-      const dbName = databaseName?.trim();
+      const dbName = databaseName?.trim() || d1ResourceName.trim();
       if (dbName) headers['X-IAM-Database-Name'] = dbName;
       if (!ws && !dbName) return init || {};
       return { ...init, headers };
     },
-    [workspaceId, databaseName],
+    [workspaceId, databaseName, d1ResourceName],
   );
 
   const fetchD1Json = useCallback(
@@ -388,44 +452,46 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   const sqlRunning = sqlRunState === 'running';
 
   const effectiveDatasource: Datasource =
-    databaseName?.trim() || studioSection === 'workspace_d1' || studioSection === 'platform_d1'
+    databaseName?.trim() || studioSection === 'd1'
       ? 'd1'
-      : studioSection === 'platform_hyperdrive' ||
-          studioSection === 'customer_supabase' ||
-          studioSection === 'public_learning'
-        ? 'hyperdrive'
+      : studioSection === 'platform_supabase' || studioSection === 'connected_supabase'
+        ? 'supabase'
         : datasource;
+  const selectedD1Resource = d1Resources.find(
+    (resource) => resource.database_name === d1ResourceName,
+  );
+  const d1ResourceScope =
+    selectedD1Resource?.source === 'platform_operator' ? 'platform' : 'connected';
 
   const activeTables =
-    studioSection === 'public_learning'
-      ? learningTables
-      : studioSection === 'customer_supabase'
-        ? tables.hyperdrive
-        : !isSuperadmin && studioSection === 'workspace_d1'
-          ? tables.d1
-          : tables[effectiveDatasource];
+    studioSection === 'connected_supabase'
+      ? tables.supabase
+      : !isSuperadmin && studioSection === 'd1'
+        ? tables.d1
+        : tables[effectiveDatasource];
   const datasourceLabel =
     databaseName?.trim()
       ? `${databaseName.trim()} · Cloudflare D1`
-      : studioSection === 'public_learning'
-      ? 'Public learning (public.iam_*)'
-      : !isSuperadmin && studioSection === 'workspace_d1'
-        ? 'Workspace D1 (Cloudflare SQLite)'
-        : studioSection === 'customer_supabase'
+      : !isSuperadmin && studioSection === 'd1'
+        ? 'Connected D1 (Cloudflare SQLite)'
+        : studioSection === 'connected_supabase'
           ? supabaseProjectRef
-            ? `My Supabase · ${supabaseProjectRef}`
-            : 'My Supabase (Management OAuth)'
+            ? `Connected Supabase · ${supabaseProjectRef}`
+            : 'Connected Supabase project'
           : effectiveDatasource === 'd1'
             ? 'Cloudflare D1 (SQLite)'
-            : 'IAM Platform Supabase via Hyperdrive (Postgres)';
+            : 'Supabase DB (Postgres)';
   const selectedTableMeta = useMemo(
-    () => (selectedTable ? activeTables.find((t) => t.name === selectedTable) : undefined),
-    [activeTables, selectedTable],
+    () =>
+      selectedTable
+        ? findSelectedTable(activeTables, selectedTable, effectiveDatasource)
+        : undefined,
+    [activeTables, effectiveDatasource, selectedTable],
   );
   const selectedTableSqlName = selectedTableMeta
     ? qualifiedTableRef(selectedTableMeta, effectiveDatasource)
-    : selectedTable
-      ? qualifiedTableRef({ name: selectedTable, table_schema: 'agentsam' }, effectiveDatasource)
+    : selectedTable && effectiveDatasource === 'd1'
+      ? qualifiedTableRef({ name: selectedTable }, 'd1')
       : '';
   const pk = useMemo(() => schema.find(isPrimaryKey)?.name || '', [schema]);
   const canWriteRows = isSuperadmin && capLoaded;
@@ -438,14 +504,14 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       ? 'Insert requires write access (superadmin).'
       : !selectedTable
         ? 'Select a table first.'
-        : datasource === 'hyperdrive'
-          ? 'Insert row is D1-only for v1. Use the SQL tab for Hyperdrive mutations after confirmation.'
+        : effectiveDatasource === 'supabase'
+          ? 'Use approved SQL with RETURNING for Supabase inserts.'
           : '';
   const deleteDisabledReason =
     !canWriteRows
       ? 'Delete requires write access (superadmin).'
-      : datasource === 'hyperdrive'
-        ? 'Row delete is D1-only for v1. Use the SQL tab for Hyperdrive deletes after confirmation.'
+      : effectiveDatasource === 'supabase'
+        ? 'Use approved SQL with RETURNING for Supabase deletes.'
         : !pk
           ? 'Deleting requires a primary key so rows can be targeted safely.'
           : selectedRows.size === 0
@@ -454,8 +520,8 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   const editDisabledReason =
     !canWriteRows
       ? 'Editing requires write access (superadmin).'
-      : datasource === 'hyperdrive'
-        ? 'Hyperdrive inline edit is disabled until safe parameterized row updates exist.'
+      : effectiveDatasource === 'supabase'
+        ? 'Supabase inline edit requires the approved SQL workflow.'
         : !pk
           ? 'Editing requires a primary key so this row can be updated safely.'
           : !selectedTable
@@ -465,10 +531,10 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     const q = tableSearch.trim().toLowerCase();
     if (!q) return activeTables;
     return activeTables.filter((t) => {
-      const label = tableDisplayLabel(t, datasource).toLowerCase();
+      const label = tableDisplayLabel(t, effectiveDatasource).toLowerCase();
       return label.includes(q) || t.name.toLowerCase().includes(q);
     });
-  }, [activeTables, datasource, tableSearch]);
+  }, [activeTables, effectiveDatasource, tableSearch]);
   const insertSql = useMemo(() => {
     if (!selectedTable) return '';
     const pairs = schema
@@ -514,20 +580,16 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       const payload = await fetchJson<{ capabilities?: { is_superadmin?: boolean } }>('/api/integrations/summary');
       const superadmin = payload.capabilities?.is_superadmin === true;
       setIsSuperadmin(superadmin);
-      if (!superadmin && !databaseName?.trim()) {
-        setStudioSection('public_learning');
-      }
       return superadmin;
     } catch {
       setIsSuperadmin(false);
-      if (!databaseName?.trim()) setStudioSection('public_learning');
       return false;
     } finally {
       setCapLoaded(true);
     }
   }, [databaseName]);
 
-  const loadDataPlaneContext = useCallback(async (superadmin: boolean) => {
+  const loadDataPlaneContext = useCallback(async () => {
     try {
       const ctx = await fetchJson<{
         banner?: string;
@@ -542,18 +604,42 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       const projects = Array.isArray(ctx.supabase_projects) ? ctx.supabase_projects.filter((p) => p?.ref) : [];
       setSupabaseProjects(projects);
       const pinned = (ctx.pinned_supabase_project_ref || '').trim();
-      setSupabaseProjectRef((prev) => prev || pinned || projects[0]?.ref || '');
-      if (!superadmin && !databaseName?.trim() && ctx.active_data_plane === 'customer_supabase' && ctx.connections?.supabase) {
-        setStudioSection('customer_supabase');
-      }
+      setSupabaseProjectRef((prev) => prev || pinned || '');
     } catch {
       /* ignore */
     }
   }, [databaseName]);
 
+  const loadD1Resources = useCallback(async () => {
+    try {
+      const headers: Record<string, string> = {};
+      if (workspaceId?.trim()) headers['X-IAM-Workspace-Id'] = workspaceId.trim();
+      const ctx = await fetchJson<{
+        databases?: Array<{
+          database_name: string;
+          database_id?: string | null;
+          source?: string | null;
+        }>;
+        active_database_name?: string | null;
+      }>('/api/d1/context', { credentials: 'same-origin', headers });
+      const resources = Array.isArray(ctx.databases)
+        ? ctx.databases.filter((row) => String(row?.database_name || '').trim())
+        : [];
+      setD1Resources(resources);
+      setD1OnboardingRequired(resources.length === 0);
+      const selected =
+        databaseName?.trim() ||
+        String(ctx.active_database_name || '').trim();
+      setD1ResourceName((current) => current.trim() || selected);
+    } catch {
+      setD1Resources([]);
+      if (!databaseName?.trim()) setD1ResourceName('');
+    }
+  }, [databaseName, workspaceId]);
+
   const loadCustomerSupabaseTables = useCallback(async (projectRef: string) => {
     if (!projectRef.trim()) {
-      setTables((prev) => ({ ...prev, hyperdrive: [] }));
+      setTables((prev) => ({ ...prev, supabase: [] }));
       setHyperStatus('ok');
       return;
     }
@@ -568,32 +654,14 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
         name: String(t.name || ''),
         table_schema: t.table_schema || 'public',
       }));
-      setTables((prev) => ({ ...prev, hyperdrive: list.filter((t) => t.name) }));
+      setTables((prev) => ({ ...prev, supabase: list.filter((t) => t.name) }));
       setHyperStatus('ok');
     } catch (e) {
-      setTables((prev) => ({ ...prev, hyperdrive: [] }));
+      setTables((prev) => ({ ...prev, supabase: [] }));
       setHyperStatus('error');
       setSqlError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoadingTables(false);
-    }
-  }, []);
-
-  const loadPublicLearningTables = useCallback(async () => {
-    setLearningStatus('loading');
-    try {
-      const payload = await fetchJson<{ tables?: Array<{ name: string; table_schema?: string }> }>(
-        '/api/data-plane/public-learning/tables',
-      );
-      const list = (payload.tables || []).map((t) => ({
-        name: String(t.name || ''),
-        table_schema: t.table_schema || 'public',
-      }));
-      setLearningTables(list.filter((t) => t.name));
-      setLearningStatus('ok');
-    } catch {
-      setLearningTables([]);
-      setLearningStatus('error');
     }
   }, []);
 
@@ -603,7 +671,10 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       setD1LoadError(null);
     } else setHyperStatus('loading');
     setLoadingTables(true);
-    const endpoint = target === 'd1' ? '/api/d1/tables' : '/api/hyperdrive/tables';
+    const endpoint =
+      target === 'd1'
+        ? '/api/d1/tables'
+        : '/api/hyperdrive/tables?resource_ref=platform_supabase';
 
     const loadOnce = async () => {
       const fetchInit =
@@ -628,9 +699,6 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
             'Connect your Cloudflare D1 to use Database Studio';
           setD1LoadError(msg);
         }
-        if (!isSuperadmin) {
-          setWorkspaceD1Available(!onboarding && normalizeTables(payload).length > 0);
-        }
       }
       setTables((prev) => ({ ...prev, [target]: normalizeTables(payload) }));
       if (target === 'd1') setD1Status('ok');
@@ -650,7 +718,6 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       if (target === 'd1') {
         setD1Status('error');
         setD1LoadError(e instanceof Error ? e.message : String(e));
-        if (!isSuperadmin) setWorkspaceD1Available(false);
       } else setHyperStatus('error');
     } finally {
       setLoadingTables(false);
@@ -659,7 +726,9 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
 
   useEffect(() => {
     if (databaseName?.trim()) {
-      setStudioSection('workspace_d1');
+      setD1ResourceName(databaseName.trim());
+      setTables((prev) => ({ ...prev, d1: [] }));
+      setStudioSection('d1');
       setSidebarSource('d1');
     }
   }, [databaseName]);
@@ -693,8 +762,15 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     async (table: string) => {
       setLoadingMain(true);
       try {
-        const meta = activeTables.find((t) => t.name === table) ?? { name: table, table_schema: 'agentsam' };
-        const path = tableApiPath(meta, effectiveDatasource, 'schema');
+        const meta =
+          findSelectedTable(activeTables, table, effectiveDatasource) ??
+          tableMetaFromSelection(table, effectiveDatasource);
+        const path = tableApiPath(
+          meta,
+          effectiveDatasource,
+          'schema',
+          studioSection === 'connected_supabase' ? supabaseProjectRef : '',
+        );
         const payload = effectiveDatasource === 'd1'
           ? await fetchD1Json<{ columns?: SchemaColumn[]; schema?: SchemaColumn[]; indexes?: IndexMeta[]; foreign_keys?: RelationMeta[] }>(path)
           : await fetchJson<{ columns?: SchemaColumn[]; schema?: SchemaColumn[]; indexes?: IndexMeta[]; foreign_keys?: RelationMeta[] }>(path);
@@ -705,53 +781,49 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
         setLoadingMain(false);
       }
     },
-    [activeTables, effectiveDatasource, fetchD1Json],
+    [activeTables, effectiveDatasource, fetchD1Json, studioSection, supabaseProjectRef],
   );
 
   useEffect(() => {
     let cancelled = false;
     const initialDs = databaseName?.trim() ? 'd1' : readStoredDatasource();
     (async () => {
-      const [, superadmin] = await Promise.all([loadThemeAccent(), loadCapabilities()]);
+      const [, superadmin] = await Promise.all([
+        loadThemeAccent(),
+        loadCapabilities(),
+        loadD1Resources(),
+      ]);
       if (cancelled) return;
       setPageReady(true);
-      void loadDataPlaneContext(superadmin);
-      if (databaseName?.trim()) {
-        void loadTables('d1');
-        return;
-      }
-      if (superadmin) {
-        void loadTables(initialDs);
-        if (initialDs === 'd1') {
-          void loadTables('hyperdrive');
-        }
-      } else {
-        void loadPublicLearningTables();
-        if (workspaceId?.trim()) void loadTables('d1');
-      }
+      void loadDataPlaneContext();
+      if (superadmin && initialDs === 'supabase') void loadTables('supabase');
     })();
     return () => {
       cancelled = true;
     };
-  }, [databaseName, loadCapabilities, loadDataPlaneContext, loadPublicLearningTables, loadTables, loadThemeAccent, workspaceId]);
+  }, [
+    databaseName,
+    loadCapabilities,
+    loadDataPlaneContext,
+    loadD1Resources,
+    loadTables,
+    loadThemeAccent,
+  ]);
 
   useEffect(() => {
     if (!pageReady) return;
-    if (databaseName?.trim()) {
+    if ((databaseName?.trim() || studioSection === 'd1') && d1ResourceName.trim()) {
       void loadTables('d1');
       return;
     }
-    if (isSuperadmin && sidebarSource === 'd1') {
-      void loadTables('d1');
+    if (studioSection === 'platform_supabase') {
+      void loadTables('supabase');
       return;
     }
-    if (!isSuperadmin && workspaceId?.trim()) {
-      void loadTables('d1');
-    }
-  }, [pageReady, workspaceId, databaseName, isSuperadmin, sidebarSource, loadTables]);
+  }, [pageReady, databaseName, studioSection, d1ResourceName, loadTables]);
 
   useEffect(() => {
-    if (!pageReady || studioSection !== 'customer_supabase') return;
+    if (!pageReady || studioSection !== 'connected_supabase') return;
     if (!supabaseConnected || !supabaseProjectRef.trim()) return;
     void loadCustomerSupabaseTables(supabaseProjectRef);
   }, [
@@ -761,12 +833,6 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     supabaseProjectRef,
     loadCustomerSupabaseTables,
   ]);
-
-  useEffect(() => {
-    if (!capLoaded || isSuperadmin || databaseName?.trim() || !workspaceD1Available) return;
-    setStudioSection((prev) => (prev === 'public_learning' ? 'workspace_d1' : prev));
-    setSidebarSource('d1');
-  }, [capLoaded, isSuperadmin, workspaceD1Available, databaseName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -796,7 +862,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   useEffect(() => {
     setColumnCache({});
     setExpandedTables(new Set());
-  }, [datasource]);
+  }, [datasource, d1ResourceName, studioSection, supabaseProjectRef]);
 
   useEffect(() => {
     try {
@@ -817,12 +883,28 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
 
   useEffect(() => {
     const activePanel = metaPanel || (selectedTable ? 'data' : 'sql');
+    const resourceScope =
+      effectiveDatasource === 'd1'
+        ? d1ResourceScope
+        : studioSection === 'platform_supabase'
+          ? 'platform'
+          : 'connected';
+    const resourceRef =
+      effectiveDatasource === 'd1'
+        ? d1ResourceName.trim()
+        : studioSection === 'platform_supabase'
+          ? 'platform_supabase'
+          : supabaseProjectRef.trim();
     const currentSource = searchParams.get('source');
+    const currentScope = searchParams.get('resource_scope');
+    const currentResource = searchParams.get('resource_ref') || '';
     const currentPanel = searchParams.get('panel');
     const currentTable = searchParams.get('table') || '';
     const nextTable = selectedTable || '';
     if (
-      currentSource === studioSection &&
+      currentSource === effectiveDatasource &&
+      currentScope === resourceScope &&
+      currentResource === resourceRef &&
       currentPanel === activePanel &&
       currentTable === nextTable
     ) {
@@ -830,19 +912,34 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     }
     const next = new URLSearchParams(searchParams);
     next.set('studio', '1');
-    next.set('source', studioSection);
+    next.set('source', effectiveDatasource);
+    next.set('resource_scope', resourceScope);
+    if (resourceRef) next.set('resource_ref', resourceRef);
+    else next.delete('resource_ref');
     next.set('panel', activePanel);
     if (selectedTable) next.set('table', selectedTable);
     else next.delete('table');
     setSearchParams(next, { replace: true });
-  }, [metaPanel, searchParams, selectedTable, setSearchParams, studioSection]);
+  }, [
+    d1ResourceScope,
+    d1ResourceName,
+    effectiveDatasource,
+    metaPanel,
+    searchParams,
+    selectedTable,
+    setSearchParams,
+    studioSection,
+    supabaseProjectRef,
+  ]);
 
   useEffect(() => {
     if (!pageReady || !selectedTable || loadingTables) return;
     if (!activeTables.length) return;
-    const exists = activeTables.some((t) => t.name === selectedTable);
+    const exists = Boolean(
+      findSelectedTable(activeTables, selectedTable, effectiveDatasource),
+    );
     if (!exists) setSelectedTable(null);
-  }, [pageReady, activeTables, selectedTable, loadingTables]);
+  }, [pageReady, activeTables, effectiveDatasource, selectedTable, loadingTables]);
 
   useEffect(() => {
     try {
@@ -882,14 +979,21 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       setSqlError(null);
       const t0 = performance.now();
       try {
+        const resourceRef =
+          effectiveDatasource === 'd1'
+            ? d1ResourceName.trim()
+            : studioSection === 'platform_supabase'
+              ? 'platform_supabase'
+              : supabaseProjectRef.trim();
+        if (!resourceRef) {
+          throw new Error('Select a database resource before running SQL.');
+        }
         const endpoint =
-          studioSection === 'public_learning'
-            ? '/api/data-plane/public-learning/query'
-            : studioSection === 'customer_supabase'
-              ? '/api/data-plane/customer-supabase/query'
-              : effectiveDatasource === 'd1'
-                ? '/api/d1/query'
-                : '/api/hyperdrive/query';
+          studioSection === 'connected_supabase'
+            ? '/api/data-plane/customer-supabase/query'
+            : effectiveDatasource === 'd1'
+              ? '/api/d1/query'
+              : '/api/hyperdrive/query';
         const fetchQuery = effectiveDatasource === 'd1' ? fetchD1Json : fetchJson;
         const payload = await fetchQuery<{ rows?: Record<string, unknown>[]; results?: Record<string, unknown>[]; error?: string }>(endpoint, {
           method: 'POST',
@@ -897,7 +1001,16 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
           body: JSON.stringify({
             sql: raw,
             params: [],
-            project_ref: studioSection === 'customer_supabase' ? supabaseProjectRef || undefined : undefined,
+            provider: effectiveDatasource,
+            resource_ref: resourceRef,
+            resource_scope:
+              effectiveDatasource === 'd1'
+                ? d1ResourceScope
+                : studioSection === 'platform_supabase'
+                  ? 'platform'
+                  : 'connected',
+            schema: selectedTableMeta?.table_schema || undefined,
+            project_ref: studioSection === 'connected_supabase' ? supabaseProjectRef || undefined : undefined,
             studio_approved: opts.studioApproved === true,
             destructive_confirmed: opts.destructiveConfirmed === true,
           }),
@@ -918,6 +1031,15 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
         setLastQueryMs(Math.round(performance.now() - t0));
         setLastRowsRead(Array.isArray(rows) ? rows.length : 0);
         setSqlRunState('success');
+        const statementKind = evaluateDatabaseSqlSafety(raw, { isSuperadmin }).kind;
+        if (statementKind !== 'read' && statementKind !== 'explain') {
+          if (studioSection === 'connected_supabase') {
+            await loadCustomerSupabaseTables(supabaseProjectRef);
+          } else {
+            await loadTables(effectiveDatasource);
+          }
+          if (selectedTable) await loadSchema(selectedTable);
+        }
       } catch (e) {
         setSqlError(e instanceof Error ? e.message : String(e));
         setSqlResults([]);
@@ -927,7 +1049,20 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
         setLastRowsRead(0);
       }
     },
-    [effectiveDatasource, fetchD1Json, isSuperadmin, studioSection, supabaseProjectRef],
+    [
+      d1ResourceScope,
+      d1ResourceName,
+      effectiveDatasource,
+      fetchD1Json,
+      isSuperadmin,
+      loadCustomerSupabaseTables,
+      loadSchema,
+      loadTables,
+      selectedTable,
+      selectedTableMeta?.table_schema,
+      studioSection,
+      supabaseProjectRef,
+    ],
   );
 
   const requestRunSql = useCallback(
@@ -1072,11 +1207,12 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       const offset = (Math.max(1, pageNum) - 1) * PAGE_SIZE;
       const meta =
         typeof table === 'string'
-          ? activeTables.find((t) => t.name === table) ?? { name: table, table_schema: 'agentsam' }
+          ? findSelectedTable(activeTables, table, effectiveDatasource) ??
+            tableMetaFromSelection(table, effectiveDatasource)
           : table;
-      return `SELECT * FROM ${qualifiedTableRef(meta, datasource)} LIMIT ${PAGE_SIZE} OFFSET ${offset};`;
+      return `SELECT * FROM ${qualifiedTableRef(meta, effectiveDatasource)} LIMIT ${PAGE_SIZE} OFFSET ${offset};`;
     },
-    [activeTables, datasource],
+    [activeTables, effectiveDatasource],
   );
 
   const tableBrowseTotalPages = useMemo(() => {
@@ -1089,7 +1225,8 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
 
   useEffect(() => {
     const sqlForTable = (name: string, ds: Datasource) => {
-      const meta = tables[ds].find((t) => t.name === name) ?? { name, table_schema: 'agentsam' };
+      const meta =
+        findSelectedTable(tables[ds], name, ds) ?? tableMetaFromSelection(name, ds);
       return `SELECT * FROM ${qualifiedTableRef(meta, ds)} LIMIT 50;`;
     };
 
@@ -1105,8 +1242,15 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       if (!text) return;
 
       const targetDs = e.detail?.datasource;
-      if (targetDs === 'd1' || targetDs === 'hyperdrive') {
+      if (targetDs === 'd1' || targetDs === 'supabase') {
         setSidebarSource(targetDs);
+        setStudioSection((current) =>
+          targetDs === 'd1'
+            ? 'd1'
+            : current === 'connected_supabase'
+              ? current
+              : 'platform_supabase',
+        );
       }
 
       const mode = e.detail?.mode ?? 'replace';
@@ -1118,7 +1262,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
         setSql(text);
       }
 
-      if (shouldRun) {
+      if (shouldRun && (!targetDs || targetDs === effectiveDatasource)) {
         queueMicrotask(() => runSqlRef.current(text));
       }
     };
@@ -1127,8 +1271,15 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       const e = ev as CustomEvent<{ datasource?: DatabaseDatasource; table?: string; tab?: MetaPanel | 'data' | 'sql' }>;
       const name = String(e.detail?.table ?? '').trim();
       if (!name) return;
-      const ds: Datasource = e.detail?.datasource === 'hyperdrive' ? 'hyperdrive' : 'd1';
+      const ds: Datasource = e.detail?.datasource === 'supabase' ? 'supabase' : 'd1';
       setSidebarSource(ds);
+      setStudioSection(
+        ds === 'd1'
+          ? 'd1'
+          : studioSection === 'connected_supabase'
+            ? 'connected_supabase'
+            : 'platform_supabase',
+      );
       setPage(1);
       const tab = e.detail?.tab;
       if (tab === 'schema' || tab === 'indexes' || tab === 'relations') {
@@ -1141,12 +1292,14 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       setSelectedTable(name);
       setSql(sqlText);
       setMetaPanel(null);
-      queueMicrotask(() => runSqlRef.current(sqlText));
+      if (ds === effectiveDatasource) {
+        queueMicrotask(() => runSqlRef.current(sqlText));
+      }
     };
 
     const onQueryAnalysis = (ev: Event) => {
       const e = ev as CustomEvent<{ sql?: string; error?: string; datasource?: DatabaseDatasource }>;
-      if (e.detail?.datasource === 'd1' || e.detail?.datasource === 'hyperdrive') {
+      if (e.detail?.datasource === 'd1' || e.detail?.datasource === 'supabase') {
         setSidebarSource(e.detail.datasource);
       }
       const sqlText = String(e.detail?.sql ?? lastAttemptedSql ?? '').trim();
@@ -1168,42 +1321,53 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       window.removeEventListener('db:open-table', onOpenTable as EventListener);
       window.removeEventListener('db:open-query-analysis', onQueryAnalysis as EventListener);
     };
-  }, [isSuperadmin, lastAttemptedSql, loadSchema]);
+  }, [
+    effectiveDatasource,
+    isSuperadmin,
+    lastAttemptedSql,
+    loadSchema,
+    studioSection,
+    tables,
+  ]);
 
   useEffect(() => {
-    const dialect = effectiveDatasource === 'hyperdrive' ? 'postgresql' : 'sqlite';
+    const dialect = effectiveDatasource === 'supabase' ? 'postgresql' : 'sqlite';
     const gridRows = sqlResults.length ? sqlResults : data.rows;
     const selectedRow =
       selectedCell && pk
         ? gridRows.find((r, i) => rowKeyForRow(r, pk, i) === selectedCell.rowKey)
         : selectedCell?.row ?? null;
     const cellRow = selectedCell?.row ?? null;
-    const provider = effectiveDatasource === 'd1' ? 'cloudflare_d1' : 'supabase';
+    const provider = effectiveDatasource;
     const resourceRef =
-      studioSection === 'customer_supabase'
-        ? supabaseProjectRef || null
-        : studioSection === 'workspace_d1'
-          ? databaseName?.trim() || activeWorkspace?.database_studio_name?.trim() || null
-          : studioSection;
-    const activeSchema =
       effectiveDatasource === 'd1'
-        ? null
-        : studioSection === 'platform_hyperdrive'
-          ? 'agentsam'
-          : 'public';
+        ? d1ResourceName || null
+        : studioSection === 'connected_supabase'
+        ? supabaseProjectRef || null
+        : 'platform_supabase';
+    const resourceScope =
+      effectiveDatasource === 'd1'
+        ? d1ResourceScope
+        : studioSection === 'platform_supabase'
+          ? 'platform'
+          : 'connected';
+    const activeSchema =
+      effectiveDatasource === 'supabase' && selectedTable
+        ? selectedTableMeta?.table_schema || null
+        : null;
     const payload: DatabaseSurfaceContext = {
       route: databaseName?.trim()
         ? `/dashboard/database/${encodeURIComponent(databaseName.trim())}`
         : '/dashboard/database',
       surface: 'database',
       view: 'studio',
-      studioSection,
       provider,
+      resourceScope,
       resourceRef,
       activeSchema,
       datasource: effectiveDatasource,
       dialect,
-      selectedTable,
+      selectedTable: selectedTableMeta?.name || selectedTable,
       activeMainTab: metaPanel || (selectedTable ? 'data' : 'sql'),
       currentSqlBuffer: sql ? sql.slice(0, 4000) : '',
       selectedSql: sql ? sql.slice(0, 2000) : '',
@@ -1217,7 +1381,11 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       selectedCellSummary:
         selectedCell
           ? {
-              table: selectedCell.table || selectedTable || (selectedCell.source === 'sql_result' ? 'query' : ''),
+              table:
+                selectedCell.table ||
+                selectedTableMeta?.name ||
+                selectedTable ||
+                (selectedCell.source === 'sql_result' ? 'query' : ''),
               column: selectedCell.columnKey,
               rowKey: selectedCell.rowKey,
               valuePreview: (() => {
@@ -1260,6 +1428,8 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     data.rows,
     activeWorkspace?.database_studio_name,
     databaseName,
+    d1ResourceScope,
+    d1ResourceName,
     effectiveDatasource,
     filters.length,
     isSuperadmin,
@@ -1272,7 +1442,9 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     schema,
     selectedCell,
     selectedTable,
+    selectedTableMeta?.name,
     selectedTableMeta?.row_count,
+    selectedTableMeta?.table_schema,
     sql,
     sqlError,
     sqlResults,
@@ -1290,12 +1462,17 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
         setLoadingMain(true);
         setDataError(null);
         try {
-          const meta = selectedTableMeta ?? { name: selectedTable, table_schema: 'agentsam' };
+          const meta = selectedTableMeta ?? { name: selectedTable };
           const qs = new URLSearchParams({ page: String(nextPage), limit: String(PAGE_SIZE) });
           if (sortCol) qs.set('sort', sortCol);
           if (sortCol) qs.set('dir', sortDir);
           qs.set('filter', serializeDatabaseFilters(filters));
-          const dataPath = tableApiPath(meta, effectiveDatasource, 'data');
+          const dataPath = tableApiPath(
+            meta,
+            effectiveDatasource,
+            'data',
+            studioSection === 'connected_supabase' ? supabaseProjectRef : '',
+          );
           const dataUrl = `${dataPath}${dataPath.includes('?') ? '&' : '?'}${qs.toString()}`;
           const payload =
             effectiveDatasource === 'd1'
@@ -1326,6 +1503,8 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       selectTableSql,
       sortCol,
       sortDir,
+      studioSection,
+      supabaseProjectRef,
       syncDataResponseToGrid,
     ],
   );
@@ -1360,11 +1539,22 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     if (columnCache[table] || columnLoading[table]) return;
     setColumnLoading((c) => ({ ...c, [table]: true }));
     try {
-      const meta = activeTables.find((t) => t.name === table) ?? { name: table, table_schema: 'agentsam' };
+      const meta =
+        findSelectedTable(activeTables, table, effectiveDatasource) ??
+        tableMetaFromSelection(table, effectiveDatasource);
       const payload =
         effectiveDatasource === 'd1'
-          ? await fetchD1Json<{ columns?: SchemaColumn[]; schema?: SchemaColumn[] }>(tableApiPath(meta, effectiveDatasource, 'schema'))
-          : await fetchJson<{ columns?: SchemaColumn[]; schema?: SchemaColumn[] }>(tableApiPath(meta, effectiveDatasource, 'schema'));
+          ? await fetchD1Json<{ columns?: SchemaColumn[]; schema?: SchemaColumn[] }>(
+              tableApiPath(meta, effectiveDatasource, 'schema'),
+            )
+          : await fetchJson<{ columns?: SchemaColumn[]; schema?: SchemaColumn[] }>(
+              tableApiPath(
+                meta,
+                effectiveDatasource,
+                'schema',
+                studioSection === 'connected_supabase' ? supabaseProjectRef : '',
+              ),
+            );
       const cols = payload.columns || payload.schema || [];
       setColumnCache((c) => ({ ...c, [table]: cols }));
     } catch {
@@ -1479,8 +1669,8 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   const exportSqlResultsCsv = useCallback(() => {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const base = selectedTable || 'query';
-    exportRows(sqlResults, `${datasource}-${base}-${stamp}.csv`);
-  }, [datasource, exportRows, selectedTable, sqlResults]);
+    exportRows(sqlResults, `${effectiveDatasource}-${base}-${stamp}.csv`);
+  }, [effectiveDatasource, exportRows, selectedTable, sqlResults]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -1518,162 +1708,88 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   }, [refreshTableRows, selectedTable]);
 
   const onboardingEligible = capLoaded && pageReady;
-  const showD1Setup = false;
-  const showHyperSetup = onboardingEligible && studioSection === 'customer_supabase' && !supabaseConnected;
-  const showLearningSetup = onboardingEligible && studioSection === 'public_learning' && learningStatus === 'error' && !isSuperadmin;
-  const dsNeedsSetup = studioSection === 'customer_supabase' ? showHyperSetup : showLearningSetup;
-  const bothDisconnected =
-    onboardingEligible && !isSuperadmin && !supabaseConnected && learningStatus === 'error';
-  const sidebarEmptyMuted = onboardingEligible && dsNeedsSetup;
-
+  const activeResourceRef =
+    effectiveDatasource === 'd1'
+      ? d1ResourceName.trim()
+      : studioSection === 'platform_supabase'
+        ? 'platform_supabase'
+        : supabaseProjectRef.trim();
+  const resourceMissing = onboardingEligible && !activeResourceRef;
+  const sidebarEmptyMuted = resourceMissing;
   const setupContent =
-    !pageReady
+    !pageReady || !resourceMissing
       ? null
-      : bothDisconnected
-        ? (
-          <div className="flex h-full items-stretch justify-center gap-4 p-8">
-            <div className="w-full max-w-md">
-              <SetupCard
-                title="Public learning"
-                body="Explore safe public.iam_* examples while you connect your own database."
-                to="/dashboard/database"
-              />
-            </div>
-            <div className="w-full max-w-md">
-              <SetupCard
-                title="Connect your Supabase"
-                body="Authorize Supabase Management OAuth, then pick any project in your account for full SQL CRUD."
-                to={supabaseConnectUrl}
-              />
-            </div>
+      : (
+        <div className="flex h-full items-center justify-center p-8">
+          <div className="w-full max-w-lg">
+            <SetupCard
+              title={effectiveDatasource === 'd1' ? 'Connect Cloudflare D1' : 'Connect Supabase'}
+              body={
+                effectiveDatasource === 'd1'
+                  ? 'Connect Cloudflare, then select an authorized D1 database.'
+                  : 'Connect Supabase Management OAuth, then select a project.'
+              }
+              to={
+                effectiveDatasource === 'd1'
+                  ? `/api/oauth/cloudflare/start?return_to=${encodeURIComponent('/dashboard/database?studio=1&source=d1')}`
+                  : supabaseConnectUrl
+              }
+            />
           </div>
-        )
-        : dsNeedsSetup
-          ? (
-            <div className="flex h-full items-center justify-center p-8">
-              <div className="w-full max-w-lg">
-                {studioSection === 'customer_supabase' ? (
-                  <SetupCard
-                    title="Supabase not connected"
-                    body="Connect Supabase Management OAuth to list and query every project in your account."
-                    to={supabaseConnectUrl}
-                  />
-                ) : (
-                  <SetupCard
-                    title="Public learning unavailable"
-                    body="Could not load public.iam_* tables. Try again or connect your own Supabase."
-                    to={supabaseConnectUrl}
-                  />
-                )}
-              </div>
-            </div>
-          )
-          : null;
+        </div>
+      );
 
   return (
     <div className="database-page relative flex h-full min-h-0 overflow-hidden">
       <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--database-border)] bg-[var(--database-panel)]">
         <div className="border-b border-[var(--border-subtle)] p-3">
           <div className="flex rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] p-0.5">
-            {isSuperadmin ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSidebarSource('d1');
-                    setStudioSection('platform_d1');
-                    setSelectedTable(null);
-                  }}
-                  className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
-                    sidebarSource === 'd1' && studioSection !== 'customer_supabase' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-muted hover:bg-[var(--bg-hover)]'
-                  }`}
-                >
-                  D1
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSidebarSource('hyperdrive');
-                    setStudioSection('platform_hyperdrive');
-                    setSelectedTable(null);
-                  }}
-                  className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
-                    sidebarSource === 'hyperdrive' && studioSection === 'platform_hyperdrive' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-muted hover:bg-[var(--bg-hover)]'
-                  }`}
-                >
-                  Platform
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStudioSection('customer_supabase');
-                    setSelectedTable(null);
-                    if (supabaseProjectRef) void loadCustomerSupabaseTables(supabaseProjectRef);
-                  }}
-                  className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
-                    studioSection === 'customer_supabase' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-muted hover:bg-[var(--bg-hover)]'
-                  }`}
-                >
-                  My DB
-                </button>
-              </>
-            ) : (
-              <>
-                {workspaceD1Available ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setStudioSection('workspace_d1');
-                      setSidebarSource('d1');
-                      setSelectedTable(null);
-                      void loadTables('d1');
-                    }}
-                    className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
-                      studioSection === 'workspace_d1'
-                        ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]'
-                        : 'text-muted hover:bg-[var(--bg-hover)]'
-                    }`}
-                  >
-                    D1
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStudioSection('public_learning');
-                    setSelectedTable(null);
-                    void loadPublicLearningTables();
-                  }}
-                  className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
-                    studioSection === 'public_learning' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-muted hover:bg-[var(--bg-hover)]'
-                  }`}
-                >
-                  Learning
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStudioSection('customer_supabase');
-                    setSelectedTable(null);
-                    if (supabaseProjectRef) void loadCustomerSupabaseTables(supabaseProjectRef);
-                  }}
-                  className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
-                    studioSection === 'customer_supabase' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-muted hover:bg-[var(--bg-hover)]'
-                  }`}
-                >
-                  My DB
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              onClick={() => {
+                setSidebarSource('d1');
+                setStudioSection('d1');
+                setSelectedTable(null);
+                if (!d1ResourceName.trim()) setTables((prev) => ({ ...prev, d1: [] }));
+              }}
+              className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
+                effectiveDatasource === 'd1'
+                  ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]'
+                  : 'text-muted hover:bg-[var(--bg-hover)]'
+              }`}
+            >
+              D1
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSidebarSource('supabase');
+                setStudioSection(isSuperadmin ? 'platform_supabase' : 'connected_supabase');
+                setSelectedTable(null);
+                setTables((prev) => ({ ...prev, supabase: [] }));
+                if (!isSuperadmin && supabaseProjectRef) {
+                  void loadCustomerSupabaseTables(supabaseProjectRef);
+                }
+              }}
+              className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
+                effectiveDatasource === 'supabase'
+                  ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]'
+                  : 'text-muted hover:bg-[var(--bg-hover)]'
+              }`}
+            >
+              Supabase DB
+            </button>
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
             <button
               type="button"
               title="Refresh tables"
               onClick={() => {
-                if (studioSection === 'customer_supabase') void loadCustomerSupabaseTables(supabaseProjectRef);
-                else if (studioSection === 'workspace_d1' || effectiveDatasource === 'd1') void loadTables('d1');
-                else void loadTables(datasource);
+                if (studioSection === 'connected_supabase') {
+                  void loadCustomerSupabaseTables(supabaseProjectRef);
+                } else {
+                  void loadTables(effectiveDatasource);
+                }
               }}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-subtle)] text-muted hover:bg-[var(--bg-hover)] hover:text-main"
             >
@@ -1697,17 +1813,52 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
         </div>
 
         <div className="border-b border-[var(--border-subtle)] p-3">
-          {studioSection === 'customer_supabase' && supabaseConnected ? (
+          {effectiveDatasource === 'd1' && d1Resources.length ? (
             <div className="mb-2">
               <label className="mb-1 block text-[9px] font-black uppercase tracking-widest text-muted">
-                Supabase project
+                D1 database
               </label>
               <select
-                value={supabaseProjectRef}
+                value={d1ResourceName}
                 onChange={(e) => {
                   const next = e.target.value;
-                  setSupabaseProjectRef(next);
+                  setD1ResourceName(next);
                   setSelectedTable(null);
+                  setTables((prev) => ({ ...prev, d1: [] }));
+                }}
+                className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1.5 font-mono text-[11px] text-main outline-none"
+              >
+                <option value="">Select a D1 database</option>
+                {d1Resources.map((resource) => (
+                  <option key={resource.database_name} value={resource.database_name}>
+                    {resource.database_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+          {effectiveDatasource === 'supabase' && (isSuperadmin || supabaseConnected) ? (
+            <div className="mb-2">
+              <label className="mb-1 block text-[9px] font-black uppercase tracking-widest text-muted">
+                Supabase resource
+              </label>
+              <select
+                value={
+                  studioSection === 'platform_supabase'
+                    ? 'platform_supabase'
+                    : supabaseProjectRef
+                }
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setSelectedTable(null);
+                  setTables((prev) => ({ ...prev, supabase: [] }));
+                  if (next === 'platform_supabase') {
+                    setStudioSection('platform_supabase');
+                    void loadTables('supabase');
+                    return;
+                  }
+                  setStudioSection('connected_supabase');
+                  setSupabaseProjectRef(next);
                   void loadCustomerSupabaseTables(next);
                   if (workspaceId && next) {
                     void fetchJson('/api/data-plane/customer-supabase/select', {
@@ -1719,21 +1870,28 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                 }}
                 className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1.5 font-mono text-[11px] text-main outline-none"
               >
-                {!supabaseProjects.length ? <option value="">No projects</option> : null}
-                {supabaseProjects.map((p) => (
-                  <option key={p.ref} value={p.ref}>
-                    {p.name ? `${p.name} (${p.ref})` : p.ref}
-                  </option>
-                ))}
+                {isSuperadmin ? <option value="platform_supabase">Platform Supabase</option> : null}
+                {!isSuperadmin || studioSection === 'connected_supabase' ? (
+                  <option value="">Select a connected project</option>
+                ) : null}
+                {supabaseProjects.length ? (
+                  <optgroup label="Connected Projects">
+                    {supabaseProjects.map((p) => (
+                      <option key={p.ref} value={p.ref}>
+                        {p.name ? `${p.name} (${p.ref})` : p.ref}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
               </select>
             </div>
           ) : null}
-          {studioSection === 'customer_supabase' && !supabaseConnected ? (
+          {effectiveDatasource === 'supabase' && !isSuperadmin && !supabaseConnected ? (
             <a
               href={supabaseConnectUrl}
               className="mb-2 flex w-full items-center justify-center rounded-lg border border-[color-mix(in_srgb,var(--solar-cyan)_40%,transparent)] bg-[color-mix(in_srgb,var(--solar-cyan)_12%,transparent)] px-2 py-2 text-[10px] font-bold text-[var(--solar-cyan)] no-underline"
             >
-              Connect Supabase OAuth
+              Connect Supabase
             </a>
           ) : null}
           <div className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1.5">
@@ -1749,37 +1907,38 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
 
         <div className="min-h-0 flex-1 overflow-auto py-1">
           {filteredTables.map((table) => {
-            const open = expandedTables.has(table.name);
-            const cols = columnCache[table.name];
-            const loadingCols = columnLoading[table.name];
+            const selectionKey = tableSelectionKey(table, effectiveDatasource);
+            const open = expandedTables.has(selectionKey);
+            const cols = columnCache[selectionKey];
+            const loadingCols = columnLoading[selectionKey];
             return (
               <div
-                key={table.name}
+                key={selectionKey}
                 className="border-b border-[var(--border-subtle)]/40"
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  setTableMenu({ table: table.name, x: e.clientX, y: e.clientY });
+                  setTableMenu({ table: selectionKey, x: e.clientX, y: e.clientY });
                 }}
               >
                 <div className="flex items-stretch">
                   <button
                     type="button"
                     title={open ? 'Collapse columns' : 'Expand columns'}
-                    onClick={(e) => void toggleColumns(table.name, e)}
+                    onClick={(e) => void toggleColumns(selectionKey, e)}
                     className="flex w-7 shrink-0 items-center justify-center text-muted hover:bg-[var(--bg-hover)]"
                   >
                     <ChevronRight size={13} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
                   </button>
                   <button
                     type="button"
-                    onClick={() => onPickTable(table.name)}
+                    onClick={() => onPickTable(selectionKey)}
                     className={`flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-0 pr-1 text-left font-mono text-[11px] ${
-                      selectedTable === table.name ? 'bg-[var(--color-accent,var(--solar-cyan))]/10 text-[var(--color-accent,var(--solar-cyan))]' : 'hover:bg-[var(--bg-hover)]'
+                      selectedTable === selectionKey ? 'bg-[var(--color-accent,var(--solar-cyan))]/10 text-[var(--color-accent,var(--solar-cyan))]' : 'hover:bg-[var(--bg-hover)]'
                     }`}
                   >
                     <TableIcon size={12} className="shrink-0 opacity-70" />
                     <span className="min-w-0 truncate font-mono text-[11px]">
-                      {table.table_schema && datasource === 'hyperdrive' && table.table_schema !== 'agentsam' ? (
+                      {table.table_schema && effectiveDatasource === 'supabase' ? (
                         <span className="text-muted">{table.table_schema}.</span>
                       ) : null}
                       {highlightSearchMatchAll(table.name, tableSearch)}
@@ -1792,7 +1951,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                     onClick={(e) => {
                       e.stopPropagation();
                       const rect = e.currentTarget.getBoundingClientRect();
-                      setTableMenu({ table: table.name, x: rect.right, y: rect.bottom });
+                      setTableMenu({ table: selectionKey, x: rect.right, y: rect.bottom });
                     }}
                     className="flex w-7 shrink-0 items-center justify-center text-muted hover:bg-[var(--bg-hover)] hover:text-main"
                   >
@@ -1886,7 +2045,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
               <p className="truncate font-mono text-sm font-semibold">{selectedTable || 'Query'}</p>
               <p className="text-[11px] text-muted">
                 {datasourceLabel}
-                {!isSuperadmin && studioSection !== 'workspace_d1' ? ' · read-only SQL' : !isSuperadmin ? ' · read-only SQL' : ''}
+                {!isSuperadmin ? ' · read-only SQL' : ''}
               </p>
             </div>
           </div>
@@ -1949,7 +2108,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                 <div className="flex items-center gap-2">
                   {sqlRunState === 'success' && lastQueryMs != null && (
                     <span className="font-mono text-[10px] text-[var(--database-text-muted)]">
-                      {lastQueryMs}ms · {lastRowsRead ?? 0} rows · {datasource}
+                      {lastQueryMs}ms · {lastRowsRead ?? 0} rows · {effectiveDatasource}
                     </span>
                   )}
                   <button
@@ -2108,7 +2267,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                       rows={sqlResults}
                       columns={sqlColumns.length ? sqlColumns : Object.keys(sqlResults[0] || {})}
                       source="sql_result"
-                      datasource={datasource}
+                      datasource={effectiveDatasource}
                       table={selectedTable || undefined}
                       pk={pk || undefined}
                       selectedCell={selectedCell?.source === 'sql_result' ? selectedCell : null}
@@ -2153,7 +2312,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                         void applyCellEdit(
                           {
                             source: 'sql_result',
-                            datasource,
+                            datasource: effectiveDatasource,
                             table: selectedTable || undefined,
                             rowIndex,
                             rowKey: editingCell.rowKey,

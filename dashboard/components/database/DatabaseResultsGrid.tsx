@@ -7,7 +7,7 @@ export type DatabaseResultsGridProps = {
   rows: Record<string, unknown>[];
   columns: string[];
   source: GridCellSource;
-  datasource: 'd1' | 'hyperdrive';
+  datasource: 'd1' | 'supabase';
   table?: string;
   pk?: string;
   selectedCell: SelectedGridCell | null;

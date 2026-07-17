@@ -4,7 +4,12 @@
 
 import { IAM_D1_DATABASE_ID } from './d1-graphql-analytics.js';
 
-export const PLATFORM_DATA_PLANES = Object.freeze(['platform_d1', 'platform_supabase_agentsam']);
+export const PLATFORM_DATA_PLANES = Object.freeze([
+  'platform_d1',
+  'platform_supabase',
+  // Read-only compatibility for pre-922 registry rows.
+  'platform_supabase_agentsam',
+]);
 
 /** Full reach within caller OAuth account — not cross-account, not workspace-pinned. */
 export const USER_ACCOUNT_DATA_PLANE = 'user_account';
