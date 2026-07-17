@@ -1324,7 +1324,12 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         animateOpen={animLibVisible}
         onToggleAnimate={() => { if (animLibVisible) closeAnimLib(); else openAnimLib(); }}
         planOpen={false}
-        onTogglePlan={() => navigate('/dashboard/draw?from=designstudio&mode=plan')}
+        onTogglePlan={() => {
+          const bp = cad.activeBlueprintId ? String(cad.activeBlueprintId).trim() : '';
+          const q = new URLSearchParams({ from: 'designstudio', mode: 'plan' });
+          if (bp) q.set('blueprint_id', bp);
+          navigate(`/dashboard/draw?${q.toString()}`);
+        }}
         adjustOpen={inspectorOpen && inspectorTab === 'scene'}
         onToggleAdjust={() => {
           if (inspectorOpen && inspectorTab === 'scene') closeInspector();

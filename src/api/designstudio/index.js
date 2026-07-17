@@ -511,6 +511,30 @@ export async function handleDesignStudioApi(request, url, env, _ctx) {
       if (body.notes !== undefined) push('notes', body.notes != null ? String(body.notes) : null);
       if (body.cad_script !== undefined) push('cad_script', body.cad_script != null ? String(body.cad_script) : null);
       if (body.cad_engine !== undefined) push('cad_engine', body.cad_engine != null ? String(body.cad_engine) : null);
+      if (body.preview_image_url !== undefined) {
+        push(
+          'preview_image_url',
+          body.preview_image_url != null && String(body.preview_image_url).trim() !== ''
+            ? String(body.preview_image_url).trim()
+            : null,
+        );
+      }
+      if (body.preview_svg_url !== undefined) {
+        push(
+          'preview_svg_url',
+          body.preview_svg_url != null && String(body.preview_svg_url).trim() !== ''
+            ? String(body.preview_svg_url).trim()
+            : null,
+        );
+      }
+      if (body.latest_asset_id !== undefined) {
+        push(
+          'latest_asset_id',
+          body.latest_asset_id != null && String(body.latest_asset_id).trim() !== ''
+            ? String(body.latest_asset_id).trim()
+            : null,
+        );
+      }
       if (body.status != null) push('status', String(body.status));
       if (!sets.length) return jsonResponse({ error: 'No fields to update' }, 400);
       sets.push(`updated_at = datetime('now')`);

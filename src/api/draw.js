@@ -17,7 +17,7 @@
  *   GET  /api/draw/connections        — check which exports are connected for user
  */
 
-import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { getAuthUser, jsonResponse, fetchAuthUserTenantId, fallbackSystemTenantId } from '../core/auth.js';
 import { persistWorkspaceThemeSlug } from '../core/workspace-user-prefs.js';
 import { resolveOAuthAccessToken } from './oauth.js';
 import {
@@ -39,6 +39,22 @@ function parseDataUrl(dataUrl) {
   const u8arr = new Uint8Array(n);
   while (n--) u8arr[n] = bstr.charCodeAt(n);
   return { bytes: u8arr, contentType };
+}
+
+/** PNG/SVG data URL, or raw SVG markup. */
+function parseImagePayload(raw, fallbackType = 'application/octet-stream') {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('data:')) return parseDataUrl(trimmed);
+  if (fallbackType === 'image/svg+xml' || /<svg[\s>]/i.test(trimmed)) {
+    return { bytes: new TextEncoder().encode(trimmed), contentType: 'image/svg+xml' };
+  }
+  return null;
+}
+
+function publicAssetUrl(r2Key) {
+  const key = String(r2Key || '').trim().replace(/^\/+/, '');
+  return key ? `/assets/${key}` : '';
 }
 
 function safeFilename(name = '') {
@@ -329,7 +345,12 @@ export async function handleDrawApi(request, url, env, ctx) {
       const obj = await env.ASSETS.get(row.r2_key);
       if (!obj) return jsonResponse({ error: 'File not found in storage' }, 404);
 
-      const contentType = row.generation_type === 'png_export' ? 'image/png' : 'application/json';
+      const contentType =
+        row.generation_type === 'png_export' || row.generation_type === 'plan_export'
+          ? 'image/png'
+          : row.generation_type === 'svg_export'
+            ? 'image/svg+xml'
+            : 'application/json';
       const disposition = `attachment; filename="${row.filename || 'drawing'}"`;
       return new Response(obj.body, {
         headers: {
@@ -395,13 +416,15 @@ export async function handleDrawApi(request, url, env, ctx) {
     // ── POST /api/draw/export ─────────────────────────────────────────────────
     //
     // Body:
-    //   canvasData    string  — data URL (PNG) — required
+    //   canvasData    string  — PNG data URL (required unless svgData only)
+    //   svgData       string  — SVG data URL or raw <svg> markup (optional)
     //   scene         object  — Excalidraw JSON — optional, saved alongside
     //   title         string  — human name
     //   filename      string  — base filename (no extension)
     //   destinations  array   — ['r2', 'gdrive', 'github'] — defaults to ['r2']
     //   drawId        number  — existing draw ID to update
-    //   gdrive        object  — { fileId? }  — optional, for updating existing GDrive file
+    //   blueprint_id  string  — optional Design Studio blueprint to attach previews
+    //   gdrive        object  — { fileId? }
     //   github        object  — { repo, path?, sha?, commitMessage? }
     //
     if (pathLower === '/api/draw/export' && method === 'POST') {
@@ -412,36 +435,67 @@ export async function handleDrawApi(request, url, env, ctx) {
       const title        = (body.title || '').trim() || `Export ${new Date().toLocaleDateString()}`;
       const baseName     = safeFilename(body.filename || title);
       const destinations = Array.isArray(body.destinations) ? body.destinations : ['r2'];
+      const blueprintId  = body.blueprint_id != null ? String(body.blueprint_id).trim() : '';
 
-      if (!body.canvasData) return jsonResponse({ error: 'canvasData (PNG data URL) required' }, 400);
+      const pngParsed = body.canvasData ? parseImagePayload(body.canvasData, 'image/png') : null;
+      const svgParsed = body.svgData ? parseImagePayload(body.svgData, 'image/svg+xml') : null;
+      if (!pngParsed && !svgParsed) {
+        return jsonResponse({ error: 'canvasData (PNG) and/or svgData required' }, 400);
+      }
+      if (body.canvasData && !pngParsed) return jsonResponse({ error: 'Invalid canvasData' }, 400);
+      if (body.svgData && !svgParsed) return jsonResponse({ error: 'Invalid svgData' }, 400);
 
-      const parsed = parseDataUrl(body.canvasData);
-      if (!parsed) return jsonResponse({ error: 'Invalid canvasData' }, 400);
-
-      const pngFilename  = `${baseName}.png`;
+      const pngFilename = `${baseName}.png`;
+      const svgFilename = `${baseName}.svg`;
+      const generationType = pngParsed && svgParsed ? 'plan_export' : pngParsed ? 'png_export' : 'svg_export';
       const results = {};
+      const exportId = crypto.randomUUID();
 
-      // ── 1. R2 (always) ──
-      const r2Key = `draw/exports/${userId}/${crypto.randomUUID()}.png`;
-      await env.ASSETS.put(r2Key, parsed.bytes, {
-        httpMetadata: { contentType: 'image/png' },
-      });
-      results.r2 = { ok: true, r2_key: r2Key };
+      let r2Key = null;
+      let publicUrl = '';
+      let svgR2Key = null;
+      let svgPublicUrl = '';
+
+      // ── 1. R2 PNG (primary preview) ──
+      if (pngParsed) {
+        r2Key = `draw/exports/${userId}/${exportId}.png`;
+        await env.ASSETS.put(r2Key, pngParsed.bytes, {
+          httpMetadata: { contentType: 'image/png' },
+        });
+        publicUrl = publicAssetUrl(r2Key);
+        results.r2 = { ok: true, r2_key: r2Key, public_url: publicUrl, content_type: 'image/png' };
+      }
+
+      // ── 1b. R2 SVG (vector plan) ──
+      if (svgParsed) {
+        svgR2Key = `draw/exports/${userId}/${exportId}.svg`;
+        await env.ASSETS.put(svgR2Key, svgParsed.bytes, {
+          httpMetadata: { contentType: 'image/svg+xml' },
+        });
+        svgPublicUrl = publicAssetUrl(svgR2Key);
+        results.r2_svg = { ok: true, r2_key: svgR2Key, public_url: svgPublicUrl, content_type: 'image/svg+xml' };
+        if (!results.r2) {
+          results.r2 = { ok: true, r2_key: svgR2Key, public_url: svgPublicUrl, content_type: 'image/svg+xml' };
+          r2Key = svgR2Key;
+          publicUrl = svgPublicUrl;
+        }
+      }
 
       // Also save scene JSON if provided
       let sceneR2Key = null;
       if (body.scene && typeof body.scene === 'object') {
-        sceneR2Key = `draw/scenes/${userId}/${crypto.randomUUID()}.excalidraw`;
+        sceneR2Key = `draw/scenes/${userId}/${exportId}.excalidraw`;
         await env.ASSETS.put(sceneR2Key, JSON.stringify(body.scene), {
           httpMetadata: { contentType: 'application/json' },
         });
+        results.scene = { ok: true, r2_key: sceneR2Key, public_url: publicAssetUrl(sceneR2Key) };
       }
 
-      // ── 2. Google Drive (optional) ──
+      // ── 2. Google Drive (optional — PNG preferred) ──
       let gdriveFileId = body.gdrive?.fileId || null;
-      if (destinations.includes('gdrive')) {
+      if (destinations.includes('gdrive') && pngParsed) {
         const gd = await exportToGDrive(env, userId, {
-          bytes:          parsed.bytes,
+          bytes:          pngParsed.bytes,
           contentType:    'image/png',
           filename:       pngFilename,
           existingFileId: gdriveFileId,
@@ -450,13 +504,13 @@ export async function handleDrawApi(request, url, env, ctx) {
         if (gd.ok) gdriveFileId = gd.fileId;
       }
 
-      // ── 3. GitHub (optional) ──
+      // ── 3. GitHub (optional — PNG preferred) ──
       let githubSha  = body.github?.sha  || null;
       let githubRepo = body.github?.repo || null;
       let githubPath = null;
-      if (destinations.includes('github') && body.github?.repo) {
+      if (destinations.includes('github') && body.github?.repo && pngParsed) {
         const gh = await exportToGitHub(env, userId, {
-          bytes:         parsed.bytes,
+          bytes:         pngParsed.bytes,
           filename:      pngFilename,
           repo:          body.github.repo,
           path:          body.github.path || 'excalidraw',
@@ -470,16 +524,17 @@ export async function handleDrawApi(request, url, env, ctx) {
       // ── Persist to D1 ──
       const exportsJson = JSON.stringify(results);
       let drawId = body.drawId || null;
+      const primaryFilename = pngParsed ? pngFilename : svgFilename;
 
       if (drawId) {
         await env.DB.prepare(`
           UPDATE project_draws SET
-            title = ?, filename = ?, r2_key = ?, generation_type = 'png_export',
+            title = ?, filename = ?, r2_key = ?, generation_type = ?,
             exports_json = ?, gdrive_file_id = ?, github_repo = ?,
             github_path = ?, github_sha = ?
           WHERE id = ? AND (project_id = ? OR user_id = ?)
         `).bind(
-          title, pngFilename, r2Key, exportsJson,
+          title, primaryFilename, r2Key, generationType, exportsJson,
           gdriveFileId, githubRepo, githubPath, githubSha,
           drawId, userId, userId
         ).run();
@@ -488,15 +543,22 @@ export async function handleDrawApi(request, url, env, ctx) {
           INSERT INTO project_draws
             (project_id, user_id, title, filename, r2_key, generation_type,
              exports_json, gdrive_file_id, github_repo, github_path, github_sha, created_at)
-          VALUES (?, ?, ?, ?, ?, 'png_export', ?, ?, ?, ?, ?, datetime('now'))
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         `).bind(
-          userId, userId, title, pngFilename, r2Key, exportsJson,
+          userId, userId, title, primaryFilename, r2Key, generationType, exportsJson,
           gdriveFileId, githubRepo, githubPath, githubSha
         ).run();
         drawId = ins?.meta?.last_row_id;
       }
 
-      // Also link scene JSON row if saved
+      if (svgR2Key && pngParsed) {
+        await env.DB.prepare(`
+          INSERT INTO project_draws
+            (project_id, user_id, title, filename, r2_key, generation_type, created_at)
+          VALUES (?, ?, ?, ?, ?, 'svg_export', datetime('now'))
+        `).bind(userId, userId, title, svgFilename, svgR2Key).run();
+      }
+
       if (sceneR2Key) {
         await env.DB.prepare(`
           INSERT INTO project_draws
@@ -505,12 +567,67 @@ export async function handleDrawApi(request, url, env, ctx) {
         `).bind(userId, userId, title, `${baseName}.excalidraw`, sceneR2Key).run();
       }
 
+      // ── Attach previews to Design Studio blueprint (optional) ──
+      let blueprint = null;
+      if (blueprintId) {
+        try {
+          let tenantId =
+            authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+              ? String(authUser.tenant_id).trim()
+              : await fetchAuthUserTenantId(env, userId);
+          if (!tenantId && authUser.email) tenantId = await fetchAuthUserTenantId(env, authUser.email);
+          if (!tenantId) tenantId = fallbackSystemTenantId(env);
+
+          const existing = await env.DB.prepare(
+            `SELECT id FROM designstudio_design_blueprints WHERE id = ? AND tenant_id = ?`,
+          )
+            .bind(blueprintId, tenantId)
+            .first();
+          if (existing) {
+            const sets = [];
+            const vals = [];
+            const push = (col, v) => {
+              sets.push(`${col} = ?`);
+              vals.push(v);
+            };
+            if (publicUrl) push('preview_image_url', publicUrl);
+            if (svgPublicUrl) push('preview_svg_url', svgPublicUrl);
+            if (body.scene && typeof body.scene === 'object') {
+              push('sketch_json', JSON.stringify(body.scene));
+            }
+            if (sets.length) {
+              sets.push(`updated_at = datetime('now')`);
+              vals.push(blueprintId, tenantId);
+              await env.DB.prepare(
+                `UPDATE designstudio_design_blueprints SET ${sets.join(', ')} WHERE id = ? AND tenant_id = ?`,
+              )
+                .bind(...vals)
+                .run();
+              results.blueprint = { ok: true, id: blueprintId };
+            }
+            blueprint = await env.DB.prepare(`SELECT * FROM designstudio_design_blueprints WHERE id = ?`)
+              .bind(blueprintId)
+              .first();
+          } else {
+            results.blueprint = { ok: false, error: 'Blueprint not found' };
+          }
+        } catch (bpErr) {
+          results.blueprint = { ok: false, error: String(bpErr?.message || bpErr) };
+        }
+      }
+
       return jsonResponse({
-        ok:      true,
+        ok: true,
         drawId,
-        r2_key:  r2Key,
+        r2_key: r2Key,
+        public_url: publicUrl || null,
+        svg_r2_key: svgR2Key,
+        svg_public_url: svgPublicUrl || null,
+        scene_r2_key: sceneR2Key,
+        generation_type: generationType,
+        blueprint_id: blueprintId || null,
+        blueprint,
         results,
-        // Summarize what actually succeeded
         exported: Object.entries(results)
           .filter(([, v]) => v?.ok)
           .map(([k]) => k),

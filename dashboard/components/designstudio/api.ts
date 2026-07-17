@@ -10,6 +10,9 @@ export type BlueprintRow = {
   cad_engine?: string | null;
   sketch_json?: string | null;
   intent_json?: string | null;
+  preview_image_url?: string | null;
+  preview_svg_url?: string | null;
+  latest_asset_id?: string | null;
   created_at?: string;
   updated_at?: string;
 };

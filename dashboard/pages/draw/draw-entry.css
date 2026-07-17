@@ -375,6 +375,50 @@
   min-width: 0;
 }
 
+.draw-canvas-toolbar__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.draw-canvas-toolbar__save {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--color-primary, #22d3ee);
+  color: #0b1220;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.draw-canvas-toolbar__save:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.draw-canvas-toolbar__save:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.draw-canvas-toolbar__status {
+  font-size: 0.625rem;
+  color: var(--dashboard-muted);
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.draw-canvas-toolbar__status--error {
+  color: #f87171;
+}
+
 .draw-engine-toggle {
   display: inline-flex;
   gap: 2px;

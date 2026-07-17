@@ -128,6 +128,13 @@ export function BlueprintPanel({ blueprints, activeBlueprintId, onSelect, onCrea
                 <span className="font-bold truncate">{bp.title}</span>
                 {statusBadge(bp.status)}
               </div>
+              {bp.preview_image_url ? (
+                <img
+                  src={bp.preview_image_url}
+                  alt=""
+                  className="mt-1.5 w-full max-h-16 object-contain rounded border border-[var(--border-subtle)] bg-[var(--bg-canvas)]"
+                />
+              ) : null}
               {bp.original_prompt ? (
                 <p className="text-[9px] text-muted truncate mt-0.5">{bp.original_prompt}</p>
               ) : null}

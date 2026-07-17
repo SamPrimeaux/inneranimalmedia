@@ -181,12 +181,24 @@ export const ExcalidrawView: React.FC<ExcalidrawViewProps> = ({
             } else if (action === 'add_elements' && Array.isArray(params?.elements)) {
                 const existing = api.getSceneElements();
                 api.updateScene({ elements: [...existing, ...params.elements] });
-            } else if (action === 'export') {
-                api.exportToBlob({ mimeType: 'image/png' }).then((blob: Blob) => {
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url; a.download = 'excalidraw-export.png'; a.click();
-                    URL.revokeObjectURL(url);
+            } else if (action === 'export' || action === 'export_plan') {
+                void import('../lib/drawPlanExport').then(({ exportExcalidrawPlanArtifacts }) => {
+                    const blueprintId =
+                        typeof params?.blueprint_id === 'string'
+                            ? params.blueprint_id
+                            : typeof params?.blueprintId === 'string'
+                              ? params.blueprintId
+                              : null;
+                    return exportExcalidrawPlanArtifacts(api, {
+                        title: typeof params?.title === 'string' ? params.title : 'Plan export',
+                        filename: typeof params?.filename === 'string' ? params.filename : undefined,
+                        blueprintId,
+                        downloadLocal: action === 'export' || params?.downloadLocal === true,
+                    }).then((result) => {
+                        window.dispatchEvent(
+                            new CustomEvent('iam:draw_plan_exported', { detail: result }),
+                        );
+                    });
                 });
             } else if (action === 'load_library' && params?.slug) {
                 void fetch('/api/draw/library', {

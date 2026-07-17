@@ -41,6 +41,13 @@ export default function DrawPage({
   const [librariesReady, setLibrariesReady] = useState(false);
   const [clearOnOpen, setClearOnOpen] = useState(false);
   const [libraryItemCount, setLibraryItemCount] = useState(0);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveMessage, setSaveMessage] = useState('');
+
+  const blueprintId = useMemo(() => {
+    const raw = searchParams.get('blueprint_id') || searchParams.get('blueprintId') || '';
+    return raw.trim() || null;
+  }, [searchParams]);
 
   useEffect(() => {
     if (planDeepLink) setPhase('canvas');
@@ -92,6 +99,49 @@ export default function DrawPage({
     };
   }, []);
 
+  useEffect(() => {
+    const onExported = (e: Event) => {
+      const detail = (e as CustomEvent).detail as {
+        ok?: boolean;
+        public_url?: string | null;
+        svg_public_url?: string | null;
+        error?: string;
+      };
+      if (detail?.ok) {
+        setSaveStatus('saved');
+        const bits = [
+          detail.public_url ? 'PNG saved' : null,
+          detail.svg_public_url ? 'SVG saved' : null,
+          blueprintId ? 'blueprint updated' : null,
+        ].filter(Boolean);
+        setSaveMessage(bits.length ? bits.join(' · ') : 'Plan preview saved');
+      } else {
+        setSaveStatus('error');
+        setSaveMessage(detail?.error || 'Export failed');
+      }
+    };
+    window.addEventListener('iam:draw_plan_exported', onExported as EventListener);
+    return () => window.removeEventListener('iam:draw_plan_exported', onExported as EventListener);
+  }, [blueprintId]);
+
+  const savePlanPreview = useCallback(() => {
+    setSaveStatus('saving');
+    setSaveMessage('Saving SVG + PNG…');
+    window.dispatchEvent(
+      new CustomEvent('iam:excalidraw_action', {
+        detail: {
+          action: 'export_plan',
+          params: {
+            title: 'Design Studio plan',
+            filename: 'designstudio-plan',
+            blueprint_id: blueprintId,
+            downloadLocal: false,
+          },
+        },
+      }),
+    );
+  }, [blueprintId]);
+
   if (phase === 'entry') {
     return (
       <DrawEntryScreen
@@ -123,6 +173,29 @@ export default function DrawPage({
                   : `${enabledLibrarySlugs.length} pack${enabledLibrarySlugs.length === 1 ? '' : 's'} (empty — retry Libraries)`
                 : 'Excalidraw · diagrams & flowcharts'}
         </span>
+        {planDeepLink || blueprintId ? (
+          <div className="draw-canvas-toolbar__actions">
+            <button
+              type="button"
+              className="draw-canvas-toolbar__save"
+              onClick={savePlanPreview}
+              disabled={saveStatus === 'saving'}
+            >
+              {saveStatus === 'saving' ? 'Saving…' : 'Save plan preview'}
+            </button>
+            {saveStatus !== 'idle' && saveMessage ? (
+              <span
+                className={
+                  saveStatus === 'error'
+                    ? 'draw-canvas-toolbar__status draw-canvas-toolbar__status--error'
+                    : 'draw-canvas-toolbar__status'
+                }
+              >
+                {saveMessage}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       {planDeepLink ? (
         <div className="draw-plan-templates" role="toolbar" aria-label="Plan templates">
