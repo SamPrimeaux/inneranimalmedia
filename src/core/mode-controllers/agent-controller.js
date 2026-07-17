@@ -29,6 +29,7 @@ import {
   extractMailSurfaceContext,
   formatMailSurfaceContextForAgent,
 } from '../mail-studio-context.js';
+import { withAbortableAgentRunTimeout } from '../agent-run-timeout.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -37,18 +38,7 @@ const SSE_HEADERS = {
   'Access-Control-Allow-Origin': '*',
 };
 
-/**
- * @param {Promise<unknown>} promise
- * @param {number} ms
- */
-function withTimeout(promise, ms) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('agent_run_timeout')), ms);
-    }),
-  ]);
-}
+const AGENT_RUN_HARD_TIMEOUT_MS = 55_000;
 
 /**
  * Quickstart seed messages are meta-instructions to the MODEL ("Ask the user what they
@@ -526,7 +516,10 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     }),
   );
 
-  const maxRunMs = profile.max_runtime_ms || 90000;
+  const maxRunMs = Math.min(
+    Number(profile.max_runtime_ms) || 90000,
+    AGENT_RUN_HARD_TIMEOUT_MS - 5000,
+  );
 
   try {
     tools = await filterToolsForCapabilityDecision(env, tools, capabilityDecision, message, {
@@ -812,12 +805,17 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       let loopStats = null;
       let clientAborted = false;
       const reqSignal = input.request?.signal ?? null;
+      let onRequestAbort = null;
       if (reqSignal) {
         if (reqSignal.aborted) clientAborted = true;
-        else reqSignal.addEventListener('abort', () => { clientAborted = true; }, { once: true });
+        else {
+          onRequestAbort = () => { clientAborted = true; };
+          reqSignal.addEventListener('abort', onRequestAbort, { once: true });
+        }
       }
-        loopStats = await withTimeout(
-          runAgentToolLoop(env, ctx, emit, {
+      const runDeadlineController = new AbortController();
+      loopStats = await withAbortableAgentRunTimeout(
+        () => runAgentToolLoop(env, ctx, emit, {
             request: input.request,
             messages: chatMessages,
             tools,
@@ -854,11 +852,12 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
             runtimeProfile: profile,
             codemodeRuntime,
             chatTurnMeta,
-            signal: reqSignal,
+            signal: runDeadlineController.signal,
             explicitCatalogSeed: null,
-          }),
-          maxRunMs + 5000,
-        );
+        }),
+        maxRunMs + 5000,
+        runDeadlineController,
+      );
 
         if (!loopStats?.cancelled) {
           emit('done', {});
@@ -893,6 +892,9 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           emit('done', {});
         }
       } finally {
+        if (reqSignal && onRequestAbort) {
+          reqSignal.removeEventListener('abort', onRequestAbort);
+        }
         if (chatAgentRunId && userId && workspaceId) {
           const cancelled = loopStats?.cancelled === true || clientAborted;
           const timedOut = loopStats?.timedOut === true;
