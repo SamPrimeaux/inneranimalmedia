@@ -870,6 +870,13 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   useEffect(() => {
     setMobileThreadTab('chat');
     setMobileContextFocusId(null);
+    // Surface payloads are ambient UI state, not conversation-scoped. Drop them on
+    // thread switches so Design Studio / mail / DB context cannot ride into an
+    // unrelated chat turn.
+    browserSurfaceRef.current = null;
+    databaseSurfaceRef.current = null;
+    designStudioSurfaceRef.current = null;
+    mailSurfaceRef.current = null;
   }, [conversationId]);
 
   useEffect(() => {
