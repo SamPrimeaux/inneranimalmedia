@@ -1117,6 +1117,13 @@ const App: React.FC = () => {
             new CustomEvent('iam:excalidraw_action', { detail: { action: msg.action, params: msg.params } }),
           );
         }
+        if (msg.type === 'iam_designstudio') {
+          window.dispatchEvent(
+            new CustomEvent('iam:designstudio_action', {
+              detail: { action: msg.action, params: msg.params },
+            }),
+          );
+        }
         if (msg.type === 'iam_monaco_patch') {
           window.dispatchEvent(
             new CustomEvent('iam:monaco_patch', {

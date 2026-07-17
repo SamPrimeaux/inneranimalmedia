@@ -178,9 +178,189 @@ async function cadGenerate(params, env, runContext) {
   };
 }
 
+async function blueprintList(params, env, runContext) {
+  const scope = scopeFromContext(params, runContext);
+  const limit = Math.min(Math.max(Number(params.limit) || 20, 1), 50);
+  const status = String(params.status || '').trim();
+  let sql = `SELECT id, title, description, original_prompt, status, cad_engine,
+                    preview_image_url, preview_svg_url, latest_asset_id,
+                    created_at, updated_at
+             FROM designstudio_design_blueprints
+             WHERE tenant_id = ? AND workspace_id = ?`;
+  const binds = [scope.tenantId, scope.workspaceId];
+  if (status) {
+    sql += ` AND status = ?`;
+    binds.push(status);
+  }
+  sql += ` ORDER BY updated_at DESC LIMIT ?`;
+  binds.push(limit);
+  const { results } = await env.DB.prepare(sql).bind(...binds).all();
+  return { blueprints: results || [], count: results?.length || 0 };
+}
+
+async function blueprintGet(params, env, runContext) {
+  const scope = scopeFromContext(params, runContext);
+  const id = String(params.blueprint_id ?? params.id ?? '').trim();
+  if (!id) return { error: 'blueprint_id required' };
+  const row = await env.DB.prepare(
+    `SELECT * FROM designstudio_design_blueprints
+     WHERE id = ? AND tenant_id = ? AND workspace_id = ?
+     LIMIT 1`,
+  )
+    .bind(id, scope.tenantId, scope.workspaceId)
+    .first();
+  return row ? { blueprint: row } : { error: 'Blueprint not found' };
+}
+
+async function blueprintCreate(params, env, runContext) {
+  const scope = scopeFromContext(params, runContext);
+  const title = String(params.title || '').trim();
+  if (!title) return { error: 'title required' };
+  const description =
+    params.description != null && String(params.description).trim() !== ''
+      ? String(params.description).trim()
+      : null;
+  const originalPrompt =
+    params.original_prompt != null && String(params.original_prompt).trim() !== ''
+      ? String(params.original_prompt).trim()
+      : description || title;
+  const sketchJson =
+    typeof params.sketch_json === 'object' && params.sketch_json !== null
+      ? JSON.stringify(params.sketch_json)
+      : typeof params.sketch_json === 'string'
+        ? params.sketch_json
+        : '{}';
+  const tagsJson = Array.isArray(params.tags)
+    ? JSON.stringify(params.tags)
+    : typeof params.tags === 'string'
+      ? params.tags
+      : '[]';
+  const setActive = params.set_active !== false && params.set_active !== 0;
+
+  const row = await env.DB.prepare(
+    `INSERT INTO designstudio_design_blueprints
+       (tenant_id, workspace_id, title, description, original_prompt, sketch_json, tags, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'draft')
+     RETURNING *`,
+  )
+    .bind(scope.tenantId, scope.workspaceId, title, description, originalPrompt, sketchJson, tagsJson)
+    .first();
+
+  if (!row?.id) return { error: 'Failed to create blueprint' };
+
+  if (setActive && env.IAM_COLLAB) {
+    try {
+      const { broadcastToCollabCanvas } = await import('../../core/collab-broadcast.js');
+      await broadcastToCollabCanvas(env, scope.workspaceId, {
+        type: 'iam_designstudio',
+        action: 'select_blueprint',
+        params: { blueprint_id: String(row.id), title: row.title },
+      });
+    } catch (e) {
+      console.warn('[designstudio_blueprint_create] select broadcast failed', e?.message ?? e);
+    }
+  }
+
+  return {
+    ok: true,
+    blueprint: row,
+    blueprint_id: row.id,
+    set_active: setActive,
+    next_step:
+      'Blueprint is active in Design Studio. For a 2D floor plan, open Draw plan mode or ask on /dashboard/draw. Do not call cad_generate until the user asks for 3D.',
+  };
+}
+
+async function blueprintUpdate(params, env, runContext) {
+  const scope = scopeFromContext(params, runContext);
+  const id = String(params.blueprint_id ?? params.id ?? '').trim();
+  if (!id) return { error: 'blueprint_id required' };
+  const existing = await env.DB.prepare(
+    `SELECT id FROM designstudio_design_blueprints
+     WHERE id = ? AND tenant_id = ? AND workspace_id = ?
+     LIMIT 1`,
+  )
+    .bind(id, scope.tenantId, scope.workspaceId)
+    .first();
+  if (!existing) return { error: 'Blueprint not found' };
+
+  const sets = [];
+  const vals = [];
+  const push = (col, v) => {
+    sets.push(`${col} = ?`);
+    vals.push(v);
+  };
+  if (params.title != null) push('title', String(params.title).trim());
+  if (params.description !== undefined) {
+    push('description', params.description != null ? String(params.description) : null);
+  }
+  if (params.original_prompt !== undefined) {
+    push('original_prompt', params.original_prompt != null ? String(params.original_prompt) : null);
+  }
+  if (params.status != null) push('status', String(params.status).trim());
+  if (params.preview_image_url !== undefined) {
+    push(
+      'preview_image_url',
+      params.preview_image_url != null && String(params.preview_image_url).trim() !== ''
+        ? String(params.preview_image_url).trim()
+        : null,
+    );
+  }
+  if (params.preview_svg_url !== undefined) {
+    push(
+      'preview_svg_url',
+      params.preview_svg_url != null && String(params.preview_svg_url).trim() !== ''
+        ? String(params.preview_svg_url).trim()
+        : null,
+    );
+  }
+  if (params.sketch_json !== undefined) {
+    push(
+      'sketch_json',
+      typeof params.sketch_json === 'object'
+        ? JSON.stringify(params.sketch_json)
+        : String(params.sketch_json || '{}'),
+    );
+  }
+  if (params.set_active === true || params.set_active === 1) {
+    try {
+      const { broadcastToCollabCanvas } = await import('../../core/collab-broadcast.js');
+      await broadcastToCollabCanvas(env, scope.workspaceId, {
+        type: 'iam_designstudio',
+        action: 'select_blueprint',
+        params: { blueprint_id: id },
+      });
+    } catch (e) {
+      console.warn('[designstudio_blueprint_update] select broadcast failed', e?.message ?? e);
+    }
+  }
+  if (!sets.length) {
+    const row = await env.DB.prepare(`SELECT * FROM designstudio_design_blueprints WHERE id = ?`)
+      .bind(id)
+      .first();
+    return { ok: true, blueprint: row, unchanged: true };
+  }
+  sets.push(`updated_at = datetime('now')`);
+  vals.push(id, scope.tenantId, scope.workspaceId);
+  await env.DB.prepare(
+    `UPDATE designstudio_design_blueprints SET ${sets.join(', ')}
+     WHERE id = ? AND tenant_id = ? AND workspace_id = ?`,
+  )
+    .bind(...vals)
+    .run();
+  const row = await env.DB.prepare(`SELECT * FROM designstudio_design_blueprints WHERE id = ?`)
+    .bind(id)
+    .first();
+  return { ok: true, blueprint: row };
+}
+
 export const handlers = {
   designstudio_scene_list: listScenes,
   designstudio_asset_list: listAssets,
+  designstudio_blueprint_list: blueprintList,
+  designstudio_blueprint_get: blueprintGet,
+  designstudio_blueprint_create: blueprintCreate,
+  designstudio_blueprint_update: blueprintUpdate,
   cad_job_status: cadJobStatus,
   cad_job_cancel: cadJobCancel,
   cad_generate: cadGenerate,

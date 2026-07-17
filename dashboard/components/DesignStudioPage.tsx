@@ -255,6 +255,20 @@ export const DesignStudioPage: React.FC<DesignStudioPageProps> = ({
   });
 
   useEffect(() => {
+    const onStudioAction = (e: Event) => {
+      const { action, params } = (e as CustomEvent<{ action?: string; params?: { blueprint_id?: string } }>)
+        .detail || {};
+      if (action !== 'select_blueprint') return;
+      const id = typeof params?.blueprint_id === 'string' ? params.blueprint_id.trim() : '';
+      if (!id) return;
+      cad.setActiveBlueprintId(id);
+      void cad.refreshBlueprints();
+    };
+    window.addEventListener('iam:designstudio_action', onStudioAction as EventListener);
+    return () => window.removeEventListener('iam:designstudio_action', onStudioAction as EventListener);
+  }, [cad.setActiveBlueprintId, cad.refreshBlueprints]);
+
+  useEffect(() => {
     const onConv = (e: Event) => {
       const raw = (e as CustomEvent<{ id?: string | null }>).detail?.id;
       if (raw === null || raw === undefined) {

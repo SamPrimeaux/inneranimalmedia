@@ -131,8 +131,41 @@ export const handlers = {
         }
         return { ok: true, element_count: elements.length };
     },
-    async excalidraw_export(params, env) { return await invokeMediaOp(env, '/api/draw/export', 'POST', params); },
-    async excalidraw_load_library(params, env) { return await invokeMediaOp(env, '/api/draw/library', 'POST', params); },
+    async excalidraw_export(params, env, runContext = {}) {
+        const hasPayload = Boolean(
+            (params?.canvasData && String(params.canvasData).trim()) ||
+                (params?.svgData && String(params.svgData).trim()),
+        );
+        // Agent rarely has PNG bytes — ask the open Draw canvas to export SVG+PNG durably.
+        if (!hasPayload) {
+            const workspaceId =
+                resolveCollabWorkspaceId(params) ||
+                String(runContext.workspaceId || runContext.workspace_id || '').trim();
+            if (!workspaceId) {
+                return {
+                    error:
+                        'canvasData/svgData required when Draw is not open, or pass workspace_id to trigger client export',
+                };
+            }
+            await broadcastExcalidrawAction(env, workspaceId, 'export_plan', {
+                title: params?.title || 'Plan export',
+                filename: params?.filename,
+                blueprint_id: params?.blueprint_id || params?.blueprintId || null,
+                downloadLocal: params?.downloadLocal === true,
+            });
+            return {
+                ok: true,
+                deferred: true,
+                message:
+                    'Asked the Draw canvas to save SVG+PNG to R2 (and attach to blueprint when blueprint_id is set). Confirm public_url via the Save plan preview status or blueprint preview fields.',
+                blueprint_id: params?.blueprint_id || params?.blueprintId || null,
+            };
+        }
+        return await invokeMediaOp(env, '/api/draw/export', 'POST', params);
+    },
+    async excalidraw_load_library(params, env) {
+        return await invokeMediaOp(env, '/api/draw/library', 'POST', params);
+    },
 
     /** Server-side plan → Excalidraw artifact (R2 + agentsam_artifacts). Params: plan_id, open_after_create? */
     async excalidraw_plan_map_create(params, env) {

@@ -157,7 +157,7 @@ export function formatDesignStudioContextForAgent(raw) {
 
   lines.push(
     'viewport_contract: When the user asks to build/generate/make a 3D model or CAD part, call cad_generate (engine openscad|freecad|blender) with a short prompt — do NOT paste OpenSCAD/FreeCAD/Blender source into chat unless they explicitly ask for source code. Poll cad_job_status; the Studio viewport auto-spawns the completed GLB.',
-    'creative_actions: Viewport SCENE operators (addCube, deleteSelected, resetScene) are handled locally in AgentSamEngine — do NOT call illustration_create or open Draw/Excalidraw for them. Character animation → meshy_rig then meshy_animate (+ meshy_get_task_status). 2D floor plans / blueprints / architectural sketches → visual_canvas / architectural_plan (PlanGraph) — not imgx_generate_image as plan authority. Do not route 2D house plans to OpenSCAD.',
+    'creative_actions: Viewport SCENE operators (addCube, deleteSelected, resetScene) are handled locally in AgentSamEngine — do NOT call illustration_create or open Draw/Excalidraw for them. Character animation → meshy_rig then meshy_animate (+ meshy_get_task_status). Create/list Design Studio blueprints with designstudio_blueprint_create / designstudio_blueprint_list (set_active defaults true). 2D floor plans → /dashboard/draw plan mode + excalidraw_export (SVG+PNG); not imgx_generate_image as plan authority. Do not route 2D house plans to OpenSCAD unless the user asks for 3D CAD.',
   );
 
   return lines.join('\n');
