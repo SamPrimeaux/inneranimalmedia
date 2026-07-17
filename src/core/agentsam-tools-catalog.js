@@ -493,7 +493,10 @@ function handlerConfigHasExecutionPath(config) {
       trim(config.env_key) ||
       trim(config.sql) ||
       trim(config.target_type) ||
-      trim(config.executor),
+      trim(config.executor) ||
+      trim(config.module) ||
+      trim(config.executor_module) ||
+      trim(config.handler),
   );
 }
 
@@ -598,14 +601,24 @@ export function validateHandlerConfigForExecution(row, config, executableTypes =
     case 'agent':
     case 'media':
     case 'canvas':
-    case 'integrations':
-      if (!trim(config.auth_source) && !trim(config.operation) && !handlerConfigHasExecutionPath(config)) {
+    case 'integrations': {
+      const hasInProcessKey = Boolean(trim(row?.handler_key) || toolKey);
+      const mediaLike = handlerType === 'media' || handlerType === 'canvas';
+      const agentLike = handlerType === 'agent';
+      if (
+        !trim(config.auth_source) &&
+        !trim(config.operation) &&
+        !handlerConfigHasExecutionPath(config) &&
+        !(mediaLike && hasInProcessKey) &&
+        !(agentLike && (handlerConfigHasExecutionPath(config) || hasInProcessKey))
+      ) {
         return {
           ok: false,
           error: `handler_config requires auth_source, operation, or execution path for tool_key=${toolKey}`,
         };
       }
       break;
+    }
     case 'mcp':
     case 'proxy':
     case 'workspace.reader': {

@@ -212,6 +212,13 @@ type ChatRoutingSendOpts = {
 
 export function designStudioTaskTypeForMessage(message: string): string {
   const text = String(message || '').toLowerCase();
+  if (
+    /\bmeshy_animation\b/.test(text) ||
+    /\bmeshyanimate\b/.test(text) ||
+    /\b(meshy_rig|meshy_animate)\b/.test(text)
+  ) {
+    return 'meshy_animation';
+  }
   if (/\b(cancel|delete|list|manage)\b.*\b(meshy|job|task)\b/.test(text)) {
     return 'meshy_manage';
   }
@@ -220,18 +227,20 @@ export function designStudioTaskTypeForMessage(message: string): string {
   }
   if (
     /\b(remesh|retexture|texture|convert|resize|uv unwrap|polycount|topology)\b/.test(text) ||
-    /\b(edit|modify|change|adjust)\b.*\b(selected|model|mesh)\b/.test(text)
+    /\b(edit|modify|change|adjust)\b.*\b(selected|model|mesh)\b/.test(text) ||
+    /\b(meshy_remesh|meshy_retexture|meshy_convert|meshy_resize|meshy_uv_unwrap)\b/.test(text)
   ) {
     return 'meshy_transform';
   }
   if (
-    /\bmeshy\b/.test(text) &&
-    /\b(create|generate|make|preview|refine|image|multi[- ]?image|3d model)\b/.test(text)
+    (/\bmeshy\b/.test(text) &&
+      /\b(create|generate|make|preview|refine|image|multi[- ]?image|3d model)\b/.test(text)) ||
+    /\b(meshy_text_to_3d|meshy_image_to_3d|meshy_multi_image_to_3d)\b/.test(text)
   ) {
     return 'meshy_generate';
   }
   if (
-    /\b(openscad|freecad|blender|cad script|parametric)\b/.test(text) ||
+    /\b(openscad|freecad|blender|cad script|parametric|cad_generate)\b/.test(text) ||
     /\b(build|create|generate|make)\b.*\b(house|model|diagram|part|object|blueprint)\b/.test(text)
   ) {
     return 'cad_generation';
@@ -3002,11 +3011,17 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       form.append('active_repo', activeRepoForTurn);
     }
     if (sendOpts?.task_type?.trim()) form.append('task_type', sendOpts.task_type.trim());
-    else if (designStudioSurfaceRef.current?.surface === 'design_studio') {
+    else if (
+      designStudioSurfaceRef.current?.surface === 'design_studio' ||
+      /\[iam cad studio\]/i.test(messageForApi)
+    ) {
       form.append('task_type', designStudioTaskTypeForMessage(messageForApi));
     } else if (dashboardTaskType?.trim()) form.append('task_type', dashboardTaskType.trim());
     if (sendOpts?.route_key?.trim()) form.append('route_key', sendOpts.route_key.trim());
-    else if (designStudioSurfaceRef.current?.surface === 'design_studio') {
+    else if (
+      designStudioSurfaceRef.current?.surface === 'design_studio' ||
+      /\[iam cad studio\]/i.test(messageForApi)
+    ) {
       form.append('route_key', 'design_studio');
     } else if (dashboardRouteKey?.trim()) form.append('route_key', dashboardRouteKey.trim());
     const effectiveSubagentSlug =

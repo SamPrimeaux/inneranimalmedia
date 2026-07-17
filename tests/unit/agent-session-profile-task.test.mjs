@@ -23,7 +23,18 @@ describe('resolveSessionProfileTaskType', () => {
       'design_studio_base',
     );
     assert.equal(
+      resolveSessionProfileTaskType('agent', { task_type: 'design_studio' }),
+      'design_studio_base',
+    );
+    assert.equal(
       resolveSessionProfileTaskType('agent', { route_key: 'meshy_animation' }),
+      'meshy_animation',
+    );
+    assert.equal(
+      resolveSessionProfileTaskType('agent', {
+        task_type: 'meshy_animation',
+        route_key: 'design_studio',
+      }),
       'meshy_animation',
     );
   });

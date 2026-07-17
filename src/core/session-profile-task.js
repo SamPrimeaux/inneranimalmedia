@@ -7,6 +7,7 @@
 export function resolveSessionProfileTaskType(composerMode, body) {
   const mode = String(composerMode || 'agent').trim().toLowerCase() || 'agent';
   const task = String(body?.task_type || '').trim().toLowerCase();
+  if (task === 'design_studio') return 'design_studio_base';
   if (task) return task;
 
   const route = String(body?.route_key || '').trim().toLowerCase();
