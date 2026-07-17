@@ -305,6 +305,7 @@ async function resolveProjectRef(env, userId, workspaceId, opts = {}) {
  *   tenant_id?: string|null,
  *   workspace_id: string,
  *   sql?: string,
+ *   params?: unknown[],
  *   migration_sql?: string,
  *   approval_id?: string|null,
  *   schema?: string,
@@ -395,6 +396,14 @@ export async function dispatchCustomerSupabase(env, opts) {
     },
     run_readonly_sql: async () => {
       const sql = String(opts.sql || '').trim();
+      if (Array.isArray(opts.params) && opts.params.length) {
+        return {
+          ok: false,
+          error: 'supabase_management_params_unsupported',
+          user_message:
+            'Parameterized SQL is available on the platform Supabase/Hyperdrive lane. The Supabase Management SQL API accepts query text only.',
+        };
+      }
       const policy = evaluateDataPlaneOperation({
         owner_type: 'customer',
         operation_type: 'run_readonly_sql',
@@ -417,6 +426,14 @@ export async function dispatchCustomerSupabase(env, opts) {
     },
     run_write_sql: async () => {
       const sql = String(opts.sql || '').trim();
+      if (Array.isArray(opts.params) && opts.params.length) {
+        return {
+          ok: false,
+          error: 'supabase_management_params_unsupported',
+          user_message:
+            'Parameterized SQL is available on the platform Supabase/Hyperdrive lane. The Supabase Management SQL API accepts query text only.',
+        };
+      }
       const policy = evaluateDataPlaneOperation({
         owner_type: 'customer',
         operation_type: 'execute_sql',

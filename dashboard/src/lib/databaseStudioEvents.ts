@@ -9,12 +9,23 @@ import {
 } from './databaseSqlSafety';
 
 export type DatabaseDatasource = 'd1' | 'hyperdrive';
+export type DatabaseStudioSection =
+  | 'platform_d1'
+  | 'platform_hyperdrive'
+  | 'public_learning'
+  | 'customer_supabase'
+  | 'workspace_d1';
 export type DbApplySqlMode = 'replace' | 'new_tab' | 'append';
 export type DatabaseMainTab = 'schema' | 'data' | 'sql' | 'indexes' | 'relations';
 
 export type DatabaseSurfaceContext = {
   route: '/dashboard/database';
   surface: 'database';
+  view: 'studio';
+  studioSection: DatabaseStudioSection;
+  provider: 'cloudflare_d1' | 'supabase';
+  resourceRef?: string | null;
+  activeSchema?: string | null;
   datasource: DatabaseDatasource;
   dialect: 'sqlite' | 'postgresql';
   selectedTable: string | null;

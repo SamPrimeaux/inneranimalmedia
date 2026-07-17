@@ -54,6 +54,42 @@ export function resolveCustomerSupabaseDataPlane(toolKey = '', config = null) {
 }
 
 /**
+ * Resolve the concrete Supabase plane without treating Hyperdrive as a data plane.
+ * A selected project is customer Supabase; `platform` means the IAM Postgres
+ * database reached through the Hyperdrive binding.
+ *
+ * @param {string} [toolKey]
+ * @param {Record<string, unknown>|null|undefined} [config]
+ * @param {string|null|undefined} [projectRef]
+ */
+export function resolveCatalogSupabaseDataPlane(toolKey = '', config = null, projectRef = null) {
+  if (String(projectRef || '').trim()) return 'customer_supabase';
+  const customerPlane = resolveCustomerSupabaseDataPlane(toolKey, config);
+  if (customerPlane) return customerPlane;
+  const configured = String(config?.data_plane || '')
+    .trim()
+    .toLowerCase();
+  if (configured === 'platform' || configured === 'platform_supabase') {
+    return 'platform_supabase_agentsam';
+  }
+  if (configured === 'platform_supabase_agentsam') return configured;
+  return null;
+}
+
+/**
+ * Preserve native PostgreSQL context and bound values from a catalog tool call.
+ * @param {Record<string, unknown>|null|undefined} params
+ */
+export function resolveCatalogSqlDispatchFields(params = null) {
+  const input = params && typeof params === 'object' ? params : {};
+  return {
+    schema: input.schema != null ? String(input.schema).trim() || undefined : undefined,
+    table: input.table != null ? String(input.table).trim() || undefined : undefined,
+    params: Array.isArray(input.params) ? input.params : [],
+  };
+}
+
+/**
  * @param {Record<string, unknown>|null|undefined} config
  * @param {string} [toolKey]
  */

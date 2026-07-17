@@ -39,6 +39,8 @@ import {
   catalogOperationRequiresSql,
   resolveCatalogDataPlaneOperation,
   resolveCatalogDataPlaneProvider,
+  resolveCatalogSqlDispatchFields,
+  resolveCatalogSupabaseDataPlane,
   resolveCustomerSupabaseDataPlane,
 } from './catalog-data-plane-operation.js';
 import {
@@ -1531,11 +1533,22 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           params.projectId ||
           '',
       ).trim();
-      const customerPlane = projectRef
-        ? 'customer_supabase'
-        : resolveCustomerSupabaseDataPlane(toolKey, config) ||
-          String(config.data_plane || '').trim() ||
-          null;
+      const requestedDataPlane = String(params.data_plane || params.dataPlane || '').trim();
+      const customerPlane = resolveCatalogSupabaseDataPlane(
+        toolKey,
+        requestedDataPlane ? { ...config, data_plane: requestedDataPlane } : config,
+        projectRef,
+      );
+      if (!customerPlane) {
+        result = {
+          ok: false,
+          error: 'supabase_resource_required',
+          user_message:
+            'Select the platform Supabase database or a connected Supabase project before running SQL.',
+        };
+        break;
+      }
+      const sqlDispatchFields = resolveCatalogSqlDispatchFields(params);
       const routed = await dispatchCustomerDataPlaneOperation(env, {
         operation: dispatchOperation,
         sql,
@@ -1546,6 +1559,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         workspace_id: workspaceId,
         agent_run_id: agentRunId,
         approval_id: params.approval_id ?? params.approvalId ?? null,
+        ...sqlDispatchFields,
         requested_provider: requestedProvider || (customerPlane === 'customer_supabase' ? 'supabase' : null),
         data_plane: customerPlane,
         project_ref: projectRef || null,
@@ -2135,6 +2149,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           schema: String(params.schema || config.schema || '').trim() || undefined,
           table: params.table != null ? String(params.table).trim() : '',
           sql: params.sql != null ? String(params.sql) : '',
+          params: Array.isArray(params.params) ? params.params : [],
           migration_sql: params.migration_sql != null ? String(params.migration_sql) : '',
           approval_id: params.approval_id ?? null,
           agent_run_id: agentRunId,

@@ -29,6 +29,7 @@ import {
   extractMailSurfaceContext,
   formatMailSurfaceContextForAgent,
 } from '../mail-studio-context.js';
+import { formatDatabaseContextForAgent } from '../database-studio-context.js';
 import { withAbortableAgentRunTimeout } from '../agent-run-timeout.js';
 import {
   formatActiveFileForAgent,
@@ -415,6 +416,31 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         route: profile.refined_route_key || profile.routing_task_type,
         chars: mailSurfaceBlock.length,
         preview_count: Array.isArray(mailSurfaceRaw?.inboxPreview) ? mailSurfaceRaw.inboxPreview.length : 0,
+      }),
+    );
+  }
+
+  const databaseSurfaceRaw =
+    browserContextPayload &&
+    typeof browserContextPayload === 'object' &&
+    browserContextPayload.databaseContext &&
+    typeof browserContextPayload.databaseContext === 'object'
+      ? browserContextPayload.databaseContext
+      : body.databaseContext && typeof body.databaseContext === 'object'
+        ? body.databaseContext
+        : null;
+  const databaseSurfaceBlock = formatDatabaseContextForAgent(databaseSurfaceRaw);
+  if (databaseSurfaceBlock) {
+    contextBlock = contextBlock
+      ? `${contextBlock}\n\n## Database Studio context\n\n${databaseSurfaceBlock}`
+      : `## Database Studio context\n\n${databaseSurfaceBlock}`;
+    console.info(
+      '[agent-controller] database_surface_context_injected',
+      JSON.stringify({
+        studio_section:
+          databaseSurfaceRaw?.studioSection ?? databaseSurfaceRaw?.studio_section ?? null,
+        provider: databaseSurfaceRaw?.provider ?? null,
+        chars: databaseSurfaceBlock.length,
       }),
     );
   }

@@ -16,8 +16,13 @@ export function formatDatabaseContextForAgent(raw) {
   const lines = [
     '[Database Studio — live surface context. Use this to answer questions about the open table, schema, SQL editor, filters, and last query error. Do not invent table names or query results.]',
     `route: ${route || '/dashboard/database'}`,
+    `view: ${String(raw.view || 'studio')}`,
+    `studio_section: ${String(raw.studioSection || raw.studio_section || 'unknown')}`,
+    `provider: ${String(raw.provider || (raw.datasource === 'd1' ? 'cloudflare_d1' : 'supabase'))}`,
+    `resource_ref: ${raw.resourceRef || raw.resource_ref || '(unresolved)'}`,
     `datasource: ${String(raw.datasource || 'd1')}`,
     `dialect: ${String(raw.dialect || (raw.datasource === 'hyperdrive' ? 'postgresql' : 'sqlite'))}`,
+    `active_schema: ${raw.activeSchema || raw.active_schema || '(none)'}`,
     `active_tab: ${String(raw.activeMainTab || raw.active_tab || 'schema')}`,
     `selected_table: ${raw.selectedTable != null ? String(raw.selectedTable) : '(none)'}`,
   ];

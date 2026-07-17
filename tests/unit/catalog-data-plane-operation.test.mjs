@@ -5,6 +5,8 @@ import {
   catalogOperationRequiresSql,
   resolveCatalogDataPlaneOperation,
   resolveCatalogDataPlaneProvider,
+  resolveCatalogSqlDispatchFields,
+  resolveCatalogSupabaseDataPlane,
 } from '../../src/core/catalog-data-plane-operation.js';
 
 test('resolveCatalogDataPlaneOperation maps supabase.query and supabase.write', () => {
@@ -24,6 +26,37 @@ test('resolveCatalogDataPlaneProvider maps data_plane user to supabase', () => {
     'supabase',
   );
   assert.equal(resolveCatalogDataPlaneProvider({ data_plane: 'user' }), 'supabase');
+});
+
+test('resolveCatalogSupabaseDataPlane treats Hyperdrive as platform transport, not a plane', () => {
+  assert.equal(
+    resolveCatalogSupabaseDataPlane(
+      'agentsam_supabase_query',
+      { data_plane: 'platform', binding: 'HYPERDRIVE' },
+      null,
+    ),
+    'platform_supabase_agentsam',
+  );
+  assert.equal(
+    resolveCatalogSupabaseDataPlane('agentsam_supabase_query', { data_plane: 'platform' }, 'project-ref'),
+    'customer_supabase',
+  );
+  assert.equal(resolveCatalogSupabaseDataPlane('unknown', {}, null), null);
+});
+
+test('resolveCatalogSqlDispatchFields forwards schema, table, and bound params', () => {
+  assert.deepEqual(
+    resolveCatalogSqlDispatchFields({
+      schema: ' agentsam ',
+      table: ' agentsam_memory ',
+      params: ['memory-id', 5],
+    }),
+    {
+      schema: 'agentsam',
+      table: 'agentsam_memory',
+      params: ['memory-id', 5],
+    },
+  );
 });
 
 test('catalogOperationRequiresSql vs semantic search', () => {

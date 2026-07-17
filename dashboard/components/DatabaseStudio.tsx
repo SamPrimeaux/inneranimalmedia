@@ -6,7 +6,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ChevronLeft,
@@ -57,6 +57,16 @@ import '../components/database/database-page.css';
 type Datasource = 'd1' | 'hyperdrive';
 type StudioSection = 'platform_d1' | 'platform_hyperdrive' | 'public_learning' | 'customer_supabase' | 'workspace_d1';
 type MetaPanel = 'schema' | 'indexes' | 'relations';
+
+function parseStudioSection(value: string | null): StudioSection | null {
+  return value === 'platform_d1' ||
+    value === 'platform_hyperdrive' ||
+    value === 'public_learning' ||
+    value === 'customer_supabase' ||
+    value === 'workspace_d1'
+    ? value
+    : null;
+}
 type SortDir = 'asc' | 'desc';
 type LoadStatus = 'idle' | 'loading' | 'ok' | 'error';
 type SqlRunState = 'idle' | 'running' | 'success' | 'error';
@@ -262,6 +272,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     [workspaces, workspaceId],
   );
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [sidebarSource, setSidebarSource] = useState<Datasource>(readStoredDatasource);
   const datasource: Datasource = sidebarSource;
   const [tables, setTables] = useState<Record<Datasource, TableMeta[]>>({ d1: [], hyperdrive: [] });
@@ -274,13 +285,18 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   const [columnCache, setColumnCache] = useState<Record<string, SchemaColumn[]>>({});
   const [columnLoading, setColumnLoading] = useState<Record<string, boolean>>({});
   const [selectedTable, setSelectedTable] = useState<string | null>(() => {
+    const fromUrl = searchParams.get('table')?.trim();
+    if (fromUrl) return fromUrl;
     try {
       return localStorage.getItem(LS_TABLE);
     } catch {
       return null;
     }
   });
-  const [metaPanel, setMetaPanel] = useState<MetaPanel | null>(null);
+  const [metaPanel, setMetaPanel] = useState<MetaPanel | null>(() => {
+    const panel = searchParams.get('panel');
+    return panel === 'schema' || panel === 'indexes' || panel === 'relations' ? panel : null;
+  });
   const [tableMenu, setTableMenu] = useState<{ table: string; x: number; y: number } | null>(null);
   const [loadingTables, setLoadingTables] = useState(false);
 
@@ -323,7 +339,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
 
   const [isSuperadmin, setIsSuperadmin] = useState(false);
   const [studioSection, setStudioSection] = useState<StudioSection>(() =>
-    databaseName?.trim() ? 'workspace_d1' : 'public_learning',
+    databaseName?.trim() ? 'workspace_d1' : parseStudioSection(searchParams.get('source')) || 'public_learning',
   );
   const [learningTables, setLearningTables] = useState<TableMeta[]>([]);
   const [learningStatus, setLearningStatus] = useState<LoadStatus>('idle');
@@ -372,7 +388,13 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   const sqlRunning = sqlRunState === 'running';
 
   const effectiveDatasource: Datasource =
-    databaseName?.trim() || (!isSuperadmin && studioSection === 'workspace_d1') ? 'd1' : datasource;
+    databaseName?.trim() || studioSection === 'workspace_d1' || studioSection === 'platform_d1'
+      ? 'd1'
+      : studioSection === 'platform_hyperdrive' ||
+          studioSection === 'customer_supabase' ||
+          studioSection === 'public_learning'
+        ? 'hyperdrive'
+        : datasource;
 
   const activeTables =
     studioSection === 'public_learning'
@@ -381,7 +403,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
         ? tables.hyperdrive
         : !isSuperadmin && studioSection === 'workspace_d1'
           ? tables.d1
-          : tables[datasource];
+          : tables[effectiveDatasource];
   const datasourceLabel =
     databaseName?.trim()
       ? `${databaseName.trim()} · Cloudflare D1`
@@ -393,7 +415,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
           ? supabaseProjectRef
             ? `My Supabase · ${supabaseProjectRef}`
             : 'My Supabase (Management OAuth)'
-          : datasource === 'd1'
+          : effectiveDatasource === 'd1'
             ? 'Cloudflare D1 (SQLite)'
             : 'IAM Platform Supabase via Hyperdrive (Postgres)';
   const selectedTableMeta = useMemo(
@@ -794,6 +816,28 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   }, [selectedTable]);
 
   useEffect(() => {
+    const activePanel = metaPanel || (selectedTable ? 'data' : 'sql');
+    const currentSource = searchParams.get('source');
+    const currentPanel = searchParams.get('panel');
+    const currentTable = searchParams.get('table') || '';
+    const nextTable = selectedTable || '';
+    if (
+      currentSource === studioSection &&
+      currentPanel === activePanel &&
+      currentTable === nextTable
+    ) {
+      return;
+    }
+    const next = new URLSearchParams(searchParams);
+    next.set('studio', '1');
+    next.set('source', studioSection);
+    next.set('panel', activePanel);
+    if (selectedTable) next.set('table', selectedTable);
+    else next.delete('table');
+    setSearchParams(next, { replace: true });
+  }, [metaPanel, searchParams, selectedTable, setSearchParams, studioSection]);
+
+  useEffect(() => {
     if (!pageReady || !selectedTable || loadingTables) return;
     if (!activeTables.length) return;
     const exists = activeTables.some((t) => t.name === selectedTable);
@@ -1127,22 +1171,40 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   }, [isSuperadmin, lastAttemptedSql, loadSchema]);
 
   useEffect(() => {
-    const dialect = datasource === 'hyperdrive' ? 'postgresql' : 'sqlite';
+    const dialect = effectiveDatasource === 'hyperdrive' ? 'postgresql' : 'sqlite';
     const gridRows = sqlResults.length ? sqlResults : data.rows;
     const selectedRow =
       selectedCell && pk
         ? gridRows.find((r, i) => rowKeyForRow(r, pk, i) === selectedCell.rowKey)
         : selectedCell?.row ?? null;
     const cellRow = selectedCell?.row ?? null;
+    const provider = effectiveDatasource === 'd1' ? 'cloudflare_d1' : 'supabase';
+    const resourceRef =
+      studioSection === 'customer_supabase'
+        ? supabaseProjectRef || null
+        : studioSection === 'workspace_d1'
+          ? databaseName?.trim() || activeWorkspace?.database_studio_name?.trim() || null
+          : studioSection;
+    const activeSchema =
+      effectiveDatasource === 'd1'
+        ? null
+        : studioSection === 'platform_hyperdrive'
+          ? 'agentsam'
+          : 'public';
     const payload: DatabaseSurfaceContext = {
       route: databaseName?.trim()
         ? `/dashboard/database/${encodeURIComponent(databaseName.trim())}`
         : '/dashboard/database',
       surface: 'database',
-      datasource,
+      view: 'studio',
+      studioSection,
+      provider,
+      resourceRef,
+      activeSchema,
+      datasource: effectiveDatasource,
       dialect,
       selectedTable,
-      activeMainTab: 'sql',
+      activeMainTab: metaPanel || (selectedTable ? 'data' : 'sql'),
       currentSqlBuffer: sql ? sql.slice(0, 4000) : '',
       selectedSql: sql ? sql.slice(0, 2000) : '',
       lastAttemptedSql: lastAttemptedSql ? lastAttemptedSql.slice(0, 4000) : '',
@@ -1196,7 +1258,9 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   }, [
     browseMeta,
     data.rows,
-    datasource,
+    activeWorkspace?.database_studio_name,
+    databaseName,
+    effectiveDatasource,
     filters.length,
     isSuperadmin,
     lastAttemptedSql,
@@ -1204,6 +1268,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     lastRowsRead,
     page,
     pk,
+    metaPanel,
     schema,
     selectedCell,
     selectedTable,
@@ -1212,6 +1277,8 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     sqlError,
     sqlResults,
     sqlRunState,
+    studioSection,
+    supabaseProjectRef,
     tableBrowseTotalPages,
   ]);
 
