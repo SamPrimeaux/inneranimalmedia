@@ -27,7 +27,7 @@ export { resolveSessionProfileTaskType } from './session-profile-task.js';
 
 /** Soft cap — above this, DO cache is treated as stale mega-catalog and rebuilt. */
 export const SESSION_TOOL_CACHE_SOFT_MAX = 40;
-export const SESSION_CONTEXT_VERSION = 7;
+export const SESSION_CONTEXT_VERSION = 8;
 
 /**
  * Degraded-mode fallback ONLY — used when agentsam_tool_profile_bindings /

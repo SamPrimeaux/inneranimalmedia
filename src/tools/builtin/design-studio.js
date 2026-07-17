@@ -127,7 +127,10 @@ async function cadGenerate(params, env, runContext) {
     systemPrompt: cadEngineSystemPrompt(engine),
     userContent: `Generate a production-ready ${engine} script for this request:\n${prompt}`,
     mode: 'text',
-    requestedModelKey: params.model_key ?? null,
+    // The script-generation LLM is resolved by the system (routing arms), never chosen by
+    // the calling agent — forwarding an agent-supplied model_key here caused MODEL_NOT_FOUND
+    // when the model treated it as a name for the CAD object (e.g. "cube_40mm_center_hole_15mm").
+    requestedModelKey: null,
   });
   if (generated?.error) return generated;
 
