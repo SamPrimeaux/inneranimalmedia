@@ -1,5 +1,4 @@
--- 935: Backfill active tool capabilities and normalize profile policies.
-
+-- 935: Primary capability backfill for active catalog tools.
 WITH primary_map(tool_key, capability_key) AS (
   SELECT tool_key,
     CASE
@@ -88,57 +87,3 @@ SELECT t.id, pm.capability_key, 'required', 1, unixepoch()
 FROM primary_map pm
 JOIN agentsam_tools t ON t.tool_key = pm.tool_key
 WHERE pm.capability_key IS NOT NULL;
-
-INSERT OR IGNORE INTO agentsam_tool_capabilities
-  (tool_id, capability_key, requirement_type, is_primary, operations_json, created_at)
-SELECT t.id, x.capability_key, 'required', 0, x.operations_json, unixepoch()
-FROM agentsam_tools t
-JOIN (
-  SELECT 'agentsam_memory_manager' tool_key, 'memory.write' capability_key,
-         '["write","upsert","save","memory_write"]' operations_json
-  UNION ALL SELECT 'agentsam_memory_manager','memory.delete','["delete","resolve","close","memory_delete","memory_resolve"]'
-  UNION ALL SELECT 'agentsam_codebase_scan_fix','file.read',NULL
-  UNION ALL SELECT 'agentsam_codebase_scan_fix','github.write','["fix_and_pr","fix_and_deploy"]'
-  UNION ALL SELECT 'agentsam_codebase_scan_fix','cloudflare.deploy','["fix_and_deploy"]'
-  UNION ALL SELECT 'illustration_create','design.write',NULL
-  UNION ALL SELECT 'agentsam_cf_vectorize','vector.read','["query","search"]'
-  UNION ALL SELECT 'agentsam_gdrive','drive.write','["write","create","update","delete"]'
-) x ON x.tool_key = t.tool_key;
-
-UPDATE agentsam_tools
-SET capability_key = (
-      SELECT tc.capability_key FROM agentsam_tool_capabilities tc
-      WHERE tc.tool_id = agentsam_tools.id AND tc.is_primary = 1 LIMIT 1
-    ),
-    updated_at = unixepoch()
-WHERE id IN (SELECT tool_id FROM agentsam_tool_capabilities WHERE is_primary = 1);
-
-UPDATE agentsam_tool_capabilities
-SET operations_json = '["upsert","delete"]'
-WHERE tool_id = (SELECT id FROM agentsam_tools WHERE tool_key = 'agentsam_cf_vectorize')
-  AND capability_key = 'vector.write';
-
-UPDATE agentsam_tool_profiles
-SET write_policy_json = '{"version":2,"deny_capabilities":[],"allow_mutating_capabilities":[],"require_approval_capabilities":[]}', updated_at = unixepoch()
-WHERE profile_key IN ('ask','inspect','d1_read','supabase_read','supabase_vector');
-UPDATE agentsam_tool_profiles
-SET write_policy_json = '{"version":2,"deny_capabilities":[],"allow_mutating_capabilities":["file.write","github.write","terminal.execute","memory.write","memory.delete"],"require_approval_capabilities":["github.write"]}', updated_at = unixepoch()
-WHERE profile_key = 'code_develop';
-UPDATE agentsam_tool_profiles
-SET write_policy_json = '{"version":2,"deny_capabilities":[],"allow_mutating_capabilities":["d1.write","supabase.write","memory.write","memory.delete"],"require_approval_capabilities":["supabase.write"]}', updated_at = unixepoch()
-WHERE profile_key = 'database_engineer';
-UPDATE agentsam_tool_profiles
-SET write_policy_json = '{"version":2,"deny_capabilities":[],"allow_mutating_capabilities":["media.generate","media.transform","media.manage","design.write","design.export","memory.write","memory.delete"],"require_approval_capabilities":["media.manage"]}', updated_at = unixepoch()
-WHERE profile_key IN ('design_studio','cad_generation','design_visualization','visual_canvas');
-UPDATE agentsam_tool_profiles
-SET write_policy_json = '{"version":2,"deny_capabilities":[],"allow_mutating_capabilities":["email.modify","email.draft","email.send"],"require_approval_capabilities":["email.send"]}', updated_at = unixepoch()
-WHERE profile_key IN ('mail','mail_triage','mail_sweep','mail_compose');
-UPDATE agentsam_tool_profiles
-SET write_policy_json = '{"version":2,"deny_capabilities":[],"allow_mutating_capabilities":["supabase.write","supabase.migrate","memory.write"],"require_approval_capabilities":["supabase.migrate"]}', updated_at = unixepoch()
-WHERE profile_key IN ('supabase_write','supabase_migration');
-UPDATE agentsam_tool_profiles
-SET write_policy_json = '{"version":2,"deny_capabilities":[],"allow_mutating_capabilities":["cms.write","cms.publish","r2.write","d1.write","github.write","browser.navigate","memory.write"],"require_approval_capabilities":["cms.publish","github.write"]}', updated_at = unixepoch()
-WHERE profile_key = 'cms_edit';
-UPDATE agentsam_tool_profiles
-SET write_policy_json = '{"version":2,"deny_capabilities":[],"allow_mutating_capabilities":["d1.write","file.write","github.write","terminal.execute","container.execute","python.execute","git.commit","git.push","memory.write","memory.delete","cloudflare.execute","cloudflare.deploy","r2.write","r2.delete","kv.write","kv.delete","vector.write","images.write","browser.navigate","browser.execute","email.modify","email.draft","email.send","cms.write","cms.publish","media.generate","media.transform","media.render","media.export","media.manage","design.write","design.export","workflow.execute","workflow.manage","ticket.write","ticket.status","agent.execute","agent.spawn","drive.write","platform.telemetry"],"require_approval_capabilities":["git.commit","git.push","cloudflare.deploy","email.send","cms.publish","media.manage"]}', updated_at = unixepoch()
-WHERE profile_key IN ('in_app_agent_cf_github','default_route','design_intake');
