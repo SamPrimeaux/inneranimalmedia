@@ -596,6 +596,11 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
 
   await (async () => {
     const chatT0 = Date.now();
+    let agentRunStartPromise = null;
+    let loopStats = null;
+    let clientAborted = false;
+    const reqSignal = input.request?.signal ?? null;
+    let onRequestAbort = null;
     try {
       if (visionUploadError) {
         const failText = visionErrorUserMessage(visionUploadError.code, visionUploadError.message);
@@ -744,7 +749,6 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         return;
       }
 
-      let agentRunStartPromise = null;
       if (chatAgentRunId && userId && workspaceId) {
         agentRunStartPromise = scheduleAgentsamChatAgentRunStart(env, ctx, {
           runId: chatAgentRunId,
@@ -834,10 +838,6 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           sessionAuthUser?.is_superadmin === 1,
       };
 
-      let loopStats = null;
-      let clientAborted = false;
-      const reqSignal = input.request?.signal ?? null;
-      let onRequestAbort = null;
       if (reqSignal) {
         if (reqSignal.aborted) clientAborted = true;
         else {
