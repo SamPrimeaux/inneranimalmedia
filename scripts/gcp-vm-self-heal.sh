@@ -20,6 +20,29 @@ HEALTH_URL="https://terminal.inneranimalmedia.com/health"
 AGENTSAM_USER="${AGENTSAM_USER:-agentsam}"
 PM2_HOME_AGENTSAM="${PM2_HOME_AGENTSAM:-/var/lib/agentsam/.pm2}"
 
+# Prefer shared helper when operator repo already has it (post-sync).
+if [[ -f "${OPERATOR_REPO}/scripts/lib/gcp-vm-git-lock.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "${OPERATOR_REPO}/scripts/lib/gcp-vm-git-lock.sh"
+else
+  iam_clear_stale_git_locks() {
+    local repo="${1:-}"
+    local stale_min="${2:-2}"
+    [[ -n "$repo" && -d "${repo}/.git" ]] || return 0
+    find "${repo}/.git" -name '*.lock' -type f -mmin "+${stale_min}" -delete 2>/dev/null || true
+  }
+  iam_with_repo_git_lock() {
+    local repo="${1:-}"; shift || true
+    [[ -n "$repo" && -d "${repo}/.git" ]] || return 1
+    mkdir -p "${repo}/.git"
+    if command -v flock >/dev/null 2>&1; then
+      flock -w 60 "${repo}/.git/iam-sync.flock" "$@"
+    else
+      "$@"
+    fi
+  }
+fi
+
 agentsam_git_pull() {
   local dir="$1"
   local label="$2"
@@ -31,10 +54,19 @@ agentsam_git_pull() {
     echo "${LOG_PREFIX} ${label}: ${AGENTSAM_USER} missing — skipping pull"
     return 0
   fi
-  if sudo -u "$AGENTSAM_USER" git -C "${dir}" pull --ff-only -q 2>/dev/null; then
+  iam_clear_stale_git_locks "$dir"
+  if iam_with_repo_git_lock "$dir" \
+    sudo -u "$AGENTSAM_USER" git -C "${dir}" pull --ff-only -q 2>/dev/null; then
     echo "${LOG_PREFIX} ${label}: up to date"
   else
-    echo "${LOG_PREFIX} ${label}: pull warning (kept last good — check ${AGENTSAM_USER} GitHub SSH)"
+    # One retry after clearing locks (post-deploy sync race).
+    iam_clear_stale_git_locks "$dir"
+    if iam_with_repo_git_lock "$dir" \
+      sudo -u "$AGENTSAM_USER" git -C "${dir}" pull --ff-only -q 2>/dev/null; then
+      echo "${LOG_PREFIX} ${label}: up to date (retry)"
+    else
+      echo "${LOG_PREFIX} ${label}: pull warning (kept last good — check ${AGENTSAM_USER} GitHub SSH / locks)"
+    fi
   fi
 }
 

@@ -81,6 +81,19 @@ SPARSE_PATHS='${SPARSE_PATHS}'
 AGENTSAM_USER=agentsam
 RECONVERT='${RECONVERT_SPARSE}'
 
+clear_stale_git_locks() {
+  local repo="\$1"
+  local stale_min="\${2:-2}"
+  [[ -d "\${repo}/.git" ]] || return 0
+  local before after
+  before="\$(find "\${repo}/.git" -name '*.lock' -type f 2>/dev/null | wc -l | tr -d ' ')"
+  find "\${repo}/.git" -name '*.lock' -type f -mmin "+\${stale_min}" -delete 2>/dev/null || true
+  after="\$(find "\${repo}/.git" -name '*.lock' -type f 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "\${before:-0}" != "\${after:-0}" ]]; then
+    echo "[iam-git-lock] cleared stale locks under \${repo}/.git (before=\${before} after=\${after})"
+  fi
+}
+
 git_as_bootstrap() {
   sudo -u samprimeaux git config --global --add safe.directory "\$REPO_DIR" 2>/dev/null || true
   sudo -u samprimeaux git -C "\$REPO_DIR" "\$@"
@@ -88,9 +101,11 @@ git_as_bootstrap() {
 
 repo_git_prep() {
   sudo chown -R samprimeaux:samprimeaux "\$REPO_DIR"
+  clear_stale_git_locks "\$REPO_DIR"
 }
 
 repo_git_finalize() {
+  clear_stale_git_locks "\$REPO_DIR"
   sudo chown -R "\${AGENTSAM_USER}:\${AGENTSAM_USER}" "\$REPO_DIR"
 }
 
@@ -122,11 +137,20 @@ elif [[ -d "\$REPO_DIR/.git" ]]; then
     # shellcheck disable=SC2086
     git_as_bootstrap sparse-checkout set \$SPARSE_PATHS
   fi
-  git_as_bootstrap fetch origin main
-  git_as_bootstrap checkout main
-  # Operator VM is a sync mirror — discard root drift (e.g. npm install touching package.json
-  # outside the sparse cone) so post-deploy pull never blocks on dirty files.
-  git_as_bootstrap reset --hard origin/main
+  # Serialize against agentsam self-heal cron (same iam-sync.flock).
+  clear_stale_git_locks "\$REPO_DIR"
+  if command -v flock >/dev/null 2>&1; then
+    flock -w 60 "\$REPO_DIR/.git/iam-sync.flock" \
+      sudo -u samprimeaux git -C "\$REPO_DIR" fetch origin main
+    flock -w 60 "\$REPO_DIR/.git/iam-sync.flock" \
+      sudo -u samprimeaux git -C "\$REPO_DIR" checkout main
+    flock -w 60 "\$REPO_DIR/.git/iam-sync.flock" \
+      sudo -u samprimeaux git -C "\$REPO_DIR" reset --hard origin/main
+  else
+    git_as_bootstrap fetch origin main
+    git_as_bootstrap checkout main
+    git_as_bootstrap reset --hard origin/main
+  fi
   repo_git_finalize
 elif [[ -d "\$REPO_DIR" ]]; then
   echo "→ repairing non-git directory at \$REPO_DIR"
