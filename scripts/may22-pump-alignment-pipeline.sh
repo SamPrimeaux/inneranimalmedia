@@ -29,11 +29,11 @@ echo "→ Mirror D1 plans → Supabase public.agentsam_plans / plan_tasks"
 echo "→ Sync D1 agentsam_memory → Supabase agent_memory (dedupe sync_key)"
 ./scripts/with-cloudflare-env.sh node scripts/sync-d1-memory-to-agent-memory.mjs --limit 100
 
-if [[ -n "${SUPABASE_WEBHOOK_SECRET:-}" ]]; then
-  echo "→ Supabase Edge backfill-embeddings (agent_memory, documents, …)"
+if [[ -n "${SUPABASE_SERVICE_ROLE_KEY:-}${SUPABASE_SERVICE_KEY:-}" && -n "${SUPABASE_URL:-}" ]]; then
+  echo "→ Supabase Edge backfill-embeddings (agentsam_* oai3large lanes)"
   RUN_SUPABASE_EMBEDDINGS_BACKFILL=1 bash scripts/supabase-embeddings-backfill.sh || true
 else
-  echo "[skip] SUPABASE_WEBHOOK_SECRET unset — Edge embedding backfill skipped"
+  echo "[skip] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY unset — Edge embedding backfill skipped"
 fi
 
 if command -v curl >/dev/null 2>&1 && [[ -n "${INTERNAL_API_SECRET:-}" ]]; then

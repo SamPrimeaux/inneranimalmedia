@@ -363,7 +363,7 @@ GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 FILE_COUNT=$(find "$REPO_ROOT/$DIST" -type f 2>/dev/null | wc -l | tr -d ' ')
 
 # Post-deploy: Supabase pgvector backfill for rows with NULL embedding (Edge Function).
-# Set SUPABASE_WEBHOOK_SECRET in .env.cloudflare (same value as the function's WEBHOOK_SECRET).
+# Opt-in: RUN_SUPABASE_EMBEDDINGS_BACKFILL=1 + SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
 DEPLOY_EMBEDDINGS_RAN=0
 if [[ "${RUN_SUPABASE_EMBEDDINGS_BACKFILL:-0}" == "1" ]]; then
   echo "→ Supabase embeddings backfill (opt-in RUN_SUPABASE_EMBEDDINGS_BACKFILL=1)…"

@@ -94,12 +94,21 @@ curl -X POST https://inneranimalmedia.com/api/internal/embed-codebase-chunks-bac
   -d '{"limit": 25, "batch_size": 5, "delay_ms": 500}'
 ```
 
-For other tables (documents, agent_memory, …):
+For other tables (agentsam memory / documents / schema lanes):
 
 ```bash
-RUN_SUPABASE_EMBEDDINGS_BACKFILL=1 SUPABASE_EMBEDDINGS_BATCH_SIZE=25 \
+RUN_SUPABASE_EMBEDDINGS_BACKFILL=1 SUPABASE_EMBEDDINGS_LIMIT=10 \
   bash scripts/supabase-embeddings-backfill.sh
 ```
+
+Optional deep archive (3072):
+
+```bash
+RUN_SUPABASE_EMBEDDINGS_BACKFILL=1 SUPABASE_EMBEDDINGS_BACKFILL_INCLUDE_ARCHIVE=1 \
+  bash scripts/supabase-embeddings-backfill.sh
+```
+
+Codebase chunks are **not** in this wrapper — use `node scripts/agentsam_codebase_reindex.mjs` / `rag_ingest --lane code`.
 
 Session summaries use a different path:
 
