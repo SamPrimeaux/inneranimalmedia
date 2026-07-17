@@ -3057,6 +3057,21 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         break;
       }
       const moduleKey = String(config.module || config.executor_module || '').toLowerCase();
+      if (moduleKey.includes('design_studio')) {
+        const handlerKey = String(config.handler || row.handler_key || toolKey || '').trim();
+        const { handlers: designStudioHandlers } = await import('../tools/builtin/design-studio.js');
+        const fn =
+          designStudioHandlers[handlerKey] ||
+          designStudioHandlers[row.tool_key] ||
+          designStudioHandlers[row.tool_name];
+        if (typeof fn === 'function') {
+          const out = await fn(params, env, { ...runContext, executionCtx: runContext.ctx });
+          result = out?.error
+            ? { ok: false, error: String(out.error), body: out }
+            : { ok: true, body: out };
+          break;
+        }
+      }
       if (moduleKey.includes('cms')) {
         const handlerKey = String(config.handler || row.handler_key || toolKey || '').trim();
         const { handlers: cmsHandlers } = await import('../tools/builtin/cms.js');
@@ -3101,21 +3116,6 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         ok: false,
         error: `handler_type agent requires handler_config.sql or registered handler for tool_key=${row.tool_key}`,
       };
-      break;
-    }
-
-    case 'design_studio': {
-      const handlerKey = String(
-        config.handler || row.handler_key || row.tool_key || row.tool_name || toolKey || '',
-      ).trim();
-      const { handlers: designStudioHandlers } = await import('../tools/builtin/design-studio.js');
-      const fn = designStudioHandlers[handlerKey];
-      if (typeof fn !== 'function') {
-        result = { ok: false, error: `Design Studio handler not registered: ${handlerKey}` };
-        break;
-      }
-      const out = await fn(params, env, runContext);
-      result = out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
       break;
     }
 
