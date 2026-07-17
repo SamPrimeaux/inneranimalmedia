@@ -398,16 +398,8 @@ export async function executeTavilyOpenWebSearch(env, params, runContext = {}) {
     }
   }
 
-  const { assertFetchDomainAllowed } = await import('./auth.js');
-  const gate = await assertFetchDomainAllowed(env, userId, workspaceId, TAVILY_SEARCH_URL);
-  if (!gate.ok) {
-    return {
-      error: gate.error,
-      lane: 'open_web_search',
-      available: false,
-      telemetry: { ...baseTelemetry, error_class: 'domain_gate' },
-    };
-  }
+  // Platform Tavily call is not a user-directed URL fetch — do not apply
+  // agentsam_fetch_domain_allowlist here (that gate belongs on web_fetch).
 
   const requestBody = {
     api_key: apiKey,
