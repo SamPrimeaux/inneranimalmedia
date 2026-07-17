@@ -3,7 +3,12 @@
  */
 import { fetchAuthUserTenantId, fallbackSystemTenantId, resolveRequestContext } from './auth.js';
 
-const DEFAULT_R2_BUCKET = 'inneranimalmedia';
+// Heavy CAD/GLB output lives in the dedicated `cad` R2 bucket (not the codebase ASSETS bucket),
+// served publicly via the CDN-fronted custom domain below.
+const CAD_R2_BUCKET = 'cad';
+const CAD_PUBLIC_ORIGIN = 'https://cad.inneranimalmedia.com';
+// Legacy CAD objects (pre-cad-bucket) still live here and remain readable via /assets/ passthrough.
+const LEGACY_CAD_R2_BUCKET = 'inneranimalmedia';
 
 /** @param {string} stored */
 export function decodeCadScriptPayload(stored) {
@@ -33,12 +38,30 @@ export function buildCadExportR2Key(tenantId, workspaceId, jobId, ext = 'glb') {
   return `cad/exports/${t}/${w}/${j}.${e}`;
 }
 
-/** @param {string} r2Key */
-export function buildCadAssetPublicUrl(r2Key) {
+/**
+ * Public URL for a CAD asset. New objects live in the `cad` bucket served by the
+ * custom domain; callers may override the origin (e.g. from env.CAD_R2_PUBLIC_ORIGIN).
+ * @param {string} r2Key
+ * @param {string} [origin]
+ */
+export function buildCadAssetPublicUrl(r2Key, origin) {
   const key = String(r2Key || '').trim().replace(/^\/+/, '');
   if (!key) return '';
-  return `/assets/${key}`;
+  const base = String(origin || CAD_PUBLIC_ORIGIN).trim().replace(/\/$/, '');
+  return `${base}/${key}`;
 }
+
+/**
+ * Resolve the R2 binding for CAD writes/reads — dedicated `cad` bucket, falling back
+ * to ASSETS only if the CAD binding is not present (safety during rollout).
+ * @param {any} env
+ */
+export function resolveCadR2Binding(env) {
+  if (env?.CAD?.put || env?.CAD?.get) return env.CAD;
+  return env?.ASSETS || null;
+}
+
+export const CAD_PUBLIC_ORIGIN_DEFAULT = CAD_PUBLIC_ORIGIN;
 
 /**
  * @param {any} env
@@ -80,6 +103,7 @@ export async function resolveCadJobScope(env, request, authUser, body = {}) {
   };
 }
 
-export function cadJobR2Bucket() {
-  return DEFAULT_R2_BUCKET;
+/** Bucket name recorded on new CAD jobs/assets. */
+export function cadJobR2Bucket(env) {
+  return resolveCadR2Binding(env)?.put ? CAD_R2_BUCKET : LEGACY_CAD_R2_BUCKET;
 }

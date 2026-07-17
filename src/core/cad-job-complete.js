@@ -8,6 +8,7 @@ import {
   buildCadAssetPublicUrl,
   buildCadExportR2Key,
   cadJobR2Bucket,
+  resolveCadR2Binding,
 } from './cad-job-scope.js';
 
 const CMS_ASSETS = 'cms_assets';
@@ -41,8 +42,8 @@ export function cadJobSkipGlbPolish(job) {
  * @param {{ tenantId: string, workspaceId: string, jobId: string, sourceUrl: string }} p
  */
 export async function ingestRemoteGlbToR2(env, p) {
-  const binding = env?.ASSETS;
-  if (!binding?.put) throw new Error('ASSETS binding unavailable');
+  const binding = resolveCadR2Binding(env);
+  if (!binding?.put) throw new Error('CAD/ASSETS binding unavailable');
   const url = String(p.sourceUrl || '').trim();
   if (!url) throw new Error('missing_glb_url');
 
@@ -56,9 +57,9 @@ export async function ingestRemoteGlbToR2(env, p) {
     httpMetadata: { contentType: 'model/gltf-binary' },
   });
   return {
-    r2_bucket: cadJobR2Bucket(),
+    r2_bucket: cadJobR2Bucket(env),
     r2_key: r2Key,
-    public_url: buildCadAssetPublicUrl(r2Key),
+    public_url: buildCadAssetPublicUrl(r2Key, env?.CAD_R2_PUBLIC_ORIGIN),
     size_bytes: buf.byteLength,
   };
 }
@@ -319,11 +320,11 @@ export async function finalizeCadJobComplete(env, ctx, body) {
   }
 
   const r2Key = String(body.r2_key || job.r2_key || '').trim();
-  const r2Bucket = String(body.r2_bucket || job.r2_bucket || cadJobR2Bucket()).trim();
+  const r2Bucket = String(body.r2_bucket || job.r2_bucket || cadJobR2Bucket(env)).trim();
   const publicUrl =
     String(body.public_url || '').trim() ||
     (r2Key && !r2Key.startsWith('b64:') && !r2Key.includes('\n')
-      ? buildCadAssetPublicUrl(r2Key)
+      ? buildCadAssetPublicUrl(r2Key, env?.CAD_R2_PUBLIC_ORIGIN)
       : String(job.result_url || '').trim());
 
   let cmsAsset = null;

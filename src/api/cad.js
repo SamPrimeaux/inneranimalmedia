@@ -7,6 +7,8 @@ import {
   resolveCadJobScope,
   buildCadExportR2Key,
   buildCadAssetPublicUrl,
+  resolveCadR2Binding,
+  cadJobR2Bucket,
 } from '../core/cad-job-scope.js';
 import { finalizeCadJobComplete } from '../core/cad-job-complete.js';
 import {
@@ -321,7 +323,8 @@ export async function handleCadApi(request, url, env, ctx) {
       if (!verifyInternalApiSecret(request, env)) {
         return jsonResponse({ error: 'Forbidden' }, 403);
       }
-      if (!env.ASSETS) return jsonResponse({ error: 'ASSETS binding not configured' }, 503);
+      const cadBinding = resolveCadR2Binding(env);
+      if (!cadBinding?.put) return jsonResponse({ error: 'CAD/ASSETS binding not configured' }, 503);
 
       const form = await request.formData().catch(() => null);
       if (!form) return jsonResponse({ error: 'multipart_required' }, 400);
@@ -335,10 +338,15 @@ export async function handleCadApi(request, url, env, ctx) {
         return jsonResponse({ error: 'invalid_r2_key' }, 400);
       }
 
-      await env.ASSETS.put(r2Key, file.stream(), {
+      await cadBinding.put(r2Key, file.stream(), {
         httpMetadata: { contentType: 'model/gltf-binary' },
       });
-      return jsonResponse({ ok: true, r2_key: r2Key, bucket: 'inneranimalmedia' });
+      return jsonResponse({
+        ok: true,
+        r2_key: r2Key,
+        bucket: cadJobR2Bucket(env),
+        public_url: buildCadAssetPublicUrl(r2Key, env.CAD_R2_PUBLIC_ORIGIN),
+      });
     }
 
     if (path === '/api/internal/cad/job-complete' && method === 'POST') {

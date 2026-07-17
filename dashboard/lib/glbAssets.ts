@@ -86,6 +86,9 @@ export function normalizeGlbUrl(input: string | null | undefined): string {
         : 'https://inneranimalmedia.com';
     const u = new URL(s, base);
 
+    // Dedicated CAD bucket is public + CDN-fronted — load cross-origin as-is, never flatten.
+    if (u.hostname === 'cad.inneranimalmedia.com') return s;
+
     if (u.hostname.includes('inneranimalmedia.com') && u.pathname.startsWith('/assets/')) {
       return u.pathname;
     }
