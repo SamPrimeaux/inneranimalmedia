@@ -58,6 +58,10 @@ import { StudioLoadingScreen } from './StudioLoadingScreen';
 import { DEFAULT_STUDIO_SCENE_ENV, type EntityMaterialPatch, type StudioSceneEnvPatch } from './studioEnvironment';
 import { CAD_OPERATORS } from './operators';
 import { dispatchCadChat } from './dispatchCadChat';
+import {
+  hasMeshyModelInput,
+  resolveMeshyModelInput,
+} from './meshyDirectOps';
 
 const DEFAULT_SCENE_ENV_CONFIG = DEFAULT_STUDIO_SCENE_ENV;
 
@@ -732,6 +736,121 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     [handleDockLocalAction, protocol],
   );
 
+  /** Meshy operators hit /api/cad/meshy/* — never Agent Sam pre-prompt chat. */
+  const runMeshyDirectOperator = useCallback(
+    async (operatorId: string, prompt?: string) => {
+      const label = CAD_OPERATORS.find((c) => c.id === operatorId)?.title ?? operatorId;
+      const selectedEntity = entities.find((e) => e.id === selectedId) ?? null;
+      const input = resolveMeshyModelInput(selectedEntity, cad.jobs || []);
+
+      if (operatorId === 'generateObject') {
+        const p = String(prompt || '').trim();
+        if (!p) {
+          openGenerate();
+          return;
+        }
+        try {
+          protocolSetStatus(`Meshy generate…`, 'executing');
+          await cad.runMeshyPreview(
+            buildMeshyPreviewBody({
+              ...DEFAULT_MESHY_SETTINGS,
+              prompt: p,
+            }),
+          );
+          protocol.toast('Meshy', 'Text-to-3D preview queued');
+          protocolSetStatus('Meshy preview queued', 'complete');
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          protocolToast('Meshy generate failed', msg);
+          protocolSetStatus(msg, 'failed');
+        }
+        return;
+      }
+
+      if (operatorId === 'meshyAnimate') {
+        openAnimLib();
+        protocol.toast('Animation', 'Pick a clip — applies via Meshy API');
+        return;
+      }
+
+      if (!hasMeshyModelInput(input)) {
+        protocol.toast('Meshy', 'Select a Meshy model (task id or GLB URL) first');
+        return;
+      }
+
+      const modelBody = {
+        input_task_id: input.model_task_id,
+        model_task_id: input.model_task_id,
+        model_url: input.model_url,
+      };
+
+      try {
+        protocolSetStatus(`Meshy ${label}…`, 'executing');
+        let result: { job_id?: string } | null = null;
+        switch (operatorId) {
+          case 'meshyRemesh':
+            result = await cad.runMeshyRemesh({
+              ...modelBody,
+              topology: 'triangle',
+              target_polycount: 30000,
+            });
+            break;
+          case 'meshyUvUnwrap':
+            result = await cad.runMeshyUvUnwrap(modelBody);
+            break;
+          case 'meshyRig':
+            result = await cad.runMeshyRigging(modelBody);
+            break;
+          case 'meshyConvert':
+            result = await cad.runMeshyConvert({
+              ...modelBody,
+              target_formats: ['glb'],
+            });
+            break;
+          case 'meshyResize':
+            result = await cad.runMeshyResize({
+              ...modelBody,
+              auto_size: true,
+            });
+            break;
+          case 'meshyRetexture': {
+            const style =
+              String(prompt || '').trim() ||
+              String(window.prompt('Retexture style prompt') || '').trim();
+            if (!style) {
+              protocol.toast('Meshy', 'Style prompt required for retexture');
+              return;
+            }
+            result = await cad.runMeshyRetexture({
+              ...modelBody,
+              text_style_prompt: style,
+            });
+            break;
+          }
+          default:
+            protocol.toast('Meshy', `Unsupported operator ${operatorId}`);
+            return;
+        }
+        protocol.toast('Meshy', `${label} job ${result?.job_id ?? 'queued'}`);
+        protocolSetStatus(`${label} queued`, 'complete');
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        protocolToast(`${label} failed`, msg);
+        protocolSetStatus(msg, 'failed');
+      }
+    },
+    [
+      entities,
+      selectedId,
+      cad,
+      openGenerate,
+      openAnimLib,
+      protocol,
+      protocolSetStatus,
+      protocolToast,
+    ],
+  );
+
   useEffect(() => {
     if (engineContainerRef.current) onEngineContainerMount();
   }, [engineContainerRef, onEngineContainerMount]);
@@ -1181,29 +1300,18 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         onRenderViewport={handleRenderViewport}
         onRenderViaChat={(intent) => {
           const wantsMeshyAnim = /meshy|animation clip|animate/i.test(intent);
-          const op = CAD_OPERATORS.find((c) =>
-            wantsMeshyAnim ? c.id === 'meshyAnimate' : c.id === 'generateBlender',
-          );
-          const selectedEntity = entities.find((e) => e.id === selectedId) ?? null;
-          const meshyIds = resolveMeshyIdsFromEntity(selectedEntity);
-          const rigFromJobs = resolveRigTaskIdFromJobs(cad.jobs || []);
-          const clip =
-            selectedAnimationActionId != null
-              ? animationClips.find((c) => c.action_id === selectedAnimationActionId)
-              : null;
+          if (wantsMeshyAnim) {
+            void runMeshyDirectOperator('meshyAnimate');
+            return;
+          }
+          const op = CAD_OPERATORS.find((c) => c.id === 'generateBlender');
           dispatchCadChat({
             operator: op,
-            operatorId: op?.id ?? 'meshyAnimate',
+            operatorId: op?.id ?? 'generateBlender',
             prompt: intent,
             workspace: ui.workspace,
             selectedObjectId: selectedId,
             sceneId: currentSceneId,
-            meshyContext: {
-              model_task_id: meshyIds.model_task_id,
-              rig_task_id: meshyIds.rig_task_id || rigFromJobs,
-              action_id: selectedAnimationActionId,
-              action_name: clip?.name ?? null,
-            },
             send: true,
           });
         }}
@@ -1293,38 +1401,10 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         <ViewportActionBar
           onTexture={() => void handleRunBlenderJob('Apply PBR texture to selected object')}
           onRemesh={() => {
-            const op = CAD_OPERATORS.find((c) => c.id === 'meshyRemesh');
-            const selectedEntity = entities.find((e) => e.id === selectedId) ?? null;
-            const meshyIds = resolveMeshyIdsFromEntity(selectedEntity);
-            dispatchCadChat({
-              operator: op,
-              operatorId: 'meshyRemesh',
-              prompt:
-                'Remesh selected Meshy model (triangle topology, ~30k poly). Use input_task_id when known; otherwise model_url from viewport GLB.',
-              workspace: ui.workspace,
-              selectedObjectId: selectedId,
-              sceneId: currentSceneId,
-              meshyContext: {
-                model_task_id: meshyIds.model_task_id,
-                rig_task_id: meshyIds.rig_task_id,
-              },
-              send: true,
-            });
+            void runMeshyDirectOperator('meshyRemesh');
           }}
           onUnwrapUV={() => {
-            const op = CAD_OPERATORS.find((c) => c.id === 'meshyUvUnwrap');
-            const selectedEntity = entities.find((e) => e.id === selectedId) ?? null;
-            const meshyIds = resolveMeshyIdsFromEntity(selectedEntity);
-            dispatchCadChat({
-              operator: op,
-              operatorId: 'meshyUvUnwrap',
-              prompt: 'UV unwrap selected Meshy model (≤40k faces). Remesh first if over limit.',
-              workspace: ui.workspace,
-              selectedObjectId: selectedId,
-              sceneId: currentSceneId,
-              meshyContext: { model_task_id: meshyIds.model_task_id },
-              send: true,
-            });
+            void runMeshyDirectOperator('meshyUvUnwrap');
           }}
           onRig={() => { if (animLibVisible) closeAnimLib(); else openAnimLib(); }}
           rigActive={animLibVisible}
@@ -1407,6 +1487,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         sceneId={currentSceneId}
         initialOperatorId={operatorInitialId}
         onRunLocalOperator={runLocalOperator}
+        onRunMeshyOperator={runMeshyDirectOperator}
       />
 
       <GenerateCadModal
@@ -1414,6 +1495,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         onClose={() => setGenerateOpen(false)}
         workspace={ui.workspace}
         sceneId={currentSceneId}
+        onMeshyGenerate={(p) => runMeshyDirectOperator('generateObject', p)}
       />
 
       {diagnosticsOpen ? (

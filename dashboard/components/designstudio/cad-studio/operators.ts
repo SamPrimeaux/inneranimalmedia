@@ -4,8 +4,8 @@ export type CadOperator = {
   type: string;
   engine: string;
   description: string;
-  /** `local` = run in Three.js viewport (AgentSamEngine); `agent` = ChatAssistant tool loop */
-  execution?: 'local' | 'agent';
+  /** `local` = viewport; `api` = direct Meshy/CAD HTTP; `agent` = ChatAssistant tool loop */
+  execution?: 'local' | 'api' | 'agent';
 };
 
 /** Viewport primitives — never route through illustration_create / Draw. */
@@ -59,7 +59,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     type: 'AI',
     engine: 'Meshy',
     description: 'Text-to-3D via canonical Meshy generation tools. GLB auto-spawns when the job completes.',
-    execution: 'agent',
+    execution: 'api',
   },
   {
     id: 'meshyRig',
@@ -67,7 +67,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     type: 'ANIM',
     engine: 'Meshy',
     description: 'Rig a Meshy model task id or GLB URL. Required before applying a custom animation.',
-    execution: 'agent',
+    execution: 'api',
   },
   {
     id: 'meshyAnimate',
@@ -76,7 +76,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     engine: 'Meshy',
     description:
       'Call meshy_animate with rig_task_id + action_id from the Meshy library.',
-    execution: 'agent',
+    execution: 'api',
   },
   {
     id: 'meshyRemesh',
@@ -85,7 +85,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     engine: 'Meshy',
     description:
       'Remesh via meshy_remesh (topology/polycount). Prefer meshy_convert or meshy_resize for format-only or size-only.',
-    execution: 'agent',
+    execution: 'api',
   },
   {
     id: 'meshyConvert',
@@ -94,7 +94,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     engine: 'Meshy',
     description:
       'Meshy convert to glb/fbx/obj/usdz/blend/stl/3mf. Not CloudConvert (video/PDF/office → MovieMode).',
-    execution: 'agent',
+    execution: 'api',
   },
   {
     id: 'meshyResize',
@@ -102,7 +102,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     type: 'MESH',
     engine: 'Meshy',
     description: 'Real-world resize via meshy_resize (height / longest side / auto_size).',
-    execution: 'agent',
+    execution: 'api',
   },
   {
     id: 'meshyUvUnwrap',
@@ -110,7 +110,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     type: 'MESH',
     engine: 'Meshy',
     description: 'UV white-model unwrap before retexture (≤40k faces). Remesh first if over limit.',
-    execution: 'agent',
+    execution: 'api',
   },
   {
     id: 'meshyRetexture',
@@ -118,7 +118,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     type: 'AI',
     engine: 'Meshy',
     description: 'Retexture a SUCCEEDED Meshy model via text or image style.',
-    execution: 'agent',
+    execution: 'api',
   },
   {
     id: 'generateBlender',

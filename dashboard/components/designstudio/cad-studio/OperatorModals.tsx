@@ -16,6 +16,8 @@ export type OperatorSearchModalProps = {
   initialOperatorId?: string;
   /** Runs viewport-local operators (Add Cube, etc.) without Agent chat. */
   onRunLocalOperator?: (operatorId: string) => void;
+  /** Runs Meshy HTTP operators without Agent chat. */
+  onRunMeshyOperator?: (operatorId: string, prompt?: string) => void | Promise<void>;
 };
 
 export function OperatorSearchModal({
@@ -26,6 +28,7 @@ export function OperatorSearchModal({
   sceneId,
   initialOperatorId,
   onRunLocalOperator,
+  onRunMeshyOperator,
 }: OperatorSearchModalProps) {
   const [filter, setFilter] = useState('');
   const [selected, setSelected] = useState<CadOperator>(
@@ -52,13 +55,21 @@ export function OperatorSearchModal({
   }, [filter]);
 
   const needsPrompt =
-    selected.id.startsWith('generate') || selected.id === 'repairGeometry';
+    selected.id.startsWith('generate') ||
+    selected.id === 'repairGeometry' ||
+    selected.id === 'meshyRetexture';
 
   const isLocal = selected.execution === 'local' || isViewportLocalOperator(selected.id);
+  const isMeshyApi = selected.execution === 'api' || selected.engine === 'Meshy';
 
   const submit = () => {
     if (isLocal) {
       onRunLocalOperator?.(selected.id);
+      onClose();
+      return;
+    }
+    if (isMeshyApi) {
+      void onRunMeshyOperator?.(selected.id, needsPrompt ? prompt : undefined);
       onClose();
       return;
     }
@@ -117,14 +128,18 @@ export function OperatorSearchModal({
               />
             ) : null}
             <pre className="cad-studio__mini-code">{`operator: iamcad.operator.${selected.id}\nroute: ${
-              isLocal ? 'Viewport → AgentSamEngine (local)' : 'ChatAssistant → Agent tools'
+              isLocal
+                ? 'Viewport → AgentSamEngine (local)'
+                : isMeshyApi
+                  ? 'CAD API → Meshy (/api/cad/meshy/*)'
+                  : 'ChatAssistant → Agent tools'
             }\nworkspace: ${workspace}`}</pre>
             <div className="cad-studio__operator-actions">
               <button type="button" className="cad-studio__secondary-btn" onClick={onClose}>
                 Cancel
               </button>
               <button type="button" className="cad-studio__primary-btn" onClick={submit}>
-                {isLocal ? 'Run in viewport' : 'Send to Agent'}
+                {isLocal ? 'Run in viewport' : isMeshyApi ? 'Run Meshy API' : 'Send to Agent'}
               </button>
             </div>
           </div>
@@ -139,9 +154,17 @@ export type GenerateCadModalProps = {
   onClose: () => void;
   workspace: string;
   sceneId: string | null;
+  /** When set and engine=Meshy, runs CAD Meshy API instead of Agent chat. */
+  onMeshyGenerate?: (prompt: string) => void | Promise<void>;
 };
 
-export function GenerateCadModal({ open, onClose, workspace, sceneId }: GenerateCadModalProps) {
+export function GenerateCadModal({
+  open,
+  onClose,
+  workspace,
+  sceneId,
+  onMeshyGenerate,
+}: GenerateCadModalProps) {
   const [prompt, setPrompt] = useState(DEFAULT_OPERATOR_PROMPT);
   const [engine, setEngine] = useState('Meshy');
   const [target, setTarget] = useState('viewport');
@@ -149,6 +172,8 @@ export function GenerateCadModal({ open, onClose, workspace, sceneId }: Generate
   const [quality, setQuality] = useState('high');
 
   if (!open) return null;
+
+  const isMeshy = /meshy/i.test(engine);
 
   return (
     <div
@@ -206,11 +231,16 @@ export function GenerateCadModal({ open, onClose, workspace, sceneId }: Generate
               type="button"
               className="cad-studio__primary-btn"
               onClick={() => {
+                if (isMeshy && onMeshyGenerate) {
+                  void onMeshyGenerate(prompt);
+                  onClose();
+                  return;
+                }
                 dispatchGenerateCadObject({ prompt, engine, target, units, quality, workspace, sceneId });
                 onClose();
               }}
             >
-              Send to Agent
+              {isMeshy && onMeshyGenerate ? 'Run Meshy API' : 'Send to Agent'}
             </button>
           </div>
         </div>
