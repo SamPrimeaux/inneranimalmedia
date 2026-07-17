@@ -4205,7 +4205,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           )}
         </div>
           );
-          const wrappedShell = desktopStartupCenterMode || entryPortalStartup ? (
+          const wrappedShell = composerPortaled && entryPortalStartup ? (
+            shell
+          ) : desktopStartupCenterMode || entryPortalStartup ? (
             <div
               className={`iam-chat-startup-stack order-2 shrink-0 w-full${
                 composerPortaled ? ' pointer-events-auto' : ''

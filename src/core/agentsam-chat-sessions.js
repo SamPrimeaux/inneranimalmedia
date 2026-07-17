@@ -211,19 +211,23 @@ export async function appendTurnOutboxBatch(env, conversationId, turnId, events)
   const stub = getAgentSessionStub(env, convId);
   if (!stub) return { ok: false, reason: 'no_binding' };
 
-  const resp = await stub.fetch(
-    new Request('https://do/outbox', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        turn_id: tid,
-        events: batch.map((evt) => ({
-          event_type: mapSseTypeToOutboxEventType(evt.sseType),
-          payload: { type: evt.sseType, ...evt.payload },
-        })),
+  const resp = await withDoFetchTimeout(
+    stub.fetch(
+      new Request('https://do/outbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          turn_id: tid,
+          events: batch.map((evt) => ({
+            event_type: mapSseTypeToOutboxEventType(evt.sseType),
+            payload: { type: evt.sseType, ...evt.payload },
+          })),
+        }),
       }),
-    }),
+    ),
+    2000,
   );
+  if (!resp) return { ok: false, reason: 'do_timeout' };
   if (!resp.ok) return { ok: false, reason: `do_${resp.status}` };
   const data = await resp.json().catch(() => ({}));
   return {
@@ -255,6 +259,8 @@ export function createTurnOutboxBatcher(env, conversationId, turnId, opts = {}) 
   let timer = null;
   /** @type {Promise<void>|null} */
   let flushPromise = null;
+  /** @type {Promise<void>|null} */
+  let terminalPromise = null;
   let closed = false;
 
   const clearTimer = () => {
@@ -321,11 +327,15 @@ export function createTurnOutboxBatcher(env, conversationId, turnId, opts = {}) 
       if (t === 'status' && body.heartbeat) return;
 
       if (t === 'done' || t === 'error' || t === 'turn_meta') {
-        void flush().then(async () => {
-          await appendTurnOutboxBatch(env, convId, tid, [
-            { sseType: t, payload: { type: t, ...body } },
-          ]).catch((e) => console.warn('[turn_outbox] terminal append failed', e?.message ?? e));
-        });
+        terminalPromise = Promise.resolve(terminalPromise)
+          .catch(() => {})
+          .then(() => flush())
+          .then(async () => {
+            await appendTurnOutboxBatch(env, convId, tid, [
+              { sseType: t, payload: { type: t, ...body } },
+            ]).catch((e) => console.warn('[turn_outbox] terminal append failed', e?.message ?? e));
+          });
+        void terminalPromise;
         if (t === 'done' || t === 'error') closed = true;
         return;
       }
@@ -334,10 +344,11 @@ export function createTurnOutboxBatcher(env, conversationId, turnId, opts = {}) 
       if (queue.length >= maxBatch) void flush();
       else scheduleFlush();
     },
-    finish() {
+    async finish() {
       closed = true;
       clearTimer();
-      return flush();
+      await flush();
+      await terminalPromise;
     },
   };
 }

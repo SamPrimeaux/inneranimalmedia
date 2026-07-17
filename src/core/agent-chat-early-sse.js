@@ -101,16 +101,31 @@ export function startAgentChatEarlySse(runPipeline, meta = {}) {
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value?.byteLength) {
-        streamLifecycle.record('pipe_bytes', { bytes: value.byteLength });
-        ingestSseChunkToTurnOutbox(decoder.decode(value, { stream: true }), outboxTapState, {
-          batcher: outboxCtx.batcher,
-          onEvent: (type, payload) => streamLifecycle.record(type, payload),
-        });
-        await writer.write(value);
+    let completed = false;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          completed = true;
+          break;
+        }
+        if (value?.byteLength) {
+          streamLifecycle.record('pipe_bytes', { bytes: value.byteLength });
+          ingestSseChunkToTurnOutbox(decoder.decode(value, { stream: true }), outboxTapState, {
+            batcher: outboxCtx.batcher,
+            onEvent: (type, payload) => streamLifecycle.record(type, payload),
+          });
+          await writer.write(value);
+        }
+      }
+    } finally {
+      if (!completed) {
+        await reader.cancel('outer_stream_closed').catch(() => {});
+      }
+      try {
+        reader.releaseLock();
+      } catch {
+        /* ignore */
       }
     }
   };
@@ -134,14 +149,14 @@ export function startAgentChatEarlySse(runPipeline, meta = {}) {
       await emit('error', { message: String(e?.message || e || 'agent_chat_failed') });
       await emit('done', {});
     } finally {
-      try {
-        await outboxCtx.batcher?.finish();
-      } catch (e) {
-        console.warn('[agent-chat-early-sse] outbox finish', e?.message ?? e);
-      }
       await Promise.allSettled([...pendingEmits]);
       const closePayload = streamLifecycle.finalize('early_sse_close');
       await writer.close().catch(() => {});
+      const outboxTask = Promise.resolve(outboxCtx.batcher?.finish()).catch((e) =>
+        console.warn('[agent-chat-early-sse] outbox finish', e?.message ?? e),
+      );
+      if (typeof meta.waitUntil === 'function') meta.waitUntil(outboxTask);
+      else await outboxTask;
       if (typeof meta.onStreamClose === 'function') {
         const closeTask = Promise.resolve(meta.onStreamClose(closePayload)).catch((e) =>
           console.warn('[agent-chat-early-sse] onStreamClose', e?.message ?? e),

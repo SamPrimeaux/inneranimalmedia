@@ -1,4 +1,30 @@
-import { aggregateOpenAiCompatibleUsageTokens } from './agent-costs.js';
+import { aggregateOpenAiCompatibleUsageTokens } from './openai-usage-tokens.js';
+
+function readSseChunk(reader, signal) {
+  if (!signal) return reader.read();
+  if (signal.aborted) {
+    return Promise.reject(
+      signal.reason instanceof Error
+        ? signal.reason
+        : Object.assign(new Error('Stream aborted'), { name: 'AbortError' }),
+    );
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      void reader.cancel('aborted').catch(() => {});
+      reject(
+        signal.reason instanceof Error
+          ? signal.reason
+          : Object.assign(new Error('Stream aborted'), { name: 'AbortError' }),
+      );
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    reader
+      .read()
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
 
 export function safeJsonParse(value) {
   if (!value || typeof value !== 'string') return {};
@@ -27,6 +53,7 @@ export async function consumeOpenAIChatCompletionsSse(readable, emit, opts = {})
   let finishReason = null;
   /** @type {Record<string, unknown>|null} */
   let usage = null;
+  let terminalEvent = false;
 
   const mergeDelta = (delta) => {
     if (delta == null || typeof delta !== 'object') return;
@@ -59,47 +86,62 @@ export async function consumeOpenAIChatCompletionsSse(readable, emit, opts = {})
   };
 
   const processPayload = (payload) => {
-    if (payload === '[DONE]') return;
+    if (payload === '[DONE]') {
+      terminalEvent = true;
+      return true;
+    }
     let json;
     try {
       json = JSON.parse(payload);
     } catch {
-      return;
+      return false;
     }
     const choices = json?.choices;
     if (json?.usage && typeof json.usage === 'object') {
       usage = json.usage;
     }
-    if (!Array.isArray(choices) || !choices.length) return;
+    if (!Array.isArray(choices) || !choices.length) return false;
     const ch = choices[0];
     if (ch.finish_reason != null && String(ch.finish_reason).trim() !== '') {
       finishReason = String(ch.finish_reason);
     }
     if (ch.delta) mergeDelta(ch.delta);
+    return false;
   };
 
   /** One SSE event: join all `data:` lines (spec allows multi-line data fields). */
   const processEventBlock = (blockText) => {
     const lines = blockText.split('\n').map((l) => l.trim()).filter(Boolean);
     const dataLines = lines.filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trimStart());
-    if (!dataLines.length) return;
-    processPayload(dataLines.join('\n').trim());
+    if (!dataLines.length) return false;
+    return processPayload(dataLines.join('\n').trim());
   };
 
-  while (true) {
-    if (throwIfAborted) await throwIfAborted();
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let sep;
-    while ((sep = buf.indexOf('\n\n')) >= 0) {
-      const part = buf.slice(0, sep);
-      buf = buf.slice(sep + 2);
-      processEventBlock(part);
+  try {
+    while (!terminalEvent) {
+      if (throwIfAborted) await throwIfAborted();
+      const { done, value } = await readSseChunk(reader, opts.signal);
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let sep;
+      while ((sep = buf.indexOf('\n\n')) >= 0) {
+        const part = buf.slice(0, sep);
+        buf = buf.slice(sep + 2);
+        if (processEventBlock(part)) break;
+      }
+    }
+    const tail = buf.trim();
+    if (tail && !terminalEvent) processEventBlock(tail);
+  } finally {
+    if (terminalEvent) {
+      await reader.cancel('sse_terminal_event').catch(() => {});
+    }
+    try {
+      reader.releaseLock();
+    } catch {
+      /* ignore */
     }
   }
-  const tail = buf.trim();
-  if (tail) processEventBlock(tail);
 
   const pendingToolCalls = [...tcByIndex.entries()]
     .sort(([a], [b]) => a - b)
@@ -140,6 +182,7 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
   let textBuf = '';
   let streamFinish = null;
   let responseId = null;
+  let terminalEvent = false;
 
   const slots = [];
   const byCallId = new Map();
@@ -176,13 +219,13 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
   };
 
   const handleObj = (obj) => {
-    if (!obj || typeof obj !== 'object') return;
+    if (!obj || typeof obj !== 'object') return false;
     const t = String(obj.type || '');
 
     if (t === 'response.created' || t === 'response.in_progress') {
       const rid = obj.response?.id;
       if (rid) responseId = String(rid);
-      return;
+      return false;
     }
 
     if (t === 'response.output_text.delta') {
@@ -191,7 +234,7 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
         textBuf += d;
         emit('text', { text: d });
       }
-      return;
+      return false;
     }
 
     if (t === 'response.output_item.added' || t === 'response.output_item.done') {
@@ -200,7 +243,7 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
         const s = mergeSlot(item.call_id, item.id, item.name, obj.output_index);
         if (typeof item.arguments === 'string' && item.arguments) s.args = item.arguments;
       }
-      return;
+      return false;
     }
 
     if (t.includes('function_call_arguments') && t.includes('delta')) {
@@ -216,7 +259,7 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
         const s = mergeSlot(callId, itemId, undefined, obj.output_index);
         s.args += delta;
       }
-      return;
+      return false;
     }
 
     if (t === 'response.completed') {
@@ -239,7 +282,15 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
           output_tokens: Number(resp.usage.output_tokens) || 0,
         };
       }
+      terminalEvent = true;
+      return true;
     }
+    if (t === 'response.failed' || t === 'response.incomplete' || t === 'response.cancelled') {
+      streamFinish = t.slice('response.'.length);
+      terminalEvent = true;
+      return true;
+    }
+    return false;
   };
 
   const processEventBlock = (blockText) => {
@@ -248,28 +299,45 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
       const s = line.trim();
       if (s.startsWith('data:')) dataParts.push(s.slice(5).trimStart());
     }
-    if (!dataParts.length) return;
+    if (!dataParts.length) return false;
     const payload = dataParts.join('\n').trim();
-    if (!payload || payload === '[DONE]') return;
+    if (!payload) return false;
+    if (payload === '[DONE]') {
+      terminalEvent = true;
+      return true;
+    }
     try {
-      handleObj(JSON.parse(payload));
+      return handleObj(JSON.parse(payload));
     } catch {
       /* ignore non-JSON */
+      return false;
     }
   };
 
-  while (true) {
-    if (throwIfAborted) await throwIfAborted();
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let sep;
-    while ((sep = buf.indexOf('\n\n')) >= 0) {
-      processEventBlock(buf.slice(0, sep));
-      buf = buf.slice(sep + 2);
+  try {
+    while (!terminalEvent) {
+      if (throwIfAborted) await throwIfAborted();
+      const { done, value } = await readSseChunk(reader, opts.signal);
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let sep;
+      while ((sep = buf.indexOf('\n\n')) >= 0) {
+        const part = buf.slice(0, sep);
+        buf = buf.slice(sep + 2);
+        if (processEventBlock(part)) break;
+      }
+    }
+    if (buf.trim() && !terminalEvent) processEventBlock(buf.trim());
+  } finally {
+    if (terminalEvent) {
+      await reader.cancel('sse_terminal_event').catch(() => {});
+    }
+    try {
+      reader.releaseLock();
+    } catch {
+      /* ignore */
     }
   }
-  if (buf.trim()) processEventBlock(buf.trim());
 
   slots.sort((a, b) => (a.outputIndex ?? 1e9) - (b.outputIndex ?? 1e9));
 

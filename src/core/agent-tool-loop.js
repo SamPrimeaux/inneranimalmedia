@@ -844,7 +844,10 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           if (last) last.text += piece;
           emit('text', { text: piece });
         }
-      }, { throwIfAborted: () => abortScope.throwIfAborted() });
+      }, {
+        throwIfAborted: () => abortScope.throwIfAborted(),
+        signal: abortScope.signal,
+      });
       const tail = buf.trim();
       if (tail) {
         let piece = '';
@@ -873,7 +876,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           const dataLines = lines.filter(l => l.startsWith('data:')).map(l => l.slice(5).trim());
           if (!dataLines.length) continue;
           const payload = dataLines.join('\n');
-          if (payload === '[DONE]') return;
+          if (payload === '[DONE]') return false;
           try {
             const json = JSON.parse(payload);
             const text =
@@ -891,7 +894,11 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             // ignore non-JSON SSE frames
           }
         }
-      }, { throwIfAborted: () => abortScope.throwIfAborted() });
+        return true;
+      }, {
+        throwIfAborted: () => abortScope.throwIfAborted(),
+        signal: abortScope.signal,
+      });
     };
 
     if (stream instanceof Response) {
@@ -960,6 +967,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         assistantContent.push({ type: 'text', text: '' });
         const parsed = await consumeOpenAIResponsesSse(stream.body, emit, {
           throwIfAborted: () => abortScope.throwIfAborted(),
+          signal: abortScope.signal,
         });
         if (parsed.input_tokens || parsed.output_tokens) {
           totalUsage.input_tokens  += parsed.input_tokens;
@@ -971,6 +979,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         assistantContent.push({ type: 'text', text: '' });
         const parsed = await consumeOpenAIChatCompletionsSse(stream.body, emit, {
           throwIfAborted: () => abortScope.throwIfAborted(),
+          signal: abortScope.signal,
         });
         applyNormalizedOpenAI(parsed);
       } else if (stream.body) {

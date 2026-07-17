@@ -164,6 +164,39 @@ export function resolveDashboardRouteAgentContext(opts: {
     };
   }
 
+  if (path.startsWith('/dashboard/sketch')) {
+    return {
+      route_key: 'visual_canvas',
+      task_type: 'visual_canvas',
+      context_label: 'Sketch',
+      contextMode: 'visual_canvas',
+      workspaceContext: {
+        ...basePacket,
+        activeTab: 'sketch',
+        capabilities: ['sketch', 'wireframe', 'blueprint', 'visual_canvas'],
+        linked_route: path + (search || ''),
+      },
+      quickActions: [
+        {
+          id: 'sketch-layout',
+          label: 'Layout',
+          message:
+            'Help me build a lo-fi interface in Sketch. Ask which screen and device, then guide the layout on the canvas.',
+          route_key: 'visual_canvas',
+          task_type: 'visual_canvas',
+        },
+        {
+          id: 'sketch-blueprint',
+          label: 'Blueprint',
+          message:
+            'Help me refine the active floor-plan blueprint in Sketch. Ask what dimensions, rooms, and constraints matter first.',
+          route_key: 'visual_canvas',
+          task_type: 'visual_canvas',
+        },
+      ],
+    };
+  }
+
   if (path.startsWith('/dashboard/database')) {
     return {
       route_key: 'database_studio',

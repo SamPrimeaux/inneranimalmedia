@@ -71,16 +71,16 @@ const CARD_QUICKSTART_DEFAULTS: Record<
   },
   'card-wireframe': {
     seedMessage:
-      'Quickstart: Product wireframe. The Wireframe studio (Figma-like UI canvas) is open on Draw. Before placing components, ask me 2–4 short questions: which screen(s), desktop/tablet/mobile, primary user goal, and any must-have blocks (nav, hero, form, table). Wait for my answers. Then guide me in Wireframe studio or place a starter layout — do not output ASCII wireframes.',
-    task_type: 'plan',
-    route_key: 'design_studio',
+      'Quickstart: Product wireframe. Sketch is open in Layout mode. Before placing components, ask me 2–4 short questions: which screen(s), desktop/tablet/mobile, primary user goal, and any must-have blocks (nav, hero, form, table). Wait for my answers. Then guide me on the canvas or place a starter layout — do not output ASCII wireframes.',
+    task_type: 'visual_canvas',
+    route_key: 'visual_canvas',
     openSurface: 'wireframe',
   },
   'card-blank-canvas': {
     seedMessage:
-      'Quickstart: Blank canvas. Wireframe studio is open for a freeform UI sketch. Ask what screen I want to design, then help me build it with the component palette.',
-    task_type: 'plan',
-    route_key: 'design_studio',
+      'Quickstart: Blank canvas. Sketch is open in Layout mode for a freeform interface concept. Ask what screen I want to design, then help me build it with the component palette.',
+    task_type: 'visual_canvas',
+    route_key: 'visual_canvas',
     openSurface: 'wireframe',
   },
 };

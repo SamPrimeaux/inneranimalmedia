@@ -1417,10 +1417,8 @@ const App: React.FC = () => {
     if (!isSketchRoute || isNarrowViewport) return;
     if (sketchEntryPhase) {
       setAgentPosition('off');
-    } else {
-      ensureAgentSidePanel();
     }
-  }, [isSketchRoute, sketchEntryPhase, isNarrowViewport, ensureAgentSidePanel]);
+  }, [isSketchRoute, sketchEntryPhase, isNarrowViewport]);
 
   const agentWorkspaceContext = useMemo<AgentWorkspaceContextPacket>(() => {
     const routeCtx = resolveDashboardRouteAgentContext({

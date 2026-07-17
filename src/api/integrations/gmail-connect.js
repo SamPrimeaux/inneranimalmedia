@@ -85,7 +85,7 @@ async function upsertGmailRegistry(env, tenantId, userId, accountEmail) {
       `INSERT INTO integration_registry (
          id, tenant_id, provider_key, display_name, category, auth_type, status,
          account_display, sort_order, updated_at
-       ) VALUES (?, ?, 'google_gmail', 'Gmail', 'communication', 'oauth', 'connected', ?, 25, datetime('now'))
+       ) VALUES (?, ?, 'google_gmail', 'Gmail', 'communication', 'oauth2', 'connected', ?, 25, datetime('now'))
        ON CONFLICT(tenant_id, provider_key) DO UPDATE SET
          status = 'connected',
          account_display = COALESCE(excluded.account_display, integration_registry.account_display),

@@ -102,18 +102,40 @@ export function createAgentRunAbortScope(opts = {}) {
 /**
  * Abort-aware ReadableStream reader loop.
  * @param {ReadableStream<Uint8Array>} readable
- * @param {(chunk: Uint8Array) => void|Promise<void>} onChunk
- * @param {{ throwIfAborted?: () => Promise<void> }} [opts]
+ * Return `false` from onChunk when an in-band protocol event has completed the stream.
+ * @param {(chunk: Uint8Array) => void|boolean|Promise<void|boolean>} onChunk
+ * @param {{ throwIfAborted?: () => Promise<void>, signal?: AbortSignal|null }} [opts]
  */
 export async function consumeReadableWithAbort(readable, onChunk, opts = {}) {
   const reader = readable.getReader();
   const throwIfAborted = opts.throwIfAborted;
+  const signal = opts.signal ?? null;
+  let stoppedByConsumer = false;
   try {
     while (true) {
       if (throwIfAborted) await throwIfAborted();
-      const { done, value } = await reader.read();
+      const read =
+        signal && !signal.aborted
+          ? new Promise((resolve, reject) => {
+              const onAbort = () => {
+                void reader.cancel('aborted').catch(() => {});
+                reject(makeAgentRunAbortError(String(signal.reason || 'agent_run_cancelled')));
+              };
+              signal.addEventListener('abort', onAbort, { once: true });
+              reader
+                .read()
+                .then(resolve, reject)
+                .finally(() => signal.removeEventListener('abort', onAbort));
+            })
+          : signal?.aborted
+            ? Promise.reject(makeAgentRunAbortError(String(signal.reason || 'agent_run_cancelled')))
+            : reader.read();
+      const { done, value } = await read;
       if (done) break;
-      if (value) await onChunk(value);
+      if (value && (await onChunk(value)) === false) {
+        stoppedByConsumer = true;
+        break;
+      }
     }
   } catch (e) {
     try {
@@ -123,6 +145,13 @@ export async function consumeReadableWithAbort(readable, onChunk, opts = {}) {
     }
     throw e;
   } finally {
+    if (stoppedByConsumer) {
+      try {
+        await reader.cancel('protocol_complete');
+      } catch {
+        /* ignore */
+      }
+    }
     try {
       reader.releaseLock();
     } catch {

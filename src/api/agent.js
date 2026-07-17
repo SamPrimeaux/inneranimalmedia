@@ -1423,7 +1423,15 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         );
       } else if (result?.saw_done && !result?.saw_token) {
         await markChatTurnStatus(env, sessionId, 'done_no_token', 'stream_done_no_text', turnOpts);
-      } else if (result?.saw_token) {
+      } else if (result?.saw_token && !result?.saw_done) {
+        await markChatTurnStatus(
+          env,
+          sessionId,
+          'interrupted',
+          'stream_closed_without_done',
+          turnOpts,
+        );
+      } else if (result?.saw_token && result?.saw_done) {
         await markChatTurnStatus(env, sessionId, 'completed', null, turnOpts);
       }
       // Terminal status safety net — run via waitUntil immediately (no artificial delay;

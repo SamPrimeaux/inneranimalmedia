@@ -4,6 +4,7 @@
 
 import { scheduleCompactionEvent } from './agentsam-ops-ledger.js';
 import { pragmaTableInfo } from './retention.js';
+export { aggregateOpenAiCompatibleUsageTokens } from './openai-usage-tokens.js';
 
 /**
  * Anthropic message usage with compaction exposes per-iteration token counts; top-level
@@ -50,37 +51,6 @@ export function aggregateAnthropicUsageTokens(usage) {
  * OpenAI / DeepSeek chat.completions usage (incl. DeepSeek disk cache hit/miss).
  * @param {any} usage
  */
-export function aggregateOpenAiCompatibleUsageTokens(usage) {
-  if (!usage || typeof usage !== 'object') {
-    return {
-      input_tokens: 0,
-      output_tokens: 0,
-      cache_read_input_tokens: 0,
-      cache_creation_input_tokens: 0,
-    };
-  }
-  const cacheHit = Math.max(0, Math.floor(Number(usage.prompt_cache_hit_tokens) || 0));
-  const cacheMiss = Math.max(0, Math.floor(Number(usage.prompt_cache_miss_tokens) || 0));
-  const prompt = Math.max(0, Math.floor(Number(usage.prompt_tokens) || 0));
-  const input =
-    cacheHit + cacheMiss > 0
-      ? cacheHit + cacheMiss
-      : prompt || Math.max(0, Math.floor(Number(usage.input_tokens) || 0));
-  return {
-    input_tokens: input,
-    output_tokens: Math.max(
-      0,
-      Math.floor(Number(usage.completion_tokens) || Number(usage.output_tokens) || 0),
-    ),
-    cache_read_input_tokens:
-      cacheHit || Math.max(0, Math.floor(Number(usage.cache_read_input_tokens) || 0)),
-    cache_creation_input_tokens: Math.max(
-      0,
-      Math.floor(Number(usage.cache_creation_input_tokens) || 0),
-    ),
-  };
-}
-
 /**
  * Anthropic compaction beta: usage.iterations includes type `compaction` then `message`.
  * @param {any} usage

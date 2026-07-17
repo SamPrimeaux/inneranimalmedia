@@ -594,7 +594,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     }
   }
 
-  (async () => {
+  await (async () => {
     const chatT0 = Date.now();
     try {
       if (visionUploadError) {

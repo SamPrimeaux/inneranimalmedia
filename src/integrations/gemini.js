@@ -517,12 +517,13 @@ export async function chatWithToolsGemini(env, request, params) {
     writer.write(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
 
   (async () => {
+    const reader = upstream.body.getReader();
+    let terminalEvent = false;
     try {
-      const reader = upstream.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
 
-      while (true) {
+      while (!terminalEvent) {
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -534,7 +535,11 @@ export async function chatWithToolsGemini(env, request, params) {
           const trimmed = line.trim();
           if (!trimmed.startsWith('data:')) continue;
           const jsonStr = trimmed.slice(5).trim();
-          if (!jsonStr || jsonStr === '[DONE]') continue;
+          if (!jsonStr) continue;
+          if (jsonStr === '[DONE]') {
+            terminalEvent = true;
+            break;
+          }
 
           for (const chunk of geminiChunkToOpenAI(jsonStr)) {
             await emitJson(chunk);
@@ -557,6 +562,14 @@ export async function chatWithToolsGemini(env, request, params) {
         error: { message: e?.message ?? String(e) },
       });
     } finally {
+      if (terminalEvent) {
+        await reader.cancel('sse_terminal_event').catch(() => {});
+      }
+      try {
+        reader.releaseLock();
+      } catch {
+        /* ignore */
+      }
       await writer.close();
     }
   })();
