@@ -4,6 +4,23 @@ import {
   generateCadScriptJob,
 } from '../../api/cad.js';
 import { dispatchCadJob } from '../../core/cad-dispatch.js';
+import { buildCadAssetPublicUrl } from '../../core/cad-job-scope.js';
+
+/**
+ * agentsam_cad_jobs has no `public_url` column — derive it from the R2 key
+ * (dedicated cad bucket / custom domain) with result_url as fallback.
+ * @param {any} row
+ * @param {any} env
+ */
+function withCadJobPublicUrl(row, env) {
+  if (!row || typeof row !== 'object') return row;
+  const r2Key = String(row.r2_key || '').trim();
+  const derived =
+    r2Key && !r2Key.startsWith('b64:') && !r2Key.includes('\n')
+      ? buildCadAssetPublicUrl(r2Key, env?.CAD_R2_PUBLIC_ORIGIN)
+      : '';
+  return { ...row, public_url: derived || (row.result_url ? String(row.result_url) : null) };
+}
 
 function scopeFromContext(params, runContext) {
   const userId = String(runContext.userId ?? runContext.user_id ?? params.user_id ?? '').trim();
@@ -66,8 +83,8 @@ async function cadJobStatus(params, env, runContext) {
   const scope = scopeFromContext(params, runContext);
   const jobId = String(params.job_id ?? params.id ?? '').trim();
   const limit = Math.min(Math.max(Number(params.limit) || 10, 1), 20);
-  const fields = `id AS job_id, engine, prompt, mode, status, progress_pct, public_url,
-                  result_url, task_type, external_task_id, parent_task_id, rig_task_id,
+  const fields = `id AS job_id, engine, prompt, mode, status, progress_pct,
+                  result_url, r2_key, r2_bucket, task_type, external_task_id, parent_task_id, rig_task_id,
                   model_formats, scene_snapshot_id, created_at, updated_at, finished_at`;
   if (jobId) {
     const job = await env.DB.prepare(
@@ -78,7 +95,7 @@ async function cadJobStatus(params, env, runContext) {
     )
       .bind(jobId, scope.userId, scope.workspaceId, scope.tenantId)
       .first();
-    return job ? { job } : { error: 'CAD job not found' };
+    return job ? { job: withCadJobPublicUrl(job, env) } : { error: 'CAD job not found' };
   }
   const { results } = await env.DB.prepare(
     `SELECT ${fields}
@@ -89,7 +106,8 @@ async function cadJobStatus(params, env, runContext) {
   )
     .bind(scope.userId, scope.workspaceId, scope.tenantId, limit)
     .all();
-  return { jobs: results || [], count: results?.length || 0 };
+  const jobs = (results || []).map((r) => withCadJobPublicUrl(r, env));
+  return { jobs, count: jobs.length };
 }
 
 async function cadJobCancel(params, env, runContext) {
