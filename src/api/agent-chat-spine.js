@@ -241,6 +241,8 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     writePolicy: sessionCtx.writePolicy,
     modelKey,
     routingArmId,
+    profileTaskType: sessionCtx.profile_task_type || null,
+    profileKey: sessionCtx.profile_key || sessionCtx.roots?.profile_key || null,
   });
   profile._session_roots = sessionCtx.roots;
   profile._fsa_root = sessionCtx.roots?.fsa_root === true;

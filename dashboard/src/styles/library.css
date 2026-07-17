@@ -3440,6 +3440,24 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
   margin-top: 16px;
 }
 
+.artifacts-drive-shell .drive-side-backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .artifacts-drive-shell .drive-side-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    background: rgba(0, 0, 0, 0.32);
+    cursor: pointer;
+  }
+}
+
 /* ── 2026-07-11 restore companion: mobile 768px fixes (were kept after accidental base wipe) ── */
 @media (max-width: 768px) {
 
@@ -3518,11 +3536,7 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
   }
 
   .artifacts-drive-shell:not(.side-collapsed)::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.32);
-    z-index: 99;
+    display: none;
   }
 
   .artifacts-drive-shell .drive-main {

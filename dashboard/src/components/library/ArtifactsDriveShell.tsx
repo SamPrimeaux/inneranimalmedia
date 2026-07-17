@@ -140,7 +140,10 @@ export function ArtifactsDriveShell() {
 
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [sideCollapsed, setSideCollapsed] = useState(false);
+  const [sideCollapsed, setSideCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(max-width: 768px)').matches;
+  });
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [noticeVisible, setNoticeVisible] = useState(true);
   const [selected, setSelected] = useState<LibraryItem | null>(null);
@@ -167,6 +170,19 @@ export function ArtifactsDriveShell() {
   const isTicketsView = !isProjectsView && (isArtifactsTicketsRoute || ws.filters.rail === 'tickets');
   const isHomeLanes = !isProjectsView && !isTicketsView && ws.filters.rail === 'all';
   const projectIdParam = isProjectsRoute ? routeProjectId : searchParams.get('project');
+
+  const isMobileArtifactsNav = useCallback(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(max-width: 768px)').matches;
+  }, []);
+
+  const closeMobileSideNav = useCallback(() => {
+    if (isMobileArtifactsNav()) setSideCollapsed(true);
+  }, [isMobileArtifactsNav]);
+
+  useEffect(() => {
+    closeMobileSideNav();
+  }, [location.pathname, location.search, closeMobileSideNav]);
 
   const openSourceLane = useCallback(
     (source: LibrarySource) => {
@@ -379,6 +395,14 @@ export function ArtifactsDriveShell() {
     <div
       className={`artifacts-drive-shell flex-1 min-h-0 min-w-0${railPanelOpen ? ' has-rail-panel' : ''}${manageDriveOpen ? ' has-shared-drive-panel' : ''}${sideCollapsed ? ' side-collapsed' : ''}`}
     >
+      {!sideCollapsed ? (
+        <button
+          type="button"
+          className="drive-side-backdrop"
+          aria-label="Close menu"
+          onClick={() => setSideCollapsed(true)}
+        />
+      ) : null}
       <div className="drive-app">
         <input
           ref={uploadInputRef}
@@ -490,10 +514,12 @@ export function ArtifactsDriveShell() {
                     if (item.key === 'computers') {
                       if (!ws.localFolderName) void ws.connectLocalFolder();
                       else ws.setNavKey(item.key);
+                      closeMobileSideNav();
                       return;
                     }
                     if (item.key === 'projects') {
                       navigate('/dashboard/projects');
+                      closeMobileSideNav();
                       return;
                     }
                     if (item.key === 'tickets') {
@@ -501,6 +527,7 @@ export function ArtifactsDriveShell() {
                       if (location.pathname !== '/dashboard/artifacts/tickets') {
                         navigate('/dashboard/artifacts/tickets');
                       }
+                      closeMobileSideNav();
                       return;
                     }
                     if (rail) {
@@ -508,6 +535,7 @@ export function ArtifactsDriveShell() {
                       if (location.pathname.startsWith('/dashboard/artifacts/tickets')) {
                         navigate('/dashboard/artifacts');
                       }
+                      closeMobileSideNav();
                     } else showToast(`${item.label} — coming soon`);
                   }}
                 >

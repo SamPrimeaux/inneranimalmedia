@@ -20,6 +20,9 @@ import {
 } from './agentsam-tools-catalog.js';
 import { parseHandlerConfig } from './resolve-credential.js';
 import { normalizeAgentRuntimeMode } from './agent-mode.js';
+import { resolveSessionProfileTaskType } from './session-profile-task.js';
+
+export { resolveSessionProfileTaskType } from './session-profile-task.js';
 
 /** Soft cap — above this, DO cache is treated as stale mega-catalog and rebuilt. */
 export const SESSION_TOOL_CACHE_SOFT_MAX = 40;
@@ -34,8 +37,6 @@ export const EMERGENCY_FALLBACK_TOOL_KEYS = Object.freeze([
   'agentsam_cf_d1_list',
   'agentsam_d1_query',
   'agentsam_d1_write',
-  'agentsam_supabase_query',
-  'agentsam_supabase_write',
   'agentsam_cf_workers_list',
   'agentsam_r2_list',
   'agentsam_r2_get',
@@ -179,26 +180,25 @@ export async function loadToolProfileForMode(db, composerMode) {
 }
 
 /**
- * Load curated working tools for in-app Agent session from the D1 tool-profile SSOT.
- * Every row is validated through the same fail-closed handler_type check every other
- * tool-loading path in the codebase uses (agentsam-tools-catalog.js) — a tool with no
- * executor branch (e.g. handler_type='telemetry') can no longer reach the model here.
- *
  * @param {unknown} env Worker env bindings (needs env.DB, optionally env.SESSION_CACHE)
  * @param {string} composerMode
+ * @returns {Promise<{ tools: unknown[], profile_key: string|null, profile_task_type: string }>}
  */
 export async function loadOauthVisibleToolsForSession(env, composerMode) {
   const db = env?.DB ?? env; // back-compat: earlier signature took `db` directly
-  if (!db?.prepare) return [];
+  const profileTaskType = String(composerMode || 'agent').trim().toLowerCase() || 'agent';
+  if (!db?.prepare) {
+    return { tools: [], profile_key: null, profile_task_type: profileTaskType };
+  }
 
-  const profile = await loadToolProfileForMode(db, composerMode);
+  const profile = await loadToolProfileForMode(db, profileTaskType);
   let keys = profile?.tool_keys?.length ? profile.tool_keys : null;
   const maxTools = profile?.max_tools || SESSION_TOOL_CACHE_SOFT_MAX;
 
   if (!keys) {
     console.warn(
       '[agent-session-context] profile_lookup_failed_using_emergency_fallback',
-      JSON.stringify({ composerMode, reason: 'no_active_binding_or_profile' }),
+      JSON.stringify({ composerMode: profileTaskType, reason: 'no_active_binding_or_profile' }),
     );
     keys = [...EMERGENCY_FALLBACK_TOOL_KEYS];
   }
@@ -257,7 +257,11 @@ export async function loadOauthVisibleToolsForSession(env, composerMode) {
       ordered.push(hit);
     }
   }
-  return ordered;
+  return {
+    tools: ordered,
+    profile_key: profile?.profile_key || null,
+    profile_task_type: profileTaskType,
+  };
 }
 
 /**
@@ -368,6 +372,7 @@ export async function loadOrBootstrapSessionContext(env, opts) {
   const conversationId = String(opts.conversationId || '').trim();
   const mode = normalizeAgentRuntimeMode(opts.mode);
   const composerMode = mode === 'auto' ? 'agent' : mode;
+  const profileTaskType = resolveSessionProfileTaskType(composerMode, opts.body);
   const stub = getAgentSessionStub(env, conversationId);
 
   const truthyFlag = (v) =>
@@ -390,6 +395,7 @@ export async function loadOrBootstrapSessionContext(env, opts) {
       opts.body?.github_repo_context ||
       null,
     workspace_id: opts.workspaceId || null,
+    profile_task_type: profileTaskType,
   };
 
   if (stub && !opts.forceRefresh) {
@@ -400,24 +406,33 @@ export async function loadOrBootstrapSessionContext(env, opts) {
         .map((t) => String(t?.tool_key || t?.name || '').trim())
         .filter(Boolean),
     );
-    // Profile upgrades (e.g. CF+GitHub spine) must not stick on an old DO cache.
+    const cachedProfileTask =
+      String(cached?.roots?.profile_task_type || cached?.profile_task_type || '').trim().toLowerCase();
+    const isDatabaseProfile =
+      profileTaskType === 'database_studio' ||
+      profileTaskType === 'database_schema' ||
+      profileTaskType === 'd1_query' ||
+      profileTaskType === 'supabase_query' ||
+      profileTaskType === 'supabase_write';
     const requiresCfCatalog =
-      composerMode === 'agent' || composerMode === 'multitask' || composerMode === 'debug';
+      !isDatabaseProfile &&
+      (composerMode === 'agent' || composerMode === 'multitask' || composerMode === 'debug');
     const missingCfList = requiresCfCatalog && !cachedKeys.has('agentsam_cf_d1_list');
     const missingWebSearch = requiresCfCatalog && !cachedKeys.has('search_web');
-    const missingSupabaseRead =
-      requiresCfCatalog && !cachedKeys.has('agentsam_supabase_query');
-    const missingSupabaseWrite =
-      requiresCfCatalog && !cachedKeys.has('agentsam_supabase_write');
+    const missingSupabaseRead = isDatabaseProfile && !cachedKeys.has('agentsam_supabase_query');
+    const missingSupabaseWrite = isDatabaseProfile && !cachedKeys.has('agentsam_supabase_write');
+    const missingD1Query = isDatabaseProfile && !cachedKeys.has('agentsam_d1_query');
     const cacheUsable =
       cached &&
       cachedCount > 0 &&
       cachedCount <= SESSION_TOOL_CACHE_SOFT_MAX &&
       String(cached.mode || '') === composerMode &&
+      cachedProfileTask === profileTaskType &&
       !missingCfList &&
       !missingWebSearch &&
       !missingSupabaseRead &&
-      !missingSupabaseWrite;
+      !missingSupabaseWrite &&
+      !missingD1Query;
     if (cacheUsable) {
       const mergedRoots = { ...(cached.roots || {}), ...roots };
       if (JSON.stringify(mergedRoots) !== JSON.stringify(cached.roots || {})) {
@@ -425,18 +440,30 @@ export async function loadOrBootstrapSessionContext(env, opts) {
       }
       console.info(
         '[agent-session-context] cache_hit',
-        JSON.stringify({ conversationId, tools: cachedCount, mode: composerMode }),
+        JSON.stringify({
+          conversationId,
+          tools: cachedCount,
+          mode: composerMode,
+          profile_task_type: profileTaskType,
+        }),
       );
       return {
         tools: cached.tools,
         writePolicy: cached.writePolicy || writePolicyFromComposerMode(composerMode),
         roots: mergedRoots,
         mode: composerMode,
+        profile_task_type: profileTaskType,
+        profile_key: cached?.roots?.profile_key || null,
         fromCache: true,
       };
     }
     if (
-      (missingCfList || missingWebSearch || missingSupabaseRead || missingSupabaseWrite) &&
+      (missingCfList ||
+        missingWebSearch ||
+        missingSupabaseRead ||
+        missingSupabaseWrite ||
+        missingD1Query ||
+        (cachedProfileTask && cachedProfileTask !== profileTaskType)) &&
       cachedCount > 0
     ) {
       const missing = [
@@ -444,6 +471,10 @@ export async function loadOrBootstrapSessionContext(env, opts) {
         missingWebSearch ? 'search_web' : null,
         missingSupabaseRead ? 'agentsam_supabase_query' : null,
         missingSupabaseWrite ? 'agentsam_supabase_write' : null,
+        missingD1Query ? 'agentsam_d1_query' : null,
+        cachedProfileTask && cachedProfileTask !== profileTaskType
+          ? `profile_task_type:${cachedProfileTask}->${profileTaskType}`
+          : null,
       ].filter(Boolean);
       console.info(
         '[agent-session-context] cache_invalidate_profile_upgrade',
@@ -462,9 +493,15 @@ export async function loadOrBootstrapSessionContext(env, opts) {
     }
   }
 
-  const tools = await loadOauthVisibleToolsForSession(env, composerMode);
+  const loaded = await loadOauthVisibleToolsForSession(env, profileTaskType);
+  const tools = Array.isArray(loaded?.tools) ? loaded.tools : [];
   const writePolicy = writePolicyFromComposerMode(composerMode);
-  const rootsWithMode = { ...roots, mode: composerMode };
+  const rootsWithMode = {
+    ...roots,
+    mode: composerMode,
+    profile_task_type: profileTaskType,
+    profile_key: loaded?.profile_key || null,
+  };
   if (stub) {
     await doSetSessionContext(stub, tools, writePolicy, rootsWithMode).catch((e) => {
       console.warn('[agent-session-context] set_failed', e?.message ?? e);
@@ -476,10 +513,20 @@ export async function loadOrBootstrapSessionContext(env, opts) {
       conversationId,
       tools: tools.length,
       mode: composerMode,
+      profile_task_type: profileTaskType,
+      profile_key: loaded?.profile_key || null,
       fsa_root: roots.fsa_root === true,
     }),
   );
-  return { tools, writePolicy, roots: rootsWithMode, mode: composerMode, fromCache: false };
+  return {
+    tools,
+    writePolicy,
+    roots: rootsWithMode,
+    mode: composerMode,
+    profile_task_type: profileTaskType,
+    profile_key: loaded?.profile_key || null,
+    fromCache: false,
+  };
 }
 
 /**
@@ -490,6 +537,8 @@ export async function loadOrBootstrapSessionContext(env, opts) {
  *   writePolicy: Record<string, boolean>,
  *   modelKey: string|null,
  *   routingArmId?: string|null,
+ *   profileTaskType?: string|null,
+ *   profileKey?: string|null,
  * }} p
  */
 export function buildSessionRuntimeProfile(p) {
@@ -497,15 +546,17 @@ export function buildSessionRuntimeProfile(p) {
   const { mode_controller, execution_kind } = modeControllerForComposerMode(mode);
   const tools = Array.isArray(p.tools) ? p.tools : [];
   const allowlist = tools.map((t) => String(t?.name || t?.tool_name || '').trim()).filter(Boolean);
+  const profileTaskType = String(p.profileTaskType || mode).trim() || mode;
+  const profileKey = String(p.profileKey || '').trim() || null;
   return {
-    profile_id: `session@${mode}`,
+    profile_id: profileKey ? `session@${profileKey}` : `session@${mode}`,
     mode,
     mode_controller,
     execution_kind,
     model_key: p.modelKey,
     routing_arm_id: p.routingArmId ?? null,
-    routing_task_type: mode,
-    refined_route_key: mode,
+    routing_task_type: profileTaskType,
+    refined_route_key: profileTaskType,
     write_policy: p.writePolicy || writePolicyFromComposerMode(mode),
     tool_allowlist: allowlist,
     tool_denylist: [],
@@ -517,7 +568,12 @@ export function buildSessionRuntimeProfile(p) {
     tool_capable_required: allowlist.length > 0,
     context_policy: { include_rag: false, include_memory: false },
     _compiled_tool_rows: tools,
-    source: { compile_lane: 'session_context', session_scoped: true },
+    source: {
+      compile_lane: 'session_context',
+      session_scoped: true,
+      profile_key: profileKey,
+      profile_task_type: profileTaskType,
+    },
     color: mode === 'ask' ? 'green' : mode === 'plan' ? 'blue' : 'purple',
   };
 }
