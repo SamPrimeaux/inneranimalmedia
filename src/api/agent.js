@@ -3780,8 +3780,32 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
   // ── /api/agent/sessions/:id/messages ─────────────────────────────────────
   const sessMessagesMatch = path.match(/^\/api\/agent\/sessions\/([^/]+)\/messages$/);
   if (sessMessagesMatch && method === 'GET') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+
+    const userId = await resolveCanonicalUserId(String(authUser.id || ''), env)
+      .catch(() => String(authUser.id || ''));
+    let tenantId =
+      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : null;
+    if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+    if (!tenantId && authUser.email) tenantId = await fetchAuthUserTenantId(env, authUser.email);
+    if (!tenantId) return jsonResponse({ error: 'Tenant not configured for this account' }, 403);
+
     const convId = decodeURIComponent(sessMessagesMatch[1] || '').trim();
     if (!convId) return jsonResponse({ error: 'session id required' }, 400);
+    const ownedSession = await env.DB.prepare(
+      `SELECT 1 AS ok FROM agentsam_chat_sessions
+       WHERE conversation_id = ? AND user_id = ? AND tenant_id = ?
+       LIMIT 1`,
+    )
+      .bind(convId, userId, tenantId)
+      .first()
+      .catch(() => null);
+    if (!ownedSession) return jsonResponse({ error: 'Session not found' }, 404);
+
     if (env.AGENT_SESSION) {
       try {
         const doId = env.AGENT_SESSION.idFromName(convId);
@@ -3794,8 +3818,6 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       } catch (_) {}
     }
     // R2 primary storage — fetch messages.jsonl
-    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
-    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     const messages = await getChatMessages(env, convId);
     if (messages.length > 0) return jsonResponse(messages);
     if (env.AGENT_SESSION) {

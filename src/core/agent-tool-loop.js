@@ -82,6 +82,11 @@ import {
   TOOL_OUTPUT_SSE_MAX,
 } from './agent-tool-loader.js';
 import { compactConsumedToolResultsInPlace } from './agent-tool-result-compaction.js';
+import {
+  agentRunDeadlineError,
+  clampToolBudgetToRunDeadline,
+  raceToolExecutionBudget,
+} from './agent-run-deadline.js';
 
 /** @param {string} toolName @param {string} toolOutput */
 function cadToolSseExtrasFromOutput(toolName, toolOutput) {
@@ -347,16 +352,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     let assistantText =
       typeof opts.assistantText === 'string'
         ? opts.assistantText
-        : conversationMessages
-            .filter((m) => m.role === 'assistant')
-            .flatMap((m) =>
-              Array.isArray(m.content)
-                ? m.content
-                : [{ type: 'text', text: String(m.content || '') }],
-            )
-            .filter((b) => b.type === 'text')
-            .map((b) => b.text)
-            .join('');
+        : extractLastAssistantPlainText(conversationMessages);
     if (!assistantText && opts.errorText) {
       assistantText = String(opts.errorText).slice(0, 8000);
     }
@@ -557,7 +553,15 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         let toolOutput = '';
         let execErr = null;
         try {
-          const toolBudgetMs = resolveToolExecutionBudgetMs(preName, {});
+          const toolBudgetMs = clampToolBudgetToRunDeadline(
+            resolveToolExecutionBudgetMs(preName, {}),
+            { runStartedAt, maxRunMs },
+          );
+          if (toolBudgetMs <= 0) throw agentRunDeadlineError();
+          console.info(
+            '[agent] tool_execution_start',
+            JSON.stringify({ tool_name: preName, budget_ms: toolBudgetMs, turn: 0 }),
+          );
           const execResult = await abortScope.race(
             dispatchToolCallWithBudget(
               env,
@@ -667,6 +671,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
               ? toolOutput.slice(0, 12000)
               : `Ran ${preName}.`;
           emit('text', { text: summary });
+          persistChatTurnMessages({ assistantText: summary });
           safeDone({
             tool_calls_used: toolCallsUsed,
             turns: 0,
@@ -1704,10 +1709,22 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       }
       let toolRows = null;
       let execResult = null;
-      const toolBudgetMs = resolveToolExecutionBudgetMs(call.name, call.input);
+      const toolBudgetMs = clampToolBudgetToRunDeadline(
+        resolveToolExecutionBudgetMs(call.name, call.input),
+        { runStartedAt, maxRunMs },
+      );
       try {
+        if (toolBudgetMs <= 0) throw agentRunDeadlineError();
+        console.info(
+          '[agent] tool_execution_start',
+          JSON.stringify({ tool_name: call.name, budget_ms: toolBudgetMs, turn: turnCount }),
+        );
         if (call.name === CODEMODE_TOOL_NAME && codemodeRuntimeParam?.execute) {
-          execResult = await codemodeRuntimeParam.execute(call.input || {});
+          execResult = await raceToolExecutionBudget(
+            codemodeRuntimeParam.execute(call.input || {}),
+            toolBudgetMs,
+            call.name,
+          );
           if (execResult?.ok === false) {
             execErr = new Error(String(execResult.error || 'codemode_execution_failed'));
           }
@@ -1740,13 +1757,17 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             toolInput.persist = false;
           }
           execResult = await abortScope.race(
-            streamImageGenerationSse(emit, env, call.name, toolInput, {
-              authUser: { id: userId },
-              workspaceId,
-              tenantId,
-              userId,
-              origin: (env.IAM_ORIGIN || request?.url ? new URL(request.url).origin : '').replace(/\/$/, ''),
-            }),
+            raceToolExecutionBudget(
+              streamImageGenerationSse(emit, env, call.name, toolInput, {
+                authUser: { id: userId },
+                workspaceId,
+                tenantId,
+                userId,
+                origin: (env.IAM_ORIGIN || request?.url ? new URL(request.url).origin : '').replace(/\/$/, ''),
+              }),
+              toolBudgetMs,
+              call.name,
+            ),
           );
         } else if (
           String(call.name || '').startsWith('fs_') &&
@@ -1797,6 +1818,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
               operation,
             };
           } else {
+            if (toolBudgetMs < 5000) throw agentRunDeadlineError();
             execResult = await abortScope.race(
               doWaitForFsaFulfill(stub, call.id, {
                 timeoutMs: Math.min(toolBudgetMs || 90000, 90000),

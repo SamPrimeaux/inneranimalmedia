@@ -1,8 +1,66 @@
 export const CONSUMED_TOOL_RESULT_CHAR_CAP = 4000;
 
+function summarizeJsonValue(value, depth = 0) {
+  if (value == null || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    return value.length > 500 ? `${value.slice(0, 500)}…` : value;
+  }
+  if (depth >= 2) {
+    return Array.isArray(value)
+      ? `[array:${value.length}]`
+      : `[object:${Object.keys(value || {}).length}]`;
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, 8).map((item) => summarizeJsonValue(item, depth + 1));
+  }
+  if (typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .slice(0, 20)
+        .map(([key, item]) => [key, summarizeJsonValue(item, depth + 1)]),
+    );
+  }
+  return String(value);
+}
+
 function compactString(value, maxChars) {
   const text = String(value ?? '');
   if (text.length <= maxChars) return { value: text, removed: 0 };
+
+  try {
+    const parsed = JSON.parse(text);
+    const compactedJson = JSON.stringify({
+      _compacted: {
+        after_first_model_pass: true,
+        original_chars: text.length,
+        kind: Array.isArray(parsed) ? 'array' : typeof parsed,
+        ...(Array.isArray(parsed) ? { original_items: parsed.length } : {}),
+      },
+      preview: summarizeJsonValue(parsed),
+    });
+    if (compactedJson.length <= maxChars) {
+      return { value: compactedJson, removed: text.length - compactedJson.length };
+    }
+    let previewChars = Math.max(64, maxChars - 320);
+    let minimalJson = '';
+    do {
+      minimalJson = JSON.stringify({
+        _compacted: {
+          after_first_model_pass: true,
+          original_chars: text.length,
+          kind: Array.isArray(parsed) ? 'array' : typeof parsed,
+        },
+        preview_text: text.slice(0, previewChars),
+      });
+      previewChars = Math.floor(previewChars / 2);
+    } while (minimalJson.length > maxChars && previewChars >= 32);
+    return {
+      value: minimalJson,
+      removed: text.length - Math.min(text.length, minimalJson.length),
+    };
+  } catch {
+    // Plain text keeps a head/tail representation below.
+  }
 
   const markerReserve = 96;
   const available = Math.max(256, maxChars - markerReserve);
