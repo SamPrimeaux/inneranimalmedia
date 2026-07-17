@@ -119,12 +119,21 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
+  const pendingWrites = new Set();
   const emit = (type, payload) => {
-    try {
-      writer.write(encoder.encode(`data: ${JSON.stringify({ type, ...payload })}\n\n`));
-    } catch (_) {
-      /* stream closed */
-    }
+    const write = writer
+      .write(encoder.encode(`data: ${JSON.stringify({ type, ...payload })}\n\n`))
+      .catch(() => {});
+    pendingWrites.add(write);
+    write.then(
+      () => pendingWrites.delete(write),
+      () => pendingWrites.delete(write),
+    );
+    return write;
+  };
+  const closeStream = async () => {
+    await Promise.allSettled([...pendingWrites]);
+    await writer.close().catch(() => {});
   };
   emit('thinking_start', {});
   emit('status', { phase: 'context' });
@@ -882,9 +891,6 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         runDeadlineController,
       );
 
-        if (!loopStats?.cancelled) {
-          emit('done', {});
-        }
       } catch (e) {
         const msg = String(e?.message || e || '');
         const isTimeout = msg.includes('agent_run_timeout') || /\bTimeout\b/i.test(msg);
@@ -918,7 +924,9 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         if (reqSignal && onRequestAbort) {
           reqSignal.removeEventListener('abort', onRequestAbort);
         }
-        if (chatAgentRunId && userId && workspaceId) {
+        await closeStream();
+        const finalizeAccounting = async () => {
+          if (!chatAgentRunId || !userId || !workspaceId) return;
           const cancelled = loopStats?.cancelled === true || clientAborted;
           const timedOut = loopStats?.timedOut === true;
           const inputTokens = Math.max(0, Math.floor(Number(loopStats?.totalUsage?.input_tokens) || 0));
@@ -971,16 +979,9 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
             quickstartBatch: quickstartBatch || null,
           };
           if (agentRunStartPromise) {
-            ctx.waitUntil(
-              agentRunStartPromise
-                .catch(() => {})
-                .then(() => {
-                  scheduleAgentsamChatAgentRunInsert(env, ctx, finalizePayload);
-                }),
-            );
-          } else {
-            scheduleAgentsamChatAgentRunInsert(env, ctx, finalizePayload);
+            await agentRunStartPromise.catch(() => {});
           }
+          scheduleAgentsamChatAgentRunInsert(env, ctx, finalizePayload);
 
           const isSuperadmin =
             sessionAuthUser?.role === 'superadmin' ||
@@ -995,8 +996,11 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
               isSuperadmin,
             });
           }
-        }
-        writer.close().catch(() => {});
+        };
+        const accountingTask = finalizeAccounting().catch((e) =>
+          console.warn('[agent-controller] finalize_accounting', e?.message ?? e),
+        );
+        if (ctx?.waitUntil) ctx.waitUntil(accountingTask);
       }
   })();
     } catch (setupErr) {
@@ -1006,7 +1010,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         code: 'agent_setup_error',
       });
       emit('done', {});
-      writer.close().catch(() => {});
+      await closeStream();
     }
   })();
 

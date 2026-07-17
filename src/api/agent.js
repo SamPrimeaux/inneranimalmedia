@@ -1403,6 +1403,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     userId,
     workspaceId,
     env,
+    waitUntil: (promise) => ctx.waitUntil(promise),
     onStreamClose: async (result) => {
       if (!sessionId) return;
       const { markChatTurnStatus } = await import('../core/agentsam-chat-sessions.js');

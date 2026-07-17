@@ -50,6 +50,7 @@ import {
   consumeOpenAIResponsesSse,
   tryEmitCodeDiffFromToolOutput,
 } from './agent-sse-consumer.js';
+import { normalizeOpenAiToolStopReason } from './agent-tool-stop-reason.js';
 import { tryBroadcastMonacoPatchFromToolOutput } from './collab-broadcast.js';
 import {
   validateToolCall,
@@ -943,13 +944,10 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           });
           pendingToolCalls.push({ ...tc, id: linkId, _done: true, _server: false });
         }
-        const fr = parsed.finishReason || '';
-        stopReason =
-          fr === 'tool_use' || fr === 'tool_calls'
-            ? 'tool_use'
-            : fr === 'stop' || fr === '' || fr === 'end_turn' || fr === 'completed'
-              ? 'end_turn'
-              : fr || 'end_turn';
+        stopReason = normalizeOpenAiToolStopReason(
+          parsed.finishReason,
+          parsed.pendingToolCalls.length,
+        );
         if (parsed.input_tokens || parsed.output_tokens || parsed.cache_read_input_tokens) {
           totalUsage.input_tokens += parsed.input_tokens || 0;
           totalUsage.output_tokens += parsed.output_tokens || 0;
@@ -2334,7 +2332,6 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       }
     }
 
-    if (stopReason === 'end_turn') break;
   }
   } catch (e) {
     if (isAgentRunAbortError(e)) {

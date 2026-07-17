@@ -23,7 +23,7 @@ export const AGENT_CHAT_SSE_HEADERS = {
  *   streamLifecycle: ReturnType<typeof createChatStreamLifecycle>,
  *   outboxCtx: { batcher: ReturnType<typeof createTurnOutboxBatcher>|null },
  * }) => Promise<Response>} runPipeline
- * @param {{ conversationId?: string|null, userId?: string|null, workspaceId?: string|null, requestId?: string|null, env?: any, onStreamClose?: (payload: Record<string, unknown>) => void|Promise<void> }} [meta]
+ * @param {{ conversationId?: string|null, userId?: string|null, workspaceId?: string|null, requestId?: string|null, env?: any, waitUntil?: (promise: Promise<unknown>) => void, onStreamClose?: (payload: Record<string, unknown>) => void|Promise<void> }} [meta]
  * @returns {Response}
  */
 export function startAgentChatEarlySse(runPipeline, meta = {}) {
@@ -55,7 +55,16 @@ export function startAgentChatEarlySse(runPipeline, meta = {}) {
   };
 
   let emitImpl = streamLifecycle.wrapEmit(rawEmit);
-  const emit = async (type, payload = {}) => emitImpl(type, payload);
+  const pendingEmits = new Set();
+  const emit = (type, payload = {}) => {
+    const emission = Promise.resolve(emitImpl(type, payload)).catch(() => {});
+    pendingEmits.add(emission);
+    emission.then(
+      () => pendingEmits.delete(emission),
+      () => pendingEmits.delete(emission),
+    );
+    return emission;
+  };
 
   const bindTurnOutbox = (turnId) => {
     const tid = String(turnId || '').trim();
@@ -130,15 +139,16 @@ export function startAgentChatEarlySse(runPipeline, meta = {}) {
       } catch (e) {
         console.warn('[agent-chat-early-sse] outbox finish', e?.message ?? e);
       }
+      await Promise.allSettled([...pendingEmits]);
       const closePayload = streamLifecycle.finalize('early_sse_close');
+      await writer.close().catch(() => {});
       if (typeof meta.onStreamClose === 'function') {
-        try {
-          await meta.onStreamClose(closePayload);
-        } catch (e) {
-          console.warn('[agent-chat-early-sse] onStreamClose', e?.message ?? e);
-        }
+        const closeTask = Promise.resolve(meta.onStreamClose(closePayload)).catch((e) =>
+          console.warn('[agent-chat-early-sse] onStreamClose', e?.message ?? e),
+        );
+        if (typeof meta.waitUntil === 'function') meta.waitUntil(closeTask);
+        else await closeTask;
       }
-      writer.close().catch(() => {});
     }
   })();
 
