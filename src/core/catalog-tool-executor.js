@@ -354,13 +354,18 @@ async function executeCatalogCfD1(env, row, config, params, runContext) {
   const { executeWorkspaceD1Query } = await import(
     './workspace-d1-execution.js'
   );
+  const { enrichD1ParamsFromStudioContext } = await import(
+    './database-studio-tool-enrich.js'
+  );
   const authUser = runContext.authUser ?? runContext.user ?? null;
-  const d1Hint = parseD1DatabaseHint(params);
+  const d1Params = enrichD1ParamsFromStudioContext(params, runContext);
+  const d1Hint = parseD1DatabaseHint(d1Params);
   if (!d1Hint?.database_id && !d1Hint?.database_name) {
     return {
       ok: false,
       error: 'explicit_d1_resource_required',
-      user_message: 'Select an authorized D1 database before querying or writing.',
+      user_message:
+        'No D1 database is selected in Database Studio context. Select a D1 resource in the studio (or pass resource_ref / database) before querying — do not guess platform D1.',
     };
   }
   let resolvedDatabase = d1Hint?.database_name || null;
@@ -1482,9 +1487,26 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
 
     case 'hyperdrive':
     case 'supabase': {
-      const requestedSupabaseOperation = String(params.operation || '')
+      const { enrichSupabaseParamsFromStudioContext } = await import(
+        './database-studio-tool-enrich.js'
+      );
+      const studioSupabase = enrichSupabaseParamsFromStudioContext(params, runContext);
+      const sbParams = studioSupabase.params;
+      const requestedSupabaseOperation = String(sbParams.operation || '')
         .trim()
         .toLowerCase();
+      if (
+        studioSupabase.strippedListProjects &&
+        !String(sbParams.sql || '').trim()
+      ) {
+        result = {
+          ok: false,
+          error: 'platform_supabase_selected',
+          user_message:
+            'Platform Supabase is selected in Database Studio. Run SQL with resource_ref=platform_supabase (do not call list_projects / customer OAuth).',
+        };
+        break;
+      }
       const dispatchOperation = isSupabaseManagementOperation(requestedSupabaseOperation)
         ? requestedSupabaseOperation
         : resolveCatalogDataPlaneOperation(config, toolKey);
@@ -1497,7 +1519,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       ) {
         const { legacyUnifiedRagSearch } = await import('../api/rag.js');
         const query = String(
-          params.query || params.q || params.message || runContext.userMessage || '',
+          sbParams.query || sbParams.q || sbParams.message || runContext.userMessage || '',
         ).trim();
         if (!query) {
           result = {
@@ -1507,7 +1529,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           break;
         }
         const out = await legacyUnifiedRagSearch(env, query, {
-          topK: Number(params.top_k ?? params.topK ?? 8) || 8,
+          topK: Number(sbParams.top_k ?? sbParams.topK ?? 8) || 8,
           tenantId,
           workspaceId,
           sessionId: conversationId,
@@ -1533,7 +1555,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         break;
       }
 
-      const sql = String(params.sql || '').trim();
+      const sql = String(sbParams.sql || '').trim();
       if (catalogOperationRequiresSql(dispatchOperation) && !sql) {
         result = {
           ok: false,
@@ -1547,21 +1569,24 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       // Preferred: `project` (name or project_ref). When set → customer Management plane.
       // Operator with no project → platform Hyperdrive (config data_plane).
       const projectRef = String(
-        params.project ||
-          params.project_ref ||
-          params.projectRef ||
-          params.project_id ||
-          params.projectId ||
+        sbParams.project ||
+          sbParams.project_ref ||
+          sbParams.projectRef ||
+          sbParams.project_id ||
+          sbParams.projectId ||
           '',
       ).trim();
-      const requestedDataPlane = String(params.data_plane || params.dataPlane || '').trim();
-      const customerPlane = isSupabaseManagementOperation(dispatchOperation)
+      const requestedDataPlane = String(sbParams.data_plane || sbParams.dataPlane || '').trim();
+      let customerPlane = isSupabaseManagementOperation(dispatchOperation)
         ? 'customer_supabase'
         : resolveCatalogSupabaseDataPlane(
             toolKey,
             requestedDataPlane ? { ...config, data_plane: requestedDataPlane } : config,
             projectRef,
           );
+      if (studioSupabase.preferPlatform && !isSupabaseManagementOperation(dispatchOperation)) {
+        customerPlane = 'platform_supabase';
+      }
       if (!customerPlane) {
         result = {
           ok: false,
@@ -1571,7 +1596,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         };
         break;
       }
-      const sqlDispatchFields = resolveCatalogSqlDispatchFields(params);
+      const sqlDispatchFields = resolveCatalogSqlDispatchFields(sbParams);
       const platformManagementProjectRef =
         isSupabaseManagementOperation(dispatchOperation) &&
         sqlDispatchFields.resource_ref === 'platform_supabase'
@@ -1603,18 +1628,18 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         tenant_id: tenantId,
         workspace_id: workspaceId,
         agent_run_id: agentRunId,
-        approval_id: params.approval_id ?? params.approvalId ?? null,
+        approval_id: sbParams.approval_id ?? sbParams.approvalId ?? null,
         ...sqlDispatchFields,
         resource_ref: resolvedResourceRef,
         requested_provider: requestedProvider || (customerPlane === 'customer_supabase' ? 'supabase' : null),
         data_plane: customerPlane,
         project_ref: platformManagementProjectRef || projectRef || null,
         project_id: platformManagementProjectRef || projectRef || null,
-        log_sql: params.log_sql != null ? String(params.log_sql) : null,
+        log_sql: sbParams.log_sql != null ? String(sbParams.log_sql) : null,
         iso_timestamp_start:
-          params.iso_timestamp_start != null ? String(params.iso_timestamp_start) : null,
+          sbParams.iso_timestamp_start != null ? String(sbParams.iso_timestamp_start) : null,
         iso_timestamp_end:
-          params.iso_timestamp_end != null ? String(params.iso_timestamp_end) : null,
+          sbParams.iso_timestamp_end != null ? String(sbParams.iso_timestamp_end) : null,
       });
       if (!routed.ok) {
         result = {

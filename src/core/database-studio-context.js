@@ -26,10 +26,15 @@ export function formatDatabaseContextForAgent(raw) {
     `active_schema: ${raw.activeSchema || raw.active_schema || '(none)'}`,
     `active_tab: ${String(raw.activeMainTab || raw.active_tab || 'schema')}`,
     `selected_table: ${raw.selectedTable != null ? String(raw.selectedTable) : '(none)'}`,
-    'tool_envelope: Use agentsam_d1_query/agentsam_d1_write for D1 (explicit resource_ref = database name). Use agentsam_supabase_query/agentsam_supabase_write for Supabase (resource_ref = platform_supabase or connected project ref). Never invent Hyperdrive as a provider face.',
+    'tool_envelope: Use agentsam_d1_query/agentsam_d1_write for D1 (explicit resource_ref = database name or UUID). Use agentsam_supabase_query/agentsam_supabase_write for Supabase (resource_ref = platform_supabase or connected project ref). Never invent Hyperdrive as a provider face.',
   ];
-  if (!(raw.resourceRef || raw.resource_ref)) {
+  const resolvedRef = String(raw.resourceRef || raw.resource_ref || '').trim();
+  if (!resolvedRef) {
     lines.push('execution_blocked: Select an authorized database resource before querying or loading table data.');
+  } else {
+    lines.push(
+      `execution_ready: Pass resource_ref=${resolvedRef} on every D1/Supabase tool call. Never claim no resource is selected when this value is set. Never call list_projects when provider is platform Supabase.`,
+    );
   }
 
   if (raw.capabilities && typeof raw.capabilities === 'object') {

@@ -578,6 +578,18 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
                   github_repo_context:
                     mcpCtx.github_repo_context ?? mcpCtx.selectedGithubRepoContext ?? null,
                   userMessage: userText || mcpCtx.userMessage || mcpCtx.message || null,
+                  ...(mcpCtx.databaseContext
+                    ? {
+                        databaseContext: mcpCtx.databaseContext,
+                        database_context: mcpCtx.databaseContext,
+                      }
+                    : {}),
+                  ...(mcpCtx.browserContext
+                    ? {
+                        browserContext: mcpCtx.browserContext,
+                        browser_context: mcpCtx.browserContext,
+                      }
+                    : {}),
                   skipToolCallLog: true,
                   ledgerOwner: 'tool_loop',
                   ...runSpineIds,
@@ -1814,6 +1826,18 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
                   mcpCtx.platform_operator_lane === true || mcpCtx.platformOperatorLane === true,
                 platformOperatorLane:
                   mcpCtx.platformOperatorLane === true || mcpCtx.platform_operator_lane === true,
+                ...(mcpCtx.databaseContext
+                  ? {
+                      databaseContext: mcpCtx.databaseContext,
+                      database_context: mcpCtx.databaseContext,
+                    }
+                  : {}),
+                ...(mcpCtx.browserContext
+                  ? {
+                      browserContext: mcpCtx.browserContext,
+                      browser_context: mcpCtx.browserContext,
+                    }
+                  : {}),
                 // TELEMETRY-001 Layer 2 — loop owns agentsam_tool_call_log for this dispatch.
                 // Catalog finalizeTelemetry must skip INSERT when this flag is set.
                 skipToolCallLog: true,

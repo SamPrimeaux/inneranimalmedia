@@ -35,6 +35,7 @@ import {
   getDatabaseSqlRunGate,
 } from '../src/lib/databaseSqlSafety';
 import {
+  clearDatabaseSurfaceContext,
   publishDatabaseSurfaceContext,
   type DatabaseDatasource,
   type DatabaseSurfaceContext,
@@ -1494,6 +1495,12 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     supabaseProjectRef,
     tableBrowseTotalPages,
   ]);
+
+  useEffect(() => {
+    return () => {
+      clearDatabaseSurfaceContext();
+    };
+  }, []);
 
   const refreshTableRows = useCallback(
     async (nextPage = page) => {

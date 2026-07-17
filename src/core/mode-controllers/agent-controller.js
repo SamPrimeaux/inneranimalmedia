@@ -848,6 +848,15 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         userMessage: message,
         runtimeProfile: profile,
         fsa_root: profile._fsa_root === true,
+        ...(databaseSurfaceRaw
+          ? {
+              databaseContext: databaseSurfaceRaw,
+              database_context: databaseSurfaceRaw,
+            }
+          : {}),
+        ...(browserContextPayload && typeof browserContextPayload === 'object'
+          ? { browserContext: browserContextPayload, browser_context: browserContextPayload }
+          : {}),
         ...(githubRepoCtx
           ? {
               selectedGithubRepoContext: githubRepoCtx,

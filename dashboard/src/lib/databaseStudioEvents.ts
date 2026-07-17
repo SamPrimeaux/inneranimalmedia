@@ -245,10 +245,24 @@ export function dispatchDbOpenQueryAnalysis(detail: DbOpenQueryAnalysisDetail) {
   window.dispatchEvent(new CustomEvent('db:open-query-analysis', { detail }));
 }
 
+/** Last published studio snapshot (survives ChatAssistant remount / conversation switch). */
+let lastDatabaseSurfaceContext: DatabaseSurfaceContext | null = null;
+
 /** Publish live studio context for ChatAssistant / agent chat payload. */
 export function publishDatabaseSurfaceContext(payload: DatabaseSurfaceContext) {
   if (typeof window === 'undefined') return;
+  lastDatabaseSurfaceContext = payload;
   window.dispatchEvent(new CustomEvent('iam-database-surface-context', { detail: payload }));
+}
+
+/** Read last Studio snapshot without waiting for another CustomEvent. */
+export function getDatabaseSurfaceContext(): DatabaseSurfaceContext | null {
+  return lastDatabaseSurfaceContext;
+}
+
+/** Clear when leaving Database Studio so agent chats elsewhere do not inherit it. */
+export function clearDatabaseSurfaceContext() {
+  lastDatabaseSurfaceContext = null;
 }
 
 /**

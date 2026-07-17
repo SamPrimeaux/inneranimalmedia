@@ -171,6 +171,7 @@ import type { ActiveSubagentRow, PlanQuestionsBatchPayload } from './types';
 import { deriveHeroThinkingState } from './components/deriveHeroThinking';
 import { ToolApprovalModal } from '../../src/components/ToolApprovalModal';
 import {
+  getDatabaseSurfaceContext,
   parseAndDispatchDatabaseStudioActions,
   tryDispatchDbApplyFromAssistantMessage,
 } from '../../src/lib/databaseStudioEvents';
@@ -701,6 +702,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     window.addEventListener('iam-database-surface-context', onDatabaseSurface as EventListener);
     window.addEventListener('iam-designstudio-surface-context', onDesignStudioSurface as EventListener);
     window.addEventListener('iam-mail-surface-context', onMailSurface as EventListener);
+    // Studio may have published before this panel mounted — hydrate from singleton.
+    if (window.location.pathname.startsWith('/dashboard/database')) {
+      const snap = getDatabaseSurfaceContext();
+      if (snap && typeof snap === 'object') databaseSurfaceRef.current = snap as Record<string, unknown>;
+    }
     return () => {
       window.removeEventListener('iam-browser-surface-context', onSurface as EventListener);
       window.removeEventListener('iam-database-surface-context', onDatabaseSurface as EventListener);
@@ -872,11 +878,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     setMobileContextFocusId(null);
     // Surface payloads are ambient UI state, not conversation-scoped. Drop them on
     // thread switches so Design Studio / mail / DB context cannot ride into an
-    // unrelated chat turn.
+    // unrelated chat turn — then rehydrate Database Studio from the live singleton
+    // when still on /dashboard/database.
     browserSurfaceRef.current = null;
     databaseSurfaceRef.current = null;
     designStudioSurfaceRef.current = null;
     mailSurfaceRef.current = null;
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/dashboard/database')) {
+      const snap = getDatabaseSurfaceContext();
+      if (snap && typeof snap === 'object') databaseSurfaceRef.current = snap as Record<string, unknown>;
+    }
   }, [conversationId]);
 
   useEffect(() => {
@@ -2995,6 +3006,15 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       }
       if (databaseSurfaceRef.current && typeof databaseSurfaceRef.current === 'object') {
         browserCtxPayload.databaseContext = databaseSurfaceRef.current;
+      } else if (
+        typeof window !== 'undefined' &&
+        window.location.pathname.startsWith('/dashboard/database')
+      ) {
+        const snap = getDatabaseSurfaceContext();
+        if (snap && typeof snap === 'object') {
+          databaseSurfaceRef.current = snap as Record<string, unknown>;
+          browserCtxPayload.databaseContext = snap;
+        }
       }
       if (designStudioSurfaceRef.current && typeof designStudioSurfaceRef.current === 'object') {
         browserCtxPayload.designStudioContext = designStudioSurfaceRef.current;
