@@ -52,6 +52,7 @@ import {
 } from './agent-sse-consumer.js';
 import { normalizeOpenAiToolStopReason } from './agent-tool-stop-reason.js';
 import { tryBroadcastMonacoPatchFromToolOutput } from './collab-broadcast.js';
+import { TAVILY_DEFAULTS } from './tavily-open-web-search.js';
 import {
   validateToolCall,
   dispatchToolCallWithBudget,
@@ -262,6 +263,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   const mcpCtx = mcpBase;
 
   const conversationMessages = [...messages];
+  let activeTools = Array.isArray(tools) ? tools.slice() : tools;
+  let openWebSearchRetired = false;
+  let pendingOpenWebRetireNudge = false;
   let toolCallsUsed = 0;
   const executedToolNames = [];
   let totalUsage    = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
@@ -271,6 +275,32 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   let ledgerLoopThrew = false;
   let ledgerErrorMsg = null;
   let openaiPreviousResponseId = null;
+
+  const retireOpenWebSearchTools = (reason) => {
+    if (openWebSearchRetired || !Array.isArray(activeTools)) return;
+    const before = activeTools.length;
+    activeTools = activeTools.filter((t) => {
+      const n = String(t?.name || t?.tool_key || '').trim().toLowerCase();
+      return n !== 'search_web';
+    });
+    if (activeTools.length === before) return;
+    openWebSearchRetired = true;
+    pendingOpenWebRetireNudge = true;
+    console.info(
+      '[agent] open_web_search_retired',
+      JSON.stringify({ reason: String(reason || 'budget'), remaining_tools: activeTools.length }),
+    );
+  };
+
+  const flushOpenWebRetireNudge = () => {
+    if (!pendingOpenWebRetireNudge) return;
+    pendingOpenWebRetireNudge = false;
+    conversationMessages.push({
+      role: 'user',
+      content:
+        '[System] Open-web search budget for this turn is exhausted. Do not call search_web again. Answer the user now using any search_web results already returned earlier in this turn. Cite official sources from those results.',
+    });
+  };
 
   let telemetryFlushed = false;
   const scheduleLoopUsageTelemetry = (success = true) => {
@@ -694,7 +724,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       // Provider resolved inside dispatchStream from agentsam_ai.api_platform (Workers AI → OAI-shaped SSE).
       const forcedToolName =
         !explicitCatalogPreinvoked && turnCount === 1
-          ? resolveForcedExplicitCatalogTool(lastUserMessageText(conversationMessages), tools)
+          ? resolveForcedExplicitCatalogTool(lastUserMessageText(conversationMessages), activeTools)
           : null;
       if (forcedToolName) {
         console.info(
@@ -706,7 +736,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         modelKey,
         systemPrompt,
         messages: conversationMessages,
-        tools,
+        tools: activeTools,
         ...(forcedToolName ? { forcedToolName } : {}),
         reasoningEffort:
           dispatchSpineParam?.routing_decision?.reasoning_effort ??
@@ -931,7 +961,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       const useOpenAIChatCompletions =
         platform === 'openai' || platform === 'openai_chat_completions' || platform === 'deepseek';
       const useOpenAiShapedToolStream =
-        tools.length > 0 &&
+        Array.isArray(activeTools) &&
+        activeTools.length > 0 &&
         (useOpenAIChatCompletions || platform === 'gemini_api');
 
       const applyNormalizedOpenAI = (parsed) => {
@@ -1123,7 +1154,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             modelKey,
             systemPrompt,
             messages: continueMessages,
-            tools,
+            tools: activeTools,
             reasoningEffort: modeConfig?.gate_reasoning_effort || null,
             temperature,
             userId,
@@ -2085,6 +2116,14 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
               });
             }
           }
+          if (!execErr && parsed?.budget_exhausted === true) {
+            retireOpenWebSearchTools(parsed.budget_scope || 'budget_exhausted');
+          } else if (
+            !execErr &&
+            Number(openWebBudget?.turnCalls || 0) >= TAVILY_DEFAULTS.max_calls_per_turn
+          ) {
+            retireOpenWebSearchTools('max_calls_per_turn');
+          }
         } catch (_) {
           /* ignore */
         }
@@ -2288,6 +2327,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         scheduleLoopUsageTelemetry(false);
         emit('error', { message: 'Agent run timed out', code: 'agent_run_timeout' });
         if (toolResults.length) conversationMessages.push({ role: 'user', content: toolResults });
+        flushOpenWebRetireNudge();
         safeDone({ tool_calls_used: toolCallsUsed, turns: turnCount, code: 'agent_run_timeout' });
         return {
           totalUsage,
@@ -2317,6 +2357,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       };
     }
     if (toolResults.length) conversationMessages.push({ role: 'user', content: toolResults });
+    flushOpenWebRetireNudge();
 
     if (routingWs) {
       if (!attributedRoutingArmId()) {

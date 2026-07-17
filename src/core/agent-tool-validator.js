@@ -648,6 +648,9 @@ export async function dispatchToolCall(env, toolName, input, context = {}) {
         : 'Tool returned no usable payload (empty or stale envelope). Retry the call.',
     );
   }
+  if (out && typeof out === 'object' && out.budget_exhausted === true) {
+    return out;
+  }
   if (out && typeof out === 'object' && out.error) {
     throw new Error(typeof out.error === 'string' ? out.error : JSON.stringify(out.error));
   }

@@ -35,6 +35,44 @@ export const TAVILY_DEFAULTS = Object.freeze({
   basic_credit_estimate: 1,
 });
 
+/** Soft budget stop — never throw; model must answer from prior search_web results. */
+export function buildOpenWebBudgetExhaustedResult({
+  scope = 'turn',
+  maxCalls = TAVILY_DEFAULTS.max_calls_per_turn,
+  baseTelemetry = {},
+} = {}) {
+  const turnScope = String(scope || 'turn') === 'run' ? 'run' : 'turn';
+  const limit =
+    turnScope === 'run'
+      ? Number(maxCalls) || TAVILY_DEFAULTS.max_calls_per_run
+      : Number(maxCalls) || TAVILY_DEFAULTS.max_calls_per_turn;
+  return {
+    ok: true,
+    budget_exhausted: true,
+    budget_scope: turnScope,
+    lane: 'open_web_search',
+    provider: 'tavily',
+    results: [],
+    result_count: 0,
+    message: `Open-web search limit reached (${limit} calls per ${turnScope}).`,
+    next_action: 'answer_from_prior_search_results',
+    instruction:
+      'Do not call search_web again. Answer the user now using any search_web results already returned earlier in this turn. Cite official sources from those results.',
+    telemetry: {
+      ...baseTelemetry,
+      success: true,
+      budget_exhausted: true,
+      error_class: null,
+      result_count: 0,
+    },
+  };
+}
+
+/** @param {unknown} value */
+export function isOpenWebBudgetExhaustedResult(value) {
+  return !!(value && typeof value === 'object' && value.budget_exhausted === true);
+}
+
 const PROVIDER_NATIVE_WEB_SEARCH_IMPLEMENTED = false;
 
 /**
@@ -336,23 +374,21 @@ export async function executeTavilyOpenWebSearch(env, params, runContext = {}) {
 
   const budget = resolveOpenWebBudget(runContext);
   if (budget.turnCalls >= TAVILY_DEFAULTS.max_calls_per_turn) {
-    return {
-      error: 'tavily_budget_turn_exceeded',
-      message: `Open-web search limit reached (${TAVILY_DEFAULTS.max_calls_per_turn} calls per turn).`,
-      lane: 'open_web_search',
-      telemetry: { ...baseTelemetry, error_class: 'budget_turn' },
-    };
+    return buildOpenWebBudgetExhaustedResult({
+      scope: 'turn',
+      maxCalls: TAVILY_DEFAULTS.max_calls_per_turn,
+      baseTelemetry,
+    });
   }
 
   const runCount = await countTavilyCallsForRun(env, agentRunId != null ? String(agentRunId) : null);
   const effectiveRunCalls = Math.max(runCount, budget.runCalls);
   if (effectiveRunCalls >= TAVILY_DEFAULTS.max_calls_per_run) {
-    return {
-      error: 'tavily_budget_run_exceeded',
-      message: `Open-web search limit reached (${TAVILY_DEFAULTS.max_calls_per_run} calls per agent run).`,
-      lane: 'open_web_search',
-      telemetry: { ...baseTelemetry, error_class: 'budget_run' },
-    };
+    return buildOpenWebBudgetExhaustedResult({
+      scope: 'run',
+      maxCalls: TAVILY_DEFAULTS.max_calls_per_run,
+      baseTelemetry,
+    });
   }
 
   let searchDepth = String(params.search_depth || TAVILY_DEFAULTS.search_depth).toLowerCase();

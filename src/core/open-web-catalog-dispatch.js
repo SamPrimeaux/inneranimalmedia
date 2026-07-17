@@ -40,6 +40,10 @@ export async function executeOpenWebCatalogDispatch(env, config, params, runCont
     return { ok: false, error: `open_web handler not registered: ${target}` };
   }
   const out = await fn(params, env, runContext);
+  // Budget stop is intentional soft guidance — never surface as hard catalog failure.
+  if (out?.budget_exhausted === true) {
+    return { ok: true, body: out };
+  }
   return out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
 }
 
