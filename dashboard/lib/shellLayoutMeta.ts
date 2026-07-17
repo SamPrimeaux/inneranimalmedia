@@ -2,7 +2,7 @@ import {
   isAgentCenterChatHome,
   isAgentEditorPath,
   isAgentShellPath,
-  isLibraryShellPath,
+  isContextPreservingAgentRailPath,
 } from './agentRoutes';
 
 export type AgentChatLayout = 'center' | 'left-rail' | 'right-rail' | 'hidden';
@@ -65,7 +65,7 @@ export function resolveAgentChatLayout(opts: {
   if (agentPosition === 'left') return 'left-rail';
   if (agentPosition === 'right') return 'right-rail';
 
-  if (isAgentShellPath(pathname) || isLibraryShellPath(pathname)) {
+  if (isAgentShellPath(pathname) || isContextPreservingAgentRailPath(pathname)) {
     return agentPosition === 'off' ? 'hidden' : 'right-rail';
   }
 

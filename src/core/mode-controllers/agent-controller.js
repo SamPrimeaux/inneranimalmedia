@@ -440,9 +440,29 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         studio_section:
           databaseSurfaceRaw?.studioSection ?? databaseSurfaceRaw?.studio_section ?? null,
         provider: databaseSurfaceRaw?.provider ?? null,
+        resource_ref:
+          databaseSurfaceRaw?.resourceRef ?? databaseSurfaceRaw?.resource_ref ?? null,
         chars: databaseSurfaceBlock.length,
       }),
     );
+  } else {
+    const studioRoute =
+      String(
+        profile.refined_route_key ||
+          profile.routing_task_type ||
+          body.route_key ||
+          body.routeKey ||
+          '',
+      ).trim() === 'database_studio';
+    if (studioRoute) {
+      console.warn(
+        '[agent-controller] database_surface_context_missing',
+        JSON.stringify({
+          route_key: 'database_studio',
+          has_browser_context: Boolean(browserContextPayload),
+        }),
+      );
+    }
   }
 
   if (activeFileEnvelope && messageReferencesActiveFile(message)) {

@@ -69,13 +69,32 @@ export function normalizeDatabaseStudioSelection(studio) {
 }
 
 /**
+ * Normalize D1 targeting: non-UUID database_id/databaseId → database name lane.
+ * @param {Record<string, unknown>} params
+ * @returns {Record<string, unknown>}
+ */
+export function normalizeD1TargetParams(params) {
+  const p = params && typeof params === 'object' ? { ...params } : {};
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  for (const key of ['database_id', 'databaseId']) {
+    const raw = String(p[key] || '').trim();
+    if (!raw || uuidRe.test(raw)) continue;
+    if (!String(p.database || p.database_name || p.databaseName || '').trim()) {
+      p.database = raw;
+    }
+    delete p[key];
+  }
+  return p;
+}
+
+/**
  * Merge Studio selection into D1 tool params when the model omitted targeting.
  * @param {Record<string, unknown>} params
  * @param {Record<string, unknown>|null|undefined} runContext
  * @returns {Record<string, unknown>}
  */
 export function enrichD1ParamsFromStudioContext(params, runContext) {
-  const p = params && typeof params === 'object' ? { ...params } : {};
+  const p = normalizeD1TargetParams(params);
   const hasHint = Boolean(
     String(p.resource_ref || p.resourceRef || p.database_id || p.databaseId || p.database || p.database_name || '')
       .trim(),
@@ -85,7 +104,9 @@ export function enrichD1ParamsFromStudioContext(params, runContext) {
   const sel = normalizeDatabaseStudioSelection(extractDatabaseStudioContext(runContext));
   if (!sel?.resourceRef || !sel.isD1) return p;
 
-  const looksLikeId = /^[0-9a-f-]{36}$/i.test(sel.resourceRef);
+  const looksLikeId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    sel.resourceRef,
+  );
   p.resource_ref = sel.resourceRef;
   if (looksLikeId) p.database_id = sel.resourceRef;
   else p.database = sel.resourceRef;

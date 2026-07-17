@@ -2900,6 +2900,25 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         });
     // Repo / browser / open-file payloads are on-demand (@file, @browser, attachments) — not ambient.
 
+    // Immutable per-turn Studio snapshot — capture BEFORE conversation URL sync so a
+    // first-send navigate cannot clear the singleton before browserContext is built.
+    const turnDatabaseSurface: Record<string, unknown> | null = (() => {
+      const fromRef =
+        databaseSurfaceRef.current && typeof databaseSurfaceRef.current === 'object'
+          ? ({ ...databaseSurfaceRef.current } as Record<string, unknown>)
+          : null;
+      if (fromRef) return fromRef;
+      if (typeof window === 'undefined' || !window.location.pathname.startsWith('/dashboard/database')) {
+        return null;
+      }
+      const snap = getDatabaseSurfaceContext();
+      if (!snap || typeof snap !== 'object') return null;
+      return { ...(snap as Record<string, unknown>) };
+    })();
+    if (turnDatabaseSurface) {
+      databaseSurfaceRef.current = turnDatabaseSurface;
+    }
+
     const effectiveConvId =
       sendOpts?.conversationIdOverride?.trim() ||
       conversationId ||
@@ -3001,19 +3020,18 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         dashboard_route_label: dashboardRouteLabel || null,
         dashboard_route_key: dashboardRouteKey || null,
       };
-      if (snap && typeof snap === 'object') {
-        browserCtxPayload.selected_element = snap;
-      }
-      if (databaseSurfaceRef.current && typeof databaseSurfaceRef.current === 'object') {
+      if (turnDatabaseSurface) {
+        browserCtxPayload.databaseContext = turnDatabaseSurface;
+      } else if (databaseSurfaceRef.current && typeof databaseSurfaceRef.current === 'object') {
         browserCtxPayload.databaseContext = databaseSurfaceRef.current;
       } else if (
         typeof window !== 'undefined' &&
         window.location.pathname.startsWith('/dashboard/database')
       ) {
-        const snap = getDatabaseSurfaceContext();
-        if (snap && typeof snap === 'object') {
-          databaseSurfaceRef.current = snap as Record<string, unknown>;
-          browserCtxPayload.databaseContext = snap;
+        const liveSnap = getDatabaseSurfaceContext();
+        if (liveSnap && typeof liveSnap === 'object') {
+          databaseSurfaceRef.current = liveSnap as Record<string, unknown>;
+          browserCtxPayload.databaseContext = liveSnap;
         }
       }
       if (designStudioSurfaceRef.current && typeof designStudioSurfaceRef.current === 'object') {

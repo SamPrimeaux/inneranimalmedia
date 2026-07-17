@@ -31,7 +31,7 @@ import {
   isAgentQuickstartPath,
   isAgentExamplesPath,
   isAgentShellPath,
-  isLibraryShellPath,
+  isContextPreservingAgentRailPath,
   normalizePath,
   parseAgentConversationIdFromPath,
   type AgentHomeTab,
@@ -1750,7 +1750,7 @@ const App: React.FC = () => {
     }
     // Work / Collaborate / Projects / Mail: keep the current route; only open the side rail.
     // Navigating to /dashboard/agent/new was yanking users out of context into a "fresh" agent home.
-    if (isLibraryShellPath(location.pathname)) {
+    if (isContextPreservingAgentRailPath(location.pathname)) {
       if (agentPosition === 'off') setAgentPosition('right');
       return;
     }
@@ -1776,7 +1776,7 @@ const App: React.FC = () => {
       const id = String(conversationId || '').trim();
       if (!id) return;
       // On Work / Collaborate / Projects / Mail: resume in the side rail — do not full-screen navigate.
-      if (isLibraryShellPath(location.pathname)) {
+      if (isContextPreservingAgentRailPath(location.pathname)) {
         openAgentConversation({ id, title, force: true });
         if (agentPosition === 'off') setAgentPosition('right');
         return;
@@ -2358,7 +2358,7 @@ const App: React.FC = () => {
       }
       // Stay in the editor / Work shell — conversation id lives in tab/localStorage, not URL.
       // Navigating to /dashboard/agent/{id} drops the page context and feels like a "new chat" redirect.
-      if (isAgentEditorPath(location.pathname) || isLibraryShellPath(location.pathname)) {
+      if (isAgentEditorPath(location.pathname) || isContextPreservingAgentRailPath(location.pathname)) {
         try {
           localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id);
         } catch {

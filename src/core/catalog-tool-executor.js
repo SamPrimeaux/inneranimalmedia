@@ -23,6 +23,8 @@ import {
 } from './platform-owner-r2-access.js';
 import { mergeR2S3EnvFromUserStorage } from './user-storage-r2-credentials.js';
 import { invokeR2DeleteHttp } from '../tools/builtin/r2-http-catalog.js';
+import { parseD1DatabaseHint } from './d1-database-hint.js';
+export { parseD1DatabaseHint } from './d1-database-hint.js';
 import {
   extractToolExecUsage as extractUsageMetrics,
   shouldSkipCatalogToolCallLog,
@@ -158,54 +160,6 @@ function summarizeOutput(output) {
     output?.error ??
     safeJsonString(output, '');
   return String(text || '').slice(0, 1000) || null;
-}
-
-/** Parse D1 targeting — preferred: `database` (CF name). workspace_slug is deprecated alias. */
-function parseD1DatabaseHint(params) {
-  const p = params && typeof params === 'object' ? params : {};
-  const resourceRef = String(p.resource_ref || p.resourceRef || '').trim();
-  const resourceLooksLikeId = /^[0-9a-f-]{36}$/i.test(resourceRef);
-  const directId = String(
-    p.database_id || p.databaseId || (resourceLooksLikeId ? resourceRef : ''),
-  ).trim();
-  const directName = String(
-    p.database ||
-      p.database_name ||
-      p.databaseName ||
-      (!resourceLooksLikeId ? resourceRef : ''),
-  ).trim();
-  if (directId || directName) {
-    return { database_id: directId || null, database_name: directName || null, binding: null };
-  }
-  // Deprecated silent alias — do not advertise; still accept so old callers don't hard-break.
-  const legacySlug = String(p.workspace_slug || p.workspaceSlug || '').trim();
-  if (legacySlug) {
-    return { database_id: null, database_name: legacySlug, binding: null, via_workspace_slug_alias: true };
-  }
-  let raw = p.d1_databases;
-  if (typeof raw === 'string') {
-    try {
-      raw = JSON.parse(raw);
-    } catch {
-      const m = String(raw).match(/database_id["'\s:]+\s*["']?([0-9a-f-]{36})/i);
-      if (m?.[1]) {
-        const nameM = String(p.d1_databases || raw).match(/database_name["'\s:]+\s*["']?([^"',\]]+)/i);
-        return {
-          database_id: m[1],
-          database_name: nameM?.[1]?.trim() || null,
-          binding: null,
-        };
-      }
-    }
-  }
-  if (Array.isArray(raw) && raw[0] && typeof raw[0] === 'object') {
-    return {
-      database_id: String(raw[0].database_id || '').trim() || null,
-      database_name: String(raw[0].database_name || '').trim() || null,
-      binding: String(raw[0].binding || '').trim() || null,
-    };
-  }
-  return null;
 }
 
 async function runCatalogD1SchemaIntrospect(env, d1Ctx, params) {

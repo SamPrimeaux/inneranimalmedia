@@ -35,8 +35,7 @@ import {
   getDatabaseSqlRunGate,
 } from '../src/lib/databaseSqlSafety';
 import {
-  clearDatabaseSurfaceContext,
-  publishDatabaseSurfaceContext,
+  createDatabaseSurfacePublisher,
   type DatabaseDatasource,
   type DatabaseSurfaceContext,
   type DbApplySqlMode,
@@ -317,6 +316,7 @@ export type DatabaseStudioProps = {
 
 export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, onBackToOverview }) => {
   const { workspaceId, workspaces } = useWorkspace();
+  const surfacePublisherRef = useRef(createDatabaseSurfacePublisher());
   const activeWorkspace = useMemo(
     () => workspaces.find((w) => w.id === workspaceId) ?? null,
     [workspaces, workspaceId],
@@ -1464,7 +1464,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       sqlRunState,
       updatedAt: Date.now(),
     };
-    publishDatabaseSurfaceContext(payload);
+    surfacePublisherRef.current.publish(payload);
   }, [
     browseMeta,
     data.rows,
@@ -1497,8 +1497,9 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   ]);
 
   useEffect(() => {
+    const publisher = surfacePublisherRef.current;
     return () => {
-      clearDatabaseSurfaceContext();
+      publisher.clear();
     };
   }, []);
 

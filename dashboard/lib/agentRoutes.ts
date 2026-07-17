@@ -152,8 +152,11 @@ export function isAgentExamplesPath(pathname: string): boolean {
   return normalizePath(pathname) === AGENT_EXAMPLES_PATH;
 }
 
-/** Routes that render dashboard content beside the agent column (stay put on new chat / resume). */
-export function isLibraryShellPath(pathname: string): boolean {
+/**
+ * Routes that keep dashboard content mounted beside the agent rail
+ * (stay put on new chat / resume / first-send conversation URL sync).
+ */
+export function isContextPreservingAgentRailPath(pathname: string): boolean {
   const p = normalizePath(pathname);
   return (
     p === '/dashboard/artifacts' ||
@@ -166,6 +169,13 @@ export function isLibraryShellPath(pathname: string): boolean {
     p.startsWith('/dashboard/projects/') ||
     p === '/dashboard/home' ||
     p === '/dashboard/overview' ||
-    p === '/dashboard/library'
+    p === '/dashboard/library' ||
+    p === '/dashboard/database' ||
+    p.startsWith('/dashboard/database/')
   );
+}
+
+/** @deprecated Prefer {@link isContextPreservingAgentRailPath} — kept for older call sites. */
+export function isLibraryShellPath(pathname: string): boolean {
+  return isContextPreservingAgentRailPath(pathname);
 }

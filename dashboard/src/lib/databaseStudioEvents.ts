@@ -247,10 +247,49 @@ export function dispatchDbOpenQueryAnalysis(detail: DbOpenQueryAnalysisDetail) {
 
 /** Last published studio snapshot (survives ChatAssistant remount / conversation switch). */
 let lastDatabaseSurfaceContext: DatabaseSurfaceContext | null = null;
+let lastPublisherId: string | null = null;
+let publishSeq = 0;
+
+function newPublisherId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `dbpub_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export type DatabaseSurfacePublisher = {
+  publisherId: string;
+  publish: (payload: DatabaseSurfaceContext) => void;
+  clear: () => void;
+};
+
+/**
+ * Owned publisher so an older Studio unmount cannot clear a newer instance's snapshot.
+ */
+export function createDatabaseSurfacePublisher(): DatabaseSurfacePublisher {
+  const publisherId = newPublisherId();
+  return {
+    publisherId,
+    publish(payload: DatabaseSurfaceContext) {
+      if (typeof window === 'undefined') return;
+      publishSeq += 1;
+      lastPublisherId = publisherId;
+      lastDatabaseSurfaceContext = payload;
+      window.dispatchEvent(new CustomEvent('iam-database-surface-context', { detail: payload }));
+    },
+    clear() {
+      if (lastPublisherId !== publisherId) return;
+      lastDatabaseSurfaceContext = null;
+      lastPublisherId = null;
+    },
+  };
+}
 
 /** Publish live studio context for ChatAssistant / agent chat payload. */
 export function publishDatabaseSurfaceContext(payload: DatabaseSurfaceContext) {
   if (typeof window === 'undefined') return;
+  publishSeq += 1;
+  lastPublisherId = lastPublisherId || 'legacy';
   lastDatabaseSurfaceContext = payload;
   window.dispatchEvent(new CustomEvent('iam-database-surface-context', { detail: payload }));
 }
@@ -260,9 +299,16 @@ export function getDatabaseSurfaceContext(): DatabaseSurfaceContext | null {
   return lastDatabaseSurfaceContext;
 }
 
-/** Clear when leaving Database Studio so agent chats elsewhere do not inherit it. */
-export function clearDatabaseSurfaceContext() {
+/** Clear when the owning Studio instance leaves (or legacy clear with no owner). */
+export function clearDatabaseSurfaceContext(publisherId?: string | null) {
+  if (publisherId != null && lastPublisherId != null && lastPublisherId !== publisherId) return;
   lastDatabaseSurfaceContext = null;
+  lastPublisherId = null;
+}
+
+/** Test helper — current publisher ownership. */
+export function getDatabaseSurfacePublisherMeta() {
+  return { publisherId: lastPublisherId, publishSeq };
 }
 
 /**
