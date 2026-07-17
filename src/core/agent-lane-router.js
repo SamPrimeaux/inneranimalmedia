@@ -28,6 +28,7 @@ import {
 import { classifyDatabaseAssistantIntent, classifySemanticLane } from './semantic-lane-classifier.js';
 import { findResumableSkillSpawnJob } from './subagent-spawn-d1.js';
 import { resolveExtendedSkillResume } from './skill-spawn-pipelines-ext.js';
+import { hasExplicitOpenWebSearchCue } from './open-web-intent-cues.js';
 
 export { resolveOpenWebSearchBackend };
 
@@ -135,13 +136,7 @@ export function messageRequestsOpenWebSearch(message) {
   if (/\b(resolveModel|agentChatSseHandler|dispatchToolCall)[\w.]*\b/i.test(m)) return false;
   if (/\b(r2:\/\/|static\/dashboard|\.sql\b|\.tsx?\b|\.jsx?\b)\b/i.test(m)) return false;
 
-  return (
-    /\b(search the web|look it up online|google|find online|search online|web search|latest on|current news|what(?:'s| is) the latest|recent (?:news|updates|docs)|official docs for|provider documentation)\b/i.test(
-      m,
-    ) ||
-    (/\b(latest|current|today|202[4-9])\b/i.test(m) &&
-      /\b(openai|anthropic|cloudflare|tavily|api|pricing|release notes|changelog)\b/i.test(m))
-  );
+  return hasExplicitOpenWebSearchCue(m);
 }
 
 /**
@@ -150,10 +145,7 @@ export function messageRequestsOpenWebSearch(message) {
 export function messageRequestsWorkspaceGrep(message) {
   const m = String(message || '').toLowerCase();
   if (!m) return false;
-  const openWebOnly =
-    /\b(search the web|look it up online|google|search online|latest on|current news)\b/i.test(m) ||
-    (/\b(latest|current|today)\b/i.test(m) &&
-      /\b(cloudflare|openai|anthropic|api|release notes|changelog)\b/i.test(m));
+  const openWebOnly = hasExplicitOpenWebSearchCue(m);
   if (openWebOnly && !/\b(in (my )?repo|codebase|src\/|worker\.js|grep|find)\b/i.test(m)) {
     return false;
   }

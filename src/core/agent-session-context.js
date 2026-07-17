@@ -53,6 +53,7 @@ export const EMERGENCY_FALLBACK_TOOL_KEYS = Object.freeze([
   'fs_search_files',
   'fs_edit_file',
   'pty_git_status',
+  'search_web',
 ]);
 
 /** Back-compat alias — do not add new call sites against this name. */
@@ -401,12 +402,14 @@ export async function loadOrBootstrapSessionContext(env, opts) {
     const requiresCfCatalog =
       composerMode === 'agent' || composerMode === 'multitask' || composerMode === 'debug';
     const missingCfList = requiresCfCatalog && !cachedKeys.has('agentsam_cf_d1_list');
+    const missingWebSearch = requiresCfCatalog && !cachedKeys.has('search_web');
     const cacheUsable =
       cached &&
       cachedCount > 0 &&
       cachedCount <= SESSION_TOOL_CACHE_SOFT_MAX &&
       String(cached.mode || '') === composerMode &&
-      !missingCfList;
+      !missingCfList &&
+      !missingWebSearch;
     if (cacheUsable) {
       const mergedRoots = { ...(cached.roots || {}), ...roots };
       if (JSON.stringify(mergedRoots) !== JSON.stringify(cached.roots || {})) {
@@ -424,10 +427,14 @@ export async function loadOrBootstrapSessionContext(env, opts) {
         fromCache: true,
       };
     }
-    if (missingCfList && cachedCount > 0) {
+    if ((missingCfList || missingWebSearch) && cachedCount > 0) {
       console.info(
         '[agent-session-context] cache_invalidate_profile_upgrade',
-        JSON.stringify({ conversationId, tools: cachedCount, missing: 'agentsam_cf_d1_list' }),
+        JSON.stringify({
+          conversationId,
+          tools: cachedCount,
+          missing: missingCfList ? 'agentsam_cf_d1_list' : 'search_web',
+        }),
       );
     }
     if (cachedCount > SESSION_TOOL_CACHE_SOFT_MAX) {
