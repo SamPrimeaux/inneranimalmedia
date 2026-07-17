@@ -10,6 +10,7 @@ import { computeUsdFromAgentsamAiRates } from '../core/model-catalog-cost.js';
 import { resolveCanonicalModelKey } from '../core/model-pricing.js';
 import { resolveUsageEventCostUsd } from '../core/usage-event-cost.js';
 import {
+  resolveUsageConversationId,
   resolveProviderForModelKey,
   syncUsageTokenColumns,
   usageEventExtraColumnSql,
@@ -116,6 +117,8 @@ export function computeUsdFromModelRatesRow(
 export async function writeTelemetry(env, data, modelRates) {
   const {
     sessionId,
+    conversationId,
+    conversation_id,
     tenantId,
     workspaceId,
     userId,
@@ -162,6 +165,11 @@ export async function writeTelemetry(env, data, modelRates) {
 
   const mid = resolveTelemetryTenantId(env, tenantId);
   const sid = sessionId != null ? String(sessionId) : null;
+  const conversationIdValue = resolveUsageConversationId({
+    conversationId,
+    conversation_id,
+    sessionId: sid,
+  });
 
   const tidInsert = mid || 'default';
   const wsInsert =
@@ -215,6 +223,7 @@ export async function writeTelemetry(env, data, modelRates) {
       task_type: resolvedTaskType,
       mode: resolvedMode,
       reason: hasReasonCol ? undefined : costReason,
+      conversation_id: conversationIdValue,
     });
     const extraCols = extra.names.length ? `, ${extra.names.join(', ')}` : '';
     const extraPh = extra.names.length ? `, ${extra.placeholders.join(', ')}` : '';

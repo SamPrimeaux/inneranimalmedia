@@ -81,6 +81,7 @@ import {
   shouldOpenChatToolSessionLedger,
   TOOL_OUTPUT_SSE_MAX,
 } from './agent-tool-loader.js';
+import { compactConsumedToolResultsInPlace } from './agent-tool-result-compaction.js';
 
 /** @param {string} toolName @param {string} toolOutput */
 function cadToolSseExtrasFromOutput(toolName, toolOutput) {
@@ -1317,6 +1318,21 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         modelKey,
         provider: 'anthropic',
       });
+    }
+
+    // The model has now consumed every existing tool result once. Keep the
+    // protocol blocks and IDs, but compact old payloads before later loop turns
+    // replay them alongside newly produced full-fidelity results.
+    const toolResultCompaction = compactConsumedToolResultsInPlace(conversationMessages);
+    if (toolResultCompaction.compactedBlocks > 0) {
+      console.info(
+        '[agent] consumed_tool_results_compacted',
+        JSON.stringify({
+          blocks: toolResultCompaction.compactedBlocks,
+          removed_chars: toolResultCompaction.removedChars,
+          turn: turnCount,
+        }),
+      );
     }
 
     conversationMessages.push({

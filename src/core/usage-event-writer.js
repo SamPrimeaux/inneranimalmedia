@@ -7,6 +7,17 @@
 import { scheduleMirrorUsageEventToSupabase } from './hyperdrive-write.js';
 import { resolveUsageEventCostUsd } from './usage-event-cost.js';
 import { pragmaTableInfo } from './retention.js';
+import {
+  resolveUsageConversationId,
+  syncUsageTokenColumns,
+  usageEventExtraColumnSql,
+} from './usage-event-columns.js';
+
+export {
+  resolveUsageConversationId,
+  syncUsageTokenColumns,
+  usageEventExtraColumnSql,
+} from './usage-event-columns.js';
 
 /**
  * Resolve billing provider for a dispatched model_key (catalog / agentsam_ai), not routing arm default.
@@ -38,60 +49,6 @@ export async function resolveProviderForModelKey(env, modelKey, armProvider = nu
   return armProvider != null ? String(armProvider).trim() : 'unknown';
 }
 
-/** Mirror tokens_in/out → input_tokens/output_tokens for analytics queries. */
-export function syncUsageTokenColumns(tokensIn, tokensOut) {
-  const tin = Math.max(0, Math.floor(Number(tokensIn) || 0));
-  const tout = Math.max(0, Math.floor(Number(tokensOut) || 0));
-  return {
-    tokens_in: tin,
-    tokens_out: tout,
-    input_tokens: tin,
-    output_tokens: tout,
-    total_tokens: tin + tout,
-  };
-}
-
-/**
- * Optional extra INSERT columns when schema has attribution / token mirror cols.
- * @param {Set<string>} cols - pragma_table_info names (lowercase)
- */
-export function usageEventExtraColumnSql(cols, { tokens_in, tokens_out, task_type, mode, reason }) {
-  const synced = syncUsageTokenColumns(tokens_in, tokens_out);
-  const names = [];
-  const placeholders = [];
-  const binds = [];
-
-  if (cols.has('input_tokens')) {
-    names.push('input_tokens');
-    placeholders.push('?');
-    binds.push(synced.input_tokens);
-  }
-  if (cols.has('output_tokens')) {
-    names.push('output_tokens');
-    placeholders.push('?');
-    binds.push(synced.output_tokens);
-  }
-  const tt = task_type != null ? String(task_type).trim() : '';
-  if (cols.has('task_type') && tt) {
-    names.push('task_type');
-    placeholders.push('?');
-    binds.push(tt.slice(0, 120));
-  }
-  const md = mode != null ? String(mode).trim() : '';
-  if (cols.has('mode') && md) {
-    names.push('mode');
-    placeholders.push('?');
-    binds.push(md.slice(0, 64));
-  }
-  const rs = reason != null ? String(reason).trim() : '';
-  if (cols.has('reason') && rs) {
-    names.push('reason');
-    placeholders.push('?');
-    binds.push(rs.slice(0, 500));
-  }
-  return { names, placeholders, binds };
-}
-
 /**
  * @param {Object} env - Worker env bindings (env.DB required)
  * @param {Object} params
@@ -102,6 +59,7 @@ export function usageEventExtraColumnSql(cols, { tokens_in, tokens_out, task_typ
  * @param {string} params.tenant_id
  * @param {string} [params.user_id]
  * @param {string} [params.session_id]
+ * @param {string} [params.conversation_id]
  * @param {string} [params.routing_arm_id]
  * @param {string} [params.event_type]   - "chat" | "tool_call" | "embed" | "eval" | "cron"
  * @param {number} [params.tokens_in]    - input tokens
@@ -125,6 +83,7 @@ export async function writeUsageEvent(env, params, ctx = null) {
     tenant_id,
     user_id      = null,
     session_id   = null,
+    conversation_id = null,
     routing_arm_id = null,
     plan_id      = null,
     event_type   = 'chat',
@@ -148,6 +107,10 @@ export async function writeUsageEvent(env, params, ctx = null) {
   }
 
   const tokens = syncUsageTokenColumns(tokens_in, tokens_out);
+  const usageConversationId = resolveUsageConversationId({
+    conversation_id,
+    session_id,
+  });
   const taskTypeVal = task_type != null ? String(task_type).trim().slice(0, 120) : null;
   const modeVal = mode != null ? String(mode).trim().slice(0, 64) : null;
   let resolvedModelKey = model_key != null ? String(model_key).trim() : '';
@@ -185,6 +148,7 @@ export async function writeUsageEvent(env, params, ctx = null) {
     tokens_out: tokens.tokens_out,
     task_type: taskTypeVal,
     mode: modeVal,
+    conversation_id: usageConversationId,
   });
   const extraCols = extra.names.length ? `, ${extra.names.join(', ')}` : '';
   const extraPh = extra.names.length ? `, ${extra.placeholders.join(', ')}` : '';
@@ -233,6 +197,7 @@ export async function writeUsageEvent(env, params, ctx = null) {
       workspace_id,
       user_id,
       session_id,
+      conversation_id: usageConversationId,
       provider: actualProvider,
       model,
       model_key: model_key || resolvedModelKey || model,
@@ -272,12 +237,14 @@ export function writeUsageEventFromChat(env, ctx, opts = {}) {
   const outputTokens = Math.floor(Number(opts.output_tokens ?? opts.outputTokens) || 0);
   const model_key = opts.model_key ?? opts.modelKey ?? 'unknown';
   const routing_arm_id = opts.routing_arm_id ?? opts.routingArmId ?? null;
+  const usageConversationId = resolveUsageConversationId(opts);
 
   const payload = {
     tenant_id,
     workspace_id,
     user_id: opts.user_id ?? opts.userId ?? null,
-    session_id: opts.session_id ?? opts.conversationId ?? opts.conversation_id ?? null,
+    session_id: opts.session_id ?? opts.sessionId ?? usageConversationId,
+    conversation_id: usageConversationId,
     provider: opts.provider ?? opts.resolvedProvider ?? 'unknown',
     model: model_key,
     model_key,
