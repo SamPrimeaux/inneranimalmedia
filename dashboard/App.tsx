@@ -2339,7 +2339,11 @@ const App: React.FC = () => {
       agentChatTabsRef.current
         .find((t) => t.id === activeAgentChatTabIdRef.current)
         ?.conversationId?.trim() || '';
-    if (activeConv === convId) return;
+    const activeMsgs =
+      messagesByTabIdRef.current[activeAgentChatTabIdRef.current] || [];
+    if (activeConv === convId && !agentTabMessagesNeedHydration(activeMsgs, { hasConversationId: true })) {
+      return;
+    }
     openAgentConversation({ id: convId, force: true, ensureAgentPanel: false });
   }, [location.pathname]);
 

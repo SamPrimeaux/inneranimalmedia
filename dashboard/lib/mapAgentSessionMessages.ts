@@ -144,12 +144,20 @@ export function agentTabMessagesNeedHydration(
     const t = c.trim();
     return !t || t === '(empty)' || t === 'Loading conversation…';
   };
+  const greetingOnly = (c: string) => {
+    const t = c.trim();
+    if (!t) return true;
+    // Fresh-tab greeting must not block history hydrate when a conversation id is set.
+    if (/^Hi!\s*I'm Agent Sam\./i.test(t)) return true;
+    if (/What should we work on\?/i.test(t) && t.length < 280) return true;
+    return false;
+  };
   if (messages.every((m) => placeholderOnly(m.content) && !m.imageGenerationState)) return true;
   if (
     hasConv &&
     messages.length === 1 &&
     messages[0].role === 'assistant' &&
-    placeholderOnly(messages[0].content) &&
+    (placeholderOnly(messages[0].content) || greetingOnly(messages[0].content)) &&
     !messages[0].imageGenerationState
   ) {
     return true;

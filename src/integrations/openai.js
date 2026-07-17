@@ -222,26 +222,30 @@ function anthropicVisionBlocksToResponsesContent(blocks) {
 
 /**
  * Build `input` for /v1/responses. With `previousResponseId`, only `function_call_output` items
- * from the latest user message (tool results) are sent; otherwise user/assistant text turns.
+ * from the latest tool-result user message are sent; otherwise user/assistant text turns.
  */
 function buildOpenAIResponsesInput(messages, previousResponseId) {
   if (previousResponseId) {
-    const last = messages[messages.length - 1];
     const out = [];
-    if (last?.role === 'user' && Array.isArray(last.content)) {
-      for (const b of last.content) {
-        if (b.type === 'tool_result') {
-          const callId = String(b.tool_use_id || '').trim();
-          if (!callId) continue;
-          const payload =
-            typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? {});
-          out.push({
-            type: 'function_call_output',
-            call_id: callId,
-            output: payload,
-          });
-        }
+    // Walk backward — a trailing text user nudge must not hide tool_result payloads.
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (!(msg?.role === 'user' && Array.isArray(msg.content))) continue;
+      const hasToolResult = msg.content.some((b) => b?.type === 'tool_result');
+      if (!hasToolResult) continue;
+      for (const b of msg.content) {
+        if (b.type !== 'tool_result') continue;
+        const callId = String(b.tool_use_id || '').trim();
+        if (!callId) continue;
+        const payload =
+          typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? {});
+        out.push({
+          type: 'function_call_output',
+          call_id: callId,
+          output: payload,
+        });
       }
+      break;
     }
     return out;
   }

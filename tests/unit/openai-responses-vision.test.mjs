@@ -43,3 +43,26 @@ test('buildOpenAIMessages preserves vision blocks for chat completions', () => {
   assert.equal(user.content[1].type, 'image_url');
   assert.match(String(user.content[1].image_url?.url || ''), /^data:image\/png;base64,abc123/);
 });
+
+test('buildOpenAIResponsesInput with previousResponseId finds tool_results before trailing text nudge', () => {
+  const input = buildOpenAIResponsesInput(
+    [
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_abc', content: '{"ok":true}' },
+          { type: 'tool_result', tool_use_id: 'call_def', content: '{"ok":true}' },
+        ],
+      },
+      {
+        role: 'user',
+        content: '[System] Open-web search budget exhausted. Answer now.',
+      },
+    ],
+    'resp_previous',
+  );
+  assert.equal(input.length, 2);
+  assert.equal(input[0].type, 'function_call_output');
+  assert.equal(input[0].call_id, 'call_abc');
+  assert.equal(input[1].call_id, 'call_def');
+});

@@ -265,7 +265,6 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   const conversationMessages = [...messages];
   let activeTools = Array.isArray(tools) ? tools.slice() : tools;
   let openWebSearchRetired = false;
-  let pendingOpenWebRetireNudge = false;
   let toolCallsUsed = 0;
   const executedToolNames = [];
   let totalUsage    = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
@@ -275,31 +274,116 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   let ledgerLoopThrew = false;
   let ledgerErrorMsg = null;
   let openaiPreviousResponseId = null;
+  let chatTurnPersisted = false;
+
+  const toolDefName = (t) =>
+    String(t?.name || t?.tool_key || t?.function?.name || '')
+      .trim()
+      .toLowerCase();
 
   const retireOpenWebSearchTools = (reason) => {
     if (openWebSearchRetired || !Array.isArray(activeTools)) return;
     const before = activeTools.length;
-    activeTools = activeTools.filter((t) => {
-      const n = String(t?.name || t?.tool_key || '').trim().toLowerCase();
-      return n !== 'search_web';
-    });
-    if (activeTools.length === before) return;
+    const next = activeTools.filter((t) => toolDefName(t) !== 'search_web');
+    // Never wipe the whole tool menu if name resolution failed (would leave tools:[]).
+    if (next.length === 0 && before > 1) {
+      openWebSearchRetired = true;
+      console.warn(
+        '[agent] open_web_search_retire_aborted_empty_menu',
+        JSON.stringify({ reason: String(reason || 'budget'), before }),
+      );
+      return;
+    }
+    if (next.length === before) {
+      openWebSearchRetired = true;
+      console.info(
+        '[agent] open_web_search_retired',
+        JSON.stringify({
+          reason: String(reason || 'budget'),
+          remaining_tools: before,
+          note: 'name_miss_kept_menu',
+        }),
+      );
+      return;
+    }
+    activeTools = next;
     openWebSearchRetired = true;
-    pendingOpenWebRetireNudge = true;
+    // Do NOT inject a separate user message here — OpenAI Responses + previous_response_id
+    // only accepts function_call_output on the follow-up turn; an extra string user turn
+    // causes "No tool output found for function call …".
     console.info(
       '[agent] open_web_search_retired',
       JSON.stringify({ reason: String(reason || 'budget'), remaining_tools: activeTools.length }),
     );
   };
 
-  const flushOpenWebRetireNudge = () => {
-    if (!pendingOpenWebRetireNudge) return;
-    pendingOpenWebRetireNudge = false;
-    conversationMessages.push({
-      role: 'user',
-      content:
-        '[System] Open-web search budget for this turn is exhausted. Do not call search_web again. Answer the user now using any search_web results already returned earlier in this turn. Cite official sources from those results.',
-    });
+  const persistChatTurnMessages = (opts = {}) => {
+    if (chatTurnPersisted || !sessionId || !userId) return;
+    chatTurnPersisted = true;
+    const turnId = params.chatTurnMeta?.turnId ?? null;
+    const assistantMessageId = params.chatTurnMeta?.assistantMessageId ?? null;
+    const userMsg = messages?.[0];
+    const userContent =
+      typeof userMsg?.content === 'string'
+        ? userMsg.content
+        : Array.isArray(userMsg?.content)
+          ? userMsg.content
+              .filter((b) => b.type === 'text')
+              .map((b) => b.text)
+              .join('')
+          : '';
+    if (userContent && !params.chatTurnMeta?.turnId) {
+      appendChatMessage(env, sessionId, {
+        role: 'user',
+        content: userContent,
+        turn_id: turnId,
+        model_key: modelKey ?? null,
+        tokens_in: 0,
+        tokens_out: 0,
+      }).catch((e) => console.warn('[tool-loop] appendChatMessage user', e?.message ?? e));
+    }
+    let assistantText =
+      typeof opts.assistantText === 'string'
+        ? opts.assistantText
+        : conversationMessages
+            .filter((m) => m.role === 'assistant')
+            .flatMap((m) =>
+              Array.isArray(m.content)
+                ? m.content
+                : [{ type: 'text', text: String(m.content || '') }],
+            )
+            .filter((b) => b.type === 'text')
+            .map((b) => b.text)
+            .join('');
+    if (!assistantText && opts.errorText) {
+      assistantText = String(opts.errorText).slice(0, 8000);
+    }
+    if (assistantText) {
+      const status = opts.failed ? 'failed' : 'complete';
+      appendChatMessage(env, sessionId, {
+        id: assistantMessageId ?? undefined,
+        turn_id: turnId,
+        role: 'assistant',
+        content: assistantText,
+        status,
+        error: opts.failed ? String(opts.errorText || 'turn_failed').slice(0, 500) : null,
+        model_key: modelKey ?? null,
+        tokens_in: totalUsage.input_tokens ?? 0,
+        tokens_out: totalUsage.output_tokens ?? 0,
+      })
+        .then(() =>
+          markChatTurnStatus(env, sessionId, opts.failed ? 'failed' : 'completed', opts.failed ? opts.errorText : null, {
+            assistantMessageId,
+            output_tokens: totalUsage.output_tokens ?? 0,
+            content: assistantText,
+          }),
+        )
+        .catch((e) => console.warn('[tool-loop] appendChatMessage assistant', e?.message ?? e));
+    } else if (opts.failed) {
+      markChatTurnStatus(env, sessionId, 'failed', opts.errorText || 'turn_failed', {
+        assistantMessageId,
+      }).catch(() => {});
+    }
   };
 
   let telemetryFlushed = false;
@@ -2327,7 +2411,6 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         scheduleLoopUsageTelemetry(false);
         emit('error', { message: 'Agent run timed out', code: 'agent_run_timeout' });
         if (toolResults.length) conversationMessages.push({ role: 'user', content: toolResults });
-        flushOpenWebRetireNudge();
         safeDone({ tool_calls_used: toolCallsUsed, turns: turnCount, code: 'agent_run_timeout' });
         return {
           totalUsage,
@@ -2357,7 +2440,6 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       };
     }
     if (toolResults.length) conversationMessages.push({ role: 'user', content: toolResults });
-    flushOpenWebRetireNudge();
 
     if (routingWs) {
       if (!attributedRoutingArmId()) {
@@ -2389,6 +2471,17 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     }
     ledgerLoopThrew = true;
     ledgerErrorMsg = e?.message != null ? String(e.message) : String(e);
+    const detail =
+      e && typeof e === 'object' && 'detail' in e && e.detail != null
+        ? String(e.detail).slice(0, 4000)
+        : ledgerErrorMsg;
+    persistChatTurnMessages({
+      failed: true,
+      errorText:
+        e && typeof e === 'object' && e.code === 'IAM_PROVIDER_HTTP'
+          ? `Model provider error (${e.status || 400}): ${detail}`
+          : ledgerErrorMsg,
+    });
     if (chatAgentRunId && (routingWs || workspaceId)) {
       try {
         const { fireAgentRunStopHooks } = await import('./agentsam-run-stop-hooks.js');
@@ -2461,50 +2554,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   }
 
   // Persist user turn + assistant turns to conversation DO (non-blocking)
-  if (sessionId && userId) {
-    const turnId = params.chatTurnMeta?.turnId ?? null;
-    const assistantMessageId = params.chatTurnMeta?.assistantMessageId ?? null;
-    const userMsg = messages?.[0];
-    const userContent = typeof userMsg?.content === 'string'
-      ? userMsg.content
-      : (Array.isArray(userMsg?.content) ? userMsg.content.filter(b => b.type === 'text').map(b => b.text).join('') : '');
-    if (userContent) {
-      appendChatMessage(env, sessionId, {
-        role: 'user',
-        content: userContent,
-        turn_id: turnId,
-        model_key: modelKey ?? null,
-        tokens_in: 0,
-        tokens_out: 0,
-      }).catch((e) => console.warn('[tool-loop] appendChatMessage user', e?.message ?? e));
-    }
-    const assistantText = conversationMessages
-      .filter(m => m.role === 'assistant')
-      .flatMap(m => Array.isArray(m.content) ? m.content : [{ type: 'text', text: String(m.content || '') }])
-      .filter(b => b.type === 'text')
-      .map(b => b.text)
-      .join('');
-    if (assistantText) {
-      appendChatMessage(env, sessionId, {
-        id: assistantMessageId ?? undefined,
-        turn_id: turnId,
-        role: 'assistant',
-        content: assistantText,
-        status: 'complete',
-        model_key: modelKey ?? null,
-        tokens_in: totalUsage.input_tokens ?? 0,
-        tokens_out: totalUsage.output_tokens ?? 0,
-      })
-        .then(() =>
-          markChatTurnStatus(env, sessionId, 'completed', null, {
-            assistantMessageId,
-            output_tokens: totalUsage.output_tokens ?? 0,
-            content: assistantText,
-          }),
-        )
-        .catch((e) => console.warn('[tool-loop] appendChatMessage assistant', e?.message ?? e));
-    }
-  }
+  persistChatTurnMessages();
 
   safeDone({ tool_calls_used: toolCallsUsed, turns: turnCount });
   return {

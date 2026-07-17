@@ -1054,6 +1054,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         chatTurnMeta = await beginChatTurn(env, sessionId, {
           model_key: body.model_key ?? body.model ?? null,
           timeoutMs: 4000,
+          user_content: typeof message === 'string' ? message : '',
         });
         if (chatTurnMeta) {
           streamLifecycle.setTurnMeta(chatTurnMeta);

@@ -450,6 +450,32 @@ export async function beginChatTurn(env, conversationId, opts = {}) {
 
   const turnId = `turn_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const assistantMessageId = crypto.randomUUID();
+
+  // Persist the user turn immediately so reopen/history survives mid-turn hard fails.
+  const userContent =
+    typeof opts.user_content === 'string'
+      ? opts.user_content
+      : typeof opts.userContent === 'string'
+        ? opts.userContent
+        : '';
+  if (userContent.trim()) {
+    const userWrite = await appendChatMessageToDo(
+      env,
+      convId,
+      {
+        turn_id: turnId,
+        role: 'user',
+        content: userContent,
+        status: 'complete',
+        model_key: opts.model_key ?? null,
+      },
+      { timeoutMs: opts.timeoutMs ?? 4000 },
+    );
+    if (!userWrite.ok) {
+      console.warn('[beginChatTurn] user_write', userWrite.reason || 'do_write_failed', convId);
+    }
+  }
+
   const pending = await appendChatMessageToDo(
     env,
     convId,
