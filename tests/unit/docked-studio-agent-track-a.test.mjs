@@ -23,6 +23,11 @@ test('isContextPreservingAgentRailPath includes Database Studio', () => {
   assert.match(agentRoutes, /p\.startsWith\('\/dashboard\/database\/'\)/);
 });
 
+test('isContextPreservingAgentRailPath includes Design Studio', () => {
+  assert.match(agentRoutes, /p === '\/dashboard\/designstudio'/);
+  assert.match(agentRoutes, /p\.startsWith\('\/dashboard\/designstudio\/'\)/);
+});
+
 test('publisher ownership refuses clear from a stale Studio instance', () => {
   assert.match(studioEvents, /createDatabaseSurfacePublisher/);
   assert.match(studioEvents, /if \(lastPublisherId !== publisherId\) return/);

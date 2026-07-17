@@ -171,7 +171,10 @@ export function isContextPreservingAgentRailPath(pathname: string): boolean {
     p === '/dashboard/overview' ||
     p === '/dashboard/library' ||
     p === '/dashboard/database' ||
-    p.startsWith('/dashboard/database/')
+    p.startsWith('/dashboard/database/') ||
+    // Design Studio: keep 3D canvas + docked Agent Sam rail (do not navigate to /agent/{id}).
+    p === '/dashboard/designstudio' ||
+    p.startsWith('/dashboard/designstudio/')
   );
 }
 
