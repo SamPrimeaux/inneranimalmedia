@@ -20,7 +20,25 @@ import { incrementAgentsamUsageRollupsDaily } from '../core/agentsam-usage-rollu
  * Standardizes provider names for the spend ledger.
  */
 export function spendLedgerProvider(provider) {
-  return provider === 'workers_ai' ? 'cloudflare_workers_ai' : provider;
+  const normalized = String(provider || '').trim().toLowerCase();
+  if (normalized === 'workers_ai') return 'cloudflare_workers_ai';
+  const allowed = new Set([
+    'anthropic',
+    'openai',
+    'cursor',
+    'cloudflare_workers_ai',
+    'google',
+    'cloudflare',
+    'stripe',
+    'shopify',
+    'vercel',
+    'supabase',
+    'resend',
+    'other',
+  ]);
+  // spend_ledger has a locked provider CHECK. Keep the canonical model_key on
+  // the row while routing newer providers (for example DeepSeek) through other.
+  return allowed.has(normalized) ? normalized : 'other';
 }
 
 /**

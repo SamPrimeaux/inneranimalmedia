@@ -30,6 +30,10 @@ import {
   formatMailSurfaceContextForAgent,
 } from '../mail-studio-context.js';
 import { withAbortableAgentRunTimeout } from '../agent-run-timeout.js';
+import {
+  formatActiveFileForAgent,
+  messageReferencesActiveFile,
+} from '../active-file-envelope.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -38,7 +42,9 @@ const SSE_HEADERS = {
   'Access-Control-Allow-Origin': '*',
 };
 
-const AGENT_RUN_HARD_TIMEOUT_MS = 55_000;
+// Production hang cancellation was observed at ~52s. Keep our typed timeout
+// comfortably ahead of the platform so finalization can still run.
+const AGENT_RUN_HARD_TIMEOUT_MS = 45_000;
 
 /**
  * Quickstart seed messages are meta-instructions to the MODEL ("Ask the user what they
@@ -402,6 +408,23 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         preview_count: Array.isArray(mailSurfaceRaw?.inboxPreview) ? mailSurfaceRaw.inboxPreview.length : 0,
       }),
     );
+  }
+
+  if (activeFileEnvelope && messageReferencesActiveFile(message)) {
+    const activeFileBlock = formatActiveFileForAgent(activeFileEnvelope);
+    if (activeFileBlock) {
+      contextBlock = contextBlock
+        ? `${contextBlock}\n\n## Active editor file\n\n${activeFileBlock}`
+        : `## Active editor file\n\n${activeFileBlock}`;
+      console.info(
+        '[agent-controller] active_file_context_injected',
+        JSON.stringify({
+          source: activeFileEnvelope.source,
+          path: activeFileEnvelope.path,
+          chars: activeFileBlock.length,
+        }),
+      );
+    }
   }
 
   // Project memory/instructions belong in system context — never the visible user bubble.

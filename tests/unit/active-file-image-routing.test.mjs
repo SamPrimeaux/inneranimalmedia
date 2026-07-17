@@ -8,6 +8,7 @@ import {
   applyActiveFileDefaultsToToolInput,
   extractOpenFileContentFromMessage,
   formatActiveFileForAgent,
+  messageReferencesActiveFile,
   parseActiveFileEnvelope,
   stripUserTextForIntent,
 } from '../../src/core/active-file-envelope.js';
@@ -95,4 +96,15 @@ test('github-bound envelope applies repo/path defaults', () => {
 test('extractOpenFileContentFromMessage pulls editor buffer from on-demand block', () => {
   const content = extractOpenFileContentFromMessage(`audit this${CSS_ON_DEMAND}`);
   assert.match(content, /\.hero-banner/);
+});
+
+test('natural-language active editor references opt into file context', () => {
+  assert.equal(messageReferencesActiveFile('Describe the file open in Monaco.'), true);
+  assert.equal(messageReferencesActiveFile('What does this code do?'), true);
+  assert.equal(messageReferencesActiveFile('Review the active buffer.'), true);
+});
+
+test('unrelated prompts do not pre-dump the open file', () => {
+  assert.equal(messageReferencesActiveFile('How are you?'), false);
+  assert.equal(messageReferencesActiveFile('List recent deployments.'), false);
 });

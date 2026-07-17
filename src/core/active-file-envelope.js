@@ -113,6 +113,22 @@ export function stripActiveFileEnvelopeForIntent(message) {
 }
 
 /**
+ * True only when the user explicitly refers to the editor's active buffer.
+ * Opening a file alone must not pre-dump it into every prompt.
+ * @param {unknown} message
+ */
+export function messageReferencesActiveFile(message) {
+  const text = stripUserTextForIntent(message);
+  if (!text) return false;
+  return (
+    /\b(?:this|that|the|current|active|open|opened|selected)\s+(?:file|document|code|buffer)\b/i.test(text) ||
+    /\b(?:file|document|code|buffer)\s+(?:that|which)?\s*(?:is|'s)?\s*(?:currently\s+)?open\b/i.test(text) ||
+    /\b(?:open|opened|active|selected)\s+(?:in|inside)\s+(?:the\s+)?(?:monaco|editor)\b/i.test(text) ||
+    /\b(?:monaco|editor)\s+(?:file|buffer|tab)\b/i.test(text)
+  );
+}
+
+/**
  * Pull editor buffer text from dashboard on-demand context when FormData omits active_file_content.
  * @param {unknown} message
  */
