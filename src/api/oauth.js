@@ -28,6 +28,7 @@ import {
 import { getAESKey, aesGcmEncryptToB64, aesGcmDecryptFromB64 } from '../core/crypto-vault.js';
 import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 import {
+  appendOAuthReturnParams,
   integrationOAuthShouldPopup,
   oauthPopupCompleteHtml,
 } from '../core/oauth-popup-complete.js';
@@ -1718,7 +1719,7 @@ export async function handleOAuthApi(request, env, ctx) {
       }
       const _origin = new URL(request.url).origin;
       const _abs638 = returnTo.startsWith('http') ? returnTo : _origin + returnTo;
-      return Response.redirect(`${_abs638}?error=${encodeURIComponent(msg)}`, 302);
+      return Response.redirect(appendOAuthReturnParams(_abs638, { error: msg }), 302);
     }
 
     await kvDeleteIntegrationOAuthState(env, provider, state);
@@ -1729,7 +1730,7 @@ export async function handleOAuthApi(request, env, ctx) {
       });
     }
     return Response.redirect(
-      `${absReturn}?connected=${encodeURIComponent(provider)}&success=true`,
+      appendOAuthReturnParams(absReturn, { connected: provider, success: 'true' }),
       302,
     );
   }

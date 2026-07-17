@@ -20,6 +20,8 @@ export type DatabaseSurfaceContext = {
   provider: DatabaseDatasource;
   resourceScope: DatabaseResourceScope;
   resourceRef?: string | null;
+  /** Binding/name for iam_db_action gating (e.g. D1 database name). */
+  datasource_binding?: string | null;
   activeSchema?: string | null;
   datasource: DatabaseDatasource;
   dialect: 'sqlite' | 'postgresql';

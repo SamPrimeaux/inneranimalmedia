@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardCopy,
@@ -627,10 +628,13 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
         : [];
       setD1Resources(resources);
       setD1OnboardingRequired(resources.length === 0);
-      const selected =
+      const preferred =
         databaseName?.trim() ||
-        String(ctx.active_database_name || '').trim();
-      setD1ResourceName((current) => current.trim() || selected);
+        String(ctx.active_database_name || '').trim() ||
+        resources.find((row) => row.source === 'platform_operator')?.database_name ||
+        resources[0]?.database_name ||
+        '';
+      setD1ResourceName((current) => current.trim() || preferred);
     } catch {
       setD1Resources([]);
       if (!databaseName?.trim()) setD1ResourceName('');
@@ -1364,6 +1368,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       provider,
       resourceScope,
       resourceRef,
+      datasource_binding: resourceRef,
       activeSchema,
       datasource: effectiveDatasource,
       dialect,
@@ -1707,6 +1712,32 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     void refreshTableRows(1);
   }, [refreshTableRows, selectedTable]);
 
+  const selectD1Resource = useCallback((next: string) => {
+    setD1ResourceName(next);
+    setSelectedTable(null);
+    setTables((prev) => ({ ...prev, d1: [] }));
+  }, []);
+
+  const selectSupabaseResource = useCallback((next: string) => {
+    setSelectedTable(null);
+    setTables((prev) => ({ ...prev, supabase: [] }));
+    if (next === 'platform_supabase') {
+      setStudioSection('platform_supabase');
+      void loadTables('supabase');
+      return;
+    }
+    setStudioSection('connected_supabase');
+    setSupabaseProjectRef(next);
+    void loadCustomerSupabaseTables(next);
+    if (workspaceId && next) {
+      void fetchJson('/api/data-plane/customer-supabase/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_ref: next, project_id: next }),
+      }).catch(() => {});
+    }
+  }, [loadCustomerSupabaseTables, loadTables, workspaceId]);
+
   const onboardingEligible = capLoaded && pageReady;
   const activeResourceRef =
     effectiveDatasource === 'd1'
@@ -1813,79 +1844,6 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
         </div>
 
         <div className="border-b border-[var(--border-subtle)] p-3">
-          {effectiveDatasource === 'd1' && d1Resources.length ? (
-            <div className="mb-2">
-              <label className="mb-1 block text-[9px] font-black uppercase tracking-widest text-muted">
-                D1 database
-              </label>
-              <select
-                value={d1ResourceName}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setD1ResourceName(next);
-                  setSelectedTable(null);
-                  setTables((prev) => ({ ...prev, d1: [] }));
-                }}
-                className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1.5 font-mono text-[11px] text-main outline-none"
-              >
-                <option value="">Select a D1 database</option>
-                {d1Resources.map((resource) => (
-                  <option key={resource.database_name} value={resource.database_name}>
-                    {resource.database_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
-          {effectiveDatasource === 'supabase' && (isSuperadmin || supabaseConnected) ? (
-            <div className="mb-2">
-              <label className="mb-1 block text-[9px] font-black uppercase tracking-widest text-muted">
-                Supabase resource
-              </label>
-              <select
-                value={
-                  studioSection === 'platform_supabase'
-                    ? 'platform_supabase'
-                    : supabaseProjectRef
-                }
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setSelectedTable(null);
-                  setTables((prev) => ({ ...prev, supabase: [] }));
-                  if (next === 'platform_supabase') {
-                    setStudioSection('platform_supabase');
-                    void loadTables('supabase');
-                    return;
-                  }
-                  setStudioSection('connected_supabase');
-                  setSupabaseProjectRef(next);
-                  void loadCustomerSupabaseTables(next);
-                  if (workspaceId && next) {
-                    void fetchJson('/api/data-plane/customer-supabase/select', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ project_ref: next, project_id: next }),
-                    }).catch(() => {});
-                  }
-                }}
-                className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1.5 font-mono text-[11px] text-main outline-none"
-              >
-                {isSuperadmin ? <option value="platform_supabase">Platform Supabase</option> : null}
-                {!isSuperadmin || studioSection === 'connected_supabase' ? (
-                  <option value="">Select a connected project</option>
-                ) : null}
-                {supabaseProjects.length ? (
-                  <optgroup label="Connected Projects">
-                    {supabaseProjects.map((p) => (
-                      <option key={p.ref} value={p.ref}>
-                        {p.name ? `${p.name} (${p.ref})` : p.ref}
-                      </option>
-                    ))}
-                  </optgroup>
-                ) : null}
-              </select>
-            </div>
-          ) : null}
           {effectiveDatasource === 'supabase' && !isSuperadmin && !supabaseConnected ? (
             <a
               href={supabaseConnectUrl}
@@ -2049,6 +2007,57 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
               </p>
             </div>
           </div>
+          {effectiveDatasource === 'd1' && d1Resources.length ? (
+            <label className="relative flex min-w-0 max-w-[320px] items-center">
+              <span className="sr-only">Active D1 database</span>
+              <select
+                value={d1ResourceName}
+                onChange={(event) => selectD1Resource(event.target.value)}
+                className="h-8 min-w-[180px] max-w-full appearance-none rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] py-1 pl-2.5 pr-8 font-mono text-[11px] font-medium text-main outline-none transition-colors hover:border-[var(--color-accent,var(--solar-cyan))]/60 focus:border-[var(--color-accent,var(--solar-cyan))]"
+              >
+                <option value="">Select database</option>
+                {d1Resources.map((resource) => (
+                  <option key={resource.database_id || resource.database_name} value={resource.database_name}>
+                    {resource.database_name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={13}
+                aria-hidden="true"
+                className="pointer-events-none absolute right-2.5 text-muted"
+              />
+            </label>
+          ) : null}
+          {effectiveDatasource === 'supabase' && (isSuperadmin || supabaseConnected) ? (
+            <label className="relative flex min-w-0 max-w-[360px] items-center">
+              <span className="sr-only">Active Supabase database</span>
+              <select
+                value={studioSection === 'platform_supabase' ? 'platform_supabase' : supabaseProjectRef}
+                onChange={(event) => selectSupabaseResource(event.target.value)}
+                className="h-8 min-w-[180px] max-w-full appearance-none rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] py-1 pl-2.5 pr-8 font-mono text-[11px] font-medium text-main outline-none transition-colors hover:border-[var(--color-accent,var(--solar-cyan))]/60 focus:border-[var(--color-accent,var(--solar-cyan))]"
+              >
+                {isSuperadmin ? <option value="platform_supabase">Platform Supabase</option> : null}
+                {!isSuperadmin || studioSection === 'connected_supabase' ? (
+                  <option value="">Select project</option>
+                ) : null}
+                {supabaseProjects.length ? (
+                  <optgroup label="Connected projects">
+                    {supabaseProjects.map((project) => (
+                      <option key={project.ref} value={project.ref}>
+                        {project.name ? `${project.name} (${project.ref})` : project.ref}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+              </select>
+              <ChevronDown
+                size={13}
+                aria-hidden="true"
+                className="pointer-events-none absolute right-2.5 text-muted"
+              />
+            </label>
+          ) : null}
         </div>
 
         <div className="relative min-h-0 flex-1 overflow-hidden">

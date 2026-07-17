@@ -25,6 +25,19 @@ export function integrationOAuthShouldPopup(stored, absReturn) {
 }
 
 /**
+ * Preserve an OAuth return URL's existing query and hash while adding outcome params.
+ * @param {string} returnUrl
+ * @param {Record<string, string>} params
+ */
+export function appendOAuthReturnParams(returnUrl, params) {
+  const target = new URL(String(returnUrl));
+  for (const [key, value] of Object.entries(params || {})) {
+    target.searchParams.set(key, String(value));
+  }
+  return target.toString();
+}
+
+/**
  * @param {string} provider
  * @param {{ error?: string|null }} [opts]
  */

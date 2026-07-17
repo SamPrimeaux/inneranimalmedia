@@ -20,11 +20,13 @@ export function formatDatabaseContextForAgent(raw) {
     `provider: ${String(raw.provider || raw.datasource || 'unknown')}`,
     `resource_scope: ${String(raw.resourceScope || raw.resource_scope || 'unknown')}`,
     `resource_ref: ${raw.resourceRef || raw.resource_ref || '(unresolved)'}`,
+    `datasource_binding: ${raw.datasource_binding || raw.resourceRef || raw.resource_ref || '(unresolved)'}`,
     `datasource: ${String(raw.datasource || 'd1')}`,
     `dialect: ${String(raw.dialect || (raw.datasource === 'supabase' ? 'postgresql' : 'sqlite'))}`,
     `active_schema: ${raw.activeSchema || raw.active_schema || '(none)'}`,
     `active_tab: ${String(raw.activeMainTab || raw.active_tab || 'schema')}`,
     `selected_table: ${raw.selectedTable != null ? String(raw.selectedTable) : '(none)'}`,
+    'tool_envelope: Use agentsam_d1_query/agentsam_d1_write for D1 (explicit resource_ref = database name). Use agentsam_supabase_query/agentsam_supabase_write for Supabase (resource_ref = platform_supabase or connected project ref). Never invent Hyperdrive as a provider face.',
   ];
   if (!(raw.resourceRef || raw.resource_ref)) {
     lines.push('execution_blocked: Select an authorized database resource before querying or loading table data.');

@@ -34,6 +34,8 @@ export const EMERGENCY_FALLBACK_TOOL_KEYS = Object.freeze([
   'agentsam_cf_d1_list',
   'agentsam_d1_query',
   'agentsam_d1_write',
+  'agentsam_supabase_query',
+  'agentsam_supabase_write',
   'agentsam_cf_workers_list',
   'agentsam_r2_list',
   'agentsam_r2_get',
@@ -403,13 +405,19 @@ export async function loadOrBootstrapSessionContext(env, opts) {
       composerMode === 'agent' || composerMode === 'multitask' || composerMode === 'debug';
     const missingCfList = requiresCfCatalog && !cachedKeys.has('agentsam_cf_d1_list');
     const missingWebSearch = requiresCfCatalog && !cachedKeys.has('search_web');
+    const missingSupabaseRead =
+      requiresCfCatalog && !cachedKeys.has('agentsam_supabase_query');
+    const missingSupabaseWrite =
+      requiresCfCatalog && !cachedKeys.has('agentsam_supabase_write');
     const cacheUsable =
       cached &&
       cachedCount > 0 &&
       cachedCount <= SESSION_TOOL_CACHE_SOFT_MAX &&
       String(cached.mode || '') === composerMode &&
       !missingCfList &&
-      !missingWebSearch;
+      !missingWebSearch &&
+      !missingSupabaseRead &&
+      !missingSupabaseWrite;
     if (cacheUsable) {
       const mergedRoots = { ...(cached.roots || {}), ...roots };
       if (JSON.stringify(mergedRoots) !== JSON.stringify(cached.roots || {})) {
@@ -427,13 +435,22 @@ export async function loadOrBootstrapSessionContext(env, opts) {
         fromCache: true,
       };
     }
-    if ((missingCfList || missingWebSearch) && cachedCount > 0) {
+    if (
+      (missingCfList || missingWebSearch || missingSupabaseRead || missingSupabaseWrite) &&
+      cachedCount > 0
+    ) {
+      const missing = [
+        missingCfList ? 'agentsam_cf_d1_list' : null,
+        missingWebSearch ? 'search_web' : null,
+        missingSupabaseRead ? 'agentsam_supabase_query' : null,
+        missingSupabaseWrite ? 'agentsam_supabase_write' : null,
+      ].filter(Boolean);
       console.info(
         '[agent-session-context] cache_invalidate_profile_upgrade',
         JSON.stringify({
           conversationId,
           tools: cachedCount,
-          missing: missingCfList ? 'agentsam_cf_d1_list' : 'search_web',
+          missing,
         }),
       );
     }
