@@ -21,6 +21,22 @@ export type CadChatDispatchOpts = {
   send?: boolean;
 };
 
+export function taskTypeForCadOperator(operatorId: string): string {
+  const id = String(operatorId || '').trim();
+  if (id === 'generateObject') return 'meshy_generate';
+  if (id === 'meshyRig' || id === 'meshyAnimate') return 'meshy_animation';
+  if (
+    id === 'meshyRemesh' ||
+    id === 'meshyConvert' ||
+    id === 'meshyResize' ||
+    id === 'meshyUvUnwrap' ||
+    id === 'meshyRetexture'
+  ) {
+    return 'meshy_transform';
+  }
+  return 'cad_generation';
+}
+
 /**
  * Compose an intent message for ChatAssistant.
  * Operators set *intent* + preferred catalog tool keys (D1-pinned).
@@ -43,6 +59,7 @@ export function dispatchCadChat(opts: CadChatDispatchOpts): void {
   const opTitle = operator?.title ?? opId;
   const engine = operator?.engine ?? 'Runner';
   const tools = preferredCatalogToolsForOperator(opId);
+  const taskType = taskTypeForCadOperator(opId);
 
   const lines = [
     `[IAM CAD Studio] Run operator: **${opTitle}** (\`${opId}\`)`,
@@ -70,8 +87,8 @@ export function dispatchCadChat(opts: CadChatDispatchOpts): void {
     opId === 'meshyResize' ||
     opId === 'meshyUvUnwrap' ||
     opId === 'meshyRetexture'
-      ? '\nUse Meshy catalog tools only. Do **not** call imgx_generate_image to fake progress UI. Do **not** invent Blender frame renders. Poll meshyai_get_task → spawn GLB when public_url is ready. Prefer meshyai_convert / meshyai_resize over deprecated remesh resize/convert flags. CloudConvert is for MovieMode video/PDF — not this lane.'
-      : '\nCall the preferred catalog tools (or illustration_create for CAD engines). Freehand parameters from each tool schema. Update the Design Studio viewport when artifacts are ready — never fake status with image generation.',
+      ? '\nUse only the canonical Meshy tools in this bounded profile. Poll meshy_get_task_status and use the returned public artifact when ready.'
+      : '\nUse cad_generate for engine-neutral OpenSCAD, FreeCAD, or Blender intake. Update the Design Studio viewport when artifacts are ready.',
   ].filter(Boolean);
 
   window.dispatchEvent(
@@ -80,6 +97,8 @@ export function dispatchCadChat(opts: CadChatDispatchOpts): void {
         message: lines.join('\n'),
         send,
         ensureAgentPanel: true,
+        task_type: taskType,
+        route_key: 'design_studio',
       },
     }),
   );
@@ -105,8 +124,8 @@ export function dispatchGenerateCadObject(body: {
     body.workspace ? `- Workspace: ${body.workspace}` : null,
     body.sceneId ? `- Scene: \`${body.sceneId}\`` : null,
     isMeshy
-      ? '- Preferred catalog tools: `meshyai_text_to_3d`, `meshyai_get_task`'
-      : '- Prefer `illustration_create` with matching engine',
+      ? '- Preferred catalog tools: `meshy_text_to_3d`, `meshy_get_task_status`'
+      : '- Preferred catalog tools: `cad_generate`, `cad_job_status`',
     `\nDescription:\n${body.prompt.trim()}`,
     '\nCall catalog tools with freehand args. Spawn the GLB in the Design Studio viewport when complete. Do not fake progress with imgx_generate_image.',
   ].filter(Boolean);
@@ -117,6 +136,8 @@ export function dispatchGenerateCadObject(body: {
         message: lines.join('\n'),
         send: true,
         ensureAgentPanel: true,
+        task_type: isMeshy ? 'meshy_generate' : 'cad_generation',
+        route_key: 'design_studio',
       },
     }),
   );

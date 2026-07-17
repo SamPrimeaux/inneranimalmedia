@@ -68,6 +68,7 @@ export const EXECUTABLE_HANDLER_TYPES = new Set([
   'workflow',
   'agent',
   'media',
+  'design_studio',
   'canvas',
   'integrations',
   'container',

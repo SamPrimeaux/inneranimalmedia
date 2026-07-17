@@ -24,29 +24,29 @@ export function isViewportLocalOperator(operatorId: string): boolean {
 export function preferredCatalogToolsForOperator(operatorId: string): string[] {
   switch (String(operatorId || '').trim()) {
     case 'generateObject':
-      return ['meshyai_text_to_3d', 'meshyai_image_to_3d', 'meshyai_get_task'];
+      return ['meshy_text_to_3d', 'meshy_image_to_3d', 'meshy_get_task_status'];
     case 'meshyRig':
-      return ['meshyai_rigging', 'meshyai_get_task'];
+      return ['meshy_rig', 'meshy_get_task_status'];
     case 'meshyAnimate':
-      return ['meshyai_rigging', 'meshyai_animation', 'meshyai_get_task'];
+      return ['meshy_rig', 'meshy_animate', 'meshy_get_task_status'];
     case 'meshyRemesh':
-      return ['meshyai_remesh', 'meshyai_get_task'];
+      return ['meshy_remesh', 'meshy_get_task_status'];
     case 'meshyConvert':
-      return ['meshyai_convert', 'meshyai_get_task'];
+      return ['meshy_convert', 'meshy_get_task_status'];
     case 'meshyResize':
-      return ['meshyai_resize', 'meshyai_get_task'];
+      return ['meshy_resize', 'meshy_get_task_status'];
     case 'meshyUvUnwrap':
-      return ['meshyai_uv_unwrap', 'meshyai_get_task'];
+      return ['meshy_uv_unwrap', 'meshy_get_task_status'];
     case 'meshyRetexture':
-      return ['meshyai_retexture', 'meshyai_get_task'];
+      return ['meshy_retexture', 'meshy_get_task_status'];
     case 'generateOpenSCAD':
-      return ['illustration_create'];
+      return ['cad_generate', 'cad_job_status'];
     case 'generateFreeCAD':
-      return ['illustration_create'];
+      return ['cad_generate', 'cad_job_status'];
     case 'generateBlender':
-      return ['illustration_create'];
+      return ['cad_generate', 'cad_job_status'];
     case 'repairGeometry':
-      return ['meshyai_remesh', 'illustration_create', 'meshyai_get_task'];
+      return ['cad_generate', 'cad_job_status'];
     default:
       return [];
   }
@@ -58,7 +58,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     title: 'Generate CAD Object (Meshy)',
     type: 'AI',
     engine: 'Meshy',
-    description: 'Text-to-3D via catalog tool meshyai_text_to_3d. GLB auto-spawns when job completes.',
+    description: 'Text-to-3D via canonical Meshy generation tools. GLB auto-spawns when the job completes.',
     execution: 'agent',
   },
   {
@@ -66,7 +66,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     title: 'Rig Character (Meshy)',
     type: 'ANIM',
     engine: 'Meshy',
-    description: 'Call meshyai_rigging on a Meshy model task id or GLB URL. Required before Apply Animation.',
+    description: 'Rig a Meshy model task id or GLB URL. Required before applying a custom animation.',
     execution: 'agent',
   },
   {
@@ -75,7 +75,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     type: 'ANIM',
     engine: 'Meshy',
     description:
-      'Call meshyai_animation with rig_task_id + action_id from the Meshy library. Do not fake progress with imgx_generate_image.',
+      'Call meshy_animate with rig_task_id + action_id from the Meshy library.',
     execution: 'agent',
   },
   {
@@ -84,7 +84,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     type: 'MESH',
     engine: 'Meshy',
     description:
-      'Remesh via meshyai_remesh (topology/polycount). Prefer meshyai_convert / meshyai_resize for format-only or size-only. Docs: docs.meshy.ai/en/api/remesh',
+      'Remesh via meshy_remesh (topology/polycount). Prefer meshy_convert or meshy_resize for format-only or size-only.',
     execution: 'agent',
   },
   {
@@ -101,7 +101,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     title: 'Resize (Meshy)',
     type: 'MESH',
     engine: 'Meshy',
-    description: 'Real-world resize via meshyai_resize (height / longest side / auto_size).',
+    description: 'Real-world resize via meshy_resize (height / longest side / auto_size).',
     execution: 'agent',
   },
   {
@@ -165,7 +165,7 @@ export const CAD_OPERATORS: CadOperator[] = [
     title: 'Repair Geometry',
     type: 'FIX',
     engine: 'Agent',
-    description: 'Prefer meshyai_remesh for Meshy meshes; FreeCAD runner for CAD masters.',
+    description: 'Use the bounded Meshy transform lane for provider meshes or CAD generation for engine masters.',
     execution: 'agent',
   },
   {

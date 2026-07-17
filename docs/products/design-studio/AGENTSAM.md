@@ -6,12 +6,21 @@
 
 ## Summary
 
-- Entry: `illustration_create`
+- Default profile: `design_studio_base`
+- Broad CAD intake: `cad_generation` (`cad_generate`)
+- Meshy profiles: `meshy_generate`, `meshy_transform`, `meshy_animation`, `meshy_manage`
 - Route: `/dashboard/designstudio` — `route_key: design_studio`
 - Subagent: `cadcreator`
 - Sam Sketch project: `proj_mrb5shkc_3kos2c`
 
-Do not use legacy `designstudio_*` tools without D1 handler confirmation.
+`illustration_create` is a high-level Create/CAD intake envelope, not the API for
+Meshy generation, transformation, rigging, animation, or task administration.
+Only canonical `meshy_*` keys are model-visible; legacy `meshyai_*` names resolve
+through compatibility aliases.
+
+Browser-local scene selection, transforms, materials, and exports remain typed
+Studio actions. Do not register fake server tools for operations that require the
+live Three.js scene.
 
 ---
 

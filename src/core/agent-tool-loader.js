@@ -707,35 +707,6 @@ export async function ensureBrowserCapabilityTools(env, tools, effectiveMaxTools
   return out.slice(0, cap);
 }
 
-/** Merge agentsam_prompt_routes.tool_keys into the model manifest (D1 route contract). */
-export async function mergeToolsFromPromptRouteKeys(env, tools, promptRouteRow, effectiveMaxTools) {
-  const keys = parseJsonSafe(promptRouteRow?.tool_keys, null);
-  if (!Array.isArray(keys) || !keys.length || !env?.DB) return tools;
-  const { resolveCatalogDispatchToolKey } = await import('./catalog-tool-key-resolve.js');
-  const have = new Set((tools || []).map((t) => agentToolNameOf(t)).filter(Boolean));
-  const missing = keys
-    .map((k) => resolveCatalogDispatchToolKey(String(k || '').trim()) || String(k || '').trim())
-    .filter((k) => k && !have.has(k));
-  if (!missing.length) return tools;
-  const rows = await fetchAgentsamToolRowsByName(env, missing);
-  const out = [...(tools || [])];
-  const seen = new Set(have);
-  for (const row of rows) {
-    const nm = String(row.tool_name || '');
-    if (!nm || seen.has(nm)) continue;
-    seen.add(nm);
-    out.unshift({
-      name: nm,
-      description: String(row.description || nm).slice(0, 4000),
-      input_schema: inputSchemaFromAgentsamToolRow(row),
-      tool_category: String(row.tool_category || 'browser'),
-      requires_approval: Number(row.requires_approval || 0) === 1,
-    });
-  }
-  const cap = Math.max(1, Number(effectiveMaxTools) || 8);
-  return out.slice(0, cap);
-}
-
 export function isAgentDashboardSurfaceRoute(dashboardRoute) {
   const r = dashboardRoute != null ? String(dashboardRoute).trim() : '';
   return r === '/dashboard/agent' || r.startsWith('/dashboard/agent/');

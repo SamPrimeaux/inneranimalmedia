@@ -40,6 +40,16 @@ export const LEGACY_CATALOG_TOOL_KEY_REDIRECT = Object.freeze({
   excalidraw_open: 'agentsam_excalidraw',
   // Image generation task_type alias → catalog tool (850)
   image_generation: 'imgx_generate_image',
+  meshyai_text_to_3d: 'meshy_text_to_3d',
+  meshyai_image_to_3d: 'meshy_image_to_3d',
+  meshyai_remesh: 'meshy_remesh',
+  meshyai_retexture: 'meshy_retexture',
+  meshyai_rigging: 'meshy_rig',
+  meshyai_animation: 'meshy_animate',
+  meshyai_convert: 'meshy_convert',
+  meshyai_resize: 'meshy_resize',
+  meshyai_uv_unwrap: 'meshy_uv_unwrap',
+  meshyai_get_task: 'meshy_get_task_status',
 });
 
 /**

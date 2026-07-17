@@ -26,6 +26,13 @@ test('excalidraw_open resolves to agentsam_excalidraw', () => {
   assert.equal(resolveToolKeyWithAlias('excalidraw_open').viaAlias, true);
 });
 
+test('legacy Meshy keys resolve to canonical model-visible tools', () => {
+  assert.equal(resolveCatalogDispatchToolKey('meshyai_text_to_3d'), 'meshy_text_to_3d');
+  assert.equal(resolveCatalogDispatchToolKey('meshyai_rigging'), 'meshy_rig');
+  assert.equal(resolveCatalogDispatchToolKey('meshyai_animation'), 'meshy_animate');
+  assert.equal(resolveCatalogDispatchToolKey('meshyai_get_task'), 'meshy_get_task_status');
+});
+
 test('visual_canvas profile keys all resolve', () => {
   const keys = [
     'agentsam_excalidraw',

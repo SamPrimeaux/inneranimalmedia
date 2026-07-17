@@ -17,6 +17,17 @@ describe('resolveSessionProfileTaskType', () => {
     );
   });
 
+  it('maps the Design Studio surface to its bounded base profile', () => {
+    assert.equal(
+      resolveSessionProfileTaskType('agent', { route_key: 'design_studio' }),
+      'design_studio_base',
+    );
+    assert.equal(
+      resolveSessionProfileTaskType('agent', { route_key: 'meshy_animation' }),
+      'meshy_animation',
+    );
+  });
+
   it('detects Studio surface from browserContext.databaseContext', () => {
     assert.equal(
       resolveSessionProfileTaskType('agent', {

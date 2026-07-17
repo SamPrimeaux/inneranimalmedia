@@ -114,7 +114,7 @@ const NON_CANCELLABLE_CAD_JOB_STATUSES = new Set(['done', 'complete', 'completed
  * @param {{ id: string, tenant_id?: string | null }} authUser
  * @param {string} jobId
  */
-async function cancelCadJobForUser(env, authUser, jobId) {
+export async function cancelCadJobForUser(env, authUser, jobId) {
   if (!env?.DB) throw new Error('Database not configured');
   const id = String(jobId || '').trim();
   if (!id) throw new Error('job_id required');

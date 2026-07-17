@@ -263,7 +263,6 @@ import {
   ensureCodeCapabilityTools,
   ensureBrowserCapabilityTools,
   ensureWebLaneTools,
-  mergeToolsFromPromptRouteKeys,
   shouldEnsureBrowserCapabilityTools,
   shouldEnsureCodeCapabilityTools,
   chatModeUsesToolLoop,

@@ -27,7 +27,7 @@ export { resolveSessionProfileTaskType } from './session-profile-task.js';
 
 /** Soft cap — above this, DO cache is treated as stale mega-catalog and rebuilt. */
 export const SESSION_TOOL_CACHE_SOFT_MAX = 40;
-export const SESSION_CONTEXT_VERSION = 3;
+export const SESSION_CONTEXT_VERSION = 4;
 
 /**
  * Degraded-mode fallback ONLY — used when agentsam_tool_profile_bindings /
@@ -134,7 +134,8 @@ export async function loadToolProfileForMode(db, composerMode) {
   try {
     const row = await db
       .prepare(
-        `SELECT p.profile_key, p.tool_keys_json, p.max_tools, p.write_policy_json
+        `SELECT p.profile_key, p.tool_keys_json, p.max_tools, p.write_policy_json,
+                p.updated_at AS profile_updated_at, b.updated_at AS binding_updated_at
          FROM agentsam_tool_profile_bindings b
          JOIN agentsam_tool_profiles p ON p.profile_key = b.profile_key AND COALESCE(p.is_active, 1) = 1
          WHERE b.task_type = ? AND COALESCE(b.is_active, 1) = 1
@@ -150,6 +151,7 @@ export async function loadToolProfileForMode(db, composerMode) {
         tool_keys: parseJsonArraySafe(row.tool_keys_json, []),
         max_tools: Number(row.max_tools) > 0 ? Number(row.max_tools) : SESSION_TOOL_CACHE_SOFT_MAX,
         write_policy: parseWritePolicyJson(row.write_policy_json),
+        profile_revision: `${Number(row.binding_updated_at) || 0}:${Number(row.profile_updated_at) || 0}`,
       };
     }
   } catch (e) {
@@ -160,7 +162,7 @@ export async function loadToolProfileForMode(db, composerMode) {
   try {
     const row = await db
       .prepare(
-        `SELECT profile_key, tool_keys_json, max_tools, write_policy_json
+        `SELECT profile_key, tool_keys_json, max_tools, write_policy_json, updated_at
          FROM agentsam_tool_profiles
          WHERE profile_key = 'default_route' AND COALESCE(is_active, 1) = 1
          LIMIT 1`,
@@ -174,6 +176,7 @@ export async function loadToolProfileForMode(db, composerMode) {
         tool_keys: keys,
         max_tools: Number(row.max_tools) > 0 ? Number(row.max_tools) : SESSION_TOOL_CACHE_SOFT_MAX,
         write_policy: parseWritePolicyJson(row.write_policy_json),
+        profile_revision: `default:${Number(row.updated_at) || 0}`,
       };
     }
   } catch (e) {
@@ -188,14 +191,14 @@ export async function loadToolProfileForMode(db, composerMode) {
  * @param {string} composerMode
  * @returns {Promise<{ tools: unknown[], profile_key: string|null, profile_task_type: string }>}
  */
-export async function loadOauthVisibleToolsForSession(env, composerMode) {
+export async function loadOauthVisibleToolsForSession(env, composerMode, resolvedProfile = null) {
   const db = env?.DB ?? env; // back-compat: earlier signature took `db` directly
   const profileTaskType = String(composerMode || 'agent').trim().toLowerCase() || 'agent';
   if (!db?.prepare) {
     return { tools: [], profile_key: null, profile_task_type: profileTaskType };
   }
 
-  const profile = await loadToolProfileForMode(db, profileTaskType);
+  const profile = resolvedProfile || await loadToolProfileForMode(db, profileTaskType);
   let keys = profile?.tool_keys?.length ? profile.tool_keys : null;
   const maxTools = profile?.max_tools || SESSION_TOOL_CACHE_SOFT_MAX;
 
@@ -266,6 +269,7 @@ export async function loadOauthVisibleToolsForSession(env, composerMode) {
     profile_key: profile?.profile_key || null,
     profile_task_type: profileTaskType,
     write_policy: profile?.write_policy || {},
+    profile_revision: profile?.profile_revision || null,
   };
 }
 
@@ -432,6 +436,11 @@ export async function loadOrBootstrapSessionContext(env, opts) {
       roots.profile_task_type = cachedProfileTask;
       roots.route_key = cached?.roots?.route_key || null;
     }
+    const currentProfile = await loadToolProfileForMode(env?.DB, profileTaskType);
+    const currentProfileKey = String(currentProfile?.profile_key || '').trim();
+    const cachedProfileKey = String(cached?.roots?.profile_key || '').trim();
+    const currentProfileRevision = String(currentProfile?.profile_revision || '').trim();
+    const cachedProfileRevision = String(cached?.roots?.profile_revision || '').trim();
     const isDatabaseProfile =
       profileTaskType === 'database_studio' ||
       profileTaskType === 'database_schema' ||
@@ -454,6 +463,8 @@ export async function loadOrBootstrapSessionContext(env, opts) {
       cachedContextVersion === SESSION_CONTEXT_VERSION &&
       String(cached.mode || '') === composerMode &&
       cachedProfileTask === profileTaskType &&
+      cachedProfileKey === currentProfileKey &&
+      cachedProfileRevision === currentProfileRevision &&
       !missingCfList &&
       !missingWebSearch &&
       !missingSupabaseRead &&
@@ -489,6 +500,8 @@ export async function loadOrBootstrapSessionContext(env, opts) {
         missingSupabaseRead ||
         missingSupabaseWrite ||
         missingD1Query ||
+        cachedProfileKey !== currentProfileKey ||
+        cachedProfileRevision !== currentProfileRevision ||
         (cachedProfileTask && cachedProfileTask !== profileTaskType)) &&
       cachedCount > 0
     ) {
@@ -498,6 +511,12 @@ export async function loadOrBootstrapSessionContext(env, opts) {
         missingSupabaseRead ? 'agentsam_supabase_query' : null,
         missingSupabaseWrite ? 'agentsam_supabase_write' : null,
         missingD1Query ? 'agentsam_d1_query' : null,
+        cachedProfileKey !== currentProfileKey
+          ? `profile_key:${cachedProfileKey || '(none)'}->${currentProfileKey || '(none)'}`
+          : null,
+        cachedProfileRevision !== currentProfileRevision
+          ? `profile_revision:${cachedProfileRevision || '(none)'}->${currentProfileRevision || '(none)'}`
+          : null,
         cachedProfileTask && cachedProfileTask !== profileTaskType
           ? `profile_task_type:${cachedProfileTask}->${profileTaskType}`
           : null,
@@ -519,7 +538,8 @@ export async function loadOrBootstrapSessionContext(env, opts) {
     }
   }
 
-  const loaded = await loadOauthVisibleToolsForSession(env, profileTaskType);
+  const resolvedProfile = await loadToolProfileForMode(env?.DB, profileTaskType);
+  const loaded = await loadOauthVisibleToolsForSession(env, profileTaskType, resolvedProfile);
   const tools = Array.isArray(loaded?.tools) ? loaded.tools : [];
   const writePolicy = {
     ...writePolicyFromComposerMode(composerMode),
@@ -530,6 +550,7 @@ export async function loadOrBootstrapSessionContext(env, opts) {
     mode: composerMode,
     profile_task_type: profileTaskType,
     profile_key: loaded?.profile_key || null,
+    profile_revision: loaded?.profile_revision || null,
   };
   if (stub) {
     await doSetSessionContext(stub, tools, writePolicy, rootsWithMode).catch((e) => {

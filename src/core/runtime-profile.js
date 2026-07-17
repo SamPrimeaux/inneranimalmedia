@@ -34,6 +34,8 @@ import {
 } from './inspect-tool-profile.js';
 import {
   compileD1ToolProfileRows,
+  loadToolProfileRow,
+  parseWritePolicyJson,
   PINNED_PROFILE_KEYS,
   resolveD1ToolProfileKey,
   resolveUseOAuthParity,
@@ -41,7 +43,7 @@ import {
 
 const TERMINAL_TOOL_NAMES = ['terminal_run', 'terminal_execute', 'run_command', 'bash'];
 
-/** No JS tool-name presets. Exempt routes use D1 prompt_routes.tool_keys only when present. */
+/** No JS tool-name presets. Tool menus come from bound D1 profiles. */
 const AUGMENTATION_EXEMPT_ROUTES = new Set();
 
 /**
@@ -677,16 +679,6 @@ export async function compileModeProfile(env, input) {
       })
     : null;
 
-  // Routes that own their own tool set — skip evidence augmentation entirely
-  // Hard tool_key allowlist for exempt routes — bypasses lane/category catalog selection entirely.
-  // routeKeyRaw collapses to modeSlug ('agent') inside resolveAgentChatRouteToolRequirements,
-  // so agentsam_prompt_routes.tool_keys for the real route_key is never consulted there — the
-  // base catalog always comes from the broad 'agent' defaults. For AUGMENTATION_EXEMPT_ROUTES,
-  // promptRouteRow (resolved by the REAL route_key via resolvePromptRouteForCompile/routeKeyPin,
-  // not modeSlug) IS the correct row, so its tool_keys column is read live below as the
-  // allowlistKeys source — edit that D1 row to change the allowlist, no deploy needed.
-  // This fallback only fires if that row is missing/empty for an exempt route.
-
   const effectiveRouteReq = (() => {
     let req = routeToolRequirements;
     const skipAugment =
@@ -746,12 +738,16 @@ export async function compileModeProfile(env, input) {
     mode,
   });
   const activeProfileKey = profileResolve.profileKey;
-  /** @type {Record<string, boolean>} */
+  const activeProfileRow =
+    env?.DB && activeProfileKey
+      ? await loadToolProfileRow(env, activeProfileKey)
+      : null;
+  /** @type {Record<string, unknown>} */
   let d1WritePolicy = {};
 
-  const promptRouteMax =
-    promptRouteRow?.max_tools != null && String(promptRouteRow.max_tools).trim() !== ''
-      ? Number(promptRouteRow.max_tools)
+  const profileMax =
+    activeProfileRow?.max_tools != null && String(activeProfileRow.max_tools).trim() !== ''
+      ? Number(activeProfileRow.max_tools)
       : null;
   const developModelCap = maxModelToolsForAgentTask(taskType, mode);
   const modelCap =
@@ -760,14 +756,14 @@ export async function compileModeProfile(env, input) {
       : IN_APP_MCP_PARITY_TOOL_LIMIT;
   const maxTools = useCodeDevelopProfile
     ? effectiveAgentChatToolCap({
-        promptRouteMax,
+        promptRouteMax: profileMax,
         routeReqMax: effectiveRouteReq?.max_tools ?? routeToolRequirements?.max_tools,
         modelCap: developModelCap,
         requestLimit: 20,
       })
     : useInspectProfile
       ? effectiveAgentChatToolCap({
-          promptRouteMax,
+          promptRouteMax: profileMax,
           routeReqMax: 12,
           modelCap: 12,
           requestLimit: 12,
@@ -775,7 +771,7 @@ export async function compileModeProfile(env, input) {
       : useOAuthParity
         ? IN_APP_MCP_PARITY_TOOL_LIMIT
         : effectiveAgentChatToolCap({
-            promptRouteMax,
+            promptRouteMax: profileMax,
             routeReqMax: effectiveRouteReq?.max_tools ?? routeToolRequirements?.max_tools,
             modelCap,
             requestLimit: 20,
@@ -813,15 +809,9 @@ export async function compileModeProfile(env, input) {
       );
       scoredRows = det.rows || [];
       // Optional: load write_policy from profile row without replacing the menu.
-      if (activeProfileKey) {
-        try {
-          const { loadToolProfileRow, parseWritePolicyJson } = await import('./d1-tool-profile.js');
-          const prow = await loadToolProfileRow(env, activeProfileKey);
-          const wp = parseWritePolicyJson(prow?.write_policy_json);
-          if (wp && typeof wp === 'object') d1WritePolicy = wp;
-        } catch (_) {
-          /* ignore */
-        }
+      if (activeProfileRow) {
+        const wp = parseWritePolicyJson(activeProfileRow.write_policy_json);
+        if (wp && typeof wp === 'object') d1WritePolicy = wp;
       }
       console.info(
         '[runtime-profile] oauth_parity_catalog',

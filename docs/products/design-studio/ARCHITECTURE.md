@@ -52,6 +52,15 @@ Job POST → agentsam_cad_jobs (D1)
 ## Agent integration
 
 - `route_key: design_studio` — `dashboardRouteContext.ts`
+- Default `task_type: design_studio_base`
+- Typed operators select bounded profiles:
+  - `cad_generation`
+  - `meshy_generate`
+  - `meshy_transform`
+  - `meshy_animation`
+  - `meshy_manage`
+- `agentsam_tool_profile_bindings` + `agentsam_tool_profiles` own model tool menus and caps
+- `agentsam_prompt_routes` owns prompt/model routing only; its tool menu fields are retired
 - Surface events — `designStudioEvents.ts`
 - Default subagent: `cadcreator`
 

@@ -11,6 +11,17 @@ export function resolveSessionProfileTaskType(composerMode, body) {
 
   const route = String(body?.route_key || '').trim().toLowerCase();
   if (
+    route === 'design_studio_base' ||
+    route === 'cad_generation' ||
+    route === 'meshy_generate' ||
+    route === 'meshy_transform' ||
+    route === 'meshy_animation' ||
+    route === 'meshy_manage'
+  ) {
+    return route;
+  }
+  if (route === 'design_studio') return 'design_studio_base';
+  if (
     route === 'database_studio' ||
     route === 'database_schema' ||
     route === 'd1_query' ||

@@ -21,30 +21,24 @@ let _bindingsCacheAt = 0;
 const BINDINGS_TTL_MS = 60_000;
 
 /**
- * OAuth-visible catalog is the default in-app menu (Cursor-shaped).
- * Opt out only with mcpOAuthParity === false.
+ * In-app menus are profile-owned. OAuth parity must be explicitly requested
+ * by MCP/catalog discovery callers.
  * @param {{ mcpOAuthParity?: boolean|null, routeKey?: string|null, routeKeyPin?: string|null, mode?: string|null }} input
  */
 export function resolveUseOAuthParity(input) {
-  if (input?.mcpOAuthParity === false) return false;
-  return true;
+  return input?.mcpOAuthParity === true;
 }
 
 /**
  * @param {string|null|undefined} raw
- * @returns {Record<string, boolean>}
+ * @returns {Record<string, unknown>}
  */
 export function parseWritePolicyJson(raw) {
   if (!raw) return {};
   try {
     const parsed = JSON.parse(String(raw));
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    /** @type {Record<string, boolean>} */
-    const out = {};
-    for (const [k, v] of Object.entries(parsed)) {
-      if (typeof v === 'boolean') out[k] = v;
-    }
-    return out;
+    return parsed;
   } catch {
     return {};
   }
@@ -323,8 +317,13 @@ export async function compilePinnedToolKeysToRows(env, scope, pinnedKeys, maxToo
  */
 export async function compileD1ToolProfileRows(env, scope, opts) {
   const profileKey = String(opts.profileKey || '').trim();
-  const maxTools = Math.max(1, Number(opts.maxTools) || 12);
   const d1Row = await loadToolProfileRow(env, profileKey);
+  const requestedMax = Math.max(1, Number(opts.maxTools) || 12);
+  const profileMax = Number(d1Row?.max_tools);
+  const maxTools =
+    Number.isFinite(profileMax) && profileMax > 0
+      ? Math.min(requestedMax, profileMax)
+      : requestedMax;
   let pinnedKeys = parseToolProfileKeysJson(d1Row?.tool_keys_json);
   const writePolicy = parseWritePolicyJson(d1Row?.write_policy_json);
 

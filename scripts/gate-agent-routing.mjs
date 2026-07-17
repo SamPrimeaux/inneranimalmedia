@@ -590,7 +590,7 @@ function assertToolProfilesResolveToCatalog() {
   const fails = [];
   let profiles;
   try {
-    profiles = d1Query(`SELECT profile_key, tool_keys_json FROM agentsam_tool_profiles WHERE COALESCE(is_active, 1) = 1`);
+    profiles = d1Query(`SELECT profile_key, tool_keys_json, max_tools FROM agentsam_tool_profiles WHERE COALESCE(is_active, 1) = 1`);
   } catch (e) {
     return [`agentsam_tool_profiles query failed: ${e?.message || e}`];
   }
@@ -618,6 +618,10 @@ function assertToolProfilesResolveToCatalog() {
     }
     if (key === 'default_route' && keys.length === 0) continue;
     if (!keys.length) { fails.push(`${key}: empty tool_keys_json (only default_route may be empty)`); continue; }
+    const maxTools = Number(p.max_tools);
+    if (!Number.isFinite(maxTools) || maxTools < keys.length) {
+      fails.push(`${key}: max_tools=${p.max_tools} is below menu size ${keys.length}`);
+    }
     for (const tk of keys) {
       if (!live.has(tk)) fails.push(`${key}: tool_key "${tk}" not in active agentsam_tools`);
     }
@@ -632,6 +636,20 @@ function assertToolProfilesResolveToCatalog() {
     for (const r of bad) fails.push(`binding task_type=${r.task_type} → missing profile_key=${r.profile_key}`);
   } catch (e) {
     fails.push(`agentsam_tool_profile_bindings check failed: ${e?.message || e}`);
+  }
+  try {
+    const duplicatedRouteMenus = d1Query(
+      `SELECT r.route_key
+       FROM agentsam_prompt_routes r
+       JOIN agentsam_tool_profile_bindings b
+         ON b.task_type = r.route_key AND COALESCE(b.is_active,1)=1
+       WHERE r.tool_keys IS NOT NULL OR r.max_tools IS NOT NULL`,
+    );
+    for (const row of duplicatedRouteMenus) {
+      fails.push(`${row.route_key}: prompt route duplicates bound profile tool menu/cap`);
+    }
+  } catch (e) {
+    fails.push(`prompt route/profile SSOT check failed: ${e?.message || e}`);
   }
   return fails;
 }

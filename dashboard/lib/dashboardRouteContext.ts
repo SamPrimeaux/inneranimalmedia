@@ -107,7 +107,7 @@ export function resolveDashboardRouteAgentContext(opts: {
   if (path.startsWith('/dashboard/designstudio')) {
     return {
       route_key: 'design_studio',
-      task_type: 'design_studio',
+      task_type: 'design_studio_base',
       context_label: 'Design Studio',
       contextMode: 'design_studio',
       workspaceContext: basePacket,
@@ -117,7 +117,7 @@ export function resolveDashboardRouteAgentContext(opts: {
           label: 'Scene help',
           message: 'Help me with the active Design Studio scene — materials, lighting, and export.',
           route_key: 'design_studio',
-          task_type: 'design_studio',
+          task_type: 'design_studio_base',
         },
       ],
     };

@@ -3104,6 +3104,21 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       break;
     }
 
+    case 'design_studio': {
+      const handlerKey = String(
+        config.handler || row.handler_key || row.tool_key || row.tool_name || toolKey || '',
+      ).trim();
+      const { handlers: designStudioHandlers } = await import('../tools/builtin/design-studio.js');
+      const fn = designStudioHandlers[handlerKey];
+      if (typeof fn !== 'function') {
+        result = { ok: false, error: `Design Studio handler not registered: ${handlerKey}` };
+        break;
+      }
+      const out = await fn(params, env, runContext);
+      result = out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
+      break;
+    }
+
     case 'media':
     case 'canvas': {
       const handlerKey = String(
