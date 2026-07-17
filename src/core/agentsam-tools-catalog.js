@@ -678,7 +678,8 @@ export async function loadAgentsamToolRow(env, toolCodeOrKey) {
   const keyLc = key.toLowerCase();
   return env.DB.prepare(
     `SELECT id, tool_key, tool_code, tool_name, display_name, handler_type, handler_config, handler_key,
-            linked_mcp_tool_id, mcp_service_url, tool_category, input_schema, risk_level,
+            linked_mcp_tool_id, mcp_service_url, tool_category, input_schema, output_schema,
+            result_policy_json, capability_key, risk_level,
             requires_approval, workspace_scope, modes_json, is_active, is_degraded
      FROM agentsam_tools
      WHERE COALESCE(is_active, 1) = 1

@@ -120,6 +120,10 @@ export function toolLogFieldsFromValidation(validation) {
     reason: v.reason ?? null,
     riskLevel: v.riskLevel ?? null,
     requiresConfirmation: v.requiresConfirmation === true,
+    capability_shadow:
+      v.capabilityDecision && typeof v.capabilityDecision === 'object'
+        ? v.capabilityDecision
+        : null,
   };
   const out = {
     tool_key: v.toolKey != null ? String(v.toolKey) : undefined,

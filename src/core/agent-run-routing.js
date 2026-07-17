@@ -403,6 +403,7 @@ export function newChatAgentRunId(opts = {}) {
  *   requiresTools?: boolean,
  *   modelSupportsTools?: boolean,
  *   routingStrategy?: string | null,
+ *   selectedBy?: string | null,
  *   overrideHappened?: boolean,
  *   overrideReason?: string | null,
  *   fallbackUsed?: boolean,
@@ -442,6 +443,14 @@ export async function insertAgentsamChatAgentRunStart(env, p) {
   add('workspace_id', ws);
   add('conversation_id', p.conversationId != null ? String(p.conversationId).slice(0, 200) : null);
   add('routing_arm_id', p.routingArmId != null ? String(p.routingArmId).slice(0, 120) : null);
+  add(
+    'selected_by',
+    p.selectedBy != null && String(p.selectedBy).trim() !== ''
+      ? String(p.selectedBy).trim().slice(0, 80)
+      : p.routingStrategy != null && String(p.routingStrategy).trim() !== ''
+        ? String(p.routingStrategy).trim().slice(0, 80)
+        : null,
+  );
   add('mode', p.mode != null ? normalizeChatRunMode(p.mode) : null);
   add('task_type', p.taskType != null ? String(p.taskType).slice(0, 120) : null);
   add(

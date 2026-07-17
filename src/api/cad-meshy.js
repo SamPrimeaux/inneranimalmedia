@@ -318,6 +318,20 @@ async function startMeshyCadJob(env, authRequest, authUser, body, taskType, mesh
       ...(inputTaskId ? { input_task_id: inputTaskId } : {}),
       ...(modelUrl ? { model_url: modelUrl } : {}),
     };
+  } else if (normalized === 'multi-image-to-3d') {
+    const imageUrls = Array.isArray(body.image_urls) ? body.image_urls.map(String).filter(Boolean) : [];
+    if (imageUrls.length < 1 || imageUrls.length > 4) {
+      throw new Error('image_urls must contain 1–4 images');
+    }
+    payload = {
+      image_urls: imageUrls,
+      should_texture: body.should_texture !== false,
+      enable_pbr: body.enable_pbr === true,
+      ai_model: body.ai_model || 'latest',
+      ...(body.target_formats ? { target_formats: body.target_formats } : {}),
+      ...(body.image_enhancement != null ? { image_enhancement: body.image_enhancement === true } : {}),
+      ...(body.remove_lighting != null ? { remove_lighting: body.remove_lighting === true } : {}),
+    };
   } else {
     throw new Error(`unsupported task_type: ${taskType}`);
   }
@@ -1883,6 +1897,118 @@ export async function meshyImageTo3dInProcess(env, ctx, auth, body = {}) {
   const res = await handleCadMeshyApi(req, fakeUrl, env, ctx);
   if (!res) return { error: 'meshy image-to-3d handler missing' };
   return res.json();
+}
+
+export async function meshyRefineInProcess(env, ctx, auth, body = {}) {
+  const fakeUrl = new URL('https://inneranimalmedia.com/api/cad/meshy/text-to-3d/refine');
+  const req = new Request(fakeUrl.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-User-Id': String(auth.userId),
+      ...(auth.tenantId ? { 'X-Tenant-Id': String(auth.tenantId) } : {}),
+      ...(auth.workspaceId ? { 'X-Workspace-Id': String(auth.workspaceId) } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  await primeRequestAuthForTool(req, env, auth);
+  const res = await handleCadMeshyApi(req, fakeUrl, env, ctx);
+  if (!res) return { error: 'meshy refine handler missing' };
+  return res.json();
+}
+
+export async function meshyMultiImageTo3dInProcess(env, ctx, auth, body = {}) {
+  const req = new Request('https://inneranimalmedia.com/api/cad/meshy/multi-image-to-3d', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-User-Id': String(auth.userId),
+      ...(auth.tenantId ? { 'X-Tenant-Id': String(auth.tenantId) } : {}),
+      ...(auth.workspaceId ? { 'X-Workspace-Id': String(auth.workspaceId) } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  await primeRequestAuthForTool(req, env, auth);
+  const authRequest = bridgedToolRequest(req);
+  const reqCtx = await resolveRequestContext(authRequest, env);
+  if (reqCtx.error) return { error: 'Unauthorized' };
+  const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+  return startMeshyCadJob(
+    env,
+    authRequest,
+    { id: reqCtx.userId, tenant_id: reqCtx.tenantId },
+    body,
+    'multi-image-to-3d',
+    meshyAuth,
+    ctx,
+  );
+}
+
+export async function meshyListOwnedTasksInProcess(env, auth, body = {}) {
+  const limit = Math.min(Math.max(Number(body.limit) || 10, 1), 20);
+  const rows = await env.DB.prepare(
+    `SELECT id AS job_id, external_task_id AS task_id, task_type, status, progress_pct,
+            prompt, model_formats, created_at, updated_at
+     FROM agentsam_cad_jobs
+     WHERE engine = 'meshy'
+       AND user_id = ?
+       AND (? = '' OR tenant_id = ?)
+       AND (? = '' OR workspace_id = ?)
+     ORDER BY updated_at DESC
+     LIMIT ?`,
+  )
+    .bind(
+      String(auth.userId),
+      String(auth.tenantId || ''),
+      String(auth.tenantId || ''),
+      String(auth.workspaceId || ''),
+      String(auth.workspaceId || ''),
+      limit,
+    )
+    .all();
+  return { tasks: rows.results || [], count: rows.results?.length || 0 };
+}
+
+export async function meshyDeleteOwnedTaskInProcess(env, auth, body = {}) {
+  const jobId = String(body.job_id ?? body.id ?? '').trim();
+  if (!jobId) return { error: 'job_id required' };
+  const job = await env.DB.prepare(
+    `SELECT id, user_id, tenant_id, workspace_id, task_type, external_task_id, texture_data
+     FROM agentsam_cad_jobs
+     WHERE id = ? AND engine = 'meshy' AND user_id = ?
+       AND (? = '' OR tenant_id = ?)
+       AND (? = '' OR workspace_id = ?)
+     LIMIT 1`,
+  )
+    .bind(
+      jobId,
+      String(auth.userId),
+      String(auth.tenantId || ''),
+      String(auth.tenantId || ''),
+      String(auth.workspaceId || ''),
+      String(auth.workspaceId || ''),
+    )
+    .first();
+  if (!job) return { error: 'owned Meshy task not found' };
+
+  const meshyAuth = await resolveMeshyAuth(
+    env,
+    { userId: auth.userId, tenant_id: auth.tenantId },
+    { keySource: meshyKeySourceFromJob(job) },
+  );
+  if (isMeshyAuthMissing(meshyAuth)) return { error: meshyStubMessage() };
+  const deleted = await deleteMeshyTask(
+    env,
+    String(job.task_type || 'text-to-3d'),
+    String(job.external_task_id || ''),
+    meshyAuth,
+  );
+  await env.DB.prepare(
+    `UPDATE agentsam_cad_jobs SET status = 'canceled', updated_at = unixepoch() WHERE id = ?`,
+  )
+    .bind(jobId)
+    .run();
+  return { ok: true, job_id: jobId, task_id: job.external_task_id, deleted: true, meshy: deleted };
 }
 
 /**

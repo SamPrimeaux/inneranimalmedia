@@ -214,6 +214,7 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
   const composerMode = sessionCtx.mode || (requestedMode === 'auto' ? 'agent' : requestedMode);
   let modelKey = modelOverride;
   let routingArmId = null;
+  let routingSelectedBy = modelOverride ? 'requested' : null;
   try {
     const { resolveModelForTask } = await import('../core/resolveModel.js');
     const resolved = await resolveModelForTask(env, {
@@ -228,6 +229,7 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     });
     modelKey = resolved?.model_key || modelKey;
     routingArmId = resolved?.arm_id || resolved?.routing_arm_id || null;
+    routingSelectedBy = resolved?.resolution_source || routingSelectedBy;
   } catch (e) {
     console.warn('[agent-chat-spine] resolveModelForTask', e?.message ?? e);
   }
@@ -241,8 +243,10 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     writePolicy: sessionCtx.writePolicy,
     modelKey,
     routingArmId,
+    routingSelectedBy,
     profileTaskType: sessionCtx.profile_task_type || null,
     profileKey: sessionCtx.profile_key || sessionCtx.roots?.profile_key || null,
+    routeKey: sessionCtx.roots?.route_key || body.route_key || body.routeKey || null,
   });
   profile._session_roots = sessionCtx.roots;
   profile._fsa_root = sessionCtx.roots?.fsa_root === true;

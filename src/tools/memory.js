@@ -130,7 +130,7 @@ export const MEMORY_TOOL_SCHEMAS = [
         },
         limit: {
           type: 'number',
-          description: 'Max results to return. Default 20, max 50.',
+          description: 'Max results to return. Default 10, max 20.',
         },
       },
     },
@@ -276,10 +276,11 @@ export async function memoryRead(input, env, context = {}) {
     return { error: 'memory_read requires tenantId and userId in context' };
   }
 
-  const { keys } = input;
-  if (!Array.isArray(keys) || keys.length === 0) {
+  const requestedKeys = input.keys;
+  if (!Array.isArray(requestedKeys) || requestedKeys.length === 0) {
     return { error: 'keys must be a non-empty array' };
   }
+  const keys = requestedKeys.map(String).filter(Boolean).slice(0, 10);
 
   // Sweep expired first (fire-and-forget)
   sweepExpired(env.DB, tenantId, userId);
@@ -289,7 +290,7 @@ export async function memoryRead(input, env, context = {}) {
   const placeholders = keys.map(() => '?').join(', ');
   const rows = await env.DB
     .prepare(
-      `SELECT id, key, value, memory_type, source, confidence, decay_score,
+      `SELECT id, key, substr(value, 1, 4000) AS value, memory_type, source, confidence, decay_score,
               recall_count, last_recalled_at, expires_at, tags, created_at, updated_at,
               is_resolved, resolved_at
        FROM agentsam_memory
@@ -336,15 +337,15 @@ export async function memoryRead(input, env, context = {}) {
  * memory_search — fuzzy search by query substring, type, or tags.
  */
 export async function memorySearch(input, env, context = {}) {
-  const { tenantId, userId } = context;
+  const { tenantId, userId, workspaceId } = context;
   if (!tenantId || !userId) {
     return { error: 'memory_search requires tenantId and userId in context' };
   }
 
   sweepExpired(env.DB, tenantId, userId);
 
-  const { query, memory_type, tags, limit = 20 } = input;
-  const cap = Math.min(Number(limit) || 20, 50);
+  const { query, memory_type, tags, limit = 10 } = input;
+  const cap = Math.min(Math.max(Number(limit) || 10, 1), 20);
   const now = nowUnix();
   const activeSql = await agentsamMemoryActiveSqlOrEmpty(env.DB);
 
@@ -382,12 +383,12 @@ export async function memorySearch(input, env, context = {}) {
       query: query || undefined,
       memoryType: memory_type || undefined,
       limit: cap,
+      includeContent: false,
     });
     if (privateOut.ok && privateOut.results?.length) {
       return {
         results: privateOut.results.map((r) => ({
           key: r.memory_key,
-          value: r.content,
           memory_type: r.memory_type,
           source: r.source,
           confidence: r.confidence,
@@ -402,7 +403,8 @@ export async function memorySearch(input, env, context = {}) {
   }
 
   const rows = await env.DB.prepare(
-    `SELECT key, value, memory_type, source, confidence, tags, recall_count, updated_at
+    `SELECT key, substr(COALESCE(summary, value), 1, 600) AS summary,
+            memory_type, source, confidence, tags, recall_count, updated_at
        FROM agentsam_memory
        WHERE ${conditions.join(' AND ')}
        ORDER BY recall_count DESC, last_recalled_at DESC NULLS LAST
@@ -414,7 +416,7 @@ export async function memorySearch(input, env, context = {}) {
   return {
     results: (rows.results ?? []).map((r) => ({
       key: r.key,
-      value: r.value,
+      summary: r.summary,
       memory_type: r.memory_type,
       source: r.source,
       confidence: r.confidence,

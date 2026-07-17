@@ -269,6 +269,8 @@ export async function mirrorD1MemoryToPrivatePg(env, d1Row, opts = {}) {
  *   memoryKey?: string,
  *   tags?: string[],
  *   limit?: number,
+ *   includeContent?: boolean,
+ *   contentMaxChars?: number,
  * }} opts
  */
 export async function searchPrivateAgentsamMemory(env, opts) {
@@ -277,6 +279,10 @@ export async function searchPrivateAgentsamMemory(env, opts) {
   const workspaceId = String(opts.workspaceId ?? '').trim();
   const limit = Math.min(Math.max(Number(opts.limit) || 20, 1), 50);
   const q = String(opts.query ?? '').trim();
+  const contentSelect =
+    opts.includeContent === false
+      ? 'NULL::text AS content'
+      : `LEFT(content, ${Math.min(Math.max(Number(opts.contentMaxChars) || 12000, 1), 12000)}) AS content`;
 
   // Hard scope — never search without tenant + user + workspace (no cross-tenant bleed).
   if (!tenantId || !userId || !workspaceId) {
@@ -317,7 +323,7 @@ export async function searchPrivateAgentsamMemory(env, opts) {
 
   binds.push(limit);
   const sql = `
-    SELECT id, memory_key, memory_type, title, content, summary, source, tags,
+    SELECT id, memory_key, memory_type, title, ${contentSelect}, summary, source, tags,
            confidence, importance, is_pinned, updated_at, sync_key
     FROM agentsam.agentsam_memory
     WHERE ${conditions.join(' AND ')}

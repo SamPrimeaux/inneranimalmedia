@@ -28,10 +28,10 @@ import {
 } from './agent-approval-gate.js';
 import { CODEMODE_TOOL_NAME } from './codemode-constants.js';
 import { insertAgentRunExecutionStep } from './agent-run-routing.js';
-
-const TERM_WRITE_TOOLS = new Set(['terminal_run', 'terminal_execute', 'run_command', 'bash']);
-
-const WRITE_LIKE_PREFIXES = ['d1_', 'worker_', 'resend_', 'meshyai_'];
+import {
+  evaluateToolCapabilities,
+  loadToolCapabilities,
+} from './tool-capability-policy.js';
 
 /** Legacy workflow_key for historical rows — chat tools no longer INSERT agentsam_workflow_runs. */
 export const CHAT_TOOL_SESSION_LEDGER_KIND = 'chat_tool_session';
@@ -182,13 +182,11 @@ export function toolInputHasApprovalId(toolInput) {
 
 export function inferRiskLevel(toolName, category = '', rowRiskLevel = '') {
   const r = String(rowRiskLevel || '').toLowerCase();
-  if (r === 'critical' || r === 'high') return r;
-  const t = String(toolName || '').toLowerCase();
+  if (['low', 'medium', 'high', 'critical'].includes(r)) return r;
+  void toolName;
   const c = String(category || '').toLowerCase();
-  if (WRITE_LIKE_PREFIXES.some((p) => t.startsWith(p))) return 'high';
-  if (TERM_WRITE_TOOLS.has(t)) return 'high';
-  if (c === 'terminal' || c === 'deploy') return 'high';
-  if (c === 'd1' || c === 'r2') return 'medium';
+  if (c.includes('terminal') || c.includes('deploy')) return 'high';
+  if (c.startsWith('d1') || c.startsWith('r2')) return 'medium';
   return 'low';
 }
 
@@ -308,6 +306,40 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
     typeof profileOrMode === 'object' && profileOrMode
       ? profileOrMode
       : (mcpRuntimeContext.runtimeProfile || mcpRuntimeContext.runtime_profile || null);
+  const modeSlug = typeof profileOrMode === 'string' ? profileOrMode : runtimeProfile?.mode;
+  const resolvedToolKey = resolveCatalogDispatchToolKey(name);
+  const row = env.DB ? await loadCatalogToolRowForDispatch(env, name) : null;
+  if (env.DB && !row) {
+    return {
+      allowed: false,
+      reason: 'agentsam_tools not found',
+      riskLevel: 'blocked',
+      requiresConfirmation: false,
+      mcpToolId: null,
+      toolKey: resolvedToolKey || name,
+      capabilityKey: null,
+      capabilityKeys: [],
+      capabilityDecision: {
+        schema_version: 1,
+        decision: 'deny',
+        reason: 'canonical_tool_not_found',
+        capabilities: [],
+      },
+      handlerKey: null,
+      routeKey: routeKeyOut(null),
+      serverKey: null,
+      mcpServerId: null,
+      agentsamToolsId: null,
+    };
+  }
+  const capabilities = row ? await loadToolCapabilities(env, row, toolInput) : [];
+  const capabilityKeys = capabilities.map((item) => String(item.capability_key)).filter(Boolean);
+  const writePolicy =
+    mcpRuntimeContext.writePolicy != null
+      ? mcpRuntimeContext.writePolicy
+      : mcpRuntimeContext.write_policy != null
+        ? mcpRuntimeContext.write_policy
+        : runtimeProfile?.write_policy ?? null;
 
   // Enforce the compiled RuntimeProfile tool policy first (no guessing, no promotions).
   // Alias-aware: d1_query ≡ agentsam_d1_query (catalog redirects + agentsam_ prefix).
@@ -328,26 +360,10 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
       agentsamToolsId: null,
     };
   }
-  if (
+  const profileRequiresApproval =
     compiledToolPolicy?.require_approval?.length &&
     allowlistHasTool(name, compiledToolPolicy.require_approval) &&
-    !toolInputHasApprovalId(toolInput)
-  ) {
-    return {
-      allowed: true,
-      reason: 'requires approval',
-      riskLevel: inferRiskLevel(name, '', 'medium'),
-      requiresConfirmation: true,
-      mcpToolId: null,
-      toolKey: name,
-      capabilityKey: null,
-      handlerKey: null,
-      routeKey: routeKeyOut(null),
-      serverKey: null,
-      mcpServerId: null,
-      agentsamToolsId: null,
-    };
-  }
+    !toolInputHasApprovalId(toolInput);
   if (compiledToolPolicy?.allowlist?.length && !allowlistHasTool(name, compiledToolPolicy.allowlist)) {
     return {
       allowed: false,
@@ -365,146 +381,47 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
     };
   }
 
-  // Legacy (non-spine) compatibility: deny by mode policy when a modeSlug is explicitly passed.
-  const modeSlug = typeof profileOrMode === 'string' ? profileOrMode : runtimeProfile?.mode;
-  const policy =
-    typeof profileOrMode === 'string'
-      ? await loadModeToolPolicy(env, modeSlug, {
-          routeKey: ctxRouteKey || null,
-          taskType:
-            mcpRuntimeContext.taskType != null && String(mcpRuntimeContext.taskType).trim() !== ''
-              ? String(mcpRuntimeContext.taskType).trim()
-              : mcpRuntimeContext.task_type != null && String(mcpRuntimeContext.task_type).trim() !== ''
-                ? String(mcpRuntimeContext.task_type).trim()
-                : null,
-        })
-      : { denyTools: [], allowTools: [] };
-  if (policy.denyTools?.length && allowlistHasTool(name, policy.denyTools)) {
-    return {
-      allowed: false,
-      reason: 'blocked by legacy mode policy',
-      riskLevel: 'blocked',
-      requiresConfirmation: false,
-      mcpToolId: null,
-      toolKey: name,
-      capabilityKey: null,
-      handlerKey: null,
-      routeKey: routeKeyOut(null),
-      serverKey: null,
-      mcpServerId: null,
-      agentsamToolsId: null,
-    };
-  }
-  const writePolicy =
-    mcpRuntimeContext.writePolicy != null
-      ? mcpRuntimeContext.writePolicy
-      : mcpRuntimeContext.write_policy != null
-        ? mcpRuntimeContext.write_policy
-        : null;
   const debugPolicy = runtimeProfile?.debug_policy || null;
-
-  if (
+  const capabilityDecision = evaluateToolCapabilities({
+    toolRow: row,
+    capabilities,
+    writePolicy,
+    productionAllowed: true,
+  });
+  const isDebugLane =
     debugPolicy &&
     (runtimeProfile?.mode === 'debug' ||
-      runtimeProfile?.execution_kind === 'debug_investigation_loop')
+      runtimeProfile?.execution_kind === 'debug_investigation_loop');
+  const debugEarlyPhase = ['hypothesize', 'inspect', 'instrument'].includes(debugPolicy?.phase);
+  const hasMutatingCapability = capabilityDecision.mutating_capabilities.length > 0;
+  const hasDeployCapability = capabilityDecision.capabilities.includes('cloudflare.deploy');
+  if (
+    capabilityDecision.decision === 'deny' ||
+    (isDebugLane && debugPolicy.evidence_required_before_write && debugEarlyPhase && hasMutatingCapability) ||
+    (isDebugLane &&
+      debugPolicy.evidence_required_before_deploy &&
+      hasDeployCapability &&
+      !['verify', 'cleanup'].includes(debugPolicy.phase))
   ) {
-    const t = String(name || '').toLowerCase();
-    const isTerminal = TERM_WRITE_TOOLS.has(t);
-    const isWriteLike = WRITE_LIKE_PREFIXES.some((p) => t.startsWith(p));
-    const isDeployLike = t.includes('deploy') || t === 'worker_deploy' || t.startsWith('worker_deploy');
-
-    if (debugPolicy.evidence_required_before_write && (isTerminal || isWriteLike)) {
-      if (debugPolicy.phase === 'hypothesize' || debugPolicy.phase === 'inspect' || debugPolicy.phase === 'instrument') {
-        return {
-          allowed: false,
-          reason: `debug phase gate: writes blocked in ${debugPolicy.phase}`,
-          riskLevel: 'blocked',
-          requiresConfirmation: false,
-          mcpToolId: null,
-          toolKey: name,
-          capabilityKey: null,
-          handlerKey: null,
-          routeKey: routeKeyOut(null),
-          serverKey: null,
-          mcpServerId: null,
-          agentsamToolsId: null,
-        };
-      }
-    }
-
-    if (debugPolicy.evidence_required_before_deploy && isDeployLike) {
-      if (debugPolicy.phase !== 'verify' && debugPolicy.phase !== 'cleanup') {
-        return {
-          allowed: false,
-          reason: `debug phase gate: deploy blocked in ${debugPolicy.phase}`,
-          riskLevel: 'blocked',
-          requiresConfirmation: false,
-          mcpToolId: null,
-          toolKey: name,
-          capabilityKey: null,
-          handlerKey: null,
-          routeKey: routeKeyOut(null),
-          serverKey: null,
-          mcpServerId: null,
-          agentsamToolsId: null,
-        };
-      }
-    }
-  }
-  if (writePolicy) {
-    const { toolBlockedByWritePolicy } = await import('../core/agent-mode-tool-policy.js');
-    const approvalId =
-      toolInput?.approval_id ??
-      toolInput?.approvalId ??
-      toolInput?.approval_id ??
-      null;
-    if (
-      toolBlockedByWritePolicy(writePolicy, name, {
-        approvalId: approvalId != null ? String(approvalId).trim() : null,
-        userMessage:
-          mcpRuntimeContext.userMessage != null
-            ? String(mcpRuntimeContext.userMessage)
-            : mcpRuntimeContext.message != null
-              ? String(mcpRuntimeContext.message)
-              : null,
-      })
-    ) {
-      return {
-        allowed: false,
-        reason: 'blocked by write policy',
-        riskLevel: 'blocked',
-        requiresConfirmation: false,
-        mcpToolId: null,
-        toolKey: name,
-        capabilityKey: null,
-        handlerKey: null,
-        routeKey: routeKeyOut(null),
-        serverKey: null,
-        mcpServerId: null,
-        agentsamToolsId: null,
-      };
-    }
-  }
-  let row = null;
-  const resolvedToolKey = resolveCatalogDispatchToolKey(name);
-  if (env.DB) {
-    row = await loadCatalogToolRowForDispatch(env, name);
-    if (!row) {
-      return {
-        allowed: false,
-        reason: 'agentsam_tools not found',
-        riskLevel: 'blocked',
-        requiresConfirmation: false,
-        mcpToolId: null,
-        toolKey: resolvedToolKey || name,
-        capabilityKey: null,
-        handlerKey: null,
-        routeKey: routeKeyOut(null),
-        serverKey: null,
-        mcpServerId: null,
-        agentsamToolsId: null,
-      };
-    }
+    return {
+      allowed: false,
+      reason:
+        capabilityDecision.decision === 'deny'
+          ? `blocked by capability policy: ${capabilityDecision.reason}`
+          : `debug phase gate: capability blocked in ${debugPolicy.phase}`,
+      riskLevel: 'blocked',
+      requiresConfirmation: false,
+      mcpToolId: row?.id ?? null,
+      toolKey: row?.tool_key ?? resolvedToolKey ?? name,
+      capabilityKey: capabilityKeys[0] ?? null,
+      capabilityKeys,
+      capabilityDecision,
+      handlerKey: row?.handler_key ?? null,
+      routeKey: routeKeyOut(row?.route_key),
+      serverKey: row?.server_key ?? null,
+      mcpServerId: row?.mcp_server_id ?? row?.server_id ?? null,
+      agentsamToolsId: row?.id ?? null,
+    };
   }
 
   const allowRes = await isToolAllowedByAllowlist(
@@ -530,7 +447,15 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
       requiresConfirmation: false,
       mcpToolId: row?.id ?? null,
       toolKey: rk.tool_key != null ? String(rk.tool_key) : name,
-      capabilityKey: rk.capability_key != null ? String(rk.capability_key) : null,
+      capabilityKey: capabilityKeys[0] ?? (rk.capability_key != null ? String(rk.capability_key) : null),
+      capabilityKeys,
+      capabilityDecision: {
+        ...capabilityDecision,
+        legacy_decision: 'deny',
+        agreement: capabilityDecision.decision === 'deny' ? 'match' : 'mismatch',
+        mismatch_reason:
+          capabilityDecision.decision === 'allow' ? 'legacy_allowlist_denied' : null,
+      },
       handlerKey: rk.handler_key != null ? String(rk.handler_key) : null,
       routeKey: routeKeyOut(rk.route_key),
       serverKey: rk.server_key != null ? String(rk.server_key) : null,
@@ -549,7 +474,15 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
       requiresConfirmation: false,
       mcpToolId: row?.id ?? null,
       toolKey: rk.tool_key != null ? String(rk.tool_key) : name,
-      capabilityKey: rk.capability_key != null ? String(rk.capability_key) : null,
+      capabilityKey: capabilityKeys[0] ?? (rk.capability_key != null ? String(rk.capability_key) : null),
+      capabilityKeys,
+      capabilityDecision: {
+        ...capabilityDecision,
+        legacy_decision: 'deny',
+        agreement: capabilityDecision.decision === 'deny' ? 'match' : 'mismatch',
+        mismatch_reason:
+          capabilityDecision.decision === 'allow' ? 'legacy_risk_cap_denied' : null,
+      },
       handlerKey: rk.handler_key != null ? String(rk.handler_key) : null,
       routeKey: routeKeyOut(rk.route_key),
       serverKey: rk.server_key != null ? String(rk.server_key) : null,
@@ -559,7 +492,10 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
   }
 
   const requiresConfirmation =
-    row != null && Number(row.requires_approval || 0) === 1 && !toolInputHasApprovalId(toolInput);
+    (profileRequiresApproval ||
+      capabilityDecision.requires_approval ||
+      (row != null && Number(row.requires_approval || 0) === 1)) &&
+    !toolInputHasApprovalId(toolInput);
   const rk = row && typeof row === 'object' ? row : {};
   return {
     allowed: true,
@@ -568,7 +504,9 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
     requiresConfirmation,
     mcpToolId: null,
     toolKey: rk.tool_key != null ? String(rk.tool_key) : name,
-    capabilityKey: rk.capability_key != null ? String(rk.capability_key) : null,
+    capabilityKey: capabilityKeys[0] ?? (rk.capability_key != null ? String(rk.capability_key) : null),
+    capabilityKeys,
+    capabilityDecision,
     handlerKey: rk.handler_key != null ? String(rk.handler_key) : null,
     routeKey: routeKeyOut(rk.route_key),
     serverKey: null,
@@ -579,13 +517,26 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
 
 export async function dispatchToolCall(env, toolName, input, context = {}) {
   const t0 = Date.now();
+  const canonicalToolRow = env?.DB
+    ? await loadCatalogToolRowForDispatch(env, toolName).catch(() => null)
+    : null;
   const cached = await tryReadAgentsamToolCache(env, {
     workspaceId: context.workspaceId,
     tenantId: context.tenantId,
     toolName,
     toolInput: input,
   });
-  if (cached.hit) return cached.value;
+  if (cached.hit) {
+    if (!canonicalToolRow?.result_policy_json) return cached.value;
+    const { applyToolResultPolicy } = await import('./tool-result-policy.js');
+    return applyToolResultPolicy({
+      env,
+      toolRow: canonicalToolRow,
+      input,
+      result: cached.value,
+      context,
+    });
+  }
 
   const sess = {
     user_id: context.userId,
@@ -620,6 +571,16 @@ export async function dispatchToolCall(env, toolName, input, context = {}) {
     catalogOut?.ok === false
       ? { error: catalogOut.error ?? 'dispatch_failed' }
       : catalogOut?.result ?? catalogOut;
+  if (canonicalToolRow?.result_policy_json && !out?.error) {
+    const { applyToolResultPolicy } = await import('./tool-result-policy.js');
+    out = await applyToolResultPolicy({
+      env,
+      toolRow: canonicalToolRow,
+      input,
+      result: out,
+      context,
+    });
+  }
 
   /** MCP tools/call has no envelope gate — skip for oauth_visible + allowlist tools (Phase 3.1). */
   let skipOAuthEnvelopeGate = false;

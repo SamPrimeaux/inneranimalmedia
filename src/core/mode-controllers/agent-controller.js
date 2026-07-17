@@ -813,7 +813,10 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           intent: profile.mode,
           trigger: quickstartBatch || 'chat_spine',
           requiresTools: requireTools,
-          routingStrategy: input.modelOverride ? 'requested' : 'thompson',
+          routingStrategy:
+            profile.routing_selected_by || (input.modelOverride ? 'requested' : 'thompson'),
+          selectedBy:
+            profile.routing_selected_by || (input.modelOverride ? 'requested' : 'thompson'),
         });
       }
 

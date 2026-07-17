@@ -950,7 +950,8 @@ async function executeMemoryCatalogDispatch(env, config, params, runContext, too
         workspaceId,
         userId,
         memoryType: params.memory_type ?? params.memoryType,
-        limit: params.limit ?? 50,
+        limit: Math.min(Math.max(Number(params.limit) || 10, 1), 20),
+        includeContent: false,
       });
       if (out?.error) return { ok: false, error: String(out.error) };
       return {
@@ -963,7 +964,10 @@ async function executeMemoryCatalogDispatch(env, config, params, runContext, too
       };
     }
     const { memorySearch } = await import('../tools/memory.js');
-    const out = await memorySearch({ ...params, limit: params.limit ?? 50 }, env, memCtx);
+    const out = await memorySearch({
+      ...params,
+      limit: Math.min(Math.max(Number(params.limit) || 10, 1), 20),
+    }, env, memCtx);
     return out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
   }
 
@@ -991,7 +995,7 @@ async function executeMemoryCatalogDispatch(env, config, params, runContext, too
     memParams = {
       ...params,
       query: params.query ?? params.q ?? (params.top_k ? DEFAULT_MEMORY_SEARCH_QUERY : ''),
-      limit: params.limit ?? params.top_k ?? 20,
+      limit: Math.min(Math.max(Number(params.limit ?? params.top_k) || 10, 1), 20),
     };
   }
 

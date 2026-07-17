@@ -9,7 +9,23 @@ import {
   persistCollabCanvasElements,
   resolveCollabWorkspaceId,
 } from '../../core/collab-broadcast.js';
-import { meshyGenerateInProcess, meshyStatusInProcess, meshyAnimationInProcess, meshyImageTo3dInProcess, meshyRiggingInProcess, meshyRetextureInProcess, meshyPrintMultiColorInProcess, meshyRemeshInProcess, meshyConvertInProcess, meshyResizeInProcess, meshyUvUnwrapInProcess } from '../../api/cad-meshy.js';
+import {
+    meshyAnimationInProcess,
+    meshyConvertInProcess,
+    meshyDeleteOwnedTaskInProcess,
+    meshyGenerateInProcess,
+    meshyImageTo3dInProcess,
+    meshyListOwnedTasksInProcess,
+    meshyMultiImageTo3dInProcess,
+    meshyRefineInProcess,
+    meshyRemeshInProcess,
+    meshyResizeInProcess,
+    meshyRetextureInProcess,
+    meshyRiggingInProcess,
+    meshyStatusInProcess,
+    meshyUvUnwrapInProcess,
+    meshyPrintMultiColorInProcess,
+} from '../../api/cad-meshy.js';
 
 async function invokeMediaOp(env, endpoint, method = 'POST', body = null) {
     const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
@@ -461,6 +477,76 @@ export const handlers = {
             scene_snapshot_id: scope.scene_snapshot_id,
             blueprint_id: scope.blueprint_id,
         });
+    },
+
+    // Canonical Meshy tool keys. Legacy meshyai_* handlers remain aliases during migration.
+    async meshy_text_to_3d(params, env, runContext = {}) {
+        return handlers.meshyai_text_to_3d(params, env, runContext);
+    },
+    async meshy_text_to_3d_refine(params, env, runContext = {}) {
+        const auth = meshyToolAuth(params, runContext);
+        if (!auth.userId) return { error: 'user_id required for meshy_text_to_3d_refine' };
+        const scope = meshyScopeFields(params, runContext);
+        return meshyRefineInProcess(env, null, auth, {
+            preview_task_id: params.preview_task_id,
+            enable_pbr: params.enable_pbr !== false,
+            texture_prompt: params.texture_prompt,
+            ai_model: params.ai_model,
+            target_formats: params.target_formats,
+            remove_lighting: params.remove_lighting,
+            session_id: scope.session_id,
+            scene_snapshot_id: scope.scene_snapshot_id,
+            blueprint_id: scope.blueprint_id,
+        });
+    },
+    async meshy_image_to_3d(params, env, runContext = {}) {
+        return handlers.meshyai_image_to_3d(params, env, runContext);
+    },
+    async meshy_multi_image_to_3d(params, env, runContext = {}) {
+        const auth = meshyToolAuth(params, runContext);
+        if (!auth.userId) return { error: 'user_id required for meshy_multi_image_to_3d' };
+        const scope = meshyScopeFields(params, runContext);
+        return meshyMultiImageTo3dInProcess(env, null, auth, {
+            ...params,
+            image_urls: params.image_urls,
+            session_id: scope.session_id,
+            scene_snapshot_id: scope.scene_snapshot_id,
+            blueprint_id: scope.blueprint_id,
+        });
+    },
+    async meshy_remesh(params, env, runContext = {}) {
+        return handlers.meshyai_remesh(params, env, runContext);
+    },
+    async meshy_retexture(params, env, runContext = {}) {
+        return handlers.meshyai_retexture(params, env, runContext);
+    },
+    async meshy_rig(params, env, runContext = {}) {
+        return handlers.meshyai_rigging(params, env, runContext);
+    },
+    async meshy_animate(params, env, runContext = {}) {
+        return handlers.meshyai_animation(params, env, runContext);
+    },
+    async meshy_convert(params, env, runContext = {}) {
+        return handlers.meshyai_convert(params, env, runContext);
+    },
+    async meshy_resize(params, env, runContext = {}) {
+        return handlers.meshyai_resize(params, env, runContext);
+    },
+    async meshy_uv_unwrap(params, env, runContext = {}) {
+        return handlers.meshyai_uv_unwrap(params, env, runContext);
+    },
+    async meshy_get_task_status(params, env, runContext = {}) {
+        return handlers.meshyai_get_task(params, env, runContext);
+    },
+    async meshy_list_tasks(params, env, runContext = {}) {
+        const auth = meshyToolAuth(params, runContext);
+        if (!auth.userId) return { error: 'user_id required for meshy_list_tasks' };
+        return meshyListOwnedTasksInProcess(env, auth, params);
+    },
+    async meshy_cancel_task(params, env, runContext = {}) {
+        const auth = meshyToolAuth(params, runContext);
+        if (!auth.userId) return { error: 'user_id required for meshy_cancel_task' };
+        return meshyDeleteOwnedTaskInProcess(env, auth, params);
     },
 
     // ── Image Generation (OpenAI / Google) ───────────────────────────────

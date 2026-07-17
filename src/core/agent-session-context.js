@@ -20,12 +20,14 @@ import {
 } from './agentsam-tools-catalog.js';
 import { parseHandlerConfig } from './resolve-credential.js';
 import { normalizeAgentRuntimeMode } from './agent-mode.js';
+import { parseWritePolicyJson } from './d1-tool-profile.js';
 import { resolveSessionProfileTaskType } from './session-profile-task.js';
 
 export { resolveSessionProfileTaskType } from './session-profile-task.js';
 
 /** Soft cap — above this, DO cache is treated as stale mega-catalog and rebuilt. */
 export const SESSION_TOOL_CACHE_SOFT_MAX = 40;
+export const SESSION_CONTEXT_VERSION = 3;
 
 /**
  * Degraded-mode fallback ONLY — used when agentsam_tool_profile_bindings /
@@ -147,6 +149,7 @@ export async function loadToolProfileForMode(db, composerMode) {
         profile_key: row.profile_key,
         tool_keys: parseJsonArraySafe(row.tool_keys_json, []),
         max_tools: Number(row.max_tools) > 0 ? Number(row.max_tools) : SESSION_TOOL_CACHE_SOFT_MAX,
+        write_policy: parseWritePolicyJson(row.write_policy_json),
       };
     }
   } catch (e) {
@@ -157,7 +160,7 @@ export async function loadToolProfileForMode(db, composerMode) {
   try {
     const row = await db
       .prepare(
-        `SELECT profile_key, tool_keys_json, max_tools
+        `SELECT profile_key, tool_keys_json, max_tools, write_policy_json
          FROM agentsam_tool_profiles
          WHERE profile_key = 'default_route' AND COALESCE(is_active, 1) = 1
          LIMIT 1`,
@@ -170,6 +173,7 @@ export async function loadToolProfileForMode(db, composerMode) {
         profile_key: row.profile_key,
         tool_keys: keys,
         max_tools: Number(row.max_tools) > 0 ? Number(row.max_tools) : SESSION_TOOL_CACHE_SOFT_MAX,
+        write_policy: parseWritePolicyJson(row.write_policy_json),
       };
     }
   } catch (e) {
@@ -261,6 +265,7 @@ export async function loadOauthVisibleToolsForSession(env, composerMode) {
     tools: ordered,
     profile_key: profile?.profile_key || null,
     profile_task_type: profileTaskType,
+    write_policy: profile?.write_policy || {},
   };
 }
 
@@ -372,8 +377,19 @@ export async function loadOrBootstrapSessionContext(env, opts) {
   const conversationId = String(opts.conversationId || '').trim();
   const mode = normalizeAgentRuntimeMode(opts.mode);
   const composerMode = mode === 'auto' ? 'agent' : mode;
-  const profileTaskType = resolveSessionProfileTaskType(composerMode, opts.body);
+  let profileTaskType = resolveSessionProfileTaskType(composerMode, opts.body);
   const stub = getAgentSessionStub(env, conversationId);
+  const requestedRouteKey = String(
+    opts.body?.route_key || opts.body?.routeKey || '',
+  ).trim().toLowerCase();
+  const requestedTaskType = String(opts.body?.task_type || opts.body?.taskType || '')
+    .trim()
+    .toLowerCase();
+  const explicitProfileHint =
+    requestedTaskType !== '' ||
+    (requestedRouteKey !== '' &&
+      requestedRouteKey !== 'auto' &&
+      requestedRouteKey !== composerMode);
 
   const truthyFlag = (v) =>
     v === true || v === 1 || v === '1' || String(v || '').trim().toLowerCase() === 'true';
@@ -396,6 +412,8 @@ export async function loadOrBootstrapSessionContext(env, opts) {
       null,
     workspace_id: opts.workspaceId || null,
     profile_task_type: profileTaskType,
+    route_key: requestedRouteKey || null,
+    context_version: SESSION_CONTEXT_VERSION,
   };
 
   if (stub && !opts.forceRefresh) {
@@ -408,6 +426,12 @@ export async function loadOrBootstrapSessionContext(env, opts) {
     );
     const cachedProfileTask =
       String(cached?.roots?.profile_task_type || cached?.profile_task_type || '').trim().toLowerCase();
+    const cachedContextVersion = Number(cached?.roots?.context_version || 0);
+    if (!explicitProfileHint && cachedProfileTask) {
+      profileTaskType = cachedProfileTask;
+      roots.profile_task_type = cachedProfileTask;
+      roots.route_key = cached?.roots?.route_key || null;
+    }
     const isDatabaseProfile =
       profileTaskType === 'database_studio' ||
       profileTaskType === 'database_schema' ||
@@ -415,6 +439,7 @@ export async function loadOrBootstrapSessionContext(env, opts) {
       profileTaskType === 'supabase_query' ||
       profileTaskType === 'supabase_write';
     const requiresCfCatalog =
+      profileTaskType === composerMode &&
       !isDatabaseProfile &&
       (composerMode === 'agent' || composerMode === 'multitask' || composerMode === 'debug');
     const missingCfList = requiresCfCatalog && !cachedKeys.has('agentsam_cf_d1_list');
@@ -426,6 +451,7 @@ export async function loadOrBootstrapSessionContext(env, opts) {
       cached &&
       cachedCount > 0 &&
       cachedCount <= SESSION_TOOL_CACHE_SOFT_MAX &&
+      cachedContextVersion === SESSION_CONTEXT_VERSION &&
       String(cached.mode || '') === composerMode &&
       cachedProfileTask === profileTaskType &&
       !missingCfList &&
@@ -495,7 +521,10 @@ export async function loadOrBootstrapSessionContext(env, opts) {
 
   const loaded = await loadOauthVisibleToolsForSession(env, profileTaskType);
   const tools = Array.isArray(loaded?.tools) ? loaded.tools : [];
-  const writePolicy = writePolicyFromComposerMode(composerMode);
+  const writePolicy = {
+    ...writePolicyFromComposerMode(composerMode),
+    ...(loaded?.write_policy || {}),
+  };
   const rootsWithMode = {
     ...roots,
     mode: composerMode,
@@ -537,8 +566,10 @@ export async function loadOrBootstrapSessionContext(env, opts) {
  *   writePolicy: Record<string, boolean>,
  *   modelKey: string|null,
  *   routingArmId?: string|null,
+ *   routingSelectedBy?: string|null,
  *   profileTaskType?: string|null,
  *   profileKey?: string|null,
+ *   routeKey?: string|null,
  * }} p
  */
 export function buildSessionRuntimeProfile(p) {
@@ -555,8 +586,9 @@ export function buildSessionRuntimeProfile(p) {
     execution_kind,
     model_key: p.modelKey,
     routing_arm_id: p.routingArmId ?? null,
+    routing_selected_by: p.routingSelectedBy ?? null,
     routing_task_type: profileTaskType,
-    refined_route_key: profileTaskType,
+    refined_route_key: String(p.routeKey || '').trim() || profileTaskType,
     write_policy: p.writePolicy || writePolicyFromComposerMode(mode),
     tool_allowlist: allowlist,
     tool_denylist: [],
@@ -573,6 +605,7 @@ export function buildSessionRuntimeProfile(p) {
       session_scoped: true,
       profile_key: profileKey,
       profile_task_type: profileTaskType,
+      route_key: String(p.routeKey || '').trim() || null,
     },
     color: mode === 'ask' ? 'green' : mode === 'plan' ? 'blue' : 'purple',
   };

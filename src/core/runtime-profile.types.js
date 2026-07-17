@@ -31,6 +31,8 @@
  * @property {boolean} can_memory_write
  * @property {boolean} [can_send_email]
  * @property {boolean} [can_external_side_effects]
+ * @property {boolean} [can_postgres_write]
+ * @property {boolean} [can_postgres_migrate]
  */
 
 /**
@@ -104,6 +106,7 @@
  * @property {string} routing_task_type
  * @property {string|null} model_key
  * @property {string|null} routing_arm_id
+ * @property {string|null} [routing_selected_by]
  * @property {number} temperature
  * @property {RuntimeParallelPolicy} parallel_policy
  * @property {RuntimeDebugPolicy|null} [debug_policy]

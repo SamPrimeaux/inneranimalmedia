@@ -158,6 +158,10 @@ scripts/audit/auth_audit_results.json
 *.bak
 *.sql.bak
 .scratch/
+memory/
+.deploy-r2-delta-stats.json
+.zsh_history
+.zsh_sessions/
 executor_findings.json
 inneranimalmedia-business
 inneranimalmedia-business.db
