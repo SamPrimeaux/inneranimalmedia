@@ -28,6 +28,7 @@ export function spendLedgerProvider(provider) {
     'cursor',
     'cloudflare_workers_ai',
     'google',
+    'deepseek',
     'cloudflare',
     'stripe',
     'shopify',
@@ -36,8 +37,8 @@ export function spendLedgerProvider(provider) {
     'resend',
     'other',
   ]);
-  // spend_ledger has a locked provider CHECK. Keep the canonical model_key on
-  // the row while routing newer providers (for example DeepSeek) through other.
+  // spend_ledger has a locked provider CHECK; unknown future providers retain
+  // their canonical model_key while using the safe fallback bucket.
   return allowed.has(normalized) ? normalized : 'other';
 }
 
