@@ -3,6 +3,7 @@ import {
   cancelCadJobForUser,
   generateCadScriptJob,
 } from '../../api/cad.js';
+import { dispatchCadJob } from '../../core/cad-dispatch.js';
 
 function scopeFromContext(params, runContext) {
   const userId = String(runContext.userId ?? runContext.user_id ?? params.user_id ?? '').trim();
@@ -129,13 +130,51 @@ async function cadGenerate(params, env, runContext) {
     requestedModelKey: params.model_key ?? null,
   });
   if (generated?.error) return generated;
+
+  // Mark runnable then auto-dispatch (same path as POST /api/cad/jobs/:id/execute).
+  await env.DB.prepare(
+    `UPDATE agentsam_cad_jobs SET
+       status = 'pending',
+       progress_pct = 0,
+       error = NULL,
+       error_code = NULL,
+       updated_at = unixepoch()
+     WHERE id = ?`,
+  )
+    .bind(generated.jobId)
+    .run();
+
+  const execCtx = runContext?.executionCtx ?? runContext?.ctx ?? null;
+  const execAuth = {
+    userId: scope.userId,
+    tenantId: scope.tenantId,
+    workspaceId: scope.workspaceId,
+  };
+  let dispatched = false;
+  const runDispatch = async () => {
+    try {
+      await dispatchCadJob(env, execCtx, generated.jobId, execAuth);
+    } catch (e) {
+      console.warn('[cad_generate] auto-dispatch failed:', generated.jobId, e?.message ?? e);
+    }
+  };
+  if (execCtx && typeof execCtx.waitUntil === 'function') {
+    execCtx.waitUntil(runDispatch());
+    dispatched = true;
+  } else {
+    await runDispatch();
+    dispatched = true;
+  }
+
   return {
     ok: true,
     job_id: generated.jobId,
     engine,
-    status: 'script_ready',
+    status: 'running',
     model_key: generated.model_key,
-    next_step: 'Execute the CAD job after reviewing the generated script.',
+    dispatched,
+    next_step:
+      'Poll cad_job_status until done. Design Studio auto-spawns the GLB into the viewport — do not paste the CAD source unless the user explicitly asked for source code.',
   };
 }
 

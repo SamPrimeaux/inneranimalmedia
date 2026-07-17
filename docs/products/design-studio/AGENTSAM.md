@@ -6,10 +6,11 @@
 
 ## Summary
 
-- Default profile: `design_studio_base`
-- Broad CAD intake: `cad_generation` (`cad_generate`)
+- Default profile: `design_studio_base` (scene/asset/status **plus** `cad_generate` / `cad_job_cancel`)
+- Focused CAD intake: `cad_generation` (auto-selected on create intents)
 - Meshy profiles: `meshy_generate`, `meshy_transform`, `meshy_animation`, `meshy_manage`
 - Route: `/dashboard/designstudio` — `route_key: design_studio`
+- Viewport contract: model requests → `cad_generate` → runner → GLB auto-spawn. Do not paste CAD source unless asked.
 - Subagent: `cadcreator`
 - Sam Sketch project: `proj_mrb5shkc_3kos2c`
 

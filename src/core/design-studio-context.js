@@ -18,16 +18,17 @@ export function isDesignStudioCadCreateIntent(message) {
   const m = String(message || '').trim();
   if (!m) return false;
   if (/\billustration_create\b/i.test(m)) return true;
-  if (/\b(openscad|freecad|openpyscad|model_3d|text-to-3d|text to 3d)\b/i.test(m)) return true;
+  if (/\b(openscad|freecad|openpyscad|model_3d|text-to-3d|text to 3d|\.scad)\b/i.test(m)) return true;
+  if (/\b(parametric|bracket|fixture|enclosure|housing|stl|glb|mesh)\b/i.test(m)) return true;
   if (
-    /\b(generate|create|make|build)\b.*\b(chair|model|mesh|glb|3d|object|cube|table|desk|sofa|fixture)\b/i.test(
+    /\b(generate|create|make|build|render|preview)\b.*\b(chair|model|mesh|glb|3d|object|cube|table|desk|sofa|fixture|bracket|part)\b/i.test(
       m,
     )
   ) {
     return true;
   }
   if (
-    /\b(chair|model|mesh|glb|3d object|openscad)\b.*\b(generate|create|make|show in viewer)\b/i.test(
+    /\b(chair|model|mesh|glb|3d object|openscad|bracket|part)\b.*\b(generate|create|make|show in viewer|preview)\b/i.test(
       m,
     )
   ) {
@@ -37,19 +38,20 @@ export function isDesignStudioCadCreateIntent(message) {
 }
 
 /**
- * Design Studio viewport context only — no subagent or CAD task pin.
+ * Design Studio viewport context — pin CAD create intents onto cad_generation tools.
  *
  * @param {unknown} browserContext
  * @param {unknown} body
  * @param {unknown} message
- * @returns {{ route_key: string, task_type: string, subagent_slug: string, skip_rws_fanout: true }|null}
+ * @returns {{ route_key: string, task_type: string, skip_rws_fanout: true }|null}
  */
 export function resolveDesignStudioChatOverrides(browserContext, body, message) {
   const raw = extractDesignStudioContext(browserContext, body);
   if (!isDesignStudioSurfaceContext(raw)) return null;
+  const cadCreate = isDesignStudioCadCreateIntent(message);
   return {
     route_key: 'design_studio',
-    task_type: 'design_studio',
+    task_type: cadCreate ? 'cad_generation' : 'design_studio',
     skip_rws_fanout: true,
   };
 }
@@ -154,7 +156,8 @@ export function formatDesignStudioContextForAgent(raw) {
   }
 
   lines.push(
-    'creative_actions: Viewport SCENE operators (addCube, deleteSelected, resetScene) are handled locally in AgentSamEngine — do NOT call illustration_create or open Draw/Excalidraw for them. Character animation → meshyai_rigging then meshyai_animation (+ meshyai_get_task); never fake Blender frame renders with imgx_generate_image. 2D floor plans / blueprints / architectural sketches → visual_canvas / architectural_plan (PlanGraph) — not imgx_generate_image as plan authority. 3D massing / CAD jobs → illustration_create (intent model_3d, engine freecad|openscad|meshy) with open_designstudio when a job is created. Do not route 2D house plans to OpenSCAD.',
+    'viewport_contract: When the user asks to build/generate/make a 3D model or CAD part, call cad_generate (engine openscad|freecad|blender) with a short prompt — do NOT paste OpenSCAD/FreeCAD/Blender source into chat unless they explicitly ask for source code. Poll cad_job_status; the Studio viewport auto-spawns the completed GLB.',
+    'creative_actions: Viewport SCENE operators (addCube, deleteSelected, resetScene) are handled locally in AgentSamEngine — do NOT call illustration_create or open Draw/Excalidraw for them. Character animation → meshy_rig then meshy_animate (+ meshy_get_task_status). 2D floor plans / blueprints / architectural sketches → visual_canvas / architectural_plan (PlanGraph) — not imgx_generate_image as plan authority. Do not route 2D house plans to OpenSCAD.',
   );
 
   return lines.join('\n');
