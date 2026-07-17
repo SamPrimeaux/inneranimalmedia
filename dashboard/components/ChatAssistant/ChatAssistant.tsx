@@ -3281,7 +3281,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       } else {
         console.error('Chat request failed:', error);
         streamFinalizedRef.current = true;
-        const msg = error instanceof Error ? error.message : String(error);
+        const rawMsg = error instanceof Error ? error.message : String(error);
+        const msg = /\[resolveCredential\]|credential not configured/i.test(rawMsg)
+          ? 'A required credential is missing or misconfigured for this tool. Reconnect the integration or ask an operator to check platform credentials.'
+          : rawMsg;
         patchIamAgentStreamDebug({ error_at: Date.now() });
         setMessages((prev) => [...stripEmptyAssistantTail(prev), { role: 'assistant', content: msg }]);
       }

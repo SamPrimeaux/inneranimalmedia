@@ -218,7 +218,25 @@ function isPlatformInternalWorkerTool(config, binding) {
   const dispatcher = String(config.dispatcher || '').trim();
   if (['read', 'list', 'grep', 'search'].includes(op) && !pickEnvKey(config)) return true;
   if (dispatcher === 'fs_search_files' || config.execution_lane === 'workspace_grep') return true;
+  // Memory catalog tools run against Worker D1/vector bindings — no Wrangler secret.
+  if (op === 'memory.manage' || op === 'memory_manage' || op.startsWith('memory_')) {
+    return true;
+  }
   return false;
+}
+
+/**
+ * Operator-safe copy for credential resolution failures (never leak raw resolver internals).
+ * @param {unknown} detail
+ */
+export function sanitizeToolCredentialError(detail) {
+  const raw = detail && typeof detail === 'object' && 'message' in detail
+    ? String(/** @type {{ message?: unknown }} */ (detail).message || '')
+    : String(detail ?? '');
+  if (/\[resolveCredential\]/i.test(raw) || /credential not configured/i.test(raw)) {
+    return 'A required credential is missing or misconfigured for this tool. Reconnect the integration or ask an operator to check platform credentials.';
+  }
+  return raw || 'unknown_error';
 }
 
 function readPlatformEnv(env, config) {

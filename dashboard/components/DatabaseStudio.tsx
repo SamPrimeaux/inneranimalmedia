@@ -400,6 +400,9 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   const [d1Resources, setD1Resources] = useState<
     Array<{ database_name: string; database_id?: string | null; source?: string | null }>
   >([]);
+  const [d1ResourceId, setD1ResourceId] = useState(
+    searchParams.get('source') === 'd1' ? searchParams.get('resource_ref') || '' : '',
+  );
   const [d1ResourceName, setD1ResourceName] = useState(
     databaseName?.trim() ||
       (searchParams.get('source') === 'd1' ? searchParams.get('resource_ref') || '' : ''),
@@ -428,12 +431,14 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       };
       const ws = workspaceId?.trim();
       if (ws) headers['X-IAM-Workspace-Id'] = ws;
-      const dbName = databaseName?.trim() || d1ResourceName.trim();
+      const dbId = d1ResourceId.trim();
+      const dbName = d1ResourceName.trim() || databaseName?.trim() || '';
+      if (dbId) headers['X-IAM-Database-Id'] = dbId;
       if (dbName) headers['X-IAM-Database-Name'] = dbName;
-      if (!ws && !dbName) return init || {};
+      if (!ws && !dbId && !dbName) return init || {};
       return { ...init, headers };
     },
-    [workspaceId, databaseName, d1ResourceName],
+    [workspaceId, databaseName, d1ResourceId, d1ResourceName],
   );
 
   const fetchD1Json = useCallback(
@@ -459,10 +464,17 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
         ? 'supabase'
         : datasource;
   const selectedD1Resource = d1Resources.find(
-    (resource) => resource.database_name === d1ResourceName,
+    (resource) =>
+      (d1ResourceId && resource.database_id === d1ResourceId) ||
+      (!d1ResourceId && resource.database_name === d1ResourceName),
   );
   const d1ResourceScope =
     selectedD1Resource?.source === 'platform_operator' ? 'platform' : 'connected';
+  const d1ResourceRef =
+    selectedD1Resource?.database_id?.trim() ||
+    d1ResourceId.trim() ||
+    selectedD1Resource?.database_name?.trim() ||
+    d1ResourceName.trim();
 
   const activeTables =
     studioSection === 'connected_supabase'
@@ -628,18 +640,42 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
         : [];
       setD1Resources(resources);
       setD1OnboardingRequired(resources.length === 0);
+      const fromUrl = (
+        searchParams.get('source') === 'd1' ? searchParams.get('resource_ref') || '' : ''
+      ).trim();
+      const matchById = resources.find((row) => row.database_id && row.database_id === fromUrl);
+      const matchByName = resources.find(
+        (row) => row.database_name && row.database_name === fromUrl,
+      );
       const preferred =
-        databaseName?.trim() ||
-        String(ctx.active_database_name || '').trim() ||
-        resources.find((row) => row.source === 'platform_operator')?.database_name ||
-        resources[0]?.database_name ||
-        '';
-      setD1ResourceName((current) => current.trim() || preferred);
+        matchById ||
+        matchByName ||
+        resources.find(
+          (row) =>
+            databaseName?.trim() &&
+            row.database_name.toLowerCase() === databaseName.trim().toLowerCase(),
+        ) ||
+        resources.find((row) => row.source === 'platform_operator') ||
+        resources[0] ||
+        null;
+      setD1ResourceId((current) => {
+        if (current.trim()) return current;
+        return preferred?.database_id || fromUrl || '';
+      });
+      setD1ResourceName((current) => {
+        if (current.trim() && resources.some((row) => row.database_name === current.trim())) {
+          return current;
+        }
+        return preferred?.database_name || databaseName?.trim() || '';
+      });
     } catch {
       setD1Resources([]);
-      if (!databaseName?.trim()) setD1ResourceName('');
+      if (!databaseName?.trim()) {
+        setD1ResourceId('');
+        setD1ResourceName('');
+      }
     }
-  }, [databaseName, workspaceId]);
+  }, [databaseName, searchParams, workspaceId]);
 
   const loadCustomerSupabaseTables = useCallback(async (projectRef: string) => {
     if (!projectRef.trim()) {
@@ -730,7 +766,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
 
   useEffect(() => {
     if (databaseName?.trim()) {
-      setD1ResourceName(databaseName.trim());
+      setD1ResourceName((current) => current.trim() || databaseName.trim());
       setTables((prev) => ({ ...prev, d1: [] }));
       setStudioSection('d1');
       setSidebarSource('d1');
@@ -816,7 +852,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
 
   useEffect(() => {
     if (!pageReady) return;
-    if ((databaseName?.trim() || studioSection === 'd1') && d1ResourceName.trim()) {
+    if ((databaseName?.trim() || studioSection === 'd1') && d1ResourceRef) {
       void loadTables('d1');
       return;
     }
@@ -824,7 +860,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       void loadTables('supabase');
       return;
     }
-  }, [pageReady, databaseName, studioSection, d1ResourceName, loadTables]);
+  }, [pageReady, databaseName, studioSection, d1ResourceRef, loadTables]);
 
   useEffect(() => {
     if (!pageReady || studioSection !== 'connected_supabase') return;
@@ -866,7 +902,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   useEffect(() => {
     setColumnCache({});
     setExpandedTables(new Set());
-  }, [datasource, d1ResourceName, studioSection, supabaseProjectRef]);
+  }, [datasource, d1ResourceRef, studioSection, supabaseProjectRef]);
 
   useEffect(() => {
     try {
@@ -895,7 +931,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
           : 'connected';
     const resourceRef =
       effectiveDatasource === 'd1'
-        ? d1ResourceName.trim()
+        ? d1ResourceRef
         : studioSection === 'platform_supabase'
           ? 'platform_supabase'
           : supabaseProjectRef.trim();
@@ -926,7 +962,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     setSearchParams(next, { replace: true });
   }, [
     d1ResourceScope,
-    d1ResourceName,
+    d1ResourceRef,
     effectiveDatasource,
     metaPanel,
     searchParams,
@@ -985,7 +1021,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
       try {
         const resourceRef =
           effectiveDatasource === 'd1'
-            ? d1ResourceName.trim()
+            ? d1ResourceRef
             : studioSection === 'platform_supabase'
               ? 'platform_supabase'
               : supabaseProjectRef.trim();
@@ -1055,7 +1091,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     },
     [
       d1ResourceScope,
-      d1ResourceName,
+      d1ResourceRef,
       effectiveDatasource,
       fetchD1Json,
       isSuperadmin,
@@ -1345,7 +1381,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     const provider = effectiveDatasource;
     const resourceRef =
       effectiveDatasource === 'd1'
-        ? d1ResourceName || null
+        ? d1ResourceRef || null
         : studioSection === 'connected_supabase'
         ? supabaseProjectRef || null
         : 'platform_supabase';
@@ -1434,7 +1470,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     activeWorkspace?.database_studio_name,
     databaseName,
     d1ResourceScope,
-    d1ResourceName,
+    d1ResourceRef,
     effectiveDatasource,
     filters.length,
     isSuperadmin,
@@ -1712,11 +1748,19 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     void refreshTableRows(1);
   }, [refreshTableRows, selectedTable]);
 
-  const selectD1Resource = useCallback((next: string) => {
-    setD1ResourceName(next);
-    setSelectedTable(null);
-    setTables((prev) => ({ ...prev, d1: [] }));
-  }, []);
+  const selectD1Resource = useCallback(
+    (nextRef: string) => {
+      const match =
+        d1Resources.find((row) => row.database_id === nextRef) ||
+        d1Resources.find((row) => row.database_name === nextRef) ||
+        null;
+      setD1ResourceId(match?.database_id || nextRef);
+      setD1ResourceName(match?.database_name || nextRef);
+      setSelectedTable(null);
+      setTables((prev) => ({ ...prev, d1: [] }));
+    },
+    [d1Resources],
+  );
 
   const selectSupabaseResource = useCallback((next: string) => {
     setSelectedTable(null);
@@ -1741,7 +1785,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
   const onboardingEligible = capLoaded && pageReady;
   const activeResourceRef =
     effectiveDatasource === 'd1'
-      ? d1ResourceName.trim()
+      ? d1ResourceRef
       : studioSection === 'platform_supabase'
         ? 'platform_supabase'
         : supabaseProjectRef.trim();
@@ -1781,7 +1825,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
                 setSidebarSource('d1');
                 setStudioSection('d1');
                 setSelectedTable(null);
-                if (!d1ResourceName.trim()) setTables((prev) => ({ ...prev, d1: [] }));
+                if (!d1ResourceRef) setTables((prev) => ({ ...prev, d1: [] }));
               }}
               className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
                 effectiveDatasource === 'd1'
@@ -2011,13 +2055,16 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
             <label className="relative flex min-w-0 max-w-[320px] items-center">
               <span className="sr-only">Active D1 database</span>
               <select
-                value={d1ResourceName}
+                value={d1ResourceRef}
                 onChange={(event) => selectD1Resource(event.target.value)}
                 className="h-8 min-w-[180px] max-w-full appearance-none rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] py-1 pl-2.5 pr-8 font-mono text-[11px] font-medium text-main outline-none transition-colors hover:border-[var(--color-accent,var(--solar-cyan))]/60 focus:border-[var(--color-accent,var(--solar-cyan))]"
               >
                 <option value="">Select database</option>
                 {d1Resources.map((resource) => (
-                  <option key={resource.database_id || resource.database_name} value={resource.database_name}>
+                  <option
+                    key={resource.database_id || resource.database_name}
+                    value={resource.database_id || resource.database_name}
+                  >
                     {resource.database_name}
                   </option>
                 ))}

@@ -2,7 +2,7 @@
  * Catalog dispatch: agentsam_tools row → resolveCredential → catalog-tool-executor.
  * No hardcoded tool names; no runBuiltinTool fallback.
  */
-import { parseHandlerConfig, resolveCredential, userHasSuperadminRole } from './resolve-credential.js';
+import { parseHandlerConfig, resolveCredential, sanitizeToolCredentialError, userHasSuperadminRole } from './resolve-credential.js';
 import { executeCatalogTool } from './catalog-tool-executor.js';
 import { assertTenantSpendPolicy } from './tenant-spend-policy.js';
 import {
@@ -140,7 +140,11 @@ export async function dispatchByToolCode(env, toolCodeOrKey, input, runContext =
         mcpBearer: runContext.mcpBearer ?? runContext.mcp_bearer ?? null,
       });
     } catch (e) {
-      return { ok: false, error: e?.message ?? String(e), tool_key: row.tool_key };
+      return {
+        ok: false,
+        error: sanitizeToolCredentialError(e?.message ?? String(e)),
+        tool_key: row.tool_key,
+      };
     }
   }
 

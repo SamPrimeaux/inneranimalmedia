@@ -34,6 +34,7 @@ import {
 } from './agent-run-abort-scope.js';
 import { notifySam } from './notifications.js';
 import { loadAgentsamToolRow } from './agentsam-tools-catalog.js';
+import { sanitizeToolCredentialError } from './resolve-credential.js';
 import {
   CODEMODE_TOOL_NAME,
   enqueueCodemodePendingActions,
@@ -2100,13 +2101,14 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           typeof e === 'object' &&
           'code' in e &&
           /** @type {{ code?: string }} */ (e).code === 'tool_timeout';
-        const detail = isTimeout
+        const detailRaw = isTimeout
           ? `Tool timed out after ${toolBudgetMs}ms`
           : e && typeof e === 'object' && 'message' in e && typeof e.message === 'string'
             ? e.message
             : String(e ?? 'unknown_error');
+        const detail = isTimeout ? detailRaw : sanitizeToolCredentialError(detailRaw);
         toolOutput = `Tool execution failed: ${detail}`;
-        console.warn('[agent] tool_error', call.name, detail);
+        console.warn('[agent] tool_error', call.name, detailRaw);
         emit('tool_error', {
           tool: call.name,
           error: detail,

@@ -9,6 +9,7 @@
 import { getAuthUser, jsonResponse } from '../../core/auth.js';
 import { resolveIntegrationUserId } from '../../core/integration-user-id.js';
 import { upsertOauthToken } from '../../core/oauth-token-store.js';
+import { appendOAuthReturnParams } from '../../core/oauth-popup-complete.js';
 
 async function resolveCanonicalWorkspace(env, userId) {
   if (!env?.DB || !userId) return null;
@@ -336,12 +337,12 @@ export async function handleStripeOAuthCallback(request, env) {
   } catch (e) {
     await deleteStripeOAuthState(env, state);
     const msg = e?.message || 'oauth_failed';
-    return Response.redirect(`${absReturn}?error=${encodeURIComponent(msg)}`, 302);
+    return Response.redirect(appendOAuthReturnParams(absReturn, { error: msg }), 302);
   }
 
   await deleteStripeOAuthState(env, state);
   return Response.redirect(
-    `${absReturn}?connected=stripe&success=true`,
+    appendOAuthReturnParams(absReturn, { connected: 'stripe', success: 'true' }),
     302,
   );
 }

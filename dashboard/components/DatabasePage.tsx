@@ -50,20 +50,28 @@ export const DatabasePage: React.FC = () => {
   const expectedStudioName = expectedDatabaseNameForWorkspace(activeWorkspace);
   const databaseName = routeDatabaseName?.trim() || undefined;
   const legacyStudio = !databaseName && studioDeepLinkParams(searchParams);
+  const explicitAccountD1 =
+    searchParams.get('source') === 'd1' &&
+    (searchParams.get('resource_scope') === 'connected' ||
+      searchParams.get('resource_scope') === 'platform') &&
+    Boolean(searchParams.get('resource_ref')?.trim());
 
   const effectiveDatabaseName = React.useMemo(() => {
+    // Account D1 switcher uses query resource_ref; do not force workspace slug.
+    if (explicitAccountD1) return undefined;
     if (expectedStudioName) {
       if (!databaseName || databaseName.toLowerCase() !== expectedStudioName.toLowerCase()) {
         return expectedStudioName;
       }
     }
     return databaseName;
-  }, [activeWorkspace, databaseName, expectedStudioName]);
+  }, [activeWorkspace, databaseName, expectedStudioName, explicitAccountD1]);
 
   useEffect(() => {
     // Guard against acting on an incomplete workspace list mid-load -- avoid a
     // false redirect-away flicker while `workspaces` is still populating.
     if (!workspaceId || workspaces.length === 0) return;
+    if (explicitAccountD1) return;
 
     if (expectedStudioName) {
       if (databaseName?.toLowerCase() !== expectedStudioName.toLowerCase()) {
@@ -83,12 +91,13 @@ export const DatabasePage: React.FC = () => {
     activeWorkspace,
     databaseName,
     expectedStudioName,
+    explicitAccountD1,
     legacyStudio,
     navigate,
   ]);
 
   useEffect(() => {
-    if (databaseName || !legacyStudio) return;
+    if (databaseName || !legacyStudio || explicitAccountD1) return;
     // Platform uses env.DB — never rewrite ?studio=1 into a collab database slug.
     if (isPlatformWorkspace(activeWorkspace)) return;
     let cancelled = false;
@@ -120,7 +129,7 @@ export const DatabasePage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [databaseName, legacyStudio, navigate, workspaceId, activeWorkspace]);
+  }, [databaseName, legacyStudio, explicitAccountD1, navigate, workspaceId, activeWorkspace]);
 
   const backToOverview = useCallback(() => {
     navigate('/dashboard/database', { replace: true });
@@ -150,7 +159,7 @@ export const DatabasePage: React.FC = () => {
     [navigate, setSearchParams],
   );
 
-  if (databaseName || legacyStudio) {
+  if (databaseName || legacyStudio || explicitAccountD1) {
     return (
       <Suspense fallback={<DatabaseStudioFallback />}>
         <DatabaseStudio databaseName={effectiveDatabaseName} onBackToOverview={backToOverview} />
