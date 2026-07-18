@@ -203,14 +203,19 @@ export async function runCadPipelineJob(job) {
     const r2Key = String(job.r2_key || '').trim();
     if (!r2Key) throw new Error('r2_key_required');
 
-    await uploadGlbViaWorker({
+    const uploaded = await uploadGlbViaWorker({
       workerOrigin: job.worker_origin,
       internalSecret: job.internal_secret,
       r2Key,
       localPath: glbPath,
     });
 
-    const publicUrl = `/assets/${r2Key.replace(/^\/+/, '')}`;
+    // Bucket + public URL come from the Worker's glb-upload response (dedicated `cad`
+    // bucket / cad.inneranimalmedia.com). Do NOT hardcode /assets/ or the legacy bucket —
+    // when omitted the Worker's job-complete derives them, keeping one source of truth.
+    const uploadedBucket = uploaded && typeof uploaded.bucket === 'string' ? uploaded.bucket.trim() : '';
+    const uploadedPublicUrl =
+      uploaded && typeof uploaded.public_url === 'string' ? uploaded.public_url.trim() : '';
     const sizeBytes = statSync(glbPath).size;
 
     await callJobComplete({
@@ -220,15 +225,20 @@ export async function runCadPipelineJob(job) {
         job_id: job.job_id,
         status: 'done',
         r2_key: r2Key,
-        r2_bucket: 'inneranimalmedia',
-        public_url: publicUrl,
+        ...(uploadedBucket ? { r2_bucket: uploadedBucket } : {}),
+        ...(uploadedPublicUrl ? { public_url: uploadedPublicUrl } : {}),
         size_bytes: sizeBytes,
         duration_ms: Date.now() - started,
         runner_host: RUNNER_HOST,
       },
     });
 
-    return { ok: true, job_id: job.job_id, public_url: publicUrl, duration_ms: Date.now() - started };
+    return {
+      ok: true,
+      job_id: job.job_id,
+      public_url: uploadedPublicUrl || null,
+      duration_ms: Date.now() - started,
+    };
   } catch (e) {
     const err = String(e?.message || e).slice(0, 2000);
     try {
