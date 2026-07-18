@@ -162,10 +162,11 @@ class_name = "AgentChatSqlV1"
 name = "BROWSER_SESSION"
 class_name = "AgentBrowserLiveV1"
 
-# Platform sandbox container — image pushed to CF registry 2026-07-18.
+# Platform sandbox container — pinned digest required, CF rejects :latest tags.
+# To update: docker pull, get digest via `docker inspect`, push tagged version to CF registry.
 [[containers]]
 class_name = "MyContainer"
-image = "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/inneranimalmedia:latest"
+image = "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/inneranimalmedia-mycontainer@sha256:49058418f829ae251e5da8a180aa312c4f9f35974fb70a6bf14e33a93c41a938"
 instance_type = "basic"
 max_instances = 10
 
