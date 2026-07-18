@@ -428,8 +428,8 @@ export async function dispatchProductionDomainRoutes(rc) {
   }
 
   if (pathLower === '/api/internal/cad-container/health' && methodUpper === 'GET') {
-    const { isInternalSecretAuthorized, jsonResponse } = await import('../core/auth.js');
-    if (!isInternalSecretAuthorized(request, env)) {
+    const { verifyInternalApiSecret, jsonResponse } = await import('../core/auth.js');
+    if (!verifyInternalApiSecret(request, env)) {
       return jsonResponse({ error: 'unauthorized' }, 401);
     }
     const { probeIamCadWorkerContainer } = await import('../core/iam-cad-worker-container.js');
