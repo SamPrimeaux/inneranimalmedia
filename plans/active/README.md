@@ -17,6 +17,8 @@ Work **in this order**. Do not parallelize product remasters across these.
 
 | Ticket | D1 id | Project |
 |--------|-------|---------|
+| [AGENT-SURFACE-PROTOCOL-2026-07.md](./AGENT-SURFACE-PROTOCOL-2026-07.md) | `tkt_agent_surface_protocol` | shared surface-context protocol (resume later) |
+| [DRAW-EXPORT-ARTIFACTS-2026-07.md](./DRAW-EXPORT-ARTIFACTS-2026-07.md) | `tkt_draw_export_artifacts` | Draw PNG/SVG/scene → ARTIFACTS + agentsam_artifacts |
 | [CLOSED-LOOP-FEEDBACK-BLINDSPOTS-2026-07-14.md](./CLOSED-LOOP-FEEDBACK-BLINDSPOTS-2026-07-14.md) | `tkt_closed_loop_feedback_blindspots_2026_07_14` | `inneranimalmedia` |
 | [SDK-SCAFFOLD-WINDOWS-POWERSHELL-2026-07-14.md](./SDK-SCAFFOLD-WINDOWS-POWERSHELL-2026-07-14.md) | `tkt_agentsam_sdk_scaffold_windows_2026_07_14` | `proj_agentsam_sdk` |
 | [CLOSED-LOOP-CODE-RAG-2026-07-14.md](./CLOSED-LOOP-CODE-RAG-2026-07-14.md) | `tkt_closed_loop_code_rag_2026_07_14` | overnight reindex / morning proof |
