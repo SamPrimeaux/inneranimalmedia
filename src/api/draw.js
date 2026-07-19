@@ -25,6 +25,9 @@ import {
   persistCollabCanvasElements,
 } from '../core/collab-broadcast.js';
 import { getIntegrationToken } from '../integrations/tokens.js';
+import { platformR2WriteGateResponse } from '../core/r2-storage-scope.js';
+import { writeWorkspaceArtifact } from '../core/artifact-r2-store.js';
+import { resolveArtifactR2Binding, inferLegacyArtifactBucket } from '../core/artifact-key.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -52,13 +55,33 @@ function parseImagePayload(raw, fallbackType = 'application/octet-stream') {
   return null;
 }
 
-function publicAssetUrl(r2Key) {
-  const key = String(r2Key || '').trim().replace(/^\/+/, '');
-  return key ? `/assets/${key}` : '';
-}
-
 function safeFilename(name = '') {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || `draw_${Date.now()}`;
+}
+
+/** Resolve R2 binding for project_draws keys (new ARTIFACTS `user/…` vs legacy ASSETS `draw/…`). */
+function resolveDrawStorageBinding(env, r2Key) {
+  const bucketName = inferLegacyArtifactBucket(r2Key);
+  return resolveArtifactR2Binding(env, bucketName) || env.ASSETS || null;
+}
+
+async function resolveDrawExportIdentity(env, authUser, body = {}) {
+  const userId = String(authUser.id || authUser.user_id || authUser.userId || '').trim();
+  const workspaceId = String(
+    body.workspace_id ||
+      body.workspaceId ||
+      authUser.active_workspace_id ||
+      authUser.workspace_id ||
+      authUser.workspaceId ||
+      '',
+  ).trim();
+  let tenantId =
+    authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+      ? String(authUser.tenant_id).trim()
+      : await fetchAuthUserTenantId(env, userId);
+  if (!tenantId && authUser.email) tenantId = await fetchAuthUserTenantId(env, authUser.email);
+  if (!tenantId) tenantId = fallbackSystemTenantId(env);
+  return { userId, workspaceId, tenantId: String(tenantId || '').trim() };
 }
 
 import { normalizeExcalidrawLibraryPayload } from '../core/excalidraw-library-normalize.js';
@@ -326,7 +349,8 @@ export async function handleDrawApi(request, url, env, ctx) {
       `).bind(userId, userId).first();
 
       if (!sceneRow) return jsonResponse({ scene: null });
-      const obj = await env.ASSETS.get(sceneRow.r2_key);
+      const sceneBinding = resolveDrawStorageBinding(env, sceneRow.r2_key);
+      const obj = sceneBinding?.get ? await sceneBinding.get(sceneRow.r2_key) : null;
       if (!obj) return jsonResponse({ scene: null });
       try {
         return jsonResponse({ scene: JSON.parse(await obj.text()), r2_key: sceneRow.r2_key });
@@ -342,7 +366,8 @@ export async function handleDrawApi(request, url, env, ctx) {
       `).bind(id, userId, userId).first();
 
       if (!row) return jsonResponse({ error: 'Not found' }, 404);
-      const obj = await env.ASSETS.get(row.r2_key);
+      const dlBinding = resolveDrawStorageBinding(env, row.r2_key);
+      const obj = dlBinding?.get ? await dlBinding.get(row.r2_key) : null;
       if (!obj) return jsonResponse({ error: 'File not found in storage' }, 404);
 
       const contentType =
@@ -437,6 +462,17 @@ export async function handleDrawApi(request, url, env, ctx) {
       const destinations = Array.isArray(body.destinations) ? body.destinations : ['r2'];
       const blueprintId  = body.blueprint_id != null ? String(body.blueprint_id).trim() : '';
 
+      const identity = await resolveDrawExportIdentity(env, authUser, body);
+      if (!identity.workspaceId) {
+        return jsonResponse({ error: 'workspace_id required' }, 400);
+      }
+      if (!identity.tenantId) {
+        return jsonResponse({ error: 'tenant_id required' }, 400);
+      }
+      if (!env.ARTIFACTS?.put) {
+        return jsonResponse({ error: 'ARTIFACTS bucket not configured' }, 503);
+      }
+
       const pngParsed = body.canvasData ? parseImagePayload(body.canvasData, 'image/png') : null;
       const svgParsed = body.svgData ? parseImagePayload(body.svgData, 'image/svg+xml') : null;
       if (!pngParsed && !svgParsed) {
@@ -449,46 +485,119 @@ export async function handleDrawApi(request, url, env, ctx) {
       const svgFilename = `${baseName}.svg`;
       const generationType = pngParsed && svgParsed ? 'plan_export' : pngParsed ? 'png_export' : 'svg_export';
       const results = {};
-      const exportId = crypto.randomUUID();
+      const origin = (() => {
+        try {
+          return new URL(request.url).origin;
+        } catch {
+          return env?.IAM_ORIGIN != null ? String(env.IAM_ORIGIN).trim() : '';
+        }
+      })();
 
       let r2Key = null;
       let publicUrl = '';
+      let artifactId = null;
       let svgR2Key = null;
       let svgPublicUrl = '';
+      let svgArtifactId = null;
+      let sceneR2Key = null;
+      let sceneArtifactId = null;
+      let scenePublicUrl = '';
 
-      // ── 1. R2 PNG (primary preview) ──
+      const artifactBase = {
+        userId: identity.userId || userId,
+        workspaceId: identity.workspaceId,
+        tenantId: identity.tenantId,
+        kind: 'export',
+        source: 'draw_export',
+        origin: origin || null,
+        authUser,
+      };
+
+      // ── 1. ARTIFACTS PNG (primary preview) ──
       if (pngParsed) {
-        r2Key = `draw/exports/${userId}/${exportId}.png`;
-        await env.ASSETS.put(r2Key, pngParsed.bytes, {
-          httpMetadata: { contentType: 'image/png' },
+        const out = await writeWorkspaceArtifact(env, ctx, {
+          ...artifactBase,
+          contentBytes: pngParsed.bytes,
+          contentType: 'image/png',
+          artifactType: 'image',
+          name: pngFilename,
+          description: title,
+          metadata: { generation_type: generationType, format: 'png' },
         });
-        publicUrl = publicAssetUrl(r2Key);
-        results.r2 = { ok: true, r2_key: r2Key, public_url: publicUrl, content_type: 'image/png' };
+        if (!out.ok) {
+          return jsonResponse({ error: out.error || 'png_artifact_write_failed', detail: out.user_message }, 500);
+        }
+        r2Key = out.r2_key;
+        publicUrl = out.public_url;
+        artifactId = out.artifact_id;
+        results.r2 = {
+          ok: true,
+          r2_key: r2Key,
+          public_url: publicUrl,
+          artifact_id: artifactId,
+          content_type: 'image/png',
+          r2_bucket: 'artifacts',
+        };
       }
 
-      // ── 1b. R2 SVG (vector plan) ──
+      // ── 1b. ARTIFACTS SVG (vector plan) ──
       if (svgParsed) {
-        svgR2Key = `draw/exports/${userId}/${exportId}.svg`;
-        await env.ASSETS.put(svgR2Key, svgParsed.bytes, {
-          httpMetadata: { contentType: 'image/svg+xml' },
+        const out = await writeWorkspaceArtifact(env, ctx, {
+          ...artifactBase,
+          contentBytes: svgParsed.bytes,
+          contentType: 'image/svg+xml',
+          artifactType: 'svg',
+          name: svgFilename,
+          description: title,
+          metadata: { generation_type: generationType, format: 'svg' },
         });
-        svgPublicUrl = publicAssetUrl(svgR2Key);
-        results.r2_svg = { ok: true, r2_key: svgR2Key, public_url: svgPublicUrl, content_type: 'image/svg+xml' };
+        if (!out.ok) {
+          return jsonResponse({ error: out.error || 'svg_artifact_write_failed', detail: out.user_message }, 500);
+        }
+        svgR2Key = out.r2_key;
+        svgPublicUrl = out.public_url;
+        svgArtifactId = out.artifact_id;
+        results.r2_svg = {
+          ok: true,
+          r2_key: svgR2Key,
+          public_url: svgPublicUrl,
+          artifact_id: svgArtifactId,
+          content_type: 'image/svg+xml',
+          r2_bucket: 'artifacts',
+        };
         if (!results.r2) {
-          results.r2 = { ok: true, r2_key: svgR2Key, public_url: svgPublicUrl, content_type: 'image/svg+xml' };
+          results.r2 = { ...results.r2_svg };
           r2Key = svgR2Key;
           publicUrl = svgPublicUrl;
+          artifactId = svgArtifactId;
         }
       }
 
       // Also save scene JSON if provided
-      let sceneR2Key = null;
       if (body.scene && typeof body.scene === 'object') {
-        sceneR2Key = `draw/scenes/${userId}/${exportId}.excalidraw`;
-        await env.ASSETS.put(sceneR2Key, JSON.stringify(body.scene), {
-          httpMetadata: { contentType: 'application/json' },
+        const sceneName = `${baseName}.excalidraw`;
+        const out = await writeWorkspaceArtifact(env, ctx, {
+          ...artifactBase,
+          content: JSON.stringify(body.scene),
+          contentType: 'application/json',
+          artifactType: 'excalidraw',
+          name: sceneName,
+          description: title,
+          metadata: { generation_type: 'json_scene', format: 'excalidraw' },
         });
-        results.scene = { ok: true, r2_key: sceneR2Key, public_url: publicAssetUrl(sceneR2Key) };
+        if (!out.ok) {
+          return jsonResponse({ error: out.error || 'scene_artifact_write_failed', detail: out.user_message }, 500);
+        }
+        sceneR2Key = out.r2_key;
+        sceneArtifactId = out.artifact_id;
+        scenePublicUrl = out.public_url;
+        results.scene = {
+          ok: true,
+          r2_key: sceneR2Key,
+          public_url: scenePublicUrl,
+          artifact_id: sceneArtifactId,
+          r2_bucket: 'artifacts',
+        };
       }
 
       // ── 2. Google Drive (optional — PNG preferred) ──
@@ -571,12 +680,7 @@ export async function handleDrawApi(request, url, env, ctx) {
       let blueprint = null;
       if (blueprintId) {
         try {
-          let tenantId =
-            authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
-              ? String(authUser.tenant_id).trim()
-              : await fetchAuthUserTenantId(env, userId);
-          if (!tenantId && authUser.email) tenantId = await fetchAuthUserTenantId(env, authUser.email);
-          if (!tenantId) tenantId = fallbackSystemTenantId(env);
+          const tenantId = identity.tenantId;
 
           const existing = await env.DB.prepare(
             `SELECT id FROM designstudio_design_blueprints WHERE id = ? AND tenant_id = ?`,
@@ -621,9 +725,13 @@ export async function handleDrawApi(request, url, env, ctx) {
         drawId,
         r2_key: r2Key,
         public_url: publicUrl || null,
+        artifact_id: artifactId,
         svg_r2_key: svgR2Key,
         svg_public_url: svgPublicUrl || null,
+        svg_artifact_id: svgArtifactId,
         scene_r2_key: sceneR2Key,
+        scene_public_url: scenePublicUrl || null,
+        scene_artifact_id: sceneArtifactId,
         generation_type: generationType,
         blueprint_id: blueprintId || null,
         blueprint,
@@ -672,8 +780,9 @@ export async function handleDrawApi(request, url, env, ctx) {
 
       if (!row) return jsonResponse({ error: 'Not found or not yours' }, 404);
 
+      const delBinding = resolveDrawStorageBinding(env, row.r2_key);
       await Promise.all([
-        env.ASSETS.delete(row.r2_key).catch(() => {}),
+        delBinding?.delete ? delBinding.delete(row.r2_key).catch(() => {}) : Promise.resolve(),
         env.DB.prepare(`DELETE FROM project_draws WHERE id = ?`).bind(id).run(),
       ]);
       return jsonResponse({ ok: true });

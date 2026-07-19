@@ -7,7 +7,7 @@ Create | Draw | Artifacts
 - **D1 id:** `tkt_draw_export_artifacts`
 - **dedup_key:** `draw-export-artifacts-2026-07`
 - **Source plan:** `~/.cursor/plans/draw_export_artifacts_fcd9290d.plan.md` (2026-07-17)
-- **Status intent:** backlog — not implemented (export still writes `env.ASSETS` / `draw/exports/…`)
+- **Status intent:** in_review — export writes `env.ARTIFACTS` + `agentsam_artifacts`; dual-pass E2E before shipped
 
 ## User outcome
 `POST /api/draw/export` (PNG / SVG / scene) lands on `env.ARTIFACTS` (`artifacts` bucket) with canonical `user/{au_*}/export/…` keys and `agentsam_artifacts` rows, so previews use `/api/artifacts/{id}/content` instead of public `/assets/…` ASSETS passthrough.

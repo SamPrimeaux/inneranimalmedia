@@ -36,14 +36,6 @@ function trim(v) {
   return v == null ? '' : String(v).trim();
 }
 
-/** @param {string} text */
-function contentToBase64(text) {
-  const bytes = new TextEncoder().encode(text);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-
 /**
  * @param {any} env
  * @param {string} userId
@@ -73,9 +65,33 @@ const CONTENT_TYPE = {
   json: 'application/json',
   txt: 'text/plain;charset=UTF-8',
   excalidraw: 'application/json',
+  image: 'image/png',
+  svg: 'image/svg+xml',
+  video: 'video/webm',
   report: 'text/markdown;charset=UTF-8',
   other: 'text/plain;charset=UTF-8',
 };
+
+/**
+ * @param {unknown} raw
+ * @returns {Uint8Array|null}
+ */
+function coerceContentBytes(raw) {
+  if (raw == null) return null;
+  if (raw instanceof Uint8Array) return raw;
+  if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
+  if (ArrayBuffer.isView(raw) && raw.buffer) {
+    return new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+  }
+  return null;
+}
+
+/** @param {Uint8Array} bytes */
+function bytesToBase64(bytes) {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
 
 export function newArtifactId() {
   const b = crypto.getRandomValues(new Uint8Array(8));
@@ -205,7 +221,9 @@ async function logArtifactR2WriteFailure(env, ctx, o) {
  *   userId: string,
  *   workspaceId: string,
  *   tenantId: string,
- *   content: string,
+ *   content?: string,
+ *   contentBytes?: Uint8Array|ArrayBuffer|ArrayBufferView,
+ *   contentType?: string,
  *   artifactType: string,
  *   name?: string,
  *   description?: string,
@@ -235,8 +253,10 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
     return { ok: false, error: 'no_db', user_message: ARTIFACT_WRITE_USER_ERROR };
   }
 
-  const content = opts.content != null ? String(opts.content) : '';
-  if (!content) {
+  const binaryBytes = coerceContentBytes(opts.contentBytes);
+  const content = binaryBytes ? '' : opts.content != null ? String(opts.content) : '';
+  const bodyBytes = binaryBytes || (content ? new TextEncoder().encode(content) : null);
+  if (!bodyBytes || bodyBytes.byteLength === 0) {
     return { ok: false, error: 'empty_content', user_message: ARTIFACT_WRITE_USER_ERROR };
   }
 
@@ -274,7 +294,11 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
 
   let r2BucketName =
     opts.r2Bucket != null ? String(opts.r2Bucket).trim() : defaultArtifactBucket();
-  const contentType = artifactContentType(artifactType);
+  const contentTypeOverride =
+    opts.contentType != null && String(opts.contentType).trim()
+      ? String(opts.contentType).trim()
+      : '';
+  const contentType = contentTypeOverride || artifactContentType(artifactType);
   let putOk = false;
 
   if (!forceTenantR2) {
@@ -291,7 +315,7 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
       return { ok: false, error: 'no_artifacts_bucket', user_message: ARTIFACT_WRITE_USER_ERROR };
     }
     try {
-      await bucket.put(r2Key, content, { httpMetadata: { contentType } });
+      await bucket.put(r2Key, bodyBytes, { httpMetadata: { contentType } });
       putOk = true;
     } catch (e) {
       const errMsg = String(e?.message || e).slice(0, 8000);
@@ -311,7 +335,7 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
         ok: true,
         skipped_r2: true,
         reason: 'tenant_r2_byok_required',
-        content_base64: contentToBase64(content),
+        content_base64: bytesToBase64(bodyBytes),
         artifact_type: normalizeArtifactFormat(String(opts.artifactType || 'other')),
         user_message:
           'Connect Cloudflare R2 in Settings → Storage to persist tenant-bucket artifacts. Content returned inline as base64.',
@@ -327,7 +351,7 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
     r2BucketName = String(
       opts.tenantR2Bucket || opts.r2Bucket || wsByokBucket || defaultArtifactBucket(),
     ).trim();
-    putOk = await r2PutViaBindingOrS3(userEnv, null, r2BucketName, r2Key, content, contentType);
+    putOk = await r2PutViaBindingOrS3(userEnv, null, r2BucketName, r2Key, bodyBytes, contentType);
     if (!putOk) {
       await logArtifactR2WriteFailure(env, ctx, {
         workspaceId,
@@ -347,7 +371,7 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
         ? String(env.IAM_ORIGIN).trim()
         : '';
   const publicUrl = artifactPublicUrl(artifactId, origin || null);
-  const bytes = new TextEncoder().encode(content).byteLength;
+  const bytes = bodyBytes.byteLength;
 
   const cols = await pragmaTableInfo(env.DB, 'agentsam_artifacts');
   if (!cols.size) {
