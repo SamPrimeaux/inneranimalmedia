@@ -261,6 +261,11 @@ export async function runHourlyRoutingJobs(env, ctx) {
     ),
   );
   ctx.waitUntil(
+    import('../../core/agentsam-memory-outbox.js')
+      .then(({ drainMemoryProjectionOutbox }) => drainMemoryProjectionOutbox(env, { limit: 40 }))
+      .catch((e) => console.warn('[cron/hourly] memory_projection_outbox', e?.message ?? e)),
+  );
+  ctx.waitUntil(
     import('../../core/agentsam-vector-sync-outbox.js')
       .then(({ drainVectorSyncOutbox }) => drainVectorSyncOutbox(env, { limit: 40 }))
       .catch((e) => console.warn('[cron/hourly] vector_sync_outbox', e?.message ?? e)),

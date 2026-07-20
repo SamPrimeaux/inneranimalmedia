@@ -1,76 +1,121 @@
-# Private managed memory taxonomy
+# Private managed memory taxonomy (commit / outbox law)
 
-## Surfaces
+Status: living — updated 2026-07-20 with `agentsam_memory_commit` outbox architecture.
 
-| Surface | Role |
-|---------|------|
-| `agentsam.agentsam_memory` | **Canonical** private operational memory (Postgres via Hyperdrive) |
-| D1 `agentsam_memory` | Edge cache, MCP compatibility, fast prompt helper |
-| `agentsam.agentsam_memory_oai3large_1536` | Optional semantic/RAG lane — **not** required for writes |
-| `public.agent_memory` | **Do not use** for private Agent Sam memory |
-| `public.iam_*` | Public learning/onboarding only |
+## Source-of-truth law
 
-## Memory types and keys
+| Layer | Store | Role |
+|-------|--------|------|
+| **Canonical ledger** | D1 `agentsam_memory` | Immutable `memory_id` + `revision`. Only atomic write. |
+| **Relational projection** | `agentsam.agentsam_memory` | Rebuildable read replica (no semantic SSOT). |
+| **pgvector chunks** | `agentsam.agentsam_memory_oai3large_1536` | Durable semantic vectors + text identity columns. |
+| **Fast serving** | `AGENTSAM_VECTORIZE_MEMORY` | Rebuildable mirror of chunk vectors. |
+| **Reliability** | D1 `agentsam_memory_outbox` + `agentsam_memory_projection_receipts` | Eager when possible; cron retries. |
 
-| Type | Use | Example keys |
-|------|-----|----------------|
-| `project` | Milestones, deploy summaries, sprint notes | `project:plan_may29_*`, `deploy:<sha>`, `milestone:*` |
-| `decision` | Durable architecture/product decisions | `decision:data_plane_no_platform_fallback` |
-| `policy` | Rules that steer future behavior | `policy:no_public_private_memory` |
-| `preference` | User/operator preferences | `pref:model_routing_cost_policy` |
-| `error` | Known bugs, repair notes | `error:mcp_memory_save_401_reauth` |
-| `skill` | Reusable procedure pointers | `skill:deploy_full_with_d1_migrations` |
-| `state` | Current production snapshot (overwrite) | `state:production` |
-| `fact` | Stable facts | `fact:canonical_supabase_schema` |
+A transaction **cannot** span D1 + Postgres + OpenAI + Vectorize. Atomic portion:
 
-**MCP tools:** use `agentsam_memory_save` (not `agentsam_memory_write`, which is Vectorize-only). See `docs/agentsam_knowledge/mcp_memory_schema_refresh.md`.
+1. Commit canonical D1 revision  
+2. Insert projection-outbox event in the **same D1 batch**
 
-## Retrieval tiers
+`embedded_at` alone is **not** a receipt. Ready means verified receipts for `managed_pg` + `pgvector_chunk` + `vectorize` with matching `memory_id` / `revision` / `content_hash`.
 
-1. **Tier 0** — D1 hot cache (`loadD1Memory`)
-2. **Tier 1** — Exact `memory_key` / type / tags in `agentsam.agentsam_memory`
-3. **Tier 2** — `ILIKE` / `pg_trgm` on key, content, summary (no Vectorize)
-4. **Tier 3** — Optional `embedding` column only when explicitly indexed
+## What qualifies as durable memory
 
-## Write contract
+Auto-commit:
 
-- Upsert on `(tenant_id, user_id, memory_key)`
-- `sync_key` = `tenant_id:user_id:memory_key`
-- `embedding` defaults NULL
-- D1 write → `mirrorD1MemoryToPrivatePg` (log `failed_memory_mirror` on failure)
-- MCP 401 → `reauth_required`; never claim saved without persistence
+- Explicit “remember this”
+- Confirmed preferences
+- Final decisions
+- Durable policies
+- User corrections
+- Important stable project facts
 
-## External AI sync
+Draft-only / stronger evidence:
 
-Same contract for Cursor (`alignment_sync`), MCP (`mcp:chatgpt`, `mcp:claude`), deploy hooks, dashboard.
+- Assistant inference
+- Ambiguous preferences
+- Conflicting facts
+- Sensitive content
 
-## HTTP APIs
+Do **not** store:
 
-| Route | Surface |
-|-------|---------|
-| `GET /api/agent/memory/private/list` | Private PG list |
-| `POST /api/agent/memory/private/search` | Private search (no Vectorize) |
-| `POST /api/agent/memory/private/upsert` | D1 + PG mirror |
-| `POST /api/agent/memory/maintenance` | Report-only maintenance |
-| `GET /api/agent/memory/list?surface=d1\|private` | D1 compat or private |
-| `POST /api/agent/memory/upsert` | Legacy `public.agent_memory` + embed |
-| `POST /api/agent/memory/search` | Legacy `public.agent_memory` vector |
+- Raw transcripts
+- Temporary debugging output
+- Routine success logs
+- Secrets / tokens / cookies
+- Speculation
+- Large documents (route to document RAG; leave a concise memory pointer)
 
-## Dashboard UI (deferred)
+Temporary project progress → `state` with `expires_at`.
 
-Three tabs recommended: **Private memory**, **D1 compat**, **Public learning** (`public.iam_*` only). APIs above are sufficient until UI ships.
+## Allowed types (new commits)
 
-## Backfill
+`fact` · `preference` · `decision` · `policy` · `state` · `procedure` · `event` · `error`
 
-**Production (preferred):** `POST /api/agent/memory/private/backfill` (superadmin, uses Worker Hyperdrive).
+Legacy preserved in DB without destructive rewrite:
 
-**Local script** (requires valid `SUPABASE_DB_URL` in `.env.cloudflare`):
+- `skill` → alias of **procedure** for new commits  
+- `project` → **not** a type; map to `fact` + tag `project` (project is scope/entity)
 
-```bash
-./scripts/with-cloudflare-env.sh node scripts/backfill-agentsam-memory-private-pg.mjs
-./scripts/with-cloudflare-env.sh node scripts/backfill-agentsam-memory-private-pg.mjs --dry-run --limit 80
+## Scope model
+
+`scope_type`: `user` | `workspace` | `tenant` | `platform`  
+`scope_id`: matching id string  
+
+Auth: `user_id` / `tenant_id` / default `workspace_id` from MCP bearer only. Never trust agent-supplied user/tenant. Workspace switch only when authorized.
+
+Vectorize filters inject `tenant_key` / `user_key` / `workspace_key` server-side.
+
+## Key naming
+
+Stable semantic slots (not title alone):
+
+- `policy:cloudflare:operator_credential_resolution`
+- `preference:ui:no_emojis`
+- `decision:companions:wet_dog_entry_price`
+- `state:companions:demo_readiness`
+
+`memory_id` = immutable record identity. `memory_key` = conceptual slot. Revisions preserve history.
+
+## Tools
+
+| Tool | Behavior |
+|------|----------|
+| `agentsam_memory_commit` | `eager:true` — D1+outbox then attempt projections |
+| `agentsam_memory_save` | Same path with `eager:false` — still enqueues outbox |
+| `agentsam_memory_search` | Hybrid: exact → pinned → Vectorize → pgvector → lexical → D1 hydrate |
+
+`dry_run:true` returns draft + validation + relationship with **no writes**.
+
+## Chunk / document routing
+
+Normal memory = one assertion → one vector.  
+If content ≳ 500–600 tokens:
+
+- Prefer **extract** multiple atomic memories, or  
+- Route long source to **document** RAG and store a pointer memory  
+
+Chunk only when one long source must be preserved (contextual 500–800 tok, modest overlap, group by `memory_id` on recall).
+
+## Projection state machine
+
+`pending` → `processing` → `ready` | `partial` | `failed`
+
+Partial/failed keep canonical memory; `semantic_ready=false`; outbox retries idempotently via `projection_key`.
+
+## Supersession / deletion
+
+New revision sets prior `status=superseded`. Search excludes superseded/archived/deleted immediately from D1 status even if projection cleanup is pending. Outbox propagates tombstones.
+
+## Examples
+
+```json
+{
+  "memory_type": "decision",
+  "memory_key": "decision:cf:mgmt_token_platform_only",
+  "title": "Operator CF Management uses platform token",
+  "content": "Sam/superadmin Cloudflare Management API calls always use Worker CLOUDFLARE_API_TOKEN; never fall back to OAuth/BYOK for Sam.",
+  "importance": 9,
+  "tags": ["cloudflare", "mcp"]
+}
 ```
-
-## Maintenance
-
-`src/core/agentsam-memory-maintenance.js` — report duplicates, stale `state:*`, D1↔PG drift. No silent deletion of decisions. Invoke via `POST /api/agent/memory/maintenance`.
