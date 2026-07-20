@@ -20,6 +20,14 @@ function textContent(obj) {
   return { content: [{ type: 'text', text: JSON.stringify(obj, null, 2) }] };
 }
 
+/** Cosine / hybrid score floor for semantic (vectorize/pgvector) hits. Exact/pinned/lexical exempt. */
+export const MEMORY_MIN_SEMANTIC_SCORE = 0.35;
+
+export const MEMORY_PIPELINE_VERSION = 'agentsam_memory_v1';
+
+/** Provenance kinds that must clear MEMORY_MIN_SEMANTIC_SCORE. */
+const SEMANTIC_PROVENANCE = new Set(['vectorize', 'pgvector']);
+
 /**
  * @param {Record<string, unknown>} env
  * @param {import('@cloudflare/workers-types').D1Database} db
@@ -255,6 +263,7 @@ export async function executeAgentsamMemoryHybridSearch(env, db, workspace, args
       source_client: sourceClient,
       transport_workspace_key: transportWorkspaceKey,
       active_project_workspace_key: semanticWorkspaceId,
+      min_semantic_score: Number(args.min_semantic_score) || undefined,
     });
   } catch (e) {
     return textContent({
@@ -267,35 +276,68 @@ export async function executeAgentsamMemoryHybridSearch(env, db, workspace, args
 }
 
 function finalize(hits, topK, meta) {
-  const items = [...hits.values()]
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topK)
-    .map((h) => ({
-      memory_id: h.memory_id,
-      memory_key: h.row?.key,
-      revision: h.row?.revision ?? null,
-      content_hash: h.row?.content_hash ?? null,
-      memory_type: h.row?.memory_type,
-      title: h.row?.title,
-      summary: h.row?.summary,
-      content: h.row?.value,
-      workspace_id: h.row?.workspace_id ?? null,
-      importance: h.row?.importance,
-      is_pinned: Number(h.row?.is_pinned) === 1,
-      projection_status: h.row?.projection_status,
-      score: h.score,
-      provenance: h.provenance,
-      staleness:
-        h.row?.projection_status && h.row.projection_status !== 'ready' ? 'projection_not_ready' : null,
-    }));
+  const minSemantic =
+    Number.isFinite(Number(meta?.min_semantic_score)) && Number(meta.min_semantic_score) > 0
+      ? Number(meta.min_semantic_score)
+      : MEMORY_MIN_SEMANTIC_SCORE;
+
+  const ranked = [...hits.values()].sort((a, b) => b.score - a.score);
+  const filtered = ranked.filter((h) => {
+    const rowWs = trim(h.row?.workspace_id);
+    if (rowWs && isTransportWorkspaceKey(rowWs)) return false;
+    if (!SEMANTIC_PROVENANCE.has(h.provenance)) return true;
+    return Number(h.score) >= minSemantic;
+  });
+
+  const items = filtered.slice(0, topK).map((h) => ({
+    memory_id: h.memory_id,
+    memory_key: h.row?.key,
+    revision: h.row?.revision ?? null,
+    content_hash: h.row?.content_hash ?? null,
+    memory_type: h.row?.memory_type,
+    title: h.row?.title,
+    summary: h.row?.summary,
+    content: h.row?.value,
+    workspace_id: h.row?.workspace_id ?? null,
+    workspace_key: h.row?.workspace_id ?? null,
+    scope_type: h.row?.scope_type ?? null,
+    scope_id: h.row?.scope_id ?? null,
+    importance: h.row?.importance,
+    is_pinned: Number(h.row?.is_pinned) === 1,
+    projection_status: h.row?.projection_status,
+    projection_ready: h.row?.projection_status === 'ready',
+    score: h.score,
+    provenance: h.provenance,
+    hydrated_from_d1: Boolean(h.row?.value || h.row?.content_hash),
+    staleness:
+      h.row?.projection_status && h.row.projection_status !== 'ready' ? 'projection_not_ready' : null,
+  }));
+
+  const suppressedLowScore = ranked.length - filtered.length;
+  const emptyReason =
+    items.length === 0 && (meta?.query || meta?.used_semantic || meta?.used_pgvector)
+      ? 'no_relevant_memory'
+      : null;
 
   return textContent({
     ok: true,
+    pipeline_version: MEMORY_PIPELINE_VERSION,
+    provider_path: 'iam_main_hybrid_recall',
+    route: 'canonical_d1_hydrate',
     source_client: meta?.source_client ?? null,
     transport_workspace_key: meta?.transport_workspace_key ?? null,
     active_project_workspace_key: meta?.active_project_workspace_key ?? null,
+    min_semantic_score: minSemantic,
+    suppressed_low_score: suppressedLowScore,
     count: items.length,
     items,
-    meta,
+    results: items,
+    reason: emptyReason,
+    meta: {
+      ...meta,
+      pipeline_version: MEMORY_PIPELINE_VERSION,
+      used_semantic: meta?.used_semantic === true,
+      used_pgvector: meta?.used_pgvector === true,
+    },
   });
 }
