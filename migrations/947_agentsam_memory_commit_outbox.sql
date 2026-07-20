@@ -213,7 +213,7 @@ SELECT
   'memory',
   'Canonical D1 memory commit with projection outbox. Eager projection when possible; never treats embedded_at as a receipt.',
   '{"type":"object","additionalProperties":false,"properties":{"raw_text":{"type":"string"},"memory_type":{"type":"string","enum":["fact","preference","decision","policy","state","procedure","event","error"]},"memory_key":{"type":"string"},"title":{"type":"string"},"content":{"type":"string"},"summary":{"type":"string"},"importance":{"type":"integer","minimum":1,"maximum":10},"is_pinned":{"type":"boolean"},"tags":{"type":"array","items":{"type":"string"}},"expires_at":{"type":"string"},"sensitivity":{"type":"string","enum":["normal","internal","confidential","secret"]},"supersedes":{"type":"string"},"dry_run":{"type":"boolean"},"eager":{"type":"boolean","default":true},"idempotency_key":{"type":"string"},"long_content_policy":{"type":"string","enum":["extract","document","chunk"]},"workspace_id":{"type":"string"}},"anyOf":[{"required":["raw_text"]},{"required":["content"]},{"required":["memory_key","content"]}]}',
-  'memory',
+  'mcp',
   '{"operation":"memory.commit","auth_source":"token","eager_default":true}',
   'medium', 0, '["*"]', '["ask","plan","debug","agent","multitask"]',
   1, 1, 1, 'memory', 'common', unixepoch()
