@@ -64,19 +64,21 @@ export async function executeAgentsamMemoryHybridSearch(env, db, workspace, args
     if (exact) push(exact, 'exact_key', 1.0);
   }
 
-  // 2) Pinned / important / recent
-  const pinned = await db
-    .prepare(
-      `SELECT * FROM agentsam_memory
-        WHERE tenant_id = ? AND user_id = ? AND status = 'active'
-          AND (is_pinned = 1 OR importance >= 8)
-          AND (expires_at IS NULL OR expires_at = 0 OR expires_at > ?)
-        ORDER BY is_pinned DESC, importance DESC, updated_at DESC
-        LIMIT ?`,
-    )
-    .bind(tenantId, userId, now, topK)
-    .all();
-  for (const r of pinned.results || []) push(r, 'pinned_important', 0.85);
+  // 2) Pinned / important / recent — only seed when there is no semantic query
+  if (!query) {
+    const pinned = await db
+      .prepare(
+        `SELECT * FROM agentsam_memory
+          WHERE tenant_id = ? AND user_id = ? AND status = 'active'
+            AND (is_pinned = 1 OR importance >= 8)
+            AND (expires_at IS NULL OR expires_at = 0 OR expires_at > ?)
+          ORDER BY is_pinned DESC, importance DESC, updated_at DESC
+          LIMIT ?`,
+      )
+      .bind(tenantId, userId, now, topK)
+      .all();
+    for (const r of pinned.results || []) push(r, 'pinned_important', 0.85);
+  }
 
   if (!query && !memoryKey) {
     const recent = await db
