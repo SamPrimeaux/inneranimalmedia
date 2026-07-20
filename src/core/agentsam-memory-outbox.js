@@ -418,6 +418,7 @@ async function upsertPgvectorChunk(env, row, projectionKey, remoteUuid, embeddin
   if (!isHyperdriveUsable(env)) throw new Error('hyperdrive_unavailable');
   if (!embedding) throw new Error('embedding_required');
   const d1Ws = trim(row.workspace_id);
+  // Prefer text identity; UUID workspace_id is optional/legacy (nullable).
   const supabaseWs = d1Ws ? await resolveSupabaseWorkspaceId(env, d1Ws) : null;
   const vec = vectorLiteral(embedding);
   const meta = {

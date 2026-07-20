@@ -59,3 +59,6 @@ COMMENT ON COLUMN agentsam.agentsam_memory_oai3large_1536.workspace_key IS
   'Canonical IAM workspace string id (e.g. ws_inneranimalmedia), not UUID-only.';
 COMMENT ON COLUMN agentsam.agentsam_memory_oai3large_1536.user_key IS
   'Canonical IAM user string id (e.g. au_*), not UUID-only.';
+
+-- Allow null legacy UUID when workspace_key text identity is present.
+ALTER TABLE agentsam.agentsam_memory_oai3large_1536 ALTER COLUMN workspace_id DROP NOT NULL;

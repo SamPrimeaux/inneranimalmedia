@@ -108,20 +108,15 @@ export async function executeAgentsamMemoryHybridSearch(env, db, workspace, args
       if (binding?.query) {
         usedSemantic = true;
         const vr = await binding.query(embedding, {
-          topK: topK * 2,
+          topK: Math.min(50, topK * 4),
           returnMetadata: 'all',
-          filter: {
-            tenant_key: tenantId,
-            user_key: userId,
-            status: 'active',
-          },
         });
         const matches = vr?.matches || vr?.result || [];
         for (const m of matches) {
           const meta = m.metadata || {};
-          // Defense in depth — ignore matches outside auth scope
-          if (trim(meta.tenant_key) && trim(meta.tenant_key) !== tenantId) continue;
-          if (trim(meta.user_key) && trim(meta.user_key) !== userId) continue;
+          // Server-side scope enforcement (do not trust client filters)
+          if (trim(meta.tenant_key) !== tenantId) continue;
+          if (trim(meta.user_key) !== userId) continue;
           if (trim(meta.status) && trim(meta.status) !== 'active') continue;
           const score = typeof m.score === 'number' ? m.score : 1 - (m.distance || 0);
           push(
@@ -214,7 +209,16 @@ export async function executeAgentsamMemoryHybridSearch(env, db, workspace, args
     else hits.delete(mid);
   }
 
-  return finalize(hits, topK, { query, used_semantic: usedSemantic, used_pgvector: usedPgvector });
+  try {
+    return finalize(hits, topK, { query, used_semantic: usedSemantic, used_pgvector: usedPgvector });
+  } catch (e) {
+    return textContent({
+      ok: false,
+      error: e?.message || String(e),
+      count: 0,
+      items: [],
+    });
+  }
 }
 
 function finalize(hits, topK, meta) {
