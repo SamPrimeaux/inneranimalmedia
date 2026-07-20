@@ -925,6 +925,65 @@ async function executeMemoryCatalogDispatch(env, config, params, runContext, too
   const tenantId = String(runContext.tenantId ?? runContext.tenant_id ?? '').trim();
   const userId = String(runContext.userId ?? runContext.user_id ?? '').trim();
   const workspaceId = String(runContext.workspaceId ?? runContext.workspace_id ?? '').trim();
+  const tk = String(toolKey || '').trim();
+
+  // Canonical commit / hybrid recall — same core as MCP adapters.
+  if (
+    tk === 'agentsam_memory_commit' ||
+    tk === 'agentsam_memory_save' ||
+    String(config.operation || '').toLowerCase() === 'memory.commit'
+  ) {
+    const workspace = {
+      tenant_id: tenantId,
+      user_id: userId,
+      workspace_id: workspaceId || undefined,
+      _is_superadmin: runContext.isSuperadmin === true || runContext.is_superadmin === true,
+    };
+    const {
+      executeAgentsamMemoryCommit,
+      executeAgentsamMemorySaveViaCommit,
+    } = await import('./agentsam-memory-commit.js');
+    const out =
+      tk === 'agentsam_memory_save' || config.eager_default === false
+        ? await executeAgentsamMemorySaveViaCommit(env, env.DB, workspace, params || {})
+        : await executeAgentsamMemoryCommit(env, env.DB, workspace, params || {}, { eager: true });
+    const text = out?.content?.[0]?.text;
+    let body = out;
+    try {
+      body = text ? JSON.parse(text) : out;
+    } catch {
+      body = { ok: false, error: 'unparseable_commit_response', raw: text };
+    }
+    return body?.ok === false
+      ? { ok: false, error: String(body.error || 'commit_failed'), body }
+      : { ok: true, body };
+  }
+
+  if (tk === 'agentsam_memory_search') {
+    const workspace = {
+      tenant_id: tenantId,
+      user_id: userId,
+      workspace_id: workspaceId || undefined,
+      _is_superadmin: runContext.isSuperadmin === true || runContext.is_superadmin === true,
+    };
+    const { executeAgentsamMemoryHybridSearch } = await import('./agentsam-memory-hybrid-search.js');
+    const out = await executeAgentsamMemoryHybridSearch(env, env.DB, workspace, {
+      ...params,
+      query: params.query ?? params.q ?? '',
+      limit: Math.min(Math.max(Number(params.limit ?? params.top_k) || 10, 1), 20),
+    });
+    const text = out?.content?.[0]?.text;
+    let body = out;
+    try {
+      body = text ? JSON.parse(text) : out;
+    } catch {
+      body = { ok: false, error: 'unparseable_search_response', raw: text };
+    }
+    return body?.ok === false
+      ? { ok: false, error: String(body.error || 'search_failed'), body }
+      : { ok: true, body };
+  }
+
   const op = resolveMemoryCatalogOperation(config, params, toolKey);
 
   if (!op || !MEMORY_CATALOG_OPS.has(op)) {
@@ -971,35 +1030,80 @@ async function executeMemoryCatalogDispatch(env, config, params, runContext, too
     return out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
   }
 
+  // Compatibility: legacy memory_write / memory_search → canonical commit / hybrid.
+  if (op === 'memory_write') {
+    const workspace = {
+      tenant_id: tenantId,
+      user_id: userId,
+      workspace_id: workspaceId || undefined,
+      _is_superadmin: runContext.isSuperadmin === true || runContext.is_superadmin === true,
+    };
+    const { resolveManagedMemoryType } = await import('./mcp-memory-type-compat.js');
+    const resolved = resolveManagedMemoryType(params);
+    const { executeAgentsamMemoryCommit } = await import('./agentsam-memory-commit.js');
+    const out = await executeAgentsamMemoryCommit(
+      env,
+      env.DB,
+      workspace,
+      {
+        ...params,
+        key: params.key ?? params.memory_key ?? params.memoryKey,
+        memory_key: params.memory_key ?? params.key ?? params.memoryKey,
+        content: params.value ?? params.content ?? params.body,
+        value: params.value ?? params.content ?? params.body,
+        memory_type: resolved.memory_type,
+        tags: resolved.tags?.length ? resolved.tags : params.tags,
+        source: params.source ?? `catalog:${toolKey}`,
+        source_client: 'dashboard',
+      },
+      { eager: true },
+    );
+    const text = out?.content?.[0]?.text;
+    let body = out;
+    try {
+      body = text ? JSON.parse(text) : out;
+    } catch {
+      body = { ok: false, error: 'unparseable_commit_response', raw: text };
+    }
+    return body?.ok === false
+      ? { ok: false, error: String(body.error || 'commit_failed'), body }
+      : { ok: true, body };
+  }
+
+  if (op === 'memory_search') {
+    const workspace = {
+      tenant_id: tenantId,
+      user_id: userId,
+      workspace_id: workspaceId || undefined,
+      _is_superadmin: runContext.isSuperadmin === true || runContext.is_superadmin === true,
+    };
+    const { DEFAULT_MEMORY_SEARCH_QUERY } = await import('./mcp-memory-search-schema.js');
+    const { executeAgentsamMemoryHybridSearch } = await import('./agentsam-memory-hybrid-search.js');
+    const out = await executeAgentsamMemoryHybridSearch(env, env.DB, workspace, {
+      ...params,
+      query: params.query ?? params.q ?? (params.top_k ? DEFAULT_MEMORY_SEARCH_QUERY : ''),
+      limit: Math.min(Math.max(Number(params.limit ?? params.top_k) || 10, 1), 20),
+      source_client: 'dashboard',
+    });
+    const text = out?.content?.[0]?.text;
+    let body = out;
+    try {
+      body = text ? JSON.parse(text) : out;
+    } catch {
+      body = { ok: false, error: 'unparseable_search_response', raw: text };
+    }
+    return body?.ok === false
+      ? { ok: false, error: String(body.error || 'search_failed'), body }
+      : { ok: true, body };
+  }
+
   const { handlers: memoryHandlers } = await import('../tools/memory.js');
   const fn = memoryHandlers[op];
   if (typeof fn !== 'function') {
     return { ok: false, error: `memory handler not registered: ${op}` };
   }
 
-  let memParams = params;
-  if (op === 'memory_write') {
-    const { resolveManagedMemoryType } = await import('./mcp-memory-type-compat.js');
-    const resolved = resolveManagedMemoryType(params);
-    memParams = {
-      ...params,
-      key: params.key ?? params.memory_key ?? params.memoryKey,
-      value: params.value ?? params.content ?? params.body,
-      memory_type: resolved.memory_type,
-      tags: resolved.tags?.length ? resolved.tags : params.tags,
-      source: params.source ?? `catalog:${toolKey}`,
-    };
-  }
-  if (op === 'memory_search') {
-    const { DEFAULT_MEMORY_SEARCH_QUERY } = await import('./mcp-memory-search-schema.js');
-    memParams = {
-      ...params,
-      query: params.query ?? params.q ?? (params.top_k ? DEFAULT_MEMORY_SEARCH_QUERY : ''),
-      limit: Math.min(Math.max(Number(params.limit ?? params.top_k) || 10, 1), 20),
-    };
-  }
-
-  const out = await fn(memParams, env, memCtx);
+  const out = await fn(params, env, memCtx);
   return out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
 }
 
@@ -1023,6 +1127,16 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
   };
   const toolKey = String(row.tool_key || row.tool_name || '').trim();
   const toolName = String(row.tool_name || row.tool_key || '').trim();
+
+  // Canonical memory tools may still be catalogued as handler_type=mcp for OAuth —
+  // on the main worker they always execute the shared core (never proxy to MCP).
+  if (
+    toolKey === 'agentsam_memory_commit' ||
+    toolKey === 'agentsam_memory_save' ||
+    toolKey === 'agentsam_memory_search'
+  ) {
+    handlerType = 'memory';
+  }
 
   if (
     toolKey === 'agentsam_container_exec' ||
@@ -2914,6 +3028,17 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         'memory_delete',
       ]);
       if (memOps.has(op)) {
+        // Compatibility adapter → shared commit / hybrid core
+        if (op === 'memory_write' || op === 'memory_search') {
+          result = await executeMemoryCatalogDispatch(
+            env,
+            { ...config, operation: op },
+            params,
+            runContext,
+            toolKey || `legacy_${op}`,
+          );
+          break;
+        }
         const { handlers: memoryHandlers } = await import('../tools/memory.js');
         const fn = memoryHandlers[op];
         if (typeof fn !== 'function') {
@@ -2927,31 +3052,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           agentId: runContext.agentId ?? runContext.agent_id,
           sessionId: runContext.sessionId ?? runContext.session_id,
         };
-        let memParams = params;
-        if (op === 'memory_write') {
-          const { resolveManagedMemoryType } = await import('./mcp-memory-type-compat.js');
-          const resolved = resolveManagedMemoryType(params);
-          memParams = {
-            ...params,
-            key: params.key ?? params.memory_key ?? params.memoryKey,
-            value: params.value ?? params.content ?? params.body,
-            memory_type: resolved.memory_type,
-            tags: resolved.tags?.length ? resolved.tags : params.tags,
-            source: params.source ?? `mcp:${toolKey}`,
-          };
-        }
-        if (op === 'memory_search') {
-          const { DEFAULT_MEMORY_SEARCH_QUERY } = await import('./mcp-memory-search-schema.js');
-          memParams = {
-            ...params,
-            query:
-              params.query ??
-              params.q ??
-              (params.top_k ? DEFAULT_MEMORY_SEARCH_QUERY : ''),
-            limit: params.limit ?? params.top_k ?? 20,
-          };
-        }
-        const out = await fn(memParams, env, memCtx);
+        const out = await fn(params, env, memCtx);
         result = out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
         break;
       }

@@ -5,6 +5,12 @@
 import { createAgentsamEmbedding } from './agentsam-vectorize.js';
 import { EMBEDDING_CONTRACT } from './agentsam-memory-contract.js';
 import { isHyperdriveUsable, runHyperdriveQuery } from './hyperdrive-query.js';
+import {
+  isTransportWorkspaceKey,
+  resolveMemoryAuth,
+  resolveMemorySemanticScope,
+  resolveSourceClient,
+} from './agentsam-memory-scope.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -21,9 +27,9 @@ function textContent(obj) {
  * @param {Record<string, unknown>} args
  */
 export async function executeAgentsamMemoryHybridSearch(env, db, workspace, args = {}) {
-  const tenantId = trim(workspace?.tenant_id);
-  const userId = trim(workspace?.user_id);
-  const workspaceId = trim(workspace?.workspace_id);
+  const auth = await resolveMemoryAuth(env, workspace);
+  const tenantId = auth.tenant_id;
+  const userId = auth.user_id;
   if (!db || !tenantId || !userId) {
     return textContent({ ok: false, error: 'auth_scope_required' });
   }
@@ -32,6 +38,27 @@ export async function executeAgentsamMemoryHybridSearch(env, db, workspace, args
   if (trim(args.user_id) && trim(args.user_id) !== userId) {
     return textContent({ ok: false, error: 'agent_supplied_user_id_rejected' });
   }
+
+  const scope = await resolveMemorySemanticScope({
+    auth: { ...auth, authorized_workspaces: workspace?.authorized_workspaces },
+    args,
+    env,
+  });
+  // Search still runs if UUID mapping missing (D1 recall works); projection-only errors are soft.
+  const hardScopeErrors = (scope.errors || []).filter(
+    (e) => e === 'workspace_not_authorized' || e === 'transport_workspace_cannot_be_semantic_scope',
+  );
+  if (hardScopeErrors.length && !auth.is_superadmin) {
+    return textContent({
+      ok: false,
+      error: 'scope_resolution_failed',
+      errors: scope.errors,
+    });
+  }
+
+  const semanticWorkspaceId = scope.active_project_workspace_key;
+  const transportWorkspaceKey = scope.transport_workspace_key;
+  const sourceClient = scope.source_client || resolveSourceClient(workspace, args);
 
   const query = trim(args.query) || trim(args.q) || '';
   const memoryKey = trim(args.memory_key) || trim(args.key);
@@ -44,6 +71,9 @@ export async function executeAgentsamMemoryHybridSearch(env, db, workspace, args
     if (trim(row.status) && !['active', ''].includes(trim(row.status))) return;
     if (row.expires_at && Number(row.expires_at) > 0 && Number(row.expires_at) < now) return;
     if (Number(row.is_archived) === 1) return;
+    // Never treat transport MCP workspace as a silo filter match for foreign rows
+    const rowWs = trim(row.workspace_id);
+    if (rowWs && isTransportWorkspaceKey(rowWs)) return;
     const mid = trim(row.memory_id) || trim(row.id);
     const existing = hits.get(mid);
     if (!existing || score > existing.score) {
@@ -91,7 +121,13 @@ export async function executeAgentsamMemoryHybridSearch(env, db, workspace, args
       .bind(tenantId, userId, now, topK)
       .all();
     for (const r of recent.results || []) push(r, 'recent', 0.5);
-    return finalize(hits, topK, { query: null, used_semantic: false });
+    return finalize(hits, topK, {
+      query: null,
+      used_semantic: false,
+      source_client: sourceClient,
+      transport_workspace_key: transportWorkspaceKey,
+      active_project_workspace_key: semanticWorkspaceId,
+    });
   }
 
   // 3) Semantic Vectorize (server-side metadata filter — never caller override)
@@ -212,7 +248,14 @@ export async function executeAgentsamMemoryHybridSearch(env, db, workspace, args
   }
 
   try {
-    return finalize(hits, topK, { query, used_semantic: usedSemantic, used_pgvector: usedPgvector });
+    return finalize(hits, topK, {
+      query,
+      used_semantic: usedSemantic,
+      used_pgvector: usedPgvector,
+      source_client: sourceClient,
+      transport_workspace_key: transportWorkspaceKey,
+      active_project_workspace_key: semanticWorkspaceId,
+    });
   } catch (e) {
     return textContent({
       ok: false,
@@ -236,6 +279,7 @@ function finalize(hits, topK, meta) {
       title: h.row?.title,
       summary: h.row?.summary,
       content: h.row?.value,
+      workspace_id: h.row?.workspace_id ?? null,
       importance: h.row?.importance,
       is_pinned: Number(h.row?.is_pinned) === 1,
       projection_status: h.row?.projection_status,
@@ -247,6 +291,9 @@ function finalize(hits, topK, meta) {
 
   return textContent({
     ok: true,
+    source_client: meta?.source_client ?? null,
+    transport_workspace_key: meta?.transport_workspace_key ?? null,
+    active_project_workspace_key: meta?.active_project_workspace_key ?? null,
     count: items.length,
     items,
     meta,

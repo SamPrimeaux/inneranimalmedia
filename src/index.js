@@ -190,6 +190,18 @@ export default {
         const { handleChatSessionPurgeArchivedInternal } = await import('./api/chat-session-purge-internal.js');
         return handleChatSessionPurgeArchivedInternal(request, env);
       }
+      if (pathLower === '/api/internal/memory/commit' && methodUpper === 'POST') {
+        const { handleInternalMemory } = await import('./api/internal-memory.js');
+        return handleInternalMemory(request, env, 'commit');
+      }
+      if (pathLower === '/api/internal/memory/save' && methodUpper === 'POST') {
+        const { handleInternalMemory } = await import('./api/internal-memory.js');
+        return handleInternalMemory(request, env, 'save');
+      }
+      if (pathLower === '/api/internal/memory/search' && methodUpper === 'POST') {
+        const { handleInternalMemory } = await import('./api/internal-memory.js');
+        return handleInternalMemory(request, env, 'search');
+      }
 
       const isDashboardHtmlNav =
         (methodUpper === 'GET' || methodUpper === 'HEAD') && isDashboardSpaShellPath(pathLower);

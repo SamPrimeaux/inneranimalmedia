@@ -1,9 +1,7 @@
 /**
- * Tool: Memory — D1 edge cache + mirror to private agentsam.agentsam_memory (Hyperdrive).
- * Never writes public.agent_memory. Vectorize not required.
+ * Tool: Memory — compatibility adapters into canonical agentsam_memory_commit / hybrid search.
  * All ops scoped to (tenant_id, user_id) — never cross-tenant.
  */
-import { mirrorD1MemoryToPrivatePg, searchPrivateAgentsamMemory } from '../core/agentsam-private-memory.js';
 import { resolveManagedMemoryType, normalizeMemoryTags } from '../core/mcp-memory-type-compat.js';
 import { agentsamMemoryActiveSqlOrEmpty, resolveAgentsamMemory } from '../core/agentsam-memory-resolve.js';
 
@@ -183,7 +181,8 @@ async function sweepExpired(db, tenantId, userId) {
 // ---------------------------------------------------------------------------
 
 /**
- * memory_write — upsert a memory entry.
+ * memory_write — compatibility adapter → canonical agentsam_memory_commit (+ outbox).
+ * Prefer agentsam_memory_commit / agentsam_memory_save in new call sites.
  */
 export async function memoryWrite(input, env, context = {}) {
   const { tenantId, userId, workspaceId, agentId, sessionId } = context;
@@ -192,78 +191,65 @@ export async function memoryWrite(input, env, context = {}) {
   }
 
   const resolved = resolveManagedMemoryType(input);
-  const {
-    key,
-    value,
-    confidence = 1.0,
-    ttl_days,
-    source = 'agent',
-  } = input;
-  const memory_type = resolved.memory_type;
-  const tags = normalizeMemoryTags(resolved.tags.length ? resolved.tags : input.tags);
-
-  const now = nowUnix();
-  const expiresAt = ttl_days != null ? now + Math.round(ttl_days * 86400) : null;
-  const tagsJson = JSON.stringify(Array.isArray(tags) ? tags : []);
-
-  const syncKey = `${tenantId}:${userId}:${key}`;
-  const summary = value.slice(0, 400);
-
-  await env.DB.prepare(
-    `INSERT INTO agentsam_memory
-       (tenant_id, user_id, workspace_id, key, value, memory_type, source,
-        summary, sync_key, confidence, tags, expires_at, agent_id, session_id, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(tenant_id, user_id, key) DO UPDATE SET
-       value         = excluded.value,
-       memory_type   = excluded.memory_type,
-       source        = excluded.source,
-       summary       = excluded.summary,
-       sync_key      = excluded.sync_key,
-       confidence    = excluded.confidence,
-       tags          = excluded.tags,
-       expires_at    = excluded.expires_at,
-       agent_id      = excluded.agent_id,
-       session_id    = excluded.session_id,
-       updated_at    = excluded.updated_at`
-  )
-    .bind(
-      tenantId,
-      userId,
-      workspaceId ?? null,
-      key,
-      value,
-      memory_type,
-      source,
-      summary,
-      syncKey,
-      confidence,
-      tagsJson,
-      expiresAt,
-      agentId ?? null,
-      sessionId ?? null,
-      now,
-    )
-    .run();
-
-  const d1Row = await env.DB.prepare(
-    `SELECT * FROM agentsam_memory WHERE tenant_id = ? AND user_id = ? AND key = ? LIMIT 1`,
-  )
-    .bind(tenantId, userId, key)
-    .first();
-
-  let mirror = { ok: false, scheduled: false };
-  if (d1Row && workspaceId) {
-    mirror = await mirrorD1MemoryToPrivatePg(env, d1Row, { ctx: context });
+  const key = input.key ?? input.memory_key ?? input.memoryKey;
+  const value = input.value ?? input.content ?? input.body;
+  if (!key || !value) {
+    return { error: 'key and value required' };
   }
 
+  const expiresAt =
+    input.ttl_days != null
+      ? nowUnix() + Math.round(Number(input.ttl_days) * 86400)
+      : input.expires_at ?? null;
+
+  const { executeAgentsamMemoryCommit } = await import('../core/agentsam-memory-commit.js');
+  const out = await executeAgentsamMemoryCommit(
+    env,
+    env.DB,
+    {
+      tenant_id: tenantId,
+      user_id: userId,
+      workspace_id: workspaceId || undefined,
+    },
+    {
+      ...input,
+      memory_key: key,
+      key,
+      content: value,
+      value,
+      memory_type: resolved.memory_type,
+      tags: normalizeMemoryTags(resolved.tags.length ? resolved.tags : input.tags),
+      source: input.source ?? 'agent',
+      source_client: input.source_client ?? 'dashboard',
+      expires_at: expiresAt,
+      agent_id: agentId,
+      session_id: sessionId,
+    },
+    { eager: input.eager !== false },
+  );
+
+  let body = null;
+  try {
+    body = JSON.parse(out?.content?.[0]?.text || '{}');
+  } catch {
+    return { error: 'unparseable_commit_response', raw: out };
+  }
+  if (body?.ok === false) {
+    return { error: body.error || 'commit_failed', ...body };
+  }
   return {
     ok: true,
-    key,
-    memory_type,
+    key: body.memory_key || key,
+    memory_id: body.memory_id,
+    revision: body.revision,
+    memory_type: resolved.memory_type,
     expires_at: expiresAt,
-    sync_key: syncKey,
-    private_mirror: mirror,
+    sync_key: `${tenantId}:${userId}:${key}`,
+    outbox_id: body.outbox_id,
+    projection_status: body.projection_status,
+    semantic_ready: body.semantic_ready,
+    private_mirror: { ok: true, scheduled: false, via: 'canonical_outbox' },
+    canonical: true,
   };
 }
 
@@ -334,7 +320,7 @@ export async function memoryRead(input, env, context = {}) {
 }
 
 /**
- * memory_search — fuzzy search by query substring, type, or tags.
+ * memory_search — compatibility adapter → canonical hybrid recall.
  */
 export async function memorySearch(input, env, context = {}) {
   const { tenantId, userId, workspaceId } = context;
@@ -344,88 +330,53 @@ export async function memorySearch(input, env, context = {}) {
 
   sweepExpired(env.DB, tenantId, userId);
 
-  const { query, memory_type, tags, limit = 10 } = input;
-  const cap = Math.min(Math.max(Number(limit) || 10, 1), 20);
-  const now = nowUnix();
-  const activeSql = await agentsamMemoryActiveSqlOrEmpty(env.DB);
+  const { executeAgentsamMemoryHybridSearch } = await import(
+    '../core/agentsam-memory-hybrid-search.js'
+  );
+  const out = await executeAgentsamMemoryHybridSearch(
+    env,
+    env.DB,
+    {
+      tenant_id: tenantId,
+      user_id: userId,
+      workspace_id: workspaceId || undefined,
+    },
+    {
+      ...input,
+      query: input.query ?? input.q ?? '',
+      limit: Math.min(Math.max(Number(input.limit) || 10, 1), 20),
+      source_client: input.source_client ?? 'dashboard',
+    },
+  );
 
-  const conditions = [
-    'tenant_id = ?',
-    'user_id = ?',
-    activeSql,
-    '(expires_at IS NULL OR expires_at > ?)',
-  ];
-  const binds = [tenantId, userId, now];
-
-  if (query) {
-    conditions.push('(key LIKE ? OR value LIKE ?)');
-    binds.push(`%${query}%`, `%${query}%`);
+  let body = null;
+  try {
+    body = JSON.parse(out?.content?.[0]?.text || '{}');
+  } catch {
+    return { error: 'unparseable_search_response', raw: out };
   }
-  if (memory_type) {
-    conditions.push('memory_type = ?');
-    binds.push(memory_type);
-  }
-  // Tag filter: check each required tag exists in the JSON array
-  if (Array.isArray(tags) && tags.length > 0) {
-    for (const tag of tags) {
-      conditions.push(`tags LIKE ?`);
-      binds.push(`%"${tag}"%`);
-    }
-  }
-
-  binds.push(cap);
-
-  if (workspaceId) {
-    const privateOut = await searchPrivateAgentsamMemory(env, {
-      tenantId,
-      workspaceId,
-      userId,
-      query: query || undefined,
-      memoryType: memory_type || undefined,
-      limit: cap,
-      includeContent: false,
-    });
-    if (privateOut.ok && privateOut.results?.length) {
-      return {
-        results: privateOut.results.map((r) => ({
-          key: r.memory_key,
-          memory_type: r.memory_type,
-          source: r.source,
-          confidence: r.confidence,
-          tags: Array.isArray(r.tags) ? r.tags : [],
-          summary: r.summary,
-          updated_at: r.updated_at,
-        })),
-        count: privateOut.results.length,
-        tier: privateOut.tier,
-      };
-    }
+  if (body?.ok === false) {
+    return { error: body.error || 'search_failed', ...body };
   }
 
-  const rows = await env.DB.prepare(
-    `SELECT key, substr(COALESCE(summary, value), 1, 600) AS summary,
-            memory_type, source, confidence, tags, recall_count, updated_at
-       FROM agentsam_memory
-       WHERE ${conditions.join(' AND ')}
-       ORDER BY recall_count DESC, last_recalled_at DESC NULLS LAST
-       LIMIT ?`,
-  )
-    .bind(...binds)
-    .all();
-
+  const items = body.items || [];
   return {
-    results: (rows.results ?? []).map((r) => ({
-      key: r.key,
-      summary: r.summary,
+    results: items.map((r) => ({
+      key: r.memory_key,
+      memory_id: r.memory_id,
+      revision: r.revision,
+      value: r.content,
       memory_type: r.memory_type,
-      source: r.source,
-      confidence: r.confidence,
-      tags: safeJson(r.tags, []),
-      recall_count: r.recall_count,
-      updated_at: r.updated_at,
+      title: r.title,
+      summary: r.summary,
+      score: r.score,
+      provenance: r.provenance,
+      projection_status: r.projection_status,
     })),
-    count: (rows.results ?? []).length,
-    tier: 'd1_fallback',
+    count: items.length,
+    canonical: true,
+    source_client: body.source_client,
+    active_project_workspace_key: body.active_project_workspace_key,
   };
 }
 

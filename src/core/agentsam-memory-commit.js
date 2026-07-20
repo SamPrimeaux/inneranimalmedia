@@ -9,6 +9,7 @@ import {
   sha256Hex,
 } from './agentsam-memory-contract.js';
 import { processMemoryOutboxJob } from './agentsam-memory-outbox.js';
+import { resolveMemoryAuth, resolveMemorySemanticScope } from './agentsam-memory-scope.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -23,36 +24,7 @@ function newId(prefix) {
   return `${prefix}_${hex}`;
 }
 
-/**
- * Resolve auth from MCP workspace — never from agent args for user/tenant.
- * @param {Record<string, unknown>} workspace
- * @param {Record<string, unknown>} env
- */
-export async function resolveMemoryAuth(env, workspace) {
-  const tenantId = trim(workspace?.tenant_id);
-  const userId = trim(workspace?.user_id);
-  const workspaceId = trim(workspace?.workspace_id) || null;
-  let isSuperadmin = workspace?._is_superadmin === true;
-  if (!isSuperadmin && userId && env?.DB) {
-    try {
-      const row = await env.DB.prepare(
-        `SELECT COALESCE(is_superadmin,0) AS is_superadmin, role FROM auth_users WHERE id = ? LIMIT 1`,
-      )
-        .bind(userId)
-        .first();
-      isSuperadmin =
-        Number(row?.is_superadmin) === 1 || String(row?.role || '').toLowerCase() === 'superadmin';
-    } catch {
-      /* ignore */
-    }
-  }
-  return {
-    tenant_id: tenantId,
-    user_id: userId,
-    workspace_id: workspaceId,
-    is_superadmin: isSuperadmin,
-  };
-}
+export { resolveMemoryAuth };
 
 /**
  * Classify relationship vs existing active row.
@@ -102,7 +74,47 @@ export async function executeAgentsamMemoryCommit(env, db, workspace, args = {},
     return textContent({ ok: false, error: 'auth_scope_required' });
   }
 
-  const drafted = await draftMemoryCommit(args, auth);
+  const scope = await resolveMemorySemanticScope({
+    auth: { ...auth, authorized_workspaces: workspace?.authorized_workspaces },
+    args,
+    env,
+  });
+  if (!scope.ok) {
+    return textContent({
+      ok: false,
+      error: 'scope_resolution_failed',
+      errors: scope.errors,
+      transport_workspace_key: scope.transport_workspace_key,
+      source_client: scope.source_client,
+      active_project_workspace_key: scope.active_project_workspace_key,
+    });
+  }
+
+  // Semantic project workspace for the row — never MCP transport silo.
+  const authForDraft = {
+    ...auth,
+    workspace_id: scope.active_project_workspace_key,
+  };
+  const scopedArgs = {
+    ...args,
+    workspace_id: scope.active_project_workspace_key,
+    scope_type: args.scope_type || scope.scope_type,
+    scope_id: args.scope_id || scope.scope_id,
+    source_client: scope.source_client,
+    transport_workspace_key: scope.transport_workspace_key,
+    source_type: trim(args.source_type) || scope.source_client || 'structured',
+    source_ref:
+      trim(args.source_ref) ||
+      JSON.stringify({
+        transport_workspace_key: scope.transport_workspace_key,
+        source_client: scope.source_client,
+        authenticated_actor_id: scope.authenticated_actor_id,
+        active_project_workspace_key: scope.active_project_workspace_key,
+        supabase_workspace_id: scope.supabase_workspace_id,
+      }),
+  };
+
+  const drafted = await draftMemoryCommit(scopedArgs, authForDraft);
   const dryRun = args.dry_run === true;
   const eager = opts.eager !== undefined ? opts.eager !== false : args.eager !== false;
 
@@ -113,10 +125,16 @@ export async function executeAgentsamMemoryCommit(env, db, workspace, args = {},
       errors: drafted.errors,
       warnings: drafted.warnings,
       draft: drafted.draft,
+      scope,
     });
   }
 
-  const draft = drafted.draft;
+  const draft = {
+    ...drafted.draft,
+    transport_workspace_key: scope.transport_workspace_key,
+    source_client: scope.source_client,
+    supabase_workspace_id: scope.supabase_workspace_id,
+  };
   const classified = await classifyRelationship(db, draft);
 
   // Idempotency: exact key hit
@@ -373,6 +391,10 @@ export async function executeAgentsamMemoryCommit(env, db, workspace, args = {},
     failed_projections: projection.failed || [],
     eager,
     warnings: drafted.warnings,
+    transport_workspace_key: draft.transport_workspace_key,
+    source_client: draft.source_client,
+    active_project_workspace_key: draft.workspace_id,
+    supabase_workspace_id: draft.supabase_workspace_id,
   });
 }
 
