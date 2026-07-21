@@ -23,6 +23,8 @@
     "ship:remote": "bash scripts/ship-remote.sh",
     "deploy:fast": "bash scripts/deploy-fast.sh",
     "deploy:fast:cf": "DEPLOY_FAST_SKIP_BUILD=1 bash scripts/deploy-fast.sh",
+    "ast-rag:refresh": "python3 scripts/ast_rag_refresh_incremental.py --commit",
+    "ast-rag:refresh:dry-run": "python3 scripts/ast_rag_refresh_incremental.py --dry-run",
     "r2:delta-sync": "node scripts/r2-dashboard-delta-sync.mjs",
     "r2:delta-sync:dry-run": "node scripts/r2-dashboard-delta-sync.mjs --dry-run",
     "kv:purge-screenshots": "bash scripts/purge-kv-screenshot-keys.sh",

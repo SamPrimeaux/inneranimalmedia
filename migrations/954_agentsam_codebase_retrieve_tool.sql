@@ -18,7 +18,7 @@ INSERT OR IGNORE INTO agentsam_tools (
   'agentsam_codebase_retrieve',
   'agentsam_codebase_retrieve',
   'Codebase AST retrieve',
-  'local',
+  'agent',
   'code',
   'agentsam_codebase_retrieve',
   '{"module":"codebase-ast-retrieve","export":"retrieveCodebaseAstContext","operation":"retrieve"}',

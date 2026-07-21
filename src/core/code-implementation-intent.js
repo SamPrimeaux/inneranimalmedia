@@ -235,6 +235,7 @@ export function requiresWorkflowExecutionIntent(message) {
 
 /** Tools Agent Sam should prefer when implementing or editing code in-repo. */
 export const CODE_IMPLEMENTATION_TOOL_NAMES = [
+  'agentsam_codebase_retrieve',
   'fs_search_files',
   'workspace_search',
   'workspace_grep',

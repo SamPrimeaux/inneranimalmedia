@@ -1138,6 +1138,10 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     handlerType = 'memory';
   }
 
+  if (toolKey === 'agentsam_codebase_retrieve') {
+    handlerType = 'codebase_ast';
+  }
+
   if (
     toolKey === 'agentsam_container_exec' ||
     String(config.target_type || '').toLowerCase() === 'my_container'
@@ -3013,6 +3017,30 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
 
     case 'memory': {
       result = await executeMemoryCatalogDispatch(env, config, params, runContext, toolKey);
+      break;
+    }
+
+    case 'codebase_ast':
+    case 'local': {
+      if (toolKey === 'agentsam_codebase_retrieve' || handlerType === 'codebase_ast') {
+        const { retrieveCodebaseAstContext } = await import('./codebase-ast-retrieve.js');
+        const out = await retrieveCodebaseAstContext(env, String(params.query || params.q || ''), {
+          topK: Math.min(Math.max(Number(params.top_k ?? params.topK ?? params.limit) || 8, 1), 32),
+          repo: params.repo ? String(params.repo) : null,
+          expand: params.expand !== false && params.expand !== 'false',
+          hydrate: params.hydrate !== false && params.hydrate !== 'false',
+          workspaceId: workspaceId || undefined,
+        });
+        result =
+          out?.ok === false
+            ? { ok: false, error: String(out.error || 'codebase_retrieve_failed'), body: out }
+            : { ok: true, body: out };
+        break;
+      }
+      result = {
+        ok: false,
+        error: `handler_type local/codebase_ast has no handler for tool_key=${toolKey}`,
+      };
       break;
     }
 
