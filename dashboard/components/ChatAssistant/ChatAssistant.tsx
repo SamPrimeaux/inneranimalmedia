@@ -143,7 +143,6 @@ import { formatHttpErrorMessage } from './streamParsing';
 import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
 import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug';
 import { AgentMessageList } from './components/AgentMessageList';
-import { PlanRecentPicker } from './components/PlanRecentPicker';
 import { PlanStartOverBar } from './components/PlanStartOverBar';
 import { suggestPlanMode, nextAgentMode, isPlanSlashMessage } from '../../lib/plan-mode-utils';
 import { AgentMobileHomePanel } from './components/AgentMobileHomePanel';
@@ -2862,38 +2861,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
   }, [savePlanBusy, runPlanBusy, conversationId, setMessages]);
 
-  const handleOpenRecentPlan = useCallback(
-    async (planId: string) => {
-      const pid = planId.trim();
-      if (!pid) return;
-      setLocalActivePlanId(pid);
-      activePlanIdRef.current = pid;
-      onActivePlanChange?.(pid);
-      try {
-        const res = await fetch(`/api/agentsam/plans/${encodeURIComponent(pid)}/markdown`, {
-          credentials: 'same-origin',
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) return;
-        const publicUrl = typeof data.public_url === 'string' ? data.public_url.trim() : '';
-        if (typeof data.title === 'string' && data.title.trim()) setActivePlanTitle(data.title.trim());
-        if (publicUrl) {
-          const contentRes = await fetch(publicUrl, { credentials: 'same-origin' });
-          const md = await contentRes.text();
-          onOpenCodeTab?.();
-          onFileSelect?.({
-            name: `plan-${pid}.md`,
-            content: md,
-            originalContent: md,
-          });
-        }
-      } catch (e) {
-        console.warn('[ChatAssistant] open recent plan', e);
-      }
-    },
-    [onActivePlanChange, onFileSelect, onOpenCodeTab],
-  );
-
   async function handleSend(overrideMessage?: string, sendOpts?: ChatRoutingSendOpts) {
     if (pendingSubagentSlugRef.current && !sendOpts?.subagent_slug?.trim()) {
       sendOpts = { ...(sendOpts ?? {}), subagent_slug: pendingSubagentSlugRef.current };
@@ -4061,19 +4028,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 setInput((prev) => (prev.trim().startsWith('@plan') ? prev : `@plan ${prev}`.trim()));
                 textareaRef.current?.focus();
               }}
-            />
-          </div>
-        ) : null}
-
-        {composerVisible && mode === 'plan' ? (
-          <div className={`${composerFlexOrder} flex-shrink-0 w-full min-w-0 max-w-full px-3`}>
-            <PlanRecentPicker
-              workspaceId={effectiveWsId}
-              activePlanId={resolvedActivePlanId}
-              onOpenPlan={(pid) => void handleOpenRecentPlan(pid)}
-              onRunPlan={(pid) => void handleRunPlan(pid)}
-              runPlanBusy={runPlanBusy}
-              isNarrow={isNarrow}
             />
           </div>
         ) : null}

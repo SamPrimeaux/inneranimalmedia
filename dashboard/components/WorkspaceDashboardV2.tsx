@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   FolderOpen,
   Github,
@@ -6,7 +6,6 @@ import {
   Target,
   Sparkles,
   ChevronDown,
-  Database,
   Zap,
   Globe,
   Search,
@@ -21,11 +20,12 @@ import {
 } from 'lucide-react';
 import type { RecentFileEntry } from '../src/ideWorkspace';
 import type { QuickstartTemplate } from './AgentQuickstartPage';
-import { SetiFileIcon } from '../src/components/SetiFileIcon';
 import { usePlanTasksRealtime } from '../src/hooks/usePlanTasksRealtime';
 import { readRecentWorkspacesFromLocalStorage } from '../src/recentWorkspacesStorage';
 import type { AgentHomeTab } from '../lib/agentRoutes';
 import { AgentExamplesGalleryEmbed } from './AgentExamplesGalleryEmbed';
+import { AppLibraryGrid } from './AppLibraryGrid';
+import type { AppLibraryItem } from './AppLibraryGrid';
 
 interface WorkspaceDashboardProps {
   onOpenFolder: () => void;
@@ -247,6 +247,42 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
           r.sub.toLowerCase().includes(searchVal.toLowerCase()),
       )
     : allRecentRows;
+
+  const recentOpenedById = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const ws of recentWorkspaces) {
+      const ts =
+        ws.updated_at != null && Number.isFinite(Number(ws.updated_at))
+          ? Number(ws.updated_at) * (Number(ws.updated_at) > 1e12 ? 1 : 1000)
+          : 0;
+      m.set(ws.id, ts);
+    }
+    return m;
+  }, [recentWorkspaces]);
+
+  const workspaceLibraryItems: AppLibraryItem[] = useMemo(() => {
+    return workspaceRows.map((ws) => {
+      const ts = recentOpenedById.get(ws.id) ?? 0;
+      return {
+        id: ws.id,
+        name: ws.name,
+        subtitle: authWorkspaceId === ws.id ? 'Active workspace' : 'Workspace',
+        active: authWorkspaceId === ws.id,
+        lastViewedLabel: ts ? timeAgo(ts) : '—',
+        onOpen: () => onSwitchWorkspace(ws.id),
+      };
+    });
+  }, [workspaceRows, authWorkspaceId, recentOpenedById, onSwitchWorkspace]);
+
+  const designLibraryItems: AppLibraryItem[] = useMemo(() => {
+    return filteredRows.map((row) => ({
+      id: row.key,
+      name: row.name,
+      subtitle: row.sub,
+      lastViewedLabel: row.ts ? timeAgo(row.ts) : '—',
+      onOpen: row.onOpen,
+    }));
+  }, [filteredRows]);
 
   return (
     <div
@@ -620,122 +656,22 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
           </div>
         </div>
 
-        {/* Designs / Recent table */}
+        {/* App library — relevance-ranked cards (top 4), not a flat Designs/Workspaces table */}
         <div>
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-[14px] font-medium" style={{ color: 'var(--dashboard-text)' }}>
-              {activeNav === 'workspaces' ? 'Workspaces' : activeNav === 'systems' ? 'Design systems' : 'Designs'}
-            </p>
-
-          </div>
-
-          <div
-            className="rounded-xl overflow-hidden"
-            style={{ border: '1px solid var(--dashboard-border)', background: 'var(--dashboard-panel)' }}
-          >
-            {/* header row */}
-            <div
-              className="grid text-[11px] px-4 py-2.5"
-              style={{
-                gridTemplateColumns: '1fr 160px 100px',
-                borderBottom: '1px solid var(--dashboard-border)',
-                color: 'var(--text-muted)',
-              }}
-            >
-              <span>Name</span>
-              <span>Last viewed</span>
-              <span>Owner</span>
-            </div>
-
-            {activeNav === 'workspaces' ? (
-              workspaceRows.length > 0 ? workspaceRows.map((ws) => (
-                <div
-                  key={ws.id}
-                  role="button"
-                  tabIndex={0}
-                  className="grid items-center px-4 py-3 transition-colors cursor-pointer group"
-                  style={{
-                    gridTemplateColumns: '1fr 160px 100px',
-                    borderBottom: '1px solid var(--dashboard-border)',
-                    color: 'var(--dashboard-text)',
-                  }}
-                  onClick={() => onSwitchWorkspace(ws.id)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') onSwitchWorkspace(ws.id); }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div
-                      className="w-6 h-6 rounded flex items-center justify-center shrink-0"
-                      style={{ background: 'var(--dashboard-canvas)' }}
-                    >
-                      <Database size={12} style={{ color: 'var(--solar-cyan)' }} />
-                    </div>
-                    <span className="text-[13px] truncate">{ws.name}</span>
-                    {authWorkspaceId === ws.id && (
-                      <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full"
-                        style={{ background: 'var(--solar-cyan)', color: '#000', fontWeight: 600 }}
-                      >
-                        active
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>—</span>
-                  <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>You</span>
-                </div>
-              )) : (
-                <div className="px-4 py-8 text-center text-[12px]" style={{ color: 'var(--text-muted)' }}>
-                  No workspaces yet.
-                </div>
-              )
-            ) : (
-              filteredRows.length > 0 ? filteredRows.map((row) => (
-                <div
-                  key={row.key}
-                  role="button"
-                  tabIndex={0}
-                  className="grid items-center px-4 py-3 transition-colors cursor-pointer"
-                  style={{
-                    gridTemplateColumns: '1fr 160px 100px',
-                    borderBottom: '1px solid var(--dashboard-border)',
-                    color: 'var(--dashboard-text)',
-                    background: 'transparent',
-                  }}
-                  onClick={row.onOpen}
-                  onKeyDown={(e) => { if (e.key === 'Enter') row.onOpen(); }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div
-                      className="w-6 h-6 rounded flex items-center justify-center shrink-0"
-                      style={{ background: 'var(--dashboard-canvas)' }}
-                    >
-                      <SetiFileIcon filename={row.name} size={13} />
-                    </div>
-                    <span className="text-[13px] truncate">{row.name}</span>
-                  </div>
-                  <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
-                    {row.ts ? timeAgo(row.ts) : '—'}
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <div
-                      className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-semibold"
-                      style={{ background: 'var(--bg-hover)', color: 'var(--text-muted)' }}
-                    >
-                      S
-                    </div>
-                    <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>You</span>
-                  </div>
-                </div>
-              )) : (
-                <div className="px-4 py-8 text-center text-[12px] italic" style={{ color: 'var(--text-muted)' }}>
-                  {searchVal ? `No results for "${searchVal}"` : 'No recent work yet — switch a workspace or open a file to get started.'}
-                </div>
-              )
-            )}
-          </div>
+          <AppLibraryGrid
+            title={
+              activeNav === 'workspaces'
+                ? 'App library'
+                : activeNav === 'systems'
+                  ? 'Design systems'
+                  : 'App library'
+            }
+            items={activeNav === 'workspaces' ? workspaceLibraryItems : designLibraryItems}
+            sessionUserId={sessionUserId}
+            topN={4}
+            onCreate={activeNav === 'workspaces' ? onConnectWorkspace : undefined}
+            createLabel={activeNav === 'workspaces' ? 'Connect workspace' : undefined}
+          />
 
           {/* Quick actions footer */}
           <div className="flex items-center gap-2 mt-4">
