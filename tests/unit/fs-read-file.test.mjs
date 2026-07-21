@@ -18,6 +18,13 @@ test('buildPtyReadFileCommand produces safe head command', () => {
   assert.match(cmd, /^cd 'my-other-repo' && head -c /);
 });
 
+test('buildPtyReadFileCommand allows "." when cwd is already repo root', () => {
+  const cmd = buildPtyReadFileCommand('package.json', '.');
+  assert.ok(cmd);
+  assert.equal(isSafePtyReadFileCommand(cmd, '.'), true);
+  assert.match(cmd, /^cd '\.' && head -c /);
+});
+
 test('buildPtyReadAbsoluteCommand supports host Mac paths', () => {
   const cmd = buildPtyReadAbsoluteCommand('/Users/sam/inneranimalmedia/src/index.js');
   assert.ok(cmd);

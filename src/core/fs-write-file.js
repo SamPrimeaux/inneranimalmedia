@@ -25,7 +25,7 @@ export function buildPtyWriteFileCommand(relPath, contentBase64, repoDir = FS_SE
   if (!p || p.split('/').some((seg) => seg === '..' || seg === '.')) return null;
   if (!/^[a-zA-Z0-9_./-]+$/.test(p)) return null;
   const dir = String(repoDir || FS_SEARCH_PTY_REPO_DIR).trim();
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,120}$/.test(dir)) return null;
+  if (dir !== '.' && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,120}$/.test(dir)) return null;
   const b64 = String(contentBase64 || '').trim();
   if (!b64 || !/^[A-Za-z0-9+/=]+$/.test(b64)) return null;
   const escapedPath = escapeShellSingleQuoted(p);

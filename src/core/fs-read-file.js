@@ -22,7 +22,8 @@ export function buildPtyReadFileCommand(relPath, repoDir = FS_SEARCH_PTY_REPO_DI
   if (!p || p.split('/').some((seg) => seg === '..' || seg === '.')) return null;
   if (!/^[a-zA-Z0-9_./-]+$/.test(p)) return null;
   const dir = String(repoDir || FS_SEARCH_PTY_REPO_DIR).trim();
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,120}$/.test(dir)) return null;
+  // "." = PTY cwd is already the repo (workspace_root === repo root).
+  if (dir !== '.' && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,120}$/.test(dir)) return null;
   const escapedPath = escapeShellSingleQuoted(p);
   const escapedDir = escapeShellSingleQuoted(dir);
   return `cd ${escapedDir} && head -c ${FS_READ_MAX_BYTES} -- ${escapedPath}`;
@@ -203,14 +204,22 @@ export async function executeFsReadFile(env, params, runContext = {}) {
   }
 
   const durationMs = Math.max(0, Date.now() - started);
-  if (!output && exitCode !== 0) {
+  if (exitCode !== 0) {
     return {
+      success: false,
       error: 'pty_read_failed',
       lane,
       path: relPath,
+      content: output.slice(0, 4000),
       exit_code: exitCode,
       duration_ms: durationMs,
       ...repoMeta,
+      hint:
+        /cd: .*: No such file or directory/i.test(output)
+          ? 'PTY cwd is already the repo — nested cd into repo basename failed (fixed: use . when workspace_root === repo)'
+          : isAbsolute
+            ? 'PTY host must reach this absolute path (tunnel iam-pty on your Mac)'
+            : 'Clone or symlink repo under your PTY workspace, or open the file locally so buffer read works',
     };
   }
 

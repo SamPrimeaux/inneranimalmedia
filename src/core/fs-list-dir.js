@@ -15,7 +15,7 @@ export function buildPtyListDirCommand(relPath, recursive = false, repoDir = FS_
   const p = raw === '.' ? '.' : raw.replace(/^\.?\//, '');
   if (p !== '.' && !/^[a-zA-Z0-9_./-]+$/.test(p)) return null;
   const dir = String(repoDir || FS_SEARCH_PTY_REPO_DIR).trim();
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,120}$/.test(dir)) return null;
+  if (dir !== '.' && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,120}$/.test(dir)) return null;
   const escapedDir = escapeShellSingleQuoted(dir);
   const escapedPath = escapeShellSingleQuoted(p);
   if (recursive) {
