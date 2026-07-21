@@ -28,6 +28,13 @@ import {
   isGithubToolName,
   isTerminalToolName,
 } from './tool-capability-matchers.js';
+import {
+  inferWantsD1FromMessage,
+  shouldBypassCapabilityLaneFilter,
+  stripNegatedToolMentions,
+} from './tool-capability-lane-policy.js';
+
+export { inferWantsD1FromMessage, shouldBypassCapabilityLaneFilter, stripNegatedToolMentions };
 
 function parseJsonSafe(value, fallback = null) {
   if (value == null || value === '') return fallback;
@@ -118,17 +125,6 @@ export function inferD1ReadOnlyIntent(message) {
 
 export function inferSqlSchemaInspectionIntent(message) {
   return /\b(schema|pragma|table_info|introspect|describe\s+table|columns)\b/i.test(String(message || ''));
-}
-
-function inferWantsD1FromMessage(message, capabilityDecision) {
-  if (capabilityDecision && capabilityDecision.should_use_d1) return true;
-  const m = String(message || '');
-  // Do NOT match bare `agentsam_` — that steals github/fs catalog tool pins (agentsam_github_tree).
-  return (
-    /\b(agentsam_d1|d1_query|d1_write|d1_schema|d1\b|hyperdrive|sqlite_master|pragma\b|\bselect\b|\bcount\s*\(|\bfrom\s+\w)/i.test(
-      m,
-    ) || /\b(workflow_runs|agentsam_todo|agentsam_tools|agentsam_model_catalog)\b/i.test(m)
-  );
 }
 
 function inferGithubIntentMessage(message, capabilityDecision) {
@@ -247,6 +243,30 @@ export async function filterToolsForCapabilityDecision(env, tools, capabilityDec
         ? [{ role: 'user', content: msg }]
         : [];
   const createFlow = resolveCreateSubagentFlow(threadMessages);
+
+  // Progressive discovery owns the turn-0 menu (search_tools → hydrate). Layer B lane
+  // narrowing was built for fat profile menus; on a 6-tool core it shreds discovery:
+  // naming fs_read_file → workspace_grep drops fs_read_file; "Do not call d1" → D1-only.
+  if (shouldBypassCapabilityLaneFilter(opts, createFlow.active)) {
+    if (
+      env?.AGENT_SAM_TOOL_DEBUG === '1' ||
+      env?.AGENT_SAM_TOOL_DEBUG === true ||
+      env?.AGENT_SAM_TOOL_DEBUG === 'true' ||
+      typeof opts.emit === 'function'
+    ) {
+      const payload = {
+        phase: 'tool_capability_filter',
+        skipped: 'progressive_tool_discovery',
+        before,
+        after: before,
+      };
+      console.log('[AGENT_SAM_TOOL_DEBUG]', JSON.stringify(payload));
+      try {
+        opts.emit?.('agent_tool_debug', payload);
+      } catch (_) {}
+    }
+    return tools;
+  }
 
   const wantsD1 = inferWantsD1FromMessage(msg, d);
   const d1ReadOnly = inferD1ReadOnlyIntent(msg);

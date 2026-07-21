@@ -55,4 +55,22 @@ for (const phrase of phrases) {
   );
 }
 
+{
+  const terms = discoverySearchTerms(normalizeFindToolsInput({ query: 'r2 list prefix' }));
+  const r2Catalog = [
+    { tool_key: 'agentsam_r2_list', description: 'List R2 objects by prefix' },
+    { tool_key: 'agentsam_r2_get', description: 'Get an R2 object' },
+    { tool_key: 'agentsam_github_mcp_list_notifications', description: 'List notifications via MCP' },
+    { tool_key: 'agentsam_github_repo_list', description: 'List GitHub repositories' },
+  ];
+  const ranked = r2Catalog
+    .map((row) => ({ tool_key: row.tool_key, score: scoreCatalogToolRow(row, terms) }))
+    .sort((a, b) => b.score - a.score);
+  assert.equal(
+    ranked[0]?.tool_key,
+    'agentsam_r2_list',
+    `r2 ranked=${JSON.stringify(ranked)}`,
+  );
+}
+
 console.log('find-tools-meta-tool.test.mjs: ok');

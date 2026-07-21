@@ -626,6 +626,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       requestedMode: profile.mode,
       workspaceId,
       messages: chatMessages,
+      progressiveToolDiscovery: progressiveDiscovery,
     });
   } catch (e) {
     console.warn('[agent-controller] tool_capability_filter', e?.message ?? e);

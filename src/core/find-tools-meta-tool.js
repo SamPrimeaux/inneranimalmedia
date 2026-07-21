@@ -207,7 +207,20 @@ export function scoreCatalogToolRow(row, terms) {
   // Prefer canonical in-app tools over GitHub MCP wrappers unless the query asks for mcp.
   const wantsMcp = list.some((t) => t === 'mcp');
   if (!wantsMcp && toolKey.includes('_mcp_')) {
-    score -= 80;
+    score -= 200;
+  }
+
+  // Intent boosts: commits / r2 should surface canonical tools ahead of noisy list_* MCP keys.
+  const wantsCommits = list.some((t) => /commit/.test(t));
+  if (wantsCommits && /list_commits$/.test(toolKey)) {
+    score += 400;
+  }
+  const wantsR2 = list.some((t) => t === 'r2' || t.startsWith('r2_'));
+  if (wantsR2 && /^agentsam_r2_/.test(toolKey) && !toolKey.includes('_mcp_')) {
+    score += 300;
+  }
+  if (wantsR2 && /_r2_list$/.test(toolKey)) {
+    score += 150;
   }
 
   // Mild preference for shorter, more specific keys when scores are close.
