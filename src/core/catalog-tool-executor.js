@@ -2315,7 +2315,17 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       if (dispatcher === 'fs_read_file') {
         const { executeFsReadFile } = await import('./fs-read-file.js');
         const out = await executeFsReadFile(env, params, runContext);
-        result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+        const failed =
+          !!out?.error ||
+          out?.success === false ||
+          (out?.exit_code != null && Number(out.exit_code) !== 0);
+        result = failed
+          ? {
+              ok: false,
+              error: String(out?.error || out?.message || 'fs_read_failed'),
+              body: out,
+            }
+          : { ok: true, body: out };
         break;
       }
       if (dispatcher === 'fs_write_file') {

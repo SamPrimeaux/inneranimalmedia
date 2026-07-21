@@ -5,7 +5,11 @@
 export const FS_SEARCH_MAX_MATCHES = 50;
 export const FS_SEARCH_MAX_OUTPUT_BYTES = 64_000;
 export const FS_SEARCH_MAX_QUERY_LEN = 400;
-export const FS_SEARCH_PTY_REPO_DIR = 'inneranimalmedia';
+/**
+ * Relative dir for `cd` before rg/head. PTY control-plane already sets cwd to
+ * workspace_root / vm_workspace_root — use "." (never a hardcoded repo basename).
+ */
+export const FS_SEARCH_PTY_REPO_DIR = '.';
 
 /**
  * @param {string} value
@@ -22,7 +26,8 @@ export function isSafeRgSearchCommand(cmd) {
   if (!c || c.length > 12_000) return false;
   if (/[\r\n;|`$<>]/.test(c) || /\|/.test(c)) return false;
   if (/(?<![&])&(?![&])/.test(c)) return false;
-  if (!/^cd inneranimalmedia && rg --json\b/.test(c)) return false;
+  // PTY cwd is already the repo — allow cd '.' / cd . or bare rg.
+  if (!/^(?:cd (?:'\.'|\.) && )?rg --json\b/.test(c)) return false;
   return true;
 }
 
@@ -37,7 +42,12 @@ export function buildRgSearchCommand(query, pathArg = '.', opts = {}) {
   const maxCount = Math.min(50, Math.max(1, Number(opts.maxCount) || FS_SEARCH_MAX_MATCHES));
   const sub = String(pathArg || '.').trim() || '.';
   if (sub.includes('..') || /^[\/~]/.test(sub)) return null;
-  return `cd ${FS_SEARCH_PTY_REPO_DIR} && rg --json --max-count ${maxCount} --max-columns 200 --glob '!.git/*' -e ${escapeShellSingleQuoted(q)} ${escapeShellSingleQuoted(sub)}`;
+  const dir = String(FS_SEARCH_PTY_REPO_DIR || '.').trim() || '.';
+  if (dir !== '.' && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,120}$/.test(dir)) return null;
+  const rg =
+    `rg --json --max-count ${maxCount} --max-columns 200 --glob '!.git/*' -e ${escapeShellSingleQuoted(q)} ${escapeShellSingleQuoted(sub)}`;
+  if (dir === '.') return rg;
+  return `cd ${escapeShellSingleQuoted(dir)} && ${rg}`;
 }
 
 /**

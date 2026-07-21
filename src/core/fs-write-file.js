@@ -24,14 +24,15 @@ export function buildPtyWriteFileCommand(relPath, contentBase64, repoDir = FS_SE
   const p = raw.replace(/^\.?\//, '');
   if (!p || p.split('/').some((seg) => seg === '..' || seg === '.')) return null;
   if (!/^[a-zA-Z0-9_./-]+$/.test(p)) return null;
-  const dir = String(repoDir || FS_SEARCH_PTY_REPO_DIR).trim();
+  const dir = String(repoDir || FS_SEARCH_PTY_REPO_DIR || '.').trim() || '.';
   if (dir !== '.' && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,120}$/.test(dir)) return null;
   const b64 = String(contentBase64 || '').trim();
   if (!b64 || !/^[A-Za-z0-9+/=]+$/.test(b64)) return null;
   const escapedPath = escapeShellSingleQuoted(p);
-  const escapedDir = escapeShellSingleQuoted(dir);
   const escapedB64 = escapeShellSingleQuoted(b64);
-  return `cd ${escapedDir} && echo ${escapedB64} | base64 -d > ${escapedPath}`;
+  const body = `echo ${escapedB64} | base64 -d > ${escapedPath}`;
+  if (dir === '.') return body;
+  return `cd ${escapeShellSingleQuoted(dir)} && ${body}`;
 }
 
 /**
@@ -43,9 +44,13 @@ export function isSafePtyWriteFileCommand(cmd, repoDir = FS_SEARCH_PTY_REPO_DIR)
   if (!c || c.length > 3200) return false;
   if (/[\r\n;|`$<>]/.test(c) || /\|/.test(c)) return false;
   if (/(?<![&])&(?![&])/.test(c)) return false;
-  const dir = String(repoDir || FS_SEARCH_PTY_REPO_DIR).trim();
+  if (!c.includes(' | base64 -d > ')) return false;
+  const dir = String(repoDir || FS_SEARCH_PTY_REPO_DIR || '.').trim() || '.';
+  if (dir === '.') {
+    return c.startsWith('echo ');
+  }
   const prefix = `cd ${escapeShellSingleQuoted(dir)} && echo `;
-  return c.startsWith(prefix) && c.includes(' | base64 -d > ');
+  return c.startsWith(prefix);
 }
 
 /**
@@ -118,10 +123,17 @@ export async function executeFsWriteFile(env, params, runContext = {}) {
   if (!repo?.workspaceRoot) {
     return { error: 'workspace_repo_root_unavailable', lane: 'workspace_write' };
   }
-  const repoDir =
+  const repoDirRaw =
     params.repo_dir != null && String(params.repo_dir).trim()
       ? safePtyRepoDirName(String(params.repo_dir).trim(), repo.workspaceRoot)
       : safePtyRepoDirName(repo.repoRoot, repo.workspaceRoot);
+  const wsTail =
+    String(repo.workspaceRoot || '')
+      .split(/[/\\]/)
+      .filter(Boolean)
+      .pop() || '';
+  const repoDir =
+    !repoDirRaw || repoDirRaw === wsTail || repoDirRaw === 'inneranimalmedia' ? '.' : repoDirRaw;
 
   const contentBase64 = utf8ToBase64(content);
   const command = buildPtyWriteFileCommand(relPath, contentBase64, repoDir);

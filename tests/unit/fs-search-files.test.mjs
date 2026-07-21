@@ -10,6 +10,7 @@ test('buildRgSearchCommand produces safe command', () => {
   assert.ok(cmd);
   assert.equal(isSafeRgSearchCommand(cmd), true);
   assert.match(cmd, /rg --json/);
+  assert.equal(cmd.includes('cd inneranimalmedia'), false);
 });
 
 test('parseRgJsonMatches extracts match rows', () => {

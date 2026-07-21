@@ -3,7 +3,6 @@
  * Built once per /api/agent/chat after session auth — tools must not re-infer tenant/workspace.
  */
 import { loadAgentSamUserPolicy } from './agent-policy.js';
-import { FS_SEARCH_PTY_REPO_DIR } from './fs-search-rg-parse.js';
 
 /**
  * @param {any} env
@@ -37,6 +36,21 @@ export async function buildAgentChatResolvedContext(env, input) {
         ? await loadAgentSamUserPolicy(env, userId, workspaceId)
         : null;
 
+  // Prefer real workspace_settings.workspace_root — never inject a hardcoded basename
+  // (legacy FS_SEARCH_PTY_REPO_DIR='inneranimalmedia' caused nested PTY cd failures).
+  let workspaceRoot = null;
+  try {
+    const { loadWorkspaceSettingsJson } = await import('./pty-workspace-paths.js');
+    const settings = workspaceId ? await loadWorkspaceSettingsJson(env, workspaceId) : null;
+    const root =
+      settings && typeof settings.workspace_root === 'string'
+        ? settings.workspace_root.trim()
+        : '';
+    workspaceRoot = root || null;
+  } catch {
+    workspaceRoot = null;
+  }
+
   return {
     user_id: userId,
     tenant_id: tenantId || null,
@@ -46,7 +60,7 @@ export async function buildAgentChatResolvedContext(env, input) {
     session_id: sessionId,
     policy,
     can_run_pty: Number(policy?.can_run_pty) === 1,
-    workspace_root: FS_SEARCH_PTY_REPO_DIR,
+    workspace_root: workspaceRoot,
   };
 }
 

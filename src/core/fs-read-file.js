@@ -21,10 +21,14 @@ export function buildPtyReadFileCommand(relPath, repoDir = FS_SEARCH_PTY_REPO_DI
   const p = raw.replace(/^\.?\//, '');
   if (!p || p.split('/').some((seg) => seg === '..' || seg === '.')) return null;
   if (!/^[a-zA-Z0-9_./-]+$/.test(p)) return null;
-  const dir = String(repoDir || FS_SEARCH_PTY_REPO_DIR).trim();
-  // "." = PTY cwd is already the repo (workspace_root === repo root).
+  const dir = String(repoDir || FS_SEARCH_PTY_REPO_DIR || '.').trim() || '.';
+  // "." = PTY cwd is already the repo (control-plane sets workspace/vm root).
   if (dir !== '.' && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,120}$/.test(dir)) return null;
   const escapedPath = escapeShellSingleQuoted(p);
+  if (dir === '.') {
+    // No nested cd — avoids `cd: inneranimalmedia: No such file or directory`.
+    return `head -c ${FS_READ_MAX_BYTES} -- ${escapedPath}`;
+  }
   const escapedDir = escapeShellSingleQuoted(dir);
   return `cd ${escapedDir} && head -c ${FS_READ_MAX_BYTES} -- ${escapedPath}`;
 }
@@ -50,7 +54,7 @@ export function isSafePtyReadFileCommand(cmd, repoDir = FS_SEARCH_PTY_REPO_DIR) 
   if (c.startsWith('head -c ')) {
     return !/[\r\n;|`$<>|&]/.test(c) && c.length < 2400;
   }
-  const dir = String(repoDir || FS_SEARCH_PTY_REPO_DIR).trim();
+  const dir = String(repoDir || FS_SEARCH_PTY_REPO_DIR || '.').trim() || '.';
   if (!c || c.length > 2400) return false;
   if (/[\r\n;|`$<>]/.test(c) || /\|/.test(c)) return false;
   if (/(?<![&])&(?![&])/.test(c)) return false;
@@ -161,10 +165,20 @@ export async function executeFsReadFile(env, params, runContext = {}) {
     if (!repo?.workspaceRoot) {
       return { error: 'workspace_repo_root_unavailable', lane: 'workspace_read' };
     }
-    const repoDir =
+    // PTY control-plane already cds to workspace/vm root. Nested `cd <basename>`
+    // fails when cwd is already the repo (live proof: equal roots + repo_dir basename).
+    let repoDir =
       params.repo_dir != null && String(params.repo_dir).trim()
         ? safePtyRepoDirName(String(params.repo_dir).trim(), repo.workspaceRoot)
         : safePtyRepoDirName(repo.repoRoot, repo.workspaceRoot);
+    const wsTail =
+      String(repo.workspaceRoot || '')
+        .split(/[/\\]/)
+        .filter(Boolean)
+        .pop() || '';
+    if (!repoDir || repoDir === wsTail || repoDir === 'inneranimalmedia') {
+      repoDir = '.';
+    }
     command = buildPtyReadFileCommand(relPath, repoDir);
     if (!command || !isSafePtyReadFileCommand(command, repoDir)) {
       return { error: 'unsafe_or_invalid_path', lane: 'workspace_read', path: relPath };
@@ -190,7 +204,7 @@ export async function executeFsReadFile(env, params, runContext = {}) {
       cwd: execCwd,
     });
     output = String(res?.output || '');
-    exitCode = Number(res?.exitCode ?? 0);
+    exitCode = Number(res?.exitCode ?? res?.exit_code ?? 0);
   } catch (e) {
     return {
       error: String(e?.message || e).slice(0, 500),
@@ -204,19 +218,20 @@ export async function executeFsReadFile(env, params, runContext = {}) {
   }
 
   const durationMs = Math.max(0, Date.now() - started);
-  if (exitCode !== 0) {
+  const nestedCdFailed = /cd: .*: No such file or directory/i.test(output);
+  if (exitCode !== 0 || nestedCdFailed) {
     return {
       success: false,
-      error: 'pty_read_failed',
+      error: nestedCdFailed ? 'pty_nested_cd_failed' : 'pty_read_failed',
       lane,
       path: relPath,
       content: output.slice(0, 4000),
-      exit_code: exitCode,
+      exit_code: nestedCdFailed && exitCode === 0 ? 1 : exitCode,
       duration_ms: durationMs,
       ...repoMeta,
       hint:
-        /cd: .*: No such file or directory/i.test(output)
-          ? 'PTY cwd is already the repo — nested cd into repo basename failed (fixed: use . when workspace_root === repo)'
+        nestedCdFailed
+          ? 'PTY cwd is already the repo — do not cd into workspace basename'
           : isAbsolute
             ? 'PTY host must reach this absolute path (tunnel iam-pty on your Mac)'
             : 'Clone or symlink repo under your PTY workspace, or open the file locally so buffer read works',

@@ -14,14 +14,14 @@ export function buildPtyListDirCommand(relPath, recursive = false, repoDir = FS_
   if (/\.\./.test(raw)) return null;
   const p = raw === '.' ? '.' : raw.replace(/^\.?\//, '');
   if (p !== '.' && !/^[a-zA-Z0-9_./-]+$/.test(p)) return null;
-  const dir = String(repoDir || FS_SEARCH_PTY_REPO_DIR).trim();
+  const dir = String(repoDir || FS_SEARCH_PTY_REPO_DIR || '.').trim() || '.';
   if (dir !== '.' && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,120}$/.test(dir)) return null;
-  const escapedDir = escapeShellSingleQuoted(dir);
   const escapedPath = escapeShellSingleQuoted(p);
-  if (recursive) {
-    return `cd ${escapedDir} && find ${escapedPath} -mindepth 1 -maxdepth 4 -print 2>/dev/null | head -n 500`;
-  }
-  return `cd ${escapedDir} && ls -la ${escapedPath} 2>/dev/null | head -n 200`;
+  const body = recursive
+    ? `find ${escapedPath} -mindepth 1 -maxdepth 4 -print 2>/dev/null | head -n 500`
+    : `ls -la ${escapedPath} 2>/dev/null | head -n 200`;
+  if (dir === '.') return body;
+  return `cd ${escapeShellSingleQuoted(dir)} && ${body}`;
 }
 
 /**
@@ -66,10 +66,17 @@ export async function executeFsListDir(env, params, runContext = {}) {
   if (!repo?.workspaceRoot) {
     return { error: 'workspace_repo_root_unavailable', lane: 'workspace_list' };
   }
-  const repoDir =
+  const repoDirRaw =
     params.repo_dir != null && String(params.repo_dir).trim()
       ? safePtyRepoDirName(String(params.repo_dir).trim(), repo.workspaceRoot)
       : safePtyRepoDirName(repo.repoRoot, repo.workspaceRoot);
+  const wsTail =
+    String(repo.workspaceRoot || '')
+      .split(/[/\\]/)
+      .filter(Boolean)
+      .pop() || '';
+  const repoDir =
+    !repoDirRaw || repoDirRaw === wsTail || repoDirRaw === 'inneranimalmedia' ? '.' : repoDirRaw;
 
   const command = buildPtyListDirCommand(relPath, recursive, repoDir);
   if (!command) {

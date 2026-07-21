@@ -22,7 +22,8 @@ test('buildPtyReadFileCommand allows "." when cwd is already repo root', () => {
   const cmd = buildPtyReadFileCommand('package.json', '.');
   assert.ok(cmd);
   assert.equal(isSafePtyReadFileCommand(cmd, '.'), true);
-  assert.match(cmd, /^cd '\.' && head -c /);
+  assert.match(cmd, /^head -c /);
+  assert.equal(cmd.includes('cd '), false);
 });
 
 test('buildPtyReadAbsoluteCommand supports host Mac paths', () => {
