@@ -19,7 +19,8 @@ Usage:
   python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk 1
   python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk 2
   python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk 3            # dry-run
-  python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk 3 --commit   # write D1
+  python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk 3 --commit   # full replace write
+  python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk 3 --commit --resume  # after timeout
   python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk all
 
 Artifacts land in artifacts/ast_rag_phase1/
@@ -131,33 +132,61 @@ def require_cf_creds() -> tuple[str, str]:
     return account, token
 
 
-def d1_query(sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
+def d1_request(body: dict[str, Any], *, timeout: int = 180, attempts: int = 6) -> dict[str, Any]:
     account, token = require_cf_creds()
     db_id = (os.environ.get("CF_D1_DATABASE_ID") or D1_DB_ID).strip()
     url = f"https://api.cloudflare.com/client/v4/accounts/{account}/d1/database/{db_id}/query"
-    body = json.dumps({"sql": sql, "params": params or []}).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=body,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", errors="replace")[:800]
-        raise RuntimeError(f"D1 HTTP {e.code}: {detail}") from e
-    if not payload.get("success"):
-        raise RuntimeError(f"D1 error: {payload.get('errors')}")
+    raw = json.dumps(body).encode("utf-8")
+    last_err: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        req = urllib.request.Request(
+            url,
+            data=raw,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+            if not payload.get("success"):
+                raise RuntimeError(f"D1 error: {payload.get('errors')}")
+            return payload
+        except (TimeoutError, urllib.error.URLError, RuntimeError) as e:
+            last_err = e
+            if attempt >= attempts:
+                break
+            sleep_s = min(30, 1.5**attempt)
+            warn(f"D1 retry {attempt}/{attempts} after {type(e).__name__}: {e} — sleep {sleep_s:.1f}s")
+            time.sleep(sleep_s)
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="replace")[:800]
+            last_err = RuntimeError(f"D1 HTTP {e.code}: {detail}")
+            if e.code in (429, 500, 502, 503, 504) and attempt < attempts:
+                sleep_s = min(30, 1.5**attempt)
+                warn(f"D1 HTTP {e.code} retry {attempt}/{attempts} — sleep {sleep_s:.1f}s")
+                time.sleep(sleep_s)
+                continue
+            raise last_err from e
+    raise RuntimeError(f"D1 failed after {attempts} attempts: {last_err}")
+
+
+def d1_query(sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
+    payload = d1_request({"sql": sql, "params": params or []})
     results = payload.get("result") or []
     if not results:
         return []
     first = results[0] if isinstance(results, list) else results
     return list(first.get("results") or [])
+
+
+def d1_batch(statements: list[dict[str, Any]]) -> None:
+    """Run many statements in one HTTP round-trip (D1 batch body)."""
+    if not statements:
+        return
+    d1_request({"batch": statements}, timeout=240)
 
 
 def ok(msg: str) -> None:
@@ -755,7 +784,62 @@ def _batched(rows: list[dict[str, Any]], size: int) -> list[list[dict[str, Any]]
     return [rows[i : i + size] for i in range(0, len(rows), size)]
 
 
-def chunk3_upsert(commit: bool, repos_filter: list[str] | None) -> int:
+NODE_INSERT_SQL = (
+    "INSERT OR REPLACE INTO codebase_ast_nodes ("
+    "id, workspace_id, repo, file_path, node_type, node_name, signature, docstring, "
+    "line_start, line_end, is_exported, is_default_export, language, file_hash, index_job_id"
+    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+)
+EDGE_INSERT_SQL = (
+    "INSERT OR IGNORE INTO codebase_dep_edges ("
+    "id, workspace_id, repo, source_node_id, target_node_id, edge_type, "
+    "source_file, target_file, is_external, index_job_id"
+    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+)
+
+
+def _node_params(n: dict[str, Any]) -> list[Any]:
+    return [
+        n["id"],
+        n["workspace_id"],
+        n["repo"],
+        n["file_path"],
+        n["node_type"],
+        n["node_name"],
+        n.get("signature"),
+        n.get("docstring"),
+        n["line_start"],
+        n["line_end"],
+        n.get("is_exported", 0),
+        n.get("is_default_export", 0),
+        n["language"],
+        n.get("file_hash"),
+        n.get("index_job_id") or INDEX_JOB_ID,
+    ]
+
+
+def _edge_params(e: dict[str, Any]) -> list[Any]:
+    return [
+        e["id"],
+        e["workspace_id"],
+        e["repo"],
+        e["source_node_id"],
+        e["target_node_id"],
+        e["edge_type"],
+        e["source_file"],
+        e["target_file"],
+        e.get("is_external", 0),
+        e.get("index_job_id") or INDEX_JOB_ID,
+    ]
+
+
+def chunk3_upsert(
+    commit: bool,
+    repos_filter: list[str] | None,
+    *,
+    resume: bool = False,
+    batch_size: int = 80,
+) -> int:
     print("\n══ CHUNK 3 — upsert to D1 ══")
     parses = read_json("chunk1_all_parses.json")
     edges = read_json("chunk2_edges.json")
@@ -772,6 +856,7 @@ def chunk3_upsert(commit: bool, repos_filter: list[str] | None) -> int:
         {"node_count": len(nodes), "edge_count": len(edges), "sample_nodes": nodes[:5], "sample_edges": edges[:5]},
     )
     ok(f"payload: {len(nodes)} nodes, {len(edges)} edges")
+    print(f"  mode: {'resume (no wipe)' if resume else 'full replace'} | batch_size={batch_size}")
 
     if not commit:
         warn("dry-run only — pass --commit to write D1")
@@ -779,74 +864,30 @@ def chunk3_upsert(commit: bool, repos_filter: list[str] | None) -> int:
         return 0
 
     repos = sorted({n["repo"] for n in nodes})
-    for repo in repos:
-        d1_query(
-            "DELETE FROM codebase_dep_edges WHERE workspace_id = ? AND repo = ?",
-            [WORKSPACE_ID, repo],
-        )
-        d1_query(
-            "DELETE FROM codebase_ast_nodes WHERE workspace_id = ? AND repo = ?",
-            [WORKSPACE_ID, repo],
-        )
-        ok(f"cleared prior rows for {repo}")
-
-    insert_node_sql = (
-        "INSERT INTO codebase_ast_nodes ("
-        "id, workspace_id, repo, file_path, node_type, node_name, signature, docstring, "
-        "line_start, line_end, is_exported, is_default_export, language, file_hash, index_job_id"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    )
-    inserted_n = 0
-    for batch in _batched(nodes, 25):
-        for n in batch:
+    if not resume:
+        for repo in repos:
             d1_query(
-                insert_node_sql,
-                [
-                    n["id"],
-                    n["workspace_id"],
-                    n["repo"],
-                    n["file_path"],
-                    n["node_type"],
-                    n["node_name"],
-                    n.get("signature"),
-                    n.get("docstring"),
-                    n["line_start"],
-                    n["line_end"],
-                    n.get("is_exported", 0),
-                    n.get("is_default_export", 0),
-                    n["language"],
-                    n.get("file_hash"),
-                    n.get("index_job_id") or INDEX_JOB_ID,
-                ],
+                "DELETE FROM codebase_dep_edges WHERE workspace_id = ? AND repo = ?",
+                [WORKSPACE_ID, repo],
             )
-            inserted_n += 1
+            d1_query(
+                "DELETE FROM codebase_ast_nodes WHERE workspace_id = ? AND repo = ?",
+                [WORKSPACE_ID, repo],
+            )
+            ok(f"cleared prior rows for {repo}")
+    else:
+        warn("resume mode — keeping existing rows; INSERT OR REPLACE / OR IGNORE")
+
+    inserted_n = 0
+    for batch in _batched(nodes, batch_size):
+        d1_batch([{"sql": NODE_INSERT_SQL, "params": _node_params(n)} for n in batch])
+        inserted_n += len(batch)
         print(f"    nodes {inserted_n}/{len(nodes)}")
 
-    insert_edge_sql = (
-        "INSERT OR IGNORE INTO codebase_dep_edges ("
-        "id, workspace_id, repo, source_node_id, target_node_id, edge_type, "
-        "source_file, target_file, is_external, index_job_id"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    )
     inserted_e = 0
-    for batch in _batched(edges, 25):
-        for e in batch:
-            d1_query(
-                insert_edge_sql,
-                [
-                    e["id"],
-                    e["workspace_id"],
-                    e["repo"],
-                    e["source_node_id"],
-                    e["target_node_id"],
-                    e["edge_type"],
-                    e["source_file"],
-                    e["target_file"],
-                    e.get("is_external", 0),
-                    e.get("index_job_id") or INDEX_JOB_ID,
-                ],
-            )
-            inserted_e += 1
+    for batch in _batched(edges, batch_size):
+        d1_batch([{"sql": EDGE_INSERT_SQL, "params": _edge_params(e)} for e in batch])
+        inserted_e += len(batch)
         print(f"    edges {inserted_e}/{len(edges)}")
 
     counts = d1_query(
@@ -854,7 +895,10 @@ def chunk3_upsert(commit: bool, repos_filter: list[str] | None) -> int:
         "(SELECT COUNT(*) FROM codebase_dep_edges WHERE workspace_id = ?) AS edges",
         [WORKSPACE_ID, WORKSPACE_ID],
     )[0]
-    write_json("chunk3_result.json", {"inserted_nodes": inserted_n, "inserted_edges": inserted_e, "d1": counts})
+    write_json(
+        "chunk3_result.json",
+        {"inserted_nodes": inserted_n, "inserted_edges": inserted_e, "d1": counts, "resume": resume},
+    )
     ok(f"D1 now nodes={counts['nodes']} edges={counts['edges']}")
     print("Chunk 3 commit done")
     return 0
@@ -876,6 +920,17 @@ def main() -> int:
     ap.add_argument("--mcp-repo", type=Path, default=DEFAULT_MCP_REPO)
     ap.add_argument("--max-files", type=int, default=None, help="Cap files per repo (smoke)")
     ap.add_argument("--commit", action="store_true", help="Chunk 3: actually write D1")
+    ap.add_argument(
+        "--resume",
+        action="store_true",
+        help="Chunk 3: do not wipe tables; INSERT OR REPLACE nodes / OR IGNORE edges",
+    )
+    ap.add_argument(
+        "--batch-size",
+        type=int,
+        default=80,
+        help="Chunk 3: statements per D1 HTTP batch (default 80)",
+    )
     ap.add_argument(
         "--repo-filter",
         action="append",
@@ -906,7 +961,15 @@ def main() -> int:
     if chunk in ("2", "all") and rc == 0:
         rc = chunk2_edges() or rc
     if chunk in ("3", "all") and rc == 0:
-        rc = chunk3_upsert(args.commit, args.repo_filter) or rc
+        rc = (
+            chunk3_upsert(
+                args.commit,
+                args.repo_filter,
+                resume=args.resume,
+                batch_size=max(1, args.batch_size),
+            )
+            or rc
+        )
     return rc
 
 
