@@ -47,3 +47,21 @@ test('formatExplicitCatalogToolResult reports fs_read failures clearly', () => {
   assert.match(text, /Could not read/);
   assert.match(text, /No such file/);
 });
+
+test('formatExplicitCatalogToolResult expands github 404 with repo hint', () => {
+  const text = formatExplicitCatalogToolResult('agentsam_github_list_commits', {
+    ok: false,
+    error: 'github_repo_not_found',
+    body: {
+      status: 404,
+      repo: 'SamPrimeaux/companionsofcaddo',
+      user_message:
+        'GitHub could not find `SamPrimeaux/companionsofcaddo` (404). Check the owner/name spelling, or call agentsam_github_repo_list to see repos you can access.',
+      message: 'GitHub GET /repos/SamPrimeaux/companionsofcaddo/commits → 404: Not Found',
+    },
+  });
+  assert.match(text, /companionsofcaddo/);
+  assert.match(text, /agentsam_github_repo_list/);
+  assert.notEqual(text.trim(), 'github_api_error');
+  assert.notEqual(text.trim(), 'github_repo_not_found');
+});

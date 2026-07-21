@@ -205,13 +205,22 @@ export async function resolveMoviemodeRepoRootForSession(env, { tenantId, userId
 
   const candidates = [];
 
+  // Prefer settings roots first — terminal_sessions.cwd is often the GCP twin
+  // (/home/…/repo) while workspace_root is the Mac path (/Users/…/repo). Putting
+  // session cwd first made safePtyRepoDirName emit `cd <basename>` against a cwd
+  // that was already the repo.
+  if (workspaceRoot) candidates.push({ path: workspaceRoot, source: 'workspace_settings.workspace_root' });
+  const vmRoot =
+    settings && typeof settings.vm_workspace_root === 'string'
+      ? settings.vm_workspace_root.trim()
+      : '';
+  if (vmRoot) candidates.push({ path: vmRoot, source: 'workspace_settings.vm_workspace_root' });
+
   const tok = await assertWorkspaceTokenForPty(env, wid, tenantId);
   if (tok.ok && tok.repo_path) candidates.push({ path: tok.repo_path, source: 'mcp_workspace_tokens.repo_path' });
 
   const sessionCwd = await loadActiveTerminalSessionCwd(env, uid, wid);
   if (sessionCwd) candidates.push({ path: sessionCwd, source: 'terminal_sessions.cwd' });
-
-  if (workspaceRoot) candidates.push({ path: workspaceRoot, source: 'workspace_settings.workspace_root' });
 
   for (const c of candidates) {
     const repoRoot = deriveMoviemodeRepoRootFromCandidate(c.path, workspaceRoot);

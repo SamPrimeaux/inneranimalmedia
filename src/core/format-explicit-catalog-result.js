@@ -48,6 +48,45 @@ function formatCommitsMarkdown(commits, meta = {}) {
 }
 
 /**
+ * Prefer human-readable GitHub failures (404 / rate limit) over bare error codes.
+ * @param {Record<string, unknown>} parsed
+ * @param {string} actionLabel
+ */
+function formatGithubToolErrorMarkdown(parsed, actionLabel = 'request') {
+  const body =
+    parsed.body && typeof parsed.body === 'object' && !Array.isArray(parsed.body)
+      ? /** @type {Record<string, unknown>} */ (parsed.body)
+      : parsed;
+  const status = Number(body.status ?? parsed.status ?? 0) || null;
+  const code = String(parsed.error || body.error || 'github_api_error');
+  const userMsg =
+    (body.user_message != null && String(body.user_message).trim()) ||
+    (parsed.user_message != null && String(parsed.user_message).trim()) ||
+    '';
+  const detail =
+    userMsg ||
+    (body.message != null ? String(body.message).trim() : '') ||
+    (parsed.message != null ? String(parsed.message).trim() : '') ||
+    code;
+  const repo =
+    (body.repo != null && String(body.repo).trim()) ||
+    (parsed.repo != null && String(parsed.repo).trim()) ||
+    '';
+  const lines = [`GitHub ${actionLabel} failed${repo ? ` for **${repo}**` : ''}.`];
+  if (status === 404 || code === 'github_repo_not_found') {
+    lines.push('');
+    lines.push(detail.includes('404') || detail.includes('not find') ? detail : `Repository not found (404). ${detail}`);
+    lines.push('');
+    lines.push('Try checking the owner/name spelling, or call `agentsam_github_repo_list` for similar repos.');
+  } else {
+    lines.push('');
+    lines.push(detail);
+    if (code && detail !== code) lines.push(`\n_(${code}${status ? `, HTTP ${status}` : ''})_`);
+  }
+  return lines.join('\n');
+}
+
+/**
  * @param {Record<string, unknown>} parsed
  */
 function formatFsReadMarkdown(parsed) {
@@ -88,12 +127,16 @@ export function formatExplicitCatalogToolResult(toolName, toolOutput) {
 
   if (name === 'agentsam_github_list_commits' && parsed) {
     if (parsed.ok === false || parsed.error) {
-      return `GitHub list commits failed: ${String(parsed.error || parsed.message || 'unknown')}`;
+      return formatGithubToolErrorMarkdown(parsed, 'list commits');
     }
     return formatCommitsMarkdown(parsed.commits, {
       repo: parsed.repo != null ? String(parsed.repo) : undefined,
       ref: parsed.ref != null ? String(parsed.ref) : undefined,
     });
+  }
+
+  if (name.startsWith('agentsam_github_') && parsed && (parsed.ok === false || parsed.error)) {
+    return formatGithubToolErrorMarkdown(parsed, name.replace(/^agentsam_github_/, ''));
   }
 
   if (name === 'fs_read_file' && parsed) {
@@ -154,5 +197,14 @@ export function formatExplicitCatalogToolResult(toolName, toolOutput) {
 
   const raw = typeof toolOutput === 'string' ? toolOutput.trim() : String(toolOutput ?? '');
   if (!raw) return `Ran \`${name || 'tool'}\`.`;
+  if (name.startsWith('agentsam_github_') && /github_|not_found|api_error|404/i.test(raw)) {
+    return [
+      'GitHub request failed.',
+      '',
+      raw.length > 2000 ? `${raw.slice(0, 2000)}…` : raw,
+      '',
+      'If the repo name may be wrong, call `agentsam_github_repo_list` to find a close match.',
+    ].join('\n');
+  }
   return raw.length > 12000 ? `${raw.slice(0, 12000)}…` : raw;
 }

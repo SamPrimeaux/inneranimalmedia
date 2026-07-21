@@ -20,3 +20,21 @@ test('safePtyRepoDirName returns "." for bare basename matching workspace tail',
     '.',
   );
 });
+
+test('safePtyRepoDirName returns "." for Mac vs Linux same-repo tails', () => {
+  assert.equal(
+    safePtyRepoDirName('/home/samprimeaux/inneranimalmedia', '/Users/samprimeaux/inneranimalmedia'),
+    '.',
+  );
+  assert.equal(
+    safePtyRepoDirName('/Users/samprimeaux/inneranimalmedia', '/home/samprimeaux/inneranimalmedia'),
+    '.',
+  );
+});
+
+test('safePtyRepoDirName still returns child when workspace is true parent', () => {
+  assert.equal(
+    safePtyRepoDirName('/home/samprimeaux/inneranimalmedia', '/home/samprimeaux'),
+    'inneranimalmedia',
+  );
+});

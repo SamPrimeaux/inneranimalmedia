@@ -127,14 +127,23 @@ function ghFailureFromResponse(res, json, method, path) {
     (json && typeof json === 'object' ? JSON.stringify(json).slice(0, 200) : String(json || ''));
   const rateLimited =
     res.status === 403 && /rate limit exceeded|secondary rate limit/i.test(String(msg));
-  const user_message = rateLimited
-    ? 'GitHub Search API rate limit exceeded (code search: 10/min). Scope with repo:owner/name, prefer github_get_tree or github_list_commits, or retry after rate_limit_reset.'
-    : res.status === 403 && /Resource not accessible by integration/i.test(String(msg))
-      ? 'GitHub token lacks scope for this search. Reconnect GitHub OAuth with repo scope.'
-      : undefined;
+  const notFound = res.status === 404;
+  let user_message;
+  if (rateLimited) {
+    user_message =
+      'GitHub Search API rate limit exceeded (code search: 10/min). Scope with repo:owner/name, prefer github_get_tree or github_list_commits, or retry after rate_limit_reset.';
+  } else if (res.status === 403 && /Resource not accessible by integration/i.test(String(msg))) {
+    user_message = 'GitHub token lacks scope for this search. Reconnect GitHub OAuth with repo scope.';
+  } else if (notFound) {
+    const repoMatch = String(path || '').match(/\/repos\/([^/]+\/[^/]+)/);
+    const repoHint = repoMatch ? repoMatch[1] : null;
+    user_message = repoHint
+      ? `GitHub could not find \`${repoHint}\` (404). Check the owner/name spelling, or call agentsam_github_repo_list to see repos you can access.`
+      : 'GitHub returned 404 Not Found. Check the owner/name spelling, or call agentsam_github_repo_list.';
+  }
   return {
     success: false,
-    error: rateLimited ? 'github_rate_limit_exceeded' : 'github_api_error',
+    error: rateLimited ? 'github_rate_limit_exceeded' : notFound ? 'github_repo_not_found' : 'github_api_error',
     status: res.status,
     message: `GitHub ${method} ${path} → ${res.status}: ${msg}`,
     user_message,
@@ -956,7 +965,7 @@ export const handlers = {
     qs.set('per_page', String(Math.min(limit, 100)));
     if (ref) qs.set('sha', ref);
     const res = await ghJson(t.token, 'GET', `/repos/${repo}/commits?${qs.toString()}`, null);
-    if (res?.success === false) return { ...res, ...toolMeta(params) };
+    if (res?.success === false) return { ...res, repo, ref, ...toolMeta(params) };
     const rows = Array.isArray(res.data) ? res.data.slice(0, limit) : [];
     const commits = rows.map((row) => ({
       sha: row?.sha ?? null,

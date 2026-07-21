@@ -768,8 +768,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         });
         explicitCatalogPreinvoked = true;
         // Named-tool prompts — keep deterministic preinvoke (reliability), but present a
-        // readable summary. Dumping raw JSON as the assistant message looks broken in chat.
-        if (!execErr && /^agentsam_github_|^fs_/.test(preName)) {
+        // readable summary for success and failure (never dump bare error codes).
+        if (/^agentsam_github_|^fs_/.test(preName)) {
           const { formatExplicitCatalogToolResult } = await import(
             './format-explicit-catalog-result.js'
           );
@@ -781,6 +781,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             turns: 0,
             code: 'explicit_catalog_preinvoke_complete',
             explicit_catalog_tool: preName,
+            ok: !execErr,
           });
           abortScope.dispose();
           return {

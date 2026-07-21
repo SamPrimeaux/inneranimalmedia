@@ -17,6 +17,10 @@ export async function assertWorkspaceTokenForPty(env, workspaceId, tenantId) {
       `SELECT repo_path FROM mcp_workspace_tokens
        WHERE workspace_id = ? AND tenant_id = ? AND is_active = 1
        AND (expires_at IS NULL OR expires_at > unixepoch())
+       ORDER BY CASE
+         WHEN repo_path IS NOT NULL AND TRIM(repo_path) != '' THEN 0
+         ELSE 1
+       END
        LIMIT 1`,
     )
       .bind(wid, tid)
