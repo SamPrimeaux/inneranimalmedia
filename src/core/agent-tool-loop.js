@@ -492,24 +492,54 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
 
   try {
   // Deterministic first call when the user names a catalog tool — do not wait on model tool_choice.
-  // Session-scoped thin pipe: no pre-invocation (model chooses tools).
+  // Session-scoped progressive chats normally skip this (model discovers tools). Exception:
+  // when the user explicitly names agentsam_codebase_retrieve / github / fs, always preinvoke —
+  // otherwise terra invents agentsam_d1_query and tool_choice alone is unreliable on Responses.
   let explicitCatalogPreinvoked = false;
-  const skipExplicitCatalogPreinvoke =
+  const seeded =
+    explicitCatalogSeedParam &&
+    typeof explicitCatalogSeedParam === 'object' &&
+    explicitCatalogSeedParam.name
+      ? explicitCatalogSeedParam
+      : null;
+  const userTextForForce =
+    lastUserMessageText(conversationMessages) ||
+    String(mcpCtx?.userMessage || mcpCtx?.message || '').trim();
+  const forcedExplicitName =
+    (seeded?.name && String(seeded.name).trim()) ||
+    resolveForcedExplicitCatalogTool(userTextForForce, tools);
+  const sessionThinPipe =
     mcpCtx?.runtimeProfile?.source?.session_scoped === true ||
     mcpCtx?.runtimeProfile?.source?.compile_lane === 'session_context';
+  const skipExplicitCatalogPreinvoke = sessionThinPipe && !forcedExplicitName;
+  if (forcedExplicitName) {
+    console.info(
+      '[agent] forced_explicit_catalog_tool',
+      JSON.stringify({
+        tool: forcedExplicitName,
+        session_thin_pipe: sessionThinPipe,
+        will_preinvoke: !skipExplicitCatalogPreinvoke,
+      }),
+    );
+    // When user pinned codebase retrieve, drop D1 from the wire menu for this loop
+    // so the model cannot "mistakenly" call it after the preinvoke.
+    if (
+      forcedExplicitName === 'agentsam_codebase_retrieve' &&
+      Array.isArray(activeTools)
+    ) {
+      const next = activeTools.filter((t) => toolDefName(t) !== 'agentsam_d1_query');
+      if (next.length > 0 && next.length < activeTools.length) {
+        activeTools = next;
+        console.info(
+          '[agent] retire_d1_for_codebase_retrieve',
+          JSON.stringify({ remaining_tools: activeTools.map(toolDefName) }),
+        );
+      }
+    }
+  }
   if (!skipExplicitCatalogPreinvoke) {
-    const seeded =
-      explicitCatalogSeedParam &&
-      typeof explicitCatalogSeedParam === 'object' &&
-      explicitCatalogSeedParam.name
-        ? explicitCatalogSeedParam
-        : null;
-    const userText =
-      lastUserMessageText(conversationMessages) ||
-      String(mcpCtx?.userMessage || mcpCtx?.message || '').trim();
-    const preName =
-      (seeded?.name && String(seeded.name).trim()) ||
-      resolveForcedExplicitCatalogTool(userText, tools);
+    const userText = userTextForForce;
+    const preName = forcedExplicitName;
     if (!preName) {
       console.log(
         '[agent] explicit_catalog_preinvoke_skip',
