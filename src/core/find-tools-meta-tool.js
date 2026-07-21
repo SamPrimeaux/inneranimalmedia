@@ -4,10 +4,76 @@
  * This is intentionally a core/meta tool, not an agentsam_tools DB row. It lets the
  * model discover what catalog tools exist before deciding whether to answer,
  * plan, or execute. Execution risk/approval still happens at execution time.
+ *
+ * P2 progressive discovery also routes agentsam_search_tools / search_tools here so
+ * catalog handler_type=d1|agent never hits Database Studio (explicit_d1_resource_required).
  */
 
 function trim(v) {
   return String(v ?? '').trim();
+}
+
+/**
+ * True for find_tools + agentsam_search_tools aliases — platform env.DB discovery only.
+ * @param {string} rawKey
+ */
+export function isCatalogDiscoveryMetaTool(rawKey) {
+  const key = String(rawKey || '').trim().toLowerCase();
+  return (
+    key === 'find_tools' ||
+    key === 'find-tools' ||
+    key === 'agentsam_find_tools' ||
+    key === 'agentsam_search_tools' ||
+    key === 'search_tools' ||
+    key === 'search-tools'
+  );
+}
+
+/**
+ * Infer discovery query from loose model args (no Studio D1 resource required).
+ * @param {Record<string, unknown>|string|null|undefined} input
+ * @param {Record<string, unknown>} [runContext]
+ */
+export function normalizeFindToolsInput(input = {}, runContext = {}) {
+  const raw =
+    input == null
+      ? {}
+      : typeof input === 'string'
+        ? { query: input }
+        : typeof input === 'object' && !Array.isArray(input)
+          ? { ...input }
+          : {};
+  const candidates = [
+    raw.query,
+    raw.intent,
+    raw.q,
+    raw.search,
+    raw.keyword,
+    raw.keywords,
+    raw.text,
+    raw.prompt,
+    raw.message,
+    raw.value,
+  ];
+  let query = '';
+  for (const c of candidates) {
+    const t = trim(c);
+    if (t) {
+      query = t;
+      break;
+    }
+  }
+  if (!query) {
+    query = trim(runContext.userMessage ?? runContext.message ?? runContext.user_message ?? '');
+  }
+  return {
+    ...raw,
+    query,
+    intent: trim(raw.intent) || undefined,
+    workspace_id: trim(raw.workspace_id) || undefined,
+    mode: trim(raw.mode) || undefined,
+    limit: raw.limit,
+  };
 }
 
 function safeJsonParse(raw, fallback) {
@@ -106,10 +172,13 @@ function coreFallbackTools() {
  * @param {Record<string, unknown>} runContext
  */
 export async function executeFindToolsMetaTool(env, input = {}, runContext = {}) {
-  const q = trim(input.query || input.intent || '');
-  const limit = Math.max(1, Math.min(Number(input.limit || 24) || 24, 64));
-  const terms = intentTerms(input);
-  const workspaceId = trim(input.workspace_id || runContext.workspaceId || runContext.workspace_id);
+  const normalized = normalizeFindToolsInput(input, runContext);
+  const q = trim(normalized.query || normalized.intent || '');
+  const limit = Math.max(1, Math.min(Number(normalized.limit || 24) || 24, 64));
+  const terms = intentTerms(normalized);
+  const workspaceId = trim(
+    normalized.workspace_id || runContext.workspaceId || runContext.workspace_id,
+  );
 
   if (!env?.DB) {
     return {
@@ -171,15 +240,18 @@ export async function executeFindToolsMetaTool(env, input = {}, runContext = {})
     ok: true,
     result: {
       query: q,
-      intent: trim(input.intent) || null,
-      mode: trim(input.mode) || null,
+      intent: trim(normalized.intent) || null,
+      mode: trim(normalized.mode) || null,
       workspace_id: workspaceId || null,
       count: tools.length,
+      // rows alias keeps progressive hydrate + legacy SQL-shaped consumers happy
       tools: [...coreFallbackTools(), ...tools].filter((tool, idx, arr) =>
         arr.findIndex((t) => t.name === tool.name) === idx,
       ),
+      rows: tools,
       trace_event: 'tools_discovered',
       source: 'agentsam_tools',
+      via: 'find_tools_meta',
     },
   };
 }

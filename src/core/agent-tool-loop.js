@@ -1850,6 +1850,18 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
               userMessage: mcpCtx.userMessage ?? mcpCtx.message ?? null,
               activeFileEnvelope: activeFileEnvelopeParam ?? null,
             });
+          } else if (
+            call.name === 'agentsam_search_tools' ||
+            call.name === 'search_tools' ||
+            call.name === 'find_tools'
+          ) {
+            const { normalizeFindToolsInput } = await import('../core/find-tools-meta-tool.js');
+            toolInput = normalizeFindToolsInput(toolInput, {
+              userMessage: mcpCtx.userMessage ?? mcpCtx.message ?? null,
+              message: mcpCtx.message ?? mcpCtx.userMessage ?? null,
+              workspaceId: workspaceId,
+              workspace_id: workspaceId,
+            });
           } else if (activeFileEnvelopeParam) {
             const { applyActiveFileDefaultsToToolInput } = await import('../core/active-file-envelope.js');
             toolInput = applyActiveFileDefaultsToToolInput(call.name, toolInput, activeFileEnvelopeParam);

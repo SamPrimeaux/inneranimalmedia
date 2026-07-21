@@ -1159,6 +1159,23 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
   const toolKey = String(row.tool_key || row.tool_name || '').trim();
   const toolName = String(row.tool_name || row.tool_key || '').trim();
 
+  // P2 discovery: never route search_tools through Studio/CF D1 — platform catalog only.
+  {
+    const { isCatalogDiscoveryMetaTool, executeFindToolsMetaTool, normalizeFindToolsInput } =
+      await import('./find-tools-meta-tool.js');
+    if (isCatalogDiscoveryMetaTool(toolKey) || isCatalogDiscoveryMetaTool(toolName)) {
+      const out = await executeFindToolsMetaTool(
+        env,
+        normalizeFindToolsInput(rawInput, runContext),
+        runContext,
+      );
+      if (out?.ok === false) {
+        return { ok: false, error: out.error || 'find_tools_failed', body: out.body };
+      }
+      return { ok: true, body: out.result ?? out };
+    }
+  }
+
   // Canonical memory tools may still be catalogued as handler_type=mcp for OAuth —
   // on the main worker they always execute the shared core (never proxy to MCP).
   if (
