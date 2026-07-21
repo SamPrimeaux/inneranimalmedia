@@ -4772,6 +4772,60 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     });
   }
 
+  // ── POST /api/agent/plan/save-workspace — Cursor "Save to workspace" → ARTIFACTS R2 ──
+  if (path === '/api/agent/plan/save-workspace' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const body = await request.json().catch(() => ({}));
+    const planId = String(body.plan_id ?? body.planId ?? '').trim();
+    if (!planId) return jsonResponse({ error: 'plan_id required' }, 400);
+
+    const reqCtx = await resolveRequestContext(request, env);
+    if (reqCtx.error || !reqCtx.workspaceId) {
+      return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    }
+    const workspaceId = String(reqCtx.workspaceId).trim();
+    let tenantId =
+      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : null;
+    if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+
+    const planRow = await env.DB.prepare(
+      `SELECT id, tenant_id, workspace_id FROM agentsam_plans WHERE id = ? LIMIT 1`,
+    )
+      .bind(planId)
+      .first()
+      .catch(() => null);
+    if (!planRow?.id) return jsonResponse({ error: 'plan_not_found' }, 404);
+    if (String(planRow.tenant_id || '') !== String(tenantId || '')) {
+      return jsonResponse({ error: 'Forbidden' }, 403);
+    }
+    if (String(planRow.workspace_id || '') !== workspaceId) {
+      return jsonResponse({ error: 'workspace_mismatch' }, 403);
+    }
+
+    try {
+      const { savePlanToWorkspaceArtifacts } = await import('../core/plan-save-workspace.js');
+      const out = await savePlanToWorkspaceArtifacts(env, ctx, {
+        planId,
+        userId: String(authUser.id || '').trim(),
+        tenantId: String(tenantId || '').trim(),
+        workspaceId,
+        includeMap: body.include_map !== false,
+        authUser,
+        sourceSessionId: body.session_id ?? body.sessionId ?? null,
+      });
+      return jsonResponse(out);
+    } catch (e) {
+      return jsonResponse(
+        { error: 'plan_save_failed', message: String(e?.message || e).slice(0, 500) },
+        500,
+      );
+    }
+  }
+
   // ── POST /api/agent/plan/execute — run agentsam_plan_tasks (SSE) ──
   if (path === '/api/agent/plan/execute' && method === 'POST') {
     const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);

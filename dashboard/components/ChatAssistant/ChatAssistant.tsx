@@ -518,6 +518,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     activePlanIdRef.current = resolvedActivePlanId;
   }, [resolvedActivePlanId]);
   const [runPlanBusy, setRunPlanBusy] = useState(false);
+  const [savePlanBusy, setSavePlanBusy] = useState(false);
   const [planIntakeBusy, setPlanIntakeBusy] = useState(false);
   const [planSuggestDismissed, setPlanSuggestDismissed] = useState(false);
   const [activePlanTitle, setActivePlanTitle] = useState<string | null>(null);
@@ -2638,7 +2639,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     onActivePlanChange?.(pid);
     setThinkingState({
       steps: [],
-      thinkingText: 'Running plan…',
+      thinkingText: 'Building…',
       status: 'working',
       startedAt: Date.now(),
     });
@@ -2731,6 +2732,53 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     onFileSelect,
     onActivePlanChange,
   ]);
+
+  const handleSavePlanWorkspace = useCallback(async (planId: string) => {
+    const pid = planId.trim();
+    if (!pid || savePlanBusy || runPlanBusy) return;
+    setSavePlanBusy(true);
+    try {
+      const res = await fetch('/api/agent/plan/save-workspace', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plan_id: pid,
+          session_id: conversationId || undefined,
+          sessionId: conversationId || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data?.message === 'string'
+            ? data.message
+            : typeof data?.error === 'string'
+              ? data.error
+              : `Save failed (${res.status})`,
+        );
+      }
+      const key = typeof data?.markdown?.r2_key === 'string' ? data.markdown.r2_key : '';
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: key
+            ? `Saved plan to workspace ARTIFACTS (\`${key}\`).`
+            : 'Saved plan to workspace ARTIFACTS.',
+        },
+      ]);
+    } catch (e) {
+      console.error('[ChatAssistant] plan save-workspace', e);
+      const msg = e instanceof Error ? e.message : String(e);
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: `[Save to workspace failed: ${msg}]` },
+      ]);
+    } finally {
+      setSavePlanBusy(false);
+    }
+  }, [savePlanBusy, runPlanBusy, conversationId, setMessages]);
 
   const handleOpenRecentPlan = useCallback(
     async (planId: string) => {
@@ -3841,6 +3889,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             onImagePreview={handleChatImagePreview}
             onRunPlan={(planId) => void handleRunPlan(planId)}
             runPlanBusy={runPlanBusy}
+            onSavePlanWorkspace={(planId) => void handleSavePlanWorkspace(planId)}
+            savePlanBusy={savePlanBusy}
             onPlanIntakeSubmit={(p) => void handlePlanIntakeSubmit(p)}
             planIntakeBusy={planIntakeBusy}
             pendingToolApproval={pendingToolApproval?.tool ?? null}
@@ -3911,7 +3961,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   ...prev,
                   {
                     role: 'assistant',
-                    content: 'Plan tasks reset — blocked steps are back to **todo**. Use **Run plan** to retry.',
+                    content: 'Plan tasks reset — blocked steps are back to **todo**. Use **Build** to retry.',
                   },
                 ]);
               }}

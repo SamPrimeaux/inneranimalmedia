@@ -113,8 +113,8 @@ export async function runPlanIntakeExplore(env, opts) {
   };
 }
 
-const INTAKE_QUESTIONS_SYSTEM = `You are Agent Sam's plan intake engine.
-After light codebase exploration, decide if clarifying questions are needed before writing an execution plan.
+const INTAKE_QUESTIONS_SYSTEM = `You are Agent Sam's plan intake engine (Cursor-parity Plan Mode).
+After light codebase exploration, prefer clarifying questions before writing an execution plan — same spirit as Cursor Plan Mode.
 Return ONLY valid JSON:
 {
   "needs_questions": true|false,
@@ -129,9 +129,10 @@ Return ONLY valid JSON:
   ]
 }
 Rules:
-- needs_questions false when the goal is already specific (paths, routes, acceptance criteria).
-- Max 3 questions, 3-9 options each (worker adds "Other…").
-- Set multi_select: true only if picking more than one option genuinely makes sense for that question; otherwise false.
+- Default needs_questions=true when any of: multiple valid approaches, missing acceptance criteria, unclear scope, or touch ≥2 systems/files without named paths.
+- needs_questions=false ONLY when the goal already names concrete paths/routes AND acceptance criteria AND a single obvious approach.
+- Max 3 questions, 3-9 options each (worker adds "Other…"). Prefer trade-off questions (approach A vs B), scope boundaries, and success criteria.
+- Set multi_select: true only if picking more than one option genuinely makes sense; otherwise false.
 - Questions must reference the actual goal and exploration — never generic onboarding fluff.
 - phase roadblock: focus on how to unblock (scope change, skip task, alternate approach).`;
 

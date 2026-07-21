@@ -6,10 +6,11 @@ Monaco-first plan delivery + Cursor-style **Questions** card. Mobile is a runtim
 
 | Surface | Role |
 |---------|------|
-| **Chat thread** | Explore status, Questions card, summary, Run plan |
-| **Monaco** | Canonical plan doc `plan-{plan_id}.md` (R2) |
+| **Chat thread** | Explore status, Questions card, summary, Save to workspace, Build |
+| **Monaco** | Canonical plan doc `plan-{plan_id}.md` (R2 ARTIFACTS) |
 | **D1** | Plans, tasks, workflow runs, intake batches (SSOT) |
 | **Supabase `agentsam.agentsam_plans`** | Embed-only mirror (`summary`, `embedding`, `r2_url`) |
+| **Tool profile** | `plan` (`atprof_plan_mode`) — read-only research kit (migration `965`) |
 
 No Plan Workbench panel.
 
@@ -95,7 +96,7 @@ Executor: first `blocked` task per run calls `emitPlanRoadblockQuestions()` (`ag
 | `plan_questions_batch` | Batched card payload |
 | `plan_thinking` | Creating plan |
 | `monaco_file_generated` | Open `plan-{id}.md` |
-| `plan_created` | Summary + Run plan chips |
+| `plan_created` | Summary + Save to workspace / Build chips |
 
 Legacy `attached_question` still supported for agent/debug modes.
 
@@ -125,7 +126,8 @@ Embed-only upsert on `plan_created` — no full task mirror. See `agentsam-plan-
 | POST | `/api/agent/plan/intake/submit` | `{ batch_id, selections, optional_details, skip, session_id }` |
 | POST | `/api/agent/plan/refine` | `{ plan_id, refinement }` — SSE → updated Monaco plan |
 | POST | `/api/agent/plan/revert` | `{ plan_id }` — reset blocked tasks to `todo` |
-| POST | `/api/agent/plan/execute` | `{ plan_id }` |
+| POST | `/api/agent/plan/execute` | `{ plan_id }` — **Build** (run `agentsam_plan_tasks`) |
+| POST | `/api/agent/plan/save-workspace` | `{ plan_id }` — re-write plan.md (+ map) to ARTIFACTS R2 |
 | GET | `/api/agentsam/plans` | Recent plans library |
 | GET | `/api/agentsam/plans/:id/markdown` | Latest plan markdown artifact URL |
 | Slash | `/plan` | `agentsam_commands` migration `564` → `plan.start` enables Plan mode |

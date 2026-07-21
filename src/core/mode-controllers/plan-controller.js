@@ -138,10 +138,13 @@ async function runPlanCreationPipeline(env, ctx, emit, input) {
     auto_execute: false,
     summary,
     plan_markdown: plan.plan_markdown ?? null,
+    cursor_parity: true,
+    build_label: 'Build',
+    save_to_workspace: true,
   });
 
   emit('text', {
-    text: `**${plan.plan_title || 'Plan'}** — ${summary}. Edit the plan in the editor, then use **Run plan** when ready.`,
+    text: `**${plan.plan_title || 'Plan'}** — ${summary}. Review/edit the plan file, use **Save to workspace** to persist to ARTIFACTS, then **Build** when ready.`,
   });
 }
 

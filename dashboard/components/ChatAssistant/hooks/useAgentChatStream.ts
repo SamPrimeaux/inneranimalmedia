@@ -1450,7 +1450,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           onThinkingEvent?.({
             type: 'plan_created',
             plan_id: pid,
-            text: d.auto_execute === false ? 'Plan ready — click Run plan to execute.' : `Running task 1 of ${planTasks.length || Number(d.task_count || 0) || '?' }…`,
+            text: d.auto_execute === false ? 'Plan ready — Save to workspace, then Build.' : `Running task 1 of ${planTasks.length || Number(d.task_count || 0) || '?' }…`,
           });
           const vm = d.visual_map;
           const pm = d.plan_markdown;
@@ -1510,7 +1510,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             const content =
               assistantContent ||
               summaryText ||
-              (d.auto_execute === false ? 'Plan ready — edit in the editor, then Run plan.' : '');
+              (d.auto_execute === false ? 'Plan ready — edit in the editor, Save to workspace, then Build.' : '');
             const patch = {
               content,
               executionPlan,

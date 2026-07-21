@@ -136,6 +136,8 @@ export type AgentMessageListProps = {
   onImagePreview?: (src: string) => void;
   onRunPlan?: (planId: string) => void;
   runPlanBusy?: boolean;
+  onSavePlanWorkspace?: (planId: string) => void;
+  savePlanBusy?: boolean;
   onPlanIntakeSubmit?: (payload: {
     batchId: string;
     selections: Record<string, string>;
@@ -488,13 +490,17 @@ function PlanReadyActions({
   planMarkdown,
   onViewPlan,
   onRunPlan,
+  onSavePlanWorkspace,
   runPlanBusy,
+  savePlanBusy,
 }: {
   planId: string;
   planMarkdown?: ImplementationPlanMarkdown;
   onViewPlan?: (planId: string, planMarkdown?: ImplementationPlanMarkdown) => void;
   onRunPlan?: (planId: string) => void;
+  onSavePlanWorkspace?: (planId: string) => void;
   runPlanBusy?: boolean;
+  savePlanBusy?: boolean;
 }) {
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -510,11 +516,19 @@ function PlanReadyActions({
       ) : null}
       <button
         type="button"
+        disabled={savePlanBusy || runPlanBusy}
+        onClick={() => onSavePlanWorkspace?.(planId)}
+        className="inline-flex items-center gap-1.5 rounded-full border border-[var(--dashboard-border)]/90 bg-[var(--scene-bg)]/80 px-3 py-1.5 text-[11px] font-medium text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/35 disabled:opacity-40 transition-colors"
+      >
+        {savePlanBusy ? 'Saving…' : 'Save to workspace'}
+      </button>
+      <button
+        type="button"
         disabled={runPlanBusy}
         onClick={() => onRunPlan?.(planId)}
         className="inline-flex items-center gap-1.5 rounded-full border border-[var(--solar-cyan)]/40 bg-[var(--solar-cyan)]/10 px-3 py-1.5 text-[11px] font-semibold text-[var(--solar-cyan)] hover:bg-[var(--solar-cyan)]/15 disabled:opacity-40 transition-colors"
       >
-        {runPlanBusy ? 'Running plan…' : 'Run plan'}
+        {runPlanBusy ? 'Building…' : 'Build'}
       </button>
     </div>
   );
@@ -544,6 +558,8 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   onImagePreview,
   onRunPlan,
   runPlanBusy = false,
+  onSavePlanWorkspace,
+  savePlanBusy = false,
   onPlanIntakeSubmit,
   planIntakeBusy = false,
   pendingToolApproval = null,
@@ -783,6 +799,8 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                       }}
                       onRunPlan={onRunPlan}
                       runPlanBusy={runPlanBusy}
+                      onSavePlanWorkspace={onSavePlanWorkspace}
+                      savePlanBusy={savePlanBusy}
                     />
                   ) : null}
                   {msg.executionPlan && msg.executionPlan.tasks.length > 0 && msg.executionPlan.status !== 'ready' ? (
@@ -791,6 +809,8 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                       mode={mode}
                       onRunPlan={onRunPlan}
                       runPlanBusy={runPlanBusy}
+                      onSavePlanWorkspace={onSavePlanWorkspace}
+                      savePlanBusy={savePlanBusy}
                     />
                   ) : null}
                 </div>

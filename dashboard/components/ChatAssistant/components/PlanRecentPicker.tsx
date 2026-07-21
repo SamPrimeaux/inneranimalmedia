@@ -102,7 +102,7 @@ export const PlanRecentPicker: React.FC<PlanRecentPickerProps> = ({
               </button>
               <button
                 type="button"
-                title="Run plan"
+                title="Build"
                 disabled={runPlanBusy}
                 onClick={() => onRunPlan?.(p.id)}
                 className="shrink-0 p-1 rounded-md hover:bg-[var(--bg-hover)] text-[var(--solar-cyan)] disabled:opacity-40"

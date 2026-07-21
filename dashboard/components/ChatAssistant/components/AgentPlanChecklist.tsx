@@ -79,6 +79,8 @@ export type AgentPlanChecklistProps = {
   mode?: AgentMode;
   onRunPlan?: (planId: string) => void;
   runPlanBusy?: boolean;
+  onSavePlanWorkspace?: (planId: string) => void;
+  savePlanBusy?: boolean;
 };
 
 type TaskNode = ExecutionPlanState['tasks'][number] & { children: TaskNode[] };
@@ -157,6 +159,8 @@ export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({
   mode = 'plan',
   onRunPlan,
   runPlanBusy = false,
+  onSavePlanWorkspace,
+  savePlanBusy = false,
 }) => {
   const planId = plan.plan_id?.trim() || null;
   const { tasks: d1Tasks } = usePlanTasksRealtime(planId);
@@ -194,7 +198,7 @@ export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({
           : mergedPlan.status === 'running'
             ? `Running · ${progress.done}/${progress.total}`
             : mergedPlan.status === 'ready'
-              ? 'Ready to run'
+              ? 'Ready to build'
               : 'Planning';
 
   const headerPresenceState =
@@ -235,7 +239,17 @@ export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({
         </div>
       </div>
       {showRunCta ? (
-        <div className="px-3 py-2 border-b border-[var(--dashboard-border)]/50 flex flex-wrap gap-2">
+        <div className="px-3 py-2 border-b border-[var(--dashboard-border)]/50 flex flex-wrap gap-2 items-center">
+          {onSavePlanWorkspace ? (
+            <button
+              type="button"
+              disabled={savePlanBusy || runPlanBusy}
+              onClick={() => onSavePlanWorkspace(mergedPlan.plan_id)}
+              className="inline-flex items-center gap-1.5 min-h-[2rem] px-3 rounded-lg text-[12px] font-medium border border-[var(--dashboard-border)] text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/35 disabled:opacity-45"
+            >
+              {savePlanBusy ? 'Saving…' : 'Save to workspace'}
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={runPlanBusy}
@@ -243,10 +257,10 @@ export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({
             className="inline-flex items-center gap-1.5 min-h-[2rem] px-3 rounded-lg text-[12px] font-semibold text-[var(--solar-base03)] bg-[var(--solar-cyan)] hover:brightness-110 disabled:opacity-45"
           >
             <Play size={13} className="fill-current" aria-hidden />
-            {runPlanBusy ? 'Running plan…' : 'Run plan'}
+            {runPlanBusy ? 'Building…' : 'Build'}
           </button>
           <span className="text-[10px] text-[var(--dashboard-muted)] self-center">
-            Executes via Agent Sam executor — no mode switch required
+            Save persists to ARTIFACTS · Build runs the task list
           </span>
         </div>
       ) : null}
