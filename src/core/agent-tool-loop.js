@@ -39,10 +39,12 @@ import {
   CODEMODE_TOOL_NAME,
   enqueueCodemodePendingActions,
 } from './codemode-agent-bridge.js';
-import { resolveForcedExplicitCatalogTool, buildExplicitCatalogToolInput } from './code-implementation-intent.js';
+import { resolveForcedExplicitCatalogTool, buildExplicitCatalogToolInput, extractExplicitCatalogToolKeys } from './code-implementation-intent.js';
 
 /** Identical tool+args streak before we halt the loop and force a text answer. */
 const REPEATED_SAME_TOOL_ARGS_LIMIT = 3;
+/** Same tool name (any args) streak — catches "vary SQL forever" loops. */
+const REPEATED_SAME_TOOL_NAME_LIMIT = 5;
 
 /**
  * @param {string} name
@@ -553,6 +555,32 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         );
       }
     }
+  } else {
+    const namedInMessage = extractExplicitCatalogToolKeys(userTextForForce);
+    if (namedInMessage.length || userTextForForce.length > 0) {
+      const allowNames = (Array.isArray(tools) ? tools : [])
+        .map((t) =>
+          String(t?.name || t?.tool_key || t?.tool_name || t?.function?.name || '')
+            .trim()
+            .toLowerCase(),
+        )
+        .filter(Boolean)
+        .slice(0, 16);
+      console.info(
+        '[agent] forced_explicit_catalog_tool_miss',
+        JSON.stringify({
+          named_in_message: namedInMessage,
+          user_text_len: userTextForForce.length,
+          session_thin_pipe: sessionThinPipe,
+          allowlist_sample: allowNames,
+          reason: !userTextForForce
+            ? 'empty_user_text'
+            : !namedInMessage.length
+              ? 'no_forceable_named_tools'
+              : 'named_tools_not_in_allowlist',
+        }),
+      );
+    }
   }
   if (!skipExplicitCatalogPreinvoke) {
     const userText = userTextForForce;
@@ -764,6 +792,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   /** @type {string|null} */
   let lastToolArgsFingerprint = null;
   let repeatedSameToolArgsCount = 0;
+  /** @type {string|null} */
+  let lastToolNameOnly = null;
+  let repeatedSameToolNameCount = 0;
   let forceTextOnlyAfterRepeatHalt = false;
 
   while (turnCount < maxTurns) {
@@ -1484,22 +1515,37 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         lastToolArgsFingerprint = callFp;
         repeatedSameToolArgsCount = 1;
       }
-      if (repeatedSameToolArgsCount >= REPEATED_SAME_TOOL_ARGS_LIMIT) {
+      const nameOnly = String(call.name || '')
+        .trim()
+        .toLowerCase();
+      if (nameOnly && nameOnly === lastToolNameOnly) {
+        repeatedSameToolNameCount += 1;
+      } else {
+        lastToolNameOnly = nameOnly || null;
+        repeatedSameToolNameCount = nameOnly ? 1 : 0;
+      }
+      const haltSameArgs = repeatedSameToolArgsCount >= REPEATED_SAME_TOOL_ARGS_LIMIT;
+      const haltSameName = repeatedSameToolNameCount >= REPEATED_SAME_TOOL_NAME_LIMIT;
+      if (haltSameArgs || haltSameName) {
+        const errorCode = haltSameArgs ? 'repeated_tool_call_same_args' : 'repeated_tool_call_same_name';
         console.warn(
-          '[agent] repeated_tool_call_same_args',
+          `[agent] ${errorCode}`,
           JSON.stringify({
             tool_name: call.name,
-            streak: repeatedSameToolArgsCount,
+            args_streak: repeatedSameToolArgsCount,
+            name_streak: repeatedSameToolNameCount,
             turn: turnCount,
           }),
         );
         const haltBody = JSON.stringify({
           ok: false,
-          error: 'repeated_tool_call_same_args',
+          error: errorCode,
           tool: call.name,
-          streak: repeatedSameToolArgsCount,
-          message:
-            'Same tool called repeatedly with identical arguments. Stop calling tools and answer using evidence already collected.',
+          args_streak: repeatedSameToolArgsCount,
+          name_streak: repeatedSameToolNameCount,
+          message: haltSameArgs
+            ? 'Same tool called repeatedly with identical arguments. Stop calling tools and answer using evidence already collected.'
+            : 'Same tool called too many times with varying arguments and no progress. Stop calling tools and answer using evidence already collected.',
         });
         emit('tool_start', {
           tool_name: call.name,

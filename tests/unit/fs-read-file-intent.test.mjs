@@ -56,3 +56,15 @@ test('do-not-call skips d1; forces agentsam_search_tools', () => {
   );
   assert.equal(buildExplicitCatalogToolInput('agentsam_search_tools', msg).keyword, 'r2');
 });
+
+test('search_tools keyword extracts plain English without colon', () => {
+  const msg = 'Call agentsam_search_tools with keyword r2. Then pick an R2 list tool.';
+  assert.equal(buildExplicitCatalogToolInput('agentsam_search_tools', msg).keyword, 'r2');
+  assert.equal(
+    buildExplicitCatalogToolInput(
+      'agentsam_search_tools',
+      'agentsam_search_tools with {"keyword":"deploy"}',
+    ).keyword,
+    'deploy',
+  );
+});

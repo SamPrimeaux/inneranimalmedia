@@ -259,6 +259,14 @@ export async function executeFindToolsMetaTool(env, input = {}, runContext = {})
   );
 
   if (!env?.DB) {
+    console.warn(
+      '[find_tools] core_fallback_no_db',
+      JSON.stringify({
+        query: q || null,
+        workspace_id: workspaceId || null,
+        note: 'env.DB missing at call site — returning stub only (binding may still exist on Worker)',
+      }),
+    );
     return {
       ok: true,
       result: {

@@ -137,11 +137,19 @@ export function buildExplicitCatalogToolInput(toolName, message) {
     return { query: q ? q[1].trim() : m.slice(0, 160) };
   }
   if (name === 'agentsam_search_tools' || name === 'search_tools') {
+    // Prefer explicit keyword forms; support plain English "keyword r2" (no colon).
+    // Character class omits `.` so "r2." / "deploy." don't swallow sentence punctuation.
     const kw =
-      m.match(/\bkeyword\s*[:=]\s*[\"']?([a-z0-9_.-]+)/i) ||
+      m.match(/\bkeyword\s*[:=]\s*[\"']?([a-z0-9_-]+)/i) ||
+      m.match(/\bkeyword\s+[\"']?([a-z0-9_-]+)/i) ||
       m.match(/\{\s*[\"']?keyword[\"']?\s*:\s*[\"']([^\"']+)[\"']/i) ||
-      m.match(/\b(?:search_tools|agentsam_search_tools)\b[^\n]{0,40}\b([a-z0-9_.-]{2,32})\b/i);
-    return { keyword: kw ? kw[1].trim() : 'tool', query: kw ? kw[1].trim() : undefined };
+      m.match(
+        /\b(?:search_tools|agentsam_search_tools)\b[^\n]{0,80}?\b(?:with|for)\s+[\"']?([a-z0-9_-]{2,32})\b/i,
+      );
+    const term = kw ? String(kw[1] || '').trim().replace(/[.\s,;:]+$/g, '') : '';
+    return term
+      ? { keyword: term, query: term }
+      : { keyword: 'tool', query: undefined };
   }
   return {};
 }
