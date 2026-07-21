@@ -251,13 +251,22 @@ function compileCatalogInlineAgentSql(config, params, runContext) {
   if (!sql) return null;
   const binds = [];
   const ws = String(runContext.workspaceId ?? runContext.workspace_id ?? '').trim();
+  const tenant = String(runContext.tenantId ?? runContext.tenant_id ?? '').trim();
 
   sql = sql.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (match, name) => {
     if (name === 'workspace_id' && config.bind_workspace) {
       binds.push(ws);
       return '?';
     }
-    const val = params?.[name] ?? runContext?.[name];
+    if (name === 'tenant_id' && (config.bind_workspace || config.bind_tenant)) {
+      binds.push(tenant);
+      return '?';
+    }
+    const val =
+      params?.[name] ??
+      runContext?.[name] ??
+      (name === 'workspace_id' ? ws || undefined : undefined) ??
+      (name === 'tenant_id' ? tenant || undefined : undefined);
     if (val !== undefined && val !== null) {
       binds.push(val);
       return '?';
@@ -1517,6 +1526,12 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
   switch (handlerType) {
     case 'd1':
     case 'cf': {
+      // Platform registry tools (search_tools, health_check, …) store inline SQL on
+      // handler_type=d1 with bind_workspace — those hit env.DB, not CF Studio D1.
+      if (handlerType === 'd1' && String(config.sql || '').trim()) {
+        result = await executeCatalogInlineAgentSql(env, config, params, runContext);
+        break;
+      }
       if (handlerType === 'd1' || isCatalogCfD1Operation(toolKey, config)) {
         result = await executeCatalogCfD1(env, row, config, params, {
           ...runContext,
