@@ -847,13 +847,18 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         : null;
 
       const githubRepoCtx = String(
-        body.active_repo ??
-          body.activeRepo ??
-          body.selectedGithubRepoContext ??
-          body.github_repo_context ??
-          body.githubRepoContext ??
+        activeRepo ||
+          body.active_repo ||
+          body.activeRepo ||
+          body.selectedGithubRepoContext ||
+          body.github_repo_context ||
+          body.githubRepoContext ||
           '',
       ).trim();
+      const projectExecBindings =
+        input.projectExecutionBindings && typeof input.projectExecutionBindings === 'object'
+          ? input.projectExecutionBindings
+          : projectBindings;
       const wsCtxMobile =
         browserContextPayload &&
         typeof browserContextPayload === 'object' &&
@@ -907,6 +912,13 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
               selectedGithubRepoContext: githubRepoCtx,
               github_repo_context: githubRepoCtx,
               active_repo: githubRepoCtx,
+            }
+          : {}),
+        ...(projectExecBindings?.workspaceId
+          ? {
+              projectExecutionBindings: projectExecBindings,
+              project_execution_workspace_id: projectExecBindings.workspaceId,
+              execution_workspace_id: projectExecBindings.workspaceId,
             }
           : {}),
         ...(clientSurface ? { client_surface: clientSurface, clientSurface } : {}),

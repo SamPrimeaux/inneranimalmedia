@@ -687,11 +687,28 @@ def main() -> int:
         action="store_true",
         help="Chunk 3: reuse chunk3_link_preview.json and skip already-linked chunks (after WiFi/DNS drop)",
     )
+    ap.add_argument(
+        "--workspace-id",
+        default=None,
+        help="D1 workspace_id to pull nodes from (default ws_inneranimalmedia)",
+    )
+    ap.add_argument(
+        "--workspace-uuid",
+        default=None,
+        help="Supabase agentsam workspace UUID for symbol upsert (companions: e57c3f65-…)",
+    )
     args = ap.parse_args()
+
+    global WORKSPACE_ID, WORKSPACE_UUID
+    if args.workspace_id:
+        WORKSPACE_ID = str(args.workspace_id).strip()
+    if args.workspace_uuid:
+        WORKSPACE_UUID = str(args.workspace_uuid).strip()
 
     loaded = load_env_cloudflare(args.env_file)
     print("AST-RAG Phase 2 embed")
     print(f"  env: {args.env_file} ({len(loaded)} keys)")
+    print(f"  workspace_id={WORKSPACE_ID} workspace_uuid={WORKSPACE_UUID}")
     ensure_artifacts()
 
     chunk = {

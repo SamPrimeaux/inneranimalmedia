@@ -622,15 +622,18 @@ def chunk0_verify() -> int:
 
 def chunk1_walk(main_path: Path, mcp_path: Path, max_files: int | None) -> int:
     print("\n══ CHUNK 1 — walk + symbol extract ══")
-    paths = {
-        "inneranimalmedia": main_path,
-        "inneranimalmedia-mcp-server": mcp_path,
-    }
+    if len(REPO_SPECS) == 1:
+        paths = {REPO_SPECS[0]["key"]: main_path}
+    else:
+        paths = {
+            "inneranimalmedia": main_path,
+            "inneranimalmedia-mcp-server": mcp_path,
+        }
     all_parses: list[dict[str, Any]] = []
     stats: dict[str, Any] = {}
 
     for spec in REPO_SPECS:
-        repo_path = paths[spec["key"]]
+        repo_path = paths.get(spec["key"]) or Path(spec.get("default_path") or main_path)
         if not repo_path.is_dir():
             fail(f"skip missing {spec['key']}")
             continue
@@ -833,6 +836,32 @@ def _edge_params(e: dict[str, Any]) -> list[Any]:
     ]
 
 
+def ensure_code_index_job() -> None:
+    """FK: codebase_* .index_job_id → agentsam_code_index_job.id (must exist before upsert)."""
+    existing = d1_query(
+        "SELECT id FROM agentsam_code_index_job WHERE id = ? LIMIT 1",
+        [INDEX_JOB_ID],
+    )
+    if existing:
+        ok(f"code_index_job exists: {INDEX_JOB_ID}")
+        return
+    # Mirror platform seed row shape (user_id required NOT NULL).
+    d1_query(
+        "INSERT OR IGNORE INTO agentsam_code_index_job ("
+        "id, user_id, workspace_id, status, source_type, vector_backend, "
+        "triggered_by, repo_full_name, updated_at"
+        ") VALUES (?, ?, ?, 'idle', 'ast_rag_phase1', 'supabase_pgvector', "
+        "'ast_rag_phase1', ?, datetime('now'))",
+        [
+            INDEX_JOB_ID,
+            "usr_sam_primeaux",
+            WORKSPACE_ID,
+            (REPO_SPECS[0]["repo"] if REPO_SPECS else None),
+        ],
+    )
+    ok(f"created code_index_job: {INDEX_JOB_ID} for {WORKSPACE_ID}")
+
+
 def chunk3_upsert(
     commit: bool,
     repos_filter: list[str] | None,
@@ -851,6 +880,12 @@ def chunk3_upsert(
     if repos_filter:
         edges = [e for e in edges if e["repo"] in repos_filter]
 
+    # Stamp current INDEX_JOB_ID so customer workspaces don't inherit a stale platform job id.
+    for n in nodes:
+        n["index_job_id"] = INDEX_JOB_ID
+    for e in edges:
+        e["index_job_id"] = INDEX_JOB_ID
+
     write_json(
         "chunk3_payload_preview.json",
         {"node_count": len(nodes), "edge_count": len(edges), "sample_nodes": nodes[:5], "sample_edges": edges[:5]},
@@ -862,6 +897,8 @@ def chunk3_upsert(
         warn("dry-run only — pass --commit to write D1")
         print("Chunk 3 dry-run done")
         return 0
+
+    ensure_code_index_job()
 
     repos = sorted({n["repo"] for n in nodes})
     if not resume:
@@ -937,13 +974,56 @@ def main() -> int:
         default=None,
         help="Limit upsert to full repo name (repeatable)",
     )
+    ap.add_argument(
+        "--workspace-id",
+        default=None,
+        help="D1 workspace_id for nodes/edges (default ws_inneranimalmedia). Customer: ws_companionscpas",
+    )
+    ap.add_argument(
+        "--repo-name",
+        default=None,
+        help="With --single-repo: full GitHub name e.g. SamPrimeaux/companionscpas",
+    )
+    ap.add_argument(
+        "--walk-roots",
+        default=None,
+        help="With --single-repo: comma-separated roots (default src,scripts)",
+    )
+    ap.add_argument(
+        "--single-repo",
+        action="store_true",
+        help="Index only --main-repo as one customer/platform repo (skip MCP dual walk)",
+    )
     args = ap.parse_args()
+
+    global WORKSPACE_ID, INDEX_JOB_ID, REPO_SPECS
+    if args.workspace_id:
+        WORKSPACE_ID = str(args.workspace_id).strip()
+        INDEX_JOB_ID = f"cidx_{WORKSPACE_ID}"
+    if args.single_repo:
+        repo_name = (args.repo_name or "").strip() or "SamPrimeaux/companionscpas"
+        roots = tuple(
+            p.strip()
+            for p in str(args.walk_roots or "src,scripts").split(",")
+            if p.strip()
+        ) or ("src",)
+        key = repo_name.split("/")[-1].replace(".", "_") or "customer"
+        REPO_SPECS = (
+            {
+                "key": key,
+                "repo": repo_name,
+                "default_path": args.main_repo,
+                "walk_roots": roots,
+            },
+        )
 
     loaded = load_env_cloudflare(args.env_file)
     print(f"AST-RAG Phase 1 walker")
     print(f"  env file: {args.env_file} ({'loaded ' + str(len(loaded)) + ' keys' if loaded else 'missing'})")
+    print(f"  workspace_id: {WORKSPACE_ID}")
     print(f"  main: {args.main_repo}")
     print(f"  mcp:  {args.mcp_repo}")
+    print(f"  repos: {[s['repo'] for s in REPO_SPECS]}")
     ensure_artifacts()
 
     chunk = {

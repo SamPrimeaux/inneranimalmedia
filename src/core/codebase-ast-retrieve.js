@@ -158,9 +158,22 @@ export async function retrieveCodebaseAstContext(env, query, opts = {}) {
     return { ok: false, error: 'empty_query', results: [], duration_ms: 0 };
   }
 
+  let workspaceUuid = opts.workspaceUuid || null;
+  const d1WorkspaceId = opts.workspaceId ? String(opts.workspaceId).trim() : '';
+  if (!workspaceUuid && d1WorkspaceId) {
+    try {
+      const { resolveSupabaseWorkspaceId } = await import('./rag-lanes.js');
+      workspaceUuid = await resolveSupabaseWorkspaceId(env, d1WorkspaceId);
+    } catch {
+      /* fall through to platform default */
+    }
+  }
+  if (!workspaceUuid) workspaceUuid = PLATFORM_SUPABASE_WORKSPACE_UUID;
+
   const sym = await searchAstSymbols(env, q, {
     topK: opts.topK ?? 8,
     repo: opts.repo ?? null,
+    workspaceUuid,
   });
   if (!sym.ok) {
     return { ok: false, error: sym.error, results: [], duration_ms: Date.now() - t0 };
@@ -169,7 +182,7 @@ export async function retrieveCodebaseAstContext(env, query, opts = {}) {
   let nodeIds = sym.hits.map((h) => h.node_id);
   let edges = [];
   if (opts.expand !== false) {
-    const g = await expandAstGraph(env, nodeIds, { workspaceId: opts.workspaceId });
+    const g = await expandAstGraph(env, nodeIds, { workspaceId: d1WorkspaceId || opts.workspaceId });
     if (g.ok) {
       nodeIds = g.node_ids;
       edges = g.edges;
@@ -178,7 +191,7 @@ export async function retrieveCodebaseAstContext(env, query, opts = {}) {
 
   let chunks = [];
   if (opts.hydrate !== false) {
-    const h = await hydrateChunksByNodeIds(env, nodeIds);
+    const h = await hydrateChunksByNodeIds(env, nodeIds, { workspaceUuid });
     if (h.ok) chunks = h.chunks;
   }
 

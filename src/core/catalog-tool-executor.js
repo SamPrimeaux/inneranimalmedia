@@ -3116,12 +3116,19 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     case 'local': {
       if (toolKey === 'agentsam_codebase_retrieve' || handlerType === 'codebase_ast') {
         const { retrieveCodebaseAstContext } = await import('./codebase-ast-retrieve.js');
+        const execWs =
+          String(
+            runContext.projectExecutionBindings?.workspaceId ||
+              runContext.project_execution_workspace_id ||
+              runContext.execution_workspace_id ||
+              '',
+          ).trim() || workspaceId;
         const out = await retrieveCodebaseAstContext(env, String(params.query || params.q || ''), {
           topK: Math.min(Math.max(Number(params.top_k ?? params.topK ?? params.limit) || 8, 1), 32),
           repo: params.repo ? String(params.repo) : null,
           expand: params.expand !== false && params.expand !== 'false',
           hydrate: params.hydrate !== false && params.hydrate !== 'false',
-          workspaceId: workspaceId || undefined,
+          workspaceId: execWs || undefined,
         });
         result =
           out?.ok === false
