@@ -30,7 +30,7 @@ export { isDesignModeActiveFromBody, isDesignModeBrowserContext } from './design
 /** Soft cap — above this, DO cache is treated as stale mega-catalog and rebuilt. */
 export const SESSION_TOOL_CACHE_SOFT_MAX = 40;
 /** Bump when session tool menu contract changes (e.g. progressive core vs full profile). */
-export const SESSION_CONTEXT_VERSION = 10;
+export const SESSION_CONTEXT_VERSION = 11;
 
 /**
  * Degraded-mode fallback ONLY — used when agentsam_tool_profile_bindings /
@@ -482,7 +482,9 @@ export async function loadOrBootstrapSessionContext(env, opts) {
     const missingWebSearch = requiresCfCatalog && !cachedKeys.has('search_web');
     const missingSupabaseRead = isDatabaseProfile && !cachedKeys.has('agentsam_supabase_query');
     const missingSupabaseWrite = isDatabaseProfile && !cachedKeys.has('agentsam_supabase_write');
-    const missingD1Query = isDatabaseProfile && !cachedKeys.has('agentsam_d1_query');
+    // Progressive core omits d1_query (discover via search_tools); do not invalidate for that.
+    const missingD1Query =
+      isDatabaseProfile && !progressiveSession && !cachedKeys.has('agentsam_d1_query');
     const cacheUsable =
       cached &&
       cachedCount > 0 &&

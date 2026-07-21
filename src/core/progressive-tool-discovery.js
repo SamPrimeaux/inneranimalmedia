@@ -5,14 +5,16 @@
  * SSOT plan: plans/active/CURSOR-PARITY-TOOL-DISCOVERY-2026-07.md
  */
 
-/** Always-on schemas for agent / debug / multitask turn 0. */
+/**
+ * Always-on schemas for agent / debug / multitask turn 0.
+ * D1 stays on the profile ceiling — discover via agentsam_search_tools (not free at turn 0).
+ */
 export const PROGRESSIVE_CORE_TOOL_KEYS = Object.freeze([
   'agentsam_search_tools',
   'fs_read_file',
   'fs_search_files',
   'agentsam_codebase_retrieve',
   'agentsam_memory_search',
-  'agentsam_d1_query',
   'search_web',
 ]);
 

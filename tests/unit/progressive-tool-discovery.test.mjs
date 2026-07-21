@@ -20,6 +20,7 @@ assert.equal(isAgentsamSearchToolsName('search_tools'), true);
 assert.equal(isAgentsamSearchToolsName('agentsam_d1_query'), false);
 
 assert.ok(PROGRESSIVE_CORE_TOOL_KEYS.includes('agentsam_search_tools'));
+assert.equal(PROGRESSIVE_CORE_TOOL_KEYS.includes('agentsam_d1_query'), false);
 assert.ok(PROGRESSIVE_CORE_TOOL_KEYS.length <= 8);
 
 assert.deepEqual(

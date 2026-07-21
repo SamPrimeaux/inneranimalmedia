@@ -42,3 +42,17 @@ test('Monaco describe-this-file still counts as read-only file context', () => {
   assert.equal(isReadOnlyFileContextIntent(message), true);
   assert.equal(isReadOnlyRepoSearchIntent(message), false);
 });
+
+test('do-not-call skips d1; forces agentsam_search_tools', () => {
+  const msg =
+    'Do not call agentsam_d1_query. First tool must be agentsam_search_tools with {"keyword":"r2"}.';
+  assert.deepEqual(extractExplicitCatalogToolKeys(msg), ['agentsam_search_tools']);
+  assert.equal(
+    resolveForcedExplicitCatalogTool(msg, [
+      { name: 'agentsam_search_tools' },
+      { name: 'agentsam_d1_query' },
+    ]),
+    'agentsam_search_tools',
+  );
+  assert.equal(buildExplicitCatalogToolInput('agentsam_search_tools', msg).keyword, 'r2');
+});

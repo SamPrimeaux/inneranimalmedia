@@ -40,6 +40,23 @@ import {
   enqueueCodemodePendingActions,
 } from './codemode-agent-bridge.js';
 import { resolveForcedExplicitCatalogTool, buildExplicitCatalogToolInput } from './code-implementation-intent.js';
+
+/** Identical tool+args streak before we halt the loop and force a text answer. */
+const REPEATED_SAME_TOOL_ARGS_LIMIT = 3;
+
+/**
+ * @param {string} name
+ * @param {unknown} input
+ */
+function toolCallArgsFingerprint(name, input) {
+  let args = '';
+  try {
+    args = JSON.stringify(input ?? {});
+  } catch {
+    args = String(input ?? '');
+  }
+  return `${String(name || '').trim().toLowerCase()}::${args}`;
+}
 import { isImageGenerationTool, streamImageGenerationSse } from '../tools/image_generation.js';
 import { imageGenerationShouldPersist } from './image-draft-store.js';
 import { mergeResolvedContextIntoRunContext } from './agent-chat-resolved-context.js';
@@ -744,6 +761,11 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     ? await resolveCanonicalUserId(userId, env).catch(() => userId)
     : userId;
 
+  /** @type {string|null} */
+  let lastToolArgsFingerprint = null;
+  let repeatedSameToolArgsCount = 0;
+  let forceTextOnlyAfterRepeatHalt = false;
+
   while (turnCount < maxTurns) {
     turnCount++;
     if (await shouldStopRun()) {
@@ -877,8 +899,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         modelKey,
         systemPrompt,
         messages: conversationMessages,
-        tools: activeTools,
-        ...(forcedToolName ? { forcedToolName } : {}),
+        tools: forceTextOnlyAfterRepeatHalt ? [] : activeTools,
+        ...(forcedToolName && !forceTextOnlyAfterRepeatHalt ? { forcedToolName } : {}),
         reasoningEffort:
           dispatchSpineParam?.routing_decision?.reasoning_effort ??
           modeConfig?.gate_reasoning_effort ??
@@ -1454,6 +1476,45 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         emit('tool_blocked', { tool: call.name, reason: 'max_tool_calls_reached' });
         toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: 'Tool call limit reached.' });
         continue;
+      }
+      const callFp = toolCallArgsFingerprint(call.name, call.input);
+      if (callFp === lastToolArgsFingerprint) {
+        repeatedSameToolArgsCount += 1;
+      } else {
+        lastToolArgsFingerprint = callFp;
+        repeatedSameToolArgsCount = 1;
+      }
+      if (repeatedSameToolArgsCount >= REPEATED_SAME_TOOL_ARGS_LIMIT) {
+        console.warn(
+          '[agent] repeated_tool_call_same_args',
+          JSON.stringify({
+            tool_name: call.name,
+            streak: repeatedSameToolArgsCount,
+            turn: turnCount,
+          }),
+        );
+        const haltBody = JSON.stringify({
+          ok: false,
+          error: 'repeated_tool_call_same_args',
+          tool: call.name,
+          streak: repeatedSameToolArgsCount,
+          message:
+            'Same tool called repeatedly with identical arguments. Stop calling tools and answer using evidence already collected.',
+        });
+        emit('tool_start', {
+          tool_name: call.name,
+          tool_call_id: call.id,
+          input_preview: JSON.stringify(call.input || {}).slice(0, 200),
+        });
+        emit('tool_result', { tool: call.name, output: haltBody.slice(0, TOOL_OUTPUT_SSE_MAX) });
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: call.id,
+          content: haltBody,
+          is_error: true,
+        });
+        forceTextOnlyAfterRepeatHalt = true;
+        break;
       }
       if (call.input && typeof call.input === 'object' && call.input.__parse_error === true) {
         const raw = String(call.raw_input != null ? call.raw_input : call.input.__raw || '').slice(0, 2000);

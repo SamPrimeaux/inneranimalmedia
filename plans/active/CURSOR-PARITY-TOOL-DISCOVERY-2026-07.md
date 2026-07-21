@@ -37,7 +37,8 @@ Plan: three admin-curated D1 menus — Debug gets ~14 read/patch tools, Agent ~1
 | `agentsam_tool_profiles` + bindings | **Ceiling** / session menu (Ask/Plan already tight; Agent/Multitask ~29) | Not “three Debug menus” — one sane max + behavior |
 | `write_policy_json` | Mutate allow / require approval | Run Modes / approval |
 | `agentsam_prompt_routes` | Intent → tight `tool_keys` + `token_budget` | Progressive / per-turn relevance |
-| `agentsam_search_tools` (active, oauth_visible) | Catalog discovery tool — seed for progressive load | `tool_search` |
+| `agentsam_search_tools` (active, oauth_visible) | Keyword catalog discovery + hydrate (not MCP `tools/list`) | `tool_search` |
+| Progressive core (JS) | Turn-0 schemas: search_tools, fs_*, codebase, memory, search_web — **no** `agentsam_d1_query` (ceiling via profile) | Small discovery surface |
 | `composer_multitask` (974) | Multitask → own profile key, **Agent-class tools** (Cursor-aligned parent) | Multitask inherits parent tools |
 | Ask / Plan profiles | Read vs research ceilings | OK to keep as **behavior + lighter default menus** if desired; not the long-term bloat fix alone |
 

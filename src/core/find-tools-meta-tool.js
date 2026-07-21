@@ -1,14 +1,14 @@
 /**
- * find_tools meta-tool: canonical runtime capability discovery for Agent Sam.
+ * find_tools meta-tool: keyword catalog discovery for Agent Sam (progressive hydrate).
  *
- * This is intentionally a core/meta tool, not an agentsam_tools DB row. It lets the
- * model discover what catalog tools exist before deciding whether to answer,
- * plan, or execute. Execution risk/approval still happens at execution time.
+ * Not MCP tools/list — that handshake dumps full oauth_visible schemas for OAuth clients.
+ * This tool returns a ranked keyword match from agentsam_tools; the agent loop hydrates
+ * full schemas for matched keys into activeTools. Execution risk/approval stays at call time.
  *
- * P2 progressive discovery also routes agentsam_search_tools / search_tools here so
- * catalog handler_type=d1|agent never hits Database Studio (explicit_d1_resource_required).
+ * Routed as meta so catalog handler_type=d1|agent never hits Database Studio
+ * (explicit_d1_resource_required).
  *
- * Matching law: token OR retrieval + tool_key-weighted ranking (no stopword deny-lists).
+ * Matching: token OR + tool_key-weighted ranking (no stopword deny-lists).
  * Prefer exact / multi-term tool_key coverage; demote `_mcp_` unless the query asks for mcp.
  */
 

@@ -20,6 +20,7 @@ export function isExplicitGithubCatalogToolIntent(message) {
 
 /**
  * Catalog tool keys explicitly named in the message (for allowlist reordering).
+ * Skips tools under "do not / don't / never call|use|run …".
  * @param {unknown} message
  * @returns {string[]}
  */
@@ -28,11 +29,16 @@ export function extractExplicitCatalogToolKeys(message) {
   /** @type {string[]} */
   const keys = [];
   const re =
-    /\b(agentsam_codebase_retrieve|agentsam_memory_search|agentsam_github_tree|agentsam_github_read_many|agentsam_github_read|agentsam_github_search|agentsam_github_list_commits|agentsam_d1_query|fs_read_file|fs_search_files)\b/gi;
+    /\b(agentsam_search_tools|agentsam_codebase_retrieve|agentsam_memory_search|agentsam_github_tree|agentsam_github_read_many|agentsam_github_read|agentsam_github_search|agentsam_github_list_commits|agentsam_d1_query|fs_read_file|fs_search_files)\b/gi;
   let match;
   while ((match = re.exec(m)) != null) {
     const k = String(match[1] || '').toLowerCase();
-    if (k && !keys.includes(k)) keys.push(k);
+    if (!k || keys.includes(k)) continue;
+    const before = m.slice(Math.max(0, match.index - 48), match.index).toLowerCase();
+    if (/\b(do\s+not|don't|dont|never)\s+(call|use|run|invoke)\s*$/.test(before.trimEnd())) {
+      continue;
+    }
+    keys.push(k);
   }
   return keys;
 }
@@ -40,7 +46,7 @@ export function extractExplicitCatalogToolKeys(message) {
 /**
  * First explicit catalog tool that is also in the live allowlist.
  * Used to force tool_choice on turn 0 so models cannot invent agentsam_d1_query
- * when the user named agentsam_codebase_retrieve / github / fs tools.
+ * when the user named agentsam_codebase_retrieve / github / fs / search_tools.
  * @param {unknown} message
  * @param {unknown[]} tools
  * @returns {string|null}
@@ -51,7 +57,8 @@ export function resolveForcedExplicitCatalogTool(message, tools) {
       k.startsWith('agentsam_github_') ||
       k.startsWith('fs_') ||
       k === 'agentsam_codebase_retrieve' ||
-      k === 'agentsam_memory_search',
+      k === 'agentsam_memory_search' ||
+      k === 'agentsam_search_tools',
   );
   if (!keys.length || !Array.isArray(tools) || !tools.length) return null;
   const names = new Set(
@@ -128,6 +135,13 @@ export function buildExplicitCatalogToolInput(toolName, message) {
   if (name === 'agentsam_memory_search') {
     const q = m.match(/\b(?:query|search for|find)\s+[\"']?([^\"'\n]+)[\"']?/i);
     return { query: q ? q[1].trim() : m.slice(0, 160) };
+  }
+  if (name === 'agentsam_search_tools' || name === 'search_tools') {
+    const kw =
+      m.match(/\bkeyword\s*[:=]\s*[\"']?([a-z0-9_.-]+)/i) ||
+      m.match(/\{\s*[\"']?keyword[\"']?\s*:\s*[\"']([^\"']+)[\"']/i) ||
+      m.match(/\b(?:search_tools|agentsam_search_tools)\b[^\n]{0,40}\b([a-z0-9_.-]{2,32})\b/i);
+    return { keyword: kw ? kw[1].trim() : 'tool', query: kw ? kw[1].trim() : undefined };
   }
   return {};
 }
