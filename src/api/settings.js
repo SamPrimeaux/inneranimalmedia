@@ -3795,14 +3795,27 @@ export async function handleSettingsRequest(request, env, ctx) {
           userId: authUser?.id != null ? String(authUser.id) : null,
         });
         let run = null;
+        const rounds = [];
         if (queued.ok) {
-          run = await runAstSymbolReembedJob(env, workspaceId, {
-            userId: authUser?.id != null ? String(authUser.id) : null,
-            cpuBudgetMs: 18_000,
-            maxNodes: 48,
-          });
+          // Several Worker CPU slices per click so progress moves visibly.
+          for (let i = 0; i < 6; i++) {
+            run = await runAstSymbolReembedJob(env, workspaceId, {
+              userId: authUser?.id != null ? String(authUser.id) : null,
+              cpuBudgetMs: 18_000,
+              maxNodes: 48,
+            });
+            rounds.push({
+              embedded: run?.embedded ?? 0,
+              offset: run?.offset ?? null,
+              total: run?.total ?? null,
+              complete: !!run?.complete,
+              resume: !!run?.resume,
+              error: run?.error ?? null,
+            });
+            if (!run?.ok || run?.complete || !run?.resume) break;
+          }
         }
-        out.ast = { queued, run };
+        out.ast = { queued, run, rounds };
         if (!queued.ok && !queued.skipped) {
           return jsonResponse({ error: queued.error || 'ast_queue_failed', ...out }, 500);
         }

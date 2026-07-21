@@ -385,61 +385,107 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-          <div className="text-[10px] text-muted min-w-0">
-            {(() => {
-              const ast = snapshot.codeIndex?.ast as
-                | { last_synced_at?: string | number | null; nodes?: number }
-                | undefined;
-              const job =
-                snapshot.codeIndex?.chunkJob ||
-                (data.workspaceData?.indexJob as Record<string, unknown> | undefined);
-              const astWhen = ast?.last_synced_at;
-              const jobId = job?.id ? String(job.id) : '';
-              const status = job ? String(job.status || '—') : '—';
-              const cost = snapshot.codeIndex?.embedCost as
-                | { cost_usd_30d?: number; embed_events_30d?: number }
-                | undefined;
-              const err = job?.last_error ? String(job.last_error).slice(0, 120) : '';
-              return (
-                <>
-                  AST last sync:{' '}
-                  <span className="text-main">
-                    {astWhen ? relativeTime(astWhen as string | number) : '—'}
-                  </span>
-                  {jobId ? (
-                    <>
-                      {' '}
-                      · job <span className="text-main">{jobId}</span> ({status})
-                    </>
-                  ) : null}
-                  {cost != null ? (
-                    <>
-                      {' '}
-                      · embed 30d {formatUsdMaybe(Number(cost.cost_usd_30d) || 0)}
-                      {Number(cost.embed_events_30d) > 0
-                        ? ` (${cost.embed_events_30d} events)`
-                        : ''}
-                    </>
-                  ) : null}
-                  {err ? <div className="text-[var(--accent-warning)] mt-0.5">{err}</div> : null}
-                </>
-              );
-            })()}
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            <div
+              className={`w-11 h-11 rounded-full shrink-0 grid place-items-center relative ${
+                data.reindexPhase === 'ok'
+                  ? 'bg-emerald-500/20 text-emerald-600'
+                  : data.reindexPhase === 'error'
+                    ? 'bg-red-500/20 text-red-600'
+                    : data.reindexPhase === 'running'
+                      ? 'text-[var(--solar-blue)]'
+                      : 'bg-[var(--border-subtle)]/40 text-muted'
+              }`}
+              style={
+                data.reindexPhase === 'running' || (data.reindexPct > 0 && data.reindexPct < 100)
+                  ? {
+                      background: `conic-gradient(var(--solar-blue) ${data.reindexPct}%, rgba(148,163,184,0.25) 0)`,
+                    }
+                  : undefined
+              }
+              aria-label={data.reindexMsg || 'Code index status'}
+            >
+              <span className="absolute inset-[4px] rounded-full bg-[var(--panel-bg,var(--bg-elevated,#fff))] grid place-items-center text-[10px] font-semibold tabular-nums">
+                {data.reindexPhase === 'running'
+                  ? `${Math.max(1, data.reindexPct)}%`
+                  : data.reindexPhase === 'ok'
+                    ? '✓'
+                    : data.reindexPhase === 'error'
+                      ? '!'
+                      : '•'}
+              </span>
+            </div>
+            <div className="text-[10px] text-muted min-w-0">
+              {(() => {
+                const ast = snapshot.codeIndex?.ast as
+                  | { last_synced_at?: string | number | null; nodes?: number }
+                  | undefined;
+                const job =
+                  snapshot.codeIndex?.chunkJob ||
+                  (data.workspaceData?.indexJob as Record<string, unknown> | undefined);
+                const astWhen = ast?.last_synced_at;
+                const jobId = job?.id ? String(job.id) : '';
+                const status = job ? String(job.status || '—') : '—';
+                const cost = snapshot.codeIndex?.embedCost as
+                  | { cost_usd_30d?: number; embed_events_30d?: number }
+                  | undefined;
+                const err = job?.last_error ? String(job.last_error).slice(0, 120) : '';
+                return (
+                  <>
+                    AST last sync:{' '}
+                    <span className="text-main">
+                      {astWhen ? relativeTime(astWhen as string | number) : '—'}
+                    </span>
+                    {jobId ? (
+                      <>
+                        {' '}
+                        · job <span className="text-main">{jobId}</span> ({status})
+                      </>
+                    ) : null}
+                    {cost != null ? (
+                      <>
+                        {' '}
+                        · embed 30d {formatUsdMaybe(Number(cost.cost_usd_30d) || 0)}
+                        {Number(cost.embed_events_30d) > 0
+                          ? ` (${cost.embed_events_30d} events)`
+                          : ''}
+                      </>
+                    ) : null}
+                    {data.reindexMsg ? (
+                      <div
+                        className={
+                          data.reindexPhase === 'error'
+                            ? 'text-[var(--accent-warning)] mt-0.5'
+                            : data.reindexPhase === 'ok'
+                              ? 'text-emerald-600 mt-0.5'
+                              : 'text-[var(--solar-blue)] mt-0.5'
+                        }
+                      >
+                        {data.reindexMsg}
+                      </div>
+                    ) : null}
+                    {err ? <div className="text-[var(--accent-warning)] mt-0.5">{err}</div> : null}
+                  </>
+                );
+              })()}
+            </div>
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
             <button
               type="button"
+              disabled={data.reindexBusy != null}
               onClick={() => void data.postWorkspaceReindex('ast')}
-              className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main"
+              className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main disabled:opacity-50"
             >
-              Re-Index AST
+              {data.reindexBusy === 'ast' ? `Re-Indexing… ${data.reindexPct}%` : 'Re-Index AST'}
             </button>
             <button
               type="button"
+              disabled={data.reindexBusy != null}
               onClick={() => void data.postWorkspaceReindex('chunks')}
-              className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main"
+              className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main disabled:opacity-50"
             >
-              Re-index chunks
+              {data.reindexBusy === 'chunks' ? 'Queuing…' : 'Re-index chunks'}
             </button>
           </div>
         </div>

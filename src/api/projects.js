@@ -1654,7 +1654,7 @@ async function resolveProjectExecutionWorkspace(env, authUser, projectId) {
   ) {
     return { error: 'forbidden', status: 403 };
   }
-  const bindings = normalizeWorkspaceBindings(await resolveWorkspaceBindings(env, projectId));
+  const bindings = await resolveWorkspaceBindings(env, projectId);
   const executionWorkspaceId =
     bindings?.workspaceId ||
     (row.workspace_id != null ? String(row.workspace_id).trim() : null) ||
@@ -1723,14 +1723,26 @@ async function handleProjectReindex(request, env, authUser, projectId) {
         userId: authUser?.id != null ? String(authUser.id) : null,
       });
       let run = null;
+      const rounds = [];
       if (queued.ok) {
-        run = await runAstSymbolReembedJob(env, workspaceId, {
-          userId: authUser?.id != null ? String(authUser.id) : null,
-          cpuBudgetMs: 18_000,
-          maxNodes: 48,
-        });
+        for (let i = 0; i < 6; i++) {
+          run = await runAstSymbolReembedJob(env, workspaceId, {
+            userId: authUser?.id != null ? String(authUser.id) : null,
+            cpuBudgetMs: 18_000,
+            maxNodes: 48,
+          });
+          rounds.push({
+            embedded: run?.embedded ?? 0,
+            offset: run?.offset ?? null,
+            total: run?.total ?? null,
+            complete: !!run?.complete,
+            resume: !!run?.resume,
+            error: run?.error ?? null,
+          });
+          if (!run?.ok || run?.complete || !run?.resume) break;
+        }
       }
-      out.ast = { queued, run };
+      out.ast = { queued, run, rounds };
       if (!queued.ok && !queued.skipped) {
         return jsonResponse({ error: queued.error || 'ast_queue_failed', ...out }, 500);
       }

@@ -99,6 +99,10 @@ export function useSettingsData({
   const [workspaceLoading2, setWorkspaceLoading2] = useState(false);
   const [workspaceError2, setWorkspaceError2] = useState<string | null>(null);
   const [workspaceData, setWorkspaceData] = useState<any | null>(null);
+  const [reindexBusy, setReindexBusy] = useState<'ast' | 'chunks' | 'both' | null>(null);
+  const [reindexPhase, setReindexPhase] = useState<'idle' | 'running' | 'ok' | 'error'>('idle');
+  const [reindexPct, setReindexPct] = useState(0);
+  const [reindexMsg, setReindexMsg] = useState<string | null>(null);
 
   const [hooksLoading2, setHooksLoading2] = useState(false);
   const [hooksError2, setHooksError2] = useState<string | null>(null);
@@ -1139,16 +1143,75 @@ export function useSettingsData({
   );
 
   const postWorkspaceReindex = useCallback(async (mode: 'ast' | 'chunks' | 'both' = 'ast') => {
+    setReindexBusy(mode);
+    setReindexMsg(mode === 'ast' ? 'Re-indexing AST…' : 'Queuing chunk reindex…');
+    setReindexPct(mode === 'ast' ? 1 : 0);
+    setReindexPhase('running');
     try {
       const ws = workspaceId?.trim();
       const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
-      await fetch(`/api/settings/workspace/reindex${qp}`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode }),
-      });
+      if (mode === 'chunks') {
+        const res = await fetch(`/api/settings/workspace/reindex${qp}`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode }),
+        });
+        const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+        if (!res.ok || j.ok === false) {
+          setReindexPhase('error');
+          setReindexMsg(typeof j.error === 'string' ? j.error : 'Chunk reindex failed');
+          return;
+        }
+        setReindexPhase('ok');
+        setReindexPct(100);
+        setReindexMsg('Chunk reindex queued');
+        return;
+      }
+
+      let resume = true;
+      let guard = 0;
+      let embedded = 0;
+      while (resume && guard < 40) {
+        guard += 1;
+        const res = await fetch(`/api/settings/workspace/reindex${qp}`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'ast' }),
+        });
+        const j = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+          ast?: { run?: { complete?: boolean; resume?: boolean; embedded?: number; offset?: number; total?: number } };
+        };
+        if (!res.ok || j.ok === false) {
+          setReindexPhase('error');
+          setReindexMsg(typeof j.error === 'string' ? j.error : 'AST reindex failed');
+          return;
+        }
+        const run = j.ast?.run;
+        embedded += Number(run?.embedded) || 0;
+        const total = Number(run?.total) || 0;
+        const offset = Number(run?.offset) || 0;
+        const pct = total > 0 ? Math.min(100, Math.round((offset / total) * 100)) : run?.complete ? 100 : 5;
+        setReindexPct(pct);
+        setReindexMsg(
+          run?.complete
+            ? `Done · ${embedded} symbols`
+            : `Embedding… ${offset}/${total || '—'} (${pct}%)`,
+        );
+        resume = !!run?.resume && !run?.complete;
+        if (run?.complete) break;
+      }
+      setReindexPhase('ok');
+      setReindexPct(100);
+      setReindexMsg(`AST updated · ${embedded} symbols this run`);
+    } catch (e) {
+      setReindexPhase('error');
+      setReindexMsg(e instanceof Error ? e.message : 'Reindex failed');
     } finally {
+      setReindexBusy(null);
       void loadWorkspace();
     }
   }, [workspaceId, loadWorkspace]);
@@ -1430,6 +1493,10 @@ export function useSettingsData({
     workspaceError2,
     workspaceData,
     postWorkspaceReindex,
+    reindexBusy,
+    reindexPhase,
+    reindexPct,
+    reindexMsg,
     patchWorkspaceCmsPipeline,
 
     hooksLoading2,

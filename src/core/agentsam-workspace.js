@@ -125,21 +125,26 @@ const AGENTSAM_WORKSPACE_SELECT = `
  */
 export function normalizeWorkspaceBindings(row, env = null) {
   if (!row) return null;
+  // Idempotent: resolveWorkspaceBindings already returns a normalized object (workspaceId, not id).
   return {
-    workspaceId: trim(row.id) || null,
-    slug: trim(row.workspace_slug) || null,
+    workspaceId: trim(row.id) || trim(row.workspaceId) || null,
+    slug: trim(row.workspace_slug) || trim(row.slug) || null,
     name: trim(row.display_name) || trim(row.name) || null,
-    projectId: trim(row.project_id) || null,
-    accountId: trim(row.cloudflare_account_id) || trim(env?.CLOUDFLARE_ACCOUNT_ID) || null,
-    d1DatabaseId: trim(row.d1_database_id) || null,
-    d1Binding: trim(row.d1_binding) || 'DB',
-    workerName: trim(row.worker_name) || null,
-    r2Bucket: trim(row.r2_bucket) || null,
-    r2Prefix: trim(row.r2_prefix) || null,
-    kvNamespaceId: trim(row.kv_namespace_id) || null,
-    githubRepo: trim(row.github_repo) || null,
-    rootPath: trim(row.root_path) || null,
-    deployUrl: trim(row.deploy_url) || null,
+    projectId: trim(row.project_id) || trim(row.projectId) || null,
+    accountId:
+      trim(row.cloudflare_account_id) ||
+      trim(row.accountId) ||
+      trim(env?.CLOUDFLARE_ACCOUNT_ID) ||
+      null,
+    d1DatabaseId: trim(row.d1_database_id) || trim(row.d1DatabaseId) || null,
+    d1Binding: trim(row.d1_binding) || trim(row.d1Binding) || 'DB',
+    workerName: trim(row.worker_name) || trim(row.workerName) || null,
+    r2Bucket: trim(row.r2_bucket) || trim(row.r2Bucket) || null,
+    r2Prefix: trim(row.r2_prefix) || trim(row.r2Prefix) || null,
+    kvNamespaceId: trim(row.kv_namespace_id) || trim(row.kvNamespaceId) || null,
+    githubRepo: trim(row.github_repo) || trim(row.githubRepo) || null,
+    rootPath: trim(row.root_path) || trim(row.rootPath) || null,
+    deployUrl: trim(row.deploy_url) || trim(row.deployUrl) || null,
   };
 }
 

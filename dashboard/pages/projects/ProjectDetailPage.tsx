@@ -487,7 +487,11 @@ export default function ProjectDetailPage() {
   const [codeIndex, setCodeIndex] = useState<{
     loading: boolean;
     reindexing: boolean;
+    phase: 'idle' | 'running' | 'ok' | 'error';
+    progressPct: number;
+    statusMsg: string | null;
     error: string | null;
+    workspaceId: string | null;
     ast: {
       nodes?: number | null;
       edges?: number | null;
@@ -498,7 +502,18 @@ export default function ProjectDetailPage() {
     } | null;
     embedCost: { cost_usd_30d?: number; embed_events_30d?: number } | null;
     job: { id?: string; status?: string; progress_percent?: number } | null;
-  }>({ loading: true, reindexing: false, error: null, ast: null, embedCost: null, job: null });
+  }>({
+    loading: true,
+    reindexing: false,
+    phase: 'idle',
+    progressPct: 0,
+    statusMsg: null,
+    error: null,
+    workspaceId: null,
+    ast: null,
+    embedCost: null,
+    job: null,
+  });
   const storageAnchorRef = useRef<HTMLDivElement | null>(null);
   const [clientContact, setClientContact] = useState<ClientContactRow | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -740,6 +755,7 @@ export default function ProjectDetailPage() {
       const j = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
+        workspace_id?: string;
         ast?: typeof codeIndex.ast;
         embed_cost?: { cost_usd_30d?: number; embed_events_30d?: number };
         chunk_index?: { job?: { id?: string; status?: string; progress_percent?: number } };
@@ -752,13 +768,23 @@ export default function ProjectDetailPage() {
         }));
         return;
       }
+      const jobPct = Number(j.chunk_index?.job?.progress_percent);
       setCodeIndex((s) => ({
         ...s,
         loading: false,
         error: null,
+        workspaceId: j.workspace_id ? String(j.workspace_id) : null,
         ast: j.ast ?? null,
         embedCost: j.embed_cost ?? null,
         job: j.chunk_index?.job ?? null,
+        progressPct:
+          s.reindexing && s.progressPct > 0
+            ? s.progressPct
+            : Number.isFinite(jobPct) && jobPct > 0
+              ? Math.min(100, jobPct)
+              : s.phase === 'ok'
+                ? 100
+                : 0,
       }));
     } catch (e) {
       setCodeIndex((s) => ({
@@ -771,36 +797,81 @@ export default function ProjectDetailPage() {
 
   const reindexProjectAst = async () => {
     if (!projectId || codeIndex.reindexing) return;
-    setCodeIndex((s) => ({ ...s, reindexing: true, error: null }));
+    setCodeIndex((s) => ({
+      ...s,
+      reindexing: true,
+      phase: 'running',
+      progressPct: Math.max(s.progressPct, 1),
+      statusMsg: 'Re-indexing AST symbols…',
+      error: null,
+    }));
     try {
-      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/reindex`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'ast' }),
-      });
-      const j = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-        ast?: { run?: { complete?: boolean; embedded?: number; resume?: boolean; cost_usd?: number } };
-      };
-      if (!res.ok || j.ok === false) {
-        setToast(typeof j.error === 'string' ? j.error : 'Re-Index failed');
-        return;
-      }
-      const run = j.ast?.run;
-      if (run?.resume) {
-        setToast(`AST re-embed in progress (${run.embedded ?? 0} this pass) — click again to continue`);
-      } else {
-        setToast(
-          `AST re-indexed${run?.embedded != null ? ` (${run.embedded} symbols)` : ''}${
-            run?.cost_usd != null && run.cost_usd > 0 ? ` · $${Number(run.cost_usd).toFixed(4)}` : ''
-          }`,
-        );
+      let resume = true;
+      let guard = 0;
+      let lastEmbedded = 0;
+      while (resume && guard < 40) {
+        guard += 1;
+        const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/reindex`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'ast' }),
+        });
+        const j = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+          workspace_id?: string;
+          ast?: {
+            run?: {
+              complete?: boolean;
+              embedded?: number;
+              resume?: boolean;
+              cost_usd?: number;
+              offset?: number;
+              total?: number;
+              error?: string;
+            };
+          };
+        };
+        if (!res.ok || j.ok === false) {
+          setCodeIndex((s) => ({
+            ...s,
+            phase: 'error',
+            statusMsg: typeof j.error === 'string' ? j.error : 'Re-Index failed',
+            error: typeof j.error === 'string' ? j.error : 'Re-Index failed',
+          }));
+          setToast(typeof j.error === 'string' ? j.error : 'Re-Index failed');
+          return;
+        }
+        const run = j.ast?.run;
+        lastEmbedded += Number(run?.embedded) || 0;
+        const total = Number(run?.total) || 0;
+        const offset = Number(run?.offset) || 0;
+        const pct = total > 0 ? Math.min(100, Math.round((offset / total) * 100)) : run?.complete ? 100 : 5;
+        setCodeIndex((s) => ({
+          ...s,
+          workspaceId: j.workspace_id ? String(j.workspace_id) : s.workspaceId,
+          progressPct: pct,
+          statusMsg: run?.complete
+            ? `Done · ${lastEmbedded} symbols this run`
+            : `Embedding… ${offset}/${total || '—'} (${pct}%)`,
+          phase: 'running',
+        }));
+        resume = !!run?.resume && !run?.complete;
+        if (run?.complete) break;
       }
       await loadCodeIndex();
+      setCodeIndex((s) => ({
+        ...s,
+        phase: 'ok',
+        progressPct: 100,
+        statusMsg: `AST index updated · ${lastEmbedded} symbols embedded`,
+      }));
+      setToast(`AST re-indexed (${lastEmbedded} symbols this run)`);
     } catch (e) {
-      setToast(e instanceof Error ? e.message : 'Re-Index failed');
+      const msg = e instanceof Error ? e.message : 'Re-Index failed';
+      setCodeIndex((s) => ({ ...s, phase: 'error', statusMsg: msg, error: msg }));
+      setToast(msg);
     } finally {
       setCodeIndex((s) => ({ ...s, reindexing: false }));
     }
@@ -1434,33 +1505,71 @@ export default function ProjectDetailPage() {
       >
         {codeIndex.loading ? (
           <p className="cpd-rail-preview-empty">Loading index…</p>
-        ) : codeIndex.error ? (
+        ) : codeIndex.error && !codeIndex.ast ? (
           <p className="cpd-rail-preview-empty">{codeIndex.error}</p>
         ) : (
           <div className="cpd-code-index">
-            <div className="cpd-code-index-grid">
-              <div>
-                <span className="cpd-code-index-label">Nodes</span>
-                <span className="cpd-code-index-val">{codeIndex.ast?.nodes ?? '—'}</span>
+            <div className="cpd-code-index-top">
+              <div className="cpd-code-index-grid">
+                <div>
+                  <span className="cpd-code-index-label">Nodes</span>
+                  <span className="cpd-code-index-val">{codeIndex.ast?.nodes ?? '—'}</span>
+                </div>
+                <div>
+                  <span className="cpd-code-index-label">Edges</span>
+                  <span className="cpd-code-index-val">{codeIndex.ast?.edges ?? '—'}</span>
+                </div>
+                <div>
+                  <span className="cpd-code-index-label">Symbols</span>
+                  <span className="cpd-code-index-val">{codeIndex.ast?.symbols ?? '—'}</span>
+                </div>
+                <div>
+                  <span className="cpd-code-index-label">Linked</span>
+                  <span className="cpd-code-index-val">
+                    {codeIndex.ast?.linked_chunks != null
+                      ? `${codeIndex.ast.linked_chunks}/${codeIndex.ast.total_chunks ?? '—'}`
+                      : '—'}
+                  </span>
+                </div>
               </div>
-              <div>
-                <span className="cpd-code-index-label">Edges</span>
-                <span className="cpd-code-index-val">{codeIndex.ast?.edges ?? '—'}</span>
-              </div>
-              <div>
-                <span className="cpd-code-index-label">Symbols</span>
-                <span className="cpd-code-index-val">{codeIndex.ast?.symbols ?? '—'}</span>
-              </div>
-              <div>
-                <span className="cpd-code-index-label">Linked</span>
-                <span className="cpd-code-index-val">
-                  {codeIndex.ast?.linked_chunks != null
-                    ? `${codeIndex.ast.linked_chunks}/${codeIndex.ast.total_chunks ?? '—'}`
-                    : '—'}
+              <div
+                className={`cpd-code-ring cpd-code-ring--${codeIndex.phase}`}
+                style={
+                  {
+                    ['--pct' as string]: String(
+                      Math.max(
+                        0,
+                        Math.min(
+                          100,
+                          codeIndex.progressPct || (codeIndex.phase === 'ok' ? 100 : 0),
+                        ),
+                      ),
+                    ),
+                  } as React.CSSProperties
+                }
+                title={codeIndex.statusMsg || 'Index status'}
+                aria-label={codeIndex.statusMsg || `Index ${codeIndex.progressPct}%`}
+              >
+                <span className="cpd-code-ring-pct">
+                  {codeIndex.phase === 'running'
+                    ? `${Math.max(1, codeIndex.progressPct)}%`
+                    : codeIndex.phase === 'ok'
+                      ? '✓'
+                      : codeIndex.phase === 'error'
+                        ? '!'
+                        : codeIndex.progressPct > 0 && codeIndex.progressPct < 100
+                          ? `${codeIndex.progressPct}%`
+                          : '•'}
                 </span>
               </div>
             </div>
             <p className="cpd-code-index-meta">
+              {codeIndex.workspaceId ? (
+                <>
+                  <span className="cpd-code-index-ws">{codeIndex.workspaceId}</span>
+                  {' · '}
+                </>
+              ) : null}
               Last sync{' '}
               {codeIndex.ast?.last_synced_at
                 ? relativeTimeLabel(codeIndex.ast.last_synced_at)
@@ -1472,12 +1581,14 @@ export default function ProjectDetailPage() {
                   {Number(codeIndex.embedCost.cost_usd_30d || 0).toFixed(2)}
                 </>
               ) : null}
-              {codeIndex.job?.progress_percent != null &&
-              Number(codeIndex.job.progress_percent) > 0 &&
-              Number(codeIndex.job.progress_percent) < 100 ? (
-                <> · {codeIndex.job.progress_percent}%</>
-              ) : null}
             </p>
+            {codeIndex.statusMsg ? (
+              <p
+                className={`cpd-code-index-status cpd-code-index-status--${codeIndex.phase}`}
+              >
+                {codeIndex.statusMsg}
+              </p>
+            ) : null}
           </div>
         )}
       </RailSection>
@@ -2527,6 +2638,54 @@ const CSS = `
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px 10px;
+  flex: 1;
+  min-width: 0;
+}
+.cpd-code-index-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cpd-code-ring {
+  --pct: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(
+    var(--solar-cyan, #22d3ee) calc(var(--pct) * 1%),
+    rgba(148, 163, 184, 0.25) 0
+  );
+  position: relative;
+}
+.cpd-code-ring::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: var(--bg-elevated, #1a1d2e);
+}
+.cpd-code-ring-pct {
+  position: relative;
+  z-index: 1;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-main, #e2e8f0);
+}
+.cpd-code-ring--running {
+  background: conic-gradient(
+    var(--solar-cyan, #22d3ee) calc(var(--pct) * 1%),
+    rgba(34, 211, 238, 0.15) 0
+  );
+}
+.cpd-code-ring--ok {
+  background: conic-gradient(#34d399 100%, #34d399 0);
+}
+.cpd-code-ring--error {
+  background: conic-gradient(#f87171 100%, #f87171 0);
 }
 .cpd-code-index-label {
   display: block;
@@ -2546,6 +2705,25 @@ const CSS = `
   font-size: 11px;
   color: var(--color-muted, #94a3b8);
   line-height: 1.35;
+}
+.cpd-code-index-ws {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--solar-cyan, #22d3ee);
+}
+.cpd-code-index-status {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.cpd-code-index-status--running {
+  color: var(--solar-cyan, #22d3ee);
+}
+.cpd-code-index-status--ok {
+  color: #34d399;
+}
+.cpd-code-index-status--error {
+  color: #f87171;
 }
 .cpd-rail-preview-foot {
   font-size: 10px;
