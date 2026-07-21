@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   Database,
+  FolderSearch,
   HardDrive,
   Layers,
   Loader2,
@@ -53,6 +54,7 @@ import {
   probePaletteCloudflareConnected,
   type PaletteCfCatalog,
 } from '../src/lib/paletteCloudflare';
+import { searchConnectedLocalFiles } from '../src/lib/searchConnectedLocalFiles';
 
 export type UnifiedSearchNavigate =
   | { kind: 'table'; name: string }
@@ -63,7 +65,7 @@ export type UnifiedSearchNavigate =
   | { kind: 'column'; sql: string }
   | { kind: 'file'; path: string };
 
-type SourceChipId = 'all' | 'planes' | 'r2' | 'd1' | 'commands' | 'workflows' | 'chats';
+type SourceChipId = 'all' | 'planes' | 'r2' | 'd1' | 'commands' | 'workflows' | 'chats' | 'files';
 
 type PaletteCategory =
   | 'resource'
@@ -121,6 +123,7 @@ type QueryMode = 'default' | 'planes' | 'r2' | 'd1' | 'hyperdrive' | 'vectorize'
 
 const SOURCE_CHIPS: { id: SourceChipId; label: string; Icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { id: 'all', label: 'All', Icon: LayoutGrid },
+  { id: 'files', label: 'Files', Icon: FileText },
   { id: 'planes', label: 'Planes', Icon: Layers },
   { id: 'r2', label: 'R2', Icon: HardDrive },
   { id: 'd1', label: 'D1', Icon: Database },
@@ -139,7 +142,7 @@ const SEARCH_TIPS: PaletteItem[] = [
   { id: 'tip-vx', category: 'tip', title: 'vectorize:', subtitle: 'List Vectorize indexes' },
   { id: 'tip-cmd', category: 'tip', title: '/', subtitle: 'Wrangler commands (R2, D1, KV, Workers…)' },
   { id: 'tip-wf', category: 'tip', title: 'wf', subtitle: 'D1 agentsam_workflows' },
-  { id: 'tip-at', category: 'tip', title: '@', subtitle: 'Recent files' },
+  { id: 'tip-at', category: 'tip', title: '@', subtitle: 'Search connected folder & recent files' },
 ];
 
 function isCfDataTip(title: string): boolean {
@@ -322,6 +325,7 @@ function parseQueryMode(raw: string): { mode: QueryMode; term: string } {
 
 function chipMatchesCategory(chip: SourceChipId, category: PaletteCategory): boolean {
   if (chip === 'all') return category !== 'tip' && category !== 'connect';
+  if (chip === 'files') return category === 'file';
   if (chip === 'r2') return category === 'r2' || category === 'resource';
   if (chip === 'd1') return category === 'd1';
   if (chip === 'planes') {
@@ -590,6 +594,7 @@ export const UnifiedSearchBar: React.FC<{
   const { mode, term } = useMemo(() => parseQueryMode(q), [q]);
 
   const activeChip = useMemo((): SourceChipId => {
+    if (mode === 'file') return 'files';
     if (mode === 'r2') return 'r2';
     if (mode === 'd1') return 'd1';
     if (mode === 'planes' || mode === 'hyperdrive' || mode === 'vectorize') return 'planes';
@@ -602,6 +607,16 @@ export const UnifiedSearchBar: React.FC<{
     setActive(0);
     setPlaneSections([]);
     setCommandSections([]);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, []);
+
+  const openFilesSearch = useCallback(() => {
+    setGitMenuOpen(false);
+    setConnectionMenuOpen(false);
+    setSourceChip('files');
+    setQ('@');
+    setActive(0);
+    setOpen(true);
     requestAnimationFrame(() => inputRef.current?.focus());
   }, []);
 
@@ -618,11 +633,16 @@ export const UnifiedSearchBar: React.FC<{
         deploy: 'commands',
         codebase: 'all',
         scripts: 'commands',
+        files: 'files',
+        file: 'files',
       };
       const first = initialFacets.map((f) => map[f]).find(Boolean);
       if (first) setSourceChip(first);
       if (initialFacets.includes('deploy') && !initialQuery) {
         setQ('deploy');
+      }
+      if ((initialFacets.includes('files') || initialFacets.includes('file')) && !initialQuery) {
+        setQ('@');
       }
     }
     setActive(0);
@@ -947,6 +967,40 @@ export const UnifiedSearchBar: React.FC<{
             filePath: f.path,
           }));
 
+        let connected: PaletteItem[] = [];
+        try {
+          const { hits, connected: isConnected, permission } = await searchConnectedLocalFiles(searchTerm);
+          if (!isConnected) {
+            connected = [
+              {
+                id: 'file-connect-hint',
+                category: 'tip',
+                title: 'Connect a local folder',
+                subtitle: 'Use Local folder in the workspace to search package.json and more',
+              },
+            ];
+          } else if (permission === 'prompt' || permission === 'denied') {
+            connected = [
+              {
+                id: 'file-perm-hint',
+                category: 'tip',
+                title: 'Reconnect local folder',
+                subtitle: 'Files panel shows Disconnected — grant access to search this machine',
+              },
+            ];
+          } else {
+            connected = hits.map((h) => ({
+              id: `file-fsa-${h.path}`,
+              category: 'file' as const,
+              title: h.name,
+              subtitle: `${h.rootName}/${h.path}`,
+              filePath: h.path,
+            }));
+          }
+        } catch {
+          /* ignore FSA errors */
+        }
+
         let remote: PaletteItem[] = [];
         if (searchTerm.length >= 2) {
           const res = await fetch('/api/unified-search', {
@@ -958,14 +1012,20 @@ export const UnifiedSearchBar: React.FC<{
           const data = res.ok ? await res.json() : {};
           remote = normalizeLegacySearchRows(data as Record<string, unknown>)
             .filter((r) => r.type === 'knowledge' || r.type === 'file')
-            .map((r) =>
-              legacyToPalette(r),
-            )
+            .map((r) => legacyToPalette(r))
             .filter((x): x is PaletteItem => !!x)
             .map((r) => ({ ...r, category: 'file' as const, filePath: r.legacyRow?.url || r.title }));
         }
 
-        setItems([...local, ...remote]);
+        const seen = new Set<string>();
+        const merged: PaletteItem[] = [];
+        for (const row of [...connected, ...local, ...remote]) {
+          const key = `${row.category}:${row.filePath || row.title}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          merged.push(row);
+        }
+        setItems(merged);
       } finally {
         setLoading(false);
       }
@@ -1095,6 +1155,10 @@ export const UnifiedSearchBar: React.FC<{
 
   const runQuery = useCallback(async () => {
     if (mode === 'default') {
+      if (sourceChip === 'files') {
+        await loadFiles('');
+        return;
+      }
       if (sourceChip === 'commands') {
         await loadCommands('');
         return;
@@ -1149,6 +1213,10 @@ export const UnifiedSearchBar: React.FC<{
     }
     if (mode === 'clone') {
       loadClone(term || q.trim());
+      return;
+    }
+    if (sourceChip === 'files') {
+      await loadFiles(term);
       return;
     }
     if (sourceChip === 'commands') {
@@ -1377,7 +1445,7 @@ export const UnifiedSearchBar: React.FC<{
       }
 
       if (item.category === 'file' && item.filePath) {
-        onNavigate({ kind: 'knowledge', url: item.filePath, label: item.title }, searchQuery);
+        onNavigate({ kind: 'file', path: item.filePath }, searchQuery);
         closePalette();
         return;
       }
@@ -1612,6 +1680,15 @@ export const UnifiedSearchBar: React.FC<{
               />
             ) : null}
           </div>
+          <button
+            type="button"
+            onClick={openFilesSearch}
+            className="flex items-center justify-center h-full px-2.5 hover:bg-[var(--bg-hover)] transition-colors text-muted hover:text-main border-l border-[var(--border-subtle)]"
+            title="Search files in connected folder (type @)"
+            aria-label="Search connected files"
+          >
+            <FolderSearch size={13} strokeWidth={1.5} className="text-[var(--solar-cyan)]" />
+          </button>
         </div>
         ) : null}
         <button
@@ -1650,7 +1727,7 @@ export const UnifiedSearchBar: React.FC<{
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   onKeyDown={onKeyDown}
-                  placeholder="planes:, r2:, d1: — buckets, databases, commands…"
+                  placeholder="Search connected files with @, or planes:, r2:, d1:…"
                   className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[13px] text-main placeholder:text-muted"
                 />
                 <kbd className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-muted shrink-0">
@@ -1669,6 +1746,10 @@ export const UnifiedSearchBar: React.FC<{
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (id === 'files') {
+                          activateDataPlaneChip('files', '@');
+                          return;
+                        }
                         if (id === 'planes') {
                           activateDataPlaneChip('planes', 'planes:');
                           return;

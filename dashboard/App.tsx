@@ -845,6 +845,7 @@ const App: React.FC = () => {
       if (detail.facets?.length) setSearchInitialFacets(detail.facets);
       else if (detail.chip === 'commands') setSearchInitialFacets(['commands']);
       else if (detail.chip === 'd1') setSearchInitialFacets(['d1']);
+      else if (detail.chip === 'files') setSearchInitialFacets(['files']);
       setSearchOpen(true);
     };
     window.addEventListener(IAM_OPEN_COMMAND_PALETTE, onPalette as EventListener);
@@ -3357,6 +3358,67 @@ const App: React.FC = () => {
         navigate('/dashboard/chats');
         return;
       }
+      if (nav.kind === 'file') {
+        const path = String(nav.path || '').trim();
+        if (!path) return;
+        void (async () => {
+          try {
+            const { resolveConnectedLocalFile } = await import('./src/lib/searchConnectedLocalFiles');
+            const { openLocalFileInEditor } = await import('./src/lib/mediaPreview');
+            const resolved = await resolveConnectedLocalFile(path);
+            if (resolved) {
+              await openLocalFileInEditor(resolved.file, resolved.handle, resolved.workspacePath, (f) => {
+                setActiveFile(f);
+              });
+              setActiveActivity('files');
+              revealMainWorkspaceIfNarrow();
+              setOpenTabs((p) => (p.includes('code') ? p : [...p, 'code']));
+              setActiveTab('code');
+              return;
+            }
+          } catch {
+            /* fall through */
+          }
+          // Fallback: open via GitHub contents for connected repo context.
+          try {
+            const repoHint = String(
+              gitRepoFullName || activeWorkspaceRow?.github_repo || '',
+            ).trim();
+            if (!repoHint) return;
+            const [owner, repo] = repoHint.split('/');
+            if (!owner || !repo) return;
+            const qs = new URLSearchParams({ path });
+            const res = await fetch(
+              `/api/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?${qs}`,
+              { credentials: 'same-origin' },
+            );
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || data.type !== 'file' || typeof data.content !== 'string') return;
+            const raw = String(data.content).replace(/\n/g, '');
+            const binary = atob(raw);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            const text = new TextDecoder().decode(bytes);
+            setActiveFile({
+              name: data.name || path.split('/').pop() || path,
+              content: text,
+              originalContent: text,
+              githubPath: path,
+              githubRepo: repoHint,
+              githubSha: typeof data.sha === 'string' ? data.sha : undefined,
+              githubBranch: typeof data.ref === 'string' ? data.ref : 'main',
+              workspacePath: path,
+            });
+            setActiveActivity('files');
+            revealMainWorkspaceIfNarrow();
+            setOpenTabs((p) => (p.includes('code') ? p : [...p, 'code']));
+            setActiveTab('code');
+          } catch {
+            /* ignore */
+          }
+        })();
+        return;
+      }
       if (nav.kind === 'sql' || nav.kind === 'column') {
         const sql = nav.sql?.trim();
         if (!sql) return;
@@ -3371,7 +3433,7 @@ const App: React.FC = () => {
         }
       }
     },
-    [navigate],
+    [navigate, gitRepoFullName, activeWorkspaceRow, revealMainWorkspaceIfNarrow, setActiveFile],
   );
 
   const fetchHealth = useCallback(async () => {

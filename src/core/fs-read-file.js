@@ -145,6 +145,8 @@ export async function executeFsReadFile(env, params, runContext = {}) {
   let execCwd = null;
   let lane = 'workspace_pty_local';
   let repoMeta = {};
+  /** @type {{ command: string, execCwd: string|null, lane: string, repoMeta: Record<string, unknown> }[]} */
+  let attemptList = [];
 
   if (isAbsolute) {
     command = buildPtyReadAbsoluteCommand(relPath);
@@ -153,10 +155,12 @@ export async function executeFsReadFile(env, params, runContext = {}) {
     }
     lane = 'workspace_pty_host_absolute';
     execCwd = null;
+    attemptList = [{ command, execCwd, lane, repoMeta }];
   } else {
-    const { resolveMoviemodeRepoRootForSession, safePtyRepoDirName } = await import(
+    const { resolveMoviemodeRepoRootForSession, loadWorkspaceSettingsJson } = await import(
       './pty-workspace-paths.js'
     );
+    const { gcpRemoteExecCwd } = await import('./host-workspace-paths.js');
     const repo = await resolveMoviemodeRepoRootForSession(env, {
       tenantId,
       userId,
@@ -165,88 +169,203 @@ export async function executeFsReadFile(env, params, runContext = {}) {
     if (!repo?.workspaceRoot) {
       return { error: 'workspace_repo_root_unavailable', lane: 'workspace_read' };
     }
-    // PTY control-plane already cds to workspace/vm root. Nested `cd <basename>`
-    // fails when cwd is already the repo (live proof: equal roots + repo_dir basename).
-    let repoDir =
-      params.repo_dir != null && String(params.repo_dir).trim()
-        ? safePtyRepoDirName(String(params.repo_dir).trim(), repo.workspaceRoot)
-        : safePtyRepoDirName(repo.repoRoot, repo.workspaceRoot);
-    const wsTail =
-      String(repo.workspaceRoot || '')
-        .split(/[/\\]/)
-        .filter(Boolean)
-        .pop() || '';
-    if (!repoDir || repoDir === wsTail || repoDir === 'inneranimalmedia') {
-      repoDir = '.';
+    const settings = await loadWorkspaceSettingsJson(env, workspaceId);
+    // Prefer absolute path on the exec host — avoids nested `cd <basename>` entirely.
+    // Try VM root first (platform_vm), then Mac workspace_root (user_hosted_tunnel).
+    const vmRoot = gcpRemoteExecCwd(settings, { allowOperatorFallback: true });
+    const absBases = [];
+    for (const cand of [vmRoot, repo.workspaceRoot]) {
+      const n = String(cand || '')
+        .trim()
+        .replace(/\/+$/, '');
+      if (n.startsWith('/') && !absBases.includes(n)) absBases.push(n);
     }
-    command = buildPtyReadFileCommand(relPath, repoDir);
-    if (!command || !isSafePtyReadFileCommand(command, repoDir)) {
+    const relSafe = relPath.replace(/^\.?\//, '');
+    if (relSafe && !/\.\./.test(relSafe)) {
+      for (const absBase of absBases) {
+        const absCmd = buildPtyReadAbsoluteCommand(`${absBase}/${relSafe}`);
+        if (absCmd && isSafePtyReadFileCommand(absCmd, '.')) {
+          attemptList.push({
+            command: absCmd,
+            execCwd: null,
+            lane: 'workspace_pty_absolute',
+            repoMeta: {
+              repo_root: repo.repoRoot,
+              repo_dir: '.',
+              workspace_root: repo.workspaceRoot,
+              abs_base: absBase,
+              fs_read_build: 'v3_abs',
+            },
+          });
+        }
+      }
+    }
+    // Relative head at PTY cwd (already the repo). Never cd into basename.
+    const relCmd = buildPtyReadFileCommand(relPath, '.');
+    if (relCmd && isSafePtyReadFileCommand(relCmd, '.')) {
+      attemptList.push({
+        command: relCmd,
+        execCwd: repo.workspaceRoot,
+        lane: 'workspace_pty_local',
+        repoMeta: {
+          repo_root: repo.repoRoot,
+          repo_dir: '.',
+          workspace_root: repo.workspaceRoot,
+          fs_read_build: 'v3_rel',
+        },
+      });
+    }
+    if (!attemptList.length) {
       return { error: 'unsafe_or_invalid_path', lane: 'workspace_read', path: relPath };
     }
-    execCwd = repo.workspaceRoot;
-    repoMeta = {
-      repo_root: repo.repoRoot,
-      repo_dir: repoDir,
-      workspace_root: repo.workspaceRoot,
-    };
+    command = attemptList[0].command;
+    execCwd = attemptList[0].execCwd;
+    lane = attemptList[0].lane;
+    repoMeta = attemptList[0].repoMeta;
   }
 
   const started = Date.now();
   let output = '';
   let exitCode = 1;
+  let nestedCdFailed = false;
+
   try {
     const { runTerminalCommand } = await import('./terminal.js');
-    const res = await runTerminalCommand(env, request, command, runContext.sessionId ?? null, {
-      execution_mode: 'pty',
-      workspace_id: workspaceId,
-      tenant_id: tenantId,
-      user_id: userId,
-      cwd: execCwd,
-    });
-    output = String(res?.output || '');
-    exitCode = Number(res?.exitCode ?? res?.exit_code ?? 0);
+    for (const attempt of attemptList) {
+      command = attempt.command;
+      execCwd = attempt.execCwd;
+      lane = attempt.lane;
+      repoMeta = attempt.repoMeta || {};
+      try {
+        const res = await runTerminalCommand(env, request, command, runContext.sessionId ?? null, {
+          execution_mode: 'pty',
+          workspace_id: workspaceId,
+          tenant_id: tenantId,
+          user_id: userId,
+          cwd: execCwd,
+        });
+        output = String(res?.output || '');
+        exitCode = Number(res?.exitCode ?? res?.exit_code ?? 0);
+      } catch (e) {
+        output = String(e?.message || e).slice(0, 500);
+        exitCode = 1;
+      }
+      nestedCdFailed = /cd: .*: No such file or directory/i.test(output);
+      const ptyOk =
+        exitCode === 0 && !nestedCdFailed && !/No such file or directory/i.test(output);
+      if (ptyOk) {
+        return {
+          success: true,
+          lane,
+          tool: 'fs_read_file',
+          path: relPath,
+          content: output,
+          exit_code: exitCode,
+          truncated: output.length >= FS_READ_MAX_BYTES - 16,
+          duration_ms: Math.max(0, Date.now() - started),
+          ...repoMeta,
+        };
+      }
+    }
   } catch (e) {
-    return {
-      error: String(e?.message || e).slice(0, 500),
-      lane,
-      path: relPath,
-      ...repoMeta,
-      hint: isAbsolute
-        ? 'PTY host must reach this absolute path (tunnel iam-pty on your Mac)'
-        : 'Clone or symlink repo under your PTY workspace, or open the file locally so buffer read works',
-    };
+    output = String(e?.message || e).slice(0, 500);
+    exitCode = 1;
   }
 
   const durationMs = Math.max(0, Date.now() - started);
-  const nestedCdFailed = /cd: .*: No such file or directory/i.test(output);
-  if (exitCode !== 0 || nestedCdFailed) {
+
+  // GitHub Contents API fallback — authoritative for the connected repo when PTY fails.
+  const ghFallback = await tryGithubFileFallback(env, params, runContext, relPath, {
+    userId,
+    workspaceId,
+  });
+  if (ghFallback) {
     return {
-      success: false,
-      error: nestedCdFailed ? 'pty_nested_cd_failed' : 'pty_read_failed',
-      lane,
-      path: relPath,
-      content: output.slice(0, 4000),
-      exit_code: nestedCdFailed && exitCode === 0 ? 1 : exitCode,
-      duration_ms: durationMs,
+      ...ghFallback,
+      duration_ms: durationMs + (Number(ghFallback.duration_ms) || 0),
+      pty_error: nestedCdFailed ? 'pty_nested_cd_failed' : 'pty_read_failed',
+      pty_output: output.slice(0, 500),
       ...repoMeta,
-      hint:
-        nestedCdFailed
-          ? 'PTY cwd is already the repo — do not cd into workspace basename'
-          : isAbsolute
-            ? 'PTY host must reach this absolute path (tunnel iam-pty on your Mac)'
-            : 'Clone or symlink repo under your PTY workspace, or open the file locally so buffer read works',
     };
   }
 
   return {
-    success: true,
+    success: false,
+    error: nestedCdFailed ? 'pty_nested_cd_failed' : 'pty_read_failed',
     lane,
-    tool: 'fs_read_file',
     path: relPath,
-    content: output,
-    exit_code: exitCode,
-    truncated: output.length >= FS_READ_MAX_BYTES - 16,
+    content: output.slice(0, 4000),
+    exit_code: nestedCdFailed && exitCode === 0 ? 1 : exitCode,
     duration_ms: durationMs,
     ...repoMeta,
+    hint: nestedCdFailed
+      ? 'PTY cwd is already the repo — use absolute vm_workspace_root or GitHub read'
+      : isAbsolute
+        ? 'PTY host must reach this absolute path (tunnel iam-pty on your Mac)'
+        : 'Clone repo under PTY workspace, reconnect local folder to monorepo root, or use agentsam_github_read',
   };
+}
+
+/**
+ * @param {any} env
+ * @param {Record<string, unknown>} params
+ * @param {Record<string, unknown>} runContext
+ * @param {string} relPath
+ * @param {{ userId: string, workspaceId: string }} ids
+ */
+async function tryGithubFileFallback(env, params, runContext, relPath, ids) {
+  try {
+    let repo = String(
+      params.repo ||
+        params.github_repo ||
+        runContext.github_repo ||
+        runContext.selectedGithubRepoContext?.full_name ||
+        runContext.github_repo_context?.full_name ||
+        '',
+    ).trim();
+    if (!repo && ids.workspaceId) {
+      const { loadWorkspaceSettingsJson } = await import('./pty-workspace-paths.js');
+      const settings = await loadWorkspaceSettingsJson(env, ids.workspaceId);
+      repo = String(
+        settings?.github_repo || settings?.default_github_repo || settings?.repo?.full_name || '',
+      ).trim();
+    }
+    // Platform workspace default when settings omit github_repo.
+    if (!repo && ids.workspaceId === 'ws_inneranimalmedia') {
+      repo = 'SamPrimeaux/inneranimalmedia';
+    }
+    if (!repo || !ids.userId) return null;
+    const { handlers } = await import('../tools/builtin/github-worker.js');
+    const t0 = Date.now();
+    const out = await handlers.github_get_file(
+      {
+        user_id: ids.userId,
+        repo,
+        path: String(relPath || '').replace(/^\.?\//, ''),
+      },
+      env,
+    );
+    if (out?.success === false || out?.error) return null;
+    const text =
+      out?.text != null
+        ? String(out.text)
+        : out?.content != null
+          ? String(out.content)
+          : '';
+    if (!text) return null;
+    return {
+      success: true,
+      lane: 'github_contents',
+      tool: 'fs_read_file',
+      path: relPath,
+      repo,
+      content: text.slice(0, FS_READ_MAX_BYTES),
+      truncated: text.length > FS_READ_MAX_BYTES,
+      exit_code: 0,
+      duration_ms: Math.max(0, Date.now() - t0),
+      fs_read_build: 'v3_github',
+    };
+  } catch {
+    return null;
+  }
 }

@@ -1,4 +1,4 @@
-export type CommandPaletteChip = 'all' | 'commands' | 'd1' | 'r2' | 'workflows';
+export type CommandPaletteChip = 'all' | 'commands' | 'd1' | 'r2' | 'workflows' | 'files';
 
 export type OpenCommandPaletteDetail = {
   query?: string;
