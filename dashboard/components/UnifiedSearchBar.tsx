@@ -132,31 +132,23 @@ const SOURCE_CHIPS: { id: SourceChipId; label: string; Icon: React.ComponentType
   { id: 'chats', label: 'Chats', Icon: MessageSquare },
 ];
 
-const CF_DATA_TIP_PREFIXES = ['r2', 'd1', 'planes', 'hyperdrive', 'vectorize', 'hd', 'vx'];
-
 const SEARCH_TIPS: PaletteItem[] = [
-  { id: 'tip-planes', category: 'tip', title: 'planes:', subtitle: 'D1, R2, Hyperdrive & Vectorize in your account' },
-  { id: 'tip-r2', category: 'tip', title: 'r2:', subtitle: 'Search R2 buckets' },
-  { id: 'tip-d1', category: 'tip', title: 'd1:', subtitle: 'List D1 databases in your account' },
-  { id: 'tip-hd', category: 'tip', title: 'hyperdrive:', subtitle: 'List Hyperdrive configs' },
-  { id: 'tip-vx', category: 'tip', title: 'vectorize:', subtitle: 'List Vectorize indexes' },
-  { id: 'tip-cmd', category: 'tip', title: '/', subtitle: 'Wrangler commands (R2, D1, KV, Workers…)' },
-  { id: 'tip-wf', category: 'tip', title: 'wf', subtitle: 'D1 agentsam_workflows' },
-  { id: 'tip-at', category: 'tip', title: '@', subtitle: 'Search connected folder & recent files' },
+  { id: 'tip-cmd', category: 'tip', title: '/', subtitle: 'Show and run commands' },
+  { id: 'tip-hash', category: 'tip', title: '#', subtitle: 'Search files, content, and knowledge' },
+  { id: 'tip-at', category: 'tip', title: '@', subtitle: 'Go to file in connected folder' },
+  { id: 'tip-more', category: 'tip', title: '?', subtitle: 'Platform: r2: · d1: · planes: · wf:' },
 ];
 
-function isCfDataTip(title: string): boolean {
-  const t = title.replace(/:$/, '').toLowerCase();
-  return CF_DATA_TIP_PREFIXES.includes(t);
-}
+/** Empty ⌘K Quick Open — Cursor-style action rows (tips set the query prefix). */
+const QUICK_OPEN_ACTIONS: PaletteItem[] = [
+  { id: 'qo-cmd', category: 'tip', title: '/', subtitle: 'Show and run commands' },
+  { id: 'qo-hash', category: 'tip', title: '#', subtitle: 'Search for text' },
+  { id: 'qo-at', category: 'tip', title: '@', subtitle: 'Go to file' },
+  { id: 'qo-more', category: 'tip', title: '?', subtitle: 'More — r2:, d1:, planes:, wf:' },
+];
 
-function paletteSearchTips(cfConnected: boolean | null): PaletteItem[] {
-  const connected = cfConnected === true;
-  const tips = SEARCH_TIPS.filter((tip) => connected || !isCfDataTip(tip.title));
-  if (!connected) {
-    return [{ ...PALETTE_CONNECT_CLOUDFLARE }, ...tips];
-  }
-  return tips;
+function paletteSearchTips(_cfConnected: boolean | null): PaletteItem[] {
+  return SEARCH_TIPS;
 }
 
 function r2CatalogToPaletteItems(rows: { name: string; bound: boolean }[]): PaletteItem[] {
@@ -311,7 +303,15 @@ function parseQueryMode(raw: string): { mode: QueryMode; term: string } {
   if (lower === 'vectorize' || lower === 'vx' || lower.startsWith('vectorize ') || lower.startsWith('vx ')) {
     return { mode: 'vectorize', term: q.replace(/^(vectorize|vx)\s*/i, '').trim() };
   }
-  if (q.startsWith('/')) return { mode: 'command', term: q.slice(1).trim() };
+  // Cursor Quick Open prefixes
+  if (q.startsWith('>') || q.startsWith('/')) {
+    return { mode: 'command', term: q.replace(/^[>/]/, '').trim() };
+  }
+  if (q.startsWith('#')) return { mode: 'search', term: q.slice(1).trim() };
+  if (q.startsWith('?')) {
+    // Help → stay on default empty actions, or show tip list via empty load
+    return { mode: 'default', term: '' };
+  }
   if (lower.startsWith('wf:') || lower === 'wf' || lower.startsWith('wf ')) {
     return { mode: 'workflow', term: q.replace(/^wf:?/i, '').trim() };
   }
@@ -319,7 +319,8 @@ function parseQueryMode(raw: string): { mode: QueryMode; term: string } {
   if (lower.startsWith('clone ') || lower === 'clone' || isGithubCloneQuery(q)) {
     return { mode: 'clone', term: q.replace(/^clone\s*/i, '').trim() || q.trim() };
   }
-  if (q.length >= 2) return { mode: 'search', term: q };
+  // File-first: any bare query is Go to File (not unified platform search)
+  if (q.length >= 1) return { mode: 'file', term: q };
   return { mode: 'default', term: q };
 }
 
@@ -613,8 +614,8 @@ export const UnifiedSearchBar: React.FC<{
   const openFilesSearch = useCallback(() => {
     setGitMenuOpen(false);
     setConnectionMenuOpen(false);
-    setSourceChip('files');
-    setQ('@');
+    setSourceChip('all');
+    setQ('');
     setActive(0);
     setOpen(true);
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -656,76 +657,51 @@ export const UnifiedSearchBar: React.FC<{
   }, [toast]);
 
   const loadDefault = useCallback(async () => {
+    // File-first Quick Open home: actions + recent files (no chat/deploy dump).
     setLoading(true);
+    setCommandSections([]);
+    setPlaneSections([]);
     try {
-      const connected = await probePaletteCloudflareConnected(workspaceFetchInit);
-      setCfConnected(connected);
-
-      const [sessions, deploys, recentRes] = await Promise.all([
-        workspaceFetchJson<
-          { id?: string; name?: string; message_count?: number; started_at?: number }[]
-        >('/api/agent/sessions?limit=5').then((d) => (Array.isArray(d) ? d : [])),
-        workspaceFetchJson<{ deployments?: { worker_name?: string; environment?: string; status?: string; deployed_at?: string; deployment_notes?: string }[] }>(
-          '/api/overview/deployments?limit=5',
-        ).then((d) => (d?.deployments || []).slice(0, 5)),
-        fetch('/api/unified-search/recent', { credentials: 'same-origin', ...workspaceFetchInit() }),
-      ]);
-
-      const recentItems: PaletteItem[] = [];
-      if (recentRes.ok) {
-        const recentJson = (await recentRes.json()) as {
-          items?: { query?: string; result_kind?: string }[];
-        };
-        for (const [i, row] of (recentJson.items || []).entries()) {
-          const queryText = String(row?.query || '').trim();
-          if (!queryText) continue;
-          recentItems.push({
-            id: `recent-${i}-${queryText.slice(0, 40)}`,
-            category: 'search',
-            title: queryText,
-            subtitle: row.result_kind ? `Last opened: ${row.result_kind}` : 'Recent search',
-          });
-        }
-      }
-      setRecentSearches(recentItems);
-
-      const workspaceSlug = activeWorkspace?.slug?.trim().toLowerCase();
-      const chatRows: PaletteItem[] = sessions.slice(0, 5).map((s) => ({
-        id: `chat-${s.id}`,
-        category: 'chat',
-        title: String(s.name || 'Conversation'),
-        subtitle:
-          typeof s.message_count === 'number'
-            ? `${s.message_count} messages`
-            : s.started_at
-              ? new Date(s.started_at * 1000).toLocaleString()
-              : undefined,
-        conversationId: String(s.id || ''),
+      const recent: PaletteItem[] = recentFiles.slice(0, 12).map((f) => ({
+        id: `file-recent-${f.path}`,
+        category: 'file' as const,
+        title: f.name,
+        subtitle: f.label || f.path,
+        filePath: f.path,
       }));
 
-      const deployRows: PaletteItem[] = deploys
-        .filter((d) => {
-          if (!workspaceSlug || isPlatformWorkspace(activeWorkspace)) return true;
-          const worker = String(d.worker_name || '').trim().toLowerCase();
-          return !worker || worker === workspaceSlug || worker.includes(workspaceSlug);
-        })
-        .map((d, i) => {
-          const title = [d.worker_name, d.environment].filter(Boolean).join(' · ') || 'Deployment';
-          const summary = [d.status, d.deployed_at, d.deployment_notes].filter(Boolean).join(' — ');
-          return {
-            id: `deploy-${i}-${title}`,
-            category: 'deploy',
-            title,
-            subtitle: summary,
-            deploySummary: summary || title,
-          };
-        });
+      let connected: PaletteItem[] = [];
+      try {
+        const { hits, connected: isConnected, permission } = await searchConnectedLocalFiles('');
+        if (isConnected && (permission === 'granted' || permission === 'unsupported')) {
+          connected = hits.slice(0, 8).map((h) => ({
+            id: `file-fsa-${h.path}`,
+            category: 'file' as const,
+            title: h.name,
+            subtitle: `${h.rootName}/${h.path}`,
+            filePath: h.path,
+          }));
+        }
+      } catch {
+        /* ignore */
+      }
 
-      setItems([...chatRows, ...deployRows]);
+      const seen = new Set<string>();
+      const files: PaletteItem[] = [];
+      for (const row of [...recent, ...connected]) {
+        const key = row.filePath || row.title;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        files.push(row);
+      }
+
+      // Tips + files; displaySections splits them for Quick Open layout.
+      setItems([...QUICK_OPEN_ACTIONS, ...files]);
+      setRecentSearches([]);
     } finally {
       setLoading(false);
     }
-  }, [activeWorkspace, workspaceFetchInit, workspaceFetchJson]);
+  }, [recentFiles]);
 
   const loadR2 = useCallback(async (searchTerm: string) => {
     setLoading(true);
@@ -1113,11 +1089,13 @@ export const UnifiedSearchBar: React.FC<{
       try {
         const sourceMap: Record<SourceChipId, string[] | undefined> = {
           all: undefined,
+          files: ['codebase'],
           r2: ['codebase'],
           d1: ['d1'],
           commands: ['commands'],
           workflows: ['codebase'],
           chats: ['memory'],
+          planes: undefined,
         };
         const filters = sourceMap[chip];
 
@@ -1155,6 +1133,21 @@ export const UnifiedSearchBar: React.FC<{
 
   const runQuery = useCallback(async () => {
     if (mode === 'default') {
+      if (q.trim() === '?') {
+        setItems([
+          { id: 'tip-planes', category: 'tip', title: 'planes:', subtitle: 'D1, R2, Hyperdrive & Vectorize' },
+          { id: 'tip-r2', category: 'tip', title: 'r2:', subtitle: 'Search R2 buckets' },
+          { id: 'tip-d1', category: 'tip', title: 'd1:', subtitle: 'List D1 databases' },
+          { id: 'tip-hd', category: 'tip', title: 'hyperdrive:', subtitle: 'List Hyperdrive configs' },
+          { id: 'tip-vx', category: 'tip', title: 'vectorize:', subtitle: 'List Vectorize indexes' },
+          { id: 'tip-wf', category: 'tip', title: 'wf:', subtitle: 'Workflows' },
+          { id: 'tip-cmd', category: 'tip', title: '/', subtitle: 'Show and run commands' },
+          { id: 'tip-hash', category: 'tip', title: '#', subtitle: 'Search for text' },
+          { id: 'tip-at', category: 'tip', title: '@', subtitle: 'Go to file' },
+        ]);
+        setLoading(false);
+        return;
+      }
       if (sourceChip === 'files') {
         await loadFiles('');
         return;
@@ -1173,6 +1166,11 @@ export const UnifiedSearchBar: React.FC<{
       }
       if (sourceChip === 'planes') {
         await loadPlanes('', 1);
+        return;
+      }
+      if (sourceChip === 'chats' || sourceChip === 'workflows') {
+        // Power chips still use unified search empty hints via tip list
+        await loadDefault();
         return;
       }
       setCommandSections([]);
@@ -1347,6 +1345,21 @@ export const UnifiedSearchBar: React.FC<{
   const applyItem = useCallback(
     (item: PaletteItem, searchQuery: string) => {
       if (item.category === 'tip' || item.category === 'search') {
+        if (item.title === '?') {
+          setItems([
+            { id: 'tip-planes', category: 'tip', title: 'planes:', subtitle: 'D1, R2, Hyperdrive & Vectorize' },
+            { id: 'tip-r2', category: 'tip', title: 'r2:', subtitle: 'Search R2 buckets' },
+            { id: 'tip-d1', category: 'tip', title: 'd1:', subtitle: 'List D1 databases' },
+            { id: 'tip-hd', category: 'tip', title: 'hyperdrive:', subtitle: 'List Hyperdrive configs' },
+            { id: 'tip-vx', category: 'tip', title: 'vectorize:', subtitle: 'List Vectorize indexes' },
+            { id: 'tip-wf', category: 'tip', title: 'wf:', subtitle: 'Workflows' },
+            { id: 'tip-clone', category: 'tip', title: 'clone ', subtitle: 'Clone a GitHub repo on your terminal' },
+            ...QUICK_OPEN_ACTIONS.filter((a) => a.title !== '?'),
+          ]);
+          setQ('');
+          setActive(0);
+          return;
+        }
         setQ(item.title);
         return;
       }
@@ -1481,29 +1494,41 @@ export const UnifiedSearchBar: React.FC<{
     }
 
     const filtered = items.filter((item) => {
-      if (item.category === 'tip' || item.category === 'connect') return mode === 'default' && !q.trim();
+      if (item.category === 'tip' || item.category === 'connect') {
+        return mode === 'default' && (!q.trim() || q.trim() === '?');
+      }
+      if (mode === 'file') return item.category === 'file' || item.category === 'tip';
       if (mode !== 'default' && mode !== 'search') return true;
       if (mode === 'search') return chipMatchesCategory(sourceChip, item.category);
       return chipMatchesCategory(sourceChip, item.category);
     });
 
-    if (mode === 'default' && !q.trim()) {
-      const chats = filtered.filter((i) => i.category === 'chat');
-      const deploys = filtered.filter((i) => i.category === 'deploy');
-      const tips = paletteSearchTips(cfConnected);
+    // ⌘K empty = Cursor Quick Open: actions + recent/connected files
+    if (mode === 'default' && (!q.trim() || q.trim() === '?') && sourceChip === 'all') {
+      const actions = filtered.filter((i) => i.category === 'tip' || i.category === 'connect');
+      const files = filtered.filter((i) => i.category === 'file');
+      if (q.trim() === '?') {
+        return [{ key: 'more', label: 'More', rows: actions.length ? actions : QUICK_OPEN_ACTIONS }];
+      }
       return [
-        ...(recentSearches.length
-          ? [{ key: 'recent', label: 'Recent searches', rows: recentSearches }]
-          : []),
-        { key: 'chats', label: 'Recent chats', rows: chats },
-        { key: 'deploys', label: 'Recent deploys', rows: deploys },
-        { key: 'tips', label: 'Search tips', rows: tips },
+        { key: 'actions', label: 'Actions', rows: actions.length ? actions : QUICK_OPEN_ACTIONS },
+        ...(files.length ? [{ key: 'files', label: 'Recent files', rows: files }] : []),
       ].filter((s) => s.rows.length > 0);
     }
 
-    const title = sectionTitle(mode, sourceChip, !!q.trim());
-    return [{ key: 'main', label: title || 'Results', rows: filtered }];
-  }, [items, mode, q, sourceChip, commandSections, planeSections, recentSearches, cfConnected]);
+    if (mode === 'default' && !q.trim()) {
+      const tips = paletteSearchTips(cfConnected);
+      return [{ key: 'tips', label: 'Search tips', rows: tips }];
+    }
+
+    const title =
+      mode === 'file'
+        ? q.trim()
+          ? 'Files'
+          : 'Go to File'
+        : sectionTitle(mode, sourceChip, !!q.trim());
+    return [{ key: 'main', label: title || 'Results', rows: filtered.filter((i) => i.category !== 'tip') }];
+  }, [items, mode, q, sourceChip, commandSections, planeSections, cfConnected]);
 
   const r2TotalPages = useMemo(
     () => Math.max(1, Math.ceil(r2Catalog.length / PALETTE_R2_PAGE_SIZE)),
@@ -1614,8 +1639,8 @@ export const UnifiedSearchBar: React.FC<{
                     : 'border-[var(--border-subtle)] bg-[var(--bg-app)] text-muted hover:border-[var(--solar-cyan)]/40 hover:bg-[var(--bg-hover)] hover:text-main'
                 }`
           }
-          title="Search (Cmd+K)"
-          aria-label="Search"
+          title="Go to File (Cmd+K)"
+          aria-label="Go to File"
           aria-expanded={open}
         >
           <Search size={mobileToolbar ? 15 : 18} strokeWidth={1.75} aria-hidden />
@@ -1684,8 +1709,8 @@ export const UnifiedSearchBar: React.FC<{
             type="button"
             onClick={openFilesSearch}
             className="flex items-center justify-center h-full px-2.5 hover:bg-[var(--bg-hover)] transition-colors text-muted hover:text-main border-l border-[var(--border-subtle)]"
-            title="Search files in connected folder (type @)"
-            aria-label="Search connected files"
+            title="Go to File (Cmd+K)"
+            aria-label="Go to File"
           >
             <FolderSearch size={13} strokeWidth={1.5} className="text-[var(--solar-cyan)]" />
           </button>
@@ -1695,10 +1720,10 @@ export const UnifiedSearchBar: React.FC<{
           type="button"
           onClick={() => setOpen((o) => !o)}
           className="flex flex-1 items-center gap-2 min-w-0 px-2 py-1.5 text-left hover:bg-[var(--bg-hover)] transition-colors"
-          title="Search (Cmd+K)"
+          title="Go to File (Cmd+K)"
         >
           <Search size={14} className="shrink-0 opacity-70 text-muted" />
-          <span className="text-[11px] text-muted truncate flex-1">Search…</span>
+          <span className="text-[11px] text-muted truncate flex-1">Go to File…</span>
           <kbd className="hidden xl:inline text-[9px] font-mono px-1 py-px rounded border border-[var(--border-subtle)] text-muted shrink-0">
             {isMac ? 'Cmd' : 'Ctrl'}+K
           </kbd>
@@ -1727,7 +1752,7 @@ export const UnifiedSearchBar: React.FC<{
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   onKeyDown={onKeyDown}
-                  placeholder="Search connected files with @, or planes:, r2:, d1:…"
+                  placeholder="Search files, content, and symbols — / commands · # text · @ file · ? more"
                   className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[13px] text-main placeholder:text-muted"
                 />
                 <kbd className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-muted shrink-0">
@@ -1735,9 +1760,10 @@ export const UnifiedSearchBar: React.FC<{
                 </kbd>
                 {loading ? <Loader2 size={16} className="animate-spin text-[var(--solar-cyan)] shrink-0" /> : null}
               </div>
+              {/* Chips stay for platform power modes; file-first is the empty/default path */}
               <div className={`flex flex-wrap gap-1${mobileCompact ? ' iam-palette-chips' : ''}`}>
                 {SOURCE_CHIPS.map(({ id, label, Icon }) => {
-                  const on = activeChip === id;
+                  const on = activeChip === id || (id === 'files' && mode === 'file');
                   return (
                     <button
                       key={id}
@@ -1746,8 +1772,17 @@ export const UnifiedSearchBar: React.FC<{
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (id === 'all') {
+                          setSourceChip('all');
+                          setQ('');
+                          setActive(0);
+                          return;
+                        }
                         if (id === 'files') {
-                          activateDataPlaneChip('files', '@');
+                          setSourceChip('files');
+                          setQ('');
+                          setActive(0);
+                          void loadFiles('');
                           return;
                         }
                         if (id === 'planes') {
@@ -1760,6 +1795,10 @@ export const UnifiedSearchBar: React.FC<{
                         }
                         if (id === 'd1') {
                           activateDataPlaneChip('d1', 'd1:');
+                          return;
+                        }
+                        if (id === 'commands') {
+                          activateDataPlaneChip('commands', '/');
                           return;
                         }
                         setSourceChip(id);
