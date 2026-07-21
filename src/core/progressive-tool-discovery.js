@@ -1,0 +1,309 @@
+/**
+ * Progressive tool discovery — core schemas on turn 0, hydrate via agentsam_search_tools.
+ * Law: menu = discovery; write_policy / capability = safety (Agent/Debug/Multitask).
+ *
+ * SSOT plan: plans/active/CURSOR-PARITY-TOOL-DISCOVERY-2026-07.md
+ */
+
+/** Always-on schemas for agent / debug / multitask turn 0. */
+export const PROGRESSIVE_CORE_TOOL_KEYS = Object.freeze([
+  'agentsam_search_tools',
+  'fs_read_file',
+  'fs_search_files',
+  'agentsam_codebase_retrieve',
+  'agentsam_memory_search',
+  'agentsam_d1_query',
+  'search_web',
+]);
+
+export const PROGRESSIVE_DISCOVERY_MODES = Object.freeze(['agent', 'debug', 'multitask']);
+
+/** Soft cap on hydrated schemas (Cursor MCP-shaped ceiling). */
+export const PROGRESSIVE_HYDRATE_SOFT_MAX = 40;
+
+/**
+ * @param {unknown} mode
+ */
+export function modeUsesProgressiveToolDiscovery(mode) {
+  return PROGRESSIVE_DISCOVERY_MODES.includes(String(mode || '').trim().toLowerCase());
+}
+
+/**
+ * Option (a): skip restrictive tool_policy.allowlist for these modes.
+ * @param {unknown} mode
+ */
+export function modeSkipsToolPolicyAllowlist(mode) {
+  return modeUsesProgressiveToolDiscovery(mode);
+}
+
+/**
+ * @param {unknown} name
+ */
+export function isAgentsamSearchToolsName(name) {
+  const n = String(name || '')
+    .trim()
+    .toLowerCase();
+  return n === 'agentsam_search_tools' || n === 'search_tools';
+}
+
+/**
+ * @param {unknown} t
+ */
+function toolNameOf(t) {
+  return String(t?.name || t?.tool_key || t?.tool_name || t?.function?.name || '')
+    .trim();
+}
+
+/**
+ * @param {Record<string, unknown>|null|undefined} row
+ */
+function inputSchemaFromRow(row) {
+  if (row?.input_schema && typeof row.input_schema === 'object') {
+    return Object.assign({ type: 'object', properties: {} }, row.input_schema, { type: 'object' });
+  }
+  if (row?.input_schema != null && String(row.input_schema).trim() !== '') {
+    try {
+      const parsed = JSON.parse(String(row.input_schema));
+      if (parsed && typeof parsed === 'object') {
+        return Object.assign({ type: 'object', properties: {} }, parsed, { type: 'object' });
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  return { type: 'object', properties: {} };
+}
+
+/**
+ * @param {Array<Record<string, unknown>>} rows
+ * @returns {Map<string, Record<string, unknown>>}
+ */
+function rowsByName(rows) {
+  /** @type {Map<string, Record<string, unknown>>} */
+  const map = new Map();
+  for (const r of rows || []) {
+    const n = toolNameOf(r);
+    if (n && !map.has(n)) map.set(n, r);
+  }
+  return map;
+}
+
+/**
+ * @param {Record<string, unknown>} row
+ */
+export function compiledRowFromAgentsamTool(row) {
+  const name = String(row.tool_name || row.tool_key || row.name || '').trim();
+  return {
+    name,
+    tool_key: String(row.tool_key || name),
+    tool_name: name,
+    description: String(row.description || name).slice(0, 4000),
+    input_schema: inputSchemaFromRow(row),
+    tool_category: String(row.tool_category || 'platform'),
+    requires_approval: Number(row.requires_approval || 0) === 1,
+  };
+}
+
+/**
+ * @param {any} env
+ * @param {string[]} names
+ */
+async function fetchToolRowsByNameOrKey(env, names) {
+  if (!env?.DB || !names.length) return [];
+  const placeholders = names.map(() => '?').join(',');
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT tool_name, tool_key, description, input_schema, handler_config, tool_category, requires_approval
+       FROM agentsam_tools
+       WHERE COALESCE(is_active, 1) = 1
+         AND (tool_name IN (${placeholders}) OR tool_key IN (${placeholders}))`,
+    )
+      .bind(...names, ...names)
+      .all();
+    return results || [];
+  } catch (e) {
+    console.warn('[progressive-tools] fetchToolRowsByNameOrKey', e?.message ?? e);
+    return [];
+  }
+}
+
+/**
+ * Ensure core tools exist as compiled rows (fetch missing from catalog).
+ * @param {any} env
+ * @param {Array<Record<string, unknown>>} existingRows
+ */
+export async function ensureProgressiveCoreCompiledRows(env, existingRows = []) {
+  const byName = rowsByName(existingRows);
+  const missing = PROGRESSIVE_CORE_TOOL_KEYS.filter((k) => !byName.has(k));
+  if (missing.length && env?.DB) {
+    const fetched = await fetchToolRowsByNameOrKey(env, missing);
+    for (const row of fetched) {
+      const compiled = compiledRowFromAgentsamTool(row);
+      if (compiled.name && !byName.has(compiled.name)) byName.set(compiled.name, compiled);
+    }
+  }
+  /** @type {Array<Record<string, unknown>>} */
+  const out = [];
+  for (const key of PROGRESSIVE_CORE_TOOL_KEYS) {
+    const row = byName.get(key);
+    if (!row) continue;
+    out.push(row.name ? row : compiledRowFromAgentsamTool(row));
+  }
+  return out;
+}
+
+/**
+ * Apply progressive core compile: shrink schemas on wire; keep ceiling for telemetry.
+ *
+ * @param {any} env
+ * @param {{
+ *   mode: string,
+ *   compiledToolRows: Array<Record<string, unknown>>,
+ *   toolAllowlist: string[],
+ * }} input
+ */
+export async function applyProgressiveCoreCompile(env, input) {
+  const mode = String(input.mode || '').trim().toLowerCase();
+  if (!modeUsesProgressiveToolDiscovery(mode)) {
+    return {
+      progressive: false,
+      compiledToolRows: input.compiledToolRows || [],
+      toolAllowlist: input.toolAllowlist || [],
+      discoveryCeilingKeys: null,
+    };
+  }
+
+  const ceilingKeys = [
+    ...new Set(
+      (input.toolAllowlist || [])
+        .map((x) => String(x || '').trim())
+        .filter(Boolean),
+    ),
+  ];
+  const coreRows = await ensureProgressiveCoreCompiledRows(env, input.compiledToolRows || []);
+  const toolAllowlist = coreRows
+    .map((r) => String(r.name || r.tool_key || r.tool_name || '').trim())
+    .filter(Boolean);
+
+  console.info(
+    '[progressive-tools] core_compile',
+    JSON.stringify({
+      mode,
+      core_count: toolAllowlist.length,
+      ceiling_count: ceilingKeys.length,
+      core: toolAllowlist,
+    }),
+  );
+
+  return {
+    progressive: true,
+    compiledToolRows: coreRows,
+    toolAllowlist,
+    discoveryCeilingKeys: ceilingKeys.length ? ceilingKeys : null,
+  };
+}
+
+/**
+ * Pull tool_key / tool_name values from agentsam_search_tools exec result.
+ * @param {unknown} execResult
+ * @returns {string[]}
+ */
+export function extractToolKeysFromSearchToolsResult(execResult) {
+  /** @type {string[]} */
+  const keys = [];
+  const seen = new Set();
+  const push = (raw) => {
+    const k = String(raw || '').trim();
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    keys.push(k);
+  };
+
+  const walkRow = (row) => {
+    if (!row || typeof row !== 'object') return;
+    const o = /** @type {Record<string, unknown>} */ (row);
+    push(o.tool_key || o.tool_name || o.name);
+  };
+
+  if (execResult == null) return keys;
+  if (typeof execResult === 'string') {
+    try {
+      return extractToolKeysFromSearchToolsResult(JSON.parse(execResult));
+    } catch {
+      return keys;
+    }
+  }
+  if (Array.isArray(execResult)) {
+    for (const row of execResult) walkRow(row);
+    return keys;
+  }
+  if (typeof execResult === 'object') {
+    const o = /** @type {Record<string, unknown>} */ (execResult);
+    if (Array.isArray(o.rows)) for (const row of o.rows) walkRow(row);
+    if (Array.isArray(o.results)) for (const row of o.results) walkRow(row);
+    if (Array.isArray(o.tools)) for (const row of o.tools) walkRow(row);
+    if (Array.isArray(o.data)) for (const row of o.data) walkRow(row);
+    if (o.result && typeof o.result === 'object') {
+      for (const k of extractToolKeysFromSearchToolsResult(o.result)) push(k);
+    }
+  }
+  return keys;
+}
+
+/**
+ * Append full schemas for discovered tool keys onto activeTools.
+ * @param {any} env
+ * @param {unknown[]} activeTools
+ * @param {unknown} execResult
+ * @param {{ softMax?: number }} [opts]
+ * @returns {Promise<{ tools: unknown[], added: string[] }>}
+ */
+export async function hydrateActiveToolsFromSearchResult(env, activeTools, execResult, opts = {}) {
+  const softMax = Math.max(
+    8,
+    Math.floor(Number(opts.softMax) || PROGRESSIVE_HYDRATE_SOFT_MAX),
+  );
+  const list = Array.isArray(activeTools) ? [...activeTools] : [];
+  const have = new Set(list.map((t) => toolNameOf(t)).filter(Boolean));
+  const wanted = extractToolKeysFromSearchToolsResult(execResult).filter((k) => !have.has(k));
+  if (!wanted.length || !env?.DB) {
+    return { tools: list, added: [] };
+  }
+
+  const room = Math.max(0, softMax - list.length);
+  const slice = wanted.slice(0, room);
+  if (!slice.length) {
+    console.info(
+      '[progressive-tools] hydrate_skip_at_cap',
+      JSON.stringify({ soft_max: softMax, active: list.length, wanted: wanted.length }),
+    );
+    return { tools: list, added: [] };
+  }
+
+  const rows = await fetchToolRowsByNameOrKey(env, slice);
+  /** @type {string[]} */
+  const added = [];
+  for (const row of rows) {
+    const compiled = compiledRowFromAgentsamTool(row);
+    const nm = compiled.name;
+    if (!nm || have.has(nm)) continue;
+    if (list.length >= softMax) break;
+    have.add(nm);
+    added.push(nm);
+    list.push({
+      name: nm,
+      description: compiled.description,
+      input_schema: compiled.input_schema,
+      tool_category: compiled.tool_category,
+      requires_approval: compiled.requires_approval,
+    });
+  }
+
+  if (added.length) {
+    console.info(
+      '[progressive-tools] hydrated',
+      JSON.stringify({ added, active_tools: list.length, soft_max: softMax }),
+    );
+  }
+  return { tools: list, added };
+}

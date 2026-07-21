@@ -240,7 +240,10 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   const promptRouteRow = profile._prompt_route_row ?? null;
   const projectQnaFastLane = profile._project_qna_fast_lane === true;
   let tools = toolsManifestFromCompiledRows(profile._compiled_tool_rows || []);
+  const progressiveDiscovery = profile._progressive_tool_discovery === true;
+  // Progressive path: do not re-inflate the menu with rg/github pins (discover instead).
   if (
+    !progressiveDiscovery &&
     !projectQnaFastLane &&
     env?.DB &&
     (profile.mode === 'agent' || profile.mode === 'debug' || profile.mode === 'multitask')
@@ -266,7 +269,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     const cap = Math.max(tools.length, Number(profile.max_tools) || 8);
     tools = await ensureActiveFileCapabilityTools(env, tools, cap, activeFileEnvelope);
   }
-  if (!projectQnaFastLane && activeRepo && env?.DB) {
+  if (!progressiveDiscovery && !projectQnaFastLane && activeRepo && env?.DB) {
     try {
       const {
         fetchAgentsamToolRowsByName,

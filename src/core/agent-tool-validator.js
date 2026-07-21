@@ -364,7 +364,24 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
     compiledToolPolicy?.require_approval?.length &&
     allowlistHasTool(name, compiledToolPolicy.require_approval) &&
     !toolInputHasApprovalId(toolInput);
-  if (compiledToolPolicy?.allowlist?.length && !allowlistHasTool(name, compiledToolPolicy.allowlist)) {
+  // Progressive discovery (Agent/Debug/Multitask): menu = schemas on the wire;
+  // safety = denylist + write_policy/capability — do not block on baked allowlist.
+  // See plans/active/CURSOR-PARITY-TOOL-DISCOVERY-2026-07.md (option a).
+  let skipAllowlist = false;
+  try {
+    const { modeSkipsToolPolicyAllowlist } = await import('./progressive-tool-discovery.js');
+    skipAllowlist =
+      modeSkipsToolPolicyAllowlist(modeSlug) ||
+      modeSkipsToolPolicyAllowlist(runtimeProfile?.mode) ||
+      runtimeProfile?._progressive_tool_discovery === true;
+  } catch {
+    skipAllowlist = false;
+  }
+  if (
+    !skipAllowlist &&
+    compiledToolPolicy?.allowlist?.length &&
+    !allowlistHasTool(name, compiledToolPolicy.allowlist)
+  ) {
     return {
       allowed: false,
       reason: 'not in profile tool_policy allowlist',

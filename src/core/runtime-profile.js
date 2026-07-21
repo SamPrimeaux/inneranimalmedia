@@ -1018,6 +1018,31 @@ export async function compileModeProfile(env, input) {
     );
   }
 
+  // Progressive discovery: Agent/Debug/Multitask ship core schemas only; hydrate via search_tools.
+  /** @type {string[]|null} */
+  let discoveryCeilingKeys = null;
+  let progressiveToolDiscovery = false;
+  try {
+    const { applyProgressiveCoreCompile, modeUsesProgressiveToolDiscovery } = await import(
+      './progressive-tool-discovery.js'
+    );
+    if (modeUsesProgressiveToolDiscovery(mode) && env?.DB) {
+      const prog = await applyProgressiveCoreCompile(env, {
+        mode,
+        compiledToolRows,
+        toolAllowlist,
+      });
+      if (prog.progressive) {
+        progressiveToolDiscovery = true;
+        discoveryCeilingKeys = prog.discoveryCeilingKeys;
+        compiledToolRows = prog.compiledToolRows;
+        toolAllowlist = prog.toolAllowlist;
+      }
+    }
+  } catch (e) {
+    console.warn('[runtime-profile] progressive_core_compile', e?.message ?? e);
+  }
+
   const modeContract = AGENT_MODE_CONTRACT[mode] || AGENT_MODE_CONTRACT.agent;
 
   const baseWrite =
@@ -1066,8 +1091,9 @@ export async function compileModeProfile(env, input) {
     tool_allowlist: toolAllowlist,
     tool_denylist: [...denySet],
     tool_require_approval: (modeToolPolicy.requireApprovalTools || []).map((t) => String(t)),
+    // Progressive modes: empty allowlist (option a) — write_policy is the mutate gate.
     tool_policy: {
-      allowlist: toolAllowlist,
+      allowlist: progressiveToolDiscovery ? [] : toolAllowlist,
       denylist: [...denySet],
       require_approval: (modeToolPolicy.requireApprovalTools || []).map((t) => String(t)),
       max_tool_calls: 15,
@@ -1127,6 +1153,8 @@ export async function compileModeProfile(env, input) {
     selected_provider: null,
     _compiled_tool_rows: compiledToolRows,
     _prompt_route_row: promptRouteRow,
+    _progressive_tool_discovery: progressiveToolDiscovery,
+    _discovery_ceiling_keys: discoveryCeilingKeys,
   };
 
   profile.profile_hash = await hashRuntimeProfile(profile);
@@ -1148,7 +1176,10 @@ function applyUserPolicyToProfile(profile, userPolicy) {
     profile.tool_allowlist = profile.tool_allowlist.filter((name) => !denied.has(name));
     if (profile.tool_policy) {
       profile.tool_policy.denylist = profile.tool_denylist;
-      profile.tool_policy.allowlist = profile.tool_allowlist;
+      // Progressive discovery: keep allowlist empty (option a) — write_policy is the gate.
+      profile.tool_policy.allowlist = profile._progressive_tool_discovery
+        ? []
+        : profile.tool_allowlist;
     }
   }
 

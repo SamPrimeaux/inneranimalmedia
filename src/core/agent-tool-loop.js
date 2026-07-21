@@ -1913,6 +1913,39 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           else if (Array.isArray(execResult.results)) toolRows = execResult.results;
         }
         toolOutput = typeof execResult === 'string' ? execResult : JSON.stringify(execResult);
+        // P2: agentsam_search_tools → hydrate full schemas into activeTools for next model round.
+        if (
+          !execErr &&
+          (mcpCtx?.runtimeProfile?._progressive_tool_discovery === true ||
+            mode === 'agent' ||
+            mode === 'debug' ||
+            mode === 'multitask')
+        ) {
+          try {
+            const {
+              isAgentsamSearchToolsName,
+              hydrateActiveToolsFromSearchResult,
+            } = await import('./progressive-tool-discovery.js');
+            if (isAgentsamSearchToolsName(call.name)) {
+              const hydrated = await hydrateActiveToolsFromSearchResult(
+                env,
+                activeTools,
+                execResult,
+                {},
+              );
+              if (hydrated.added.length) {
+                activeTools = hydrated.tools;
+                emit('tools_hydrated', {
+                  source: 'agentsam_search_tools',
+                  added: hydrated.added,
+                  active_tools: activeTools.length,
+                });
+              }
+            }
+          } catch (e) {
+            console.warn('[agent] progressive_hydrate', e?.message ?? e);
+          }
+        }
         const BROWSER_VERIFY_FAIL_TOOLS = new Set([
           'browser_navigate',
           'cdt_navigate_page',

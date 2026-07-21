@@ -2,8 +2,7 @@
 
 **Date:** 2026-07-21  
 **Ticket:** `tkt_23052e89c7b44e45`  
-**Status:** Destination = progressive discovery (Option B). Three-profile curated menus **paused**.  
-**Blocker confirmed:** double-gate — `activeTools` ≠ `tool_policy.allowlist` (see below).
+**Status:** Destination = progressive discovery (Option B). **P0–P2 implemented** (validator bypass + core compile + search hydrate). Three-profile curated menus remain paused.
 
 ---
 
