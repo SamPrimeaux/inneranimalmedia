@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { safePtyRepoDirName } from '../../src/core/pty-workspace-paths.js';
+import { safePtyRepoDirName } from '../../src/core/safe-pty-repo-dir-name.js';
 
 test('safePtyRepoDirName returns "." when workspace_root is the repo', () => {
   const root = '/Users/samprimeaux/inneranimalmedia';
