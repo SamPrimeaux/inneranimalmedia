@@ -1867,8 +1867,9 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       const { isOperatorOnlyTerminalTool, userIsPlatformOperator } = await import(
         './platform-operator-policy.js'
       );
+      let terminalToolKey = toolKey;
 
-      if (isOperatorOnlyTerminalTool(toolKey)) {
+      if (isOperatorOnlyTerminalTool(terminalToolKey)) {
         const op = await userIsPlatformOperator(env, runContext?.authUser, workspaceId);
         if (!op) {
           result = {
@@ -1876,7 +1877,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
             error: 'platform_operator_required',
             body: {
               user_message:
-                toolKey === 'agentsam_terminal_remote'
+                terminalToolKey === 'agentsam_terminal_remote'
                   ? 'agentsam_terminal_remote (GCP cloud desk) is restricted to platform operators. Use agentsam_terminal_local for your device or agentsam_terminal_sandbox for an isolated dev zone.'
                   : 'agentsam_container_exec is restricted to platform operators (use agentsam_terminal_sandbox when container dev zones are enabled).',
             },
@@ -1885,7 +1886,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         }
       }
 
-      if (toolKey === 'agentsam_terminal_local') {
+      if (terminalToolKey === 'agentsam_terminal_local') {
         const { assertTerminalLocalArgs } = await import('./mcp-terminal-contract.js');
         const localArgErr = assertTerminalLocalArgs(params);
         if (localArgErr) {
@@ -1894,7 +1895,30 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         }
       }
 
-      if (toolKey === 'agentsam_terminal_sandbox') {
+      // Operator iPhone: model often picks sandbox for "shell" — remap light cmds to GCP remote.
+      if (terminalToolKey === 'agentsam_terminal_sandbox') {
+        const { shouldRemapSandboxToRemote } = await import('./mobile-exec-profile.js');
+        const clientSurface = runContext?.client_surface ?? runContext?.clientSurface ?? null;
+        const execLane = runContext?.exec_lane ?? runContext?.execLane ?? 'auto';
+        const isOp =
+          runContext?.platform_operator_lane === true ||
+          runContext?.platformOperatorLane === true ||
+          (await userIsPlatformOperator(env, runContext?.authUser, workspaceId));
+        const rawForRemap = String(params.command || params.cmd || '').trim();
+        if (
+          shouldRemapSandboxToRemote(
+            terminalToolKey,
+            clientSurface,
+            execLane,
+            isOp,
+            rawForRemap,
+          )
+        ) {
+          terminalToolKey = 'agentsam_terminal_remote';
+        }
+      }
+
+      if (terminalToolKey === 'agentsam_terminal_sandbox') {
         const { runMcpZoneSandboxCommand, normalizeMcpZoneSlug } = await import('./terminal-sandbox.js');
         const rawCmd = String(params.command || params.cmd || '').trim();
         if (!rawCmd) {
@@ -1989,7 +2013,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         }
       }
       const routing = resolveTerminalExecRouting({
-        tool_key: toolKey,
+        tool_key: terminalToolKey,
         target_id: params.target_id,
         target_type: params.target_type,
         client_surface: runContext?.client_surface ?? runContext?.clientSurface ?? null,
@@ -1998,7 +2022,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       });
       const remoteTargetId = routing.target_id || '';
       const gcpExec =
-        terminalToolPrefersGcpLane(toolKey) ||
+        terminalToolPrefersGcpLane(terminalToolKey) ||
         routing.lane === 'gcp_primary' ||
         (remoteTargetId && /gcp|iam_tunnel|platform_vm/i.test(remoteTargetId));
       const { gcpRemoteExecCwd } = await import('./host-workspace-paths.js');
@@ -2019,7 +2043,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
 
       const { executeTerminalCatalogWithFallback } = await import('./terminal-exec-fallback.js');
       result = await executeTerminalCatalogWithFallback(env, {
-        toolKey,
+        toolKey: terminalToolKey,
         rawCommand,
         params,
         runContext,

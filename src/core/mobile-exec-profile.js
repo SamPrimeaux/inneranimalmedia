@@ -91,6 +91,42 @@ export function resolveMobileTerminalToolHint(clientSurface, execLane, isPlatfor
 }
 
 /**
+ * Commands that belong on CF container even for operators (heavy / build lane).
+ * @param {string} command
+ */
+export function isHeavySandboxPreferredCommand(command) {
+  const c = String(command || '').toLowerCase();
+  return /\b(vite|playwright|puppeteer|wrangler\s+pages|npm\s+run\s+build|pnpm\s+build|yarn\s+build|glb|remotion|docker\s+build)\b/.test(
+    c,
+  );
+}
+
+/**
+ * Fail-safe: model often picks agentsam_terminal_sandbox for "shell" even when
+ * operator mobile effective lane is Cloud desk (remote). Remap light commands.
+ * @param {string|null|undefined} toolKey
+ * @param {string|null|undefined} clientSurface
+ * @param {'auto'|'remote'|'local'|'sandbox'|null|undefined} execLane
+ * @param {boolean} isPlatformOperator
+ * @param {string} command
+ */
+export function shouldRemapSandboxToRemote(
+  toolKey,
+  clientSurface,
+  execLane,
+  isPlatformOperator,
+  command,
+) {
+  if (String(toolKey || '').trim() !== 'agentsam_terminal_sandbox') return false;
+  if (!isPlatformOperator) return false;
+  if (!isMobileClientSurface(clientSurface)) return false;
+  const effective = resolveEffectiveExecLane(clientSurface, execLane, true);
+  if (effective !== 'remote') return false;
+  if (isHeavySandboxPreferredCommand(command)) return false;
+  return true;
+}
+
+/**
  * @param {unknown} wsCtx
  * @returns {string[]}
  */
