@@ -1,19 +1,25 @@
 # Companions CPAS — client demo + admin handoff (2026-07-20)
 
 **Ticket:** `tkt_companions_cpas_demo_handoff_20260720`  
-**Status:** `active`  
+**Status:** `blocked` (PAUSED 2026-07-20)  
 **Project:** `proj_companions_cpas_web` (Companions of CPAS / companionsofcaddo.org)  
 **Subsystem:** `cms` · client delivery  
-**Priority:** P0  
-**Linked todo:** `todo_cpas_customer_admin_handoff` — *Complete customer takeover QA and admin guide*  
-**Related backlog:** `tkt_companions_cms_ssot_audit` (CMS SSOT audit — do not expand scope into that today)  
-**Required passes before `shipped`:** 2 (demo dry-run + live client session, or dry-run + post-demo guide delivery)
+**Priority:** P3 (parked)  
+**Linked todo:** `todo_cpas_customer_admin_handoff` — parked with other `todo_cpas_*` open items  
+**Related:** `tkt_companions_cms_ssot_audit` also `blocked`  
+**Resume gate:** Lori sends a **properly written request form** with definitive customer asks. No open-ended design/build until then.
 
 ---
 
-## Why this ticket exists
+## Pause (2026-07-20 — Sam)
 
-Tomorrow (Mon 2026-07-20) is the **client demo / CMS tutorial**. Goal: walk the customer through self-serve edits so they can run the site without a developer for day-to-day copy, images, section order, and form awareness — and leave them a short operating guide.
+Site is **live and works**. Remaining work is refinement-only and needs customer-written direction. Operator is done on this build until that arrives (budget / context burn). Design polish is fine later — not speculative build.
+
+---
+
+## Why this ticket existed
+
+Mon 2026-07-20 was the **client demo / CMS tutorial**. Goal: walk the customer through self-serve edits so they can run the site without a developer for day-to-day copy, images, section order, and form awareness — and leave them a short operating guide.
 
 This extends the existing handoff todo into a single end-to-end plan with a dual-pass bar. It does **not** reopen renderer remasters or the full SSOT audit.
 

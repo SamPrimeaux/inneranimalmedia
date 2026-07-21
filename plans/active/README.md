@@ -23,7 +23,7 @@ Work **in this order**. Do not parallelize product remasters across these.
 | [SDK-SCAFFOLD-WINDOWS-POWERSHELL-2026-07-14.md](./SDK-SCAFFOLD-WINDOWS-POWERSHELL-2026-07-14.md) | `tkt_agentsam_sdk_scaffold_windows_2026_07_14` | `proj_agentsam_sdk` |
 | [CLOSED-LOOP-CODE-RAG-2026-07-14.md](./CLOSED-LOOP-CODE-RAG-2026-07-14.md) | `tkt_closed_loop_code_rag_2026_07_14` | overnight reindex / morning proof |
 | [CLOSED-LOOP-AUTO-COMPACT-MEMORY-2026-07-14.md](./CLOSED-LOOP-AUTO-COMPACT-MEMORY-2026-07-14.md) | `tkt_closed_loop_auto_compact_memory_2026_07_14` | live compact + durable summarize |
-| [COMPANIONS-CPAS-DEMO-HANDOFF-2026-07-20.md](./COMPANIONS-CPAS-DEMO-HANDOFF-2026-07-20.md) | `tkt_companions_cpas_demo_handoff_20260720` | `proj_companions_cpas_web` — client demo + admin guide (2026-07-20) |
+| [COMPANIONS-CPAS-DEMO-HANDOFF-2026-07-20.md](./COMPANIONS-CPAS-DEMO-HANDOFF-2026-07-20.md) | `tkt_companions_cpas_demo_handoff_20260720` | **PAUSED / blocked** — site live; resume only after Lori written request form |
 
 ## Verification law (LOCKED — dual-pass E2E)
 
