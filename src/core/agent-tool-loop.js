@@ -1947,7 +1947,16 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           );
         } else if (
           String(call.name || '').startsWith('fs_') &&
-          (mcpCtx.fsa_root === true || mcpCtx.runtimeProfile?._fsa_root === true)
+          (mcpCtx.fsa_root === true || mcpCtx.runtimeProfile?._fsa_root === true) &&
+          // Browser FSA must not steal workspace reads when PTY is allowed — the
+          // IndexedDB folder handle is often a different repo (e.g. agentsam-sdk)
+          // while workspace_settings.workspace_root points at the monorepo.
+          !(
+            Number(userPolicy?.can_run_pty) === 1 ||
+            userPolicy?.can_run_pty === true ||
+            resolvedContextParam?.can_run_pty === true ||
+            mcpCtx?.can_run_pty === true
+          )
         ) {
           let toolInput = call.input && typeof call.input === 'object' ? { ...call.input } : {};
           if (activeFileEnvelopeParam) {

@@ -81,17 +81,19 @@ export async function fulfillClientFsRequest(
           hint: 'Click Reconnect folder to grant read/write permission.',
           path,
           operation,
+          root_name: root.name,
         };
       } else if (operation === 'list') {
         const dir = await resolveLocalSubdirectoryHandle(root, path);
         if (!dir) {
-          result = { ok: false, error: 'path_not_found', path, operation };
+          result = { ok: false, error: 'path_not_found', path, operation, root_name: root.name };
         } else {
           const entries = await readLocalDirectoryEntries(dir);
           result = {
             ok: true,
             path,
             operation: 'list',
+            root_name: root.name,
             entries: entries.map((e) => ({
               name: e.name,
               kind: e.kind,
@@ -102,13 +104,13 @@ export async function fulfillClientFsRequest(
       } else if (operation === 'write') {
         const { dir, name } = splitPath(path);
         if (!name) {
-          result = { ok: false, error: 'path_required', path, operation };
+          result = { ok: false, error: 'path_required', path, operation, root_name: root.name };
         } else {
           const parent = dir
             ? await resolveLocalSubdirectoryHandle(root, dir)
             : root;
           if (!parent) {
-            result = { ok: false, error: 'parent_not_found', path, operation };
+            result = { ok: false, error: 'parent_not_found', path, operation, root_name: root.name };
           } else {
             const fileHandle = await parent.getFileHandle(name, { create: true });
             const writable = await fileHandle.createWritable();
@@ -118,6 +120,7 @@ export async function fulfillClientFsRequest(
               ok: true,
               path,
               operation: 'write',
+              root_name: root.name,
               bytes: evt.content != null ? String(evt.content).length : 0,
             };
           }
@@ -125,11 +128,23 @@ export async function fulfillClientFsRequest(
       } else {
         const { dir, name } = splitPath(path);
         if (!name) {
-          result = { ok: false, error: 'path_required', path, operation: 'read' };
+          result = {
+            ok: false,
+            error: 'path_required',
+            path,
+            operation: 'read',
+            root_name: root.name,
+          };
         } else {
           const parent = await resolveLocalSubdirectoryHandle(root, dir);
           if (!parent) {
-            result = { ok: false, error: 'path_not_found', path, operation: 'read' };
+            result = {
+              ok: false,
+              error: 'path_not_found',
+              path,
+              operation: 'read',
+              root_name: root.name,
+            };
           } else {
             const fileHandle = await parent.getFileHandle(name);
             const file = await fileHandle.getFile();
@@ -138,6 +153,7 @@ export async function fulfillClientFsRequest(
               ok: true,
               path,
               operation: 'read',
+              root_name: root.name,
               content: text.slice(0, 200_000),
               truncated: text.length > 200_000,
               size: text.length,
