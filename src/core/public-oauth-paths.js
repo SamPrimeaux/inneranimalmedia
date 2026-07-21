@@ -77,6 +77,20 @@ export const PUBLIC_OAUTH_PATHS = [
   '/api/games',
 
 
+  // Provider webhooks — signature/HMAC verified in each handler (no browser session)
+  '/api/webhooks/openai',
+  '/api/hooks/openai',
+  '/api/webhooks/github',
+  '/api/webhooks/anthropic',
+  '/api/webhooks/cursor',
+  '/api/webhooks/internal',
+  '/api/webhooks/cloudflare',
+  '/api/webhooks/realtimekit',
+  '/api/webhooks/supabase',
+  '/api/hooks/supabase',
+  '/api/webhooks/stripe',
+  '/api/webhooks/resend',
+
   // Cloudflare Stream VOD + Live Input webhooks (unsigned gate bypass)
   '/api/webhooks/stream/vod',
   '/api/webhooks/stream/live',
