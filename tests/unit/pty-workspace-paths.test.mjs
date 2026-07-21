@@ -14,6 +14,9 @@ test('safePtyRepoDirName returns child folder when workspace is parent', () => {
   );
 });
 
-test('safePtyRepoDirName does not invent a nested cd for empty root', () => {
-  assert.equal(safePtyRepoDirName('', '/Users/samprimeaux/inneranimalmedia'), '.');
+test('safePtyRepoDirName returns "." for bare basename matching workspace tail', () => {
+  assert.equal(
+    safePtyRepoDirName('inneranimalmedia', '/Users/samprimeaux/inneranimalmedia'),
+    '.',
+  );
 });

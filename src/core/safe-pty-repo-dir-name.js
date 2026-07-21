@@ -10,6 +10,9 @@ export function safePtyRepoDirName(repoRoot, workspaceRoot) {
   const ws = String(workspaceRoot || '').trim().replace(/\/+$/, '');
   if (!root) return '.';
   if (ws && root === ws) return '.';
+  // Bare basename that already matches the workspace folder name (injected repo_dir).
+  const wsTail = ws.split(/[/\\]/).filter(Boolean).pop() || '';
+  if (ws && !root.includes('/') && !root.includes('\\') && root === wsTail) return '.';
   if (ws && root.startsWith(`${ws}/`)) {
     const rel = root.slice(ws.length + 1);
     const first = rel.split(/[/\\]/).filter(Boolean)[0];

@@ -767,13 +767,13 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           ],
         });
         explicitCatalogPreinvoked = true;
-        // Named-tool prompts ("using agentsam_github_tree…") — return tool output directly.
-        // Skipping the model avoids nano/mini inventing agentsam_d1_query and hanging the gate.
+        // Named-tool prompts — keep deterministic preinvoke (reliability), but present a
+        // readable summary. Dumping raw JSON as the assistant message looks broken in chat.
         if (!execErr && /^agentsam_github_|^fs_/.test(preName)) {
-          const summary =
-            typeof toolOutput === 'string' && toolOutput.trim()
-              ? toolOutput.slice(0, 12000)
-              : `Ran ${preName}.`;
+          const { formatExplicitCatalogToolResult } = await import(
+            './format-explicit-catalog-result.js'
+          );
+          const summary = formatExplicitCatalogToolResult(preName, toolOutput);
           emit('text', { text: summary });
           persistChatTurnMessages({ assistantText: summary });
           safeDone({
