@@ -12,6 +12,66 @@ function trim(v) {
 }
 
 /**
+ * Normalize GitHub owner/repo from URL or owner/name.
+ * @param {unknown} raw
+ * @returns {string}
+ */
+export function normalizeGithubOwnerRepo(raw) {
+  const s = trim(raw);
+  if (!s) return '';
+  const fromUrl = s.match(/github\.com[/:]([^/\s]+)\/([^/\s#?]+)/i);
+  if (fromUrl) {
+    return `${fromUrl[1]}/${fromUrl[2].replace(/\.git$/i, '')}`;
+  }
+  const bare = s.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+  if (/^[^/\s]+\/[^/\s]+$/.test(bare)) {
+    return bare.replace(/\.git$/i, '');
+  }
+  return '';
+}
+
+/**
+ * Prefer agentsam_workspace.github_repo; fall back to client_apps.github_repository (infra SSOT).
+ * @param {any} env
+ * @param {string} projectRef
+ * @param {ReturnType<typeof normalizeWorkspaceBindingsLike>|null} bindings
+ */
+async function enrichBindingsGithubFromClientApps(env, projectRef, bindings) {
+  if (!env?.DB || !bindings) return bindings;
+  if (normalizeGithubOwnerRepo(bindings.githubRepo)) {
+    return {
+      ...bindings,
+      githubRepo: normalizeGithubOwnerRepo(bindings.githubRepo),
+    };
+  }
+  const ref = trim(projectRef);
+  if (!ref) return bindings;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT github_repository
+       FROM client_apps
+       WHERE COALESCE(status, 'active') = 'active'
+         AND (
+           project_id = ?
+           OR id = ?
+           OR app_key = ?
+         )
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+    )
+      .bind(ref, ref, ref)
+      .first();
+    const gh = normalizeGithubOwnerRepo(row?.github_repository);
+    if (gh) return { ...bindings, githubRepo: gh, githubRepoSource: 'client_apps' };
+  } catch (e) {
+    console.warn('[project-session-context] client_apps_github', e?.message ?? e);
+  }
+  return bindings;
+}
+
+/** @typedef {{ workspaceId?: string|null, slug?: string|null, name?: string|null, projectId?: string|null, d1DatabaseId?: string|null, d1Binding?: string|null, workerName?: string|null, r2Bucket?: string|null, r2Prefix?: string|null, kvNamespaceId?: string|null, githubRepo?: string|null, rootPath?: string|null, deployUrl?: string|null, githubRepoSource?: string|null }} normalizeWorkspaceBindingsLike */
+
+/**
  * @param {any} env
  * @param {string|null|undefined} projectRef
  * @param {string|null|undefined} [workspaceId]
@@ -29,8 +89,11 @@ export async function resolveProjectExecutionBindings(env, projectRef, workspace
     /* use ref */
   }
 
-  const row = await resolveWorkspaceBindings(env, lookupRef);
-  return row;
+  let row = await resolveWorkspaceBindings(env, lookupRef);
+  if (!row && lookupRef !== ref) {
+    row = await resolveWorkspaceBindings(env, ref);
+  }
+  return enrichBindingsGithubFromClientApps(env, ref, row);
 }
 
 /**
@@ -53,21 +116,22 @@ export async function resolveProjectExecutionContext(env, projectRef, workspaceI
   }
 
   const bindings = await resolveWorkspaceBindings(env, lookupRef);
-  if (!bindings?.workspaceId) return { bindings, metadata: {} };
+  const enriched = await enrichBindingsGithubFromClientApps(env, ref, bindings);
+  if (!enriched?.workspaceId) return { bindings: enriched, metadata: {} };
 
   let metadata = {};
   try {
     const wsRow = await env.DB.prepare(
       `SELECT metadata_json FROM agentsam_workspace WHERE id = ? LIMIT 1`,
     )
-      .bind(bindings.workspaceId)
+      .bind(enriched.workspaceId)
       .first();
     metadata = parseWorkspaceMetadata(wsRow?.metadata_json);
   } catch {
     /* optional */
   }
 
-  return { bindings, metadata, lookupRef };
+  return { bindings: enriched, metadata, lookupRef };
 }
 
 /**
@@ -113,7 +177,9 @@ export function formatProjectClientBindingsBlock(bindings, metadata = {}) {
         ? `KV **SESSION_CACHE**: \`${bindings.kvNamespaceId}\``
         : `KV **CMS_CACHE**: \`${bindings.kvNamespaceId}\``
       : null,
-    bindings.githubRepo ? `github_repo: ${bindings.githubRepo}` : null,
+    bindings.githubRepo
+      ? `github_repo: ${bindings.githubRepo} — use this owner/name for GitHub tools; do not ask the user for a repo URL or claim the repo is unknown`
+      : null,
     bindings.rootPath ? `root_path: ${bindings.rootPath}` : null,
   ].filter((line) => line !== null);
 

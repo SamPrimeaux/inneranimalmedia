@@ -27,7 +27,7 @@ import {
   parseSessionProjectIdFromChatBody,
   resolveConversationProjectRef,
 } from '../core/project-chat-link.js';
-import { loadSessionProjectContextSystemBlock } from '../core/project-session-context.js';
+import { loadSessionProjectContextSystemBlock, resolveProjectExecutionBindings } from '../core/project-session-context.js';
 import { resolveWorkspaceBindings } from '../core/agentsam-workspace.js';
 import {
   loadOrBootstrapSessionContext,
@@ -295,12 +295,9 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     !workspaceBindingIdentifier
       ? null
       : await resolveWorkspaceBindings(env, workspaceBindingIdentifier);
-  const projectExecutionBindings =
-    sessionProjectRef && workspaceBindings
-      ? workspaceBindings
-      : sessionProjectRef
-        ? await resolveWorkspaceBindings(env, sessionProjectRef)
-        : null;
+  const projectExecutionBindings = sessionProjectRef
+    ? await resolveProjectExecutionBindings(env, sessionProjectRef, workspaceId)
+    : null;
   const sessionProjectContextBlock = sessionProjectRef
     ? await loadSessionProjectContextSystemBlock(env, sessionProjectRef, workspaceId)
     : '';

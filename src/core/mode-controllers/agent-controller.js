@@ -99,7 +99,25 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   const profile = input.profile;
   const body = input.body || {};
   const message = String(input.message || '').trim();
-  const activeRepo = String(body.active_repo ?? body.activeRepo ?? '').trim();
+  const bodyActiveRepo = String(body.active_repo ?? body.activeRepo ?? '').trim();
+  const selectedGithub = String(
+    body.selectedGithubRepoContext ?? body.github_repo_context ?? body.githubRepoContext ?? '',
+  ).trim();
+  const projectBindings =
+    input.projectExecutionBindings && typeof input.projectExecutionBindings === 'object'
+      ? input.projectExecutionBindings
+      : null;
+  let projectGithub = '';
+  try {
+    const { normalizeGithubOwnerRepo } = await import('../project-session-context.js');
+    projectGithub = normalizeGithubOwnerRepo(projectBindings?.githubRepo);
+  } catch {
+    projectGithub = String(projectBindings?.githubRepo || '').trim();
+  }
+  // Session project bindings are authoritative when the conversation is project-scoped.
+  // Without this, github_repo sits in the injected block while Active GitHub lock stays empty
+  // and the base prompt tells the model not to assume a repo — model asks for a URL.
+  const activeRepo = bodyActiveRepo || selectedGithub || projectGithub;
   const { userId, tenantId, workspaceId, sessionId, authUser: sessionAuthUser } = input.session || {};
   const quickstartBatch = input.quickstartBatch != null ? String(input.quickstartBatch) : '';
   const activeFileEnvelope = input.activeFileEnvelope ?? null;
@@ -537,18 +555,9 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         ctx: input.ctx ?? null,
         authUser: sessionAuthUser ?? input.session?.authUser ?? null,
         conversationId: sessionId,
-        activeRepo:
-          activeRepo ||
-          String(body.selectedGithubRepoContext ?? body.github_repo_context ?? body.githubRepoContext ?? '').trim() ||
-          null,
-        active_repo:
-          activeRepo ||
-          String(body.selectedGithubRepoContext ?? body.github_repo_context ?? body.githubRepoContext ?? '').trim() ||
-          null,
-        githubRepoContext:
-          String(body.selectedGithubRepoContext ?? body.github_repo_context ?? body.githubRepoContext ?? '').trim() ||
-          activeRepo ||
-          null,
+        activeRepo: activeRepo || null,
+        active_repo: activeRepo || null,
+        githubRepoContext: activeRepo || null,
         activeBranch: String(body.active_branch ?? body.activeBranch ?? body.github_branch ?? 'main').trim() || 'main',
         progressiveToolDiscovery: progressiveDiscovery,
         progressive_tool_discovery: progressiveDiscovery,
