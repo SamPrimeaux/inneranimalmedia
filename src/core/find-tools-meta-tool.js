@@ -104,17 +104,85 @@ function normalizeToolRow(row) {
   };
 }
 
+/** Drop filler so SQL LIKE is not the whole NL phrase (which matched nothing). */
+const DISCOVERY_STOPWORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'be',
+  'by',
+  'can',
+  'do',
+  'for',
+  'from',
+  'get',
+  'how',
+  'i',
+  'in',
+  'into',
+  'is',
+  'it',
+  'last',
+  'me',
+  'my',
+  'need',
+  'of',
+  'on',
+  'or',
+  'our',
+  'please',
+  'show',
+  'that',
+  'the',
+  'this',
+  'to',
+  'want',
+  'we',
+  'what',
+  'with',
+  'you',
+]);
+
 function intentTerms(input) {
   return [
     trim(input.query),
     trim(input.intent),
     trim(input.mode),
+    trim(input.q),
+    trim(input.search),
   ]
     .join(' ')
     .toLowerCase()
     .split(/[^a-z0-9_.-]+/)
     .map((s) => s.trim())
-    .filter((s) => s.length >= 2);
+    .filter((s) => s.length >= 2 && !DISCOVERY_STOPWORDS.has(s));
+}
+
+/**
+ * Meaningful tokens for catalog LIKE (OR), not the full natural-language phrase.
+ * @param {Record<string, unknown>} input
+ * @returns {string[]}
+ */
+export function discoverySearchTerms(input = {}) {
+  const terms = intentTerms(input);
+  /** @type {string[]} */
+  const out = [];
+  const seen = new Set();
+  for (const t of terms) {
+    if (seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+    if (out.length >= 8) break;
+  }
+  // Single-token fallback: whole query if short enough to be a tool keyword.
+  if (!out.length) {
+    const q = trim(input.query || input.intent || '')
+      .toLowerCase()
+      .replace(/[%_]/g, '');
+    if (q && q.length >= 2 && q.length <= 64 && !/\s/.test(q)) out.push(q);
+  }
+  return out;
 }
 
 function scoreRow(row, terms) {
@@ -176,6 +244,7 @@ export async function executeFindToolsMetaTool(env, input = {}, runContext = {})
   const q = trim(normalized.query || normalized.intent || '');
   const limit = Math.max(1, Math.min(Number(normalized.limit || 24) || 24, 64));
   const terms = intentTerms(normalized);
+  const searchTerms = discoverySearchTerms(normalized);
   const workspaceId = trim(
     normalized.workspace_id || runContext.workspaceId || runContext.workspace_id,
   );
@@ -191,33 +260,45 @@ export async function executeFindToolsMetaTool(env, input = {}, runContext = {})
     };
   }
 
-  const like = `%${q.toLowerCase().replace(/[%_]/g, '')}%`;
   const binds = [];
   let where = `COALESCE(is_active, 1) = 1 AND COALESCE(is_degraded, 0) = 0`;
-  if (q) {
-    where += ` AND (
-      lower(COALESCE(tool_key, '')) LIKE ? OR
-      lower(COALESCE(tool_code, '')) LIKE ? OR
-      lower(COALESCE(tool_name, '')) LIKE ? OR
-      lower(COALESCE(display_name, '')) LIKE ? OR
-      lower(COALESCE(description, '')) LIKE ? OR
-      lower(COALESCE(tool_category, '')) LIKE ? OR
-      lower(COALESCE(handler_type, '')) LIKE ? OR
-      lower(COALESCE(capability_key, '')) LIKE ?
-    )`;
-    binds.push(like, like, like, like, like, like, like, like);
+  if (searchTerms.length) {
+    const termClauses = [];
+    for (const term of searchTerms) {
+      const like = `%${term.replace(/[%_]/g, '')}%`;
+      termClauses.push(`(
+        lower(COALESCE(tool_key, '')) LIKE ? OR
+        lower(COALESCE(tool_code, '')) LIKE ? OR
+        lower(COALESCE(tool_name, '')) LIKE ? OR
+        lower(COALESCE(display_name, '')) LIKE ? OR
+        lower(COALESCE(description, '')) LIKE ? OR
+        lower(COALESCE(tool_category, '')) LIKE ? OR
+        lower(COALESCE(handler_type, '')) LIKE ? OR
+        lower(COALESCE(capability_key, '')) LIKE ?
+      )`);
+      binds.push(like, like, like, like, like, like, like, like);
+    }
+    where += ` AND (${termClauses.join(' OR ')})`;
   }
+  // Global / wildcard-scoped tools are always visible; also match workspace pin.
   if (workspaceId) {
-    where += ` AND (workspace_scope IS NULL OR workspace_scope = '' OR workspace_scope = '*' OR workspace_scope LIKE ? OR workspace_scope LIKE '%"*"%')`;
+    where += ` AND (
+      COALESCE(is_global, 0) = 1
+      OR workspace_scope IS NULL
+      OR workspace_scope = ''
+      OR workspace_scope = '*'
+      OR workspace_scope LIKE '%"*"%'
+      OR workspace_scope LIKE ?
+    )`;
     binds.push(`%${workspaceId}%`);
   }
 
   const sql = `SELECT id, tool_key, tool_code, tool_name, display_name, description,
                       tool_category, handler_type, capability_key, input_schema,
-                      risk_level, requires_approval, workspace_scope
+                      risk_level, requires_approval, workspace_scope, is_global
                FROM agentsam_tools
                WHERE ${where}
-               LIMIT ${Math.max(limit * 3, limit)}`;
+               LIMIT ${Math.max(limit * 6, 64)}`;
 
   let rows = [];
   try {
@@ -230,8 +311,9 @@ export async function executeFindToolsMetaTool(env, input = {}, runContext = {})
     };
   }
 
+  const scoreTerms = searchTerms.length ? searchTerms : terms;
   const tools = rows
-    .map((row) => ({ row, score: scoreRow(row, terms) }))
+    .map((row) => ({ row, score: scoreRow(row, scoreTerms) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map(({ row }) => normalizeToolRow(row));
@@ -240,13 +322,14 @@ export async function executeFindToolsMetaTool(env, input = {}, runContext = {})
     ok: true,
     result: {
       query: q,
+      search_terms: searchTerms,
       intent: trim(normalized.intent) || null,
       mode: trim(normalized.mode) || null,
       workspace_id: workspaceId || null,
       count: tools.length,
-      // rows alias keeps progressive hydrate + legacy SQL-shaped consumers happy
-      tools: [...coreFallbackTools(), ...tools].filter((tool, idx, arr) =>
-        arr.findIndex((t) => t.name === tool.name) === idx,
+      // Catalog hits first (hydrate); meta find_tools last so empty SQL doesn't look "successful".
+      tools: [...tools, ...coreFallbackTools()].filter(
+        (tool, idx, arr) => arr.findIndex((t) => t.name === tool.name) === idx,
       ),
       rows: tools,
       trace_event: 'tools_discovered',

@@ -325,7 +325,10 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   let codemodeRuntime = null;
   const rawBodyTaskType = body.task_type ?? body.taskType ?? null;
   const routeKeyPin = body.route_key ?? body.routeKey ?? profile.refined_route_key ?? null;
+  // Progressive discovery owns the turn-0 menu (search_tools → hydrate). Codemode hybrid
+  // replaces that menu with a single orchestrator — skip it whenever progressive is on.
   const useCodemode =
+    !progressiveDiscovery &&
     !skipHeavyContext &&
     !createSubagentFlow.active &&
     shouldUseCodemodeForRequest(env, {
@@ -361,6 +364,11 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     } catch (e) {
       console.warn('[agent-controller] codemode_build_failed', e?.message ?? e);
     }
+  } else if (progressiveDiscovery && profile.mode === 'multitask') {
+    console.info(
+      '[agent-controller] progressive_skip_codemode',
+      JSON.stringify({ mode: profile.mode, tools: tools.length }),
+    );
   }
 
   const requireTools = tools.length > 0 || profile.tool_capable_required === true;
