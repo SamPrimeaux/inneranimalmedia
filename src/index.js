@@ -202,6 +202,10 @@ export default {
         const { handleInternalMemory } = await import('./api/internal-memory.js');
         return handleInternalMemory(request, env, 'search');
       }
+      if (pathLower === '/api/internal/codebase/retrieve' && methodUpper === 'POST') {
+        const { handleInternalCodebaseRetrieve } = await import('./api/internal-codebase-retrieve.js');
+        return handleInternalCodebaseRetrieve(request, env);
+      }
 
       const isDashboardHtmlNav =
         (methodUpper === 'GET' || methodUpper === 'HEAD') && isDashboardSpaShellPath(pathLower);
