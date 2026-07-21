@@ -455,6 +455,62 @@ export async function chatWithToolsOpenAI(env, request, params) {
 }
 
 /**
+ * Optional background Responses + webhook attribution metadata.
+ * When `params.background` is true, OpenAI finishes async and fires response.* webhooks;
+ * metadata lets the Worker stamp usage to the right workspace/user.
+ *
+ * @param {Record<string, unknown>} body
+ * @param {Record<string, unknown>} params
+ */
+export function applyOpenAiResponsesBackgroundAndMetadata(body, params) {
+  const out = body && typeof body === 'object' ? { ...body } : {};
+  const background =
+    params?.background === true ||
+    params?.background === 1 ||
+    String(params?.background || '').trim().toLowerCase() === 'true';
+
+  const metaIn =
+    params?.openaiMetadata && typeof params.openaiMetadata === 'object'
+      ? { ...params.openaiMetadata }
+      : params?.metadata && typeof params.metadata === 'object'
+        ? { ...params.metadata }
+        : {};
+
+  const pick = (a, b) => {
+    const v = params?.[a] ?? params?.[b];
+    return v != null && String(v).trim() ? String(v).trim() : null;
+  };
+  if (pick('workspaceId', 'workspace_id')) metaIn.workspace_id = pick('workspaceId', 'workspace_id');
+  if (pick('tenantId', 'tenant_id')) metaIn.tenant_id = pick('tenantId', 'tenant_id');
+  if (pick('userId', 'user_id')) metaIn.user_id = pick('userId', 'user_id');
+  if (pick('sessionId', 'session_id')) metaIn.session_id = pick('sessionId', 'session_id');
+  if (pick('conversationId', 'conversation_id')) {
+    metaIn.conversation_id = pick('conversationId', 'conversation_id');
+  }
+
+  if (background) {
+    out.background = true;
+    // stream + background are incompatible for our SSE path; prefer background completion.
+    out.stream = false;
+    metaIn.iam_background = '1';
+    metaIn.iam_usage_via_webhook = '1';
+  }
+
+  if (Object.keys(metaIn).length) {
+    // OpenAI metadata values must be strings ≤64 chars keys / ≤512 values — truncate safely.
+    /** @type {Record<string, string>} */
+    const clean = {};
+    for (const [k, v] of Object.entries(metaIn)) {
+      const key = String(k).trim().slice(0, 64);
+      if (!key || v == null) continue;
+      clean[key] = String(v).trim().slice(0, 512);
+    }
+    if (Object.keys(clean).length) out.metadata = clean;
+  }
+  return out;
+}
+
+/**
  * Stream /v1/responses (Responses API). Use when agentsam_ai.api_platform is `openai_responses` or `responses`.
  * Tool outputs for the next turn: pass `openaiPreviousResponseId` and messages ending in user tool_result blocks.
  */
@@ -507,6 +563,7 @@ export async function chatWithToolsOpenAIResponses(env, request, params) {
     ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
     ...(verbosity ? { text: { verbosity } } : {}),
   };
+  body = applyOpenAiResponsesBackgroundAndMetadata(body, params);
   if (params.maxOutputTokens != null) {
     body = applyOpenAiResponsesTokenLimit(body, params.maxOutputTokens);
   }
@@ -602,6 +659,7 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
     ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
     ...(verbosity ? { text: { verbosity } } : {}),
   };
+  body = applyOpenAiResponsesBackgroundAndMetadata(body, params);
   if (params.maxOutputTokens != null) {
     body = applyOpenAiResponsesTokenLimit(body, params.maxOutputTokens);
   }

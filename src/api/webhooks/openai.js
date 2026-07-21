@@ -192,22 +192,38 @@ export async function handleOpenAiWebhook(request, env, ctx) {
     signatureValid: Boolean(key),
   });
 
-  // Phase B: Batch embed reconciliation → agentsam_usage_events (sync embeds do not webhook).
+  // Batch embeds + background Responses → agentsam_usage_events (sync paths stamp elsewhere).
   const et = eventType.toLowerCase();
-  if (et.startsWith('batch.')) {
+  if (et.startsWith('batch.') || et.startsWith('response.')) {
     const run = async () => {
       try {
-        const { ingestOpenAiBatchEmbedUsageFromWebhook } = await import(
-          '../../core/openai-batch-embed-usage.js'
-        );
-        const out = await ingestOpenAiBatchEmbedUsageFromWebhook(env, ctx, payload, {
-          webhookEventId: ingested?.id ?? null,
-        });
-        if (!out?.skipped) {
-          console.info('[openai-webhook] batch_embed_usage', JSON.stringify(out));
+        if (et.startsWith('batch.')) {
+          const { ingestOpenAiBatchEmbedUsageFromWebhook } = await import(
+            '../../core/openai-batch-embed-usage.js'
+          );
+          const out = await ingestOpenAiBatchEmbedUsageFromWebhook(env, ctx, payload, {
+            webhookEventId: ingested?.id ?? null,
+          });
+          if (!out?.skipped) {
+            console.info('[openai-webhook] batch_embed_usage', JSON.stringify(out));
+          }
+        } else {
+          const { ingestOpenAiResponseUsageFromWebhook } = await import(
+            '../../core/openai-response-usage.js'
+          );
+          const out = await ingestOpenAiResponseUsageFromWebhook(env, ctx, payload, {
+            webhookEventId: ingested?.id ?? null,
+          });
+          if (!out?.skipped) {
+            console.info('[openai-webhook] response_usage', JSON.stringify(out));
+          }
         }
       } catch (e) {
-        console.warn('[openai-webhook] batch_embed_usage_failed', e?.message ?? e);
+        console.warn(
+          '[openai-webhook] usage_ingest_failed',
+          et.startsWith('batch.') ? 'batch' : 'response',
+          e?.message ?? e,
+        );
       }
     };
     if (ctx?.waitUntil) ctx.waitUntil(run());
