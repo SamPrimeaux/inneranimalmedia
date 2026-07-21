@@ -51,9 +51,13 @@ export function buildGeminiToolsRequest(geminiTools) {
  * and Gemini's native REST + SSE format, then re-emits as OpenAI-compatible SSE so
  * the agent loop in agent.js parses it without any changes.
  *
- * Gemini 3.x notes (Google generateContent docs, June 2026):
- *  - Default temperature should stay 1.0 (lower values can loop/degrade).
- *  - thinkingConfig.thinkingLevel: low | medium | high (not minimal on 3.5).
+ * Gemini 3.x / GA Flash notes (Google generateContent + 3.6 Flash migration, July 2026):
+ *  - Omit temperature / topP / topK (deprecated; ignored now, 400 later).
+ *  - thinkingConfig.thinkingLevel: minimal | low | medium | high.
+ *    Flash-Lite default = minimal (raise to medium/high for tool/subagent work).
+ *    3.6 Flash default = medium.
+ *  - Do not end contents with a model turn (prefill → HTTP 400).
+ *  - FunctionResponse must include matching `id` + `name` from FunctionCall.
  *  - thoughtSignature on text/functionCall parts must round-trip for tool loops.
  */
 
@@ -67,6 +71,20 @@ export function normalizeGeminiModelId(raw) {
 export function isGemini3ModelId(modelId) {
   const id = normalizeGeminiModelId(modelId).toLowerCase();
   return id.startsWith('gemini-3');
+}
+
+/** Flash-Lite SKUs — default thinking is minimal; raise for agentic tool loops. */
+export function isGeminiFlashLiteModelId(modelId) {
+  const id = normalizeGeminiModelId(modelId).toLowerCase();
+  return id.includes('flash-lite');
+}
+
+/**
+ * Sampling params are deprecated for Gemini 3.x (hard-fail on 3.6+ / 3.5 Flash-Lite
+ * and future releases). Omit them so we never send temperature/topP/topK.
+ */
+export function omitsGeminiSamplingParams(modelId) {
+  return isGemini3ModelId(modelId);
 }
 
 /** Visible user-facing text — exclude internal thought summaries only. */
@@ -110,17 +128,34 @@ export function buildGeminiGenerationConfig(routingDecision, opts = {}) {
   const lane = String(routingDecision?.lane || '').toLowerCase();
   const modelId = normalizeGeminiModelId(opts.modelId || '');
   const gemini3 = isGemini3ModelId(modelId);
+  const flashLite = isGeminiFlashLiteModelId(modelId);
 
   const agentic =
-    ['agent', 'code', 'debug', 'plan', 'terminal_execution'].includes(mode) ||
-    ['agent', 'code', 'debug', 'plan', 'terminal_execution'].includes(taskType);
+    ['agent', 'code', 'debug', 'plan', 'terminal_execution', 'multitask'].includes(mode) ||
+    ['agent', 'code', 'debug', 'plan', 'terminal_execution', 'multitask'].includes(taskType);
   const premium = ['debug', 'plan'].includes(mode) || ['debug', 'plan'].includes(taskType);
   const askLike =
     mode === 'ask' ||
-    ['ask', 'greeting', 'chat', 'explain', 'summary', 'question'].includes(taskType);
+    [
+      'ask',
+      'greeting',
+      'chat',
+      'explain',
+      'summary',
+      'question',
+      'cheap_summary',
+      'intent_classification',
+      'router_micro',
+    ].includes(taskType);
 
   let thinkingLevel = 'low';
-  if (gemini3) {
+  if (flashLite) {
+    // GA Flash-Lite: minimal for throughput; medium/high for tool/subagent work.
+    if (premium && lane === 'premium') thinkingLevel = 'high';
+    else if (agentic && !askLike) thinkingLevel = 'medium';
+    else thinkingLevel = 'minimal';
+  } else if (gemini3) {
+    // 3.6 Flash default = medium; keep low for ask/cheap turns.
     if (premium && lane === 'premium') thinkingLevel = 'high';
     else if (agentic && !askLike) thinkingLevel = 'medium';
     else thinkingLevel = 'low';
@@ -135,9 +170,8 @@ export function buildGeminiGenerationConfig(routingDecision, opts = {}) {
     thinkingConfig: { thinkingLevel },
   };
 
-  if (gemini3) {
-    config.temperature = 1.0;
-  } else {
+  // Gemini 3.x: never send temperature / topP / topK (deprecated → future 400).
+  if (!omitsGeminiSamplingParams(modelId)) {
     config.temperature = premium ? 0.7 : 0.2;
   }
 
@@ -247,6 +281,21 @@ function openAiToolCallsToGeminiParts(toolCalls) {
 }
 
 /**
+ * GA Flash / Flash-Lite reject requests whose last non-empty turn is role=model.
+ * Strip trailing model turns (including text prefills) before generateContent.
+ * @param {Array<{ role?: string, parts?: unknown[] }>|null|undefined} contents
+ */
+export function sanitizeGeminiContents(contents) {
+  const out = Array.isArray(contents) ? [...contents] : [];
+  while (out.length > 0) {
+    const last = out[out.length - 1];
+    if (!last || String(last.role || '').toLowerCase() !== 'model') break;
+    out.pop();
+  }
+  return out;
+}
+
+/**
  * Convert agent/OpenAI-shaped messages → Gemini `contents` array.
  * Supports Anthropic-style content blocks (tool_use / tool_result) used by AgentSam.
  */
@@ -277,14 +326,15 @@ export function toGeminiContents(messages) {
     }
 
     if (m.role === 'tool') {
+      const callId = m.tool_call_id != null ? String(m.tool_call_id) : '';
+      const fr = {
+        name: m.name || callId || 'tool',
+        response: parseFunctionResponsePayload(m.content),
+      };
+      if (callId) fr.id = callId;
       out.push({
         role: 'user',
-        parts: [{
-          functionResponse: {
-            name: m.name || m.tool_call_id || 'tool',
-            response: parseFunctionResponsePayload(m.content),
-          },
-        }],
+        parts: [{ functionResponse: fr }],
       });
       continue;
     }
@@ -306,12 +356,12 @@ export function toGeminiContents(messages) {
               (block.name && String(block.name)) ||
               (toolId && toolNames.get(toolId)) ||
               'tool';
-            parts.push({
-              functionResponse: {
-                name: toolName,
-                response: parseFunctionResponsePayload(block.content),
-              },
-            });
+            const fr = {
+              name: toolName,
+              response: parseFunctionResponsePayload(block.content),
+            };
+            if (toolId) fr.id = toolId;
+            parts.push({ functionResponse: fr });
             continue;
           }
           if (block.type === 'image' && block.source?.data) {
@@ -328,7 +378,7 @@ export function toGeminiContents(messages) {
     }
   }
 
-  return out;
+  return sanitizeGeminiContents(out);
 }
 
 // ─── SSE chunk translation ────────────────────────────────────────────────────

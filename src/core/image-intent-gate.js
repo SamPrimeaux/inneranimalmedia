@@ -9,6 +9,7 @@ import { stripUserTextForIntent } from './active-file-envelope.js';
 import { isCodeImplementationIntent } from './code-implementation-intent.js';
 import { loadIntentKeywords } from './intent-keywords.js';
 import { resolveModelApiKey } from '../integrations/tokens.js';
+import { GOOGLE_MODEL_ROUTES } from './google-model-routes.js';
 import { resolveModelForTask } from './resolveModel.js';
 
 const COMBINED_WORK_RE =
@@ -263,8 +264,8 @@ async function classifyImageIntentWithModel(env, message, ctx) {
           ? out
           : out?.response || out?.result?.response || JSON.stringify(out?.result || out || '');
     } else {
-      // Prefer Gemini flash-lite for non-WAI arms (cheap + JSON)
-      const geminiModel = 'gemini-3.1-flash-lite';
+      // Prefer Gemini Flash-Lite for non-WAI arms (cheap + JSON)
+      const geminiModel = GOOGLE_MODEL_ROUTES.cheapFast;
       const apiKey =
         (env?.GEMINI_API_KEY && String(env.GEMINI_API_KEY).trim()) ||
         (env?.GOOGLE_AI_API_KEY && String(env.GOOGLE_AI_API_KEY).trim()) ||
@@ -290,7 +291,10 @@ async function classifyImageIntentWithModel(env, message, ctx) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 80 },
+          generationConfig: {
+            maxOutputTokens: 80,
+            thinkingConfig: { thinkingLevel: 'minimal' },
+          },
         }),
       });
       const data = await res.json().catch(() => null);

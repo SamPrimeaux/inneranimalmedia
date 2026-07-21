@@ -780,13 +780,12 @@ export async function triageInboxForDailyPlan(env, emails) {
   }
 
   const raw = await generateWithGemini(env, {
-    modelKey: 'gemini-3.1-flash-lite',
+    modelKey: 'gemini-3.5-flash-lite',
     stage: 'inbox_triage',
     systemInstruction:
       'You triage email for a solo founder. Return JSON only: {"summary":"one line","items":[{"id":"","account":"","urgency":"critical|high|normal|low|fyi","category":"primary|updates|action|fyi","needs_reply":true,"suggested_action":"archive|reply|schedule|ignore","reason":""}]}. Max 20 items. No emojis.',
     userText: `Inbox batch (${emails.length}):\n${JSON.stringify(emails.slice(0, 40))}`,
     maxOutputTokens: 2048,
-    temperature: 0.1,
     json: true,
   });
 
@@ -796,7 +795,7 @@ export async function triageInboxForDailyPlan(env, emails) {
   } catch (e) {
     throw new DailyPlanError(`Inbox triage JSON parse failed: ${e?.message}`, {
       stage: 'inbox_triage_parse',
-      model: 'gemini-3.1-flash-lite',
+      model: 'gemini-3.5-flash-lite',
       detail: raw.slice(0, 400),
     });
   }

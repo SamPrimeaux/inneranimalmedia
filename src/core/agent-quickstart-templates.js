@@ -51,7 +51,7 @@ export const QUICKSTART_TEMPLATE_FALLBACK = [
     slug: 'deploy-validator',
     name: 'Deploy validator',
     description: 'Health check, dashboard asset integrity, and deploy proof — not health-only.',
-    model_hint: 'gemini-3.1-flash-lite',
+    model_hint: 'gemini-3.5-flash-lite',
     seed_message:
       'Quickstart: Deploy validator. Walk me through validating a deploy: Worker /health, dashboard HTML chunk 200s, and browser proof. Ask which surface we are shipping.',
     task_type: 'deploy',

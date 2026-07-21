@@ -5,6 +5,7 @@
 
 import { loadClassificationKeywords } from './classification-keywords.js';
 import { resolveModelApiKey } from '../integrations/tokens.js';
+import { GOOGLE_MODEL_ROUTES } from './google-model-routes.js';
 import { resolveModelForTask } from './resolveModel.js';
 
 /** @typedef {'draft' | 'quality' | 'standard'} ImageTier */
@@ -147,7 +148,7 @@ async function classifyTierWithModel(env, prompt, ctx) {
 
   let text = '';
   try {
-    const geminiModel = 'gemini-3.1-flash-lite';
+    const geminiModel = GOOGLE_MODEL_ROUTES.cheapFast;
     const apiKey =
       (env?.GEMINI_API_KEY && String(env.GEMINI_API_KEY).trim()) ||
       (env?.GOOGLE_AI_API_KEY && String(env.GOOGLE_AI_API_KEY).trim()) ||
@@ -173,7 +174,10 @@ async function classifyTierWithModel(env, prompt, ctx) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: instruction }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: 80 },
+        generationConfig: {
+          maxOutputTokens: 80,
+          thinkingConfig: { thinkingLevel: 'minimal' },
+        },
       }),
     });
     const data = await res.json().catch(() => null);

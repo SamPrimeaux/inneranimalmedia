@@ -1,14 +1,14 @@
 /**
- * Canonical Google/Gemini lane map for AgentSam routing (June 2026).
+ * Canonical Google/Gemini lane map for AgentSam routing (July 2026).
  * D1 (`agentsam_model_catalog`, `agentsam_ai`, `agentsam_routing_arms`) is source of truth;
  * these constants align hot-path code with the same policy.
  */
 
 export const GOOGLE_MODEL_ROUTES = Object.freeze({
-  agenticCodingDefault: 'gemini-3.5-flash',
+  agenticCodingDefault: 'gemini-3.6-flash',
   premiumReasoning: 'gemini-3.1-pro-preview',
   customToolAgent: 'gemini-3.1-pro-preview-customtools',
-  cheapFast: 'gemini-3.1-flash-lite',
+  cheapFast: 'gemini-3.5-flash-lite',
   imageFast: 'gemini-3.1-flash-image',
   imagePro: 'gemini-3-pro-image',
   tts: 'gemini-3.1-flash-tts-preview',
@@ -32,6 +32,8 @@ export const GOOGLE_MODEL_ROUTES = Object.freeze({
 export const GOOGLE_MODEL_DEPRECATED_REDIRECTS = Object.freeze({
   'gemini-3-pro-preview': GOOGLE_MODEL_ROUTES.premiumReasoning,
   'gemini-3.1-flash-lite-preview': GOOGLE_MODEL_ROUTES.cheapFast,
+  'gemini-3.1-flash-lite': GOOGLE_MODEL_ROUTES.cheapFast,
+  'gemini-3.5-flash': GOOGLE_MODEL_ROUTES.agenticCodingDefault,
   'gemini-2.5-pro': GOOGLE_MODEL_ROUTES.premiumReasoning,
   'gemini-2.5-flash': GOOGLE_MODEL_ROUTES.agenticCodingDefault,
   'gemini-2.5-flash-lite': GOOGLE_MODEL_ROUTES.cheapFast,

@@ -283,7 +283,10 @@ Output shape:
       body: JSON.stringify({
         system_instruction: { parts: [{ text: sys }] },
         contents: [{ role: 'user', parts: [{ text: user }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: 200 },
+        generationConfig: {
+          maxOutputTokens: 200,
+          thinkingConfig: { thinkingLevel: 'minimal' },
+        },
       }),
     });
     const data = await res.json().catch(() => null);

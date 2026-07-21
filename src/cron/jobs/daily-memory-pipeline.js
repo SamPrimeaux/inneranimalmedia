@@ -27,8 +27,8 @@ import {
 import { digestContextJson } from '../../core/daily-digest-scope.js';
 
 const WORKSPACE_ID = 'ws_inneranimalmedia';
-const FLASH_MODEL = 'gemini-3.5-flash';
-const FLASH_LITE_MODEL = 'gemini-3.1-flash-lite';
+const FLASH_MODEL = 'gemini-3.6-flash';
+const FLASH_LITE_MODEL = 'gemini-3.5-flash-lite';
 const PRO_MODEL = 'gemini-3.1-pro-preview';
 const TRIAGE_CONCURRENCY = 8;
 const MEMORY_R2_PREFIX = 'memory/';
