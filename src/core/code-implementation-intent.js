@@ -28,7 +28,7 @@ export function extractExplicitCatalogToolKeys(message) {
   /** @type {string[]} */
   const keys = [];
   const re =
-    /\b(agentsam_github_tree|agentsam_github_read_many|agentsam_github_read|agentsam_github_search|agentsam_github_list_commits|agentsam_d1_query|fs_read_file|fs_search_files)\b/gi;
+    /\b(agentsam_codebase_retrieve|agentsam_memory_search|agentsam_github_tree|agentsam_github_read_many|agentsam_github_read|agentsam_github_search|agentsam_github_list_commits|agentsam_d1_query|fs_read_file|fs_search_files)\b/gi;
   let match;
   while ((match = re.exec(m)) != null) {
     const k = String(match[1] || '').toLowerCase();
@@ -38,15 +38,20 @@ export function extractExplicitCatalogToolKeys(message) {
 }
 
 /**
- * First explicit github/fs catalog tool that is also in the live allowlist.
- * Used to force tool_choice on turn 0 so models cannot invent agentsam_d1_query.
+ * First explicit catalog tool that is also in the live allowlist.
+ * Used to force tool_choice on turn 0 so models cannot invent agentsam_d1_query
+ * when the user named agentsam_codebase_retrieve / github / fs tools.
  * @param {unknown} message
  * @param {unknown[]} tools
  * @returns {string|null}
  */
 export function resolveForcedExplicitCatalogTool(message, tools) {
   const keys = extractExplicitCatalogToolKeys(message).filter(
-    (k) => k.startsWith('agentsam_github_') || k.startsWith('fs_'),
+    (k) =>
+      k.startsWith('agentsam_github_') ||
+      k.startsWith('fs_') ||
+      k === 'agentsam_codebase_retrieve' ||
+      k === 'agentsam_memory_search',
   );
   if (!keys.length || !Array.isArray(tools) || !tools.length) return null;
   const names = new Set(
@@ -101,6 +106,28 @@ export function buildExplicitCatalogToolInput(toolName, message) {
   if (name === 'fs_search_files') {
     const q = m.match(/\b(?:query|search for|find)\s+[\"']?([^\"'\n]+)[\"']?/i);
     return { query: q ? q[1].trim() : m.slice(0, 120) };
+  }
+  if (name === 'agentsam_codebase_retrieve') {
+    const quoted = m.match(/[\"“]([^\"”]{6,160})[\"”]/);
+    const queryLine = m.match(/\bquery\s*[:=]\s*[\"']?([^\n\"']{6,160})/i);
+    const theme =
+      m.match(/\b1\)\s*([^\n]{6,120})/i) ||
+      m.match(/\bauth[^\n]{0,80}/i) ||
+      m.match(/\bmiddleware[^\n]{0,80}/i);
+    const query = String(
+      (quoted && quoted[1]) ||
+        (queryLine && queryLine[1]) ||
+        (theme && theme[1]) ||
+        'auth session middleware API routes',
+    )
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 200);
+    return { query, top_k: 8, expand: true, hydrate: true };
+  }
+  if (name === 'agentsam_memory_search') {
+    const q = m.match(/\b(?:query|search for|find)\s+[\"']?([^\"'\n]+)[\"']?/i);
+    return { query: q ? q[1].trim() : m.slice(0, 160) };
   }
   return {};
 }
