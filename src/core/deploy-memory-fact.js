@@ -102,7 +102,12 @@ export async function resolveDeployMemoryScope(db, env, fields = {}, body = {}) 
  * @param {Record<string, unknown>} fields
  */
 export function buildDeployFactPayload(fields) {
-  const shortSha = trim(fields.shortSha ?? fields.version ?? fields.gitHash).slice(0, 12);
+  // Always derive from full_sha first so the key is identical across both
+  // deploy-hook calls (pre-R2-sync and post-R2-sync) for the same deploy.
+  // Previously this trusted fields.shortSha when present, which only one of
+  // the two calls supplied — producing two different keys (and two rows)
+  // for a single deploy instead of one upserted row.
+  const shortSha = trim(fields.gitHash ?? fields.shortSha ?? fields.version).slice(0, 12);
   const environment = trim(fields.environment) || 'production';
   const deployedAt = trim(fields.deployedAt) || new Date().toISOString();
 
