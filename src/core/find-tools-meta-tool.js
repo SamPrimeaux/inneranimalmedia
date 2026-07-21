@@ -7,6 +7,9 @@
  *
  * P2 progressive discovery also routes agentsam_search_tools / search_tools here so
  * catalog handler_type=d1|agent never hits Database Studio (explicit_d1_resource_required).
+ *
+ * Matching law: token OR retrieval + tool_key-weighted ranking (no stopword deny-lists).
+ * Prefer exact / multi-term tool_key coverage; demote `_mcp_` unless the query asks for mcp.
  */
 
 function trim(v) {
@@ -104,106 +107,112 @@ function normalizeToolRow(row) {
   };
 }
 
-/** Drop filler so SQL LIKE is not the whole NL phrase (which matched nothing). */
-const DISCOVERY_STOPWORDS = new Set([
-  'a',
-  'an',
-  'and',
-  'are',
-  'be',
-  'by',
-  'can',
-  'do',
-  'for',
-  'from',
-  'get',
-  'how',
-  'i',
-  'in',
-  'into',
-  'is',
-  'it',
-  'last',
-  'me',
-  'my',
-  'need',
-  'of',
-  'on',
-  'or',
-  'our',
-  'please',
-  'show',
-  'that',
-  'the',
-  'this',
-  'to',
-  'want',
-  'we',
-  'what',
-  'with',
-  'you',
-]);
-
-function intentTerms(input) {
-  return [
+/**
+ * Split query fields into tokens — keep all tokens (no stopword deny-list).
+ * @param {Record<string, unknown>} input
+ * @returns {string[]}
+ */
+export function discoverySearchTerms(input = {}) {
+  const blob = [
     trim(input.query),
     trim(input.intent),
     trim(input.mode),
     trim(input.q),
     trim(input.search),
+    trim(input.keyword),
+    trim(input.keywords),
   ]
     .join(' ')
-    .toLowerCase()
-    .split(/[^a-z0-9_.-]+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length >= 2 && !DISCOVERY_STOPWORDS.has(s));
-}
+    .toLowerCase();
 
-/**
- * Meaningful tokens for catalog LIKE (OR), not the full natural-language phrase.
- * @param {Record<string, unknown>} input
- * @returns {string[]}
- */
-export function discoverySearchTerms(input = {}) {
-  const terms = intentTerms(input);
   /** @type {string[]} */
   const out = [];
   const seen = new Set();
-  for (const t of terms) {
+  for (const raw of blob.split(/[^a-z0-9_.-]+/)) {
+    const t = raw.trim();
+    if (t.length < 2) continue;
     if (seen.has(t)) continue;
     seen.add(t);
     out.push(t);
-    if (out.length >= 8) break;
+    if (out.length >= 12) break;
   }
-  // Single-token fallback: whole query if short enough to be a tool keyword.
   if (!out.length) {
     const q = trim(input.query || input.intent || '')
       .toLowerCase()
       .replace(/[%_]/g, '');
-    if (q && q.length >= 2 && q.length <= 64 && !/\s/.test(q)) out.push(q);
+    if (q && q.length >= 2 && q.length <= 96 && !/\s/.test(q)) out.push(q);
   }
   return out;
 }
 
-function scoreRow(row, terms) {
-  const hay = [
-    row.tool_key,
-    row.tool_code,
-    row.tool_name,
-    row.display_name,
-    row.description,
-    row.tool_category,
-    row.handler_type,
-    row.capability_key,
-  ]
-    .map((x) => trim(x).toLowerCase())
-    .join(' ');
+/**
+ * Rank a catalog row for discovery. Tool_key coverage >> description noise.
+ * @param {Record<string, unknown>} row
+ * @param {string[]} terms
+ * @returns {number}
+ */
+export function scoreCatalogToolRow(row, terms) {
+  const list = Array.isArray(terms) ? terms.filter(Boolean) : [];
+  if (!list.length) return 0;
+
+  const toolKey = trim(row.tool_key || row.tool_name || row.name).toLowerCase();
+  const toolCode = trim(row.tool_code).toLowerCase();
+  const display = trim(row.display_name).toLowerCase();
+  const desc = trim(row.description).toLowerCase();
+  const category = trim(row.tool_category || row.category).toLowerCase();
+  const capability = trim(row.capability_key).toLowerCase();
+
   let score = 0;
-  for (const t of terms) {
-    if (!t) continue;
-    if (hay.includes(t)) score += 10;
-    if (trim(row.tool_key).toLowerCase() === t || trim(row.tool_code).toLowerCase() === t) score += 50;
+  let keyHits = 0;
+  let anyHits = 0;
+
+  for (const t of list) {
+    const term = String(t).toLowerCase();
+    if (!term) continue;
+    if (toolKey === term || toolCode === term) {
+      score += 1000;
+      keyHits += 1;
+      anyHits += 1;
+      continue;
+    }
+    let hit = false;
+    if (toolKey.includes(term) || toolCode.includes(term)) {
+      score += 50;
+      keyHits += 1;
+      hit = true;
+    }
+    if (display.includes(term)) {
+      score += 15;
+      hit = true;
+    }
+    if (category.includes(term) || capability.includes(term)) {
+      score += 10;
+      hit = true;
+    }
+    if (desc.includes(term)) {
+      score += 3;
+      hit = true;
+    }
+    if (hit) anyHits += 1;
   }
+
+  // Multi-term coverage on tool_key is the primary signal (beats single-token MCP noise).
+  if (list.length > 1 && keyHits > 0) {
+    score += Math.round((keyHits / list.length) * 200);
+  }
+  if (list.length > 1 && anyHits > 0) {
+    score += Math.round((anyHits / list.length) * 40);
+  }
+
+  // Prefer canonical in-app tools over GitHub MCP wrappers unless the query asks for mcp.
+  const wantsMcp = list.some((t) => t === 'mcp');
+  if (!wantsMcp && toolKey.includes('_mcp_')) {
+    score -= 80;
+  }
+
+  // Mild preference for shorter, more specific keys when scores are close.
+  score -= Math.min(20, Math.floor(toolKey.length / 8));
+
   return score;
 }
 
@@ -242,8 +251,8 @@ function coreFallbackTools() {
 export async function executeFindToolsMetaTool(env, input = {}, runContext = {}) {
   const normalized = normalizeFindToolsInput(input, runContext);
   const q = trim(normalized.query || normalized.intent || '');
-  const limit = Math.max(1, Math.min(Number(normalized.limit || 24) || 24, 64));
-  const terms = intentTerms(normalized);
+  // Model often passes limit:5 — too small for hydrate; floor so commits tools can surface.
+  const limit = Math.max(12, Math.min(Number(normalized.limit || 24) || 24, 64));
   const searchTerms = discoverySearchTerms(normalized);
   const workspaceId = trim(
     normalized.workspace_id || runContext.workspaceId || runContext.workspace_id,
@@ -280,7 +289,6 @@ export async function executeFindToolsMetaTool(env, input = {}, runContext = {})
     }
     where += ` AND (${termClauses.join(' OR ')})`;
   }
-  // Global / wildcard-scoped tools are always visible; also match workspace pin.
   if (workspaceId) {
     where += ` AND (
       COALESCE(is_global, 0) = 1
@@ -298,7 +306,7 @@ export async function executeFindToolsMetaTool(env, input = {}, runContext = {})
                       risk_level, requires_approval, workspace_scope, is_global
                FROM agentsam_tools
                WHERE ${where}
-               LIMIT ${Math.max(limit * 6, 64)}`;
+               LIMIT ${Math.max(limit * 8, 96)}`;
 
   let rows = [];
   try {
@@ -311,12 +319,15 @@ export async function executeFindToolsMetaTool(env, input = {}, runContext = {})
     };
   }
 
-  const scoreTerms = searchTerms.length ? searchTerms : terms;
-  const tools = rows
-    .map((row) => ({ row, score: scoreRow(row, scoreTerms) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map(({ row }) => normalizeToolRow(row));
+  const ranked = rows
+    .map((row) => ({ row, score: scoreCatalogToolRow(row, searchTerms) }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return String(a.row.tool_key || '').length - String(b.row.tool_key || '').length;
+    })
+    .slice(0, limit);
+
+  const tools = ranked.map(({ row }) => normalizeToolRow(row));
 
   return {
     ok: true,
@@ -327,11 +338,14 @@ export async function executeFindToolsMetaTool(env, input = {}, runContext = {})
       mode: trim(normalized.mode) || null,
       workspace_id: workspaceId || null,
       count: tools.length,
-      // Catalog hits first (hydrate); meta find_tools last so empty SQL doesn't look "successful".
       tools: [...tools, ...coreFallbackTools()].filter(
         (tool, idx, arr) => arr.findIndex((t) => t.name === tool.name) === idx,
       ),
       rows: tools,
+      top_scores: ranked.slice(0, 8).map(({ row, score }) => ({
+        tool_key: row.tool_key,
+        score,
+      })),
       trace_event: 'tools_discovered',
       source: 'agentsam_tools',
       via: 'find_tools_meta',

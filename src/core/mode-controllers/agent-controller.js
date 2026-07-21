@@ -550,6 +550,8 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           activeRepo ||
           null,
         activeBranch: String(body.active_branch ?? body.activeBranch ?? body.github_branch ?? 'main').trim() || 'main',
+        progressiveToolDiscovery: progressiveDiscovery,
+        progressive_tool_discovery: progressiveDiscovery,
       },
     );
   } else {

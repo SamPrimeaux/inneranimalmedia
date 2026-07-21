@@ -185,9 +185,21 @@ export async function buildSystemPrompt(_env, _tenantId, _mode, _contextBlock, _
         '## Active GitHub repo (locked this turn)',
         `repo: ${activeRepo}`,
         `default_branch: ${activeBranch}`,
+        'When the user is signed into this workspace with GitHub connected, treat GitHub tools as available after discovery — do not claim the integration is disconnected.',
         'When the user says "this repo", "the open repo", "the current repo", or "here", use this exact owner/name.',
         `Call agentsam_github_tree({ repo: "${activeRepo}", branch: "${activeBranch}", recursive: false }) for a top-level listing.`,
         'Do NOT ask which repo. Do NOT call agentsam_github_repo_list first unless they ask to list their repos or switch repos.',
+      ].join('\n'),
+    );
+  }
+
+  if (options?.progressiveToolDiscovery === true || options?.progressive_tool_discovery === true) {
+    parts.push(
+      [
+        '## Progressive tool discovery',
+        'You start with a small core tool set. Call agentsam_search_tools with short keywords (e.g. "github commits", "d1 query") to load the right catalog tools before answering.',
+        'If discovery/hydrate fails to load a needed tool this turn: say you could not load that tool into this session and retry search with a tighter keyword — do NOT tell the user their GitHub/D1/Drive account is disconnected or that they must share a URL to connect.',
+        'Do not use search_web as a substitute for in-app GitHub/fs/D1 tools when the user is authenticated in this workspace.',
       ].join('\n'),
     );
   }
