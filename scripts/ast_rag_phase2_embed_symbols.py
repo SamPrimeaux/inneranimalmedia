@@ -488,7 +488,7 @@ def chunk3_link(*, commit: bool, max_files: int | None) -> int:
 
     write_json(
         "chunk3_link_preview.json",
-        {"candidate_links": len(updates), "files": len(files), "sample": updates[:20]},
+        {"candidate_links": len(updates), "files": len(files), "sample": updates[:20], "updates": updates},
     )
     ok(f"candidate chunk links={len(updates)} across {len(files)} files")
 
@@ -497,26 +497,40 @@ def chunk3_link(*, commit: bool, max_files: int | None) -> int:
         print("Chunk 3 dry-run done")
         return 0
 
+    # Batch UPDATEs + commit every batch so WiFi blips don't lose the whole run.
     linked = 0
+    batch_size = 200
+    update_sql = f"""
+        UPDATE {CHUNKS_TABLE}
+        SET node_id = %s
+        WHERE id = %s::uuid
+          AND (node_id IS NULL OR node_id = %s)
+    """
+    for i in range(0, len(updates), batch_size):
+        batch = updates[i : i + batch_size]
+        params = [(node_id, chunk_id, node_id) for node_id, chunk_id in batch]
+        for attempt in range(1, 5):
+            try:
+                with pg_connect() as conn:
+                    with conn.cursor() as cur:
+                        cur.executemany(update_sql, params)
+                        linked += cur.rowcount
+                        conn.commit()
+                print(f"    linked batch {i + 1}-{i + len(batch)}/{len(updates)}")
+                break
+            except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+                warn(f"link batch retry {attempt}/4 after {type(e).__name__}: {e}")
+                time.sleep(min(20, 1.5**attempt))
+                if attempt >= 4:
+                    raise
+
     with pg_connect() as conn:
         with conn.cursor() as cur:
-            for node_id, chunk_id in updates:
-                cur.execute(
-                    f"""
-                    UPDATE {CHUNKS_TABLE}
-                    SET node_id = %s
-                    WHERE id = %s::uuid
-                      AND (node_id IS NULL OR node_id = %s)
-                    """,
-                    (node_id, chunk_id, node_id),
-                )
-                linked += cur.rowcount
-            conn.commit()
             cur.execute(f"SELECT COUNT(*) FROM {CHUNKS_TABLE} WHERE node_id IS NOT NULL")
             total_linked = cur.fetchone()[0]
 
     write_json("chunk3_result.json", {"updated": linked, "chunks_with_node_id": total_linked})
-    ok(f"updated={linked} total chunks with node_id={total_linked}")
+    ok(f"batches done; total chunks with node_id={total_linked}")
     print("Chunk 3 commit done")
     return 0
 
