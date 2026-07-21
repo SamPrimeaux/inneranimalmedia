@@ -3129,6 +3129,10 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           expand: params.expand !== false && params.expand !== 'false',
           hydrate: params.hydrate !== false && params.hydrate !== 'false',
           workspaceId: execWs || undefined,
+          userId: userId || null,
+          tenantId: tenantId || null,
+          sessionId: runContext.sessionId ?? runContext.session_id ?? null,
+          conversationId: runContext.conversationId ?? runContext.conversation_id ?? null,
         });
         result =
           out?.ok === false

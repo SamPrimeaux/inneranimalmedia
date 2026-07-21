@@ -640,7 +640,19 @@ export async function dispatchSemanticRetrieval(env, opts) {
   const embedQuery = definitionBoost ? expandDefinitionQuery(query) : query;
   try {
     const spec = embeddingSpecForSemanticLane(lane);
-    ({ embedding } = await createAgentsamEmbedding(env, embedQuery, { spec }));
+    ({ embedding } = await createAgentsamEmbedding(env, embedQuery, {
+      spec,
+      userId: opts.userId ?? opts.user_id ?? null,
+      workspaceId: workspaceIdD1,
+      usage: {
+        workspace_id: workspaceIdD1,
+        user_id: opts.userId ?? opts.user_id ?? null,
+        task_type: `semantic_retrieve_${lane}`,
+        tool_name: 'semantic_retrieval_dispatch',
+        ref_table: reg.tables?.[0] || null,
+        ref_id: lane,
+      },
+    }));
     assertEmbeddingDimensions(embedding, spec.dimensions);
   } catch (e) {
     return {

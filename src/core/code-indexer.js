@@ -516,6 +516,15 @@ export async function runCodeIndexJob(env, jobId, opts = {}) {
             const { embedding } = await createAgentsamEmbedding(env, text, {
               spec: EMBED_SPEC,
               userId: job.user_id != null ? String(job.user_id) : null,
+              workspaceId: d1WorkspaceId,
+              usage: {
+                workspace_id: d1WorkspaceId,
+                user_id: job.user_id != null ? String(job.user_id) : null,
+                task_type: 'code_index_embed',
+                tool_name: 'code_indexer',
+                ref_table: 'agentsam_code_index_job',
+                ref_id: job.id != null ? String(job.id) : null,
+              },
             });
             embeddings.push(embedding);
           }

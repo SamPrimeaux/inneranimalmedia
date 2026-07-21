@@ -13,12 +13,33 @@ import { isHyperdriveUsable, runHyperdriveQuery } from './hyperdrive-query.js';
  * Embed a codebase search query using the same model/dims as the Vectorize index.
  * @param {any} env
  * @param {string} query
+ * @param {{
+ *   workspaceId?: string|null,
+ *   userId?: string|null,
+ *   tenantId?: string|null,
+ *   taskType?: string,
+ * }} [opts]
  */
-export async function embedCodebaseSearchQuery(env, query) {
+export async function embedCodebaseSearchQuery(env, query, opts = {}) {
   const spec = await resolveAgentsamEmbeddingSpec(env);
-  const { embedding, model, provider } = await createAgentsamEmbedding(env, query, { spec });
+  const ws = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
+  const { embedding, model, provider, tokens_in } = await createAgentsamEmbedding(env, query, {
+    spec,
+    userId: opts.userId ?? null,
+    workspaceId: ws || null,
+    usage: ws
+      ? {
+          workspace_id: ws,
+          tenant_id: opts.tenantId || undefined,
+          user_id: opts.userId ?? null,
+          task_type: opts.taskType || 'code_retrieve',
+          tool_name: 'codebase_search',
+          ref_table: 'agentsam-codebase-oai3large-1536',
+        }
+      : false,
+  });
   assertAgentsamEmbeddingDimensions(embedding, spec.dimensions);
-  return { embedding, model, provider, dimensions: spec.dimensions };
+  return { embedding, model, provider, dimensions: spec.dimensions, tokens_in };
 }
 
 /**
@@ -28,7 +49,12 @@ export async function embedCodebaseSearchQuery(env, query) {
  * @param {{ topK?: number, workspaceId?: string | null, filter?: Record<string, unknown> }} [opts]
  */
 export async function searchCodebaseVectorize(env, query, opts = {}) {
-  const { embedding, model, dimensions } = await embedCodebaseSearchQuery(env, query);
+  const { embedding, model, dimensions } = await embedCodebaseSearchQuery(env, query, {
+    workspaceId: opts.workspaceId,
+    userId: opts.userId,
+    tenantId: opts.tenantId,
+    taskType: 'code_retrieve',
+  });
   const topK = Math.min(Math.max(1, Number(opts.topK) || 8), 50);
   const ws = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
 
@@ -55,7 +81,12 @@ export async function searchCodebasePg(env, query, opts) {
   if (!workspaceId) throw new Error('workspaceId required');
   if (!isHyperdriveUsable(env)) return { rows: [], skipped: 'hyperdrive_unavailable' };
 
-  const { embedding, model, dimensions } = await embedCodebaseSearchQuery(env, query);
+  const { embedding, model, dimensions } = await embedCodebaseSearchQuery(env, query, {
+    workspaceId,
+    userId: opts.userId,
+    tenantId: opts.tenantId,
+    taskType: 'code_retrieve',
+  });
   const matchCount = Math.min(Math.max(1, Number(opts.matchCount) || 8), 50);
   const matchThreshold = Number(opts.matchThreshold);
   const threshold = Number.isFinite(matchThreshold) ? matchThreshold : 0.5;

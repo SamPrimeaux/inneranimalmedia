@@ -6,7 +6,6 @@ import { createAgentsamEmbedding } from './agentsam-vectorize.js';
 import { resolveAgentsamEmbeddingSpecForDimensions } from './agentsam-vectorize-index.js';
 import { runHyperdriveQuery, isHyperdriveUsable } from './hyperdrive-query.js';
 import { resolveSupabaseWorkspaceId } from './rag-lanes.js';
-import { writeUsageEvent } from './usage-event-writer.js';
 import { resolveUsageEventCostUsd } from './usage-event-cost.js';
 
 const SYMBOL_TABLE = 'agentsam_codebase_ast_symbols_oai3large_1536';
@@ -368,6 +367,16 @@ export async function runAstSymbolReembedJob(env, workspaceId, opts = {}) {
           const { embedding, model } = await createAgentsamEmbedding(env, embedText, {
             spec: EMBED_SPEC,
             userId: opts.userId ?? null,
+            workspaceId: ws,
+            usage: {
+              workspace_id: ws,
+              tenant_id: tenantId,
+              user_id: opts.userId ?? null,
+              task_type: 'ast_symbol_reembed',
+              tool_name: 'ast_symbol_reembed',
+              ref_table: 'agentsam_code_index_job',
+              ref_id: jobId,
+            },
           });
           await upsertSymbolRow(env, node, workspaceUuid, embedding, embedText);
           embedded += 1;
@@ -379,6 +388,7 @@ export async function runAstSymbolReembedJob(env, workspaceId, opts = {}) {
       }
     }
 
+    // Per-symbol usage already written via createAgentsamEmbedding opts.usage.
     if (embedded > 0) {
       const priced = await resolveUsageEventCostUsd(env.DB, {
         modelKey: EMBED_SPEC.model,
@@ -387,25 +397,6 @@ export async function runAstSymbolReembedJob(env, workspaceId, opts = {}) {
         outputTokens: 0,
       });
       costUsd = Number(priced.costUsd) || 0;
-      await writeUsageEvent(env, {
-        model: EMBED_SPEC.model,
-        model_key: EMBED_SPEC.model,
-        provider: EMBED_SPEC.provider || 'openai',
-        workspace_id: ws,
-        tenant_id: tenantId,
-        user_id: opts.userId ?? null,
-        event_type: 'embed',
-        task_type: 'ast_symbol_reembed',
-        tokens_in: tokensIn,
-        tokens_out: 0,
-        cost_usd: costUsd,
-        duration_ms: Date.now() - startedAt,
-        ref_table: 'agentsam_code_index_job',
-        ref_id: jobId,
-        tool_name: 'ast_symbol_reembed',
-        status: 'ok',
-        reason: errors.length ? `partial_errors=${errors.length}` : null,
-      });
     }
 
     const nextOffset = offset + nodes.length;

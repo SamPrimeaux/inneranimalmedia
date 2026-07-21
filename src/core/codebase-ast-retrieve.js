@@ -30,7 +30,17 @@ function vectorLiteral(embedding) {
 /**
  * @param {object} env
  * @param {string} query
- * @param {{ topK?: number, workspaceUuid?: string, repo?: string|null }} [opts]
+ * @param {{
+ *   topK?: number,
+ *   workspaceUuid?: string,
+ *   repo?: string|null,
+ *   userId?: string|null,
+ *   workspaceId?: string|null,
+ *   tenantId?: string|null,
+ *   sessionId?: string|null,
+ *   conversationId?: string|null,
+ *   usage?: false | Record<string, unknown>,
+ * }} [opts]
  */
 export async function searchAstSymbols(env, query, opts = {}) {
   if (!isHyperdriveUsable(env)) {
@@ -38,7 +48,28 @@ export async function searchAstSymbols(env, query, opts = {}) {
   }
   const topK = Math.min(Math.max(Number(opts.topK) || 8, 1), 32);
   const workspaceUuid = opts.workspaceUuid || PLATFORM_SUPABASE_WORKSPACE_UUID;
-  const { embedding } = await createAgentsamEmbedding(env, query, { spec: EMBED_SPEC });
+  const d1Ws = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
+  const usage =
+    opts.usage === false
+      ? false
+      : {
+          workspace_id: d1Ws || undefined,
+          tenant_id: opts.tenantId || undefined,
+          user_id: opts.userId || undefined,
+          session_id: opts.sessionId || undefined,
+          conversation_id: opts.conversationId || undefined,
+          task_type: 'ast_retrieve',
+          tool_name: 'agentsam_codebase_retrieve',
+          ref_table: 'agentsam_codebase_ast_symbols_oai3large_1536',
+          ref_id: workspaceUuid,
+          ...(opts.usage && typeof opts.usage === 'object' ? opts.usage : {}),
+        };
+  const { embedding, tokens_in, usage: apiUsage } = await createAgentsamEmbedding(env, query, {
+    spec: EMBED_SPEC,
+    userId: opts.userId ?? null,
+    workspaceId: d1Ws || null,
+    usage,
+  });
   const lit = vectorLiteral(embedding);
 
   const params = [lit, workspaceUuid, topK];
@@ -71,7 +102,12 @@ export async function searchAstSymbols(env, query, opts = {}) {
     line_end: row.line_end,
     score: row.score != null ? Number(row.score) : null,
   }));
-  return { ok: true, hits, backend: 'pgvector_symbols' };
+  return {
+    ok: true,
+    hits,
+    backend: 'pgvector_symbols',
+    embed: { tokens_in: tokens_in ?? null, usage: apiUsage ?? null, model: EMBED_SPEC.model },
+  };
 }
 
 /**
@@ -174,6 +210,11 @@ export async function retrieveCodebaseAstContext(env, query, opts = {}) {
     topK: opts.topK ?? 8,
     repo: opts.repo ?? null,
     workspaceUuid,
+    workspaceId: d1WorkspaceId || 'ws_inneranimalmedia',
+    userId: opts.userId ?? null,
+    tenantId: opts.tenantId ?? null,
+    sessionId: opts.sessionId ?? null,
+    conversationId: opts.conversationId ?? null,
   });
   if (!sym.ok) {
     return { ok: false, error: sym.error, results: [], duration_ms: Date.now() - t0 };
@@ -222,6 +263,7 @@ export async function retrieveCodebaseAstContext(env, query, opts = {}) {
     results,
     result_count: results.length,
     duration_ms: Date.now() - t0,
+    embed: sym.embed || null,
     note:
       chunks.length === 0
         ? 'No chunk node_id links yet — returning symbol signatures. Run Phase 2 chunk 3 --commit.'

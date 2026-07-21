@@ -81,10 +81,20 @@ async function queryVectorizeLane(env, laneName, embedding1536, workspaceIdD1, w
   return chunks;
 }
 
-async function queryDeepArchive(env, query, workspaceUuid) {
+async function queryDeepArchive(env, query, workspaceUuid, workspaceIdD1 = null) {
   if (!workspaceUuid) return [];
+  const ws = workspaceIdD1 != null ? String(workspaceIdD1).trim() : '';
   const { embedding } = await createAgentsamEmbedding(env, query, {
     spec: archiveEmbeddingSpec(env),
+    workspaceId: ws || null,
+    usage: ws
+      ? {
+          workspace_id: ws,
+          task_type: 'archive_retrieve',
+          tool_name: 'rag_retrieve',
+          ref_table: 'agentsam_deep_archive_oai3large_3072',
+        }
+      : false,
   });
   const result = await runHyperdriveQuery(
     env,
@@ -135,7 +145,18 @@ export async function retrieveContextPack(env, opts = {}) {
     };
   }
 
-  const { embedding } = await createAgentsamEmbedding(env, query);
+  const { embedding } = await createAgentsamEmbedding(env, query, {
+    workspaceId,
+    userId: opts.userId ?? null,
+    usage: {
+      workspace_id: workspaceId,
+      user_id: opts.userId ?? null,
+      task_type: 'rag_retrieve',
+      tool_name: 'retrieve_context_pack',
+      ref_table: 'agentsam_rag_lanes',
+      ref_id: intent,
+    },
+  });
   const searchedLanes = dedupeLaneNames(LANE_ORDER_BY_INTENT[intent] ?? LANE_ORDER_BY_INTENT.mixed);
   const resultCounts = {};
   const combined = [];
@@ -147,7 +168,7 @@ export async function retrieveContextPack(env, opts = {}) {
   }
 
   if (intent === 'architecture') {
-    const archiveChunks = await queryDeepArchive(env, query, workspaceUuid);
+    const archiveChunks = await queryDeepArchive(env, query, workspaceUuid, workspaceId);
     resultCounts.archive = archiveChunks.length;
     combined.push(...archiveChunks);
     if (!searchedLanes.includes('archive')) searchedLanes.push('archive');
