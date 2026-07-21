@@ -444,84 +444,167 @@ def chunk2_embed(*, commit: bool, batch_size: int) -> int:
     return 0
 
 
-def chunk3_link(*, commit: bool, max_files: int | None) -> int:
+def chunk3_link(
+    *,
+    commit: bool,
+    max_files: int | None,
+    resume: bool = False,
+    batch_size: int = 200,
+) -> int:
+    """Link AST node_ids onto codebase chunks. Use --resume after WiFi drops."""
     print("\n══ CHUNK 3 — link node_id onto chunks ══")
-    nodes = read_json("chunk1_nodes.json")
-    # Prefer exported / functions first for a given file+name match
-    by_file: dict[str, list[dict[str, Any]]] = {}
-    for n in nodes:
-        by_file.setdefault(n["file_path"], []).append(n)
+    progress_name = "chunk3_link_progress.json"
+    preview_name = "chunk3_link_preview.json"
+    updates: list[tuple[str, str]] = []
 
-    files = sorted(by_file.keys())
-    if max_files is not None:
-        files = files[:max_files]
+    if resume:
+        preview = read_json(preview_name)
+        raw = preview.get("updates") or []
+        updates = [(str(a), str(b)) for a, b in raw]
+        ok(f"resume: loaded {len(updates)} candidates from {preview_name} (skip rescan)")
+    else:
+        nodes = read_json("chunk1_nodes.json")
+        by_file: dict[str, list[dict[str, Any]]] = {}
+        for n in nodes:
+            by_file.setdefault(n["file_path"], []).append(n)
+        files = sorted(by_file.keys())
+        if max_files is not None:
+            files = files[:max_files]
 
-    updates: list[tuple[str, str]] = []  # (node_id, chunk_id)
-    with pg_connect() as conn:
-        with conn.cursor() as cur:
-            for fi, fpath in enumerate(files, 1):
-                cur.execute(
-                    f"""
-                    SELECT id::text, content
-                    FROM {CHUNKS_TABLE}
-                    WHERE workspace_id = %s::uuid AND file_path = %s
-                    """,
-                    (WORKSPACE_UUID, fpath),
-                )
-                chunks = cur.fetchall()
-                if not chunks:
-                    continue
-                for n in by_file[fpath]:
-                    name = str(n.get("node_name") or "")
-                    if len(name) < 2:
+        with pg_connect() as conn:
+            with conn.cursor() as cur:
+                for fi, fpath in enumerate(files, 1):
+                    cur.execute(
+                        f"""
+                        SELECT id::text, content
+                        FROM {CHUNKS_TABLE}
+                        WHERE workspace_id = %s::uuid AND file_path = %s
+                        """,
+                        (WORKSPACE_UUID, fpath),
+                    )
+                    chunks = cur.fetchall()
+                    if not chunks:
                         continue
-                    # Prefer longest matching chunk content that contains the symbol name
-                    best = None
-                    for cid, content in chunks:
-                        if name in (content or ""):
-                            best = cid
-                            break
-                    if best:
-                        updates.append((n["id"], best))
-                if fi % 50 == 0:
-                    print(f"    scanned files {fi}/{len(files)} links={len(updates)}")
+                    for n in by_file[fpath]:
+                        name = str(n.get("node_name") or "")
+                        if len(name) < 2:
+                            continue
+                        best = None
+                        for cid, content in chunks:
+                            if name in (content or ""):
+                                best = cid
+                                break
+                        if best:
+                            updates.append((n["id"], best))
+                    if fi % 50 == 0:
+                        print(f"    scanned files {fi}/{len(files)} links={len(updates)}")
 
-    write_json(
-        "chunk3_link_preview.json",
-        {"candidate_links": len(updates), "files": len(files), "sample": updates[:20], "updates": updates},
-    )
-    ok(f"candidate chunk links={len(updates)} across {len(files)} files")
+        write_json(
+            preview_name,
+            {
+                "candidate_links": len(updates),
+                "files": len(files),
+                "sample": updates[:20],
+                "updates": updates,
+            },
+        )
+        ok(f"candidate chunk links={len(updates)} across {len(files)} files")
+        write_json(progress_name, {"next_offset": 0, "total": len(updates), "done": False})
 
     if not commit:
         warn("dry-run — pass --commit to UPDATE chunks.node_id")
         print("Chunk 3 dry-run done")
         return 0
+    if not updates:
+        warn("no updates to apply")
+        return 0
 
-    # Batch UPDATEs + commit every batch so WiFi blips don't lose the whole run.
-    linked = 0
-    batch_size = 200
+    # Idempotent: only chunks that still have node_id IS NULL
+    pending: list[tuple[str, str]] = []
+    claimed: set[str] = set()
+    for i in range(0, len(updates), 500):
+        batch = updates[i : i + 500]
+        chunk_ids = list({c for _, c in batch})
+        have: dict[str, Any] = {}
+        for attempt in range(1, 8):
+            try:
+                with pg_connect() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            f"SELECT id::text, node_id FROM {CHUNKS_TABLE} WHERE id = ANY(%s::uuid[])",
+                            (chunk_ids,),
+                        )
+                        have = {cid: nid for cid, nid in cur.fetchall()}
+                break
+            except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+                warn(f"pending-check retry {attempt}/7: {type(e).__name__}: {e}")
+                time.sleep(min(45, 2**attempt))
+                if attempt >= 7:
+                    raise
+        for node_id, chunk_id in batch:
+            if chunk_id in claimed:
+                continue
+            if have.get(chunk_id):
+                claimed.add(chunk_id)
+                continue
+            pending.append((node_id, chunk_id))
+            claimed.add(chunk_id)
+
+    ok(f"pending links={len(pending)} (candidates={len(updates)}; already linked skipped)")
+    if not pending:
+        with pg_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT COUNT(*) FROM {CHUNKS_TABLE} WHERE node_id IS NOT NULL")
+                total_linked = cur.fetchone()[0]
+        write_json(progress_name, {"next_offset": len(updates), "total": len(updates), "done": True})
+        ok(f"nothing left — chunks with node_id={total_linked}")
+        print("Chunk 3 commit done")
+        return 0
+
+    linked_rows = 0
     update_sql = f"""
         UPDATE {CHUNKS_TABLE}
         SET node_id = %s
         WHERE id = %s::uuid
           AND (node_id IS NULL OR node_id = %s)
     """
-    for i in range(0, len(updates), batch_size):
-        batch = updates[i : i + batch_size]
+    for i in range(0, len(pending), batch_size):
+        batch = pending[i : i + batch_size]
         params = [(node_id, chunk_id, node_id) for node_id, chunk_id in batch]
-        for attempt in range(1, 5):
+        for attempt in range(1, 8):
             try:
                 with pg_connect() as conn:
                     with conn.cursor() as cur:
                         cur.executemany(update_sql, params)
-                        linked += cur.rowcount
+                        linked_rows += cur.rowcount
                         conn.commit()
-                print(f"    linked batch {i + 1}-{i + len(batch)}/{len(updates)}")
+                write_json(
+                    progress_name,
+                    {
+                        "next_offset": i + len(batch),
+                        "total": len(pending),
+                        "pending_left": max(0, len(pending) - (i + len(batch))),
+                        "done": False,
+                        "mode": "pending_queue",
+                    },
+                )
+                print(f"    linked batch {i + 1}-{i + len(batch)}/{len(pending)}")
                 break
             except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-                warn(f"link batch retry {attempt}/4 after {type(e).__name__}: {e}")
-                time.sleep(min(20, 1.5**attempt))
-                if attempt >= 4:
+                warn(f"link batch retry {attempt}/7 after {type(e).__name__}: {e}")
+                time.sleep(min(45, 2**attempt))
+                if attempt >= 7:
+                    write_json(
+                        progress_name,
+                        {
+                            "next_offset": i,
+                            "total": len(pending),
+                            "pending_left": len(pending) - i,
+                            "done": False,
+                            "error": str(e),
+                            "hint": "Re-run: python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 3 --commit --resume",
+                        },
+                    )
                     raise
 
     with pg_connect() as conn:
@@ -529,7 +612,11 @@ def chunk3_link(*, commit: bool, max_files: int | None) -> int:
             cur.execute(f"SELECT COUNT(*) FROM {CHUNKS_TABLE} WHERE node_id IS NOT NULL")
             total_linked = cur.fetchone()[0]
 
-    write_json("chunk3_result.json", {"updated": linked, "chunks_with_node_id": total_linked})
+    write_json(
+        "chunk3_result.json",
+        {"updated_rows": linked_rows, "chunks_with_node_id": total_linked, "resumed": resume},
+    )
+    write_json(progress_name, {"next_offset": len(pending), "total": len(pending), "done": True})
     ok(f"batches done; total chunks with node_id={total_linked}")
     print("Chunk 3 commit done")
     return 0
@@ -595,6 +682,11 @@ def main() -> int:
         help="Chunk 4 smoke query",
     )
     ap.add_argument("--top-k", type=int, default=8)
+    ap.add_argument(
+        "--resume",
+        action="store_true",
+        help="Chunk 3: reuse chunk3_link_preview.json and skip already-linked chunks (after WiFi/DNS drop)",
+    )
     args = ap.parse_args()
 
     loaded = load_env_cloudflare(args.env_file)
@@ -618,7 +710,13 @@ def main() -> int:
     if chunk in ("2", "all") and rc == 0:
         rc = chunk2_embed(commit=args.commit, batch_size=max(1, args.batch_size)) or rc
     if chunk in ("3", "all") and rc == 0:
-        rc = chunk3_link(commit=args.commit, max_files=args.max_files) or rc
+        link_batch = args.batch_size if args.batch_size != 32 else 200
+        rc = chunk3_link(
+            commit=args.commit,
+            max_files=args.max_files,
+            resume=args.resume,
+            batch_size=max(1, link_batch),
+        ) or rc
     if chunk in ("4", "all") and rc == 0:
         # smoke always embeds query; needs data if all+commit ran
         rc = chunk4_smoke(args.query, args.top_k) or rc
