@@ -37,13 +37,16 @@ if [[ "$SYMBOLS_ONLY" -eq 0 ]]; then
 fi
 
 echo "-- Phase 2 symbols embed + chunk link (mcp repo) --"
+# Always re-pull MCP-only nodes into chunk1_nodes.json before embed (--repo only filters pull).
 if [[ ${#DRY[@]} -gt 0 ]]; then
+  python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 1 --repo "$REPO_KEY"
   python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 2 --repo "$REPO_KEY"
   python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 3 --repo "$REPO_KEY"
 else
-  python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 2 --commit --repo "$REPO_KEY"
-  python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 3 --commit --resume --repo "$REPO_KEY" || \
-    python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 3 --commit --repo "$REPO_KEY"
+  python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 1 --repo "$REPO_KEY"
+  python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 2 --commit
+  python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 3 --commit --resume || \
+    python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 3 --commit
 fi
 
 echo "-- Smoke --"
