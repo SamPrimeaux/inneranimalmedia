@@ -3,8 +3,7 @@
  */
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser, fetchAuthUserTenantId, platformTenantIdFromEnv } from '../core/auth.js';
-import { isHyperdriveUsable, runHyperdriveQuery } from '../core/hyperdrive-query.js';
-import { documentsSourceFilterSql, normalizeSourceFilters } from '../core/unified-source-filters.js';
+import { normalizeSourceFilters } from '../core/unified-source-filters.js';
 import { resolveGitHubToken } from '../core/github-token.js';
 import { fetchWorkspaceGithubRepo } from '../core/status-bar-runtime.js';
 import { logSemanticSearch } from './rag.js';
@@ -33,23 +32,6 @@ async function resolveSearchAnalyticsTenantId(env, authUser, userId) {
   return platformTenantIdFromEnv(env) || null;
 }
 
-/**
- * Must match `public.documents.embed_model` + `vector(1024)` ingest (Workers AI bge-m3).
- * Optional override: env.UNIFIED_SEARCH_EMBED_MODEL (same dims as stored rows only).
- */
-function unifiedSearchEmbedModel(env) {
-  const o =
-    typeof env?.UNIFIED_SEARCH_EMBED_MODEL === 'string' ? env.UNIFIED_SEARCH_EMBED_MODEL.trim() : '';
-  return o || '@cf/baai/bge-m3';
-}
-
-/** @param {any} env */
-function ragDocumentsProjectId(env) {
-  return typeof env?.RAG_DOCUMENTS_PROJECT_ID === 'string' && env.RAG_DOCUMENTS_PROJECT_ID.trim()
-    ? env.RAG_DOCUMENTS_PROJECT_ID.trim()
-    : null;
-}
-
 /** Mirrors `projectIdFromEnv` in agent routes — Worker identity for github_repositories lookup. */
 function projectIdFromEnv(env) {
   const candidates = [env?.PROJECT_ID, env?.WORKER_NAME, env?.CLOUDFLARE_WORKER_NAME];
@@ -59,115 +41,40 @@ function projectIdFromEnv(env) {
   return 'inneranimalmedia';
 }
 
+/** @param {any} env */
+function ragDocumentsProjectId(env) {
+  return typeof env?.RAG_DOCUMENTS_PROJECT_ID === 'string' && env.RAG_DOCUMENTS_PROJECT_ID.trim()
+    ? env.RAG_DOCUMENTS_PROJECT_ID.trim()
+    : null;
+}
+
 /** Vector/doc facets only — workspace/branch/repo are appended separately. */
 function documentFacetIdsOnly(facetIds) {
   return facetIds.filter((f) => f !== 'workspace' && f !== 'branch' && f !== 'repo');
 }
 
 /**
- * @param {any} env
- * @param {string} sql
- * @param {unknown[]} params
- */
-async function hyperdriveQuery(env, sql, params) {
-  if (!isHyperdriveUsable(env)) return [];
-  const r = await runHyperdriveQuery(env, sql, params);
-  if (!r.ok) {
-    console.warn('[unified-search] hyperdrive', r.error ?? 'query_failed');
-    return [];
-  }
-  return r.rows ?? [];
-}
-
-/**
- * Single-facet → RPC prefix / LIKE (must match DB convention: prefix without trailing %).
- * `scripts` uses OR patterns → caller uses raw SQL path instead of RPC.
- *
- * @param {string} facetId
- * @returns {{ prefix: string | null, like: string | null }}
- */
-function facetToRpcPrefixLike(facetId) {
-  switch (facetId) {
-    case 'docs':
-      return { prefix: 'docs:', like: null };
-    case 'd1':
-      return { prefix: 'd1:', like: null };
-    case 'commands':
-      return { prefix: 'd1:commands', like: null };
-    case 'rules':
-      return { prefix: null, like: '%agent_rules%' };
-    case 'guardrails':
-      return { prefix: null, like: '%guardrails%' };
-    case 'memory':
-      return { prefix: null, like: '%project_memory%' };
-    case 'codebase':
-      return { prefix: null, like: '%codebase%' };
-    case 'scripts':
-      return { prefix: null, like: null };
-    case 'workspace':
-    case 'branch':
-    case 'repo':
-      return { prefix: null, like: null }; // handled separately, not via RPC
-    default:
-      return { prefix: null, like: null };
-  }
-}
-
-/**
- * Multi-facet OR + scripts bucket need legacy WHERE; scoped RPC supports one prefix XOR one like.
- *
+ * Map Cmd+K source facets → agentsam semantic lanes (1536). Legacy public.documents is retired.
  * @param {string[]} facetIds
+ * @returns {string[]}
  */
-function useScopedRpcForFacets(facetIds) {
-  if (facetIds.length > 1) return false;
-  if (facetIds.length === 1 && facetIds[0] === 'scripts') return false;
-  return true;
-}
-
-/**
- * @param {Record<string, unknown>} row
- */
-function mapDocumentRowToHit(row) {
-  const sim = Number(row.similarity ?? 0);
-  let meta = row.metadata;
-  if (typeof meta === 'string') {
-    try {
-      meta = JSON.parse(meta);
-    } catch {
-      meta = {};
-    }
+function facetsToSemanticLanes(facetIds) {
+  const ids = Array.isArray(facetIds) ? facetIds : [];
+  /** @type {string[]} */
+  const lanes = [];
+  for (const f of ids) {
+    if (f === 'codebase' || f === 'scripts') lanes.push('code_semantic_search');
+    else if (f === 'docs' || f === 'rules' || f === 'guardrails') lanes.push('docs_knowledge_search');
+    else if (f === 'memory') lanes.push('memory_semantic_search');
   }
-  const m = meta && typeof meta === 'object' ? meta : {};
-  const src = typeof row.source === 'string' ? row.source : '';
-  const previewRaw =
-    typeof row.content_preview === 'string'
-      ? row.content_preview
-      : typeof row.content === 'string'
-        ? row.content
-        : '';
-  const title =
-    (typeof row.title === 'string' && row.title.trim()) ||
-    (typeof m.title === 'string' && m.title) ||
-    (previewRaw ? previewRaw.slice(0, 120) : 'Document');
-  const metaSrc =
-    (typeof m.source === 'string' && m.source) ||
-    (typeof m.snippet === 'string' && m.snippet) ||
-    '';
-  const previewLine = previewRaw ? previewRaw.slice(0, 160) : '';
-  const subtitle = [src || null, metaSrc || previewLine].filter(Boolean).join(' · ') || undefined;
-  const url = typeof m.url === 'string' ? m.url : null;
-  return {
-    type: 'knowledge',
-    id: String(row.id ?? ''),
-    title,
-    subtitle,
-    score: sim,
-    url,
-    source: src,
-  };
+  if (!lanes.length) {
+    return ['code_semantic_search', 'docs_knowledge_search', 'memory_semantic_search'];
+  }
+  return [...new Set(lanes)];
 }
 
 /**
+ * Cmd+K vector hits via agentsam lanes (Vectorize / pgvector) — not public.documents.
  * @param {any} env
  * @param {string} query
  * @param {number} limit
@@ -182,151 +89,92 @@ function mapDocumentRowToHit(row) {
  * }} [opts]
  */
 async function searchDocumentsVector(env, query, limit, opts = {}) {
-  if (!env?.AI || !isHyperdriveUsable(env)) return [];
-  const t0 = Date.now();
-  let embResult;
-  try {
-    embResult = await env.AI.run(unifiedSearchEmbedModel(env), { text: String(query || '').trim() });
-  } catch (e) {
-    console.warn('[unified-search] embed', e?.message ?? e);
-    return [];
-  }
-  const vec = embResult?.data?.[0] ?? embResult?.result?.[0];
-  if (!Array.isArray(vec) || !vec.length) return [];
+  const q = String(query || '').trim();
+  const workspaceId = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
+  if (!q || !workspaceId) return [];
 
-  const embedding = JSON.stringify(vec);
   const lim = Math.min(Math.max(1, limit), 50);
-  const thresholdRaw = Number(opts.matchThreshold);
-  const threshold =
-    Number.isFinite(thresholdRaw) && thresholdRaw >= 0 && thresholdRaw <= 1 ? thresholdRaw : 0.45;
-
   const facetIds = normalizeSourceFilters(opts.sourceFilters);
-  const sourceSql = documentsSourceFilterSql(facetIds);
-  const embedModel = unifiedSearchEmbedModel(env);
+  const lanes = facetsToSemanticLanes(documentFacetIdsOnly(facetIds));
+  const perLane = Math.min(lim, Math.max(3, Math.ceil(lim / Math.max(1, lanes.length)) + 1));
 
-  const tid = opts.tenantId != null ? String(opts.tenantId).trim() : '';
-  const ws = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
-  const pid = opts.projectId != null ? String(opts.projectId).trim() : '';
-
-  /** @type {Record<string, unknown>[]} */
-  let rows = [];
-  let filledBy = /** @type {'none' | 'match_documents_scoped' | 'documents_sql_fallback'} */ ('none');
-
-  const tryRpc = useScopedRpcForFacets(facetIds);
-  if (tryRpc) {
-    let prefix = /** @type {string | null} */ (null);
-    let like = /** @type {string | null} */ (null);
-    if (facetIds.length === 1) {
-      const fl = facetToRpcPrefixLike(facetIds[0]);
-      prefix = fl.prefix;
-      like = fl.like;
-    }
-
-    rows = await hyperdriveQuery(
-      env,
-      `SELECT * FROM public.match_documents_scoped(
-        $1::vector(1024),
-        $2::double precision,
-        $3::integer,
-        $4::text,
-        $5::text,
-        $6::text,
-        $7::text,
-        $8::text,
-        $9::text
-      )`,
-      [
-        embedding,
-        threshold,
-        lim,
-        tid || null,
-        ws || null,
-        pid || null,
-        embedModel,
-        prefix,
-        like,
-      ],
-    );
-    if (rows.length) filledBy = 'match_documents_scoped';
-  }
-
-  if (!tryRpc || rows.length === 0) {
-    const params = /** @type {unknown[]} */ ([embedding, threshold]);
-    let scopeSql = '';
-    if (tid) {
-      params.push(tid);
-      scopeSql += ` AND tenant_id = $${params.length}`;
-    }
-    if (ws) {
-      params.push(ws);
-      scopeSql += ` AND workspace_id = $${params.length}`;
-    }
-    if (pid) {
-      params.push(pid);
-      scopeSql += ` AND project_id = $${params.length}`;
-    }
-
-    params.push(lim);
-    const limitIdx = params.length;
-
-    rows = await hyperdriveQuery(
-      env,
-      `SELECT id, source, title,
-            LEFT(content, 280) AS content_preview,
-            metadata,
-            1 - (embedding <=> $1::vector(1024)) AS similarity
-     FROM public.documents
-     WHERE (1 - (embedding <=> $1::vector(1024))) >= $2
-     ${scopeSql}${sourceSql}
-     ORDER BY embedding <=> $1::vector(1024)
-     LIMIT $${limitIdx}`,
-      params,
-    );
-    if (rows.length) filledBy = filledBy === 'match_documents_scoped' ? 'match_documents_scoped' : 'documents_sql_fallback';
-  }
-
+  const t0 = Date.now();
   /** @type {{ type: string, id: string, title: string, subtitle?: string, score: number, url?: string | null, source?: string }[]} */
   const out = [];
-  for (const row of rows) {
-    out.push(mapDocumentRowToHit(row));
+  const seen = new Set();
+
+  try {
+    const { dispatchSemanticRetrieval } = await import('../core/semantic-retrieval-dispatch.js');
+    const parts = await Promise.all(
+      lanes.map((lane) =>
+        dispatchSemanticRetrieval(env, {
+          lane,
+          query: q,
+          workspace_id: workspaceId,
+          top_k: perLane,
+          bypass_cache: true,
+        }),
+      ),
+    );
+    for (const part of parts) {
+      if (!part || part.ok === false) continue;
+      const results = Array.isArray(part.results) ? part.results : [];
+      for (const hit of results) {
+        const id = String(hit.id || hit.source_ref || hit.file_path || '').trim();
+        const title =
+          String(hit.title || hit.file_path || hit.source_ref || 'Match').trim() || 'Match';
+        const key = `${part.lane}:${id || title}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const preview = String(hit.content || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+        const src = String(hit.file_path || hit.source_ref || part.lane || '').trim();
+        out.push({
+          type: 'knowledge',
+          id: id || key,
+          title,
+          subtitle: [src || null, preview || null].filter(Boolean).join(' · ') || undefined,
+          score: Number(hit.score) || 0,
+          url: src && /^https?:/i.test(src) ? src : null,
+          source: part.lane || src || undefined,
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('[unified-search] agentsam semantic', e?.message ?? e);
+    return [];
   }
 
-  const scores = out.map((r) => r.score).filter((s) => Number.isFinite(s));
+  out.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+  const sliced = out.slice(0, lim);
+
+  const scores = sliced.map((r) => r.score).filter((s) => Number.isFinite(s));
   const topSim = scores.length ? Math.max(...scores) : null;
   const avgSim = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
-  const sourcesDistinct = [...new Set(out.map((r) => r.source).filter(Boolean))];
+  const sourcesDistinct = [...new Set(sliced.map((r) => r.source).filter(Boolean))];
 
   await logSemanticSearch(env, {
-    searchFn: 'unified_search.documents',
-    tenantId: tid || null,
+    searchFn: 'unified_search.agentsam_lanes',
+    tenantId: opts.tenantId ?? null,
+    workspaceId,
     sessionId: opts.sessionId ?? null,
-    queryPreview: opts.queryPreview ?? query,
-    matchThreshold: threshold,
+    queryPreview: opts.queryPreview ?? q,
+    matchThreshold: Number(opts.matchThreshold) || 0.45,
     matchCountRequested: lim,
-    matchCountReturned: out.length,
+    matchCountReturned: sliced.length,
     topSimilarity: topSim,
     avgSimilarity: avgSim,
     sourcesHit: sourcesDistinct,
     latencyMs: Date.now() - t0,
     metadata: {
-      workspace_id: ws || null,
-      project_id: pid || null,
-      embed_model: embedModel,
-      facet_ids: facetIds,
-      filled_by: filledBy,
+      lanes,
+      filled_by: 'dispatchSemanticRetrieval',
+      project_id: opts.projectId ?? null,
     },
   });
 
-  return out.map(({ source: _s, ...rest }) => rest);
+  return sliced.map(({ source: _s, ...rest }) => rest);
 }
 
-/**
- * @param {any} env
- * @param {any} authUser
- * @param {{ type: string, id: string, title: string, subtitle?: string, score: number, url?: string|null, sql_text?: string }[]} merged
- * @param {string} rawQ
- * @param {string[]} facetIds
- */
 async function appendStructuralFacetResults(env, authUser, merged, rawQ, facetIds, request, url) {
   const qPat = `%${rawQ}%`;
 

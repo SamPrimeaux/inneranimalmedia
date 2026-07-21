@@ -521,13 +521,14 @@ async function documentSourceExists(env, source, projectId) {
 }
 
 /**
- * Insert one observability row into `public.semantic_search_log` (Hyperdrive / pg).
- * Skips when tenant_id is missing (required NOT NULL + RLS tenant scope).
+ * Insert one observability row into `agentsam.agentsam_search_log` (Hyperdrive / pg).
+ * Legacy `public.semantic_search_log` is retired — do not recreate it.
  *
  * @param {any} env
  * @param {{
  *   searchFn: string,
  *   tenantId?: string | null,
+ *   workspaceId?: string | null,
  *   sessionId?: string | null,
  *   queryPreview?: string,
  *   matchThreshold: number,
@@ -541,58 +542,59 @@ async function documentSourceExists(env, source, projectId) {
  * }} args
  */
 export async function logSemanticSearch(env, args) {
-  const tenantRaw = args.tenantId != null ? String(args.tenantId).trim() : '';
-  if (!tenantRaw) return;
+  const workspaceIdD1 =
+    args.workspaceId != null && String(args.workspaceId).trim() !== ''
+      ? String(args.workspaceId).trim()
+      : args.metadata?.workspace_id != null
+        ? String(args.metadata.workspace_id).trim()
+        : '';
+  if (!workspaceIdD1 || !isHyperdriveUsable(env)) return;
 
-  const {
-    searchFn,
-    sessionId,
-    queryPreview,
-    matchThreshold,
-    matchCountRequested,
-    matchCountReturned,
-    topSimilarity,
-    avgSimilarity,
-    sourcesHit,
-    latencyMs,
-    metadata,
-  } = args;
+  let workspaceUuid = null;
+  try {
+    const { resolveSupabaseWorkspaceId } = await import('../core/rag-lanes.js');
+    workspaceUuid = await resolveSupabaseWorkspaceId(env, workspaceIdD1);
+  } catch {
+    workspaceUuid = null;
+  }
+  if (!workspaceUuid) return;
 
-  const metaObj = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {};
-  const sessionTrim =
-    sessionId != null && String(sessionId).trim() !== '' ? String(sessionId).trim().slice(0, 500) : null;
+  const metaObj = {
+    ...(args.metadata && typeof args.metadata === 'object' && !Array.isArray(args.metadata)
+      ? args.metadata
+      : {}),
+    search_fn: String(args.searchFn || 'unknown').slice(0, 200),
+    tenant_id: args.tenantId != null ? String(args.tenantId).trim() : null,
+    session_id:
+      args.sessionId != null && String(args.sessionId).trim() !== ''
+        ? String(args.sessionId).trim().slice(0, 500)
+        : null,
+    match_threshold: args.matchThreshold,
+    match_count_requested: args.matchCountRequested,
+    top_similarity: args.topSimilarity ?? null,
+    avg_similarity: args.avgSimilarity ?? null,
+    sources_hit: Array.isArray(args.sourcesHit) ? args.sourcesHit : [],
+  };
 
-  const params = [
-    String(searchFn || 'unknown').slice(0, 200),
-    tenantRaw,
-    sessionTrim,
-    String(queryPreview ?? '').slice(0, 300),
-    matchThreshold,
-    matchCountRequested,
-    matchCountReturned,
-    topSimilarity ?? null,
-    avgSimilarity ?? null,
-    JSON.stringify(Array.isArray(sourcesHit) ? sourcesHit : []),
-    Math.max(0, Math.floor(latencyMs ?? 0)),
-    JSON.stringify(metaObj),
-  ];
-
-  const sql = `INSERT INTO public.semantic_search_log (
-    search_fn, tenant_id, session_id, query_preview,
-    match_threshold, match_count_requested, match_count_returned,
-    top_similarity, avg_similarity, sources_hit, latency_ms, metadata
-  ) VALUES (
-    $1::text, $2::text, $3::text, $4::text,
-    $5::double precision, $6::integer, $7::integer,
-    $8::double precision, $9::double precision,
-    $10::jsonb, $11::integer, $12::jsonb
-  )`;
+  const sql = `INSERT INTO agentsam.agentsam_search_log (
+      workspace_id, user_id, query_text, result_count, duration_ms, search_type, metadata
+    ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb)`;
 
   try {
-    const r = await runHyperdriveQuery(env, sql, params);
-    if (!r.ok) await withPg(env, (client) => client.query(sql, params));
+    const r = await runHyperdriveQuery(env, sql, [
+      workspaceUuid,
+      null,
+      String(args.queryPreview ?? '').slice(0, 4000),
+      Number(args.matchCountReturned) || 0,
+      Math.max(0, Math.floor(args.latencyMs ?? 0)),
+      String(args.searchFn || 'unified_search').slice(0, 120),
+      JSON.stringify(metaObj),
+    ]);
+    if (!r.ok) {
+      console.warn('[rag] agentsam_search_log insert:', r.error ?? 'query_failed');
+    }
   } catch (e) {
-    console.warn('[rag] semantic_search_log insert:', e?.message ?? e);
+    console.warn('[rag] agentsam_search_log insert:', e?.message ?? e);
   }
 }
 
@@ -750,6 +752,7 @@ export async function unifiedRagSearch(env, query, opts = {}) {
     await logSemanticSearch(env, {
       searchFn: 'unified_rag_search',
       tenantId,
+      workspaceId,
       sessionId,
       queryPreview: q,
       matchThreshold: 0.7,
@@ -977,6 +980,7 @@ async function handleRagSearchRoute(request, env, ctx) {
   await logSemanticSearch(env, {
     searchFn: 'api.rag.search',
     tenantId,
+    workspaceId,
     sessionId: user.session_id ?? null,
     queryPreview: query,
     matchThreshold: threshold,
@@ -991,6 +995,8 @@ async function handleRagSearchRoute(request, env, ctx) {
       embed_model: ragEmbeddingModel(env) || null,
       embedding_dims: embeddingDims ?? null,
       rag_documents_project_id: ragDocumentsProjectId(env) || null,
+      workspace_id: workspaceId,
+      project_id: projectId,
     },
   });
 
