@@ -453,6 +453,19 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [browserElementContext, setBrowserElementContext] = useState<Record<string, unknown> | null>(null);
   /** Latest DOM pick — silent attach for Agent Sam (no composer tokens). */
   const pickedElementRef = useRef<Record<string, unknown> | null>(null);
+  const designModeContextRef = useRef<{
+    design_mode: {
+      active: boolean;
+      selected_elements: Record<string, unknown>[];
+      annotation?: unknown;
+    };
+    selected_elements: Record<string, unknown>[];
+    design_mode_active: boolean;
+  } | null>(null);
+  const [designModeActiveUi, setDesignModeActiveUi] = useState(false);
+  const [designModeChips, setDesignModeChips] = useState<
+    Array<{ id: string; label: string }>
+  >([]);
   /** Latest `iam-browser-surface-context` from BrowserView (URL, route, viewport). */
   const browserSurfaceRef = useRef<Record<string, unknown> | null>(null);
   /** Latest `iam-database-surface-context` from DatabasePage. */
@@ -696,6 +709,20 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       const d = (ev as CustomEvent<Record<string, unknown>>).detail;
       if (d && typeof d === 'object' && d.type === 'browser_element_selected') {
         attachBrowserSelectionSilently(d);
+        const addToInput = d.add_to_input !== false;
+        if (d.design_mode && addToInput) {
+          attachBrowserSelectionToComposer(d);
+        } else if (d.design_mode && !addToInput) {
+          /* Option+click path — silent attach only */
+        }
+        if (Array.isArray(d.selected_elements)) {
+          setDesignModeChips(
+            (d.selected_elements as Record<string, unknown>[]).map((el, i) => ({
+              id: String(el.selector || i),
+              label: `${String(el.tag || 'el')}${el.selector ? ` · ${String(el.selector).slice(0, 28)}` : ''}`,
+            })),
+          );
+        }
       }
     };
     const onSelectedBridge = (ev: Event) => {
@@ -705,20 +732,75 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       }
     };
     const onContextAttach = (ev: Event) => {
-      const d = (ev as CustomEvent<{ browser_element?: Record<string, unknown> }>).detail;
+      const d = (ev as CustomEvent<{
+        browser_element?: Record<string, unknown>;
+        design_mode?: boolean;
+        selected_elements?: Record<string, unknown>[];
+      }>).detail;
       if (d?.browser_element && typeof d.browser_element === 'object') {
         pickedElementRef.current = d.browser_element;
+      }
+      if (Array.isArray(d?.selected_elements)) {
+        setDesignModeChips(
+          d.selected_elements.map((el, i) => ({
+            id: String(el.selector || i),
+            label: `${String(el.tag || 'el')}${el.selector ? ` · ${String(el.selector).slice(0, 28)}` : ''}`,
+          })),
+        );
+      }
+    };
+    const onDesignMode = (ev: Event) => {
+      const d = (ev as CustomEvent<{
+        design_mode?: { active?: boolean; selected_elements?: Record<string, unknown>[]; annotation?: unknown };
+        selected_elements?: Record<string, unknown>[];
+        design_mode_active?: boolean;
+        selected_element?: Record<string, unknown> | null;
+      }>).detail;
+      if (!d || typeof d !== 'object') return;
+      const active = Boolean(d.design_mode_active ?? d.design_mode?.active);
+      setDesignModeActiveUi(active);
+      designModeContextRef.current = {
+        design_mode: {
+          active,
+          selected_elements: Array.isArray(d.design_mode?.selected_elements)
+            ? d.design_mode!.selected_elements!
+            : Array.isArray(d.selected_elements)
+              ? d.selected_elements
+              : [],
+          annotation: d.design_mode?.annotation ?? null,
+        },
+        selected_elements: Array.isArray(d.selected_elements)
+          ? d.selected_elements
+          : Array.isArray(d.design_mode?.selected_elements)
+            ? d.design_mode!.selected_elements!
+            : [],
+        design_mode_active: active,
+      };
+      if (d.selected_element && typeof d.selected_element === 'object') {
+        pickedElementRef.current = d.selected_element;
+      }
+      const els = designModeContextRef.current.selected_elements;
+      setDesignModeChips(
+        els.map((el, i) => ({
+          id: String(el.selector || i),
+          label: `${String(el.tag || 'el')}${el.selector ? ` · ${String(el.selector).slice(0, 28)}` : ''}`,
+        })),
+      );
+      if (!active) {
+        setDesignModeChips([]);
       }
     };
     window.addEventListener('iam:browser-element-selected', onLegacy as EventListener);
     window.addEventListener('iam:browser-selected-element', onSelectedBridge as EventListener);
     window.addEventListener('iam:agent-context-attach', onContextAttach as EventListener);
+    window.addEventListener('iam:design-mode-changed', onDesignMode as EventListener);
     return () => {
       window.removeEventListener('iam:browser-element-selected', onLegacy as EventListener);
       window.removeEventListener('iam:browser-selected-element', onSelectedBridge as EventListener);
       window.removeEventListener('iam:agent-context-attach', onContextAttach as EventListener);
+      window.removeEventListener('iam:design-mode-changed', onDesignMode as EventListener);
     };
-  }, [attachBrowserSelectionSilently]);
+  }, [attachBrowserSelectionSilently, attachBrowserSelectionToComposer]);
 
   useEffect(() => {
     const onSurface = (ev: Event) => {
@@ -3141,6 +3223,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         browserCtxPayload.selected_element = picked;
         browserCtxPayload.picked_element = picked;
       }
+      const dmCtx = designModeContextRef.current;
+      if (dmCtx?.design_mode_active || dmCtx?.design_mode?.active) {
+        browserCtxPayload.design_mode = dmCtx.design_mode;
+        browserCtxPayload.design_mode_active = true;
+        browserCtxPayload.selected_elements = dmCtx.selected_elements;
+        if (!browserCtxPayload.selected_element && dmCtx.selected_elements[0]) {
+          browserCtxPayload.selected_element = dmCtx.selected_elements[0];
+          browserCtxPayload.picked_element = dmCtx.selected_elements[0];
+        }
+      }
       const workspaceContextPacket = {
         ...(hostWorkspaceContext && typeof hostWorkspaceContext === 'object' ? hostWorkspaceContext : {}),
         activeTab: String(activeWorkbenchTab || 'Workspace'),
@@ -4160,6 +4252,24 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               addFilesFromList(e.dataTransfer.files, false);
             }}
           >
+            {designModeActiveUi ? (
+              <div className="flex flex-wrap items-center gap-1.5 px-2 pt-2 pb-0 min-w-0">
+                <span className="text-[0.625rem] font-semibold uppercase tracking-wide text-[var(--solar-cyan)]">
+                  Design Mode
+                </span>
+                <span className="text-[0.625rem] text-[var(--dashboard-muted)]">
+                  Agent kit auto · no mode swap
+                </span>
+                {designModeChips.map((c) => (
+                  <span
+                    key={c.id}
+                    className="max-w-[40%] truncate rounded-md border border-[var(--solar-cyan)]/30 bg-[var(--solar-cyan)]/10 px-1.5 py-0.5 text-[0.625rem] font-mono text-[var(--solar-cyan)]"
+                  >
+                    {c.label}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             {browserElementContext ? (
               <div className="flex items-center gap-2 px-2 pt-2 pb-0 min-w-0">
                 <div

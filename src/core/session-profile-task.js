@@ -1,6 +1,12 @@
+import { isDesignModeActiveFromBody } from './design-mode-context.js';
+
+export { isDesignModeActiveFromBody, isDesignModeBrowserContext } from './design-mode-context.js';
+
 /**
  * Resolve which agentsam_tool_profile_bindings.task_type drives the session menu.
  * Prefer explicit task_type, then Database Studio route/surface, else composer mode.
+ * Design Mode is NOT a composer mode — when browserContext.design_mode.active,
+ * Agent/Multitask auto-bind profile design_mode (user never swaps modes).
  * @param {string} composerMode
  * @param {Record<string, unknown>|null|undefined} body
  */
@@ -9,6 +15,9 @@ export function resolveSessionProfileTaskType(composerMode, body) {
   const task = String(body?.task_type || '').trim().toLowerCase();
   if (task === 'design_studio') return 'design_studio_base';
   if (task) return task;
+
+  // Plan / Ask / Debug own their kits — Design Mode browser toggle does not override.
+  if (mode === 'plan' || mode === 'ask' || mode === 'debug') return mode;
 
   const route = String(body?.route_key || '').trim().toLowerCase();
   if (
@@ -72,6 +81,9 @@ export function resolveSessionProfileTaskType(composerMode, body) {
       return 'database_studio';
     }
   }
+
+  // Auto Design Mode kit while Browser Design Mode is on (Agent / Multitask composers).
+  if (isDesignModeActiveFromBody(body)) return 'design_mode';
 
   return mode;
 }

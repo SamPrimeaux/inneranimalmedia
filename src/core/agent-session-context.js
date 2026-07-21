@@ -22,12 +22,14 @@ import { parseHandlerConfig } from './resolve-credential.js';
 import { normalizeAgentRuntimeMode } from './agent-mode.js';
 import { parseWritePolicyJson } from './d1-tool-profile.js';
 import { resolveSessionProfileTaskType } from './session-profile-task.js';
+import { isDesignModeActiveFromBody } from './design-mode-context.js';
 
 export { resolveSessionProfileTaskType } from './session-profile-task.js';
+export { isDesignModeActiveFromBody, isDesignModeBrowserContext } from './design-mode-context.js';
 
 /** Soft cap — above this, DO cache is treated as stale mega-catalog and rebuilt. */
 export const SESSION_TOOL_CACHE_SOFT_MAX = 40;
-export const SESSION_CONTEXT_VERSION = 8;
+export const SESSION_CONTEXT_VERSION = 9;
 
 /**
  * Degraded-mode fallback ONLY — used when agentsam_tool_profile_bindings /
@@ -389,8 +391,11 @@ export async function loadOrBootstrapSessionContext(env, opts) {
   const requestedTaskType = String(opts.body?.task_type || opts.body?.taskType || '')
     .trim()
     .toLowerCase();
+  const designModeActive = isDesignModeActiveFromBody(opts.body || null);
   const explicitProfileHint =
     requestedTaskType !== '' ||
+    designModeActive ||
+    profileTaskType === 'design_mode' ||
     (requestedRouteKey !== '' &&
       requestedRouteKey !== 'auto' &&
       requestedRouteKey !== composerMode);
@@ -431,10 +436,18 @@ export async function loadOrBootstrapSessionContext(env, opts) {
     const cachedProfileTask =
       String(cached?.roots?.profile_task_type || cached?.profile_task_type || '').trim().toLowerCase();
     const cachedContextVersion = Number(cached?.roots?.context_version || 0);
-    if (!explicitProfileHint && cachedProfileTask) {
+    // Drop cached design_mode when Browser Design Mode is off; otherwise sticky cache
+    // would keep the UI-edit kit after the user toggles Design Mode off.
+    if (cachedProfileTask === 'design_mode' && !designModeActive && profileTaskType !== 'design_mode') {
+      /* keep freshly resolved profileTaskType */
+    } else if (!explicitProfileHint && cachedProfileTask) {
       profileTaskType = cachedProfileTask;
       roots.profile_task_type = cachedProfileTask;
       roots.route_key = cached?.roots?.route_key || null;
+    }
+    if (designModeActive) {
+      profileTaskType = 'design_mode';
+      roots.profile_task_type = 'design_mode';
     }
     const currentProfile = await loadToolProfileForMode(env?.DB, profileTaskType);
     const currentProfileKey = String(currentProfile?.profile_key || '').trim();

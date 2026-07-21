@@ -23,7 +23,7 @@ import React, {
 } from 'react';
 import {
   RotateCcw, Copy, Columns2, X, Loader2, CheckCircle,
-  AlertTriangle, Camera, MoreHorizontal, MousePointer2,
+  AlertTriangle, Camera, MoreHorizontal, MousePointer2, PenLine,
   Code2, Layers, ZoomIn, ZoomOut, Trash2, Cookie,
   HardDrive, Shield, ShieldCheck, Globe, ChevronRight,
   Terminal, Network, Bug,
@@ -37,6 +37,13 @@ import {
   requiresBrowserRunEmbed,
   resolveEmbedModeRemote,
 } from '../src/lib/browserEmbedPolicy';
+import {
+  type DesignModeElement,
+  type DesignModeState,
+  upsertDesignSelection,
+  buildDesignModeBrowserContextPatch,
+  emptyDesignModeState,
+} from '../lib/designModeContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -184,7 +191,7 @@ async function fetchPlaywrightJobOnce(jobId: string, signal: AbortSignal): Promi
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type PaneMode = 'browse' | 'picker' | 'screenshot' | 'area';
+type PaneMode = 'browse' | 'picker' | 'screenshot' | 'area' | 'annotate';
 /** Passive iframe embed vs shared Agent Live Browser Run session. */
 type ViewSurface = 'preview' | 'agentLive';
 type TrustScope = 'session' | 'persistent';
@@ -1390,8 +1397,69 @@ const BrowserPane: React.FC<PaneProps> = ({
   /** Cross-origin sites: picker runs via MYBROWSER + dashboard overlay (iframe cannot be scripted). */
   const [pickerCrossOrigin, setPickerCrossOrigin] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState<PickerHighlightRect | null>(null);
+  /** Cursor-parity Design Mode — toggle; does not change Agent Sam composer mode. */
+  const [designModeOn, setDesignModeOn] = useState(false);
+  const [designSelections, setDesignSelections] = useState<DesignModeElement[]>([]);
+  const [annotateStrokes, setAnnotateStrokes] = useState<
+    Array<{ points: Array<{ x: number; y: number }>; color?: string }>
+  >([]);
+  const [annotateFrame, setAnnotateFrame] = useState<string | null>(null);
+  const annotateDrawingRef = useRef(false);
+  const annotateCurrentRef = useRef<Array<{ x: number; y: number }>>([]);
+  const designModeOnRef = useRef(false);
+  const designSelectionsRef = useRef<DesignModeElement[]>([]);
 
-  const inputRef     = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    designModeOnRef.current = designModeOn;
+  }, [designModeOn]);
+  useEffect(() => {
+    designSelectionsRef.current = designSelections;
+  }, [designSelections]);
+
+  const publishDesignModeSurface = useCallback(
+    (next: Partial<DesignModeState> & { active?: boolean }) => {
+      const active = next.active ?? designModeOnRef.current;
+      const selected =
+        next.selected_elements !== undefined
+          ? next.selected_elements
+          : designSelectionsRef.current;
+      const annotation =
+        next.annotation !== undefined
+          ? next.annotation
+          : annotateStrokes.length
+            ? {
+                kind: 'strokes' as const,
+                strokes: annotateStrokes,
+                frame_data_url: annotateFrame,
+              }
+            : null;
+      const state: DesignModeState = {
+        active,
+        selected_elements: selected,
+        annotation,
+      };
+      const patch = buildDesignModeBrowserContextPatch(state);
+      window.dispatchEvent(
+        new CustomEvent('iam:design-mode-changed', { detail: patch }),
+      );
+      window.dispatchEvent(
+        new CustomEvent('iam-browser-surface-context', {
+          detail: {
+            ...(typeof window !== 'undefined'
+              ? {}
+              : {}),
+            design_mode: patch.design_mode,
+            design_mode_active: patch.design_mode_active,
+            selected_element: patch.selected_element,
+            selected_elements: patch.selected_elements,
+            url: currentUrlRef.current,
+          },
+        }),
+      );
+    },
+    [annotateStrokes, annotateFrame],
+  );
+  const inputRef = useRef<HTMLInputElement>(null);
   const registryPickersRef = useRef(registryPickers);
   const registryPickersFetchedRef = useRef(false);
   const trustWorkspaceId = useMemo(() => {
@@ -1517,14 +1585,22 @@ const BrowserPane: React.FC<PaneProps> = ({
     }
   }, [currentUrl]);
 
-  const applyElementSelection = useCallback((el: InspectedElement) => {
+  const applyElementSelection = useCallback((el: InspectedElement, opts?: { metaKey?: boolean; altKey?: boolean }) => {
     setInspectedEl(el);
     setInspectEpoch((n) => n + 1);
-    setMode('browse');
-    setPickerCrossOrigin(false);
-    setPickerHighlight(null);
-    setDevToolsOpen(true);
-    setDevToolsTab('elements');
+    const inDesign = designModeOnRef.current;
+    if (inDesign) {
+      // Stay in Design Mode picker — Cursor flow: pick → next pick without leaving.
+      setMode('picker');
+      setPickerCrossOrigin(false);
+      setPickerHighlight(null);
+    } else {
+      setMode('browse');
+      setPickerCrossOrigin(false);
+      setPickerHighlight(null);
+      setDevToolsOpen(true);
+      setDevToolsTab('elements');
+    }
     window.dispatchEvent(new CustomEvent('iam-browser-set-inspector', { detail: el }));
     const urlNow = currentUrlRef.current;
     const wid =
@@ -1552,13 +1628,17 @@ const BrowserPane: React.FC<PaneProps> = ({
     const htmlText =
       typeof el.html === 'string' ? el.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500) : '';
     const st = el.styles || {};
-    const payload = {
+    const bbox = el.boundingBox ?? null;
+    const payload: DesignModeElement = {
       type: 'browser_element_selected',
       workspace_id: wsId,
       url: urlNow,
       route_path: routePath,
       selector: el.path || '',
+      xpath: typeof (el as { xpath?: string }).xpath === 'string' ? (el as { xpath?: string }).xpath : null,
       tag: el.tag,
+      id: el.id ?? null,
+      className: el.className ?? null,
       classes,
       text: htmlText,
       computed_styles: {
@@ -1570,6 +1650,14 @@ const BrowserPane: React.FC<PaneProps> = ({
         width: st.width,
         height: st.height,
       },
+      rect: bbox
+        ? {
+            top: Number((bbox as { y?: number; top?: number }).y ?? (bbox as { top?: number }).top ?? 0),
+            left: Number((bbox as { x?: number; left?: number }).x ?? (bbox as { left?: number }).left ?? 0),
+            width: Number((bbox as { width?: number }).width ?? 0),
+            height: Number((bbox as { height?: number }).height ?? 0),
+          }
+        : null,
       section_key: sectionKey,
       cms_mapping: {
         page_id: null as string | null,
@@ -1586,6 +1674,31 @@ const BrowserPane: React.FC<PaneProps> = ({
         branch: '',
       },
     };
+
+    if (inDesign) {
+      const multi = true; // Design Mode always accumulates (Cmd+click same as click for multi)
+      const next = upsertDesignSelection(designSelectionsRef.current, payload, multi);
+      setDesignSelections(next);
+      designSelectionsRef.current = next;
+      publishDesignModeSurface({ active: true, selected_elements: next });
+      const addToInput = !opts?.altKey; // Option+click = silent; default / Cmd+L path adds chip
+      window.dispatchEvent(
+        new CustomEvent('iam:browser-element-selected', {
+          detail: { ...payload, design_mode: true, add_to_input: addToInput, selected_elements: next },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent('iam:agent-context-attach', {
+          detail: {
+            browser_element: payload,
+            design_mode: true,
+            selected_elements: next,
+          },
+        }),
+      );
+      return;
+    }
+
     window.dispatchEvent(new CustomEvent('iam:browser-element-selected', { detail: payload }));
     window.dispatchEvent(
       new CustomEvent('iam:browser-selected-element', {
@@ -1604,7 +1717,7 @@ const BrowserPane: React.FC<PaneProps> = ({
       }),
     );
     window.dispatchEvent(new CustomEvent('iam:agent-context-attach', { detail: { browser_element: payload } }));
-  }, []);
+  }, [publishDesignModeSurface]);
 
   const commitNavigationFromIframe = useCallback(
     (href: string, title?: string | null) => {
@@ -2603,11 +2716,74 @@ const BrowserPane: React.FC<PaneProps> = ({
     height: Math.abs(area.endY - area.startY),
   } : null;
 
+  useEffect(() => {
+    if (mode === 'annotate' && screenshotUrl) {
+      setAnnotateFrame((prev) => prev || screenshotUrl);
+    }
+  }, [mode, screenshotUrl]);
+
   // ── Toggle mode ─────────────────────────────────────────────────────────────
   const toggleMode = (m: PaneMode) => {
     setMode(prev => (prev === m ? 'browse' : m));
     if (m === 'area') setArea(null);
   };
+
+  const setDesignMode = useCallback(
+    (on: boolean) => {
+      setDesignModeOn(on);
+      designModeOnRef.current = on;
+      if (on) {
+        setMode('picker');
+        void loadRegistryPickersIfNeeded();
+        publishDesignModeSurface({ active: true });
+        setToastMsg('Design Mode on — pick elements (stay in Agent). Cmd+Shift+D to exit.');
+      } else {
+        setMode('browse');
+        setDesignSelections([]);
+        designSelectionsRef.current = [];
+        setAnnotateStrokes([]);
+        setAnnotateFrame(null);
+        publishDesignModeSurface({
+          active: false,
+          selected_elements: [],
+          annotation: null,
+        });
+        setToastMsg('Design Mode off');
+      }
+      window.setTimeout(() => setToastMsg(null), 2800);
+    },
+    [loadRegistryPickersIfNeeded, publishDesignModeSurface],
+  );
+
+  const toggleDesignMode = useCallback(() => {
+    setDesignMode(!designModeOnRef.current);
+  }, [setDesignMode]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || String(e.key).toLowerCase() !== 'd') return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      e.preventDefault();
+      toggleDesignMode();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggleDesignMode]);
+
+  const startAnnotateMode = useCallback(async () => {
+    if (!designModeOnRef.current) setDesignMode(true);
+    setMode('annotate');
+    // Freeze current viewport: prefer last screenshot, else capture.
+    if (screenshotUrl) {
+      setAnnotateFrame(screenshotUrl);
+    } else {
+      await runScreenshot();
+      // runScreenshot sets screenshotUrl async — frame may update on next paint
+      setAnnotateFrame((prev) => prev || screenshotUrl);
+    }
+    setAnnotateStrokes([]);
+  }, [setDesignMode, screenshotUrl, runScreenshot]);
 
   return (
     <div
@@ -2672,13 +2848,36 @@ const BrowserPane: React.FC<PaneProps> = ({
           />
         )}
 
+        {/* Design Mode — Cmd+Shift+D (does not change composer mode) */}
+        <ToolBtn
+          icon={<PenLine size={12} strokeWidth={1.75} />}
+          title="Design Mode (Cmd+Shift+D) — pick/draw; Agent keeps mode"
+          active={designModeOn}
+          onClick={() => toggleDesignMode()}
+        />
+
         {/* Element Picker */}
         <ToolBtn
           icon={<MousePointer2 size={12} strokeWidth={1.75} />}
-          title="Element picker — hover to highlight, click to inspect"
-          active={mode === 'picker'}
-          onClick={() => toggleMode('picker')}
+          title={designModeOn ? 'Pick elements (Design Mode)' : 'Element picker — hover to highlight, click to inspect'}
+          active={mode === 'picker' || designModeOn}
+          onClick={() => {
+            if (designModeOn) {
+              setMode('picker');
+              return;
+            }
+            toggleMode('picker');
+          }}
         />
+
+        {designModeOn ? (
+          <ToolBtn
+            icon={<Camera size={12} strokeWidth={1.75} />}
+            title="Annotate — draw on frozen viewport"
+            active={mode === 'annotate'}
+            onClick={() => void startAnnotateMode()}
+          />
+        ) : null}
 
         {/* DevTools */}
         <ToolBtn
@@ -3008,6 +3207,123 @@ const BrowserPane: React.FC<PaneProps> = ({
                     )}
                   </div>
                 )}
+
+                {mode === 'annotate' && (
+                  <div
+                    className="absolute top-0 left-0 right-0 bottom-0 z-20 touch-none"
+                    onPointerDown={(e) => {
+                      const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                      annotateDrawingRef.current = true;
+                      annotateCurrentRef.current = [
+                        { x: e.clientX - rect.left, y: e.clientY - rect.top },
+                      ];
+                      (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+                    }}
+                    onPointerMove={(e) => {
+                      if (!annotateDrawingRef.current) return;
+                      const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                      annotateCurrentRef.current.push({
+                        x: e.clientX - rect.left,
+                        y: e.clientY - rect.top,
+                      });
+                      // Force light re-render via strokes copy of in-progress
+                      setAnnotateStrokes((prev) => {
+                        const draft = [...prev];
+                        const live = {
+                          points: [...annotateCurrentRef.current],
+                          color: '#38bdf8',
+                        };
+                        if (draft.length && (draft[draft.length - 1] as { _live?: boolean })._live) {
+                          draft[draft.length - 1] = live as typeof live & { _live?: boolean };
+                          (draft[draft.length - 1] as { _live?: boolean })._live = true;
+                        } else {
+                          (live as { _live?: boolean })._live = true;
+                          draft.push(live);
+                        }
+                        return draft;
+                      });
+                    }}
+                    onPointerUp={() => {
+                      if (!annotateDrawingRef.current) return;
+                      annotateDrawingRef.current = false;
+                      const pts = [...annotateCurrentRef.current];
+                      annotateCurrentRef.current = [];
+                      setAnnotateStrokes((prev) => {
+                        const cleaned = prev
+                          .filter((s) => !(s as { _live?: boolean })._live)
+                          .concat(pts.length > 1 ? [{ points: pts, color: '#38bdf8' }] : []);
+                        publishDesignModeSurface({
+                          active: true,
+                          annotation: {
+                            kind: 'strokes',
+                            strokes: cleaned,
+                            frame_data_url: annotateFrame || screenshotUrl,
+                          },
+                        });
+                        return cleaned;
+                      });
+                    }}
+                  >
+                    {(annotateFrame || screenshotUrl) && (
+                      <img
+                        src={annotateFrame || screenshotUrl || ''}
+                        alt="Annotate frame"
+                        className="absolute inset-0 w-full h-full object-contain pointer-events-none bg-[var(--bg-app)]"
+                        draggable={false}
+                      />
+                    )}
+                    <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                      {annotateStrokes.map((s, i) => (
+                        <polyline
+                          key={i}
+                          fill="none"
+                          stroke={s.color || '#38bdf8'}
+                          strokeWidth={2.5}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          points={s.points.map((p) => `${p.x},${p.y}`).join(' ')}
+                        />
+                      ))}
+                    </svg>
+                    <div className="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-2 text-[10px] font-mono text-white bg-black/60 px-2 py-1 rounded-md">
+                      <span>Draw to annotate · Design Mode</span>
+                      <button
+                        type="button"
+                        className="underline"
+                        onClick={() => {
+                          setAnnotateStrokes([]);
+                          publishDesignModeSurface({
+                            active: true,
+                            annotation: null,
+                          });
+                        }}
+                      >
+                        Clear
+                      </button>
+                      <button
+                        type="button"
+                        className="underline"
+                        onClick={() => setMode('picker')}
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {designModeOn && designSelections.length > 0 && mode !== 'annotate' ? (
+                  <div className="absolute bottom-2 left-2 right-2 z-30 flex flex-wrap gap-1 pointer-events-none">
+                    {designSelections.map((sel, i) => (
+                      <span
+                        key={`${sel.selector || i}`}
+                        className="pointer-events-none text-[9px] font-mono px-1.5 py-0.5 rounded bg-[var(--solar-cyan)]/90 text-[var(--solar-base03)] max-w-[40%] truncate"
+                      >
+                        {String(sel.tag || 'el')}
+                        {sel.selector ? ` · ${String(sel.selector).slice(0, 40)}` : ''}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
 
                 {mode === 'screenshot' && (
                   <div className="absolute top-0 left-0 right-0 bottom-0 z-10 flex flex-col bg-[var(--bg-app)] overflow-auto min-h-0">
