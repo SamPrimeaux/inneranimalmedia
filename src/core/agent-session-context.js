@@ -29,7 +29,8 @@ export { isDesignModeActiveFromBody, isDesignModeBrowserContext } from './design
 
 /** Soft cap — above this, DO cache is treated as stale mega-catalog and rebuilt. */
 export const SESSION_TOOL_CACHE_SOFT_MAX = 40;
-export const SESSION_CONTEXT_VERSION = 9;
+/** Bump when session tool menu contract changes (e.g. progressive core vs full profile). */
+export const SESSION_CONTEXT_VERSION = 10;
 
 /**
  * Degraded-mode fallback ONLY — used when agentsam_tool_profile_bindings /
@@ -464,7 +465,20 @@ export async function loadOrBootstrapSessionContext(env, opts) {
       profileTaskType === composerMode &&
       !isDatabaseProfile &&
       (composerMode === 'agent' || composerMode === 'multitask' || composerMode === 'debug');
-    const missingCfList = requiresCfCatalog && !cachedKeys.has('agentsam_cf_d1_list');
+    // Progressive discovery (v10+): core menu must include search_tools — not the old CF dump.
+    let progressiveSession = false;
+    try {
+      const { modeUsesProgressiveToolDiscovery } = await import('./progressive-tool-discovery.js');
+      progressiveSession = modeUsesProgressiveToolDiscovery(composerMode);
+    } catch {
+      progressiveSession = false;
+    }
+    const missingCfList =
+      requiresCfCatalog &&
+      !progressiveSession &&
+      !cachedKeys.has('agentsam_cf_d1_list');
+    const missingSearchTools =
+      requiresCfCatalog && progressiveSession && !cachedKeys.has('agentsam_search_tools');
     const missingWebSearch = requiresCfCatalog && !cachedKeys.has('search_web');
     const missingSupabaseRead = isDatabaseProfile && !cachedKeys.has('agentsam_supabase_query');
     const missingSupabaseWrite = isDatabaseProfile && !cachedKeys.has('agentsam_supabase_write');
@@ -479,26 +493,56 @@ export async function loadOrBootstrapSessionContext(env, opts) {
       cachedProfileKey === currentProfileKey &&
       cachedProfileRevision === currentProfileRevision &&
       !missingCfList &&
+      !missingSearchTools &&
       !missingWebSearch &&
       !missingSupabaseRead &&
       !missingSupabaseWrite &&
       !missingD1Query;
     if (cacheUsable) {
-      const mergedRoots = { ...(cached.roots || {}), ...roots };
+      let cachedTools = cached.tools;
+      // Belt: never serve a mega menu for progressive modes even if an old DO blob slipped through.
+      if (progressiveSession && Array.isArray(cachedTools) && cachedTools.length > 12) {
+        try {
+          const { applyProgressiveCoreCompile } = await import('./progressive-tool-discovery.js');
+          const prog = await applyProgressiveCoreCompile(env, {
+            mode: composerMode,
+            compiledToolRows: cachedTools,
+            toolAllowlist: cachedTools
+              .map((t) => String(t?.name || t?.tool_name || '').trim())
+              .filter(Boolean),
+          });
+          if (prog.progressive) {
+            cachedTools = prog.compiledToolRows;
+            await doSetSessionContext(stub, cachedTools, cached.writePolicy, {
+              ...(cached.roots || {}),
+              ...roots,
+              progressive_tool_discovery: true,
+            }).catch(() => {});
+          }
+        } catch (e) {
+          console.warn('[agent-session-context] progressive_cache_shrink', e?.message ?? e);
+        }
+      }
+      const mergedRoots = {
+        ...(cached.roots || {}),
+        ...roots,
+        ...(progressiveSession ? { progressive_tool_discovery: true } : {}),
+      };
       if (JSON.stringify(mergedRoots) !== JSON.stringify(cached.roots || {})) {
-        await doSetSessionContext(stub, cached.tools, cached.writePolicy, mergedRoots).catch(() => {});
+        await doSetSessionContext(stub, cachedTools, cached.writePolicy, mergedRoots).catch(() => {});
       }
       console.info(
         '[agent-session-context] cache_hit',
         JSON.stringify({
           conversationId,
-          tools: cachedCount,
+          tools: Array.isArray(cachedTools) ? cachedTools.length : cachedCount,
           mode: composerMode,
           profile_task_type: profileTaskType,
+          progressive: progressiveSession,
         }),
       );
       return {
-        tools: cached.tools,
+        tools: cachedTools,
         writePolicy: cached.writePolicy || writePolicyFromComposerMode(composerMode),
         roots: mergedRoots,
         mode: composerMode,
@@ -509,6 +553,7 @@ export async function loadOrBootstrapSessionContext(env, opts) {
     }
     if (
       (missingCfList ||
+        missingSearchTools ||
         missingWebSearch ||
         missingSupabaseRead ||
         missingSupabaseWrite ||
@@ -520,6 +565,7 @@ export async function loadOrBootstrapSessionContext(env, opts) {
     ) {
       const missing = [
         missingCfList ? 'agentsam_cf_d1_list' : null,
+        missingSearchTools ? 'agentsam_search_tools' : null,
         missingWebSearch ? 'search_web' : null,
         missingSupabaseRead ? 'agentsam_supabase_query' : null,
         missingSupabaseWrite ? 'agentsam_supabase_write' : null,
@@ -553,7 +599,26 @@ export async function loadOrBootstrapSessionContext(env, opts) {
 
   const resolvedProfile = await loadToolProfileForMode(env?.DB, profileTaskType);
   const loaded = await loadOauthVisibleToolsForSession(env, profileTaskType, resolvedProfile);
-  const tools = Array.isArray(loaded?.tools) ? loaded.tools : [];
+  let tools = Array.isArray(loaded?.tools) ? loaded.tools : [];
+  let progressiveBootstrap = false;
+  try {
+    const { applyProgressiveCoreCompile, modeUsesProgressiveToolDiscovery } = await import(
+      './progressive-tool-discovery.js'
+    );
+    if (modeUsesProgressiveToolDiscovery(composerMode) && env?.DB) {
+      const prog = await applyProgressiveCoreCompile(env, {
+        mode: composerMode,
+        compiledToolRows: tools,
+        toolAllowlist: tools.map((t) => String(t?.name || t?.tool_name || '').trim()).filter(Boolean),
+      });
+      if (prog.progressive) {
+        progressiveBootstrap = true;
+        tools = prog.compiledToolRows;
+      }
+    }
+  } catch (e) {
+    console.warn('[agent-session-context] progressive_bootstrap', e?.message ?? e);
+  }
   const writePolicy = {
     ...writePolicyFromComposerMode(composerMode),
     ...(loaded?.write_policy || {}),
@@ -564,6 +629,7 @@ export async function loadOrBootstrapSessionContext(env, opts) {
     profile_task_type: profileTaskType,
     profile_key: loaded?.profile_key || null,
     profile_revision: loaded?.profile_revision || null,
+    ...(progressiveBootstrap ? { progressive_tool_discovery: true } : {}),
   };
   if (stub) {
     await doSetSessionContext(stub, tools, writePolicy, rootsWithMode).catch((e) => {
@@ -579,6 +645,7 @@ export async function loadOrBootstrapSessionContext(env, opts) {
       profile_task_type: profileTaskType,
       profile_key: loaded?.profile_key || null,
       fsa_root: roots.fsa_root === true,
+      progressive: progressiveBootstrap,
     }),
   );
   return {
@@ -613,6 +680,9 @@ export function buildSessionRuntimeProfile(p) {
   const allowlist = tools.map((t) => String(t?.name || t?.tool_name || '').trim()).filter(Boolean);
   const profileTaskType = String(p.profileTaskType || mode).trim() || mode;
   const profileKey = String(p.profileKey || '').trim() || null;
+  const progressive =
+    p.progressive === true ||
+    ['agent', 'debug', 'multitask'].includes(mode);
   return {
     profile_id: profileKey ? `session@${profileKey}` : `session@${mode}`,
     mode,
@@ -626,7 +696,8 @@ export function buildSessionRuntimeProfile(p) {
     write_policy: p.writePolicy || writePolicyFromComposerMode(mode),
     tool_allowlist: allowlist,
     tool_denylist: [],
-    tool_policy: { allowlist, denylist: [] },
+    // Progressive: empty allowlist (option a) — write_policy is the mutate gate.
+    tool_policy: { allowlist: progressive ? [] : allowlist, denylist: [] },
     max_tools: Math.max(allowlist.length, 1),
     max_tool_calls: 32,
     max_turns: 12,
@@ -634,12 +705,14 @@ export function buildSessionRuntimeProfile(p) {
     tool_capable_required: allowlist.length > 0,
     context_policy: { include_rag: false, include_memory: false },
     _compiled_tool_rows: tools,
+    _progressive_tool_discovery: progressive,
     source: {
       compile_lane: 'session_context',
       session_scoped: true,
       profile_key: profileKey,
       profile_task_type: profileTaskType,
       route_key: String(p.routeKey || '').trim() || null,
+      progressive_tool_discovery: progressive,
     },
     color: mode === 'ask' ? 'green' : mode === 'plan' ? 'blue' : 'purple',
   };

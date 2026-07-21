@@ -247,6 +247,7 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     profileTaskType: sessionCtx.profile_task_type || null,
     profileKey: sessionCtx.profile_key || sessionCtx.roots?.profile_key || null,
     routeKey: sessionCtx.roots?.route_key || body.route_key || body.routeKey || null,
+    progressive: sessionCtx.roots?.progressive_tool_discovery === true,
   });
   profile._session_roots = sessionCtx.roots;
   profile._fsa_root = sessionCtx.roots?.fsa_root === true;
