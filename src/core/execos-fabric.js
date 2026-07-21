@@ -31,7 +31,10 @@ export async function resolveCadExecRepoRoot(env, ctx = {}) {
 
   const explicit = trim(env?.EXECOS_CAD_CWD) || trim(env?.OPERATOR_TERMINAL_CWD);
   if (explicit) {
-    const repoRoot = target === 'gcp' ? gcpRemoteExecCwd() : explicit;
+    const repoRoot =
+      target === 'gcp'
+        ? gcpRemoteExecCwd(null, { allowOperatorFallback: true })
+        : explicit;
     return { repoRoot, source: 'env', strategy: 'explicit' };
   }
 
@@ -40,7 +43,11 @@ export async function resolveCadExecRepoRoot(env, ctx = {}) {
     : false;
 
   if (target === 'gcp') {
-    return { repoRoot: gcpRemoteExecCwd(), source: 'execos_home', strategy: 'gcp_stateless' };
+    return {
+      repoRoot: gcpRemoteExecCwd(null, { allowOperatorFallback: true }),
+      source: 'execos_home',
+      strategy: 'gcp_stateless',
+    };
   }
 
   if (isOperator) {
@@ -65,7 +72,7 @@ export function resolveCadExecCwd(env, hints = {}) {
   if (fromHint) return fromHint;
   const explicit = trim(env?.EXECOS_CAD_CWD) || trim(env?.OPERATOR_TERMINAL_CWD);
   if (explicit) return explicit;
-  return gcpRemoteExecCwd();
+  return gcpRemoteExecCwd(null, { allowOperatorFallback: true });
 }
 
 /**

@@ -107,12 +107,7 @@ export function wrapWorkspaceShellCommand(settingsJson, command, opts = {}) {
   const gcpExec = opts.gcpExec === true;
   if (/^\s*cd\s+/i.test(cmd)) {
     if (gcpExec) {
-      const vmRoot = String(parsed.vm_workspace_root || parsed.repo?.vm_path || '').trim();
-      const root =
-        vmRoot ||
-        (!opts.workspaceId || opts.workspaceId === 'ws_inneranimalmedia'
-          ? '/home/samprimeaux/inneranimalmedia'
-          : '');
+      const root = String(parsed.vm_workspace_root || parsed.repo?.vm_path || '').trim();
       if (!root) return cmd;
       return rewriteMacCdPrefix(cmd, root);
     }
@@ -120,12 +115,7 @@ export function wrapWorkspaceShellCommand(settingsJson, command, opts = {}) {
   }
 
   if (gcpExec) {
-    const vmRoot = String(parsed.vm_workspace_root || parsed.repo?.vm_path || '').trim();
-    const root =
-      vmRoot ||
-      (!opts.workspaceId || opts.workspaceId === 'ws_inneranimalmedia'
-        ? '/home/samprimeaux/inneranimalmedia'
-        : '');
+    const root = String(parsed.vm_workspace_root || parsed.repo?.vm_path || '').trim();
     if (!root) return cmd;
     if (cmd.includes(root)) return cmd;
     return `cd ${root} && ${cmd}`;
@@ -2011,10 +2001,8 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         terminalToolPrefersGcpLane(toolKey) ||
         routing.lane === 'gcp_primary' ||
         (remoteTargetId && /gcp|iam_tunnel|platform_vm/i.test(remoteTargetId));
-      const { gcpRemoteExecCwd, IAM_GCP_OPERATOR_REPO } = await import('./host-workspace-paths.js');
-      const gcpRoot = gcpExec
-        ? gcpRemoteExecCwd(parsedSettings, { workspaceId })
-        : null;
+      const { gcpRemoteExecCwd } = await import('./host-workspace-paths.js');
+      const gcpRoot = gcpExec ? gcpRemoteExecCwd(parsedSettings) : null;
       if (gcpExec && !gcpRoot) {
         result = {
           ok: false,
@@ -2027,7 +2015,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         };
         break;
       }
-      const responseWorkspaceRoot = gcpExec ? gcpRoot || IAM_GCP_OPERATOR_REPO : workspaceRoot;
+      const responseWorkspaceRoot = gcpExec ? gcpRoot : workspaceRoot;
 
       const { executeTerminalCatalogWithFallback } = await import('./terminal-exec-fallback.js');
       result = await executeTerminalCatalogWithFallback(env, {

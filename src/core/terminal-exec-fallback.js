@@ -35,8 +35,7 @@ function wrapWorkspaceShellCommand(settingsJson, command, opts = {}) {
   if (/^\s*cd\s+/i.test(cmd)) {
     if (gcpExec) {
       const vmRoot = String(parsed.vm_workspace_root || parsed.repo?.vm_path || '').trim();
-      const root =
-        vmRoot || gcpRemoteExecCwd(parsed, { workspaceId: opts.workspaceId });
+      const root = vmRoot || gcpRemoteExecCwd(parsed);
       if (!root) return cmd;
       return rewriteMacCdPrefix(cmd, root);
     }
@@ -45,8 +44,7 @@ function wrapWorkspaceShellCommand(settingsJson, command, opts = {}) {
 
   if (gcpExec) {
     const vmRoot = String(parsed.vm_workspace_root || parsed.repo?.vm_path || '').trim();
-    const root =
-      vmRoot || gcpRemoteExecCwd(parsed, { workspaceId: opts.workspaceId });
+    const root = vmRoot || gcpRemoteExecCwd(parsed);
     if (!root) return cmd;
     if (cmd.includes(root)) return cmd;
     return `cd ${root} && ${cmd}`;
@@ -161,7 +159,7 @@ export function buildCommandForTerminalLane(rawCommand, laneToolKey, opts = {}) 
         workspaceId: opts.workspaceId,
       });
     }
-    const vmRoot = gcpRemoteExecCwd(parsedSettings, { workspaceId: opts.workspaceId });
+    const vmRoot = gcpRemoteExecCwd(parsedSettings);
     if (!vmRoot) return cmd;
     if (!cmd.includes(vmRoot)) {
       return `cd ${vmRoot} && ${cmd}`;

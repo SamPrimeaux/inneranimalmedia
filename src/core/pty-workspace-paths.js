@@ -143,7 +143,7 @@ export async function resolveTerminalCwd(env, { connection = null, tenantId, use
   }
 
   if (forceGcp) {
-    return { cwd: gcpRemoteExecCwd(settings), strategy: 'gcp_operator_repo' };
+    return { cwd: gcpRemoteExecCwd(settings), strategy: 'gcp_vm_workspace_root' };
   }
 
   if (wid) {
