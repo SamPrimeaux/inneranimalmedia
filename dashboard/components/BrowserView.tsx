@@ -1989,6 +1989,11 @@ const BrowserPane: React.FC<PaneProps> = ({
 
   const openDevTools = useCallback(() => {
     void (async () => {
+      // Leave pick/annotate overlays so the panel isn't fighting the viewport.
+      setMode('browse');
+      setPickerCrossOrigin(false);
+      setPickerHighlight(null);
+      void teardownPickerScript();
       if (!devToolsOpen) {
         await loadRegistryPickersIfNeeded();
         const u = currentUrlRef.current?.trim();
@@ -1999,7 +2004,7 @@ const BrowserPane: React.FC<PaneProps> = ({
       }
       setDevToolsOpen(false);
     })();
-  }, [devToolsOpen, loadRegistryPickersIfNeeded, syncPickerViewport]);
+  }, [devToolsOpen, loadRegistryPickersIfNeeded, syncPickerViewport, teardownPickerScript]);
 
   // ── Close menu on outside click ─────────────────────────────────────────────
   useEffect(() => {
@@ -2733,16 +2738,18 @@ const BrowserPane: React.FC<PaneProps> = ({
       setDesignModeOn(on);
       designModeOnRef.current = on;
       if (on) {
-        setMode('picker');
-        void loadRegistryPickersIfNeeded();
+        // Arm kit for Agent — do NOT trap viewport in picker. Pick is opt-in.
+        setMode('browse');
+        void teardownPickerScript();
         publishDesignModeSurface({ active: true });
-        setToastMsg('Design Mode on — pick elements (stay in Agent). Cmd+Shift+D to exit.');
+        setToastMsg('Design Mode armed — Agent kit auto. Use picker to inspect; Esc to browse.');
       } else {
         setMode('browse');
         setDesignSelections([]);
         designSelectionsRef.current = [];
         setAnnotateStrokes([]);
         setAnnotateFrame(null);
+        void teardownPickerScript();
         publishDesignModeSurface({
           active: false,
           selected_elements: [],
@@ -2750,9 +2757,9 @@ const BrowserPane: React.FC<PaneProps> = ({
         });
         setToastMsg('Design Mode off');
       }
-      window.setTimeout(() => setToastMsg(null), 2800);
+      window.setTimeout(() => setToastMsg(null), 3200);
     },
-    [loadRegistryPickersIfNeeded, publishDesignModeSurface],
+    [publishDesignModeSurface, teardownPickerScript],
   );
 
   const toggleDesignMode = useCallback(() => {
@@ -2761,15 +2768,26 @@ const BrowserPane: React.FC<PaneProps> = ({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || String(e.key).toLowerCase() !== 'd') return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      e.preventDefault();
-      toggleDesignMode();
+      // Cmd+Shift+D — toggle Design Mode arming
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && String(e.key).toLowerCase() === 'd') {
+        e.preventDefault();
+        toggleDesignMode();
+        return;
+      }
+      // Esc — leave picker/annotate so page + DevTools are clickable again (keep Design Mode armed)
+      if (e.key === 'Escape' && (mode === 'picker' || mode === 'annotate' || mode === 'area')) {
+        e.preventDefault();
+        setMode('browse');
+        void teardownPickerScript();
+        setPickerCrossOrigin(false);
+        setPickerHighlight(null);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [toggleDesignMode]);
+  }, [toggleDesignMode, mode, teardownPickerScript]);
 
   const startAnnotateMode = useCallback(async () => {
     if (!designModeOnRef.current) setDesignMode(true);
@@ -2856,16 +2874,26 @@ const BrowserPane: React.FC<PaneProps> = ({
           onClick={() => toggleDesignMode()}
         />
 
-        {/* Element Picker */}
+        {/* Element Picker — opt-in; does not stay forced when Design Mode is armed */}
         <ToolBtn
           icon={<MousePointer2 size={12} strokeWidth={1.75} />}
-          title={designModeOn ? 'Pick elements (Design Mode)' : 'Element picker — hover to highlight, click to inspect'}
-          active={mode === 'picker' || designModeOn}
+          title={
+            designModeOn
+              ? mode === 'picker'
+                ? 'Exit pick (Esc) — keep Design Mode armed'
+                : 'Pick elements for Agent (Design Mode armed)'
+              : 'Element picker — hover to highlight, click to inspect'
+          }
+          active={mode === 'picker'}
           onClick={() => {
-            if (designModeOn) {
-              setMode('picker');
+            if (mode === 'picker') {
+              setMode('browse');
+              void teardownPickerScript();
+              setPickerCrossOrigin(false);
+              setPickerHighlight(null);
               return;
             }
+            void loadRegistryPickersIfNeeded();
             toggleMode('picker');
           }}
         />
@@ -3382,7 +3410,8 @@ const BrowserPane: React.FC<PaneProps> = ({
                   <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
                     <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--color-primary)] text-white text-[10px] font-semibold shadow-lg">
                       <MousePointer2 size={10} />
-                      Hover to highlight — click to inspect
+                      Pick mode — Esc to browse
+                      {designModeOn ? ' · Design Mode stays armed' : ''}
                     </div>
                   </div>
                 )}

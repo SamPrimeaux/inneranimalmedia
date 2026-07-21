@@ -27,9 +27,12 @@ Plus `selected_element` / `selected_elements` / `design_mode_active` for older r
 
 | Action | Behavior |
 |--------|----------|
-| Pick element | Stays in Design Mode; multi-select chips; `@browser:…` in composer |
+| Cmd+Shift+D | Arm / disarm Design Mode (Agent kit auto). Does **not** trap clicks. |
+| Picker tool | Opt-in inspect overlay. Esc or click picker again → browse again. |
+| Pick element | Multi-select chips; `@browser:…` in composer |
 | Option+click | Silent attach (no input chip) |
 | Annotate | Frozen viewport + freehand strokes → `annotation` |
+| DevTools / Esc | Exits pick overlay so page is clickable; Design Mode stays armed |
 | Area screenshot | Existing area mode (menu) |
 
 ## Not this feature
