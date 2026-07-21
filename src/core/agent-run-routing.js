@@ -599,7 +599,9 @@ export async function finalizeRunningAgentRunsForConversation(env, p) {
 }
 
 /**
- * Finalize a row created by {@link scheduleAgentsamChatAgentRunStart} (`runId`), or legacy one-shot INSERT when `runId` is omitted.
+ * Write a terminal status for a chat agent run (completed / failed / cancelled).
+ * Prefer awaiting this inside an existing `ctx.waitUntil` task so the D1 write
+ * cannot be dropped by nested waitUntil + isolate teardown races.
  *
  * @param {any} env
  * @param {any} ctx
@@ -631,18 +633,16 @@ export async function finalizeRunningAgentRunsForConversation(env, p) {
  *   parent_run_id?: string | null,
  * }} p
  */
-export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
-  if (!env?.DB || !ctx?.waitUntil) return;
+export async function finalizeAgentsamChatAgentRun(env, ctx, p) {
+  if (!env?.DB) return;
   const uid = p.userId != null ? String(p.userId).trim() : '';
   const ws = p.workspaceId != null ? String(p.workspaceId).trim() : '';
   if (!uid || !ws) return;
 
   const runId = p.runId != null && String(p.runId).trim() !== '' ? String(p.runId).trim() : '';
 
-  ctx.waitUntil(
-    (async () => {
-      const cols = await pragmaTableInfo(env.DB, 'agentsam_agent_run');
-      if (!cols.size) return;
+  const cols = await pragmaTableInfo(env.DB, 'agentsam_agent_run');
+  if (!cols.size) return;
 
       const tin = Math.max(0, Math.floor(Number(p.inputTokens) || 0));
       const tout = Math.max(0, Math.floor(Number(p.outputTokens) || 0));
@@ -941,6 +941,24 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
       } catch (e) {
         console.warn('[agentsam_agent_run] chat insert', e?.message ?? e);
       }
-    })(),
+}
+
+/**
+ * Finalize a row created by {@link scheduleAgentsamChatAgentRunStart} (`runId`), or legacy one-shot INSERT when `runId` is omitted.
+ * Fire-and-forget via `ctx.waitUntil`. Prefer {@link finalizeAgentsamChatAgentRun} when already inside a waitUntil task.
+ *
+ * @param {any} env
+ * @param {any} ctx
+ * @param {Parameters<typeof finalizeAgentsamChatAgentRun>[2]} p
+ */
+export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
+  if (!env?.DB || !ctx?.waitUntil) return;
+  const uid = p.userId != null ? String(p.userId).trim() : '';
+  const ws = p.workspaceId != null ? String(p.workspaceId).trim() : '';
+  if (!uid || !ws) return;
+  ctx.waitUntil(
+    finalizeAgentsamChatAgentRun(env, ctx, p).catch((e) =>
+      console.warn('[agentsam_agent_run] chat finalize schedule', e?.message ?? e),
+    ),
   );
 }

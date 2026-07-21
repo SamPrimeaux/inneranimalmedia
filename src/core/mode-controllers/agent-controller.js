@@ -1,6 +1,6 @@
 import { jsonResponse } from '../responses.js';
 import { loadAgentSamUserPolicy } from '../agent-policy.js';
-import { newChatAgentRunId, scheduleAgentsamChatAgentRunStart, scheduleAgentsamChatAgentRunInsert } from '../agent-run-routing.js';
+import { newChatAgentRunId, scheduleAgentsamChatAgentRunStart, finalizeAgentsamChatAgentRun } from '../agent-run-routing.js';
 import { fetchModelCostUsd } from '../agent-model-resolver.js';
 import { processWorkspaceSpendAlertsAfterUsage } from '../workspace-spend-guard.js';
 import { fireAgentHooks } from '../hook-dispatcher.js';
@@ -982,83 +982,92 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         if (reqSignal && onRequestAbort) {
           reqSignal.removeEventListener('abort', onRequestAbort);
         }
-        await closeStream();
-        const finalizeAccounting = async () => {
-          if (!chatAgentRunId || !userId || !workspaceId) return;
-          const cancelled = loopStats?.cancelled === true || clientAborted;
-          const timedOut = loopStats?.timedOut === true;
-          const inputTokens = Math.max(0, Math.floor(Number(loopStats?.totalUsage?.input_tokens) || 0));
-          const outputTokens = Math.max(
-            0,
-            Math.floor(Number(loopStats?.totalUsage?.output_tokens) || 0),
-          );
-          const cacheReadTokens = Math.max(
-            0,
-            Math.floor(Number(loopStats?.totalUsage?.cache_read_input_tokens) || 0),
-          );
-          const mk = loopStats?.modelKey || profile.model_key;
-          const costUsd =
-            inputTokens > 0 || outputTokens > 0
-              ? await fetchModelCostUsd(env, mk, inputTokens, outputTokens, cacheReadTokens)
-              : 0;
-          const finalSuccess = Boolean(loopStats) && !cancelled && !timedOut;
-          const errorMessage = cancelled
-            ? 'agent_run_cancelled'
-            : timedOut
-              ? 'agent_run_timeout'
-              : loopStats == null
-                ? 'agent_spine_error'
-                : null;
+        // Register terminal-status write BEFORE awaiting SSE close.
+        // A hung writer.close() previously blocked finalize forever → runs sat in
+        // status='running' until the 35min cron sweeper mislabeled them as failed.
+        const accountingTask = (async () => {
+          try {
+            // Only finalize rows that were actually started. Early vision/quickstart/
+            // thread-slash returns never call scheduleAgentsamChatAgentRunStart.
+            if (!chatAgentRunId || !userId || !workspaceId || !agentRunStartPromise) return;
+            const cancelled = loopStats?.cancelled === true || clientAborted;
+            const timedOut = loopStats?.timedOut === true;
+            const inputTokens = Math.max(0, Math.floor(Number(loopStats?.totalUsage?.input_tokens) || 0));
+            const outputTokens = Math.max(
+              0,
+              Math.floor(Number(loopStats?.totalUsage?.output_tokens) || 0),
+            );
+            const cacheReadTokens = Math.max(
+              0,
+              Math.floor(Number(loopStats?.totalUsage?.cache_read_input_tokens) || 0),
+            );
+            const mk = loopStats?.modelKey || profile.model_key;
+            const costUsd =
+              inputTokens > 0 || outputTokens > 0
+                ? await fetchModelCostUsd(env, mk, inputTokens, outputTokens, cacheReadTokens)
+                : 0;
+            const finalSuccess = Boolean(loopStats) && !cancelled && !timedOut;
+            const errorMessage = cancelled
+              ? 'agent_run_cancelled'
+              : timedOut
+                ? 'agent_run_timeout'
+                : loopStats == null
+                  ? 'agent_spine_error'
+                  : null;
 
-          const finalizePayload = {
-            runId: chatAgentRunId,
-            userId,
-            tenantId,
-            workspaceId,
-            conversationId: sessionId ? String(sessionId) : null,
-            routingArmId: profile.routing_arm_id,
-            modelKey: mk,
-            taskType: profile.routing_task_type,
-            mode: profile.mode,
-            routeKey: profile.refined_route_key,
-            success: finalSuccess,
-            cancelled,
-            inputTokens,
-            outputTokens,
-            costUsd,
-            durationMs: Date.now() - chatT0,
-            errorMessage,
-            workflowRunId: loopStats?.workflowRunId ?? null,
-            chainRootId: loopStats?.chainRootId ?? null,
-            timedOut,
-            fallbackUsed: false,
-            fallbackReason: null,
-            modelsTried: mk ? [mk] : [],
-            quickstartBatch: quickstartBatch || null,
-          };
-          if (agentRunStartPromise) {
             await agentRunStartPromise.catch(() => {});
-          }
-          scheduleAgentsamChatAgentRunInsert(env, ctx, finalizePayload);
-
-          const isSuperadmin =
-            sessionAuthUser?.role === 'superadmin' ||
-            sessionAuthUser?.is_superadmin === true ||
-            sessionAuthUser?.is_superadmin === 1;
-          if (inputTokens > 0 || outputTokens > 0 || costUsd > 0) {
-            await processWorkspaceSpendAlertsAfterUsage(env, ctx, {
+            // Await the D1 write inside this waitUntil task (do not nest another waitUntil).
+            await finalizeAgentsamChatAgentRun(env, ctx, {
+              runId: chatAgentRunId,
+              userId,
               tenantId,
               workspaceId,
-              userId,
-              sessionId: sessionId ? String(sessionId) : null,
-              isSuperadmin,
+              conversationId: sessionId ? String(sessionId) : null,
+              routingArmId: profile.routing_arm_id,
+              modelKey: mk,
+              taskType: profile.routing_task_type,
+              mode: profile.mode,
+              routeKey: profile.refined_route_key,
+              success: finalSuccess,
+              cancelled,
+              inputTokens,
+              outputTokens,
+              costUsd,
+              durationMs: Date.now() - chatT0,
+              errorMessage,
+              workflowRunId: loopStats?.workflowRunId ?? null,
+              chainRootId: loopStats?.chainRootId ?? null,
+              timedOut,
+              fallbackUsed: false,
+              fallbackReason: null,
+              modelsTried: mk ? [mk] : [],
+              quickstartBatch: quickstartBatch || null,
             });
+
+            const isSuperadmin =
+              sessionAuthUser?.role === 'superadmin' ||
+              sessionAuthUser?.is_superadmin === true ||
+              sessionAuthUser?.is_superadmin === 1;
+            if (inputTokens > 0 || outputTokens > 0 || costUsd > 0) {
+              await processWorkspaceSpendAlertsAfterUsage(env, ctx, {
+                tenantId,
+                workspaceId,
+                userId,
+                sessionId: sessionId ? String(sessionId) : null,
+                isSuperadmin,
+              });
+            }
+          } catch (e) {
+            console.warn('[agent-controller] finalize_accounting', e?.message ?? e);
           }
-        };
-        const accountingTask = finalizeAccounting().catch((e) =>
-          console.warn('[agent-controller] finalize_accounting', e?.message ?? e),
-        );
+        })();
         if (ctx?.waitUntil) ctx.waitUntil(accountingTask);
+        else void accountingTask;
+
+        await Promise.race([
+          closeStream().catch(() => {}),
+          new Promise((resolve) => setTimeout(resolve, 2500)),
+        ]);
       }
   })();
     } catch (setupErr) {
