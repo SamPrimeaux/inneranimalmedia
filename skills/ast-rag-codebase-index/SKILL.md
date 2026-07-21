@@ -32,14 +32,18 @@ Embeddings: OpenAI `text-embedding-3-large` @ 1536-d. **Not** Cloudflare Vectori
 - GCP `iam-tunnel`: `sudo -u agentsam bash -lc 'cd /home/samprimeaux/inneranimalmedia && …'` (env file is `chmod 600` agentsam)
 
 ```bash
-# Refresh after meaningful code land (platform)
-python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk all --commit --resume
-python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 0
-python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 1
-python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 2 --commit
-python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 3 --commit   # optional hydrate
-python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 4 --query 'your intent'
+# Refresh after meaningful code land (platform) — explicit target required
+python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk all --target platform --commit --resume
+python3 scripts/ast_rag_phase2_embed_symbols.py --chunk all --target platform --commit
+# or stepwise:
+python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 0 --target platform
+python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 1 --target platform
+python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 2 --commit --target platform
+python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 3 --commit --target platform   # optional hydrate
+python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 4 --query 'your intent' --target platform
 ```
+
+Bare `--chunk all` **refuses** without `--target platform` or customer `--workspace-id` / `--single-repo` (safety rail — no accidental dual-repo walk).
 
 Single-repo refresh: `--repo SamPrimeaux/inneranimalmedia-mcp-server` on Phase 2; Phase 1 `--repo-filter` / `--main-repo` / `--mcp-repo` paths.
 

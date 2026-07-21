@@ -54,16 +54,48 @@ export async function loadLatestCodeIndexJob(env, workspaceId) {
   const ws = trim(workspaceId);
   if (!env?.DB || !ws) return null;
   try {
+    // Prefer the canonical workspace job row over abandoned experimental jobs
+    // (e.g. cidx_src_reindex_v1 failed_partial) that can otherwise win ORDER BY updated_at.
+    const canonicalId = `cidx_${ws}`;
+    const canonical = await env.DB.prepare(
+      `SELECT id, status, triggered_by, last_sync_at, started_at, finished_at, completed_at, updated_at,
+              last_error, file_count, indexed_file_count, failed_file_count, progress_percent, repo_full_name
+         FROM agentsam_code_index_job
+        WHERE id = ? AND workspace_id = ?
+        LIMIT 1`,
+    )
+      .bind(canonicalId, ws)
+      .first()
+      .catch(() => null);
+    if (canonical) return canonical;
+
     const row = await env.DB.prepare(
-      `SELECT id, status, triggered_by, last_sync_at, started_at, finished_at, updated_at, last_error
+      `SELECT id, status, triggered_by, last_sync_at, started_at, finished_at, completed_at, updated_at,
+              last_error, file_count, indexed_file_count, failed_file_count, progress_percent, repo_full_name
          FROM agentsam_code_index_job
         WHERE workspace_id = ?
-        ORDER BY COALESCE(updated_at, finished_at, started_at) DESC
+          AND id NOT LIKE 'cidx_src_%'
+          AND COALESCE(status, '') NOT IN ('failed_partial', 'abandoned')
+        ORDER BY COALESCE(updated_at, finished_at, completed_at, started_at) DESC
         LIMIT 1`,
     )
       .bind(ws)
       .first();
-    return row || null;
+    if (row) return row;
+
+    // Last resort: any row for the workspace (including experimental), still live D1 — not synthetic.
+    return (
+      (await env.DB.prepare(
+        `SELECT id, status, triggered_by, last_sync_at, started_at, finished_at, completed_at, updated_at,
+                last_error, file_count, indexed_file_count, failed_file_count, progress_percent, repo_full_name
+           FROM agentsam_code_index_job
+          WHERE workspace_id = ?
+          ORDER BY COALESCE(updated_at, finished_at, completed_at, started_at) DESC
+          LIMIT 1`,
+      )
+        .bind(ws)
+        .first()) || null
+    );
   } catch (e) {
     console.warn('[workspace-code-index-status] code_index_job', e?.message ?? e);
     return null;
@@ -153,7 +185,9 @@ export async function getWorkspaceCodeIndexStatus(env, workspaceId) {
     },
     ast,
     notes: {
-      refresh_ast: 'Gated on REPAIR-REMOTE-TERMINAL (Phase 2) — button not shipped yet.',
+      refresh_ast:
+        'AST Phase 1/2 is CLI (`ast_rag_phase*_*.py` with --target platform or --workspace-id). ' +
+        'Settings Re-index queues chunk RAG only — not a live PTY gate on that job row.',
       retrieve_latency: 'Pre-edit / tool only — do not use in hot intent classification (~2–3s).',
     },
   };

@@ -343,7 +343,7 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
         </Panel>
       ) : null}
 
-      {/* Code index — Phase 1: stats + chunk reindex only (AST refresh gated on PTY) */}
+      {/* Code index — live AST counts + chunk job; AST refresh is CLI (--target / --workspace-id) */}
       <Panel title="Code index">
         <p className="text-[11px] text-muted -mt-1">
           Chunk RAG + AST graph for Agent Sam. Retrieve is for pre-edit lookups (~2–3s) — not hot intent routing.
@@ -394,9 +394,10 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
               const status = String(job.status || '—');
               const when = job.last_sync_at || job.finished_at || job.completed_at || job.updated_at;
               const err = job.last_error ? String(job.last_error).slice(0, 120) : '';
+              const jobId = job.id ? String(job.id) : '';
               return (
                 <>
-                  Chunk job: <span className="text-main">{status}</span>
+                  Chunk job{jobId ? ` (${jobId})` : ''}: <span className="text-main">{status}</span>
                   {when ? <> · {relativeTime(when as string | number)}</> : null}
                   {err ? <div className="text-[var(--accent-warning)] mt-0.5">{err}</div> : null}
                 </>
@@ -412,7 +413,8 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
           </button>
         </div>
         <p className="text-[10px] text-muted">
-          AST refresh stays off until remote terminal path repair (Phase 2). Job history →{' '}
+          AST refresh is CLI (`--target platform` or per-project `--workspace-id`) — not gated on the chunk job
+          row above. Per-project Re-index UI → project page right rail (planned). Job history →{' '}
           <button
             type="button"
             className="text-[var(--solar-blue)] hover:underline"

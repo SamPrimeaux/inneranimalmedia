@@ -697,9 +697,38 @@ def main() -> int:
         default=None,
         help="Supabase agentsam workspace UUID for symbol upsert (companions: e57c3f65-…)",
     )
+    ap.add_argument(
+        "--target",
+        choices=["platform"],
+        default=None,
+        help="Required with --chunk all unless --workspace-id + --workspace-uuid (or --repo) are set. "
+        "Use --target platform for IAM default workspace UUID.",
+    )
     args = ap.parse_args()
 
     global WORKSPACE_ID, WORKSPACE_UUID
+
+    chunk_raw = str(args.chunk)
+    wants_full_pipeline = chunk_raw in ("all",)
+    has_explicit_target = bool(
+        args.target
+        or (args.workspace_id and str(args.workspace_id).strip())
+        or (args.workspace_uuid and str(args.workspace_uuid).strip())
+        or (args.repo and len(args.repo) > 0)
+    )
+    if wants_full_pipeline and not has_explicit_target:
+        print(
+            "ERROR: Refusing bare --chunk all without an explicit target.\n"
+            "  Platform:  --chunk all --target platform [--commit]\n"
+            "  Customer:  --chunk all --workspace-id ws_… --workspace-uuid <uuid> "
+            "[--repo Owner/name] [--commit]",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.target == "platform":
+        WORKSPACE_ID = "ws_inneranimalmedia"
+        WORKSPACE_UUID = "fa1f12a8-c841-4b79-a26c-d53a78b17dac"
     if args.workspace_id:
         WORKSPACE_ID = str(args.workspace_id).strip()
     if args.workspace_uuid:

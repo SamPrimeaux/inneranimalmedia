@@ -16,12 +16,12 @@ Chunks (run one at a time to save Cursor):
 Usage:
   cd /Users/samprimeaux/inneranimalmedia
   python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk 0
-  python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk 1
+  python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk 1 --target platform
   python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk 2
-  python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk 3            # dry-run
-  python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk 3 --commit   # full replace write
-  python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk 3 --commit --resume  # after timeout
-  python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk all
+  python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk 3 --target platform --commit
+  python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk all --target platform --commit --resume
+  # Customer: --chunk all --single-repo --workspace-id ws_… --repo-name Owner/name --main-repo /path
+  # Bare --chunk all without --target / --single-repo / --workspace-id is refused.
 
 Artifacts land in artifacts/ast_rag_phase1/
 """
@@ -994,12 +994,42 @@ def main() -> int:
         action="store_true",
         help="Index only --main-repo as one customer/platform repo (skip MCP dual walk)",
     )
+    ap.add_argument(
+        "--target",
+        choices=["platform"],
+        default=None,
+        help="Required with --chunk all unless --single-repo / --workspace-id / --repo-filter is set. "
+        "Use --target platform for the IAM dual-repo walk.",
+    )
     args = ap.parse_args()
 
     global WORKSPACE_ID, INDEX_JOB_ID, REPO_SPECS
+
+    chunk_raw = str(args.chunk)
+    wants_full_pipeline = chunk_raw in ("all",)
+    has_explicit_target = bool(
+        args.target
+        or args.single_repo
+        or (args.workspace_id and str(args.workspace_id).strip())
+        or (args.repo_filter and len(args.repo_filter) > 0)
+    )
+    if wants_full_pipeline and not has_explicit_target:
+        fail(
+            "Refusing bare --chunk all without an explicit target.\n"
+            "  Platform dual-repo:  --chunk all --target platform [--commit --resume]\n"
+            "  Customer / one repo: --chunk all --single-repo --workspace-id ws_… "
+            "--repo-name Owner/name --main-repo /path/to/clone\n"
+            "  Scoped upsert only: --chunk upsert --repo-filter Owner/name --workspace-id ws_…"
+        )
+        return 2  # noqa: intentional non-zero — safety rail
+
     if args.workspace_id:
         WORKSPACE_ID = str(args.workspace_id).strip()
         INDEX_JOB_ID = f"cidx_{WORKSPACE_ID}"
+    if args.target == "platform":
+        # Keep default REPO_SPECS (inneranimalmedia + mcp) + ws_inneranimalmedia
+        WORKSPACE_ID = "ws_inneranimalmedia"
+        INDEX_JOB_ID = "cidx_ws_inneranimalmedia"
     if args.single_repo:
         repo_name = (args.repo_name or "").strip() or "SamPrimeaux/companionscpas"
         roots = tuple(

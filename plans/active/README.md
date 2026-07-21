@@ -25,6 +25,7 @@ Work **in this order**. Do not parallelize product remasters across these.
 | [CLOSED-LOOP-AUTO-COMPACT-MEMORY-2026-07-14.md](./CLOSED-LOOP-AUTO-COMPACT-MEMORY-2026-07-14.md) | `tkt_closed_loop_auto_compact_memory_2026_07_14` | live compact + durable summarize |
 | [COMPANIONS-CPAS-DEMO-HANDOFF-2026-07-20.md](./COMPANIONS-CPAS-DEMO-HANDOFF-2026-07-20.md) | `tkt_companions_cpas_demo_handoff_20260720` | **PAUSED / blocked** — site live; resume only after Lori written request form |
 | [COMPANIONS-CPAS-OPS-SURFACE-V2-2026-07-20.md](./COMPANIONS-CPAS-OPS-SURFACE-V2-2026-07-20.md) | `tkt_companions_cpas_ops_surface_v2` | **PAUSED / blocked** — calendar+reminders, events feed, video standards, foster paths (await written request) |
+| [COMPANIONS-CONTEXT-AST-RAG-2026-07-21.md](./COMPANIONS-CONTEXT-AST-RAG-2026-07-21.md) | `tkt_companions_activerepo_lock_20260721` · `tkt_companions_ast_rag_index_20260721` · `tkt_project_codebase_index_rail_20260721` | **Companions compartment** — activeRepo lock, AST-RAG index, project-page Codebase Index rail (not platform remaster) |
 
 ## Verification law (LOCKED — dual-pass E2E)
 
