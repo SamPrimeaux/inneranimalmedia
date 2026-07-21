@@ -76,7 +76,7 @@ export async function handleOpenAiWebhook(request, env, ctx) {
   }
 
   const eventType = String(payload?.type || 'unknown').trim();
-  await ingestWebhookEventAndDispatch(env, ctx, {
+  const ingested = await ingestWebhookEventAndDispatch(env, ctx, {
     tenantId: null,
     workspaceId: null,
     provider: 'openai',
@@ -87,5 +87,27 @@ export async function handleOpenAiWebhook(request, env, ctx) {
     signatureValid: Boolean(key),
   });
 
-  return jsonResponse({ ok: true });
+  // Phase B: Batch embed reconciliation → agentsam_usage_events (sync embeds do not webhook).
+  const et = eventType.toLowerCase();
+  if (et.startsWith('batch.')) {
+    const run = async () => {
+      try {
+        const { ingestOpenAiBatchEmbedUsageFromWebhook } = await import(
+          '../../core/openai-batch-embed-usage.js'
+        );
+        const out = await ingestOpenAiBatchEmbedUsageFromWebhook(env, ctx, payload, {
+          webhookEventId: ingested?.id ?? null,
+        });
+        if (!out?.skipped) {
+          console.info('[openai-webhook] batch_embed_usage', JSON.stringify(out));
+        }
+      } catch (e) {
+        console.warn('[openai-webhook] batch_embed_usage_failed', e?.message ?? e);
+      }
+    };
+    if (ctx?.waitUntil) ctx.waitUntil(run());
+    else await run();
+  }
+
+  return jsonResponse({ ok: true, webhook_event_id: ingested?.id ?? null });
 }
