@@ -37,7 +37,9 @@ export const AGENT_MODE_CONTRACT = Object.freeze({
   },
   multitask: {
     color: 'cyan',
-    tool_profile: 'parallel',
+    // D1: agentsam_tool_profile_bindings.task_type=multitask → composer_multitask
+    // Cursor-aligned: parent inherits Agent-level tools; RWS children further scope.
+    tool_profile: 'composer_multitask',
     role: 'coordinate / fan-out',
   },
 });
