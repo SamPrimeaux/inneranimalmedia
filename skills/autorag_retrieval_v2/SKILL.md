@@ -74,7 +74,9 @@ Upload: `./scripts/upload-iam-skills-autorag.sh` then optional ingest.
 | `/vectorize-lanes` | `skill_agentsam_vectorize_lanes` | Bindings, ingest, dual-write law |
 | `/ast-rag-index` | `skill_ast_rag_codebase_index` | Phase 1/2 refresh + drift |
 | `/autorag` | `skill_autorag_retrieval` | R2/D1 `autorag` file lookup |
-| `/iam-ship` | `skill_deploy` | Main + MCP ship |
+| `/iam-ship` | `skill_deploy` | Pick main vs MCP (router only) |
+| `/iam-ship-main` | `skill_iam_ship_main` | Main Worker + PWA only |
+| `/iam-ship-mcp` | `skill_iam_ship_mcp` | MCP Worker only |
 
 ---
 
