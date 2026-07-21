@@ -3759,15 +3759,59 @@ export async function handleSettingsRequest(request, env, ctx) {
     const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);
     if (!workspaceId) return jsonResponse({ error: 'workspace_id required' }, 400);
     try {
-      const { queueCodeIndexJobAfterDeploy } = await import('../core/deploy-code-index-queue.js');
-      const queued = await queueCodeIndexJobAfterDeploy(env, {
-        workspaceId,
-        triggeredBy: 'dashboard_reindex',
-      });
-      if (!queued.ok && !queued.skipped) {
-        return jsonResponse({ error: queued.error || 'queue_failed' }, 500);
+      const body = await request.json().catch(() => ({}));
+      const modeRaw = typeof body.mode === 'string' ? body.mode.trim().toLowerCase() : 'ast';
+      const mode = ['ast', 'chunks', 'both'].includes(modeRaw) ? modeRaw : 'ast';
+      const out = { ok: true, workspace_id: workspaceId, mode, chunks: null, ast: null };
+
+      if (mode === 'chunks' || mode === 'both') {
+        const { queueCodeIndexJobAfterDeploy } = await import('../core/deploy-code-index-queue.js');
+        const queued = await queueCodeIndexJobAfterDeploy(env, {
+          workspaceId,
+          triggeredBy: 'dashboard_reindex',
+        });
+        let run = null;
+        if (queued.ok || queued.skipped) {
+          try {
+            const { runPendingCodeIndexJob } = await import('../core/code-indexer.js');
+            run = await runPendingCodeIndexJob(env, { cpuBudgetMs: 15_000 });
+          } catch (e) {
+            run = { ok: false, error: String(e?.message || e) };
+          }
+        }
+        out.chunks = { queued, run };
+        if (!queued.ok && !queued.skipped) {
+          return jsonResponse({ error: queued.error || 'queue_failed', ...out }, 500);
+        }
       }
-      return jsonResponse({ ok: true });
+
+      if (mode === 'ast' || mode === 'both') {
+        const { queueAstSymbolReembed, runAstSymbolReembedJob } = await import(
+          '../core/ast-symbol-reembed.js'
+        );
+        const queued = await queueAstSymbolReembed(env, {
+          workspaceId,
+          triggeredBy: 'dashboard_ast_reindex',
+          userId: authUser?.id != null ? String(authUser.id) : null,
+        });
+        let run = null;
+        if (queued.ok) {
+          run = await runAstSymbolReembedJob(env, workspaceId, {
+            userId: authUser?.id != null ? String(authUser.id) : null,
+            cpuBudgetMs: 18_000,
+            maxNodes: 48,
+          });
+        }
+        out.ast = { queued, run };
+        if (!queued.ok && !queued.skipped) {
+          return jsonResponse({ error: queued.error || 'ast_queue_failed', ...out }, 500);
+        }
+        if (run && run.ok === false) {
+          return jsonResponse({ error: run.error || 'ast_reembed_failed', ...out }, 500);
+        }
+      }
+
+      return jsonResponse(out);
     } catch (e) {
       return jsonResponse({ error: e?.message ?? String(e) }, 500);
     }

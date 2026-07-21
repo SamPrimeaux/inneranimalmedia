@@ -8,7 +8,7 @@ Keep these tickets separate from `tkt_agentsam_spine_e2e_*`, progressive discove
 | `tkt_companions_activerepo_lock_20260721` | Project bindings inject `github_repo`, but `activeRepo` only read chat body — resolution-order bug. Lock from `projectExecutionBindings.githubRepo` + `client_apps.github_repository` fallback. | `in_review` (shipped code `8ca82a66`; dual-pass E2E still open) |
 | `tkt_companions_ast_rag_index_20260721` | Index `SamPrimeaux/companionscpas` under `ws_companionscpas` / UUID `e57c3f65-…` (1187 nodes, 111 edges, 976 symbols). Runtime retrieve maps project workspace → Supabase UUID. | `in_review` (index live; in-app retrieve smoke still open) |
 | `tkt_companions_cms_image_cards_20260721` | Alias / supersede note for CMS card image editor + wishlist cover (`tkt_4232a9831ae74911`). | track via existing CMS ticket |
-| `tkt_project_codebase_index_rail_20260721` | **UX:** Codebase Index card on **project page right rail** (not Settings): last indexed + counts + Re-index with baked `--workspace-id`/`--repo`. | `backlog` |
+| `tkt_project_codebase_index_rail_20260721` | **UX:** Codebase Index card on **project page right rail** (not Settings): last indexed + counts + Re-index with baked `--workspace-id`/`--repo`. | `in_review` (API + rail shipped; dual-pass E2E open) |
 
 ## Safety rail (platform scripts)
 

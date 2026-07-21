@@ -937,6 +937,18 @@ def chunk3_upsert(
         {"inserted_nodes": inserted_n, "inserted_edges": inserted_e, "d1": counts, "resume": resume},
     )
     ok(f"D1 now nodes={counts['nodes']} edges={counts['edges']}")
+    # Keep Settings / project Code Index last_sync honest (AST graph freshness).
+    try:
+        iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        d1_query(
+            "UPDATE agentsam_code_index_job SET last_sync_at = ?, status = 'idle', "
+            "triggered_by = 'ast_rag_phase1', source_type = 'ast_rag', "
+            "updated_at = datetime('now') WHERE id = ?",
+            [iso, INDEX_JOB_ID],
+        )
+        ok(f"stamped {INDEX_JOB_ID} last_sync_at={iso}")
+    except Exception as e:
+        warn(f"stamp last_sync_at failed: {e}")
     print("Chunk 3 commit done")
     return 0
 

@@ -21,7 +21,7 @@ import { fetchConnectTiles, type ConnectTile } from '../../../api/connectTiles';
 import { IntegrationIconTile } from '../components/IntegrationIconTile';
 import { CfStackWizard, CfStackSummary, type CfStackConfig } from './CfStackWizard';
 import { WorkspaceActiveSwitcher } from '../components/WorkspaceActiveSwitcher';
-import { initialsFromDisplayName, relativeTime } from '../settingsUi';
+import { initialsFromDisplayName, relativeTime, formatUsdMaybe } from '../settingsUi';
 
 export type WorkspaceSectionProps = { data: SettingsPanelModel; workspaceId?: string | null };
 
@@ -343,7 +343,7 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
         </Panel>
       ) : null}
 
-      {/* Code index — live AST counts + chunk job; AST refresh is CLI (--target / --workspace-id) */}
+      {/* Code index — live AST counts; Re-Index re-embeds symbols + stamps last_sync */}
       <Panel title="Code index">
         <p className="text-[11px] text-muted -mt-1">
           Chunk RAG + AST graph for Agent Sam. Retrieve is for pre-edit lookups (~2–3s) — not hot intent routing.
@@ -387,34 +387,66 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           <div className="text-[10px] text-muted min-w-0">
             {(() => {
+              const ast = snapshot.codeIndex?.ast as
+                | { last_synced_at?: string | number | null; nodes?: number }
+                | undefined;
               const job =
                 snapshot.codeIndex?.chunkJob ||
                 (data.workspaceData?.indexJob as Record<string, unknown> | undefined);
-              if (!job) return 'No chunk index job yet for this workspace.';
-              const status = String(job.status || '—');
-              const when = job.last_sync_at || job.finished_at || job.completed_at || job.updated_at;
-              const err = job.last_error ? String(job.last_error).slice(0, 120) : '';
-              const jobId = job.id ? String(job.id) : '';
+              const astWhen = ast?.last_synced_at;
+              const jobId = job?.id ? String(job.id) : '';
+              const status = job ? String(job.status || '—') : '—';
+              const cost = snapshot.codeIndex?.embedCost as
+                | { cost_usd_30d?: number; embed_events_30d?: number }
+                | undefined;
+              const err = job?.last_error ? String(job.last_error).slice(0, 120) : '';
               return (
                 <>
-                  Chunk job{jobId ? ` (${jobId})` : ''}: <span className="text-main">{status}</span>
-                  {when ? <> · {relativeTime(when as string | number)}</> : null}
+                  AST last sync:{' '}
+                  <span className="text-main">
+                    {astWhen ? relativeTime(astWhen as string | number) : '—'}
+                  </span>
+                  {jobId ? (
+                    <>
+                      {' '}
+                      · job <span className="text-main">{jobId}</span> ({status})
+                    </>
+                  ) : null}
+                  {cost != null ? (
+                    <>
+                      {' '}
+                      · embed 30d {formatUsdMaybe(Number(cost.cost_usd_30d) || 0)}
+                      {Number(cost.embed_events_30d) > 0
+                        ? ` (${cost.embed_events_30d} events)`
+                        : ''}
+                    </>
+                  ) : null}
                   {err ? <div className="text-[var(--accent-warning)] mt-0.5">{err}</div> : null}
                 </>
               );
             })()}
           </div>
-          <button
-            type="button"
-            onClick={() => void data.postWorkspaceReindex()}
-            className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main shrink-0"
-          >
-            Re-index chunks
-          </button>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => void data.postWorkspaceReindex('ast')}
+              className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main"
+            >
+              Re-Index AST
+            </button>
+            <button
+              type="button"
+              onClick={() => void data.postWorkspaceReindex('chunks')}
+              className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main"
+            >
+              Re-index chunks
+            </button>
+          </div>
         </div>
         <p className="text-[10px] text-muted">
-          AST refresh is CLI (`--target platform` or per-project `--workspace-id`) — not gated on the chunk job
-          row above. Per-project Re-index UI → project page right rail (planned). Job history →{' '}
+          Re-Index AST re-embeds symbols from the live graph and stamps last sync (costs → usage events). Full
+          graph re-walk for new files remains CLI (`--target platform` / `--workspace-id`). Per-project control
+          lives on the project page rail. Job history →{' '}
           <button
             type="button"
             className="text-[var(--solar-blue)] hover:underline"

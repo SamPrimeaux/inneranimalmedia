@@ -55,6 +55,7 @@ export type WorkspaceSnapshot = {
   codeIndex: {
     chunkJob?: Record<string, unknown> | null;
     ast?: Record<string, unknown> | null;
+    embedCost?: Record<string, unknown> | null;
     notes?: Record<string, string> | null;
   } | null;
 };
@@ -173,6 +174,7 @@ export function useWorkspaceSnapshot(workspaceId?: string | null) {
           ? {
               chunkJob: codeIndexRes.chunk_index?.job ?? null,
               ast: codeIndexRes.ast ?? null,
+              embedCost: (codeIndexRes as { embed_cost?: Record<string, unknown> }).embed_cost ?? null,
               notes: codeIndexRes.notes ?? null,
             }
           : null,

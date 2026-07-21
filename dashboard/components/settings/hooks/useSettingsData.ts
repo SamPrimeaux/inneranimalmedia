@@ -1138,11 +1138,16 @@ export function useSettingsData({
     [],
   );
 
-  const postWorkspaceReindex = useCallback(async () => {
+  const postWorkspaceReindex = useCallback(async (mode: 'ast' | 'chunks' | 'both' = 'ast') => {
     try {
       const ws = workspaceId?.trim();
       const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
-      await fetch(`/api/settings/workspace/reindex${qp}`, { method: 'POST', credentials: 'same-origin' });
+      await fetch(`/api/settings/workspace/reindex${qp}`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      });
     } finally {
       void loadWorkspace();
     }

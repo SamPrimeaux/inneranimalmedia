@@ -1643,6 +1643,107 @@ async function handleProjectWorkContext(env, authUser, projectId) {
   });
 }
 
+async function resolveProjectExecutionWorkspace(env, authUser, projectId) {
+  const row = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(projectId).first();
+  if (!row) return { error: 'not_found', status: 404 };
+  if (
+    authUser.tenant_id &&
+    row.tenant_id &&
+    String(row.tenant_id) !== String(authUser.tenant_id) &&
+    !authUser.is_superadmin
+  ) {
+    return { error: 'forbidden', status: 403 };
+  }
+  const bindings = normalizeWorkspaceBindings(await resolveWorkspaceBindings(env, projectId));
+  const executionWorkspaceId =
+    bindings?.workspaceId ||
+    (row.workspace_id != null ? String(row.workspace_id).trim() : null) ||
+    null;
+  if (!executionWorkspaceId) return { error: 'execution_workspace_required', status: 400, row, bindings };
+  return { row, bindings, executionWorkspaceId };
+}
+
+async function handleProjectCodeIndexStatus(env, authUser, projectId) {
+  const resolved = await resolveProjectExecutionWorkspace(env, authUser, projectId);
+  if (resolved.error) return jsonResponse({ ok: false, error: resolved.error }, resolved.status);
+  try {
+    const { getWorkspaceCodeIndexStatus } = await import('./workspace-code-index-status.js');
+    const status = await getWorkspaceCodeIndexStatus(env, resolved.executionWorkspaceId);
+    return jsonResponse({
+      ...status,
+      project_id: String(projectId),
+      github_repo: resolved.bindings?.githubRepo ?? null,
+    });
+  } catch (e) {
+    return jsonResponse({ ok: false, error: e?.message ?? String(e) }, 500);
+  }
+}
+
+async function handleProjectReindex(request, env, authUser, projectId) {
+  const resolved = await resolveProjectExecutionWorkspace(env, authUser, projectId);
+  if (resolved.error) return jsonResponse({ ok: false, error: resolved.error }, resolved.status);
+  const body = await request.json().catch(() => ({}));
+  const modeRaw = typeof body.mode === 'string' ? body.mode.trim().toLowerCase() : 'ast';
+  const mode = ['ast', 'chunks', 'both'].includes(modeRaw) ? modeRaw : 'ast';
+  const workspaceId = resolved.executionWorkspaceId;
+  const out = {
+    ok: true,
+    project_id: String(projectId),
+    workspace_id: workspaceId,
+    mode,
+    chunks: null,
+    ast: null,
+  };
+  try {
+    if (mode === 'chunks' || mode === 'both') {
+      const { queueCodeIndexJobAfterDeploy } = await import('../core/deploy-code-index-queue.js');
+      const queued = await queueCodeIndexJobAfterDeploy(env, {
+        workspaceId,
+        triggeredBy: 'project_dashboard_reindex',
+      });
+      let run = null;
+      if (queued.ok || queued.skipped) {
+        try {
+          const { runPendingCodeIndexJob } = await import('../core/code-indexer.js');
+          run = await runPendingCodeIndexJob(env, { cpuBudgetMs: 15_000 });
+        } catch (e) {
+          run = { ok: false, error: String(e?.message || e) };
+        }
+      }
+      out.chunks = { queued, run };
+    }
+    if (mode === 'ast' || mode === 'both') {
+      const { queueAstSymbolReembed, runAstSymbolReembedJob } = await import(
+        '../core/ast-symbol-reembed.js'
+      );
+      const queued = await queueAstSymbolReembed(env, {
+        workspaceId,
+        triggeredBy: 'project_dashboard_ast_reindex',
+        repoFullName: resolved.bindings?.githubRepo ?? null,
+        userId: authUser?.id != null ? String(authUser.id) : null,
+      });
+      let run = null;
+      if (queued.ok) {
+        run = await runAstSymbolReembedJob(env, workspaceId, {
+          userId: authUser?.id != null ? String(authUser.id) : null,
+          cpuBudgetMs: 18_000,
+          maxNodes: 48,
+        });
+      }
+      out.ast = { queued, run };
+      if (!queued.ok && !queued.skipped) {
+        return jsonResponse({ error: queued.error || 'ast_queue_failed', ...out }, 500);
+      }
+      if (run && run.ok === false) {
+        return jsonResponse({ error: run.error || 'ast_reembed_failed', ...out }, 500);
+      }
+    }
+    return jsonResponse(out);
+  } catch (e) {
+    return jsonResponse({ ok: false, error: e?.message ?? String(e), ...out }, 500);
+  }
+}
+
 async function detectProjectDeleteBlockers(env, projectId) {
   const pid = String(projectId);
   const tables = [
@@ -1891,6 +1992,12 @@ export async function handleProjectsApi(request, url, env, authUser, ctx = null)
   }
   if (seg.length === 2 && seg[1] === 'work-context' && method === 'GET') {
     return handleProjectWorkContext(env, authUser, seg[0]);
+  }
+  if (seg.length === 2 && seg[1] === 'code-index-status' && method === 'GET') {
+    return handleProjectCodeIndexStatus(env, authUser, seg[0]);
+  }
+  if (seg.length === 2 && seg[1] === 'reindex' && method === 'POST') {
+    return handleProjectReindex(request, env, authUser, seg[0]);
   }
   if (seg.length === 2 && seg[1] === 'memory') {
     if (method === 'GET') return handleProjectMemoryGet(env, authUser, seg[0]);

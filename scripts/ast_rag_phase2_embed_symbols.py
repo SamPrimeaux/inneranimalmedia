@@ -440,6 +440,49 @@ def chunk2_embed(*, commit: bool, batch_size: int) -> int:
 
     write_json("chunk2_result.json", {"upserted": upserted, "symbol_table_rows": total})
     ok(f"symbol table rows={total}")
+    # Stamp canonical job + capture embed cost into agentsam_usage_events.
+    try:
+        iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        job_id = f"cidx_{WORKSPACE_ID}"
+        d1_query(
+            "UPDATE agentsam_code_index_job SET last_sync_at = ?, status = 'idle', "
+            "triggered_by = 'ast_rag_phase2', source_type = 'ast_rag', "
+            "symbol_count = ?, updated_at = datetime('now') WHERE id = ?",
+            [iso, int(upserted or 0), job_id],
+        )
+        ok(f"stamped {job_id} last_sync_at={iso}")
+        # Rough token estimate (~4 chars/token) × OpenAI text-embedding-3-large list price.
+        approx_tokens = 0
+        for n in nodes:
+            approx_tokens += max(1, len(str(n.get("embed_text") or "")) // 4)
+        cost_usd = round((approx_tokens / 1_000_000.0) * 0.13, 6)
+        tenant = "tenant_sam_primeaux"
+        if WORKSPACE_ID == "ws_companionscpas":
+            tenant = "tenant_companionscpas"
+        ue_id = f"ue_ast2_{int(time.time())}_{upserted}"
+        d1_query(
+            "INSERT INTO agentsam_usage_events ("
+            "id, tenant_id, workspace_id, provider, model, model_key, "
+            "tokens_in, tokens_out, input_tokens, output_tokens, total_tokens, cost_usd, "
+            "event_type, tool_name, task_type, status, ref_table, ref_id, agent_name, created_at"
+            ") VALUES (?, ?, ?, 'openai', ?, ?, ?, 0, ?, 0, ?, ?, 'embed', 'ast_rag_phase2', "
+            "'ast_rag_phase2', 'ok', 'agentsam_code_index_job', ?, 'agent-sam', unixepoch())",
+            [
+                ue_id,
+                tenant,
+                WORKSPACE_ID,
+                EMBED_MODEL,
+                EMBED_MODEL,
+                approx_tokens,
+                approx_tokens,
+                approx_tokens,
+                cost_usd,
+                job_id,
+            ],
+        )
+        ok(f"usage event {ue_id} tokens≈{approx_tokens} cost_usd≈{cost_usd}")
+    except Exception as e:
+        warn(f"stamp/usage failed: {e}")
     print("Chunk 2 commit done")
     return 0
 

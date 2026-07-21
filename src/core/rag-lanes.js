@@ -66,6 +66,7 @@ const KNOWN_SUPABASE_WORKSPACE_UUIDS = Object.freeze({
   ws_inneranimalmedia: 'fa1f12a8-c841-4b79-a26c-d53a78b17dac',
   ws_connor_mcneely: '105ac2d1-8e61-4cec-80c8-ef2a0902448d',
   ws_meauxbility: '869137d3-cd65-4ac1-88cc-a1bad9844718',
+  ws_companionscpas: 'e57c3f65-d6d9-4a87-8b3d-55cfbdcc8641',
 });
 
 function isSupabaseWorkspaceUuid(value) {

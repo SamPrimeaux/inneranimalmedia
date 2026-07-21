@@ -323,6 +323,26 @@ function SkeletonRow() {
   );
 }
 
+function relativeTimeLabel(input: string | number | null | undefined): string {
+  if (input == null || input === '') return '—';
+  const d =
+    typeof input === 'number'
+      ? new Date(input > 1e12 ? input : input * 1000)
+      : new Date(String(input));
+  const t = d.getTime();
+  if (!Number.isFinite(t)) return '—';
+  const s = Math.round((Date.now() - t) / 1000);
+  const abs = Math.abs(s);
+  if (abs < 60) return `${abs}s ago`;
+  const m = Math.round(abs / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h}h ago`;
+  const days = Math.round(h / 24);
+  if (days < 14) return `${days}d ago`;
+  return `${Math.round(days / 7)}w ago`;
+}
+
 // ─── right panel section ─────────────────────────────────────────────────────
 
 function RailSection({
@@ -464,6 +484,21 @@ export default function ProjectDetailPage() {
   const [storageMenuOpen, setStorageMenuOpen] = useState(false);
   const [storageAdvancedOpen, setStorageAdvancedOpen] = useState(false);
   const [workContextBindings, setWorkContextBindings] = useState<ProjectWorkContextBindings | null>(null);
+  const [codeIndex, setCodeIndex] = useState<{
+    loading: boolean;
+    reindexing: boolean;
+    error: string | null;
+    ast: {
+      nodes?: number | null;
+      edges?: number | null;
+      symbols?: number | null;
+      linked_chunks?: number | null;
+      total_chunks?: number | null;
+      last_synced_at?: string | number | null;
+    } | null;
+    embedCost: { cost_usd_30d?: number; embed_events_30d?: number } | null;
+    job: { id?: string; status?: string; progress_percent?: number } | null;
+  }>({ loading: true, reindexing: false, error: null, ast: null, embedCost: null, job: null });
   const storageAnchorRef = useRef<HTMLDivElement | null>(null);
   const [clientContact, setClientContact] = useState<ClientContactRow | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -687,12 +722,93 @@ export default function ProjectDetailPage() {
         loadTimerState(),
         loadBrandAssets(),
         loadClientContact(),
+        loadCodeIndex(),
       ]);
       setToast('Project context refreshed');
     } finally {
       setRefreshing(false);
     }
   };
+
+  const loadCodeIndex = useCallback(async () => {
+    if (!projectId) return;
+    setCodeIndex((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/code-index-status`, {
+        credentials: 'same-origin',
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        ast?: typeof codeIndex.ast;
+        embed_cost?: { cost_usd_30d?: number; embed_events_30d?: number };
+        chunk_index?: { job?: { id?: string; status?: string; progress_percent?: number } };
+      };
+      if (!res.ok || j.ok === false) {
+        setCodeIndex((s) => ({
+          ...s,
+          loading: false,
+          error: typeof j.error === 'string' ? j.error : `Load failed (${res.status})`,
+        }));
+        return;
+      }
+      setCodeIndex((s) => ({
+        ...s,
+        loading: false,
+        error: null,
+        ast: j.ast ?? null,
+        embedCost: j.embed_cost ?? null,
+        job: j.chunk_index?.job ?? null,
+      }));
+    } catch (e) {
+      setCodeIndex((s) => ({
+        ...s,
+        loading: false,
+        error: e instanceof Error ? e.message : 'Load failed',
+      }));
+    }
+  }, [projectId]);
+
+  const reindexProjectAst = async () => {
+    if (!projectId || codeIndex.reindexing) return;
+    setCodeIndex((s) => ({ ...s, reindexing: true, error: null }));
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/reindex`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'ast' }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        ast?: { run?: { complete?: boolean; embedded?: number; resume?: boolean; cost_usd?: number } };
+      };
+      if (!res.ok || j.ok === false) {
+        setToast(typeof j.error === 'string' ? j.error : 'Re-Index failed');
+        return;
+      }
+      const run = j.ast?.run;
+      if (run?.resume) {
+        setToast(`AST re-embed in progress (${run.embedded ?? 0} this pass) — click again to continue`);
+      } else {
+        setToast(
+          `AST re-indexed${run?.embedded != null ? ` (${run.embedded} symbols)` : ''}${
+            run?.cost_usd != null && run.cost_usd > 0 ? ` · $${Number(run.cost_usd).toFixed(4)}` : ''
+          }`,
+        );
+      }
+      await loadCodeIndex();
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : 'Re-Index failed');
+    } finally {
+      setCodeIndex((s) => ({ ...s, reindexing: false }));
+    }
+  };
+
+  useEffect(() => {
+    void loadCodeIndex();
+  }, [loadCodeIndex]);
 
   const toggleProjectTimer = async () => {
     if (!project || timerState.busy) return;
@@ -1295,6 +1411,75 @@ export default function ProjectDetailPage() {
           period={statsPeriod}
           onPeriodChange={setStatsPeriod}
         />
+      </RailSection>
+
+      <RailSection
+        title="Codebase index"
+        defaultOpen={railDefaultOpen}
+        action={
+          <button
+            type="button"
+            className="cpd-icon-btn"
+            title="Re-Index AST symbols"
+            disabled={codeIndex.reindexing || codeIndex.loading}
+            onClick={() => void reindexProjectAst()}
+          >
+            <RefreshCw
+              size={13}
+              strokeWidth={1.5}
+              className={codeIndex.reindexing ? 'cpd-spin' : undefined}
+            />
+          </button>
+        }
+      >
+        {codeIndex.loading ? (
+          <p className="cpd-rail-preview-empty">Loading index…</p>
+        ) : codeIndex.error ? (
+          <p className="cpd-rail-preview-empty">{codeIndex.error}</p>
+        ) : (
+          <div className="cpd-code-index">
+            <div className="cpd-code-index-grid">
+              <div>
+                <span className="cpd-code-index-label">Nodes</span>
+                <span className="cpd-code-index-val">{codeIndex.ast?.nodes ?? '—'}</span>
+              </div>
+              <div>
+                <span className="cpd-code-index-label">Edges</span>
+                <span className="cpd-code-index-val">{codeIndex.ast?.edges ?? '—'}</span>
+              </div>
+              <div>
+                <span className="cpd-code-index-label">Symbols</span>
+                <span className="cpd-code-index-val">{codeIndex.ast?.symbols ?? '—'}</span>
+              </div>
+              <div>
+                <span className="cpd-code-index-label">Linked</span>
+                <span className="cpd-code-index-val">
+                  {codeIndex.ast?.linked_chunks != null
+                    ? `${codeIndex.ast.linked_chunks}/${codeIndex.ast.total_chunks ?? '—'}`
+                    : '—'}
+                </span>
+              </div>
+            </div>
+            <p className="cpd-code-index-meta">
+              Last sync{' '}
+              {codeIndex.ast?.last_synced_at
+                ? relativeTimeLabel(codeIndex.ast.last_synced_at)
+                : '—'}
+              {codeIndex.embedCost != null ? (
+                <>
+                  {' '}
+                  · embed 30d $
+                  {Number(codeIndex.embedCost.cost_usd_30d || 0).toFixed(2)}
+                </>
+              ) : null}
+              {codeIndex.job?.progress_percent != null &&
+              Number(codeIndex.job.progress_percent) > 0 &&
+              Number(codeIndex.job.progress_percent) < 100 ? (
+                <> · {codeIndex.job.progress_percent}%</>
+              ) : null}
+            </p>
+          </div>
+        )}
       </RailSection>
 
       <RailSection
@@ -2337,6 +2522,30 @@ const CSS = `
   font-size: 12px;
   line-height: 1.5;
   color: var(--color-muted, #94a3b8);
+}
+.cpd-code-index-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+.cpd-code-index-label {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-muted, #94a3b8);
+}
+.cpd-code-index-val {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-main, #e2e8f0);
+}
+.cpd-code-index-meta {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--color-muted, #94a3b8);
+  line-height: 1.35;
 }
 .cpd-rail-preview-foot {
   font-size: 10px;
