@@ -92,7 +92,8 @@ if [[ "$SKIP_R2" -eq 0 ]]; then
   if [[ "$DRY" -eq 1 ]]; then
     find "$REPO_ROOT/skills" -name 'SKILL.md' | wc -l | xargs echo "  would upload SKILL.md count:"
   else
-    "$REPO_ROOT/scripts/upload-iam-skills-autorag.sh"
+    # Skip ingest here — Step 3 runs ingest_repo_skills_rag (avoids double embed).
+    "$REPO_ROOT/scripts/upload-iam-skills-autorag.sh" --skip-ingest
   fi
 fi
 

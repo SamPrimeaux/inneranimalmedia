@@ -66,8 +66,10 @@ Legacy helper (same H2 logic): `python3 scripts/embed_deep_archive_golden.py` ‚Ä
 
 ## Repo skills (1536-d documents lane)
 
-**Upload R2 (runtime):** `./scripts/upload-iam-skills-autorag.sh`  
-**Embed (search):** `node scripts/ingest_repo_skills_rag.mjs`
+**Publish (R2 + docs-lane embed):** `./scripts/upload-iam-skills-autorag.sh`  
+By default this uploads `skills/*/SKILL.md` to R2 **and** runs `ingest_repo_skills_rag.mjs` so semantic discovery stays current. Use `--skip-ingest` only when a parent pipeline (e.g. `embed-golden-and-skills.sh`) will embed in a later step. Selective: `--only deploy,iam-ship-main`.
+
+**Embed only (search mirror refresh):** `./scripts/with-cloudflare-env.sh node scripts/ingest_repo_skills_rag.mjs`
 
 | Artifact | Location |
 |----------|----------|
@@ -77,7 +79,7 @@ Legacy helper (same H2 logic): `python3 scripts/embed_deep_archive_golden.py` ‚Ä
 | Search chunks | `agentsam_documents_oai3large_1536` (`source_type=knowledge`) |
 | Vectorize | `AGENTSAM_VECTORIZE_DOCUMENTS` ‚Üí `agentsam-documents-oai3large-1536` |
 
-Large skills (e.g. `mcp-oauth-field-guide`, `docx`, `plan-and-execute`) should run through **both** R2 upload and `ingest_repo_skills_rag.mjs`.
+Law: writing an R2-backed skill without docs-lane ingest leaves exact-slash hydrate working and semantic discovery stale. The upload script is the durable trigger; do not treat R2 put alone as ‚Äúskill shipped for RAG.‚Äù
 
 ---
 
