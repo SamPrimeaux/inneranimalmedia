@@ -6,6 +6,27 @@
 
 ---
 
+## STATUS UPDATE — 2026-07-21
+
+**`agentsam_terminal_remote` (conn_gcp_iam_tunnel): FIXED.** Verified live:
+- `pwd` → `/home/samprimeaux/inneranimalmedia`, `cwd_source: gcp_remote`, exit 0
+- `git status` → on `main`, up to date with `origin/main`, sparse checkout 40% tracked, clean tree
+- `wrangler --version` → `4.86.0`
+No ENOENT, no empty stdout. This lane is confirmed working end to end.
+
+**`agentsam_terminal_local`: NOT actually fixed — silently rerouted instead.** Calling it now returns `ok: true` with no ENOENT, but `cwd_source: "container_sandbox"`, `cwd: "/tmp/specialist"`, `target_type: "sandbox"`, `image: "inneranimalmedia:sandbox-go-v2"`. It is executing in the isolated CF Container sandbox, **not** on the Mac via localpty.
+
+Confirmed root cause is unchanged from original diagnosis: `curl -s -o /dev/null -w "%{http_code}" https://localpty.inneranimalmedia.com/health` (run via the now-working GCP remote lane) returns **530** — localpty is still down. The PM2 `iam-pty` / `CLOUDFLARE_API_TOKEN` fix in Step 4 below has NOT been applied yet.
+
+**Risk:** this fallback is more dangerous than the old failure mode. The old ENOENT was loud and obvious. The new behavior returns `ok: true` and looks like a successful command — easy to mistake sandbox output for real Mac/repo state. Any caller treating `agentsam_terminal_local` success as "ran on my Mac" is currently wrong.
+
+**Remaining work:**
+1. Apply Step 4 below (rotate `CLOUDFLARE_API_TOKEN` in the LaunchAgent plist, restart `iam-pty` via PM2) to bring localpty back up.
+2. Once localpty is up, re-verify `agentsam_terminal_local` returns `cwd_source: "user_hosted_tunnel"` / localpty, not sandbox.
+3. Separately, decide whether silent fallback-to-sandbox is desired behavior at all, or whether `agentsam_terminal_local` should surface a clear error/flag when it can't reach localpty instead of silently substituting the sandbox.
+
+---
+
 ## What is broken
 
 Every terminal MCP tool call returns this shape regardless of command:
