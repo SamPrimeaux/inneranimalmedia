@@ -151,6 +151,19 @@ export function buildExplicitCatalogToolInput(toolName, message) {
       ? { keyword: term, query: term }
       : { keyword: 'tool', query: undefined };
   }
+  if (name === 'agentsam_github_list_commits') {
+    const repo =
+      m.match(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/) ||
+      m.match(/\bfor\s+([A-Za-z0-9_.-]{2,64})\b/i);
+    const limitMatch = m.match(/\blast\s+(\d{1,3})\b/i) || m.match(/\blimit\s*[:=]?\s*(\d{1,3})\b/i);
+    const limit = limitMatch ? Math.min(100, Math.max(1, Number(limitMatch[1]) || 5)) : 5;
+    const slug = repo ? String(repo[1]).trim() : '';
+    return {
+      ...(slug.includes('/') ? { repo: slug } : slug ? { repo: slug } : {}),
+      limit,
+      per_page: limit,
+    };
+  }
   return {};
 }
 

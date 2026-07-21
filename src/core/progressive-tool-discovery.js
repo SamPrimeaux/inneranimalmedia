@@ -257,7 +257,7 @@ export function extractToolKeysFromSearchToolsResult(execResult) {
  * @param {any} env
  * @param {unknown[]} activeTools
  * @param {unknown} execResult
- * @param {{ softMax?: number }} [opts]
+ * @param {{ softMax?: number, preferKeys?: string[] }} [opts]
  * @returns {Promise<{ tools: unknown[], added: string[] }>}
  */
 export async function hydrateActiveToolsFromSearchResult(env, activeTools, execResult, opts = {}) {
@@ -267,7 +267,18 @@ export async function hydrateActiveToolsFromSearchResult(env, activeTools, execR
   );
   const list = Array.isArray(activeTools) ? [...activeTools] : [];
   const have = new Set(list.map((t) => toolNameOf(t)).filter(Boolean));
-  const wanted = extractToolKeysFromSearchToolsResult(execResult).filter((k) => !have.has(k));
+  const prefer = (Array.isArray(opts.preferKeys) ? opts.preferKeys : [])
+    .map((k) => String(k || '').trim())
+    .filter(Boolean);
+  const fromSearch = extractToolKeysFromSearchToolsResult(execResult);
+  /** Prefer keys win so exact user-named tools beat noisy MCP list_* ranking. */
+  const wanted = [];
+  const seenWanted = new Set();
+  for (const k of [...prefer, ...fromSearch]) {
+    if (!k || have.has(k) || seenWanted.has(k)) continue;
+    seenWanted.add(k);
+    wanted.push(k);
+  }
   if (!wanted.length || !env?.DB) {
     return { tools: list, added: [] };
   }
@@ -304,6 +315,60 @@ export async function hydrateActiveToolsFromSearchResult(env, activeTools, execR
   if (added.length) {
     console.info(
       '[progressive-tools] hydrated',
+      JSON.stringify({ added, active_tools: list.length, soft_max: softMax }),
+    );
+  }
+  return { tools: list, added };
+}
+
+/**
+ * Pin full schemas for tools the user named in the message (progressive thin pipe).
+ * Without this, search_tools ranking often hydrates MCP noise and never surfaces the
+ * exact key (e.g. agentsam_github_list_commits), so the model claims it is unavailable.
+ * @param {any} env
+ * @param {unknown[]} activeTools
+ * @param {string[]} names
+ * @param {{ softMax?: number }} [opts]
+ * @returns {Promise<{ tools: unknown[], added: string[] }>}
+ */
+export async function hydrateNamedCatalogTools(env, activeTools, names, opts = {}) {
+  const softMax = Math.max(
+    8,
+    Math.floor(Number(opts.softMax) || PROGRESSIVE_HYDRATE_SOFT_MAX),
+  );
+  const list = Array.isArray(activeTools) ? [...activeTools] : [];
+  const have = new Set(list.map((t) => toolNameOf(t)).filter(Boolean));
+  const wanted = (Array.isArray(names) ? names : [])
+    .map((k) => String(k || '').trim())
+    .filter((k) => k && !have.has(k));
+  if (!wanted.length || !env?.DB) {
+    return { tools: list, added: [] };
+  }
+  const room = Math.max(0, softMax - list.length);
+  const slice = wanted.slice(0, room);
+  if (!slice.length) return { tools: list, added: [] };
+
+  const rows = await fetchToolRowsByNameOrKey(env, slice);
+  /** @type {string[]} */
+  const added = [];
+  for (const row of rows) {
+    const compiled = compiledRowFromAgentsamTool(row);
+    const nm = compiled.name;
+    if (!nm || have.has(nm)) continue;
+    if (list.length >= softMax) break;
+    have.add(nm);
+    added.push(nm);
+    list.push({
+      name: nm,
+      description: compiled.description,
+      input_schema: compiled.input_schema,
+      tool_category: compiled.tool_category,
+      requires_approval: compiled.requires_approval,
+    });
+  }
+  if (added.length) {
+    console.info(
+      '[progressive-tools] named_pin',
       JSON.stringify({ added, active_tools: list.length, soft_max: softMax }),
     );
   }

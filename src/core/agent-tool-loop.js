@@ -524,12 +524,31 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   const userTextForForce =
     lastUserMessageText(conversationMessages) ||
     String(mcpCtx?.userMessage || mcpCtx?.message || '').trim();
-  const forcedExplicitName =
-    (seeded?.name && String(seeded.name).trim()) ||
-    resolveForcedExplicitCatalogTool(userTextForForce, tools);
   const sessionThinPipe =
     mcpCtx?.runtimeProfile?.source?.session_scoped === true ||
     mcpCtx?.runtimeProfile?.source?.compile_lane === 'session_context';
+  // Progressive thin pipe: pin schemas for tools the user named so search ranking cannot
+  // "lose" agentsam_github_list_commits under MCP list_* noise.
+  const namedInMessageEarly = extractExplicitCatalogToolKeys(userTextForForce);
+  if (namedInMessageEarly.length && env?.DB && Array.isArray(activeTools)) {
+    try {
+      const { hydrateNamedCatalogTools } = await import('./progressive-tool-discovery.js');
+      const pinned = await hydrateNamedCatalogTools(env, activeTools, namedInMessageEarly, {});
+      if (pinned.added.length) {
+        activeTools = pinned.tools;
+        emit('tools_hydrated', {
+          source: 'named_catalog_pin',
+          added: pinned.added,
+          active_tools: activeTools.length,
+        });
+      }
+    } catch (e) {
+      console.warn('[agent] named_catalog_pin', e?.message ?? e);
+    }
+  }
+  let forcedExplicitName =
+    (seeded?.name && String(seeded.name).trim()) ||
+    resolveForcedExplicitCatalogTool(userTextForForce, activeTools);
   const skipExplicitCatalogPreinvoke = sessionThinPipe && !forcedExplicitName;
   if (forcedExplicitName) {
     console.info(
@@ -556,9 +575,11 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       }
     }
   } else {
-    const namedInMessage = extractExplicitCatalogToolKeys(userTextForForce);
+    const namedInMessage = namedInMessageEarly.length
+      ? namedInMessageEarly
+      : extractExplicitCatalogToolKeys(userTextForForce);
     if (namedInMessage.length || userTextForForce.length > 0) {
-      const allowNames = (Array.isArray(tools) ? tools : [])
+      const allowNames = (Array.isArray(activeTools) ? activeTools : [])
         .map((t) =>
           String(t?.name || t?.tool_key || t?.tool_name || t?.function?.name || '')
             .trim()
@@ -2076,11 +2097,14 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
               hydrateActiveToolsFromSearchResult,
             } = await import('./progressive-tool-discovery.js');
             if (isAgentsamSearchToolsName(call.name)) {
+              const preferKeys = extractExplicitCatalogToolKeys(
+                lastUserMessageText(conversationMessages) || userTextForForce || '',
+              );
               const hydrated = await hydrateActiveToolsFromSearchResult(
                 env,
                 activeTools,
                 execResult,
-                {},
+                { preferKeys },
               );
               if (hydrated.added.length) {
                 activeTools = hydrated.tools;

@@ -41,4 +41,46 @@ assert.deepEqual(
   ['agentsam_r2_put'],
 );
 
+{
+  const { hydrateActiveToolsFromSearchResult } = await import(
+    '../../src/core/progressive-tool-discovery.js'
+  );
+  // preferKeys prepend even when search ranking omits the exact key
+  const fakeEnv = {
+    DB: {
+      prepare() {
+        return {
+          bind() {
+            return {
+              async all() {
+                return {
+                  results: [
+                    {
+                      tool_name: 'agentsam_github_list_commits',
+                      tool_key: 'agentsam_github_list_commits',
+                      description: 'List commits',
+                      input_schema: '{"type":"object"}',
+                      tool_category: 'github',
+                      requires_approval: 0,
+                    },
+                  ],
+                };
+              },
+            };
+          },
+        };
+      },
+    },
+  };
+  const core = [{ name: 'agentsam_search_tools', description: 'search', input_schema: {} }];
+  const out = await hydrateActiveToolsFromSearchResult(
+    fakeEnv,
+    core,
+    { tools: [{ tool_key: 'agentsam_github_mcp_list_notifications' }] },
+    { preferKeys: ['agentsam_github_list_commits'] },
+  );
+  assert.ok(out.added.includes('agentsam_github_list_commits'));
+  assert.equal(out.added[0], 'agentsam_github_list_commits');
+}
+
 console.log('progressive-tool-discovery.test.mjs: ok');
