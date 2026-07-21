@@ -718,7 +718,10 @@ const ComponentsPanel: React.FC<{
   element: InspectedElement | null;
   onClose: () => void;
   embedded?: boolean;
-}> = ({ element, onClose, embedded }) => (
+}> = ({ element, onClose, embedded }) => {
+  const styles = element?.styles && typeof element.styles === 'object' ? element.styles : {};
+  const box = element?.boundingBox && typeof element.boundingBox === 'object' ? element.boundingBox : null;
+  return (
   <div className={
     embedded
       ? 'flex flex-col flex-1 min-h-0 min-w-0 bg-[var(--bg-panel)] overflow-hidden'
@@ -731,7 +734,7 @@ const ComponentsPanel: React.FC<{
       </span>
       {element && (
         <span className="ml-1 text-[10px] text-muted truncate max-w-[100px]">
-          {element.tag}{element.id ? `#${element.id}` : ''}{element.className ? `.${element.className.split(' ')[0]}` : ''}
+          {element.tag}{element.id ? `#${element.id}` : ''}{element.className ? `.${String(element.className).split(' ')[0]}` : ''}
         </span>
       )}
       <div className="flex-1" />
@@ -741,9 +744,12 @@ const ComponentsPanel: React.FC<{
     </div>
 
     {!element ? (
-      <div className="flex flex-col items-center justify-center h-full gap-3 text-muted">
+      <div className="flex flex-col items-center justify-center h-full gap-3 text-muted px-4 text-center">
         <Layers size={20} className="opacity-30" />
         <p className="text-[11px]">Click an element in the browser to inspect it</p>
+        <p className="text-[9px] opacity-70">
+          Turn on the picker (cursor icon), then click. Or Refresh for a CDP accessibility snapshot.
+        </p>
       </div>
     ) : (
       <div className="flex-1 overflow-y-auto min-h-0">
@@ -758,35 +764,36 @@ const ComponentsPanel: React.FC<{
         <div className="px-3 py-2">
           <p className="text-[9px] uppercase tracking-widest text-muted mb-2">Computed Styles</p>
           <div className="space-y-1">
-            {Object.entries(element.styles)
+            {Object.entries(styles)
               .filter(([, v]) => v && v !== 'none' && v !== 'normal' && v !== 'auto')
               .slice(0, 40)
               .map(([prop, val]) => (
                 <div key={prop} className="flex items-center gap-2 text-[10px]">
                   <span className="text-muted shrink-0 w-32 truncate">{prop}</span>
-                  <span className="text-main truncate">{val}</span>
+                  <span className="text-main truncate">{String(val)}</span>
                 </div>
               ))}
           </div>
         </div>
 
-        {element.boundingBox && (
+        {box ? (
           <div className="px-3 py-2 border-t border-[var(--border-subtle)]">
             <p className="text-[9px] uppercase tracking-widest text-muted mb-2">Position & Size</p>
             <div className="grid grid-cols-2 gap-1 text-[10px]">
-              {Object.entries(element.boundingBox).map(([k, v]) => (
+              {Object.entries(box).map(([k, v]) => (
                 <div key={k} className="flex gap-1">
                   <span className="text-muted">{k}:</span>
-                  <span className="text-main">{Math.round(v as number)}px</span>
+                  <span className="text-main">{Math.round(Number(v) || 0)}px</span>
                 </div>
               ))}
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     )}
   </div>
-);
+  );
+};
 
 // ─── DevTools Panel (right dock: Elements | Console | Network) ────────────────
 
@@ -796,9 +803,12 @@ const DevToolsPanel: React.FC<{
   tab:               DevToolsTab;
   onTabChange:       (t: DevToolsTab) => void;
   inspectedElement:  InspectedElement | null;
-  inspectSameOrigin: boolean;
+  /** True when we can inject into the visible iframe (real DOM pick). */
+  domPickAvailable:  boolean;
+  /** True when picks go through MYBROWSER CDP (live view / cross-origin). */
+  cdpPickActive:     boolean;
   registryPickers:   BrowserRegistryPickers;
-}> = ({ url, onClose, tab, onTabChange, inspectedElement, inspectSameOrigin, registryPickers }) => {
+}> = ({ url, onClose, tab, onTabChange, inspectedElement, domPickAvailable, cdpPickActive, registryPickers }) => {
   const [loading, setLoading]       = useState(false);
   const [tabError, setTabError]     = useState<string | null>(null);
   const [consoleRows, setConsoleRows] = useState<ConsoleMsg[]>([]);
@@ -899,10 +909,9 @@ const DevToolsPanel: React.FC<{
         })));
         fetchedRef.current.network = true;
       } else if (t === 'elements') {
-        if (inspectSameOrigin && !inspectedElement) {
-          fetchedRef.current.elements = true;
-          return;
-        }
+        // Prefer an explicit pick (DOM inject or CDP point-pick). Always fall back to CDP
+        // accessibility snapshot — never dead-end on "same origin" while the visible surface
+        // is actually a cross-origin live view / MYBROWSER session.
         if (inspectedElement) {
           fetchedRef.current.elements = true;
           return;
@@ -923,7 +932,7 @@ const DevToolsPanel: React.FC<{
     } catch (e) {
       setTabError(String(e));
     } finally { setLoading(false); }
-  }, [url, inspectSameOrigin, registryPickers, inspectedElement, cdtParams]);
+  }, [url, registryPickers, inspectedElement, cdtParams]);
 
   useEffect(() => {
     void loadTab(tab, false);
@@ -1029,18 +1038,27 @@ const DevToolsPanel: React.FC<{
           <div className="flex flex-col min-h-0 h-full">
             {inspectedElement ? (
               <ComponentsPanel element={inspectedElement} onClose={onClose} embedded />
-            ) : inspectSameOrigin ? (
-              <ComponentsPanel element={null} onClose={onClose} embedded />
             ) : snapshot && 'error' in snapshot && snapshot.error ? (
-              <div className="p-3 text-muted">{String(snapshot.error)}</div>
+              <div className="p-3 text-muted space-y-2">
+                <p>{String(snapshot.error)}</p>
+                <p className="text-[9px] opacity-80">
+                  {cdpPickActive
+                    ? 'CDP pick is active — click the page overlay, or Refresh after the live session loads.'
+                    : domPickAvailable
+                      ? 'Turn on the picker and click an element, or Refresh for a CDP snapshot.'
+                      : 'Allow browser trust, start Agent Live if needed, then Refresh.'}
+                </p>
+              </div>
             ) : snapshot ? (
               <div className="p-2 overflow-y-auto min-h-0">
+                <p className="text-[9px] text-muted px-1 pb-2">
+                  CDP accessibility snapshot (MYBROWSER). Pick an element for computed styles.
+                </p>
                 <SnapshotTreeRow node={snapshot} depth={0} />
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-muted p-3 text-center gap-2">
-                <p>No accessibility snapshot</p>
-                <p className="text-[9px] opacity-80">Use the element picker on the page, or Refresh after the site finishes loading.</p>
+                <ComponentsPanel element={null} onClose={onClose} embedded />
               </div>
             )}
           </div>
@@ -1590,10 +1608,11 @@ const BrowserPane: React.FC<PaneProps> = ({
     setInspectEpoch((n) => n + 1);
     const inDesign = designModeOnRef.current;
     if (inDesign) {
-      // Stay in Design Mode picker — Cursor flow: pick → next pick without leaving.
+      // Stay in picker for multi-select; keep CDP overlay if already active.
       setMode('picker');
-      setPickerCrossOrigin(false);
       setPickerHighlight(null);
+      setDevToolsOpen(true);
+      setDevToolsTab('elements');
     } else {
       setMode('browse');
       setPickerCrossOrigin(false);
@@ -1846,13 +1865,19 @@ const BrowserPane: React.FC<PaneProps> = ({
             : undefined,
       });
       if (seq !== pickerPickSeqRef.current) return null;
-      if (data.error) return null;
+      if (data.error) {
+        setToastMsg(`CDP pick failed: ${String(data.error).slice(0, 120)}`);
+        window.setTimeout(() => setToastMsg(null), 4000);
+        return null;
+      }
 
       let raw: unknown = data.result ?? data;
       if (typeof raw === 'string') {
         try {
           raw = JSON.parse(raw) as unknown;
         } catch {
+          setToastMsg('CDP pick returned unreadable data');
+          window.setTimeout(() => setToastMsg(null), 3000);
           return null;
         }
       }
@@ -1861,7 +1886,11 @@ const BrowserPane: React.FC<PaneProps> = ({
           ? (raw as { element?: InspectedElement })
           : null;
       const el = parsed?.element;
-      if (!el || typeof el.tag !== 'string') return null;
+      if (!el || typeof el.tag !== 'string') {
+        setToastMsg('No element at that point (CDP session may not match the iframe)');
+        window.setTimeout(() => setToastMsg(null), 4000);
+        return null;
+      }
       return el;
     },
     [loadRegistryPickersIfNeeded, zoom],
@@ -3438,7 +3467,8 @@ const BrowserPane: React.FC<PaneProps> = ({
                   tab={devToolsTab}
                   onTabChange={setDevToolsTab}
                   inspectedElement={inspectedEl}
-                  inspectSameOrigin={inspectSameOrigin}
+                  domPickAvailable={inspectSameOrigin && !pickerCrossOrigin}
+                  cdpPickActive={pickerCrossOrigin}
                   registryPickers={registryPickers}
                 />
               </div>
