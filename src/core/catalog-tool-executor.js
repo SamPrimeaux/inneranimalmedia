@@ -2550,22 +2550,35 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         delete_branch: 'github_delete_branch',
         set_commit_status: 'github_set_commit_status',
       };
-      let handlerName = opMap[op] || null;
+      // Tool-key-first: dedicated catalog keys win over stale/wrong handler_config.operation.
+      // (MCP Worker had the same gap — list_commits advertised but no case until mirrored.)
+      const toolKeyHandlerFirst = {
+        agentsam_github_list_commits: 'github_list_commits',
+        agentsam_github_read: 'github_get_file',
+        agentsam_github_tree: 'github_get_tree',
+        agentsam_github_get_tree: 'github_get_tree',
+        agentsam_github_read_many: 'github_batch_read',
+        agentsam_github_batch_read: 'github_batch_read',
+        agentsam_github_patch: 'github_patch_file',
+        agentsam_github_repo_list: 'github_repos',
+        agentsam_github_write: 'github_upsert_file',
+        agentsam_github_commit_tree: 'github_commit_tree',
+        agentsam_github_search: 'github_search_code',
+        agentsam_github_search_code: 'github_search_code',
+        agentsam_github_search_issues: 'github_search_issues_prs',
+        agentsam_github_search_issues_prs: 'github_search_issues_prs',
+        agentsam_github_pr: 'github_create_pr',
+        agentsam_github_pr_create: 'github_create_pr',
+        github_file: 'github_get_file',
+        github_update_file: 'github_update_file',
+        github_create_file: 'github_create_file',
+        github_repos: 'github_repos',
+        github_create_pr: 'github_create_pr',
+        github_search: 'github_search_code',
+      };
+      let handlerName = toolKeyHandlerFirst[toolKey] || opMap[op] || null;
       if (!handlerName && toolKey === 'agentsam_github_write') handlerName = 'github_upsert_file';
       if (!handlerName && toolKey === 'agentsam_github_commit_tree') handlerName = 'github_commit_tree';
-      if (!handlerName && toolKey === 'agentsam_github_read') handlerName = 'github_get_file';
-      if (
-        !handlerName &&
-        (toolKey === 'agentsam_github_read_many' || toolKey === 'agentsam_github_batch_read')
-      ) {
-        handlerName = 'github_batch_read';
-      }
-      if (!handlerName && toolKey === 'agentsam_github_patch') handlerName = 'github_patch_file';
-      if (!handlerName && (toolKey === 'agentsam_github_pr' || toolKey === 'agentsam_github_pr_create')) {
-        handlerName = 'github_create_pr';
-      }
-      if (!handlerName && toolKey === 'agentsam_github_repo_list') handlerName = 'github_repos';
-      if (!handlerName && toolKey === 'agentsam_github_list_commits') handlerName = 'github_list_commits';
       // Issue tool: args.operation wins over handler_config (schema allows create|get|list|close|update).
       if (toolKey === 'agentsam_github_issue') {
         const issueOp = String(params?.operation || op || 'create').toLowerCase();
@@ -2574,32 +2587,6 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         else if (issueOp === 'close' || issueOp === 'close_issue') handlerName = 'github_close_issue';
         else if (issueOp === 'update' || issueOp === 'update_issue') handlerName = 'github_update_issue';
         else handlerName = 'github_create_issue';
-      }
-      if (!handlerName && toolKey === 'github_file') handlerName = 'github_get_file';
-      if (!handlerName && toolKey === 'github_update_file') handlerName = 'github_update_file';
-      if (!handlerName && toolKey === 'github_create_file') handlerName = 'github_create_file';
-      if (!handlerName && toolKey === 'github_repos') handlerName = 'github_repos';
-      if (!handlerName && toolKey === 'github_create_pr') handlerName = 'github_create_pr';
-      if (
-        !handlerName &&
-        (toolKey === 'agentsam_github_search' ||
-          toolKey === 'agentsam_github_search_code' ||
-          toolKey === 'github_search')
-      ) {
-        handlerName = 'github_search_code';
-      }
-      if (
-        !handlerName &&
-        (toolKey === 'agentsam_github_search_issues' ||
-          toolKey === 'agentsam_github_search_issues_prs')
-      ) {
-        handlerName = 'github_search_issues_prs';
-      }
-      if (
-        !handlerName &&
-        (toolKey === 'agentsam_github_tree' || toolKey === 'agentsam_github_get_tree')
-      ) {
-        handlerName = 'github_get_tree';
       }
       if (!handlerName) {
         result = {
