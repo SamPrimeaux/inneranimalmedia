@@ -92,7 +92,8 @@ Old `upload-public-pages.sh` / `upload-dashboard-prod.sh` **do not exist**. Use:
 | Legal | `./scripts/upload-legal-pages.sh` | `static/pages/{privacy,terms}/` → `pages/...` |
 | About / contact / marketing | `upload-about-page.sh`, `upload-contact-page.sh`, `upload-spline-scenes.sh`, … | under `static/pages/` → `pages/...` |
 
-Bucket: **`inneranimalmedia`**. Do **not** assume automatic `cms_site_pages` INSERT from these scripts (that ledger is not wired in the current upload-*.sh set).
+Bucket: **`inneranimalmedia`**.  
+**CMS registry:** `cms_site_pages` was **dropped** (migration 627 → canonical **`cms_pages`**). Static marketing HTML uploads are R2-only; richer CMS/dashboard pages live in `cms_pages` (+ drafts/sections), not auto-inserted by `upload-*-page.sh`.
 
 ---
 
