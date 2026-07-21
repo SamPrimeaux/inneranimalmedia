@@ -18,6 +18,7 @@
     "gcp:sync-vm": "bash scripts/sync-gcp-vm-after-deploy.sh",
     "gcp:sync-vm:dry-run": "bash scripts/sync-gcp-vm-after-deploy.sh --dry-run",
     "gcp:sync-vm:repo": "bash scripts/bootstrap-gcp-vm-repo.sh --sync-env",
+    "gcp:sync-vm:workforce": "bash scripts/bootstrap-gcp-vm-workforce-repos.sh",
     "agentsam-sdk:verify": "agentsam --version && node -e \"import('@inneranimalmedia/agentsam-sdk').then(m=>console.log('sdk', m.version))\"",
     "remote:ready": "bash scripts/remote-ready.sh",
     "ship:remote": "bash scripts/ship-remote.sh",
