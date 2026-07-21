@@ -232,17 +232,49 @@ export async function generatePlanIntakeQuestions(env, opts) {
   });
 
   let parsed;
+  let parseFailed = false;
   try {
     const text = String(result?.text || result?.output_text || '').replace(/```json|```/g, '').trim();
     parsed = JSON.parse(text);
   } catch {
-    parsed = { needs_questions: false, synthesis: explore.synthesis || '', questions: [] };
+    parseFailed = true;
+    parsed = { needs_questions: true, synthesis: explore.synthesis || '', questions: [] };
   }
 
-  const needs = parsed?.needs_questions === true;
-  const questions = Array.isArray(parsed?.questions) ? parsed.questions : [];
+  let questions = Array.isArray(parsed?.questions) ? parsed.questions : [];
+  // Fail open toward Cursor-parity clarify: parse failure or empty question list still asks once.
+  if ((parseFailed || parsed?.needs_questions === true) && questions.length === 0) {
+    questions = [
+      {
+        id: 'q1',
+        question: 'Which approach should this plan prioritize?',
+        options: [
+          'Smallest safe change that meets the goal',
+          'Full end-to-end implementation',
+          'Investigate + document only (no code changes yet)',
+        ],
+        multi_select: false,
+      },
+      {
+        id: 'q2',
+        question: 'What counts as done for this plan?',
+        options: [
+          'Code merged / deployed',
+          'Local proof only (build / node --check / smoke)',
+          'Written plan + task list — I will Build later',
+        ],
+        multi_select: false,
+      },
+    ];
+  }
+
+  const needs =
+    parseFailed ||
+    parsed?.needs_questions === true ||
+    (questions.length > 0 && parsed?.needs_questions !== false);
+
   return {
-    needs_questions: needs && questions.length > 0,
+    needs_questions: Boolean(needs && questions.length > 0),
     synthesis: String(parsed?.synthesis || explore.synthesis || '').trim(),
     questions: questions.slice(0, 3),
   };

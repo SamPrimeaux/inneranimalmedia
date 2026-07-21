@@ -76,6 +76,34 @@ async function putR2AndInsertPlanArtifact(env, ctx, row) {
   if (!out.ok) {
     throw new Error(out.user_message || ARTIFACT_WRITE_USER_ERROR);
   }
+
+  // Keep agentsam_plans.plan_md_url / plan_map_url in sync (daily pipeline already sets these;
+  // chat createPlan historically wrote ARTIFACTS only — metrics looked like "no md").
+  try {
+    const url = String(out.public_url || out.open_url || '').trim();
+    const key = String(out.r2_key || '').trim();
+    const prefix = key.includes('/') ? key.slice(0, key.lastIndexOf('/') + 1) : null;
+    if (url && row.metadataKind === 'plan_markdown') {
+      await env.DB.prepare(
+        `UPDATE agentsam_plans
+         SET plan_md_url = ?, r2_prefix = COALESCE(?, r2_prefix), updated_at = unixepoch()
+         WHERE id = ?`,
+      )
+        .bind(url, prefix, row.planId)
+        .run();
+    } else if (url && row.metadataKind === 'plan_map') {
+      await env.DB.prepare(
+        `UPDATE agentsam_plans
+         SET plan_map_url = ?, r2_prefix = COALESCE(?, r2_prefix), updated_at = unixepoch()
+         WHERE id = ?`,
+      )
+        .bind(url, prefix, row.planId)
+        .run();
+    }
+  } catch (e) {
+    console.warn('[plan-artifact] plan_url_sync_failed', e?.message ?? e);
+  }
+
   return {
     artifact_id: out.artifact_id,
     r2_key: out.r2_key,
