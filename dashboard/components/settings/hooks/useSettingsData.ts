@@ -1147,6 +1147,29 @@ export function useSettingsData({
     setReindexMsg(mode === 'ast' ? 'Re-indexing AST…' : 'Queuing chunk reindex…');
     setReindexPct(mode === 'ast' ? 1 : 0);
     setReindexPhase('running');
+    const pollId =
+      mode === 'ast'
+        ? window.setInterval(() => {
+            void (async () => {
+              try {
+                const ws = workspaceId?.trim();
+                const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
+                const r = await fetch(`/api/settings/workspace/code-index-status${qp}`, {
+                  credentials: 'same-origin',
+                });
+                const j = (await r.json().catch(() => ({}))) as {
+                  chunk_index?: { job?: { progress_percent?: number } };
+                };
+                const jobPct = Number(j.chunk_index?.job?.progress_percent);
+                if (Number.isFinite(jobPct) && jobPct > 0) {
+                  setReindexPct((prev) => Math.max(prev, Math.min(100, jobPct)));
+                }
+              } catch {
+                /* ignore poll errors */
+              }
+            })();
+          }, 2500)
+        : 0;
     try {
       const ws = workspaceId?.trim();
       const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
@@ -1172,7 +1195,7 @@ export function useSettingsData({
       let resume = true;
       let guard = 0;
       let embedded = 0;
-      while (resume && guard < 40) {
+      while (resume && guard < 80) {
         guard += 1;
         const res = await fetch(`/api/settings/workspace/reindex${qp}`, {
           method: 'POST',
@@ -1195,7 +1218,7 @@ export function useSettingsData({
         const total = Number(run?.total) || 0;
         const offset = Number(run?.offset) || 0;
         const pct = total > 0 ? Math.min(100, Math.round((offset / total) * 100)) : run?.complete ? 100 : 5;
-        setReindexPct(pct);
+        setReindexPct((prev) => Math.max(prev, pct));
         setReindexMsg(
           run?.complete
             ? `Done · ${embedded} symbols`
@@ -1211,6 +1234,7 @@ export function useSettingsData({
       setReindexPhase('error');
       setReindexMsg(e instanceof Error ? e.message : 'Reindex failed');
     } finally {
+      if (pollId) window.clearInterval(pollId);
       setReindexBusy(null);
       void loadWorkspace();
     }

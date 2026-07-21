@@ -769,6 +769,8 @@ export default function ProjectDetailPage() {
         return;
       }
       const jobPct = Number(j.chunk_index?.job?.progress_percent);
+      const jobPctSafe =
+        Number.isFinite(jobPct) && jobPct > 0 ? Math.min(100, jobPct) : 0;
       setCodeIndex((s) => ({
         ...s,
         loading: false,
@@ -777,14 +779,11 @@ export default function ProjectDetailPage() {
         ast: j.ast ?? null,
         embedCost: j.embed_cost ?? null,
         job: j.chunk_index?.job ?? null,
-        progressPct:
-          s.reindexing && s.progressPct > 0
-            ? s.progressPct
-            : Number.isFinite(jobPct) && jobPct > 0
-              ? Math.min(100, jobPct)
-              : s.phase === 'ok'
-                ? 100
-                : 0,
+        progressPct: Math.max(
+          s.reindexing ? s.progressPct : 0,
+          jobPctSafe,
+          s.phase === 'ok' && !s.reindexing ? 100 : 0,
+        ),
       }));
     } catch (e) {
       setCodeIndex((s) => ({
@@ -805,11 +804,15 @@ export default function ProjectDetailPage() {
       statusMsg: 'Re-indexing AST symbols…',
       error: null,
     }));
+    // Poll D1 job % while long embed POSTs are in flight (avoids "stuck at 1%").
+    const pollId = window.setInterval(() => {
+      void loadCodeIndex();
+    }, 2500);
     try {
       let resume = true;
       let guard = 0;
       let lastEmbedded = 0;
-      while (resume && guard < 40) {
+      while (resume && guard < 80) {
         guard += 1;
         const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/reindex`, {
           method: 'POST',
@@ -851,7 +854,7 @@ export default function ProjectDetailPage() {
         setCodeIndex((s) => ({
           ...s,
           workspaceId: j.workspace_id ? String(j.workspace_id) : s.workspaceId,
-          progressPct: pct,
+          progressPct: Math.max(s.progressPct, pct),
           statusMsg: run?.complete
             ? `Done · ${lastEmbedded} symbols this run`
             : `Embedding… ${offset}/${total || '—'} (${pct}%)`,
@@ -873,6 +876,7 @@ export default function ProjectDetailPage() {
       setCodeIndex((s) => ({ ...s, phase: 'error', statusMsg: msg, error: msg }));
       setToast(msg);
     } finally {
+      window.clearInterval(pollId);
       setCodeIndex((s) => ({ ...s, reindexing: false }));
     }
   };

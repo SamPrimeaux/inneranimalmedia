@@ -51,6 +51,7 @@ export async function logEmbeddingUsageEvent(env, params = {}) {
       provider,
       inputTokens: tokens_in,
       outputTokens: 0,
+      pricingKind: 'embedding',
     });
     cost_usd = Number(priced.costUsd) || 0;
   } catch {

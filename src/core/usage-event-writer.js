@@ -118,12 +118,20 @@ export async function writeUsageEvent(env, params, ctx = null) {
   let costReason = reason != null ? String(reason).trim() : null;
 
   if (!Number.isFinite(costUsdIns) || (costUsdIns === 0 && !costReason)) {
+    // Never pass cost_usd=0 as an override — that short-circuits pricing lookup
+    // and permanently writes free embeds when the first estimate missed rates.
     const priced = await resolveUsageEventCostUsd(env.DB, {
       modelKey: resolvedModelKey || model,
       provider,
       inputTokens: tokens_in,
       outputTokens: tokens_out,
-      computedCostUsdOverride: Number.isFinite(Number(cost_usd)) ? Number(cost_usd) : null,
+      pricingKind:
+        String(event_type || '').toLowerCase() === 'embed' ||
+        /embedding/i.test(String(resolvedModelKey || model || ''))
+          ? 'embedding'
+          : 'standard',
+      computedCostUsdOverride:
+        Number.isFinite(Number(cost_usd)) && Number(cost_usd) > 0 ? Number(cost_usd) : null,
     });
     costUsdIns = priced.costUsd;
     if (priced.costReason) costReason = priced.costReason;

@@ -32,7 +32,12 @@ export async function resolveUsageEventCostUsd(db, opts = {}) {
   let costReason = null;
   let pricingSource = 'none';
 
-  if (opts.computedCostUsdOverride != null && Number.isFinite(Number(opts.computedCostUsdOverride))) {
+  // Ignore non-positive overrides — a 0 override freezes failed first-pass estimates.
+  if (
+    opts.computedCostUsdOverride != null &&
+    Number.isFinite(Number(opts.computedCostUsdOverride)) &&
+    Number(opts.computedCostUsdOverride) > 0
+  ) {
     return {
       costUsd: Number(opts.computedCostUsdOverride),
       costReason: null,

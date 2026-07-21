@@ -187,36 +187,60 @@ export function computeUsdFromModelPricingRow(row, u = {}) {
 export async function estimateModelRunCostUsd(db, u) {
   const provider = inferPricingProvider(u.modelKey, u.provider);
   const canonicalModelKey = resolveCanonicalModelKey(u.modelKey, provider);
+  const requestedKind =
+    u.pricingKind != null && String(u.pricingKind).trim()
+      ? String(u.pricingKind).trim()
+      : 'standard';
+  const looksEmbedding =
+    /embedding/i.test(canonicalModelKey) ||
+    /embedding/i.test(String(u.modelKey || '')) ||
+    requestedKind.toLowerCase() === 'embedding';
   const tokenOpts = {
     inputTokens: u.inputTokens,
     outputTokens: u.outputTokens,
     cacheReadTokens: u.cacheReadTokens,
     cacheWriteTokens: u.cacheWriteTokens,
     cacheWriteTtl: u.cacheWriteTtl ?? '5m',
-    pricingKind: u.pricingKind ?? 'standard',
+    pricingKind: requestedKind,
   };
 
   if (db) {
-    const pricing = await loadModelPricingRow(db, {
-      provider,
-      modelKey: canonicalModelKey,
-      pricingKind: tokenOpts.pricingKind,
-    });
-    if (pricing) {
-      return {
-        costUsd: computeUsdFromModelPricingRow(pricing, tokenOpts),
-        source: 'agentsam_model_pricing',
-        canonicalModelKey,
-      };
+    // Embeddings are priced under pricing_kind='embedding' in agentsam_model_pricing;
+    // chat defaults to 'standard'. Try both so embed telemetry does not fall through
+    // to null-rate agentsam_ai rows and silently write cost_usd=0.
+    const kindCandidates = looksEmbedding
+      ? [requestedKind, 'embedding', 'standard']
+      : [requestedKind, 'standard'];
+    const seenKinds = new Set();
+    for (const kind of kindCandidates) {
+      const k = String(kind || '').trim() || 'standard';
+      if (seenKinds.has(k)) continue;
+      seenKinds.add(k);
+      const pricing = await loadModelPricingRow(db, {
+        provider,
+        modelKey: canonicalModelKey,
+        pricingKind: k,
+      });
+      if (pricing) {
+        return {
+          costUsd: computeUsdFromModelPricingRow(pricing, { ...tokenOpts, pricingKind: k }),
+          source: 'agentsam_model_pricing',
+          canonicalModelKey,
+        };
+      }
     }
 
     const aiRow = await loadAgentsamAiPricingRow(db, canonicalModelKey);
     if (aiRow) {
-      return {
-        costUsd: computeUsdFromAgentsamAiRates(aiRow, tokenOpts),
-        source: 'agentsam_ai',
-        canonicalModelKey,
-      };
+      const aiCost = computeUsdFromAgentsamAiRates(aiRow, tokenOpts);
+      // Null/zero rates on agentsam_ai must not block catalog fallback.
+      if (Number(aiCost) > 0) {
+        return {
+          costUsd: aiCost,
+          source: 'agentsam_ai',
+          canonicalModelKey,
+        };
+      }
     }
 
     const catalogCost = await estimateCostUsdFromCatalog(
