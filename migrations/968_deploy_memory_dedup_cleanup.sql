@@ -1,0 +1,40 @@
+-- 968: Record of deploy/production/* memory row dedup cleanup (2026-07-21)
+--
+-- Root cause (fixed in src/core/deploy-memory-fact.js, commit 79e4769):
+--   shortSha was derived as trim(fields.shortSha ?? fields.version ?? fields.gitHash).slice(0,12)
+--   The deploy hook calls upsertDeployMemoryFacts twice per deploy (pre- and
+--   post-R2-sync). Only one of the two calls supplied fields.shortSha (8 hex
+--   chars), so the other call fell through to fields.gitHash (40-char full
+--   sha) sliced to 12 chars -- producing two different `key` values for the
+--   same deploy instead of one row being upserted via
+--   ON CONFLICT(tenant_id, user_id, key).
+--
+--   Fix: shortSha now derives from fields.gitHash first, so both calls in a
+--   single deploy compute the identical key.
+--
+-- This migration is a RECORD ONLY. The actual DELETE was already run
+-- directly against production D1 (inneranimalmedia-business,
+-- cf87b717-d4e2-4cf8-bab0-a81268e32d49) on 2026-07-21:
+--
+--   81 duplicate pairs found (164 deploy/production/* rows -> 81 pairs of
+--   8-char-key + 12-char-key sharing the same full_sha, plus 1 genuine
+--   singleton with no long-form counterpart, plus 1 row with null full_sha).
+--
+--   DELETE FROM agentsam_memory
+--   WHERE key LIKE 'deploy/production/%'
+--     AND length(key) = length('deploy/production/') + 8
+--     AND json_extract(value,'$.full_sha') IN (
+--       SELECT json_extract(value,'$.full_sha')
+--       FROM agentsam_memory
+--       WHERE key LIKE 'deploy/production/%'
+--         AND length(key) = length('deploy/production/') + 12
+--     );
+--
+--   Result: 81 rows deleted. agentsam_memory total 234 -> 153;
+--   deploy/production/* rows 164 -> 83 (one row per deploy, the long-form
+--   key, which carries the complete post-R2-sync fields).
+--
+-- If replaying this migration against another environment with the same
+-- duplication pattern, run the DELETE above (idempotent -- no-op once the
+-- long-form key has no matching short-form sibling left).
+SELECT 1; -- no-op: this file documents an already-applied data cleanup
