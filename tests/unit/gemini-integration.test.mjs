@@ -38,7 +38,7 @@ test('isVisibleGeminiTextPart excludes internal thought summaries only', () => {
 });
 
 test('buildGeminiGenerationConfig uses Gemini 3 defaults', () => {
-  const cfg = buildGeminiGenerationConfig({ mode: 'agent' }, { modelId: 'gemini-3.5-flash' });
+  const cfg = buildGeminiGenerationConfig({ mode: 'agent' }, { modelId: 'gemini-3.6-flash' });
   assert.equal(cfg.temperature, 1.0);
   assert.equal(cfg.thinkingConfig.thinkingLevel, 'medium');
   assert.equal(cfg.maxOutputTokens, 8192);
@@ -47,14 +47,14 @@ test('buildGeminiGenerationConfig uses Gemini 3 defaults', () => {
 test('buildGeminiGenerationConfig uses low thinking for ask-like turns on Gemini 3', () => {
   const cfg = buildGeminiGenerationConfig(
     { mode: 'ask', taskType: 'ask' },
-    { modelId: 'gemini-3.5-flash' },
+    { modelId: 'gemini-3.5-flash-lite' },
   );
   assert.equal(cfg.thinkingConfig.thinkingLevel, 'low');
 });
 
 test('resolveGeminiMaxOutputTokens enforces Gemini 3 floor', () => {
-  assert.equal(resolveGeminiMaxOutputTokens('gemini-3.5-flash', 2048), 8192);
-  assert.equal(resolveGeminiMaxOutputTokens('gemini-3.5-flash', 65536), 65536);
+  assert.equal(resolveGeminiMaxOutputTokens('gemini-3.6-flash', 2048), 8192);
+  assert.equal(resolveGeminiMaxOutputTokens('gemini-3.5-flash-lite', 65536), 65536);
 });
 
 test('sanitizeGeminiParameterSchema strips additionalProperties', () => {
