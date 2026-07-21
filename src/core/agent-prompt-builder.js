@@ -79,6 +79,7 @@ export function scheduleAgentsamToolCallLog(env, ctx, fields) {
     agent_run_id, agentRunId, conversation_id, conversationId,
     routingArmId, routing_arm_id, agentId, agent_id, sourceTool, source_tool,
     inputCostUsd, input_cost_usd, outputCostUsd, output_cost_usd,
+    inputJson, input_json, outputJson, output_json,
   } = fields;
   const tid = tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : '';
   const ws = workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : '';
@@ -95,6 +96,8 @@ export function scheduleAgentsamToolCallLog(env, ctx, fields) {
     outputCostUsd: outputCostUsd ?? output_cost_usd,
     errorMessage: errorMessage != null ? String(errorMessage).slice(0, 8000) : null,
     inputSummary: String(inputSummary ?? '').slice(0, 200),
+    inputJson: inputJson ?? input_json ?? null,
+    outputJson: outputJson ?? output_json ?? null,
     tool_key: fields.tool_key,
     capability_key: fields.capability_key,
     handler_key: fields.handler_key,

@@ -642,6 +642,14 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           workspaceId,
           errorMessage: execErr ? String(execErr.message || execErr).slice(0, 4000) : null,
           inputSummary: JSON.stringify(callInput).slice(0, 200),
+          inputJson: callInput && typeof callInput === 'object' ? callInput : { value: callInput },
+          outputJson: (() => {
+            try {
+              return typeof toolOutput === 'string' ? JSON.parse(toolOutput) : toolOutput;
+            } catch {
+              return { text: String(toolOutput || '').slice(0, 50000) };
+            }
+          })(),
           routingArmId: attributedRoutingArmId(),
           ...toolLogFieldsFromValidation(validation),
           ...runSpineIds,
@@ -1434,6 +1442,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           workspaceId,
           errorMessage: 'tool_arguments_json_parse_error',
           inputSummary: JSON.stringify({ __parse_error: true, __raw: raw }).slice(0, 200),
+          inputJson: { __parse_error: true, __raw: raw },
+          outputJson: { error: 'tool_arguments_json_parse_error' },
           routingArmId: attributedRoutingArmId(),
           ...runSpineIds,
           ...ledgerIdentityFields,
@@ -1499,6 +1509,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           workspaceId,
           errorMessage: validation.reason,
           inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
+          inputJson: call.input && typeof call.input === 'object' ? call.input : {},
+          outputJson: { blocked: true, reason: validation.reason },
           routingArmId: attributedRoutingArmId(),
           ...toolLogFieldsFromValidation(validation),
           ...runSpineIds,
@@ -1567,6 +1579,11 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           workspaceId,
           errorMessage: grTool.decision?.reason || 'guardrail_blocked',
           inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
+          inputJson: call.input && typeof call.input === 'object' ? call.input : {},
+          outputJson: {
+            blocked: true,
+            reason: grTool.decision?.reason || 'guardrail_blocked',
+          },
           routingArmId: attributedRoutingArmId(),
           ...toolLogFieldsFromValidation(validation),
           ...runSpineIds,
@@ -2395,6 +2412,20 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         workspaceId,
         errorMessage: execErr ? String(execErr.message || execErr).slice(0, 4000) : null,
         inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
+        inputJson:
+          call.input && typeof call.input === 'object'
+            ? call.input
+            : call.input != null
+              ? { value: call.input }
+              : {},
+        outputJson: (() => {
+          const raw = String(toolOutput || '');
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return { text: raw.slice(0, 50000) };
+          }
+        })(),
         routingArmId: attributedRoutingArmId(),
         ...toolLogFieldsFromValidation(validation),
         ...runSpineIds,
