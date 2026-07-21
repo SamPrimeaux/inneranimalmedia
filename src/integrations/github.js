@@ -570,6 +570,89 @@ export async function githubCommitHandshake(env, authUser, repo, opts) {
   };
 }
 
+/**
+ * Atomic multi-file commit via Git Data API (blobs → tree → commit → ref).
+ * @param {string} token
+ * @param {string} repo owner/repo
+ * @param {{ branch?: string, message: string, files: Array<{ path: string, content: string }>, committer?: string, committerEmail?: string }} opts
+ * @param {object} [env]
+ */
+export async function githubCommitTreeWithToken(token, repo, opts, env = null) {
+  const message = String(opts?.message || '').trim();
+  const files = Array.isArray(opts?.files) ? opts.files : [];
+  if (!repo || !message || !files.length) {
+    throw new Error('repo, message, and files[] are required');
+  }
+  if (files.length > 50) {
+    throw new Error('files array max is 50 paths per commit');
+  }
+
+  let branch = opts.branch ? String(opts.branch).trim() : '';
+  if (!branch) {
+    const repoMeta = await ghFetch(token, 'GET', `/repos/${repo}`);
+    branch = repoMeta.default_branch;
+  }
+
+  const refData = await ghFetch(token, 'GET', `/repos/${repo}/git/refs/heads/${branch}`);
+  const latestSha = refData.object.sha;
+  const commitData = await ghFetch(token, 'GET', `/repos/${repo}/git/commits/${latestSha}`);
+  const baseTreeSha = commitData.tree.sha;
+
+  const treeEntries = [];
+  for (const f of files) {
+    const filePath = String(f?.path || '').trim().replace(/^\/+/, '');
+    if (!filePath || f?.content == null) {
+      throw new Error('each file requires path and content');
+    }
+    const blobData = await ghFetch(token, 'POST', `/repos/${repo}/git/blobs`, {
+      content: btoa(unescape(encodeURIComponent(String(f.content)))),
+      encoding: 'base64',
+    });
+    treeEntries.push({
+      path: filePath,
+      mode: '100644',
+      type: 'blob',
+      sha: blobData.sha,
+    });
+  }
+
+  const treeData = await ghFetch(token, 'POST', `/repos/${repo}/git/trees`, {
+    base_tree: baseTreeSha,
+    tree: treeEntries,
+  });
+
+  const committerName = opts.committer ? String(opts.committer).trim() : '';
+  const newCommitData = await ghFetch(token, 'POST', `/repos/${repo}/git/commits`, {
+    message,
+    tree: treeData.sha,
+    parents: [latestSha],
+    ...(committerName
+      ? {
+          committer: {
+            name: committerName,
+            email:
+              (typeof opts.committerEmail === 'string' && opts.committerEmail.trim()) ||
+              (typeof env?.GITHUB_COMMITTER_EMAIL === 'string' && env.GITHUB_COMMITTER_EMAIL.trim()) ||
+              undefined,
+          },
+        }
+      : {}),
+  });
+
+  await ghFetch(token, 'PATCH', `/repos/${repo}/git/refs/heads/${branch}`, {
+    sha: newCommitData.sha,
+    force: false,
+  });
+
+  return {
+    sha: newCommitData.sha,
+    url: newCommitData.html_url,
+    branch,
+    file_count: treeEntries.length,
+    paths: treeEntries.map((e) => e.path),
+  };
+}
+
 // ─── /api/integrations/* dispatcher ──────────────────────────────────────────
 
 /** OAuth rows in `user_oauth_tokens` are keyed by `auth_users.id` (see oauth-login-callbacks.js). */

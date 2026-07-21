@@ -18,15 +18,21 @@ function trim(v) {
 }
 
 /**
- * GCP remote lane cwd — sparse operator repo (git/shell/wrangler on iam-tunnel).
+ * GCP remote lane cwd — requires vm_workspace_root for non-operator workspaces (fail loud).
  * @param {Record<string, unknown>|null|undefined} [settings]
+ * @param {{ workspaceId?: string|null, allowOperatorFallback?: boolean }} [opts]
+ * @returns {string|null}
  */
-export function gcpRemoteExecCwd(settings = null) {
+export function gcpRemoteExecCwd(settings = null, opts = {}) {
   if (settings && typeof settings === 'object') {
     const fromVm = trim(settings.vm_workspace_root || settings.repo?.vm_path);
     if (fromVm) return fromVm;
   }
-  return IAM_GCP_OPERATOR_REPO;
+  const ws = trim(opts.workspaceId || settings?.workspace_id);
+  const allowFallback =
+    opts.allowOperatorFallback === true || !ws || ws === 'ws_inneranimalmedia';
+  if (allowFallback) return IAM_GCP_OPERATOR_REPO;
+  return null;
 }
 
 /** @deprecated use gcpRemoteExecCwd() */
@@ -36,21 +42,40 @@ export function translateHostRootForGcp(_root) {
 
 /**
  * @param {Record<string, unknown>|null|undefined} settings
+ * @param {{ workspaceId?: string|null, allowOperatorFallback?: boolean }} [opts]
+ * @returns {string|null}
  */
-export function vmWorkspaceRootFromSettings(settings) {
-  if (settings && typeof settings === 'object') {
-    const vmRoot = trim(settings.vm_workspace_root || settings.repo?.vm_path);
-    if (vmRoot) return vmRoot;
-  }
-  return IAM_GCP_OPERATOR_REPO;
+export function vmWorkspaceRootFromSettings(settings, opts = {}) {
+  return gcpRemoteExecCwd(settings, opts);
 }
 
 /**
  * @param {Record<string, unknown>|null|undefined} settings
+ * @param {{ workspaceId?: string|null, allowOperatorFallback?: boolean }} [opts]
  */
-export function vmWorkspaceCdCommandFromSettings(settings) {
-  const root = vmWorkspaceRootFromSettings(settings);
+export function vmWorkspaceCdCommandFromSettings(settings, opts = {}) {
+  const root = vmWorkspaceRootFromSettings(settings, opts);
   return root ? `cd ${root}` : '';
+}
+
+/**
+ * Strip Mac `cd /Users/... &&` prefixes for Linux exec hosts.
+ * @param {string} command
+ * @param {string} gcpRoot
+ */
+export function rewriteMacCwdInShellCommand(command, gcpRoot) {
+  const cmd = trim(command);
+  const root = trim(gcpRoot) || IAM_GCP_OPERATOR_REPO;
+  if (!cmd) return cmd;
+  const m = cmd.match(/^\s*cd\s+(?:"([^"]+)"|'([^']+)'|(\S+))\s*&&\s*(.+)$/is);
+  if (!m) return cmd;
+  const dir = trim(m[1] || m[2] || m[3]);
+  const rest = trim(m[4]);
+  if (!dir.startsWith('/Users/') && !/^[A-Za-z]:\\/.test(dir) && !dir.startsWith('/Volumes/')) {
+    return cmd;
+  }
+  const quoted = root.includes(' ') ? `"${root.replace(/"/g, '\\"')}"` : root;
+  return `cd ${quoted} && ${rest}`;
 }
 
 /**

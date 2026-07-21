@@ -104,13 +104,30 @@ export function wrapWorkspaceShellCommand(settingsJson, command, opts = {}) {
   }
   if (!parsed || typeof parsed !== 'object') return cmd;
 
-  if (/^\s*cd\s+/i.test(cmd)) return cmd;
-
   const gcpExec = opts.gcpExec === true;
+  if (/^\s*cd\s+/i.test(cmd)) {
+    if (gcpExec) {
+      const vmRoot = String(parsed.vm_workspace_root || parsed.repo?.vm_path || '').trim();
+      const root =
+        vmRoot ||
+        (!opts.workspaceId || opts.workspaceId === 'ws_inneranimalmedia'
+          ? '/home/samprimeaux/inneranimalmedia'
+          : '');
+      if (!root) return cmd;
+      return rewriteMacCdPrefix(cmd, root);
+    }
+    return cmd;
+  }
+
   if (gcpExec) {
     const vmRoot = String(parsed.vm_workspace_root || parsed.repo?.vm_path || '').trim();
-    const root = vmRoot || '/home/samprimeaux/inneranimalmedia';
-    if (root && cmd.includes(root)) return cmd;
+    const root =
+      vmRoot ||
+      (!opts.workspaceId || opts.workspaceId === 'ws_inneranimalmedia'
+        ? '/home/samprimeaux/inneranimalmedia'
+        : '');
+    if (!root) return cmd;
+    if (cmd.includes(root)) return cmd;
     return `cd ${root} && ${cmd}`;
   }
 
@@ -125,6 +142,21 @@ export function wrapWorkspaceShellCommand(settingsJson, command, opts = {}) {
   }
   if (root) return `cd ${root} && ${cmd}`;
   return cmd;
+}
+
+function rewriteMacCdPrefix(command, linuxRoot) {
+  const cmd = String(command || '').trim();
+  const root = String(linuxRoot || '').trim();
+  if (!cmd || !root) return cmd;
+  const m = cmd.match(/^\s*cd\s+(?:"([^"]+)"|'([^']+)'|(\S+))\s*&&\s*(.+)$/is);
+  if (!m) return cmd;
+  const dir = String(m[1] || m[2] || m[3] || '').trim();
+  const rest = String(m[4] || '').trim();
+  if (!dir.startsWith('/Users/') && !/^[A-Za-z]:\\/.test(dir) && !dir.startsWith('/Volumes/')) {
+    return cmd;
+  }
+  const quoted = root.includes(' ') ? `"${root.replace(/"/g, '\\"')}"` : root;
+  return `cd ${quoted} && ${rest}`;
 }
 
 function stableSortValue(value) {
@@ -1979,9 +2011,23 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         terminalToolPrefersGcpLane(toolKey) ||
         routing.lane === 'gcp_primary' ||
         (remoteTargetId && /gcp|iam_tunnel|platform_vm/i.test(remoteTargetId));
-      const responseWorkspaceRoot = gcpExec
-        ? (await import('./host-workspace-paths.js')).IAM_GCP_OPERATOR_REPO
-        : workspaceRoot;
+      const { gcpRemoteExecCwd, IAM_GCP_OPERATOR_REPO } = await import('./host-workspace-paths.js');
+      const gcpRoot = gcpExec
+        ? gcpRemoteExecCwd(parsedSettings, { workspaceId })
+        : null;
+      if (gcpExec && !gcpRoot) {
+        result = {
+          ok: false,
+          error: 'vm_workspace_root_required',
+          body: {
+            workspace_id: workspaceId,
+            user_message:
+              'This workspace has no vm_workspace_root for the GCP exec host. Set workspace_settings.vm_workspace_root to the Linux path on iam-tunnel (only if that repo is cloned there), or use agentsam_github_commit_tree / agentsam_terminal_sandbox.',
+          },
+        };
+        break;
+      }
+      const responseWorkspaceRoot = gcpExec ? gcpRoot || IAM_GCP_OPERATOR_REPO : workspaceRoot;
 
       const { executeTerminalCatalogWithFallback } = await import('./terminal-exec-fallback.js');
       result = await executeTerminalCatalogWithFallback(env, {
@@ -2446,6 +2492,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         update_file: 'github_update_file',
         create_file: 'github_create_file',
         upsert_file: 'github_upsert_file',
+        commit_tree: 'github_commit_tree',
         delete_file: 'github_delete_file',
         create_pr: 'github_create_pr',
         update_pr: 'github_update_pr',
@@ -2461,6 +2508,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       };
       let handlerName = opMap[op] || null;
       if (!handlerName && toolKey === 'agentsam_github_write') handlerName = 'github_upsert_file';
+      if (!handlerName && toolKey === 'agentsam_github_commit_tree') handlerName = 'github_commit_tree';
       if (!handlerName && toolKey === 'agentsam_github_read') handlerName = 'github_get_file';
       if (
         !handlerName &&

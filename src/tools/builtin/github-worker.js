@@ -439,6 +439,58 @@ export const handlers = {
     };
   },
 
+  /**
+   * Atomic multi-file commit (Git Data API) — one commit for N UTF-8 text files.
+   */
+  async github_commit_tree(params, env) {
+    const missing = [
+      ...missingNonEmptyStrings(params, ['user_id', 'repo', 'message']),
+    ];
+    if (missing.length) return missingRequiredInput(params, missing);
+    const filesRaw = params.files ?? params.changes ?? params.paths;
+    if (!Array.isArray(filesRaw) || filesRaw.length === 0) {
+      return missingRequiredInput(params, ['files']);
+    }
+    if (filesRaw.length > 50) {
+      return structuredError(params, 'files_limit', 'Max 50 files per agentsam_github_commit_tree call');
+    }
+    const files = [];
+    for (const f of filesRaw) {
+      if (typeof f === 'string') {
+        return structuredError(
+          params,
+          'invalid_files',
+          'files entries must be { path, content } objects (not path strings alone)',
+        );
+      }
+      const path = trim(f?.path);
+      if (!path || f?.content == null) {
+        return structuredError(params, 'invalid_files', 'each file requires path and content');
+      }
+      files.push({ path, content: String(f.content) });
+    }
+
+    const t = await ghGetToken(env, params);
+    if (t.success === false || t.error) return t;
+
+    try {
+      const { githubCommitTreeWithToken } = await import('../../integrations/github.js');
+      const out = await githubCommitTreeWithToken(
+        t.token,
+        String(params.repo).trim(),
+        {
+          branch: trim(params.branch) || undefined,
+          message: String(params.message).trim(),
+          files,
+        },
+        env,
+      );
+      return { success: true, ...out, ...toolMeta(params) };
+    } catch (e) {
+      return structuredError(params, 'github_commit_tree_failed', e?.message ? String(e.message) : String(e));
+    }
+  },
+
   async github_delete_file(params, env) {
     const missing = missingNonEmptyStrings(params, ['user_id', 'repo', 'path', 'message']);
     if (missing.length) return missingRequiredInput(params, missing);

@@ -30,13 +30,25 @@ function wrapWorkspaceShellCommand(settingsJson, command, opts = {}) {
     }
   }
   if (!parsed || typeof parsed !== 'object') return cmd;
-  if (/^\s*cd\s+/i.test(cmd)) return cmd;
 
   const gcpExec = opts.gcpExec === true;
+  if (/^\s*cd\s+/i.test(cmd)) {
+    if (gcpExec) {
+      const vmRoot = String(parsed.vm_workspace_root || parsed.repo?.vm_path || '').trim();
+      const root =
+        vmRoot || gcpRemoteExecCwd(parsed, { workspaceId: opts.workspaceId });
+      if (!root) return cmd;
+      return rewriteMacCdPrefix(cmd, root);
+    }
+    return cmd;
+  }
+
   if (gcpExec) {
     const vmRoot = String(parsed.vm_workspace_root || parsed.repo?.vm_path || '').trim();
-    const root = vmRoot || gcpRemoteExecCwd(parsed);
-    if (root && cmd.includes(root)) return cmd;
+    const root =
+      vmRoot || gcpRemoteExecCwd(parsed, { workspaceId: opts.workspaceId });
+    if (!root) return cmd;
+    if (cmd.includes(root)) return cmd;
     return `cd ${root} && ${cmd}`;
   }
 
@@ -51,6 +63,21 @@ function wrapWorkspaceShellCommand(settingsJson, command, opts = {}) {
   }
   if (root) return `cd ${root} && ${cmd}`;
   return cmd;
+}
+
+function rewriteMacCdPrefix(command, linuxRoot) {
+  const cmd = String(command || '').trim();
+  const root = String(linuxRoot || '').trim();
+  if (!cmd || !root) return cmd;
+  const m = cmd.match(/^\s*cd\s+(?:"([^"]+)"|'([^']+)'|(\S+))\s*&&\s*(.+)$/is);
+  if (!m) return cmd;
+  const dir = String(m[1] || m[2] || m[3] || '').trim();
+  const rest = String(m[4] || '').trim();
+  if (!dir.startsWith('/Users/') && !/^[A-Za-z]:\\/.test(dir) && !dir.startsWith('/Volumes/')) {
+    return cmd;
+  }
+  const quoted = root.includes(' ') ? `"${root.replace(/"/g, '\\"')}"` : root;
+  return `cd ${quoted} && ${rest}`;
 }
 
 export const TERMINAL_LANE_TOOLS = Object.freeze({
@@ -129,10 +156,14 @@ export function buildCommandForTerminalLane(rawCommand, laneToolKey, opts = {}) 
 
   if (lane === TERMINAL_LANE_TOOLS.REMOTE) {
     if (settingsJson) {
-      return wrapWorkspaceShellCommand(settingsJson, cmd, { gcpExec: true });
+      return wrapWorkspaceShellCommand(settingsJson, cmd, {
+        gcpExec: true,
+        workspaceId: opts.workspaceId,
+      });
     }
-    const vmRoot = gcpRemoteExecCwd(parsedSettings);
-    if (vmRoot && !cmd.includes(vmRoot)) {
+    const vmRoot = gcpRemoteExecCwd(parsedSettings, { workspaceId: opts.workspaceId });
+    if (!vmRoot) return cmd;
+    if (!cmd.includes(vmRoot)) {
       return `cd ${vmRoot} && ${cmd}`;
     }
     return cmd;
@@ -304,6 +335,7 @@ async function executePtyLane(env, laneToolKey, ctx) {
     explicitPath: ctx.explicitPath,
     settingsJson: ctx.settingsJson,
     parsedSettings: ctx.parsedSettings,
+    workspaceId: ctx.workspaceId,
   });
 
   const routing = resolveTerminalExecRouting({
@@ -355,19 +387,29 @@ async function executePtyLane(env, laneToolKey, ctx) {
   const { buildTerminalToolResponseBody } = await import('./mcp-terminal-contract.js');
   const exitCode = out.exit_code ?? out.exitCode ?? null;
   const stdout = typeof out.output === 'string' ? out.output : '';
+  const stderr = typeof out.stderr === 'string' ? out.stderr : '';
+  const body = buildTerminalToolResponseBody({
+    explicitPath: gcpExec ? null : ctx.explicitPath || null,
+    workspaceRoot: gcpExec ? ctx.responseWorkspaceRoot : ctx.workspaceRoot,
+    executedCommand: out.command || executedCommand,
+    stdout,
+    stderr,
+    exitCode,
+    status: out.status || 'success',
+  });
+  if (body.ok === false || body.error === 'exec_spawn_failed') {
+    return {
+      ok: false,
+      error: body.error || 'exec_spawn_failed',
+      lane: routing.lane || null,
+      body,
+    };
+  }
 
   return {
     ok: true,
     lane: routing.lane || null,
-    body: buildTerminalToolResponseBody({
-      explicitPath: gcpExec ? null : ctx.explicitPath || null,
-      workspaceRoot: gcpExec ? ctx.responseWorkspaceRoot : ctx.workspaceRoot,
-      executedCommand: out.command || executedCommand,
-      stdout,
-      stderr: typeof out.stderr === 'string' ? out.stderr : '',
-      exitCode,
-      status: out.status || 'success',
-    }),
+    body,
   };
 }
 

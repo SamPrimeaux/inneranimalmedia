@@ -9,6 +9,7 @@ import { agentsamMemorySearchInputSchema } from './mcp-memory-search-schema.js';
 import { agentsamMemorySaveInputSchema } from './mcp-memory-save-schema.js';
 import { agentsamMemoryVectorWriteInputSchema } from './mcp-memory-vector-write-schema.js';
 import { agentsamGithubWriteInputSchema } from './mcp-github-write-schema.js';
+import { agentsamGithubCommitTreeInputSchema } from './mcp-github-commit-tree-schema.js';
 import {
   agentsamTerminalLocalInputSchema,
   agentsamTerminalRemoteInputSchema,
@@ -452,6 +453,7 @@ export function inputSchemaFromAgentsamToolRow(row) {
   if (tk === 'agentsam_memory_save') return agentsamMemorySaveInputSchema();
   if (tk === 'agentsam_memory_write') return agentsamMemoryVectorWriteInputSchema();
   if (tk === 'agentsam_github_write') return agentsamGithubWriteInputSchema();
+  if (tk === 'agentsam_github_commit_tree') return agentsamGithubCommitTreeInputSchema();
   if (tk === 'agentsam_terminal_local') return agentsamTerminalLocalInputSchema();
   if (tk === 'agentsam_terminal_remote') return agentsamTerminalRemoteInputSchema();
   if (tk === 'agentsam_container_exec') return agentsamContainerExecInputSchema();

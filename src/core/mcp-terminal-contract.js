@@ -77,8 +77,28 @@ export function agentsamTerminalLocalInputSchema() {
 export function wrapShellCommandWithPath(path, command) {
   const cmd = String(command || '').trim();
   const dir = String(path || '').trim();
-  if (!cmd || !dir) return cmd;
-  if (/^\s*cd\s+/i.test(cmd)) return cmd;
+  if (!cmd) return cmd;
+  if (/^\s*cd\s+/i.test(cmd)) {
+    // Caller owns cwd — still rewrite Mac /Users prefixes when we have a Linux root.
+    if (dir && !dir.startsWith('/Users/') && !/^[A-Za-z]:\\/.test(dir)) {
+      const m = cmd.match(/^\s*cd\s+(?:"([^"]+)"|'([^']+)'|(\S+))\s*&&\s*(.+)$/is);
+      if (m) {
+        const oldDir = String(m[1] || m[2] || m[3] || '').trim();
+        const rest = String(m[4] || '').trim();
+        if (
+          oldDir.startsWith('/Users/') ||
+          /^[A-Za-z]:\\/.test(oldDir) ||
+          oldDir.startsWith('/Volumes/')
+        ) {
+          const quoted =
+            dir.includes(' ') || dir.includes('$') ? `"${dir.replace(/"/g, '\\"')}"` : dir;
+          return `cd ${quoted} && ${rest}`;
+        }
+      }
+    }
+    return cmd;
+  }
+  if (!dir) return cmd;
   const quoted = dir.includes(' ') || dir.includes('$') ? `"${dir.replace(/"/g, '\\"')}"` : dir;
   return `cd ${quoted} && ${cmd}`;
 }
@@ -187,9 +207,22 @@ export function inferCwdFromShellCommand(command) {
  * @param {{ stdout?: string, stderr?: string, exitCode?: number|null }} opts
  * @returns {{ code: string, action: string }[]}
  */
+function isSpawnEnoent(exitCode) {
+  const c = exitCode == null ? '' : String(exitCode).trim().toUpperCase();
+  return c === 'ENOENT' || c === 'ENOTDIR' || c === 'EACCES';
+}
+
 export function terminalRecoveryHints(opts = {}) {
   const text = `${opts.stdout ?? ''}\n${opts.stderr ?? ''}`;
   const hints = [];
+
+  if (isSpawnEnoent(opts.exitCode) || /\bENOENT\b/i.test(text)) {
+    hints.push({
+      code: 'exec_spawn_enoent',
+      action:
+        'Spawn failed before the shell ran (often a Mac cwd on Linux). Ensure vm_workspace_root is set for this workspace, or use agentsam_github_commit_tree / agentsam_terminal_sandbox.',
+    });
+  }
 
   if (
     /Permission to .+ denied|fatal: unable to access 'https:\/\/github\.com|returned error: 403/i.test(
@@ -239,8 +272,14 @@ export function buildTerminalToolResponseBody(ctx) {
   const workspaceRoot = String(ctx.workspaceRoot || '').trim();
   const executedCommand = String(ctx.executedCommand || '').trim();
   const stdout = typeof ctx.stdout === 'string' ? ctx.stdout : '';
-  const stderr = typeof ctx.stderr === 'string' ? ctx.stderr : '';
+  let stderr = typeof ctx.stderr === 'string' ? ctx.stderr : '';
   const exitCode = ctx.exitCode ?? null;
+  const spawnFailed = isSpawnEnoent(exitCode);
+  if (spawnFailed && !stderr) {
+    stderr = `exec_spawn_failed:${String(exitCode)} — process never started (cwd or shell binary missing on host)`;
+  }
+  const ok =
+    !spawnFailed && (exitCode == null || exitCode === 0 || exitCode === '0');
 
   let cwd = explicitPath || workspaceRoot || inferCwdFromShellCommand(executedCommand) || null;
   let cwd_source = 'pty_session_default';
@@ -251,6 +290,7 @@ export function buildTerminalToolResponseBody(ctx) {
   const recovery_hints = terminalRecoveryHints({ stdout, stderr, exitCode });
 
   return {
+    ok,
     cwd,
     cwd_source,
     exit_code: exitCode,
@@ -258,7 +298,8 @@ export function buildTerminalToolResponseBody(ctx) {
     stderr,
     output: stdout,
     command: executedCommand,
-    status: ctx.status || 'success',
+    status: spawnFailed ? 'error' : ok ? (ctx.status === 'error' ? 'error' : 'success') : 'error',
+    ...(spawnFailed ? { error: 'exec_spawn_failed', exec_error: String(exitCode) } : {}),
     ...(recovery_hints.length ? { recovery_hints } : {}),
   };
 }
