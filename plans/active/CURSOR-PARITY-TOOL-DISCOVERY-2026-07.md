@@ -2,7 +2,8 @@
 
 **Date:** 2026-07-21  
 **Ticket:** `tkt_23052e89c7b44e45`  
-**Status:** Proposal / decision needed — **paused** three-profile migration (`composer_agent` / `composer_debug` / `composer_multitask` as curated allowlists)
+**Status:** Destination = progressive discovery (Option B). Three-profile curated menus **paused**.  
+**Blocker confirmed:** double-gate — `activeTools` ≠ `tool_policy.allowlist` (see below).
 
 ---
 
@@ -86,34 +87,67 @@ Do **not** maintain separate Debug/Agent tool allowlists as the primary design.
 3. Optional: intersect with `agentsam_prompt_routes.tool_keys` + `token_budget` when a route fires — **dynamic filter**, not a third static menu table.
 4. Soft cap ~40 hydrated schemas (Cursor MCP-shaped ceiling); prefer toggle groups later (CF / GitHub / mail) over per-mode hand lists.
 
-### Capabilties stay policy, not discovery
+### Capabilities stay policy, not discovery
 
 `write_policy_json` + approval continue to gate **execution**. Discovery can surface `agentsam_worker_deploy`; policy still requires approval. That’s Cursor Run Mode energy, not “Debug profile forgot deploy.”
 
 ---
 
-## Decision options (pick one before more profile migrations)
+## Double-gate (must fix first or hydrate silently fails)
 
-### Option A — Smaller stopgap now, honest framing
+Two independent gates today:
 
-- **One** Agent-class ceiling (keep CF/deploy/R2 — Cursor doesn’t strip those).
-- Point **Debug** (and keep Multitask) at that ceiling **or** keep distinct `profile_key`s that **share the same `tool_keys_json`** so menus don’t diverge.
-- Fix “Debug isn’t Debug” via **autonomy**: system prompt, confirm-before-mutate, lower `max_tool_calls` / checkpoint cadence — **not** a 14-tool wall.
-- Schedule progressive discovery as Phase 2.
+| Gate | Where | What it checks |
+|------|-------|----------------|
+| **Discovery / schemas** | `activeTools` in tool loop | What the model can *see* and call by name |
+| **Execution allowlist** | `validateToolCall` → `runtimeProfile.tool_policy.allowlist` | Baked at **compile** from the same `toolAllowlist` as schemas |
 
-**Pros:** Fast; stops Fake-Debug branding; no three-way drift.  
-**Cons:** Token bloat remains until Phase 2.
+```js
+// agent-tool-validator.js — runs BEFORE capability/write_policy
+if (compiledToolPolicy?.allowlist?.length && !allowlistHasTool(name, compiledToolPolicy.allowlist)) {
+  return { allowed: false, reason: 'not in profile tool_policy allowlist', ... };
+}
+```
 
-### Option B — Skip stopgap kits; build progressive discovery
+`compileModeProfile` sets `tool_policy.allowlist = toolAllowlist` (the compiled menu). If hydrate only grows `activeTools` but compile shrunk allowlist to the core set, discovered tools die at execution.
 
-- Reuse `agentsam_prompt_routes` + `agentsam_search_tools` as the per-turn filter on **one** sane ceiling.
-- Wire in-app Agent compile path to hydrate schemas on demand (MCP `tool_search` pattern).
-- Modes only change autonomy / policy / budgets.
+**Nuance:** If allowlist stays the **full Agent-class ceiling** (profile `tool_keys_json`) while `activeTools` starts as core-only, in-ceiling hydrate works without validator change. It breaks as soon as discovery can pull **outside** that ceiling, or if allowlist is naively tied to “schemas on the wire.”
 
-**Pros:** Matches Cursor + industry direction; one menu to maintain.  
-**Cons:** Larger build; needs careful SSE / tool-loop UX.
+### Fix (default = law-aligned)
 
-**Recommendation:** Prefer **B** as the destination; if a ship this week is required, **A** only as labeled stopgap — **do not** ship three different curated allowlists.
+**Law:** menu = discovery, policy = safety.
+
+| Option | Change | When |
+|--------|--------|------|
+| **(a) Preferred** | For Agent / Debug / Multitask: do **not** enforce restrictive `tool_policy.allowlist` (empty / skip check). Rely on **denylist** + **write_policy / capability** + approval. | Matches stated law; simplest |
+| **(b) Alternate** | Keep allowlist as ceiling; discovery also appends keys into session/`mcpRuntimeContext` (or mutates `profile.tool_policy.allowlist` + `tool_allowlist`) so `allowlistHasTool` sees them | If a hard ceiling allowlist must stay load-bearing |
+
+**Sequence (do not reverse):**
+
+1. **Validator / allowlist gate** — (a) or (b) so discovered keys can execute  
+2. **`activeTools` grow-path** — after `agentsam_search_tools` (or route hydrate), append full schemas for next model round  
+3. **Provider wiring** — uniform core+search→hydrate for **all** providers; Anthropic `defer_loading`/BM25 is **additive** (context-side), not primary (still uploads schemas on the wire today)
+
+---
+
+## Core always-on set (schemas on turn 0)
+
+Small and boring — everything else discoverable (including CF/deploy/R2/github write/terminal/`d1_write`):
+
+- `agentsam_search_tools` (required)
+- `fs_read_file`, `fs_search_files`
+- `agentsam_codebase_retrieve`
+- `agentsam_memory_search`
+- `agentsam_d1_query`
+- `search_web`
+
+Ceiling for *what may be discovered* remains Agent-class (profile / oauth catalog intersection) — **not** stripped by mode.
+
+---
+
+## Decision
+
+**Destination: Option B** (progressive discovery). Option A (shared ceiling + Debug-as-behavior only) remains a possible labeled stopgap if needed mid-build — **not** three curated allowlists.
 
 ---
 
@@ -122,6 +156,7 @@ Do **not** maintain separate Debug/Agent tool allowlists as the primary design.
 - Migration that sets Debug to a reduced tool list and Agent to a different list “for Cursor parity.”
 - Treating `composer_agent` / `composer_debug` / `composer_multitask` as three forever-synced hand-authored menus.
 - Stripping CF/deploy from Agent “because Debug shouldn’t have them” — wrong axis.
+- Building hydrate/`activeTools.push` **before** fixing the allowlist execution gate.
 
 ---
 
@@ -129,11 +164,14 @@ Do **not** maintain separate Debug/Agent tool allowlists as the primary design.
 
 - **974 `composer_multitask`:** Multitask has its own key with **Agent-class tools** — correct for Cursor “parent inherits tools”; children still scope via RWS/subagent profiles.
 - **Ask / Plan** profiles: acceptable as read/research defaults; long-term token story is still progressive load, not more hand menus.
+- **Anthropic** `buildAnthropicMessagesTools`: `defer_loading` + BM25 — keep as additive optimization after uniform hydrate works.
 
 ---
 
-## Next (after operator chooses A or B)
+## Build order (Option B)
 
-1. Record decision on `tkt_23052e89c7b44e45`.
-2. If A: Debug binding → shared ceiling + autonomy patch (prompt / max_tool_calls / confirm).
-3. If B: design hydrate protocol for `agentsam_search_tools` in `compileModeProfile` / tool loop; prove with one trivial turn (schemas ≪ 29) and one deploy turn (deploy schema appears after discovery).
+1. **P0 — Double-gate:** Agent/Debug/Multitask skip restrictive allowlist (a), or sync discovery into allowlist (b). Prove: tool not in initial `activeTools` but in ceiling/policy can still execute when forced.
+2. **P1 — Core compile:** Agent/Debug/Multitask turn 0 schemas = core set above; ceiling keys remain discoverable.
+3. **P2 — Hydrate path:** `agentsam_search_tools` result → resolve schemas from `agentsam_tools` → grow `activeTools` (+ allowlist if b).
+4. **P3 — Prove:** trivial turn (schemas ≪ 29); deploy turn (`agentsam_worker_deploy` appears after search, executes under write_policy approval).
+5. **P4 — Optional:** Anthropic defer/BM25 on top; prompt_routes intersect as scorer.
