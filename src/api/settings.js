@@ -3741,6 +3741,19 @@ export async function handleSettingsRequest(request, env, ctx) {
     return jsonResponse({ ok: true, settings_json: parsed });
   }
 
+  if (pathLower === '/api/settings/workspace/code-index-status' && method === 'GET') {
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);
+    if (!workspaceId) return jsonResponse({ error: 'workspace_id required' }, 400);
+    try {
+      const { getWorkspaceCodeIndexStatus } = await import('./workspace-code-index-status.js');
+      const status = await getWorkspaceCodeIndexStatus(env, workspaceId);
+      return jsonResponse(status);
+    } catch (e) {
+      return jsonResponse({ error: e?.message ?? String(e) }, 500);
+    }
+  }
+
   if (pathLower === '/api/settings/workspace/reindex' && method === 'POST') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);

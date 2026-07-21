@@ -250,7 +250,16 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
           <Row label="Branch">{branch}</Row>
           <Row label="Deploy">{workerName(ws, op)} · Cloudflare Workers</Row>
           <Row label="Last deploy">
-            {snapshot.lastDeploy.at ? relativeTime(snapshot.lastDeploy.at) : '—'}
+            {snapshot.lastDeploy.at ? (
+              <>
+                {relativeTime(snapshot.lastDeploy.at)}
+                {snapshot.lastDeploy.git_sha
+                  ? ` · ${String(snapshot.lastDeploy.git_sha).slice(0, 7)}`
+                  : ''}
+              </>
+            ) : (
+              '—'
+            )}
           </Row>
           <Row label="Workspace ID">
             <code className="text-[10px] font-mono">{resolvedWorkspaceId}</code>
@@ -334,6 +343,87 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
         </Panel>
       ) : null}
 
+      {/* Code index — Phase 1: stats + chunk reindex only (AST refresh gated on PTY) */}
+      <Panel title="Code index">
+        <p className="text-[11px] text-muted -mt-1">
+          Chunk RAG + AST graph for Agent Sam. Retrieve is for pre-edit lookups (~2–3s) — not hot intent routing.
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+          <div className="rounded-lg border border-[var(--border-subtle)]/80 px-2.5 py-2">
+            <div className="text-[10px] text-muted uppercase tracking-wider">AST nodes</div>
+            <div className="text-main font-semibold tabular-nums">
+              {snapshot.codeIndex?.ast && 'nodes' in snapshot.codeIndex.ast
+                ? String(snapshot.codeIndex.ast.nodes ?? '—')
+                : '—'}
+            </div>
+          </div>
+          <div className="rounded-lg border border-[var(--border-subtle)]/80 px-2.5 py-2">
+            <div className="text-[10px] text-muted uppercase tracking-wider">Edges</div>
+            <div className="text-main font-semibold tabular-nums">
+              {snapshot.codeIndex?.ast && 'edges' in snapshot.codeIndex.ast
+                ? String(snapshot.codeIndex.ast.edges ?? '—')
+                : '—'}
+            </div>
+          </div>
+          <div className="rounded-lg border border-[var(--border-subtle)]/80 px-2.5 py-2">
+            <div className="text-[10px] text-muted uppercase tracking-wider">Symbols</div>
+            <div className="text-main font-semibold tabular-nums">
+              {snapshot.codeIndex?.ast && 'symbols' in snapshot.codeIndex.ast
+                ? String(snapshot.codeIndex.ast.symbols ?? '—')
+                : '—'}
+            </div>
+          </div>
+          <div className="rounded-lg border border-[var(--border-subtle)]/80 px-2.5 py-2">
+            <div className="text-[10px] text-muted uppercase tracking-wider">Linked chunks</div>
+            <div className="text-main font-semibold tabular-nums">
+              {snapshot.codeIndex?.ast && 'linked_chunks' in snapshot.codeIndex.ast
+                ? `${String(snapshot.codeIndex.ast.linked_chunks ?? '—')}/${String(
+                    (snapshot.codeIndex.ast as { total_chunks?: number }).total_chunks ?? '—',
+                  )}`
+                : '—'}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+          <div className="text-[10px] text-muted min-w-0">
+            {(() => {
+              const job =
+                snapshot.codeIndex?.chunkJob ||
+                (data.workspaceData?.indexJob as Record<string, unknown> | undefined);
+              if (!job) return 'No chunk index job yet for this workspace.';
+              const status = String(job.status || '—');
+              const when = job.last_sync_at || job.finished_at || job.completed_at || job.updated_at;
+              const err = job.last_error ? String(job.last_error).slice(0, 120) : '';
+              return (
+                <>
+                  Chunk job: <span className="text-main">{status}</span>
+                  {when ? <> · {relativeTime(when as string | number)}</> : null}
+                  {err ? <div className="text-[var(--accent-warning)] mt-0.5">{err}</div> : null}
+                </>
+              );
+            })()}
+          </div>
+          <button
+            type="button"
+            onClick={() => void data.postWorkspaceReindex()}
+            className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main shrink-0"
+          >
+            Re-index chunks
+          </button>
+        </div>
+        <p className="text-[10px] text-muted">
+          AST refresh stays off until remote terminal path repair (Phase 2). Job history →{' '}
+          <button
+            type="button"
+            className="text-[var(--solar-blue)] hover:underline"
+            onClick={() => navigate('/dashboard/settings/github')}
+          >
+            GitHub settings
+          </button>
+          .
+        </p>
+      </Panel>
+
       {/* 3 · Repo + deploy */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Panel title="Repository">
@@ -378,7 +468,16 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
             <code className="text-[10px] font-mono">{deployCommand(op)}</code>
           </Row>
           <Row label="Last deploy">
-            {snapshot.lastDeploy.at ? relativeTime(snapshot.lastDeploy.at) : '—'}
+            {snapshot.lastDeploy.at ? (
+              <>
+                {relativeTime(snapshot.lastDeploy.at)}
+                {snapshot.lastDeploy.git_sha
+                  ? ` · ${String(snapshot.lastDeploy.git_sha).slice(0, 7)}`
+                  : ''}
+              </>
+            ) : (
+              '—'
+            )}
           </Row>
           <Row label="Result">
             <StatusPill tone={String(snapshot.lastDeploy.status || '').toLowerCase().includes('fail') ? 'bad' : 'ok'}>
@@ -488,7 +587,6 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
         </Panel>
       ) : null}
 
-      {/* 5 · Activity + code index */}
       <Panel title="Recent activity">
         {snapshot.activity.length === 0 ? (
           <p className="text-[11px] text-muted">No workspace audit events yet.</p>
@@ -502,27 +600,6 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
             ))}
           </ul>
         )}
-      </Panel>
-
-      <Panel title="Code index">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] text-muted">
-            Refresh the Agent Sam codebase index for this workspace.
-          </p>
-          <button
-            type="button"
-            onClick={() => void data.postWorkspaceReindex()}
-            className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-muted hover:text-main shrink-0"
-          >
-            Re-index
-          </button>
-        </div>
-        {data.workspaceData?.indexJob ? (
-          <div className="text-[10px] text-muted">
-            Status: {String(data.workspaceData.indexJob.status || '—')} ·{' '}
-            {relativeTime(data.workspaceData.indexJob.last_sync_at)}
-          </div>
-        ) : null}
       </Panel>
 
       {wsId ? (

@@ -52,6 +52,11 @@ export type WorkspaceSnapshot = {
   lastDeploy: { at?: string | number | null; version?: string | null; git_sha?: string | null; status?: string | null };
   activity: Array<{ action?: string; created_at?: number | string; actor_email?: string | null }>;
   members: Array<Record<string, unknown>>;
+  codeIndex: {
+    chunkJob?: Record<string, unknown> | null;
+    ast?: Record<string, unknown> | null;
+    notes?: Record<string, string> | null;
+  } | null;
 };
 
 const EMPTY: WorkspaceSnapshot = {
@@ -64,6 +69,7 @@ const EMPTY: WorkspaceSnapshot = {
   lastDeploy: {},
   activity: [],
   members: [],
+  codeIndex: null,
 };
 
 async function fetchJson<T>(url: string): Promise<T | null> {
@@ -111,6 +117,7 @@ export function useWorkspaceSnapshot(workspaceId?: string | null) {
         cicdRes,
         auditRes,
         membersRes,
+        codeIndexRes,
       ] = await Promise.all([
         fetchJson<{ workspace?: Record<string, unknown> }>(`/api/settings/workspace${qp}`),
         fetchJson<{ settings_json?: OpSettings }>(`/api/workspace/settings${qp}`),
@@ -130,10 +137,22 @@ export function useWorkspaceSnapshot(workspaceId?: string | null) {
           `/api/workspaces/${encodeURIComponent(ws)}/audit`,
         ),
         fetchJson<{ members?: Array<Record<string, unknown>> }>('/api/settings/workspace/members'),
+        fetchJson<{
+          last_deploy?: {
+            at?: string | number | null;
+            version?: string | null;
+            git_sha?: string | null;
+            status?: string | null;
+          } | null;
+          chunk_index?: { job?: Record<string, unknown> | null };
+          ast?: Record<string, unknown>;
+          notes?: Record<string, string>;
+        }>(`/api/settings/workspace/code-index-status${qp}`),
       ]);
 
       const dv = cicdRes?.extra?.dashboard_versions?.[0];
       const run = cicdRes?.extra?.cicd_pipeline_runs?.[0];
+      const fromD1 = codeIndexRes?.last_deploy;
 
       setSnapshot({
         workspace: settingsRes?.workspace ?? null,
@@ -143,13 +162,20 @@ export function useWorkspaceSnapshot(workspaceId?: string | null) {
         health: healthRes,
         keys: keysRes?.items ?? [],
         lastDeploy: {
-          at: dv?.deployed_at ?? run?.completed_at ?? null,
-          version: dv?.version ?? null,
-          git_sha: dv?.git_sha ?? run?.commit_hash ?? null,
-          status: run?.status ?? 'success',
+          at: fromD1?.at ?? dv?.deployed_at ?? run?.completed_at ?? null,
+          version: fromD1?.version ?? dv?.version ?? null,
+          git_sha: fromD1?.git_sha ?? dv?.git_sha ?? run?.commit_hash ?? null,
+          status: fromD1?.status ?? run?.status ?? (fromD1 ? 'success' : null),
         },
         activity: auditRes?.events ?? [],
         members: membersRes?.members ?? [],
+        codeIndex: codeIndexRes
+          ? {
+              chunkJob: codeIndexRes.chunk_index?.job ?? null,
+              ast: codeIndexRes.ast ?? null,
+              notes: codeIndexRes.notes ?? null,
+            }
+          : null,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load workspace');
