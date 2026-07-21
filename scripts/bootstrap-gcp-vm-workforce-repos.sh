@@ -41,11 +41,13 @@ GCP_PROJECT="${GCP_PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || 
 GCP_ZONE_VAL="${GCP_ZONE:-}"
 HOME_BASE="${IAM_GCP_HOME_BASE:-/home/samprimeaux}"
 
-# name|github_slug|sparse_paths (space-separated)
+# name|github_slug|sparse_paths|ssh_url_override(optional)
+# Override used when workspace_settings.ssh_remote_overrides points at a Host alias
+# (e.g. github.com-inneranimal-mcp). Empty override → git@github.com:SLUG.git
 DEFAULT_REPOS="$(cat <<'EOF'
-inneranimalmedia-mcp-server|SamPrimeaux/inneranimalmedia-mcp-server|src scripts migrations docs
-fuelnfreetime|SamPrimeaux/fuelnfreetime|src scripts public docs
-companionscpas|SamPrimeaux/companionscpas|src scripts public docs static
+inneranimalmedia-mcp-server|SamPrimeaux/inneranimalmedia-mcp-server|src scripts migrations docs|git@github.com-inneranimal-mcp:SamPrimeaux/inneranimalmedia-mcp-server.git
+fuelnfreetime|SamPrimeaux/fuelnfreetime|src scripts public docs|
+companionscpas|SamPrimeaux/companionscpas|src scripts public docs static|
 EOF
 )"
 WORKFORCE_REPOS="${IAM_GCP_WORKFORCE_REPOS:-$DEFAULT_REPOS}"
@@ -69,9 +71,10 @@ fi
 echo "GCP VM: ${GCP_VM_NAME} (${GCP_PROJECT} / ${GCP_ZONE_VAL})"
 echo "Home base: ${HOME_BASE}"
 echo "Repos:"
-echo "$WORKFORCE_REPOS" | while IFS='|' read -r name slug paths; do
+echo "$WORKFORCE_REPOS" | while IFS='|' read -r name slug paths ssh_url; do
   [[ -z "${name:-}" ]] && continue
-  echo "  - ${HOME_BASE}/${name} ← git@github.com:${slug}.git  [${paths}]"
+  url="${ssh_url:-git@github.com:${slug}.git}"
+  echo "  - ${HOME_BASE}/${name} ← ${url}  [${paths}]"
 done
 
 # Encode repo lines for remote (newline-safe via base64)
@@ -91,9 +94,9 @@ clear_stale_git_locks() {
 }
 
 bootstrap_one() {
-  local name="\$1" slug="\$2" sparse_paths="\$3"
+  local name="\$1" slug="\$2" sparse_paths="\$3" ssh_url="\$4"
   local REPO_DIR="\${HOME_BASE}/\${name}"
-  local REPO_URL="git@github.com:\${slug}.git"
+  local REPO_URL="\${ssh_url:-git@github.com:\${slug}.git}"
 
   echo ""
   echo "======== \${name} ========"
@@ -103,18 +106,17 @@ bootstrap_one() {
     sudo -u samprimeaux git -C "\$REPO_DIR" "\$@"
   }
 
-  sparse_configure() {
-    git_as sparse-checkout init --cone
+  fresh_sparse_clone() {
+    echo "→ fresh tiny clone (--filter=blob:none --sparse --depth=1) \${REPO_URL}"
+    sudo rm -rf "\$REPO_DIR"
+    # Partial + shallow + sparse at clone time — sparse-checkout alone is not enough on a tiny VM.
+    sudo -u samprimeaux git clone \
+      --filter=blob:none \
+      --sparse \
+      --depth=1 \
+      "\$REPO_URL" "\$REPO_DIR"
     # shellcheck disable=SC2086
     git_as sparse-checkout set \$sparse_paths
-  }
-
-  fresh_sparse_clone() {
-    echo "→ fresh sparse clone (--filter=blob:none) \${REPO_URL}"
-    sudo rm -rf "\$REPO_DIR"
-    sudo -u samprimeaux git clone --filter=blob:none --no-checkout "\$REPO_URL" "\$REPO_DIR"
-    sparse_configure
-    git_as checkout main 2>/dev/null || git_as checkout master
     clear_stale_git_locks "\$REPO_DIR"
     sudo chown -R "\${AGENTSAM_USER}:\${AGENTSAM_USER}" "\$REPO_DIR"
   }
@@ -122,16 +124,12 @@ bootstrap_one() {
   if [[ "\$RECONVERT" == "1" ]]; then
     fresh_sparse_clone
   elif [[ -d "\$REPO_DIR/.git" ]]; then
-    echo "→ existing clone — sparse sync"
+    echo "→ existing clone — sparse sync (prefer --reconvert-sparse for depth=1 rebuild)"
     sudo chown -R samprimeaux:samprimeaux "\$REPO_DIR"
     clear_stale_git_locks "\$REPO_DIR"
-    if [[ "\$(git_as config --get core.sparseCheckout 2>/dev/null || true)" != "true" ]]; then
-      sparse_configure
-    else
-      # shellcheck disable=SC2086
-      git_as sparse-checkout set \$sparse_paths
-    fi
-    git_as fetch origin
+    # shellcheck disable=SC2086
+    git_as sparse-checkout set \$sparse_paths
+    git_as fetch --depth=1 origin
     local branch
     branch="\$(git_as rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
     git_as checkout "\$branch" 2>/dev/null || git_as checkout main
@@ -144,15 +142,19 @@ bootstrap_one() {
 
   echo -n "REPO_OK: "
   sudo -u "\${AGENTSAM_USER}" git -C "\$REPO_DIR" rev-parse --short HEAD
+  echo -n "shape: shallow="
+  sudo -u "\${AGENTSAM_USER}" git -C "\$REPO_DIR" rev-parse --is-shallow-repository
+  echo -n "filter="
+  sudo -u "\${AGENTSAM_USER}" git -C "\$REPO_DIR" config --get remote.origin.partialclonefilter || echo none
   sudo -u "\${AGENTSAM_USER}" git -C "\$REPO_DIR" remote -v | head -1
   du -sh "\$REPO_DIR"
   pwd_check="\$(sudo -u "\${AGENTSAM_USER}" bash -lc "cd '\$REPO_DIR' && pwd && test -d src && echo HAS_SRC")"
   echo "\$pwd_check"
 }
 
-printf '%s' "\$REPOS_B64" | base64 -d | while IFS='|' read -r name slug paths; do
+printf '%s' "\$REPOS_B64" | base64 -d | while IFS='|' read -r name slug paths ssh_url; do
   [[ -z "\${name:-}" ]] && continue
-  bootstrap_one "\$name" "\$slug" "\$paths"
+  bootstrap_one "\$name" "\$slug" "\$paths" "\$ssh_url"
 done
 
 echo ""

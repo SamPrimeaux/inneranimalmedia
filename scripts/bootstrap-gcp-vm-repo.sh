@@ -5,7 +5,7 @@
 # NOT a CI box — route npm run build:vite-only, Playwright, GLB tooling to MY_CONTAINER sandbox.
 #
 # Default sparse paths (IAM_GCP_SPARSE_PATHS): src dashboard/src scripts
-# Clone: --filter=blob:none + cone sparse-checkout (lazy blobs, minimal disk).
+# Clone: --filter=blob:none --sparse --depth=1 (partial + shallow + sparse — required on tiny VM).
 #
 # Usage (Mac repo root):
 #   ./scripts/bootstrap-gcp-vm-repo.sh
@@ -116,12 +116,16 @@ sparse_configure() {
 }
 
 fresh_sparse_clone() {
-  echo "→ fresh sparse clone (--filter=blob:none)"
+  echo "→ fresh tiny clone (--filter=blob:none --sparse --depth=1)"
   sudo rm -rf "\$REPO_DIR"
   sudo mkdir -p "\$(dirname "\$REPO_DIR")"
-  sudo -u samprimeaux git clone --filter=blob:none --no-checkout "\$REPO_URL" "\$REPO_DIR"
-  sparse_configure
-  git_as_bootstrap checkout main
+  sudo -u samprimeaux git clone \
+    --filter=blob:none \
+    --sparse \
+    --depth=1 \
+    "\$REPO_URL" "\$REPO_DIR"
+  # shellcheck disable=SC2086
+  git_as_bootstrap sparse-checkout set \$SPARSE_PATHS
   repo_git_finalize
 }
 

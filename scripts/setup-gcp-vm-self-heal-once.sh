@@ -84,12 +84,19 @@ Host github-inneranimal
   User git
   IdentityFile ~/.ssh/id_ed25519
   IdentitiesOnly yes
+
+Host github.com-inneranimal-mcp
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
 SSHEOF
 chown "\${AGENTSAM_USER}:\${AGENTSAM_USER}" "\${AGENTSAM_SSH}/config"
 chmod 600 "\${AGENTSAM_SSH}/config"
 
 echo "→ verify GitHub SSH for \${AGENTSAM_USER}"
 sudo -u "\${AGENTSAM_USER}" ssh -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 | head -1 || true
+sudo -u "\${AGENTSAM_USER}" ssh -o StrictHostKeyChecking=accept-new -T git@github.com-inneranimal-mcp 2>&1 | head -1 || true
 # GitHub SSH test exits 1 on success — do not fail the script.
 true
 
