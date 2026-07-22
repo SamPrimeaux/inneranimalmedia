@@ -684,6 +684,24 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
            <span>{language}</span>
            <span className="opacity-50">UTF-8</span>
            {gitActionHint && <span className="text-[var(--solar-cyan)] animate-pulse">{gitActionHint}</span>}
+           {isMarkdown && (
+             <div className="flex items-center rounded border border-[var(--dashboard-border)] overflow-hidden">
+               {(['source', 'split', 'preview'] as const).map((mode) => (
+                 <button
+                   key={mode}
+                   type="button"
+                   onClick={() => setMdViewMode(mode)}
+                   className={`px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider transition-all border-r border-[var(--dashboard-border)] last:border-r-0 ${
+                     mdViewMode === mode
+                       ? 'bg-[var(--solar-cyan)] text-black'
+                       : 'text-muted hover:text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)]'
+                   }`}
+                 >
+                   {mode === 'source' ? 'Source' : mode === 'split' ? 'Split' : 'Preview'}
+                 </button>
+               ))}
+             </div>
+           )}
         </div>
         <div className="flex items-center gap-2">
            {hasDiffData && (
