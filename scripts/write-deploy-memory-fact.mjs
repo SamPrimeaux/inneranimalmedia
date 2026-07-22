@@ -55,7 +55,7 @@ function sqlUpsertRow(row) {
     1.0,
     unixepoch()
   )
-  ON CONFLICT(tenant_id, user_id, key) DO UPDATE SET
+  ON CONFLICT(id) DO UPDATE SET
     workspace_id = COALESCE(excluded.workspace_id, agentsam_memory.workspace_id),
     memory_type = excluded.memory_type,
     value = excluded.value,
