@@ -118,3 +118,22 @@ test('fs_write_file is never force-preinvoked even when positively named', () =>
     null,
   );
 });
+
+test('PASS2 apply_patch follow-up naming fs_read_file is not force-preinvoked', () => {
+  const msg = `Continue PASS2. Do not cancel mid-stream.
+
+1) PASS2-UPDATE: fs_read_file oai_apply_patch_pass1.html first.
+   Then apply_patch update_file with V4A context that matches the file EXACTLY.
+   Prove apply_patch_call_output status=completed, then fs_read_file and show the new line.
+
+2) PASS2-FAIL: apply_patch create_file at /tmp/oai_apply_patch_deny.html`;
+  assert.deepEqual(extractExplicitCatalogToolKeys(msg), ['fs_read_file']);
+  assert.equal(
+    resolveForcedExplicitCatalogTool(msg, [
+      { name: 'fs_read_file' },
+      { name: 'fs_write_file' },
+      { name: 'agentsam_search_tools' },
+    ]),
+    null,
+  );
+});

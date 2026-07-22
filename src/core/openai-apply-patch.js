@@ -110,12 +110,13 @@ export function buildPtyDeleteFileCommand(relPath, repoDir = '.') {
 export function materializeApplyPatchContent(operation, currentContent) {
   const op = operation && typeof operation === 'object' ? operation : {};
   const type = String(op.type || '').trim();
-  const diff = op.diff != null ? String(op.diff) : '';
+  const diff = op.diff != null ? String(op.diff).replace(/\r\n/g, '\n') : '';
+  const current = String(currentContent ?? '').replace(/\r\n/g, '\n');
   if (type === 'create_file') {
     return { ok: true, content: applyDiff('', diff, 'create'), mode: 'create' };
   }
   if (type === 'update_file') {
-    return { ok: true, content: applyDiff(String(currentContent ?? ''), diff, 'default'), mode: 'update' };
+    return { ok: true, content: applyDiff(current, diff, 'default'), mode: 'update' };
   }
   if (type === 'delete_file') {
     return { ok: true, content: null, mode: 'delete' };
