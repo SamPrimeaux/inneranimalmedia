@@ -8,12 +8,12 @@ import {
   buildTerminalLanesExhaustedBody,
 } from '../../src/core/terminal-exec-fallback.js';
 
-test('resolveTerminalFallbackChain local → sandbox → remote for operators', () => {
+test('resolveTerminalFallbackChain local → remote → sandbox for operators', () => {
   const chain = resolveTerminalFallbackChain(TERMINAL_LANE_TOOLS.LOCAL, { isPlatformOperator: true });
   assert.deepEqual(chain, [
     TERMINAL_LANE_TOOLS.LOCAL,
-    TERMINAL_LANE_TOOLS.SANDBOX,
     TERMINAL_LANE_TOOLS.REMOTE,
+    TERMINAL_LANE_TOOLS.SANDBOX,
   ]);
 });
 

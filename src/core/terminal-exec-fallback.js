@@ -86,10 +86,10 @@ export function resolveTerminalFallbackChain(initialToolKey, opts = {}) {
     /\bonly\s+agentsam_terminal_local\b/.test(msg);
 
   if (initial === TERMINAL_LANE_TOOLS.LOCAL) {
-    if (!denySandbox) chain.push(TERMINAL_LANE_TOOLS.SANDBOX);
     if (opts.isPlatformOperator === true) {
       chain.push(TERMINAL_LANE_TOOLS.REMOTE);
     }
+    if (!denySandbox) chain.push(TERMINAL_LANE_TOOLS.SANDBOX);
   } else if (initial === TERMINAL_LANE_TOOLS.REMOTE) {
     if (!denySandbox) chain.push(TERMINAL_LANE_TOOLS.SANDBOX);
   }

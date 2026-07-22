@@ -239,10 +239,12 @@ export async function executeFsReadFile(env, params, runContext = {}) {
       try {
         const res = await runTerminalCommand(env, request, command, runContext.sessionId ?? null, {
           execution_mode: 'pty',
+          target_type: 'auto',
           workspace_id: workspaceId,
           tenant_id: tenantId,
           user_id: userId,
           cwd: execCwd,
+          tool_name: 'fs_read_file',
         });
         output = String(res?.output || '');
         exitCode = Number(res?.exitCode ?? res?.exit_code ?? 0);
@@ -291,7 +293,11 @@ export async function executeFsReadFile(env, params, runContext = {}) {
 
   return {
     success: false,
-    error: nestedCdFailed ? 'pty_nested_cd_failed' : 'pty_read_failed',
+    error: nestedCdFailed
+      ? 'pty_nested_cd_failed'
+      : /no such file or directory/i.test(output)
+        ? 'file_not_found'
+        : 'pty_read_failed',
     lane,
     path: relPath,
     content: output.slice(0, 4000),
@@ -300,9 +306,11 @@ export async function executeFsReadFile(env, params, runContext = {}) {
     ...repoMeta,
     hint: nestedCdFailed
       ? 'PTY cwd is already the repo — use absolute vm_workspace_root or GitHub read'
-      : isAbsolute
-        ? 'PTY host must reach this absolute path (tunnel iam-pty on your Mac)'
-        : 'Clone repo under PTY workspace, reconnect local folder to monorepo root, or use agentsam_github_read',
+      : /no such file or directory/i.test(output)
+        ? 'File does not exist on the selected lane (not necessarily a dead tunnel)'
+        : isAbsolute
+          ? 'PTY host must reach this absolute path (tunnel iam-pty on your Mac)'
+          : 'Clone repo under PTY workspace, reconnect local folder to monorepo root, or use agentsam_github_read',
   };
 }
 

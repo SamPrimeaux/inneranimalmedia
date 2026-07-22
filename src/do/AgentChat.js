@@ -6,7 +6,9 @@ import { DurableObject } from "cloudflare:workers";
 import {
   getSelectedTerminalConnection,
   resolveConnectionAuthToken,
+  isTerminalTransportFailure,
 } from "../core/terminal.js";
+import { listOrderedAutoTerminalConnections } from "../core/terminal-connection-health.js";
 import { handleTerminalSlashCommand } from "../core/terminal-slash.js";
 import {
   resolveActiveBootstrap,
@@ -169,13 +171,13 @@ export class AgentChatSqlV1 extends DurableObject {
     this._ptyOutFlushTimer = null;
     /** @type {string | null} PTY shell from browser query (?shell=); applied on connectPty. */
     this.terminalShellOverride = null;
-    /** Target routing from /terminal/ws query params. */
-    this.requestedTargetType = "platform_vm";
+    /** Target routing from /terminal/ws query params — auto = local→remote→sandbox. */
+    this.requestedTargetType = "auto";
     this.requestedConnectionId = "";
     this.requestedToolName = "";
     /** Selected terminal_connections row for current session. */
     this.selectedTerminalConnection = null;
-    this.selectedTargetType = "platform_vm";
+    this.selectedTargetType = "auto";
   }
 
   migrateSessionMessagesSchema() {
@@ -1179,9 +1181,9 @@ export class AgentChatSqlV1 extends DurableObject {
     this.ptSessionTenantId = (url.searchParams.get("tenant_id") || "").trim();
     this.ptPersonUuid = (url.searchParams.get("person_uuid") || "").trim();
     this.terminalShellOverride = normalizeShellOverride(url.searchParams.get("shell"));
-    this.requestedTargetType = (url.searchParams.get("target_type") || "platform_vm").trim();
+    this.requestedTargetType = (url.searchParams.get("target_type") || "auto").trim() || "auto";
     this.requestedConnectionId = (url.searchParams.get("connection_id") || "").trim();
-    this.selectedTargetType = this.requestedTargetType || "platform_vm";
+    this.selectedTargetType = this.requestedTargetType || "auto";
     await this.ensureWorkspaceSettingsLoaded(workspaceId, { allowPlatformFallback: false });
     await this.persistPtySessionContext();
 
@@ -1358,7 +1360,7 @@ export class AgentChatSqlV1 extends DurableObject {
             workspaceId,
             tenantId: tidEx,
             connectionId: pinnedConnectionId,
-            targetType: this.requestedTargetType || routing.target_type || "platform_vm",
+            targetType: this.requestedTargetType || routing.target_type || "auto",
             healthAware: true,
           });
           connForCwd = sel.connection;
@@ -1386,7 +1388,7 @@ export class AgentChatSqlV1 extends DurableObject {
             workspaceId,
             tenantId: String(this.ptSessionTenantId || "").trim() || null,
             connectionId: pinnedConnectionId,
-            targetType: this.requestedTargetType || routing.target_type || "platform_vm",
+            targetType: this.requestedTargetType || routing.target_type || "auto",
             healthAware: true,
           });
           effectiveTargetId = sel?.connection?.id ? String(sel.connection.id).trim() : null;
@@ -1928,13 +1930,75 @@ export class AgentChatSqlV1 extends DurableObject {
       tool_name: this.requestedToolName || null,
       user_id: execUid,
     });
-    const execTarget =
+    const execTargetRaw =
       String(this.selectedTargetType || this.requestedTargetType || routing.target_type || "").trim() ||
-      "platform_vm";
+      "auto";
+    const pinnedId =
+      String(this.requestedConnectionId || routing.target_id || "").trim() || null;
+
+    // Auto + no pin: try Mac local → GCP remote → sandbox on transport failure only.
+    if (!pinnedId && execTargetRaw === "auto" && this.env?.DB && execUid && execWid) {
+      let ordered = [];
+      try {
+        ordered = await listOrderedAutoTerminalConnections(this.env.DB, {
+          userId: execUid,
+          workspaceId: execWid,
+          tenantId: String(this.ptSessionTenantId || "").trim() || null,
+        });
+      } catch (_) {
+        ordered = [];
+      }
+      if (ordered.length > 1) {
+        /** @type {{ error?: string, output?: string, exit_code?: number }} */
+        let last = { error: "terminal execution unavailable" };
+        const savedReqType = this.requestedTargetType;
+        const savedReqConn = this.requestedConnectionId;
+        for (const row of ordered) {
+          this.requestedConnectionId = row?.id != null ? String(row.id).trim() : null;
+          this.requestedTargetType =
+            row?.target_type != null ? String(row.target_type).trim() : "auto";
+          this.selectedTerminalConnection = null;
+          last = await this._executePtyCommandOnce(command);
+          if (!last?.error) {
+            this.requestedTargetType = savedReqType;
+            this.requestedConnectionId = savedReqConn;
+            return last;
+          }
+          if (!isTerminalTransportFailure({ ok: false, error: last.error })) {
+            this.requestedTargetType = savedReqType;
+            this.requestedConnectionId = savedReqConn;
+            return last;
+          }
+        }
+        this.requestedTargetType = savedReqType;
+        this.requestedConnectionId = savedReqConn;
+        return last;
+      }
+    }
+
+    return this._executePtyCommandOnce(command);
+  }
+
+  async _executePtyCommandOnce(command) {
+    const execUid = String(this.ptSessionUserId || "").trim();
+    const execWid = String(this.workspaceId || "").trim();
+    const routing = resolveTerminalExecRouting({
+      target_id: this.requestedConnectionId,
+      target_type: this.requestedTargetType,
+      tool_name: this.requestedToolName || null,
+      user_id: execUid,
+    });
+    const execTargetRaw =
+      String(this.selectedTargetType || this.requestedTargetType || routing.target_type || "").trim() ||
+      "auto";
     const pinnedId =
       String(this.requestedConnectionId || routing.target_id || "").trim() || null;
     // Always re-resolve for user_hosted_tunnel — DO-cached conn often lacks identity columns.
-    let conn = pinnedId || execTarget === "user_hosted_tunnel" ? null : this.selectedTerminalConnection;
+    // Also re-resolve when lane is auto so Mac→GCP→sandbox health order applies.
+    let conn =
+      pinnedId || execTargetRaw === "user_hosted_tunnel" || execTargetRaw === "auto"
+        ? null
+        : this.selectedTerminalConnection;
     if (!conn && this.env?.DB) {
       try {
         const sel = await getSelectedTerminalConnection(this.env.DB, {
@@ -1942,15 +2006,22 @@ export class AgentChatSqlV1 extends DurableObject {
           workspaceId: execWid,
           tenantId: String(this.ptSessionTenantId || "").trim() || null,
           connectionId: pinnedId,
-          targetType: execTarget,
+          targetType: execTargetRaw === "auto" ? "auto" : execTargetRaw,
           healthAware: true,
         });
         conn = sel.connection;
         if (conn) {
           this.selectedTerminalConnection = conn;
-          this.selectedTargetType = String(conn.target_type || execTarget).trim();
+          this.selectedTargetType = String(conn.target_type || execTargetRaw).trim();
         }
       } catch (_) {}
+    }
+    const execTarget =
+      String(this.selectedTargetType || conn?.target_type || execTargetRaw || "").trim() ||
+      "platform_vm";
+    if (execTarget === "auto") {
+      // Should not happen after resolve — fail closed to remote VPC rather than Mac guess.
+      this.selectedTargetType = "platform_vm";
     }
     const execIdentity = await resolveTerminalExecIdentity(this.env?.DB, conn);
     if (

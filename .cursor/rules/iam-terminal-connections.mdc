@@ -7,27 +7,36 @@ alwaysApply: false
 
 **Query D1** `terminal_connections` at runtime; do not hardcode connection ids or `ws_url` in executor code.
 
-## Connection priority for `ws_inneranimalmedia` (Sam)
+## Strategic failover (LOCKED)
 
-| Order | id | Host | Role |
-|-------|-----|------|------|
-| 1 | `conn_mac_local` | `localpty.inneranimalmedia.com` | Mac PTY primary (`target_priority` 10, `is_default` 1) |
-| 2 | `conn_mac_shell2` | `terminal.inneranimalmedia.com` | GCP VM fallback (`target_priority` 50) |
+**Order:** Mac local → GCP remote → sandbox (last resort).
 
-## Resolution logic (main + MCP terminal handlers)
+| Order | id (Sam) | Host | `target_type` | Role |
+|-------|----------|------|---------------|------|
+| 1 | `conn_mac_local` | `localpty.inneranimalmedia.com` | `user_hosted_tunnel` | Desk primary (`target_priority` 10, `is_default` 1) |
+| 2 | `conn_gcp_iam_tunnel` | `terminal.inneranimalmedia.com` | `platform_vm` | Always-on remote (`target_priority` 45) |
+| 3 | `conn_sam_sandbox` | `sandboxterminal.inneranimalmedia.com` | `sandbox` | Isolated last resort (`target_priority` 90) |
+
+Sam has **one** Mac / one `localpty` row — not “2× Mac”. Duplicate GCP `conn_mac_shell2` stays **inactive**.
+
+Failover applies on **transport** failure only (unreachable, timeout, websocket, control-plane 5xx). Command exit ≠ 0 / ENOENT / “file not found” must **not** cascade lanes.
+
+Code: `listOrderedAutoTerminalConnections` + `runTerminalCommand` (auto) + DO `executePtyCommand` + `resolveTerminalFallbackChain` (tool lanes: LOCAL → REMOTE → SANDBOX for operators).
+
+## Resolution logic
 
 ```sql
 SELECT * FROM terminal_connections
 WHERE workspace_id = ? AND user_id = ? AND is_active = 1
-ORDER BY is_default DESC, target_priority ASC
-LIMIT 1;
+ORDER BY /* type rank: local, platform_vm, sandbox */ target_priority ASC, is_default DESC;
 ```
 
-- If primary fails at connect time → retry next active row by `target_priority ASC`.
-- Surface error only after all active connections for that user/workspace fail.
+- Prefer health-aware pick when selecting a single default.
+- On exec transport failure with `target_type=auto`, try next active row in strategic order.
+- Surface error only after all active lanes for that user/workspace fail (or a non-transport error stops the chain).
 - Never silently fall back to a wrong workspace path.
 
-**Never use `is_default` alone** — always `is_default DESC, target_priority ASC`.
+**Never use `is_default` alone** — combine type rank + `target_priority` + `is_default`.
 
 ## Per-tenant: Connor
 
@@ -46,16 +55,11 @@ LIMIT 1;
 | Strategy | cwd |
 |----------|-----|
 | `host_default` | `workspace_settings.workspace_cd_command` (Sam: `cd /Users/samprimeaux/inneranimalmedia`) |
-| `platform_workspace` | `/workspace/{tenant_id}/{user_id}/` (GCP VM isolated path) |
-
-## Failover
-
-1. Try lowest `target_priority` active row for `user_id` + `workspace_id`.
-2. On connect/exec failure, try next active row (`target_priority ASC`).
-3. Do not drop to another user's connection (`user_id` must match `auth_users.id`).
+| `platform_workspace` | `/workspace/{tenant_id}/{user_id}/` (GCP VM / sandbox isolated path) |
 
 ## Never
 
 - Hardcode `ws_url` or connection `id` in hot-path executor code.
 - Create connections without `user_id` = owning `auth_users.id` (except documented shared workspace rows).
 - Leave multiple `is_default = 1` rows for the same `workspace_id` + `user_id`.
+- Treat “file missing” as a dead PTY and cascade to sandbox.

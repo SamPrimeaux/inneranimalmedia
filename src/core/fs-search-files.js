@@ -149,9 +149,11 @@ export async function executeFsSearchFiles(env, params, runContext = {}) {
     const { runTerminalCommand } = await import('./terminal.js');
     const res = await runTerminalCommand(env, request, command, runContext.sessionId ?? null, {
       execution_mode: 'pty',
+      target_type: 'auto',
       workspace_id: workspaceId,
       tenant_id: tenantId,
       user_id: userId,
+      tool_name: 'fs_search_files',
     });
     output = String(res?.output || '');
     exitCode = Number(res?.exitCode ?? 0);

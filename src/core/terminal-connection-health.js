@@ -142,9 +142,16 @@ async function listScopedConnections(db, q) {
  */
 function autoTargetTypeRank(targetType) {
   const tt = String(targetType || '').trim();
+  // Strategic order: Mac local → GCP remote → sandbox last
   if (isLocalTerminalTargetType(tt)) return 0;
-  if (tt === 'sandbox') return 1;
-  return 2;
+  if (tt === 'platform_vm' || tt === 'remote') return 1;
+  if (tt === 'sandbox') return 2;
+  return 3;
+}
+
+/** @param {string|null|undefined} targetType */
+export function rankAutoTerminalTargetType(targetType) {
+  return autoTargetTypeRank(targetType);
 }
 
 function orderConnectionsForMode(rows, mode) {
@@ -161,6 +168,28 @@ function orderConnectionsForMode(rows, mode) {
     });
   }
   return list;
+}
+
+/**
+ * Ordered auto-lane candidates: Mac local → GCP remote → sandbox.
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {{ userId: string, workspaceId: string, tenantId?: string|null, skipLocalTunnel?: boolean }} opts
+ */
+export async function listOrderedAutoTerminalConnections(db, opts = {}) {
+  const uid = String(opts.userId || '').trim();
+  const wid = String(opts.workspaceId || '').trim();
+  if (!db || !uid || !wid) return [];
+  const rows = await listScopedConnections(db, {
+    userId: uid,
+    workspaceId: wid,
+    tenantId: opts.tenantId != null ? String(opts.tenantId).trim() : null,
+    targetTypes: AUTO_TARGET_TYPES,
+  });
+  let ordered = orderConnectionsForMode(rows, 'auto');
+  if (opts.skipLocalTunnel === true) {
+    ordered = ordered.filter((row) => !isLocalTerminalTargetType(row.target_type));
+  }
+  return ordered;
 }
 
 /**
@@ -271,16 +300,7 @@ export async function selectHealthyTerminalConnection(db, opts = {}) {
   }
 
   if (mode === 'auto') {
-    const sandbox = ordered.find((r) => String(r.target_type || '').trim() === 'sandbox' && r.ws_url);
-    if (sandbox) {
-      return {
-        connection: sandbox,
-        error: 'lane_unhealthy_fallback',
-        resolution: 'health_sandbox_forced_unhealthy',
-        lane: 'gcp_sandbox',
-        health: { probes },
-      };
-    }
+    // Prefer healthy remote (GCP) before forcing sandbox when all probes failed.
     const cloud = ordered.find(
       (r) =>
         !isLocalTerminalTargetType(r.target_type) &&
@@ -293,6 +313,16 @@ export async function selectHealthyTerminalConnection(db, opts = {}) {
         error: 'lane_unhealthy_fallback',
         resolution: 'health_gcp_forced_unhealthy',
         lane: 'gcp_primary',
+        health: { probes },
+      };
+    }
+    const sandbox = ordered.find((r) => String(r.target_type || '').trim() === 'sandbox' && r.ws_url);
+    if (sandbox) {
+      return {
+        connection: sandbox,
+        error: 'lane_unhealthy_fallback',
+        resolution: 'health_sandbox_forced_unhealthy',
+        lane: 'gcp_sandbox',
         health: { probes },
       };
     }

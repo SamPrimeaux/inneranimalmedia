@@ -14,7 +14,7 @@ import { resolvePtyTenantIdForUser, resolveTerminalCwd } from './pty-workspace-p
 import { resolveTerminalExecRouting } from './terminal-routing-policy.js';
 import { notifySam } from './notifications.js';
 import { resolveUserPtyToken, USER_PTY_TOKEN_SENTINEL } from './user-secrets.js';
-import { selectHealthyTerminalConnection } from './terminal-connection-health.js';
+import { selectHealthyTerminalConnection, listOrderedAutoTerminalConnections } from './terminal-connection-health.js';
 import {
   checkSudoPermission,
   formatTerminalExec403,
@@ -1194,6 +1194,18 @@ export async function runTerminalCommandViaHttpExec(env, cmd, opts = {}) {
 }
 
 /**
+ * @param {{ ok?: boolean, error?: string, exitCode?: number|null }} result
+ */
+export function isTerminalTransportFailure(result) {
+  if (!result || result.ok === true) return false;
+  const err = String(result.error || '').toLowerCase();
+  if (!err) return true;
+  return /unreachable|timeout|econn|unavailable|reset|websocket|health_|failed to fetch|network|do reset|pty vpc|control-plane [45]/.test(
+    err,
+  );
+}
+
+/**
  * ACTIVE PATH: Execute through the authoritative Worker/DO control plane.
  * DEPRECATED DIRECT PATH: direct browser → upstream PTY websocket.
  */
@@ -1225,11 +1237,14 @@ export async function runTerminalCommandViaControlPlane(env, request, command, e
     doUrl.searchParams.set('tenant_id', tid);
     const routing = resolveTerminalExecRouting({
       tool_name: extra.tool_name,
-      target_id: extra.target_id || extra.ssh_target_id,
+      target_id: extra.target_id || extra.ssh_target_id || extra.connection_id,
       target_type: extra.target_type,
       user_id: userId,
     });
-    if (routing.target_type) doUrl.searchParams.set('target_type', routing.target_type);
+    const pinType = routing.target_type || extra.target_type || null;
+    const pinId = routing.target_id || extra.target_id || extra.connection_id || extra.ssh_target_id || null;
+    if (pinType) doUrl.searchParams.set('target_type', String(pinType));
+    if (pinId) doUrl.searchParams.set('connection_id', String(pinId));
     const puuid = authUser.person_uuid != null && String(authUser.person_uuid).trim() !== '' ? String(authUser.person_uuid).trim() : '';
     if (puuid) doUrl.searchParams.set('person_uuid', puuid);
     const resp = await stub.fetch(new Request(doUrl.toString(), {
@@ -1239,8 +1254,9 @@ export async function runTerminalCommandViaControlPlane(env, request, command, e
         command: cmd,
         execution_mode: mode,
         workspace_id: workspaceId,
-        target_id: routing.target_id || extra.target_id || extra.ssh_target_id || null,
-        target_type: routing.target_type || extra.target_type || null,
+        target_id: pinId,
+        target_type: pinType,
+        connection_id: pinId,
         tool_name: extra.tool_name || null,
         ssh_target_id: extra.ssh_target_id || null,
         params: extra.params || null,
@@ -1255,7 +1271,7 @@ export async function runTerminalCommandViaControlPlane(env, request, command, e
       text: typeof payload?.output === 'string' ? payload.output : '',
       exitCode: payload?.exit_code ?? 0,
       toolName: payload?.tool_name ?? null,
-      targetId: payload?.target_id ?? null,
+      targetId: payload?.target_id ?? pinId ?? null,
     };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
@@ -1336,7 +1352,7 @@ export async function resolveTerminalExecTargetId(env, request, executionCtx = n
   try {
     const authUser = await getAuthUser(request, env);
     if (!authUser?.id) return null;
-    const tw = await resolveTerminalWorkspaceId(env, request, ctx.workspace_id);
+    const tw = await resolveTerminalWorkspaceId(env, request, authUser, ctx.workspace_id);
     if (tw.error || !tw.workspaceId) return null;
     const userId = String(authUser.id).trim();
     const workspaceId = String(tw.workspaceId).trim();
@@ -1370,42 +1386,105 @@ export async function assertTerminalSudoAllowed(env, targetId, command) {
 }
 
 /**
- * Primary Execution Orchestrator.
+ * Primary Execution Orchestrator — Mac local → GCP remote → sandbox on transport failure.
  */
 export async function runTerminalCommand(env, request, command, sessionId = null, executionCtx = null) {
   const cmd = typeof command === 'string' ? command.trim() : '';
-  const execTargetId = await resolveTerminalExecTargetId(env, request, executionCtx || {});
+  const ctx = executionCtx && typeof executionCtx === 'object' ? { ...executionCtx } : {};
+  const execTargetId = await resolveTerminalExecTargetId(env, request, ctx);
   const sudoGate = await assertTerminalSudoAllowed(env, execTargetId, cmd);
   if (sudoGate.blocked) {
     const msg = sudoGate.payload?.detail?.stderr || 'IAM Security: blocked';
     throw new Error(msg);
   }
 
-  const mode = String(executionCtx?.execution_mode || 'pty').toLowerCase();
-  const controlTry = await runTerminalCommandViaControlPlane(env, request, cmd, mode, executionCtx || {});
-  if (controlTry.ok) {
-    const cleanOutput = controlTry.text;
-    const exitCode = controlTry.exitCode;
-    await writeTerminalHistory(env, request, sessionId, cmd, cleanOutput, exitCode);
-    return { output: cleanOutput, command: cmd, exitCode };
+  const mode = String(ctx.execution_mode || 'pty').toLowerCase();
+  const requestedType = String(ctx.target_type || ctx.targetType || '').trim() || 'auto';
+  const pinnedId = String(ctx.connection_id || ctx.target_id || ctx.ssh_target_id || '').trim() || null;
+
+  /** @type {Array<{ id?: string, target_type?: string }>} */
+  let laneCandidates = [];
+  if (pinnedId) {
+    laneCandidates = [{ id: pinnedId, target_type: requestedType !== 'auto' ? requestedType : null }];
+  } else if (requestedType && requestedType !== 'auto') {
+    laneCandidates = [{ id: null, target_type: requestedType }];
+  } else if (env?.DB && request) {
+    try {
+      const authUser = await getAuthUser(request, env);
+      const userId = authUser?.id != null ? String(authUser.id).trim() : '';
+      const tw = await resolveTerminalWorkspaceId(env, request, authUser, ctx.workspace_id || ctx.workspaceId);
+      const workspaceId = tw?.workspaceId ? String(tw.workspaceId).trim() : '';
+      let tenantId = await resolvePtyTenantIdForUser(env, authUser, userId);
+      tenantId = tenantId != null ? String(tenantId).trim() : '';
+      if (userId && workspaceId) {
+        const ordered = await listOrderedAutoTerminalConnections(env.DB, {
+          userId,
+          workspaceId,
+          tenantId: tenantId || null,
+        });
+        laneCandidates = ordered.map((row) => ({
+          id: row?.id != null ? String(row.id).trim() : null,
+          target_type: row?.target_type != null ? String(row.target_type).trim() : null,
+        }));
+      }
+    } catch (_) {
+      laneCandidates = [];
+    }
+  }
+  if (!laneCandidates.length) {
+    laneCandidates = [{ id: null, target_type: requestedType === 'auto' ? null : requestedType }];
   }
 
-  // Keep single control plane for all modes.
+  /** @type {{ ok: boolean, text?: string, exitCode?: number, error?: string, targetId?: string|null }} */
+  let lastTry = { ok: false, error: 'terminal execution unavailable' };
+  const attempts = [];
+  for (const lane of laneCandidates) {
+    const tryExtra = {
+      ...ctx,
+      target_type: lane.target_type || (requestedType !== 'auto' ? requestedType : 'auto'),
+      target_id: lane.id || pinnedId || null,
+      connection_id: lane.id || pinnedId || null,
+    };
+    const controlTry = await runTerminalCommandViaControlPlane(env, request, cmd, mode, tryExtra);
+    attempts.push({
+      connection_id: lane.id || null,
+      target_type: lane.target_type || null,
+      ok: controlTry.ok === true,
+      error: controlTry.error || null,
+    });
+    lastTry = controlTry;
+    if (controlTry.ok === true) {
+      const cleanOutput = controlTry.text;
+      const exitCode = controlTry.exitCode;
+      await writeTerminalHistory(env, request, sessionId, cmd, cleanOutput, exitCode);
+      return {
+        output: cleanOutput,
+        command: cmd,
+        exitCode,
+        targetId: controlTry.targetId || lane.id || null,
+        lane_attempts: attempts,
+      };
+    }
+    if (!isTerminalTransportFailure(controlTry)) {
+      break;
+    }
+  }
+
   if (mode !== 'pty' || env?.AGENT_SESSION) {
-    throw new Error(controlTry.error || `${mode} execution unavailable`);
+    throw new Error(lastTry.error || `${mode} execution unavailable`);
   }
 
   // Legacy fallback path for environments missing AGENT_SESSION.
   const httpTry = await runTerminalCommandViaHttpExec(env, cmd);
   if (!httpTry.ok) {
-    throw new Error(controlTry.error || 'terminal execution unavailable');
+    throw new Error(lastTry.error || 'terminal execution unavailable');
   }
   const cleanOutput = httpTry.text;
   const exitCode = httpTry.exitCode;
 
   await writeTerminalHistory(env, request, sessionId, cmd, cleanOutput, exitCode);
 
-  return { output: cleanOutput, command: cmd, exitCode };
+  return { output: cleanOutput, command: cmd, exitCode, lane_attempts: attempts };
 }
 
 /**

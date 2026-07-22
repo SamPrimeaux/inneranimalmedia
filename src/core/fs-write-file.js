@@ -150,10 +150,12 @@ export async function executeFsWriteFile(env, params, runContext = {}) {
     const { runTerminalCommand } = await import('./terminal.js');
     const res = await runTerminalCommand(env, request, command, runContext.sessionId ?? null, {
       execution_mode: 'pty',
+      target_type: 'auto',
       workspace_id: workspaceId,
       tenant_id: tenantId,
       user_id: userId,
       cwd: repo.workspaceRoot,
+      tool_name: 'fs_write_file',
     });
     output = String(res?.output || '');
     exitCode = Number(res?.exitCode ?? 0);
@@ -169,13 +171,17 @@ export async function executeFsWriteFile(env, params, runContext = {}) {
 
   const durationMs = Math.max(0, Date.now() - started);
   if (exitCode !== 0) {
+    const missing = /no such file or directory|cannot open|not found/i.test(output);
     return {
-      error: 'pty_write_failed',
+      error: missing ? 'file_not_found' : 'pty_write_failed',
       lane: 'workspace_pty_write',
       path: relPath,
       exit_code: exitCode,
       output: output.slice(0, 800),
       duration_ms: durationMs,
+      hint: missing
+        ? 'Path missing on the selected PTY lane — create parent dirs or use a path that exists on Mac/GCP'
+        : 'PTY transport or shell write failed — check localpty → GCP → sandbox lane health',
     };
   }
 
