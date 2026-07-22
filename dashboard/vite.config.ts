@@ -160,8 +160,8 @@ export default defineConfig(({ mode }) => {
           /** Single-file SW at /sw.js — no hashed workbox-*.js deploy drift. */
           inlineWorkboxRuntime: true,
           importScripts: ['push-handler.js', 'sw-agent-cache.js'],
-          skipWaiting: true,
-          clientsClaim: true,
+          skipWaiting: false,
+          clientsClaim: false,
           /** HTML loads dashboard.js?v=… — must match precache entries without falling through to stale runtime cache. */
           ignoreURLParametersMatching: [/^v$/],
           globDirectory: 'dist',

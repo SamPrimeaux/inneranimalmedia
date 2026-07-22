@@ -181,14 +181,37 @@
         if (signIn && next && next.indexOf('/dashboard') === 0) {
           signIn.href = '/auth/login?next=' + encodeURIComponent(next);
         }
-        function showRecovery(force) {
+        var mounted = false;
+        var recoveryShown = false;
+        function rootEmpty() {
           var root = document.getElementById('root');
-          var panel = document.getElementById('iam-boot-recovery');
-          if (!panel) return;
-          if (force || (root && root.childElementCount === 0)) panel.hidden = false;
+          return !root || root.childElementCount === 0;
         }
+        function hideRecovery() {
+          var panel = document.getElementById('iam-boot-recovery');
+          if (panel) panel.hidden = true;
+          recoveryShown = false;
+        }
+        function showRecovery(force) {
+          if (mounted && !force) return;
+          if (!force && !rootEmpty()) return;
+          var panel = document.getElementById('iam-boot-recovery');
+          if (!panel || recoveryShown) return;
+          panel.hidden = false;
+          recoveryShown = true;
+        }
+        window.__IAM_MARK_DASHBOARD_MOUNTED__ = function () {
+          mounted = true;
+          hideRecovery();
+        };
         function isChunkDriftMessage(msg) {
-          return /does not provide an export named/i.test(String(msg || ''));
+          var s = String(msg || '');
+          return (
+            /does not provide an export named/i.test(s) ||
+            /Failed to fetch dynamically imported module/i.test(s) ||
+            /Importing a module script failed/i.test(s) ||
+            /error loading dynamically imported module/i.test(s)
+          );
         }
         function recoverFromChunkDrift() {
           var bustMeta = document.querySelector('meta[name="iam-cache-bust"]');
@@ -248,21 +271,32 @@
           }
           afterPurge();
         }
+        // Only recover on real module/chunk failures — never on random Monaco/extension errors.
         window.addEventListener('error', function (ev) {
-          if (isChunkDriftMessage(ev && ev.message)) {
+          var msg = (ev && ev.message) || '';
+          var src = (ev && ev.filename) || '';
+          if (isChunkDriftMessage(msg) || /\/static\/dashboard\/app\//.test(src) && /Failed to load|SyntaxError/i.test(msg)) {
             recoverFromChunkDrift();
-            return;
           }
-          window.setTimeout(function () {
-            showRecovery(false);
-          }, 500);
         });
         window.addEventListener('unhandledrejection', function (ev) {
           var reason = ev && ev.reason;
           var msg = reason && reason.message ? reason.message : reason;
           if (isChunkDriftMessage(msg)) recoverFromChunkDrift();
         });
-        window.setTimeout(showRecovery, 18000);
+        // Slow-boot safety net only — do not steal a live session.
+        window.setTimeout(function () {
+          if (!mounted && rootEmpty()) showRecovery(false);
+        }, 25000);
+        var rootEl = document.getElementById('root');
+        if (rootEl && typeof MutationObserver !== 'undefined') {
+          new MutationObserver(function () {
+            if (!rootEmpty()) {
+              mounted = true;
+              hideRecovery();
+            }
+          }).observe(rootEl, { childList: true });
+        }
       })();
     </script>
   <script type="module" src="/index.tsx?v=1.2.0-1775750920551"></script>

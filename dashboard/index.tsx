@@ -51,6 +51,11 @@ async function mountDashboard() {
         );
         const recovery = document.getElementById('iam-boot-recovery');
         if (recovery) recovery.hidden = true;
+        try {
+          (window as Window & { __IAM_MARK_DASHBOARD_MOUNTED__?: () => void }).__IAM_MARK_DASHBOARD_MOUNTED__?.();
+        } catch {
+          /* ignore */
+        }
         return;
       }
     } catch {
@@ -77,6 +82,11 @@ async function mountDashboard() {
 
   const recovery = document.getElementById('iam-boot-recovery');
   if (recovery) recovery.hidden = true;
+  try {
+    (window as Window & { __IAM_MARK_DASHBOARD_MOUNTED__?: () => void }).__IAM_MARK_DASHBOARD_MOUNTED__?.();
+  } catch {
+    /* ignore */
+  }
 }
 
 void mountDashboard();
