@@ -40,12 +40,18 @@ export function StudioCmsHost({
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       const data = event.data;
-      if (!data || data.type !== 'iam-studio-cms-site' || typeof data.slug !== 'string') return;
-      onSiteChange?.(data.slug);
+      if (!data || typeof data.type !== 'string') return;
+      if (data.type === 'iam-studio-cms-site' && typeof data.slug === 'string') {
+        onSiteChange?.(data.slug);
+        return;
+      }
+      if (data.type === 'iam-studio-cms-navigate' && typeof data.path === 'string') {
+        onNavigatePath?.(data.path);
+      }
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [onSiteChange]);
+  }, [onSiteChange, onNavigatePath]);
 
   return (
     <div className="studio-cms-native-host h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-[#09090b]">
