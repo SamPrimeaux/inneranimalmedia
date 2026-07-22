@@ -114,4 +114,40 @@ else
   echo "${LOG_PREFIX} cloudflared: running"
 fi
 
+# 6. ripgrep on system PATH — operator SSH (samprimeaux) + non-login shells.
+# Prefer agentsam's newer binary; apt ripgrep is fallback only.
+ensure_system_rg() {
+  local dest=/usr/local/bin/rg
+  local preferred=/var/lib/agentsam/.local/bin/rg
+  if [[ -x "$preferred" ]]; then
+    local cur
+    cur="$(readlink -f "$dest" 2>/dev/null || true)"
+    local want
+    want="$(readlink -f "$preferred" 2>/dev/null || echo "$preferred")"
+    if [[ "$cur" != "$want" ]]; then
+      ln -sfn "$preferred" "$dest"
+      echo "${LOG_PREFIX} rg: linked ${dest} -> ${preferred}"
+    else
+      echo "${LOG_PREFIX} rg: ok (agentsam binary via ${dest})"
+    fi
+    return 0
+  fi
+  if ! command -v rg >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ripgrep >/dev/null 2>&1 || true
+    fi
+  fi
+  if command -v rg >/dev/null 2>&1; then
+    if [[ ! -e "$dest" ]]; then
+      ln -sfn "$(command -v rg)" "$dest"
+      echo "${LOG_PREFIX} rg: linked ${dest} -> $(command -v rg)"
+    else
+      echo "${LOG_PREFIX} rg: ok ($(command -v rg))"
+    fi
+  else
+    echo "${LOG_PREFIX} rg: missing — install agentsam ~/.local/bin/rg or apt ripgrep"
+  fi
+}
+ensure_system_rg
+
 echo "${LOG_PREFIX} done"
