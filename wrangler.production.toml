@@ -159,6 +159,9 @@ class_name = "ChessRoom"
 name = "AGENT_SESSION"
 class_name = "AgentChatSqlV1"
 [[durable_objects.bindings]]
+name = "OPENAI_RESPONSES_WS"
+class_name = "OpenAiResponsesWsV1"
+[[durable_objects.bindings]]
 name = "BROWSER_SESSION"
 class_name = "AgentBrowserLiveV1"
 
@@ -235,6 +238,10 @@ new_sqlite_classes = ["MyContainer"]
 [[migrations]]
 tag = "v9"
 new_sqlite_classes = ["IamCadWorkerContainer"]
+
+[[migrations]]
+tag = "v10"
+new_sqlite_classes = ["OpenAiResponsesWsV1"]
 
 [[queues.producers]]
 binding = "MY_QUEUE"

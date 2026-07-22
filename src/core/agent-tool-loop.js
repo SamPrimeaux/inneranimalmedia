@@ -988,6 +988,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         userId,
         tenantId,
         workspaceId: routingWs || null,
+        sessionId: sessionId ?? null,
         agentRunId: chatAgentRunId ?? null,
         routingArmId: routingArmIdParam ?? dispatchSpine.routing_arm_id ?? null,
         taskType: routingTaskType || 'ask',

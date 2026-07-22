@@ -8,6 +8,7 @@ import { AgentBrowserLiveV1 } from '../do/AgentBrowserLive.js';
 // ACTIVE PATH: Agent terminal/chat session control plane implementation.
 export { AgentChatSqlV1 };
 export { AgentBrowserLiveV1 };
+export { OpenAiResponsesWsV1 } from '../do/OpenAiResponsesWs.js';
 export { IAMCollaborationSession } from '../do/Collaboration.js';
 export { ChessRoom } from '../do/Legacy.js';
 export { MyContainer } from '../do/MyContainer.js';

@@ -8,6 +8,8 @@ import { chatWithToolsOpenAI,
          chatWithToolsOpenAIResponses,
          completeWithOpenAI,
          completeWithOpenAIResponsesNonStream }  from '../integrations/openai.js';
+import { chatWithToolsOpenAIResponsesWs } from '../integrations/openai-responses-ws.js';
+import { isFeatureEnabled } from './features.js';
 import { resolveOpenAiApiKey } from '../integrations/openai-credentials.js';
 import { chatWithToolsGemini, completeWithGemini } from '../integrations/gemini.js';
 import { chatWithToolsVertex } from '../integrations/vertex.js';
@@ -567,8 +569,38 @@ export async function dispatchStream(env, request, params) {
     case 'openai_chat_completions':
       return chatWithToolsOpenAI(env, request, dp);
     case 'openai_responses':
-    case 'responses':
+    case 'responses': {
+      const uid = params.userId != null ? String(params.userId).trim() : '';
+      const tenant =
+        params.tenantId != null
+          ? String(params.tenantId).trim()
+          : params.workspaceId != null
+            ? String(params.workspaceId).trim()
+            : '';
+      let useWs = false;
+      try {
+        useWs = await isFeatureEnabled(env, 'openai_responses_ws', {
+          userId: uid || undefined,
+          tenantId: tenant || undefined,
+        });
+      } catch {
+        useWs = false;
+      }
+      if (useWs && env?.OPENAI_RESPONSES_WS) {
+        return chatWithToolsOpenAIResponsesWs(env, request, {
+          ...dp,
+          sessionKey:
+            params.sessionId ||
+            params.sessionKey ||
+            params.agentRunId ||
+            uid ||
+            'default',
+          sessionId: params.sessionId || null,
+          agentRunId: params.agentRunId || null,
+        });
+      }
       return chatWithToolsOpenAIResponses(env, request, dp);
+    }
     case 'gemini_api':
       return chatWithToolsGemini(env, request, dp);
     case 'vertex':

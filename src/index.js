@@ -114,6 +114,7 @@ import { CMS_EMBED_PICK_SCRIPT, CMS_EMBED_PICK_STYLE } from './core/cms-embed-cl
 export { IAMCollaborationSession } from './do/Collaboration.js';
 export { AgentChatSqlV1 } from './do/AgentChat.js';
 export { AgentBrowserLiveV1 } from './do/AgentBrowserLive.js';
+export { OpenAiResponsesWsV1 } from './do/OpenAiResponsesWs.js';
 export { ChessRoom } from './do/Legacy.js';
 export { MyContainer } from './do/MyContainer.js';
 export { IamCadWorkerContainer } from './do/IamCadWorkerContainer.js';

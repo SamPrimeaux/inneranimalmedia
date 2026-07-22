@@ -511,10 +511,10 @@ export function applyOpenAiResponsesBackgroundAndMetadata(body, params) {
 }
 
 /**
- * Stream /v1/responses (Responses API). Use when agentsam_ai.api_platform is `openai_responses` or `responses`.
- * Tool outputs for the next turn: pass `openaiPreviousResponseId` and messages ending in user tool_result blocks.
+ * Shared prep for HTTP and WebSocket Responses transports.
+ * @returns {Promise<{ apiKey: string, apiBase: string, body: Record<string, unknown>, modelForApi: string } | { errorResponse: Response }>}
  */
-export async function chatWithToolsOpenAIResponses(env, request, params) {
+export async function buildOpenAIResponsesRequestParts(env, params) {
   const {
     modelKey,
     providerModelId,
@@ -535,12 +535,18 @@ export async function chatWithToolsOpenAIResponses(env, request, params) {
   const apiKey = await resolveOpenAiCompatibleApiKey(env, modelKey, userId, compatOpts);
   const apiBase = resolveOpenAiCompatibleBaseUrl(compatOpts);
   if (!apiKey) {
-    return jsonResponse(
-      { error: isDeepSeekOpenAiCompatibleDispatch(compatOpts) ? 'DeepSeek API key not configured' : 'OpenAI API key not configured' },
-      503,
-    );
+    return {
+      errorResponse: jsonResponse(
+        {
+          error: isDeepSeekOpenAiCompatibleDispatch(compatOpts)
+            ? 'DeepSeek API key not configured'
+            : 'OpenAI API key not configured',
+        },
+        503,
+      ),
+    };
   }
-  if (!modelForApi) return jsonResponse({ error: 'modelKey required' }, 400);
+  if (!modelForApi) return { errorResponse: jsonResponse({ error: 'modelKey required' }, 400) };
 
   const prev = openaiPreviousResponseId != null ? String(openaiPreviousResponseId).trim() : '';
   const input = buildOpenAIResponsesInput(messages, prev || null);
@@ -567,6 +573,18 @@ export async function chatWithToolsOpenAIResponses(env, request, params) {
   if (params.maxOutputTokens != null) {
     body = applyOpenAiResponsesTokenLimit(body, params.maxOutputTokens);
   }
+
+  return { apiKey, apiBase, body, modelForApi };
+}
+
+/**
+ * Stream /v1/responses (Responses API). Use when agentsam_ai.api_platform is `openai_responses` or `responses`.
+ * Tool outputs for the next turn: pass `openaiPreviousResponseId` and messages ending in user tool_result blocks.
+ */
+export async function chatWithToolsOpenAIResponses(env, request, params) {
+  const parts = await buildOpenAIResponsesRequestParts(env, params);
+  if (parts.errorResponse) return parts.errorResponse;
+  const { apiKey, apiBase, body, modelForApi } = parts;
 
   let upstream;
   try {
@@ -603,8 +621,9 @@ export async function chatWithToolsOpenAIResponses(env, request, params) {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
       'Access-Control-Allow-Origin': '*',
+      'X-IAM-OpenAI-Transport': 'http',
     },
   });
 }
