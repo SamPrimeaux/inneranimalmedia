@@ -208,6 +208,31 @@ export const handlers = {
 
     // ── Playwright & Legacy ──────────────────────────────────────────────
     async playwright_screenshot(params, env, runContext) { return await invokeBrowserOp(env, 'playwright_screenshot', params, runContext); },
+    /**
+     * Catalog key agentsam_playwright — operation router over existing MYBROWSER ops.
+     * operation: screenshot | navigate | scrape | capture (default screenshot).
+     */
+    async agentsam_playwright(params, env, runContext) {
+        const op = String(params?.operation ?? params?.op ?? params?.action ?? 'screenshot')
+            .trim()
+            .toLowerCase();
+        if (op === 'screenshot') {
+            return await invokeBrowserOp(env, 'playwright_screenshot', params, runContext);
+        }
+        if (op === 'capture') {
+            return await invokeBrowserOp(env, 'browser_screenshot', params, runContext);
+        }
+        if (op === 'navigate') {
+            return await invokeBrowserOp(env, 'browser_navigate', params, runContext);
+        }
+        if (op === 'scrape' || op === 'content' || op === 'dom') {
+            return await invokeBrowserOp(env, 'browser_content', params, runContext);
+        }
+        return {
+            error: `unsupported operation=${op}; use screenshot|navigate|scrape|capture`,
+            lane: 'agentsam_playwright',
+        };
+    },
     async browser_navigate(params, env, runContext) { return await invokeBrowserOp(env, 'browser_navigate', params, runContext); },
     async browser_scroll(params, env, runContext) { return await invokeBrowserOp(env, 'browser_scroll', params, runContext); },
     async browser_verify_current_page(params, env, runContext) {
