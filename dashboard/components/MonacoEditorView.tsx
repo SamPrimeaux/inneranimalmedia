@@ -759,7 +759,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
       </div>
 
       {/* ── Editor Body ── */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden relative">
         {showQuestionsIntake ? (
           questionsIntake ? (
             <QuestionsIntakePage
