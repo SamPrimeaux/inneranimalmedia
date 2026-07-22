@@ -26,6 +26,16 @@ MCP is **`/iam-ship-mcp`** · umbrella index **`/iam-ship`**.
 
 SSOT: `docs/platform/mac-free-ship-lanes-2026-07.md`
 
+## Preflight (required before Mac deploy:full)
+
+```bash
+cd /Users/samprimeaux/inneranimalmedia
+node scripts/agentsam-ship-check.mjs
+# or MCP tool agentsam_ship_check (dual-repo ledger + static validate)
+```
+
+Exit 0 = pending migrations are statically clean (or none). Fix `MEMORY_ID_REQUIRED` / validation failures before shipping. Pending-but-valid is informational — do **not** bulk `D1_APPLY_PENDING=apply` the 800–979 gap.
+
 ## Host → command
 
 | Host | Command | Never |

@@ -92,6 +92,32 @@ export function clearToolProfileBindingsCache() {
 }
 
 /**
+ * Load force_first_tool for a task_type (MCP Optimization Spec §6.1).
+ * @param {unknown} env
+ * @param {string|null|undefined} taskType
+ * @returns {Promise<string|null>}
+ */
+export async function loadForceFirstToolForTask(env, taskType) {
+  const tt = String(taskType || '')
+    .trim()
+    .toLowerCase();
+  if (!tt || !env?.DB?.prepare) return null;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT force_first_tool FROM agentsam_tool_profile_bindings
+        WHERE task_type = ? AND COALESCE(is_active, 1) = 1
+        ORDER BY priority ASC LIMIT 1`,
+    )
+      .bind(tt)
+      .first();
+    const v = String(row?.force_first_tool || '').trim();
+    return v || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Cold-start only when D1 bindings table empty/unavailable.
  * @param {{ taskSpec?: { toolProfile?: string|null }|null, taskType?: string|null, useInspect?: boolean, useCodeDevelop?: boolean }} ctx
  * @returns {string}

@@ -22,6 +22,14 @@ description: >-
 
 Main app is **`/iam-ship-main`** · umbrella **`/iam-ship`**.
 
+## Preflight
+
+```bash
+# From main repo (checks MCP migrations/ vs shared D1 ledger too):
+cd /Users/samprimeaux/inneranimalmedia && node scripts/agentsam-ship-check.mjs
+# Or call MCP tool agentsam_ship_check / agentsam_d1_validate_migration
+```
+
 ## Deploy
 
 ```bash

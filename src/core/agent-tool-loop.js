@@ -133,6 +133,31 @@ function cadToolSseExtrasFromOutput(toolName, toolOutput) {
   }
 }
 
+/**
+ * Profile binding force_first_tool (§6.1) — only when the tool is already on the active menu.
+ * @param {Record<string, unknown>|null|undefined} mcpCtx
+ * @param {unknown[]} activeTools
+ */
+function resolveProfileForceFirstTool(mcpCtx, activeTools) {
+  const name = String(
+    mcpCtx?.runtimeProfile?.force_first_tool ||
+      mcpCtx?.force_first_tool ||
+      mcpCtx?.sessionRoots?.force_first_tool ||
+      mcpCtx?.roots?.force_first_tool ||
+      '',
+  )
+    .trim()
+    .toLowerCase();
+  if (!name || !Array.isArray(activeTools) || !activeTools.length) return null;
+  const hit = activeTools.find((t) => {
+    const n = String(t?.name || t?.tool_key || t?.function?.name || '')
+      .trim()
+      .toLowerCase();
+    return n === name;
+  });
+  return hit ? name : null;
+}
+
 /** Last user text in the conversation (for explicit catalog tool pin / force). */
 function lastUserMessageText(messages) {
   if (!Array.isArray(messages)) return '';
@@ -940,7 +965,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       // Provider resolved inside dispatchStream from agentsam_ai.api_platform (Workers AI → OAI-shaped SSE).
       const forcedToolName =
         !explicitCatalogPreinvoked && turnCount === 1
-          ? resolveForcedExplicitCatalogTool(lastUserMessageText(conversationMessages), activeTools)
+          ? resolveForcedExplicitCatalogTool(lastUserMessageText(conversationMessages), activeTools) ||
+            resolveProfileForceFirstTool(mcpCtx, activeTools)
           : null;
       if (forcedToolName) {
         console.info(

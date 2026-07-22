@@ -174,6 +174,7 @@
     "smoke:workflow-runs:seed": "./scripts/with-cloudflare-env.sh node scripts/seed-agentsam-workflow-runs.mjs",
     "smoke:workflow-runs:http": "./scripts/with-cloudflare-env.sh node scripts/run-workflow-start-batch.mjs",
     "d1:workflows-audit": "./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business --remote -c wrangler.production.toml --file=./scripts/d1-workflows-audit.sql",
+    "ship:check": "node scripts/agentsam-ship-check.mjs",
     "d1:apply-pending": "./scripts/with-cloudflare-env.sh node scripts/d1-apply-pending.mjs",
     "d1:apply-pending:apply": "./scripts/with-cloudflare-env.sh node scripts/d1-apply-pending.mjs --apply",
     "status": "python3 scripts/platform_brief.py",

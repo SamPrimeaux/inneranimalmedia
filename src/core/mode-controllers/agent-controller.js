@@ -895,6 +895,8 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           execLane = resolveEffectiveExecLane(clientSurface, execLane, isPlatformOperator);
         }
       }
+      const { loadForceFirstToolForTask } = await import('../d1-tool-profile.js');
+      const forceFirstTool = await loadForceFirstToolForTask(env, profile.routing_task_type);
       const mcpRuntimeContext = {
         userId,
         tenantId,
@@ -904,8 +906,12 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         taskType: profile.routing_task_type,
         routeKey: profile.refined_route_key || profile.mode,
         writePolicy: profile.write_policy,
+        force_first_tool: forceFirstTool,
         userMessage: message,
-        runtimeProfile: profile,
+        runtimeProfile: {
+          ...profile,
+          force_first_tool: forceFirstTool,
+        },
         fsa_root: profile._fsa_root === true,
         ...(databaseSurfaceRaw
           ? {

@@ -138,7 +138,8 @@ export async function loadToolProfileForMode(db, composerMode) {
     const row = await db
       .prepare(
         `SELECT p.profile_key, p.tool_keys_json, p.max_tools, p.write_policy_json,
-                p.updated_at AS profile_updated_at, b.updated_at AS binding_updated_at
+                p.updated_at AS profile_updated_at, b.updated_at AS binding_updated_at,
+                b.force_first_tool AS force_first_tool
          FROM agentsam_tool_profile_bindings b
          JOIN agentsam_tool_profiles p ON p.profile_key = b.profile_key AND COALESCE(p.is_active, 1) = 1
          WHERE b.task_type = ? AND COALESCE(b.is_active, 1) = 1
@@ -154,6 +155,7 @@ export async function loadToolProfileForMode(db, composerMode) {
         tool_keys: parseJsonArraySafe(row.tool_keys_json, []),
         max_tools: Number(row.max_tools) > 0 ? Number(row.max_tools) : SESSION_TOOL_CACHE_SOFT_MAX,
         write_policy: parseWritePolicyJson(row.write_policy_json),
+        force_first_tool: String(row.force_first_tool || '').trim() || null,
         profile_revision: `${Number(row.binding_updated_at) || 0}:${Number(row.profile_updated_at) || 0}`,
       };
     }
@@ -273,6 +275,7 @@ export async function loadOauthVisibleToolsForSession(env, composerMode, resolve
     profile_task_type: profileTaskType,
     write_policy: profile?.write_policy || {},
     profile_revision: profile?.profile_revision || null,
+    force_first_tool: profile?.force_first_tool || null,
   };
 }
 
@@ -631,6 +634,7 @@ export async function loadOrBootstrapSessionContext(env, opts) {
     profile_task_type: profileTaskType,
     profile_key: loaded?.profile_key || null,
     profile_revision: loaded?.profile_revision || null,
+    force_first_tool: loaded?.force_first_tool || null,
     ...(progressiveBootstrap ? { progressive_tool_discovery: true } : {}),
   };
   if (stub) {
