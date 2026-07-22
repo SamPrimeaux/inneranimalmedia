@@ -31,10 +31,10 @@
   const mount = document.getElementById('app');
   const showErr = (msg) => {
     if (!mount) return;
-    mount.innerHTML = '<div style="padding:24px;font-family:Inter,sans-serif;color:#f4f4f8;max-width:440px">'
+    mount.innerHTML = '<div style="padding:24px;font-family:Inter,sans-serif;color:#1a1a1a;max-width:440px">'
       + '<strong style="display:block;margin-bottom:8px">Studio CMS failed to load</strong>'
-      + '<p style="color:#a1a1aa;font-size:13px;line-height:1.5;margin:0">' + msg + '</p>'
-      + '<p style="color:#71717a;font-size:12px;margin:12px 0 0">Hard refresh (Cmd+Shift+R) after deploy.</p></div>';
+      + '<p style="color:#4b4b57;font-size:13px;line-height:1.5;margin:0">' + msg + '</p>'
+      + '<p style="color:#8a8a95;font-size:12px;margin:12px 0 0">Hard refresh (Cmd+Shift+R) after deploy.</p></div>';
   };
   window.addEventListener('error', (e) => {
     const src = e.filename || '';
