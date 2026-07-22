@@ -115,8 +115,7 @@ export function TicketDetailView({ ticketId, onBack, onToast, onDeleted }: Props
       });
       setTicket(updated);
       onToast?.('Saved');
-      const ev = await fetchTicketEvents(ticket.id);
-      setEvents(ev);
+      setEvents(await fetchTicketEvents(ticket.id));
     } catch (e) {
       onToast?.(e instanceof Error ? e.message : 'Save failed');
     } finally {
@@ -138,8 +137,7 @@ export function TicketDetailView({ ticketId, onBack, onToast, onDeleted }: Props
       });
       setTicket(updated);
       onToast?.(`Marked ${status}`);
-      const ev = await fetchTicketEvents(ticket.id);
-      setEvents(ev);
+      setEvents(await fetchTicketEvents(ticket.id));
     } catch (e) {
       onToast?.(e instanceof Error ? e.message : 'Status update failed');
     } finally {
@@ -156,8 +154,7 @@ export function TicketDetailView({ ticketId, onBack, onToast, onDeleted }: Props
       await postTicketEvent(ticket.id, { event_type: 'note', detail });
       setNote('');
       onToast?.('Note added');
-      const ev = await fetchTicketEvents(ticket.id);
-      setEvents(ev);
+      setEvents(await fetchTicketEvents(ticket.id));
     } catch (e) {
       onToast?.(e instanceof Error ? e.message : 'Note failed');
     } finally {
@@ -187,7 +184,7 @@ export function TicketDetailView({ ticketId, onBack, onToast, onDeleted }: Props
   if (loading) {
     return (
       <div className="lib-ticket-detail">
-        <button type="button" className="lib-ticket-detail__back" onClick={onBack}>
+        <button type="button" className="lib-ticket-btn lib-ticket-btn--ghost" onClick={onBack}>
           ← Back to list
         </button>
         <div className="lib-loading">Loading ticket…</div>
@@ -198,7 +195,7 @@ export function TicketDetailView({ ticketId, onBack, onToast, onDeleted }: Props
   if (error || !ticket) {
     return (
       <div className="lib-ticket-detail">
-        <button type="button" className="lib-ticket-detail__back" onClick={onBack}>
+        <button type="button" className="lib-ticket-btn lib-ticket-btn--ghost" onClick={onBack}>
           ← Back to list
         </button>
         <div className="lib-error">{error || 'Ticket not found'}</div>
@@ -209,7 +206,7 @@ export function TicketDetailView({ ticketId, onBack, onToast, onDeleted }: Props
   return (
     <div className="lib-ticket-detail">
       <header className="lib-ticket-detail__top">
-        <button type="button" className="lib-ticket-detail__back" onClick={onBack}>
+        <button type="button" className="lib-ticket-btn lib-ticket-btn--ghost" onClick={onBack}>
           ← Back to list
         </button>
         <code className="lib-ticket-detail__id">{ticket.id}</code>
@@ -218,14 +215,14 @@ export function TicketDetailView({ ticketId, onBack, onToast, onDeleted }: Props
 
       <div className="lib-ticket-detail__grid">
         <section className="lib-ticket-detail__main">
-          <label className="lib-ticket-detail__field">
-            Title
+          <div className="lib-ticket-detail__field">
+            <span className="lib-ticket-detail__label">Title</span>
             <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Title" />
-          </label>
+          </div>
 
           <div className="lib-ticket-detail__row">
-            <label className="lib-ticket-detail__field">
-              Priority
+            <div className="lib-ticket-detail__field">
+              <span className="lib-ticket-detail__label">Priority</span>
               <select value={priority} onChange={(e) => setPriority(e.target.value)} aria-label="Priority">
                 {PRIORITIES.map((p) => (
                   <option key={p} value={p}>
@@ -233,51 +230,51 @@ export function TicketDetailView({ ticketId, onBack, onToast, onDeleted }: Props
                   </option>
                 ))}
               </select>
-            </label>
-            <label className="lib-ticket-detail__field">
-              Project
+            </div>
+            <div className="lib-ticket-detail__field">
+              <span className="lib-ticket-detail__label">Project</span>
               <input
                 value={project}
                 onChange={(e) => setProject(e.target.value)}
                 placeholder="projects.id"
                 aria-label="Project"
               />
-            </label>
-            <label className="lib-ticket-detail__field">
-              Subsystem
+            </div>
+            <div className="lib-ticket-detail__field">
+              <span className="lib-ticket-detail__label">Subsystem</span>
               <input
                 value={subsystem}
                 onChange={(e) => setSubsystem(e.target.value)}
                 placeholder="e.g. billing"
                 aria-label="Subsystem"
               />
-            </label>
+            </div>
           </div>
 
-          <label className="lib-ticket-detail__field">
-            Tags (comma-separated)
+          <div className="lib-ticket-detail__field">
+            <span className="lib-ticket-detail__label">Tags</span>
             <input
               value={tagsText}
               onChange={(e) => setTagsText(e.target.value)}
-              placeholder="infra, agent, telemetry"
+              placeholder="comma-separated"
               aria-label="Tags"
             />
-          </label>
+          </div>
 
-          <label className="lib-ticket-detail__field">
-            Plan path (doc_path)
+          <div className="lib-ticket-detail__field">
+            <span className="lib-ticket-detail__label">Plan path</span>
             <input
               value={docPath}
               onChange={(e) => setDocPath(e.target.value)}
               placeholder="plans/active/…"
               aria-label="Doc path"
             />
-          </label>
+          </div>
 
           <div className="lib-ticket-detail__actions">
             <button
               type="button"
-              className="lib-connect-action primary"
+              className="lib-ticket-btn lib-ticket-btn--primary"
               disabled={busy}
               onClick={() => void handleSaveFields()}
             >
@@ -289,7 +286,7 @@ export function TicketDetailView({ ticketId, onBack, onToast, onDeleted }: Props
             <div className="lib-ticket-detail__links">
               {ticket.blocked_by?.length ? (
                 <div>
-                  <strong>Blocked by</strong>
+                  <span className="lib-ticket-detail__label">Blocked by</span>
                   <div className="lib-ticket-detail__chips">
                     {ticket.blocked_by.map((id) => (
                       <span key={id} className="lib-ticket-chip">
@@ -301,7 +298,7 @@ export function TicketDetailView({ ticketId, onBack, onToast, onDeleted }: Props
               ) : null}
               {ticket.blocks?.length ? (
                 <div>
-                  <strong>Blocks</strong>
+                  <span className="lib-ticket-detail__label">Blocks</span>
                   <div className="lib-ticket-detail__chips">
                     {ticket.blocks.map((id) => (
                       <span key={id} className="lib-ticket-chip">
@@ -328,20 +325,22 @@ export function TicketDetailView({ ticketId, onBack, onToast, onDeleted }: Props
 
           <section className="lib-ticket-detail__status-block">
             <h3>Status</h3>
-            <label className="lib-ticket-detail__field">
-              Status reason (required for blocked / abandoned)
+            <div className="lib-ticket-detail__field">
+              <span className="lib-ticket-detail__label">
+                Reason (required for blocked / abandoned)
+              </span>
               <input
                 value={statusReason}
                 onChange={(e) => setStatusReason(e.target.value)}
                 placeholder="Proof or reason…"
               />
-            </label>
-            <div className="lib-tickets__status-actions">
+            </div>
+            <div className="lib-ticket-detail__status-chips" role="group" aria-label="Set status">
               {STATUSES.map((s) => (
                 <button
                   key={s}
                   type="button"
-                  className="lib-connect-action"
+                  className={`lib-ticket-status-chip${ticket.status === s ? ' is-current' : ''}`}
                   disabled={busy || ticket.status === s}
                   onClick={() => void handleStatus(s)}
                 >
@@ -354,8 +353,8 @@ export function TicketDetailView({ ticketId, onBack, onToast, onDeleted }: Props
           <section className="lib-ticket-detail__danger">
             <h3>Delete permanently</h3>
             <p>
-              Hard delete removes this ticket and its events. Type the ticket id to confirm. Prefer
-              deleting closed work older than ~90 days so metrics stay meaningful.
+              Hard delete removes this ticket and its events. Type the id to confirm. Prefer deleting
+              closed work older than ~90 days.
             </p>
             <div className="lib-ticket-detail__delete-row">
               <input
@@ -366,7 +365,7 @@ export function TicketDetailView({ ticketId, onBack, onToast, onDeleted }: Props
               />
               <button
                 type="button"
-                className="lib-connect-action danger"
+                className="lib-ticket-btn lib-ticket-btn--danger"
                 disabled={busy || deleteConfirm.trim() !== ticket.id}
                 onClick={() => void handleDelete()}
               >
@@ -378,18 +377,18 @@ export function TicketDetailView({ ticketId, onBack, onToast, onDeleted }: Props
 
         <aside className="lib-ticket-detail__side">
           <h3>Activity</h3>
-          <label className="lib-ticket-detail__field">
-            Add note
+          <div className="lib-ticket-detail__field">
+            <span className="lib-ticket-detail__label">Add note</span>
             <textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
               rows={3}
               placeholder="Checkpoint, proof, or context…"
             />
-          </label>
+          </div>
           <button
             type="button"
-            className="lib-connect-action primary"
+            className="lib-ticket-btn lib-ticket-btn--primary"
             disabled={busy || !note.trim()}
             onClick={() => void handleAddNote()}
           >

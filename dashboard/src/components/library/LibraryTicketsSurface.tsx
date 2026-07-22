@@ -651,12 +651,12 @@ export function LibraryTicketsSurface({ onToast }: Props) {
               <option value="title">Sort: title</option>
             </select>
           </label>
-          <button type="button" className="lib-connect-action" onClick={() => void refresh()}>
+          <button type="button" className="lib-ticket-btn" onClick={() => void refresh()}>
             Refresh
           </button>
           <button
             type="button"
-            className="lib-connect-action primary"
+            className="lib-ticket-btn lib-ticket-btn--primary"
             onClick={() => setCreateOpen((v) => !v)}
           >
             New ticket
@@ -714,7 +714,7 @@ export function LibraryTicketsSurface({ onToast }: Props) {
           </select>
           <button
             type="button"
-            className="lib-connect-action primary"
+            className="lib-ticket-btn lib-ticket-btn--primary"
             disabled={busy}
             onClick={() => void handleCreate()}
           >
@@ -726,10 +726,10 @@ export function LibraryTicketsSurface({ onToast }: Props) {
       {checkedIds.size > 0 ? (
         <div className="lib-tickets__bulk" role="region" aria-label="Bulk actions">
           <strong>{checkedIds.size} selected</strong>
-          <button type="button" className="lib-connect-action" onClick={toggleSelectVisible}>
+          <button type="button" className="lib-ticket-btn" onClick={toggleSelectVisible}>
             Select visible
           </button>
-          <button type="button" className="lib-connect-action" onClick={clearSelection}>
+          <button type="button" className="lib-ticket-btn" onClick={clearSelection}>
             Clear
           </button>
           <select
@@ -745,7 +745,7 @@ export function LibraryTicketsSurface({ onToast }: Props) {
           </select>
           <button
             type="button"
-            className="lib-connect-action"
+            className="lib-ticket-btn"
             disabled={busy}
             onClick={() => void runBulkPriority()}
           >
@@ -774,7 +774,7 @@ export function LibraryTicketsSurface({ onToast }: Props) {
           )}
           <button
             type="button"
-            className="lib-connect-action"
+            className="lib-ticket-btn"
             disabled={busy}
             onClick={() => void runBulkStatus()}
           >
@@ -782,25 +782,25 @@ export function LibraryTicketsSurface({ onToast }: Props) {
           </button>
           <button
             type="button"
-            className="lib-connect-action danger"
+            className="lib-ticket-btn lib-ticket-btn--danger"
             disabled={busy}
             onClick={() => void runBulkDelete()}
           >
             Delete
           </button>
           {counts.staleDone > 0 ? (
-            <button type="button" className="lib-connect-action" onClick={selectStaleDone}>
+            <button type="button" className="lib-ticket-btn" onClick={selectStaleDone}>
               Select closed ≥{RETENTION_DAYS}d ({counts.staleDone})
             </button>
           ) : null}
         </div>
       ) : (
         <div className="lib-tickets__organize">
-          <button type="button" className="lib-connect-action" onClick={toggleSelectVisible}>
+          <button type="button" className="lib-ticket-btn" onClick={toggleSelectVisible}>
             Select visible
           </button>
           {counts.staleDone > 0 ? (
-            <button type="button" className="lib-connect-action" onClick={selectStaleDone}>
+            <button type="button" className="lib-ticket-btn" onClick={selectStaleDone}>
               Organize: closed ≥{RETENTION_DAYS}d ({counts.staleDone})
             </button>
           ) : null}
