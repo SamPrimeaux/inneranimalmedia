@@ -990,6 +990,7 @@ export async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
     input_schema: parseJsonSafe(r.input_schema, { type: 'object', properties: {} }),
     tool_category: String(r.tool_category || 'builtin'),
     requires_approval: Number(r.requires_approval || 0) === 1,
+    caller_policy: r.caller_policy != null ? r.caller_policy : null,
   }));
   return { tools, toolRoutingError, routeToolRequirements };
 }

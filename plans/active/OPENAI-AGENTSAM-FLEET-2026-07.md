@@ -62,6 +62,18 @@ SSOT for the OpenAI Agent Sam capability fleet. Cursor plan mirror: `.cursor/pla
 4. **Sequencing**  
    - `tkt_oai_ptc` / `tkt_oai_ptc_schemas` must not start until `tkt_oai_ws_do_holder` has **two** recorded E2E passes.
 
+### Schemas ticket (`tkt_oai_ptc_schemas`) — shipped surface
+
+| Piece | Where |
+|---|---|
+| Parse / fail-closed helpers | [`src/core/openai-caller-policy.js`](../../src/core/openai-caller-policy.js) |
+| Responses `allowed_callers` | [`toOpenAIResponsesTools`](../../src/integrations/openai.js) — strips `defer_loading` when programmatic allowed |
+| Catalog propagate | spine / oauth parity / progressive / branded SELECT + tool loader map `caller_policy` |
+| Invoke re-check | `validateToolCall` denies `caller.type=program` when policy lacks programmatic |
+| Seed | migration `988_openai_ptc_caller_policy_seed.sql` — read/search opt-in; writes/terminal/approval → `["direct"]` |
+| Flag | `openai_ptc` stays **off** until `tkt_oai_ptc` runtime; with flag off wire always emits `["direct"]` even if D1 allows programmatic |
+
+**Defer-loading law:** OpenAI programs cannot invoke tool search. If a tool is programmatic-eligible, never mark it `defer_loading:true` on the Responses wire (`applyDeferLoadingLaw`). When OpenAI hosted `tool_search` is added later, either exclude programmatic tools from deferral or preload the full programmatic-eligible set whenever `openai_ptc=1`.
 ## Phase 3a blockers
 
 - **REPAIR-REMOTE-TERMINAL** ([docs/ops/REPAIR-REMOTE-TERMINAL.md](../../docs/ops/REPAIR-REMOTE-TERMINAL.md)): hybrid default routes platform work through `agentsam_terminal_remote`. Fix before Phase 3a. Does **not** block Phase 1/2.  

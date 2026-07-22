@@ -103,6 +103,7 @@ export function compiledRowFromAgentsamTool(row) {
     input_schema: inputSchemaFromRow(row),
     tool_category: String(row.tool_category || 'platform'),
     requires_approval: Number(row.requires_approval || 0) === 1,
+    caller_policy: row.caller_policy != null ? row.caller_policy : null,
   };
 }
 
@@ -115,7 +116,8 @@ async function fetchToolRowsByNameOrKey(env, names) {
   const placeholders = names.map(() => '?').join(',');
   try {
     const { results } = await env.DB.prepare(
-      `SELECT tool_name, tool_key, description, input_schema, handler_config, tool_category, requires_approval
+      `SELECT tool_name, tool_key, description, input_schema, handler_config, tool_category, requires_approval,
+              caller_policy
        FROM agentsam_tools
        WHERE COALESCE(is_active, 1) = 1
          AND (tool_name IN (${placeholders}) OR tool_key IN (${placeholders}))`,

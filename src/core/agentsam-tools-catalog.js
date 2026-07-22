@@ -695,7 +695,7 @@ export async function loadAgentsamToolRow(env, toolCodeOrKey) {
     `SELECT id, tool_key, tool_code, tool_name, display_name, handler_type, handler_config, handler_key,
             linked_mcp_tool_id, mcp_service_url, tool_category, input_schema, output_schema,
             result_policy_json, capability_key, risk_level,
-            requires_approval, workspace_scope, modes_json, is_active, is_degraded
+            requires_approval, workspace_scope, modes_json, is_active, is_degraded, caller_policy
      FROM agentsam_tools
      WHERE COALESCE(is_active, 1) = 1
        AND COALESCE(is_degraded, 0) = 0

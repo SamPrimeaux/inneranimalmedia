@@ -397,6 +397,7 @@ SELECT
   t.schema_hint,
   t.avg_latency_ms,
   t.failure_rate,
+  t.caller_policy,
   json_extract(t.handler_config, '$.server_key') AS server_key,
   t.mcp_service_url
 ${BRANDED_FROM_TOOLS}
@@ -428,7 +429,8 @@ SELECT
   COALESCE(t.sort_priority, 50) AS sort_priority,
   t.schema_hint,
   t.avg_latency_ms,
-  t.failure_rate
+  t.failure_rate,
+  t.caller_policy
 ${BRANDED_FROM_TOOLS}
 ) branded
 WHERE 1=1

@@ -16,6 +16,11 @@ import {
   applyOpenAiResponsesTokenLimit,
 } from './openai-token-params.js';
 import { jsonResponse } from '../core/responses.js';
+import { isFeatureEnabled } from '../core/features.js';
+import {
+  allowedCallersFromCallerPolicy,
+  applyDeferLoadingLaw,
+} from '../core/openai-caller-policy.js';
 
 const OPENAI_BASE = 'https://api.openai.com/v1';
 
@@ -176,23 +181,42 @@ function toOpenAITools(tools, opts = {}) {
 }
 
 /** Tools shape for POST /v1/responses (flat `name` + `parameters`, not nested `function`). */
-function toOpenAIResponsesTools(tools) {
+function toOpenAIResponsesTools(tools, opts = {}) {
   if (!tools?.length) return undefined;
+  const openaiPtcEnabled = opts.openaiPtcEnabled === true;
   return tools.map((t) => {
+    const rawPolicy =
+      t.caller_policy != null
+        ? t.caller_policy
+        : t.function?.caller_policy != null
+          ? t.function.caller_policy
+          : t.allowed_callers != null
+            ? t.allowed_callers
+            : t.function?.allowed_callers;
+    const allowed_callers = allowedCallersFromCallerPolicy(rawPolicy, { openaiPtcEnabled });
+    let def;
     if (t.type === 'function' && t.function) {
-      return {
+      def = {
         type: 'function',
         name: t.function.name,
         description: t.function.description || '',
         parameters: t.function.parameters || { type: 'object', properties: {} },
+        allowed_callers,
       };
+      if (t.function.defer_loading === true || t.defer_loading === true) {
+        def.defer_loading = true;
+      }
+    } else {
+      def = {
+        type: 'function',
+        name: t.name,
+        description: t.description || '',
+        parameters: t.input_schema || { type: 'object', properties: {} },
+        allowed_callers,
+      };
+      if (t.defer_loading === true) def.defer_loading = true;
     }
-    return {
-      type: 'function',
-      name: t.name,
-      description: t.description || '',
-      parameters: t.input_schema || { type: 'object', properties: {} },
-    };
+    return applyDeferLoadingLaw(def, allowed_callers);
   });
 }
 
@@ -550,7 +574,10 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
 
   const prev = openaiPreviousResponseId != null ? String(openaiPreviousResponseId).trim() : '';
   const input = buildOpenAIResponsesInput(messages, prev || null);
-  const oaiTools = toOpenAIResponsesTools(tools);
+  const openaiPtcEnabled =
+    params.openaiPtcEnabled === true ||
+    (await isFeatureEnabled(env, 'openai_ptc', { userId, tenantId: params.tenantId }));
+  const oaiTools = toOpenAIResponsesTools(tools, { openaiPtcEnabled });
 
   let body = {
     model: modelForApi,
@@ -574,7 +601,7 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
     body = applyOpenAiResponsesTokenLimit(body, params.maxOutputTokens);
   }
 
-  return { apiKey, apiBase, body, modelForApi };
+  return { apiKey, apiBase, body, modelForApi, openaiPtcEnabled };
 }
 
 /**
@@ -659,7 +686,10 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
 
   const prev = openaiPreviousResponseId != null ? String(openaiPreviousResponseId).trim() : '';
   const input = buildOpenAIResponsesInput(messages, prev || null);
-  const oaiTools = toOpenAIResponsesTools(tools);
+  const openaiPtcEnabled =
+    params.openaiPtcEnabled === true ||
+    (await isFeatureEnabled(env, 'openai_ptc', { userId, tenantId: params.tenantId }));
+  const oaiTools = toOpenAIResponsesTools(tools, { openaiPtcEnabled });
 
   let body = {
     model: modelForApi,

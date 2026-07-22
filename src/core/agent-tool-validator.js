@@ -334,6 +334,36 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
   }
   const capabilities = row ? await loadToolCapabilities(env, row, toolInput) : [];
   const capabilityKeys = capabilities.map((item) => String(item.capability_key)).filter(Boolean);
+
+  // OpenAI PTC: re-check caller_policy at invoke (fail-closed). caller.type=program → programmatic.
+  const callerRaw =
+    typeof toolCallOrName === 'object' && toolCallOrName
+      ? (toolCallOrName.caller ?? toolCallOrName.caller_type ?? null)
+      : null;
+  if (callerRaw != null) {
+    const { assertCallerAllowedAtInvoke } = await import('./openai-caller-policy.js');
+    const gate = assertCallerAllowedAtInvoke(row?.caller_policy, callerRaw);
+    if (!gate.ok) {
+      return {
+        allowed: false,
+        reason: gate.reason,
+        riskLevel: 'blocked',
+        requiresConfirmation: false,
+        mcpToolId: row?.id ?? null,
+        toolKey: row?.tool_key ?? resolvedToolKey ?? name,
+        capabilityKey: capabilityKeys[0] ?? null,
+        capabilityKeys,
+        handlerKey: row?.handler_key ?? null,
+        routeKey: routeKeyOut(row?.route_key),
+        serverKey: row?.server_key ?? null,
+        mcpServerId: row?.mcp_server_id ?? row?.server_id ?? null,
+        agentsamToolsId: row?.id ?? null,
+        allowed_callers: gate.allowed_callers,
+        caller_type: gate.caller_type,
+      };
+    }
+  }
+
   const writePolicy =
     mcpRuntimeContext.writePolicy != null
       ? mcpRuntimeContext.writePolicy

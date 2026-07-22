@@ -65,7 +65,8 @@ export async function selectInAppAgentSpineToolsForAgentChat(db, runtimeCtx, opt
     const { results } = await db.prepare(
       `SELECT tool_key, tool_name, display_name, tool_category, description,
               input_schema, handler_config, capability_key, risk_level, requires_approval,
-              modes_json, workspace_scope, handler_type, is_degraded, mcp_service_url, sort_priority
+              modes_json, workspace_scope, handler_type, is_degraded, mcp_service_url, sort_priority,
+              caller_policy
        FROM agentsam_tools
        WHERE COALESCE(is_active, 1) = 1
          AND COALESCE(is_degraded, 0) = 0
