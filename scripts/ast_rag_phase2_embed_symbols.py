@@ -17,7 +17,9 @@ Usage:
   python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 0
   python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 1
   python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 2              # dry-run
-  python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 2 --commit    # write PG
+  python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 2 --commit --batch-size 8
+  # Survive long runs (session pooler): reconnect each batch + skip already-upserted ids
+  python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 2 --commit --resume --batch-size 8 --limit 64
   python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 3 --commit    # link chunks
   python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 4 --query 'resolve GitHub token'
   python3 scripts/ast_rag_phase2_embed_symbols.py --chunk all --commit --max-nodes 200  # smoke
@@ -172,7 +174,38 @@ def require_db_url() -> str:
 
 
 def pg_connect():
-    return psycopg2.connect(require_db_url())
+    # Session-pooler friendly: TCP keepalives so long embed loops don't die silently.
+    return psycopg2.connect(
+        require_db_url(),
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=5,
+        connect_timeout=30,
+    )
+
+
+def fetch_existing_symbol_node_ids() -> set[str]:
+    """node_ids already present in the symbol table for this workspace (resume skip)."""
+    existing: set[str] = set()
+    with pg_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT node_id
+                FROM {SYMBOL_TABLE}
+                WHERE workspace_id = %s::uuid
+                """,
+                (WORKSPACE_UUID,),
+            )
+            while True:
+                rows = cur.fetchmany(2000)
+                if not rows:
+                    break
+                for (nid,) in rows:
+                    if nid:
+                        existing.add(str(nid))
+    return existing
 
 
 def require_openai() -> str:
@@ -361,86 +394,211 @@ def chunk1_pull(*, max_nodes: int | None, repos: list[str] | None) -> int:
     return 0
 
 
-def chunk2_embed(*, commit: bool, batch_size: int) -> int:
+def chunk2_embed(
+    *,
+    commit: bool,
+    batch_size: int,
+    resume: bool = False,
+    limit: int | None = None,
+    max_attempts: int = 4,
+) -> int:
+    """
+    Embed + upsert symbols. Survives long runs by:
+      - reconnecting to session pooler for every batch (no multi-hour single connection)
+      - --resume: skip node_ids already in the symbol table for this workspace
+      - --limit N: process at most N remaining nodes this invocation (batch-by-batch from a terminal)
+    """
     print("\n══ CHUNK 2 — embed + upsert symbols ══")
     nodes = read_json("chunk1_nodes.json")
-    ok(f"payload {len(nodes)} nodes | commit={commit} batch={batch_size}")
+    ok(f"payload {len(nodes)} nodes | commit={commit} batch={batch_size} resume={resume} limit={limit}")
     if not nodes:
         warn("nothing to embed")
         return 0
 
+    skipped = 0
+    todo = nodes
+    if resume:
+        print("    loading existing symbol node_ids for resume skip…", flush=True)
+        existing = fetch_existing_symbol_node_ids()
+        ok(f"existing symbols in PG for workspace={len(existing)}")
+        filtered = []
+        for n in nodes:
+            nid = str(n.get("id") or "")
+            if nid and nid in existing:
+                skipped += 1
+            else:
+                filtered.append(n)
+        todo = filtered
+        ok(f"remaining after resume skip={len(todo)} (skipped={skipped})")
+
+    if limit is not None and limit > 0:
+        todo = todo[:limit]
+        ok(f"this run capped to --limit={limit} → processing={len(todo)}")
+
+    write_json(
+        "chunk2_embed_progress.json",
+        {
+            "workspace_id": WORKSPACE_ID,
+            "workspace_uuid": WORKSPACE_UUID,
+            "payload": len(nodes),
+            "skipped_resume": skipped,
+            "this_run": len(todo),
+            "batch_size": batch_size,
+            "resume": resume,
+            "limit": limit,
+            "done": False,
+            "upserted": 0,
+        },
+    )
+
     if not commit:
-        sample = [{"id": n["id"], "embed_text": n["embed_text"][:160]} for n in nodes[:5]]
+        sample = [{"id": n["id"], "embed_text": n["embed_text"][:160]} for n in todo[:5]]
         write_json("chunk2_dry_run_sample.json", sample)
         warn("dry-run — pass --commit to write Postgres")
         print("Chunk 2 dry-run done")
         return 0
 
+    if not todo:
+        ok("nothing left to embed (resume skip covered the payload)")
+        write_json(
+            "chunk2_result.json",
+            {"upserted": 0, "skipped_resume": skipped, "remaining": 0, "note": "already_complete"},
+        )
+        print("Chunk 2 commit done")
+        return 0
+
     upserted = 0
-    with pg_connect() as conn:
-        with conn.cursor() as cur:
-            for i in range(0, len(nodes), batch_size):
-                batch = nodes[i : i + batch_size]
-                texts = [n["embed_text"] for n in batch]
-                print(f"    embed {i + 1}-{i + len(batch)}/{len(nodes)}…", flush=True)
-                vecs = embed_openai(texts)
-                rows = []
-                for n, vec in zip(batch, vecs):
-                    rows.append(
-                        (
-                            n["id"],
-                            WORKSPACE_UUID,
-                            n["repo"],
-                            n["file_path"],
-                            n["node_type"],
-                            n["node_name"],
-                            n.get("signature"),
-                            n.get("line_start"),
-                            n.get("line_end"),
-                            n["embed_text"],
-                            vec_literal(vec),
-                            json.dumps(
-                                {
-                                    "workspace_id": WORKSPACE_ID,
-                                    "language": n.get("language"),
-                                    "is_exported": n.get("is_exported"),
-                                    "embedding_model": EMBED_MODEL,
-                                }
-                            ),
-                        )
-                    )
-                execute_values(
-                    cur,
-                    f"""
-                    INSERT INTO {SYMBOL_TABLE} (
-                      node_id, workspace_id, repo, file_path, node_type, node_name,
-                      signature, line_start, line_end, content, embedding, metadata, updated_at
-                    ) VALUES %s
-                    ON CONFLICT (node_id) DO UPDATE SET
-                      signature = EXCLUDED.signature,
-                      line_start = EXCLUDED.line_start,
-                      line_end = EXCLUDED.line_end,
-                      content = EXCLUDED.content,
-                      embedding = EXCLUDED.embedding,
-                      metadata = EXCLUDED.metadata,
-                      updated_at = now()
-                    """,
-                    rows,
-                    template="(%s,%s::uuid,%s,%s,%s,%s,%s,%s,%s,%s,%s::vector,%s::jsonb,now())",
-                    page_size=batch_size,
+    insert_sql = f"""
+        INSERT INTO {SYMBOL_TABLE} (
+          node_id, workspace_id, repo, file_path, node_type, node_name,
+          signature, line_start, line_end, content, embedding, metadata, updated_at
+        ) VALUES %s
+        ON CONFLICT (node_id) DO UPDATE SET
+          signature = EXCLUDED.signature,
+          line_start = EXCLUDED.line_start,
+          line_end = EXCLUDED.line_end,
+          content = EXCLUDED.content,
+          embedding = EXCLUDED.embedding,
+          metadata = EXCLUDED.metadata,
+          updated_at = now()
+        """
+
+    for i in range(0, len(todo), batch_size):
+        batch = todo[i : i + batch_size]
+        texts = [n["embed_text"] for n in batch]
+        print(f"    embed {i + 1}-{i + len(batch)}/{len(todo)}…", flush=True)
+        vecs = embed_openai(texts)
+        rows = []
+        for n, vec in zip(batch, vecs):
+            rows.append(
+                (
+                    n["id"],
+                    WORKSPACE_UUID,
+                    n["repo"],
+                    n["file_path"],
+                    n["node_type"],
+                    n["node_name"],
+                    n.get("signature"),
+                    n.get("line_start"),
+                    n.get("line_end"),
+                    n["embed_text"],
+                    vec_literal(vec),
+                    json.dumps(
+                        {
+                            "workspace_id": WORKSPACE_ID,
+                            "language": n.get("language"),
+                            "is_exported": n.get("is_exported"),
+                            "embedding_model": EMBED_MODEL,
+                        }
+                    ),
                 )
-                conn.commit()
-                upserted += len(rows)
-                print(f"    upserted {upserted}/{len(nodes)}")
-                time.sleep(0.15)
+            )
 
-        with conn.cursor() as cur:
-            cur.execute(f"SELECT COUNT(*) FROM {SYMBOL_TABLE}")
-            total = cur.fetchone()[0]
+        last_err: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                # Fresh connection per batch — session pooler drops long-lived clients.
+                with pg_connect() as conn:
+                    with conn.cursor() as cur:
+                        execute_values(
+                            cur,
+                            insert_sql,
+                            rows,
+                            template="(%s,%s::uuid,%s,%s,%s,%s,%s,%s,%s,%s,%s::vector,%s::jsonb,now())",
+                            page_size=len(rows),
+                        )
+                    conn.commit()
+                last_err = None
+                break
+            except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+                last_err = e
+                warn(f"batch upsert failed attempt {attempt}/{max_attempts}: {e}")
+                time.sleep(min(30, 2**attempt))
+        if last_err is not None:
+            fail(f"giving up on batch at offset {i}: {last_err}")
+            write_json(
+                "chunk2_embed_progress.json",
+                {
+                    "workspace_id": WORKSPACE_ID,
+                    "payload": len(nodes),
+                    "skipped_resume": skipped,
+                    "this_run": len(todo),
+                    "upserted": upserted,
+                    "failed_offset": i,
+                    "error": str(last_err),
+                    "done": False,
+                    "hint": "Re-run with --chunk 2 --commit --resume --batch-size 8 [--limit N]",
+                },
+            )
+            return 1
 
-    write_json("chunk2_result.json", {"upserted": upserted, "symbol_table_rows": total})
-    ok(f"symbol table rows={total}")
-    # Stamp canonical job + capture embed cost into agentsam_usage_events.
+        upserted += len(rows)
+        print(f"    upserted {upserted}/{len(todo)} (run)", flush=True)
+        write_json(
+            "chunk2_embed_progress.json",
+            {
+                "workspace_id": WORKSPACE_ID,
+                "payload": len(nodes),
+                "skipped_resume": skipped,
+                "this_run": len(todo),
+                "upserted": upserted,
+                "next_offset": i + len(batch),
+                "done": False,
+            },
+        )
+        time.sleep(0.15)
+
+    total = None
+    try:
+        with pg_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT COUNT(*) FROM {SYMBOL_TABLE} WHERE workspace_id = %s::uuid",
+                    (WORKSPACE_UUID,),
+                )
+                total = cur.fetchone()[0]
+                cur.execute(f"SELECT COUNT(*) FROM {SYMBOL_TABLE}")
+                total_all = cur.fetchone()[0]
+    except Exception as e:
+        warn(f"count after upsert failed: {e}")
+        total_all = None
+
+    remaining_est = max(0, len(nodes) - skipped - upserted) if resume else None
+    write_json(
+        "chunk2_result.json",
+        {
+            "upserted": upserted,
+            "skipped_resume": skipped,
+            "symbol_table_rows_workspace": total,
+            "symbol_table_rows_all": total_all,
+            "remaining_est": remaining_est,
+        },
+    )
+    ok(f"symbol table rows (workspace)={total} (all={total_all})")
+    if remaining_est is not None:
+        ok(f"est. remaining after this run≈{remaining_est} — re-run with --resume [--limit N]")
+
+    # Stamp canonical job + capture embed cost into agentsam_usage_events (this run only).
     try:
         iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         job_id = f"cidx_{WORKSPACE_ID}"
@@ -448,12 +606,11 @@ def chunk2_embed(*, commit: bool, batch_size: int) -> int:
             "UPDATE agentsam_code_index_job SET last_sync_at = ?, status = 'idle', "
             "triggered_by = 'ast_rag_phase2', source_type = 'ast_rag', "
             "symbol_count = ?, updated_at = datetime('now') WHERE id = ?",
-            [iso, int(upserted or 0), job_id],
+            [iso, int(total if total is not None else upserted or 0), job_id],
         )
         ok(f"stamped {job_id} last_sync_at={iso}")
-        # Rough token estimate (~4 chars/token) × OpenAI text-embedding-3-large list price.
         approx_tokens = 0
-        for n in nodes:
+        for n in todo:
             approx_tokens += max(1, len(str(n.get("embed_text") or "")) // 4)
         cost_usd = round((approx_tokens / 1_000_000.0) * 0.13, 6)
         tenant = "tenant_sam_primeaux"
@@ -483,6 +640,19 @@ def chunk2_embed(*, commit: bool, batch_size: int) -> int:
         ok(f"usage event {ue_id} tokens≈{approx_tokens} cost_usd≈{cost_usd}")
     except Exception as e:
         warn(f"stamp/usage failed: {e}")
+
+    write_json(
+        "chunk2_embed_progress.json",
+        {
+            "workspace_id": WORKSPACE_ID,
+            "payload": len(nodes),
+            "skipped_resume": skipped,
+            "this_run": len(todo),
+            "upserted": upserted,
+            "done": True,
+            "remaining_est": remaining_est,
+        },
+    )
     print("Chunk 2 commit done")
     return 0
 
@@ -715,9 +885,20 @@ def main() -> int:
     )
     ap.add_argument("--env-file", type=Path, default=DEFAULT_ENV)
     ap.add_argument("--commit", action="store_true")
-    ap.add_argument("--batch-size", type=int, default=32)
+    ap.add_argument(
+        "--batch-size",
+        type=int,
+        default=32,
+        help="Chunk 2: OpenAI/PG batch size (prefer 8 for long resume runs). Chunk 3 default link batch stays 200 when unset.",
+    )
     ap.add_argument("--max-nodes", type=int, default=None)
     ap.add_argument("--max-files", type=int, default=None)
+    ap.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Chunk 2: process at most N remaining nodes this run (after --resume skip). Use for terminal batch-by-batch.",
+    )
     ap.add_argument("--repo", action="append", default=None)
     ap.add_argument(
         "--query",
@@ -728,7 +909,8 @@ def main() -> int:
     ap.add_argument(
         "--resume",
         action="store_true",
-        help="Chunk 3: reuse chunk3_link_preview.json and skip already-linked chunks (after WiFi/DNS drop)",
+        help="Chunk 2: skip node_ids already in the symbol table. "
+        "Chunk 3: reuse chunk3_link_preview.json and skip already-linked chunks.",
     )
     ap.add_argument(
         "--workspace-id",
@@ -797,7 +979,15 @@ def main() -> int:
     if chunk in ("1", "all") and rc == 0:
         rc = chunk1_pull(max_nodes=args.max_nodes, repos=args.repo) or rc
     if chunk in ("2", "all") and rc == 0:
-        rc = chunk2_embed(commit=args.commit, batch_size=max(1, args.batch_size)) or rc
+        rc = (
+            chunk2_embed(
+                commit=args.commit,
+                batch_size=max(1, args.batch_size),
+                resume=args.resume,
+                limit=args.limit,
+            )
+            or rc
+        )
     if chunk in ("3", "all") and rc == 0:
         link_batch = args.batch_size if args.batch_size != 32 else 200
         rc = chunk3_link(
