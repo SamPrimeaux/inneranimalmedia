@@ -284,6 +284,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
               buildCmsPath({ panel: parsed.panel, siteSlug: slug }),
             );
           }}
+          onNavigatePath={cmsNavigatePath}
         />
       ) : null}
       {!needsSitePick && isStudioShellRoute && studioProjectSlug ? (
