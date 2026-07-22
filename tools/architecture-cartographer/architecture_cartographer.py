@@ -187,7 +187,10 @@ def env_first(*names: str) -> str | None:
     for name in names:
         value = os.environ.get(name)
         if value:
-            return value
+            # Strip quotes/whitespace from .env.cloudflare soft-loads
+            cleaned = value.strip().strip("'").strip('"').strip()
+            if cleaned:
+                return cleaned
     return None
 
 
@@ -724,10 +727,17 @@ def scan_d1(
 ) -> dict[str, Any]:
     start = time.time()
     info(f"Listing D1 tables ({database_id})…")
-    tables, _ = d1_query(
+    tables, meta = d1_query(
         account_id, database_id, token,
         "SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name;",
     )
+    if meta.get("error") and not tables:
+        raise RuntimeError(
+            "D1 table list failed — not '0 tables'. "
+            f"Cause: {meta['error']}. "
+            "Errno 8 / 'nodename nor servname' usually means transient DNS/network "
+            "(not a bad token). Re-run; credentials are loaded if this call was attempted."
+        )
     tables = [
         t for t in tables
         if t.get("name") and not str(t["name"]).startswith(IGNORE_TABLE_PREFIXES)
@@ -1454,15 +1464,19 @@ def main() -> int:
             return 2
         convention = [c.strip() for c in args.convention_columns.split(",") if c.strip()]
         expected_pk = tuple(c.strip() for c in args.expected_pk.split(",") if c.strip())
-        d1_report = scan_d1(
-            account_id=account_id,
-            database_id=args.database_id,
-            token=token,
-            label=args.label,
-            convention_columns=convention,
-            expected_pk=expected_pk,
-            check_orphans=args.check_orphans,
-        )
+        try:
+            d1_report = scan_d1(
+                account_id=account_id,
+                database_id=args.database_id,
+                token=token,
+                label=args.label,
+                convention_columns=convention,
+                expected_pk=expected_pk,
+                check_orphans=args.check_orphans,
+            )
+        except RuntimeError as exc:
+            warn(str(exc))
+            return 2
         json_write(evidence / f"{args.label}_{stamp}_d1.json", d1_report)
 
     if args.supabase_project_ref:

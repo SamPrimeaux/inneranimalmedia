@@ -125,3 +125,46 @@ Prefer evolving **this** package over adding more ad-hoc `scripts/audit_*.py` fo
 - Skips `.env*`, secrets, binaries, `node_modules`, build output
 - AI packet strips samples and sensitive field names
 - Generated reports are gitignored
+
+## Where to keep generated architecture-map (proposal — not locked)
+
+| Layer | What | Where | Why |
+|-------|------|--------|-----|
+| **A. Tooling (git)** | Scripts, README, prompts | `tools/architecture-cartographer/` | Versioned, shareable |
+| **B. Working cache (local, gitignored)** | Full JSON + latest md | `tools/architecture-cartographer/architecture-map/` | Fast day-to-day; regenerable |
+| **C. Durable snapshots (proposed)** | Timestamped JSON + executive-summary.md | R2 e.g. `ops/architecture-map/{label}/{stamp}/` | Survives laptop wipe; Agent Sam / MCP can fetch |
+| **D. Human digest (optional, curated)** | 1–2 short md after a good run | `docs/ops/architecture-inventory/` | Only after you validate quality — not auto-commit every scan |
+
+Recommendation while validating: keep **A + B**, re-run freely. Once a run looks useful, promote that stamp to **C** (R2). Promote a trimmed digest to **D** only when you’re happy with the signal — don’t fill git with 50MB dumps.
+
+Pass-zero inventory (`/tmp/inventory.json`) can live next to B or upload beside C.
+
+## Supabase PAT — get / set
+
+`SUPABASE_SERVICE_ROLE_KEY` cannot run the catalog SQL this tool needs. You need a **Management API** personal access token:
+
+1. Open [Account → Access Tokens](https://supabase.com/dashboard/account/tokens)
+2. Create token (name e.g. `architecture-cartographer-readonly`)
+3. Copy once (`sbp_…`)
+4. Add to gitignored `.env.cloudflare`:
+
+```bash
+SUPABASE_ACCESS_TOKEN=sbp_your_token_here
+```
+
+5. Re-run via `./scripts/with-cloudflare-env.sh …` (loads that file)
+
+Smoke check (no secrets printed):
+
+```bash
+./scripts/with-cloudflare-env.sh python3 -c \
+  "import os; t=os.environ.get('SUPABASE_ACCESS_TOKEN',''); print('pat_set', bool(t), 'len', len(t))"
+```
+
+## D1 “0 tables” / Errno 8
+
+If you see:
+
+`urlopen error [Errno 8] nodename nor servname provided, or not known`
+
+that is **DNS/network**, not “empty database” and not a missing token (missing token exits earlier). Credentials were loaded; `api.cloudflare.com` failed to resolve for a moment. Re-run the same command. Newer builds exit with a clear error instead of claiming `Found 0 tables`.
