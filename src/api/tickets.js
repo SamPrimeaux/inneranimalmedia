@@ -4,6 +4,7 @@
  * POST   /api/tickets
  * GET    /api/tickets/:id
  * PATCH  /api/tickets/:id
+ * DELETE /api/tickets/:id
  * POST   /api/tickets/:id/status  { status, status_reason? }
  * POST   /api/tickets/:id/events { event_type, detail?, commit_sha? }
  * GET    /api/tickets/:id/events
@@ -11,12 +12,14 @@
  * Index only — prose lives at ticket.doc_path (plans/active|backlog).
  * Platform engineering only — not Collaborate client tasks.
  * Does not replace kanban / agentsam_todo / project_issues.
+ * Hard delete only — abandoned is a status, not soft-delete.
  */
 
 import { jsonResponse } from '../core/responses.js';
 import {
   addTicketEvent,
   createTicket,
+  deleteTicket,
   getTicket,
   getTicketAnalytics,
   listTicketEvents,
@@ -138,6 +141,15 @@ export async function handleTicketsApi(request, url, env, authUser) {
       return jsonResponse({ ok: true, ticket });
     } catch (e) {
       const msg = e?.message != null ? String(e.message) : 'update failed';
+      return jsonResponse({ error: msg }, msg === 'ticket_not_found' ? 404 : 500);
+    }
+  }
+  if (idMatch && method === 'DELETE') {
+    try {
+      const out = await deleteTicket(env, idMatch[1]);
+      return jsonResponse(out);
+    } catch (e) {
+      const msg = e?.message != null ? String(e.message) : 'delete failed';
       return jsonResponse({ error: msg }, msg === 'ticket_not_found' ? 404 : 500);
     }
   }

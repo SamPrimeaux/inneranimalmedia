@@ -94,6 +94,63 @@ export async function setTicketStatus(
   return data.ticket;
 }
 
+export async function fetchTicket(id: string): Promise<PlatformTicket> {
+  const res = await fetch(`/api/tickets/${encodeURIComponent(id)}`, {
+    credentials: 'same-origin',
+  });
+  const data = await parseJson<{ ok: boolean; ticket: PlatformTicket }>(res);
+  return data.ticket;
+}
+
+export async function updateTicket(
+  id: string,
+  patch: {
+    title?: string;
+    priority?: string | null;
+    project?: string | null;
+    subsystem?: string | null;
+    tags?: string[];
+    doc_path?: string | null;
+    blocks?: string[];
+    blocked_by?: string[];
+    supersedes?: string | null;
+  },
+): Promise<PlatformTicket> {
+  const res = await fetch(`/api/tickets/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  const data = await parseJson<{ ok: boolean; ticket: PlatformTicket }>(res);
+  return data.ticket;
+}
+
+export async function postTicketEvent(
+  id: string,
+  body: {
+    event_type: 'note' | 'commit_linked' | 'gate_passed' | 'gate_failed';
+    detail?: string | null;
+    commit_sha?: string | null;
+  },
+): Promise<{ ok: boolean; event_id: string; ticket_id: string }> {
+  const res = await fetch(`/api/tickets/${encodeURIComponent(id)}/events`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return parseJson(res);
+}
+
+export async function deleteTicket(id: string): Promise<{ ok: boolean; deleted_id: string }> {
+  const res = await fetch(`/api/tickets/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    credentials: 'same-origin',
+  });
+  return parseJson(res);
+}
+
 export async function fetchTicketEvents(id: string): Promise<TicketEvent[]> {
   const res = await fetch(`/api/tickets/${encodeURIComponent(id)}/events`, {
     credentials: 'same-origin',

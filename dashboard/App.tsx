@@ -5134,6 +5134,7 @@ const App: React.FC = () => {
                       />
                       <Route path="/dashboard/library" element={<Navigate to="/dashboard/artifacts" replace />} />
                       <Route path="/dashboard/artifacts" element={<LibraryPage />} />
+                      <Route path="/dashboard/artifacts/tickets/:ticketId" element={<LibraryPage />} />
                       <Route path="/dashboard/artifacts/tickets" element={<LibraryPage />} />
                       <Route path="/dashboard/artifacts/*" element={<LibraryPage />} />
                       <Route path="/dashboard/projects" element={<ProjectsPage />} />

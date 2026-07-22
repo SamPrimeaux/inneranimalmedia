@@ -461,6 +461,51 @@ export async function addTicketEvent(env, id, body) {
 }
 
 /**
+ * Hard-delete a ticket and its events. Scrubs id from other tickets' blocks/blocked_by.
+ * @param {unknown} env
+ * @param {string} id
+ */
+export async function deleteTicket(env, id) {
+  if (!env?.DB) throw new Error('Database not configured');
+  const tid = String(id || '').trim();
+  if (!tid) throw new Error('ticket_id required');
+  const existing = await getTicket(env, tid);
+  if (!existing) throw new Error('ticket_not_found');
+
+  const like = `%${tid}%`;
+  const { results: linked } = await env.DB.prepare(
+    `SELECT id, blocks, blocked_by FROM agentsam_tickets
+     WHERE id != ? AND (blocks LIKE ? OR blocked_by LIKE ?)`,
+  )
+    .bind(tid, like, like)
+    .all();
+
+  const now = Math.floor(Date.now() / 1000);
+  for (const row of linked || []) {
+    const blocks = parseJsonArray(row.blocks);
+    const blockedBy = parseJsonArray(row.blocked_by);
+    const nextBlocks = blocks.filter((x) => x !== tid);
+    const nextBlockedBy = blockedBy.filter((x) => x !== tid);
+    if (nextBlocks.length === blocks.length && nextBlockedBy.length === blockedBy.length) continue;
+    await env.DB.prepare(
+      `UPDATE agentsam_tickets SET blocks = ?, blocked_by = ?, updated_at = ? WHERE id = ?`,
+    )
+      .bind(JSON.stringify(nextBlocks), JSON.stringify(nextBlockedBy), now, row.id)
+      .run();
+  }
+
+  await env.DB.prepare(`DELETE FROM agentsam_ticket_events WHERE ticket_id = ?`).bind(tid).run();
+  try {
+    await env.DB.prepare(`DELETE FROM agentsam_gate_runs WHERE ticket_id = ?`).bind(tid).run();
+  } catch {
+    /* table may be absent in some envs */
+  }
+  await env.DB.prepare(`DELETE FROM agentsam_tickets WHERE id = ?`).bind(tid).run();
+
+  return { ok: true, deleted_id: tid };
+}
+
+/**
  * Analytics for Tickets UI — throughput, cycle time, status mix, aging.
  * @param {unknown} env
  */
