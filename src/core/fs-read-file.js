@@ -231,23 +231,37 @@ export async function executeFsReadFile(env, params, runContext = {}) {
 
   try {
     const { runTerminalCommand } = await import('./terminal.js');
+    const { pinPtyLaneFromExecResult, ptyExecOptsForFs, getPinnedPtyLane } = await import(
+      './fs-pty-lane-pin.js'
+    );
     for (const attempt of attemptList) {
       command = attempt.command;
       execCwd = attempt.execCwd;
       lane = attempt.lane;
       repoMeta = attempt.repoMeta || {};
       try {
-        const res = await runTerminalCommand(env, request, command, runContext.sessionId ?? null, {
-          execution_mode: 'pty',
-          target_type: 'auto',
-          workspace_id: workspaceId,
-          tenant_id: tenantId,
-          user_id: userId,
-          cwd: execCwd,
-          tool_name: 'fs_read_file',
-        });
+        const res = await runTerminalCommand(
+          env,
+          request,
+          command,
+          runContext.sessionId ?? null,
+          ptyExecOptsForFs(runContext, {
+            workspace_id: workspaceId,
+            tenant_id: tenantId,
+            user_id: userId,
+            cwd: execCwd,
+            tool_name: 'fs_read_file',
+          }),
+        );
         output = String(res?.output || '');
         exitCode = Number(res?.exitCode ?? res?.exit_code ?? 0);
+        pinPtyLaneFromExecResult(runContext, res);
+        const pinned = getPinnedPtyLane(runContext);
+        if (pinned?.connection_id) {
+          repoMeta = { ...repoMeta, connection_id: pinned.connection_id };
+        } else if (res?.targetId) {
+          repoMeta = { ...repoMeta, connection_id: res.targetId };
+        }
       } catch (e) {
         output = String(e?.message || e).slice(0, 500);
         exitCode = 1;

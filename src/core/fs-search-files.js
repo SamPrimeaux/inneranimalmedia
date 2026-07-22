@@ -145,18 +145,28 @@ export async function executeFsSearchFiles(env, params, runContext = {}) {
 
   let output = '';
   let exitCode = 1;
+  let connectionId = null;
   try {
     const { runTerminalCommand } = await import('./terminal.js');
-    const res = await runTerminalCommand(env, request, command, runContext.sessionId ?? null, {
-      execution_mode: 'pty',
-      target_type: 'auto',
-      workspace_id: workspaceId,
-      tenant_id: tenantId,
-      user_id: userId,
-      tool_name: 'fs_search_files',
-    });
+    const { pinPtyLaneFromExecResult, ptyExecOptsForFs, getPinnedPtyLane } = await import(
+      './fs-pty-lane-pin.js'
+    );
+    const res = await runTerminalCommand(
+      env,
+      request,
+      command,
+      runContext.sessionId ?? null,
+      ptyExecOptsForFs(runContext, {
+        workspace_id: workspaceId,
+        tenant_id: tenantId,
+        user_id: userId,
+        tool_name: 'fs_search_files',
+      }),
+    );
     output = String(res?.output || '');
     exitCode = Number(res?.exitCode ?? 0);
+    pinPtyLaneFromExecResult(runContext, res);
+    connectionId = getPinnedPtyLane(runContext)?.connection_id || res?.targetId || null;
   } catch (e) {
     const durationMs = Math.max(0, Date.now() - started);
     const { scheduleToolCallLog } = await import('./agentsam-ops-ledger.js');
@@ -192,6 +202,7 @@ export async function executeFsSearchFiles(env, params, runContext = {}) {
     exit_code: exitCode,
     truncated: output.length > FS_SEARCH_MAX_OUTPUT_BYTES,
     duration_ms: durationMs,
+    connection_id: connectionId,
   };
 
   const { scheduleToolCallLog } = await import('./agentsam-ops-ledger.js');

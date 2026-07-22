@@ -85,19 +85,29 @@ export async function executeFsListDir(env, params, runContext = {}) {
 
   let output = '';
   let exitCode = 1;
+  let connectionId = null;
   try {
     const { runTerminalCommand } = await import('./terminal.js');
-    const res = await runTerminalCommand(env, request, command, runContext.sessionId ?? null, {
-      execution_mode: 'pty',
-      target_type: 'auto',
-      workspace_id: workspaceId,
-      tenant_id: tenantId,
-      user_id: userId,
-      cwd: repo.workspaceRoot,
-      tool_name: 'fs_list_dir',
-    });
+    const { pinPtyLaneFromExecResult, ptyExecOptsForFs, getPinnedPtyLane } = await import(
+      './fs-pty-lane-pin.js'
+    );
+    const res = await runTerminalCommand(
+      env,
+      request,
+      command,
+      runContext.sessionId ?? null,
+      ptyExecOptsForFs(runContext, {
+        workspace_id: workspaceId,
+        tenant_id: tenantId,
+        user_id: userId,
+        cwd: repo.workspaceRoot,
+        tool_name: 'fs_list_dir',
+      }),
+    );
     output = String(res?.output || '');
     exitCode = Number(res?.exitCode ?? 0);
+    pinPtyLaneFromExecResult(runContext, res);
+    connectionId = getPinnedPtyLane(runContext)?.connection_id || res?.targetId || null;
   } catch (e) {
     return { error: String(e?.message || e).slice(0, 500), lane: 'workspace_list', path: relPath };
   }
@@ -118,5 +128,6 @@ export async function executeFsListDir(env, params, runContext = {}) {
     exit_code: exitCode,
     repo_root: repo.repoRoot,
     workspace_root: repo.workspaceRoot,
+    connection_id: connectionId,
   };
 }

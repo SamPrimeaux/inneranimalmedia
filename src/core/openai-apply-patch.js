@@ -285,13 +285,21 @@ async function deleteWorkspaceFileViaPty(env, relPath, runContext) {
 
   try {
     const { runTerminalCommand } = await import('./terminal.js');
-    const res = await runTerminalCommand(env, request, command, runContext.sessionId ?? null, {
-      execution_mode: 'pty',
-      workspace_id: workspaceId,
-      tenant_id: tenantId,
-      user_id: userId,
-      cwd: repo.workspaceRoot,
-    });
+    const { pinPtyLaneFromExecResult, ptyExecOptsForFs } = await import('./fs-pty-lane-pin.js');
+    const res = await runTerminalCommand(
+      env,
+      request,
+      command,
+      runContext.sessionId ?? null,
+      ptyExecOptsForFs(runContext, {
+        workspace_id: workspaceId,
+        tenant_id: tenantId,
+        user_id: userId,
+        cwd: repo.workspaceRoot,
+        tool_name: 'openai_apply_patch_delete',
+      }),
+    );
+    pinPtyLaneFromExecResult(runContext, res);
     const exitCode = Number(res?.exitCode ?? 0);
     if (exitCode !== 0) {
       return {
@@ -299,8 +307,8 @@ async function deleteWorkspaceFileViaPty(env, relPath, runContext) {
         output: String(res?.output || '').slice(0, 400),
       };
     }
-    return { success: true };
+    return { success: true, path: relPath, connection_id: res?.targetId || null };
   } catch (e) {
-    return { error: String(e?.message || e).slice(0, 400) };
+    return { error: String(e?.message || e).slice(0, 500) };
   }
 }

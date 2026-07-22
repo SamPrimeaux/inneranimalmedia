@@ -146,19 +146,29 @@ export async function executeFsWriteFile(env, params, runContext = {}) {
   const started = Date.now();
   let exitCode = 1;
   let output = '';
+  let connectionId = null;
   try {
     const { runTerminalCommand } = await import('./terminal.js');
-    const res = await runTerminalCommand(env, request, command, runContext.sessionId ?? null, {
-      execution_mode: 'pty',
-      target_type: 'auto',
-      workspace_id: workspaceId,
-      tenant_id: tenantId,
-      user_id: userId,
-      cwd: repo.workspaceRoot,
-      tool_name: 'fs_write_file',
-    });
+    const { pinPtyLaneFromExecResult, ptyExecOptsForFs, getPinnedPtyLane } = await import(
+      './fs-pty-lane-pin.js'
+    );
+    const res = await runTerminalCommand(
+      env,
+      request,
+      command,
+      runContext.sessionId ?? null,
+      ptyExecOptsForFs(runContext, {
+        workspace_id: workspaceId,
+        tenant_id: tenantId,
+        user_id: userId,
+        cwd: repo.workspaceRoot,
+        tool_name: 'fs_write_file',
+      }),
+    );
     output = String(res?.output || '');
     exitCode = Number(res?.exitCode ?? 0);
+    pinPtyLaneFromExecResult(runContext, res);
+    connectionId = getPinnedPtyLane(runContext)?.connection_id || res?.targetId || null;
   } catch (e) {
     return {
       error: String(e?.message || e).slice(0, 500),
@@ -179,6 +189,7 @@ export async function executeFsWriteFile(env, params, runContext = {}) {
       exit_code: exitCode,
       output: output.slice(0, 800),
       duration_ms: durationMs,
+      connection_id: connectionId,
       hint: missing
         ? 'Path missing on the selected PTY lane — create parent dirs or use a path that exists on Mac/GCP'
         : 'PTY transport or shell write failed — check localpty → GCP → sandbox lane health',
@@ -195,5 +206,6 @@ export async function executeFsWriteFile(env, params, runContext = {}) {
     duration_ms: durationMs,
     repo_root: repo.repoRoot,
     workspace_root: repo.workspaceRoot,
+    connection_id: connectionId,
   };
 }
