@@ -97,6 +97,36 @@ export async function getWorkspaceR2Bucket(env, workspaceId) {
 }
 
 /**
+ * Keep projects.workspace_id aligned with agentsam_workspace.project_id (SSOT).
+ * Prevents silent drift where UI/list filters use projects.workspace_id while
+ * execution paths prefer agentsam bindings.
+ * @param {any} env
+ * @param {string} projectId
+ * @param {string|null|undefined} executionWorkspaceId
+ * @param {string|null|undefined} currentProjectWorkspaceId
+ */
+export async function healProjectWorkspaceId(env, projectId, executionWorkspaceId, currentProjectWorkspaceId) {
+  const pid = trim(projectId);
+  const execWs = trim(executionWorkspaceId);
+  const cur = trim(currentProjectWorkspaceId);
+  if (!env?.DB || !pid || !execWs || execWs === cur) return { healed: false };
+  try {
+    await env.DB.prepare(
+      `UPDATE projects
+          SET workspace_id = ?, updated_at = datetime('now')
+        WHERE id = ?
+          AND COALESCE(workspace_id, '') != ?`,
+    )
+      .bind(execWs, pid, execWs)
+      .run();
+    return { healed: true, workspace_id: execWs };
+  } catch (e) {
+    console.warn('[agentsam-workspace] healProjectWorkspaceId', e?.message ?? e);
+    return { healed: false, error: String(e?.message || e) };
+  }
+}
+
+/**
  * @param {any} env
  * @param {string} workspaceId
  */

@@ -5,7 +5,7 @@
 import { jsonResponse, syncSessionWorkspaceId } from '../core/auth.js';
 import { withD1Retry } from '../core/d1-retry.js';
 import { scheduleSyncProjectToSupabase } from '../core/agentsam-projects-supabase-sync.js';
-import { resolveWorkspaceBindings, normalizeWorkspaceBindings } from '../core/agentsam-workspace.js';
+import { resolveWorkspaceBindings, normalizeWorkspaceBindings, healProjectWorkspaceId } from '../core/agentsam-workspace.js';
 import { userCanAccessWorkspace } from '../core/workspace-access.js';
 import {
   readProjectDashboardMemory,
@@ -1566,6 +1566,11 @@ async function handleProjectActivate(request, env, authUser, projectId, ctx) {
     (row.workspace_id != null ? String(row.workspace_id).trim() : null) ||
     null;
 
+  if (executionWorkspaceId) {
+    const heal = await healProjectWorkspaceId(env, projectId, executionWorkspaceId, row.workspace_id);
+    if (heal.healed) row.workspace_id = executionWorkspaceId;
+  }
+
   let workspaceActivated = false;
   if (executionWorkspaceId && authUser?.id) {
     const isSuper = Number(authUser.is_superadmin) === 1;
@@ -1627,6 +1632,10 @@ async function handleProjectWorkContext(env, authUser, projectId) {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   }
   const bindings = normalizeWorkspaceBindings(await resolveWorkspaceBindings(env, projectId));
+  if (bindings?.workspaceId) {
+    const heal = await healProjectWorkspaceId(env, projectId, bindings.workspaceId, row.workspace_id);
+    if (heal.healed) row.workspace_id = bindings.workspaceId;
+  }
   return jsonResponse({
     ok: true,
     project: {
@@ -1660,6 +1669,15 @@ async function resolveProjectExecutionWorkspace(env, authUser, projectId) {
     (row.workspace_id != null ? String(row.workspace_id).trim() : null) ||
     null;
   if (!executionWorkspaceId) return { error: 'execution_workspace_required', status: 400, row, bindings };
+  const heal = await healProjectWorkspaceId(
+    env,
+    projectId,
+    executionWorkspaceId,
+    row.workspace_id,
+  );
+  if (heal.healed) {
+    row.workspace_id = executionWorkspaceId;
+  }
   return { row, bindings, executionWorkspaceId };
 }
 
