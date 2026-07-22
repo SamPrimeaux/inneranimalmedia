@@ -27,6 +27,7 @@ import {
   auditToolDecision,
 } from './agent-approval-gate.js';
 import { CODEMODE_TOOL_NAME } from './codemode-constants.js';
+import { assertModeWriteGate, sealWritePolicyForMode, isHardReadonlyMode } from './mode-write-gate.js';
 import { insertAgentRunExecutionStep } from './agent-run-routing.js';
 import {
   evaluateToolCapabilities,
@@ -217,22 +218,6 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
     typeof toolCallOrName === 'string'
       ? String(toolCallOrName || '').trim()
       : String(toolCallOrName?.name || '').trim();
-  if (name === CODEMODE_TOOL_NAME && env?.LOADER) {
-    return {
-      allowed: true,
-      reason: 'allowed',
-      riskLevel: 'low',
-      requiresConfirmation: false,
-      mcpToolId: null,
-      toolKey: CODEMODE_TOOL_NAME,
-      capabilityKey: null,
-      handlerKey: null,
-      routeKey: routeKeyOut(null),
-      serverKey: null,
-      mcpServerId: null,
-      agentsamToolsId: null,
-    };
-  }
   if (!name) {
     return {
       allowed: false,
@@ -241,6 +226,74 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
       requiresConfirmation: false,
       mcpToolId: null,
       toolKey: null,
+      capabilityKey: null,
+      handlerKey: null,
+      routeKey: routeKeyOut(null),
+      serverKey: null,
+      mcpServerId: null,
+      agentsamToolsId: null,
+    };
+  }
+
+  const runtimeProfileEarly =
+    typeof profileOrMode === 'object' && profileOrMode
+      ? profileOrMode
+      : (mcpRuntimeContext.runtimeProfile || mcpRuntimeContext.runtime_profile || null);
+  const modeSlugEarly =
+    typeof profileOrMode === 'string'
+      ? profileOrMode
+      : runtimeProfileEarly?.mode != null
+        ? String(runtimeProfileEarly.mode)
+        : '';
+
+  // Hard Ask/Plan gate before codemode / catalog shortcuts (Cursor: Ask never mutates).
+  const earlyGate = assertModeWriteGate({
+    mode: modeSlugEarly,
+    execution_kind: runtimeProfileEarly?.execution_kind,
+    write_policy: runtimeProfileEarly?.write_policy ?? mcpRuntimeContext.write_policy ?? null,
+    toolName: name,
+  });
+  if (!earlyGate.allowed) {
+    return {
+      allowed: false,
+      reason: earlyGate.reason,
+      riskLevel: 'blocked',
+      requiresConfirmation: false,
+      mcpToolId: null,
+      toolKey: name,
+      capabilityKey: null,
+      handlerKey: null,
+      routeKey: routeKeyOut(null),
+      serverKey: null,
+      mcpServerId: null,
+      agentsamToolsId: null,
+    };
+  }
+
+  if (name === CODEMODE_TOOL_NAME && env?.LOADER) {
+    if (isHardReadonlyMode(modeSlugEarly)) {
+      return {
+        allowed: false,
+        reason: earlyGate.reason || 'blocked by ask/plan write_policy: codemode requires Agent',
+        riskLevel: 'blocked',
+        requiresConfirmation: false,
+        mcpToolId: null,
+        toolKey: CODEMODE_TOOL_NAME,
+        capabilityKey: null,
+        handlerKey: null,
+        routeKey: routeKeyOut(null),
+        serverKey: null,
+        mcpServerId: null,
+        agentsamToolsId: null,
+      };
+    }
+    return {
+      allowed: true,
+      reason: 'allowed',
+      riskLevel: 'low',
+      requiresConfirmation: false,
+      mcpToolId: null,
+      toolKey: CODEMODE_TOOL_NAME,
       capabilityKey: null,
       handlerKey: null,
       routeKey: routeKeyOut(null),
@@ -364,12 +417,14 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
     }
   }
 
-  const writePolicy =
+  const writePolicy = sealWritePolicyForMode(
+    modeSlug || runtimeProfile?.mode,
     mcpRuntimeContext.writePolicy != null
       ? mcpRuntimeContext.writePolicy
       : mcpRuntimeContext.write_policy != null
         ? mcpRuntimeContext.write_policy
-        : runtimeProfile?.write_policy ?? null;
+        : runtimeProfile?.write_policy ?? null,
+  );
 
   // Enforce the compiled RuntimeProfile tool policy first (no guessing, no promotions).
   // Alias-aware: d1_query ≡ agentsam_d1_query (catalog redirects + agentsam_ prefix).
@@ -456,6 +511,32 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
         capabilityDecision.decision === 'deny'
           ? `blocked by capability policy: ${capabilityDecision.reason}`
           : `debug phase gate: capability blocked in ${debugPolicy.phase}`,
+      riskLevel: 'blocked',
+      requiresConfirmation: false,
+      mcpToolId: row?.id ?? null,
+      toolKey: row?.tool_key ?? resolvedToolKey ?? name,
+      capabilityKey: capabilityKeys[0] ?? null,
+      capabilityKeys,
+      capabilityDecision,
+      handlerKey: row?.handler_key ?? null,
+      routeKey: routeKeyOut(row?.route_key),
+      serverKey: row?.server_key ?? null,
+      mcpServerId: row?.mcp_server_id ?? row?.server_id ?? null,
+      agentsamToolsId: row?.id ?? null,
+    };
+  }
+
+  const modeWriteGate = assertModeWriteGate({
+    mode: modeSlug || runtimeProfile?.mode,
+    execution_kind: runtimeProfile?.execution_kind,
+    write_policy: writePolicy,
+    toolName: name,
+    capabilityDecision,
+  });
+  if (!modeWriteGate.allowed) {
+    return {
+      allowed: false,
+      reason: modeWriteGate.reason,
       riskLevel: 'blocked',
       requiresConfirmation: false,
       mcpToolId: row?.id ?? null,

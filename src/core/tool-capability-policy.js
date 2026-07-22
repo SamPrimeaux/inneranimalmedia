@@ -111,6 +111,8 @@ export function evaluateToolCapabilities({
     decision = 'deny';
     reason = 'unclassified_mutation';
   } else if (unclassified) {
+    // Empty capability map: allow only when write_policy still permits mutation OR tool is not mutate-class.
+    // Ask/Plan seal write_policy to all-false — unclassified mutate names are denied in mode-write-gate.
     decision = 'allow';
     reason = 'unclassified_read_compat';
   } else if (keys.some((key) => policy.deny_capabilities.includes(key))) {

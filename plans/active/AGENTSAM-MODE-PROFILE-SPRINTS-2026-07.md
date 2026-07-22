@@ -32,7 +32,7 @@ Already on `main`:
 - Shift+Tab mode cycle
 - SSE `runtime_context` with `profile_id` / `profile_hash`
 
-Gaps: triple POST mode fields; Multitask often = Agent loop; Debug thin; Ask/Plan not dual-pass proven; no `agentsam_mode_profiles` table; runtime-profile unit tests need import fix.
+Gaps: Multitask often = Agent loop; Debug thin; Ask/Plan/Agent **unit** contracts green (S2) — live dual-pass SSE still open; no `agentsam_mode_profiles` table.
 
 ---
 
@@ -42,12 +42,22 @@ Gaps: triple POST mode fields; Multitask often = Agent loop; Debug thin; Ask/Pla
 |--------|------|------|---------|------|
 | **S0** | Doc truth | done | — | `agentsamrefine.md` matches `main` |
 | **S1** | Hygiene | **done 2026-07-22** | — | Single `mode` POST; tests green; dead handler gone; `guard:agent-mode` |
-| **S2** | Mode contracts | 3–5d | S1 + P0 progress | Acceptance #1–#3 dual-pass |
+| **S2** | Mode contracts | **done 2026-07-22 (unit)** | S1 | Acceptance #1–#3 unit proofs; live dual-pass before ticket `shipped` |
 | **S3** | Debug rigor | 2–3d | S2 | Acceptance #4 dual-pass |
 | **S4** | Multitask fan-out | 5–8d | S2 | Acceptance #5 dual-pass |
 | **S5** | Materialize profiles | 2–3d | S2 | Optional; compile script + D1 table |
 
 **Parallel:** P0 spine E2E (vision/thread/tools) — required for “replace Cursor,” independent of S3/S4 polish.
+
+---
+
+## S2 shipped notes (2026-07-22)
+
+- `src/core/mode-write-gate.js` — seal Ask/Plan write_policy; name + capability mutate deny
+- Wired into `compileModeProfile` + `validateToolCall` (before CODEMODE allow)
+- Proofs: `node --test tests/unit/mode-write-contracts.test.mjs` (Acceptance #1–#3)
+
+Live composer Ask/Plan/Agent SSE dual-pass is still required before marking the D1 ticket `shipped`.
 
 ---
 

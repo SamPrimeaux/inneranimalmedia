@@ -20,7 +20,7 @@
 | **2b — Mode controllers** | **Shipped (thin)** | `ask` / `plan` / `agent` / `debug` / `multitask` under `src/core/mode-controllers/` |
 | **3 — Dashboard parity** | **S1 shipped (partial)** | Shift+Tab + single `mode` POST + mode placeholders. Legacy server aliases retained one release |
 | **4 — Multitask fan-out** | **Partial** | Controller exists; RWS fan-out only when `allow_subagent_spawn`; else falls back to Agent-class single loop. No Cursor-grade parallel SSE UX |
-| **5 — Acceptance gates** | **Open** | Five mode E2E tests below not dual-pass recorded |
+| **5 — Acceptance gates** | **S2 unit proofs shipped** | Ask/Plan/Agent (#1–#3) unit contracts green; live dual-pass E2E still open for ticket `shipped` |
 
 **Module map (live):**
 
@@ -42,9 +42,9 @@ POST /api/agent/chat
 | Cursor contract | Agent Sam today | Gap severity | Sprint |
 |-----------------|-----------------|--------------|--------|
 | One mode enum → one profile | **Yes** — `RuntimeProfile` compiled per turn | — | Done |
-| Ask = hard no-writes | Soft: write_policy + regex mutation gate + `validateToolCall` | Medium — need proof + no escape hatches | S2 |
-| Plan = research then approve, no build | `plan-controller` + plan pipeline | Medium — prove no terminal/file writes | S2 |
-| Agent = full write + tool loop | `agent-controller` + shared loop | Low — depends on spine E2E (vision/thread) | P0 + S2 |
+| Ask = hard no-writes | **Hard** — `mode-write-gate` seals write_policy; `validateToolCall` early-denies mutate (+ blocks codemode) | Low — live Ask E2E dual-pass remaining | S2 ✅ |
+| Plan = research then approve, no build | **Hard** — same seal + gate; `execution_kind=plan_pipeline` | Low — live Plan E2E dual-pass remaining | S2 ✅ |
+| Agent = full write + tool loop | `agent-controller` + shared loop; gate allows mutate when write_policy open | Low — depends on spine E2E (vision/thread) | P0 + S2 ✅ |
 | Debug = evidence-first | Thin `debug-controller` (mostly shared loop + prompt) | Medium — force instrument/read-first contract | S3 |
 | Multitask = parallel subagents + merge | Controller + optional RWS; often single loop | High | S4 |
 | Shift+Tab mode cycle | **Yes** in composer | — | Done |
@@ -198,19 +198,22 @@ flowchart LR
 
 ---
 
-### Sprint S2 — Hard mode contracts (3–5 days) — **core Cursor feel**
+### Sprint S2 — Hard mode contracts (3–5 days) — **SHIPPED 2026-07-22 (unit proofs)**
 
 **Outcome:** Ask/Plan cannot mutate; Agent can; progressive discovery respected.
 
 | # | Task | Proof |
 |---|------|-------|
-| S2.1 | Ask E2E: data question → read tools only; `write_policy.* === false` in SSE `runtime_context` | Acceptance #2 |
-| S2.2 | Plan E2E: “plan auth refactor” → plan artifact; zero terminal/file writes | Acceptance #1 |
-| S2.3 | Agent E2E: small edit path; file tools allowed | Acceptance #3 |
-| S2.4 | Ensure `validateToolCall` is sole mutate gate (no controller bypass) | Code review + fail tool attempt in Ask |
-| S2.5 | Align tool menus with progressive discovery plan (no new static Debug=14 kits) | See tool-discovery ticket |
+| S2.1 | Ask: data question → read tools only; `write_policy.* === false` | ✅ unit Acceptance #2 (`mode-write-contracts.test.mjs`) |
+| S2.2 | Plan: work intent → `plan_pipeline`; zero terminal/file writes via gate | ✅ unit Acceptance #1 |
+| S2.3 | Agent: edit path; `can_edit_files`; mutate tools pass gate | ✅ unit Acceptance #3 |
+| S2.4 | `validateToolCall` sole mutate gate (early Ask/Plan + no codemode bypass) | ✅ `mode-write-gate.js` + validator early return |
+| S2.5 | Align tool menus with progressive discovery (no new static kits) | Deferred to tool-discovery ticket (no new menus added) |
 
-**Exit:** Acceptance tests 1–3 dual-pass recorded on D1 ticket.
+**Code:** `src/core/mode-write-gate.js` · seal in `runtime-profile.js` · early gate in `agent-tool-validator.js`
+
+**Exit (code):** Acceptance #1–#3 automated proofs green.  
+**Exit (ticket `shipped`):** still needs **two live E2E passes** recorded on D1 (dual-pass law) — unit ≠ live SSE.
 
 ---
 
@@ -290,8 +293,10 @@ Without P0, mode parity is cosmetics.
 | `src/api/agent-chat-spine.js` | Chat spine | Live |
 | `src/core/mode-controllers/*` | Per-mode entry | Live (thin) |
 | `src/api/agent.js` | Auth / edge / legacy surface | Live (still large) |
-| `dashboard/.../ChatAssistant.tsx` | Composer + Shift+Tab | Partial (triple mode fields) |
-| `tests/unit/runtime-profile.test.mjs` | Compiler tests | Needs fix |
+| `dashboard/.../ChatAssistant.tsx` | Composer + Shift+Tab | S1 done (single `mode`) |
+| `src/core/mode-write-gate.js` | Hard Ask/Plan seal + mutate gate | **S2 live** |
+| `tests/unit/runtime-profile.test.mjs` | Compiler tests | Green |
+| `tests/unit/mode-write-contracts.test.mjs` | Acceptance #1–#3 unit proofs | **S2 live** |
 | `scripts/compile-mode-profiles.js` | S5 | Missing |
 | `migrations/*_agentsam_mode_profiles.sql` | S5 | Missing |
 | `src/core/multitask-orchestrator.js` | Early name; fan-out lives in `rws-spawn-fanout.js` + controller | Partial |
@@ -304,6 +309,6 @@ The May draft said *“shadow compile only; maze owns runtime.”* That is **no 
 
 Today: **mode → live `RuntimeProfile` → controller → shared tool loop**.  
 
-Still missing for Cursor *feel*: **hard Ask/Plan proofs**, **real Multitask parallelism**, **Debug discipline**, **single `mode` wire**, and the **P0 vision/thread** foundation.
+Still missing for Cursor *feel*: **live dual-pass Ask/Plan/Agent SSE**, **real Multitask parallelism**, **Debug discipline**, and the **P0 vision/thread** foundation.
 
-**Next execution order:** S1 hygiene → S2 mode contracts (with P0 spine in parallel) → S3 Debug → S4 Multitask → S5 materialize.
+**Next execution order:** S3 Debug → S4 Multitask → S5 materialize (P0 spine in parallel). Live Ask/Plan/Agent E2E dual-pass when ready to close the S2 ticket.

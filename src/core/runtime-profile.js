@@ -22,6 +22,7 @@ import {
   readonlyRepoAuditPinnedToolNames,
 } from './readonly-repo-audit-tools.js';
 import { RUNTIME_PROFILE_VERSION } from './runtime-profile.types.js';
+import { sealWritePolicyForMode } from './mode-write-gate.js';
 import { messageHasBrowserUrlNavigation } from '../api/agent/classify-intent.js';
 import { IN_APP_MCP_PARITY_TOOL_LIMIT } from './in-app-mcp-oauth-parity.js';
 import {
@@ -1065,10 +1066,10 @@ export async function compileModeProfile(env, input) {
     };
   }
   // D1 write_policy_json overlays when present (SSOT — column must be read)
-  const writePolicy = {
+  const writePolicy = sealWritePolicyForMode(mode, {
     ...baseWrite,
     ...d1WritePolicy,
-  };
+  });
   const executionKind = resolveExecutionKind(mode);
   const modeController = resolveModeController(mode);
 
