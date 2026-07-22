@@ -494,8 +494,14 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     }
   }
 
-  if (activeFileEnvelope && messageReferencesActiveFile(message)) {
-    const activeFileBlock = formatActiveFileForAgent(activeFileEnvelope);
+  if (activeFileEnvelope) {
+    const referencesFile = messageReferencesActiveFile(message);
+    // Always tell the model which buffer is open (cheap, one line) so it never answers
+    // about a stale file. Only inline the full content when the user actually asks
+    // about "this/current/open file" etc — keeps token cost down otherwise.
+    const activeFileBlock = referencesFile
+      ? formatActiveFileForAgent(activeFileEnvelope)
+      : `[Active file envelope — currently open in editor, content not inlined this turn]\nsource: ${activeFileEnvelope.source}\npath: ${activeFileDisplayPath(activeFileEnvelope)}`;
     if (activeFileBlock) {
       contextBlock = contextBlock
         ? `${contextBlock}\n\n## Active editor file\n\n${activeFileBlock}`
@@ -506,6 +512,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           source: activeFileEnvelope.source,
           path: activeFileEnvelope.path,
           chars: activeFileBlock.length,
+          full_content: referencesFile,
         }),
       );
     }
