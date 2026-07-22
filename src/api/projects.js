@@ -1718,12 +1718,18 @@ async function handleProjectReindex(request, env, authUser, projectId) {
       const queued = await queueCodeIndexJobAfterDeploy(env, {
         workspaceId,
         triggeredBy: 'project_dashboard_reindex',
+        repoFullName: resolved.bindings?.githubRepo ?? null,
+        userId: authUser?.id != null ? String(authUser.id) : null,
       });
       let run = null;
       if (queued.ok || queued.skipped) {
         try {
           const { runPendingCodeIndexJob } = await import('../core/code-indexer.js');
-          run = await runPendingCodeIndexJob(env, { cpuBudgetMs: 15_000 });
+          run = await runPendingCodeIndexJob(env, {
+            cpuBudgetMs: 15_000,
+            jobId: queued.job_id || null,
+            workspaceId,
+          });
         } catch (e) {
           run = { ok: false, error: String(e?.message || e) };
         }

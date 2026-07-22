@@ -1,5 +1,6 @@
 /**
- * POST /api/internal/code-index/run — superadmin or internal secret; runs oldest idle code index job.
+ * POST /api/internal/code-index/run — superadmin or internal secret; runs oldest idle chunk job.
+ * Body (optional): { workspace_id, job_id }
  */
 import { jsonResponse, verifyInternalApiSecret, getAuthUser, authUserIsSuperadmin } from '../core/auth.js';
 import { runPendingCodeIndexJob } from '../core/code-indexer.js';
@@ -26,8 +27,21 @@ export async function handleCodeIndexRun(request, env, ctx) {
     return jsonResponse({ ok: false, error: 'DB not configured' }, 503);
   }
 
+  const body = await request.json().catch(() => ({}));
+  const workspaceId =
+    typeof body?.workspace_id === 'string' && body.workspace_id.trim()
+      ? body.workspace_id.trim()
+      : null;
+  const jobId =
+    typeof body?.job_id === 'string' && body.job_id.trim() ? body.job_id.trim() : null;
+
   const startedAt = Date.now();
-  const work = runPendingCodeIndexJob(env, { startedAt, cpuBudgetMs: 22_000 });
+  const work = runPendingCodeIndexJob(env, {
+    startedAt,
+    cpuBudgetMs: 22_000,
+    workspaceId,
+    jobId,
+  });
 
   if (ctx?.waitUntil) {
     ctx.waitUntil(
@@ -43,6 +57,8 @@ export async function handleCodeIndexRun(request, env, ctx) {
       ok: true,
       mode: kickoff?.mode === 'background' ? 'background' : 'inline',
       started_at: startedAt,
+      workspace_id: workspaceId,
+      job_id: jobId,
       ...(kickoff && typeof kickoff === 'object' ? kickoff : {}),
       hint:
         kickoff?.mode === 'background'
@@ -56,6 +72,7 @@ export async function handleCodeIndexRun(request, env, ctx) {
     ok: result.ok !== false,
     mode: 'inline',
     duration_ms: Date.now() - startedAt,
+    workspace_id: workspaceId,
     ...result,
   });
 }

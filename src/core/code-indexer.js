@@ -118,10 +118,34 @@ async function loadJobColumns(env) {
  * @param {Record<string, unknown>} job
  */
 async function resolveGithubTokenForJob(env, job) {
-  const repo =
+  let repo =
     (job.repo_full_name != null ? String(job.repo_full_name).trim() : '') ||
     (job.source_path != null ? String(job.source_path).trim() : '') ||
-    'SamPrimeaux/inneranimalmedia';
+    '';
+
+  // Never default to platform repo for a customer workspace job.
+  if (!repo && env?.DB && job.workspace_id) {
+    const ws = String(job.workspace_id).trim();
+    const aw = await env.DB.prepare(
+      `SELECT github_repo FROM agentsam_workspace WHERE id = ? AND status = 'active' LIMIT 1`,
+    )
+      .bind(ws)
+      .first()
+      .catch(() => null);
+    if (aw?.github_repo) repo = String(aw.github_repo).trim();
+    if (!repo) {
+      const w = await env.DB.prepare(`SELECT github_repo FROM workspaces WHERE id = ? LIMIT 1`)
+        .bind(ws)
+        .first()
+        .catch(() => null);
+      if (w?.github_repo) repo = String(w.github_repo).trim();
+    }
+  }
+
+  if (!repo) {
+    throw new Error('repo_full_name_required');
+  }
+
   const owner = repo.includes('/') ? repo.split('/')[0] : 'SamPrimeaux';
 
   try {
@@ -404,7 +428,11 @@ export async function runCodeIndexJob(env, jobId, opts = {}) {
           .first()
       : await env.DB.prepare(
           `SELECT ${selectCols.join(', ')} FROM agentsam_code_index_job
-           WHERE status = 'idle' ORDER BY rowid LIMIT 1`,
+           WHERE status = 'idle'
+             AND id NOT LIKE 'cidx_%'
+             AND COALESCE(source_type, '') NOT IN ('ast_rag', 'ast_symbol_reembed')
+           ORDER BY rowid
+           LIMIT 1`,
         ).first();
 
   if (!job?.id) return { ok: true, skipped: true, reason: 'no_idle_job' };
@@ -668,9 +696,9 @@ export async function runCodeIndexJob(env, jobId, opts = {}) {
 }
 
 /**
- * Pick oldest idle job and run (cron / internal trigger).
+ * Pick oldest idle chunk job and run (cron / internal trigger).
  * @param {any} env
- * @param {{ cpuBudgetMs?: number }} [opts]
+ * @param {{ cpuBudgetMs?: number, jobId?: string|null, workspaceId?: string|null }} [opts]
  */
 export async function runPendingCodeIndexJob(env, opts = {}) {
   if (env?.DB) {
@@ -678,10 +706,30 @@ export async function runPendingCodeIndexJob(env, opts = {}) {
       `UPDATE agentsam_code_index_job
           SET status = 'idle', triggered_by = 'stale_recovery'
         WHERE status = 'running'
+          AND id NOT LIKE 'cidx_%'
+          AND COALESCE(source_type, '') NOT IN ('ast_rag', 'ast_symbol_reembed')
           AND updated_at < datetime('now', '-${STALE_RUNNING_MINUTES} minutes')`,
     )
       .run()
       .catch(() => null);
   }
-  return runCodeIndexJob(env, null, opts);
+  let jobId = opts.jobId != null ? String(opts.jobId).trim() : null;
+  if (!jobId && opts.workspaceId && env?.DB) {
+    const ws = String(opts.workspaceId).trim();
+    const row = await env.DB.prepare(
+      `SELECT id FROM agentsam_code_index_job
+        WHERE status = 'idle'
+          AND COALESCE(workspace_id, '') = ?
+          AND id NOT LIKE 'cidx_%'
+          AND COALESCE(source_type, '') NOT IN ('ast_rag', 'ast_symbol_reembed')
+        ORDER BY rowid
+        LIMIT 1`,
+    )
+      .bind(ws)
+      .first()
+      .catch(() => null);
+    jobId = row?.id != null ? String(row.id) : null;
+    if (!jobId) return { ok: true, skipped: true, reason: 'no_idle_job', workspace_id: ws };
+  }
+  return runCodeIndexJob(env, jobId, opts);
 }

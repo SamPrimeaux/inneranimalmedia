@@ -21,7 +21,7 @@ import { fetchConnectTiles, type ConnectTile } from '../../../api/connectTiles';
 import { IntegrationIconTile } from '../components/IntegrationIconTile';
 import { CfStackWizard, CfStackSummary, type CfStackConfig } from './CfStackWizard';
 import { WorkspaceActiveSwitcher } from '../components/WorkspaceActiveSwitcher';
-import { initialsFromDisplayName, relativeTime, formatUsdMaybe, formatEmbedSpend30d } from '../settingsUi';
+import { initialsFromDisplayName, relativeTime, formatEmbedSpend30d } from '../settingsUi';
 
 export type WorkspaceSectionProps = { data: SettingsPanelModel; workspaceId?: string | null };
 
