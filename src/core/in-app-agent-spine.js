@@ -16,6 +16,7 @@ import { mapCatalogRowsToMcpParityAgentTools } from './in-app-mcp-oauth-parity.j
 
 /** Curated in-app bundle for read-only / ask lane. Agent/debug use OAuth parity catalog. */
 export const IN_APP_AGENT_SPINE_TOOL_KEYS = Object.freeze([
+  'agentsam_repo_context',
   'agentsam_github_tree',
   'agentsam_github_read',
   'agentsam_github_read_many',

@@ -3226,6 +3226,13 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         break;
       }
 
+      // Phase 5 composites: run locally on main worker (never proxy through MCP host).
+      if (toolKey === 'agentsam_repo_context' || op === 'repo_context') {
+        const { executeAgentsamRepoContext } = await import('./agentsam-repo-context.js');
+        result = await executeAgentsamRepoContext(env, params, runContext);
+        break;
+      }
+
       const mcpUrl = String(row.mcp_service_url || config.mcp_service_url || '').trim();
       if (mcpUrl) {
         const syntheticRow = {
