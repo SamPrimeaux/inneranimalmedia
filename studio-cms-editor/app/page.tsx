@@ -399,6 +399,11 @@ export default function CmsEditor({ projectSlug = "inneranimalmedia", initialPag
 
   return <main className="cms-shell">
     <header className="topbar">
+      <button
+        className="button ghost hub-exit"
+        onClick={() => window.parent.postMessage({ type: "iam-studio-cms-navigate", path: "/dashboard/cms" }, window.location.origin)}
+        title="Back to CMS overview"
+      ><Icon name="collapse" size={14}/> Overview</button>
       <div className="site-trigger-wrap"><button className="site-trigger" onClick={() => setSiteSwitcher(v => !v)}><span className="site-avatar" style={{background:site.color}}>{site.initials}</span><span><b>{site.name}</b><small>{site.domain}</small></span><Icon name="down" size={13}/></button>{siteSwitcher && <SiteSwitcher sites={sites} active={site.id} choose={chooseSite} close={() => setSiteSwitcher(false)} newSite={() => { setSiteSwitcher(false); toast("New site setup opened", "info"); }}/>}</div>
       <div className="breadcrumb"><span>{site.name}</span><Icon name="chevron" size={11}/><b>{page.title}</b>{selected && <><Icon name="chevron" size={11}/><span>{selected.name}</span></>}</div>
       <ViewportSwitcher viewport={viewport} setViewport={setViewport}/>
