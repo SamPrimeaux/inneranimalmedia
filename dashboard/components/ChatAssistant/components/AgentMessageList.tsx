@@ -309,13 +309,18 @@ function renderMessageContent(
         </div>,
       );
     } else {
+      // Short non-shell blocks: Monaco syntax preview for all code, even 1-5 line snippets.
       parts.push(
-        <pre
+        <AgentCodeFencePreview
           key={`code-${match.index}`}
-          className="my-2 p-3 bg-[var(--scene-bg)] rounded-lg border border-[var(--dashboard-border)] overflow-x-auto max-w-full min-w-0 text-[0.75rem] font-mono whitespace-pre text-[var(--solar-cyan)]"
-        >
-          <code>{code}</code>
-        </pre>,
+          lang={lang}
+          code={code}
+          fileBase={`agent_output_${msgIndex}_${codeCount}`}
+          fileExt={ext}
+          onOpenMonaco={onOpenMonaco}
+          collapseLines={30}
+          maxPreviewHeightPx={180}
+        />,
       );
     }
 

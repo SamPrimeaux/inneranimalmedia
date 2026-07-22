@@ -1,22 +1,27 @@
 /**
- * In-chat “mini workstation” for fenced SQL / diff / code: scrollable preview + Copy + Open in Monaco.
- * Shell blocks stay in AgentMessageList (Run in Terminal + Monaco).
+ * In-chat "mini workstation" for fenced code blocks — Monaco syntax preview + Copy + Open in Monaco.
+ * Shell blocks stay in AgentMessageList (Run in Terminal path).
  *
- * @license
- * SPDX-License-Identifier: Apache-2.0
+ * @license SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
+import { Editor } from '@monaco-editor/react';
 import { Copy, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
 import type { ActiveFile } from '../../../types';
+import {
+  applyMonacoTheme,
+  buildStandaloneEditorOptions,
+  resolveMonacoThemeId,
+} from '../../../src/lib/monacoThemes';
 
 const FENCE_LABEL: Record<string, string> = {
-  sql: 'SQL query',
-  postgres: 'SQL query',
-  postgresql: 'SQL query',
-  mysql: 'SQL query',
-  sqlite: 'SQL query',
-  plpgsql: 'SQL query',
+  sql: 'SQL',
+  postgres: 'SQL',
+  postgresql: 'SQL',
+  mysql: 'SQL',
+  sqlite: 'SQL',
+  plpgsql: 'PL/pgSQL',
   graphql: 'GraphQL',
   diff: 'Diff',
   patch: 'Patch',
@@ -25,7 +30,6 @@ const FENCE_LABEL: Record<string, string> = {
   yml: 'YAML',
   md: 'Markdown',
   markdown: 'Markdown',
-  mermaid: 'Mermaid',
   html: 'HTML',
   css: 'CSS',
   ts: 'TypeScript',
@@ -36,12 +40,60 @@ const FENCE_LABEL: Record<string, string> = {
   rs: 'Rust',
   go: 'Go',
   toml: 'TOML',
+  sh: 'Shell',
+  bash: 'Shell',
+  zsh: 'Shell',
+  shell: 'Shell',
+  text: 'Text',
+  txt: 'Text',
+};
+
+// Monaco language IDs — differ from file extensions in some cases
+const MONACO_LANG: Record<string, string> = {
+  sql: 'sql',
+  postgres: 'sql',
+  postgresql: 'sql',
+  mysql: 'sql',
+  sqlite: 'sql',
+  plpgsql: 'sql',
+  graphql: 'graphql',
+  diff: 'diff',
+  patch: 'diff',
+  json: 'json',
+  yaml: 'yaml',
+  yml: 'yaml',
+  md: 'markdown',
+  markdown: 'markdown',
+  html: 'html',
+  css: 'css',
+  ts: 'typescript',
+  tsx: 'typescript',
+  js: 'javascript',
+  jsx: 'javascript',
+  py: 'python',
+  rs: 'rust',
+  go: 'go',
+  toml: 'toml',
+  sh: 'shell',
+  bash: 'shell',
+  zsh: 'shell',
+  shell: 'shell',
 };
 
 function labelForLang(lang: string) {
   const k = String(lang || 'text').toLowerCase().trim();
-  return FENCE_LABEL[k] || (k ? `${k}` : 'Code');
+  return FENCE_LABEL[k] || (k ? k.toUpperCase() : 'CODE');
 }
+
+function monacoLangForFence(lang: string): string {
+  const k = String(lang || '').toLowerCase().trim();
+  return MONACO_LANG[k] || k || 'plaintext';
+}
+
+const LINE_H = 20; // px per line at fontSize 12 / lineHeight 20
+const MAX_H = 320;
+const MIN_H = 72;
+const DEFAULT_COLLAPSE_LINES = 18;
 
 export type AgentCodeFencePreviewProps = {
   lang: string;
@@ -50,9 +102,9 @@ export type AgentCodeFencePreviewProps = {
   fileBase: string;
   fileExt: string;
   onOpenMonaco?: (file: Pick<ActiveFile, 'name' | 'content'> & Partial<ActiveFile>) => void;
-  /** Lines before collapse toggle (still full content in Monaco) */
+  /** Lines before collapse toggle (Monaco always gets full content) */
   collapseLines?: number;
-  /** Max preview height */
+  /** Max Monaco preview height in px */
   maxPreviewHeightPx?: number;
 };
 
@@ -62,36 +114,47 @@ export function AgentCodeFencePreview({
   fileBase,
   fileExt,
   onOpenMonaco,
-  collapseLines = 14,
-  maxPreviewHeightPx = 280,
+  collapseLines = DEFAULT_COLLAPSE_LINES,
+  maxPreviewHeightPx = MAX_H,
 }: AgentCodeFencePreviewProps) {
   const [expanded, setExpanded] = useState(false);
+  const [themeId, setThemeId] = useState(resolveMonacoThemeId);
   const lines = code.split('\n');
   const long = lines.length > collapseLines;
-  const shown = !expanded && long ? lines.slice(0, collapseLines).join('\n') + '\n…' : code;
+
+  useEffect(() => {
+    const sync = () => setThemeId(resolveMonacoThemeId());
+    window.addEventListener('iam:cms-theme-applied', sync);
+    return () => window.removeEventListener('iam:cms-theme-applied', sync);
+  }, []);
+
+  const monacoLang = monacoLangForFence(lang);
+  const visibleLines = !expanded && long ? collapseLines : lines.length;
+  const editorH = Math.max(MIN_H, Math.min(maxPreviewHeightPx, visibleLines * LINE_H + 16));
+  const displayValue = !expanded && long ? lines.slice(0, collapseLines).join('\n') : code;
 
   const copy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(code);
-    } catch {
-      /* ignore */
-    }
+    try { await navigator.clipboard.writeText(code); } catch { /* ignore */ }
   }, [code]);
 
   const openMonaco = useCallback(() => {
-    const name = `${fileBase}.${fileExt}`.replace(/[^a-zA-Z0-9._-]+/g, '_');
+    // Use lang-derived extension so Monaco tab opens with correct tokenization — not ".text"
+    const ext = fileExt || lang || 'txt';
+    const name = `${fileBase}.${ext}`.replace(/[^a-zA-Z0-9._-]+/g, '_');
     onOpenMonaco?.({ name, content: code });
-  }, [code, fileBase, fileExt, onOpenMonaco]);
+  }, [code, fileBase, fileExt, lang, onOpenMonaco]);
 
   return (
     <div className="my-3 rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] overflow-hidden max-w-full min-w-0 shadow-inner">
+
+      {/* ── Header ── */}
       <div className="flex items-center justify-between gap-2 px-3 py-2 bg-[var(--dashboard-panel)] border-b border-[var(--dashboard-border)]">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[0.65rem] font-mono font-bold tracking-wide text-[var(--text-heading)] truncate">
-            &lt; &gt; {labelForLang(lang).toUpperCase()}
+          <span className="text-[0.6875rem] font-mono font-semibold tracking-wide text-[var(--text-heading)] truncate">
+            {labelForLang(lang)}
           </span>
-          <span className="text-[0.6rem] text-[var(--dashboard-muted)] shrink-0">
-            {lines.length} lines
+          <span className="text-[0.625rem] text-[var(--dashboard-muted)] shrink-0 tabular-nums">
+            {lines.length} {lines.length === 1 ? 'line' : 'lines'}
           </span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -101,7 +164,7 @@ export function AgentCodeFencePreview({
             onClick={() => void copy()}
             className="p-1.5 rounded-md border border-transparent text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--dashboard-border)] hover:bg-[var(--scene-bg)] transition-colors"
           >
-            <Copy size={15} aria-hidden />
+            <Copy size={14} aria-hidden />
           </button>
           <button
             type="button"
@@ -110,33 +173,59 @@ export function AgentCodeFencePreview({
             disabled={!onOpenMonaco}
             className="p-1.5 rounded-md border border-transparent text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--dashboard-border)] hover:bg-[var(--scene-bg)] transition-colors disabled:opacity-40"
           >
-            <ExternalLink size={15} aria-hidden />
+            <ExternalLink size={14} aria-hidden />
           </button>
         </div>
       </div>
-      <pre
-        className="m-0 px-3 py-2.5 text-[0.6875rem] font-mono leading-relaxed text-[var(--solar-cyan)] bg-[var(--bg-code-pre)] overflow-x-auto whitespace-pre border-b border-[var(--dashboard-border)]/60 max-w-full min-w-0"
-        style={{ maxHeight: expanded ? maxPreviewHeightPx : Math.min(maxPreviewHeightPx, 220) }}
-      >
-        {shown}
-      </pre>
+
+      {/* ── Monaco syntax preview — read-only ── */}
+      <div style={{ height: editorH }} className="w-full">
+        <Editor
+          height="100%"
+          language={monacoLang}
+          theme={themeId}
+          value={displayValue}
+          beforeMount={(m) => { applyMonacoTheme(m); }}
+          options={{
+            ...buildStandaloneEditorOptions(false, true),
+            readOnly: true,
+            lineNumbers: 'on',
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            folding: false,
+            fontSize: 12,
+            lineHeight: LINE_H,
+            padding: { top: 8, bottom: 8 },
+            scrollbar: {
+              vertical: 'auto',
+              horizontal: 'auto',
+              verticalScrollbarSize: 6,
+              horizontalScrollbarSize: 6,
+            },
+            overviewRulerLanes: 0,
+            renderLineHighlight: 'none',
+            contextmenu: false,
+            wordWrap: 'off',
+            guides: { indentation: false, bracketPairs: false },
+          }}
+        />
+      </div>
+
+      {/* ── Collapse toggle ── */}
       {long ? (
         <button
           type="button"
           onClick={() => setExpanded((e) => !e)}
-          className="w-full flex items-center justify-center gap-1 py-1.5 text-[0.625rem] font-medium text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:bg-[var(--solar-cyan)]/5 transition-colors"
+          className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[0.625rem] font-medium text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:bg-[var(--solar-cyan)]/5 border-t border-[var(--dashboard-border)]/60 transition-colors"
         >
           {expanded ? (
-            <>
-              <ChevronUp size={14} /> Show less
-            </>
+            <><ChevronUp size={13} aria-hidden /> Collapse</>
           ) : (
-            <>
-              <ChevronDown size={14} /> Show full preview
-            </>
+            <><ChevronDown size={13} aria-hidden /> Show all {lines.length} lines</>
           )}
         </button>
       ) : null}
+
     </div>
   );
 }
