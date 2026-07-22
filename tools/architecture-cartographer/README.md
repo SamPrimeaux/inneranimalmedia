@@ -132,7 +132,7 @@ Prefer evolving **this** package over adding more ad-hoc `scripts/audit_*.py` fo
 |-------|------|--------|-----|
 | **A. Tooling (git)** | Scripts, README, prompts | `tools/architecture-cartographer/` | Versioned, shareable |
 | **B. Working cache (local, gitignored)** | Full JSON + latest md | `tools/architecture-cartographer/architecture-map/` | Fast day-to-day; regenerable |
-| **C. Durable snapshots (proposed)** | Timestamped JSON + executive-summary.md | R2 e.g. `ops/architecture-map/{label}/{stamp}/` | Survives laptop wipe; Agent Sam / MCP can fetch |
+| **C. Durable snapshots** | Timestamped JSON + reports | R2 `inneranimalmedia-autorag` → `inneranimalmedia/architecture-map/{label}/{stamp}/` (+ `…/latest/`) | Survives laptop wipe; matches existing autorag tree (no top-level `ops/`) |
 | **D. Human digest (optional, curated)** | 1–2 short md after a good run | `docs/ops/architecture-inventory/` | Only after you validate quality — not auto-commit every scan |
 
 Recommendation while validating: keep **A + B**, re-run freely. Once a run looks useful, promote that stamp to **C** (R2). Promote a trimmed digest to **D** only when you’re happy with the signal — don’t fill git with 50MB dumps.
