@@ -17,8 +17,8 @@ SSOT for the OpenAI Agent Sam capability fleet. Cursor plan mirror: `.cursor/pla
 ## Phase order (locked)
 
 1. **Responses WebSocket + DO holder** — shipped  
-2. Realtime voice  
-3a. apply_patch (**`tkt_oai_apply_patch` — shipped dual-pass**) / hosted shell (**`tkt_oai_hosted_shell` — active**)  
+2. Realtime voice — **`tkt_oai_realtime_secret`** then **`tkt_oai_realtime_voice`** (mic toggle in existing chat composer — no separate Voice page; Meet stays RealtimeKit)  
+3a. apply_patch (**shipped**) / hosted shell (**shipped**)  
 3b. Programmatic Tool Calling (**shipped**)  
 4. Multi-agent + compaction  
 5. Background / ops

@@ -72,6 +72,7 @@ import { handleGithubWebhook } from './api/webhooks/github.js';
 import { handleAnthropicWebhook } from './api/webhooks/anthropic.js';
 import { handleCursorWebhook } from './api/webhooks/cursor.js';
 import { handleOpenAiWebhook } from './api/webhooks/openai.js';
+import { handleOpenAiRealtimeClientSecret } from './api/openai-realtime.js';
 import { handleInternalWebhook } from './api/webhooks/internal.js';
 import { handleCloudflareWebhook } from './api/webhooks/cloudflare.js';
 import { handleRealtimeKitWebhook } from './api/webhooks/realtimekit.js';
@@ -301,6 +302,17 @@ export default {
 
       if (pathLower === '/api/webhooks/openai' || pathLower === '/api/hooks/openai') {
         return handleOpenAiWebhook(request, env, ctx);
+      }
+
+      // Agent Sam Voice lane — ephemeral WebRTC client secret.
+      // Meet stays RealtimeKit. See tkt_oai_realtime_secret + fleet plan Phase 2.
+      if (pathLower === '/api/openai/realtime/client-secret' && methodUpper === 'POST') {
+        const authCtx = await resolveRequestContext(request, env, { required: true }).catch(() => null);
+        if (!authCtx?.userId) return jsonResponse({ error: 'Unauthorized', code: 'auth_required' }, 401);
+        return handleOpenAiRealtimeClientSecret(request, env, ctx, {
+          userId: authCtx.userId,
+          tenantId: authCtx.tenantId ?? null,
+        });
       }
 
       if (pathLower === '/api/webhooks/internal' && methodUpper === 'POST') {
