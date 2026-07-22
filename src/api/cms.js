@@ -2417,7 +2417,7 @@ export async function handleCmsApi(request, url, env, ctx) {
       }));
       const activeThemeRow = activeThemeResolved?.row;
       const activeThemeFromList = themes.find((t) => t.is_active) || themes[0] || null;
-      const active_theme = activeThemeRow
+      let active_theme = activeThemeRow
         ? {
             id: activeThemeRow.id,
             name: activeThemeRow.name,
@@ -2439,6 +2439,26 @@ export async function handleCmsApi(request, url, env, ctx) {
               : {},
           }
         : activeThemeFromList;
+
+      const themeOverrideRow = await env.DB.prepare(
+        `SELECT vars_json FROM cms_site_theme_overrides
+         WHERE tenant_id = ? AND workspace_id = ? AND project_slug = ? LIMIT 1`,
+      )
+        .bind(tenantId, workspaceId, projectSlug)
+        .first()
+        .catch(() => null);
+      if (themeOverrideRow?.vars_json) {
+        try {
+          const overrides = JSON.parse(themeOverrideRow.vars_json);
+          if (overrides && typeof overrides === 'object' && !Array.isArray(overrides)) {
+            active_theme = {
+              ...(active_theme || {}),
+              css_vars: { ...(active_theme?.css_vars || {}), ...overrides },
+              site_overrides: overrides,
+            };
+          }
+        } catch (_) {}
+      }
 
       const sectionsByPage = {};
       for (const s of sections) {
@@ -3307,6 +3327,48 @@ export async function handleCmsApi(request, url, env, ctx) {
         .bind(workspaceId)
         .all();
       return jsonResponse({ themes: results || [] });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/cms/theme-vars' && method === 'PATCH') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON' }, 400);
+    }
+    const projectSlug = String(body.project_slug || body.site || '').trim();
+    const vars = body.vars;
+    if (!projectSlug) return jsonResponse({ error: 'project_slug required' }, 400);
+    if (!cmsScope.allowedSlugs.has(projectSlug)) {
+      return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: projectSlug }, 403);
+    }
+    if (!vars || typeof vars !== 'object' || Array.isArray(vars)) {
+      return jsonResponse({ error: 'vars object required' }, 400);
+    }
+    const normalized = {};
+    for (const [key, value] of Object.entries(vars)) {
+      if (!/^--[a-z0-9][a-z0-9-]{0,79}$/i.test(key)) continue;
+      if (typeof value !== 'string' && typeof value !== 'number') continue;
+      normalized[key] = String(value).slice(0, 500);
+    }
+    if (!Object.keys(normalized).length) return jsonResponse({ error: 'no valid CSS variables' }, 400);
+    try {
+      await env.DB.prepare(
+        `INSERT INTO cms_site_theme_overrides
+           (tenant_id, workspace_id, project_slug, vars_json, updated_by, updated_at)
+         VALUES (?, ?, ?, ?, ?, unixepoch())
+         ON CONFLICT(tenant_id, workspace_id, project_slug) DO UPDATE SET
+           vars_json = excluded.vars_json,
+           updated_by = excluded.updated_by,
+           updated_at = excluded.updated_at`,
+      )
+        .bind(tenantId, workspaceId, projectSlug, JSON.stringify(normalized), authUser.id)
+        .run();
+      invalidateCmsBootstrap(env, ctx, workspaceId, projectSlug);
+      return jsonResponse({ success: true, project_slug: projectSlug, vars: normalized });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }

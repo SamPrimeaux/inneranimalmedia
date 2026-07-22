@@ -6,9 +6,9 @@ import { CmsHubPage } from './CmsHubPage';
 import { CmsShellLayout, type CmsShellNav } from './CmsShellLayout';
 import { SiteDeployWizard } from './SiteDeployWizard';
 import { CmsSiteLauncherGrid } from './CmsSiteLauncherGrid';
-import { TemplateLibraryStudio } from '../../../src/dashboard/cms/TemplateLibraryStudio';
 import { useWorkspace } from '../../src/context/WorkspaceContext';
 import { ThemeStudioWorkbench } from './ThemeStudioWorkbench';
+import { StudioCmsHost, type StudioCmsPanel } from './studio/StudioCmsHost';
 import './cmsShell.css';
 
 type CmsPageProps = {
@@ -173,10 +173,22 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
             ? 'imports'
             : 'pages';
 
-  const isTemplatesShellRoute = !isHubView && parsed.panel === 'templates' && Boolean(shellSiteSlug);
+  const nativeStudioPanel: StudioCmsPanel | null =
+    parsed.panel === 'pages'
+      ? 'pages'
+      : parsed.panel === 'online-store'
+        ? 'sections'
+        : parsed.panel === 'theme-editor'
+          ? 'theme'
+          : parsed.panel === 'templates'
+            ? 'templates'
+            : parsed.panel === 'imports'
+              ? 'imports'
+              : null;
+  const isNativeStudioRoute = !isHubView && Boolean(nativeStudioPanel) && Boolean(studioProjectSlug);
   const isHubShellRoute = isHubView && Boolean(hubSiteSlug);
   const isStudioShellRoute =
-    !isHubView && !isTemplatesShellRoute && isStudioEditorRoute && Boolean(studioProjectSlug);
+    !isHubView && !isNativeStudioRoute && isStudioEditorRoute && Boolean(studioProjectSlug);
 
   return (
     <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden bg-[#F9F7F2] iam-agentsam-cms-host h-full">
@@ -259,23 +271,20 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           onOpenDeployWizard={() => setWizardOpen(true)}
         />
       ) : null}
-      {!needsSitePick && isTemplatesShellRoute ? (
-        <CmsShellLayout
-          siteSlug={shellSiteSlug}
-          site={shellSite}
+      {!needsSitePick && isNativeStudioRoute && studioProjectSlug && nativeStudioPanel ? (
+        <StudioCmsHost
+          projectSlug={studioProjectSlug}
+          pageId={parsed.pageId}
+          initialPanel={nativeStudioPanel}
+          workspaceId={activeWorkspaceId || context?.workspace_id || ''}
           sites={sitesList}
-          context={context}
-          activeNav="templates"
-          editorMode
-          onSelectSite={handleSelectSite}
-          onOpenDeployWizard={() => setWizardOpen(true)}
-        >
-          <TemplateLibraryStudio
-            projectSlug={shellSiteSlug}
-            addToPageId={parsed.pageId}
-            onNavigatePath={cmsNavigatePath}
-          />
-        </CmsShellLayout>
+          onSiteChange={(slug) => {
+            void handleSelectSite(
+              slug,
+              buildCmsPath({ panel: parsed.panel, siteSlug: slug }),
+            );
+          }}
+        />
       ) : null}
       {!needsSitePick && isStudioShellRoute && studioProjectSlug ? (
         <CmsShellLayout
