@@ -106,6 +106,10 @@ export type AgentCodeFencePreviewProps = {
   collapseLines?: number;
   /** Max Monaco preview height in px */
   maxPreviewHeightPx?: number;
+  /** Extra classes on the outer shell (e.g. tool-trace compact) */
+  className?: string;
+  /** Tighter margins for nested panels (tool REQUEST/OUTPUT) */
+  compact?: boolean;
 };
 
 export function AgentCodeFencePreview({
@@ -116,6 +120,8 @@ export function AgentCodeFencePreview({
   onOpenMonaco,
   collapseLines = DEFAULT_COLLAPSE_LINES,
   maxPreviewHeightPx = MAX_H,
+  className = '',
+  compact = false,
 }: AgentCodeFencePreviewProps) {
   const [expanded, setExpanded] = useState(false);
   const [themeId, setThemeId] = useState(resolveMonacoThemeId);
@@ -144,11 +150,19 @@ export function AgentCodeFencePreview({
     onOpenMonaco?.({ name, content: code });
   }, [code, fileBase, fileExt, lang, onOpenMonaco]);
 
+  const shellClass = [
+    compact ? 'my-1' : 'my-3',
+    'rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] overflow-hidden max-w-full min-w-0 shadow-inner',
+    className,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <div className="my-3 rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] overflow-hidden max-w-full min-w-0 shadow-inner">
+    <div className={shellClass}>
 
       {/* ── Header ── */}
-      <div className="flex items-center justify-between gap-2 px-3 py-2 bg-[var(--dashboard-panel)] border-b border-[var(--dashboard-border)]">
+      <div className={`flex items-center justify-between gap-2 ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2'} bg-[var(--dashboard-panel)] border-b border-[var(--dashboard-border)]`}>
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-[0.6875rem] font-mono font-semibold tracking-wide text-[var(--text-heading)] truncate">
             {labelForLang(lang)}

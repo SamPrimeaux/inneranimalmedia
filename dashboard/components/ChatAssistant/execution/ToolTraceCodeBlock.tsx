@@ -2,16 +2,16 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Claude-style Request/Result mini window — ~9 line viewport, syntax highlight, Monaco handoff.
+ * Tool Request/Result mini window — read-only Monaco (same path as chat fences).
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
-import { Check, Copy, ExternalLink } from 'lucide-react';
+import React, { useMemo } from 'react';
 import {
-  highlightToolTraceCode,
-  shouldOfferMonacoHandoff,
+  detectToolTraceLang,
+  TOOL_TRACE_VIEWPORT_MAX_LINES,
   type ToolTracePreviewLang,
 } from '../../../lib/toolTracePreview';
+import { AgentCodeFencePreview } from '../components/AgentCodeFencePreview';
 
 export type ToolTraceCodeBlockProps = {
   label: 'Request' | 'Result' | 'Output';
@@ -21,27 +21,37 @@ export type ToolTraceCodeBlockProps = {
   editorFilename?: string;
 };
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      navigator.clipboard?.writeText(text).catch(() => {});
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    },
-    [text],
-  );
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      className="flex items-center gap-1 text-[10px] text-muted hover:text-[var(--solar-cyan)] transition-colors"
-    >
-      {copied ? <Check size={11} /> : <Copy size={11} />}
-      {copied ? 'Copied' : 'Copy'}
-    </button>
-  );
+const EXT_FOR_LANG: Record<ToolTracePreviewLang, string> = {
+  json: 'json',
+  shell: 'sh',
+  diff: 'diff',
+  text: 'txt',
+};
+
+/** Compact Monaco height for the agent sidebar (~9-line default collapse). */
+const TOOL_TRACE_MAX_PREVIEW_H = 196;
+
+function prettyForMonaco(raw: string, lang: ToolTracePreviewLang): string {
+  if (lang !== 'json') return raw;
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
+}
+
+function splitEditorFilename(name?: string): { fileBase: string; fileExt: string } {
+  const fallback = { fileBase: 'tool-trace', fileExt: 'txt' };
+  if (!name || !name.trim()) return fallback;
+  const trimmed = name.trim();
+  const dot = trimmed.lastIndexOf('.');
+  if (dot <= 0 || dot === trimmed.length - 1) {
+    return { fileBase: trimmed.replace(/[^a-zA-Z0-9._-]+/g, '_') || fallback.fileBase, fileExt: 'txt' };
+  }
+  return {
+    fileBase: trimmed.slice(0, dot).replace(/[^a-zA-Z0-9._-]+/g, '_') || fallback.fileBase,
+    fileExt: trimmed.slice(dot + 1).toLowerCase() || 'txt',
+  };
 }
 
 export const ToolTraceCodeBlock: React.FC<ToolTraceCodeBlockProps> = ({
@@ -51,35 +61,43 @@ export const ToolTraceCodeBlock: React.FC<ToolTraceCodeBlockProps> = ({
   onOpenInEditor,
   editorFilename,
 }) => {
-  const html = useMemo(() => highlightToolTraceCode(text, lang), [text, lang]);
-  const showEditor = Boolean(onOpenInEditor && editorFilename && shouldOfferMonacoHandoff(text, lang));
+  const resolvedLang = useMemo(
+    () => detectToolTraceLang(text, lang),
+    [text, lang],
+  );
+
+  const displayText = useMemo(
+    () => prettyForMonaco(String(text || ''), resolvedLang),
+    [text, resolvedLang],
+  );
+
+  const { fileBase, fileExt } = useMemo(() => {
+    const fromName = splitEditorFilename(editorFilename);
+    if (editorFilename?.includes('.')) return fromName;
+    return {
+      fileBase: fromName.fileBase,
+      fileExt: EXT_FOR_LANG[resolvedLang] || fromName.fileExt,
+    };
+  }, [editorFilename, resolvedLang]);
+
+  if (!String(text || '').trim()) return null;
 
   return (
-    <div className="tool-trace-code-block">
+    <div className="tool-trace-code-block tool-trace-code-block--monaco">
       <div className="tool-trace-code-block__head">
         <span className="tool-trace-code-block__label">{label}</span>
-        <div className="flex items-center gap-2">
-          {showEditor ? (
-            <button
-              type="button"
-              title="Open in editor"
-              aria-label="Open in editor"
-              className="p-1 rounded-md text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] transition-colors"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenInEditor?.({ name: editorFilename!, content: text });
-              }}
-            >
-              <ExternalLink size={13} aria-hidden />
-            </button>
-          ) : null}
-          <CopyButton text={text} />
-        </div>
       </div>
-      <div className="tool-trace-code-viewport" role="region" aria-label={`${label} preview`}>
-        <pre
-          className="tool-trace-code-pre m-0"
-          dangerouslySetInnerHTML={{ __html: html }}
+      <div role="region" aria-label={`${label} preview`}>
+        <AgentCodeFencePreview
+          lang={resolvedLang === 'text' ? 'text' : resolvedLang}
+          code={displayText}
+          fileBase={fileBase}
+          fileExt={fileExt}
+          onOpenMonaco={onOpenInEditor}
+          collapseLines={TOOL_TRACE_VIEWPORT_MAX_LINES}
+          maxPreviewHeightPx={TOOL_TRACE_MAX_PREVIEW_H}
+          compact
+          className="tool-trace-monaco-fence"
         />
       </div>
     </div>

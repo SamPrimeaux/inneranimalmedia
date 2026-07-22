@@ -194,6 +194,11 @@
   margin-top: 6px;
 }
 
+.tool-trace-code-block--monaco .tool-trace-monaco-fence {
+  /* AgentCodeFencePreview already paints border/background */
+  box-shadow: none;
+}
+
 .tool-trace-code-block__head {
   display: flex;
   align-items: center;
