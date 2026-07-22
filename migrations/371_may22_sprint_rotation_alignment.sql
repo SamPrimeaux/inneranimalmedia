@@ -181,7 +181,7 @@ SET
   updated_at = unixepoch()
 WHERE id = 'plan_may22_2026_agent_sam';
 
--- ── 4. Project memories (D1 KV — semantic mirror via pipeline script) ─────────
+-- ── 4. Project memories ───────────────────────────────────────────────────────
 
 INSERT INTO agentsam_memory (
   id, tenant_id, user_id, workspace_id, memory_type, key, value, session_id, source, confidence, plan_id
@@ -198,7 +198,7 @@ INSERT INTO agentsam_memory (
   1.0,
   'plan_may22_2026_agent_sam'
 )
-ON CONFLICT(tenant_id, user_id, key) DO UPDATE SET
+ON CONFLICT(id) DO UPDATE SET
   value = excluded.value,
   session_id = excluded.session_id,
   source = excluded.source,
@@ -219,6 +219,6 @@ INSERT INTO agentsam_memory (
   'may22_sprint_rotation',
   1.0
 )
-ON CONFLICT(tenant_id, user_id, key) DO UPDATE SET
+ON CONFLICT(id) DO UPDATE SET
   value = excluded.value,
   updated_at = unixepoch();
