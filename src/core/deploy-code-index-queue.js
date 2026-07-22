@@ -62,17 +62,36 @@ export async function queueCodeIndexJobAfterDeploy(env, opts = {}) {
       .catch(() => ({ results: [] }));
     const names = new Set((cols.results || []).map((r) => String(r.name).toLowerCase()));
     const triggeredBy = opts.triggeredBy || 'deploy';
-    const userId = opts.userId != null ? String(opts.userId).trim() : null;
-    const branch = (opts.branch != null ? String(opts.branch).trim() : '') || 'main';
+    let userId = opts.userId != null ? String(opts.userId).trim() : '';
+    if (!userId) {
+      const owner = await env.DB.prepare(
+        `SELECT user_id FROM workspaces WHERE id = ? LIMIT 1`,
+      )
+        .bind(ws)
+        .first()
+        .catch(() => null);
+      if (owner?.user_id) userId = String(owner.user_id).trim();
+    }
+    if (!userId) {
+      const awOwner = await env.DB.prepare(
+        `SELECT tenant_id FROM agentsam_workspace WHERE id = ? LIMIT 1`,
+      )
+        .bind(ws)
+        .first()
+        .catch(() => null);
+      void awOwner;
+    }
+    if (!userId) {
+      return { ok: false, error: 'user_id_required', workspace_id: ws };
+    }
 
     // Prefer a full typed insert when columns exist (production schema).
     if (
       names.has('triggered_by') &&
       names.has('repo_full_name') &&
-      names.has('source_type')
+      names.has('source_type') &&
+      names.has('user_id')
     ) {
-      const hasUser = names.has('user_id');
-      const hasBranch = names.has('branch');
       const hasIdx = names.has('indexed_file_count');
       const hasPct = names.has('progress_percent');
       const hasChunks = names.has('chunk_count');
@@ -80,32 +99,33 @@ export async function queueCodeIndexJobAfterDeploy(env, opts = {}) {
 
       const colList = [
         'id',
+        'user_id',
         'workspace_id',
         'status',
         'triggered_by',
         'repo_full_name',
         'source_type',
         ...(hasVb ? ['vector_backend'] : []),
-        ...(hasUser ? ['user_id'] : []),
-        ...(hasBranch ? ['branch'] : []),
         ...(hasIdx ? ['indexed_file_count'] : []),
         ...(hasPct ? ['progress_percent'] : []),
         ...(hasChunks ? ['chunk_count'] : []),
         'updated_at',
       ];
-      const placeholders = colList.map((c) => (c === 'updated_at' ? "datetime('now')" : c === 'status' ? "'idle'" : '?'));
+      const placeholders = colList.map((c) =>
+        c === 'updated_at' ? "datetime('now')" : c === 'status' ? "'idle'" : '?',
+      );
       const binds = [];
       for (const c of colList) {
         if (c === 'updated_at' || c === 'status') continue;
         if (c === 'id') binds.push(id);
+        else if (c === 'user_id') binds.push(userId);
         else if (c === 'workspace_id') binds.push(ws);
         else if (c === 'triggered_by') binds.push(triggeredBy);
         else if (c === 'repo_full_name') binds.push(repo);
         else if (c === 'source_type') binds.push('chunks');
         else if (c === 'vector_backend') binds.push('supabase_pgvector');
-        else if (c === 'user_id') binds.push(userId);
-        else if (c === 'branch') binds.push(branch);
-        else if (c === 'indexed_file_count' || c === 'progress_percent' || c === 'chunk_count') binds.push(0);
+        else if (c === 'indexed_file_count' || c === 'progress_percent' || c === 'chunk_count')
+          binds.push(0);
       }
 
       await env.DB.prepare(
@@ -114,20 +134,22 @@ export async function queueCodeIndexJobAfterDeploy(env, opts = {}) {
       )
         .bind(...binds)
         .run();
-    } else if (names.has('triggered_by')) {
+    } else if (names.has('triggered_by') && names.has('user_id')) {
       await env.DB.prepare(
-        `INSERT INTO agentsam_code_index_job (id, workspace_id, status, triggered_by, updated_at)
-         VALUES (?, ?, 'idle', ?, datetime('now'))`,
+        `INSERT INTO agentsam_code_index_job (id, user_id, workspace_id, status, triggered_by, updated_at)
+         VALUES (?, ?, ?, 'idle', ?, datetime('now'))`,
       )
-        .bind(id, ws, triggeredBy)
+        .bind(id, userId, ws, triggeredBy)
+        .run();
+    } else if (names.has('user_id')) {
+      await env.DB.prepare(
+        `INSERT INTO agentsam_code_index_job (id, user_id, workspace_id, status, updated_at)
+         VALUES (?, ?, ?, 'idle', datetime('now'))`,
+      )
+        .bind(id, userId, ws)
         .run();
     } else {
-      await env.DB.prepare(
-        `INSERT INTO agentsam_code_index_job (id, workspace_id, status, updated_at)
-         VALUES (?, ?, 'idle', datetime('now'))`,
-      )
-        .bind(id, ws)
-        .run();
+      return { ok: false, error: 'agentsam_code_index_job_schema_unsupported' };
     }
 
     console.log('[compaction]', 'agentsam_code_index_job', {
