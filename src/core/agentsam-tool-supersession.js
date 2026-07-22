@@ -55,6 +55,10 @@ export const TOOL_SUPERSESSION = Object.freeze({
   // Legacy workspace_* / pty_fs_* names map to fs_* handlers — never to agentsam_workspace_search.
   workspace_read_file: 'fs_read_file',
   workspace_write_file: 'fs_write_file',
+  write_file: 'fs_write_file',
+  read_file: 'fs_read_file',
+  save_file: 'fs_write_file',
+  put_file: 'fs_write_file',
   workspace_list_files: 'list_dir',
   workspace_apply_patch: 'fs_edit_file',
   workspace_search: 'fs_search_files',

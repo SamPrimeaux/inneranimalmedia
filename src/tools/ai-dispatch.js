@@ -126,12 +126,13 @@ export function normalizeToolName(toolName) {
         agentsam_compare: 'ai_compare',
         agentsam_embed: 'ai_embed',
 
-        save_file: 'write_file',
-        put_file: 'write_file',
-        fs_write_file: 'write_file',
-        fs_edit_file: 'write_file',
-        fs_read_file: 'read_file',
-        fs_list_files: 'list_files',
+        // Canonical catalog keys are fs_* — never collapse them to legacy write_file/read_file
+        // (those rows are not in agentsam_tools; execute-approved-tool + catalog dispatch fail).
+        save_file: 'fs_write_file',
+        put_file: 'fs_write_file',
+        write_file: 'fs_write_file',
+        read_file: 'fs_read_file',
+        list_files: 'list_dir',
 
         d1_schema: 'd1_schema_introspect',
         schema_inspect: 'd1_schema_introspect',

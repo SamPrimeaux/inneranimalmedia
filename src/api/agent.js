@@ -4962,7 +4962,10 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
   // Non-plan tool approval path (ChatAssistant.tsx). User already approved in UI.
   if (path === '/api/agent/chat/execute-approved-tool' && method === 'POST') {
     const body = await request.json().catch(() => ({}));
-    const toolName = normalizeToolName(String(body.tool_name ?? body.name ?? '').trim());
+    const { resolveCatalogDispatchToolKey } = await import('../core/catalog-tool-key-resolve.js');
+    const rawToolName = String(body.tool_name ?? body.name ?? '').trim();
+    // normalize aliases then map legacy write_file → fs_write_file for agentsam_tools lookup
+    const toolName = resolveCatalogDispatchToolKey(normalizeToolName(rawToolName));
     if (!toolName) {
       return jsonResponse({ success: false, error: 'tool_name required' }, 400);
     }
