@@ -10,6 +10,7 @@ import { DurableObject } from 'cloudflare:workers';
 const OPENAI_RESPONSES_HTTP = 'https://api.openai.com/v1/responses';
 const MAX_CONNECT_MS = 15_000;
 const MAX_TURN_MS = 120_000;
+const MAX_SOCKET_AGE_MS = 55 * 60 * 1000;
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -37,7 +38,11 @@ export class OpenAiResponsesWsV1 extends DurableObject {
     const safetyId = trim(opts?.safetyIdentifier) || null;
 
     if (this.#ws && this.#ws.readyState === WebSocket.OPEN && this.#apiKey === apiKey) {
-      return { ok: true, reused: true, connected_at: this.#connectedAt };
+      const ageMs = this.#connectedAt ? Date.now() - this.#connectedAt : Number.POSITIVE_INFINITY;
+      if (ageMs < MAX_SOCKET_AGE_MS) {
+        return { ok: true, reused: true, connected_at: this.#connectedAt, age_ms: ageMs };
+      }
+      console.info('[openai_responses_ws_do] proactive_socket_rotation', { age_ms: ageMs });
     }
 
     await this.#teardown();
@@ -68,6 +73,7 @@ export class OpenAiResponsesWsV1 extends DurableObject {
 
     this.#closeHandler = () => {
       this.#ws = null;
+      this.#connectedAt = 0;
     };
     ws.addEventListener('close', this.#closeHandler);
     ws.addEventListener('error', this.#closeHandler);
@@ -120,6 +126,9 @@ export class OpenAiResponsesWsV1 extends DurableObject {
     const encoder = new TextEncoder();
     let closed = false;
     const turnStarted = Date.now();
+    let turnTimer = null;
+    let turnCloseHandler = null;
+    let turnErrorHandler = null;
 
     const finish = async () => {
       if (closed) return;
@@ -128,6 +137,21 @@ export class OpenAiResponsesWsV1 extends DurableObject {
         this.#ws.removeEventListener('message', this.#messageHandler);
       }
       this.#messageHandler = null;
+      if (turnCloseHandler) {
+        try {
+          ws.removeEventListener('close', turnCloseHandler);
+        } catch {
+          /* already detached */
+        }
+      }
+      if (turnErrorHandler) {
+        try {
+          ws.removeEventListener('error', turnErrorHandler);
+        } catch {
+          /* already detached */
+        }
+      }
+      if (turnTimer) clearTimeout(turnTimer);
       try {
         await writer.close();
       } catch {
@@ -152,6 +176,12 @@ export class OpenAiResponsesWsV1 extends DurableObject {
       }
       await finish();
     };
+
+    turnCloseHandler = () => void fail(new Error('openai_ws_closed_mid_turn'));
+    turnErrorHandler = () => void fail(new Error('openai_ws_error_mid_turn'));
+    ws.addEventListener('close', turnCloseHandler);
+    ws.addEventListener('error', turnErrorHandler);
+    turnTimer = setTimeout(() => void fail(new Error('openai_ws_turn_timeout')), MAX_TURN_MS);
 
     this.#messageHandler = (event) => {
       void (async () => {

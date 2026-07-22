@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { openaiSafetyIdentifier } from '../../src/integrations/openai-responses-ws.js';
+import {
+  detectOpenAiResponsesWsFallback,
+  openaiSafetyIdentifier,
+  shouldForceOpenAiResponsesWsReconnect,
+  withOpenAiResponsesFallbackHeaders,
+} from '../../src/integrations/openai-responses-ws.js';
 
 test('openaiSafetyIdentifier hashes user id (not raw au_*)', async () => {
   const a = await openaiSafetyIdentifier('au_871d920d1233cbd1');
@@ -16,4 +21,43 @@ test('openaiSafetyIdentifier hashes user id (not raw au_*)', async () => {
 test('openaiSafetyIdentifier empty → null', async () => {
   assert.equal(await openaiSafetyIdentifier(''), null);
   assert.equal(await openaiSafetyIdentifier(null), null);
+});
+
+test('detectOpenAiResponsesWsFallback recognizes cache miss and socket limit', () => {
+  assert.equal(
+    detectOpenAiResponsesWsFallback('response.created\nprevious_response_not_found'),
+    'previous_response_not_found',
+  );
+  assert.equal(
+    detectOpenAiResponsesWsFallback('websocket_connection_limit_reached'),
+    'websocket_connection_limit_reached',
+  );
+  assert.equal(
+    detectOpenAiResponsesWsFallback('{"message":"openai_ws_closed_mid_turn","code":"openai_ws_turn_failed"}'),
+    'openai_ws_closed_mid_turn',
+  );
+  assert.equal(detectOpenAiResponsesWsFallback('response.output_text.delta'), null);
+});
+
+test('forced reconnect requires explicit header and an existing response id', () => {
+  const yes = new Request('https://example.test', {
+    headers: { 'X-IAM-OpenAI-WS-Force-Reconnect': '1' },
+  });
+  const no = new Request('https://example.test');
+  assert.equal(shouldForceOpenAiResponsesWsReconnect(yes, 'resp_existing'), true);
+  assert.equal(shouldForceOpenAiResponsesWsReconnect(yes, null), false);
+  assert.equal(shouldForceOpenAiResponsesWsReconnect(no, 'resp_existing'), false);
+});
+
+test('HTTP fallback carries transport, reason, and full-input proof headers', async () => {
+  const input = new Response('ok', { status: 200 });
+  const out = withOpenAiResponsesFallbackHeaders(
+    input,
+    'previous_response_not_found',
+    true,
+  );
+  assert.equal(out.headers.get('X-IAM-OpenAI-Transport'), 'http');
+  assert.equal(out.headers.get('X-IAM-OpenAI-Fallback-Reason'), 'previous_response_not_found');
+  assert.equal(out.headers.get('X-IAM-OpenAI-Full-Input'), '1');
+  assert.equal(await out.text(), 'ok');
 });

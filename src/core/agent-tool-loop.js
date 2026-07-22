@@ -1174,7 +1174,21 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       });
     };
 
+    let openAiTransportMeta = null;
     if (stream instanceof Response) {
+      const transport = String(stream.headers.get('X-IAM-OpenAI-Transport') || '').trim();
+      if (transport) {
+        openAiTransportMeta = {
+          transport,
+          fallback_reason:
+            stream.headers.get('X-IAM-OpenAI-Fallback-Reason') || null,
+          full_input: stream.headers.get('X-IAM-OpenAI-Full-Input') === '1',
+          turn: turnCount,
+          agent_run_id: chatAgentRunId != null ? String(chatAgentRunId) : null,
+        };
+        console.info('[agent] openai_transport', JSON.stringify(openAiTransportMeta));
+        emit('provider_transport', openAiTransportMeta);
+      }
       if (!stream.ok) {
         const detailRaw = await stream.text().catch(() => '');
         let detailMsg = String(detailRaw || '').slice(0, 8000);
@@ -1248,7 +1262,16 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           totalUsage.output_tokens += parsed.output_tokens;
         }
         applyNormalizedOpenAI(parsed);
-        if (parsed.responseId) openaiPreviousResponseId = parsed.responseId;
+        if (parsed.responseId) {
+          openaiPreviousResponseId = parsed.responseId;
+          emit('provider_response', {
+            provider: 'openai_responses',
+            response_id: parsed.responseId,
+            transport: openAiTransportMeta?.transport || null,
+            turn: turnCount,
+            agent_run_id: chatAgentRunId != null ? String(chatAgentRunId) : null,
+          });
+        }
       } else if (stream.body && useOpenAiShapedToolStream) {
         assistantContent.push({ type: 'text', text: '' });
         const parsed = await consumeOpenAIChatCompletionsSse(stream.body, emit, {
