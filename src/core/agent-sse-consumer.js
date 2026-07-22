@@ -1,4 +1,8 @@
 import { aggregateOpenAiCompatibleUsageTokens } from './openai-usage-tokens.js';
+import {
+  upsertApplyPatchCall,
+  finalizePendingApplyPatchCalls,
+} from './openai-apply-patch-items.js';
 
 function readSseChunk(reader, signal) {
   if (!signal) return reader.read();
@@ -233,26 +237,14 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
 
   const captureApplyPatchCallItem = (item, outputIndex) => {
     if (!item || item.type !== 'apply_patch_call') return;
-    const callId = item.call_id != null ? String(item.call_id) : '';
-    const itemId = item.id != null ? String(item.id) : '';
-    const key = callId || itemId;
-    if (!key) return;
-    const entry = {
-      type: 'apply_patch_call',
-      id: itemId || null,
-      call_id: callId || null,
+    upsertApplyPatchCall(applyPatchCalls, applyPatchByCallId, {
+      id: item.id != null ? String(item.id) : null,
+      call_id: item.call_id != null ? String(item.call_id) : null,
       operation: item.operation && typeof item.operation === 'object' ? item.operation : {},
       status: item.status != null ? String(item.status) : null,
       caller: item.caller != null ? item.caller : null,
       outputIndex: outputIndex != null ? Number(outputIndex) : null,
-    };
-    if (applyPatchByCallId.has(key)) {
-      const idx = applyPatchByCallId.get(key);
-      applyPatchCalls[idx] = { ...applyPatchCalls[idx], ...entry };
-    } else {
-      applyPatchByCallId.set(key, applyPatchCalls.length);
-      applyPatchCalls.push(entry);
-    }
+    });
   };
 
   const handleObj = (obj) => {
@@ -304,38 +296,31 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
     if (t.startsWith('response.apply_patch_call')) {
       const callId = obj.call_id || obj.callId;
       const itemId = obj.item_id || obj.itemId;
-      const key = String(callId || itemId || '').trim();
-      if (key) {
-        let idx = applyPatchByCallId.get(key);
-        if (idx == null) {
-          idx = applyPatchCalls.length;
-          applyPatchByCallId.set(key, idx);
-          applyPatchCalls.push({
-            type: 'apply_patch_call',
-            id: itemId ? String(itemId) : null,
-            call_id: callId ? String(callId) : null,
-            operation: {},
-            status: null,
-            caller: null,
-            outputIndex: obj.output_index != null ? Number(obj.output_index) : null,
-          });
-        }
-        const entry = applyPatchCalls[idx];
-        if (!entry.operation || typeof entry.operation !== 'object') entry.operation = {};
-        if (typeof obj.path === 'string' && obj.path) entry.operation.path = obj.path;
-        if (typeof obj.diff === 'string' && obj.diff) {
-          entry.operation.diff = (entry.operation.diff || '') + obj.diff;
-        }
-        if (typeof obj.delta === 'string' && obj.delta && t.includes('diff')) {
-          entry.operation.diff = (entry.operation.diff || '') + obj.delta;
-        }
-        if (typeof obj.operation_type === 'string' && obj.operation_type) {
-          entry.operation.type = obj.operation_type;
-        }
-        if (obj.operation && typeof obj.operation === 'object') {
-          entry.operation = { ...entry.operation, ...obj.operation };
-        }
+      const opPatch = {};
+      if (typeof obj.path === 'string' && obj.path) opPatch.path = obj.path;
+      if (typeof obj.diff === 'string' && obj.diff) opPatch.diff = obj.diff;
+      if (typeof obj.delta === 'string' && obj.delta && String(t).includes('diff')) {
+        // Streamed diff delta — append onto whatever upsert already stored.
+        const key = String(callId || itemId || '').trim();
+        const idx = key ? applyPatchByCallId.get(key) : null;
+        const prev =
+          idx != null && applyPatchCalls[idx]?.operation?.diff != null
+            ? String(applyPatchCalls[idx].operation.diff)
+            : '';
+        opPatch.diff = prev + obj.delta;
       }
+      if (typeof obj.operation_type === 'string' && obj.operation_type) {
+        opPatch.type = obj.operation_type;
+      }
+      if (obj.operation && typeof obj.operation === 'object') {
+        Object.assign(opPatch, obj.operation);
+      }
+      upsertApplyPatchCall(applyPatchCalls, applyPatchByCallId, {
+        id: itemId ? String(itemId) : null,
+        call_id: callId ? String(callId) : null,
+        operation: opPatch,
+        outputIndex: obj.output_index != null ? Number(obj.output_index) : null,
+      });
       return false;
     }
 
@@ -436,18 +421,7 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
       };
     });
 
-  const pendingApplyPatchCalls = applyPatchCalls
-    .filter((c) => c.call_id || c.id)
-    .map((c, index) => ({
-      type: 'apply_patch_call',
-      id: c.id || `openai_apply_patch_${index}`,
-      call_id: c.call_id || c.id || `openai_apply_patch_${index}`,
-      operation: c.operation || {},
-      status: c.status,
-      provider: 'openai_responses',
-      index,
-      ...(c.caller != null ? { caller: c.caller } : {}),
-    }));
+  const pendingApplyPatchCalls = finalizePendingApplyPatchCalls(applyPatchCalls);
 
   let finishReason = 'end_turn';
   if (pendingToolCalls.length || pendingApplyPatchCalls.length) finishReason = 'tool_use';

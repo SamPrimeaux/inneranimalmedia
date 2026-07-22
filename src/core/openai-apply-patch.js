@@ -10,6 +10,12 @@ import { executeFsReadFile } from './fs-read-file.js';
 import { executeFsWriteFile } from './fs-write-file.js';
 import { escapeShellSingleQuoted } from './fs-search-rg-parse.js';
 
+export {
+  mergeApplyPatchOperation,
+  upsertApplyPatchCall,
+  finalizePendingApplyPatchCalls,
+} from './openai-apply-patch-items.js';
+
 const FLAG_KEY = 'openai_apply_patch';
 
 /**
