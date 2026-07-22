@@ -331,14 +331,26 @@ async function executeCatalogCfD1(env, row, config, params, runContext) {
   );
   const authUser = runContext.authUser ?? runContext.user ?? null;
   const d1Params = enrichD1ParamsFromStudioContext(params, runContext);
-  const d1Hint = parseD1DatabaseHint(d1Params);
+  let d1Hint = parseD1DatabaseHint(d1Params);
   if (!d1Hint?.database_id && !d1Hint?.database_name) {
-    return {
-      ok: false,
-      error: 'explicit_d1_resource_required',
-      user_message:
-        'No D1 database is selected in Database Studio context. Select a D1 resource in the studio (or pass resource_ref / database) before querying — do not guess platform D1.',
-    };
+    // Align with workspace-d1-execution: platform operators may run sql-only
+    // (PTC programs often omit database). Non-operators still need Studio/explicit target.
+    const { isPlatformOperator, resolveOperatorAuthUserRow } = await import(
+      './operator-identity.js'
+    );
+    const opRow = await resolveOperatorAuthUserRow(env, authUser);
+    const operator = await isPlatformOperator(env, opRow);
+    if (!operator) {
+      return {
+        ok: false,
+        error: 'explicit_d1_resource_required',
+        user_message:
+          'No D1 database is selected in Database Studio context. Select a D1 resource in the studio (or pass resource_ref / database) before querying — do not guess platform D1.',
+      };
+    }
+    // Operator sql-only → pin IAM business D1 so CF path + audit stay explicit.
+    d1Params.database = 'inneranimalmedia-business';
+    d1Hint = parseD1DatabaseHint(d1Params);
   }
   let resolvedDatabase = d1Hint?.database_name || null;
   let resolvedDatabaseId = d1Hint?.database_id || null;
