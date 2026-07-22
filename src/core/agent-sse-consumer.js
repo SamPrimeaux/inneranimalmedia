@@ -251,7 +251,7 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
       tool_name: 'openai_hosted_shell',
       tool_call_id: callId || undefined,
       output: empty
-        ? 'empty_hosted_shell_commands — no workspace write occurred'
+        ? 'empty_hosted_shell_commands — no output'
         : preview.slice(0, 8000),
       ok: !empty,
     });
@@ -259,7 +259,7 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
       tool: 'openai_hosted_shell',
       tool_call_id: callId || undefined,
       result: empty
-        ? 'empty_hosted_shell_commands — no workspace write occurred; use an active workspace file-write tool'
+        ? 'empty_hosted_shell_commands — no output'
         : preview.slice(0, 8000),
       ok: !empty,
     });

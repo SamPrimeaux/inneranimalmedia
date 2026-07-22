@@ -11,7 +11,7 @@ export const FLAG_KEY = 'openai_hosted_shell';
 /** Hybrid routing hint appended to Responses instructions when shell is injected. */
 export const HOSTED_SHELL_HYBRID_INSTRUCTION = [
   'Shell routing (hybrid):',
-  '- Prefer agentsam_terminal_remote (or local/sandbox per policy) for Inner Animal Media repo, git, deploys, and workspace files.',
+  '- Prefer the active workspace terminal tools for Inner Animal Media repo, git, deploys, and workspace files.',
   '- Use the OpenAI hosted shell tool only for isolated Debian container work under /mnt/data (scratch compute, not the IAM workspace).',
   '- Hosted shell has no outbound network unless an allowlist is configured; do not assume curl/pip network works.',
 ].join('\n');
@@ -89,29 +89,16 @@ export async function loadHostedShellAllowedDomains(env) {
 /**
  * Flag + catalog capability. Fail-closed when either is off.
  * Soft gate: writePolicy.can_terminal === false blocks inject (hosted shell still "shell").
- * Optional D1 flag config_json.suppress_when_can_edit_files (default true): when the
- * session write_policy already grants can_edit_files, do not inject OpenAI container
- * shell — it competes with the workspace FS lane and often ends turns with empty commands.
- * Soak / explicit: opts.forceHostedShell === true bypasses that suppress.
  * @param {any} env
  * @param {{
  *   userId?: string|null,
  *   tenantId?: string|null,
  *   modelKey?: string|null,
  *   writePolicy?: Record<string, unknown>|null,
- *   forceHostedShell?: boolean,
  * }} opts
  */
 export async function shouldInjectHostedShell(env, opts = {}) {
   if (opts.writePolicy && opts.writePolicy.can_terminal === false) return false;
-  if (
-    opts.forceHostedShell !== true &&
-    opts.writePolicy &&
-    opts.writePolicy.can_edit_files === true &&
-    (await hostedShellSuppressWhenCanEditFiles(env))
-  ) {
-    return false;
-  }
   const { isFeatureEnabled } = await import('./features.js');
   const flagOn = await isFeatureEnabled(env, FLAG_KEY, {
     userId: opts.userId,
@@ -120,44 +107,6 @@ export async function shouldInjectHostedShell(env, opts = {}) {
   if (!flagOn) return false;
   return modelSupportsHostedShell(env, opts.modelKey);
 }
-
-/**
- * D1 flag config — no tool-key lists in JS.
- * @param {any} env
- */
-async function hostedShellSuppressWhenCanEditFiles(env) {
-  if (!env?.DB) return true;
-  try {
-    const row = await env.DB.prepare(
-      `SELECT config_json FROM agentsam_feature_flag
-       WHERE flag_key = ? AND COALESCE(is_archived, 0) = 0 LIMIT 1`,
-    )
-      .bind(FLAG_KEY)
-      .first();
-    if (!row?.config_json) return true;
-    const cfg = typeof row.config_json === 'string' ? JSON.parse(row.config_json) : row.config_json;
-    if (cfg && typeof cfg === 'object' && Object.prototype.hasOwnProperty.call(cfg, 'suppress_when_can_edit_files')) {
-      return cfg.suppress_when_can_edit_files !== false;
-    }
-  } catch {
-    /* fail open to suppress — safer for workspace sessions */
-  }
-  return true;
-}
-
-/**
- * @param {{ commands?: string[] }|null|undefined} actionSummary
- */
-export function isEmptyHostedShellAction(actionSummary) {
-  const cmds = Array.isArray(actionSummary?.commands) ? actionSummary.commands : [];
-  return cmds.filter((c) => String(c || '').trim()).length === 0;
-}
-
-/** Recovery nudge — capability language only, no tool_key hardcodes. */
-export const HOSTED_SHELL_EMPTY_RECOVERY =
-  'SYSTEM: OpenAI hosted shell was called with empty commands and wrote nothing to the workspace. ' +
-  'Do not call hosted shell again. Use an active workspace file-write tool from your current tool menu ' +
-  'with a workspace-relative path and full file content, then verify with a workspace file-read tool.';
 
 /**
  * Append hybrid routing instruction once.
@@ -188,6 +137,15 @@ export function summarizeShellCallAction(action) {
     timeout_ms: a.timeout_ms != null ? Number(a.timeout_ms) : null,
     max_output_length: a.max_output_length != null ? Number(a.max_output_length) : null,
   };
+}
+
+/**
+ * API-shape helper: shell_call with no executable commands.
+ * @param {{ commands?: string[] }|null|undefined} actionSummary
+ */
+export function isEmptyHostedShellAction(actionSummary) {
+  const cmds = Array.isArray(actionSummary?.commands) ? actionSummary.commands : [];
+  return cmds.filter((c) => String(c || '').trim()).length === 0;
 }
 
 /**

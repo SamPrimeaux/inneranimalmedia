@@ -72,10 +72,7 @@ import {
 } from './agent-sse-consumer.js';
 import { executeApplyPatchCalls } from './openai-apply-patch.js';
 import { normalizeOpenAiToolStopReason } from './agent-tool-stop-reason.js';
-import {
-  isEmptyHostedShellAction,
-  HOSTED_SHELL_EMPTY_RECOVERY,
-} from './openai-hosted-shell.js';
+import { isEmptyHostedShellAction } from './openai-hosted-shell.js';
 import { tryBroadcastMonacoPatchFromToolOutput } from './collab-broadcast.js';
 import { TAVILY_DEFAULTS } from './tavily-open-web-search.js';
 import {
@@ -1657,11 +1654,18 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         );
         emit('status', {
           phase: 'recover',
-          message: 'Empty hosted shell — continuing so the model can use workspace file tools',
+          message: 'Empty hosted shell — continuing the agent turn',
         });
         conversationMessages.push({
           role: 'user',
-          content: [{ type: 'text', text: HOSTED_SHELL_EMPTY_RECOVERY }],
+          content: [
+            {
+              type: 'text',
+              text:
+                'SYSTEM: The previous OpenAI hosted shell call had empty commands and produced no output. ' +
+                'Continue the user request using only tools already present on your active menu.',
+            },
+          ],
         });
         continue;
       }
