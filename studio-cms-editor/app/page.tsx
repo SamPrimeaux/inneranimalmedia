@@ -130,11 +130,11 @@ type CmsEditorProps = {
 export default function CmsEditor({ projectSlug = "inneranimalmedia", initialPageId = null, initialPanel = "sections", siteCatalog = [], onSiteChange }: CmsEditorProps) {
   const [sites, setSites] = useState(initialSites);
   const [siteId, setSiteId] = useStored("cms-active-site", projectSlug);
-  const site = sites.find(s => s.id === siteId) || sites[0];
-  const [pageId, setPageId] = useState(initialPageId || site.pages[0].id);
-  const page = site.pages.find(p => p.id === pageId) || site.pages[0];
-  const [selectedId, setSelectedId] = useState(page.sections[1]?.id || page.sections[0].id);
-  const selected = page.sections.find(s => s.id === selectedId) || page.sections[0];
+  const site = sites.find((s) => s.id === siteId) || sites.find((s) => s.pages?.length) || sites[0] || null;
+  const [pageId, setPageId] = useState(initialPageId || site?.pages?.[0]?.id || "");
+  const page = site?.pages?.find((p) => p.id === pageId) || site?.pages?.[0] || null;
+  const [selectedId, setSelectedId] = useState(page?.sections?.[1]?.id || page?.sections?.[0]?.id || "");
+  const selected = page?.sections?.find((s) => s.id === selectedId) || page?.sections?.[0] || null;
   const [rail, setRail] = useState<RailMode>(initialPanel === "theme" ? "sections" : initialPanel === "imports" ? "templates" : initialPanel);
   const [tab, setTab] = useState<InspectorTab>(initialPanel === "theme" ? "theme" : "content");
   const [sidebarCollapsed, setSidebarCollapsed] = useStored("cms-sidebar-collapsed", false);
@@ -183,20 +183,36 @@ export default function CmsEditor({ projectSlug = "inneranimalmedia", initialPag
 
   useEffect(() => {
     if (!siteCatalog.length) return;
-    setSites((current) => siteCatalog.map((entry) => {
-      const existing = current.find((site) => site.id === entry.slug);
-      const name = entry.name || entry.slug;
-      return existing || {
-        id: entry.slug,
-        name,
-        initials: name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase(),
-        domain: entry.domain || '',
-        edited: 'Available',
-        color: '#6358ff',
-        pages: [],
-      };
-    }));
-  }, [siteCatalog]);
+    setSites((current) => {
+      const byId = new Map(current.map((entry) => [entry.id, entry]));
+      const seeded = current.find((entry) => entry.pages?.length) || null;
+      return siteCatalog.map((entry) => {
+        const existing = byId.get(entry.slug);
+        const name = entry.name || entry.slug;
+        if (existing) {
+          return {
+            ...existing,
+            name: entry.name || existing.name,
+            domain: entry.domain || existing.domain,
+            initials: existing.initials || name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
+          };
+        }
+        // Never wipe an in-flight editor with empty pages — keep seeded demo/bootstrap pages
+        // until getBootstrap replaces them for the active project slug.
+        const reusePages =
+          entry.slug === projectSlug && seeded?.pages?.length ? seeded.pages : [];
+        return {
+          id: entry.slug,
+          name,
+          initials: name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
+          domain: entry.domain || "",
+          edited: "Available",
+          color: seeded?.color || "#6358ff",
+          pages: reusePages,
+        };
+      });
+    });
+  }, [siteCatalog, projectSlug]);
 
   useEffect(() => {
     let cancelled = false;
@@ -262,11 +278,14 @@ export default function CmsEditor({ projectSlug = "inneranimalmedia", initialPag
   }, [page.title, page.slug, page.type, page.metaTitle, page.metaDescription, page.id, bootstrapLoading, toast]);
 
   const updatePages = useCallback((fn: (pages: PageData[]) => PageData[]) => {
-    setSites(all => all.map(s => s.id === site.id ? { ...s, pages: fn(s.pages) } : s));
-  }, [site.id]);
+    setSites((all) => all.map((s) => (s.id === siteId ? { ...s, pages: fn(s.pages) } : s)));
+  }, [siteId]);
   const mutateSections = (fn: (items: Section[]) => Section[]) => {
-    setHistory(h => [...h.slice(-19), page.sections.map(s => ({ ...s, fields: { ...s.fields } }))]); setFuture([]);
-    updatePages(pages => pages.map(p => p.id === page.id ? { ...p, sections: fn(p.sections) } : p)); setDirty(true);
+    if (!page) return;
+    setHistory((h) => [...h.slice(-19), page.sections.map((s) => ({ ...s, fields: { ...s.fields } }))]);
+    setFuture([]);
+    updatePages((pages) => pages.map((p) => (p.id === page.id ? { ...p, sections: fn(p.sections) } : p)));
+    setDirty(true);
   };
   const updateField = (key: string, value: any) => mutateSections(items => items.map(s => s.id === selected.id ? { ...s, fields: { ...s.fields, [key]: value } } : s));
   const updateCss = (key: string, value: any) => { mutateSections(items => items.map(s => s.id === selected.id ? { ...s, css: { ...(s.css || {}), [key]: value } } : s)); iframeRef.current?.contentWindow?.postMessage({ type: "cms:style", sectionId: selected.id, css: { [key]: value } }, "*"); };
@@ -308,6 +327,7 @@ export default function CmsEditor({ projectSlug = "inneranimalmedia", initialPag
   }; window.addEventListener("keydown", down); return () => window.removeEventListener("keydown", down); }, [modal, preview, save, undo, redo, setSidebarCollapsed, setInspectorCollapsed]);
 
   const frameHtml = useMemo(() => {
+    if (!page) return "<!doctype html><html><body></body></html>";
     const visible = page.sections.filter(s => s.visible);
     const content = visible.map((s, i) => {
       const f = s.fields; const isNav = s.type === "Navigation"; const isFooter = s.type === "Footer"; const img = f.hero_image_url;
@@ -320,8 +340,26 @@ export default function CmsEditor({ projectSlug = "inneranimalmedia", initialPag
     return `<!doctype html><html><head><meta charset="utf-8"><style>:root{${vars}}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:var(--font-body),Arial;background:#f5f2ea;color:#101014}section{position:relative;transition:.18s;cursor:default}.nav{height:68px;display:flex;align-items:center;padding:0 clamp(24px,6vw,84px);gap:30px;background:#0c0c10;color:white}.nav b{font-size:18px;margin-right:auto}.nav nav{display:flex;gap:22px;font-size:12px;color:#aaa}.nav button,.hero button,.content button{border:0;border-radius:999px;padding:11px 18px;background:var(--brand-primary);color:white}.hero{min-height:620px;background-size:cover;background-position:center;display:flex;align-items:end;padding:clamp(48px,9vw,120px);color:white}.hero>div{max-width:760px}.hero small,.content small{text-transform:uppercase;letter-spacing:.18em;font-size:11px;font-weight:700}.hero h1{font-size:clamp(44px,6.5vw,92px);line-height:.94;letter-spacing:-.055em;margin:20px 0}.hero p{font-size:18px;max-width:580px;line-height:1.6;color:#d8d8de}.hero a{margin-left:18px;font-size:13px}.content{min-height:390px;padding:clamp(60px,9vw,120px);display:flex;flex-direction:column;justify-content:center}.content h2{font-size:clamp(32px,5vw,66px);line-height:1;margin:20px 0;max-width:880px;letter-spacing:-.04em}.content p{max-width:660px;line-height:1.7}.s2,.s5{color:#0d0d10}.footer{min-height:250px;padding:70px;background:#09090b;color:white;display:grid;gap:30px;align-content:center}.cms-highlight{outline:3px solid #4d8dff!important;outline-offset:-3px}.cms-highlight:after{content:attr(data-cms-name);position:absolute;top:5px;left:5px;background:#3b82f6;color:#fff;padding:4px 7px;border-radius:4px;font:11px Arial;z-index:10}</style></head><body>${content}<script>window.parent.postMessage({type:'cms:ready'},'*');document.querySelectorAll('[data-cms-id]').forEach(el=>{el.dataset.cmsName='Section';el.addEventListener('click',e=>{e.stopPropagation();window.parent.postMessage({type:'cms:section-click',sectionId:el.dataset.cmsId},'*')})});addEventListener('message',e=>{const m=e.data;document.querySelectorAll('[data-cms-id]').forEach(x=>x.classList.remove('cms-highlight'));if(m.type==='cms:highlight'){const x=document.querySelector('[data-cms-id="'+m.sectionId+'"]');x&&x.classList.add('cms-highlight')}if(m.type==='cms:scroll-to'){document.querySelector('[data-cms-id="'+m.sectionId+'"]')?.scrollIntoView({behavior:'smooth'})}if(m.type==='cms:theme-vars'){Object.entries(m.vars||{}).forEach(([k,v])=>document.documentElement.style.setProperty(k,v))}if(m.type==='cms:style'){const x=document.querySelector('[data-cms-id="'+m.sectionId+'"]');Object.assign(x?.style,m.css||{})}});addEventListener('scroll',()=>window.parent.postMessage({type:'cms:scroll',scrollY:scrollY},'*'))</script></body></html>`;
   }, [page, theme]);
 
-  const filteredPages = page ? site.pages.filter(p => p.title.toLowerCase().includes(search.toLowerCase())) : [];
-  const filteredSections = page.sections.filter(s => s.name.toLowerCase().includes(search.toLowerCase()));
+  const filteredPages = page && site ? site.pages.filter(p => p.title.toLowerCase().includes(search.toLowerCase())) : [];
+  const filteredSections = page ? page.sections.filter(s => s.name.toLowerCase().includes(search.toLowerCase())) : [];
+
+  if (!site || !page) {
+    return (
+      <main className="cms-shell">
+        <div className="canvas-stage" style={{ display: "grid", placeItems: "center", minHeight: "100vh", background: "#09090b", color: "#f4f4f8" }}>
+          {bootstrapLoading ? (
+            <div className="canvas-loading"><div className="skeleton-topbar"/><div className="skeleton-hero"/><div className="skeleton-block"/></div>
+          ) : (
+            <div className="canvas-error">
+              <h3>Could not load site</h3>
+              <p>{bootstrapError || "No pages are available for this CMS site yet."}</p>
+              <Button kind="accent" onClick={() => setBootstrapNonce((value) => value + 1)}>Retry</Button>
+            </div>
+          )}
+        </div>
+      </main>
+    );
+  }
 
   const createPage = () => {
     setSaving(true);
