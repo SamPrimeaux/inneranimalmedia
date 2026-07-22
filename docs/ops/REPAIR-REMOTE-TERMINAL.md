@@ -6,24 +6,31 @@
 
 ---
 
-## STATUS UPDATE — 2026-07-21
+## STATUS UPDATE — 2026-07-22
 
-**`agentsam_terminal_remote` (conn_gcp_iam_tunnel): FIXED.** Verified live:
-- `pwd` → `/home/samprimeaux/inneranimalmedia`, `cwd_source: gcp_remote`, exit 0
-- `git status` → on `main`, up to date with `origin/main`, sparse checkout 40% tracked, clean tree
-- `wrangler --version` → `4.86.0`
-No ENOENT, no empty stdout. This lane is confirmed working end to end.
+**`agentsam_terminal_remote` (conn_gcp_iam_tunnel): HEALTHY.** Re-verified:
+- Real Linux cwd `/home/samprimeaux/inneranimalmedia`, identity `agentsam`, exit 0
+- Original ENOENT-on-every-call symptom does **not** reproduce on a valid VM path
+- macOS-style cwd on remote is a **separate** path-sanitize question (optional repro), not the same as “remote lane dead”
 
-**`agentsam_terminal_local`: NOT actually fixed — silently rerouted instead.** Calling it now returns `ok: true` with no ENOENT, but `cwd_source: "container_sandbox"`, `cwd: "/tmp/specialist"`, `target_type: "sandbox"`, `image: "inneranimalmedia:sandbox-go-v2"`. It is executing in the isolated CF Container sandbox, **not** on the Mac via localpty.
-
-Confirmed root cause is unchanged from original diagnosis: `curl -s -o /dev/null -w "%{http_code}" https://localpty.inneranimalmedia.com/health` (run via the now-working GCP remote lane) returns **530** — localpty is still down. The PM2 `iam-pty` / `CLOUDFLARE_API_TOKEN` fix in Step 4 below has NOT been applied yet.
-
-**Risk:** this fallback is more dangerous than the old failure mode. The old ENOENT was loud and obvious. The new behavior returns `ok: true` and looks like a successful command — easy to mistake sandbox output for real Mac/repo state. Any caller treating `agentsam_terminal_local` success as "ran on my Mac" is currently wrong.
+**`agentsam_terminal_local` via OAuth MCP: remapped to remote on purpose — was silent, now must be loud.**
+- Policy (`mcp-oauth-terminal-policy.js`): OAuth callers requesting `agentsam_terminal_local` → execute `agentsam_terminal_remote` (`reroute_reason: oauth_remote_default`). VM is the stable OAuth lane; Mac localpty is not the OAuth default.
+- **2026-07-21 note (sandbox):** older observation of local → CF Container sandbox is **retired** for OAuth; current remap target is **GCP remote**, not sandbox.
+- **2026-07-22 finding:** remapped results looked identical to genuine remote (`terminal.inneranimalmedia.com`, `gcp_remote`, `conn_gcp_iam_tunnel`) with no `requested_tool` / `reroute_*` — quiet host substitution is worse than loud ENOENT.
+- **Fix:** stamp `requested_tool`, `executed_tool`, `reroute_tool`, `reroute_reason`, `lane_substituted`, and `user_message` on remapped JSON so callers cannot mistake VM for Mac.
+- `https://localpty.inneranimalmedia.com/health` is **200** as of 2026-07-22 — Mac tunnel can be up while OAuth still remaps. Bridge / non-OAuth / Settings Terminal device setup is the path to verify true localpty.
 
 **Remaining work:**
-1. Apply Step 4 below (rotate `CLOUDFLARE_API_TOKEN` in the LaunchAgent plist, restart `iam-pty` via PM2) to bring localpty back up.
-2. Once localpty is up, re-verify `agentsam_terminal_local` returns `cwd_source: "user_hosted_tunnel"` / localpty, not sandbox.
-3. Separately, decide whether silent fallback-to-sandbox is desired behavior at all, or whether `agentsam_terminal_local` should surface a clear error/flag when it can't reach localpty instead of silently substituting the sandbox.
+1. Confirm stamped remapping fields on a live OAuth `agentsam_terminal_local` call after MCP deploy.
+2. Optional: pass a macOS cwd to `agentsam_terminal_remote` to see if path-sanitize / ENOENT still fires (distinct from lane health).
+3. True Mac verification: non-OAuth / bridge / Settings → Terminal — expect `user_hosted_tunnel` / localpty, not `gcp_remote`.
+4. Keep sandbox out of local/remote success paths (callers must use `agentsam_terminal_sandbox` explicitly).
+
+---
+
+## STATUS UPDATE — 2026-07-21 (superseded by 2026-07-22)
+
+**`agentsam_terminal_remote`: FIXED** (same as above). At that time localpty health was **530** and some local calls fell through to **sandbox** — that is no longer the OAuth default (now remote + loud stamp).
 
 ---
 
