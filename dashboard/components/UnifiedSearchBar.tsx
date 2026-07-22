@@ -55,6 +55,7 @@ import {
   type PaletteCfCatalog,
 } from '../src/lib/paletteCloudflare';
 import { searchConnectedLocalFiles } from '../src/lib/searchConnectedLocalFiles';
+import { searchConnectedLocalContent } from '../src/lib/searchConnectedLocalContent';
 
 export type UnifiedSearchNavigate =
   | { kind: 'table'; name: string }
@@ -63,7 +64,7 @@ export type UnifiedSearchNavigate =
   | { kind: 'sql'; sql: string }
   | { kind: 'deployment'; summary: string }
   | { kind: 'column'; sql: string }
-  | { kind: 'file'; path: string };
+  | { kind: 'file'; path: string; line?: number; column?: number };
 
 type SourceChipId = 'all' | 'planes' | 'r2' | 'd1' | 'commands' | 'workflows' | 'chats' | 'files';
 
@@ -96,6 +97,9 @@ type PaletteItem = {
   r2Bucket?: string;
   dbTarget?: 'd1' | 'hyperdrive';
   filePath?: string;
+  /** 1-based line for content search hits */
+  fileLine?: number;
+  fileColumn?: number;
   deploySummary?: string;
   deployAction?: 'workers_builds' | 'open_deploys';
   commandCategory?: WranglerCommandCategory;
@@ -440,6 +444,7 @@ function sectionTitle(mode: QueryMode, chip: SourceChipId, hasQuery: boolean): s
   if (mode === 'command') return 'Commands';
   if (mode === 'workflow') return 'Workflows';
   if (mode === 'file') return 'Files';
+  if (mode === 'search') return 'Search results';
   if (chip !== 'all') return SOURCE_CHIPS.find((c) => c.id === chip)?.label ?? 'Results';
   return 'Results';
 }
@@ -1009,6 +1014,99 @@ export const UnifiedSearchBar: React.FC<{
     [recentFiles],
   );
 
+  /** `#` — real workspace text search (FSA). Falls back to unified-search when disconnected. */
+  const loadContentSearch = useCallback(async (searchTerm: string) => {
+    setLoading(true);
+    setCommandSections([]);
+    try {
+      const term = searchTerm.trim();
+      if (term.length < 2) {
+        setItems([
+          {
+            id: 'content-hint',
+            category: 'tip',
+            title: '#',
+            subtitle: 'Type at least 2 characters to search file contents',
+          },
+        ]);
+        return;
+      }
+
+      const localHits: PaletteItem[] = [];
+      try {
+        const { hits, connected, permission } = await searchConnectedLocalContent(term);
+        if (!connected) {
+          localHits.push({
+            id: 'content-connect',
+            category: 'tip',
+            title: 'Connect a local folder',
+            subtitle: 'Use Local folder so # can search file contents on this machine',
+          });
+        } else if (permission === 'prompt' || permission === 'denied') {
+          localHits.push({
+            id: 'content-perm',
+            category: 'tip',
+            title: 'Reconnect local folder',
+            subtitle: 'Files panel shows Disconnected — grant access to search contents',
+          });
+        } else if (!hits.length) {
+          localHits.push({
+            id: 'content-empty',
+            category: 'tip',
+            title: `No matches for “${term.slice(0, 40)}”`,
+            subtitle: 'Searched connected folder text files',
+          });
+        } else {
+          for (const h of hits) {
+            localHits.push({
+              id: `content-${h.path}:${h.line}:${h.column}`,
+              category: 'file',
+              title: h.name,
+              subtitle: `${h.path}:${h.line} · ${h.preview}`,
+              filePath: h.path,
+              fileLine: h.line,
+              fileColumn: h.column,
+            });
+          }
+        }
+      } catch {
+        /* ignore FSA errors */
+      }
+
+      let remote: PaletteItem[] = [];
+      if (term.length >= 2) {
+        try {
+          const res = await fetch('/api/unified-search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ query: term, limit: 10, source_filters: ['codebase'] }),
+          });
+          if (res.ok) {
+            remote = normalizeLegacySearchRows((await res.json()) as Record<string, unknown>)
+              .filter((r) => r.type === 'knowledge' || r.type === 'file')
+              .map((r) => legacyToPalette(r))
+              .filter((x): x is PaletteItem => !!x)
+              .map((r) => ({
+                ...r,
+                category: 'file' as const,
+                filePath: r.legacyRow?.url || r.title,
+                subtitle: r.subtitle ? `${r.subtitle} · knowledge` : 'knowledge',
+              }));
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      const fileHits = localHits.filter((i) => i.category === 'file');
+      const tips = localHits.filter((i) => i.category === 'tip');
+      setItems(fileHits.length ? [...fileHits, ...remote] : [...tips, ...remote]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const loadClone = useCallback((searchTerm: string) => {
     const ref = parseGithubCloneRef(searchTerm);
     if (!ref) {
@@ -1209,6 +1307,10 @@ export const UnifiedSearchBar: React.FC<{
       await loadFiles(term);
       return;
     }
+    if (mode === 'search') {
+      await loadContentSearch(term);
+      return;
+    }
     if (mode === 'clone') {
       loadClone(term || q.trim());
       return;
@@ -1222,7 +1324,7 @@ export const UnifiedSearchBar: React.FC<{
       return;
     }
     await loadUnifiedSearch(term, sourceChip);
-  }, [mode, term, q, sourceChip, loadDefault, loadR2, loadD1, loadPlanes, loadHyperdrive, loadVectorize, loadCommands, loadWorkflows, loadFiles, loadClone, loadUnifiedSearch]);
+  }, [mode, term, q, sourceChip, loadDefault, loadR2, loadD1, loadPlanes, loadHyperdrive, loadVectorize, loadCommands, loadWorkflows, loadFiles, loadContentSearch, loadClone, loadUnifiedSearch]);
 
   useEffect(() => {
     if (!open) return;
@@ -1458,7 +1560,15 @@ export const UnifiedSearchBar: React.FC<{
       }
 
       if (item.category === 'file' && item.filePath) {
-        onNavigate({ kind: 'file', path: item.filePath }, searchQuery);
+        onNavigate(
+          {
+            kind: 'file',
+            path: item.filePath,
+            ...(item.fileLine != null ? { line: item.fileLine } : {}),
+            ...(item.fileColumn != null ? { column: item.fileColumn } : {}),
+          },
+          searchQuery,
+        );
         closePalette();
         return;
       }

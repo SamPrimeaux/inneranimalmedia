@@ -340,6 +340,26 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
     };
   }, [monaco, showMonacoBody, pushModelMeta]);
 
+  /** Cmd+K # content hits → reveal line after file open */
+  useEffect(() => {
+    const onReveal = (e: Event) => {
+      const detail = (e as CustomEvent<{ line?: number; column?: number }>).detail || {};
+      const line = Number(detail.line);
+      const column = Number(detail.column) || 1;
+      if (!Number.isFinite(line) || line < 1) return;
+      const editor = editorRef.current;
+      if (!editor) return;
+      const pos = { lineNumber: Math.floor(line), column: Math.max(1, Math.floor(column)) };
+      editor.revealLineInCenter(pos.lineNumber);
+      editor.setPosition(pos);
+      editor.focus();
+      const onCursor = onCursorRef.current;
+      if (onCursor) onCursor(pos.lineNumber, pos.column);
+    };
+    window.addEventListener('iam-editor-reveal', onReveal as EventListener);
+    return () => window.removeEventListener('iam-editor-reveal', onReveal as EventListener);
+  }, []);
+
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || !monaco || !activeFile) return;

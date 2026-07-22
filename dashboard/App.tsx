@@ -3361,6 +3361,19 @@ const App: React.FC = () => {
       if (nav.kind === 'file') {
         const path = String(nav.path || '').trim();
         if (!path) return;
+        const revealLine = nav.line != null && Number(nav.line) > 0 ? Math.floor(Number(nav.line)) : null;
+        const revealCol =
+          nav.column != null && Number(nav.column) > 0 ? Math.floor(Number(nav.column)) : 1;
+        const scheduleReveal = () => {
+          if (!revealLine) return;
+          window.setTimeout(() => {
+            window.dispatchEvent(
+              new CustomEvent('iam-editor-reveal', {
+                detail: { line: revealLine, column: revealCol, path },
+              }),
+            );
+          }, 120);
+        };
         void (async () => {
           try {
             const { resolveConnectedLocalFile } = await import('./src/lib/searchConnectedLocalFiles');
@@ -3374,6 +3387,7 @@ const App: React.FC = () => {
               revealMainWorkspaceIfNarrow();
               setOpenTabs((p) => (p.includes('code') ? p : [...p, 'code']));
               setActiveTab('code');
+              scheduleReveal();
               return;
             }
           } catch {
@@ -3413,6 +3427,7 @@ const App: React.FC = () => {
             revealMainWorkspaceIfNarrow();
             setOpenTabs((p) => (p.includes('code') ? p : [...p, 'code']));
             setActiveTab('code');
+            scheduleReveal();
           } catch {
             /* ignore */
           }
