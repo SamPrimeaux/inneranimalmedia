@@ -6,6 +6,7 @@ import {
 import {
   summarizeShellCallAction,
   formatShellCallOutputPreview,
+  isEmptyHostedShellAction,
 } from './openai-hosted-shell.js';
 
 function readSseChunk(reader, signal) {
@@ -209,16 +210,19 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
     if (callId && shellSeenCallIds.has(`call:${callId}`)) return;
     if (callId) shellSeenCallIds.add(`call:${callId}`);
     const summary = summarizeShellCallAction(item.action);
+    const empty = isEmptyHostedShellAction(summary);
     hostedShellEvents.push({
       type: 'shell_call',
       call_id: callId || null,
       status: item.status != null ? String(item.status) : null,
       action: summary,
+      empty: empty || undefined,
     });
     emit('tool_call', {
       tool: 'openai_hosted_shell',
       args: summary,
       call_id: callId || undefined,
+      ...(empty ? { empty: true } : {}),
     });
     emit('tool_start', {
       tool_name: 'openai_hosted_shell',
@@ -233,27 +237,36 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
     if (callId && shellSeenCallIds.has(`out:${callId}`)) return;
     if (callId) shellSeenCallIds.add(`out:${callId}`);
     const preview = formatShellCallOutputPreview(item.output);
+    const matchedCall = hostedShellEvents.find(
+      (e) => e?.type === 'shell_call' && String(e.call_id || '') === callId,
+    );
+    const empty = matchedCall?.empty === true || isEmptyHostedShellAction(matchedCall?.action);
     hostedShellEvents.push({
       type: 'shell_call_output',
       call_id: callId || null,
       preview: preview.slice(0, 2000),
+      empty: empty || undefined,
     });
     emit('tool_output', {
       tool_name: 'openai_hosted_shell',
       tool_call_id: callId || undefined,
-      output: preview.slice(0, 8000),
-      ok: true,
+      output: empty
+        ? 'empty_hosted_shell_commands — no workspace write occurred'
+        : preview.slice(0, 8000),
+      ok: !empty,
     });
     emit('tool_result', {
       tool: 'openai_hosted_shell',
       tool_call_id: callId || undefined,
-      result: preview.slice(0, 8000),
-      ok: true,
+      result: empty
+        ? 'empty_hosted_shell_commands — no workspace write occurred; use an active workspace file-write tool'
+        : preview.slice(0, 8000),
+      ok: !empty,
     });
     emit('tool_done', {
       tool_name: 'openai_hosted_shell',
       tool_call_id: callId || undefined,
-      ok: true,
+      ok: !empty,
     });
   };
 

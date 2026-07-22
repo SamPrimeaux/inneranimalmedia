@@ -677,14 +677,14 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
     params.writePolicy ||
     params.write_policy ||
     null;
-  const openaiHostedShellEnabled =
-    params.openaiHostedShellEnabled === true ||
-    (await shouldInjectHostedShell(env, {
-      userId,
-      tenantId: params.tenantId,
-      modelKey: modelKey || modelForApi,
-      writePolicy,
-    }));
+  const openaiHostedShellEnabled = await shouldInjectHostedShell(env, {
+    userId,
+    tenantId: params.tenantId,
+    modelKey: modelKey || modelForApi,
+    writePolicy,
+    // Explicit true keeps soak paths; otherwise D1 flag + write_policy decide.
+    forceHostedShell: params.openaiHostedShellEnabled === true,
+  });
   const hostedShellDomains = openaiHostedShellEnabled
     ? await loadHostedShellAllowedDomains(env)
     : [];
@@ -842,14 +842,13 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
       modelKey: modelKey || modelForApi,
     }));
   const writePolicy = params.writePolicy || params.write_policy || null;
-  const openaiHostedShellEnabled =
-    params.openaiHostedShellEnabled === true ||
-    (await shouldInjectHostedShell(env, {
-      userId,
-      tenantId: params.tenantId,
-      modelKey: modelKey || modelForApi,
-      writePolicy,
-    }));
+  const openaiHostedShellEnabled = await shouldInjectHostedShell(env, {
+    userId,
+    tenantId: params.tenantId,
+    modelKey: modelKey || modelForApi,
+    writePolicy,
+    forceHostedShell: params.openaiHostedShellEnabled === true,
+  });
   const hostedShellDomains = openaiHostedShellEnabled
     ? await loadHostedShellAllowedDomains(env)
     : [];

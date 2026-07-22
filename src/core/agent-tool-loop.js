@@ -72,6 +72,10 @@ import {
 } from './agent-sse-consumer.js';
 import { executeApplyPatchCalls } from './openai-apply-patch.js';
 import { normalizeOpenAiToolStopReason } from './agent-tool-stop-reason.js';
+import {
+  isEmptyHostedShellAction,
+  HOSTED_SHELL_EMPTY_RECOVERY,
+} from './openai-hosted-shell.js';
 import { tryBroadcastMonacoPatchFromToolOutput } from './collab-broadcast.js';
 import { TAVILY_DEFAULTS } from './tavily-open-web-search.js';
 import {
@@ -1097,6 +1101,8 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     const pendingToolCalls = [];
     /** @type {Array<Record<string, unknown>>} */
     let pendingApplyPatchCalls = [];
+    /** @type {Array<Record<string, unknown>>} */
+    let turnHostedShellEvents = [];
     let stopReason = null, turnUsage = null, containerId = null;
     const assistantContent = [];
     let assistantReasoningContent = '';
@@ -1266,6 +1272,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           pendingApplyPatchCalls = parsed.pendingApplyPatchCalls;
         }
         if (Array.isArray(parsed.hostedShellEvents) && parsed.hostedShellEvents.length) {
+          turnHostedShellEvents = parsed.hostedShellEvents;
           const shellCalls = parsed.hostedShellEvents.filter((e) => e?.type === 'shell_call');
           console.info(
             '[agent] openai_hosted_shell_calls',
@@ -1273,6 +1280,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
               count: shellCalls.length,
               event_count: parsed.hostedShellEvents.length,
               call_ids: shellCalls.map((e) => e.call_id).filter(Boolean).slice(0, 8),
+              empty_count: shellCalls.filter((e) => isEmptyHostedShellAction(e?.action)).length,
               turn: turnCount,
             }),
           );
@@ -1628,6 +1636,35 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
 
     const clientToolCalls = pendingToolCalls.filter((c) => !c._server);
     if (!clientToolCalls.length && !pendingApplyPatchCalls.length) {
+      const emptyShellCalls = turnHostedShellEvents.filter(
+        (e) => e?.type === 'shell_call' && (e.empty === true || isEmptyHostedShellAction(e.action)),
+      );
+      const assistantPlain = assistantContent
+        .filter((b) => b?.type === 'text')
+        .map((b) => String(b.text || ''))
+        .join('')
+        .trim();
+      // Empty hosted shell + no function tools + no text → do not end the turn silent.
+      // Continue the loop with a capability-level recovery nudge (no tool_key hardcodes).
+      if (emptyShellCalls.length && !assistantPlain && turnCount < maxTurns) {
+        console.warn(
+          '[agent] openai_hosted_shell_empty_recover',
+          JSON.stringify({
+            empty_count: emptyShellCalls.length,
+            turn: turnCount,
+            agent_run_id: chatAgentRunId != null ? String(chatAgentRunId) : null,
+          }),
+        );
+        emit('status', {
+          phase: 'recover',
+          message: 'Empty hosted shell — continuing so the model can use workspace file tools',
+        });
+        conversationMessages.push({
+          role: 'user',
+          content: [{ type: 'text', text: HOSTED_SHELL_EMPTY_RECOVERY }],
+        });
+        continue;
+      }
       if (routingWs) {
         const qs = Number(qualityScore);
         if (Number.isFinite(qs)) {
