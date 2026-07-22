@@ -6,6 +6,7 @@ import {
   checkSudoPermission,
   formatTerminalExec403,
   buildExecTransportHeaders,
+  resolveTerminalExecIdentity,
 } from '../../src/core/agentsam-privileged-targets.js';
 
 /** @param {object|null} privilegedRow @param {object|null} connectionRow */
@@ -156,4 +157,39 @@ test('buildExecTransportHeaders tags AgentSam service identity', () => {
   });
   assert.equal(headers['X-IAM-Exec-Identity'], 'agentsam');
   assert.equal(headers['X-IAM-Privileged-Target'], 'conn_gcp_iam_tunnel');
+});
+
+test('resolveTerminalExecIdentity refills remote_exec_user when health SELECT omitted it', async () => {
+  const db = {
+    prepare(sql) {
+      const q = String(sql);
+      return {
+        bind() {
+          return {
+            async first() {
+              if (q.includes('FROM terminal_connections') && q.includes('remote_exec_user')) {
+                return {
+                  username: 'samprimeaux',
+                  remote_exec_user: 'samprimeaux',
+                  platform: 'macos',
+                  target_type: 'user_hosted_tunnel',
+                  privileged_target_id: null,
+                  ssh_identity_secret_name: null,
+                };
+              }
+              return null;
+            },
+          };
+        },
+      };
+    },
+  };
+  const slim = {
+    id: 'conn_mac_local',
+    platform: 'macos',
+    target_type: 'user_hosted_tunnel',
+  };
+  const id = await resolveTerminalExecIdentity(db, slim);
+  assert.equal(id.execUser, 'samprimeaux');
+  assert.equal(buildExecTransportHeaders(id)['X-IAM-Exec-Identity'], 'samprimeaux');
 });

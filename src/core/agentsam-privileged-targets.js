@@ -187,7 +187,27 @@ export function formatTerminalExec403(check) {
  * @returns {Promise<{ execUser: string|null, sshIdentitySecret: string|null, privilegedTargetId: string|null }>}
  */
 export async function resolveTerminalExecIdentity(db, connection, privilegedTarget = null) {
-  const conn = connection && typeof connection === 'object' ? connection : null;
+  let conn = connection && typeof connection === 'object' ? connection : null;
+  // Health-aware SELECT historically omitted identity columns — refill before resolve.
+  if (
+    db &&
+    conn?.id &&
+    !(conn.remote_exec_user != null && String(conn.remote_exec_user).trim()) &&
+    !(conn.username != null && String(conn.username).trim())
+  ) {
+    try {
+      const full = await db
+        .prepare(
+          `SELECT username, remote_exec_user, platform, target_type, privileged_target_id, ssh_identity_secret_name
+           FROM terminal_connections WHERE id = ? LIMIT 1`,
+        )
+        .bind(String(conn.id))
+        .first();
+      if (full && typeof full === 'object') conn = { ...conn, ...full };
+    } catch (_) {
+      /* keep slim row */
+    }
+  }
   let privilegedTargetId =
     conn?.privileged_target_id != null ? String(conn.privileged_target_id).trim() : '';
   if (!privilegedTargetId && conn?.id) {

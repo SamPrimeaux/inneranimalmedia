@@ -396,7 +396,7 @@ export const DEFAULT_TERMINAL_PREFS = {
 
 const TERMINAL_CONN_SELECT = `
   id, ws_url, auth_token_secret_name, connection_type, ollama_url,
-  shell, platform, user_id, workspace_id, tenant_id, auth_mode, token_verify_endpoint,
+  shell, platform, username, user_id, workspace_id, tenant_id, auth_mode, token_verify_endpoint,
   target_type, target_priority, self_service_enabled, last_health_status, last_health_at,
   health_error, cwd_strategy, is_default, is_active, updated_at,
   remote_exec_user, privileged_target_id, ssh_identity_secret_name`;
