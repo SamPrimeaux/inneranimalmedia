@@ -230,6 +230,9 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
   const [showDiff, setShowDiff] = useState(false);
   const [copied, setCopied] = useState(false);
   const [gitActionHint, setGitActionHint] = useState<string | null>(null);
+  const [mdViewMode, setMdViewMode] = useState<'source' | 'split' | 'preview'>('split');
+
+  const isMarkdown = Boolean(activeFile?.name?.match(/\.(md|markdown)$/i));
 
   const resolvedKind =
     activeFile?.fileKind ||
