@@ -24,6 +24,7 @@ export function StudioCmsHost({
   initialPanel,
   workspaceId,
   onSiteChange,
+  onNavigatePath,
 }: Props) {
   const src = useMemo(() => {
     const params = new URLSearchParams();
