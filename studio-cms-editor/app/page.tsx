@@ -346,7 +346,7 @@ export default function CmsEditor({ projectSlug = "inneranimalmedia", initialPag
   if (!site || !page) {
     return (
       <main className="cms-shell">
-        <div className="canvas-stage" style={{ display: "grid", placeItems: "center", minHeight: "100vh", background: "#09090b", color: "#f4f4f8" }}>
+        <div className="canvas-stage" style={{ display: "grid", placeItems: "center", minHeight: "100vh", background: "#F9F7F2", color: "#1a1a1a" }}>
           {bootstrapLoading ? (
             <div className="canvas-loading"><div className="skeleton-topbar"/><div className="skeleton-hero"/><div className="skeleton-block"/></div>
           ) : (
