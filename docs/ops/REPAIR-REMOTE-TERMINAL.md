@@ -8,23 +8,37 @@
 
 ## STATUS UPDATE — 2026-07-22
 
-**`agentsam_terminal_remote` (conn_gcp_iam_tunnel): HEALTHY.** Re-verified:
-- Real Linux cwd `/home/samprimeaux/inneranimalmedia`, identity `agentsam`, exit 0
-- Original ENOENT-on-every-call symptom does **not** reproduce on a valid VM path
-- macOS-style cwd on remote is a **separate** path-sanitize question (optional repro), not the same as “remote lane dead”
+**Lane health vs path hygiene are different bugs.**
 
-**`agentsam_terminal_local` via OAuth MCP: remapped to remote on purpose — was silent, now must be loud.**
-- Policy (`mcp-oauth-terminal-policy.js`): OAuth callers requesting `agentsam_terminal_local` → execute `agentsam_terminal_remote` (`reroute_reason: oauth_remote_default`). VM is the stable OAuth lane; Mac localpty is not the OAuth default.
-- **2026-07-21 note (sandbox):** older observation of local → CF Container sandbox is **retired** for OAuth; current remap target is **GCP remote**, not sandbox.
-- **2026-07-22 finding:** remapped results looked identical to genuine remote (`terminal.inneranimalmedia.com`, `gcp_remote`, `conn_gcp_iam_tunnel`) with no `requested_tool` / `reroute_*` — quiet host substitution is worse than loud ENOENT.
-- **Fix:** stamp `requested_tool`, `executed_tool`, `reroute_tool`, `reroute_reason`, `lane_substituted`, and `user_message` on remapped JSON so callers cannot mistake VM for Mac.
-- `https://localpty.inneranimalmedia.com/health` is **200** as of 2026-07-22 — Mac tunnel can be up while OAuth still remaps. Bridge / non-OAuth / Settings Terminal device setup is the path to verify true localpty.
+**A — Exec lane (conn_gcp_iam_tunnel): HEALTHY** for real Linux paths.
+- `pwd` / repo commands under `/home/samprimeaux/inneranimalmedia` → exit 0, identity `agentsam`
+- Original “every call ENOENT / empty stdout” is **not** the current failure mode
+
+**B — macOS paths inside the command body: STILL OPEN (Phase 3 blocker).**
+- Harness / MCP wrap always prefix `cd <gcpRoot> &&` (resolved via `gcpRemoteExecCwd` / connection cwd). They do **not** parse arbitrary paths inside the rest of the command.
+- `rewriteMacCwdInShellCommand` only rewrites a **leading** `cd /Users/... && …`. Embedded paths (`cat /Users/.../package.json`, `node /Users/.../x.js`) stay Mac-absolute → Linux `No such file or directory`.
+- Typical agents survive because the harness’s own `cd` lands first and the rest of the command uses relative paths. That is **masking**, not a fix.
+- Nuance on ChatGPT’s “execos-fabric.js line 58”: the hardcoded `/Users/samprimeaux/inneranimalmedia` there is the **non-gcp** operator_fallback host root. GCP target uses `gcpRemoteExecCwd` (lines 45–50). Same class of Mac-on-Linux risk, different call site — fix embedded-path normalize (or fail loud) on the shell wrap path, not only that one line.
+
+**C — `ok:true` despite nonzero exit: check surface.**
+- MCP `buildTerminalToolResponseBody` already sets `ok = !spawnFailed && (exitCode == null || exitCode === 0)`.
+- Main-worker `execos-fabric.normalizeExecResult` also requires `exitCode === 0` for `ok`.
+- If a live call still shows `ok:true` with nonzero `exit_code`, that is a **different** response path (or a client misread of envelope vs body) — reproduce and name the handler before rewriting architecture.
+
+**D — OAuth `agentsam_terminal_local`: remapped to remote on purpose (loud stamp shipped).**
+- `oauth_remote_default` → execute remote; stamp `requested_tool` / `reroute_*` / `lane_substituted`.
+- localpty health can be 200 while OAuth still remaps (policy, not tunnel-down fallback).
+
+**E — ChatGPT “remote tool not in this chat” ≠ platform broken.**
+- Allowlist SSOT: `agentsam_terminal_remote` is `expose_on_connector=1`, `connector_priority=4` on `iam_mcp_inneranimalmedia`.
+- Connector assembly: `applyOperatorTerminalConnectorPolicy` **strips** remote when `!isSamOperatorLaneUserId(user_id) && !_is_superadmin`. For operators it injects remote near the front (survives the 40-tool cap).
+- So missing remote on ChatGPT is **session operator scope** (or ChatGPT client truncating the list), not “curated catalog lying” and not primarily KV allowlist staleness. Ask ChatGPT for resolved `user_id` / `is_operator` from `tools/list` logs / workspace context before treating it as rewrite-required.
 
 **Remaining work:**
-1. Confirm stamped remapping fields on a live OAuth `agentsam_terminal_local` call after MCP deploy.
-2. Optional: pass a macOS cwd to `agentsam_terminal_remote` to see if path-sanitize / ENOENT still fires (distinct from lane health).
-3. True Mac verification: non-OAuth / bridge / Settings → Terminal — expect `user_hosted_tunnel` / localpty, not `gcp_remote`.
-4. Keep sandbox out of local/remote success paths (callers must use `agentsam_terminal_sandbox` explicitly).
+1. Normalize or reject embedded `/Users/…` (and `/Volumes/…`) on GCP exec — Phase 3 apply_patch/shell prerequisite.
+2. If `ok:true`+nonzero still reproduces, trace that response path and fix reporting.
+3. Confirm stamped OAuth local→remote fields on a live connector call.
+4. ChatGPT: confirm `user_id` ∈ Sam operator lane (`au_871d…` set) vs customer/Connor; only then chase KV `bumpOAuthAllowlistVersion` or a second tools/list filter.
 
 ---
 
