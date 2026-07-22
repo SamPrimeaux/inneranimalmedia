@@ -317,7 +317,7 @@ function renderMessageContent(
           code={code}
           fileBase={`agent_output_${msgIndex}_${codeCount}`}
           fileExt={ext}
-          onOpenMonaco={onOpenMonaco}
+          onOpenMonaco={onFileSelect}
           collapseLines={30}
           maxPreviewHeightPx={180}
         />,
