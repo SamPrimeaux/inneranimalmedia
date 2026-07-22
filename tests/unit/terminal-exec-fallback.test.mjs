@@ -22,6 +22,17 @@ test('resolveTerminalFallbackChain local → sandbox only for non-operators', ()
   assert.deepEqual(chain, [TERMINAL_LANE_TOOLS.LOCAL, TERMINAL_LANE_TOOLS.SANDBOX]);
 });
 
+test('resolveTerminalFallbackChain honors do-not-use sandbox / only local', () => {
+  assert.deepEqual(
+    resolveTerminalFallbackChain(TERMINAL_LANE_TOOLS.LOCAL, {
+      isPlatformOperator: true,
+      userMessage:
+        'Use only agentsam_terminal_local. Do not use playwright or sandbox. Command: pwd',
+    }),
+    [TERMINAL_LANE_TOOLS.LOCAL, TERMINAL_LANE_TOOLS.REMOTE],
+  );
+});
+
 test('isRetriableTerminalLaneFailure treats PTY 403 as retriable', () => {
   assert.equal(
     isRetriableTerminalLaneFailure({
@@ -29,6 +40,16 @@ test('isRetriableTerminalLaneFailure treats PTY 403 as retriable', () => {
       error: 'Terminal Error: PTY command failed (403)',
     }),
     true,
+  );
+});
+
+test('isRetriableTerminalLaneFailure does not cascade on missing Exec-Identity', () => {
+  assert.equal(
+    isRetriableTerminalLaneFailure({
+      ok: false,
+      error: 'Terminal Error: IAM Security: X-IAM-Exec-Identity required',
+    }),
+    false,
   );
 });
 

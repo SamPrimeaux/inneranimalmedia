@@ -159,7 +159,7 @@ test('buildExecTransportHeaders tags AgentSam service identity', () => {
   assert.equal(headers['X-IAM-Privileged-Target'], 'conn_gcp_iam_tunnel');
 });
 
-test('resolveTerminalExecIdentity refills remote_exec_user when health SELECT omitted it', async () => {
+test('resolveTerminalExecIdentity always merges D1 identity columns by connection id', async () => {
   const db = {
     prepare(sql) {
       const q = String(sql);
@@ -184,12 +184,15 @@ test('resolveTerminalExecIdentity refills remote_exec_user when health SELECT om
       };
     },
   };
-  const slim = {
+  // Stale DO cache may even carry a wrong empty string — D1 merge must win.
+  const stale = {
     id: 'conn_mac_local',
     platform: 'macos',
     target_type: 'user_hosted_tunnel',
+    remote_exec_user: '',
+    username: '',
   };
-  const id = await resolveTerminalExecIdentity(db, slim);
+  const id = await resolveTerminalExecIdentity(db, stale);
   assert.equal(id.execUser, 'samprimeaux');
   assert.equal(buildExecTransportHeaders(id)['X-IAM-Exec-Identity'], 'samprimeaux');
 });

@@ -71,7 +71,7 @@ export const TERMINAL_LANE_TOOLS = Object.freeze({
 
 /**
  * @param {string|null|undefined} initialToolKey
- * @param {{ isPlatformOperator?: boolean }} [opts]
+ * @param {{ isPlatformOperator?: boolean, userMessage?: string|null }} [opts]
  * @returns {string[]}
  */
 export function resolveTerminalFallbackChain(initialToolKey, opts = {}) {
@@ -80,14 +80,18 @@ export function resolveTerminalFallbackChain(initialToolKey, opts = {}) {
 
   /** @type {string[]} */
   const chain = [initial];
+  const msg = String(opts.userMessage || '').toLowerCase();
+  const denySandbox =
+    /\b(do\s+not|don't|dont|never)\s+(use|call|run|invoke)\b[\s\S]{0,80}\bsandbox\b/.test(msg) ||
+    /\bonly\s+agentsam_terminal_local\b/.test(msg);
 
   if (initial === TERMINAL_LANE_TOOLS.LOCAL) {
-    chain.push(TERMINAL_LANE_TOOLS.SANDBOX);
+    if (!denySandbox) chain.push(TERMINAL_LANE_TOOLS.SANDBOX);
     if (opts.isPlatformOperator === true) {
       chain.push(TERMINAL_LANE_TOOLS.REMOTE);
     }
   } else if (initial === TERMINAL_LANE_TOOLS.REMOTE) {
-    chain.push(TERMINAL_LANE_TOOLS.SANDBOX);
+    if (!denySandbox) chain.push(TERMINAL_LANE_TOOLS.SANDBOX);
   }
 
   return [...new Set(chain)];
@@ -124,6 +128,12 @@ export function isRetriableTerminalLaneFailure(result) {
 
   // Non-zero exit mislabeled as spawn — still not a lane outage if we have a numeric code above.
   if (err === 'command_nonzero_exit' || /^exit[_ ]?code/i.test(err)) return false;
+
+  // Missing/mismatched ExecOS identity is a config bug on the chosen lane — do not
+  // launder it into a silent sandbox "success" (hides Mac localpty failures).
+  if (/x-iam-exec-identity|identity_mismatch|identity required|exec.?identity/i.test(err)) {
+    return false;
+  }
 
   const retriable =
     /403|401|forbidden|auth|pty command failed|enoent|tunnel|unavailable|timeout|econnrefused|connection|health_probe|not_provisioned|mobile_local|routing forbidden|terminal error|exec_spawn_failed/i.test(
@@ -490,7 +500,16 @@ export async function executeTerminalCatalogWithFallback(env, ctx) {
   }
 
   const isOp = await userIsPlatformOperator(env, ctx.runContext?.authUser, ctx.workspaceId);
-  const chain = resolveTerminalFallbackChain(initialToolKey, { isPlatformOperator: isOp });
+  const userMessage =
+    ctx.runContext?.userMessage ||
+    ctx.runContext?.message ||
+    ctx.runContext?.user_message ||
+    ctx.params?.user_message ||
+    null;
+  const chain = resolveTerminalFallbackChain(initialToolKey, {
+    isPlatformOperator: isOp,
+    userMessage,
+  });
 
   /** @type {Array<{ tool: string, ok: boolean, error?: string|null, lane?: string|null }>} */
   const attempts = [];

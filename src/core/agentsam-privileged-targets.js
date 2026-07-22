@@ -187,14 +187,10 @@ export function formatTerminalExec403(check) {
  * @returns {Promise<{ execUser: string|null, sshIdentitySecret: string|null, privilegedTargetId: string|null }>}
  */
 export async function resolveTerminalExecIdentity(db, connection, privilegedTarget = null) {
-  let conn = connection && typeof connection === 'object' ? connection : null;
-  // Health-aware SELECT historically omitted identity columns — refill before resolve.
-  if (
-    db &&
-    conn?.id &&
-    !(conn.remote_exec_user != null && String(conn.remote_exec_user).trim()) &&
-    !(conn.username != null && String(conn.username).trim())
-  ) {
+  let conn = connection && typeof connection === 'object' ? { ...connection } : null;
+  // Always merge identity columns from D1 by id. DO-cached / health-slim rows often omit them
+  // → missing X-IAM-Exec-Identity → ExecOS 403 → false sandbox "success".
+  if (db && conn?.id) {
     try {
       const full = await db
         .prepare(
@@ -205,7 +201,7 @@ export async function resolveTerminalExecIdentity(db, connection, privilegedTarg
         .first();
       if (full && typeof full === 'object') conn = { ...conn, ...full };
     } catch (_) {
-      /* keep slim row */
+      /* keep row as-is */
     }
   }
   let privilegedTargetId =

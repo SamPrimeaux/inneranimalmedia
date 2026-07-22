@@ -1933,7 +1933,8 @@ export class AgentChatSqlV1 extends DurableObject {
       "platform_vm";
     const pinnedId =
       String(this.requestedConnectionId || routing.target_id || "").trim() || null;
-    let conn = pinnedId ? null : this.selectedTerminalConnection;
+    // Always re-resolve for user_hosted_tunnel — DO-cached conn often lacks identity columns.
+    let conn = pinnedId || execTarget === "user_hosted_tunnel" ? null : this.selectedTerminalConnection;
     if (!conn && this.env?.DB) {
       try {
         const sel = await getSelectedTerminalConnection(this.env.DB, {
@@ -1952,6 +1953,24 @@ export class AgentChatSqlV1 extends DurableObject {
       } catch (_) {}
     }
     const execIdentity = await resolveTerminalExecIdentity(this.env?.DB, conn);
+    if (
+      (execTarget === "user_hosted_tunnel" || String(conn?.target_type || "").trim() === "user_hosted_tunnel") &&
+      !execIdentity.execUser
+    ) {
+      console.warn(
+        "[terminal] mac_local_missing_exec_identity",
+        JSON.stringify({
+          connection_id: conn?.id || null,
+          platform: conn?.platform || null,
+          remote_exec_user: conn?.remote_exec_user || null,
+          username: conn?.username || null,
+        }),
+      );
+      return {
+        error:
+          "IAM Security: X-IAM-Exec-Identity required (terminal_connections.remote_exec_user/username missing for this Mac tunnel)",
+      };
+    }
     const execHeaders = buildExecTransportHeaders({
       ...execIdentity,
       userId: execUid,
