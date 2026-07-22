@@ -1,0 +1,11 @@
+# Phase 1 — data quality profiler (pandas/numpy).
+# Phase 2 adds: scikit-learn==1.5.2
+# Phase 3 adds: torch==2.5.1  (Apple Silicon M4 → MPS)
+#
+# Use Python 3.12 (Homebrew default may be 3.14; pandas 2.2.3 has no 3.14 wheels):
+#   cd tools/ml && ~/.local/bin/python3.12 -m venv venv && venv/bin/pip install -r requirements.txt
+
+pandas==2.2.3
+numpy==2.1.3
+requests==2.32.3
+python-dotenv==1.0.1
