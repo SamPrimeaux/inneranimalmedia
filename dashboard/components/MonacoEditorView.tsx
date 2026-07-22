@@ -792,7 +792,50 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
             }}
             options={buildDiffEditorOptions({ modifiedEditable: !isTruncated })}
           />
+        ) : isMarkdown && mdViewMode === 'preview' ? (
+          /* ── Markdown: Preview only ── */
+          <iframe
+            key={`md-preview-${activeFile.id}`}
+            title={`Preview ${activeFile.name}`}
+            srcDoc={markdownToHtml(activeFile.content ?? '')}
+            sandbox="allow-scripts"
+            className="absolute inset-0 w-full h-full border-0"
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none' }}
+          />
+        ) : isMarkdown && mdViewMode === 'split' ? (
+          /* ── Markdown: Split view (Monaco left | preview right) ── */
+          <div className="flex h-full w-full min-h-0">
+            {/* Monaco pane */}
+            <div className="flex flex-col min-h-0 min-w-0" style={{ width: '50%', borderRight: '1px solid var(--dashboard-border)' }}>
+              {isTruncated && (
+                <div
+                  className="px-3 py-1.5 text-xs bg-[var(--accent-warning)] text-[var(--bg-primary,#060e14)] flex items-center gap-2 shrink-0 border-b border-[var(--dashboard-border)]"
+                  role="status"
+                >
+                  <span>Showing first 500KB — save disabled</span>
+                </div>
+              )}
+              <div ref={containerRef} className="flex-1 min-h-0 w-full" />
+            </div>
+            {/* Preview pane */}
+            <div className="relative min-h-0 min-w-0" style={{ width: '50%' }}>
+              <div
+                className="absolute top-0 left-0 right-0 z-10 px-3 py-1 text-[10px] uppercase tracking-widest text-muted border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] flex items-center gap-2"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--solar-cyan)] inline-block" />
+                Preview
+              </div>
+              <iframe
+                key={`md-split-${activeFile.id}`}
+                title={`Split preview ${activeFile.name}`}
+                srcDoc={markdownToHtml(activeFile.content ?? '')}
+                sandbox="allow-scripts"
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none', paddingTop: 24 }}
+              />
+            </div>
+          </div>
         ) : (
+          /* ── Default: Monaco source (+ markdown source mode) ── */
           <div className="flex flex-col h-full w-full min-h-0">
             {isTruncated && (
               <div
