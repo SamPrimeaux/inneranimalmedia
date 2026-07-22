@@ -91,3 +91,30 @@ test('do-not mid-list skips denied terminal tool', () => {
     'Use agentsam_terminal_local. Do not use agentsam_terminal_sandbox, or playwright. Command: pwd';
   assert.deepEqual(extractExplicitCatalogToolKeys(msg), ['agentsam_terminal_local']);
 });
+
+test('slash deny-list skips fs_write_file (apply_patch PASS1 prompt)', () => {
+  const msg = `PASS1 apply_patch soak — hosted tool only.
+
+Use the OpenAI Responses hosted apply_patch tool (type apply_patch). Do NOT use fs_edit_file / fs_write_file / workspace_apply_patch for this.
+
+Create exactly one new workspace-relative file:
+  .scratch/oai_apply_patch_pass1.txt`;
+  assert.deepEqual(extractExplicitCatalogToolKeys(msg), []);
+  assert.equal(
+    resolveForcedExplicitCatalogTool(msg, [
+      { name: 'fs_write_file' },
+      { name: 'fs_read_file' },
+      { name: 'agentsam_search_tools' },
+    ]),
+    null,
+  );
+});
+
+test('fs_write_file is never force-preinvoked even when positively named', () => {
+  const msg = 'Call fs_write_file with path tmp/x.txt and content hello';
+  assert.deepEqual(extractExplicitCatalogToolKeys(msg), ['fs_write_file']);
+  assert.equal(
+    resolveForcedExplicitCatalogTool(msg, [{ name: 'fs_write_file' }, { name: 'fs_read_file' }]),
+    null,
+  );
+});

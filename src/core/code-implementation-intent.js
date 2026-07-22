@@ -22,7 +22,7 @@ export function isExplicitGithubCatalogToolIntent(message) {
  * Catalog tool keys explicitly named in the message (for allowlist pin / force).
  * Matches agentsam_* / fs_* / pty_* keys so progressive thin-pipe can hydrate
  * tools the user named (e.g. agentsam_terminal_local) without waiting on search_tools.
- * Skips tools under "do not / don't / never call|use|run …".
+ * Skips tools under "do not / don't / never call|use|run …" (including slash/comma lists).
  * @param {unknown} message
  * @returns {string[]}
  */
@@ -37,20 +37,42 @@ export function extractExplicitCatalogToolKeys(message) {
   while ((match = re.exec(m)) != null) {
     const k = String(match[1] || '').toLowerCase();
     if (!k || keys.includes(k)) continue;
-    const before = m.slice(Math.max(0, match.index - 48), match.index).toLowerCase();
-    if (/\b(do\s+not|don't|dont|never)\s+(call|use|run|invoke)\s*$/.test(before.trimEnd())) {
-      continue;
-    }
-    // "Do not use playwright, agentsam_terminal_sandbox, or …" — tool mid-list after deny verb.
-    if (
-      /\b(do\s+not|don't|dont|never)\s+(call|use|run|invoke)\b[\s\S]{0,80}$/.test(before) &&
-      /,\s*$/.test(before.trimEnd())
-    ) {
+    if (isCatalogToolDeniedInPrefix(m.slice(Math.max(0, match.index - 120), match.index))) {
       continue;
     }
     keys.push(k);
   }
   return keys;
+}
+
+/**
+ * True when `before` ends inside a "do not use/call/run …" deny clause that still
+ * covers this tool (immediate, comma-list, or slash-list).
+ * @param {string} beforeRaw
+ */
+function isCatalogToolDeniedInPrefix(beforeRaw) {
+  const before = String(beforeRaw || '').toLowerCase();
+  const beforeTrim = before.trimEnd();
+  if (/\b(do\s+not|don't|dont|never)\s+(call|use|run|invoke)\s*$/.test(beforeTrim)) {
+    return true;
+  }
+  if (
+    /\b(do\s+not|don't|dont|never)\s+(call|use|run|invoke)\b[\s\S]{0,100}$/.test(before) &&
+    /,\s*$/.test(beforeTrim)
+  ) {
+    return true;
+  }
+  // "Do NOT use fs_edit_file / fs_write_file / workspace_apply_patch for this."
+  const denyAt = beforeTrim.search(/\b(do\s+not|don't|dont|never)\s+(call|use|run|invoke)\b/i);
+  if (denyAt < 0) return false;
+  const afterDeny = beforeTrim.slice(denyAt).replace(
+    /^\s*(do\s+not|don't|dont|never)\s+(call|use|run|invoke)\b/i,
+    '',
+  );
+  // Still in the deny list if only tool tokens + separators remain before this match.
+  if (!/^[\s,/;|a-z0-9_]+$/i.test(afterDeny)) return false;
+  if (/\b(for|this|please|instead|then|with|to)\b/i.test(afterDeny)) return false;
+  return true;
 }
 
 /**
@@ -71,12 +93,23 @@ export function resolveForcedExplicitCatalogTool(message, tools) {
   ) {
     return null;
   }
+  // apply_patch soak: let Responses hosted apply_patch run — do not steal with fs_* preinvoke.
+  if (
+    /\bopenai_apply_patch\b/i.test(msg) ||
+    /\bhosted\s+apply_patch\b/i.test(msg) ||
+    /\btype\s*[:=]\s*[\"']?apply_patch\b/i.test(msg) ||
+    /\bapply_patch_call\b/i.test(msg) ||
+    (/\bapply_patch\b/i.test(msg) && /\b(hosted|responses|PASS\s*1|soak)\b/i.test(msg))
+  ) {
+    return null;
+  }
   // Pin can hydrate any named agentsam_*/fs_*/pty_* key; force/preinvoke stays
-  // limited to read/search/terminal so naming a deploy tool cannot auto-run.
+  // limited to read/search/terminal so naming a write/deploy tool cannot auto-run.
   const keys = extractExplicitCatalogToolKeys(message).filter(
     (k) =>
       k.startsWith('agentsam_github_') ||
-      k.startsWith('fs_') ||
+      k === 'fs_read_file' ||
+      k === 'fs_search_files' ||
       k === 'agentsam_codebase_retrieve' ||
       k === 'agentsam_memory_search' ||
       k === 'agentsam_search_tools' ||
