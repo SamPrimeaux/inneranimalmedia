@@ -130,7 +130,22 @@ export function buildExplicitCatalogToolInput(toolName, message) {
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 200);
-    return { query, top_k: 8, expand: true, hydrate: true };
+    const repoLine =
+      m.match(/\brepo\s*[:=]\s*[\"']([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)[\"']/i) ||
+      m.match(/\brepo\s*[:=]\s*([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/i) ||
+      m.match(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/);
+    const repo = repoLine ? String(repoLine[1]).trim() : '';
+    const topKMatch = m.match(/\btop[_\s-]?k\s*[:=]\s*(\d{1,2})\b/i);
+    const top_k = topKMatch ? Math.min(32, Math.max(1, Number(topKMatch[1]) || 8)) : 8;
+    const expand = !/\bexpand\s*[:=]\s*false\b/i.test(m);
+    const hydrate = !/\bhydrate\s*[:=]\s*false\b/i.test(m);
+    return {
+      query,
+      top_k,
+      expand,
+      hydrate,
+      ...(repo.includes('/') ? { repo } : {}),
+    };
   }
   if (name === 'agentsam_memory_search') {
     const q = m.match(/\b(?:query|search for|find)\s+[\"']?([^\"'\n]+)[\"']?/i);
