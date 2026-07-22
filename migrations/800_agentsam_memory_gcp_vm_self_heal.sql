@@ -5,7 +5,7 @@
 
 INSERT INTO agentsam_memory (
   id, memory_id, tenant_id, user_id, workspace_id, memory_type, key, value, title, summary,
-  source, tags, confidence, importance, is_pinned, sync_key, updated_at
+  source, tags, confidence, importance, is_pinned, sync_key, revision, status, updated_at
 ) VALUES (
   'mem_gcp_vm_self_heal_router_v1',
   'mem_gcp_vm_self_heal_router_v1',
@@ -23,21 +23,26 @@ INSERT INTO agentsam_memory (
   9,
   1,
   'tenant_sam_primeaux:au_871d920d1233cbd1:gcp_vm_self_heal_router_v1',
+  1,
+  'active',
   unixepoch()
 )
 ON CONFLICT(id) DO UPDATE SET
-  value      = excluded.value,
-  title      = excluded.title,
-  summary    = excluded.summary,
+  memory_id    = excluded.memory_id,
+  value        = excluded.value,
+  title        = excluded.title,
+  summary      = excluded.summary,
   workspace_id = excluded.workspace_id,
   memory_type  = excluded.memory_type,
-  source     = excluded.source,
-  tags       = excluded.tags,
-  confidence = excluded.confidence,
-  importance = excluded.importance,
-  is_pinned  = excluded.is_pinned,
-  sync_key   = excluded.sync_key,
-  updated_at = unixepoch();
+  source       = excluded.source,
+  tags         = excluded.tags,
+  confidence   = excluded.confidence,
+  importance   = excluded.importance,
+  is_pinned    = excluded.is_pinned,
+  sync_key     = excluded.sync_key,
+  revision     = excluded.revision,
+  status       = excluded.status,
+  updated_at   = unixepoch();
 
 UPDATE agentsam_project_context
 SET
