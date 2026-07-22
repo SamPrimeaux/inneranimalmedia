@@ -1,6 +1,6 @@
 # Agent Sam — mode/profile Cursor-parity sprints
 
-**D1 ticket:** sync via `npm run sync:active-plan-tickets -- --apply` (id TBD until apply)  
+**D1 ticket:** `tkt_agentsam_mode_profile_sprints_2026_07_159bf4572646`  
 **Status:** `active` · **Priority:** P0-adjacent (after/with spine E2E) · **Subsystem:** `agent_spine`  
 **SSOT detail:** [`agentsamrefine.md`](../../agentsamrefine.md) (updated 2026-07-22)  
 **Sibling P0:** [`AGENTSAM-SPINE-E2E-CURSOR-PARITY-2026-07.md`](./AGENTSAM-SPINE-E2E-CURSOR-PARITY-2026-07.md) — vision + thread + tools  
