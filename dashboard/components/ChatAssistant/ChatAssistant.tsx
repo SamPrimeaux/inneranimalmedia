@@ -2547,6 +2547,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         }
         return next;
       });
+      // Approval path used to stop here (no model resume) → "finished without a reply"
+      // and follow-up turns lost write tools. Resume the agent with the tool result.
+      if (j.success) {
+        const continuePrompt =
+          `Approved tool \`${tool.name}\` completed. Result JSON:\n\`\`\`json\n${resultStr.slice(0, 6000)}\n\`\`\`\n` +
+          `Continue the user's prior instructions from where you left off. ` +
+          `Prefer fs_read_file / fs_write_file when those tools are available. ` +
+          `Do not invent tool unavailability — call agentsam_search_tools if a needed tool is missing from the menu.`;
+        void handleSendRef.current(continuePrompt);
+      }
     } catch (e) {
       console.error('[ChatAssistant] execute-approved-tool', e);
       setPendingToolApproval(null);

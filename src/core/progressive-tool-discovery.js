@@ -12,6 +12,7 @@
 export const PROGRESSIVE_CORE_TOOL_KEYS = Object.freeze([
   'agentsam_search_tools',
   'fs_read_file',
+  'fs_write_file',
   'fs_search_files',
   'agentsam_codebase_retrieve',
   'agentsam_memory_search',

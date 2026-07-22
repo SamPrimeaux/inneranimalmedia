@@ -32,7 +32,7 @@ export function extractExplicitCatalogToolKeys(message) {
   const keys = [];
   // Prefer longer github_read_many before github_read (leftmost longest via alternation order).
   const re =
-    /\b((?:agentsam_github_read_many|agentsam_[a-z][a-z0-9_]{1,80}|fs_[a-z][a-z0-9_]{1,64}|pty_[a-z][a-z0-9_]{1,64}))\b/gi;
+    /\b((?:agentsam_github_read_many|agentsam_[a-z][a-z0-9_]{1,80}|fs_[a-z][a-z0-9_]{1,64}))\b/gi;
   let match;
   while ((match = re.exec(m)) != null) {
     const k = String(match[1] || '').toLowerCase();
