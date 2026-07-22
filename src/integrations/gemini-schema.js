@@ -27,6 +27,53 @@ const GEMINI_SCHEMA_STRIP_KEYS = new Set([
   'contentEncoding',
 ]);
 
+function isPlainObject(value) {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Gemini only allows `required` / `properties` on OBJECT branches of anyOf/oneOf/allOf.
+ * Catalog schemas often use partial branches like `{ "required": ["raw_text"] }` that
+ * inherit parent properties in JSON Schema — Gemini rejects those.
+ * @param {Record<string, unknown>} branch
+ * @param {Record<string, unknown>} parentProperties
+ */
+function normalizeGeminiCombinatorBranch(branch, parentProperties) {
+  if (!isPlainObject(branch)) return { type: 'OBJECT', properties: {} };
+
+  const out = { ...branch };
+  const typeUpper = out.type != null ? String(out.type).toUpperCase() : '';
+  const hasRequired = Array.isArray(out.required) && out.required.length > 0;
+  const hasProps = isPlainObject(out.properties) && Object.keys(out.properties).length > 0;
+
+  if (hasRequired || hasProps || typeUpper === 'OBJECT' || !typeUpper) {
+    const mergedProps = {
+      ...parentProperties,
+      ...(isPlainObject(out.properties) ? out.properties : {}),
+    };
+    const sanitizedProps = {};
+    for (const [propKey, propVal] of Object.entries(mergedProps)) {
+      sanitizedProps[propKey] = sanitizeGeminiParameterSchema(propVal);
+    }
+    out.type = 'OBJECT';
+    out.properties = sanitizedProps;
+    if (hasRequired) {
+      const filtered = out.required
+        .map((k) => String(k))
+        .filter((k) => Object.prototype.hasOwnProperty.call(sanitizedProps, k));
+      if (filtered.length) out.required = filtered;
+      else delete out.required;
+    }
+    return out;
+  }
+
+  // Non-object scalar/array branch — required/properties are illegal for Gemini.
+  delete out.required;
+  delete out.properties;
+  if (out.type) out.type = typeUpper;
+  return out;
+}
+
 /**
  * Recursively strip unsupported JSON Schema keys and uppercase Gemini type literals.
  * Also drops vendor extensions (`x-*`, including `x-google-enum-descriptions` from Gmail MCP).
@@ -56,9 +103,8 @@ export function sanitizeGeminiParameterSchema(schema) {
       continue;
     }
     if (key === 'anyOf' || key === 'oneOf' || key === 'allOf') {
-      out[key] = Array.isArray(value)
-        ? value.map((entry) => sanitizeGeminiParameterSchema(entry))
-        : value;
+      // Deferred — need sibling properties first (normalized below).
+      out[key] = value;
       continue;
     }
     out[key] =
@@ -77,6 +123,24 @@ export function sanitizeGeminiParameterSchema(schema) {
       out.items.type = String(out.items.type).toUpperCase();
     }
   }
+
+  const parentProperties = isPlainObject(out.properties) ? out.properties : {};
+  for (const combinator of ['anyOf', 'oneOf', 'allOf']) {
+    if (!Object.prototype.hasOwnProperty.call(out, combinator)) continue;
+    const value = out[combinator];
+    if (!Array.isArray(value)) {
+      delete out[combinator];
+      continue;
+    }
+    out[combinator] = value.map((entry) => {
+      const sanitized = sanitizeGeminiParameterSchema(entry);
+      return normalizeGeminiCombinatorBranch(
+        isPlainObject(sanitized) ? sanitized : {},
+        parentProperties,
+      );
+    });
+  }
+
   return out;
 }
 
