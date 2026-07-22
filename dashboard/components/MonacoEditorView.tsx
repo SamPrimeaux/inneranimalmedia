@@ -518,6 +518,14 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
     if (ed && activeFile) pushModelMeta(ed);
   }, [activeFile?.id, pushModelMeta]);
 
+  // Force Monaco to reflow when split view mode changes (e.g. source↔split width shift)
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      try { editorRef.current?.layout(); } catch { /* ignore */ }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [mdViewMode]);
+
   // Monaco Completions Integration
   useEffect(() => {
     if (!monaco || !activeFile) return;
