@@ -29,6 +29,7 @@ Work **in this order**. Do not parallelize product remasters across these.
 | [CMS-TOOL-CONTRACT-COMPANIONS-IAM-2026-07.md](./CMS-TOOL-CONTRACT-COMPANIONS-IAM-2026-07.md) | *(proposal — ticket TBD)* | Shared CMS tool verbs/I-O: Companions SSOT lanes + IAM aspired parity; no optional wrong-lane writes |
 | [AGENTSAM-CMS-STUDIO-CREAM-REALDATA-2026-07.md](./AGENTSAM-CMS-STUDIO-CREAM-REALDATA-2026-07.md) | *(handoff — ticket TBD)* | Studio exit→hub, cream shell, real CMS/CRM logic; keep iframe isolation |
 | [GEMINI-INTERACTIONS-TRANSPORT-ADAPTER-2026-07.md](./GEMINI-INTERACTIONS-TRANSPORT-ADAPTER-2026-07.md) | `tkt_gemini_interactions_transport` | **Later sprint / backlog** — `gemini_transport=interactions\|generate_content`, default generateContent until green |
+| [MAC-LOCALPTY-EXEC-IDENTITY-2026-07.md](./MAC-LOCALPTY-EXEC-IDENTITY-2026-07.md) | `tkt_mac_localpty_exec_identity_20260722` | Mac `agentsam_terminal_local` Exec-Identity + no sandbox launder — dual-pass E2E |
 
 ## Verification law (LOCKED — dual-pass E2E)
 
