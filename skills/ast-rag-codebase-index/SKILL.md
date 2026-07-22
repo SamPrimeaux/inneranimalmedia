@@ -2,7 +2,7 @@
 name: ast-rag-codebase-index
 description: >-
   Index and maintain AST-RAG for codebases (Phase 1 parse → D1 nodes/edges, Phase 2
-  embed → Supabase pgvector symbols, optional chunk node_id link, smoke ANN). Use when
+  embed → Supabase pgvector symbols → REQUIRED chunk node_id link → smoke ANN). Use when
   embedding/chunking repos, refreshing code search, agentsam_codebase_retrieve returns
   empty/stale hits, onboarding fuelnfreetime/companionsofcaddo/customer repos, or when
   the user mentions AST-RAG, Phase 2 embed, symbol ANN, or codebase index drift.
@@ -10,15 +10,28 @@ description: >-
 
 # AST-RAG codebase index
 
-Keep symbol search trustworthy: parse → embed → link → smoke → drift-check. Never mix customer workspaces into the platform index.
+Keep symbol search trustworthy: parse → embed → **link** → smoke → drift-check. Never mix customer workspaces into the platform index.
+
+## Naming (locked)
+
+| Name | What it is |
+|------|------------|
+| **Phase 1** | Parse walk → D1 (`ast_rag_phase1_*`) |
+| **Phase 2** | This embed script (`--chunk 0..4`): verify → pull → embed → **link** → smoke |
+| **Script chunk 3** | Part of Phase 2 — stamps `chunks.node_id` (**REQUIRED**, not optional) |
+| **Phase 3** | **Runtime only** — `codebase-ast-retrieve.js` graph expand via D1 edges |
+| **Phase 4** | **Runtime only** — `agentsam_codebase_retrieve` tool surface |
+
+You do **not** run “Phase 3” after chunk 4. Chunk 4 smoke proves ANN; Phase 3/4 happen inside the Worker when the tool is called.
 
 ## Pipeline (what / where)
 
 | Phase | Script | Writes | Purpose |
 |------|--------|--------|---------|
 | 1 parse | `scripts/ast_rag_phase1_dual_repo_walk.py` | D1 `codebase_ast_nodes`, `codebase_dep_edges` | Structure |
-| 2 embed | `scripts/ast_rag_phase2_embed_symbols.py` `--chunk 0..4` | Supabase `agentsam.agentsam_codebase_ast_symbols_oai3large_1536` | Semantic ANN |
-| 2 link | same `--chunk 3 --commit` | Supabase chunks.`node_id` | Hydrate full code snippets |
+| 2 embed | `scripts/ast_rag_phase2_embed_symbols.py` `--chunk 0..2` | Supabase symbol table | Semantic ANN |
+| 2 link | same `--chunk 3 --commit` (**required**) | Supabase chunks.`node_id` | Hydrate full code snippets |
+| 2 smoke | same `--chunk 4` | read-only (refuses if unlinked) | ANN check |
 | Runtime | `agentsam_codebase_retrieve` → `src/core/codebase-ast-retrieve.js` | read-only | Symbol ANN → graph → hydrate |
 
 Embeddings: OpenAI `text-embedding-3-large` @ 1536-d. **Not** Cloudflare Vectorize for this lane (`vectorize_id` on D1 nodes may stay null — OK).
@@ -32,18 +45,15 @@ Embeddings: OpenAI `text-embedding-3-large` @ 1536-d. **Not** Cloudflare Vectori
 - GCP `iam-tunnel`: `sudo -u agentsam bash -lc 'cd /home/samprimeaux/inneranimalmedia && …'` (env file is `chmod 600` agentsam)
 
 ```bash
-# Refresh after meaningful code land (platform) — explicit target required
+# Refresh after meaningful code land (platform)
 python3 scripts/ast_rag_phase1_dual_repo_walk.py --chunk all --target platform --commit --resume
-python3 scripts/ast_rag_phase2_embed_symbols.py --chunk all --target platform --commit
-# or stepwise:
 python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 0 --target platform
 python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 1 --target platform
-python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 2 --commit --target platform
-python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 3 --commit --target platform   # optional hydrate
-python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 4 --query 'your intent' --target platform
+python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 2 --target platform --commit --resume --batch-size 8
+# when remaining≈0:
+python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 3 --target platform --commit
+python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 4 --target platform --query 'your intent'
 ```
-
-Bare `--chunk all` **refuses** without `--target platform` or customer `--workspace-id` / `--single-repo` (safety rail — no accidental dual-repo walk).
 
 Single-repo refresh: `--repo SamPrimeaux/inneranimalmedia-mcp-server` on Phase 2; Phase 1 `--repo-filter` / `--main-repo` / `--mcp-repo` paths.
 
@@ -93,7 +103,7 @@ Agent checklist when user asks to “index X”:
 1. Which workspace + UUID + repos?
 2. Phase 1 present for those repos?
 3. Phase 2 symbol count vs embeddable?
-4. Chunk 3 needed for hydrate?
+4. Chunk 3 link **required** for hydrate (not optional)
 5. Smoke query + (optional) live `agentsam_codebase_retrieve`
 6. Note ticket / memory with counts — not just “ran script”
 
