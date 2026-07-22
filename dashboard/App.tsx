@@ -3364,8 +3364,16 @@ const App: React.FC = () => {
         // Search results (R2 asset URLs, knowledge hits) carry an absolute URL in `path`,
         // not a repo-relative or FSA path — resolveConnectedLocalFile/GitHub contents both
         // 404 silently on these. Route them to the browser tab instead of failing quietly.
+        // Inline setters (do not call openBrowserTab here): that callback is declared later in
+        // this component, and referencing it in this useCallback's deps triggers TDZ
+        // ("Cannot access 'Rr' before initialization") and white-screens the dashboard.
         if (/^https?:\/\//i.test(path)) {
-          openBrowserTab(path, { addressDisplay: path, tabTitle: path.split('/').pop() || 'Preview', previewSource: 'editor' });
+          setBrowserPreviewSource('editor');
+          setBrowserAddressDisplay(path);
+          setBrowserTabTitle(path.split('/').pop() || 'Preview');
+          setBrowserUrl(path);
+          setOpenTabs((prev) => (prev.includes('browser') ? prev : [...prev, 'browser']));
+          setActiveTab('browser');
           revealMainWorkspaceIfNarrow();
           return;
         }
@@ -3456,7 +3464,7 @@ const App: React.FC = () => {
         }
       }
     },
-    [navigate, gitRepoFullName, activeWorkspaceRow, revealMainWorkspaceIfNarrow, setActiveFile, openBrowserTab],
+    [navigate, gitRepoFullName, activeWorkspaceRow, revealMainWorkspaceIfNarrow, setActiveFile],
   );
 
   const fetchHealth = useCallback(async () => {
