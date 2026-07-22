@@ -1,31 +1,32 @@
 #!/usr/bin/env python3
 """
-AST-RAG Phase 2 — embed D1 AST node signatures → Supabase symbol table (pgvector/HNSW).
+AST-RAG Phase 2 — embed D1 AST node signatures → Supabase symbol table (pgvector/HNSW),
+then REQUIRED chunk→node_id links for hydrate.
 
-Also optionally stamps agentsam_codebase_chunks_oai3large_1536.node_id for Hyperdrive hydrate.
+Naming (do not confuse):
+  Phase 1 = parse walk → D1 nodes/edges (ast_rag_phase1_*.py)
+  Phase 2 = this script (chunks 0–4): verify → pull → embed → link → smoke
+  Phase 3 = RUNTIME only (src/core/codebase-ast-retrieve.js): ANN → D1 graph expand → hydrate
+  Phase 4 = RUNTIME tool surface (agentsam_codebase_retrieve)
+  Script --chunk 3 is Phase-2 *link*, NOT "Phase 3". Run it BEFORE --chunk 4 smoke.
 
 Chunks:
   0  verify   — D1 counts, PG symbol/chunks schema, OPENAI + SUPABASE_DB_URL
   1  pull     — pull embeddable nodes from D1 → artifacts
-  2  embed    — OpenAI 1536 embed + upsert agentsam_codebase_ast_symbols_* (default dry-run)
-  3  link     — best-effort node_id → chunks by file_path + name-in-content (dry-run default)
-  4  smoke    — ANN query against symbol table
-  all         — 0→4 (embed/link only write with --commit)
+  2  embed    — OpenAI 1536 embed + upsert agentsam_codebase_ast_symbols_*
+  3  link     — REQUIRED: stamp chunks.node_id (hydrate). Use --commit.
+  4  smoke    — ANN query; refuses if chunk 3 links are missing (unless --allow-unlinked-smoke)
+  all         — 0→4 (embed/link write with --commit)
 
 Usage:
   cd /Users/samprimeaux/inneranimalmedia
   python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 0
   python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 1
-  python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 2              # dry-run
-  python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 2 --commit --batch-size 8
-  # Survive long runs (session pooler): reconnect each batch + skip already-upserted ids
   python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 2 --commit --resume --batch-size 8 --limit 64
-  python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 3 --commit    # link chunks
+  # when remaining≈0:
+  python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 3 --commit
   python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 4 --query 'resolve GitHub token'
-  python3 scripts/ast_rag_phase2_embed_symbols.py --chunk all --commit --max-nodes 200  # smoke
-
-Phase 3/4 next (see src/core/codebase-ast-retrieve.js + migrations/954_*):
-  symbol ANN → D1 graph expand → Hyperdrive hydrate by node_id → agentsam_codebase_retrieve tool
+  python3 scripts/ast_rag_phase2_embed_symbols.py --chunk all --target platform --commit
 """
 
 from __future__ import annotations
@@ -596,7 +597,18 @@ def chunk2_embed(
     )
     ok(f"symbol table rows (workspace)={total} (all={total_all})")
     if remaining_est is not None:
-        ok(f"est. remaining after this run≈{remaining_est} — re-run with --resume [--limit N]")
+        if remaining_est == 0:
+            ok("embed queue empty — REQUIRED next: --chunk 3 --commit (link node_ids for hydrate)")
+            print(
+                "  → python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 3 --target platform --commit",
+                flush=True,
+            )
+        else:
+            ok(f"est. remaining after this run≈{remaining_est} — re-run with --resume [--limit N]")
+            print(
+                "  (chunk 3 link is REQUIRED after remaining≈0; do not smoke-claim done yet)",
+                flush=True,
+            )
 
     # Stamp canonical job + capture embed cost into agentsam_usage_events (this run only).
     try:
@@ -657,6 +669,19 @@ def chunk2_embed(
     return 0
 
 
+def count_chunks_with_node_id() -> int:
+    with pg_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT COUNT(*) FROM {CHUNKS_TABLE}
+                WHERE workspace_id = %s::uuid AND node_id IS NOT NULL AND btrim(node_id) <> ''
+                """,
+                (WORKSPACE_UUID,),
+            )
+            return int(cur.fetchone()[0] or 0)
+
+
 def chunk3_link(
     *,
     commit: bool,
@@ -664,8 +689,10 @@ def chunk3_link(
     resume: bool = False,
     batch_size: int = 200,
 ) -> int:
-    """Link AST node_ids onto codebase chunks. Use --resume after WiFi drops."""
-    print("\n══ CHUNK 3 — link node_id onto chunks ══")
+    """REQUIRED link AST node_ids onto codebase chunks (hydrate). Use --resume after WiFi drops."""
+    print("\n══ CHUNK 3 — link node_id onto chunks (REQUIRED for hydrate) ══")
+    if not commit:
+        warn("dry-run only — Phase 2 is not complete until you re-run with --commit")
     progress_name = "chunk3_link_progress.json"
     preview_name = "chunk3_link_preview.json"
     updates: list[tuple[str, str]] = []
@@ -835,9 +862,28 @@ def chunk3_link(
     return 0
 
 
-def chunk4_smoke(query: str, top_k: int) -> int:
+def chunk4_smoke(query: str, top_k: int, *, allow_unlinked: bool = False) -> int:
     print("\n══ CHUNK 4 — smoke ANN ══")
     print(f"  query: {query!r}")
+
+    linked = 0
+    try:
+        linked = count_chunks_with_node_id()
+        ok(f"chunks with node_id (hydrate links)={linked}")
+    except Exception as e:
+        warn(f"could not count chunk links: {e}")
+        linked = -1
+
+    if linked == 0 and not allow_unlinked:
+        fail(
+            "Chunk 3 links missing — run REQUIRED: "
+            "python3 scripts/ast_rag_phase2_embed_symbols.py --chunk 3 --target platform --commit"
+        )
+        fail("Refusing smoke as 'done' without hydrate links. Pass --allow-unlinked-smoke to ANN-only.")
+        return 2
+    if linked == 0 and allow_unlinked:
+        warn("ANN-only smoke (--allow-unlinked-smoke); hydrate will return signatures only at runtime")
+
     vec = embed_openai([query])[0]
     lit = vec_literal(vec)
     with pg_connect() as conn:
@@ -865,14 +911,19 @@ def chunk4_smoke(query: str, top_k: int) -> int:
         }
         for r in rows
     ]
-    write_json("chunk4_smoke.json", {"query": query, "hits": hits})
+    write_json("chunk4_smoke.json", {"query": query, "hits": hits, "chunks_linked": linked})
     if not hits:
-        warn("no hits — run chunk 2 --commit first")
+        warn("no hits — finish chunk 2 --commit --resume first")
         return 1
     ok(f"top {len(hits)} hits:")
     for h in hits:
         print(f"    {h['score']:.3f}  {h['node_type']:16} {h['node_name']:40} {h['file_path']}")
-    print("Chunk 4 done — Phase 3 expands these node_ids via D1 edges, then hydrates chunks")
+    print(
+        "Chunk 4 done — script Phase 2 complete when chunk 2 remaining=0 AND chunk 3 linked.\n"
+        "  At RUNTIME (not a script step after this): agentsam_codebase_retrieve =\n"
+        "  Phase 3 expand (D1 edges) + hydrate (chunk node_id) + Phase 4 tool surface.",
+        flush=True,
+    )
     return 0
 
 
@@ -906,6 +957,12 @@ def main() -> int:
         help="Chunk 4 smoke query",
     )
     ap.add_argument("--top-k", type=int, default=8)
+    ap.add_argument(
+        "--allow-unlinked-smoke",
+        action="store_true",
+        help="Chunk 4 only: allow ANN smoke when chunk 3 node_id links are missing (debug). "
+        "Default refuses — chunk 3 --commit is REQUIRED before claiming Phase 2 done.",
+    )
     ap.add_argument(
         "--resume",
         action="store_true",
@@ -989,6 +1046,9 @@ def main() -> int:
             or rc
         )
     if chunk in ("3", "all") and rc == 0:
+        if chunk == "all" and not args.commit:
+            fail("--chunk all requires --commit so chunk 3 link actually writes (no longer optional)")
+            return 2
         link_batch = args.batch_size if args.batch_size != 32 else 200
         rc = chunk3_link(
             commit=args.commit,
@@ -997,8 +1057,14 @@ def main() -> int:
             batch_size=max(1, link_batch),
         ) or rc
     if chunk in ("4", "all") and rc == 0:
-        # smoke always embeds query; needs data if all+commit ran
-        rc = chunk4_smoke(args.query, args.top_k) or rc
+        rc = (
+            chunk4_smoke(
+                args.query,
+                args.top_k,
+                allow_unlinked=args.allow_unlinked_smoke,
+            )
+            or rc
+        )
     return rc
 
 
