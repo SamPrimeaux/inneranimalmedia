@@ -506,6 +506,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
 
   useEffect(() => {
     setShowDiff(false);
+    setMdViewMode('split');
   }, [activeFile?.id]);
 
   useEffect(() => {
