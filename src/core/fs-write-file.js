@@ -42,9 +42,11 @@ export function buildPtyWriteFileCommand(relPath, contentBase64, repoDir = FS_SE
 export function isSafePtyWriteFileCommand(cmd, repoDir = FS_SEARCH_PTY_REPO_DIR) {
   const c = String(cmd || '').trim();
   if (!c || c.length > 3200) return false;
-  if (/[\r\n;|`$<>]/.test(c) || /\|/.test(c)) return false;
-  if (/(?<![&])&(?![&])/.test(c)) return false;
+  // Required pipe for base64 decode — strip it before metachar checks.
   if (!c.includes(' | base64 -d > ')) return false;
+  const withoutRequiredPipe = c.replace(' | base64 -d > ', ' ___B64OUT___ ');
+  if (/[\r\n;|`$<>]/.test(withoutRequiredPipe)) return false;
+  if (/(?<![&])&(?![&])/.test(withoutRequiredPipe)) return false;
   const dir = String(repoDir || FS_SEARCH_PTY_REPO_DIR || '.').trim() || '.';
   if (dir === '.') {
     return c.startsWith('echo ');
