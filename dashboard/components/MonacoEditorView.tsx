@@ -75,6 +75,114 @@ function collabPathMatchesTab(
   );
 }
 
+/** Minimal markdown → HTML for the in-editor preview pane. No library needed. */
+function markdownToHtml(md: string): string {
+  const escaped = md
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Code blocks (``` fenced) — must run before inline code
+  const withFenced = escaped.replace(/```(\w*)\n?([\s\S]*?)```/g, (_m, _lang, code) =>
+    `<pre><code>${code.trimEnd()}</code></pre>`,
+  );
+
+  const body = withFenced
+    // headings
+    .replace(/^#{6} (.+)$/gm, '<h6>$1</h6>')
+    .replace(/^#{5} (.+)$/gm, '<h5>$1</h5>')
+    .replace(/^#{4} (.+)$/gm, '<h4>$1</h4>')
+    .replace(/^#{3} (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^#{2} (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^#{1} (.+)$/gm, '<h1>$1</h1>')
+    // bold + italic combined
+    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+    // bold
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.+?)__/g, '<strong>$1</strong>')
+    // italic
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/_(.+?)_/g, '<em>$1</em>')
+    // strikethrough
+    .replace(/~~(.+?)~~/g, '<del>$1</del>')
+    // inline code (after fenced blocks)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // images before links (same syntax, img first)
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;border-radius:6px;" />')
+    // links
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    // blockquote
+    .replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>')
+    // unordered list items
+    .replace(/^[-*+] (.+)$/gm, '<li>$1</li>')
+    // ordered list items
+    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    // hr
+    .replace(/^---+$/gm, '<hr />')
+    // double newline → paragraph break
+    .replace(/\n\n+/g, '</p><p>')
+    // single newline → <br> (only outside block elements)
+    .replace(/\n(?!<(?:h[1-6]|ul|ol|li|blockquote|pre|hr))/g, '<br />');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    font-size: 14px; line-height: 1.7; max-width: 780px;
+    margin: 0 auto; padding: 28px 32px 64px;
+    color: #d4d4d8; background: #0f1117;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    color: #f0f4ff; font-weight: 600; margin: 1.6em 0 0.5em; line-height: 1.3;
+  }
+  h1 { font-size: 1.875em; border-bottom: 1px solid #27272a; padding-bottom: 0.35em; }
+  h2 { font-size: 1.5em;   border-bottom: 1px solid #27272a; padding-bottom: 0.25em; }
+  h3 { font-size: 1.25em; }
+  h4 { font-size: 1.1em; }
+  p { margin: 0.65em 0; }
+  a { color: #7dd3fc; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    background: #1e1e2e; padding: 2px 6px; border-radius: 4px;
+    font-size: 0.875em; font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    color: #93c5fd; border: 1px solid #27272a;
+  }
+  pre {
+    background: #1a1a2e; border: 1px solid #27272a; border-radius: 8px;
+    padding: 16px 20px; overflow-x: auto; margin: 1.2em 0;
+  }
+  pre code {
+    background: transparent; border: none; padding: 0;
+    font-size: 0.8125em; color: #a5b4fc; line-height: 1.6;
+  }
+  blockquote {
+    border-left: 3px solid #6358ff; margin: 1em 0;
+    padding: 0.4em 0 0.4em 1.1em; color: #a1a1aa;
+    background: rgba(99,88,255,0.06); border-radius: 0 6px 6px 0;
+  }
+  li { margin: 0.25em 0; padding-left: 0.25em; }
+  hr { border: 0; border-top: 1px solid #27272a; margin: 2em 0; }
+  img { max-width: 100%; border-radius: 6px; }
+  strong { color: #f0f4ff; font-weight: 600; }
+  del { color: #71717a; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #27272a; padding: 8px 12px; text-align: left; }
+  th { background: #1a1a2e; color: #f0f4ff; font-weight: 600; }
+  tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+</style>
+</head>
+<body><p>${body}</p></body>
+</html>`;
+}
+
 /** Extract replacement text from a unified diff (full-file replace hunks). */
 function contentAfterUnifiedDiff(patch: string): string | null {
   const lines = patch.split('\n');
