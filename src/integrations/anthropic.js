@@ -13,6 +13,7 @@ import {
 } from '../core/model-catalog-capabilities.js';
 import { handlers as dbHandlers } from '../tools/db.js';
 import { resolveApiKey } from '../core/vault.js';
+import { sanitizeAnthropicToolInputSchema } from './anthropic-schema.js';
 
 /** BM25 tool search (official name per Anthropic tool reference). */
 const TOOL_SEARCH_BM25 = {
@@ -86,7 +87,9 @@ export function buildAnthropicMessagesTools(tools, opts = {}) {
     };
     if (t.description) out.description = t.description;
     if (t.type) out.type = t.type;
-    if (schema && typeof schema === 'object') out.input_schema = schema;
+    if (schema && typeof schema === 'object') {
+      out.input_schema = sanitizeAnthropicToolInputSchema(schema);
+    }
     if (t.cache_control) out.cache_control = t.cache_control;
     return out;
   });
