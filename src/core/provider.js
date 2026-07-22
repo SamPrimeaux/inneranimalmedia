@@ -541,6 +541,13 @@ export async function dispatchStream(env, request, params) {
     provider: meta?.provider ?? null,
     apiPlatform: platform,
     openaiPreviousResponseId: params.openaiPreviousResponseId ?? null,
+    ...(params.openaiResponsesReplayInput != null
+      ? { openaiResponsesReplayInput: params.openaiResponsesReplayInput }
+      : {}),
+    ...(params.openaiResponsesCapture != null
+      ? { openaiResponsesCapture: params.openaiResponsesCapture }
+      : {}),
+    ...(params.openaiPtcEnabled === true ? { openaiPtcEnabled: true } : {}),
     ...(params.forcedToolName
       ? { forcedToolName: String(params.forcedToolName).trim() }
       : {}),

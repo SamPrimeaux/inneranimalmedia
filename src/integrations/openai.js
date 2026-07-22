@@ -247,6 +247,7 @@ function anthropicVisionBlocksToResponsesContent(blocks) {
 /**
  * Build `input` for /v1/responses. With `previousResponseId`, only `function_call_output` items
  * from the latest tool-result user message are sent; otherwise user/assistant text turns.
+ * PTC: copy `caller` from tool_result onto function_call_output verbatim.
  */
 function buildOpenAIResponsesInput(messages, previousResponseId) {
   if (previousResponseId) {
@@ -259,15 +260,17 @@ function buildOpenAIResponsesInput(messages, previousResponseId) {
       if (!hasToolResult) continue;
       for (const b of msg.content) {
         if (b.type !== 'tool_result') continue;
-        const callId = String(b.tool_use_id || '').trim();
+        const callId = String(b.tool_use_id || b.call_id || '').trim();
         if (!callId) continue;
         const payload =
           typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? {});
-        out.push({
+        const item = {
           type: 'function_call_output',
           call_id: callId,
           output: payload,
-        });
+        };
+        if (b.caller != null) item.caller = b.caller;
+        out.push(item);
       }
       break;
     }
@@ -306,6 +309,20 @@ function buildOpenAIResponsesInput(messages, previousResponseId) {
     }
   }
   return items;
+}
+
+/**
+ * Append programmatic_tool_calling hosted tool when PTC is enabled.
+ * @param {unknown[]|undefined} oaiTools
+ * @param {boolean} openaiPtcEnabled
+ */
+function withProgrammaticToolCalling(oaiTools, openaiPtcEnabled) {
+  if (!openaiPtcEnabled) return oaiTools;
+  const list = Array.isArray(oaiTools) ? [...oaiTools] : [];
+  if (!list.some((t) => t && typeof t === 'object' && t.type === 'programmatic_tool_calling')) {
+    list.push({ type: 'programmatic_tool_calling' });
+  }
+  return list.length ? list : undefined;
 }
 
 /**
@@ -573,18 +590,27 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
   if (!modelForApi) return { errorResponse: jsonResponse({ error: 'modelKey required' }, 400) };
 
   const prev = openaiPreviousResponseId != null ? String(openaiPreviousResponseId).trim() : '';
-  const input = buildOpenAIResponsesInput(messages, prev || null);
   const openaiPtcEnabled =
     params.openaiPtcEnabled === true ||
     (await isFeatureEnabled(env, 'openai_ptc', { userId, tenantId: params.tenantId }));
-  const oaiTools = toOpenAIResponsesTools(tools, { openaiPtcEnabled });
+  const replay = Array.isArray(params.openaiResponsesReplayInput)
+    ? params.openaiResponsesReplayInput
+    : null;
+  const usePtcReplay = openaiPtcEnabled && replay != null;
+  const input = usePtcReplay
+    ? replay
+    : buildOpenAIResponsesInput(messages, prev || null);
+  let oaiTools = toOpenAIResponsesTools(tools, { openaiPtcEnabled });
+  oaiTools = withProgrammaticToolCalling(oaiTools, openaiPtcEnabled);
 
   let body = {
     model: modelForApi,
     input,
     stream: true,
-    ...(prev ? { previous_response_id: prev } : {}),
-    ...(!prev && systemPrompt ? { instructions: String(systemPrompt) } : {}),
+    // PTC exact-order resume requires store:false + full replay (never silent mangling).
+    ...(openaiPtcEnabled ? { store: false } : {}),
+    ...(!usePtcReplay && prev ? { previous_response_id: prev } : {}),
+    ...(!usePtcReplay && !prev && systemPrompt ? { instructions: String(systemPrompt) } : {}),
     ...(oaiTools?.length
       ? {
           tools: oaiTools,
@@ -599,6 +625,11 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
   body = applyOpenAiResponsesBackgroundAndMetadata(body, params);
   if (params.maxOutputTokens != null) {
     body = applyOpenAiResponsesTokenLimit(body, params.maxOutputTokens);
+  }
+
+  if (params.openaiResponsesCapture && typeof params.openaiResponsesCapture === 'object') {
+    params.openaiResponsesCapture.sentInput = Array.isArray(body.input) ? body.input : [];
+    params.openaiResponsesCapture.openaiPtcEnabled = openaiPtcEnabled;
   }
 
   return { apiKey, apiBase, body, modelForApi, openaiPtcEnabled };
@@ -685,18 +716,26 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
   if (!modelForApi) throw new Error('modelKey required');
 
   const prev = openaiPreviousResponseId != null ? String(openaiPreviousResponseId).trim() : '';
-  const input = buildOpenAIResponsesInput(messages, prev || null);
   const openaiPtcEnabled =
     params.openaiPtcEnabled === true ||
     (await isFeatureEnabled(env, 'openai_ptc', { userId, tenantId: params.tenantId }));
-  const oaiTools = toOpenAIResponsesTools(tools, { openaiPtcEnabled });
+  const replay = Array.isArray(params.openaiResponsesReplayInput)
+    ? params.openaiResponsesReplayInput
+    : null;
+  const usePtcReplay = openaiPtcEnabled && replay != null;
+  const input = usePtcReplay
+    ? replay
+    : buildOpenAIResponsesInput(messages, prev || null);
+  let oaiTools = toOpenAIResponsesTools(tools, { openaiPtcEnabled });
+  oaiTools = withProgrammaticToolCalling(oaiTools, openaiPtcEnabled);
 
   let body = {
     model: modelForApi,
     input,
     stream: false,
-    ...(prev ? { previous_response_id: prev } : {}),
-    ...(!prev && systemPrompt ? { instructions: String(systemPrompt) } : {}),
+    ...(openaiPtcEnabled ? { store: false } : {}),
+    ...(!usePtcReplay && prev ? { previous_response_id: prev } : {}),
+    ...(!usePtcReplay && !prev && systemPrompt ? { instructions: String(systemPrompt) } : {}),
     ...(oaiTools?.length
       ? {
           tools: oaiTools,

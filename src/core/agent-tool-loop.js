@@ -325,6 +325,11 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   let ledgerLoopThrew = false;
   let ledgerErrorMsg = null;
   let openaiPreviousResponseId = null;
+  /** @type {unknown[]|null} */
+  let openaiResponsesAccumulatedInput = null;
+  /** @type {{ sentInput?: unknown[], openaiPtcEnabled?: boolean }} */
+  const openaiResponsesCapture = {};
+  let openaiPtcActive = false;
   let chatTurnPersisted = false;
 
   const toolDefName = (t) =>
@@ -1002,7 +1007,11 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             ? 'premium'
             : null),
         signal: abortScope.signal,
-        openaiPreviousResponseId,
+        openaiPreviousResponseId: openaiPtcActive ? null : openaiPreviousResponseId,
+        ...(openaiPtcActive && openaiResponsesAccumulatedInput
+          ? { openaiResponsesReplayInput: openaiResponsesAccumulatedInput }
+          : {}),
+        openaiResponsesCapture,
         promptAuditContext:
           promptAuditContextParam && typeof promptAuditContextParam === 'object'
             ? { ...promptAuditContextParam, loop_turn: turnCount }
@@ -1233,6 +1242,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             id: linkId,
             name: tc.name,
             input: tc.input,
+            ...(tc.caller != null ? { caller: tc.caller } : {}),
             ...(tc.gemini_thought_signature
               ? { gemini_thought_signature: tc.gemini_thought_signature }
               : {}),
@@ -1262,7 +1272,49 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           totalUsage.output_tokens += parsed.output_tokens;
         }
         applyNormalizedOpenAI(parsed);
-        if (parsed.responseId) {
+        if (openaiResponsesCapture.openaiPtcEnabled === true) {
+          openaiPtcActive = true;
+          if (!openaiResponsesAccumulatedInput) {
+            openaiResponsesAccumulatedInput = Array.isArray(openaiResponsesCapture.sentInput)
+              ? [...openaiResponsesCapture.sentInput]
+              : [];
+          }
+          if (Array.isArray(parsed.outputItems) && parsed.outputItems.length) {
+            openaiResponsesAccumulatedInput.push(...parsed.outputItems);
+          }
+          // Loud integrity check: programmatic function_calls must keep caller on resume path.
+          for (const it of parsed.outputItems || []) {
+            if (it?.type !== 'function_call') continue;
+            const ct = String(it?.caller?.type || '').toLowerCase();
+            if (ct === 'program' || ct === 'programmatic') {
+              const match = (parsed.pendingToolCalls || []).find(
+                (tc) => String(tc.call_id || tc.id || '') === String(it.call_id || ''),
+              );
+              if (match && match.caller == null) {
+                console.error(
+                  '[agent] openai_ptc_caller_integrity_fail',
+                  JSON.stringify({ call_id: it.call_id, name: it.name }),
+                );
+                emit('error', {
+                  message: 'OpenAI PTC caller integrity failed — refusing silent resume',
+                  code: 'openai_ptc_caller_integrity',
+                });
+                throw new Error('openai_ptc_caller_integrity');
+              }
+            }
+          }
+          openaiPreviousResponseId = null;
+          emit('provider_response', {
+            provider: 'openai_responses',
+            response_id: parsed.responseId || null,
+            transport: openAiTransportMeta?.transport || null,
+            turn: turnCount,
+            agent_run_id: chatAgentRunId != null ? String(chatAgentRunId) : null,
+            openai_ptc: true,
+            store: false,
+            replay_items: openaiResponsesAccumulatedInput.length,
+          });
+        } else if (parsed.responseId) {
           openaiPreviousResponseId = parsed.responseId;
           emit('provider_response', {
             provider: 'openai_responses',
@@ -2765,8 +2817,34 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       });
       emit('tool_result', { tool: call.name, output: toolOutput.slice(0, TOOL_OUTPUT_SSE_MAX) });
       const tr = { type: 'tool_result', tool_use_id: call.id, content: toolOutput };
+      if (call.caller != null) tr.caller = call.caller;
       if (execErr) tr.is_error = true;
       toolResults.push(tr);
+      if (openaiPtcActive && Array.isArray(openaiResponsesAccumulatedInput)) {
+        const outItem = {
+          type: 'function_call_output',
+          call_id: String(call.id || call.call_id || '').trim(),
+          output: toolOutput,
+        };
+        if (call.caller != null) {
+          outItem.caller = call.caller;
+        } else {
+          // Loud fail: programmatic pause without caller must never resume silently.
+          const ct = String(call.caller_type || '').toLowerCase();
+          if (ct === 'program' || ct === 'programmatic') {
+            console.error(
+              '[agent] openai_ptc_missing_caller_on_output',
+              JSON.stringify({ call_id: outItem.call_id, tool: call.name }),
+            );
+            emit('error', {
+              message: 'OpenAI PTC missing caller on function_call_output',
+              code: 'openai_ptc_caller_missing',
+            });
+            throw new Error('openai_ptc_caller_missing');
+          }
+        }
+        if (outItem.call_id) openaiResponsesAccumulatedInput.push(outItem);
+      }
 
       if (Date.now() - runStartedAt > maxRunMs) {
         scheduleLoopUsageTelemetry(false);

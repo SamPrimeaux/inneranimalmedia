@@ -199,6 +199,7 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
         call_id: callId || null,
         name: name || '',
         args: '',
+        caller: null,
         outputIndex: outputIndex != null ? Number(outputIndex) : null,
       });
       if (callId) byCallId.set(callId, idx);
@@ -216,6 +217,15 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
     if (name) s.name = name;
     if (outputIndex != null && s.outputIndex == null) s.outputIndex = Number(outputIndex);
     return s;
+  };
+
+  let outputItems = null;
+
+  const captureFunctionCallItem = (item, outputIndex) => {
+    if (!item || item.type !== 'function_call') return;
+    const s = mergeSlot(item.call_id, item.id, item.name, outputIndex);
+    if (typeof item.arguments === 'string' && item.arguments) s.args = item.arguments;
+    if (item.caller != null) s.caller = item.caller;
   };
 
   const handleObj = (obj) => {
@@ -240,8 +250,7 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
     if (t === 'response.output_item.added' || t === 'response.output_item.done') {
       const item = obj.item;
       if (item?.type === 'function_call') {
-        const s = mergeSlot(item.call_id, item.id, item.name, obj.output_index);
-        if (typeof item.arguments === 'string' && item.arguments) s.args = item.arguments;
+        captureFunctionCallItem(item, obj.output_index);
       }
       return false;
     }
@@ -266,11 +275,9 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
       const resp = obj.response;
       if (resp?.id) responseId = String(resp.id);
       if (Array.isArray(resp?.output)) {
+        outputItems = resp.output;
         resp.output.forEach((it, i) => {
-          if (it?.type === 'function_call') {
-            const s = mergeSlot(it.call_id, it.id, it.name, i);
-            if (typeof it.arguments === 'string' && it.arguments) s.args = it.arguments;
-          }
+          if (it?.type === 'function_call') captureFunctionCallItem(it, i);
         });
       }
       const st = resp?.status != null ? String(resp.status) : '';
@@ -355,6 +362,7 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
         raw_input: raw || '{}',
         provider: 'openai_responses',
         index,
+        ...(s.caller != null ? { caller: s.caller } : {}),
       };
     });
 
@@ -368,6 +376,7 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
     finishReason,
     pendingToolCalls,
     responseId,
+    outputItems: Array.isArray(outputItems) ? outputItems : null,
     input_tokens:  _sfObj.input_tokens  ?? 0,
     output_tokens: _sfObj.output_tokens ?? 0,
   };

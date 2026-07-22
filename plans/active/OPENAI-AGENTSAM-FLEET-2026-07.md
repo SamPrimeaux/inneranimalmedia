@@ -62,7 +62,15 @@ SSOT for the OpenAI Agent Sam capability fleet. Cursor plan mirror: `.cursor/pla
 4. **Sequencing**  
    - `tkt_oai_ptc` / `tkt_oai_ptc_schemas` must not start until `tkt_oai_ws_do_holder` has **two** recorded E2E passes.
 
-### Schemas ticket (`tkt_oai_ptc_schemas`) — shipped surface
+### Runtime ticket (`tkt_oai_ptc`)
+
+| Piece | Behavior |
+|---|---|
+| Flag `openai_ptc` | Sam allowlisted; injects `{type:"programmatic_tool_calling"}`; sets `store:false` |
+| Caller preserve | SSE slots → pendingToolCalls → tool_result → `function_call_output.caller` verbatim |
+| Exact-order replay | Accumulate `sentInput + response.output + function_call_output*` across turns; no `previous_response_id` while PTC active |
+| Loud integrity | Missing `caller` on programmatic pause → emit error + throw (never silent) |
+
 
 | Piece | Where |
 |---|---|
