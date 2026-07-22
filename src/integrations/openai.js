@@ -21,6 +21,7 @@ import {
   allowedCallersFromCallerPolicy,
   applyDeferLoadingLaw,
 } from '../core/openai-caller-policy.js';
+import { shouldInjectApplyPatch, withApplyPatchTool } from '../core/openai-apply-patch.js';
 
 const OPENAI_BASE = 'https://api.openai.com/v1';
 
@@ -245,9 +246,10 @@ function anthropicVisionBlocksToResponsesContent(blocks) {
 }
 
 /**
- * Build `input` for /v1/responses. With `previousResponseId`, only `function_call_output` items
+ * Build `input` for /v1/responses. With `previousResponseId`, only tool-output items
  * from the latest tool-result user message are sent; otherwise user/assistant text turns.
  * PTC: copy `caller` from tool_result onto function_call_output verbatim.
+ * apply_patch: emit `apply_patch_call_output` when tool_result carries that marker.
  */
 function buildOpenAIResponsesInput(messages, previousResponseId) {
   if (previousResponseId) {
@@ -262,6 +264,16 @@ function buildOpenAIResponsesInput(messages, previousResponseId) {
         if (b.type !== 'tool_result') continue;
         const callId = String(b.tool_use_id || b.call_id || '').trim();
         if (!callId) continue;
+        if (b.apply_patch_call_output && typeof b.apply_patch_call_output === 'object') {
+          const apo = b.apply_patch_call_output;
+          out.push({
+            type: 'apply_patch_call_output',
+            call_id: callId,
+            status: String(apo.status || 'failed') === 'completed' ? 'completed' : 'failed',
+            ...(apo.output != null ? { output: String(apo.output) } : {}),
+          });
+          continue;
+        }
         const payload =
           typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? {});
         const item = {
@@ -323,6 +335,18 @@ function withProgrammaticToolCalling(oaiTools, openaiPtcEnabled) {
     list.push({ type: 'programmatic_tool_calling' });
   }
   return list.length ? list : undefined;
+}
+
+/** @param {unknown[]|undefined} oaiTools */
+function logOpenaiApplyPatchToolsWire(oaiTools) {
+  if (!Array.isArray(oaiTools)) return;
+  console.info(
+    '[openai_apply_patch] tools_wire',
+    JSON.stringify({
+      total: oaiTools.length,
+      has_apply_patch: oaiTools.some((t) => t?.type === 'apply_patch'),
+    }),
+  );
 }
 
 /** @param {unknown[]|undefined} oaiTools */
@@ -618,6 +642,13 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
   const openaiPtcEnabled =
     params.openaiPtcEnabled === true ||
     (await isFeatureEnabled(env, 'openai_ptc', { userId, tenantId: params.tenantId }));
+  const openaiApplyPatchEnabled =
+    params.openaiApplyPatchEnabled === true ||
+    (await shouldInjectApplyPatch(env, {
+      userId,
+      tenantId: params.tenantId,
+      modelKey: modelKey || modelForApi,
+    }));
   const replay = Array.isArray(params.openaiResponsesReplayInput)
     ? params.openaiResponsesReplayInput
     : null;
@@ -627,7 +658,9 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
     : buildOpenAIResponsesInput(messages, prev || null);
   let oaiTools = toOpenAIResponsesTools(tools, { openaiPtcEnabled });
   oaiTools = withProgrammaticToolCalling(oaiTools, openaiPtcEnabled);
+  oaiTools = withApplyPatchTool(oaiTools, openaiApplyPatchEnabled);
   if (openaiPtcEnabled) logOpenaiPtcToolsWire(oaiTools);
+  if (openaiApplyPatchEnabled) logOpenaiApplyPatchToolsWire(oaiTools);
 
   let body = {
     model: modelForApi,
@@ -656,9 +689,10 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
   if (params.openaiResponsesCapture && typeof params.openaiResponsesCapture === 'object') {
     params.openaiResponsesCapture.sentInput = Array.isArray(body.input) ? body.input : [];
     params.openaiResponsesCapture.openaiPtcEnabled = openaiPtcEnabled;
+    params.openaiResponsesCapture.openaiApplyPatchEnabled = openaiApplyPatchEnabled;
   }
 
-  return { apiKey, apiBase, body, modelForApi, openaiPtcEnabled };
+  return { apiKey, apiBase, body, modelForApi, openaiPtcEnabled, openaiApplyPatchEnabled };
 }
 
 /**
@@ -745,6 +779,13 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
   const openaiPtcEnabled =
     params.openaiPtcEnabled === true ||
     (await isFeatureEnabled(env, 'openai_ptc', { userId, tenantId: params.tenantId }));
+  const openaiApplyPatchEnabled =
+    params.openaiApplyPatchEnabled === true ||
+    (await shouldInjectApplyPatch(env, {
+      userId,
+      tenantId: params.tenantId,
+      modelKey: modelKey || modelForApi,
+    }));
   const replay = Array.isArray(params.openaiResponsesReplayInput)
     ? params.openaiResponsesReplayInput
     : null;
@@ -754,6 +795,7 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
     : buildOpenAIResponsesInput(messages, prev || null);
   let oaiTools = toOpenAIResponsesTools(tools, { openaiPtcEnabled });
   oaiTools = withProgrammaticToolCalling(oaiTools, openaiPtcEnabled);
+  oaiTools = withApplyPatchTool(oaiTools, openaiApplyPatchEnabled);
 
   let body = {
     model: modelForApi,

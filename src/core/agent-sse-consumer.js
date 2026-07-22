@@ -171,7 +171,7 @@ export async function consumeOpenAIChatCompletionsSse(readable, emit, opts = {})
 
 /**
  * OpenAI /v1/responses SSE — NOT chat.completions. Events like `response.output_text.delta`,
- * `response.output_item.added` (function_call), `response.completed`.
+ * `response.output_item.added` (function_call | apply_patch_call), `response.completed`.
  * Normalizes to the same bridge as consumeOpenAIChatCompletionsSse; adds `responseId` for chaining.
  */
 export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
@@ -187,6 +187,9 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
   const slots = [];
   const byCallId = new Map();
   const byItemId = new Map();
+  /** @type {Array<Record<string, unknown>>} */
+  const applyPatchCalls = [];
+  const applyPatchByCallId = new Map();
 
   const mergeSlot = (callId, itemId, name, outputIndex) => {
     let idx;
@@ -228,6 +231,30 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
     if (item.caller != null) s.caller = item.caller;
   };
 
+  const captureApplyPatchCallItem = (item, outputIndex) => {
+    if (!item || item.type !== 'apply_patch_call') return;
+    const callId = item.call_id != null ? String(item.call_id) : '';
+    const itemId = item.id != null ? String(item.id) : '';
+    const key = callId || itemId;
+    if (!key) return;
+    const entry = {
+      type: 'apply_patch_call',
+      id: itemId || null,
+      call_id: callId || null,
+      operation: item.operation && typeof item.operation === 'object' ? item.operation : {},
+      status: item.status != null ? String(item.status) : null,
+      caller: item.caller != null ? item.caller : null,
+      outputIndex: outputIndex != null ? Number(outputIndex) : null,
+    };
+    if (applyPatchByCallId.has(key)) {
+      const idx = applyPatchByCallId.get(key);
+      applyPatchCalls[idx] = { ...applyPatchCalls[idx], ...entry };
+    } else {
+      applyPatchByCallId.set(key, applyPatchCalls.length);
+      applyPatchCalls.push(entry);
+    }
+  };
+
   const handleObj = (obj) => {
     if (!obj || typeof obj !== 'object') return false;
     const t = String(obj.type || '');
@@ -251,6 +278,8 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
       const item = obj.item;
       if (item?.type === 'function_call') {
         captureFunctionCallItem(item, obj.output_index);
+      } else if (item?.type === 'apply_patch_call') {
+        captureApplyPatchCallItem(item, obj.output_index);
       }
       return false;
     }
@@ -271,6 +300,45 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
       return false;
     }
 
+    // Incremental apply_patch operation fields (OpenAI may stream path/diff).
+    if (t.startsWith('response.apply_patch_call')) {
+      const callId = obj.call_id || obj.callId;
+      const itemId = obj.item_id || obj.itemId;
+      const key = String(callId || itemId || '').trim();
+      if (key) {
+        let idx = applyPatchByCallId.get(key);
+        if (idx == null) {
+          idx = applyPatchCalls.length;
+          applyPatchByCallId.set(key, idx);
+          applyPatchCalls.push({
+            type: 'apply_patch_call',
+            id: itemId ? String(itemId) : null,
+            call_id: callId ? String(callId) : null,
+            operation: {},
+            status: null,
+            caller: null,
+            outputIndex: obj.output_index != null ? Number(obj.output_index) : null,
+          });
+        }
+        const entry = applyPatchCalls[idx];
+        if (!entry.operation || typeof entry.operation !== 'object') entry.operation = {};
+        if (typeof obj.path === 'string' && obj.path) entry.operation.path = obj.path;
+        if (typeof obj.diff === 'string' && obj.diff) {
+          entry.operation.diff = (entry.operation.diff || '') + obj.diff;
+        }
+        if (typeof obj.delta === 'string' && obj.delta && t.includes('diff')) {
+          entry.operation.diff = (entry.operation.diff || '') + obj.delta;
+        }
+        if (typeof obj.operation_type === 'string' && obj.operation_type) {
+          entry.operation.type = obj.operation_type;
+        }
+        if (obj.operation && typeof obj.operation === 'object') {
+          entry.operation = { ...entry.operation, ...obj.operation };
+        }
+      }
+      return false;
+    }
+
     if (t === 'response.completed') {
       const resp = obj.response;
       if (resp?.id) responseId = String(resp.id);
@@ -278,6 +346,7 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
         outputItems = resp.output;
         resp.output.forEach((it, i) => {
           if (it?.type === 'function_call') captureFunctionCallItem(it, i);
+          else if (it?.type === 'apply_patch_call') captureApplyPatchCallItem(it, i);
         });
       }
       const st = resp?.status != null ? String(resp.status) : '';
@@ -347,6 +416,7 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
   }
 
   slots.sort((a, b) => (a.outputIndex ?? 1e9) - (b.outputIndex ?? 1e9));
+  applyPatchCalls.sort((a, b) => (a.outputIndex ?? 1e9) - (b.outputIndex ?? 1e9));
 
   const pendingToolCalls = slots
     .filter((s) => s.name)
@@ -366,8 +436,21 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
       };
     });
 
+  const pendingApplyPatchCalls = applyPatchCalls
+    .filter((c) => c.call_id || c.id)
+    .map((c, index) => ({
+      type: 'apply_patch_call',
+      id: c.id || `openai_apply_patch_${index}`,
+      call_id: c.call_id || c.id || `openai_apply_patch_${index}`,
+      operation: c.operation || {},
+      status: c.status,
+      provider: 'openai_responses',
+      index,
+      ...(c.caller != null ? { caller: c.caller } : {}),
+    }));
+
   let finishReason = 'end_turn';
-  if (pendingToolCalls.length) finishReason = 'tool_use';
+  if (pendingToolCalls.length || pendingApplyPatchCalls.length) finishReason = 'tool_use';
   else if (streamFinish === 'completed') finishReason = 'end_turn';
 
   const _sfObj = typeof streamFinish === 'object' && streamFinish !== null ? streamFinish : {};
@@ -375,6 +458,7 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
     text: textBuf,
     finishReason,
     pendingToolCalls,
+    pendingApplyPatchCalls,
     responseId,
     outputItems: Array.isArray(outputItems) ? outputItems : null,
     input_tokens:  _sfObj.input_tokens  ?? 0,

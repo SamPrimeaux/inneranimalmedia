@@ -18,8 +18,8 @@ SSOT for the OpenAI Agent Sam capability fleet. Cursor plan mirror: `.cursor/pla
 
 1. **Responses WebSocket + DO holder** — execute now  
 2. Realtime voice  
-3a. apply_patch / hosted shell (**blocked on REPAIR-REMOTE-TERMINAL**)  
-3b. Programmatic Tool Calling (**blocked on `tkt_oai_ws_do_holder` dual-pass**)  
+3a. apply_patch (**`tkt_oai_apply_patch` — catalog+flag+wire shipped; dual-pass pending**) / hosted shell (**`tkt_oai_hosted_shell`**)  
+3b. Programmatic Tool Calling (**shipped**)  
 4. Multi-agent + compaction  
 5. Background / ops
 
@@ -86,7 +86,21 @@ SSOT for the OpenAI Agent Sam capability fleet. Cursor plan mirror: `.cursor/pla
 
 - **REPAIR-REMOTE-TERMINAL** ([docs/ops/REPAIR-REMOTE-TERMINAL.md](../../docs/ops/REPAIR-REMOTE-TERMINAL.md)): hybrid default routes platform work through `agentsam_terminal_remote`. Fix before Phase 3a. Does **not** block Phase 1/2.  
 - Hosted shell egress: org allowlist must be set in OpenAI dashboard before `openai_hosted_shell=1` can use network_policy (request can only further restrict).  
-- `apply_patch`: confirm catalog model capability before wiring (GPT-5.1+ / catalog row — no hardcoded model ids).
+- `apply_patch`: catalog column `supports_apply_patch` (migration 990) — no hardcoded model ids in Worker JS.
+
+## Phase 3a — apply_patch (`tkt_oai_apply_patch`)
+
+| Piece | Behavior |
+|---|---|
+| Flag `openai_apply_patch` | Sam allowlisted (`au_871d…`); default globally off |
+| Catalog gate | `agentsam_model_catalog.supports_apply_patch=1` (+ cost_notes backup) |
+| Wire | `{type:"apply_patch"}` on Responses `tools[]` when flag+capability (HTTP + WS) |
+| SSE | `consumeOpenAIResponsesSse` parses `apply_patch_call` (+ incremental op fields) |
+| Harness | [`src/core/openai-apply-patch.js`](../../src/core/openai-apply-patch.js) — V4A via `@openai/agents` `applyDiff`; write/delete via `fs_*` PTY lanes; fail closed outside relative allowlisted paths |
+| Feedback | `apply_patch_call_output` with `status: completed\|failed` + logs (never silent success on deny) |
+| Fallback | `fs_edit_file` / `fs_write_file` catalog tools remain for non-flagged / non-capable models |
+
+**Out of scope here:** `tkt_oai_hosted_shell`, `tkt_oai_multi_agent`, replacing `fs_edit_file` for non-Responses models.
 
 ## Feature flags
 
@@ -94,6 +108,7 @@ SSOT for the OpenAI Agent Sam capability fleet. Cursor plan mirror: `.cursor/pla
 |---|---|
 | `openai_responses_ws` | off globally; Sam user allowlisted for soak |
 | `openai_ptc` | off; depends on WS DO dual-pass |
+| `openai_apply_patch` | off globally; Sam user allowlisted; requires `supports_apply_patch` |
 
 ## Dual-pass law
 

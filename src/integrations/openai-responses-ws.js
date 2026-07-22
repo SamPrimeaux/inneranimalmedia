@@ -13,7 +13,7 @@ function trim(v) {
 const WS_FALLBACK_RE =
   /previous_response_not_found|websocket_connection_limit_reached|openai_ws_(?:closed|error)_mid_turn|openai_ws_turn_timeout|openai_ws_turn_failed/i;
 const WS_DECISIVE_EVENT_RE =
-  /response\.(?:output_item\.(?:added|done)|output_text\.delta|function_call_arguments\.[a-z_]+|completed|failed|incomplete)/i;
+  /response\.(?:output_item\.(?:added|done)|output_text\.delta|function_call_arguments\.[a-z_]+|apply_patch_call(?:\.[a-z_]+)?|completed|failed|incomplete)/i;
 
 export function detectOpenAiResponsesWsFallback(text) {
   const m = String(text || '').match(WS_FALLBACK_RE);
