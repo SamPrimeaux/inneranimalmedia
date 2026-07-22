@@ -21,7 +21,11 @@ const CHUNK_TARGET_CHARS = 1600; // ~400 tokens
 const CHUNK_OVERLAP_CHARS = 200; // ~50 tokens
 const EMBED_BATCH = 20;
 const MAX_FILES_PER_RUN = 8;
-const STALE_RUNNING_MINUTES = 3;
+/** WaitUntil kills leave status=running; reclaim quickly so resume kicks aren't stuck on job_not_idle. */
+const STALE_RUNNING_MINUTES = 1;
+/** Explicit /api/internal/code-index/run?job_id= can reclaim sooner than the global stale window. */
+const EXPLICIT_STALE_SECONDS = 45;
+const EMBED_TIMEOUT_MS = 12_000;
 const MAX_FILE_BYTES = 250 * 1024;
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.wrangler', '.git', 'build', 'coverage', '.next']);
 const ALLOWED_EXT = new Set(['.js', '.ts', '.tsx', '.jsx', '.md']);
@@ -521,6 +525,7 @@ export async function runCodeIndexJob(env, jobId, opts = {}) {
   let chunksWritten = 0;
   let filesProcessed = 0;
   const errors = [];
+  let finalized = false;
 
   try {
     for (const filePath of batchFiles) {
@@ -541,19 +546,24 @@ export async function runCodeIndexJob(env, jobId, opts = {}) {
           const slice = chunks.slice(i, i + EMBED_BATCH);
           const embeddings = [];
           for (const text of slice) {
-            const { embedding } = await createAgentsamEmbedding(env, text, {
-              spec: EMBED_SPEC,
-              userId: job.user_id != null ? String(job.user_id) : null,
-              workspaceId: d1WorkspaceId,
-              usage: {
-                workspace_id: d1WorkspaceId,
-                user_id: job.user_id != null ? String(job.user_id) : null,
-                task_type: 'code_index_embed',
-                tool_name: 'code_indexer',
-                ref_table: 'agentsam_code_index_job',
-                ref_id: job.id != null ? String(job.id) : null,
-              },
-            });
+            const { embedding } = await Promise.race([
+              createAgentsamEmbedding(env, text, {
+                spec: EMBED_SPEC,
+                userId: job.user_id != null ? String(job.user_id) : null,
+                workspaceId: d1WorkspaceId,
+                usage: {
+                  workspace_id: d1WorkspaceId,
+                  user_id: job.user_id != null ? String(job.user_id) : null,
+                  task_type: 'code_index_embed',
+                  tool_name: 'code_indexer',
+                  ref_table: 'agentsam_code_index_job',
+                  ref_id: job.id != null ? String(job.id) : null,
+                },
+              }),
+              new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('embed_timeout')), EMBED_TIMEOUT_MS);
+              }),
+            ]);
             embeddings.push(embedding);
           }
 
@@ -599,7 +609,8 @@ export async function runCodeIndexJob(env, jobId, opts = {}) {
         console.warn('[code-indexer] file_error', filePath, e?.message ?? e);
       }
 
-      // Checkpoint so a killed waitUntil still leaves resume offset + heartbeat.
+      // Checkpoint progress. Keep running during the batch; release to idle in finish/finally
+      // so the next kick can claim (waitUntil kills used to leave zombies at 1/N forever).
       const checkpointOffset = offset + filesProcessed;
       const checkpointChunks = priorChunks + chunksWritten;
       await patchJob(
@@ -642,6 +653,7 @@ export async function runCodeIndexJob(env, jobId, opts = {}) {
       if (cols.has('completed_at')) finishPatch.completed_at = new Date().toISOString();
       if (cols.has('last_sync_at')) finishPatch.last_sync_at = new Date().toISOString();
       await patchJob(env, job.id, finishPatch, cols);
+      finalized = true;
       if (finishPatch.status === 'completed') {
         await updateVectorizeRegistry(env, totalChunks);
         notifyCodeIndexComplete(env, {
@@ -657,6 +669,7 @@ export async function runCodeIndexJob(env, jobId, opts = {}) {
       finishPatch.status = 'idle';
       finishPatch.triggered_by = 'resume';
       await patchJob(env, job.id, finishPatch, cols);
+      finalized = true;
     }
 
     return {
@@ -691,7 +704,27 @@ export async function runCodeIndexJob(env, jobId, opts = {}) {
       },
       cols,
     );
+    finalized = true;
     return { ok: false, error: msg, job_id: job.id, chunks_written: chunksWritten };
+  } finally {
+    // Soft cancel / unexpected exit: never leave a zombie running that blocks resume.
+    if (!finalized) {
+      await patchJob(
+        env,
+        job.id,
+        {
+          status: 'idle',
+          triggered_by: 'resume',
+          last_error: 'run_interrupted_resume',
+          indexed_file_count: offset + filesProcessed,
+          chunk_count: priorChunks + chunksWritten,
+          progress_percent: allFiles.length
+            ? Math.min(100, Math.round(((offset + filesProcessed) / allFiles.length) * 100))
+            : 100,
+        },
+        cols,
+      ).catch(() => null);
+    }
   }
 }
 
@@ -701,6 +734,7 @@ export async function runCodeIndexJob(env, jobId, opts = {}) {
  * @param {{ cpuBudgetMs?: number, jobId?: string|null, workspaceId?: string|null }} [opts]
  */
 export async function runPendingCodeIndexJob(env, opts = {}) {
+  let jobId = opts.jobId != null ? String(opts.jobId).trim() : null;
   if (env?.DB) {
     await env.DB.prepare(
       `UPDATE agentsam_code_index_job
@@ -712,8 +746,22 @@ export async function runPendingCodeIndexJob(env, opts = {}) {
     )
       .run()
       .catch(() => null);
+
+    // Targeted reclaim for operator kicks — waitUntil often dies ~30s after 1 file
+    // and leaves status=running, which made every poll return job_not_idle.
+    if (jobId) {
+      await env.DB.prepare(
+        `UPDATE agentsam_code_index_job
+            SET status = 'idle', triggered_by = 'stale_recovery'
+          WHERE id = ?
+            AND status = 'running'
+            AND updated_at < datetime('now', '-${EXPLICIT_STALE_SECONDS} seconds')`,
+      )
+        .bind(jobId)
+        .run()
+        .catch(() => null);
+    }
   }
-  let jobId = opts.jobId != null ? String(opts.jobId).trim() : null;
   if (!jobId && opts.workspaceId && env?.DB) {
     const ws = String(opts.workspaceId).trim();
     const row = await env.DB.prepare(
