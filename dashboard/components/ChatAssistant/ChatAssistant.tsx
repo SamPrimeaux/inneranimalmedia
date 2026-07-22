@@ -1967,6 +1967,61 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     [isNarrow],
   );
 
+  /** Realtime voice → chat bubbles (local thread; not /api/agent/chat). */
+  const voiceAssistantIdxRef = useRef<number | null>(null);
+
+  const appendVoiceUserToThread = useCallback(
+    (text: string) => {
+      const t = text.trim();
+      if (!t) return;
+      voiceAssistantIdxRef.current = null;
+      setMessages((prev) => [...prev, { role: 'user', content: t }]);
+    },
+    [setMessages],
+  );
+
+  const appendVoiceAssistantToThread = useCallback(
+    (text: string, partial?: boolean) => {
+      const t = text.trim();
+      if (!t) return;
+      setMessages((prev) => {
+        const next = [...prev];
+        const idx = voiceAssistantIdxRef.current;
+        if (idx != null && idx >= 0 && idx < next.length && next[idx]?.role === 'assistant') {
+          next[idx] = { ...next[idx], content: t };
+          if (!partial) voiceAssistantIdxRef.current = null;
+          return next;
+        }
+        voiceAssistantIdxRef.current = next.length;
+        const out = [...next, { role: 'assistant' as const, content: t }];
+        if (!partial) voiceAssistantIdxRef.current = null;
+        return out;
+      });
+    },
+    [setMessages],
+  );
+
+  const onVoiceToolResult = useCallback(
+    (toolName: string, preview: string) => {
+      voiceAssistantIdxRef.current = null;
+      let pretty = preview;
+      try {
+        pretty = JSON.stringify(JSON.parse(preview), null, 2);
+      } catch {
+        /* keep raw */
+      }
+      const short = pretty.length > 400 ? `${pretty.slice(0, 400)}…` : pretty;
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: `🔧 Voice tool \`${toolName}\`\n\`\`\`json\n${short}\n\`\`\``,
+        },
+      ]);
+    },
+    [setMessages],
+  );
+
   const applyMention = (item: PickerItem) => {
     const el = textareaRef.current;
     const q = mentionQueryRef.current;
@@ -4313,7 +4368,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 </button>
               </div>
               <div className="flex items-center gap-1.5 shrink-0 min-w-0">
-                <AgentComposerMicButton onTranscript={appendSpeechToInput} disabled={isLoading} />
+                <AgentComposerMicButton
+                  onTranscript={appendSpeechToInput}
+                  onUserVoiceTranscript={appendVoiceUserToThread}
+                  onAssistantTranscript={appendVoiceAssistantToThread}
+                  onToolResult={onVoiceToolResult}
+                  conversationId={conversationId}
+                  disabled={isLoading}
+                />
                 <button
                   type="button"
                   ref={attachButtonRef}

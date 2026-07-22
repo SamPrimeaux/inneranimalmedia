@@ -18,7 +18,7 @@ import { resolveCanonicalUserId } from '../api/auth.js';
 const OPENAI_REALTIME_CLIENT_SECRETS = 'https://api.openai.com/v1/realtime/client_secrets';
 const FLAG_KEY = 'openai_realtime_voice';
 const DEFAULT_INSTRUCTIONS =
-  'You are Agent Sam, the Inner Animal Media platform operator assistant. Keep spoken replies concise and helpful. This is voice chat only — Meet/video is a separate product.';
+  'You are Agent Sam, the Inner Animal Media platform operator assistant. Keep spoken replies concise and helpful. You may call the provided tools for memory, codebase search, web search, or tool discovery when needed. This is voice chat only — Meet/video is a separate product.';
 
 /**
  * Stable hashed safety identifier for a user — never raw user_id on the wire.
