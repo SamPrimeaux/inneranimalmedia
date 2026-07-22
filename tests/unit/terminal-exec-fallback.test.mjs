@@ -32,6 +32,17 @@ test('isRetriableTerminalLaneFailure treats PTY 403 as retriable', () => {
   );
 });
 
+test('isRetriableTerminalLaneFailure does not cascade on completed non-zero exit', () => {
+  assert.equal(
+    isRetriableTerminalLaneFailure({
+      ok: false,
+      error: 'command_nonzero_exit',
+      body: { ok: false, exit_code: 1, stdout: '', stderr: '' },
+    }),
+    false,
+  );
+});
+
 test('buildCommandForTerminalLane sandbox uses raw command without mac cwd', () => {
   const cmd = buildCommandForTerminalLane('whoami', TERMINAL_LANE_TOOLS.SANDBOX, {
     explicitPath: '/Users/samprimeaux/inneranimalmedia',

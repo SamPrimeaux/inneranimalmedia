@@ -114,11 +114,22 @@ export function resolveTerminalFallbackChain(initialToolKey, opts = {}) {
  */
 export function isRetriableTerminalLaneFailure(result) {
   if (!result || result.ok === true) return false;
+
+  // Completed shell invocation (including grep exit 1) — never cascade lanes.
+  const exitCode = result.body?.exit_code ?? result.body?.exitCode;
+  if (exitCode != null && exitCode !== '') {
+    const s = String(exitCode).trim().toUpperCase();
+    if (s !== 'ENOENT' && s !== 'ENOTDIR' && s !== 'EACCES' && Number.isFinite(Number(exitCode))) {
+      return false;
+    }
+  }
+
   const err = [
     result.error,
     result.body?.user_message,
     result.body?.stderr,
     result.body?.output,
+    result.body?.error,
   ]
     .filter(Boolean)
     .join('\n')
@@ -126,8 +137,11 @@ export function isRetriableTerminalLaneFailure(result) {
 
   if (!err) return true;
 
+  // Non-zero exit mislabeled as spawn — still not a lane outage if we have a numeric code above.
+  if (err === 'command_nonzero_exit' || /^exit[_ ]?code/i.test(err)) return false;
+
   const retriable =
-    /403|401|forbidden|auth|pty command failed|enoent|tunnel|unavailable|timeout|econnrefused|connection|health_probe|not_provisioned|mobile_local|routing forbidden|terminal error/i.test(
+    /403|401|forbidden|auth|pty command failed|enoent|tunnel|unavailable|timeout|econnrefused|connection|health_probe|not_provisioned|mobile_local|routing forbidden|terminal error|exec_spawn_failed/i.test(
       err,
     );
   return retriable;
@@ -395,10 +409,13 @@ async function executePtyLane(env, laneToolKey, ctx) {
     exitCode,
     status: out.status || 'success',
   });
-  if (body.ok === false || body.error === 'exec_spawn_failed') {
+
+  // Only spawn/OS failures are lane failures. Non-zero exit (grep=1, etc.) means the
+  // command ran — return it to the model and do not cascade remote→sandbox→exhausted.
+  if (body.error === 'exec_spawn_failed') {
     return {
       ok: false,
-      error: body.error || 'exec_spawn_failed',
+      error: 'exec_spawn_failed',
       lane: routing.lane || null,
       body,
     };
