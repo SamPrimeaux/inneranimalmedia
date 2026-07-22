@@ -326,5 +326,5 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   );
 }
 
-// NOTE: iam-cms-navigate postMessage handler is registered in CmsStudioEditor
-// via window.addEventListener('message', ...) — no additional wiring needed here.
+// NOTE: Studio's "Overview" exit posts { type: 'iam-studio-cms-navigate', path }
+// which StudioCmsHost listens for and forwards here via onNavigatePath=cmsNavigatePath.
