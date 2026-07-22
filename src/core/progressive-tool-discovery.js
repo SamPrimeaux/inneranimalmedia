@@ -14,6 +14,9 @@ export const PROGRESSIVE_CORE_TOOL_KEYS = Object.freeze([
   'fs_read_file',
   'fs_write_file',
   'fs_search_files',
+  // Workspace PTY (Mac/localpty). Without this, terra + openai_hosted_shell is the only
+  // "shell" on turn 0 and models ls OpenAI's Debian box — which has no repo .scratch/.
+  'agentsam_terminal_local',
   'agentsam_codebase_retrieve',
   'agentsam_memory_search',
   'search_web',
