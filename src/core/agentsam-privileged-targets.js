@@ -194,9 +194,17 @@ export async function resolveTerminalExecIdentity(db, connection, privilegedTarg
     privilegedTargetId = await resolvePrivilegedTargetLookupId(db, String(conn.id));
   }
   const target = privilegedTarget || (privilegedTargetId ? await loadPrivilegedTarget(db, privilegedTargetId) : null);
+  const platform = conn?.platform != null ? String(conn.platform).trim().toLowerCase() : '';
+  const targetType = conn?.target_type != null ? String(conn.target_type).trim() : '';
+  const username = conn?.username != null ? String(conn.username).trim() : '';
+  // Mac localpty (ExecOS) requires X-IAM-Exec-Identity === OS login (samprimeaux).
+  // Missing remote_exec_user used to omit the header → 403 → silent sandbox fallback.
   const execUser =
     (conn?.remote_exec_user != null ? String(conn.remote_exec_user).trim() : '') ||
     (target?.sudoers_user != null ? String(target.sudoers_user).trim() : '') ||
+    (targetType === 'user_hosted_tunnel' && (platform === 'macos' || platform === 'darwin')
+      ? username || null
+      : null) ||
     null;
   const sshIdentitySecret =
     conn?.ssh_identity_secret_name != null ? String(conn.ssh_identity_secret_name).trim() : null;

@@ -1971,8 +1971,12 @@ export class AgentChatSqlV1 extends DurableObject {
           }),
         );
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          return { error: String(data?.error || `PTY command failed (${res.status})`) };
+      if (!res.ok) {
+          const detail =
+            (typeof data?.stderr === 'string' && data.stderr.trim()) ||
+            (typeof data?.error === 'string' && data.error.trim()) ||
+            `PTY command failed (${res.status})`;
+          return { error: String(detail) };
         }
         const stdout = typeof data?.stdout === "string" ? data.stdout : "";
         const stderr = typeof data?.stderr === "string" ? data.stderr : "";
@@ -2038,7 +2042,11 @@ export class AgentChatSqlV1 extends DurableObject {
       if (res.status === 401 && i < tokens.length - 1) continue;
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        return { error: String(data?.error || `PTY command failed (${res.status})`) };
+        const detail =
+          (typeof data?.stderr === 'string' && data.stderr.trim()) ||
+          (typeof data?.error === 'string' && data.error.trim()) ||
+          `PTY command failed (${res.status})`;
+        return { error: String(detail) };
       }
       const stdout = typeof data?.stdout === "string" ? data.stdout : "";
       const stderr = typeof data?.stderr === "string" ? data.stderr : "";

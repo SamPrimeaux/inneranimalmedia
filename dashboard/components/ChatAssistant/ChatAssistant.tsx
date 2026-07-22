@@ -177,7 +177,7 @@ import {
 } from '../../src/lib/databaseStudioEvents';
 import '../../features/agent-presence/presenceMotion.css';
 import '../../features/agent-presence/presenceIcons.css';
-import { useAgentPresence, AgentPresenceStatus, AgentRunChip } from '../../features/agent-presence';
+import { useAgentPresence, AgentPresenceStatus } from '../../features/agent-presence';
 import { derivePresenceState } from '../../features/agent-presence/iamDerivePresenceState';
 import {
   formatThinkingStepName,
@@ -4381,13 +4381,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               </div>
             </div>
           </div>
-          <AgentRunChip
-            isLoading={isLoading}
-            modelKey={displayRunModel}
-            idleLabel={modelPickerLabel}
-            toolName={runningToolName}
-            startedAt={loadingStartedAt}
-          />
           {showMobileRepoConnector && (
             <button
               type="button"
