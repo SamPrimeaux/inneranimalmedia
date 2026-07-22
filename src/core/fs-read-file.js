@@ -309,7 +309,7 @@ export async function executeFsReadFile(env, params, runContext = {}) {
       : /no such file or directory/i.test(output)
         ? 'File does not exist on the selected lane (not necessarily a dead tunnel)'
         : isAbsolute
-          ? 'PTY host must reach this absolute path (tunnel iam-pty on your Mac)'
+          ? 'PTY host must reach this absolute path (Mac: localpty.inneranimalmedia.com / samsmac tunnel)'
           : 'Clone repo under PTY workspace, reconnect local folder to monorepo root, or use agentsam_github_read',
   };
 }
