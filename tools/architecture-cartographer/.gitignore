@@ -1,0 +1,19 @@
+# architecture-cartographer — Sam/Agent Sam platform asset inventory & drift audit
+#
+# Evergreen tooling. Generated reports/snapshots stay local (gitignored).
+
+README.md
+!README.md
+!architecture_cartographer.py
+!inventory_snapshot.sh
+!prompts/
+!prompts/**
+
+reports/
+snapshots/
+evidence/
+architecture-map/
+inventory.json
+__pycache__/
+*.pyc
+.DS_Store
