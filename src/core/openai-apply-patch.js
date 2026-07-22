@@ -291,7 +291,7 @@ async function deleteWorkspaceFileViaPty(env, relPath, runContext) {
       request,
       command,
       runContext.sessionId ?? null,
-      ptyExecOptsForFs(runContext, {
+      await ptyExecOptsForFs(env, runContext, {
         workspace_id: workspaceId,
         tenant_id: tenantId,
         user_id: userId,
@@ -299,7 +299,7 @@ async function deleteWorkspaceFileViaPty(env, relPath, runContext) {
         tool_name: 'openai_apply_patch_delete',
       }),
     );
-    pinPtyLaneFromExecResult(runContext, res);
+    await pinPtyLaneFromExecResult(env, runContext, res);
     const exitCode = Number(res?.exitCode ?? 0);
     if (exitCode !== 0) {
       return {

@@ -231,7 +231,7 @@ export async function executeFsReadFile(env, params, runContext = {}) {
 
   try {
     const { runTerminalCommand } = await import('./terminal.js');
-    const { pinPtyLaneFromExecResult, ptyExecOptsForFs, getPinnedPtyLane } = await import(
+    const { pinPtyLaneFromExecResult, ptyExecOptsForFs, resolvePinnedPtyLane } = await import(
       './fs-pty-lane-pin.js'
     );
     for (const attempt of attemptList) {
@@ -245,7 +245,7 @@ export async function executeFsReadFile(env, params, runContext = {}) {
           request,
           command,
           runContext.sessionId ?? null,
-          ptyExecOptsForFs(runContext, {
+          await ptyExecOptsForFs(env, runContext, {
             workspace_id: workspaceId,
             tenant_id: tenantId,
             user_id: userId,
@@ -255,8 +255,8 @@ export async function executeFsReadFile(env, params, runContext = {}) {
         );
         output = String(res?.output || '');
         exitCode = Number(res?.exitCode ?? res?.exit_code ?? 0);
-        pinPtyLaneFromExecResult(runContext, res);
-        const pinned = getPinnedPtyLane(runContext);
+        await pinPtyLaneFromExecResult(env, runContext, res);
+        const pinned = await resolvePinnedPtyLane(env, runContext);
         if (pinned?.connection_id) {
           repoMeta = { ...repoMeta, connection_id: pinned.connection_id };
         } else if (res?.targetId) {

@@ -1,21 +1,52 @@
 /**
- * Pin the resolved PTY terminal_connections row for the duration of an agent turn.
+ * Pin the resolved PTY terminal_connections row for one agent run.
  *
- * fs_write_file / fs_read_file previously each passed target_type:'auto', so
- * resolveMoviemodeRepoRootForSession + listOrderedAutoTerminalConnections could
- * pick Mac on write and GCP/sandbox on the next read — exit 0 on write, missing
- * bytes on read. Not a race: a lane-pinning gap.
+ * Why not mutate runContext alone:
+ * agent-tool-loop builds a fresh `{ sessionId, tenantId, ... }` object per
+ * dispatchToolCallWithBudget call. Mutating that object dies when the call returns.
  *
- * Contract: mutate the shared runContext object (same reference across tool calls
- * in catalog-tool-executor). First successful pty exec wins; later fs_* calls
- * force connection_id and skip auto re-resolution.
+ * Persistence (in order):
+ * 1. Shared bag: runContext.ptyLanePin — same object ref passed every dispatch in a turn
+ * 2. D1 agentsam_pty_lane_pin keyed by agent_run_id — survives rebuild / fallback paths
  */
 
 /**
  * @param {Record<string, unknown>|null|undefined} runContext
+ */
+export function pinScopeKey(runContext) {
+  if (!runContext || typeof runContext !== 'object') return '';
+  return (
+    String(runContext.agent_run_id || runContext.agentRunId || '').trim() ||
+    String(runContext.sessionId || runContext.session_id || runContext.conversation_id || '').trim()
+  );
+}
+
+/**
+ * Shared mutable bag (same reference across tool calls in one turn).
+ * @param {Record<string, unknown>|null|undefined} runContext
+ * @returns {Record<string, unknown>|null}
+ */
+function pinBag(runContext) {
+  if (!runContext || typeof runContext !== 'object') return null;
+  const bag = runContext.ptyLanePin;
+  if (bag && typeof bag === 'object') return bag;
+  return null;
+}
+
+/**
+ * Sync read from shared bag only (no D1).
+ * @param {Record<string, unknown>|null|undefined} runContext
  * @returns {{ connection_id: string, target_type?: string }|null}
  */
 export function getPinnedPtyLane(runContext) {
+  const bag = pinBag(runContext);
+  if (bag) {
+    const id = String(bag.connection_id || bag.pty_connection_id || '').trim();
+    if (!id) return null;
+    const tt = String(bag.target_type || bag.pty_target_type || '').trim();
+    return tt ? { connection_id: id, target_type: tt } : { connection_id: id };
+  }
+  // Legacy: properties on runContext itself (only works if caller reuses the object)
   if (!runContext || typeof runContext !== 'object') return null;
   const id = String(
     runContext.pty_connection_id || runContext.pinned_pty_connection_id || '',
@@ -26,54 +57,111 @@ export function getPinnedPtyLane(runContext) {
 }
 
 /**
- * Stash the lane that actually executed (from runTerminalCommand result).
- * Idempotent — first pin wins for the turn.
- *
+ * Load pin from bag, else D1 agentsam_pty_lane_pin.
+ * @param {any} env
  * @param {Record<string, unknown>|null|undefined} runContext
- * @param {{ targetId?: string|null, connection_id?: string|null, lane_attempts?: Array<{ connection_id?: string|null, target_type?: string|null, ok?: boolean }> }|null|undefined} res
  */
-export function pinPtyLaneFromExecResult(runContext, res) {
-  if (!runContext || typeof runContext !== 'object' || !res) return;
-  if (getPinnedPtyLane(runContext)) return;
+export async function resolvePinnedPtyLane(env, runContext) {
+  const local = getPinnedPtyLane(runContext);
+  if (local) return local;
 
-  const id = String(res.targetId || res.connection_id || '').trim();
-  if (!id) {
-    // Fallback: first successful attempt in the auto chain
-    const attempts = Array.isArray(res.lane_attempts) ? res.lane_attempts : [];
-    const hit = attempts.find((a) => a?.ok && a?.connection_id);
-    if (hit?.connection_id) {
-      runContext.pty_connection_id = String(hit.connection_id).trim();
-      if (hit.target_type) runContext.pty_target_type = String(hit.target_type).trim();
+  const scope = pinScopeKey(runContext);
+  if (!scope || !env?.DB) return null;
+
+  try {
+    const row = await env.DB.prepare(
+      `SELECT connection_id, target_type
+         FROM agentsam_pty_lane_pin
+        WHERE agent_run_id = ?
+        LIMIT 1`,
+    )
+      .bind(scope)
+      .first();
+    const id = String(row?.connection_id || '').trim();
+    if (!id) return null;
+    const tt = String(row?.target_type || '').trim();
+    const pin = tt ? { connection_id: id, target_type: tt } : { connection_id: id };
+    // Hydrate bag for subsequent calls in this isolate
+    const bag = pinBag(runContext);
+    if (bag) {
+      bag.connection_id = pin.connection_id;
+      if (pin.target_type) bag.target_type = pin.target_type;
     }
-    return;
-  }
-
-  runContext.pty_connection_id = id;
-  const attempts = Array.isArray(res.lane_attempts) ? res.lane_attempts : [];
-  const match =
-    attempts.find((a) => a?.ok && String(a.connection_id || '').trim() === id) ||
-    attempts.find((a) => a?.ok);
-  if (match?.target_type) {
-    runContext.pty_target_type = String(match.target_type).trim();
+    return pin;
+  } catch (e) {
+    console.warn('[pty-lane-pin] resolve_failed', e?.message || e);
+    return null;
   }
 }
 
 /**
- * Build runTerminalCommand executionCtx for filesystem tools.
- * Uses pinned connection_id when present; otherwise target_type auto (first call).
- *
+ * @param {any} env
+ * @param {Record<string, unknown>|null|undefined} runContext
+ * @param {{ targetId?: string|null, connection_id?: string|null, lane_attempts?: Array<{ connection_id?: string|null, target_type?: string|null, ok?: boolean }> }|null|undefined} res
+ */
+export async function pinPtyLaneFromExecResult(env, runContext, res) {
+  if (!runContext || typeof runContext !== 'object' || !res) return;
+
+  const existing = await resolvePinnedPtyLane(env, runContext);
+  if (existing) return;
+
+  let id = String(res.targetId || res.connection_id || '').trim();
+  let tt = '';
+  const attempts = Array.isArray(res.lane_attempts) ? res.lane_attempts : [];
+  if (!id) {
+    const hit = attempts.find((a) => a?.ok && a?.connection_id);
+    if (hit?.connection_id) {
+      id = String(hit.connection_id).trim();
+      tt = String(hit.target_type || '').trim();
+    }
+  } else {
+    const match =
+      attempts.find((a) => a?.ok && String(a.connection_id || '').trim() === id) ||
+      attempts.find((a) => a?.ok);
+    if (match?.target_type) tt = String(match.target_type).trim();
+  }
+  if (!id) return;
+
+  const bag = pinBag(runContext);
+  if (bag) {
+    bag.connection_id = id;
+    if (tt) bag.target_type = tt;
+  } else {
+    runContext.pty_connection_id = id;
+    if (tt) runContext.pty_target_type = tt;
+  }
+
+  const scope = pinScopeKey(runContext);
+  if (!scope || !env?.DB) return;
+
+  const workspaceId = String(runContext.workspaceId || runContext.workspace_id || '').trim() || null;
+  const userId = String(runContext.userId || runContext.user_id || '').trim() || null;
+  try {
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO agentsam_pty_lane_pin
+         (agent_run_id, connection_id, target_type, workspace_id, user_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, unixepoch(), unixepoch())`,
+    )
+      .bind(scope, id, tt || null, workspaceId, userId)
+      .run();
+  } catch (e) {
+    console.warn('[pty-lane-pin] persist_failed', e?.message || e);
+  }
+}
+
+/**
+ * @param {any} env
  * @param {Record<string, unknown>|null|undefined} runContext
  * @param {Record<string, unknown>} base
  */
-export function ptyExecOptsForFs(runContext, base = {}) {
-  const pin = getPinnedPtyLane(runContext);
+export async function ptyExecOptsForFs(env, runContext, base = {}) {
+  const pin = await resolvePinnedPtyLane(env, runContext);
   if (pin) {
     return {
       ...base,
       execution_mode: 'pty',
       connection_id: pin.connection_id,
       target_id: pin.connection_id,
-      // Prefer explicit type when known; omit 'auto' so terminal.js stays on the pin.
       ...(pin.target_type ? { target_type: pin.target_type } : {}),
     };
   }

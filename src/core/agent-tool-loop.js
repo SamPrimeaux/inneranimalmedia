@@ -242,6 +242,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   );
   const routingArmIdStr = dispatchSpine.routing_arm_id || '';
   const openWebBudget = { turnCalls: 0, runCalls: 0 };
+  // Shared across every tool dispatch this run — runContext literals are rebuilt per call,
+  // so PTY lane pin must live on this bag (and D1), not on throwaway runContext fields.
+  const turnPtyLanePin = Object.create(null);
   const runSpineIds = {
     agent_run_id: dispatchSpine.agent_run_id,
     conversation_id: sessionId != null ? String(sessionId).trim() : null,
@@ -250,6 +253,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     activeFileEnvelope: activeFileEnvelopeParam,
     resolvedContext: resolvedContextParam,
     ctx,
+    ptyLanePin: turnPtyLanePin,
   };
 
   const attributedRoutingArmId = () => routingArmIdStr || null;
