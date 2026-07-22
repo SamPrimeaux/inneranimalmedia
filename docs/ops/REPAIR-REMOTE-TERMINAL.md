@@ -35,10 +35,17 @@
 - So missing remote on ChatGPT is **session operator scope** (or ChatGPT client truncating the list), not “curated catalog lying” and not primarily KV allowlist staleness. Ask ChatGPT for resolved `user_id` / `is_operator` from `tools/list` logs / workspace context before treating it as rewrite-required.
 
 **Remaining work:**
-1. Normalize or reject embedded `/Users/…` (and `/Volumes/…`) on GCP exec — Phase 3 apply_patch/shell prerequisite.
+1. ~~Normalize or reject embedded `/Users/…` (and `/Volumes/…`) on GCP exec~~ — **SHIPPED** (`sanitizeShellCommandForGcpExec` in main `host-workspace-paths.js` + MCP `mcp-host-workspace-paths.js`; MCP remote wrap fail-loud on unmapped paths).
 2. If `ok:true`+nonzero still reproduces, trace that response path and fix reporting.
 3. Confirm stamped OAuth local→remote fields on a live connector call.
 4. ChatGPT: confirm `user_id` ∈ Sam operator lane (`au_871d…` set) vs customer/Connor; only then chase KV `bumpOAuthAllowlistVersion` or a second tools/list filter.
+
+### Embedded-path sanitize (2026-07-22 Track A)
+
+- Leading `cd /Users/... &&` still rewritten to `cd <gcpRoot> &&`.
+- Embedded Mac/Windows abs paths under the same repo leaf (or `settings.workspace_root`) are rewritten to `gcpRoot/...`.
+- Unmapped `/Users|Volumes/...` on `agentsam_terminal_remote` → `error: embedded_mac_path_on_gcp` (loud reject, no silent Linux ENOENT).
+- Does **not** invent `/home/$user/$rest` from arbitrary Mac paths.
 
 ---
 

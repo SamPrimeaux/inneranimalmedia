@@ -49,6 +49,7 @@ import {
 } from './catalog-data-plane-operation.js';
 import {
   resolveRepoRootForHost,
+  sanitizeShellCommandForGcpExec,
   vmWorkspaceCdCommandFromSettings,
   vmWorkspaceRootFromSettings,
 } from './host-workspace-paths.js';
@@ -105,20 +106,21 @@ export function wrapWorkspaceShellCommand(settingsJson, command, opts = {}) {
   if (!parsed || typeof parsed !== 'object') return cmd;
 
   const gcpExec = opts.gcpExec === true;
-  if (/^\s*cd\s+/i.test(cmd)) {
-    if (gcpExec) {
-      const root = String(parsed.vm_workspace_root || parsed.repo?.vm_path || '').trim();
-      if (!root) return cmd;
-      return rewriteMacCdPrefix(cmd, root);
-    }
-    return cmd;
-  }
-
   if (gcpExec) {
     const root = String(parsed.vm_workspace_root || parsed.repo?.vm_path || '').trim();
     if (!root) return cmd;
-    if (cmd.includes(root)) return cmd;
-    return `cd ${root} && ${cmd}`;
+    const sanitized = sanitizeShellCommandForGcpExec(cmd, root, {
+      settings: parsed,
+      rejectUnmapped: false,
+    });
+    let next = sanitized.command;
+    if (/^\s*cd\s+/i.test(next)) return next;
+    if (next.includes(root)) return next;
+    return `cd ${root} && ${next}`;
+  }
+
+  if (/^\s*cd\s+/i.test(cmd)) {
+    return cmd;
   }
 
   const root = String(parsed.workspace_root || '').trim();
@@ -132,21 +134,6 @@ export function wrapWorkspaceShellCommand(settingsJson, command, opts = {}) {
   }
   if (root) return `cd ${root} && ${cmd}`;
   return cmd;
-}
-
-function rewriteMacCdPrefix(command, linuxRoot) {
-  const cmd = String(command || '').trim();
-  const root = String(linuxRoot || '').trim();
-  if (!cmd || !root) return cmd;
-  const m = cmd.match(/^\s*cd\s+(?:"([^"]+)"|'([^']+)'|(\S+))\s*&&\s*(.+)$/is);
-  if (!m) return cmd;
-  const dir = String(m[1] || m[2] || m[3] || '').trim();
-  const rest = String(m[4] || '').trim();
-  if (!dir.startsWith('/Users/') && !/^[A-Za-z]:\\/.test(dir) && !dir.startsWith('/Volumes/')) {
-    return cmd;
-  }
-  const quoted = root.includes(' ') ? `"${root.replace(/"/g, '\\"')}"` : root;
-  return `cd ${quoted} && ${rest}`;
 }
 
 function stableSortValue(value) {
