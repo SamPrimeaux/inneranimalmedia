@@ -39,13 +39,16 @@ test('detectOpenAiResponsesWsFallback recognizes cache miss and socket limit', (
   assert.equal(detectOpenAiResponsesWsFallback('response.output_text.delta'), null);
 });
 
-test('forced reconnect requires explicit header and an existing response id', () => {
-  const yes = new Request('https://example.test', {
+test('forced reconnect requires explicit soak signal and an existing response id', () => {
+  const headerYes = new Request('https://example.test', {
     headers: { 'X-IAM-OpenAI-WS-Force-Reconnect': '1' },
   });
+  const queryYes = new Request('https://example.test?openai_ws_force_reconnect=1');
   const no = new Request('https://example.test');
-  assert.equal(shouldForceOpenAiResponsesWsReconnect(yes, 'resp_existing'), true);
-  assert.equal(shouldForceOpenAiResponsesWsReconnect(yes, null), false);
+  assert.equal(shouldForceOpenAiResponsesWsReconnect(headerYes, 'resp_existing'), true);
+  assert.equal(shouldForceOpenAiResponsesWsReconnect(queryYes, 'resp_existing'), true);
+  assert.equal(shouldForceOpenAiResponsesWsReconnect(headerYes, null), false);
+  assert.equal(shouldForceOpenAiResponsesWsReconnect(queryYes, null), false);
   assert.equal(shouldForceOpenAiResponsesWsReconnect(no, 'resp_existing'), false);
 });
 

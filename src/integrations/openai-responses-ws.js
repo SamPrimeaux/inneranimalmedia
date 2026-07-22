@@ -22,7 +22,16 @@ export function detectOpenAiResponsesWsFallback(text) {
 
 export function shouldForceOpenAiResponsesWsReconnect(request, previousResponseId) {
   if (!trim(previousResponseId)) return false;
-  return trim(request?.headers?.get?.('X-IAM-OpenAI-WS-Force-Reconnect')) === '1';
+  if (trim(request?.headers?.get?.('X-IAM-OpenAI-WS-Force-Reconnect')) === '1') return true;
+  try {
+    return (
+      new URL(request?.url || 'https://invalid.local').searchParams.get(
+        'openai_ws_force_reconnect',
+      ) === '1'
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function withOpenAiResponsesFallbackHeaders(response, reason, fullInput) {
