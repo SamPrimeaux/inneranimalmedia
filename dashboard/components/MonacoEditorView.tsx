@@ -830,9 +830,10 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
               <div ref={containerRef} className="flex-1 min-h-0 w-full" />
             </div>
             {/* Preview pane */}
-            <div className="relative min-h-0 min-w-0" style={{ width: '50%' }}>
+            <div className="relative min-h-0 min-w-0 flex flex-col" style={{ width: '50%' }}>
               <div
-                className="absolute top-0 left-0 right-0 z-10 px-3 py-1 text-[10px] uppercase tracking-widest text-muted border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] flex items-center gap-2"
+                className="shrink-0 px-3 py-1 text-[10px] uppercase tracking-widest text-muted border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] flex items-center gap-2"
+                style={{ pointerEvents: 'none', zIndex: 1 }}
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--solar-cyan)] inline-block" />
                 Preview
@@ -842,7 +843,8 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
                 title={`Split preview ${activeFile.name}`}
                 srcDoc={markdownToHtml(activeFile.content ?? '')}
                 sandbox="allow-scripts"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none', paddingTop: 24 }}
+                className="flex-1 w-full border-0 min-h-0"
+                style={{ display: 'block' }}
               />
             </div>
           </div>
