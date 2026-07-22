@@ -3456,7 +3456,7 @@ const App: React.FC = () => {
         }
       }
     },
-    [navigate, gitRepoFullName, activeWorkspaceRow, revealMainWorkspaceIfNarrow, setActiveFile],
+    [navigate, gitRepoFullName, activeWorkspaceRow, revealMainWorkspaceIfNarrow, setActiveFile, openBrowserTab],
   );
 
   const fetchHealth = useCallback(async () => {
