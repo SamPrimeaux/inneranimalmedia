@@ -28,6 +28,7 @@ Work **in this order**. Do not parallelize product remasters across these.
 | [COMPANIONS-CONTEXT-AST-RAG-2026-07-21.md](./COMPANIONS-CONTEXT-AST-RAG-2026-07-21.md) | `tkt_companions_activerepo_lock_20260721` · `tkt_companions_ast_rag_index_20260721` · `tkt_project_codebase_index_rail_20260721` | **Companions compartment** — activeRepo lock, AST-RAG index, project-page Codebase Index rail (not platform remaster) |
 | [CMS-TOOL-CONTRACT-COMPANIONS-IAM-2026-07.md](./CMS-TOOL-CONTRACT-COMPANIONS-IAM-2026-07.md) | *(proposal — ticket TBD)* | Shared CMS tool verbs/I-O: Companions SSOT lanes + IAM aspired parity; no optional wrong-lane writes |
 | [AGENTSAM-CMS-STUDIO-CREAM-REALDATA-2026-07.md](./AGENTSAM-CMS-STUDIO-CREAM-REALDATA-2026-07.md) | *(handoff — ticket TBD)* | Studio exit→hub, cream shell, real CMS/CRM logic; keep iframe isolation |
+| [GEMINI-INTERACTIONS-TRANSPORT-ADAPTER-2026-07.md](./GEMINI-INTERACTIONS-TRANSPORT-ADAPTER-2026-07.md) | `tkt_gemini_interactions_transport` | **Later sprint / backlog** — `gemini_transport=interactions\|generate_content`, default generateContent until green |
 
 ## Verification law (LOCKED — dual-pass E2E)
 
