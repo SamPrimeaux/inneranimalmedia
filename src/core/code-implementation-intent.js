@@ -93,15 +93,19 @@ export function resolveForcedExplicitCatalogTool(message, tools) {
   ) {
     return null;
   }
-  // apply_patch soak: let Responses hosted apply_patch run — do not steal with fs_* preinvoke.
+  // apply_patch / hosted_shell soak: let Responses hosted tools run — do not steal with fs_* / terminal preinvoke.
   // PASS2 follow-ups often name fs_read_file; preinvoke+early_sse_close would skip OpenAI.
   if (
     /\bopenai_apply_patch\b/i.test(msg) ||
+    /\bopenai_hosted_shell\b/i.test(msg) ||
     /\bhosted\s+apply_patch\b/i.test(msg) ||
+    /\bhosted\s+shell\b/i.test(msg) ||
     /\btype\s*[:=]\s*[\"']?apply_patch\b/i.test(msg) ||
     /\bapply_patch_call(?:_output)?\b/i.test(msg) ||
     (/\bapply_patch\b/i.test(msg) &&
-      /\b(hosted|responses|PASS\s*\d+|soak|update_file|create_file)\b/i.test(msg))
+      /\b(hosted|responses|PASS\s*\d+|soak|update_file|create_file)\b/i.test(msg)) ||
+    (/\bshell\b/i.test(msg) &&
+      /\b(container_auto|openai_hosted_shell|PASS\s*\d+|soak)\b/i.test(msg))
   ) {
     return null;
   }

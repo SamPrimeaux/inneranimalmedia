@@ -16,9 +16,9 @@ SSOT for the OpenAI Agent Sam capability fleet. Cursor plan mirror: `.cursor/pla
 
 ## Phase order (locked)
 
-1. **Responses WebSocket + DO holder** — execute now  
+1. **Responses WebSocket + DO holder** — shipped  
 2. Realtime voice  
-3a. apply_patch (**`tkt_oai_apply_patch` — catalog+flag+wire shipped; dual-pass pending**) / hosted shell (**`tkt_oai_hosted_shell`**)  
+3a. apply_patch (**`tkt_oai_apply_patch` — shipped dual-pass**) / hosted shell (**`tkt_oai_hosted_shell` — active**)  
 3b. Programmatic Tool Calling (**shipped**)  
 4. Multi-agent + compaction  
 5. Background / ops
@@ -88,7 +88,7 @@ SSOT for the OpenAI Agent Sam capability fleet. Cursor plan mirror: `.cursor/pla
 - Hosted shell egress: org allowlist must be set in OpenAI dashboard before `openai_hosted_shell=1` can use network_policy (request can only further restrict).  
 - `apply_patch`: catalog column `supports_apply_patch` (migration 990) — no hardcoded model ids in Worker JS.
 
-## Phase 3a — apply_patch (`tkt_oai_apply_patch`)
+## Phase 3a — apply_patch (`tkt_oai_apply_patch`) — shipped
 
 | Piece | Behavior |
 |---|---|
@@ -102,6 +102,20 @@ SSOT for the OpenAI Agent Sam capability fleet. Cursor plan mirror: `.cursor/pla
 
 **Out of scope here:** `tkt_oai_hosted_shell`, `tkt_oai_multi_agent`, replacing `fs_edit_file` for non-Responses models.
 
+## Phase 3a — hosted shell (`tkt_oai_hosted_shell`)
+
+| Piece | Behavior |
+|---|---|
+| Flag `openai_hosted_shell` | Sam allowlisted; default globally off |
+| Catalog gate | `agentsam_model_catalog.supports_hosted_shell=1` (GPT‑5.2+ Responses; never hardcode model ids in JS) |
+| Wire | `{ type: "shell", environment: { type: "container_auto" } }` when flag+capability+`can_terminal` |
+| Network | Default **no** `network_policy` (offline container). Optional `config_json.allowed_domains` only after org dashboard allowlist is set (request can only further restrict) |
+| Hybrid | Platform/repo → `agentsam_terminal_remote` (or local/sandbox policy). Hosted shell → isolated Debian `/mnt/data` only (instructions appended) |
+| SSE | Observe `shell_call` / `shell_call_output` for UI + logs — OpenAI executes; **no** IAM local shell harness in this ticket |
+| Out of scope | `environment.type=local` executor, container reuse API, skills mount, multi-agent |
+
+**Blocker note:** outbound network requires OpenAI org allowlist in dashboard before setting request `network_policy`.
+
 ## Feature flags
 
 | Key | Default |
@@ -109,6 +123,7 @@ SSOT for the OpenAI Agent Sam capability fleet. Cursor plan mirror: `.cursor/pla
 | `openai_responses_ws` | off globally; Sam user allowlisted for soak |
 | `openai_ptc` | off; depends on WS DO dual-pass |
 | `openai_apply_patch` | off globally; Sam user allowlisted; requires `supports_apply_patch` |
+| `openai_hosted_shell` | off globally; Sam user allowlisted; requires `supports_hosted_shell` |
 
 ## Dual-pass law
 

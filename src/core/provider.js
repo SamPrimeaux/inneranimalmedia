@@ -548,6 +548,10 @@ export async function dispatchStream(env, request, params) {
       ? { openaiResponsesCapture: params.openaiResponsesCapture }
       : {}),
     ...(params.openaiPtcEnabled === true ? { openaiPtcEnabled: true } : {}),
+    ...(params.writePolicy != null || params.write_policy != null
+      ? { writePolicy: params.writePolicy || params.write_policy }
+      : {}),
+    ...(params.tenantId != null ? { tenantId: params.tenantId } : {}),
     ...(params.forcedToolName
       ? { forcedToolName: String(params.forcedToolName).trim() }
       : {}),

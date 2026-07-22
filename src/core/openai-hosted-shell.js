@@ -1,0 +1,173 @@
+/**
+ * OpenAI Responses hosted shell (tkt_oai_hosted_shell).
+ * Gate: feature flag openai_hosted_shell + agentsam_model_catalog.supports_hosted_shell.
+ * Injects { type: "shell", environment: { type: "container_auto" } } — OpenAI runs commands.
+ * Local shell executor (environment.type=local → IAM PTY) is out of scope for this ticket.
+ * Never hardcode model ids — catalog column is SSOT.
+ */
+
+export const FLAG_KEY = 'openai_hosted_shell';
+
+/** Hybrid routing hint appended to Responses instructions when shell is injected. */
+export const HOSTED_SHELL_HYBRID_INSTRUCTION = [
+  'Shell routing (hybrid):',
+  '- Prefer agentsam_terminal_remote (or local/sandbox per policy) for Inner Animal Media repo, git, deploys, and workspace files.',
+  '- Use the OpenAI hosted shell tool only for isolated Debian container work under /mnt/data (scratch compute, not the IAM workspace).',
+  '- Hosted shell has no outbound network unless an allowlist is configured; do not assume curl/pip network works.',
+].join('\n');
+
+/**
+ * Build Responses `tools[]` shell entry. network_policy only when domains non-empty
+ * (org dashboard allowlist must already include them — requests can only further restrict).
+ * @param {string[]} [allowedDomains]
+ */
+export function buildHostedShellTool(allowedDomains = []) {
+  const domains = (Array.isArray(allowedDomains) ? allowedDomains : [])
+    .map((d) => String(d || '').trim().toLowerCase())
+    .filter((d) => /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(d) || d === 'localhost')
+    .slice(0, 32);
+  /** @type {Record<string, unknown>} */
+  const environment = { type: 'container_auto' };
+  if (domains.length) {
+    environment.network_policy = {
+      type: 'allowlist',
+      allowed_domains: domains,
+    };
+  }
+  return { type: 'shell', environment };
+}
+
+/**
+ * @param {unknown[]|undefined} oaiTools
+ * @param {boolean} enabled
+ * @param {{ allowedDomains?: string[] }} [opts]
+ */
+export function withHostedShellTool(oaiTools, enabled, opts = {}) {
+  if (!enabled) return oaiTools;
+  const list = Array.isArray(oaiTools) ? [...oaiTools] : [];
+  if (!list.some((t) => t && typeof t === 'object' && t.type === 'shell')) {
+    list.push(buildHostedShellTool(opts.allowedDomains));
+  }
+  return list.length ? list : undefined;
+}
+
+/**
+ * @param {any} env
+ * @param {string|null|undefined} modelKey
+ */
+export async function modelSupportsHostedShell(env, modelKey) {
+  const mk = modelKey != null ? String(modelKey).trim() : '';
+  if (!mk) return false;
+  const { loadCatalogCapabilities } = await import('./model-catalog-capabilities.js');
+  const cap = await loadCatalogCapabilities(env, mk);
+  return cap?.supports_hosted_shell === true;
+}
+
+/**
+ * Read optional allowed_domains from flag config_json (empty = no network_policy).
+ * @param {any} env
+ * @returns {Promise<string[]>}
+ */
+export async function loadHostedShellAllowedDomains(env) {
+  if (!env?.DB) return [];
+  try {
+    const row = await env.DB.prepare(
+      `SELECT config_json FROM agentsam_feature_flag
+       WHERE flag_key = ? AND COALESCE(is_archived, 0) = 0 LIMIT 1`,
+    )
+      .bind(FLAG_KEY)
+      .first();
+    if (!row?.config_json) return [];
+    const cfg = typeof row.config_json === 'string' ? JSON.parse(row.config_json) : row.config_json;
+    const domains = cfg?.allowed_domains;
+    return Array.isArray(domains) ? domains.map((d) => String(d)) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Flag + catalog capability. Fail-closed when either is off.
+ * Soft gate: writePolicy.can_terminal === false blocks inject (hosted shell still "shell").
+ * @param {any} env
+ * @param {{
+ *   userId?: string|null,
+ *   tenantId?: string|null,
+ *   modelKey?: string|null,
+ *   writePolicy?: Record<string, unknown>|null,
+ * }} opts
+ */
+export async function shouldInjectHostedShell(env, opts = {}) {
+  if (opts.writePolicy && opts.writePolicy.can_terminal === false) return false;
+  const { isFeatureEnabled } = await import('./features.js');
+  const flagOn = await isFeatureEnabled(env, FLAG_KEY, {
+    userId: opts.userId,
+    tenantId: opts.tenantId,
+  });
+  if (!flagOn) return false;
+  return modelSupportsHostedShell(env, opts.modelKey);
+}
+
+/**
+ * Append hybrid routing instruction once.
+ * @param {string|null|undefined} systemPrompt
+ * @param {boolean} enabled
+ */
+export function withHostedShellHybridInstructions(systemPrompt, enabled) {
+  if (!enabled) return systemPrompt;
+  const base = systemPrompt != null ? String(systemPrompt) : '';
+  if (base.includes('Shell routing (hybrid):')) return base || systemPrompt;
+  if (!base.trim()) return HOSTED_SHELL_HYBRID_INSTRUCTION;
+  return `${base.trim()}\n\n${HOSTED_SHELL_HYBRID_INSTRUCTION}`;
+}
+
+/**
+ * Summarize shell_call action for SSE / logs.
+ * @param {unknown} action
+ */
+export function summarizeShellCallAction(action) {
+  const a = action && typeof action === 'object' ? action : {};
+  const cmds = Array.isArray(a.commands)
+    ? a.commands.map((c) => String(c)).filter(Boolean)
+    : typeof a.command === 'string'
+      ? [a.command]
+      : [];
+  return {
+    commands: cmds.slice(0, 8),
+    timeout_ms: a.timeout_ms != null ? Number(a.timeout_ms) : null,
+    max_output_length: a.max_output_length != null ? Number(a.max_output_length) : null,
+  };
+}
+
+/**
+ * Flatten shell_call_output for UI preview.
+ * @param {unknown} output
+ */
+export function formatShellCallOutputPreview(output) {
+  if (output == null) return '';
+  if (typeof output === 'string') return output.slice(0, 8000);
+  if (!Array.isArray(output)) {
+    try {
+      return JSON.stringify(output).slice(0, 8000);
+    } catch {
+      return String(output).slice(0, 8000);
+    }
+  }
+  const parts = [];
+  for (const item of output.slice(0, 8)) {
+    if (!item || typeof item !== 'object') continue;
+    const stdout = item.stdout != null ? String(item.stdout) : '';
+    const stderr = item.stderr != null ? String(item.stderr) : '';
+    const outcome = item.outcome && typeof item.outcome === 'object' ? item.outcome : {};
+    const code =
+      outcome.type === 'exit' && outcome.exit_code != null
+        ? `exit=${outcome.exit_code}`
+        : outcome.type
+          ? String(outcome.type)
+          : '';
+    if (stdout) parts.push(stdout.slice(0, 4000));
+    if (stderr) parts.push(`[stderr] ${stderr.slice(0, 2000)}`);
+    if (code) parts.push(`[${code}]`);
+  }
+  return parts.join('\n').slice(0, 8000);
+}

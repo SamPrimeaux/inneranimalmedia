@@ -1013,6 +1013,11 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           ? { openaiResponsesReplayInput: openaiResponsesAccumulatedInput }
           : {}),
         openaiResponsesCapture,
+        writePolicy:
+          mcpCtx?.write_policy ||
+          mcpCtx?.runtimeProfile?.write_policy ||
+          mcpCtx?.sessionWritePolicy ||
+          null,
         promptAuditContext:
           promptAuditContextParam && typeof promptAuditContextParam === 'object'
             ? { ...promptAuditContextParam, loop_turn: turnCount }
@@ -1259,6 +1264,18 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         );
         if (Array.isArray(parsed.pendingApplyPatchCalls) && parsed.pendingApplyPatchCalls.length) {
           pendingApplyPatchCalls = parsed.pendingApplyPatchCalls;
+        }
+        if (Array.isArray(parsed.hostedShellEvents) && parsed.hostedShellEvents.length) {
+          const shellCalls = parsed.hostedShellEvents.filter((e) => e?.type === 'shell_call');
+          console.info(
+            '[agent] openai_hosted_shell_calls',
+            JSON.stringify({
+              count: shellCalls.length,
+              event_count: parsed.hostedShellEvents.length,
+              call_ids: shellCalls.map((e) => e.call_id).filter(Boolean).slice(0, 8),
+              turn: turnCount,
+            }),
+          );
         }
         if (parsed.input_tokens || parsed.output_tokens || parsed.cache_read_input_tokens) {
           totalUsage.input_tokens += parsed.input_tokens || 0;

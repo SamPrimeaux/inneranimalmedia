@@ -3,6 +3,10 @@ import {
   upsertApplyPatchCall,
   finalizePendingApplyPatchCalls,
 } from './openai-apply-patch-items.js';
+import {
+  summarizeShellCallAction,
+  formatShellCallOutputPreview,
+} from './openai-hosted-shell.js';
 
 function readSseChunk(reader, signal) {
   if (!signal) return reader.read();
@@ -175,7 +179,8 @@ export async function consumeOpenAIChatCompletionsSse(readable, emit, opts = {})
 
 /**
  * OpenAI /v1/responses SSE — NOT chat.completions. Events like `response.output_text.delta`,
- * `response.output_item.added` (function_call | apply_patch_call), `response.completed`.
+ * `response.output_item.added` (function_call | apply_patch_call | shell_call), `response.completed`.
+ * Hosted shell: OpenAI executes container_auto; we observe shell_call / shell_call_output (no client harness).
  * Normalizes to the same bridge as consumeOpenAIChatCompletionsSse; adds `responseId` for chaining.
  */
 export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
@@ -194,6 +199,63 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
   /** @type {Array<Record<string, unknown>>} */
   const applyPatchCalls = [];
   const applyPatchByCallId = new Map();
+  /** @type {Array<Record<string, unknown>>} */
+  const hostedShellEvents = [];
+  const shellSeenCallIds = new Set();
+
+  const emitHostedShellCall = (item) => {
+    if (!item || item.type !== 'shell_call') return;
+    const callId = item.call_id != null ? String(item.call_id) : '';
+    if (callId && shellSeenCallIds.has(`call:${callId}`)) return;
+    if (callId) shellSeenCallIds.add(`call:${callId}`);
+    const summary = summarizeShellCallAction(item.action);
+    hostedShellEvents.push({
+      type: 'shell_call',
+      call_id: callId || null,
+      status: item.status != null ? String(item.status) : null,
+      action: summary,
+    });
+    emit('tool_call', {
+      tool: 'openai_hosted_shell',
+      args: summary,
+      call_id: callId || undefined,
+    });
+    emit('tool_start', {
+      tool_name: 'openai_hosted_shell',
+      tool_call_id: callId || `shell_${hostedShellEvents.length}`,
+      input_preview: JSON.stringify(summary).slice(0, 200),
+    });
+  };
+
+  const emitHostedShellOutput = (item) => {
+    if (!item || item.type !== 'shell_call_output') return;
+    const callId = item.call_id != null ? String(item.call_id) : '';
+    if (callId && shellSeenCallIds.has(`out:${callId}`)) return;
+    if (callId) shellSeenCallIds.add(`out:${callId}`);
+    const preview = formatShellCallOutputPreview(item.output);
+    hostedShellEvents.push({
+      type: 'shell_call_output',
+      call_id: callId || null,
+      preview: preview.slice(0, 2000),
+    });
+    emit('tool_output', {
+      tool_name: 'openai_hosted_shell',
+      tool_call_id: callId || undefined,
+      output: preview.slice(0, 8000),
+      ok: true,
+    });
+    emit('tool_result', {
+      tool: 'openai_hosted_shell',
+      tool_call_id: callId || undefined,
+      result: preview.slice(0, 8000),
+      ok: true,
+    });
+    emit('tool_done', {
+      tool_name: 'openai_hosted_shell',
+      tool_call_id: callId || undefined,
+      ok: true,
+    });
+  };
 
   const mergeSlot = (callId, itemId, name, outputIndex) => {
     let idx;
@@ -272,6 +334,10 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
         captureFunctionCallItem(item, obj.output_index);
       } else if (item?.type === 'apply_patch_call') {
         captureApplyPatchCallItem(item, obj.output_index);
+      } else if (item?.type === 'shell_call') {
+        emitHostedShellCall(item);
+      } else if (item?.type === 'shell_call_output') {
+        emitHostedShellOutput(item);
       }
       return false;
     }
@@ -332,6 +398,8 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
         resp.output.forEach((it, i) => {
           if (it?.type === 'function_call') captureFunctionCallItem(it, i);
           else if (it?.type === 'apply_patch_call') captureApplyPatchCallItem(it, i);
+          else if (it?.type === 'shell_call') emitHostedShellCall(it);
+          else if (it?.type === 'shell_call_output') emitHostedShellOutput(it);
         });
       }
       const st = resp?.status != null ? String(resp.status) : '';
@@ -433,6 +501,7 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
     finishReason,
     pendingToolCalls,
     pendingApplyPatchCalls,
+    hostedShellEvents,
     responseId,
     outputItems: Array.isArray(outputItems) ? outputItems : null,
     input_tokens:  _sfObj.input_tokens  ?? 0,

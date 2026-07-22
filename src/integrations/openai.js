@@ -22,6 +22,12 @@ import {
   applyDeferLoadingLaw,
 } from '../core/openai-caller-policy.js';
 import { shouldInjectApplyPatch, withApplyPatchTool } from '../core/openai-apply-patch.js';
+import {
+  shouldInjectHostedShell,
+  withHostedShellTool,
+  withHostedShellHybridInstructions,
+  loadHostedShellAllowedDomains,
+} from '../core/openai-hosted-shell.js';
 
 const OPENAI_BASE = 'https://api.openai.com/v1';
 
@@ -350,6 +356,24 @@ function logOpenaiApplyPatchToolsWire(oaiTools) {
 }
 
 /** @param {unknown[]|undefined} oaiTools */
+function logOpenaiHostedShellToolsWire(oaiTools) {
+  if (!Array.isArray(oaiTools)) return;
+  const shell = oaiTools.find((t) => t?.type === 'shell');
+  const envType =
+    shell && typeof shell === 'object' && shell.environment && typeof shell.environment === 'object'
+      ? String(shell.environment.type || '')
+      : '';
+  console.info(
+    '[openai_hosted_shell] tools_wire',
+    JSON.stringify({
+      total: oaiTools.length,
+      has_shell: !!shell,
+      environment_type: envType || null,
+    }),
+  );
+}
+
+/** @param {unknown[]|undefined} oaiTools */
 function logOpenaiPtcToolsWire(oaiTools) {
   if (!Array.isArray(oaiTools)) return;
   const programmaticEligible = oaiTools
@@ -649,6 +673,22 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
       tenantId: params.tenantId,
       modelKey: modelKey || modelForApi,
     }));
+  const writePolicy =
+    params.writePolicy ||
+    params.write_policy ||
+    null;
+  const openaiHostedShellEnabled =
+    params.openaiHostedShellEnabled === true ||
+    (await shouldInjectHostedShell(env, {
+      userId,
+      tenantId: params.tenantId,
+      modelKey: modelKey || modelForApi,
+      writePolicy,
+    }));
+  const hostedShellDomains = openaiHostedShellEnabled
+    ? await loadHostedShellAllowedDomains(env)
+    : [];
+  const instructionsBase = withHostedShellHybridInstructions(systemPrompt, openaiHostedShellEnabled);
   const replay = Array.isArray(params.openaiResponsesReplayInput)
     ? params.openaiResponsesReplayInput
     : null;
@@ -659,8 +699,12 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
   let oaiTools = toOpenAIResponsesTools(tools, { openaiPtcEnabled });
   oaiTools = withProgrammaticToolCalling(oaiTools, openaiPtcEnabled);
   oaiTools = withApplyPatchTool(oaiTools, openaiApplyPatchEnabled);
+  oaiTools = withHostedShellTool(oaiTools, openaiHostedShellEnabled, {
+    allowedDomains: hostedShellDomains,
+  });
   if (openaiPtcEnabled) logOpenaiPtcToolsWire(oaiTools);
   if (openaiApplyPatchEnabled) logOpenaiApplyPatchToolsWire(oaiTools);
+  if (openaiHostedShellEnabled) logOpenaiHostedShellToolsWire(oaiTools);
 
   let body = {
     model: modelForApi,
@@ -669,7 +713,9 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
     // PTC exact-order resume requires store:false + full replay (never silent mangling).
     ...(openaiPtcEnabled ? { store: false } : {}),
     ...(!usePtcReplay && prev ? { previous_response_id: prev } : {}),
-    ...(!usePtcReplay && !prev && systemPrompt ? { instructions: String(systemPrompt) } : {}),
+    ...(!usePtcReplay && !prev && instructionsBase
+      ? { instructions: String(instructionsBase) }
+      : {}),
     ...(oaiTools?.length
       ? {
           tools: oaiTools,
@@ -690,9 +736,18 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
     params.openaiResponsesCapture.sentInput = Array.isArray(body.input) ? body.input : [];
     params.openaiResponsesCapture.openaiPtcEnabled = openaiPtcEnabled;
     params.openaiResponsesCapture.openaiApplyPatchEnabled = openaiApplyPatchEnabled;
+    params.openaiResponsesCapture.openaiHostedShellEnabled = openaiHostedShellEnabled;
   }
 
-  return { apiKey, apiBase, body, modelForApi, openaiPtcEnabled, openaiApplyPatchEnabled };
+  return {
+    apiKey,
+    apiBase,
+    body,
+    modelForApi,
+    openaiPtcEnabled,
+    openaiApplyPatchEnabled,
+    openaiHostedShellEnabled,
+  };
 }
 
 /**
@@ -786,6 +841,19 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
       tenantId: params.tenantId,
       modelKey: modelKey || modelForApi,
     }));
+  const writePolicy = params.writePolicy || params.write_policy || null;
+  const openaiHostedShellEnabled =
+    params.openaiHostedShellEnabled === true ||
+    (await shouldInjectHostedShell(env, {
+      userId,
+      tenantId: params.tenantId,
+      modelKey: modelKey || modelForApi,
+      writePolicy,
+    }));
+  const hostedShellDomains = openaiHostedShellEnabled
+    ? await loadHostedShellAllowedDomains(env)
+    : [];
+  const instructionsBase = withHostedShellHybridInstructions(systemPrompt, openaiHostedShellEnabled);
   const replay = Array.isArray(params.openaiResponsesReplayInput)
     ? params.openaiResponsesReplayInput
     : null;
@@ -796,6 +864,9 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
   let oaiTools = toOpenAIResponsesTools(tools, { openaiPtcEnabled });
   oaiTools = withProgrammaticToolCalling(oaiTools, openaiPtcEnabled);
   oaiTools = withApplyPatchTool(oaiTools, openaiApplyPatchEnabled);
+  oaiTools = withHostedShellTool(oaiTools, openaiHostedShellEnabled, {
+    allowedDomains: hostedShellDomains,
+  });
 
   let body = {
     model: modelForApi,
@@ -803,7 +874,9 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
     stream: false,
     ...(openaiPtcEnabled ? { store: false } : {}),
     ...(!usePtcReplay && prev ? { previous_response_id: prev } : {}),
-    ...(!usePtcReplay && !prev && systemPrompt ? { instructions: String(systemPrompt) } : {}),
+    ...(!usePtcReplay && !prev && instructionsBase
+      ? { instructions: String(instructionsBase) }
+      : {}),
     ...(oaiTools?.length
       ? {
           tools: oaiTools,
