@@ -28,8 +28,8 @@
   background: var(--bg);
   color: var(--ink);
   position: relative;
-  container-type: inline-size;
-  container-name: artifacts-shell;
+  container-type: normal;
+  container-name: none;
 }
 
 .artifacts-drive-shell.has-rail-panel {
@@ -59,16 +59,26 @@
   width: 100%;
   min-width: 0;
   height: 100%;
-  display: grid;
-  grid-template-rows: 72px 1fr;
-  /* Sidebar may shrink; main flexes; rail is max-content and never crushed */
-  grid-template-columns: minmax(0, var(--sidebar)) minmax(0, 1fr) max-content;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  transition: grid-template-columns 0.22s ease;
+}
+
+/* Collaborate-style flex fit: [side][main grows][rail never shrinks] */
+.artifacts-drive-shell .drive-body {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  overflow: hidden;
 }
 
 .artifacts-drive-shell .topbar {
-  grid-column: 1 / -1;
+  flex: 0 0 auto;
+  width: 100%;
   display: grid;
   grid-template-columns: var(--sidebar) minmax(220px, 720px) minmax(0, 1fr) auto;
   align-items: center;
@@ -543,13 +553,14 @@
 }
 
 .artifacts-drive-shell .drive-side {
-  grid-row: 2;
-  grid-column: 1;
+  flex: 0 0 var(--sidebar);
+  width: var(--sidebar);
+  min-width: 0;
+  min-height: 0;
   background: var(--bg);
   padding: 10px 0 14px 12px;
   display: flex;
   flex-direction: column;
-  min-height: 0;
   overflow: hidden;
 }
 
@@ -644,8 +655,7 @@
 }
 
 .artifacts-drive-shell .drive-main {
-  grid-row: 2;
-  grid-column: 2;
+  flex: 1 1 0;
   min-width: 0;
   min-height: 0;
   background: var(--panel);
@@ -1034,17 +1044,18 @@
 }
 
 .artifacts-drive-shell .drive-rail-stack {
-  grid-row: 2;
-  grid-column: 3;
+  /* flex: 0 0 auto = "flex-fit" fixed intrinsic width; main absorbs squeeze */
+  flex: 0 0 auto;
+  width: auto;
   min-width: var(--drive-rail-w);
-  width: max-content;
   max-width: none;
-  height: 100%;
+  height: auto;
+  align-self: stretch;
   display: flex;
   flex-direction: row;
   align-items: stretch;
   flex-shrink: 0;
-  overflow: visible;
+  overflow: hidden;
   border-left: 1px solid var(--border);
   background: var(--bg);
   position: relative;
@@ -1070,7 +1081,7 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail-stack {
   border-left: 0;
   height: 100%;
   min-height: 0;
-  overflow-x: visible;
+  overflow-x: hidden;
   overflow-y: auto;
   box-sizing: border-box;
 }
@@ -1105,20 +1116,10 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
   flex-shrink: 0;
 }
 
-/* When shell is too narrow (Agent Sam open), hide rail instead of clipping icons */
-@container artifacts-shell (max-width: 720px) {
-  .drive-rail-stack {
-    display: none;
-  }
-
-  .drive-app {
-    grid-template-columns: minmax(0, var(--sidebar)) minmax(0, 1fr);
-  }
-
-  .drive-main {
-    grid-column: 2;
-  }
-}
+/*
+ * No @container hide. Collaborate proved: flex 0 0 rail never clips if main has
+ * min-width:0 and absorbs shrink. Hide only on small viewports via media query.
+ */
 
 .artifacts-drive-shell .drawer {
   position: absolute;
@@ -1443,14 +1444,6 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
   .artifacts-drive-shell .drawer {
     right: 0;
   }
-
-  .artifacts-drive-shell .drive-main {
-    grid-column: 2;
-  }
-
-  .artifacts-drive-shell .drive-app {
-    grid-template-columns: minmax(0, var(--sidebar)) minmax(0, 1fr);
-  }
 }
 
 @media (max-width: 760px) {
@@ -1472,12 +1465,11 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
   }
 
   .artifacts-drive-shell .drive-app {
-    grid-template-columns: 1fr;
-    grid-template-rows: 52px 1fr;
+    display: flex;
+    flex-direction: column;
   }
 
   .artifacts-drive-shell .topbar {
-    grid-column: 1;
     grid-template-columns: 1fr auto;
     padding: 6px 10px;
     background: color-mix(in srgb, var(--dashboard-panel, #0f172a) 92%, transparent);
@@ -1513,8 +1505,7 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
   }
 
   .artifacts-drive-shell .drive-main {
-    grid-column: 1;
-    grid-row: 2;
+    flex: 1 1 0;
     border-radius: 0;
     background: var(--bg);
   }
@@ -3579,12 +3570,12 @@ html[data-theme='dark'] .artifacts-drive-shell .drive-rail {
   }
 
   .artifacts-drive-shell .drive-main {
-    grid-column: 1 !important;
-    grid-row: 2;
+    flex: 1 1 0 !important;
   }
 
   .artifacts-drive-shell .drive-app {
-    grid-template-columns: 1fr !important;
+    display: flex !important;
+    flex-direction: column !important;
   }
 
   .artifacts-drive-shell .thumb {

@@ -478,6 +478,7 @@ export function ArtifactsDriveShell() {
           </div>
         </header>
 
+        <div className="drive-body">
         <aside className="drive-side">
           <button
             type="button"
@@ -833,6 +834,7 @@ export function ArtifactsDriveShell() {
         </main>
 
         <LibrarySideRail onPanelChange={setRailPanelOpen} />
+        </div>
       </div>
 
       <aside className={`drawer${drawerOpen ? ' open' : ''}`}>
