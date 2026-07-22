@@ -68,3 +68,26 @@ test('search_tools keyword extracts plain English without colon', () => {
     'deploy',
   );
 });
+
+test('agentsam_terminal_local named pin + command extract for progressive soak', () => {
+  const msg =
+    'Use only agentsam_terminal_local. Do not use playwright, search_tools, or sandbox. Command: pwd && whoami && hostname';
+  assert.deepEqual(extractExplicitCatalogToolKeys(msg), ['agentsam_terminal_local']);
+  assert.equal(
+    resolveForcedExplicitCatalogTool(msg, [
+      { name: 'agentsam_search_tools' },
+      { name: 'agentsam_terminal_local' },
+    ]),
+    'agentsam_terminal_local',
+  );
+  assert.equal(
+    buildExplicitCatalogToolInput('agentsam_terminal_local', msg).command,
+    'pwd && whoami && hostname',
+  );
+});
+
+test('do-not mid-list skips denied terminal tool', () => {
+  const msg =
+    'Use agentsam_terminal_local. Do not use agentsam_terminal_sandbox, or playwright. Command: pwd';
+  assert.deepEqual(extractExplicitCatalogToolKeys(msg), ['agentsam_terminal_local']);
+});

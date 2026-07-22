@@ -19,7 +19,9 @@ export function isExplicitGithubCatalogToolIntent(message) {
 }
 
 /**
- * Catalog tool keys explicitly named in the message (for allowlist reordering).
+ * Catalog tool keys explicitly named in the message (for allowlist pin / force).
+ * Matches agentsam_* / fs_* / pty_* keys so progressive thin-pipe can hydrate
+ * tools the user named (e.g. agentsam_terminal_local) without waiting on search_tools.
  * Skips tools under "do not / don't / never call|use|run …".
  * @param {unknown} message
  * @returns {string[]}
@@ -28,14 +30,22 @@ export function extractExplicitCatalogToolKeys(message) {
   const m = stripForIntent(message);
   /** @type {string[]} */
   const keys = [];
+  // Prefer longer github_read_many before github_read (leftmost longest via alternation order).
   const re =
-    /\b(agentsam_search_tools|agentsam_codebase_retrieve|agentsam_memory_search|agentsam_github_tree|agentsam_github_read_many|agentsam_github_read|agentsam_github_search|agentsam_github_list_commits|agentsam_d1_query|fs_read_file|fs_search_files)\b/gi;
+    /\b((?:agentsam_github_read_many|agentsam_[a-z][a-z0-9_]{1,80}|fs_[a-z][a-z0-9_]{1,64}|pty_[a-z][a-z0-9_]{1,64}))\b/gi;
   let match;
   while ((match = re.exec(m)) != null) {
     const k = String(match[1] || '').toLowerCase();
     if (!k || keys.includes(k)) continue;
     const before = m.slice(Math.max(0, match.index - 48), match.index).toLowerCase();
     if (/\b(do\s+not|don't|dont|never)\s+(call|use|run|invoke)\s*$/.test(before.trimEnd())) {
+      continue;
+    }
+    // "Do not use playwright, agentsam_terminal_sandbox, or …" — tool mid-list after deny verb.
+    if (
+      /\b(do\s+not|don't|dont|never)\s+(call|use|run|invoke)\b[\s\S]{0,80}$/.test(before) &&
+      /,\s*$/.test(before.trimEnd())
+    ) {
       continue;
     }
     keys.push(k);
@@ -45,20 +55,25 @@ export function extractExplicitCatalogToolKeys(message) {
 
 /**
  * First explicit catalog tool that is also in the live allowlist.
- * Used to force tool_choice on turn 0 so models cannot invent agentsam_d1_query
- * when the user named agentsam_codebase_retrieve / github / fs / search_tools.
+ * Used to force tool_choice / preinvoke on turn 0 after named_catalog_pin hydrate
+ * so progressive sessions can run agentsam_terminal_local (etc.) without search_tools.
  * @param {unknown} message
  * @param {unknown[]} tools
  * @returns {string|null}
  */
 export function resolveForcedExplicitCatalogTool(message, tools) {
+  // Pin can hydrate any named agentsam_*/fs_*/pty_* key; force/preinvoke stays
+  // limited to read/search/terminal so naming a deploy tool cannot auto-run.
   const keys = extractExplicitCatalogToolKeys(message).filter(
     (k) =>
       k.startsWith('agentsam_github_') ||
       k.startsWith('fs_') ||
       k === 'agentsam_codebase_retrieve' ||
       k === 'agentsam_memory_search' ||
-      k === 'agentsam_search_tools',
+      k === 'agentsam_search_tools' ||
+      k === 'agentsam_terminal_local' ||
+      k === 'agentsam_terminal_remote' ||
+      k === 'agentsam_terminal_sandbox',
   );
   if (!keys.length || !Array.isArray(tools) || !tools.length) return null;
   const names = new Set(
@@ -178,6 +193,21 @@ export function buildExplicitCatalogToolInput(toolName, message) {
       limit,
       per_page: limit,
     };
+  }
+  if (
+    name === 'agentsam_terminal_local' ||
+    name === 'agentsam_terminal_remote' ||
+    name === 'agentsam_terminal_sandbox'
+  ) {
+    const cmdLine =
+      m.match(/\bcommand\s*[:=]\s*[`'\"]([^`'\"]+)[`'\"]/i) ||
+      m.match(/\bcommand\s*[:=]\s*([^\n]+)/i) ||
+      m.match(/`([^`\n]{1,400})`/);
+    const command = String(cmdLine?.[1] || 'pwd')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 400);
+    return { command: command || 'pwd' };
   }
   return {};
 }
