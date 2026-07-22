@@ -254,7 +254,11 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
     activeFile?.originalContent !== undefined &&
     activeFile.originalContent !== activeFile.content;
   const showMonacoBody = Boolean(
-    activeFile && !showMediaPreview && !showQuestionsIntake && !(showDiff && hasDiffData),
+    activeFile &&
+    !showMediaPreview &&
+    !showQuestionsIntake &&
+    !(showDiff && hasDiffData) &&
+    !(isMarkdown && mdViewMode === 'preview'),
   );
 
   useEffect(() => {
