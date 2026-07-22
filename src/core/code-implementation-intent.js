@@ -109,9 +109,24 @@ export function resolveForcedExplicitCatalogTool(message, tools) {
   ) {
     return null;
   }
+
+  const allNamed = extractExplicitCatalogToolKeys(message);
+  // Multi-step create/edit proofs name fs_write_file (+ often fs_read_file). Preinvoking
+  // read-only + early_sse_close steals the turn (Monaco fills with package.json; write never runs).
+  if (
+    allNamed.includes('fs_write_file') ||
+    allNamed.includes('fs_edit_file') ||
+    allNamed.includes('fs_apply_patch') ||
+    allNamed.includes('workspace_apply_patch') ||
+    (/\b(fs_write_file|fs_edit_file)\b/i.test(msg) &&
+      /\b(create|edit|append|write)\b/i.test(msg))
+  ) {
+    return null;
+  }
+
   // Pin can hydrate any named agentsam_*/fs_*/pty_* key; force/preinvoke stays
   // limited to read/search/terminal so naming a write/deploy tool cannot auto-run.
-  const keys = extractExplicitCatalogToolKeys(message).filter(
+  const keys = allNamed.filter(
     (k) =>
       k.startsWith('agentsam_github_') ||
       k === 'fs_read_file' ||
@@ -169,9 +184,12 @@ export function buildExplicitCatalogToolInput(toolName, message) {
     };
   }
   if (name === 'fs_read_file') {
+    // Prefer explicit repo-relative paths (incl. .txt / .scratch) over default package.json.
+    const scratchOrRel =
+      m.match(/(?<![\w/])(\.scratch\/[\w./-]+\.(?:txt|md|json|js|ts|tsx|jsx|py|css|html))\b/i) ||
+      m.match(/\b([\w./-]+\.(?:txt|md|json|js|ts|tsx|jsx|py|css|html))\b/i);
     const pathMatch =
-      m.match(/\bpath\s+[\"']?([^\s\"']+)[\"']?/i) ||
-      m.match(/\b([\w./-]+\.(?:md|json|js|ts|tsx|jsx|py|css|html))\b/i);
+      m.match(/\bpath\s+[\"']?([^\s\"']+)[\"']?/i) || scratchOrRel;
     return { path: pathMatch ? pathMatch[1] : 'package.json' };
   }
   if (name === 'fs_search_files') {
