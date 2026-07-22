@@ -34,6 +34,7 @@ import { withAbortableAgentRunTimeout } from '../agent-run-timeout.js';
 import {
   formatActiveFileForAgent,
   messageReferencesActiveFile,
+  activeFileDisplayPath,
 } from '../active-file-envelope.js';
 
 const SSE_HEADERS = {
