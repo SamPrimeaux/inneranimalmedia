@@ -66,7 +66,9 @@ function checkLane(label, repoRoot, applied, minNumeric) {
   }
   const disk = listDiskMigrations(repoRoot, { minNumeric });
   const pending = diffPending(disk, applied);
-  const validations = pending.slice(0, 12).map((f) => {
+  // Local CLI reads disk, so validate the full pending set; a deploy gate must never
+  // report green for files it did not inspect.
+  const validations = pending.map((f) => {
     const sql = readMigrationContent(repoRoot, f);
     return validateMigrationSql(sql, f);
   });
@@ -78,6 +80,9 @@ function checkLane(label, repoRoot, applied, minNumeric) {
     tracked_count: disk.length,
     pending_count: pending.length,
     pending: pending.slice(0, 40),
+    pending_truncated: pending.length > 40,
+    validated_count: validations.length,
+    validation_mode: 'static_lint',
     validation_failures: failures.length,
     failures: failures.map((f) => ({ filename: f.filename, issues: f.issues })),
   };
