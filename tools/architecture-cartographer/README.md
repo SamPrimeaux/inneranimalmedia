@@ -141,7 +141,8 @@ Pass-zero inventory (`/tmp/inventory.json`) can live next to B or upload beside 
 
 ## Supabase PAT — get / set
 
-`SUPABASE_SERVICE_ROLE_KEY` cannot run the catalog SQL this tool needs. You need a **Management API** personal access token:
+`SUPABASE_SERVICE_ROLE_KEY` cannot run the catalog SQL this tool needs via PostgREST.
+Preferred: a **Management API** personal access token:
 
 1. Open [Account → Access Tokens](https://supabase.com/dashboard/account/tokens)
 2. Create token (name e.g. `architecture-cartographer-readonly`)
@@ -154,11 +155,28 @@ SUPABASE_ACCESS_TOKEN=sbp_your_token_here
 
 5. Re-run via `./scripts/with-cloudflare-env.sh …` (loads that file)
 
+### Dashboard lockout bypass (no PAT)
+
+If you cannot log into the Supabase dashboard, the cartographer falls back to
+**`SUPABASE_DB_URL`** (Postgres pooler URI already in `.env.cloudflare`) via `psycopg2`.
+Same catalog queries — no Management API needed.
+
+```bash
+./scripts/with-cloudflare-env.sh python3 \
+  tools/architecture-cartographer/architecture_cartographer.py . \
+  --skip-repo \
+  --supabase-project-ref dpmuvynqixblxsilnlut \
+  --supabase-schemas public,agentsam \
+  --label platform
+```
+
+You should see: `via db_url`.
+
 Smoke check (no secrets printed):
 
 ```bash
 ./scripts/with-cloudflare-env.sh python3 -c \
-  "import os; t=os.environ.get('SUPABASE_ACCESS_TOKEN',''); print('pat_set', bool(t), 'len', len(t))"
+  "import os; t=os.environ.get('SUPABASE_ACCESS_TOKEN',''); d=os.environ.get('SUPABASE_DB_URL',''); print('pat_set', bool(t), 'db_url_set', bool(d))"
 ```
 
 ## D1 “0 tables” / Errno 8

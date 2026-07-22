@@ -807,10 +807,10 @@ def scan_d1(
 
 
 # ---------------------------------------------------------------------------
-# Supabase / Postgres (Management API, batched)
+# Supabase / Postgres (Management API OR direct DB URL)
 # ---------------------------------------------------------------------------
 
-def supabase_sql(project_ref: str, token: str, sql: str) -> list[dict[str, Any]]:
+def supabase_sql_management(project_ref: str, token: str, sql: str) -> list[dict[str, Any]]:
     url = f"https://api.supabase.com/v1/projects/{project_ref}/database/query"
     last_error: Exception | None = None
     for attempt in range(1, RETRY_COUNT + 1):
@@ -832,7 +832,6 @@ def supabase_sql(project_ref: str, token: str, sql: str) -> list[dict[str, Any]]
                     return payload["result"]
                 if "data" in payload and isinstance(payload["data"], list):
                     return payload["data"]
-                # some versions return {rows: [...]}
                 if "rows" in payload and isinstance(payload["rows"], list):
                     return payload["rows"]
             warn(f"Unexpected Supabase SQL response shape: {type(payload)}")
@@ -850,18 +849,45 @@ def supabase_sql(project_ref: str, token: str, sql: str) -> list[dict[str, Any]]
     return []
 
 
+def postgres_sql_db_url(db_url: str, sql: str) -> list[dict[str, Any]]:
+    """
+    Direct Postgres catalog queries via SUPABASE_DB_URL.
+    Bypasses Management API PAT when dashboard login is unavailable.
+    Requires psycopg2 (already common on this machine).
+    """
+    try:
+        import psycopg2
+        import psycopg2.extras
+    except ImportError as exc:
+        raise RuntimeError(
+            "SUPABASE_DB_URL fallback needs psycopg2. "
+            "Install with: python3 -m pip install psycopg2-binary"
+        ) from exc
+
+    conn = psycopg2.connect(db_url, connect_timeout=30)
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql)
+            if cur.description is None:
+                return []
+            return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
 def scan_supabase(
     *,
     project_ref: str,
-    token: str,
     schemas: list[str],
     label: str,
+    sql_runner,
+    transport: str,
 ) -> dict[str, Any]:
     start = time.time()
     schema_list = ", ".join("'" + s.replace("'", "''") + "'" for s in schemas)
-    info(f"Supabase catalog for {project_ref} schemas={schemas}…")
+    info(f"Supabase catalog for {project_ref} schemas={schemas} via {transport}…")
 
-    tables = supabase_sql(project_ref, token, f"""
+    tables = sql_runner(f"""
         SELECT n.nspname AS schema_name,
                c.relname AS table_name,
                c.relkind AS relkind,
@@ -876,21 +902,21 @@ def scan_supabase(
         ORDER BY 1, 2;
     """)
 
-    columns = supabase_sql(project_ref, token, f"""
+    columns = sql_runner(f"""
         SELECT table_schema, table_name, column_name, data_type, is_nullable, column_default
         FROM information_schema.columns
         WHERE table_schema IN ({schema_list})
         ORDER BY table_schema, table_name, ordinal_position;
     """)
 
-    constraints = supabase_sql(project_ref, token, f"""
+    constraints = sql_runner(f"""
         SELECT tc.table_schema, tc.table_name, tc.constraint_name, tc.constraint_type
         FROM information_schema.table_constraints tc
         WHERE tc.table_schema IN ({schema_list})
         ORDER BY 1, 2, 3;
     """)
 
-    fks = supabase_sql(project_ref, token, f"""
+    fks = sql_runner(f"""
         SELECT
           tc.table_schema, tc.table_name, kcu.column_name,
           ccu.table_schema AS foreign_table_schema,
@@ -907,7 +933,7 @@ def scan_supabase(
           AND tc.table_schema IN ({schema_list});
     """)
 
-    indexes = supabase_sql(project_ref, token, f"""
+    indexes = sql_runner(f"""
         SELECT schemaname AS schema_name, tablename AS table_name,
                indexname, indexdef
         FROM pg_indexes
@@ -915,7 +941,7 @@ def scan_supabase(
         ORDER BY 1, 2, 3;
     """)
 
-    policies = supabase_sql(project_ref, token, f"""
+    policies = sql_runner(f"""
         SELECT schemaname AS schema_name, tablename AS table_name,
                policyname, permissive, roles, cmd, qual, with_check
         FROM pg_policies
@@ -923,7 +949,7 @@ def scan_supabase(
         ORDER BY 1, 2, 3;
     """)
 
-    extensions = supabase_sql(project_ref, token, """
+    extensions = sql_runner("""
         SELECT extname, extversion FROM pg_extension ORDER BY 1;
     """)
 
@@ -957,7 +983,6 @@ def scan_supabase(
         if LEGACY_NAME_RE.search(str(name or "")):
             add("LEGACY_NAMED_TABLE", "medium", "Name suggests legacy/backup surface.")
         if table.get("relkind") in ("r", "p") and not table.get("rls_enabled"):
-            # public/agentsam tables without RLS are worth noting for multi-tenant future
             if schema in {"public", "agentsam"}:
                 add("RLS_DISABLED", "medium", "Row Level Security is off on this relation.")
 
@@ -996,6 +1021,7 @@ def scan_supabase(
         "project_ref": project_ref,
         "label": label,
         "schemas": schemas,
+        "transport": transport,
         "duration_seconds": round(time.time() - start, 2),
         "table_count": len(table_reports),
         "constraint_count": len(constraints),
@@ -1481,19 +1507,34 @@ def main() -> int:
 
     if args.supabase_project_ref:
         sb_token = env_first("SUPABASE_ACCESS_TOKEN", "SUPABASE_PAT")
-        if not sb_token:
+        db_url = env_first("SUPABASE_DB_URL", "DATABASE_URL")
+        schemas = [s.strip() for s in args.supabase_schemas.split(",") if s.strip()]
+
+        if sb_token:
+            transport = "management_api"
+            sql_runner = lambda sql: supabase_sql_management(args.supabase_project_ref, sb_token, sql)
+        elif db_url:
+            transport = "db_url"
+            info("No SUPABASE_ACCESS_TOKEN — using SUPABASE_DB_URL / psycopg2 (dashboard lockout bypass).")
+            sql_runner = lambda sql: postgres_sql_db_url(db_url, sql)
+        else:
             warn(
-                "Supabase requested but SUPABASE_ACCESS_TOKEN (Management API PAT) is not set. "
-                "Service-role keys cannot query information_schema via this path."
+                "Supabase requested but neither SUPABASE_ACCESS_TOKEN nor SUPABASE_DB_URL is set. "
+                "Service-role keys alone cannot run catalog SQL via PostgREST."
             )
             return 2
-        schemas = [s.strip() for s in args.supabase_schemas.split(",") if s.strip()]
-        pg_report = scan_supabase(
-            project_ref=args.supabase_project_ref,
-            token=sb_token,
-            schemas=schemas,
-            label=args.label,
-        )
+
+        try:
+            pg_report = scan_supabase(
+                project_ref=args.supabase_project_ref,
+                schemas=schemas,
+                label=args.label,
+                sql_runner=sql_runner,
+                transport=transport,
+            )
+        except Exception as exc:  # noqa: BLE001
+            warn(f"Supabase scan failed: {exc}")
+            return 2
         json_write(evidence / f"{args.label}_{stamp}_supabase.json", pg_report)
 
     if not repo_report and not d1_report and not pg_report:
