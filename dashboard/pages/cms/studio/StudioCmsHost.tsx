@@ -9,6 +9,8 @@ type Props = {
   workspaceId?: string;
   sites?: Array<{ slug: string; name?: string; domain?: string | null; logo_url?: string | null }>;
   onSiteChange?: (slug: string) => void;
+  /** Called when Studio requests navigation back out of the iframe (e.g. "Overview" exit). */
+  onNavigatePath?: (path: string) => void;
 };
 
 /**
