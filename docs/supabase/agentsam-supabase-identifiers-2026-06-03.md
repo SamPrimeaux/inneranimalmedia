@@ -6,6 +6,31 @@ Related: [RAG lane insert contract](./AGENTSAM_RAG_LANE_SCHEMA_REFERENCE.md) · 
 
 ---
 
+## Dashboard / organization ownership (confirmed 2026-07-22)
+
+Source: Supabase email **“OAuth Application Approval”** (Cursor OAuth app authorized on this org).
+
+| Field | Value | Notes |
+|-------|--------|--------|
+| **Dashboard login / org owner email** | `sam_primeaux@icloud.com` | Confirmed as **Authorized by** and **Authorized for organization** |
+| Organization ID | `syccscyruabhkctnpguw` | Org apps: `https://supabase.com/dashboard/org/syccscyruabhkctnpguw/apps` |
+| Project ref | `dpmuvynqixblxsilnlut` | Production only |
+| Project URL | `https://dpmuvynqixblxsilnlut.supabase.co` | |
+| Project name | `inneranimalmedia-business-supabase` | |
+| Cursor OAuth app Unique ID | `1b9eef1f-e155-4ee9-8ad7-439e903e7fae` | Revoke at org apps URL if unexpected |
+
+**Not the dashboard owner** (IAM / app / notify aliases — do not use for Supabase account recovery unless support says otherwise):
+
+| Email | Role in IAM ecosystem |
+|-------|------------------------|
+| `info@inneranimals.com` | Primary IAM operator login (`au_871d920d1233cbd1`) |
+| `sam@inneranimalmedia.com` | Secondary IAM / deploy notify |
+| `inneranimalclothing@gmail.com` | IAM alias |
+
+Account recovery / PAT creation: use **`sam_primeaux@icloud.com`** → [Account → Access Tokens](https://supabase.com/dashboard/account/tokens).
+
+---
+
 ## Canonical IDs for vector search
 
 Every `agentsam_match_*` RPC and pgvector `WHERE workspace_id = $n::uuid` expects the **Supabase UUID**, not the D1 text workspace key.

@@ -6,7 +6,7 @@ This document records the state of **local** vs **remote** Supabase migrations f
 
 | | Project ref | Notes |
 |---|-------------|--------|
-| **Active (only target for this repo)** | `dpmuvynqixblxsilnlut` | `inneranimalmedia-business-supabase`, org `syccscyruabhkctnpguw`. Confirmed in `supabase/.temp/project-ref` and `supabase/.temp/linked-project.json`. |
+| **Active (only target for this repo)** | `dpmuvynqixblxsilnlut` | `inneranimalmedia-business-supabase`, org `syccscyruabhkctnpguw`. **Dashboard owner:** `sam_primeaux@icloud.com` (confirmed 2026-07-22 via OAuth Application Approval email). See [agentsam-supabase-identifiers-2026-06-03.md](./agentsam-supabase-identifiers-2026-06-03.md). |
 | **Dead / outdated** | `sexdnwlyuhkyvseunqlx` | Do not use. Remove or override shell env (`SUPABASE_PROJECT_ID`, `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`) that still point here. |
 
 ## CLI rule for this repository

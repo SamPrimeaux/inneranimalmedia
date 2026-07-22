@@ -141,19 +141,23 @@ Pass-zero inventory (`/tmp/inventory.json`) can live next to B or upload beside 
 
 ## Supabase PAT — get / set
 
+**Dashboard owner email (confirmed):** `sam_primeaux@icloud.com`  
+Full ownership table: [`docs/supabase/agentsam-supabase-identifiers-2026-06-03.md`](../../docs/supabase/agentsam-supabase-identifiers-2026-06-03.md)
+
 `SUPABASE_SERVICE_ROLE_KEY` cannot run the catalog SQL this tool needs via PostgREST.
 Preferred: a **Management API** personal access token:
 
-1. Open [Account → Access Tokens](https://supabase.com/dashboard/account/tokens)
-2. Create token (name e.g. `architecture-cartographer-readonly`)
-3. Copy once (`sbp_…`)
-4. Add to gitignored `.env.cloudflare`:
+1. Sign in as `sam_primeaux@icloud.com`
+2. Open [Account → Access Tokens](https://supabase.com/dashboard/account/tokens)
+3. Create token (name e.g. `architecture-cartographer-readonly`)
+4. Copy once (`sbp_…`)
+5. Add to gitignored `.env.cloudflare`:
 
 ```bash
 SUPABASE_ACCESS_TOKEN=sbp_your_token_here
 ```
 
-5. Re-run via `./scripts/with-cloudflare-env.sh …` (loads that file)
+6. Re-run via `./scripts/with-cloudflare-env.sh …` (loads that file)
 
 ### Dashboard lockout bypass (no PAT)
 
