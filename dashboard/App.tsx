@@ -3361,6 +3361,14 @@ const App: React.FC = () => {
       if (nav.kind === 'file') {
         const path = String(nav.path || '').trim();
         if (!path) return;
+        // Search results (R2 asset URLs, knowledge hits) carry an absolute URL in `path`,
+        // not a repo-relative or FSA path — resolveConnectedLocalFile/GitHub contents both
+        // 404 silently on these. Route them to the browser tab instead of failing quietly.
+        if (/^https?:\/\//i.test(path)) {
+          openBrowserTab(path, { addressDisplay: path, tabTitle: path.split('/').pop() || 'Preview', previewSource: 'editor' });
+          revealMainWorkspaceIfNarrow();
+          return;
+        }
         const revealLine = nav.line != null && Number(nav.line) > 0 ? Math.floor(Number(nav.line)) : null;
         const revealCol =
           nav.column != null && Number(nav.column) > 0 ? Math.floor(Number(nav.column)) : 1;
