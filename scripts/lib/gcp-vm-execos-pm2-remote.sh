@@ -6,6 +6,9 @@
 # Optional env before snippet:
 #   VM_EXECOS=/home/samprimeaux/ExecOS
 #   EXECOS_DEFAULT_CWD=/home/samprimeaux/inneranimalmedia
+#
+# Stability (2026-07): never block on `pm2 delete` under samprimeaux — those hung for days
+# and left orphan ExecOS PIDs fighting for :3099 (EADDRINUSE → tunnel degraded flaps).
 
 : "${VM_EXECOS:=/home/samprimeaux/ExecOS}"
 : "${AGENTSAM_USER:=agentsam}"
@@ -18,21 +21,36 @@ AGENTSAM_USER='${AGENTSAM_USER}'
 PM2_HOME_AGENTSAM='${PM2_HOME_AGENTSAM}'
 EXECOS_DEFAULT_CWD='${EXECOS_DEFAULT_CWD:-/home/samprimeaux/inneranimalmedia}'
 
-# Stop samprimeaux PM2 lane — SSH sessions must not resurrect execos under login user.
+# Stop samprimeaux PM2 lane — non-blocking (timeout + pkill). Never hang on pm2 delete.
 if id samprimeaux &>/dev/null; then
-  sudo -u samprimeaux pm2 delete execos 2>/dev/null || true
-  sudo -u samprimeaux pm2 delete iam-pty 2>/dev/null || true
-  sudo -u samprimeaux pm2 kill 2>/dev/null || true
+  timeout 2 sudo -u samprimeaux pm2 kill >/dev/null 2>&1 || true
+  sudo pkill -9 -u samprimeaux -f 'pm2 delete' 2>/dev/null || true
+  sudo pkill -9 -u samprimeaux -f 'PM2 v' 2>/dev/null || true
 fi
-sudo pkill -u samprimeaux -f '\${VM_EXECOS}/server.js' 2>/dev/null || true
+sudo pkill -u samprimeaux -f "\${VM_EXECOS}/server.js" 2>/dev/null || true
+
+# Free orphan ExecOS listeners before start (EADDRINUSE).
+# Use /proc cmdline — never pkill -f a path present in this bash -c argv.
+for p in \$(ps -C node -o pid= 2>/dev/null || true); do
+  p=\$(echo "\$p" | tr -d '[:space:]')
+  [[ -n "\$p" ]] || continue
+  cmd=\$(tr '\\0' ' ' <"/proc/\${p}/cmdline" 2>/dev/null || true)
+  case "\$cmd" in
+    *ExecOS/server.js*) sudo kill -9 "\$p" 2>/dev/null || true ;;
+  esac
+done
+for p in \$(sudo lsof -ti :3099 2>/dev/null || true); do
+  sudo kill -9 "\$p" 2>/dev/null || true
+done
+sleep 1
 
 sudo -u "\${AGENTSAM_USER}" bash -lc "
   export PM2_HOME=\${PM2_HOME_AGENTSAM}
   export EXECOS_DEFAULT_CWD=\${EXECOS_DEFAULT_CWD}
   cd '\${VM_EXECOS}'
-  pm2 delete execos 2>/dev/null || true
-  pm2 start ecosystem.config.cjs --update-env
-  pm2 save
+  timeout 15 pm2 delete execos >/dev/null 2>&1 || true
+  timeout 20 pm2 start ecosystem.config.cjs --update-env
+  timeout 10 pm2 save >/dev/null 2>&1 || true
 "
 
 sleep 2

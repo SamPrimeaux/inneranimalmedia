@@ -80,29 +80,45 @@ agentsam_pm2() {
 
 echo "${LOG_PREFIX} starting"
 
+# 0. Ship-lane guard — never allow hung Vite/dashboard builds on this ~1GB VM.
+# A single vite build (~270MB+) thrashing swap causes ExecOS EADDRINUSE + tunnel degraded flaps.
+if pgrep -f 'dashboard/node_modules/.bin/vite' >/dev/null 2>&1 \
+  || pgrep -f 'npm --prefix dashboard run build' >/dev/null 2>&1; then
+  echo "${LOG_PREFIX} killing hung dashboard Vite/build on iam-tunnel (ship-lane ban)"
+  pkill -9 -f 'dashboard/node_modules/.bin/vite' 2>/dev/null || true
+  pkill -9 -f 'npm --prefix dashboard run build' 2>/dev/null || true
+  pkill -9 -f 'with-node-env-fallback.sh npm --prefix dashboard' 2>/dev/null || true
+  pkill -9 -f 'sh -c vite build' 2>/dev/null || true
+fi
+
+# Health restarts live in gcp-execos-health-watchdog.sh (separate cron) so fail
+# hysteresis is not double-counted when both jobs share the same */5 schedule.
+
 # 1–2. Pull ExecOS + operator repo (agentsam owns .git and has GitHub SSH)
 agentsam_git_pull "${EXECOS_HOME}" "ExecOS"
 agentsam_git_pull "${OPERATOR_REPO}" "operator repo"
 
-# 3. Ensure pm2 execos process is running under agentsam
+# 3. Ensure pm2 execos process is running under agentsam (start only — no restart race)
 if ! agentsam_pm2 "pm2 list 2>/dev/null" | grep -qE 'execos|agentsam'; then
   echo "${LOG_PREFIX} pm2 execos not running — starting under ${AGENTSAM_USER}"
   if [[ -f "${EXECOS_HOME}/server.js" ]]; then
-    agentsam_pm2 "pm2 start '${EXECOS_HOME}/server.js' --name execos --update-env 2>/dev/null || pm2 start ecosystem.config.cjs --update-env 2>/dev/null || true"
-    agentsam_pm2 "pm2 save 2>/dev/null || true"
+    agentsam_pm2 "timeout 20 pm2 start '${EXECOS_HOME}/server.js' --name execos --update-env 2>/dev/null || timeout 20 pm2 start ecosystem.config.cjs --update-env 2>/dev/null || true"
+    agentsam_pm2 "timeout 10 pm2 save 2>/dev/null || true"
   fi
 else
   echo "${LOG_PREFIX} pm2 execos: running under ${AGENTSAM_USER}"
 fi
 
-# 4. Health check — restart agentsam pm2 if public endpoint is down
-HTTP_STATUS="$(curl -sf -o /dev/null -w '%{http_code}' "${HEALTH_URL}" 2>/dev/null || echo '000')"
-if [[ "$HTTP_STATUS" == "200" ]]; then
-  echo "${LOG_PREFIX} health: OK (${HTTP_STATUS})"
+# 4. Observability only — never restart here (watchdog owns restarts + orphan reclaim)
+LOCAL_OK=0
+curl -sf --max-time 5 http://127.0.0.1:3099/health >/dev/null 2>&1 && LOCAL_OK=1
+HTTP_STATUS="$(curl -sf -o /dev/null -w '%{http_code}' --max-time 12 "${HEALTH_URL}" 2>/dev/null || echo '000')"
+if [[ "$LOCAL_OK" -eq 1 && "$HTTP_STATUS" == "200" ]]; then
+  echo "${LOG_PREFIX} health: OK (local+public ${HTTP_STATUS})"
+elif [[ "$LOCAL_OK" -eq 1 ]]; then
+  echo "${LOG_PREFIX} health: local OK, public=${HTTP_STATUS} (tunnel/CF — watchdog will not restart for public-only fail)"
 else
-  echo "${LOG_PREFIX} health: FAIL (${HTTP_STATUS}) — restarting pm2 execos"
-  agentsam_pm2 "pm2 restart execos --update-env 2>/dev/null || pm2 start ecosystem.config.cjs --update-env 2>/dev/null || true"
-  agentsam_pm2 "pm2 save 2>/dev/null || true"
+  echo "${LOG_PREFIX} health: local FAIL public=${HTTP_STATUS} (watchdog cron owns restart)"
 fi
 
 # 5. Ensure cloudflared tunnel is running

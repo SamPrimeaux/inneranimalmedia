@@ -632,8 +632,9 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
     if (terminalWs && typeof terminalWs === 'string') {
       const base = terminalWs.replace(/\/$/, '');
       const healthUrl = `${base}/health`;
+      // 500ms was false-degrading under tunnel/VM load (public health often 130–700ms).
       const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), 500);
+      const timer = setTimeout(() => ac.abort(), 5000);
       const tP0 = Date.now();
       try {
         const res = await fetch(healthUrl, { method: 'GET', signal: ac.signal });
