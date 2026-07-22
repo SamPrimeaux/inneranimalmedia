@@ -1738,6 +1738,7 @@ async function handleProjectReindex(request, env, authUser, projectId) {
           total: run?.total ?? null,
           complete: !!run?.complete,
           resume: !!run?.resume,
+          cancelled: !!run?.cancelled,
           error: run?.error ?? null,
         });
       }
@@ -1752,6 +1753,31 @@ async function handleProjectReindex(request, env, authUser, projectId) {
     return jsonResponse(out);
   } catch (e) {
     return jsonResponse({ ok: false, error: e?.message ?? String(e), ...out }, 500);
+  }
+}
+
+async function handleProjectReindexCancel(request, env, authUser, projectId) {
+  const resolved = await resolveProjectExecutionWorkspace(env, authUser, projectId);
+  if (resolved.error) return jsonResponse({ ok: false, error: resolved.error }, resolved.status);
+  const body = await request.json().catch(() => ({}));
+  const reason =
+    typeof body.reason === 'string' && body.reason.trim()
+      ? body.reason.trim().slice(0, 500)
+      : 'cancelled_from_project_rail';
+  try {
+    const { cancelAstSymbolReembed } = await import('../core/ast-symbol-reembed.js');
+    const result = await cancelAstSymbolReembed(env, resolved.executionWorkspaceId, { reason });
+    if (!result.ok) {
+      return jsonResponse({ ok: false, error: result.error || 'cancel_failed', ...result }, 500);
+    }
+    return jsonResponse({
+      ok: true,
+      project_id: String(projectId),
+      workspace_id: resolved.executionWorkspaceId,
+      ...result,
+    });
+  } catch (e) {
+    return jsonResponse({ ok: false, error: e?.message ?? String(e) }, 500);
   }
 }
 
@@ -2009,6 +2035,9 @@ export async function handleProjectsApi(request, url, env, authUser, ctx = null)
   }
   if (seg.length === 2 && seg[1] === 'reindex' && method === 'POST') {
     return handleProjectReindex(request, env, authUser, seg[0]);
+  }
+  if (seg.length === 3 && seg[1] === 'reindex' && seg[2] === 'cancel' && method === 'POST') {
+    return handleProjectReindexCancel(request, env, authUser, seg[0]);
   }
   if (seg.length === 2 && seg[1] === 'memory') {
     if (method === 'GET') return handleProjectMemoryGet(env, authUser, seg[0]);

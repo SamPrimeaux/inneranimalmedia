@@ -515,6 +515,7 @@ export default function ProjectDetailPage() {
     job: null,
   });
   const storageAnchorRef = useRef<HTMLDivElement | null>(null);
+  const reindexAbortRef = useRef(false);
   const [clientContact, setClientContact] = useState<ClientContactRow | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [railEditor, setRailEditor] = useState<RailEditorKind | null>(null);
@@ -794,8 +795,29 @@ export default function ProjectDetailPage() {
     }
   }, [projectId]);
 
+  const cancelProjectAstReindex = async () => {
+    if (!projectId || !codeIndex.reindexing) return;
+    reindexAbortRef.current = true;
+    setCodeIndex((s) => ({
+      ...s,
+      statusMsg: 'Cancelling…',
+      phase: 'running',
+    }));
+    try {
+      await fetch(`/api/projects/${encodeURIComponent(projectId)}/reindex/cancel`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'cancelled_from_project_rail' }),
+      });
+    } catch {
+      /* loop will stop on next check */
+    }
+  };
+
   const reindexProjectAst = async () => {
     if (!projectId || codeIndex.reindexing) return;
+    reindexAbortRef.current = false;
     setCodeIndex((s) => ({
       ...s,
       reindexing: true,
@@ -812,7 +834,12 @@ export default function ProjectDetailPage() {
       let resume = true;
       let guard = 0;
       let lastEmbedded = 0;
+      let cancelled = false;
       while (resume && guard < 80) {
+        if (reindexAbortRef.current) {
+          cancelled = true;
+          break;
+        }
         guard += 1;
         const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/reindex`, {
           method: 'POST',
@@ -829,6 +856,7 @@ export default function ProjectDetailPage() {
               complete?: boolean;
               embedded?: number;
               resume?: boolean;
+              cancelled?: boolean;
               cost_usd?: number;
               offset?: number;
               total?: number;
@@ -836,6 +864,10 @@ export default function ProjectDetailPage() {
             };
           };
         };
+        if (reindexAbortRef.current || j.ast?.run?.cancelled) {
+          cancelled = true;
+          break;
+        }
         if (!res.ok || j.ok === false) {
           setCodeIndex((s) => ({
             ...s,
@@ -864,6 +896,15 @@ export default function ProjectDetailPage() {
         if (run?.complete) break;
       }
       await loadCodeIndex();
+      if (cancelled || reindexAbortRef.current) {
+        setCodeIndex((s) => ({
+          ...s,
+          phase: 'idle',
+          statusMsg: `Cancelled · progress kept (${lastEmbedded} embedded this run)`,
+        }));
+        setToast('AST re-index cancelled');
+        return;
+      }
       setCodeIndex((s) => ({
         ...s,
         phase: 'ok',
@@ -877,6 +918,7 @@ export default function ProjectDetailPage() {
       setToast(msg);
     } finally {
       window.clearInterval(pollId);
+      reindexAbortRef.current = false;
       setCodeIndex((s) => ({ ...s, reindexing: false }));
     }
   };
@@ -1492,19 +1534,31 @@ export default function ProjectDetailPage() {
         title="Codebase index"
         defaultOpen={railDefaultOpen}
         action={
-          <button
-            type="button"
-            className="cpd-icon-btn"
-            title="Re-Index AST symbols"
-            disabled={codeIndex.reindexing || codeIndex.loading}
-            onClick={() => void reindexProjectAst()}
-          >
-            <RefreshCw
-              size={13}
-              strokeWidth={1.5}
-              className={codeIndex.reindexing ? 'cpd-spin' : undefined}
-            />
-          </button>
+          <div className="cpd-rail-actions">
+            {codeIndex.reindexing ? (
+              <button
+                type="button"
+                className="cpd-icon-btn"
+                title="Cancel re-index"
+                onClick={() => void cancelProjectAstReindex()}
+              >
+                <X size={13} strokeWidth={1.5} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="cpd-icon-btn"
+              title="Re-Index AST symbols"
+              disabled={codeIndex.reindexing || codeIndex.loading}
+              onClick={() => void reindexProjectAst()}
+            >
+              <RefreshCw
+                size={13}
+                strokeWidth={1.5}
+                className={codeIndex.reindexing ? 'cpd-spin' : undefined}
+              />
+            </button>
+          </div>
         }
       >
         {codeIndex.loading ? (

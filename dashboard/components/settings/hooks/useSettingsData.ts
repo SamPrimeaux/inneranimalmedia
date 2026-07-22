@@ -103,6 +103,7 @@ export function useSettingsData({
   const [reindexPhase, setReindexPhase] = useState<'idle' | 'running' | 'ok' | 'error'>('idle');
   const [reindexPct, setReindexPct] = useState(0);
   const [reindexMsg, setReindexMsg] = useState<string | null>(null);
+  const reindexAbortRef = useRef(false);
 
   const [hooksLoading2, setHooksLoading2] = useState(false);
   const [hooksError2, setHooksError2] = useState<string | null>(null);
@@ -1143,6 +1144,7 @@ export function useSettingsData({
   );
 
   const postWorkspaceReindex = useCallback(async (mode: 'ast' | 'chunks' | 'both' = 'ast') => {
+    reindexAbortRef.current = false;
     setReindexBusy(mode);
     setReindexMsg(mode === 'ast' ? 'Re-indexing AST…' : 'Queuing chunk reindex…');
     setReindexPct(mode === 'ast' ? 1 : 0);
@@ -1195,7 +1197,12 @@ export function useSettingsData({
       let resume = true;
       let guard = 0;
       let embedded = 0;
+      let cancelled = false;
       while (resume && guard < 80) {
+        if (reindexAbortRef.current) {
+          cancelled = true;
+          break;
+        }
         guard += 1;
         const res = await fetch(`/api/settings/workspace/reindex${qp}`, {
           method: 'POST',
@@ -1206,8 +1213,21 @@ export function useSettingsData({
         const j = (await res.json().catch(() => ({}))) as {
           ok?: boolean;
           error?: string;
-          ast?: { run?: { complete?: boolean; resume?: boolean; embedded?: number; offset?: number; total?: number } };
+          ast?: {
+            run?: {
+              complete?: boolean;
+              resume?: boolean;
+              cancelled?: boolean;
+              embedded?: number;
+              offset?: number;
+              total?: number;
+            };
+          };
         };
+        if (reindexAbortRef.current || j.ast?.run?.cancelled) {
+          cancelled = true;
+          break;
+        }
         if (!res.ok || j.ok === false) {
           setReindexPhase('error');
           setReindexMsg(typeof j.error === 'string' ? j.error : 'AST reindex failed');
@@ -1227,6 +1247,11 @@ export function useSettingsData({
         resume = !!run?.resume && !run?.complete;
         if (run?.complete) break;
       }
+      if (cancelled || reindexAbortRef.current) {
+        setReindexPhase('idle');
+        setReindexMsg(`Cancelled · progress kept (${embedded} embedded this run)`);
+        return;
+      }
       setReindexPhase('ok');
       setReindexPct(100);
       setReindexMsg(`AST updated · ${embedded} symbols this run`);
@@ -1235,10 +1260,29 @@ export function useSettingsData({
       setReindexMsg(e instanceof Error ? e.message : 'Reindex failed');
     } finally {
       if (pollId) window.clearInterval(pollId);
+      reindexAbortRef.current = false;
       setReindexBusy(null);
       void loadWorkspace();
     }
   }, [workspaceId, loadWorkspace]);
+
+  const cancelWorkspaceReindex = useCallback(async () => {
+    if (reindexBusy !== 'ast') return;
+    reindexAbortRef.current = true;
+    setReindexMsg('Cancelling…');
+    try {
+      const ws = workspaceId?.trim();
+      const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
+      await fetch(`/api/settings/workspace/reindex/cancel${qp}`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'cancelled_from_settings' }),
+      });
+    } catch {
+      /* loop stops on next check */
+    }
+  }, [reindexBusy, workspaceId]);
 
   const patchHookActive = useCallback(
     async (hookId: string, v: boolean, prev: { hooks: any[]; executions: any[] } | null) => {
@@ -1517,6 +1561,7 @@ export function useSettingsData({
     workspaceError2,
     workspaceData,
     postWorkspaceReindex,
+    cancelWorkspaceReindex,
     reindexBusy,
     reindexPhase,
     reindexPct,

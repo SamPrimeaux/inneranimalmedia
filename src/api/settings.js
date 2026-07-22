@@ -3809,6 +3809,7 @@ export async function handleSettingsRequest(request, env, ctx) {
             total: run?.total ?? null,
             complete: !!run?.complete,
             resume: !!run?.resume,
+            cancelled: !!run?.cancelled,
             error: run?.error ?? null,
           });
         }
@@ -3822,6 +3823,27 @@ export async function handleSettingsRequest(request, env, ctx) {
       }
 
       return jsonResponse(out);
+    } catch (e) {
+      return jsonResponse({ error: e?.message ?? String(e) }, 500);
+    }
+  }
+
+  if (pathLower === '/api/settings/workspace/reindex/cancel' && method === 'POST') {
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);
+    if (!workspaceId) return jsonResponse({ error: 'workspace_id required' }, 400);
+    try {
+      const body = await request.json().catch(() => ({}));
+      const reason =
+        typeof body.reason === 'string' && body.reason.trim()
+          ? body.reason.trim().slice(0, 500)
+          : 'cancelled_from_settings';
+      const { cancelAstSymbolReembed } = await import('../core/ast-symbol-reembed.js');
+      const result = await cancelAstSymbolReembed(env, workspaceId, { reason });
+      if (!result.ok) {
+        return jsonResponse({ error: result.error || 'cancel_failed', ...result }, 500);
+      }
+      return jsonResponse({ ok: true, workspace_id: workspaceId, ...result });
     } catch (e) {
       return jsonResponse({ error: e?.message ?? String(e) }, 500);
     }

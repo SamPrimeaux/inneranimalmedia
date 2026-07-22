@@ -114,14 +114,21 @@ export async function queueAstSymbolReembed(env, opts = {}) {
     } else if (String(existing.status || '') === 'running') {
       return { ok: true, skipped: true, reason: 'already_running', job_id: jobId };
     } else {
+      // cancelled / idle / failed — allow a fresh or resumed queue.
+      // Preserve offset unless force:true (accidental reindex must not wipe progress).
       const progress = Number(existing.progress_percent) || 0;
       const offset = Number(existing.indexed_file_count) || 0;
+      const forceFull = opts.force === true;
       const resumePartial =
-        opts.resume === true ||
-        (String(existing.triggered_by || '').includes('ast_reindex_resume') &&
-          progress > 0 &&
-          progress < 100 &&
-          offset > 0);
+        !forceFull &&
+        offset > 0 &&
+        progress < 100 &&
+        (opts.resume === true ||
+          String(existing.triggered_by || '').includes('ast_reindex_resume') ||
+          String(existing.status || '') === 'cancelled' ||
+          String(existing.status || '') === 'canceled' ||
+          String(existing.status || '') === 'idle' ||
+          String(existing.status || '') === 'failed');
       if (resumePartial) {
         await env.DB.prepare(
           `UPDATE agentsam_code_index_job
@@ -130,6 +137,7 @@ export async function queueAstSymbolReembed(env, opts = {}) {
                   vector_backend = 'supabase_pgvector',
                   triggered_by = ?,
                   last_error = NULL,
+                  finished_at = NULL,
                   repo_full_name = COALESCE(?, repo_full_name),
                   updated_at = datetime('now')
             WHERE id = ?`,
@@ -146,6 +154,7 @@ export async function queueAstSymbolReembed(env, opts = {}) {
                   indexed_file_count = 0,
                   progress_percent = 0,
                   last_error = NULL,
+                  finished_at = NULL,
                   repo_full_name = COALESCE(?, repo_full_name),
                   updated_at = datetime('now')
             WHERE id = ?`,
@@ -158,6 +167,68 @@ export async function queueAstSymbolReembed(env, opts = {}) {
     return { ok: true, job_id: jobId, queued: true };
   } catch (e) {
     return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+/**
+ * Cancel an in-flight or resumable AST symbol re-embed for a workspace.
+ * Marks the canonical job cancelled so client loops and Worker batches stop.
+ * @param {any} env
+ * @param {string} workspaceId
+ * @param {{ reason?: string|null }} [opts]
+ */
+export async function cancelAstSymbolReembed(env, workspaceId, opts = {}) {
+  const ws = trim(workspaceId);
+  if (!env?.DB || !ws) return { ok: false, error: 'no_workspace' };
+  const jobId = canonicalJobId(ws);
+  const reason = trim(opts.reason) || 'cancelled_by_operator';
+  try {
+    const existing = await env.DB.prepare(
+      `SELECT id, status, indexed_file_count, progress_percent, symbol_count
+         FROM agentsam_code_index_job WHERE id = ? LIMIT 1`,
+    )
+      .bind(jobId)
+      .first()
+      .catch(() => null);
+    if (!existing) {
+      return { ok: true, skipped: true, reason: 'no_job', job_id: jobId };
+    }
+    const prevStatus = String(existing.status || '');
+    await env.DB.prepare(
+      `UPDATE agentsam_code_index_job
+          SET status = 'cancelled',
+              triggered_by = 'dashboard_ast_reindex_cancelled',
+              last_error = ?,
+              finished_at = datetime('now'),
+              updated_at = datetime('now')
+        WHERE id = ?`,
+    )
+      .bind(reason.slice(0, 500), jobId)
+      .run();
+    return {
+      ok: true,
+      job_id: jobId,
+      previous_status: prevStatus,
+      indexed_file_count: Number(existing.indexed_file_count) || 0,
+      progress_percent: Number(existing.progress_percent) || 0,
+      cancelled: true,
+    };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+async function isAstReembedCancelled(env, jobId) {
+  try {
+    const row = await env.DB.prepare(
+      `SELECT status FROM agentsam_code_index_job WHERE id = ? LIMIT 1`,
+    )
+      .bind(jobId)
+      .first();
+    const st = String(row?.status || '').toLowerCase();
+    return st === 'cancelled' || st === 'canceled';
+  } catch {
+    return false;
   }
 }
 
@@ -350,6 +421,35 @@ export async function runAstSymbolReembedJob(env, workspaceId, opts = {}) {
     .run()
     .catch(() => null);
 
+  const stampCancelledProgress = async (nextOffset) => {
+    const progress = total ? Math.min(100, Math.round((nextOffset / total) * 100)) : 0;
+    await env.DB.prepare(
+      `UPDATE agentsam_code_index_job
+          SET indexed_file_count = ?,
+              progress_percent = ?,
+              symbol_count = ?,
+              updated_at = datetime('now')
+        WHERE id = ? AND LOWER(COALESCE(status, '')) IN ('cancelled', 'canceled')`,
+    )
+      .bind(nextOffset, progress, nextOffset, jobId)
+      .run()
+      .catch(() => null);
+  };
+
+  if (await isAstReembedCancelled(env, jobId)) {
+    await stampCancelledProgress(offset);
+    return {
+      ok: true,
+      cancelled: true,
+      complete: false,
+      resume: false,
+      job_id: jobId,
+      embedded: 0,
+      offset,
+      total,
+    };
+  }
+
   let embedded = 0;
   let tokensIn = 0;
   let costUsd = 0;
@@ -357,10 +457,40 @@ export async function runAstSymbolReembedJob(env, workspaceId, opts = {}) {
 
   try {
     for (let i = 0; i < nodes.length; i += EMBED_BATCH) {
+      if (await isAstReembedCancelled(env, jobId)) {
+        await stampCancelledProgress(offset + i);
+        return {
+          ok: true,
+          cancelled: true,
+          complete: false,
+          resume: false,
+          job_id: jobId,
+          embedded,
+          offset: offset + i,
+          total,
+          tokens_in: tokensIn,
+          cost_usd: costUsd,
+        };
+      }
       if (Date.now() - startedAt > cpuBudgetMs) break;
       const slice = nodes.slice(i, i + EMBED_BATCH);
       for (const node of slice) {
         if (Date.now() - startedAt > cpuBudgetMs) break;
+        if (await isAstReembedCancelled(env, jobId)) {
+          await stampCancelledProgress(offset + i);
+          return {
+            ok: true,
+            cancelled: true,
+            complete: false,
+            resume: false,
+            job_id: jobId,
+            embedded,
+            offset: offset + i,
+            total,
+            tokens_in: tokensIn,
+            cost_usd: costUsd,
+          };
+        }
         const embedText = buildEmbedText(node);
         if (!embedText) continue;
         try {
@@ -403,6 +533,22 @@ export async function runAstSymbolReembedJob(env, workspaceId, opts = {}) {
     const complete = nextOffset >= total;
     const progress = total ? Math.min(100, Math.round((nextOffset / total) * 100)) : 100;
 
+    if (await isAstReembedCancelled(env, jobId)) {
+      await stampCancelledProgress(nextOffset);
+      return {
+        ok: true,
+        cancelled: true,
+        complete: false,
+        resume: false,
+        job_id: jobId,
+        embedded,
+        offset: nextOffset,
+        total,
+        tokens_in: tokensIn,
+        cost_usd: costUsd,
+      };
+    }
+
     await env.DB.prepare(
       `UPDATE agentsam_code_index_job
           SET status = ?,
@@ -414,7 +560,8 @@ export async function runAstSymbolReembedJob(env, workspaceId, opts = {}) {
               finished_at = CASE WHEN ? = 1 THEN datetime('now') ELSE finished_at END,
               completed_at = CASE WHEN ? = 1 THEN datetime('now') ELSE completed_at END,
               updated_at = datetime('now')
-        WHERE id = ?`,
+        WHERE id = ?
+          AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'canceled')`,
     )
       .bind(
         complete ? 'idle' : 'idle',
@@ -436,7 +583,10 @@ export async function runAstSymbolReembedJob(env, workspaceId, opts = {}) {
     } else {
       // Keep job idle so next click / cron can resume via indexed_file_count offset.
       await env.DB.prepare(
-        `UPDATE agentsam_code_index_job SET triggered_by = 'dashboard_ast_reindex_resume', updated_at = datetime('now') WHERE id = ?`,
+        `UPDATE agentsam_code_index_job
+            SET triggered_by = 'dashboard_ast_reindex_resume', updated_at = datetime('now')
+          WHERE id = ?
+            AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'canceled')`,
       )
         .bind(jobId)
         .run()
@@ -461,7 +611,8 @@ export async function runAstSymbolReembedJob(env, workspaceId, opts = {}) {
     await env.DB.prepare(
       `UPDATE agentsam_code_index_job
           SET status = 'idle', last_error = ?, triggered_by = 'dashboard_ast_reindex', updated_at = datetime('now')
-        WHERE id = ?`,
+        WHERE id = ?
+          AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'canceled')`,
     )
       .bind(msg, jobId)
       .run()

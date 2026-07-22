@@ -471,6 +471,15 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
             </div>
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
+            {data.reindexBusy === 'ast' ? (
+              <button
+                type="button"
+                onClick={() => void data.cancelWorkspaceReindex()}
+                className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--accent-warning)]/40 text-[var(--accent-warning)] hover:bg-[var(--accent-warning)]/10"
+              >
+                Cancel
+              </button>
+            ) : null}
             <button
               type="button"
               disabled={data.reindexBusy != null}
