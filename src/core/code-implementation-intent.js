@@ -62,6 +62,15 @@ export function extractExplicitCatalogToolKeys(message) {
  * @returns {string|null}
  */
 export function resolveForcedExplicitCatalogTool(message, tools) {
+  const msg = String(message || '');
+  // PTC soak / program orchestration: never steal the turn with a direct preinvoke.
+  if (
+    /\bprogrammatic\s+tool\s+calling\b/i.test(msg) ||
+    /\bopenai_ptc\b/i.test(msg) ||
+    /\binside a program\b/i.test(msg)
+  ) {
+    return null;
+  }
   // Pin can hydrate any named agentsam_*/fs_*/pty_* key; force/preinvoke stays
   // limited to read/search/terminal so naming a deploy tool cannot auto-run.
   const keys = extractExplicitCatalogToolKeys(message).filter(
@@ -71,6 +80,7 @@ export function resolveForcedExplicitCatalogTool(message, tools) {
       k === 'agentsam_codebase_retrieve' ||
       k === 'agentsam_memory_search' ||
       k === 'agentsam_search_tools' ||
+      k === 'agentsam_d1_query' ||
       k === 'agentsam_terminal_local' ||
       k === 'agentsam_terminal_remote' ||
       k === 'agentsam_terminal_sandbox',

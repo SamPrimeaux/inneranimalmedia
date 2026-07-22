@@ -325,6 +325,31 @@ function withProgrammaticToolCalling(oaiTools, openaiPtcEnabled) {
   return list.length ? list : undefined;
 }
 
+/** @param {unknown[]|undefined} oaiTools */
+function logOpenaiPtcToolsWire(oaiTools) {
+  if (!Array.isArray(oaiTools)) return;
+  const programmaticEligible = oaiTools
+    .filter(
+      (t) =>
+        t &&
+        typeof t === 'object' &&
+        t.type === 'function' &&
+        Array.isArray(t.allowed_callers) &&
+        t.allowed_callers.includes('programmatic'),
+    )
+    .map((t) => t.name);
+  console.info(
+    '[openai_ptc] tools_wire',
+    JSON.stringify({
+      total: oaiTools.length,
+      programmatic_eligible: programmaticEligible.length,
+      names: programmaticEligible.slice(0, 24),
+      has_hosted_ptc: oaiTools.some((t) => t?.type === 'programmatic_tool_calling'),
+      store: false,
+    }),
+  );
+}
+
 /**
  * Build the messages array for OpenAI.
  * Prepends systemPrompt as a system message if provided and not already present.
@@ -602,6 +627,7 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
     : buildOpenAIResponsesInput(messages, prev || null);
   let oaiTools = toOpenAIResponsesTools(tools, { openaiPtcEnabled });
   oaiTools = withProgrammaticToolCalling(oaiTools, openaiPtcEnabled);
+  if (openaiPtcEnabled) logOpenaiPtcToolsWire(oaiTools);
 
   let body = {
     model: modelForApi,

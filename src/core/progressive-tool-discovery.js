@@ -108,6 +108,22 @@ export function compiledRowFromAgentsamTool(row) {
 }
 
 /**
+ * Wire-facing tool def from a compiled catalog row (preserve caller_policy for PTC).
+ * @param {Record<string, unknown>} compiled
+ */
+export function wireToolFromCompiledRow(compiled) {
+  return {
+    name: compiled.name,
+    description: compiled.description,
+    input_schema: compiled.input_schema,
+    tool_category: compiled.tool_category,
+    requires_approval: compiled.requires_approval,
+    caller_policy: compiled.caller_policy != null ? compiled.caller_policy : null,
+    ...(compiled.tool_key ? { tool_key: compiled.tool_key } : {}),
+  };
+}
+
+/**
  * @param {any} env
  * @param {string[]} names
  */
@@ -305,13 +321,7 @@ export async function hydrateActiveToolsFromSearchResult(env, activeTools, execR
     if (list.length >= softMax) break;
     have.add(nm);
     added.push(nm);
-    list.push({
-      name: nm,
-      description: compiled.description,
-      input_schema: compiled.input_schema,
-      tool_category: compiled.tool_category,
-      requires_approval: compiled.requires_approval,
-    });
+    list.push(wireToolFromCompiledRow(compiled));
   }
 
   if (added.length) {
@@ -360,13 +370,7 @@ export async function hydrateNamedCatalogTools(env, activeTools, names, opts = {
     if (list.length >= softMax) break;
     have.add(nm);
     added.push(nm);
-    list.push({
-      name: nm,
-      description: compiled.description,
-      input_schema: compiled.input_schema,
-      tool_category: compiled.tool_category,
-      requires_approval: compiled.requires_approval,
-    });
+    list.push(wireToolFromCompiledRow(compiled));
   }
   if (added.length) {
     console.info(
