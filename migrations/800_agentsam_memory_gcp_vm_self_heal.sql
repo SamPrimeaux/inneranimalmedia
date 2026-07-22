@@ -4,9 +4,10 @@
 --     --remote -c wrangler.production.toml --file=./migrations/800_agentsam_memory_gcp_vm_self_heal.sql
 
 INSERT INTO agentsam_memory (
-  id, tenant_id, user_id, workspace_id, memory_type, key, value, title, summary,
+  id, memory_id, tenant_id, user_id, workspace_id, memory_type, key, value, title, summary,
   source, tags, confidence, importance, is_pinned, sync_key, updated_at
 ) VALUES (
+  'mem_gcp_vm_self_heal_router_v1',
   'mem_gcp_vm_self_heal_router_v1',
   'tenant_sam_primeaux',
   'au_871d920d1233cbd1',
