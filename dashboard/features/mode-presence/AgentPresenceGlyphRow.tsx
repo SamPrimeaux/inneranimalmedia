@@ -12,7 +12,7 @@ export type AgentPresenceGlyphRowProps = {
   state?: AgentPresenceState | string | null;
   iconKey?: ModePresenceIconKey;
   label?: string;
-  /** Icon box size in px — default 16 (tool-trace scale). */
+  /** Icon box size in px — default 44 (matches ThinkingCard / logo card). */
   size?: number;
   className?: string;
 };
@@ -22,13 +22,13 @@ export function AgentPresenceGlyphRow({
   state,
   iconKey,
   label,
-  size = 16,
+  size = 44,
   className = '',
 }: AgentPresenceGlyphRowProps) {
   const aria = label?.trim() || 'Working';
   return (
     <div
-      className={`iam-presence-glyph-row flex items-center gap-2 min-w-0 py-0.5 ${className}`.trim()}
+      className={`iam-presence-glyph-row flex items-center gap-3 min-w-0 py-1.5 ${className}`.trim()}
       role="status"
       aria-live="polite"
     >
@@ -41,7 +41,9 @@ export function AgentPresenceGlyphRow({
         className="shrink-0"
       />
       {label ? (
-        <span className="truncate text-[12px] leading-snug text-[var(--dashboard-muted)]">{label}</span>
+        <span className="truncate text-[13px] font-medium leading-snug text-[var(--dashboard-text)]">
+          {label}
+        </span>
       ) : null}
     </div>
   );

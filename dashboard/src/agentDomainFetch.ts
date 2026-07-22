@@ -84,21 +84,27 @@ export async function fetchAgentPolicy(
 }
 
 export async function fetchAgentModels(): Promise<ChatModelRow[]> {
+  // Successful catalog (including intentionally empty) may be cached.
+  // Failed / non-OK fetches must NOT stick as [] — that freezes the picker on Auto-only.
   if (modelsCache !== undefined) return modelsCache;
   if (modelsInflight) return modelsInflight;
 
   debugL2('fetch /api/agent/models');
   modelsInflight = fetch('/api/agent/models?show_in_picker=1', { credentials: 'same-origin' })
-    .then((r) => (r.ok ? r.json() : []))
-    .then((data) => {
+    .then(async (r) => {
+      if (!r.ok) {
+        debugL2('models fetch non-ok', String(r.status));
+        return [] as ChatModelRow[];
+      }
+      const data = await r.json();
       const rows = Array.isArray(data)
         ? (data as Record<string, unknown>[]).map(mapModelRow)
         : [];
       modelsCache = rows;
       return rows;
     })
-    .catch(() => {
-      modelsCache = [];
+    .catch((err) => {
+      debugL2('models fetch failed', err?.message ? String(err.message) : 'error');
       return [] as ChatModelRow[];
     })
     .finally(() => {

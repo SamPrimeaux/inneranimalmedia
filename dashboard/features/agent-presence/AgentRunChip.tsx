@@ -1,11 +1,14 @@
 /**
  * Composer status line — model + run state under the glass, never inside the toolbar.
- * One row, one job: no pill chrome competing with the model picker.
+ * Loading weight matches ThinkingCard / logo glyph (~44px), not a 6px dot.
  */
 import React, { useEffect, useState } from 'react';
 import { deriveModelRunChipStyle, formatRunElapsed } from './modelRunChipStyle';
+import { AgentModePresenceIcon } from '../mode-presence/AgentModePresenceIcon';
+import { toolNameToLane } from '../agent-run/lanes';
 
 const AFTERGLOW_MS = 8000;
+const COMPOSER_STATUS_GLYPH_PX = 44;
 
 export type AgentRunChipProps = {
   isLoading: boolean;
@@ -71,6 +74,12 @@ export const AgentRunChip: React.FC<AgentRunChipProps> = ({
       : (idleLabel?.trim() || 'Auto');
   const tool = (isLoading ? toolName : heldTool)?.trim() || null;
   const elapsed = isLoading && startedAt ? formatRunElapsed(elapsedSec) : null;
+  const presenceState =
+    toolNameToLane(tool || '') === 'terminal'
+      ? 'terminal'
+      : isLoading
+        ? 'tool_routing'
+        : 'complete';
 
   return (
     <div
@@ -82,14 +91,25 @@ export const AgentRunChip: React.FC<AgentRunChipProps> = ({
       data-loading={isLoading ? '1' : '0'}
       title={[label, tool, elapsed].filter(Boolean).join(' · ')}
     >
-      <span
-        className={`iam-composer-status-dot ${isLoading ? 'agent-send-pulse' : ''}`}
-        style={{
-          backgroundColor: active ? style.dotColor : 'transparent',
-          opacity: active ? 1 : 0,
-        }}
-        aria-hidden
-      />
+      {active ? (
+        <AgentModePresenceIcon
+          mode="agent"
+          state={presenceState}
+          size={COMPOSER_STATUS_GLYPH_PX}
+          motion={isLoading}
+          className="iam-composer-status-glyph shrink-0"
+          aria-label=""
+        />
+      ) : (
+        <span
+          className="iam-composer-status-dot"
+          style={{
+            backgroundColor: 'transparent',
+            opacity: 0,
+          }}
+          aria-hidden
+        />
+      )}
       <span
         className="iam-composer-status-model truncate"
         style={{ color: active ? style.textColor : undefined }}

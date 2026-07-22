@@ -107,7 +107,7 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
             mode={mode}
             state={tracePresence.presenceState}
             iconKey={tracePresence.iconKey}
-            size={16}
+            size={44}
             className="tool-trace-collapsed-icon shrink-0"
             aria-label={title}
           />

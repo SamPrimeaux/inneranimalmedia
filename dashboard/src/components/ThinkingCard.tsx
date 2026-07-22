@@ -174,7 +174,7 @@ export function ThinkingCard({
                   <AgentModePresenceIcon
                     mode={mode}
                     state={stepLaneFromText(step) === 'terminal' ? 'terminal' : 'tool_routing'}
-                    size={22}
+                    size={44}
                     motion
                     aria-label=""
                   />

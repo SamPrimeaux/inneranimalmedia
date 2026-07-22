@@ -145,22 +145,25 @@
 
 .iam-agent-run-thinking__step {
   display: grid;
-  grid-template-columns: 22px 1fr;
-  gap: 10px;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
   align-items: flex-start;
 }
 
 .iam-agent-run-thinking__step-icon {
-  width: 22px;
-  height: 22px;
-  margin-top: 1px;
+  width: 44px;
+  height: 44px;
+  margin-top: 0;
+  display: grid;
+  place-items: center;
 }
 
 .iam-agent-run-thinking__step-name {
-  font-size: 12px;
+  font-size: 13px;
   font-family: var(--font-mono, ui-monospace, monospace);
   color: var(--dashboard-text, #e6e6f0);
   line-height: 1.4;
+  padding-top: 10px;
 }
 
 .iam-agent-run-thinking__step-preview {

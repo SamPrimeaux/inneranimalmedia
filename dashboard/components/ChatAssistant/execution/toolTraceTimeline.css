@@ -17,8 +17,8 @@
 .tool-trace-item:not(:last-child)::before {
   content: '';
   position: absolute;
-  left: 11px;
-  top: 28px;
+  left: 21px;
+  top: 52px;
   bottom: -2px;
   width: 1px;
   background: color-mix(in srgb, var(--dashboard-border, rgba(255, 255, 255, 0.12)) 70%, transparent);
@@ -28,10 +28,10 @@
 .tool-trace-row-btn {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
+  gap: 10px;
   width: 100%;
   min-width: 0;
-  padding: 4px 4px 4px 0;
+  padding: 8px 4px 8px 0;
 }
 
 .tool-trace-collapsed-btn {
@@ -39,8 +39,8 @@
   background: transparent;
   text-align: left;
   cursor: pointer;
-  border-radius: 6px;
-  padding: 4px 6px 4px 0;
+  border-radius: 10px;
+  padding: 6px 8px 6px 0;
   transition: background 120ms ease;
 }
 
@@ -58,15 +58,18 @@
 }
 
 .tool-trace-collapsed-icon {
-  margin-top: 1px;
-  opacity: 0.92;
+  margin-top: 0;
+  opacity: 0.95;
+  width: 44px;
+  height: 44px;
 }
 
 .tool-trace-duration {
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--dashboard-muted, #8a8a9e);
   font-family: var(--font-mono, ui-monospace, monospace);
+  align-self: center;
 }
 
 .tool-trace-meta--expand {
@@ -114,15 +117,17 @@
 
 .tool-trace-title {
   display: block;
-  font-size: 13px;
-  font-weight: 450;
+  font-size: 14px;
+  font-weight: 550;
   line-height: 1.35;
-  color: var(--color-text-secondary, var(--dashboard-muted, #8a8a9e));
+  letter-spacing: -0.015em;
+  color: var(--color-text-primary, var(--dashboard-text, #e6e6f0));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
   flex: 1 1 auto;
+  align-self: center;
 }
 
 .tool-trace-title--shimmer {

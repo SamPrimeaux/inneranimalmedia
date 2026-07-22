@@ -137,6 +137,7 @@ import {
   flattenSessionEnabledTools,
   readSessionProject,
   readSessionProjectIntent,
+  clearSessionProjectIntent,
   writeSessionProject,
 } from '../../src/lib/freshChatSession';
 import { formatHttpErrorMessage } from './streamParsing';
@@ -3097,6 +3098,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     if (sessionProject?.id) form.append('project_id', sessionProject.id);
     if (sessionProjectIntent === 'set') form.append('project_context_explicit', '1');
     if (sessionProjectIntent === 'clear') form.append('project_context_clear', '1');
+    // One-shot: after bind/clear is applied to this turn, stop re-sending explicit so
+    // conversation sticky project_id owns subsequent turns (Context Hub can clear).
+    if (sessionProjectIntent) clearSessionProjectIntent();
     form.append('contextMode', String(activeProject));
     if (designStudioSceneId?.trim()) form.append('scene_snapshot_id', designStudioSceneId.trim());
     if (designStudioBlueprintId?.trim()) form.append('blueprint_id', designStudioBlueprintId.trim());
