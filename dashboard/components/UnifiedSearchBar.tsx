@@ -1032,6 +1032,18 @@ export const UnifiedSearchBar: React.FC<{
         return;
       }
 
+      // Show an explicit loading row immediately — the FSA + remote search below
+      // can take a moment, and until now the results panel stayed blank/frozen
+      // during that window (looked like "nothing happens").
+      setItems([
+        {
+          id: 'content-searching',
+          category: 'tip',
+          title: 'Searching…',
+          subtitle: `Looking for "${term.slice(0, 40)}" in connected files and knowledge`,
+        },
+      ]);
+
       const localHits: PaletteItem[] = [];
       try {
         const { hits, connected, permission } = await searchConnectedLocalContent(term);
@@ -1680,7 +1692,16 @@ export const UnifiedSearchBar: React.FC<{
     return () => window.removeEventListener('keydown', onKey);
   }, [open, closePalette]);
 
-  /** Click-outside closes palette — mobile panel is portaled to document.body. */
+  /**
+   * Click-outside closes palette — mobile panel is portaled to document.body.
+   *
+   * NOTE: this listens on 'mousedown' (fires before 'click'). Anything inside the
+   * dropdown that only calls `e.stopPropagation()` on a *different* event type
+   * (e.g. onPointerDown) will NOT stop this handler — pointerdown and mousedown are
+   * independent event streams, so stopping one doesn't stop the other from bubbling.
+   * The dropdown below stops propagation directly on 'mousedown' at the panel root
+   * so nothing inside the panel can ever trigger this close path.
+   */
   useEffect(() => {
     if (!open) return;
     const onDocDown = (e: MouseEvent) => {
@@ -1847,6 +1868,11 @@ export const UnifiedSearchBar: React.FC<{
             className={`nav-dropdown iam-shell-dropdown shadow-2xl overflow-hidden flex flex-col${mobileCompact ? ' iam-palette-mobile-panel' : ''}`}
             role="dialog"
             aria-label="Command palette"
+            // Stop mousedown from ever reaching the document-level click-outside
+            // listener. Without this, any mousedown inside the panel (result rows,
+            // chips, the scrollbar, etc.) can race the outside-click handler and
+            // close the palette before the corresponding click/select fires.
+            onMouseDown={(e) => e.stopPropagation()}
             style={{
               background: mobileCompact ? 'rgba(12, 19, 26, 0.94)' : 'rgba(12, 19, 26, 0.82)',
               backdropFilter: 'blur(16px) saturate(140%)',
