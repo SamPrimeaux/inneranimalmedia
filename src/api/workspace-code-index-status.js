@@ -127,6 +127,7 @@ export async function loadAstGraphCounts(env, workspaceId) {
   const out = {
     nodes: null,
     edges: null,
+    files: null,
     symbols: null,
     linked_chunks: null,
     total_chunks: null,
@@ -139,14 +140,19 @@ export async function loadAstGraphCounts(env, workspaceId) {
   if (env?.DB) {
     try {
       const n = await env.DB.prepare(
-        `SELECT COUNT(*) AS c, MAX(updated_at) AS last_u FROM codebase_ast_nodes WHERE workspace_id = ?`,
+        `SELECT COUNT(*) AS c,
+                COUNT(DISTINCT file_path) AS files,
+                MAX(updated_at) AS last_u
+           FROM codebase_ast_nodes WHERE workspace_id = ?`,
       )
         .bind(ws)
         .first();
       out.nodes = Number(n?.c ?? 0);
+      out.files = Number(n?.files ?? 0);
       out.nodes_updated_at = normalizeTs(n?.last_u);
     } catch {
       out.nodes = null;
+      out.files = null;
     }
     try {
       const e = await env.DB.prepare(

@@ -21,7 +21,7 @@ import { fetchConnectTiles, type ConnectTile } from '../../../api/connectTiles';
 import { IntegrationIconTile } from '../components/IntegrationIconTile';
 import { CfStackWizard, CfStackSummary, type CfStackConfig } from './CfStackWizard';
 import { WorkspaceActiveSwitcher } from '../components/WorkspaceActiveSwitcher';
-import { initialsFromDisplayName, relativeTime, formatUsdMaybe } from '../settingsUi';
+import { initialsFromDisplayName, relativeTime, formatUsdMaybe, formatEmbedSpend30d } from '../settingsUi';
 
 export type WorkspaceSectionProps = { data: SettingsPanelModel; workspaceId?: string | null };
 
@@ -348,7 +348,15 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
         <p className="text-[11px] text-muted -mt-1">
           Chunk RAG + AST graph for Agent Sam. Retrieve is for pre-edit lookups (~2–3s) — not hot intent routing.
         </p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">
+          <div className="rounded-lg border border-[var(--border-subtle)]/80 px-2.5 py-2">
+            <div className="text-[10px] text-muted uppercase tracking-wider">Files</div>
+            <div className="text-main font-semibold tabular-nums">
+              {snapshot.codeIndex?.ast && 'files' in snapshot.codeIndex.ast
+                ? String((snapshot.codeIndex.ast as { files?: number }).files ?? '—')
+                : '—'}
+            </div>
+          </div>
           <div className="rounded-lg border border-[var(--border-subtle)]/80 px-2.5 py-2">
             <div className="text-[10px] text-muted uppercase tracking-wider">AST nodes</div>
             <div className="text-main font-semibold tabular-nums">
@@ -376,11 +384,15 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
           <div className="rounded-lg border border-[var(--border-subtle)]/80 px-2.5 py-2">
             <div className="text-[10px] text-muted uppercase tracking-wider">Linked chunks</div>
             <div className="text-main font-semibold tabular-nums">
-              {snapshot.codeIndex?.ast && 'linked_chunks' in snapshot.codeIndex.ast
-                ? `${String(snapshot.codeIndex.ast.linked_chunks ?? '—')}/${String(
-                    (snapshot.codeIndex.ast as { total_chunks?: number }).total_chunks ?? '—',
-                  )}`
-                : '—'}
+              {snapshot.codeIndex?.ast &&
+              'total_chunks' in snapshot.codeIndex.ast &&
+              Number((snapshot.codeIndex.ast as { total_chunks?: number }).total_chunks ?? -1) === 0
+                ? 'none'
+                : snapshot.codeIndex?.ast && 'linked_chunks' in snapshot.codeIndex.ast
+                  ? `${String(snapshot.codeIndex.ast.linked_chunks ?? '—')}/${String(
+                      (snapshot.codeIndex.ast as { total_chunks?: number }).total_chunks ?? '—',
+                    )}`
+                  : '—'}
             </div>
           </div>
         </div>
@@ -445,10 +457,13 @@ export function WorkspaceSection({ data, workspaceId }: WorkspaceSectionProps) {
                     {cost != null ? (
                       <>
                         {' '}
-                        · embed 30d {formatUsdMaybe(Number(cost.cost_usd_30d) || 0)}
-                        {Number(cost.embed_events_30d) > 0
-                          ? ` (${cost.embed_events_30d} events)`
-                          : ''}
+                        ·{' '}
+                        <span title="OpenAI embedding spend for this workspace over the last 30 days">
+                          {formatEmbedSpend30d(
+                            Number(cost.cost_usd_30d) || 0,
+                            cost.embed_events_30d,
+                          )}
+                        </span>
                       </>
                     ) : null}
                     {data.reindexMsg ? (

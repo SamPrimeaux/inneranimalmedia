@@ -343,6 +343,25 @@ function relativeTimeLabel(input: string | number | null | undefined): string {
   return `${Math.round(days / 7)}w ago`;
 }
 
+/** Embedding spend rollup — never show opaque "embed 30d". */
+function formatEmbedSpendLine(
+  costUsd: number | null | undefined,
+  events?: number | null,
+): string {
+  const v = Number(costUsd);
+  const cost =
+    !Number.isFinite(v) || v === 0
+      ? '$0'
+      : v < 0.01
+        ? `$${v.toFixed(4)}`
+        : `$${v.toFixed(2)}`;
+  const n = Number(events);
+  if (Number.isFinite(n) && n > 0) {
+    return `spend ${cost} (last 30d · ${n} embeds)`;
+  }
+  return `spend ${cost} (last 30d)`;
+}
+
 // ─── right panel section ─────────────────────────────────────────────────────
 
 function RailSection({
@@ -495,6 +514,7 @@ export default function ProjectDetailPage() {
     ast: {
       nodes?: number | null;
       edges?: number | null;
+      files?: number | null;
       symbols?: number | null;
       linked_chunks?: number | null;
       total_chunks?: number | null;
@@ -909,7 +929,7 @@ export default function ProjectDetailPage() {
         ...s,
         phase: 'ok',
         progressPct: 100,
-        statusMsg: `AST index updated · ${lastEmbedded} symbols embedded`,
+        statusMsg: `AST index updated · ${lastEmbedded} symbols this run`,
       }));
       setToast(`AST re-indexed (${lastEmbedded} symbols this run)`);
     } catch (e) {
@@ -1569,24 +1589,26 @@ export default function ProjectDetailPage() {
           <div className="cpd-code-index">
             <div className="cpd-code-index-top">
               <div className="cpd-code-index-grid">
-                <div>
+                <div title="Distinct source files in the AST graph">
+                  <span className="cpd-code-index-label">Files</span>
+                  <span className="cpd-code-index-val">{codeIndex.ast?.files ?? '—'}</span>
+                </div>
+                <div title="AST graph nodes (functions, consts, imports, …)">
                   <span className="cpd-code-index-label">Nodes</span>
                   <span className="cpd-code-index-val">{codeIndex.ast?.nodes ?? '—'}</span>
                 </div>
-                <div>
-                  <span className="cpd-code-index-label">Edges</span>
-                  <span className="cpd-code-index-val">{codeIndex.ast?.edges ?? '—'}</span>
-                </div>
-                <div>
+                <div title="Embedded symbols in Supabase (searchable)">
                   <span className="cpd-code-index-label">Symbols</span>
                   <span className="cpd-code-index-val">{codeIndex.ast?.symbols ?? '—'}</span>
                 </div>
-                <div>
+                <div title="Chunk RAG linked to AST nodes — separate from symbol re-embed">
                   <span className="cpd-code-index-label">Linked</span>
                   <span className="cpd-code-index-val">
-                    {codeIndex.ast?.linked_chunks != null
-                      ? `${codeIndex.ast.linked_chunks}/${codeIndex.ast.total_chunks ?? '—'}`
-                      : '—'}
+                    {codeIndex.ast?.total_chunks != null && Number(codeIndex.ast.total_chunks) === 0
+                      ? 'none'
+                      : codeIndex.ast?.linked_chunks != null
+                        ? `${codeIndex.ast.linked_chunks}/${codeIndex.ast.total_chunks ?? '—'}`
+                        : '—'}
                   </span>
                 </div>
               </div>
@@ -1635,8 +1657,15 @@ export default function ProjectDetailPage() {
               {codeIndex.embedCost != null ? (
                 <>
                   {' '}
-                  · embed 30d $
-                  {Number(codeIndex.embedCost.cost_usd_30d || 0).toFixed(2)}
+                  ·{' '}
+                  <span
+                    title="OpenAI embedding spend for this workspace over the last 30 days"
+                  >
+                    {formatEmbedSpendLine(
+                      codeIndex.embedCost.cost_usd_30d,
+                      codeIndex.embedCost.embed_events_30d,
+                    )}
+                  </span>
                 </>
               ) : null}
             </p>

@@ -21,7 +21,23 @@ export function formatCompactNumber(n: number): string {
 
 export function formatUsdMaybe(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(Number(n))) return '—';
-  return `$${Number(n).toFixed(2)}`;
+  const v = Number(n);
+  if (v === 0) return '$0';
+  if (v > 0 && v < 0.01) return `$${v.toFixed(4)}`;
+  return `$${v.toFixed(2)}`;
+}
+
+/** Short label for AST embed spend rollup (avoid "embed 30d" jargon). */
+export function formatEmbedSpend30d(
+  costUsd: number | null | undefined,
+  events?: number | null,
+): string {
+  const cost = formatUsdMaybe(costUsd);
+  const n = Number(events);
+  if (Number.isFinite(n) && n > 0) {
+    return `spend ${cost} · last 30d (${n} embeds)`;
+  }
+  return `spend ${cost} · last 30d`;
 }
 
 export function relativeTime(input: string | number | null | undefined): string {
