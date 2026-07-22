@@ -619,7 +619,25 @@ export async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRu
     };
   }
 
+  const modeNorm = String(modeSlug || runtimeProfile?.mode || '')
+    .trim()
+    .toLowerCase();
+  const toolNorm = String(name || '')
+    .trim()
+    .toLowerCase();
+  const workspaceFileToolNoApproval =
+    (toolNorm === 'fs_write_file' ||
+      toolNorm === 'fs_edit_file' ||
+      toolNorm === 'workspace_apply_patch' ||
+      toolNorm === 'fs_apply_patch' ||
+      toolNorm === 'write_file') &&
+    (runtimeProfile?.write_policy?.can_edit_files === true ||
+      modeNorm === 'agent' ||
+      modeNorm === 'debug' ||
+      modeNorm === 'multitask');
+
   const requiresConfirmation =
+    !workspaceFileToolNoApproval &&
     (profileRequiresApproval ||
       capabilityDecision.requires_approval ||
       (row != null && Number(row.requires_approval || 0) === 1)) &&

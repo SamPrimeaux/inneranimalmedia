@@ -30,7 +30,7 @@ export { isDesignModeActiveFromBody, isDesignModeBrowserContext } from './design
 /** Soft cap — above this, DO cache is treated as stale mega-catalog and rebuilt. */
 export const SESSION_TOOL_CACHE_SOFT_MAX = 40;
 /** Bump when session tool menu contract changes (e.g. progressive core vs full profile). */
-export const SESSION_CONTEXT_VERSION = 11;
+export const SESSION_CONTEXT_VERSION = 12;
 
 /**
  * Degraded-mode fallback ONLY — used when agentsam_tool_profile_bindings /
@@ -58,6 +58,7 @@ export const EMERGENCY_FALLBACK_TOOL_KEYS = Object.freeze([
   'agentsam_terminal_sandbox',
   'agentsam_memory_manager',
   'fs_read_file',
+  'fs_write_file',
   'fs_search_files',
   'fs_edit_file',
   'pty_git_status',
