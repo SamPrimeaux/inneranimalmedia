@@ -131,6 +131,9 @@ function resolveD1ToolProfileKeyColdStart(ctx) {
   const tt = String(ctx.taskType || '')
     .trim()
     .toLowerCase();
+  const mode = String(ctx.mode || '')
+    .trim()
+    .toLowerCase();
   if (
     tp === 'inspect' ||
     tp === 'code_develop' ||
@@ -152,6 +155,12 @@ function resolveD1ToolProfileKeyColdStart(ctx) {
   if (tt === 'gmail') return 'mail';
   if (tt === 'visual_canvas') return 'visual_canvas';
   if (tt === 'cms_edit' || tt === 'cms_page' || tt === 'cms_publish') return 'cms_edit';
+  // Mode-aware cold start — never trap Agent/Multitask in ask (would zero write_policy).
+  if (mode === 'ask') return 'ask';
+  if (mode === 'plan') return 'plan_artifact';
+  if (mode === 'debug') return 'code_develop';
+  if (mode === 'multitask') return 'composer_multitask';
+  if (mode === 'agent') return 'execution';
   // Unknown → ask (never oauth, never null)
   return 'ask';
 }

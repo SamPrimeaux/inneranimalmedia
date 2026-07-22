@@ -41,7 +41,7 @@ Gaps: triple POST mode fields; Multitask often = Agent loop; Debug thin; Ask/Pla
 | Sprint | Name | Est. | Depends | Exit |
 |--------|------|------|---------|------|
 | **S0** | Doc truth | done | — | `agentsamrefine.md` matches `main` |
-| **S1** | Hygiene | 1–2d | — | Single `mode` POST; tests green; dead handler gone |
+| **S1** | Hygiene | **done 2026-07-22** | — | Single `mode` POST; tests green; dead handler gone; `guard:agent-mode` |
 | **S2** | Mode contracts | 3–5d | S1 + P0 progress | Acceptance #1–#3 dual-pass |
 | **S3** | Debug rigor | 2–3d | S2 | Acceptance #4 dual-pass |
 | **S4** | Multitask fan-out | 5–8d | S2 | Acceptance #5 dual-pass |

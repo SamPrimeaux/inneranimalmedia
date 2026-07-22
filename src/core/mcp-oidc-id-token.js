@@ -3,7 +3,7 @@
  * Private key: Wrangler secret OIDC_ID_TOKEN_RSA_PRIVATE_KEY (PKCS#8 PEM).
  * Public JWKS: GET /.well-known/jwks.json (published keys + optional env.OIDC_ID_TOKEN_JWKS).
  */
-import publishedJwks from './oidc-id-token-jwks-published.json';
+import publishedJwks from './oidc-id-token-jwks-published.json' with { type: 'json' };
 
 const DEFAULT_KID = publishedJwks?.keys?.[0]?.kid || 'iam-oidc-rs256-1';
 

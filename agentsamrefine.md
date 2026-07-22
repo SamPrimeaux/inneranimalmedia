@@ -18,7 +18,7 @@
 | **1b — Materialized profiles** | **Not started** | No `agentsam_mode_profiles` table / compile script |
 | **2 — Thin handler** | **Shipped (chat path)** | `executeAgentChatSpine` (~385 LOC) → mode controllers. `agent.js` still ~5.6k (auth, surface, workflow, legacy); chat no longer runs the old maze |
 | **2b — Mode controllers** | **Shipped (thin)** | `ask` / `plan` / `agent` / `debug` / `multitask` under `src/core/mode-controllers/` |
-| **3 — Dashboard parity** | **Partial** | Shift+Tab cycles modes (`nextAgentMode`). POST still sends **three** fields: `mode`, `agent_mode`, `runtime_intent_mode` |
+| **3 — Dashboard parity** | **S1 shipped (partial)** | Shift+Tab + single `mode` POST + mode placeholders. Legacy server aliases retained one release |
 | **4 — Multitask fan-out** | **Partial** | Controller exists; RWS fan-out only when `allow_subagent_spawn`; else falls back to Agent-class single loop. No Cursor-grade parallel SSE UX |
 | **5 — Acceptance gates** | **Open** | Five mode E2E tests below not dual-pass recorded |
 
@@ -48,7 +48,7 @@ POST /api/agent/chat
 | Debug = evidence-first | Thin `debug-controller` (mostly shared loop + prompt) | Medium — force instrument/read-first contract | S3 |
 | Multitask = parallel subagents + merge | Controller + optional RWS; often single loop | High | S4 |
 | Shift+Tab mode cycle | **Yes** in composer | — | Done |
-| Single POST `mode` field | Still triple-send compat fields | Low (debt) | S1 |
+| Single POST `mode` field | **Yes** (S1) — server still reads legacy aliases | — | Done |
 | Rules ambient / mode = autonomy | Rules in D1 + Cursor rules; mode sets write/tool caps | Low | Ongoing |
 | Progressive tool discovery | P0–P2 in tool-discovery plan; not mode-static menus | Medium | Align w/ S2 |
 | Fresh chat on mode change | Not enforced (Cursor recommends) | Low | S1 optional UX |
@@ -181,20 +181,20 @@ flowchart LR
 
 ---
 
-### Sprint S1 — Dashboard + API contract hygiene (1–2 days)
+### Sprint S1 — Dashboard + API contract hygiene ✅ (2026-07-22)
 
-**Outcome:** Mode is one wire field; dead code trimmed; tests green.
+**Outcome:** Mode is one wire field; dead Ask fast-path removed; enum guard + profile tests green.
 
-| # | Task | Proof |
-|---|------|-------|
-| S1.1 | POST only `mode` (keep reading legacy fields server-side 1 release) | Network tab shows single field |
-| S1.2 | Mode-specific composer placeholder | Visual |
-| S1.3 | Optional: toast “new chat recommended” on mode change | UX note |
-| S1.4 | Fix `runtime-profile` unit tests (auth import) | `node --test tests/unit/runtime-profile.test.mjs` green |
-| S1.5 | Delete or quarantine `agentChatDirectSseHandler` | `grep` clean / comment DEAD |
-| S1.6 | CI guard: dashboard `AgentMode` ↔ `normalizeAgentRuntimeMode` | Script in `npm run guard:*` |
+| # | Task | Status |
+|---|------|--------|
+| S1.1 | POST only `mode` (ChatAssistant + projectComposerChat) | ✅ |
+| S1.2 | Mode-specific composer placeholder | ✅ |
+| S1.3 | Optional mode-change toast | Skipped (not needed) |
+| S1.4 | Fix `runtime-profile` unit tests (`core/auth` → `auth.js`) | ✅ |
+| S1.5 | Delete dead `agentChatDirectSseHandler` | ✅ |
+| S1.6 | `npm run guard:agent-mode` | ✅ |
 
-**Exit:** S1 checklist dual-pass (composer + unit tests).
+**Exit:** Local unit tests + guard green; deploy with worker + frontend.
 
 ---
 

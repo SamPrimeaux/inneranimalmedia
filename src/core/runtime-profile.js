@@ -1045,20 +1045,25 @@ export async function compileModeProfile(env, input) {
 
   const modeContract = AGENT_MODE_CONTRACT[mode] || AGENT_MODE_CONTRACT.agent;
 
-  const baseWrite =
-    activeProfileKey === 'inspect' ||
-    activeProfileKey === 'd1_read' ||
-    activeProfileKey === 'ask' ||
-    useInspectProfile
-      ? {
-          can_edit_files: false,
-          can_terminal: false,
-          can_d1_write: false,
-          can_deploy: false,
-          can_browser_automation: false,
-          can_memory_write: false,
-        }
-      : defaultWritePolicyForMode(mode);
+  // Mode owns write_policy. Do not let a mis-resolved D1 key of "ask" zero Agent/Multitask writes.
+  // Only inspect/d1_read profiles tighten an otherwise writable mode.
+  let baseWrite = defaultWritePolicyForMode(mode);
+  if (
+    mode !== 'ask' &&
+    mode !== 'plan' &&
+    (activeProfileKey === 'inspect' ||
+      activeProfileKey === 'd1_read' ||
+      useInspectProfile)
+  ) {
+    baseWrite = {
+      can_edit_files: false,
+      can_terminal: false,
+      can_d1_write: false,
+      can_deploy: false,
+      can_browser_automation: false,
+      can_memory_write: false,
+    };
+  }
   // D1 write_policy_json overlays when present (SSOT — column must be read)
   const writePolicy = {
     ...baseWrite,
@@ -1137,11 +1142,7 @@ export async function compileModeProfile(env, input) {
     },
     refined_route_key: refinedRouteKey,
     color: modeContract.color,
-    tool_profile: activeProfileKey || (useCodeDevelopProfile
-      ? 'code_develop'
-      : useInspectProfile
-        ? 'inspect'
-        : modeContract.tool_profile),
+    tool_profile: activeProfileKey || modeContract.tool_profile,
     tool_capable_required:
       toolAllowlist.length > 0 ||
       mode === 'agent' ||

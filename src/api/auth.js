@@ -25,7 +25,7 @@ import {
   formatSessionCookieHeader,
   normalizeLoginSessionResult,
   resolveSessionIdFromCookieValue,
-} from '../core/auth';
+} from '../core/auth.js';
 
 import { ensureIdentityPlaneBeforeSession } from '../core/ensureIdentityPlaneBeforeSession.js';
 import { ensureAppUser } from '../core/ensureAppUser.js';

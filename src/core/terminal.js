@@ -3,7 +3,7 @@
  * Handles PTY workshops, WebSocket runs, and workspace path resolution.
  * Deconstructed from legacy worker.js.
  */
-import { getAuthUser, fetchAuthUserTenantId } from './auth';
+import { getAuthUser, fetchAuthUserTenantId } from './auth.js';
 import { getPlatformWorkspaceEnvId } from './platform-workspace-env.js';
 import {
   resolveTerminalWorkspaceId,
@@ -12,7 +12,7 @@ import {
 } from './bootstrap.js';
 import { resolvePtyTenantIdForUser, resolveTerminalCwd } from './pty-workspace-paths.js';
 import { resolveTerminalExecRouting } from './terminal-routing-policy.js';
-import { notifySam } from './notifications';
+import { notifySam } from './notifications.js';
 import { resolveUserPtyToken, USER_PTY_TOKEN_SENTINEL } from './user-secrets.js';
 import { selectHealthyTerminalConnection } from './terminal-connection-health.js';
 import {

@@ -1,5 +1,5 @@
 import { dispatchProductionDomainRoutes } from './core/router.js';
-import { recordWorkerAnalyticsError, writeTelemetry } from './api/telemetry';
+import { recordWorkerAnalyticsError, writeTelemetry } from './api/telemetry.js';
 import {
   primeRequestAuth,
   primeLegacySessionUpgrade,
@@ -13,7 +13,7 @@ import {
   fetchAuthUserTenantId,
   resolveRequestContext,
   AuthError,
-} from './core/auth';
+} from './core/auth.js';
 import {
   isPublicOAuthPath,
   publicOAuthRequestContext,
@@ -48,13 +48,13 @@ import {
   handleSupabaseOAuthStart,
   handleSupabaseOAuthCallback,
   handleOAuthConsentPage,
-} from './api/auth';
-import { handleHealthCheck } from './api/health';
+} from './api/auth.js';
+import { handleHealthCheck } from './api/health/index.js';
 import { handleLaunchDeskChat } from './api/launch-desk.js';
-import { runIntegritySnapshot } from './api/integrity';
+import { runIntegritySnapshot } from './api/integrity.js';
 import { runMasterDailyRetention } from './core/retention.js';
 import { runSecurityScan, logSecretAudit } from './core/security-scan.js';
-import { handleOAuthApi } from './api/oauth';
+import { handleOAuthApi } from './api/oauth.js';
 import {
   handleTunnelStatusGet,
   handleTunnelRestartPost,

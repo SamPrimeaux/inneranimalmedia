@@ -3130,9 +3130,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
     const form = new FormData();
     form.append('message', messageForApi);
+    // Canonical wire field only — server still accepts legacy agent_mode / runtime_intent_mode for one release.
     form.append('mode', sendMode);
-    form.append('agent_mode', sendMode);
-    form.append('runtime_intent_mode', sendMode);
     if (composerActionRef.current) {
       form.append('composer_action', composerActionRef.current);
       if (composerActionRef.current === 'create_image') {
@@ -3697,11 +3696,19 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       messagesVisible &&
       !showEmptyThreadPlaceholder,
   );
-  const composerPlaceholder = composerPlaceholderOverride ?? (composerPortaled
-    ? 'Tell Agent Sam what to do'
-    : mobileAgentHomeMode
-      ? 'What should we work on?'
-      : 'Message Agent Sam...');
+  const modeComposerPlaceholder =
+    mode === 'ask'
+      ? 'Ask anything — read-only, no edits or deploys'
+      : mode === 'plan'
+        ? 'Describe what to design — Plan mode will not build yet'
+        : mode === 'debug'
+          ? 'Describe the bug — evidence first, then a targeted fix'
+          : mode === 'multitask'
+            ? 'Describe work to run in parallel workstreams'
+            : mobileAgentHomeMode
+              ? 'What should we work on?'
+              : 'Tell Agent Sam what to do';
+  const composerPlaceholder = composerPlaceholderOverride ?? modeComposerPlaceholder;
 
   const modelPickerGroups = useMemo(() => {
     const order: string[] = [];

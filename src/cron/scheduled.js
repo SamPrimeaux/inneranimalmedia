@@ -2,7 +2,7 @@
  * Single entry for Worker `scheduled()` — maps `event.cron` to lifted jobs (worker.js parity).
  * See `./matrix.js` for expression → handler reference.
  */
-import { runIntegritySnapshot } from '../api/integrity';
+import { runIntegritySnapshot } from '../api/integrity.js';
 import { runMidnightUtcJobs } from './jobs/midnight-utc.js';
 import { runFinancialCommandCron } from './jobs/financial-command-cron.js';
 import { sendDailyPlanEmail } from './jobs/daily-plan-email.js';

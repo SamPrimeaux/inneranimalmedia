@@ -157,6 +157,7 @@
     "audit:tools": "REMOTE=1 node scripts/audit/oauth-allowlist-catalog-alignment.mjs",
     "guard:identity": "./scripts/guard-no-hardcoded-identity.sh",
     "guard:identity:all": "./scripts/guard-no-hardcoded-identity.sh --tier all",
+    "guard:agent-mode": "./scripts/guard-agent-mode-enum.sh",
     "guard:bootstrap-l1": "./scripts/guard-bootstrap-l1-fields.sh",
     "guard:bootstrap-domain-leaks": "./scripts/guard-no-bootstrap-domain-leaks.sh",
     "ingest:dashboard-agent-audit": "python3 scripts/ingest_dashboard_agent_audit_vectorize.py",

@@ -4,7 +4,7 @@
  * Deconstructed from legacy worker.js.
  */
 
-import { getAuthUser, jsonResponse, authUserIsSuperadmin } from '../core/auth';
+import { getAuthUser, jsonResponse, authUserIsSuperadmin } from '../core/auth.js';
 import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
 import { mergeR2S3EnvFromUserStorage } from '../core/user-storage-r2-credentials.js';
 import {
@@ -110,7 +110,7 @@ async function assertR2UnboundS3Auth(request, env, binding) {
   return null;
 }
 
-import { insertAiGenerationLog } from './telemetry';
+import { insertAiGenerationLog } from './telemetry.js';
 
 async function authWorkspaceContext(request, env) {
   const authUser = await getAuthUser(request, env);

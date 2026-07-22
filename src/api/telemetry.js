@@ -3,7 +3,7 @@
  * Handles performance tracking, cost calculation, and spend auditing.
  * Deconstructed from legacy worker.js.
  */
-import { resolveTelemetryTenantId } from '../core/auth';
+import { resolveTelemetryTenantId } from '../core/auth.js';
 import { resolveCanonicalUserId } from './auth.js';
 import { pragmaTableInfo } from '../core/retention.js';
 import { computeUsdFromAgentsamAiRates } from '../core/model-catalog-cost.js';

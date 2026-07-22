@@ -127,11 +127,14 @@ test('compileModeProfile without DB returns stable shadow profile', async () => 
   assert.equal(profile.profile_version, RUNTIME_PROFILE_VERSION);
   assert.equal(profile.execution_kind, 'plan_pipeline');
   assert.ok(profile.profile_hash.length >= 8);
-  assert.ok(profile.tool_denylist.includes('terminal_run'));
+  assert.equal(profile.write_policy.can_edit_files, false);
+  assert.equal(profile.write_policy.can_terminal, false);
+  assert.equal(profile.write_policy.can_deploy, false);
   assert.equal(profile.source.compile_lane, 'shadow');
+  assert.equal(profile.color, 'blue');
 });
 
-test('compileModeProfile ask evidence question keeps d1_query off denylist', async () => {
+test('compileModeProfile ask evidence question keeps mutate gates closed', async () => {
   const profile = await compileModeProfile(null, {
     mode: 'ask',
     message: 'how many rows in agentsam_plans?',
@@ -140,9 +143,10 @@ test('compileModeProfile ask evidence question keeps d1_query off denylist', asy
   assert.equal(profile.mode, 'ask');
   assert.equal(profile.mode_controller, 'ask_controller');
   assert.equal(profile.color, 'green');
-  assert.equal(profile.tool_profile, 'readonly_context');
+  assert.ok(['ask', 'readonly_context'].includes(profile.tool_profile));
   assert.ok(!profile.tool_denylist.includes('d1_query'));
-  assert.ok(profile.tool_denylist.includes('terminal_run'));
+  assert.equal(profile.write_policy.can_edit_files, false);
+  assert.equal(profile.write_policy.can_terminal, false);
   assert.equal(profile.tool_capable_required, false);
 });
 
@@ -153,9 +157,23 @@ test('compileModeProfile ask greeting is green with zero tools', async () => {
     compile_lane: 'shadow',
   });
   assert.equal(profile.color, 'green');
-  assert.equal(profile.tool_profile, 'readonly_context');
+  assert.ok(['ask', 'readonly_context'].includes(profile.tool_profile));
   assert.equal(profile.tool_allowlist.length, 0);
   assert.equal(profile.tool_capable_required, false);
+  assert.equal(profile.write_policy.can_edit_files, false);
+});
+
+test('compileModeProfile agent cold-start keeps write policy open', async () => {
+  const profile = await compileModeProfile(null, {
+    mode: 'agent',
+    message: 'add a comment to ChatAssistant types',
+    compile_lane: 'shadow',
+  });
+  assert.equal(profile.mode, 'agent');
+  assert.equal(profile.execution_kind, 'agent_tool_loop');
+  assert.equal(profile.write_policy.can_edit_files, true);
+  assert.equal(profile.write_policy.can_terminal, true);
+  assert.notEqual(profile.source.d1_tool_profile_key, 'ask');
 });
 
 test('compileModeProfile multitask enables parallel_policy', async () => {

@@ -77,8 +77,7 @@ export async function sendProjectComposerChat(opts: SendProjectChatOpts): Promis
   form.append('project_context_source', 'project_composer');
   form.append('runtime_lane', 'tenant_saas');
   form.append('mode', 'agent');
-  form.append('agent_mode', 'agent');
-  form.append('runtime_intent_mode', 'agent');
+  // Canonical wire field only — server still accepts legacy aliases for one release.
   if (opts.workspaceId?.trim()) {
     form.append('workspace_id', opts.workspaceId.trim());
   }
