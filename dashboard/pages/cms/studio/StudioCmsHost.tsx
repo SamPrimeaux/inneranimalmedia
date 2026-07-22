@@ -54,7 +54,7 @@ export function StudioCmsHost({
   }, [onSiteChange, onNavigatePath]);
 
   return (
-    <div className="studio-cms-native-host h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-[#09090b]">
+    <div className="studio-cms-native-host h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-[#F9F7F2]">
       <iframe
         title="Studio CMS"
         src={src}
