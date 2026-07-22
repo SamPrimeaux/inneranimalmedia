@@ -200,11 +200,12 @@ async function upsertDeployMemoryRow(db, row) {
   await db
     .prepare(
       `INSERT INTO agentsam_memory (
-         id, tenant_id, user_id, workspace_id, memory_type, key, value,
+         id, memory_id, tenant_id, user_id, workspace_id, memory_type, key, value,
          title, summary, source, tags, sync_key, importance, is_pinned,
-         confidence, decay_score, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1.0, 1.0, unixepoch())
-       ON CONFLICT(tenant_id, user_id, key) DO UPDATE SET
+         confidence, decay_score, revision, status, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1.0, 1.0, 1, 'active', unixepoch())
+       ON CONFLICT(id) DO UPDATE SET
+         memory_id = excluded.memory_id,
          workspace_id = COALESCE(excluded.workspace_id, agentsam_memory.workspace_id),
          memory_type = excluded.memory_type,
          value = excluded.value,
@@ -217,9 +218,11 @@ async function upsertDeployMemoryRow(db, row) {
          is_pinned = excluded.is_pinned,
          confidence = excluded.confidence,
          decay_score = excluded.decay_score,
+         status = excluded.status,
          updated_at = unixepoch()`,
     )
     .bind(
+      row.id,
       row.id,
       row.tenantId,
       row.userId,

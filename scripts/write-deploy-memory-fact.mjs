@@ -33,10 +33,11 @@ function sqlUpsertRow(row) {
   const tags =
     typeof row.tags === 'string' ? row.tags : JSON.stringify(row.tags ?? []);
   return `INSERT INTO agentsam_memory (
-    id, tenant_id, user_id, workspace_id, memory_type, key, value,
+    id, memory_id, tenant_id, user_id, workspace_id, memory_type, key, value,
     title, summary, source, tags, sync_key, importance, is_pinned,
-    confidence, decay_score, updated_at
+    confidence, decay_score, revision, status, updated_at
   ) VALUES (
+    ${sqlString(row.id)},
     ${sqlString(row.id)},
     ${sqlString(row.tenantId)},
     ${sqlString(row.userId)},
@@ -53,9 +54,12 @@ function sqlUpsertRow(row) {
     ${row.isPinned ? 1 : 0},
     1.0,
     1.0,
+    1,
+    'active',
     unixepoch()
   )
   ON CONFLICT(id) DO UPDATE SET
+    memory_id = excluded.memory_id,
     workspace_id = COALESCE(excluded.workspace_id, agentsam_memory.workspace_id),
     memory_type = excluded.memory_type,
     value = excluded.value,
@@ -68,6 +72,7 @@ function sqlUpsertRow(row) {
     is_pinned = excluded.is_pinned,
     confidence = excluded.confidence,
     decay_score = excluded.decay_score,
+    status = excluded.status,
     updated_at = unixepoch();`;
 }
 
