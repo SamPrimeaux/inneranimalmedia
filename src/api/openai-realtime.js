@@ -1,10 +1,12 @@
 /**
  * OpenAI Realtime voice — server-side ephemeral client secret endpoint.
- * tkt_oai_realtime_secret
+ * tkt_oai_realtime_secret + tkt_oai_realtime_voice
  *
  * Agent Sam Voice lane only. Meet stays RealtimeKit (MEET_ENGINE var + handleRealtimeKitWebhook).
  * Never exposes the platform API key to the browser — issues an ephemeral secret instead.
  * OpenAI-Safety-Identifier: sha256('realtime:' + userId) — same hashing convention as WS transport.
+ *
+ * Upstream: GA POST /v1/realtime/client_secrets (browser then POSTs SDP to /v1/realtime/calls).
  */
 
 import { isFeatureEnabled } from '../core/features.js';
@@ -13,8 +15,10 @@ import { loadCatalogCapabilities } from '../core/model-catalog-capabilities.js';
 import { jsonResponse } from '../core/responses.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 
-const OPENAI_REALTIME_SESSIONS = 'https://api.openai.com/v1/realtime/sessions';
+const OPENAI_REALTIME_CLIENT_SECRETS = 'https://api.openai.com/v1/realtime/client_secrets';
 const FLAG_KEY = 'openai_realtime_voice';
+const DEFAULT_INSTRUCTIONS =
+  'You are Agent Sam, the Inner Animal Media platform operator assistant. Keep spoken replies concise and helpful. This is voice chat only — Meet/video is a separate product.';
 
 /**
  * Stable hashed safety identifier for a user — never raw user_id on the wire.
@@ -35,7 +39,8 @@ async function hashRealtimeSafetyId(userId) {
 function sanitizeRealtimeError(text) {
   return String(text || '')
     .slice(0, 1000)
-    .replace(/\bsk-[a-zA-Z0-9]{10,}\b/g, '[redacted]');
+    .replace(/\bsk-[a-zA-Z0-9]{10,}\b/g, '[redacted]')
+    .replace(/\bek_[a-zA-Z0-9]{10,}\b/g, '[redacted]');
 }
 
 /**
@@ -50,7 +55,7 @@ function sanitizeRealtimeError(text) {
  * @returns {Promise<string>}
  */
 async function resolveRealtimeModel(env, bodyModel, flagConfigJson) {
-  let configDefault = 'gpt-4o-realtime-preview';
+  let configDefault = 'gpt-realtime';
   try {
     const cfg = JSON.parse(flagConfigJson || '{}');
     if (cfg.default_model && typeof cfg.default_model === 'string') {
@@ -64,22 +69,46 @@ async function resolveRealtimeModel(env, bodyModel, flagConfigJson) {
   if (candidate) {
     const cap = await loadCatalogCapabilities(env, candidate);
     if (cap?.supports_realtime === true) return candidate;
-    // If caller passed a model but catalog doesn't know it, still allow it —
-    // catalog may not yet have the row; don't hard-block on missing catalog entry.
     if (!cap) return candidate;
-    // cap exists but supports_realtime=false → fall through to default
   }
   return configDefault;
+}
+
+/**
+ * Normalize GA client_secrets + legacy sessions shapes for the browser.
+ * Browser needs a non-empty `value` (ek_…) for Authorization on /v1/realtime/calls.
+ * @param {Record<string, any>} sessionData
+ */
+function normalizeClientSecretPayload(sessionData) {
+  const raw = sessionData && typeof sessionData === 'object' ? sessionData : {};
+  const value =
+    (typeof raw.value === 'string' && raw.value.trim()) ||
+    (typeof raw.client_secret?.value === 'string' && raw.client_secret.value.trim()) ||
+    '';
+  const expiresAt =
+    raw.expires_at ??
+    raw.client_secret?.expires_at ??
+    raw.session?.expires_at ??
+    null;
+  return {
+    ...raw,
+    value: value || undefined,
+    client_secret: raw.client_secret?.value
+      ? raw.client_secret
+      : value
+        ? { value, expires_at: expiresAt }
+        : raw.client_secret,
+  };
 }
 
 /**
  * POST /api/openai/realtime/client-secret
  *
  * Body (JSON, all optional):
- *   { "model": "gpt-4o-realtime-preview", "voice": "alloy", "instructions": "..." }
+ *   { "model": "gpt-realtime", "voice": "alloy", "instructions": "..." }
  *
- * Returns: OpenAI /v1/realtime/sessions response verbatim
- *   { id, object, model, ..., client_secret: { value, expires_at } }
+ * Returns (normalized):
+ *   { value: "ek_…", client_secret: { value, expires_at }, … }
  *
  * @param {Request} request
  * @param {any} env
@@ -123,18 +152,30 @@ export async function handleOpenAiRealtimeClientSecret(request, env, ctx, authCt
     );
   }
 
-  // ── 2. Parse body ──────────────────────────────────────────────────────────
+  // ── 2. Parse body + flag defaults ──────────────────────────────────────────
   let body = {};
   try {
     body = await request.json();
   } catch {
     /* optional body */
   }
-  const voice = typeof body.voice === 'string' && body.voice.trim() ? body.voice.trim() : 'alloy';
+
+  let configVoice = 'alloy';
+  try {
+    const cfg = JSON.parse(flagConfigJson || '{}');
+    if (typeof cfg.default_voice === 'string' && cfg.default_voice.trim()) {
+      configVoice = cfg.default_voice.trim();
+    }
+  } catch {
+    /* keep alloy */
+  }
+
+  const voice =
+    typeof body.voice === 'string' && body.voice.trim() ? body.voice.trim() : configVoice;
   const instructions =
     typeof body.instructions === 'string' && body.instructions.trim()
       ? body.instructions.trim()
-      : null;
+      : DEFAULT_INSTRUCTIONS;
 
   // ── 3. Resolve model (catalog SSOT) ────────────────────────────────────────
   const model = await resolveRealtimeModel(env, body.model, flagConfigJson);
@@ -149,16 +190,24 @@ export async function handleOpenAiRealtimeClientSecret(request, env, ctx, authCt
   // ── 5. Safety identifier — hashed, never raw user_id on the wire ───────────
   const safetyId = await hashRealtimeSafetyId(userId);
 
-  // ── 6. Issue ephemeral session with OpenAI ─────────────────────────────────
+  // ── 6. Issue ephemeral client secret (GA) ──────────────────────────────────
   const sessionBody = {
-    model,
-    voice,
-    ...(instructions ? { instructions } : {}),
+    session: {
+      type: 'realtime',
+      model,
+      instructions,
+      audio: {
+        input: {
+          transcription: { model: 'gpt-4o-mini-transcribe' },
+        },
+        output: { voice },
+      },
+    },
   };
 
   let upstreamRes;
   try {
-    upstreamRes = await fetch(OPENAI_REALTIME_SESSIONS, {
+    upstreamRes = await fetch(OPENAI_REALTIME_CLIENT_SECRETS, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -184,18 +233,21 @@ export async function handleOpenAiRealtimeClientSecret(request, env, ctx, authCt
     );
   }
 
-  const sessionData = await upstreamRes.json().catch(() => ({}));
+  const sessionData = normalizeClientSecretPayload(await upstreamRes.json().catch(() => ({})));
+  if (!sessionData.value) {
+    console.warn('[openai_realtime] client_secret_missing_value');
+    return jsonResponse({ error: 'OpenAI Realtime secret missing value', code: 'no_secret' }, 502);
+  }
 
   // ── 7. Log — never log client_secret value ────────────────────────────────
   console.info('[openai_realtime] client_secret_issued', {
     userId_hash: safetyId.slice(0, 12),
     model,
     voice,
-    session_id: sessionData?.id ?? null,
-    expires_at: sessionData?.client_secret?.expires_at ?? null,
+    session_id: sessionData?.id ?? sessionData?.session?.id ?? null,
+    expires_at: sessionData?.client_secret?.expires_at ?? sessionData?.expires_at ?? null,
   });
 
-  // Return OpenAI's response verbatim — browser uses client_secret.value for WebRTC SDP.
   return new Response(JSON.stringify(sessionData), {
     status: 200,
     headers: {

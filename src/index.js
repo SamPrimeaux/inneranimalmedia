@@ -209,6 +209,17 @@ export default {
         return handleInternalCodebaseRetrieve(request, env);
       }
 
+      // Agent Sam Voice lane — ephemeral WebRTC client secret (before session front-door).
+      // Meet stays RealtimeKit. See tkt_oai_realtime_secret + fleet plan Phase 2.
+      if (pathLower === '/api/openai/realtime/client-secret' && methodUpper === 'POST') {
+        const authCtx = await resolveRequestContext(request, env, { required: false }).catch(() => null);
+        if (!authCtx?.userId) return jsonResponse({ error: 'Unauthorized', code: 'auth_required' }, 401);
+        return handleOpenAiRealtimeClientSecret(request, env, ctx, {
+          userId: authCtx.userId,
+          tenantId: authCtx.tenantId ?? null,
+        });
+      }
+
       const isDashboardHtmlNav =
         (methodUpper === 'GET' || methodUpper === 'HEAD') && isDashboardSpaShellPath(pathLower);
       const optionalAuthHtmlGet =
@@ -302,17 +313,6 @@ export default {
 
       if (pathLower === '/api/webhooks/openai' || pathLower === '/api/hooks/openai') {
         return handleOpenAiWebhook(request, env, ctx);
-      }
-
-      // Agent Sam Voice lane — ephemeral WebRTC client secret.
-      // Meet stays RealtimeKit. See tkt_oai_realtime_secret + fleet plan Phase 2.
-      if (pathLower === '/api/openai/realtime/client-secret' && methodUpper === 'POST') {
-        const authCtx = await resolveRequestContext(request, env, { required: true }).catch(() => null);
-        if (!authCtx?.userId) return jsonResponse({ error: 'Unauthorized', code: 'auth_required' }, 401);
-        return handleOpenAiRealtimeClientSecret(request, env, ctx, {
-          userId: authCtx.userId,
-          tenantId: authCtx.tenantId ?? null,
-        });
       }
 
       if (pathLower === '/api/webhooks/internal' && methodUpper === 'POST') {

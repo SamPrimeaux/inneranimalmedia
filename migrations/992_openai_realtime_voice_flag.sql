@@ -6,14 +6,23 @@
 -- ── 1. Catalog capability column ──────────────────────────────────────────────
 ALTER TABLE agentsam_model_catalog ADD COLUMN supports_realtime INTEGER NOT NULL DEFAULT 0;
 
--- Ensure default realtime model exists so pattern seed has a row (catalog SSOT).
+-- Ensure default realtime models exist so pattern seed has rows (catalog SSOT).
 INSERT INTO agentsam_model_catalog (
   id, model_key, display_name, provider, tier, openai_model_id, api_platform,
   routing_lane, context_window, max_output_tokens,
   cost_per_1k_in, cost_per_1k_out, supports_tools, supports_vision,
   supports_streaming, supports_json_mode, supports_reasoning, supports_realtime,
   cost_notes, is_active, updated_at
-) VALUES (
+) VALUES
+(
+  'mdl_gpt_realtime',
+  'gpt-realtime',
+  'GPT Realtime',
+  'openai', 'power', 'gpt-realtime', 'openai_realtime',
+  'voice', 128000, 4096, 0.005, 0.02, 1, 0, 1, 0, 0, 1,
+  'supports_realtime=1', 1, unixepoch()
+),
+(
   'mdl_gpt4o_realtime_preview',
   'gpt-4o-realtime-preview',
   'GPT-4o Realtime Preview',
@@ -88,12 +97,12 @@ INSERT OR IGNORE INTO agentsam_feature_flag (
   'boolean',
   'sam_primeaux',
   0,
-  '{"capability_column":"supports_realtime","lane":"agent_sam_voice","meet_engine":"realtimekit_unchanged","default_model":"gpt-4o-realtime-preview","default_voice":"alloy","reasoning_effort":"low"}'
+  '{"capability_column":"supports_realtime","lane":"agent_sam_voice","meet_engine":"realtimekit_unchanged","default_model":"gpt-realtime","default_voice":"alloy","reasoning_effort":"low"}'
 );
 
 -- Upsert in case the flag was pre-inserted manually.
 UPDATE agentsam_feature_flag
 SET description         = 'OpenAI Realtime voice (Agent Sam Voice lane) — Sam soak; gated by agentsam_model_catalog.supports_realtime. Meet/RealtimeKit unchanged.',
     enabled_for_users   = '["au_871d920d1233cbd1"]',
-    config_json         = '{"capability_column":"supports_realtime","lane":"agent_sam_voice","meet_engine":"realtimekit_unchanged","default_model":"gpt-4o-realtime-preview","default_voice":"alloy","reasoning_effort":"low"}'
+    config_json         = '{"capability_column":"supports_realtime","lane":"agent_sam_voice","meet_engine":"realtimekit_unchanged","default_model":"gpt-realtime","default_voice":"alloy","reasoning_effort":"low"}'
 WHERE flag_key = 'openai_realtime_voice';
