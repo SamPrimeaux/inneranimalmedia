@@ -46,7 +46,7 @@ Deploy from the **correct repo root only** — never mix main worker and MCP rep
 |-------------|------|---------|
 | **Mac** (operator) | inneranimalmedia | `npm run deploy:full` (or `deploy:fast`) |
 | **GCP iam-tunnel / phone / remote** | inneranimalmedia | `npm run ship:remote` → Cloudflare Builds |
-| **CF Workers Builds** | inneranimalmedia | `smart-build` + `deploy:fast:cf` (already configured) |
+| **CF Workers Builds** | inneranimalmedia | `smart-build` + `DEPLOY_FAST_SKIP_BUILD=1 npm run deploy:fast` (skip is opt-in env, not hardcoded) |
 | Any | inneranimalmedia-mcp | `npm run deploy:full` from MCP repo only |
 
 **SSOT:** `.cursor/rules/iam-ship-lanes.mdc` · `docs/platform/mac-free-ship-lanes-2026-07.md`

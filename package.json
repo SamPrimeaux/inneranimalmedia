@@ -23,7 +23,7 @@
     "remote:ready": "bash scripts/remote-ready.sh",
     "ship:remote": "bash scripts/ship-remote.sh",
     "deploy:fast": "bash scripts/deploy-fast.sh",
-    "deploy:fast:cf": "DEPLOY_FAST_SKIP_BUILD=1 bash scripts/deploy-fast.sh",
+    "deploy:fast:cf": "bash scripts/deploy-fast.sh",
     "ast-rag:refresh": "python3 scripts/ast_rag_refresh_incremental.py --commit",
     "ast-rag:refresh:dry-run": "python3 scripts/ast_rag_refresh_incremental.py --dry-run",
     "ast-rag:index-mcp": "bash scripts/ast_rag_index_mcp_side.sh",

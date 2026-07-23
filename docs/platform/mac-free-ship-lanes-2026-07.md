@@ -12,7 +12,7 @@ When the Mac is asleep or the agent is on GCP **`iam-tunnel`**, **do not** run `
 |-------------|----------|----------------|
 | **Mac** (operator desk) | `npm run deploy:full` **or** `npm run deploy:fast` | bare `npm run deploy` for SPA/PWA |
 | **GCP iam-tunnel** / phone / remote PTY | `npm run ship:remote` | `deploy:full`, `deploy:fast`, Vite, rclone |
-| **Cloudflare Workers Builds** | Build: `node scripts/smart-build.mjs` · Deploy: `npm run deploy:fast:cf` | wrangler-per-file R2 × N |
+| **Cloudflare Workers Builds** | Build: `node scripts/smart-build.mjs` · Deploy: `DEPLOY_FAST_SKIP_BUILD=1 npm run deploy:fast` | wrangler-per-file R2 × N |
 | Emergency worker-only (any) | `npm run ship:remote -- --worker-only` | Expect dashboard/PWA unchanged |
 
 ## Lanes explained
@@ -37,7 +37,7 @@ Agents still see older rules that say “always `deploy:full`”. On `iam-tunnel
 ## Cloudflare Builds requirements
 
 1. **Build command:** `node scripts/smart-build.mjs` (Vite + bump-cache; skips CMS vendor npm install)
-2. **Deploy command (main):** `npm run deploy:fast:cf` (R2 delta via **CF API token** or S3 keys + wrangler — no zsh)
+2. **Deploy command (main):** `DEPLOY_FAST_SKIP_BUILD=1 npm run deploy:fast` (opt-in skip after smart-build; R2 delta via **CF API token** or S3 keys + wrangler — no zsh). Do **not** hardcode skip in `package.json`.
 3. **Auth:** Builds injects `CLOUDFLARE_API_TOKEN`. Account id from `wrangler.production.toml` if unset. Optional: `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` Build secrets (S3 backend).
 4. **PWA control plane:** set **`PUSH_SERVICE_TOKEN`** as a Build secret so `post-services-sw-manifest-ingest` runs (otherwise SW/`cache_bust` can drift).
 5. **Watch paths:** must **not** exclude `dashboard/**`
@@ -49,7 +49,7 @@ Agents still see older rules that say “always `deploy:full`”. On `iam-tunnel
 |--------|------|
 | `ship:remote` | Mac-free ship — push → CF Builds |
 | `deploy:fast` | Vite → R2 delta → wrangler (Mac/CI) |
-| `deploy:fast:cf` | Same as fast but skip Vite (CF already built) |
+| `deploy:fast:cf` | Alias of `deploy:fast` (no hardcoded skip). CF Builds passes `DEPLOY_FAST_SKIP_BUILD=1` only after smart-build |
 | `deploy:full` | Full operator pipeline (Mac) |
 | `r2:delta-sync` | Content-hash R2 dashboard sync only |
 
@@ -73,7 +73,7 @@ Every production lane that ships SPA/worker must complete a **blocking** trail:
 |------|-------|
 | `deploy:fast` / `deploy:fast:cf` | blocking post-deploy-record → deploy-trail-gate (exit propagates) |
 | `deploy:full` (`deploy-frontend.sh`) | same at end of pipeline |
-| `ship:remote` | push → CF Builds runs `deploy:fast:cf` (gate on Builds) |
+| `ship:remote` | push → CF Builds runs smart-build + `DEPLOY_FAST_SKIP_BUILD=1 npm run deploy:fast` (gate on Builds) |
 
 - `deployments.git_hash` / run_group / session_tag / version slug = **full 40-char** SHA only (`post-deploy-record.sh` hard-fails otherwise; `GIT_SHORT` abolished).
 - `changed_files: []` = failure (no INSERT). Tip-commit resolve for shallow CF Builds.

@@ -31,6 +31,17 @@ SKIP_BUILD="${DEPLOY_FAST_SKIP_BUILD:-0}"
 SKIP_WORKER="${DEPLOY_FAST_SKIP_WORKER:-0}"
 SKIP_R2="${DEPLOY_FAST_SKIP_R2:-0}"
 
+# DEPLOY_FAST_SKIP_BUILD is opt-in only (CF Builds after smart-build). Never hardcode it in
+# package.json — accidental Mac/use of deploy:fast:cf must still Vite-build.
+if [[ "$SKIP_BUILD" == "1" ]]; then
+  # CF Workers Builds workspace is /opt/buildhome; ALLOW_* for explicit local bypass.
+  if [[ "${ALLOW_DEPLOY_FAST_SKIP_BUILD:-0}" != "1" && ! -d /opt/buildhome ]]; then
+    echo "[deploy:fast] FATAL: DEPLOY_FAST_SKIP_BUILD=1 is CI/CF opt-in only" >&2
+    echo "[deploy:fast] Unset it (default builds Vite) or set ALLOW_DEPLOY_FAST_SKIP_BUILD=1" >&2
+    exit 1
+  fi
+fi
+
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "[deploy:fast] critical path — vite → R2 delta → wrangler"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

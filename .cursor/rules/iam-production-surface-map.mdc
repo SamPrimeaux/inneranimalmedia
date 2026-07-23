@@ -9,7 +9,7 @@ alwaysApply: false
 # IAM production surface map (inneranimalmedia.com)
 
 **Canonical Worker entry:** `src/index.js` (not `worker.js`).  
-**Deploy:** Mac `npm run deploy:full` / `deploy:fast`; GCP VM `npm run ship:remote` → CF Builds (`smart-build` + `deploy:fast:cf`). Never Vite/`deploy:full` on iam-tunnel — see `iam-ship-lanes.mdc`.
+**Deploy:** Mac `npm run deploy:full` / `deploy:fast`; GCP VM `npm run ship:remote` → CF Builds (`smart-build` + opt-in `DEPLOY_FAST_SKIP_BUILD=1 npm run deploy:fast`). Never Vite/`deploy:full` on iam-tunnel — see `iam-ship-lanes.mdc`.
 
 ## How agents should ask for / refresh the filetree
 

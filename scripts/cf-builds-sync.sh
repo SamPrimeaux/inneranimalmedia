@@ -42,7 +42,9 @@ WORKER_NAME="${WORKER_SERVICE_NAME:-inneranimalmedia}"
 #
 # Target CF Builds wall clock: npm ci + Vite + R2 delta (~10–20s) + wrangler ≈ 2–3 min first cold; <90s warm delta.
 BUILD_COMMAND="${CF_BUILDS_BUILD_COMMAND:-node scripts/smart-build.mjs}"
-MAIN_DEPLOY_COMMAND="${CF_BUILDS_MAIN_DEPLOY_COMMAND:-npm run deploy:fast:cf}"
+# Skip Vite only when CF Builds already ran smart-build — env must be set here (opt-in),
+# never hardcoded inside package.json deploy:fast:cf.
+MAIN_DEPLOY_COMMAND="${CF_BUILDS_MAIN_DEPLOY_COMMAND:-DEPLOY_FAST_SKIP_BUILD=1 npm run deploy:fast}"
 NON_MAIN_DEPLOY_COMMAND="${CF_BUILDS_NON_MAIN_DEPLOY_COMMAND:-npm run deploy:cf-builds}"
 NON_MAIN_BRANCH_EXCLUDES="${CF_BUILDS_NON_MAIN_BRANCH_EXCLUDES:-main,production}"
 

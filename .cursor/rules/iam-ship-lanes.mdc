@@ -14,7 +14,7 @@ alwaysApply: true
 |---------------|--------------|-------|
 | **Mac** (desk, plenty of RAM) | `npm run deploy:full` **or** `npm run deploy:fast` | `npm run deploy` alone |
 | **GCP iam-tunnel VM** / phone / remote PTY | `npm run ship:remote` (push → CF Builds) | `deploy:full`, `deploy:fast`, Vite, rclone |
-| **Cloudflare Workers Builds** | `node scripts/smart-build.mjs` then `npm run deploy:fast:cf` | wrangler-per-file R2 loops |
+| **Cloudflare Workers Builds** | `node scripts/smart-build.mjs` then `DEPLOY_FAST_SKIP_BUILD=1 npm run deploy:fast` | wrangler-per-file R2 loops |
 | **Emergency worker-only** (any host) | `npm run ship:remote -- --worker-only` | Expects SPA/PWA unchanged |
 
 ## Hard bans on `iam-tunnel` (GCP)
