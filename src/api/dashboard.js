@@ -295,11 +295,58 @@ export async function handleDashboardApi(request, url, env, ctx) {
 
         try {
             const { results } = await env.DB.prepare(
-                `SELECT id, subject, message, status, created_at FROM notifications
+                `SELECT id, subject, message, status, created_at, channel,
+                        entity_type, entity_id, data
+                 FROM notifications
                  WHERE recipient_id = ? AND read_at IS NULL
                  ORDER BY created_at DESC LIMIT 20`
             ).bind(recipientId).all();
-            return jsonResponse({ notifications: results || [] });
+            const notifications = (results || []).map((r) => {
+              let dataObj = null;
+              try {
+                dataObj =
+                  typeof r.data === 'string'
+                    ? JSON.parse(r.data)
+                    : r.data && typeof r.data === 'object'
+                      ? r.data
+                      : null;
+              } catch {
+                dataObj = null;
+              }
+              const entityType = r.entity_type != null ? String(r.entity_type) : null;
+              const entityId = r.entity_id != null ? String(r.entity_id) : null;
+              let href =
+                dataObj?.url != null
+                  ? String(dataObj.url)
+                  : dataObj?.href != null
+                    ? String(dataObj.href)
+                    : null;
+              if (!href && entityType === 'conversation' && entityId) {
+                href = `/dashboard/agent/${encodeURIComponent(entityId)}`;
+              } else if (
+                !href &&
+                entityId &&
+                (entityType === 'email' ||
+                  entityType === 'received_email' ||
+                  entityType === 'mail')
+              ) {
+                href = `/dashboard/mail?email=${encodeURIComponent(entityId)}&folder=inbox`;
+              }
+              return {
+                id: r.id,
+                subject: r.subject,
+                message: r.message,
+                status: r.status,
+                created_at: r.created_at,
+                channel: r.channel ?? null,
+                entity_type: entityType,
+                entity_id: entityId,
+                data: dataObj,
+                href,
+                url: href,
+              };
+            });
+            return jsonResponse({ notifications });
         } catch (e) {
             return jsonResponse({ error: e.message }, 500);
         }

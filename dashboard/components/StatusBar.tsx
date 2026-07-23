@@ -53,6 +53,11 @@ export type AgentNotificationRow = {
   message?: string | null;
   status?: string | null;
   created_at?: string | number | null;
+  href?: string | null;
+  url?: string | null;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  data?: unknown;
 };
 
 export type GitBranchRow = {
@@ -101,6 +106,10 @@ interface StatusBarProps {
   notifications?: AgentNotificationRow[];
   notifUnreadCount?: number;
   onMarkNotificationRead?: (id: string) => void | Promise<void>;
+  /** Open notification destination (agent thread, mail, etc.). */
+  onOpenNotification?: (n: AgentNotificationRow) => void | Promise<void>;
+  /** When set, open the panel and highlight this notification id. */
+  focusNotificationId?: string | null;
   canFormatDocument?: boolean;
   onBrandClick?: () => void;
   onGitBranchClick?: () => void;
@@ -146,6 +155,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   notifications = [],
   notifUnreadCount = 0,
   onMarkNotificationRead,
+  onOpenNotification,
+  focusNotificationId = null,
   canFormatDocument = false,
   onBrandClick,
   onGitBranchClick,
@@ -203,6 +214,12 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       window.removeEventListener('mousedown', onDown);
     };
   }, [notifOpen]);
+
+  useEffect(() => {
+    const id = String(focusNotificationId || '').trim();
+    if (!id) return;
+    setNotifOpen(true);
+  }, [focusNotificationId]);
 
   useEffect(() => {
     if (!showWorkspaceMenu) return;
@@ -277,11 +294,22 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             ) : (
               <ul className="divide-y divide-[var(--border-subtle)]/40">
                 {notifications.map((n) => (
-                  <li key={n.id} className="px-3 py-2 hover:bg-[var(--bg-hover)]/80">
+                  <li
+                    key={n.id}
+                    className={`px-3 py-2 hover:bg-[var(--bg-hover)]/80${
+                      focusNotificationId && n.id === focusNotificationId
+                        ? ' bg-[var(--bg-hover)] ring-1 ring-inset ring-[var(--solar-cyan)]/40'
+                        : ''
+                    }`}
+                  >
                     <button
                       type="button"
                       className="w-full text-left"
-                      onClick={() => void onMarkNotificationRead?.(n.id)}
+                      onClick={() => {
+                        void onOpenNotification?.(n);
+                        void onMarkNotificationRead?.(n.id);
+                        setNotifOpen(false);
+                      }}
                     >
                       <div className="text-[12px] font-medium text-main line-clamp-2">
                         {stripEmojiFromNotificationText(

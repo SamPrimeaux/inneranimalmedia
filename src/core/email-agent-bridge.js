@@ -261,17 +261,12 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
     });
 
     let pushResult = { ok: false, reason: 'not_attempted' };
+    let notifId = null;
     try {
       const { broadcastWebPushToActiveSubscriptions, insertPushNotification } = await import(
         './web-push.js'
       );
-      pushResult = await broadcastWebPushToActiveSubscriptions(env, {
-        title: pushTitle,
-        body: pushBody,
-        url: deepLink,
-        tag: conversationId,
-      });
-      await insertPushNotification(env, {
+      notifId = await insertPushNotification(env, {
         recipientId: PHONE_LOOP_USER_ID,
         channel: 'push',
         subject: pushTitle,
@@ -281,6 +276,20 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
         status: 'sent',
         data: { url: deepLink, tag: conversationId, type: 'phone_loop' },
       }).catch(() => null);
+
+      const pushUrl = notifId
+        ? `${deepLink}${deepLink.includes('?') ? '&' : '?'}notif=${encodeURIComponent(notifId)}`
+        : deepLink;
+
+      pushResult = await broadcastWebPushToActiveSubscriptions(env, {
+        title: pushTitle,
+        body: pushBody,
+        url: pushUrl,
+        tag: conversationId,
+        notificationId: notifId || undefined,
+        entityType: 'conversation',
+        entityId: conversationId,
+      });
     } catch (e) {
       pushResult = { ok: false, reason: e?.message || String(e) };
       console.warn('[sendPhoneLoopCompletion] push', e?.message ?? e);

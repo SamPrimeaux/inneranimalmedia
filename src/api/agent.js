@@ -2456,11 +2456,34 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
               meta: r,
               subject: title,
               href:
-                r.entity_type === 'conversation' && r.entity_id
-                  ? `/dashboard/agent?conversation=${encodeURIComponent(String(r.entity_id))}`
-                  : r.channel === 'email'
-                    ? '/dashboard/settings/notifications'
-                    : null,
+                (() => {
+                  let fromData = null;
+                  try {
+                    const d =
+                      typeof r.data === 'string'
+                        ? JSON.parse(r.data)
+                        : r.data && typeof r.data === 'object'
+                          ? r.data
+                          : null;
+                    fromData = d?.url || d?.href || null;
+                  } catch {
+                    fromData = null;
+                  }
+                  if (fromData) return String(fromData);
+                  if (r.entity_type === 'conversation' && r.entity_id) {
+                    return `/dashboard/agent/${encodeURIComponent(String(r.entity_id))}`;
+                  }
+                  if (
+                    r.entity_id &&
+                    (r.entity_type === 'email' ||
+                      r.entity_type === 'received_email' ||
+                      r.entity_type === 'mail')
+                  ) {
+                    return `/dashboard/mail?email=${encodeURIComponent(String(r.entity_id))}&folder=inbox`;
+                  }
+                  if (r.channel === 'email') return '/dashboard/mail';
+                  return null;
+                })(),
             });
           }
         } catch {

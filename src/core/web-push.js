@@ -26,7 +26,7 @@ function vapidDetails(env) {
 /**
  * @param {*} env
  * @param {{ endpoint: string, keys: { p256dh: string, auth: string } }} subscription
- * @param {{ title?: string, body?: string, url?: string, tag?: string }} message
+ * @param {{ title?: string, body?: string, url?: string, tag?: string, notificationId?: string, entityType?: string, entityId?: string }} message
  */
 export async function sendWebPushFromSubscription(env, subscription, message = {}) {
   if (!vapidConfigured(env)) {
@@ -45,6 +45,9 @@ export async function sendWebPushFromSubscription(env, subscription, message = {
     body: message.body || '',
     url: message.url || '/dashboard/agent',
     tag: message.tag || 'iam',
+    notificationId: message.notificationId || null,
+    entityType: message.entityType || null,
+    entityId: message.entityId || null,
   });
 
   try {
@@ -69,7 +72,7 @@ export async function sendWebPushFromSubscription(env, subscription, message = {
 
 /**
  * @param {*} env
- * @param {{ userId?: string, workspaceId?: string, tenantId?: string, title: string, body: string, url?: string, tag?: string }} payload
+ * @param {{ userId?: string, workspaceId?: string, tenantId?: string, title: string, body: string, url?: string, tag?: string, notificationId?: string, entityType?: string, entityId?: string }} payload
  */
 export async function sendWebPushToUser(env, payload) {
   if (!vapidConfigured(env) || !env.DB) {

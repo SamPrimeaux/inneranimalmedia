@@ -6,7 +6,7 @@
 import React, {
   useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CollaborateWorkShell } from '../src/components/collaborate/CollaborateWorkShell';
 import { CollaboratePageRail } from '../src/components/collaborate/CollaboratePageRail';
 import { MailTimeInsightsPanel } from '../src/components/collaborate/MailTimeInsightsPanel';
@@ -281,9 +281,11 @@ function SidebarContent({
 
 export function MailPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const isMobile = useIsMobile();
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const deepLinkEmailHandled = useRef<string | null>(null);
 
   // Panels
   const [sidebarW, setSidebarW] = useState(() => {
@@ -563,6 +565,64 @@ export function MailPage() {
     },
     [activeAccount, folder],
   );
+
+  // Deep link: /dashboard/mail?email=<id>&folder=inbox → open that message in-app.
+  useEffect(() => {
+    const folderParam = String(searchParams.get('folder') || '').trim().toLowerCase();
+    if (
+      folderParam === 'inbox' ||
+      folderParam === 'sent' ||
+      folderParam === 'outbound' ||
+      folderParam === 'starred' ||
+      folderParam === 'archived'
+    ) {
+      setFolder(folderParam as Folder);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const emailId = String(searchParams.get('email') || '').trim();
+    if (!emailId || loadingList) return;
+    if (deepLinkEmailHandled.current === emailId) return;
+
+    const match = emails.find((e) => e.id === emailId);
+    if (match) {
+      deepLinkEmailHandled.current = emailId;
+      void openEmail(match);
+      return;
+    }
+
+    // Not in current page — fetch by id so push/inbox deep links still land.
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/mail/email/${encodeURIComponent(emailId)}`, {
+          credentials: 'same-origin',
+        });
+        if (!res.ok || cancelled) return;
+        const d = await res.json();
+        const email = (d?.email || d) as Email | null;
+        if (!email?.id || cancelled) return;
+        deepLinkEmailHandled.current = emailId;
+        await openEmail({
+          ...email,
+          id: String(email.id),
+          subject: email.subject || '',
+          from_address: email.from_address || '',
+          to_address: email.to_address || '',
+          is_read: email.is_read ?? 0,
+          is_starred: email.is_starred ?? 0,
+          is_archived: email.is_archived ?? 0,
+          date_received: email.date_received || '',
+        });
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, emails, loadingList, openEmail]);
 
   // ── CRUD ops ───────────────────────────────────────────────────────────────
   const patchEmail = useCallback(async (id: string, patch: Partial<Email>, account?: string) => {

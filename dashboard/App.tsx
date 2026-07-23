@@ -36,6 +36,12 @@ import {
   parseAgentConversationIdFromPath,
   type AgentHomeTab,
 } from './lib/agentRoutes';
+import {
+  IAM_OPEN_STATUS_NOTIF,
+  IAM_PUSH_NAVIGATE,
+  resolveNotificationDeepLink,
+  toRouterPath,
+} from './lib/notificationDeepLink';
 import { AgentHome } from './components/agent/AgentHome';
 import { EditorWorkbenchLanes } from './components/agent/EditorWorkbenchLanes';
 import type { AgentModeId } from './types/agentHomeScene';
@@ -812,6 +818,7 @@ const App: React.FC = () => {
     encoding: 'UTF-8',
   });
   const [agentNotifications, setAgentNotifications] = useState<AgentNotificationRow[]>([]);
+  const [focusNotificationId, setFocusNotificationId] = useState<string | null>(null);
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
   const handleEditorCursorPosition = useCallback((line: number, col: number) => {
     setCursorPos((prev) => (prev.line === line && prev.col === col ? prev : { line, col }));
@@ -3931,6 +3938,67 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const openNotificationDestination = useCallback(
+    async (n: AgentNotificationRow) => {
+      const path = toRouterPath(
+        resolveNotificationDeepLink({
+          entityType: n.entity_type,
+          entityId: n.entity_id,
+          data: n.data,
+          href: n.href,
+          url: n.url,
+          fallback: '/dashboard/agent',
+        }),
+      );
+      navigate(path);
+      const notifId = String(n.id || '').trim();
+      if (notifId) setFocusNotificationId(notifId);
+    },
+    [navigate],
+  );
+
+  // Push notification click → land on the deep-linked route (and optional notif highlight).
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data;
+      if (!data || typeof data !== 'object') return;
+      if (data.type !== IAM_PUSH_NAVIGATE) return;
+      const path = toRouterPath(String(data.url || '/dashboard/agent'));
+      navigate(path);
+      const nid = data.notificationId != null ? String(data.notificationId).trim() : '';
+      if (nid) setFocusNotificationId(nid);
+      // Also honor ?notif= on the target URL
+      try {
+        const u = new URL(path, window.location.origin);
+        const q = u.searchParams.get('notif');
+        if (q) setFocusNotificationId(q);
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const onOpenStatus = (ev: Event) => {
+      const d = (ev as CustomEvent<{ id?: string }>).detail;
+      const id = d?.id != null ? String(d.id).trim() : '';
+      if (id) setFocusNotificationId(id);
+    };
+
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    window.addEventListener(IAM_OPEN_STATUS_NOTIF, onOpenStatus as EventListener);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', onMessage);
+      window.removeEventListener(IAM_OPEN_STATUS_NOTIF, onOpenStatus as EventListener);
+    };
+  }, [navigate]);
+
+  // Cold start / openWindow path: ?notif= on current URL opens status panel.
+  useEffect(() => {
+    const q = new URLSearchParams(location.search).get('notif');
+    if (q) setFocusNotificationId(q);
+  }, [location.pathname, location.search]);
+
   useEffect(() => {
     if (!isNarrowViewport || activeActivity == null) return;
     setAgentPosition('off');
@@ -5904,6 +5972,8 @@ const App: React.FC = () => {
         notifications={agentNotifications}
         notifUnreadCount={agentNotifications.length}
         onMarkNotificationRead={markNotificationRead}
+        onOpenNotification={openNotificationDestination}
+        focusNotificationId={focusNotificationId}
         canFormatDocument={activeTab === 'code' && !!activeFile}
         onBrandClick={() => {
           window.open('https://inneranimalmedia.com', '_blank', 'noopener,noreferrer');
