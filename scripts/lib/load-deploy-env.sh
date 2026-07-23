@@ -34,16 +34,18 @@ iam_load_deploy_env() {
   env_file="$root/.env.cloudflare"
   mcp_exports="$root/.mcp_exports.sh"
 
-  if [[ -f "$env_file" ]]; then
-    set -a
-    # shellcheck disable=SC1090
-    source "$env_file"
-    set +a
-  fi
+  # mcp_exports first, then .env.cloudflare last so the operator env file wins
+  # (rotation may leave stale AGENTSAM_BRIDGE_KEY in .mcp_exports.sh).
   if [[ -f "$mcp_exports" ]]; then
     set -a
     # shellcheck disable=SC1090
     source "$mcp_exports"
+    set +a
+  fi
+  if [[ -f "$env_file" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$env_file"
     set +a
   fi
 
