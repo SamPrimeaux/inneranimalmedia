@@ -146,6 +146,31 @@ export function discoverySearchTerms(input = {}) {
 }
 
 /**
+ * True when discovery tokens imply the user wants image/video generation tools.
+ * "visual" / bare "image" next to HTML/file language must NOT qualify (handoff bug).
+ * Require imgx/veo/png/photo OR (image|video + generate).
+ * @param {string[]} terms
+ */
+export function discoveryTermsWantMediaTools(terms) {
+  const list = (Array.isArray(terms) ? terms : [])
+    .map((t) => String(t || '').toLowerCase().trim())
+    .filter(Boolean);
+  if (list.some((t) => /^(imgx|veo|dalle|png|jpe?g|webp|gif|mp4|photo|photos)$/.test(t))) {
+    return true;
+  }
+  const hasImageWord = list.some((t) => /^(image|images|video|videos|illustration)$/.test(t));
+  const hasGenerate = list.some((t) => /^(generate|generation|draw|render)$/.test(t));
+  return hasImageWord && hasGenerate;
+}
+
+/**
+ * @param {string} toolKey
+ */
+export function isMediaGenerationCatalogToolKey(toolKey) {
+  return /^(imgx_|veo_|moviemode_)/i.test(String(toolKey || '').trim());
+}
+
+/**
  * Rank a catalog row for discovery. Tool_key coverage >> description noise.
  * @param {Record<string, unknown>} row
  * @param {string[]} terms
@@ -221,6 +246,11 @@ export function scoreCatalogToolRow(row, terms) {
   }
   if (wantsR2 && /_r2_list$/.test(toolKey)) {
     score += 150;
+  }
+
+  // tkt_search_tools_rank_media_last: HTML/"visual" must not float imgx_/veo_.
+  if (isMediaGenerationCatalogToolKey(toolKey) && !discoveryTermsWantMediaTools(list)) {
+    score -= 800;
   }
 
   // Mild preference for shorter, more specific keys when scores are close.

@@ -3,6 +3,11 @@
  * Preinvoke stays (deterministic tool call); this is presentation only.
  */
 
+import {
+  isInternalAgentErrorText,
+  synthesizeUserVisibleAgentFailure,
+} from './user-visible-agent-error.js';
+
 /**
  * @param {unknown} raw
  * @returns {Record<string, unknown>|null}
@@ -197,6 +202,10 @@ export function formatExplicitCatalogToolResult(toolName, toolOutput) {
 
   const raw = typeof toolOutput === 'string' ? toolOutput.trim() : String(toolOutput ?? '');
   if (!raw) return `Ran \`${name || 'tool'}\`.`;
+  // Never surface tool_timeout / "Tool execution failed: …" as assistant prose.
+  if (isInternalAgentErrorText(raw)) {
+    return synthesizeUserVisibleAgentFailure(raw);
+  }
   if (name.startsWith('agentsam_github_') && /github_|not_found|api_error|404/i.test(raw)) {
     return [
       'GitHub request failed.',

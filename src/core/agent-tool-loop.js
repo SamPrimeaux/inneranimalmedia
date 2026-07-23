@@ -36,6 +36,10 @@ import { notifySam } from './notifications.js';
 import { loadAgentsamToolRow } from './agentsam-tools-catalog.js';
 import { sanitizeToolCredentialError } from './resolve-credential.js';
 import {
+  isInternalAgentErrorText,
+  synthesizeUserVisibleAgentFailure,
+} from './user-visible-agent-error.js';
+import {
   CODEMODE_TOOL_NAME,
   enqueueCodemodePendingActions,
 } from './codemode-agent-bridge.js';
@@ -187,6 +191,31 @@ function lastUserMessageText(messages) {
 }
 
 export async function runAgentToolLoop(env, ctx, emit, params) {
+  const emitUpstream = typeof emit === 'function' ? emit : () => {};
+  /** Never let raw tool_timeout / internal codes become assistant SSE text or error bubbles. */
+  emit = (type, payload = {}) => {
+    if (type === 'text' && payload && typeof payload === 'object') {
+      const t = payload.text;
+      if (typeof t === 'string' && isInternalAgentErrorText(t)) {
+        return emitUpstream('text', {
+          ...payload,
+          text: synthesizeUserVisibleAgentFailure(t),
+        });
+      }
+    }
+    if (type === 'error' && payload && typeof payload === 'object') {
+      const msg = payload.message;
+      if (typeof msg === 'string' && msg.trim()) {
+        return emitUpstream('error', {
+          ...payload,
+          message: synthesizeUserVisibleAgentFailure(msg, {
+            code: payload.code != null ? String(payload.code) : null,
+          }),
+        });
+      }
+    }
+    return emitUpstream(type, payload);
+  };
   const {
     request,
     messages, tools, systemPrompt, modelKey,
@@ -414,8 +443,11 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       typeof opts.assistantText === 'string'
         ? opts.assistantText
         : extractLastAssistantPlainText(conversationMessages);
+    if (assistantText && isInternalAgentErrorText(assistantText)) {
+      assistantText = synthesizeUserVisibleAgentFailure(assistantText);
+    }
     if (!assistantText && opts.errorText) {
-      assistantText = String(opts.errorText).slice(0, 8000);
+      assistantText = synthesizeUserVisibleAgentFailure(opts.errorText).slice(0, 8000);
     }
     if (assistantText) {
       const status = opts.failed ? 'failed' : 'complete';
@@ -2455,11 +2487,13 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
               const preferKeys = extractExplicitCatalogToolKeys(
                 lastUserMessageText(conversationMessages) || userTextForForce || '',
               );
+              const userMessage =
+                lastUserMessageText(conversationMessages) || userTextForForce || '';
               const hydrated = await hydrateActiveToolsFromSearchResult(
                 env,
                 activeTools,
                 execResult,
-                { preferKeys },
+                { preferKeys, userMessage },
               );
               if (hydrated.added.length) {
                 activeTools = hydrated.tools;

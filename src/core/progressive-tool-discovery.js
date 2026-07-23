@@ -279,7 +279,7 @@ export function extractToolKeysFromSearchToolsResult(execResult) {
  * @param {any} env
  * @param {unknown[]} activeTools
  * @param {unknown} execResult
- * @param {{ softMax?: number, preferKeys?: string[] }} [opts]
+ * @param {{ softMax?: number, preferKeys?: string[], userMessage?: string, allowMediaTools?: boolean }} [opts]
  * @returns {Promise<{ tools: unknown[], added: string[] }>}
  */
 export async function hydrateActiveToolsFromSearchResult(env, activeTools, execResult, opts = {}) {
@@ -293,13 +293,30 @@ export async function hydrateActiveToolsFromSearchResult(env, activeTools, execR
     .map((k) => String(k || '').trim())
     .filter(Boolean);
   const fromSearch = extractToolKeysFromSearchToolsResult(execResult);
+  const allowMedia =
+    opts.allowMediaTools === true || userMessageAllowsMediaToolHydrate(opts.userMessage);
+
   /** Prefer keys win so exact user-named tools beat noisy MCP list_* ranking. */
   const wanted = [];
+  const deferredMedia = [];
   const seenWanted = new Set();
   for (const k of [...prefer, ...fromSearch]) {
     if (!k || have.has(k) || seenWanted.has(k)) continue;
     seenWanted.add(k);
+    if (isMediaGenerationToolKey(k) && !allowMedia) {
+      deferredMedia.push(k);
+      continue;
+    }
     wanted.push(k);
+  }
+  // Media last (and only if room remains after non-media) when not explicitly allowed.
+  if (allowMedia) {
+    for (const k of deferredMedia) wanted.push(k);
+  } else if (deferredMedia.length) {
+    console.info(
+      '[progressive-tools] media_hydrate_deferred',
+      JSON.stringify({ deferred: deferredMedia.slice(0, 12), reason: 'non_media_user_message' }),
+    );
   }
   if (!wanted.length || !env?.DB) {
     return { tools: list, added: [] };
@@ -335,6 +352,33 @@ export async function hydrateActiveToolsFromSearchResult(env, activeTools, execR
     );
   }
   return { tools: list, added };
+}
+
+/**
+ * HTML/"get a visual" language must not unlock imgx_/veo_ hydrate.
+ * Explicit image/video generation asks still do.
+ * @param {string|null|undefined} userMessage
+ */
+export function userMessageAllowsMediaToolHydrate(userMessage) {
+  const m = String(userMessage || '');
+  if (!m.trim()) return false;
+  if (/\b(imgx_|veo_|dall[- ]?e|imagen|gpt-image|image gen)\b/i.test(m)) return true;
+  if (
+    /\b(generate|create|make|draw|render)\s+(an?\s+)?(image|photo|png|jpe?g|picture|illustration|video|mp4)\b/i.test(
+      m,
+    )
+  ) {
+    return true;
+  }
+  if (/\b(generate|create)\s+image\b/i.test(m)) return true;
+  return false;
+}
+
+/**
+ * @param {string} key
+ */
+export function isMediaGenerationToolKey(key) {
+  return /^(imgx_|veo_|moviemode_)/i.test(String(key || '').trim());
 }
 
 /**

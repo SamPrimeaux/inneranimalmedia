@@ -47,6 +47,10 @@ import {
   ssePayloadLooksReasoningOnly,
   isStreamErrorPayload,
 } from '../streamParsing';
+import {
+  isInternalAgentErrorText,
+  synthesizeUserVisibleAgentFailure,
+} from '../../../../src/core/user-visible-agent-error.js';
 import { markStreamParserError, patchIamAgentStreamDebug } from '../streamDebug';
 import { fulfillClientFsRequest } from '../../../src/lib/library/clientFsFulfill';
 import {
@@ -2738,6 +2742,15 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
     } else {
       setMessages((prev) => stripEmptyAssistantTail(prev));
     }
+  } else if (assistantContent.trim() && isInternalAgentErrorText(assistantContent)) {
+    // Model or preinvoke may echo tool_timeout strings as the only "reply".
+    assistantContent = synthesizeUserVisibleAgentFailure(assistantContent);
+    setMessages((prev) => {
+      const next = [...prev];
+      const last = next[next.length - 1];
+      if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: assistantContent };
+      return next;
+    });
   }
 
   const fullStreamText = hideIncompleteMonacoInvokeTail(assistantStreamBuf);

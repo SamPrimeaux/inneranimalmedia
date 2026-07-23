@@ -11,10 +11,12 @@
 | 1 | `fs_write_file` without `imgx_*` / empty hosted shell | Partial — progressive core + empty-shell recover shipped; inventable text after `commands:[]` still needs live 1b proof |
 | 2 | No `close_done_no_token` after empty shell | Partial — covered by `tkt_hosted_shell_executor_contract` (1b); not GREEN until live empty-shell pass |
 | 3 | `agentsam_workspace_search` empty path doesn't hard-fail | **OPEN** → `tkt_workspace_search_empty_path` (tool-selection / param validation — **not** compute-lane) |
-| 4 | "Styled HTML" doesn't trigger image gen unless asked | **OPEN** → `tkt_search_tools_rank_media_last` (progressive hydrate ranking — **not** 1a/1b) |
+| 4 | "Styled HTML" doesn't trigger image gen unless asked | **OPEN** → `tkt_search_tools_rank_media_last` (media-only ranking) |
 | 5 | No new keyword hardcode matrix | Held |
+| 6 | Vague fast-lane questions don't hydrate GitHub write/PR/tree | **OPEN** → `tkt_search_tools_hydrate_scope_by_intent` (**split** from media ticket) |
+| 7 | Raw `tool_error` / timeout never shown as assistant text | **OPEN (P0)** → `tkt_tool_error_visible_text` |
 
-Do **not** fold #3/#4 into hosted-shell 1a/1b.
+Do **not** fold #3/#4/#6 into hosted-shell 1a/1b. Keep **#4 media** separate from **#6 hydrate scope**. Treat **#7** as P0 ahead of hydrate work.
 
 ---
 

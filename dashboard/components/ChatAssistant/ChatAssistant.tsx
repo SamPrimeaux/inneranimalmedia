@@ -46,6 +46,9 @@ import {
 } from 'lucide-react';
 import { ProjectType } from '../../types';
 import type { ActiveFile } from '../../types';
+import {
+  synthesizeUserVisibleAgentFailure,
+} from '../../../src/core/user-visible-agent-error.js';
 import { SetiFileIcon } from '../../src/components/SetiFileIcon';
 import {
   IAM_AGENT_CHAT_CONVERSATION_CHANGE,
@@ -3533,9 +3536,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         console.error('Chat request failed:', error);
         streamFinalizedRef.current = true;
         const rawMsg = error instanceof Error ? error.message : String(error);
-        const msg = /\[resolveCredential\]|credential not configured/i.test(rawMsg)
-          ? 'A required credential is missing or misconfigured for this tool. Reconnect the integration or ask an operator to check platform credentials.'
-          : rawMsg;
+        const msg = synthesizeUserVisibleAgentFailure(rawMsg);
         patchIamAgentStreamDebug({ error_at: Date.now() });
         setMessages((prev) => [...stripEmptyAssistantTail(prev), { role: 'assistant', content: msg }]);
       }
