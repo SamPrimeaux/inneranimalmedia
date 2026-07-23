@@ -622,6 +622,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handlePushNotify(request, env);
   }
 
+  if (pathLower === '/api/push/action' && methodUpper === 'POST') {
+    const { handlePushAction } = await import('../api/push-subscribe.js');
+    return handlePushAction(request, env, ctx);
+  }
+
   if (pathLower.startsWith('/api/auth') || pathLower === '/api/settings/profile') {
     return handleAuthApi(request, url, env);
   }

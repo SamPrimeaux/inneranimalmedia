@@ -311,14 +311,40 @@ export async function handlePostDeploy(request, env, ctx) {
     const gitShort = gitHash !== 'unknown' ? String(gitHash).slice(0, 7) : version;
     ctx.waitUntil(
       (async () => {
-        const { broadcastWebPushToActiveSubscriptions } = await import('../core/web-push.js');
-        return broadcastWebPushToActiveSubscriptions(env, {
-          title: 'Deploy complete',
-          body: `IAM production deploy ${gitShort} is live`,
-          url: '/dashboard/agent',
-          tag: `deploy-${gitShort}`,
+        const {
+          sendPhoneLoopCompletion,
+          mintPhoneLoopConversationId,
+          ensurePhoneLoopChatSession,
+        } = await import('../core/email-agent-bridge.js');
+        const conversationId = mintPhoneLoopConversationId();
+        await ensurePhoneLoopChatSession(
+          env,
+          null,
+          conversationId,
+          `Deploy ${gitShort} live — reply or tap Continue on push`,
+        );
+        const subject = `[Agent Sam] Deploy complete — ${gitShort}`;
+        const body = [
+          `IAM production deploy ${gitShort} is live.`,
+          '',
+          `environment: ${environment}`,
+          `version: ${version}`,
+          `git_hash: ${gitHash}`,
+          `worker_version_id: ${workerVersion}`,
+          '',
+          'Reply to this email with the next instruction, or use the push buttons (Continue / Status).',
+          'Keep the [ref:as_…] token so the thread stays bound.',
+        ].join('\n');
+        return sendPhoneLoopCompletion(env, null, {
+          conversationId,
+          subject,
+          body,
+          pushTitle: 'Deploy complete',
+          pushBody: `IAM production deploy ${gitShort} is live`,
+          continueInstruction: `Production deploy ${gitShort} just went live. Verify /api/health and pwa-build-meta, then summarize what changed and any follow-ups.`,
+          statusInstruction: `Give a short status on deploy ${gitShort}: health, known issues, and whether I should ship anything next.`,
         });
-      })().catch((e) => console.warn('[post-deploy] web push broadcast', e?.message || e)),
+      })().catch((e) => console.warn('[post-deploy] replyable deploy notify', e?.message || e)),
     );
 
     if (workspaceId) {

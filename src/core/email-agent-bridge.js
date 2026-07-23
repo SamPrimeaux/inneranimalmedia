@@ -202,6 +202,9 @@ export async function recordPhoneLoopDeploymentNotification(env, row) {
  *   pushTitle: string,
  *   pushBody: string,
  *   deploymentId?: string|null,
+ *   pushActions?: boolean,
+ *   continueInstruction?: string,
+ *   statusInstruction?: string,
  * }} opts
  */
 export async function sendPhoneLoopCompletion(env, ctx, opts) {
@@ -215,6 +218,7 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
   const pushTitle = String(opts.pushTitle || subject).trim().slice(0, 80);
   const pushBody = String(opts.pushBody || body.slice(0, 140)).trim().slice(0, 180);
   const inReplyTo = opts.inReplyTo != null ? String(opts.inReplyTo).trim() : '';
+  const wantActions = opts.pushActions !== false;
 
   const deepLink = `/dashboard/agent/${encodeURIComponent(conversationId)}`;
 
@@ -266,6 +270,14 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
       const { broadcastWebPushToActiveSubscriptions, insertPushNotification } = await import(
         './web-push.js'
       );
+      const { buildPhoneLoopPushActions } = await import('./push-action-token.js');
+      const actionPack = wantActions
+        ? await buildPhoneLoopPushActions(env, conversationId, {
+            continueInstruction: opts.continueInstruction,
+            statusInstruction: opts.statusInstruction,
+          })
+        : { actions: [], actionTokens: {} };
+
       notifId = await insertPushNotification(env, {
         recipientId: PHONE_LOOP_USER_ID,
         channel: 'push',
@@ -274,7 +286,12 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
         entityType: 'conversation',
         entityId: conversationId,
         status: 'sent',
-        data: { url: deepLink, tag: conversationId, type: 'phone_loop' },
+        data: {
+          url: deepLink,
+          tag: conversationId,
+          type: 'phone_loop',
+          actions: actionPack.actions,
+        },
       }).catch(() => null);
 
       const pushUrl = notifId
@@ -289,6 +306,8 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
         notificationId: notifId || undefined,
         entityType: 'conversation',
         entityId: conversationId,
+        actions: actionPack.actions,
+        actionTokens: actionPack.actionTokens,
       });
     } catch (e) {
       pushResult = { ok: false, reason: e?.message || String(e) };
@@ -532,6 +551,29 @@ export async function handleParsedEmailReply(env, ctx, raw) {
     fromAddress: raw.fromAddress,
     inReplyTo: parsed.inReplyTo || raw.inReplyTo,
     subject: raw.subject,
+  });
+}
+
+/**
+ * Push notification action button → Agent Sam turn (same spine as email reply).
+ * Instruction must come from a verified sealed token (not free-form client body).
+ *
+ * @param {any} env
+ * @param {any} ctx
+ * @param {{ conversationId: string, instruction: string, action?: string }} payload
+ */
+export async function runAgentTurnFromPushAction(env, ctx, payload) {
+  const instruction = String(payload.instruction || '').trim();
+  const conversationId = String(payload.conversationId || '').trim();
+  if (!instruction || !conversationId) {
+    return { ok: false, error: 'conversation_and_instruction_required' };
+  }
+
+  return runAgentTurnFromEmail(env, ctx, {
+    conversationId,
+    instruction,
+    fromAddress: PLATFORM_OPERATOR_EMAIL_PRIMARY,
+    subject: `[push:${String(payload.action || 'action').slice(0, 24)}]`,
   });
 }
 

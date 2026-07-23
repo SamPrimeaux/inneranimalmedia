@@ -15,7 +15,7 @@ import { dispatchComplete } from './provider.js';
 import { resolveModelForTask, normalizeCanonicalTaskType } from './resolveModel.js';
 import { pragmaTableInfo } from './retention.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
-import { insertExecutionDependencyGraphEdge } from '../api/command-run-telemetry.js';
+import { fireForgetAgentToolChainRow } from '../api/command-run-telemetry.js';
 import { extractBrowserNavigateUrl } from './extract-browser-url.js';
 import * as agentApiModule from '../api/agent.js';
 import { scheduleSyncWorkflowRunToSupabase } from './agentsam-supabase-sync.js';
@@ -1234,7 +1234,7 @@ export async function executeWorkflowGraph(env, opts) {
   let lastModelUsed = null;
   let runOk = true;
   let killReason = null;
-  let previousStepId = null;
+  let previousChainId = null;
   let runStartedAt = Date.now();
 
   const resumeRunId = opts.resumeRunId ? String(opts.resumeRunId).trim() : '';
@@ -1450,13 +1450,6 @@ export async function executeWorkflowGraph(env, opts) {
     const nodeStartTime = Date.now();
     ffPendingExecutionStep(env.DB, stepCols, stepId, runId, runId, node, nodeInput);
 
-    if (false && tenantId && previousStepId && workspaceId) {
-      // dep_graph FKs to agentsam_tool_chain — not estep IDs. Disabled.
-      void insertExecutionDependencyGraphEdge(env, tenantId, stepId, previousStepId, workspaceId).catch(
-        () => {},
-      );
-    }
-
     const surfaceProof = emitWorkflowGraphSurfaceEvents(streamSse, {
       node,
       runId,
@@ -1479,6 +1472,35 @@ export async function executeWorkflowGraph(env, opts) {
     nodeOutput = attachSurfaceProofToNodeOutput(nodeOutput, surfaceProof);
 
     ffCompleteExecutionStep(env.DB, stepCols, stepId, nodeStartTime, nodeOutput);
+
+    // Dep-graph edges FK to agentsam_tool_chain (not estep_*). Mint a chain row per
+    // workflow node so sequential edges stay valid and analytics can walk the DAG.
+    let chainId = null;
+    if (tenantId && workspaceId) {
+      try {
+        chainId = await fireForgetAgentToolChainRow(env, {
+          toolName: `workflow:${workflowKey}:${node.handler_key || node.node_type || currentNodeKey}`,
+          agentSessionId: runId,
+          error: nodeOutput.ok ? null : nodeOutput.error || 'node_failed',
+          durationMs: Date.now() - nodeStartTime,
+          tenantId,
+          userId: runContext?.canonicalUserId || runContext?.userId || null,
+          workspaceId,
+          parentChainId: previousChainId,
+          workflowRunId: runId,
+          executionStepId: stepId,
+          ctx,
+          toolInputJson: JSON.stringify({
+            node_key: currentNodeKey,
+            node_type: node.node_type,
+            handler_key: node.handler_key,
+          }).slice(0, 4000),
+        });
+      } catch (e) {
+        console.warn('[workflow] tool_chain/dep_graph', e?.message || e);
+      }
+    }
+    if (chainId) previousChainId = chainId;
 
     const nodeResult = nodeOutput;
     const usage = nodeResult?.output?.usage
@@ -1503,8 +1525,6 @@ export async function executeWorkflowGraph(env, opts) {
       }
     } catch (_) {}
 
-    previousStepId = stepId;
-
     stepResults.push({
       node_key: currentNodeKey,
       node_type: node.node_type,
@@ -1512,6 +1532,7 @@ export async function executeWorkflowGraph(env, opts) {
       ok: nodeOutput.ok,
       output: nodeOutput.output ?? null,
       error: nodeOutput.error ?? null,
+      tool_chain_id: chainId || null,
     });
     stepsCompleted += 1;
 

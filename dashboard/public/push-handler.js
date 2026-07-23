@@ -18,6 +18,8 @@ self.addEventListener('push', (event) => {
     notificationId: null,
     entityType: null,
     entityId: null,
+    actions: [],
+    actionTokens: {},
   };
 
   try {
@@ -32,6 +34,11 @@ self.addEventListener('push', (event) => {
           notificationId: parsed.notificationId || parsed.notification_id || null,
           entityType: parsed.entityType || parsed.entity_type || null,
           entityId: parsed.entityId || parsed.entity_id || null,
+          actions: Array.isArray(parsed.actions) ? parsed.actions.slice(0, 2) : [],
+          actionTokens:
+            parsed.actionTokens && typeof parsed.actionTokens === 'object'
+              ? parsed.actionTokens
+              : {},
         };
       }
     }
@@ -39,20 +46,27 @@ self.addEventListener('push', (event) => {
     /* show default notification */
   }
 
-  event.waitUntil(
-    self.registration.showNotification(payload.title, {
-      body: payload.body,
-      tag: payload.tag,
-      data: {
-        url: payload.url,
-        notificationId: payload.notificationId,
-        entityType: payload.entityType,
-        entityId: payload.entityId,
-      },
-      icon: '/static/dashboard/app/pwa/icon-192.png',
-      badge: '/static/dashboard/app/pwa/icon-192.png',
-    }),
-  );
+  const showOpts = {
+    body: payload.body,
+    tag: payload.tag,
+    data: {
+      url: payload.url,
+      notificationId: payload.notificationId,
+      entityType: payload.entityType,
+      entityId: payload.entityId,
+      actionTokens: payload.actionTokens || {},
+    },
+    icon: '/static/dashboard/app/pwa/icon-192.png',
+    badge: '/static/dashboard/app/pwa/icon-192.png',
+  };
+  if (payload.actions.length) {
+    showOpts.actions = payload.actions.map((a) => ({
+      action: String(a.action || '').slice(0, 32),
+      title: String(a.title || a.action || 'Go').slice(0, 40),
+    }));
+  }
+
+  event.waitUntil(self.registration.showNotification(payload.title, showOpts));
 });
 
 self.addEventListener('notificationclick', (event) => {
@@ -60,9 +74,33 @@ self.addEventListener('notificationclick', (event) => {
   const data = event.notification?.data || {};
   const targetUrl = resolvePushTargetUrl(data.url || '/dashboard/agent');
   const notificationId = data.notificationId || null;
+  const action = String(event.action || '').trim();
+  const actionTokens = data.actionTokens && typeof data.actionTokens === 'object' ? data.actionTokens : {};
+  const actionToken = action && actionTokens[action] ? String(actionTokens[action]) : '';
 
   event.waitUntil(
     (async () => {
+      // Actionable button → POST sealed instruction into Agent Sam turn.
+      if (action && actionToken) {
+        try {
+          await fetch(new URL('/api/push/action', self.location.origin).href, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+            body: JSON.stringify({
+              token: actionToken,
+              action,
+              notificationId,
+            }),
+            credentials: 'include',
+          });
+        } catch (_) {
+          /* still open the conversation UI */
+        }
+      }
+
       const windowClients = await self.clients.matchAll({
         type: 'window',
         includeUncontrolled: true,
@@ -72,8 +110,6 @@ self.addEventListener('notificationclick', (event) => {
       for (const client of windowClients) {
         if (!String(client.url || '').startsWith(origin)) continue;
 
-        // Prefer navigate so the SPA lands on the deep link; always postMessage
-        // so React Router can sync when navigate is a no-op or unsupported.
         try {
           if (typeof client.navigate === 'function') {
             await client.navigate(targetUrl);
@@ -87,6 +123,7 @@ self.addEventListener('notificationclick', (event) => {
             type: 'IAM_PUSH_NAVIGATE',
             url: targetUrl,
             notificationId,
+            action: action || null,
           });
         } catch (_) {
           /* ignore */

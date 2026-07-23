@@ -1189,6 +1189,15 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     handlerType = 'memory';
   }
 
+  if (
+    toolKey === 'agentsam_send_email' ||
+    toolKey === 'agentsam_notify' ||
+    toolKey === 'agentsam_email_send' ||
+    toolKey === 'resend_send_email'
+  ) {
+    handlerType = 'notify';
+  }
+
   if (toolKey === 'agentsam_codebase_retrieve') {
     handlerType = 'codebase_ast';
   }
@@ -3371,6 +3380,69 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       }
       const out = await fn(params, env, runContext);
       result = out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
+      break;
+    }
+
+    case 'notify': {
+      const channel = String(params.channel || config.channel || 'email').trim().toLowerCase();
+      const message = String(params.message || params.body || params.text || '').trim();
+      const subject = String(params.subject || params.title || 'Agent Sam notice').trim();
+      if (!message) {
+        result = { ok: false, error: 'notify requires message (or body/text)' };
+        break;
+      }
+
+      if (channel === 'dashboard' || channel === 'in_app' || channel === 'notification') {
+        try {
+          const { insertPushNotification } = await import('./web-push.js');
+          const notifId = await insertPushNotification(env, {
+            recipientId: runContext?.userId || runContext?.canonicalUserId || null,
+            channel: 'dashboard',
+            subject,
+            message: message.slice(0, 4000),
+            entityType: params.entityType || params.entity_type || null,
+            entityId: params.entityId || params.entity_id || null,
+            status: 'sent',
+            data: { severity: params.severity || 'info', action: params.action || null },
+          });
+          result = { ok: true, body: { channel: 'dashboard', notification_id: notifId } };
+        } catch (e) {
+          result = { ok: false, error: e?.message || String(e) };
+        }
+        break;
+      }
+
+      // Default: Resend email via platform notify (phone-loop thread when conversationId present).
+      const { notifySam } = await import('./notifications.js');
+      const emailOut = await notifySam(
+        env,
+        {
+          to: params.to || params.recipient || undefined,
+          subject,
+          body: message,
+          html: params.html || undefined,
+          category: params.category || 'agentsam_notify',
+          conversationId: params.conversationId || params.conversation_id || undefined,
+          inReplyTo: params.inReplyTo || params.in_reply_to || undefined,
+        },
+        runContext?.ctx,
+      );
+      const emailOk = !!(emailOut && (emailOut.success === true || emailOut.ok === true));
+      result = emailOk
+        ? {
+            ok: true,
+            body: {
+              channel: 'email',
+              provider: 'resend',
+              id: emailOut?.externalMessageId || emailOut?.data?.id || emailOut?.id || null,
+              conversation_id: params.conversationId || params.conversation_id || null,
+            },
+          }
+        : {
+            ok: false,
+            error: emailOut?.error || 'email_send_failed',
+            body: emailOut || null,
+          };
       break;
     }
 

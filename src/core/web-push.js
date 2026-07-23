@@ -26,7 +26,7 @@ function vapidDetails(env) {
 /**
  * @param {*} env
  * @param {{ endpoint: string, keys: { p256dh: string, auth: string } }} subscription
- * @param {{ title?: string, body?: string, url?: string, tag?: string, notificationId?: string, entityType?: string, entityId?: string }} message
+ * @param {{ title?: string, body?: string, url?: string, tag?: string, notificationId?: string, entityType?: string, entityId?: string, actions?: Array<{action: string, title: string}>, actionTokens?: Record<string, string> }} message
  */
 export async function sendWebPushFromSubscription(env, subscription, message = {}) {
   if (!vapidConfigured(env)) {
@@ -40,6 +40,15 @@ export async function sendWebPushFromSubscription(env, subscription, message = {
     return { ok: false, reason: 'invalid_subscription' };
   }
 
+  const actions = Array.isArray(message.actions)
+    ? message.actions
+        .filter((a) => a && a.action && a.title)
+        .slice(0, 2)
+        .map((a) => ({ action: String(a.action).slice(0, 32), title: String(a.title).slice(0, 40) }))
+    : [];
+  const actionTokens =
+    message.actionTokens && typeof message.actionTokens === 'object' ? message.actionTokens : {};
+
   const payload = JSON.stringify({
     title: message.title || 'Inner Animal Media',
     body: message.body || '',
@@ -48,6 +57,8 @@ export async function sendWebPushFromSubscription(env, subscription, message = {
     notificationId: message.notificationId || null,
     entityType: message.entityType || null,
     entityId: message.entityId || null,
+    actions,
+    actionTokens,
   });
 
   try {

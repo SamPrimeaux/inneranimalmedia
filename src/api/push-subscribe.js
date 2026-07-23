@@ -217,3 +217,49 @@ export async function handlePushUnsubscribe(request, env) {
 
   return jsonResponse({ ok: true });
 }
+
+/**
+ * POST /api/push/action — SW notification button → Agent Sam turn.
+ * Auth: sealed HMAC token (minted into the push payload). Session cookie optional.
+ */
+export async function handlePushAction(request, env, ctx) {
+  if (request.method !== 'POST') {
+    return jsonResponse({ error: 'Method not allowed' }, 405);
+  }
+
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const token = String(body.token || '').trim();
+  if (!token) return jsonResponse({ error: 'token required' }, 400);
+
+  const { verifyPushActionToken } = await import('../core/push-action-token.js');
+  const verified = await verifyPushActionToken(env, token);
+  if (!verified.ok) {
+    return jsonResponse({ error: verified.error || 'invalid_token' }, 401);
+  }
+
+  const claimedAction = String(body.action || '').trim();
+  if (claimedAction && claimedAction !== verified.action) {
+    return jsonResponse({ error: 'action_mismatch' }, 400);
+  }
+
+  const { runAgentTurnFromPushAction } = await import('../core/email-agent-bridge.js');
+  const result = await runAgentTurnFromPushAction(env, ctx || { waitUntil() {} }, {
+    conversationId: verified.conversationId,
+    instruction: verified.instruction,
+    action: verified.action,
+  });
+
+  return jsonResponse({
+    ok: !!result?.ok || !!result?.accepted,
+    accepted: !!result?.accepted,
+    conversationId: verified.conversationId,
+    action: verified.action,
+    error: result?.error,
+  });
+}
