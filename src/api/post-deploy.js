@@ -8,6 +8,9 @@
  * Auth (any one): X-Ingest-Secret (INGEST_SECRET), X-Internal-Secret or Bearer INTERNAL_API_SECRET,
  *                 or Bearer AGENTSAM_BRIDGE_KEY (same key as MCP bridge).
  * Response: { ok: true, keys_written: N, environment: string }
+ *
+ * Deployments ledger SSOT: scripts/post-deploy-record.sh only.
+ * This handler must NOT INSERT skinny deployments rows (empty changed_files / tenant / run_group).
  */
 
 import { isIngestSecretAuthorized, verifyInternalApiSecret, jsonResponse } from '../core/auth.js';
@@ -34,81 +37,19 @@ function isPostDeployAuthorized(request, env) {
 const PRODUCTION_WORKER_NAME = 'inneranimalmedia';
 
 /**
- * Insert a deployments row after deploy:full so GET /api/agent/git/status reflects the live SHA.
+ * Optionally refresh github_repositories.default_branch — never writes deployments.
  * @param {import('@cloudflare/workers-types').D1Database} db
  */
-async function recordProductionDeploymentRow(db, fields) {
-  const gitHash = fields.gitHash != null ? String(fields.gitHash).trim() : '';
-  if (!gitHash || gitHash === 'unknown') return null;
-
-  const deployId = `dep_prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const version =
-    fields.version != null && String(fields.version).trim() !== '' && String(fields.version).trim() !== 'unknown'
-      ? String(fields.version).trim()
-      : gitHash.slice(0, 7);
-  const environment = fields.environment != null ? String(fields.environment).trim() : 'production';
-  const deployedBy =
-    fields.deployedBy != null && String(fields.deployedBy).trim() !== ''
-      ? String(fields.deployedBy).trim()
-      : 'deploy:full';
-  const branchName =
-    fields.branchName != null && String(fields.branchName).trim() !== ''
-      ? String(fields.branchName).trim()
-      : null;
-  const description =
-    fields.description != null && String(fields.description).trim() !== ''
-      ? String(fields.description).trim().slice(0, 500)
-      : null;
-  const deployDurationMs =
-    typeof fields.deployDurationMs === 'number' && Number.isFinite(fields.deployDurationMs)
-      ? Math.max(0, Math.floor(fields.deployDurationMs))
-      : null;
-  const workerVersion =
-    fields.workerVersion != null && String(fields.workerVersion).trim() !== ''
-      ? String(fields.workerVersion).trim()
-      : null;
-
-  const metadata = JSON.stringify({
-    worker_version_id: workerVersion,
-    branch: branchName,
-    sync_source: 'post-deploy-handler',
-  });
-
+async function syncGithubDefaultBranch(db, branchName) {
+  if (!branchName) return;
   await db
     .prepare(
-      `INSERT INTO deployments (
-         id, timestamp, version, git_hash, description, status, deployed_by,
-         environment, deploy_duration_ms, worker_name, triggered_by, metadata_json, created_at
-       ) VALUES (
-         ?, datetime('now'), ?, ?, ?, 'success', ?,
-         ?, ?, ?, 'deploy:full', ?, unixepoch()
-       )`,
+      `UPDATE github_repositories SET default_branch = ?
+       WHERE cloudflare_worker_name = ?`,
     )
-    .bind(
-      deployId,
-      version,
-      gitHash,
-      description,
-      deployedBy,
-      environment,
-      deployDurationMs,
-      PRODUCTION_WORKER_NAME,
-      metadata,
-    )
-    .run();
-
-  if (branchName) {
-    await db
-      .prepare(
-        `UPDATE github_repositories SET default_branch = ?
-         WHERE cloudflare_worker_name = ?`,
-      )
-      .bind(branchName, PRODUCTION_WORKER_NAME)
-      .run()
-      .catch(() => {});
-  }
-
-  return deployId;
+    .bind(branchName, PRODUCTION_WORKER_NAME)
+    .run()
+    .catch(() => {});
 }
 
 /**
@@ -122,11 +63,13 @@ export async function handlePostDeploy(request, env, ctx) {
   }
 
   let body = {};
-  try { body = await request.json(); } catch (_) {}
+  try {
+    body = await request.json();
+  } catch (_) {}
 
-  const environment   = body.environment   || 'production';
-  const gitHash       = body.git_hash      || body.gitHash || 'unknown';
-  const version       = body.version       || body.dashboard_version || 'unknown';
+  const environment = body.environment || 'production';
+  const gitHash = body.git_hash || body.gitHash || 'unknown';
+  const version = body.version || body.dashboard_version || 'unknown';
   const workerVersion = body.worker_version_id || 'unknown';
   const deployDurationMs =
     typeof body.deploy_duration_ms === 'number' && Number.isFinite(body.deploy_duration_ms)
@@ -156,20 +99,18 @@ export async function handlePostDeploy(request, env, ctx) {
   }
 
   // ── Knowledge context sync ───────────────────────────────────────────────────
-  // Writes a lightweight deploy-context blob into KV so Agent Sam can answer
-  // "what version am I on?" and "when was the last deploy?".
   const now = new Date().toISOString();
   const keysToWrite = [
     {
       key: `agent_sam:deploy:latest:${environment}`,
       value: JSON.stringify({
         environment,
-        git_hash:         gitHash,
+        git_hash: gitHash,
         version,
         worker_version_id: workerVersion,
-        deployed_at:      now,
+        deployed_at: now,
       }),
-      ttl: 60 * 60 * 24 * 30, // 30 days
+      ttl: 60 * 60 * 24 * 30,
     },
     {
       key: `agent_sam:deploy:last_success`,
@@ -177,7 +118,7 @@ export async function handlePostDeploy(request, env, ctx) {
         environment,
         version,
         deployed_at: now,
-        git_hash:    gitHash,
+        git_hash: gitHash,
       }),
       ttl: 60 * 60 * 24 * 30,
     },
@@ -186,29 +127,24 @@ export async function handlePostDeploy(request, env, ctx) {
   let keysWritten = 0;
   const errors = [];
 
-  await Promise.all(keysToWrite.map(async ({ key, value, ttl }) => {
-    try {
-      await env.KV.put(key, value, { expirationTtl: ttl });
-      keysWritten++;
-    } catch (e) {
-      errors.push(`${key}: ${e?.message}`);
-      console.warn('[post-deploy] KV write failed', key, e?.message);
-    }
-  }));
+  await Promise.all(
+    keysToWrite.map(async ({ key, value, ttl }) => {
+      try {
+        await env.KV.put(key, value, { expirationTtl: ttl });
+        keysWritten++;
+      } catch (e) {
+        errors.push(`${key}: ${e?.message}`);
+        console.warn('[post-deploy] KV write failed', key, e?.message);
+      }
+    }),
+  );
 
-  // ── Optional D1 audit log ────────────────────────────────────────────────────
+  // ── D1 side effects (never skinny deployments INSERT) ────────────────────────
   if (env.DB) {
     ctx.waitUntil(
-      recordProductionDeploymentRow(env.DB, {
-        gitHash,
-        version,
-        environment,
-        deployedBy,
-        branchName,
-        description,
-        deployDurationMs,
-        workerVersion,
-      }).catch((e) => console.warn('[post-deploy] deployments insert failed', e?.message || e)),
+      syncGithubDefaultBranch(env.DB, branchName).catch((e) =>
+        console.warn('[post-deploy] github branch sync failed', e?.message || e),
+      ),
     );
 
     ctx.waitUntil(
@@ -237,11 +173,11 @@ export async function handlePostDeploy(request, env, ctx) {
       env.DB.prepare(
         `INSERT OR IGNORE INTO cicd_events
            (source, event_type, git_commit_sha, raw_payload_json)
-         VALUES ('post-deploy-handler', 'knowledge_sync', ?, ?)`
+         VALUES ('post-deploy-handler', 'knowledge_sync', ?, ?)`,
       )
-      .bind(gitHash, JSON.stringify({ environment, version, keys_written: keysWritten, synced_at: now }))
-      .run()
-      .catch(() => {})
+        .bind(gitHash, JSON.stringify({ environment, version, keys_written: keysWritten, synced_at: now }))
+        .run()
+        .catch(() => {}),
     );
 
     const workspaceId =
@@ -249,10 +185,8 @@ export async function handlePostDeploy(request, env, ctx) {
         ? body.workspace_id.trim()
         : getPlatformWorkspaceEnvId(env) || PLATFORM_WORKSPACE_ID;
     const operatorUserId =
-      (typeof body.user_id === 'string' && body.user_id.trim()) ||
-      resolvePlatformD1AuthUserId(env);
+      (typeof body.user_id === 'string' && body.user_id.trim()) || resolvePlatformD1AuthUserId(env);
 
-    // Workspace-scoped post_deploy hooks (workers_deploy, etc.) + agentsam_hook_execution audit
     const hookPayload = {
       environment,
       git_hash: gitHash,
@@ -287,13 +221,13 @@ export async function handlePostDeploy(request, env, ctx) {
     if (workspaceId) {
       const {
         resolvePlatformSupabaseUserId,
-        resolvePlatformD1AuthUserId,
-        resolvePlatformSupabaseWorkspaceUuid,
+        resolvePlatformD1AuthUserId: resolveD1User,
+        resolvePlatformSupabaseWorkspaceUuid: resolveSupaWs,
       } = await import('../core/platform-identity-constants.js');
       scheduleMirrorDeployEventToSupabase(env, ctx, {
         workspace_id: workspaceId,
         user_id: resolvePlatformSupabaseUserId(env),
-        d1_user_id: resolvePlatformD1AuthUserId(env),
+        d1_user_id: resolveD1User(env),
         worker_name: 'inneranimalmedia',
         worker_version: workerVersion,
         deploy_status: 'success',
@@ -305,9 +239,9 @@ export async function handlePostDeploy(request, env, ctx) {
           dashboard_version: version,
           keys_written: keysWritten,
           sync_source: 'post-deploy-handler',
-          d1_user_id: resolvePlatformD1AuthUserId(env),
+          d1_user_id: resolveD1User(env),
           d1_workspace_id: workspaceId,
-          supabase_workspace_id: resolvePlatformSupabaseWorkspaceUuid(env),
+          supabase_workspace_id: resolveSupaWs(env),
         },
         created_at: now,
       });
@@ -315,11 +249,13 @@ export async function handlePostDeploy(request, env, ctx) {
   }
 
   return jsonResponse({
-    ok:           keysWritten > 0 || errors.length === 0,
+    ok: keysWritten > 0 || errors.length === 0,
     keys_written: keysWritten,
     environment,
     version,
-    synced_at:    now,
-    errors:       errors.length > 0 ? errors : undefined,
+    synced_at: now,
+    // Ledger truth lives in post-deploy-record.sh — this endpoint does not mint deployments rows.
+    deployments_ledger: 'post_deploy_record_ssot',
+    errors: errors.length > 0 ? errors : undefined,
   });
 }

@@ -6,6 +6,7 @@
  * Checks:
  *  1. AGENTS.md exists at repo root with required section markers
  *  2. Trail writers must not contain GIT_SHORT / git_sha_short
+ *  2b. post-deploy.js must not INSERT skinny deployments rows (Overview twins)
  *  3. Loader must treat apply_mode=always as authoritative (no exclusive system|keyword SQL filter)
  *  4. New/edited migrations that INSERT agentsam_rules_document with apply_mode always
  *     must set trigger_type to system or keyword (scan migrations/9*.sql + 10*.sql)
@@ -70,6 +71,21 @@ if (existsSync(pdr)) {
   else ok('post-deploy-record.sh: no GIT_SHORT / requires 40-char SHA');
 } else {
   fail('scripts/post-deploy-record.sh missing');
+}
+
+// 2b) post-deploy Worker must not mint skinny deployments rows (Overview twins)
+const postDeployApi = join(ROOT, 'src/api/post-deploy.js');
+if (existsSync(postDeployApi)) {
+  const t = readFileSync(postDeployApi, 'utf8');
+  if (/INSERT\s+INTO\s+deployments\b/i.test(t)) {
+    fail(
+      'src/api/post-deploy.js INSERT INTO deployments — ledger SSOT is post-deploy-record.sh only (causes empty Overview twins)',
+    );
+  } else {
+    ok('post-deploy.js: no skinny deployments INSERT');
+  }
+} else {
+  fail('src/api/post-deploy.js missing');
 }
 
 // 3) Loader must not exclusively filter system|keyword (disease that silenced LOCKED rules)

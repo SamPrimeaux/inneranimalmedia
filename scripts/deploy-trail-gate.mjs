@@ -49,7 +49,7 @@ const DASHBOARD_REQUIRED = [
   'description',
   'is_locked',
   'is_production',
-  'screenshot_url',
+  // screenshot_url often intentionally blank — not a trail completeness signal
   'created_at',
   'locked_at',
   'locked_by',
@@ -61,6 +61,9 @@ const DASHBOARD_REQUIRED = [
   'build_pipeline',
   'deployed_at',
 ];
+
+/** Columns allowed to be empty string (never null/undefined). */
+const ALLOW_EMPTY_STRING = new Set(['rollback_from', 'screenshot_url']);
 
 function fail(msg) {
   console.error(`❌ DEPLOY TRAIL GATE FAILED: ${msg}`);
@@ -97,9 +100,25 @@ function isFullSha(v) {
   return /^[0-9a-f]{40}$/i.test(String(v || '').trim());
 }
 
+function isBlank(v) {
+  return v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
+}
+
 function missingCols(row, required) {
   if (!row) return required.slice();
-  return required.filter((k) => row[k] === null || row[k] === undefined);
+  return required.filter((k) => {
+    const v = row[k];
+    if (ALLOW_EMPTY_STRING.has(k)) return v === null || v === undefined;
+    return isBlank(v);
+  });
+}
+
+function isCompleteDeployment(row) {
+  if (!row) return false;
+  if (!isFullSha(row.git_hash)) return false;
+  if (missingCols(row, DEPLOYMENTS_REQUIRED).length) return false;
+  if (!changedFilesOk(row.changed_files)) return false;
+  return true;
 }
 
 function changedFilesOk(raw) {
@@ -128,17 +147,30 @@ function safeQuery(label, sql) {
 }
 
 function checkOnce(hashes) {
-  // Simple queries only — nested ORDER BY/LIMIT in IN() hung/emptied D1 on CF.
-  // Prefix OR clauses locate legacy short-hash rows so we can fail them loudly.
-  const dep =
-    safeQuery(
-      'deployments',
-      `SELECT * FROM deployments
-       WHERE git_hash = ${sqlQuote(hashes.full)}
-          OR git_hash = ${sqlQuote(hashes.prefix12)}
-          OR git_hash LIKE ${sqlQuote(hashes.prefix7 + '%')}
-       ORDER BY rowid DESC LIMIT 1`,
-    )[0] || null;
+  // Prefer complete ledger rows. Skinny post-deploy twins (dep_prod_*) must not
+  // silently win via ORDER BY rowid while Overview sorts by timestamp and shows empties.
+  const deps = safeQuery(
+    'deployments',
+    `SELECT * FROM deployments
+     WHERE git_hash = ${sqlQuote(hashes.full)}
+        OR git_hash = ${sqlQuote(hashes.prefix12)}
+        OR git_hash LIKE ${sqlQuote(hashes.prefix7 + '%')}
+     ORDER BY rowid DESC LIMIT 8`,
+  );
+
+  const incomplete = deps.filter((d) => !isCompleteDeployment(d));
+  const complete = deps.find((d) => isCompleteDeployment(d)) || null;
+  // Newest by wall-clock timestamp (what Overview shows) — empty twin is a hard fail.
+  const byTs = [...deps].sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+  const newestUi = byTs[0] || null;
+  let dep = complete;
+  let twinFail = null;
+  if (newestUi && !isCompleteDeployment(newestUi)) {
+    twinFail = `newest Overview row ${newestUi.id} incomplete (changed_files/tenant/run_group empty) — refuse pass while twin exists${
+      complete ? ` (complete twin=${complete.id})` : ''
+    }`;
+    dep = newestUi;
+  }
 
   const dashRows = safeQuery(
     'dashboard_versions',
@@ -153,13 +185,13 @@ function checkOnce(hashes) {
   );
 
   let health = null;
-  if (dep?.id) {
+  if (complete?.id) {
     health =
       safeQuery(
         'deployment_health',
         `SELECT id, status, deployment_id, checked_by, checked_at_unix
          FROM agentsam_deployment_health
-         WHERE deployment_id = ${sqlQuote(dep.id)}
+         WHERE deployment_id = ${sqlQuote(complete.id)}
          ORDER BY rowid DESC LIMIT 1`,
       )[0] || null;
   }
@@ -175,7 +207,7 @@ function checkOnce(hashes) {
       )[0] || null;
   }
 
-  return { dep, dashRows, health };
+  return { dep, complete, twinFail, incompleteCount: incomplete.length, dashRows, health };
 }
 
 if (!gitRef) fail('git hash required');
@@ -184,14 +216,21 @@ const hashes = resolveHashes(gitRef);
 console.error(`[deploy-trail-gate] checking full=${hashes.full} (max ${MAX_WAIT_MS}ms)`);
 
 const started = Date.now();
-let last = { dep: null, dashRows: [], health: null };
+let last = { dep: null, complete: null, twinFail: null, incompleteCount: 0, dashRows: [], health: null };
 
 while (Date.now() - started < MAX_WAIT_MS) {
   last = checkOnce(hashes);
-  const depMiss = missingCols(last.dep, DEPLOYMENTS_REQUIRED);
+
+  // Incomplete twin visible in Overview is never "waiting" — fail immediately.
+  if (last.twinFail) {
+    fail(last.twinFail);
+  }
+
+  const depForGate = last.complete || last.dep;
+  const depMiss = missingCols(depForGate, DEPLOYMENTS_REQUIRED);
   const shortHashFail =
-    last.dep && !isFullSha(last.dep.git_hash)
-      ? `deployments.git_hash not 40-char (got: '${last.dep.git_hash}')`
+    depForGate && !isFullSha(depForGate.git_hash)
+      ? `deployments.git_hash not 40-char (got: '${depForGate.git_hash}')`
       : null;
   const shortCommitFails = (last.dashRows || [])
     .filter((r) => !isFullSha(r.git_commit))
@@ -204,10 +243,10 @@ while (Date.now() - started < MAX_WAIT_MS) {
     for (const c of missingCols(row, DASHBOARD_REQUIRED)) dashColMiss.push(`${row.page_name}.${c}`);
   }
   const healthOk = last.health && String(last.health.status) === 'healthy';
-  const filesOk = changedFilesOk(last.dep?.changed_files);
+  const filesOk = changedFilesOk(depForGate?.changed_files);
 
   if (
-    last.dep &&
+    depForGate &&
     !shortHashFail &&
     shortCommitFails.length === 0 &&
     depMiss.length === 0 &&
@@ -241,7 +280,7 @@ while (Date.now() - started < MAX_WAIT_MS) {
       console.error(`[deploy-trail-gate] error_log resolve best-effort: ${e?.message || e}`);
     }
     console.error(
-      `✅ Deploy trail complete for ${hashes.full}: deployments=${last.dep.id} changed_files_ok dashboard=${last.dashRows.length} health=${last.health.id}`,
+      `✅ Deploy trail complete for ${hashes.full}: deployments=${depForGate.id} changed_files_ok dashboard=${last.dashRows.length} health=${last.health.id}`,
     );
     process.exit(0);
   }
@@ -259,7 +298,7 @@ while (Date.now() - started < MAX_WAIT_MS) {
   }
 
   const progress = {
-    dep: last.dep?.id || null,
+    dep: depForGate?.id || null,
     filesOk,
     depMiss: depMiss.slice(0, 5),
     pages: [...pages],
@@ -270,14 +309,16 @@ while (Date.now() - started < MAX_WAIT_MS) {
   await sleep(POLL_MS);
 }
 
-const depMiss = missingCols(last.dep, DEPLOYMENTS_REQUIRED);
+const depForGate = last.complete || last.dep;
+const depMiss = missingCols(depForGate, DEPLOYMENTS_REQUIRED);
 const pages = new Set((last.dashRows || []).map((r) => r.page_name));
 const reasons = [];
-if (!last.dep) reasons.push('no deployments row for git hash');
+if (last.twinFail) reasons.push(last.twinFail);
+if (!depForGate) reasons.push('no deployments row for git hash');
 else {
-  if (depMiss.length) reasons.push(`deployments null columns: ${depMiss.join(',')}`);
-  if (!changedFilesOk(last.dep.changed_files)) {
-    reasons.push(`changed_files empty/missing (${String(last.dep.changed_files)})`);
+  if (depMiss.length) reasons.push(`deployments blank columns: ${depMiss.join(',')}`);
+  if (!changedFilesOk(depForGate.changed_files)) {
+    reasons.push(`changed_files empty/missing (${String(depForGate.changed_files)})`);
   }
 }
 if (!(pages.has('agent') && pages.has('agent-css') && pages.has('agent-html'))) {
@@ -285,7 +326,7 @@ if (!(pages.has('agent') && pages.has('agent-css') && pages.has('agent-html'))) 
 }
 for (const row of last.dashRows || []) {
   const m = missingCols(row, DASHBOARD_REQUIRED);
-  if (m.length) reasons.push(`${row.page_name} null: ${m.join(',')}`);
+  if (m.length) reasons.push(`${row.page_name} blank: ${m.join(',')}`);
 }
 if (!last.health || last.health.status !== 'healthy') {
   reasons.push(`deployment_health missing/unhealthy (${last.health?.status || 'MISSING'})`);
