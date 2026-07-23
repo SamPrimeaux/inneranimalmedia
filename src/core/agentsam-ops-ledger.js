@@ -338,9 +338,9 @@ export function scheduleDeploymentHealth(env, ctx, fields) {
       deployment_id: String(fields.deploymentId ?? fields.deployment_id ?? 'health_check').slice(0, 500),
       worker_name: String(fields.workerName ?? fields.worker_name ?? 'inneranimalmedia').slice(0, 200),
       environment: String(fields.environment ?? 'production').slice(0, 80),
-      check_type: String(fields.checkType ?? fields.check_type ?? 'smoke').slice(0, 120),
+      check_type: String(fields.checkType ?? fields.check_type ?? 'smoke_test').slice(0, 120),
       check_url: fields.checkUrl ?? fields.check_url ?? null,
-      status: String(fields.status ?? 'ok').slice(0, 80),
+      status: String(fields.status ?? 'healthy').slice(0, 80),
       http_status_code:
         fields.httpStatusCode != null || fields.http_status_code != null
           ? Math.floor(Number(fields.httpStatusCode ?? fields.http_status_code))
