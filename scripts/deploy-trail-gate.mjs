@@ -84,9 +84,17 @@ function fail(msg) {
 function resolveHashes(ref) {
   const fullProc = spawnSync('git', ['-C', REPO_ROOT, 'rev-parse', ref], { encoding: 'utf8' });
   const full = (fullProc.stdout || '').trim() || ref;
-  const short = full.length >= 12 ? full.slice(0, 12) : full;
-  const short7 = full.slice(0, 7);
-  return { full, short, short7, raw: ref };
+  if (!/^[0-9a-f]{40}$/i.test(full)) {
+    fail(`git ref must resolve to full 40-char SHA (got: '${full}') — no short-hash gate matching`);
+  }
+  // Legacy LIKE helpers only to locate old bad rows; acceptance still requires 40-char storage.
+  const prefix12 = full.slice(0, 12);
+  const prefix7 = full.slice(0, 7);
+  return { full: full.toLowerCase(), prefix12, prefix7, raw: ref };
+}
+
+function isFullSha(v) {
+  return /^[0-9a-f]{40}$/i.test(String(v || '').trim());
 }
 
 function missingCols(row, required) {
@@ -121,13 +129,14 @@ function safeQuery(label, sql) {
 
 function checkOnce(hashes) {
   // Simple queries only — nested ORDER BY/LIMIT in IN() hung/emptied D1 on CF.
+  // Prefix OR clauses locate legacy short-hash rows so we can fail them loudly.
   const dep =
     safeQuery(
       'deployments',
       `SELECT * FROM deployments
        WHERE git_hash = ${sqlQuote(hashes.full)}
-          OR git_hash = ${sqlQuote(hashes.short)}
-          OR git_hash LIKE ${sqlQuote(hashes.short7 + '%')}
+          OR git_hash = ${sqlQuote(hashes.prefix12)}
+          OR git_hash LIKE ${sqlQuote(hashes.prefix7 + '%')}
        ORDER BY rowid DESC LIMIT 1`,
     )[0] || null;
 
@@ -138,8 +147,8 @@ function checkOnce(hashes) {
        AND page_name IN ('agent', 'agent-css', 'agent-html')
        AND (
          git_commit = ${sqlQuote(hashes.full)}
-         OR git_commit = ${sqlQuote(hashes.short)}
-         OR git_commit LIKE ${sqlQuote(hashes.short7 + '%')}
+         OR git_commit = ${sqlQuote(hashes.prefix12)}
+         OR git_commit LIKE ${sqlQuote(hashes.prefix7 + '%')}
        )`,
   );
 
@@ -172,9 +181,7 @@ function checkOnce(hashes) {
 if (!gitRef) fail('git hash required');
 
 const hashes = resolveHashes(gitRef);
-console.error(
-  `[deploy-trail-gate] checking full=${hashes.full} short=${hashes.short} (max ${MAX_WAIT_MS}ms)`,
-);
+console.error(`[deploy-trail-gate] checking full=${hashes.full} (max ${MAX_WAIT_MS}ms)`);
 
 const started = Date.now();
 let last = { dep: null, dashRows: [], health: null };
@@ -182,6 +189,13 @@ let last = { dep: null, dashRows: [], health: null };
 while (Date.now() - started < MAX_WAIT_MS) {
   last = checkOnce(hashes);
   const depMiss = missingCols(last.dep, DEPLOYMENTS_REQUIRED);
+  const shortHashFail =
+    last.dep && !isFullSha(last.dep.git_hash)
+      ? `deployments.git_hash not 40-char (got: '${last.dep.git_hash}')`
+      : null;
+  const shortCommitFails = (last.dashRows || [])
+    .filter((r) => !isFullSha(r.git_commit))
+    .map((r) => `${r.page_name}.git_commit='${r.git_commit}'`);
   const pages = new Set((last.dashRows || []).map((r) => r.page_name));
   const dashOk =
     pages.has('agent') && pages.has('agent-css') && pages.has('agent-html') && last.dashRows.length >= 3;
@@ -192,11 +206,32 @@ while (Date.now() - started < MAX_WAIT_MS) {
   const healthOk = last.health && String(last.health.status) === 'healthy';
   const filesOk = changedFilesOk(last.dep?.changed_files);
 
-  if (last.dep && depMiss.length === 0 && filesOk && dashOk && dashColMiss.length === 0 && healthOk) {
+  if (
+    last.dep &&
+    !shortHashFail &&
+    shortCommitFails.length === 0 &&
+    depMiss.length === 0 &&
+    filesOk &&
+    dashOk &&
+    dashColMiss.length === 0 &&
+    healthOk
+  ) {
     console.error(
       `✅ Deploy trail complete for ${hashes.full}: deployments=${last.dep.id} changed_files_ok dashboard=${last.dashRows.length} health=${last.health.id}`,
     );
     process.exit(0);
+  }
+
+  // Short-hash rows are never "waiting" — they are immediate failures (script bypassed).
+  if (shortHashFail || shortCommitFails.length) {
+    fail(
+      [
+        shortHashFail,
+        shortCommitFails.length ? `dashboard_versions short git_commit: ${shortCommitFails.join(',')}` : null,
+      ]
+        .filter(Boolean)
+        .join('; '),
+    );
   }
 
   const progress = {

@@ -57,7 +57,7 @@ curl -sS https://inneranimalmedia.com/api/health
 
 | Sink | Script |
 |------|--------|
-| `deployments` (all columns; full `git_hash`; non-empty `changed_files`) | `post-deploy-record.sh` |
+| `deployments` (all columns; **40-char** `git_hash` only — no `GIT_SHORT`; non-empty `changed_files`) | `post-deploy-record.sh` |
 | `dashboard_versions` (all columns; exclusive `is_active` for agent/css/html) | `post-deploy-record.sh` |
 | `agentsam_deployment_health` | `post-deploy-record.sh` |
 | **Hard gate** (fail deploy if trail incomplete) | `deploy-trail-gate.sh` → `deploy-trail-gate.mjs` |
