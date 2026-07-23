@@ -133,7 +133,7 @@ Do **not** reorder. Matches operator ranking.
 ## Related
 
 - Scorecard: operator probe 2026-07-23 00:05Z · remote 00:09Z  
-- [AGENTSAM-FILE-CREATE-HTML-FAILURES-2026-07-22.md](./AGENTSAM-FILE-CREATE-HTML-FAILURES-2026-07-22.md)  
-- Pin + progressive terminal: `23e6bf68`  
+- [AGENTSAM-FILE-CREATE-HTML-FAILURES-2026-07-22.md](./AGENTSAM-FILE-CREATE-HTML-FAILURES-2026-07-22.md) — predecessor diagnosis; **parallel** tickets (not Gates 1a/1b): `tkt_workspace_search_empty_path`, `tkt_search_tools_rank_media_last`  
+- Pin + progressive terminal: `23e6bf68` · hosted 1a/1b wire: `510f5e94`  
 - [OPENAI-AGENTSAM-FLEET-2026-07.md](./OPENAI-AGENTSAM-FLEET-2026-07.md)  
 - [MAC-LOCALPTY-EXEC-IDENTITY-2026-07.md](./MAC-LOCALPTY-EXEC-IDENTITY-2026-07.md)  
