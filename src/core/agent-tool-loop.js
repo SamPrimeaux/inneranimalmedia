@@ -1048,6 +1048,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         agentRunId: chatAgentRunId ?? null,
         routingArmId: routingArmIdParam ?? dispatchSpine.routing_arm_id ?? null,
         taskType: routingTaskType || 'ask',
+        routeKey: params.chatRouteKey ?? params.routeKey ?? params.route_key ?? null,
         // `auto` is UI-only; tool loop always continues as a concrete mode.
         mode: (dispatchSpineParam?.routing_decision?.mode ?? mode) || 'agent',
         lane:

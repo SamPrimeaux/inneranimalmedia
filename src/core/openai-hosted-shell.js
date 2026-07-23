@@ -112,16 +112,21 @@ export async function loadHostedShellAllowedDomains(env) {
 /**
  * Flag + catalog capability. Fail-closed when either is off.
  * Soft gate: writePolicy.can_terminal === false blocks inject (hosted shell still "shell").
+ * Hard block: Design Studio / CAD routes — OpenAI hosted shell is /mnt/data scratch, not CAD.
  * @param {any} env
  * @param {{
  *   userId?: string|null,
  *   tenantId?: string|null,
  *   modelKey?: string|null,
  *   writePolicy?: Record<string, unknown>|null,
+ *   routeKey?: string|null,
+ *   taskType?: string|null,
+ *   tools?: unknown[]|null,
  * }} opts
  */
 export async function shouldInjectHostedShell(env, opts = {}) {
   if (opts.writePolicy && opts.writePolicy.can_terminal === false) return false;
+  if (isDesignStudioCadSurface(opts)) return false;
   const { isFeatureEnabled } = await import('./features.js');
   const flagOn = await isFeatureEnabled(env, FLAG_KEY, {
     userId: opts.userId,
@@ -129,6 +134,43 @@ export async function shouldInjectHostedShell(env, opts = {}) {
   });
   if (!flagOn) return false;
   return modelSupportsHostedShell(env, opts.modelKey);
+}
+
+/**
+ * Design Studio / CAD generation must use cad_generate → viewport GLB, never OpenAI hosted shell.
+ * @param {{
+ *   routeKey?: string|null,
+ *   taskType?: string|null,
+ *   tools?: unknown[]|null,
+ * }} opts
+ */
+export function isDesignStudioCadSurface(opts = {}) {
+  const rk = String(opts.routeKey || '')
+    .trim()
+    .toLowerCase();
+  const tt = String(opts.taskType || '')
+    .trim()
+    .toLowerCase();
+  if (
+    rk === 'design_studio' ||
+    rk === 'cad_generation' ||
+    rk.startsWith('design_studio') ||
+    tt === 'design_studio' ||
+    tt === 'design_studio_base' ||
+    tt === 'cad_generation' ||
+    tt.startsWith('design_studio')
+  ) {
+    return true;
+  }
+  const tools = Array.isArray(opts.tools) ? opts.tools : [];
+  for (const t of tools) {
+    const name =
+      t && typeof t === 'object'
+        ? String(/** @type {any} */ (t).name || /** @type {any} */ (t).tool_key || '').trim()
+        : '';
+    if (name === 'cad_generate') return true;
+  }
+  return false;
 }
 
 /**

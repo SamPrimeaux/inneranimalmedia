@@ -564,6 +564,11 @@ export async function dispatchStream(env, request, params) {
     ...(params.taskType != null && String(params.taskType).trim() !== ''
       ? { taskType: String(params.taskType).trim() }
       : {}),
+    ...(params.routeKey != null && String(params.routeKey).trim() !== ''
+      ? { routeKey: String(params.routeKey).trim() }
+      : params.chatRouteKey != null && String(params.chatRouteKey).trim() !== ''
+        ? { routeKey: String(params.chatRouteKey).trim() }
+        : {}),
     ...(params.mode != null && String(params.mode).trim() !== ''
       ? { mode: String(params.mode).trim() }
       : {}),

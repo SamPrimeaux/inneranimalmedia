@@ -24,6 +24,7 @@ import {
 import { shouldInjectApplyPatch, withApplyPatchTool } from '../core/openai-apply-patch.js';
 import {
   shouldInjectHostedShell,
+  isDesignStudioCadSurface,
   withHostedShellTool,
   withHostedShellHybridInstructions,
   loadHostedShellAllowedDomains,
@@ -678,14 +679,21 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
     params.writePolicy ||
     params.write_policy ||
     null;
+  const hostedShellSurfaceOpts = {
+    routeKey: params.routeKey ?? params.route_key ?? params.chatRouteKey ?? null,
+    taskType: params.taskType ?? params.task_type ?? null,
+    tools,
+  };
   const openaiHostedShellEnabled =
-    params.openaiHostedShellEnabled === true ||
-    (await shouldInjectHostedShell(env, {
-      userId,
-      tenantId: params.tenantId,
-      modelKey: modelKey || modelForApi,
-      writePolicy,
-    }));
+    !isDesignStudioCadSurface(hostedShellSurfaceOpts) &&
+    (params.openaiHostedShellEnabled === true ||
+      (await shouldInjectHostedShell(env, {
+        userId,
+        tenantId: params.tenantId,
+        modelKey: modelKey || modelForApi,
+        writePolicy,
+        ...hostedShellSurfaceOpts,
+      })));
   const hostedShellDomains = openaiHostedShellEnabled
     ? await loadHostedShellAllowedDomains(env)
     : [];
@@ -865,14 +873,21 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
       modelKey: modelKey || modelForApi,
     }));
   const writePolicy = params.writePolicy || params.write_policy || null;
+  const hostedShellSurfaceOpts = {
+    routeKey: params.routeKey ?? params.route_key ?? params.chatRouteKey ?? null,
+    taskType: params.taskType ?? params.task_type ?? null,
+    tools,
+  };
   const openaiHostedShellEnabled =
-    params.openaiHostedShellEnabled === true ||
-    (await shouldInjectHostedShell(env, {
-      userId,
-      tenantId: params.tenantId,
-      modelKey: modelKey || modelForApi,
-      writePolicy,
-    }));
+    !isDesignStudioCadSurface(hostedShellSurfaceOpts) &&
+    (params.openaiHostedShellEnabled === true ||
+      (await shouldInjectHostedShell(env, {
+        userId,
+        tenantId: params.tenantId,
+        modelKey: modelKey || modelForApi,
+        writePolicy,
+        ...hostedShellSurfaceOpts,
+      })));
   const hostedShellDomains = openaiHostedShellEnabled
     ? await loadHostedShellAllowedDomains(env)
     : [];
