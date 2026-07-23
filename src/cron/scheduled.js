@@ -128,9 +128,7 @@ export async function handleScheduled(event, env, ctx) {
           console.warn('[cron] meshy_cad_reconcile', e?.message ?? e),
         ),
       );
-      break;
-
-    case '*/20 * * * *':
+      // WAE error spike check shares the */20 slot — independent waitUntil
       ctx.waitUntil(
         runWaeErrorSpikeCheck(env, ctx).catch((e) =>
           console.warn('[cron] wae_error_spike_check', e?.message ?? e),

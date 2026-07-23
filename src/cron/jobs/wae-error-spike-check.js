@@ -1,25 +1,50 @@
 /**
  * WAE error spike check — queries Workers Analytics Engine for the last 20 minutes,
- * fires sendPhoneLoopCompletion (push + email) if error rate exceeds threshold.
+ * fires sendPhoneLoopCompletion (push + email) if 5xx error count exceeds threshold.
  *
  * Real data from CF's telemetry layer — not self-reported by the app.
  * Deduplicates via KV so you get at most one alert per 15-minute window.
+ *
+ * NOTE: Only catches errors that call recordWorkerAnalyticsError (worker throws + select
+ * call sites). Does not count every HTTP 5xx response. Threshold is absolute count only —
+ * no rate calculation since we don't have total request volume in the same dataset.
  */
 import { sendPhoneLoopCompletion } from '../../core/email-agent-bridge.js';
+import { startCronRun, completeCronRun, failCronRun } from '../cron-run-ledger.js';
 
-const ACCOUNT_ID = 'ede6590ac0d2fb7daf155b35653457b2';
-const WAE_SQL_ENDPOINT = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/analytics_engine/sql`;
+const CRON_EXPR = '*/20 * * * *';
 
-// Alert thresholds
-const ERROR_5XX_THRESHOLD = 10;     // >10 5xx errors in 20 min = alert
-const ERROR_RATE_THRESHOLD = 0.20;  // >20% of requests erroring = alert
+// Alert threshold: absolute 5xx count in 20-minute window
+const ERROR_5XX_THRESHOLD = 10;
 
 /**
  * @param {any} env
  * @param {ExecutionContext} ctx
  */
 export async function runWaeErrorSpikeCheck(env, ctx) {
+  const begun = await startCronRun(env, {
+    jobName: 'wae_error_spike_check',
+    cronExpression: CRON_EXPR,
+    tenantId: null,
+    workspaceId: null,
+  }).catch(() => null);
+  const runId = begun?.runId ?? null;
+  const startedAt = begun?.startedAt ?? Date.now();
+
+  try {
+    const result = await _runCheck(env, ctx);
+    if (runId) await completeCronRun(env, runId, startedAt, { rowsRead: result.rowsScanned ?? 0, rowsWritten: result.alerted ? 1 : 0, metadata: result }).catch(() => null);
+    return result;
+  } catch (e) {
+    if (runId) await failCronRun(env, runId, startedAt, e).catch(() => null);
+    throw e;
+  }
+}
+
+async function _runCheck(env, ctx) {
   const token = env.CLOUDFLARE_API_TOKEN;
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID || 'ede6590ac0d2fb7daf155b35653457b2';
+
   if (!token) {
     console.warn('[wae-spike] CLOUDFLARE_API_TOKEN not set — skipping');
     return { skipped: true, reason: 'no_token' };
@@ -34,59 +59,61 @@ export async function runWaeErrorSpikeCheck(env, ctx) {
     return { skipped: true, reason: 'dedupe' };
   }
 
-  // Query WAE: error counts by path in last 20 minutes
+  // WAE SQL API — body must be raw SQL string as text/plain, not JSON
   const sql = `
-    SELECT
-      blob1 AS worker,
-      blob3 AS path,
-      SUM(_sample_interval) AS total_requests,
-      SUM(IF(double1 >= 500, _sample_interval, 0)) AS error_5xx,
-      SUM(IF(double1 >= 400, _sample_interval, 0)) AS error_4xx
-    FROM inneranimalmedia
-    WHERE timestamp >= NOW() - INTERVAL '20' MINUTE
-      AND index1 = 'worker_error'
-    GROUP BY blob1, blob3
-    ORDER BY error_5xx DESC
-    LIMIT 20
-  `;
+SELECT
+  blob1 AS worker,
+  blob3 AS path,
+  SUM(_sample_interval) AS total_datapoints,
+  SUM(IF(double1 >= 500, _sample_interval, 0)) AS error_5xx,
+  SUM(IF(double1 >= 400 AND double1 < 500, _sample_interval, 0)) AS error_4xx
+FROM inneranimalmedia
+WHERE timestamp >= NOW() - INTERVAL '20' MINUTE
+  AND index1 = 'worker_error'
+GROUP BY blob1, blob3
+ORDER BY error_5xx DESC
+LIMIT 20
+  `.trim();
 
   let rows = [];
   try {
-    const res = await fetch(WAE_SQL_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/analytics_engine/sql`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'text/plain',
+        },
+        body: sql,
       },
-      body: JSON.stringify({ query: sql }),
-    });
+    );
     if (!res.ok) {
-      console.warn('[wae-spike] WAE query HTTP', res.status, await res.text().catch(() => ''));
+      const txt = await res.text().catch(() => '');
+      console.warn('[wae-spike] WAE query HTTP', res.status, txt.slice(0, 200));
       return { ok: false, reason: `wae_http_${res.status}` };
     }
     const json = await res.json();
     rows = json?.data ?? [];
   } catch (e) {
-    console.warn('[wae-spike] query failed', e?.message ?? e);
+    console.warn('[wae-spike] fetch failed', e?.message ?? e);
     return { ok: false, reason: 'fetch_error', error: e?.message };
   }
 
-  if (!rows.length) {
-    console.log('[wae-spike] no error rows in window — all clear');
-    return { ok: true, spiking: false, totalErrors5xx: 0 };
+  const rowsScanned = rows.length;
+
+  if (!rowsScanned) {
+    console.log('[wae-spike] no error datapoints in window — all clear');
+    return { ok: true, spiking: false, totalErrors5xx: 0, rowsScanned: 0 };
   }
 
-  // Aggregate totals
   const totalErrors5xx = rows.reduce((n, r) => n + Number(r.error_5xx || 0), 0);
   const totalErrors4xx = rows.reduce((n, r) => n + Number(r.error_4xx || 0), 0);
-  const totalRequests = rows.reduce((n, r) => n + Number(r.total_requests || 0), 0);
-  const errorRate = totalRequests > 0 ? totalErrors5xx / totalRequests : 0;
 
-  console.log(`[wae-spike] 5xx=${totalErrors5xx} 4xx=${totalErrors4xx} total=${totalRequests} rate=${(errorRate * 100).toFixed(1)}%`);
+  console.log(`[wae-spike] 5xx=${totalErrors5xx} 4xx=${totalErrors4xx} paths=${rowsScanned}`);
 
-  const spiking = totalErrors5xx > ERROR_5XX_THRESHOLD || errorRate > ERROR_RATE_THRESHOLD;
-  if (!spiking) {
-    return { ok: true, spiking: false, totalErrors5xx, totalRequests, errorRate };
+  if (totalErrors5xx <= ERROR_5XX_THRESHOLD) {
+    return { ok: true, spiking: false, totalErrors5xx, totalErrors4xx, rowsScanned };
   }
 
   // Top failing paths
@@ -96,44 +123,46 @@ export async function runWaeErrorSpikeCheck(env, ctx) {
     .map((r) => `  ${r.path || '(unknown)'} → ${r.error_5xx} 5xx`)
     .join('\n');
 
-  // Mark notified in KV before firing so concurrent cron ticks don't double-send
+  // Mark notified before firing to prevent concurrent double-send
   await env.KV?.put(dedupeKey, '1', { expirationTtl: 15 * 60 }).catch(() => null);
 
-  // Fire push + email via existing phone loop infrastructure
-  const conversationId = crypto.randomUUID();
-  const subject = `[Agent Sam] ⚠️ Error spike — ${totalErrors5xx} 5xx in last 20min`;
+  const subject = `[Agent Sam] ⚠️ ${totalErrors5xx} Worker 5xx errors in last 20min`;
   const body = [
-    `Worker error spike detected on inneranimalmedia.`,
+    `Worker error spike detected.`,
     ``,
-    `5xx errors:     ${totalErrors5xx}`,
-    `4xx errors:     ${totalErrors4xx}`,
-    `Total requests: ${totalRequests}`,
-    `Error rate:     ${(errorRate * 100).toFixed(1)}%`,
+    `5xx errors: ${totalErrors5xx}`,
+    `4xx errors: ${totalErrors4xx}`,
+    `Distinct paths: ${rowsScanned}`,
     ``,
     `Top failing paths:`,
     topPaths || `  (no paths isolated)`,
     ``,
-    `→ https://dash.cloudflare.com/${ACCOUNT_ID}/workers/analytics`,
+    `→ https://dash.cloudflare.com/${accountId}/workers/analytics`,
   ].join('\n');
 
+  // Push + email via phone loop infrastructure
   await sendPhoneLoopCompletion(env, ctx, {
-    conversationId,
+    conversationId: crypto.randomUUID(),
     subject,
     body,
     pushTitle: `⚠️ ${totalErrors5xx} Worker 5xx errors`,
-    pushBody: `${(errorRate * 100).toFixed(0)}% error rate last 20min — tap to investigate`,
-  }).catch((e) => console.warn('[wae-spike] sendPhoneLoopCompletion failed', e?.message ?? e));
+    pushBody: `${totalErrors5xx} errors in last 20min — tap to investigate`,
+  }).catch((e) => console.warn('[wae-spike] notify failed', e?.message ?? e));
 
-  // Write to agentsam_error_log so it lands in the audit trail
+  // Audit trail
+  const tenantId = 'tenant_sam_primeaux';
+  const workspaceId = 'ws_inneranimalmedia';
   await env.DB?.prepare(`
     INSERT INTO agentsam_error_log
       (id, workspace_id, tenant_id, error_code, error_type, error_message, source, context_json, resolved, created_at)
-    VALUES (?, 'ws_inneranimalmedia', 'tenant_sam_primeaux', 'wae_error_spike', 'critical', ?, 'wae_cron', ?, 0, unixepoch())
+    VALUES (?, ?, ?, 'wae_error_spike', 'critical', ?, 'wae_cron', ?, 0, unixepoch())
   `).bind(
     `aerr_wae_${Date.now()}`,
-    `${totalErrors5xx} 5xx errors in 20min window (rate: ${(errorRate * 100).toFixed(1)}%)`,
-    JSON.stringify({ totalErrors5xx, totalErrors4xx, totalRequests, errorRate, topPaths }),
+    workspaceId,
+    tenantId,
+    `${totalErrors5xx} 5xx errors in 20min window`,
+    JSON.stringify({ totalErrors5xx, totalErrors4xx, rowsScanned, topPaths }),
   ).run().catch((e) => console.warn('[wae-spike] error_log insert failed', e?.message ?? e));
 
-  return { ok: true, spiking: true, totalErrors5xx, totalErrors4xx, totalRequests, errorRate };
+  return { ok: true, spiking: true, alerted: true, totalErrors5xx, totalErrors4xx, rowsScanned };
 }
