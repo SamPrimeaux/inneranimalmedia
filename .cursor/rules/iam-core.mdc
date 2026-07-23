@@ -41,7 +41,7 @@ Auth HTML: `static/pages/auth/*.html` → `./scripts/upload-auth-pages.sh` (R2 o
 Never hardcode `au_*`, `ws_*`, or `tenant_*` in `src/`, `dashboard/`, or MCP `src/` hot paths. Resolve from session, token, or D1 auth rows. OAuth allowlists are D1-driven (consent writes rows — no migration-seeded operator ids).
 
 - MCP OAuth client id: `MCP_CANONICAL_CLIENT_ID` from `mcp-oauth-shared.js` only.
-- Run `npm run guard:identity` before ship.
+- Run `npm run guard:identity` and `npm run guard:engineering-laws` before ship.
 - **Superadmin platform bypass:** `users.role === 'superadmin'` (or `is_superadmin`) → platform Wrangler secrets via `getPlatformCredential`; everyone else → BYOK `user_api_keys` + `user_secrets`. Never branch credentials on `tenant_*` strings in code.
 
 ---

@@ -140,14 +140,17 @@ async function insertAgentsamRulesDocument(env, row) {
     globs,
     sortOrder,
   } = row;
+  // apply_mode=always must set trigger_type=system or DEFAULT 'manual' leaves the rule invisible
+  // to older loaders; see AGENTS.md §9 · rule_platform_lockdown_engineering_law.
+  const triggerType = applyMode === 'always' ? 'system' : 'manual';
   try {
     await env.DB.prepare(
       `INSERT INTO agentsam_rules_document (
         id, user_id, workspace_id, title, body_markdown, version, is_active,
-        apply_mode, globs, sort_order, created_at_epoch, updated_at_epoch, source_stored
-      ) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?, unixepoch(), unixepoch(), 'dashboard')`,
+        apply_mode, globs, sort_order, trigger_type, created_at_epoch, updated_at_epoch, source_stored
+      ) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, unixepoch(), unixepoch(), 'dashboard')`,
     )
-      .bind(id, userId, workspaceId, title, bodyMarkdown, applyMode, globs, sortOrder ?? 0)
+      .bind(id, userId, workspaceId, title, bodyMarkdown, applyMode, globs, sortOrder ?? 0, triggerType)
       .run();
     return { ok: true, extended: true };
   } catch (e) {

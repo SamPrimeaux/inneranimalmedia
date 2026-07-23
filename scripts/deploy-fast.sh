@@ -35,6 +35,14 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "[deploy:fast] critical path — vite → R2 delta → wrangler"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
+# AGENTS.md §9 — refuse ship if trail writers / loader regress
+if [[ "${SKIP_ENGINEERING_LAWS_GUARD:-0}" != "1" ]]; then
+  node "$REPO_ROOT/scripts/guard-engineering-laws.mjs" || {
+    echo "[deploy:fast] FATAL: guard:engineering-laws failed" >&2
+    exit 1
+  }
+fi
+
 FAST_START=$(date +%s)
 
 if [[ "$SKIP_BUILD" != "1" ]]; then

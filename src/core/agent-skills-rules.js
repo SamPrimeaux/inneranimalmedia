@@ -29,8 +29,14 @@ export function ruleMatchesKeywordTrigger(message, triggerConditionJson) {
 
 /**
  * Loads agentsam_rules_document rows for system prompt injection:
- * apply_mode=always, trigger_type=system (always) or keyword (message match).
- * When projectRef/projectId is set, also loads rule_{slug}_runtimecontract rows.
+ * apply_mode=always, and either:
+ *   - trigger_type=keyword (message match), or
+ *   - any other trigger_type (system / always / manual / …) treated as unconditional.
+ *
+ * Historical footgun (2026-07-23): column DEFAULT trigger_type='manual' + SQL filter
+ * `trigger_type IN ('system','keyword')` silently dropped LOCKED apply_mode=always rules.
+ * apply_mode=always is now authoritative; keyword is the only conditional opt-in.
+ * See AGENTS.md §9 · rule_platform_lockdown_engineering_law.
  */
 export async function fetchTriggeredRulesForSystemPrompt(env, opts = {}) {
   if (!env?.DB) return [];
@@ -57,7 +63,6 @@ export async function fetchTriggeredRulesForSystemPrompt(env, opts = {}) {
        FROM agentsam_rules_document
        WHERE is_active = 1
          AND apply_mode = 'always'
-         AND trigger_type IN ('system', 'keyword')
          AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
          AND (user_id = ? OR user_id IS NULL OR TRIM(COALESCE(user_id, '')) = '')
        ORDER BY COALESCE(sort_order, 0) ASC, updated_at_epoch DESC`,
@@ -97,9 +102,9 @@ export async function fetchTriggeredRulesForSystemPrompt(env, opts = {}) {
 
   return rows.filter((r) => {
     const tt = String(r.trigger_type || '').toLowerCase();
-    if (tt === 'system') return true;
     if (tt === 'keyword') return ruleMatchesKeywordTrigger(message, r.trigger_condition_json);
-    return false;
+    // system | always | manual | wireframe | empty | anything else → unconditional
+    return true;
   });
 }
 

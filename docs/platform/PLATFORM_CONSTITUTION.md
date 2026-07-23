@@ -223,6 +223,8 @@ D1 `agentsam_rules_document` holds **runtime-enforced** platform law. Docs and D
 Before proposing architecture, redesigning a surface, or changing product code:
 
 ```
+0. AGENTS.md (repo root)          ← engineering laws (all tools) · D1 rule_platform_lockdown_engineering_law
+        ↓
 1. Platform Constitution          ← you are here
         ↓
 2. [`docs/workspace/WORKSPACE_CONSTITUTION.md`](../workspace/WORKSPACE_CONSTITUTION.md)

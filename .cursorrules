@@ -1,15 +1,15 @@
 # Inner Animal Media — Cursor
 
-**Platform identity (read before any product work):** `docs/platform/PLATFORM_CONSTITUTION.md` → `docs/workspace/WORKSPACE_CONSTITUTION.md` → `docs/products/PRODUCT_REGISTRY.md`
+**First read (all tools):** [`AGENTS.md`](AGENTS.md) · D1 `rule_platform_lockdown_engineering_law` (`trigger_type=system`)
 
-**Always-on rules:** `.cursor/rules/iam-core.mdc` · `.cursor/rules/iam-ship-lanes.mdc` (Mac vs VM vs CF Builds — **never** `deploy:full` on GCP) · `.cursor/rules/iam-ship-gate.mdc` · `.cursor/rules/iam-agent-delivery-workflow.mdc` · `.cursor/rules/iam-ticket-dual-pass-e2e.mdc` (2× E2E before ticket `shipped`)
+**Platform identity:** `docs/platform/PLATFORM_CONSTITUTION.md` → `docs/workspace/WORKSPACE_CONSTITUTION.md` → `docs/products/PRODUCT_REGISTRY.md`
+
+**Always-on Cursor helpers:** `.cursor/rules/iam-core.mdc` · `iam-ship-lanes.mdc` · `iam-ship-gate.mdc` · `iam-agent-delivery-workflow.mdc` · `iam-ticket-dual-pass-e2e.mdc`
 
 **Ship gate:** local → commit/push → deploy **by host** (Mac: `deploy:full`/`deploy:fast`; GCP VM: `ship:remote` → CF Builds). SSOT: `docs/platform/mac-free-ship-lanes-2026-07.md`.
 
 **No test/smoke in deploy** unless you explicitly ask (see iam-core).
 
-**Optional (agent loads when relevant):** other files in `.cursor/rules/` with `alwaysApply: false` — e.g. `iam-gcp-vm-self-heal.mdc` for iam-tunnel git/SSH/pm2 failures.
-
-**Platform law in D1:** `agentsam_rules_document` — query at runtime with `d1_query` / migrations. Do **not** paste table catalogs or schemas into Cursor rules.
+**Platform law in D1:** `agentsam_rules_document` — runtime via `fetchTriggeredRulesForSystemPrompt`. LOCKED rows need `apply_mode=always` **and** `trigger_type=system` (column default is `manual` — silent no-op). Guard: `npm run guard:engineering-laws`.
 
 **Never commit:** `.cursor/mcp.json` (developer-owned), `.env.cloudflare`, secrets, `*.bak`, `.scratch/`.
