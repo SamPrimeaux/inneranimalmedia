@@ -18,6 +18,7 @@ Work **in this order**. Do not parallelize product remasters across these.
 
 | Ticket | D1 id | Project |
 |--------|-------|---------|
+| [IAM-BARE-MINIMUM-COMPUTE-2026-07.md](./IAM-BARE-MINIMUM-COMPUTE-2026-07.md) | *(gates 0–5 — create D1 tickets as started)* | **Compute scorecard LOCK** — workspace green; hosted shell → MCP → MY_CONTAINER → bridge decision → remote. No SandboxAgent until Gates 0–3 green. |
 | [AGENT-SURFACE-PROTOCOL-2026-07.md](./AGENT-SURFACE-PROTOCOL-2026-07.md) | `tkt_agent_surface_protocol` | shared surface-context protocol (resume later) |
 | [DRAW-EXPORT-ARTIFACTS-2026-07.md](./DRAW-EXPORT-ARTIFACTS-2026-07.md) | `tkt_draw_export_artifacts` | Draw PNG/SVG/scene → ARTIFACTS + agentsam_artifacts |
 | [CLOSED-LOOP-FEEDBACK-BLINDSPOTS-2026-07-14.md](./CLOSED-LOOP-FEEDBACK-BLINDSPOTS-2026-07-14.md) | `tkt_closed_loop_feedback_blindspots_2026_07_14` | `inneranimalmedia` |
