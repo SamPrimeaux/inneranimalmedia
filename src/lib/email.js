@@ -87,7 +87,7 @@ async function getGmailPlatformAccessToken(env, vault) {
   return tokJson.access_token;
 }
 
-function buildRfc2822({ from, to, subject, html, text }) {
+function buildRfc2822({ from, to, subject, html, text, inReplyTo, references }) {
   const boundary = `b_${crypto.randomUUID?.() || Date.now()}`;
   const body =
     html && text
@@ -111,8 +111,10 @@ function buildRfc2822({ from, to, subject, html, text }) {
         ? ['MIME-Version: 1.0', 'Content-Type: text/html; charset=UTF-8', '', html].join('\r\n')
         : ['MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8', '', text || ''].join('\r\n');
 
-  const head = [`From: ${from}`, `To: ${to}`, `Subject: ${subject}`].join('\r\n');
-  return `${head}\r\n${body}`;
+  const headLines = [`From: ${from}`, `To: ${to}`, `Subject: ${subject}`];
+  if (inReplyTo) headLines.push(`In-Reply-To: ${inReplyTo}`);
+  if (references) headLines.push(`References: ${references}`);
+  return `${headLines.join('\r\n')}\r\n${body}`;
 }
 
 function toRawBase64Url(rfc2822) {
@@ -122,12 +124,15 @@ function toRawBase64Url(rfc2822) {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-async function sendViaResend(vault, env, { from, to, subject, html, text }) {
+async function sendViaResend(vault, env, { from, to, subject, html, text, headers }) {
   const key = secretFromVault(vault, env, 'RESEND_API_KEY');
   if (!key) throw new Error('RESEND_API_KEY not configured');
   const body = { from, to: [to], subject };
   if (html) body.html = html;
   if (text) body.text = text;
+  if (headers && typeof headers === 'object' && Object.keys(headers).length) {
+    body.headers = headers;
+  }
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -144,9 +149,17 @@ async function sendViaResend(vault, env, { from, to, subject, html, text }) {
   return json;
 }
 
-async function sendViaGmailPlatform(vault, env, { from, to, subject, html, text }) {
+async function sendViaGmailPlatform(vault, env, { from, to, subject, html, text, headers }) {
   const token = await getGmailPlatformAccessToken(env, vault);
-  const rfc = buildRfc2822({ from, to, subject, html: html || '', text });
+  const rfc = buildRfc2822({
+    from,
+    to,
+    subject,
+    html: html || '',
+    text,
+    inReplyTo: headers?.['In-Reply-To'] || headers?.['in-reply-to'] || null,
+    references: headers?.References || headers?.references || null,
+  });
   const raw = toRawBase64Url(rfc);
   const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST',
@@ -166,17 +179,51 @@ async function sendViaGmailPlatform(vault, env, { from, to, subject, html, text 
 /**
  * Platform transactional email: provider from public_config.platform_email_provider.
  * @param {object} env
- * @param {{ to?: string, subject: string, text?: string, html?: string, from?: string, category?: string }} opts
+ * @param {{
+ *   to?: string,
+ *   subject: string,
+ *   text?: string,
+ *   html?: string,
+ *   from?: string,
+ *   category?: string,
+ *   conversationId?: string,
+ *   inReplyTo?: string,
+ *   noAgentSamPrefix?: boolean,
+ * }} opts
  * @param {import('@cloudflare/workers-types').ExecutionContext} [executionCtx]
  */
 export async function sendPlatformEmail(env, opts, executionCtx) {
   const subjectRaw = String(opts.subject || '')
     .replace(/[\r\n\t]/g, ' ')
     .trim();
-  const bodyRaw = String(opts.text || opts.body || '').trim();
+  let bodyRaw = String(opts.text || opts.body || '').trim();
+  let htmlRaw = opts.html != null ? String(opts.html) : '';
   const category = String(opts.category || 'notice').trim();
+  const conversationId =
+    opts.conversationId != null && String(opts.conversationId).trim()
+      ? String(opts.conversationId).trim()
+      : '';
+  const inReplyTo =
+    opts.inReplyTo != null && String(opts.inReplyTo).trim()
+      ? String(opts.inReplyTo).trim()
+      : '';
+
+  if (conversationId) {
+    const { buildThreadEmbeds } = await import('../core/email-reply-thread.js');
+    const embeds = buildThreadEmbeds(conversationId);
+    if (embeds.footerText && !bodyRaw.includes(embeds.token)) {
+      bodyRaw = `${bodyRaw}${embeds.footerText}`;
+    }
+    if (embeds.htmlComment) {
+      htmlRaw = htmlRaw
+        ? `${htmlRaw}\n${embeds.htmlComment}`
+        : `<pre style="white-space:pre-wrap;font-family:system-ui,sans-serif">${escapeHtml(bodyRaw)}</pre>\n${embeds.htmlComment}`;
+    }
+  }
+
   const publicCfg = await getPublicConfig(env);
   const vault = await getVaultSecrets(env);
+  // Prefer sam@ for phone-loop FROM when configured; recipient stays RESEND_TO / opts.to
   const toAddr = opts.to || secretFromVault(vault, env, 'RESEND_TO') || env.RESEND_TO || '';
   const fromOverride = opts.from ? String(opts.from).trim() : '';
   const fromDefault =
@@ -194,6 +241,12 @@ export async function sendPlatformEmail(env, opts, executionCtx) {
 
   const providerRaw = String(publicCfg.platform_email_provider || '').trim().toLowerCase();
   const useResend = providerRaw === 'resend';
+
+  const threadHeaders = {};
+  if (inReplyTo) {
+    threadHeaders['In-Reply-To'] = inReplyTo.includes('<') ? inReplyTo : `<${inReplyTo}>`;
+    threadHeaders.References = threadHeaders['In-Reply-To'];
+  }
 
   const run = async () => {
     if (!toAddr) {
@@ -226,8 +279,9 @@ export async function sendPlatformEmail(env, opts, executionCtx) {
           from,
           to: toAddr,
           subject,
-          html: opts.html,
+          html: htmlRaw || undefined,
           text: bodyRaw,
+          headers: Object.keys(threadHeaders).length ? threadHeaders : undefined,
         });
       } else {
         const from = fromDefault;
@@ -239,8 +293,9 @@ export async function sendPlatformEmail(env, opts, executionCtx) {
           from,
           to: toAddr,
           subject,
-          html: opts.html,
+          html: htmlRaw || undefined,
           text: bodyRaw,
+          headers: Object.keys(threadHeaders).length ? threadHeaders : undefined,
         });
       }
 
@@ -262,7 +317,7 @@ export async function sendPlatformEmail(env, opts, executionCtx) {
           textContent: bodyRaw || null,
         });
       }
-      return { success: true, data: json };
+      return { success: true, data: json, externalMessageId: json?.id ?? null };
     } catch (e) {
       console.warn('[sendPlatformEmail]', e?.message ?? e);
       return { success: false, error: e?.message ?? String(e) };
@@ -274,6 +329,14 @@ export async function sendPlatformEmail(env, opts, executionCtx) {
     return { success: true, async: true };
   }
   return run();
+}
+
+function escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 async function refreshUserGoogleToken(env, vault, tokenRow) {

@@ -1311,7 +1311,7 @@ function timingSafeEqual(a, b) {
 
 /**
  * 🧱 handleResendWebhook: Inbound Email Reply Hub
- * Processes inbound emails from Resend and matches them to active agent hooks.
+ * Phone IDE loop: persist → allowlist → parse [ref:] → Agent Sam turn (no agent_messages).
  */
 async function handleResendWebhook(request, env, ctx, endpointPath = '/api/webhooks/resend') {
     try {
@@ -1324,6 +1324,13 @@ async function handleResendWebhook(request, env, ctx, endpointPath = '/api/webho
                 : fromRaw?.email || fromRaw?.address || fromRaw;
         const subject = data?.subject != null ? String(data.subject) : '';
         const text = data?.text != null ? String(data.text) : '';
+        const html = data?.html != null ? String(data.html) : '';
+        const inReplyToRaw =
+            data?.headers?.['in-reply-to'] ||
+            data?.headers?.['In-Reply-To'] ||
+            data?.in_reply_to ||
+            data?.inReplyTo ||
+            null;
 
         console.log(`[Resend] New inbound email from ${senderEmail}: ${subject}`);
 
@@ -1336,30 +1343,51 @@ async function handleResendWebhook(request, env, ctx, endpointPath = '/api/webho
             );
         }
 
-        // 🧱 Hook Resolution Engine
-        const hook = await env.DB.prepare(
-            `SELECT * FROM agentsam_hook 
-             WHERE provider = 'resend' AND external_id = ? AND trigger = 'email_reply' AND is_active = 1
-             LIMIT 1`
-        ).bind(senderEmail).first();
+        let phoneLoop = { attempted: false, ok: false };
+        try {
+            const {
+                isPhoneLoopAllowlistedSender,
+                handleParsedEmailReply,
+            } = await import('../core/email-agent-bridge.js');
 
-        if (hook) {
-            console.log(`[Resend] Found active hook for ${senderEmail} -> Targeting ${hook.target_id}`);
-            
-            // Append to agent_messages
-            await env.DB.prepare(
-                `INSERT INTO agent_messages (id, conversation_id, role, content, provider, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?)`
-            ).bind(
-                crypto.randomUUID(),
-                hook.target_id,
-                'user',
-                `[Email Reply] Subject: ${subject}\n\n${text}`,
-                'resend',
-                Math.floor(Date.now() / 1000)
-            ).run();
+            if (isPhoneLoopAllowlistedSender(senderEmail)) {
+                phoneLoop.attempted = true;
+                const result = await handleParsedEmailReply(env, ctx, {
+                    text,
+                    html,
+                    subject,
+                    fromAddress: senderEmail,
+                    inReplyTo: inReplyToRaw,
+                });
+                phoneLoop = { attempted: true, ...result };
+                console.log('[Resend] phone loop', JSON.stringify({
+                    ok: result.ok,
+                    conversationId: result.conversationId,
+                    minted: result.minted,
+                    accepted: result.accepted,
+                    error: result.error || null,
+                }));
+            } else {
+                console.log(`[Resend] sender not phone-loop allowlisted: ${senderEmail}`);
+            }
+        } catch (loopErr) {
+            console.warn('[Resend] phone loop failed', loopErr?.message || loopErr);
+            phoneLoop = { attempted: true, ok: false, error: loopErr?.message || String(loopErr) };
         }
-        await recordIntegrationEvent(env, 'system', 'resend', 'webhook_received', senderEmail, `Inbound email webhook received from ${senderEmail}`, { hook_matched: !!hook, subject, inbound_id: inbound.ok ? inbound.id : null });
+
+        await recordIntegrationEvent(
+            env,
+            'system',
+            'resend',
+            'webhook_received',
+            senderEmail,
+            `Inbound email webhook received from ${senderEmail}`,
+            {
+                subject,
+                inbound_id: inbound.ok ? inbound.id : null,
+                phone_loop: phoneLoop,
+            },
+        );
 
         const { ingestWebhookEventAndDispatch } = await import('../core/webhook-ingest-dispatch.js');
         const pathNorm = String(endpointPath || '/api/webhooks/resend').toLowerCase();
@@ -1371,26 +1399,26 @@ async function handleResendWebhook(request, env, ctx, endpointPath = '/api/webho
                   : 'webhook_received';
         await ingestWebhookEventAndDispatch(env, ctx, {
             tenantId: inbound.ok ? inbound.tenantId : null,
-            workspaceId: null,
+            workspaceId: 'ws_inneranimalmedia',
             provider: 'resend',
             eventType,
             payload: body,
             endpointPath: pathNorm,
             signatureValid: true,
             metadata: {
-                hook_matched: !!hook,
                 subject: subject ?? null,
                 from: senderEmail,
                 inbound_id: inbound.ok ? inbound.id : null,
+                phone_loop: phoneLoop,
             },
         });
 
-        return jsonResponse({ 
-            status: 'received', 
+        return jsonResponse({
+            status: 'received',
             source: 'resend',
-            hook_matched: !!hook,
             inbound_id: inbound.ok ? inbound.id : null,
             tenant_id: inbound.ok ? inbound.tenantId : null,
+            phone_loop: phoneLoop,
         });
 
     } catch (e) {
