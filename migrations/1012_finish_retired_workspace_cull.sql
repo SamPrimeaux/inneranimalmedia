@@ -58,6 +58,15 @@ DELETE FROM decisions WHERE workspace_id IN (
   'ws_sandbox','ws_demoworkspace','ws_inneranimal_mcp'
 );
 
+-- tenants.workspace_id soft pointer (blocks workspaces DELETE when set)
+UPDATE tenants
+SET workspace_id = NULL
+WHERE workspace_id IN (
+  'ws_swampblood','ws_swampblood_worker','ws_natashacloteaux','ws_justinmolaison',
+  'ws_dylanhollier','ws_agentsam_sandbox_build','ws_aitestsandbox','ws_aitestsuite',
+  'ws_sandbox','ws_demoworkspace','ws_inneranimal_mcp'
+);
+
 -- Known child tables from 1011 (idempotent)
 DELETE FROM workspace_members WHERE workspace_id IN (
   'ws_swampblood','ws_swampblood_worker','ws_natashacloteaux','ws_justinmolaison',
