@@ -40,7 +40,84 @@ export function isPhoneLoopAllowlistedSender(email) {
 }
 
 /**
+ * Resolve a deployments.id to attach phone-loop email receipts to the deploy trail.
+ * @param {any} env
+ * @param {string} [preferredId]
+ */
+export async function resolvePhoneLoopDeploymentId(env, preferredId) {
+  const preferred = preferredId != null ? String(preferredId).trim() : '';
+  if (preferred) return preferred;
+  if (!env?.DB) return `phone_loop_${Date.now()}`;
+  const row = await env.DB.prepare(
+    `SELECT id FROM deployments
+     WHERE lower(COALESCE(status, '')) IN ('success', 'succeeded', 'ok', 'complete', 'completed')
+     ORDER BY datetime(COALESCE(created_at, updated_at)) DESC
+     LIMIT 1`,
+  )
+    .first()
+    .catch(() => null);
+  if (row?.id) return String(row.id);
+  return `phone_loop_${Date.now()}`;
+}
+
+/**
+ * Append-only email receipt on deployment_notifications (deploy trail + phone IDE loop).
+ * @param {any} env
+ * @param {{
+ *   deploymentId: string,
+ *   recipient: string,
+ *   subject: string,
+ *   message?: string|null,
+ *   status: 'pending'|'sent'|'failed'|'skipped',
+ *   errorMessage?: string|null,
+ *   notificationType?: string,
+ * }} row
+ */
+export async function recordPhoneLoopDeploymentNotification(env, row) {
+  if (!env?.DB) return { ok: false, reason: 'no_db' };
+  const id = `dn_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const deploymentId = String(row.deploymentId || '').trim();
+  const recipient = String(row.recipient || '').trim();
+  const subject = String(row.subject || '').trim().slice(0, 400);
+  const message = row.message != null ? String(row.message).slice(0, 8000) : null;
+  const status = ['pending', 'sent', 'failed', 'skipped'].includes(String(row.status))
+    ? String(row.status)
+    : 'pending';
+  const notificationType = String(row.notificationType || 'phone_loop_email').slice(0, 64);
+  const errorMessage =
+    row.errorMessage != null ? String(row.errorMessage).slice(0, 2000) : null;
+  if (!deploymentId || !recipient || !subject) {
+    return { ok: false, reason: 'missing_fields' };
+  }
+  try {
+    await env.DB.prepare(
+      `INSERT INTO deployment_notifications (
+         id, deployment_id, notification_type, recipient, subject, message,
+         status, sent_at, error_message, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'sent' THEN datetime('now') ELSE NULL END, ?, datetime('now'), datetime('now'))`,
+    )
+      .bind(
+        id,
+        deploymentId,
+        notificationType,
+        recipient,
+        subject,
+        message,
+        status,
+        status,
+        errorMessage,
+      )
+      .run();
+    return { ok: true, id, deploymentId };
+  } catch (e) {
+    console.warn('[recordPhoneLoopDeploymentNotification]', e?.message ?? e);
+    return { ok: false, reason: e?.message || String(e) };
+  }
+}
+
+/**
  * Dual outbound: email + push in the same waitUntil batch (no sequencing dependency).
+ * Also writes deployment_notifications so the email trail is queryable next to deploy rows.
  *
  * @param {any} env
  * @param {any} ctx
@@ -51,6 +128,7 @@ export function isPhoneLoopAllowlistedSender(email) {
  *   body: string,
  *   pushTitle: string,
  *   pushBody: string,
+ *   deploymentId?: string|null,
  * }} opts
  */
 export async function sendPhoneLoopCompletion(env, ctx, opts) {
@@ -68,6 +146,8 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
   const deepLink = `/dashboard/agent/${encodeURIComponent(conversationId)}`;
 
   const run = async () => {
+    const deploymentId = await resolvePhoneLoopDeploymentId(env, opts.deploymentId);
+
     const emailResult = await sendPlatformEmail(env, {
       to: PHONE_LOOP_INBOX,
       subject,
@@ -76,6 +156,32 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
       conversationId,
       inReplyTo: inReplyTo || undefined,
       noAgentSamPrefix: subject.startsWith('[Agent Sam]'),
+    });
+
+    const resendId =
+      emailResult?.externalMessageId ||
+      emailResult?.data?.id ||
+      emailResult?.id ||
+      null;
+    const emailOk = !!(emailResult && emailResult.success === true);
+    const notifyRow = await recordPhoneLoopDeploymentNotification(env, {
+      deploymentId,
+      recipient: PHONE_LOOP_INBOX,
+      subject,
+      message: [
+        body.slice(0, 4000),
+        '',
+        `conversation_id=${conversationId}`,
+        `deep_link=${deepLink}`,
+        emailOk ? 'resend_ok=1' : 'resend_ok=0',
+        resendId ? `resend_id=${resendId}` : '',
+        emailResult?.error ? `error=${emailResult.error}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      status: emailOk ? 'sent' : 'failed',
+      errorMessage: emailOk ? null : String(emailResult?.error || 'email_send_failed'),
+      notificationType: 'phone_loop_email',
     });
 
     let pushResult = { ok: false, reason: 'not_attempted' };
@@ -104,7 +210,15 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
       console.warn('[sendPhoneLoopCompletion] push', e?.message ?? e);
     }
 
-    return { ok: true, email: emailResult, push: pushResult, conversationId, deepLink };
+    return {
+      ok: true,
+      email: emailResult,
+      push: pushResult,
+      conversationId,
+      deepLink,
+      deploymentId,
+      notification: notifyRow,
+    };
   };
 
   if (ctx && typeof ctx.waitUntil === 'function') {
