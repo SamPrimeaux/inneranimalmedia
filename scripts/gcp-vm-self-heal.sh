@@ -61,9 +61,10 @@ agentsam_git_reset_hard_main() {
     set -euo pipefail
     cd '${dir}'
     git fetch origin -q
-    git checkout -B main origin/main -q 2>/dev/null || git checkout main -q
+    # Do not checkout -B first — dirty tracked files abort checkout; reset --hard is the disposable policy.
     git reset --hard origin/main -q
     git clean -fd -q
+    git checkout -B main origin/main -q 2>/dev/null || true
   "; then
     local head
     head="$(sudo -u "$AGENTSAM_USER" git -C "${dir}" rev-parse --short HEAD 2>/dev/null || echo '?')"
