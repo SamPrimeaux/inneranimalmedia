@@ -284,27 +284,36 @@ export async function approveIamMcpAuthorization(env, authorizationId, iamUser, 
   if (!resolvedWorkspaceId || !allowedWs) return { ok: false, error: 'invalid_workspace' };
   const workspaceIdFinal = resolvedWorkspaceId;
 
-  if (String(row.client_id || '') === MCP_CANONICAL_CLIENT_ID) {
-    const { resolveExternalClientKeyFromRedirect, assertUserMayUseExternalClient } = await import(
-      '../core/mcp-oauth-external-clients.js'
+  // Always grant/refresh user_client_allowlist on consent (canonical or iam_dcr_*).
+  {
+    const {
+      resolveExternalClientKeyFromRedirect,
+      assertUserMayUseExternalClient,
+      recordExternalClientAllowlistOnConsent,
+    } = await import('../core/mcp-oauth-external-clients.js');
+    const externalClientKey = await resolveExternalClientKeyFromRedirect(
+      env,
+      row.redirect_uri,
+      MCP_CANONICAL_CLIENT_ID,
     );
-    const externalClientKey = await resolveExternalClientKeyFromRedirect(env, row.redirect_uri, row.client_id);
     const extAllow = await assertUserMayUseExternalClient(env, {
       userId: iamUser.id,
       workspaceId: workspaceIdFinal,
       externalClientKey,
       oauthClientId: row.client_id,
+      requireGrant: false,
     });
     if (!extAllow.ok) {
       return { ok: false, error: extAllow.code || 'external_client_not_allowed' };
     }
-    const { recordExternalClientAllowlistOnConsent } = await import('../core/mcp-oauth-external-clients.js');
-    await recordExternalClientAllowlistOnConsent(env, {
-      userId: iamUser.id,
-      workspaceId: workspaceIdFinal,
-      tenantId: String(row.tenant_id || iamUser.tenant_id || '').trim() || null,
-      externalClientKey,
-    });
+    if (externalClientKey) {
+      await recordExternalClientAllowlistOnConsent(env, {
+        userId: iamUser.id,
+        workspaceId: workspaceIdFinal,
+        tenantId: String(row.tenant_id || iamUser.tenant_id || '').trim() || null,
+        externalClientKey,
+      });
+    }
   }
 
   const scopes = mcpOAuthParseScopeList(row.scope);

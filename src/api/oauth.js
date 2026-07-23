@@ -1108,13 +1108,13 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
         ? {
             hint:
               'This client_id looks like a GitHub OAuth App ID, not an IAM MCP client. ' +
-              'In Claude/ChatGPT add connector URL https://mcp.inneranimalmedia.com/mcp only — ' +
-              'do not paste Client ID manually. Expected MCP client_id: iam_mcp_inneranimalmedia.',
+              'Add connector URL https://mcp.inneranimalmedia.com/mcp only — do not paste a Client ID. ' +
+              'Hosts must Dynamic Client Register (iam_dcr_*).',
           }
         : {
             hint:
-              'Unknown OAuth client. Connect MCP at https://mcp.inneranimalmedia.com/mcp and let the app ' +
-              'discover OAuth automatically (client_id iam_mcp_inneranimalmedia).',
+              'Unknown OAuth client. Point the host at https://mcp.inneranimalmedia.com/mcp and let it ' +
+              'DCR via POST /api/oauth/register (iam_dcr_*). Do not hardcode iam_mcp_inneranimalmedia in Cursor.',
           };
     return mcpOAuthJsonError('invalid_client', 400, extra);
   }
@@ -1134,7 +1134,10 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
   }
 
   let resourceRaw = resolveMcpOAuthResourceParam(url.searchParams);
-  if (!resourceRaw && clientId === MCP_CANONICAL_CLIENT_ID) {
+  if (
+    !resourceRaw &&
+    (clientId === MCP_CANONICAL_CLIENT_ID || String(clientId).startsWith('iam_dcr_'))
+  ) {
     resourceRaw = IAM_MCP_RESOURCE_URL;
   }
   const resourceCheck = assertMcpOAuthResourceMatches(resourceRaw);
@@ -1148,17 +1151,24 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
   const workspaceId = await resolveCanonicalWorkspace(env, authUser.id);
   if (!workspaceId) return mcpOAuthJsonError('invalid_workspace', 400);
 
+  // Canonical + DCR clients: resolve host key and enforce registry / revoke.
+  // Consent writes agentsam_mcp_oauth_user_client_allowlist; runtime requireGrant=true.
   let externalClientKey = null;
-  if (clientId === MCP_CANONICAL_CLIENT_ID) {
+  {
     const { resolveExternalClientKeyFromRedirect, assertUserMayUseExternalClient } = await import(
       '../core/mcp-oauth-external-clients.js'
     );
-    externalClientKey = await resolveExternalClientKeyFromRedirect(env, redirectCheck.url.href, clientId);
+    externalClientKey = await resolveExternalClientKeyFromRedirect(
+      env,
+      redirectCheck.url.href,
+      MCP_CANONICAL_CLIENT_ID,
+    );
     const extAllow = await assertUserMayUseExternalClient(env, {
       userId: authUser.id,
       workspaceId,
       externalClientKey,
       oauthClientId: clientId,
+      requireGrant: false,
     });
     if (!extAllow.ok) {
       return mcpOAuthJsonError(extAllow.code || 'external_client_not_allowed', 403);

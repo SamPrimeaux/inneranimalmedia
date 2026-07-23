@@ -2,8 +2,12 @@
  * D1-driven external MCP client registry + per-user client allowlist.
  * Tables: agentsam_mcp_oauth_external_client_registry,
  *         agentsam_mcp_oauth_user_client_allowlist
+ *
+ * Law: user_client_allowlist is NOT optional. Consent grants a row; runtime
+ * (tools/call) requires an active grant. Revoke (is_active=0) always blocks.
  */
 
+/** Platform catalog client — registry rows hang off this id; DCR clients still resolve by redirect host. */
 const MCP_CANONICAL_CLIENT_ID = 'iam_mcp_inneranimalmedia';
 
 function trim(v) {
@@ -22,11 +26,9 @@ function parseJsonArray(raw) {
 
 /**
  * Resolve registry client_key from OAuth redirect_uri (DB patterns first, code fallback).
- * @param {any} env
- * @param {string} redirectUri
- * @param {string} [oauthClientId]
+ * Registry rows are keyed to the platform catalog client; DCR clients still resolve via host/scheme.
  */
-export async function resolveExternalClientKeyFromRedirect(env, redirectUri, oauthClientId = MCP_CANONICAL_CLIENT_ID) {
+export async function resolveExternalClientKeyFromRedirect(env, redirectUri, _oauthClientId = MCP_CANONICAL_CLIENT_ID) {
   const raw = trim(redirectUri);
   if (!raw) return null;
 
@@ -42,6 +44,11 @@ export async function resolveExternalClientKeyFromRedirect(env, redirectUri, oau
     return null;
   }
 
+  // Cursor desktop callback listener (DCR)
+  if ((host === 'localhost' || host === '127.0.0.1' || host === '[::1]') && path === '/callback') {
+    return 'cursor';
+  }
+
   if (env?.DB) {
     try {
       const { results } = await env.DB.prepare(
@@ -51,7 +58,7 @@ export async function resolveExternalClientKeyFromRedirect(env, redirectUri, oau
             AND COALESCE(is_active, 1) = 1
           ORDER BY sort_order ASC`,
       )
-        .bind(trim(oauthClientId) || MCP_CANONICAL_CLIENT_ID)
+        .bind(MCP_CANONICAL_CLIENT_ID)
         .all();
 
       for (const row of results || []) {
@@ -63,6 +70,9 @@ export async function resolveExternalClientKeyFromRedirect(env, redirectUri, oau
         if (!hostMatch) continue;
         const key = trim(row.client_key);
         if (key === 'cursor' && raw.toLowerCase().startsWith('cursor://')) {
+          return key;
+        }
+        if (key === 'cursor' && (host === 'localhost' || host === '127.0.0.1')) {
           return key;
         }
         if (key === 'cursor' && host === 'mcp.inneranimalmedia.com' && !path.includes('/auth/callback')) {
@@ -91,19 +101,31 @@ export async function resolveExternalClientKeyFromRedirect(env, redirectUri, oau
 }
 
 /**
- * When user has rows in agentsam_mcp_oauth_user_client_allowlist for a workspace,
- * only listed client_key values may connect. No rows → all active registry clients allowed.
+ * Gate external MCP hosts (cursor / claude / chatgpt / …).
+ *
  * @param {any} env
- * @param {{ userId: string, workspaceId: string, externalClientKey: string|null, oauthClientId?: string }} input
+ * @param {{
+ *   userId: string,
+ *   workspaceId: string,
+ *   externalClientKey: string|null,
+ *   oauthClientId?: string,
+ *   requireGrant?: boolean
+ * }} input
+ *   requireGrant=true → runtime (tools/call): active allowlist row required
+ *   requireGrant=false → authorize/consent: registry + not-revoked; consent then writes the grant
  */
 export async function assertUserMayUseExternalClient(env, input) {
   const userId = trim(input?.userId);
   const workspaceId = trim(input?.workspaceId);
   const clientKey = trim(input?.externalClientKey);
-  const oauthClientId = trim(input?.oauthClientId) || MCP_CANONICAL_CLIENT_ID;
+  const requireGrant = input?.requireGrant === true;
 
   if (!clientKey) {
-    return { ok: false, code: 'unknown_external_client', message: 'redirect_uri does not match a registered external MCP client' };
+    return {
+      ok: false,
+      code: 'unknown_external_client',
+      message: 'redirect_uri does not match a registered external MCP client',
+    };
   }
   if (!env?.DB || !userId || !workspaceId) {
     return { ok: false, code: 'missing_scope', message: 'user/workspace required for external client allowlist' };
@@ -112,10 +134,11 @@ export async function assertUserMayUseExternalClient(env, input) {
   try {
     const reg = await env.DB.prepare(
       `SELECT client_key FROM agentsam_mcp_oauth_external_client_registry
-        WHERE client_key = ? AND oauth_client_id = ? AND COALESCE(is_active, 1) = 1
+        WHERE client_key = ?
+          AND COALESCE(is_active, 1) = 1
         LIMIT 1`,
     )
-      .bind(clientKey, oauthClientId)
+      .bind(clientKey)
       .first();
     if (!reg) {
       return {
@@ -144,14 +167,22 @@ export async function assertUserMayUseExternalClient(env, input) {
       };
     }
 
-    const allowed = new Set(
-      rows.filter((r) => Number(r.is_active) !== 0).map((r) => trim(r.client_key)).filter(Boolean),
+    const hasGrant = rows.some(
+      (r) => trim(r.client_key) === clientKey && Number(r.is_active) !== 0,
     );
-    // Platform registry is the gate; per-user rows are granted at consent (see recordExternalClientAllowlistOnConsent).
-    // Do not block a new registry client because the user already connected a different external app.
+
+    if (requireGrant && !hasGrant) {
+      return {
+        ok: false,
+        code: 'external_client_not_allowed',
+        message: `No active agentsam_mcp_oauth_user_client_allowlist grant for "${clientKey}". Complete MCP OAuth consent first.`,
+      };
+    }
+
     return {
       ok: true,
-      enforced: allowed.has(clientKey),
+      enforced: true,
+      has_grant: hasGrant,
       client_key: clientKey,
     };
   } catch (e) {
@@ -179,8 +210,6 @@ export async function listExternalClientRegistry(env, oauthClientId = MCP_CANONI
 
 /**
  * Record external client allowlist on successful OAuth consent (session-scoped, not migration-seeded).
- * @param {any} env
- * @param {{ userId: string, workspaceId: string, tenantId?: string|null, externalClientKey: string }} input
  */
 export async function recordExternalClientAllowlistOnConsent(env, input) {
   const userId = trim(input?.userId);
