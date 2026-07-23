@@ -995,7 +995,10 @@ export function scheduleChatSessionTitleInsert(env, ctx, input) {
 
 /**
  * Pin the workspace's last active conversation (resume spine).
- * Remote D1 has uidx_agentsam_workspace_state_workspace ON workspace_id — ON CONFLICT is valid.
+ * Remote D1: partial unique index uidx_agentsam_workspace_state_workspace on
+ * workspace_id WHERE id NOT LIKE 'uws:%' — ON CONFLICT(workspace_id) is valid for
+ * real workspaces. Local Explorer state rows (id uws:…) share ws_local_explorer
+ * and are excluded from that uniqueness.
  *
  * @param {any} env
  * @param {any} ctx

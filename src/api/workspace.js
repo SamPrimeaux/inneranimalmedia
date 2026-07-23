@@ -78,6 +78,9 @@ export async function handleWorkspaceApi(request, url, env, ctx, authUser) {
     if (agentsamRes) return agentsamRes;
 
     // ── /api/workspace/create (Ephemeral User State) ───────────────────────
+    // Local Explorer folder sessions are NOT product workspaces. Never INSERT into
+    // agentsam_workspace here — that minted UUID/uws_* registry sprawl. State rows
+    // hang off sentinel ws_local_explorer; identity lives in state id + JSON only.
     if (pathLower === '/api/workspace/create' && method === 'POST') {
         const body = await request.json().catch(() => ({}));
         const t = body?.type;
@@ -87,18 +90,14 @@ export async function handleWorkspaceApi(request, url, env, ctx, authUser) {
             return jsonResponse({ error: 'tenant_required', detail: 'auth_users.tenant_id missing' }, 400);
         }
         const userId = String(authUser.id ?? '').trim();
-        const wsUuid = crypto.randomUUID();
-        const rowId = `uws:${tenantId}:${userId}:${wsUuid}`;
+        const folderSessionId = crypto.randomUUID();
+        const rowId = `uws:${tenantId}:${userId}:${folderSessionId}`;
         const now = Date.now();
-        const workspaceSlug = `uws_${wsUuid.replace(/-/g, '').slice(0, 24)}`;
-        const displayName =
-            typeof body.folderName === 'string' && body.folderName.trim()
-                ? body.folderName.trim()
-                : 'Local workspace';
+        const LOCAL_EXPLORER_WORKSPACE_ID = 'ws_local_explorer';
 
         const record = {
             schema: 'user_workspace_v1',
-            id: wsUuid,
+            id: folderSessionId,
             userId,
             tenantId,
             type,
@@ -108,35 +107,20 @@ export async function handleWorkspaceApi(request, url, env, ctx, authUser) {
             r2Bucket: typeof body.r2Bucket === 'string' ? body.r2Bucket : undefined,
             lastOpenedAt: typeof body.lastOpenedAt === 'number' ? body.lastOpenedAt : now,
             recentFiles: Array.isArray(body.recentFiles) ? body.recentFiles.slice(0, 24) : [],
+            parentWorkspaceId: LOCAL_EXPLORER_WORKSPACE_ID,
         };
 
         const stateJson = JSON.stringify(record);
 
         try {
             await env.DB.prepare(
-                `INSERT INTO agentsam_workspace
-                   (id, workspace_slug, tenant_id, name, status, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, 'active', unixepoch(), unixepoch())`,
-            )
-                .bind(wsUuid, workspaceSlug, tenantId, displayName)
-                .run();
-        } catch (e) {
-            return jsonResponse(
-                { error: 'workspace_create_failed', step: 'agentsam_workspace', detail: e?.message ?? String(e) },
-                500,
-            );
-        }
-
-        try {
-            await env.DB.prepare(
                 `INSERT INTO agentsam_workspace_state
                    (id, workspace_id, workspace_type, files_open, state_json, updated_at)
-                 VALUES (?, ?, 'ide', '[]', ?, unixepoch())`,
+                 VALUES (?, ?, 'local_explorer', '[]', ?, unixepoch())`,
             )
-                .bind(rowId, wsUuid, stateJson)
+                .bind(rowId, LOCAL_EXPLORER_WORKSPACE_ID, stateJson)
                 .run();
         } catch (e) {
-            await env.DB.prepare(`DELETE FROM agentsam_workspace WHERE id = ?`).bind(wsUuid).run().catch(() => {});
             return jsonResponse(
                 {
                     error: 'workspace_state_failed',
@@ -147,7 +131,8 @@ export async function handleWorkspaceApi(request, url, env, ctx, authUser) {
             );
         }
 
-        return jsonResponse({ ok: true, workspaceId: wsUuid });
+        // Client hint key only — not an agentsam_workspace.id
+        return jsonResponse({ ok: true, workspaceId: folderSessionId });
     }
 
     // ── /api/workspace/:id (Ephemeral User State Fetch/Update) ─────────────
