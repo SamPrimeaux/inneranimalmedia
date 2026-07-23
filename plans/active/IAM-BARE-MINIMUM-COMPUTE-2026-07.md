@@ -14,14 +14,22 @@
 
 | Surface | Status | Proof / gap | Owner | SHA |
 |---------|--------|-------------|-------|-----|
-| Main Agent `/api/agent/chat` | **GREEN** | write→read same `conn_mac_local` on `.scratch/lane-pin-test.txt` (`87727d39-…`) | `inneranimalmedia` | `23e6bf68` |
-| `fs_*` + localpty | **GREEN** | Mac disk proof + D1 `workspace_pty_write` | main + ExecOS localpty | `23e6bf68` |
-| `agentsam_terminal_local` | **GREEN** | cwd Mac repo; write+cat `/tmp/…` (`1a33cea6-…`) | main + ExecOS localpty | `23e6bf68` |
-| `agentsam_terminal_remote` | **GREEN** | ~00:09Z whoami/pwd/date, `conn_gcp_iam_tunnel`, exit 0 | main + ExecOS remote | connectivity OK; checkout stale `5a060f7c` |
-| PWA/SW | **GREEN** | `pwa-build-meta.json` = `23e6bf68` | R2 + main | `23e6bf68` |
-| Hosted shell (OpenAI `/mnt/data`) | **RED** | empty `commands:[]` → `close_done_no_token`; needs **1a + 1b** | OpenAI | — |
-| MCP OAuth tools | **RED** | `/health` 200; `tools/list` **401** — treat as **auth/token first**, not oauth_visible policy | `inneranimalmedia-mcp-server` | unverified |
-| Job 2 isolated compute (merged row) | **RED** | See Gap 3 — **one** root until proven otherwise | `inneranimalmedia` `MY_CONTAINER` | — |
+| Main Agent `/api/agent/chat` | **GREEN** | Gate 0 dual-pass `tkt_workspace_001` shipped | `inneranimalmedia` | `0f2ff5aa` |
+| `fs_*` + localpty | **GREEN** | write→read same `conn_mac_local` | main + ExecOS localpty | `0f2ff5aa` |
+| `agentsam_terminal_local` | **GREEN** | cwd Mac repo; Gate 0 | main + ExecOS localpty | `0f2ff5aa` |
+| `agentsam_terminal_remote` | **GREEN** | connectivity + disposable checkout hygiene | main + ExecOS remote | ops |
+| PWA/SW | **GREEN** | `pwa-build-meta.json` = `0f2ff5aa` | R2 + main | `0f2ff5aa` |
+| Hosted shell (OpenAI `/mnt/data`) | **GREEN** | 1a+1b dual-pass shipped (`tkt_hosted_shell_*`) | OpenAI | `0f2ff5aa` |
+| MCP OAuth tools | **GREEN** | auth: bearer tools/list 200 + tools/call; Cursor discovery = client token | `inneranimalmedia-mcp-server` | auth |
+| Job 2 isolated compute | **GREEN** | authed `/api/sandbox/health` + `agentsam_terminal_sandbox` whoami | `MY_CONTAINER` | live |
+| Gate 4 bridge decision | **A — MY_CONTAINER SSOT** | `tkt_sandbox_bridge_decision` — no official bridge Worker | decision | 2026-07-23 |
+
+### Parallel (not compute-lane — still open)
+
+| Ticket | Criterion |
+|--------|-----------|
+| `tkt_workspace_search_empty_path` | file-create handoff #3 |
+| `tkt_search_tools_rank_media_last` | file-create handoff #4 |
 
 ### Gap 3 — do not double-count sandbox reds
 

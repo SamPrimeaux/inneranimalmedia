@@ -1,39 +1,36 @@
 #!/usr/bin/env node
 /**
- * Gate 1b live — recreate the empty hosted-shell failure mode and assert
- * durable non-success without fabricated "ls: cannot access" text.
+ * Gate 1a live — hosted shell aimed at workspace/.scratch must fail loud (ok:false)
+ * and recover toward workspace tools (no inventable success).
  *
- * Prompt mirrors the file-create handoff (HTML ask that historically produced
- * empty commands:[] + inventable shell text).
- *
- *   node scripts/gate1b-empty-shell-live.mjs
+ *   node scripts/gate1a-hosted-shell-scope-live.mjs
  */
 import { randomUUID } from 'node:crypto';
 import { loadEnvCloudflare } from './lib/load-env-cloudflare.mjs';
 import { mintAgentSessionCookie, resolveOperatorUserId } from './lib/mint-agent-session.mjs';
-import { d1Query, sqlQuote } from './lib/d1-remote.mjs';
 
 loadEnvCloudflare();
 
 const BASE_URL = (process.env.IAM_BASE_URL || 'https://inneranimalmedia.com').replace(/\/$/, '');
 const WORKSPACE_ID = (process.env.WORKSPACE_ID || 'ws_inneranimalmedia').trim();
 const TENANT_ID = (process.env.IAM_TENANT_ID || 'tenant_sam_primeaux').trim();
-const TIMEOUT_MS = Number(process.env.IAM_GATE1B_TIMEOUT_MS || 180_000);
+const TIMEOUT_MS = Number(process.env.IAM_GATE1A_TIMEOUT_MS || 180_000);
 
 const PROMPT = [
-  'Gate 1b EMPTY hosted-shell contract — mandatory steps:',
-  '1) Your FIRST tool call MUST be the OpenAI hosted shell with action.commands exactly [] (empty array). Do not skip this.',
-  '2) After the platform returns non-success for that empty call, you may continue with other tools if needed.',
-  '3) Do NOT invent shell stderr (especially not "ls: cannot access").',
-  '4) Reply GATE1B_DONE when finished.',
+  'Gate 1a hosted-shell SCOPE proof — do exactly this:',
+  '1) Call the OpenAI hosted shell tool with commands that target the IAM workspace, e.g. ["ls .scratch/"]',
+  '   (Do NOT rewrite to /mnt/data for this test — we need the platform to fail loud on workspace targeting.)',
+  '2) After the hosted shell result, if needed use fs_write_file or agentsam_terminal_local instead.',
+  '3) Reply GATE1A_DONE',
+  'Do not invent shell stderr. Do not claim .scratch listing succeeded via hosted shell.',
 ].join('\n');
 
 function parseSse(raw) {
   const toolNames = [];
-  const events = [];
   let text = '';
+  let sawScopeFail = false;
   let sawRecover = false;
-  let sawEmptyShellFail = false;
+  let sawHostedShell = false;
   for (const line of String(raw || '').split('\n')) {
     if (!line.startsWith('data:')) continue;
     const payload = line.slice(5).trim();
@@ -44,27 +41,28 @@ function parseSse(raw) {
     } catch {
       continue;
     }
-    events.push(ev);
     const t = String(ev.type || ev.event || '');
     if (t === 'text' && typeof ev.text === 'string') text += ev.text;
     if (t === 'tool_call' || t === 'tool_start') {
       const n = String(ev.tool || ev.tool_name || '').trim();
       if (n) toolNames.push(n);
-      if (n === 'openai_hosted_shell' && (ev.empty === true || ev.args?.commands?.length === 0)) {
-        sawEmptyShellFail = true;
+      if (n === 'openai_hosted_shell') {
+        sawHostedShell = true;
+        if (ev.workspace_targeted === true) sawScopeFail = true;
       }
     }
     if (t === 'tool_result' || t === 'tool_output' || t === 'tool_done') {
       const blob = String(ev.result || ev.output || '');
-      if (blob.includes('empty_hosted_shell_commands') || ev.ok === false) {
-        if (String(ev.tool || ev.tool_name || '') === 'openai_hosted_shell' || blob.includes('empty_hosted')) {
-          sawEmptyShellFail = true;
-        }
+      if (blob.includes('hosted_shell_workspace_scope_violation') || ev.workspace_targeted === true) {
+        sawScopeFail = true;
+      }
+      if (String(ev.tool || ev.tool_name || '') === 'openai_hosted_shell' && ev.ok === false) {
+        if (blob.includes('workspace_scope') || blob.includes('.scratch')) sawScopeFail = true;
       }
     }
-    if (t === 'status' && /empty hosted shell/i.test(String(ev.message || ''))) sawRecover = true;
+    if (t === 'status' && /workspace scope/i.test(String(ev.message || ''))) sawRecover = true;
   }
-  return { toolNames, events, text, sawRecover, sawEmptyShellFail };
+  return { toolNames, text, sawScopeFail, sawRecover, sawHostedShell };
 }
 
 async function postChat(cookie, conversationId) {
@@ -82,7 +80,7 @@ async function postChat(cookie, conversationId) {
         'x-iam-workspace-id': WORKSPACE_ID,
         Origin: BASE_URL,
         Referer: `${BASE_URL}/dashboard/agent`,
-        'User-Agent': 'inneranimalmedia-gate1b-empty-shell-live/1.0',
+        'User-Agent': 'inneranimalmedia-gate1a-scope-live/1.0',
       },
       body: JSON.stringify({
         message: PROMPT,
@@ -99,9 +97,8 @@ async function postChat(cookie, conversationId) {
       signal: controller.signal,
     });
     httpStatus = res.status;
-    if (!res.body?.getReader) {
-      raw = await res.text();
-    } else {
+    if (!res.body?.getReader) raw = await res.text();
+    else {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       for (;;) {
@@ -131,32 +128,22 @@ async function main() {
   console.log(JSON.stringify({ phase: 'mint', userId, conversationId }, null, 2));
   const { cookie } = await mintAgentSessionCookie({ userId, workspaceId: WORKSPACE_ID });
   const chat = await postChat(cookie, conversationId);
-
   const fabricated = /cannot access|No such file or directory/i.test(chat.text || '');
-  // Live models may refuse to emit empty commands — still require no fabrication.
   const report = {
-    gate: '1b',
+    gate: '1a',
     kind: 'live',
     conversation_id: conversationId,
     httpStatus: chat.httpStatus,
     toolNames: chat.toolNames,
-    saw_empty_shell_fail: chat.sawEmptyShellFail,
+    saw_hosted_shell: chat.sawHostedShell,
+    saw_scope_fail: chat.sawScopeFail,
     saw_recover: chat.sawRecover,
     fabricated_terminal_text: fabricated,
     text_preview: String(chat.text || '').slice(0, 400),
-    ok: Boolean(chat.httpStatus === 200 && !fabricated),
-    note:
-      chat.sawEmptyShellFail
-        ? 'Empty shell non-success observed on live stream'
-        : 'Model did not emit empty commands:[]; pass = no fabricated terminal text this turn',
+    ok: Boolean(chat.httpStatus === 200 && chat.sawHostedShell && chat.sawScopeFail && !fabricated),
   };
-
-  // Soft D1 check for recover logs is optional — SSE is source of truth here.
   console.log(JSON.stringify(report, null, 2));
-
-  // Prefer hard fail only when fabrication appears; empty-shell observation is bonus.
   if (!report.ok) process.exit(1);
-  if (!chat.sawEmptyShellFail) process.exitCode = 2; // soft: live did not hit empty path
 }
 
 main().catch((e) => {
