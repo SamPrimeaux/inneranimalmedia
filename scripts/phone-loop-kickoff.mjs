@@ -43,25 +43,30 @@ function sqlString(v) {
 }
 
 function d1Json(command) {
-  const out = execFileSync(
-    'npx',
-    [
-      'wrangler',
-      'd1',
-      'execute',
-      D1,
-      '--remote',
-      '-c',
-      CFG,
-      '--command',
-      command,
-      '--json',
-    ],
-    { cwd: root, encoding: 'utf8', env: process.env },
-  );
-  const parsed = JSON.parse(out);
-  if (parsed?.error) throw new Error(JSON.stringify(parsed.error));
-  return parsed?.[0]?.results ?? [];
+  try {
+    const out = execFileSync(
+      'npx',
+      [
+        'wrangler',
+        'd1',
+        'execute',
+        D1,
+        '--remote',
+        '-c',
+        CFG,
+        '--command',
+        command,
+        '--json',
+      ],
+      { cwd: root, encoding: 'utf8', env: process.env, maxBuffer: 4 * 1024 * 1024 },
+    );
+    const parsed = JSON.parse(out);
+    if (parsed?.error) throw new Error(JSON.stringify(parsed.error));
+    return parsed?.[0]?.results ?? [];
+  } catch (e) {
+    const detail = e?.stderr || e?.stdout || e?.message || e;
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+  }
 }
 
 async function main() {
@@ -76,9 +81,7 @@ async function main() {
   }
 
   const depRows = d1Json(
-    `SELECT id FROM deployments
-     WHERE lower(COALESCE(status,'')) IN ('success','succeeded','ok','complete','completed')
-     ORDER BY datetime(COALESCE(created_at, updated_at)) DESC LIMIT 1`,
+    `SELECT id FROM deployments WHERE status = 'success' ORDER BY created_at DESC LIMIT 1`,
   );
   const deploymentId = depRows[0]?.id
     ? String(depRows[0].id)
@@ -137,38 +140,13 @@ async function main() {
     .join('\n');
 
   d1Json(
-    `INSERT INTO deployment_notifications (
-       id, deployment_id, notification_type, recipient, subject, message,
-       status, sent_at, error_message, created_at, updated_at
-     ) VALUES (
-       ${sqlString(dnId)},
-       ${sqlString(deploymentId)},
-       'phone_loop_email',
-       ${sqlString(INBOX)},
-       ${sqlString(subject)},
-       ${sqlString(message)},
-       'sent',
-       datetime('now'),
-       NULL,
-       datetime('now'),
-       datetime('now')
-     )`,
+    `INSERT INTO deployment_notifications (id, deployment_id, notification_type, recipient, subject, message, status, sent_at, error_message, created_at, updated_at) VALUES (${sqlString(dnId)}, ${sqlString(deploymentId)}, 'phone_loop_email', ${sqlString(INBOX)}, ${sqlString(subject)}, ${sqlString(message)}, 'sent', datetime('now'), NULL, datetime('now'), datetime('now'))`,
   );
 
   // Seed chat session so inbound reply has a home.
   try {
     d1Json(
-      `INSERT OR IGNORE INTO agentsam_chat_sessions (
-         conversation_id, tenant_id, user_id, workspace_id, title, created_at, updated_at
-       ) VALUES (
-         ${sqlString(conversationId)},
-         'tenant_sam_primeaux',
-         'au_871d920d1233cbd1',
-         'ws_inneranimalmedia',
-         ${sqlString('Phone loop kickoff')},
-         unixepoch(),
-         unixepoch()
-       )`,
+      `INSERT OR IGNORE INTO agentsam_chat_sessions (conversation_id, tenant_id, user_id, workspace_id, title, created_at, updated_at) VALUES (${sqlString(conversationId)}, 'tenant_sam_primeaux', 'au_871d920d1233cbd1', 'ws_inneranimalmedia', ${sqlString('Phone loop kickoff')}, unixepoch(), unixepoch())`,
     );
   } catch (e) {
     console.warn('[phone-loop-kickoff] chat session seed skipped', e?.message || e);
