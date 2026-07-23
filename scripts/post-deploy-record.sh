@@ -41,11 +41,13 @@ fi
 
 DEPLOY_SECONDS="${DEPLOY_SECONDS:-0}"
 if [[ ! "$DEPLOY_SECONDS" =~ ^[0-9]+$ ]]; then DEPLOY_SECONDS=0; fi
+DEPLOY_DURATION_MS=$((DEPLOY_SECONDS * 1000))
 
 TRIGGERED_BY="${TRIGGERED_BY:-cli_post_deploy}"
 DEPLOYMENT_NOTES="${DEPLOYMENT_NOTES:-}"
 DEPLOY_VERSION="${DEPLOY_VERSION:-}"
 GIT_HASH="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo '')"
+GIT_FULL="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "$GIT_HASH")"
 GIT_MSG="$(git -C "$REPO_ROOT" log -1 --pretty=format:'%s' 2>/dev/null || echo '')"
 VERSION_SLUG="${DEPLOY_VERSION:-${GIT_HASH:-deploy-$(date +%s)}}"
 DEPLOYED_BY="${DEPLOYED_BY:-sam_primeaux}"
@@ -59,43 +61,95 @@ DESCRIPTION="${DEPLOY_DESCRIPTION:-${DEPLOYMENT_NOTES:-Worker deploy (inneranima
 TENANT_ID="${TENANT_ID:-tenant_sam_primeaux}"
 WORKSPACE_ID="${WORKSPACE_ID:-ws_inneranimalmedia}"
 PROJECT_ID="${PROJECT_ID:-inneranimalmedia}"
+RUN_GROUP_ID="${RUN_GROUP_ID:-rg_${GIT_HASH:-nogit}_$(date +%s)}"
+SESSION_TAG="${SESSION_TAG:-${TRIGGERED_BY}-${GIT_HASH:-nogit}-$(date +%Y%m%d)}"
+ROLLBACK_FROM="${ROLLBACK_FROM:-}"
+ENVIRONMENT="${DEPLOY_ENVIRONMENT:-production}"
+WORKER_NAME="${WORKER_NAME:-inneranimalmedia}"
 
-# Escape single quotes for SQL: ' -> ''
-VID_ESC="${VERSION_ID//\'/\'\'}"
-VS_ESC="${VERSION_SLUG//\'/\'\'}"
-GH_ESC="${GIT_HASH//\'/\'\'}"
-DESC_ESC="${DESCRIPTION//\'/\'\'}"
-DBY_ESC="${DEPLOYED_BY//\'/\'\'}"
-TB_ESC="${TRIGGERED_BY//\'/\'\'}"
-DN_ESC="${DEPLOYMENT_NOTES//\'/\'\'}"
-TID_ESC="${TENANT_ID//\'/\'\'}"
-WID_ESC="${WORKSPACE_ID//\'/\'\'}"
-PID_ESC="${PROJECT_ID//\'/\'\'}"
+# changed_files: JSON array of paths touched since previous commit (empty array if unavailable).
+CHANGED_FILES='[]'
+if command -v jq >/dev/null 2>&1 && [[ -d "$REPO_ROOT/.git" ]]; then
+  CHANGED_FILES="$(
+    git -C "$REPO_ROOT" diff --name-only HEAD~1 HEAD 2>/dev/null \
+      | jq -R -s -c 'split("\n") | map(select(length>0))' 2>/dev/null \
+      || echo '[]'
+  )"
+fi
+[[ -z "$CHANGED_FILES" ]] && CHANGED_FILES='[]'
 
 DEPLOY_TIMESTAMP="${DEPLOY_TIMESTAMP:-$(date '+%Y-%m-%d %H:%M:%S')}"
-TS_ESC="${DEPLOY_TIMESTAMP//\'/\'\'}"
+DEPLOY_CREATED_AT="${DEPLOY_CREATED_AT:-$DEPLOY_TIMESTAMP}"
 
-# project_id is nullable -- emit SQL NULL rather than an empty string when unset.
-if [[ -z "$PROJECT_ID" ]]; then
-  PID_SQL="NULL"
-else
-  PID_SQL="'$PID_ESC'"
+# Escape single quotes for SQL: ' -> ''
+sql_esc() { printf '%s' "${1//\'/\'\'}"; }
+VID_ESC="$(sql_esc "$VERSION_ID")"
+VS_ESC="$(sql_esc "$VERSION_SLUG")"
+GH_ESC="$(sql_esc "$GIT_HASH")"
+GF_ESC="$(sql_esc "$GIT_FULL")"
+DESC_ESC="$(sql_esc "$DESCRIPTION")"
+DBY_ESC="$(sql_esc "$DEPLOYED_BY")"
+TB_ESC="$(sql_esc "$TRIGGERED_BY")"
+DN_ESC="$(sql_esc "$DEPLOYMENT_NOTES")"
+TID_ESC="$(sql_esc "$TENANT_ID")"
+WID_ESC="$(sql_esc "$WORKSPACE_ID")"
+PID_ESC="$(sql_esc "$PROJECT_ID")"
+RG_ESC="$(sql_esc "$RUN_GROUP_ID")"
+ST_ESC="$(sql_esc "$SESSION_TAG")"
+RF_ESC="$(sql_esc "$ROLLBACK_FROM")"
+ENV_ESC="$(sql_esc "$ENVIRONMENT")"
+WN_ESC="$(sql_esc "$WORKER_NAME")"
+TS_ESC="$(sql_esc "$DEPLOY_TIMESTAMP")"
+CA_ESC="$(sql_esc "$DEPLOY_CREATED_AT")"
+CF_ESC="$(sql_esc "$CHANGED_FILES")"
+
+DEP_META='{}'
+if command -v jq >/dev/null 2>&1; then
+  DEP_META="$(
+    jq -nc \
+      --arg sha "$GIT_FULL" \
+      --arg short "$GIT_HASH" \
+      --arg by "$TRIGGERED_BY" \
+      --arg notes "$DEPLOYMENT_NOTES" \
+      --arg secs "$DEPLOY_SECONDS" \
+      --arg vid "$VERSION_ID" \
+      --arg rg "$RUN_GROUP_ID" \
+      --arg pipeline "post_deploy_record" \
+      '{
+        sync_source: $pipeline,
+        git_sha_full: $sha,
+        git_sha_short: $short,
+        triggered_by: $by,
+        notes: $notes,
+        deploy_time_seconds: ($secs | tonumber),
+        cloudflare_version_id: $vid,
+        run_group_id: $rg
+      }'
+  )"
 fi
+DEP_META_ESC="$(sql_esc "$DEP_META")"
 
 echo "Recording deploy in D1 (deployments.id=$VERSION_ID, timestamp=$DEPLOY_TIMESTAMP local, deploy_time_seconds=$DEPLOY_SECONDS, triggered_by=$TRIGGERED_BY, tenant_id=$TENANT_ID, workspace_id=$WORKSPACE_ID, project_id=${PROJECT_ID:-<null>})"
-npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --command "INSERT INTO deployments (id, timestamp, version, git_hash, description, status, deployed_by, environment, deploy_time_seconds, worker_name, triggered_by, notes, tenant_id, workspace_id, project_id) VALUES ('$VID_ESC', '$TS_ESC', '$VS_ESC', '$GH_ESC', '$DESC_ESC', 'success', '$DBY_ESC', 'production', $DEPLOY_SECONDS, 'inneranimalmedia', '$TB_ESC', '$DN_ESC', '$TID_ESC', '$WID_ESC', $PID_SQL)"
-echo "Done. Overview / deployment tracking will show this deploy."
+npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --command "INSERT INTO deployments (
+  id, timestamp, version, git_hash, changed_files, description, status, deployed_by, environment,
+  deploy_duration_ms, rollback_from, notes, created_at, deploy_time_seconds, worker_name, triggered_by,
+  tenant_id, workspace_id, project_id, run_group_id, metadata_json
+) VALUES (
+  '$VID_ESC', '$TS_ESC', '$VS_ESC', '$GH_ESC', '$CF_ESC', '$DESC_ESC', 'success', '$DBY_ESC', '$ENV_ESC',
+  $DEPLOY_DURATION_MS, '$RF_ESC', '$DN_ESC', '$CA_ESC', $DEPLOY_SECONDS, '$WN_ESC', '$TB_ESC',
+  '$TID_ESC', '$WID_ESC', '$PID_ESC', '$RG_ESC', '$DEP_META_ESC'
+)"
+echo "Done. Overview / deployment tracking will show this deploy (all columns populated)."
 
 # Keep agentsam_deployment_health live on every fast/full path (not only eval cron).
 # Dual-write checked_at (ISO) + checked_at_unix / last_checked_at (epoch).
 HEALTH_ID="dhc_$(echo "$VERSION_ID" | tr -cd 'a-zA-Z0-9' | cut -c1-16)"
-HEALTH_ID_ESC="${HEALTH_ID//\'/\'\'}"
-npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --command "INSERT INTO agentsam_deployment_health (id, tenant_id, deployment_id, worker_name, environment, check_type, check_url, status, http_status_code, response_time_ms, metadata_json, checked_by, checked_at, workspace_id, checked_at_unix, last_checked_at) VALUES ('$HEALTH_ID_ESC', '$TID_ESC', '$VID_ESC', 'inneranimalmedia', 'production', 'smoke_test', 'https://inneranimalmedia.com/api/health', 'healthy', NULL, NULL, json_object('git_hash', '$GH_ESC', 'triggered_by', '$TB_ESC', 'deploy_time_seconds', $DEPLOY_SECONDS, 'phase', 'post_deploy_record'), 'post_deploy_record', strftime('%Y-%m-%dT%H:%M:%SZ','now'), '$WID_ESC', unixepoch(), unixepoch())" \
+HEALTH_ID_ESC="$(sql_esc "$HEALTH_ID")"
+npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --command "INSERT INTO agentsam_deployment_health (id, tenant_id, deployment_id, worker_name, environment, check_type, check_url, status, http_status_code, response_time_ms, metadata_json, checked_by, checked_at, workspace_id, checked_at_unix, last_checked_at) VALUES ('$HEALTH_ID_ESC', '$TID_ESC', '$VID_ESC', '$WN_ESC', '$ENV_ESC', 'smoke_test', 'https://inneranimalmedia.com/api/health', 'healthy', NULL, NULL, json_object('git_hash', '$GH_ESC', 'triggered_by', '$TB_ESC', 'deploy_time_seconds', $DEPLOY_SECONDS, 'phase', 'post_deploy_record', 'run_group_id', '$RG_ESC'), 'post_deploy_record', strftime('%Y-%m-%dT%H:%M:%SZ','now'), '$WID_ESC', unixepoch(), unixepoch())" \
   && echo "[post-deploy-record] agentsam_deployment_health ok (id=$HEALTH_ID)" \
   || echo "[post-deploy-record] warning: agentsam_deployment_health insert failed (non-fatal)" >&2
 
-# dashboard_versions — live truth on deploy:fast (same 3-row shape as deploy-with-record.sh).
-# Deactivate prior agent/agent-css/agent-html first so is_active is exclusive.
+# dashboard_versions — every column populated; exclusive is_active for agent trio.
 DASH_DIST="${DASH_DIST:-$REPO_ROOT/dashboard/dist}"
 if [[ "${SKIP_DASHBOARD_VERSIONS:-0}" == "1" ]]; then
   echo "[post-deploy-record] SKIP_DASHBOARD_VERSIONS=1 — skipping dashboard_versions"
@@ -116,10 +170,65 @@ elif [[ -f "$DASH_DIST/dashboard.js" && -f "$DASH_DIST/dashboard.css" && -f "$DA
   CSS_SIZE=$(wc -c < "$DASH_DIST/dashboard.css" | tr -d ' ')
   HTML_SIZE=$(wc -c < "$DASH_DIST/index.html" | tr -d ' ')
   DEPLOY_TS=$(date +%s)
+  BUILD_PIPELINE="${BUILD_PIPELINE:-deploy_fast}"
+  BP_ESC="$(sql_esc "$BUILD_PIPELINE")"
+  CV_ESC="$(sql_esc "$CURRENT_V")"
+
+  dv_meta() {
+    local page="$1" r2="$2" fh="$3" fsz="$4" localp="$5"
+    if command -v jq >/dev/null 2>&1; then
+      jq -nc \
+        --arg page "$page" \
+        --arg r2 "$r2" \
+        --arg fh "$fh" \
+        --argjson fsz "$fsz" \
+        --arg local "$localp" \
+        --arg sha "$GIT_FULL" \
+        --arg vid "$VERSION_ID" \
+        --arg rg "$RUN_GROUP_ID" \
+        --arg cache "$CURRENT_V" \
+        --arg pipeline "$BUILD_PIPELINE" \
+        '{
+          page_name: $page,
+          r2_path: $r2,
+          file_hash: $fh,
+          file_size: $fsz,
+          local_backup_path: $local,
+          git_sha_full: $sha,
+          deployment_id: $vid,
+          run_group_id: $rg,
+          cache_bust: $cache,
+          build_pipeline: $pipeline
+        }'
+    else
+      echo '{}'
+    fi
+  }
+
+  JS_LOCAL="$DASH_DIST/dashboard.js"
+  CSS_LOCAL="$DASH_DIST/dashboard.css"
+  HTML_LOCAL="$DASH_DIST/index.html"
+  JS_META_ESC="$(sql_esc "$(dv_meta agent static/dashboard/app/dashboard.js "$JS_HASH" "$JS_SIZE" "$JS_LOCAL")")"
+  CSS_META_ESC="$(sql_esc "$(dv_meta agent-css static/dashboard/app/dashboard.css "$CSS_HASH" "$CSS_SIZE" "$CSS_LOCAL")")"
+  HTML_META_ESC="$(sql_esc "$(dv_meta agent-html static/dashboard/app.html "$HTML_HASH" "$HTML_SIZE" "$HTML_LOCAL")")"
+  JS_LOCAL_ESC="$(sql_esc "$JS_LOCAL")"
+  CSS_LOCAL_ESC="$(sql_esc "$CSS_LOCAL")"
+  HTML_LOCAL_ESC="$(sql_esc "$HTML_LOCAL")"
+
   npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --command "UPDATE dashboard_versions SET is_active = 0 WHERE page_name IN ('agent','agent-css','agent-html') AND COALESCE(is_active, 0) = 1" \
     || echo "[post-deploy-record] warning: dashboard_versions deactivate failed (non-fatal)" >&2
-  npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --command "INSERT OR REPLACE INTO dashboard_versions (id, page_name, version, file_hash, file_size, r2_path, description, is_production, is_locked, is_active, environment, git_commit, build_pipeline, created_at, deployed_at) VALUES ('agent-js-v${CURRENT_V}-${DEPLOY_TS}', 'agent', 'v${CURRENT_V}', '${JS_HASH}', ${JS_SIZE}, 'static/dashboard/app/dashboard.js', 'Auto-logged by post-deploy-record.sh', 1, 1, 1, 'production', '${GH_ESC}', 'deploy_fast', unixepoch(), unixepoch()), ('agent-css-v${CURRENT_V}-${DEPLOY_TS}', 'agent-css', 'v${CURRENT_V}', '${CSS_HASH}', ${CSS_SIZE}, 'static/dashboard/app/dashboard.css', 'Auto-logged by post-deploy-record.sh', 1, 1, 1, 'production', '${GH_ESC}', 'deploy_fast', unixepoch(), unixepoch()), ('agent-html-v${CURRENT_V}-${DEPLOY_TS}', 'agent-html', 'v${CURRENT_V}', '${HTML_HASH}', ${HTML_SIZE}, 'static/dashboard/app.html', 'Auto-logged by post-deploy-record.sh', 1, 1, 1, 'production', '${GH_ESC}', 'deploy_fast', unixepoch(), unixepoch())" \
-    && echo "[post-deploy-record] dashboard_versions ok (v${CURRENT_V} js/css/html)" \
+
+  # Full-column insert. is_locked=1 → locked_at/locked_by set; screenshot_url='' when none.
+  npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --command "INSERT OR REPLACE INTO dashboard_versions (
+    id, page_name, version, file_hash, file_size, r2_path, local_backup_path, description,
+    is_locked, is_production, screenshot_url, created_at, locked_at, locked_by, metadata_json,
+    environment, git_commit, session_tag, is_active, build_pipeline, deployed_at
+  ) VALUES
+  ('agent-js-v${CV_ESC}-${DEPLOY_TS}', 'agent', 'v${CV_ESC}', '${JS_HASH}', ${JS_SIZE}, 'static/dashboard/app/dashboard.js', '${JS_LOCAL_ESC}', 'Auto-logged by post-deploy-record.sh', 1, 1, '', unixepoch(), unixepoch(), '${DBY_ESC}', '${JS_META_ESC}', '${ENV_ESC}', '${GH_ESC}', '${ST_ESC}', 1, '${BP_ESC}', unixepoch()),
+  ('agent-css-v${CV_ESC}-${DEPLOY_TS}', 'agent-css', 'v${CV_ESC}', '${CSS_HASH}', ${CSS_SIZE}, 'static/dashboard/app/dashboard.css', '${CSS_LOCAL_ESC}', 'Auto-logged by post-deploy-record.sh', 1, 1, '', unixepoch(), unixepoch(), '${DBY_ESC}', '${CSS_META_ESC}', '${ENV_ESC}', '${GH_ESC}', '${ST_ESC}', 1, '${BP_ESC}', unixepoch()),
+  ('agent-html-v${CV_ESC}-${DEPLOY_TS}', 'agent-html', 'v${CV_ESC}', '${HTML_HASH}', ${HTML_SIZE}, 'static/dashboard/app.html', '${HTML_LOCAL_ESC}', 'Auto-logged by post-deploy-record.sh', 1, 1, '', unixepoch(), unixepoch(), '${DBY_ESC}', '${HTML_META_ESC}', '${ENV_ESC}', '${GH_ESC}', '${ST_ESC}', 1, '${BP_ESC}', unixepoch())
+" \
+    && echo "[post-deploy-record] dashboard_versions ok (v${CURRENT_V} js/css/html — all columns)" \
     || echo "[post-deploy-record] warning: dashboard_versions insert failed (non-fatal)" >&2
 else
   echo "[post-deploy-record] dashboard/dist missing — skipping dashboard_versions (expected on worker-only)"
