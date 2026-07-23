@@ -18,7 +18,7 @@ description: >-
 | Live | `https://mcp.inneranimalmedia.com` |
 | Worker | MCP worker (this repo’s wrangler) |
 | Shared D1 | `inneranimalmedia-business` (tools/OAuth registry) — still **deploy Worker from MCP root only** |
-| Scope | Platform ops under `ws_inneranimalmedia`; minted MCP tokens stay workspace-scoped |
+| Scope | MCP **transport** workspace `ws_inneranimalmedia_mcp` (`env.WORKSPACE_ID` on this Worker). Platform/authority app is `ws_inneranimalmedia` in the main repo — do not conflate. Minted MCP tokens stay user/workspace-scoped from consent. |
 
 Main app is **`/iam-ship-main`** · umbrella **`/iam-ship`**.
 
