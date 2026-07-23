@@ -28,6 +28,7 @@ import {
   withHostedShellHybridInstructions,
   loadHostedShellAllowedDomains,
 } from '../core/openai-hosted-shell.js';
+import { resolveOpenaiContainerId } from '../core/openai-container-pin.js';
 
 const OPENAI_BASE = 'https://api.openai.com/v1';
 
@@ -688,6 +689,27 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
   const hostedShellDomains = openaiHostedShellEnabled
     ? await loadHostedShellAllowedDomains(env)
     : [];
+  const openaiContainerPinCtx =
+    params.openaiContainerPin && typeof params.openaiContainerPin === 'object'
+      ? {
+          openaiContainerPin: params.openaiContainerPin,
+          agent_run_id: params.agentRunId ?? params.agent_run_id ?? null,
+          sessionId: params.sessionId ?? params.session_id ?? null,
+          conversation_id: params.conversationId ?? params.conversation_id ?? null,
+          workspaceId: params.workspaceId ?? params.workspace_id ?? null,
+          userId,
+        }
+      : {
+          agent_run_id: params.agentRunId ?? params.agent_run_id ?? null,
+          sessionId: params.sessionId ?? params.session_id ?? null,
+          conversation_id: params.conversationId ?? params.conversation_id ?? null,
+          workspaceId: params.workspaceId ?? params.workspace_id ?? null,
+          userId,
+          openai_container_id: params.openaiContainerId ?? params.openai_container_id ?? null,
+        };
+  const pinnedContainerId = openaiHostedShellEnabled
+    ? await resolveOpenaiContainerId(env, openaiContainerPinCtx)
+    : null;
   const instructionsBase = withHostedShellHybridInstructions(systemPrompt, openaiHostedShellEnabled);
   const replay = Array.isArray(params.openaiResponsesReplayInput)
     ? params.openaiResponsesReplayInput
@@ -701,6 +723,7 @@ export async function buildOpenAIResponsesRequestParts(env, params) {
   oaiTools = withApplyPatchTool(oaiTools, openaiApplyPatchEnabled);
   oaiTools = withHostedShellTool(oaiTools, openaiHostedShellEnabled, {
     allowedDomains: hostedShellDomains,
+    containerId: pinnedContainerId,
   });
   if (openaiPtcEnabled) logOpenaiPtcToolsWire(oaiTools);
   if (openaiApplyPatchEnabled) logOpenaiApplyPatchToolsWire(oaiTools);
@@ -853,6 +876,27 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
   const hostedShellDomains = openaiHostedShellEnabled
     ? await loadHostedShellAllowedDomains(env)
     : [];
+  const openaiContainerPinCtx =
+    params.openaiContainerPin && typeof params.openaiContainerPin === 'object'
+      ? {
+          openaiContainerPin: params.openaiContainerPin,
+          agent_run_id: params.agentRunId ?? params.agent_run_id ?? null,
+          sessionId: params.sessionId ?? params.session_id ?? null,
+          conversation_id: params.conversationId ?? params.conversation_id ?? null,
+          workspaceId: params.workspaceId ?? params.workspace_id ?? null,
+          userId,
+        }
+      : {
+          agent_run_id: params.agentRunId ?? params.agent_run_id ?? null,
+          sessionId: params.sessionId ?? params.session_id ?? null,
+          conversation_id: params.conversationId ?? params.conversation_id ?? null,
+          workspaceId: params.workspaceId ?? params.workspace_id ?? null,
+          userId,
+          openai_container_id: params.openaiContainerId ?? params.openai_container_id ?? null,
+        };
+  const pinnedContainerId = openaiHostedShellEnabled
+    ? await resolveOpenaiContainerId(env, openaiContainerPinCtx)
+    : null;
   const instructionsBase = withHostedShellHybridInstructions(systemPrompt, openaiHostedShellEnabled);
   const replay = Array.isArray(params.openaiResponsesReplayInput)
     ? params.openaiResponsesReplayInput
@@ -866,6 +910,7 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
   oaiTools = withApplyPatchTool(oaiTools, openaiApplyPatchEnabled);
   oaiTools = withHostedShellTool(oaiTools, openaiHostedShellEnabled, {
     allowedDomains: hostedShellDomains,
+    containerId: pinnedContainerId,
   });
 
   let body = {

@@ -7,6 +7,7 @@ import {
   summarizeShellCallAction,
   formatShellCallOutputPreview,
   isEmptyHostedShellAction,
+  hostedShellCommandsTargetWorkspace,
 } from './openai-hosted-shell.js';
 
 function readSseChunk(reader, signal) {
@@ -211,18 +212,27 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
     if (callId) shellSeenCallIds.add(`call:${callId}`);
     const summary = summarizeShellCallAction(item.action);
     const empty = isEmptyHostedShellAction(summary);
+    const workspaceTargeted = hostedShellCommandsTargetWorkspace(summary.commands);
+    const containerId =
+      String(item.container_id || item.containerId || '').trim() ||
+      String(item.action?.container_id || item.action?.containerId || '').trim() ||
+      null;
     hostedShellEvents.push({
       type: 'shell_call',
       call_id: callId || null,
       status: item.status != null ? String(item.status) : null,
       action: summary,
+      container_id: containerId || undefined,
       empty: empty || undefined,
+      workspace_targeted: workspaceTargeted || undefined,
     });
     emit('tool_call', {
       tool: 'openai_hosted_shell',
       args: summary,
       call_id: callId || undefined,
       ...(empty ? { empty: true } : {}),
+      ...(workspaceTargeted ? { workspace_targeted: true } : {}),
+      ...(containerId ? { container_id: containerId } : {}),
     });
     emit('tool_start', {
       tool_name: 'openai_hosted_shell',
@@ -241,32 +251,45 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
       (e) => e?.type === 'shell_call' && String(e.call_id || '') === callId,
     );
     const empty = matchedCall?.empty === true || isEmptyHostedShellAction(matchedCall?.action);
+    const workspaceTargeted = matchedCall?.workspace_targeted === true;
+    const containerId =
+      String(item.container_id || item.containerId || matchedCall?.container_id || '').trim() ||
+      null;
+    if (containerId && matchedCall && !matchedCall.container_id) {
+      matchedCall.container_id = containerId;
+    }
+    let failMsg = null;
+    if (empty) failMsg = 'empty_hosted_shell_commands — no output';
+    else if (workspaceTargeted) {
+      failMsg =
+        'hosted_shell_workspace_scope_violation — OpenAI hosted shell is /mnt/data only; use workspace fs_* / terminal tools for repo paths';
+    }
+    const ok = !failMsg;
     hostedShellEvents.push({
       type: 'shell_call_output',
       call_id: callId || null,
-      preview: preview.slice(0, 2000),
+      preview: (failMsg || preview).slice(0, 2000),
       empty: empty || undefined,
+      workspace_targeted: workspaceTargeted || undefined,
+      container_id: containerId || undefined,
+      ok,
     });
     emit('tool_output', {
       tool_name: 'openai_hosted_shell',
       tool_call_id: callId || undefined,
-      output: empty
-        ? 'empty_hosted_shell_commands — no output'
-        : preview.slice(0, 8000),
-      ok: !empty,
+      output: failMsg || preview.slice(0, 8000),
+      ok,
     });
     emit('tool_result', {
       tool: 'openai_hosted_shell',
       tool_call_id: callId || undefined,
-      result: empty
-        ? 'empty_hosted_shell_commands — no output'
-        : preview.slice(0, 8000),
-      ok: !empty,
+      result: failMsg || preview.slice(0, 8000),
+      ok,
     });
     emit('tool_done', {
       tool_name: 'openai_hosted_shell',
       tool_call_id: callId || undefined,
-      ok: !empty,
+      ok,
     });
   };
 

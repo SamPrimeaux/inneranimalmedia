@@ -73,6 +73,10 @@ import {
 import { executeApplyPatchCalls } from './openai-apply-patch.js';
 import { normalizeOpenAiToolStopReason } from './agent-tool-stop-reason.js';
 import { isEmptyHostedShellAction } from './openai-hosted-shell.js';
+import {
+  pinOpenaiContainerId,
+  extractContainerIdFromHostedShellEvents,
+} from './openai-container-pin.js';
 import { tryBroadcastMonacoPatchFromToolOutput } from './collab-broadcast.js';
 import { TAVILY_DEFAULTS } from './tavily-open-web-search.js';
 import {
@@ -245,6 +249,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   // Shared across every tool dispatch this run — runContext literals are rebuilt per call,
   // so PTY lane pin must live on this bag (and D1), not on throwaway runContext fields.
   const turnPtyLanePin = Object.create(null);
+  const turnOpenaiContainerPin = Object.create(null);
   const runSpineIds = {
     agent_run_id: dispatchSpine.agent_run_id,
     conversation_id: sessionId != null ? String(sessionId).trim() : null,
@@ -254,6 +259,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     resolvedContext: resolvedContextParam,
     ctx,
     ptyLanePin: turnPtyLanePin,
+    openaiContainerPin: turnOpenaiContainerPin,
   };
 
   const attributedRoutingArmId = () => routingArmIdStr || null;
@@ -1018,6 +1024,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           ? { openaiResponsesReplayInput: openaiResponsesAccumulatedInput }
           : {}),
         openaiResponsesCapture,
+        openaiContainerPin: turnOpenaiContainerPin,
         writePolicy:
           mcpCtx?.write_policy ||
           mcpCtx?.runtimeProfile?.write_policy ||
@@ -1282,9 +1289,23 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
               event_count: parsed.hostedShellEvents.length,
               call_ids: shellCalls.map((e) => e.call_id).filter(Boolean).slice(0, 8),
               empty_count: shellCalls.filter((e) => isEmptyHostedShellAction(e?.action)).length,
+              workspace_targeted_count: shellCalls.filter((e) => e?.workspace_targeted === true)
+                .length,
               turn: turnCount,
             }),
           );
+          const cid = extractContainerIdFromHostedShellEvents(parsed.hostedShellEvents);
+          if (cid) {
+            ctx.waitUntil?.(
+              pinOpenaiContainerId(env, {
+                ...runSpineIds,
+                openaiContainerPin: turnOpenaiContainerPin,
+                agent_run_id: chatAgentRunId != null ? String(chatAgentRunId) : null,
+                userId,
+                workspaceId: routingWs || workspaceId,
+              }, cid),
+            );
+          }
         }
         if (parsed.input_tokens || parsed.output_tokens || parsed.cache_read_input_tokens) {
           totalUsage.input_tokens += parsed.input_tokens || 0;
@@ -1640,18 +1661,22 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       const emptyShellCalls = turnHostedShellEvents.filter(
         (e) => e?.type === 'shell_call' && (e.empty === true || isEmptyHostedShellAction(e.action)),
       );
+      const workspaceShellCalls = turnHostedShellEvents.filter(
+        (e) => e?.type === 'shell_call' && e.workspace_targeted === true,
+      );
       const assistantPlain = assistantContent
         .filter((b) => b?.type === 'text')
         .map((b) => String(b.text || ''))
         .join('')
         .trim();
-      // Empty hosted shell + no function tools + no text → do not end the turn silent.
-      // Continue the loop with a capability-level recovery nudge (no tool_key hardcodes).
-      if (emptyShellCalls.length && !assistantPlain && turnCount < maxTurns) {
+      // Gate 1b: empty commands → durable non-success before inventable text ends the turn.
+      // Recover even when the model already streamed inventable prose after empty shell.
+      if (emptyShellCalls.length && turnCount < maxTurns) {
         console.warn(
           '[agent] openai_hosted_shell_empty_recover',
           JSON.stringify({
             empty_count: emptyShellCalls.length,
+            had_assistant_text: Boolean(assistantPlain),
             turn: turnCount,
             agent_run_id: chatAgentRunId != null ? String(chatAgentRunId) : null,
           }),
@@ -1666,8 +1691,37 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             {
               type: 'text',
               text:
-                'SYSTEM: The previous OpenAI hosted shell call had empty commands and produced no output. ' +
-                'Continue the user request using only tools already present on your active menu.',
+                'SYSTEM: The previous OpenAI hosted shell call had empty commands[] and is a durable non-success. ' +
+                'Do not invent shell output or claim the command succeeded. ' +
+                'Continue the user request using only tools already present on your active menu ' +
+                '(workspace fs_* / terminal for repo work; hosted shell only under /mnt/data with real commands).',
+            },
+          ],
+        });
+        continue;
+      }
+      // Gate 1a: hosted shell aimed at workspace/repo paths → fail loud + recover to workspace tools.
+      if (workspaceShellCalls.length && turnCount < maxTurns) {
+        console.warn(
+          '[agent] openai_hosted_shell_workspace_scope_recover',
+          JSON.stringify({
+            count: workspaceShellCalls.length,
+            turn: turnCount,
+            agent_run_id: chatAgentRunId != null ? String(chatAgentRunId) : null,
+          }),
+        );
+        emit('status', {
+          phase: 'recover',
+          message: 'Hosted shell workspace scope violation — use workspace tools',
+        });
+        conversationMessages.push({
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text:
+                'SYSTEM: OpenAI hosted shell targeted workspace/repo paths and is out of scope. ' +
+                'Hosted shell is /mnt/data scratch only. Continue with workspace fs_* / agentsam_terminal_* tools already on your menu.',
             },
           ],
         });

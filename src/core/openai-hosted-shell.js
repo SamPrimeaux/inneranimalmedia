@@ -11,23 +11,46 @@ export const FLAG_KEY = 'openai_hosted_shell';
 /** Hybrid routing hint appended to Responses instructions when shell is injected. */
 export const HOSTED_SHELL_HYBRID_INSTRUCTION = [
   'Shell routing (hybrid):',
-  '- Prefer the active workspace terminal tools for Inner Animal Media repo, git, deploys, and workspace files.',
-  '- Use the OpenAI hosted shell tool only for isolated Debian container work under /mnt/data (scratch compute, not the IAM workspace).',
+  '- Prefer the active workspace terminal / filesystem tools for Inner Animal Media repo, git, deploys, and workspace files (.scratch/, src/, dashboard/, absolute Mac/GCP paths).',
+  '- Use the OpenAI hosted shell tool ONLY for isolated Debian container work under /mnt/data (scratch compute). Hosted shell is NOT the IAM workspace.',
+  '- Never use hosted shell for .scratch/, repo-relative paths, /Users/, /home/samprimeaux, or git/deploy. If the task needs those, use workspace tools already on your menu.',
   '- Hosted shell has no outbound network unless an allowlist is configured; do not assume curl/pip network works.',
 ].join('\n');
 
+/** Paths / cues that mean the model aimed hosted shell at the IAM workspace (Job 1), not /mnt/data. */
+const WORKSPACE_SHELL_RE =
+  /(^|[^\w.])(\.scratch\/|src\/|dashboard\/|migrations\/|scripts\/|\/Users\/|\/home\/samprimeaux|inneranimalmedia\/|\bgit\b|\bnpm run deploy|\bwrangler\b)/i;
+
+/**
+ * True when hosted-shell commands look like workspace/repo work (fail-loud for Gate 1a).
+ * `/mnt/data` scratch alone is allowed; git/deploy/repo paths are not.
+ * @param {string[]|null|undefined} commands
+ */
+export function hostedShellCommandsTargetWorkspace(commands) {
+  const cmds = Array.isArray(commands) ? commands : [];
+  for (const c of cmds) {
+    const s = String(c || '').trim();
+    if (!s) continue;
+    if (WORKSPACE_SHELL_RE.test(s)) return true;
+  }
+  return false;
+}
 /**
  * Build Responses `tools[]` shell entry. network_policy only when domains non-empty
  * (org dashboard allowlist must already include them — requests can only further restrict).
  * @param {string[]} [allowedDomains]
+ * @param {{ containerId?: string|null }} [opts]
  */
-export function buildHostedShellTool(allowedDomains = []) {
+export function buildHostedShellTool(allowedDomains = [], opts = {}) {
   const domains = (Array.isArray(allowedDomains) ? allowedDomains : [])
     .map((d) => String(d || '').trim().toLowerCase())
     .filter((d) => /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(d) || d === 'localhost')
     .slice(0, 32);
+  const containerId = String(opts.containerId || '').trim();
   /** @type {Record<string, unknown>} */
-  const environment = { type: 'container_auto' };
+  const environment = containerId
+    ? { type: 'container_reference', container_id: containerId }
+    : { type: 'container_auto' };
   if (domains.length) {
     environment.network_policy = {
       type: 'allowlist',
@@ -40,13 +63,13 @@ export function buildHostedShellTool(allowedDomains = []) {
 /**
  * @param {unknown[]|undefined} oaiTools
  * @param {boolean} enabled
- * @param {{ allowedDomains?: string[] }} [opts]
+ * @param {{ allowedDomains?: string[], containerId?: string|null }} [opts]
  */
 export function withHostedShellTool(oaiTools, enabled, opts = {}) {
   if (!enabled) return oaiTools;
   const list = Array.isArray(oaiTools) ? [...oaiTools] : [];
   if (!list.some((t) => t && typeof t === 'object' && t.type === 'shell')) {
-    list.push(buildHostedShellTool(opts.allowedDomains));
+    list.push(buildHostedShellTool(opts.allowedDomains, { containerId: opts.containerId }));
   }
   return list.length ? list : undefined;
 }
