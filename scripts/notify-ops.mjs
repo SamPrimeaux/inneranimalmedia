@@ -7,6 +7,9 @@
  *   node scripts/notify-ops.mjs --severity=critical --message='…'
  */
 import { d1Query, sqlQuote } from './lib/d1-remote.mjs';
+import { loadEnvCloudflare, REPO_ROOT } from './lib/load-env-cloudflare.mjs';
+
+loadEnvCloudflare(REPO_ROOT);
 
 function arg(name, def = '') {
   const i = process.argv.indexOf(name);

@@ -5,12 +5,14 @@
  * for this git SHA, with every required column populated and changed_files non-empty.
  */
 import { d1Query, sqlQuote } from './lib/d1-remote.mjs';
+import { loadEnvCloudflare, REPO_ROOT } from './lib/load-env-cloudflare.mjs';
 import { spawnSync } from 'node:child_process';
-import { REPO_ROOT } from './lib/load-env-cloudflare.mjs';
+
+loadEnvCloudflare(REPO_ROOT);
 
 const gitRef = String(process.argv[2] || process.env.GIT_HASH || '').trim();
-const MAX_WAIT_MS = Number(process.env.DEPLOY_TRAIL_GATE_WAIT_MS || 120_000);
-const POLL_MS = Number(process.env.DEPLOY_TRAIL_GATE_POLL_MS || 5_000);
+const MAX_WAIT_MS = Number(process.env.DEPLOY_TRAIL_GATE_WAIT_MS || 90_000);
+const POLL_MS = Number(process.env.DEPLOY_TRAIL_GATE_POLL_MS || 3_000);
 
 const DEPLOYMENTS_REQUIRED = [
   'id',
@@ -71,37 +73,25 @@ function fail(msg) {
         '--severity=critical',
         `--message=Deploy trail incomplete for ${gitRef}: ${msg}`,
       ],
-      {
-        cwd: REPO_ROOT,
-        env: process.env,
-        stdio: 'inherit',
-      },
+      { cwd: REPO_ROOT, env: process.env, stdio: 'inherit' },
     );
   } catch {
-    /* notify best-effort */
+    /* best-effort */
   }
   process.exit(1);
 }
 
 function resolveHashes(ref) {
-  const full =
-    spawnSync('git', ['-C', REPO_ROOT, 'rev-parse', ref], { encoding: 'utf8' }).stdout?.trim() ||
-    ref;
-  const short =
-    spawnSync('git', ['-C', REPO_ROOT, 'rev-parse', '--short=12', ref], { encoding: 'utf8' })
-      .stdout?.trim() || full.slice(0, 12);
+  const fullProc = spawnSync('git', ['-C', REPO_ROOT, 'rev-parse', ref], { encoding: 'utf8' });
+  const full = (fullProc.stdout || '').trim() || ref;
+  const short = full.length >= 12 ? full.slice(0, 12) : full;
   const short7 = full.slice(0, 7);
   return { full, short, short7, raw: ref };
 }
 
 function missingCols(row, required) {
   if (!row) return required.slice();
-  const out = [];
-  for (const k of required) {
-    const v = row[k];
-    if (v === null || v === undefined) out.push(k);
-  }
-  return out;
+  return required.filter((k) => row[k] === null || row[k] === undefined);
 }
 
 function changedFilesOk(raw) {
@@ -120,59 +110,61 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function checkOnce(hashes) {
-  const likeFull = `${hashes.full}%`;
-  const likeShort = `${hashes.short}%`;
-  const like7 = `${hashes.short7}%`;
-  const likeRaw = `${hashes.raw}%`;
+function safeQuery(label, sql) {
+  try {
+    return d1Query(sql);
+  } catch (e) {
+    console.error(`[deploy-trail-gate] ${label} query error: ${e?.message || e}`);
+    return [];
+  }
+}
 
-  const deployments = d1Query(
-    `SELECT * FROM deployments
-     WHERE git_hash = ${sqlQuote(hashes.full)}
-        OR git_hash = ${sqlQuote(hashes.short)}
-        OR git_hash = ${sqlQuote(hashes.short7)}
-        OR git_hash = ${sqlQuote(hashes.raw)}
-        OR git_hash LIKE ${sqlQuote(likeFull)}
-        OR git_hash LIKE ${sqlQuote(likeShort)}
-        OR git_hash LIKE ${sqlQuote(like7)}
-        OR git_hash LIKE ${sqlQuote(likeRaw)}
-     ORDER BY rowid DESC
-     LIMIT 5`,
-  );
-  const dep = deployments[0] || null;
+function checkOnce(hashes) {
+  // Simple queries only — nested ORDER BY/LIMIT in IN() hung/emptied D1 on CF.
+  const dep =
+    safeQuery(
+      'deployments',
+      `SELECT * FROM deployments
+       WHERE git_hash = ${sqlQuote(hashes.full)}
+          OR git_hash = ${sqlQuote(hashes.short)}
+          OR git_hash LIKE ${sqlQuote(hashes.short7 + '%')}
+       ORDER BY rowid DESC LIMIT 1`,
+    )[0] || null;
 
-  const dashRows = d1Query(
+  const dashRows = safeQuery(
+    'dashboard_versions',
     `SELECT * FROM dashboard_versions
      WHERE COALESCE(is_active, 0) = 1
+       AND page_name IN ('agent', 'agent-css', 'agent-html')
        AND (
          git_commit = ${sqlQuote(hashes.full)}
          OR git_commit = ${sqlQuote(hashes.short)}
-         OR git_commit = ${sqlQuote(hashes.short7)}
-         OR git_commit LIKE ${sqlQuote(likeFull)}
-         OR git_commit LIKE ${sqlQuote(likeShort)}
-         OR git_commit LIKE ${sqlQuote(like7)}
-       )
-       AND page_name IN ('agent', 'agent-css', 'agent-html')`,
+         OR git_commit LIKE ${sqlQuote(hashes.short7 + '%')}
+       )`,
   );
 
-  const health = d1Query(
-    `SELECT id, status, deployment_id, checked_by, checked_at_unix
-     FROM agentsam_deployment_health
-     WHERE status = 'healthy'
-       AND (
-         deployment_id IN (
-           SELECT id FROM deployments
-           WHERE git_hash = ${sqlQuote(hashes.full)}
-              OR git_hash = ${sqlQuote(hashes.short)}
-              OR git_hash LIKE ${sqlQuote(likeFull)}
-              OR git_hash LIKE ${sqlQuote(likeShort)}
-           ORDER BY rowid DESC LIMIT 5
-         )
-         OR checked_at_unix >= unixepoch() - 900
-       )
-     ORDER BY COALESCE(checked_at_unix, 0) DESC
-     LIMIT 1`,
-  )[0];
+  let health = null;
+  if (dep?.id) {
+    health =
+      safeQuery(
+        'deployment_health',
+        `SELECT id, status, deployment_id, checked_by, checked_at_unix
+         FROM agentsam_deployment_health
+         WHERE deployment_id = ${sqlQuote(dep.id)}
+         ORDER BY rowid DESC LIMIT 1`,
+      )[0] || null;
+  }
+  if (!health) {
+    health =
+      safeQuery(
+        'deployment_health_recent',
+        `SELECT id, status, deployment_id, checked_by, checked_at_unix
+         FROM agentsam_deployment_health
+         WHERE checked_by = 'post_deploy_record'
+           AND checked_at_unix >= unixepoch() - 900
+         ORDER BY checked_at_unix DESC LIMIT 1`,
+      )[0] || null;
+  }
 
   return { dep, dashRows, health };
 }
@@ -180,8 +172,8 @@ async function checkOnce(hashes) {
 if (!gitRef) fail('git hash required');
 
 const hashes = resolveHashes(gitRef);
-console.log(
-  `[deploy-trail-gate] checking trail for full=${hashes.full} short=${hashes.short} (max ${MAX_WAIT_MS}ms)…`,
+console.error(
+  `[deploy-trail-gate] checking full=${hashes.full} short=${hashes.short} (max ${MAX_WAIT_MS}ms)`,
 );
 
 const started = Date.now();
@@ -193,22 +185,29 @@ while (Date.now() - started < MAX_WAIT_MS) {
   const pages = new Set((last.dashRows || []).map((r) => r.page_name));
   const dashOk =
     pages.has('agent') && pages.has('agent-css') && pages.has('agent-html') && last.dashRows.length >= 3;
-  let dashColMiss = [];
+  const dashColMiss = [];
   for (const row of last.dashRows || []) {
-    dashColMiss = dashColMiss.concat(
-      missingCols(row, DASHBOARD_REQUIRED).map((c) => `${row.page_name}.${c}`),
-    );
+    for (const c of missingCols(row, DASHBOARD_REQUIRED)) dashColMiss.push(`${row.page_name}.${c}`);
   }
   const healthOk = last.health && String(last.health.status) === 'healthy';
   const filesOk = changedFilesOk(last.dep?.changed_files);
 
   if (last.dep && depMiss.length === 0 && filesOk && dashOk && dashColMiss.length === 0 && healthOk) {
-    console.log(
-      `✅ Deploy trail complete for ${hashes.full}: deployments id=${last.dep.id} changed_files=${String(last.dep.changed_files).slice(0, 120)}… dashboard_versions=${last.dashRows.length} health=${last.health.id}`,
+    console.error(
+      `✅ Deploy trail complete for ${hashes.full}: deployments=${last.dep.id} changed_files_ok dashboard=${last.dashRows.length} health=${last.health.id}`,
     );
     process.exit(0);
   }
 
+  const progress = {
+    dep: last.dep?.id || null,
+    filesOk,
+    depMiss: depMiss.slice(0, 5),
+    pages: [...pages],
+    dashColMiss: dashColMiss.slice(0, 5),
+    health: last.health?.status || null,
+  };
+  console.error(`[deploy-trail-gate] waiting… ${JSON.stringify(progress)}`);
   await sleep(POLL_MS);
 }
 
@@ -223,7 +222,7 @@ else {
   }
 }
 if (!(pages.has('agent') && pages.has('agent-css') && pages.has('agent-html'))) {
-  reasons.push(`dashboard_versions active pages=${[...pages].join(',') || 'none'} (need agent+agent-css+agent-html)`);
+  reasons.push(`dashboard_versions active pages=${[...pages].join(',') || 'none'}`);
 }
 for (const row of last.dashRows || []) {
   const m = missingCols(row, DASHBOARD_REQUIRED);
