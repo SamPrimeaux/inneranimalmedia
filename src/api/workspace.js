@@ -77,90 +77,30 @@ export async function handleWorkspaceApi(request, url, env, ctx, authUser) {
     const agentsamRes = await handleAgentsamWorkspacesApi(request, url, env, ctx, authUser);
     if (agentsamRes) return agentsamRes;
 
-    // ── /api/workspace/create (Ephemeral User State) ───────────────────────
-    // Local Explorer folder sessions are NOT product workspaces. Never INSERT into
-    // agentsam_workspace here — that minted UUID/uws_* registry sprawl. State rows
-    // hang off sentinel ws_local_explorer; identity lives in state id + JSON only.
+    // Local Explorer folder browsing is browser-only (IndexedDB handle + localStorage name).
+    // It must never mint agentsam_workspace / agentsam_workspace_state rows — those tables are
+    // for curated product workspaces and live agent sessions against bound infra.
     if (pathLower === '/api/workspace/create' && method === 'POST') {
-        const body = await request.json().catch(() => ({}));
-        const t = body?.type;
-        const type = t === 'github' || t === 'r2' ? t : 'local';
-        const tenantId = String(authUser.tenant_id ?? '').trim();
-        if (!tenantId) {
-            return jsonResponse({ error: 'tenant_required', detail: 'auth_users.tenant_id missing' }, 400);
-        }
-        const userId = String(authUser.id ?? '').trim();
-        const folderSessionId = crypto.randomUUID();
-        const rowId = `uws:${tenantId}:${userId}:${folderSessionId}`;
-        const now = Date.now();
-        const LOCAL_EXPLORER_WORKSPACE_ID = 'ws_local_explorer';
-
-        const record = {
-            schema: 'user_workspace_v1',
-            id: folderSessionId,
-            userId,
-            tenantId,
-            type,
-            folderName: typeof body.folderName === 'string' ? body.folderName : undefined,
-            lastKnownPath: typeof body.lastKnownPath === 'string' ? body.lastKnownPath : 'unknown',
-            githubRepo: typeof body.githubRepo === 'string' ? body.githubRepo : undefined,
-            r2Bucket: typeof body.r2Bucket === 'string' ? body.r2Bucket : undefined,
-            lastOpenedAt: typeof body.lastOpenedAt === 'number' ? body.lastOpenedAt : now,
-            recentFiles: Array.isArray(body.recentFiles) ? body.recentFiles.slice(0, 24) : [],
-            parentWorkspaceId: LOCAL_EXPLORER_WORKSPACE_ID,
-        };
-
-        const stateJson = JSON.stringify(record);
-
-        try {
-            await env.DB.prepare(
-                `INSERT INTO agentsam_workspace_state
-                   (id, workspace_id, workspace_type, files_open, state_json, updated_at)
-                 VALUES (?, ?, 'local_explorer', '[]', ?, unixepoch())`,
-            )
-                .bind(rowId, LOCAL_EXPLORER_WORKSPACE_ID, stateJson)
-                .run();
-        } catch (e) {
-            return jsonResponse(
-                {
-                    error: 'workspace_state_failed',
-                    step: 'agentsam_workspace_state',
-                    detail: e?.message ?? String(e),
-                },
-                500,
-            );
-        }
-
-        // Client hint key only — not an agentsam_workspace.id
-        return jsonResponse({ ok: true, workspaceId: folderSessionId });
+        return jsonResponse(
+            {
+                error: 'local_explorer_client_only',
+                detail:
+                    'Folder open/recent state is browser-local only. Product workspaces are deliberate repo+Worker+bindings identities — not Local Explorer glances.',
+            },
+            410,
+        );
     }
 
-    // ── /api/workspace/:id (Ephemeral User State Fetch/Update) ─────────────
     const userWsMatch = pathLower.match(/^\/api\/workspace\/([^/]+)$/);
-    if (userWsMatch && userWsMatch[1] !== 'create') {
-        const wsUuid = userWsMatch[1];
-        const rowId = `uws:${String(authUser.tenant_id ?? '').trim()}:${String(authUser.id ?? '').trim()}:${wsUuid}`;
-
-        if (method === 'GET') {
-            const row = await env.DB.prepare('SELECT state_json FROM agentsam_workspace_state WHERE id = ?').bind(rowId).first();
-            if (!row) return jsonResponse({ error: 'Not found' }, 404);
-            return jsonResponse(JSON.parse(row.state_json || '{}'));
-        }
-
-        if (method === 'PATCH') {
-            const body = await request.json().catch(() => ({}));
-            const row = await env.DB.prepare('SELECT state_json FROM agentsam_workspace_state WHERE id = ?').bind(rowId).first();
-            if (!row) return jsonResponse({ error: 'Not found' }, 404);
-            
-            const rec = JSON.parse(row.state_json || '{}');
-            if (typeof body.lastOpenedAt === 'number') rec.lastOpenedAt = body.lastOpenedAt;
-            if (typeof body.folderName === 'string') rec.folderName = body.folderName;
-            
-            await env.DB.prepare('UPDATE agentsam_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?')
-                .bind(JSON.stringify(rec), rowId)
-                .run();
-            return jsonResponse({ ok: true, record: rec });
-        }
+    if (userWsMatch && userWsMatch[1] !== 'create' && (method === 'GET' || method === 'PATCH')) {
+        // Former ephemeral UUID session API — retired with Local Explorer D1 persistence.
+        return jsonResponse(
+            {
+                error: 'local_explorer_client_only',
+                detail: 'Ephemeral Local Explorer D1 state was removed. Use a real ws_* workspace for agent sessions.',
+            },
+            410,
+        );
     }
 
     // ── /api/workspaces/current/shell ───────────────────────────────────────

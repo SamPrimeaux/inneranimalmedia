@@ -37,7 +37,7 @@ export type AgentSamFilesystemViewProps = {
   googleDriveOAuthRefresh?: number;
 
   rootDir: { name: string } | null;
-  localResumeHint: { workspaceId: string | null; folderName: string } | null;
+  localResumeHint: { folderName: string } | null;
   localTreeRows: LocalFileTreeRow[];
   onLocalTreeRowClick: (row: LocalFileTreeRow) => void;
   handleOpenFolder: () => void;

@@ -52,13 +52,11 @@ const IAM_PALETTE_OPEN_R2 = 'iam-palette-open-r2';
 const NATIVE_WS_DB_NAME = 'iam-agent-native-workspace-v1';
 const NATIVE_WS_STORE = 'handles';
 const NATIVE_WS_KEY = 'directory';
-/** Tier-2 hint: last D1 workspace id (handles stay in `handles`; browser may revoke permission across sessions). */
+/** Legacy IDB store for old D1 workspace-id hints — cleared on disconnect; no longer written. */
 const NATIVE_WS_HINT_STORE = 'workspace_hint';
 const NATIVE_WS_HINT_KEY = 'last';
-/** vscode.dev-style: display name only (no path); survives when D1/IDB hints are missing (e.g. logged out). */
+/** Display name only (no path); browser-local UI convenience — never a product workspace. */
 const LS_LAST_LOCAL_FOLDER_NAME = 'iam_last_local_folder_name';
-
-type LocalWorkspaceIdCache = { lastWorkspaceId: string; lastOpenedAt: number };
 
 function persistLastLocalFolderNameOnly(name: string): void {
     try {
@@ -99,37 +97,14 @@ function openNativeWsDb(): Promise<IDBDatabase> {
     });
 }
 
-async function persistWorkspaceIdHint(workspaceId: string): Promise<void> {
-    const db = await openNativeWsDb();
-    const entry: LocalWorkspaceIdCache = { lastWorkspaceId: workspaceId, lastOpenedAt: Date.now() };
-    await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(NATIVE_WS_HINT_STORE, 'readwrite');
-        tx.objectStore(NATIVE_WS_HINT_STORE).put(entry, NATIVE_WS_HINT_KEY);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-    });
-    db.close();
-}
-
-async function loadWorkspaceIdHint(): Promise<LocalWorkspaceIdCache | null> {
+/** Wipe legacy D1 session-id hints left from older Local Explorer builds. */
+async function clearLegacyServerWorkspaceIdHint(): Promise<void> {
     try {
         const db = await openNativeWsDb();
-        const row = await new Promise<LocalWorkspaceIdCache | null>((resolve, reject) => {
-            const tx = db.transaction(NATIVE_WS_HINT_STORE, 'readonly');
-            const r = tx.objectStore(NATIVE_WS_HINT_STORE).get(NATIVE_WS_HINT_KEY);
-            r.onsuccess = () => resolve((r.result as LocalWorkspaceIdCache) || null);
-            r.onerror = () => reject(r.error);
-        });
-        db.close();
-        return row;
-    } catch {
-        return null;
-    }
-}
-
-async function clearWorkspaceIdHint(): Promise<void> {
-    try {
-        const db = await openNativeWsDb();
+        if (!db.objectStoreNames.contains(NATIVE_WS_HINT_STORE)) {
+            db.close();
+            return;
+        }
         await new Promise<void>((resolve, reject) => {
             const tx = db.transaction(NATIVE_WS_HINT_STORE, 'readwrite');
             tx.objectStore(NATIVE_WS_HINT_STORE).delete(NATIVE_WS_HINT_KEY);
@@ -272,12 +247,9 @@ export const LocalExplorer: React.FC<LocalExplorerProps> = ({
     const [rootDir, setRootDir] = useState<LocalFileNode | null>(null);
     /**
      * When the directory handle cannot be revalidated, show vscode.dev-style resume copy.
-     * `workspaceId` null = name came from localStorage only (no server row).
+     * Browser-local only (IndexedDB handle + localStorage name) — never a D1 workspace row.
      */
-    const [localResumeHint, setLocalResumeHint] = useState<{
-        workspaceId: string | null;
-        folderName: string;
-    } | null>(null);
+    const [localResumeHint, setLocalResumeHint] = useState<{ folderName: string } | null>(null);
     const [expandedSections, setExpandedSections] = useState({
         local: false,
         r2: false,
@@ -752,57 +724,29 @@ export const LocalExplorer: React.FC<LocalExplorerProps> = ({
     useEffect(() => {
         if (typeof indexedDB === 'undefined') return;
         void (async () => {
-            const tryResumeHints = async () => {
-                const hint = await loadWorkspaceIdHint();
-                if (hint?.lastWorkspaceId) {
-                    try {
-                        const res = await fetch(`/api/workspace/${encodeURIComponent(hint.lastWorkspaceId)}`, {
-                            credentials: 'same-origin',
-                        });
-                        if (res.ok) {
-                            const rec = (await res.json()) as { type?: string; folderName?: string };
-                            if (
-                                rec?.type === 'local' &&
-                                typeof rec.folderName === 'string' &&
-                                rec.folderName.trim()
-                            ) {
-                                const fn = rec.folderName.trim();
-                                persistLastLocalFolderNameOnly(fn);
-                                setLocalResumeHint({
-                                    workspaceId: hint.lastWorkspaceId,
-                                    folderName: fn,
-                                });
-                                return;
-                            }
-                        }
-                    } catch {
-                        /* offline */
-                    }
-                }
+            await clearLegacyServerWorkspaceIdHint();
+            const tryResumeHints = () => {
                 const nameOnly = loadLastLocalFolderNameOnly();
-                if (nameOnly) {
-                    setLocalResumeHint({ workspaceId: null, folderName: nameOnly });
-                }
+                if (nameOnly) setLocalResumeHint({ folderName: nameOnly });
             };
 
             try {
                 const h = await loadPersistedNativeDirectoryHandle();
                 if (!h) {
-                    await tryResumeHints();
+                    tryResumeHints();
                     return;
                 }
                 const perm = await queryLocalHandlePermission(h);
                 // requestPermission requires a user gesture — never call it on page load.
                 if (perm !== 'granted') {
                     persistLastLocalFolderNameOnly(h.name);
-                    setLocalResumeHint({ workspaceId: null, folderName: h.name });
-                    await tryResumeHints();
+                    setLocalResumeHint({ folderName: h.name });
                     return;
                 }
                 mountNativeRoot(h);
             } catch (e) {
                 console.warn('[LocalExplorer] native workspace restore skipped', e);
-                await tryResumeHints();
+                tryResumeHints();
             }
         })();
     }, [mountNativeRoot, onWorkspaceRootChange]);
@@ -816,42 +760,15 @@ export const LocalExplorer: React.FC<LocalExplorerProps> = ({
 
             mountNativeRoot(dirHandle);
             await persistNativeDirectoryHandle(dirHandle);
+            persistLastLocalFolderNameOnly(dirHandle.name);
+            await clearLegacyServerWorkspaceIdHint();
 
             if (localResumeHint && dirHandle.name !== localResumeHint.folderName) {
                 console.warn(
-                    '[LocalExplorer] selected folder name differs from last saved workspace hint',
+                    '[LocalExplorer] selected folder name differs from last saved local hint',
                     dirHandle.name,
                     localResumeHint.folderName,
                 );
-            }
-
-            const hintRow = await loadWorkspaceIdHint();
-            let synced = false;
-            if (hintRow?.lastWorkspaceId) {
-                const pr = await fetch(`/api/workspace/${encodeURIComponent(hintRow.lastWorkspaceId)}`, {
-                    method: 'PATCH',
-                    credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ lastOpenedAt: Date.now(), folderName: dirHandle.name }),
-                });
-                synced = pr.ok;
-            }
-            if (!synced) {
-                const res = await fetch('/api/workspace/create', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        type: 'local',
-                        folderName: dirHandle.name,
-                        lastKnownPath: 'unknown',
-                        lastOpenedAt: Date.now(),
-                    }),
-                });
-                if (res.ok) {
-                    const j = (await res.json()) as { workspaceId?: string };
-                    if (j?.workspaceId) await persistWorkspaceIdHint(String(j.workspaceId));
-                }
             }
         } catch (err) {
             if (err instanceof Error && err.name === 'AbortError') return;
@@ -888,7 +805,7 @@ export const LocalExplorer: React.FC<LocalExplorerProps> = ({
         setLocalResumeHint(null);
         onWorkspaceRootChange?.({ folderName: '' });
         await clearPersistedNativeDirectoryHandle();
-        await clearWorkspaceIdHint();
+        await clearLegacyServerWorkspaceIdHint();
         clearLastLocalFolderNameOnly();
     }, [onWorkspaceRootChange]);
 
@@ -1148,7 +1065,7 @@ export const LocalExplorer: React.FC<LocalExplorerProps> = ({
                                     Connect Native Folder
                                 </button>
                                 <p className="text-[9px] text-muted text-center max-w-[200px] leading-relaxed">
-                                    Chromium: read/write for this site. The folder display name may be stored locally (and on the server when signed in) so we can prompt you to re-pick after a refresh—never the full disk path.
+                                    Chromium: read/write for this site. The folder display name is stored in this browser only so we can prompt you to re-pick after a refresh—never the full disk path, never a product workspace in D1.
                                 </p>
                             </div>
                         ) : (
