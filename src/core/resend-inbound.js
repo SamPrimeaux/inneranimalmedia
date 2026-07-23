@@ -200,6 +200,88 @@ export function receivedEmailsScopeClause(tenantId, userId) {
 }
 
 /**
+ * Resend email.received webhooks only carry metadata — body lives on Receiving API.
+ * @param {Record<string, unknown>} env
+ * @param {string} emailId
+ * @returns {Promise<Record<string, unknown>|null>}
+ */
+export async function fetchResendReceivedEmail(env, emailId) {
+  const id = emailId != null ? String(emailId).trim() : '';
+  if (!id) return null;
+  const key = env?.RESEND_API_KEY != null ? String(env.RESEND_API_KEY).trim() : '';
+  if (!key) {
+    console.warn('[resend-inbound] RESEND_API_KEY missing — cannot fetch received body');
+    return null;
+  }
+  try {
+    const res = await fetch(
+      `https://api.resend.com/emails/receiving/${encodeURIComponent(id)}`,
+      {
+        headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
+      },
+    );
+    if (!res.ok) {
+      console.warn('[resend-inbound] receiving.get failed', res.status, await res.text().catch(() => ''));
+      return null;
+    }
+    const json = await res.json().catch(() => null);
+    return json && typeof json === 'object' ? json : null;
+  } catch (e) {
+    console.warn('[resend-inbound] receiving.get error', e?.message ?? e);
+    return null;
+  }
+}
+
+/**
+ * Merge Receiving API body/headers into webhook payload when text/html are absent.
+ * @param {Record<string, unknown>} env
+ * @param {Record<string, unknown>} payload
+ */
+export async function enrichResendInboundPayload(env, payload) {
+  const body = payload && typeof payload === 'object' ? { ...payload } : {};
+  const data =
+    body.data && typeof body.data === 'object' ? { ...body.data } : { ...body };
+  const emailId =
+    data.email_id != null
+      ? String(data.email_id).trim()
+      : data.id != null
+        ? String(data.id).trim()
+        : '';
+  const hasBody =
+    (data.text != null && String(data.text).trim()) ||
+    (data.html != null && String(data.html).trim());
+  const eventType = body.type != null ? String(body.type) : '';
+  const needsFetch =
+    !!emailId &&
+    !hasBody &&
+    (eventType === 'email.received' || eventType === '' || !!data.email_id);
+
+  if (needsFetch) {
+    const full = await fetchResendReceivedEmail(env, emailId);
+    if (full) {
+      if (full.from != null) data.from = full.from;
+      if (full.to != null) data.to = full.to;
+      if (full.subject != null) data.subject = full.subject;
+      if (full.text != null) data.text = full.text;
+      if (full.html != null) data.html = full.html;
+      if (full.headers && typeof full.headers === 'object') {
+        data.headers = { ...(data.headers || {}), ...full.headers };
+      }
+      if (full.message_id != null) data.message_id = full.message_id;
+      data.email_id = emailId;
+      data._enriched_from_receiving_api = true;
+    }
+  }
+
+  if (body.data && typeof body.data === 'object') {
+    body.data = data;
+  } else {
+    Object.assign(body, data);
+  }
+  return body;
+}
+
+/**
  * @param {Record<string, unknown>} env
  * @param {Record<string, unknown>} payload Resend webhook body
  */
@@ -212,7 +294,9 @@ export async function persistResendInboundEmail(env, payload) {
     typeof fromRaw === 'string'
       ? normalizeEmail(fromRaw)
       : normalizeEmail(fromRaw?.email || fromRaw?.address);
-  const toAddresses = normalizeResendAddressList(data?.to || data?.recipient || data?.recipients);
+  const toAddresses = normalizeResendAddressList(
+    data?.to || data?.recipient || data?.recipients || data?.received_for,
+  );
   const subject = data?.subject != null ? String(data.subject) : '(no subject)';
   const text = data?.text != null ? String(data.text) : '';
   const html = data?.html != null ? String(data.html) : '';

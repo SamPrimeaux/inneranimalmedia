@@ -10,7 +10,11 @@ import { getUserBYOKey } from './provisioning.js';
 import { handleGithubReposList } from '../integrations/github.js';
 import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 import { recordWorkerAnalyticsError } from './telemetry.js';
-import { persistResendInboundEmail } from '../core/resend-inbound.js';
+import {
+    enrichResendInboundPayload,
+    persistResendInboundEmail,
+} from '../core/resend-inbound.js';
+import { verifyResendWebhookRequest } from '../core/resend-webhook-verify.js';
 import { handleIntegrationsConnectRoutes } from './integrations/connect.js';
 import {
     addSharedDrivePermissionV3,
@@ -112,22 +116,29 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
         return handleBlueBubblesWebhook(request, env, ctx);
     }
 
-    // 2. Resend General Webhook Hook
-    if ((pathLower === '/api/integrations/resend/webhook' || pathLower === '/api/webhooks/resend') && method === 'POST') {
-        const secret = request.headers.get('X-Resend-Webhook-Secret') || url.searchParams.get('secret');
-        if (env.RESEND_WEBHOOK_SECRET && secret !== env.RESEND_WEBHOOK_SECRET) {
-            return jsonResponse({ error: 'Invalid webhook secret' }, 403);
+    // 2. Resend webhook (Svix) — canonical inbound: POST /api/webhooks/resend
+    // Resend signs with whsec_ (svix-*) using RESEND_INBOUND_WEBHOOK_SECRET (preferred) or RESEND_WEBHOOK_SECRET.
+    if (
+        (pathLower === '/api/integrations/resend/webhook' ||
+            pathLower === '/api/webhooks/resend' ||
+            pathLower === '/api/email/inbound') &&
+        method === 'POST'
+    ) {
+        const rawBody = await request.text();
+        const verified = await verifyResendWebhookRequest(rawBody, request.headers, url, env);
+        if (!verified.ok) {
+            return jsonResponse(
+                { error: 'Invalid webhook signature', reason: verified.reason || 'denied' },
+                403,
+            );
         }
-        return handleResendWebhook(request, env, ctx, pathLower);
-    }
-
-    // 3. Resend Inbound Email Hook (Explicit path)
-    if (pathLower === '/api/email/inbound' && method === 'POST') {
-        const secret = request.headers.get('X-Resend-Inbound-Secret') || url.searchParams.get('secret');
-        if (env.RESEND_INBOUND_WEBHOOK_SECRET && secret !== env.RESEND_INBOUND_WEBHOOK_SECRET) {
-            return jsonResponse({ error: 'Invalid inbound secret' }, 403);
+        let parsed;
+        try {
+            parsed = rawBody ? JSON.parse(rawBody) : {};
+        } catch {
+            return jsonResponse({ error: 'Invalid JSON body' }, 400);
         }
-        return handleResendWebhook(request, env, ctx, pathLower);
+        return handleResendWebhook(request, env, ctx, pathLower, parsed, verified.mode);
     }
 
     if (!pathLower.startsWith('/api/integrations') && !pathLower.startsWith('/api/gdrive')) return null;
@@ -1311,11 +1322,23 @@ function timingSafeEqual(a, b) {
 
 /**
  * 🧱 handleResendWebhook: Inbound Email Reply Hub
- * Phone IDE loop: persist → allowlist → parse [ref:] → Agent Sam turn (no agent_messages).
+ * Phone IDE loop: Svix verify → enrich Receiving API → persist → allowlist → Agent Sam turn.
  */
-async function handleResendWebhook(request, env, ctx, endpointPath = '/api/webhooks/resend') {
+async function handleResendWebhook(
+    request,
+    env,
+    ctx,
+    endpointPath = '/api/webhooks/resend',
+    preParsedBody = null,
+    verifyMode = null,
+) {
     try {
-        const body = await request.json();
+        const rawBody =
+            preParsedBody && typeof preParsedBody === 'object'
+                ? preParsedBody
+                : await request.json();
+        // email.received webhooks omit body — pull text/html/headers from Receiving API.
+        const body = await enrichResendInboundPayload(env, rawBody);
         const data = body?.data && typeof body.data === 'object' ? body.data : body;
         const fromRaw = data?.from;
         const senderEmail =
@@ -1325,14 +1348,21 @@ async function handleResendWebhook(request, env, ctx, endpointPath = '/api/webho
         const subject = data?.subject != null ? String(data.subject) : '';
         const text = data?.text != null ? String(data.text) : '';
         const html = data?.html != null ? String(data.html) : '';
+        const headersObj =
+            data?.headers && typeof data.headers === 'object' ? data.headers : {};
         const inReplyToRaw =
-            data?.headers?.['in-reply-to'] ||
-            data?.headers?.['In-Reply-To'] ||
+            headersObj['in-reply-to'] ||
+            headersObj['In-Reply-To'] ||
             data?.in_reply_to ||
             data?.inReplyTo ||
+            data?.message_id ||
             null;
 
-        console.log(`[Resend] New inbound email from ${senderEmail}: ${subject}`);
+        console.log(
+            `[Resend] New inbound email from ${senderEmail}: ${subject}` +
+                (verifyMode ? ` verify=${verifyMode}` : '') +
+                (data?._enriched_from_receiving_api ? ' enriched=1' : ''),
+        );
 
         const inbound = await persistResendInboundEmail(env, body);
         if (!inbound.ok && inbound.reason !== 'unresolved_tenant') {
