@@ -46,10 +46,12 @@ DEPLOY_DURATION_MS=$((DEPLOY_SECONDS * 1000))
 TRIGGERED_BY="${TRIGGERED_BY:-cli_post_deploy}"
 DEPLOYMENT_NOTES="${DEPLOYMENT_NOTES:-}"
 DEPLOY_VERSION="${DEPLOY_VERSION:-}"
-GIT_HASH="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo '')"
-GIT_FULL="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "$GIT_HASH")"
+GIT_FULL="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo '')"
+GIT_SHORT="$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD 2>/dev/null || echo "${GIT_FULL:0:12}")"
+# git_hash column stores FULL sha — short hashes caused duplicate-looking trail rows.
+GIT_HASH="${GIT_FULL:-$GIT_SHORT}"
 GIT_MSG="$(git -C "$REPO_ROOT" log -1 --pretty=format:'%s' 2>/dev/null || echo '')"
-VERSION_SLUG="${DEPLOY_VERSION:-${GIT_HASH:-deploy-$(date +%s)}}"
+VERSION_SLUG="${DEPLOY_VERSION:-${GIT_SHORT:-deploy-$(date +%s)}}"
 DEPLOYED_BY="${DEPLOYED_BY:-sam_primeaux}"
 # Prefer explicit DEPLOY_DESCRIPTION / DEPLOYMENT_NOTES; else use commit subject.
 if [[ -z "$DEPLOYMENT_NOTES" && -n "$GIT_MSG" ]]; then
@@ -61,8 +63,8 @@ DESCRIPTION="${DEPLOY_DESCRIPTION:-${DEPLOYMENT_NOTES:-Worker deploy (inneranima
 TENANT_ID="${TENANT_ID:-tenant_sam_primeaux}"
 WORKSPACE_ID="${WORKSPACE_ID:-ws_inneranimalmedia}"
 PROJECT_ID="${PROJECT_ID:-inneranimalmedia}"
-RUN_GROUP_ID="${RUN_GROUP_ID:-rg_${GIT_HASH:-nogit}_$(date +%s)}"
-SESSION_TAG="${SESSION_TAG:-${TRIGGERED_BY}-${GIT_HASH:-nogit}-$(date +%Y%m%d)}"
+RUN_GROUP_ID="${RUN_GROUP_ID:-rg_${GIT_SHORT:-nogit}_$(date +%s)}"
+SESSION_TAG="${SESSION_TAG:-${TRIGGERED_BY}-${GIT_SHORT:-nogit}-$(date +%Y%m%d)}"
 ROLLBACK_FROM="${ROLLBACK_FROM:-}"
 ENVIRONMENT="${DEPLOY_ENVIRONMENT:-production}"
 WORKER_NAME="${WORKER_NAME:-inneranimalmedia}"
@@ -132,6 +134,7 @@ sql_esc() { printf '%s' "${1//\'/\'\'}"; }
 VID_ESC="$(sql_esc "$VERSION_ID")"
 VS_ESC="$(sql_esc "$VERSION_SLUG")"
 GH_ESC="$(sql_esc "$GIT_HASH")"
+GS_ESC="$(sql_esc "$GIT_SHORT")"
 GF_ESC="$(sql_esc "$GIT_FULL")"
 DESC_ESC="$(sql_esc "$DESCRIPTION")"
 DBY_ESC="$(sql_esc "$DEPLOYED_BY")"
@@ -154,7 +157,7 @@ if command -v jq >/dev/null 2>&1; then
   DEP_META="$(
     jq -nc \
       --arg sha "$GIT_FULL" \
-      --arg short "$GIT_HASH" \
+      --arg short "$GIT_SHORT" \
       --arg by "$TRIGGERED_BY" \
       --arg notes "$DEPLOYMENT_NOTES" \
       --arg secs "$DEPLOY_SECONDS" \
@@ -198,11 +201,16 @@ npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --
 # dashboard_versions — every column populated; exclusive is_active for agent trio.
 DASH_DIST="${DASH_DIST:-$REPO_ROOT/dashboard/dist}"
 if [[ "${SKIP_DASHBOARD_VERSIONS:-0}" == "1" ]]; then
-  echo "[post-deploy-record] SKIP_DASHBOARD_VERSIONS=1 — skipping dashboard_versions"
+  if [[ "${ALLOW_SKIP_DEPLOY_TRAIL:-0}" == "1" ]]; then
+    echo "[post-deploy-record] SKIP_DASHBOARD_VERSIONS=1 with ALLOW_SKIP_DEPLOY_TRAIL=1 — skipping dashboard_versions (audited)" >&2
+  else
+    echo "[post-deploy-record] FATAL: SKIP_DASHBOARD_VERSIONS=1 without ALLOW_SKIP_DEPLOY_TRAIL=1" >&2
+    exit 1
+  fi
 elif [[ -f "$DASH_DIST/dashboard.js" && -f "$DASH_DIST/dashboard.css" && -f "$DASH_DIST/index.html" ]]; then
   CURRENT_V=$(grep -oE 'dashboard-v:[0-9]+' "$DASH_DIST/index.html" 2>/dev/null | head -1 | cut -d: -f2 || true)
   [[ -z "$CURRENT_V" ]] && CURRENT_V=$(grep -oE '\?v=[0-9]+' "$DASH_DIST/index.html" 2>/dev/null | head -1 | grep -oE '[0-9]+' || true)
-  [[ -z "$CURRENT_V" ]] && CURRENT_V="${GIT_HASH:-0}"
+  [[ -z "$CURRENT_V" ]] && CURRENT_V="${GIT_SHORT:-0}"
   if command -v md5 >/dev/null 2>&1; then
     JS_HASH=$(md5 -q "$DASH_DIST/dashboard.js")
     CSS_HASH=$(md5 -q "$DASH_DIST/dashboard.css")

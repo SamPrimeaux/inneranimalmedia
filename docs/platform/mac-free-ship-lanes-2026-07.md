@@ -57,9 +57,28 @@ Agents still see older rules that say “always `deploy:full`”. On `iam-tunnel
 
 ```bash
 curl -sS https://inneranimalmedia.com/pwa-build-meta.json | head -c 400
+./scripts/deploy-trail-gate.sh "$(git rev-parse HEAD)"
 ```
 
-Expect `git_sha` matching the commit you pushed.
+Expect `git_sha` matching the commit you pushed **and** trail gate exit 0.
+
+## Deploy trail law (LOCKED — 2026-07-22)
+
+Every production lane that ships SPA/worker must complete a **blocking** trail:
+
+1. `scripts/post-deploy-record.sh` — full-column `deployments` + `dashboard_versions` (3 active pages) + `agentsam_deployment_health`
+2. `scripts/deploy-trail-gate.sh` — hard fail if any required column is null, `changed_files` is `[]`/missing, or ship trio incomplete
+
+| Lane | Trail |
+|------|-------|
+| `deploy:fast` / `deploy:fast:cf` | blocking post-deploy-record → deploy-trail-gate (exit propagates) |
+| `deploy:full` (`deploy-frontend.sh`) | same at end of pipeline |
+| `ship:remote` | push → CF Builds runs `deploy:fast:cf` (gate on Builds) |
+
+- `deployments.git_hash` = **full** git SHA (not short) — short hashes caused duplicate-looking rows.
+- `changed_files: []` = failure (no INSERT). Tip-commit resolve for shallow CF Builds.
+- `SKIP_DEPLOY_RECORD=1` / `SKIP_DASHBOARD_VERSIONS=1` = **hard failure** unless `ALLOW_SKIP_DEPLOY_TRAIL=1` (logged via `notify-ops.mjs`).
+- Worker-only / R2-only paths are **not** full ships and do not claim trail complete.
 
 ## Bloat / failures killed (2026-07-11)
 

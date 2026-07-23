@@ -144,28 +144,39 @@ GIT_MSG="$(git -C "$REPO_ROOT" log -1 --pretty=format:'%s' 2>/dev/null || echo '
 echo ""
 echo "[deploy:fast] ✓ done in ${DEPLOY_SECONDS}s sha=${GIT_SHA} worker=${WORKER_VERSION_ID:-n/a}"
 
-# Keep deployments Overview true on the fast path without waiting on D1.
-# Sole writer remains scripts/post-deploy-record.sh (one INSERT). Background so
-# wrangler d1 latency never extends the critical path.
+# Keep deployments Overview true on the fast path — BLOCKING trail write + hard gate.
+# Async was a lie: deploy reported success while changed_files/ship trio could be empty.
 if [[ "${SKIP_DEPLOY_RECORD:-0}" == "1" ]]; then
-  echo "[deploy:fast] SKIP_DEPLOY_RECORD=1 — skipping deployments D1 insert"
+  if [[ "${ALLOW_SKIP_DEPLOY_TRAIL:-0}" == "1" ]]; then
+    echo "[deploy:fast] SKIP_DEPLOY_RECORD=1 with ALLOW_SKIP_DEPLOY_TRAIL=1 — trail bypass logged" >&2
+    ./scripts/with-cloudflare-env.sh node "$REPO_ROOT/scripts/notify-ops.mjs" \
+      --severity=critical \
+      --message="deploy:fast SKIP_DEPLOY_RECORD with ALLOW_SKIP_DEPLOY_TRAIL sha=${GIT_SHA}" || true
+  else
+    echo "[deploy:fast] FATAL: SKIP_DEPLOY_RECORD=1 is a hard failure (set ALLOW_SKIP_DEPLOY_TRAIL=1 to bypass with audit)" >&2
+    exit 1
+  fi
 else
-  (
-    set +e
-    export CLOUDFLARE_VERSION_ID="${WORKER_VERSION_ID:-}"
-    export DEPLOY_SECONDS
-    export TRIGGERED_BY="${TRIGGERED_BY:-deploy_fast}"
-    export DEPLOYED_BY="${DEPLOYED_BY:-deploy_fast}"
-    export DEPLOYMENT_NOTES="${DEPLOYMENT_NOTES:-${GIT_MSG:-deploy:fast sha=${GIT_SHA}}}"
-    if bash "$REPO_ROOT/scripts/post-deploy-record.sh"; then
-      echo "[deploy:fast] deployments D1 record ok"
-    else
-      echo "[deploy:fast] warning: deployments D1 record failed (non-fatal)" >&2
-    fi
-  ) &
-  disown 2>/dev/null || true
-  echo "[deploy:fast] deployments D1 record queued (async via post-deploy-record.sh)"
-  echo "[deploy:fast] post-deploy-record also mirrors agentsam_deploy_events when SUPABASE_SERVICE_ROLE_KEY is set"
+  export CLOUDFLARE_VERSION_ID="${WORKER_VERSION_ID:-}"
+  export DEPLOY_SECONDS
+  export TRIGGERED_BY="${TRIGGERED_BY:-deploy_fast}"
+  export DEPLOYED_BY="${DEPLOYED_BY:-deploy_fast}"
+  export DEPLOYMENT_NOTES="${DEPLOYMENT_NOTES:-${GIT_MSG:-deploy:fast sha=${GIT_SHA}}}"
+  export BUILD_PIPELINE="${BUILD_PIPELINE:-deploy_fast}"
+  if [[ "${SKIP_DASHBOARD_VERSIONS:-0}" == "1" && "${ALLOW_SKIP_DEPLOY_TRAIL:-0}" != "1" ]]; then
+    echo "[deploy:fast] FATAL: SKIP_DASHBOARD_VERSIONS=1 is a hard failure without ALLOW_SKIP_DEPLOY_TRAIL=1" >&2
+    exit 1
+  fi
+  echo "[deploy:fast] post-deploy-record (blocking)…"
+  if ! bash "$REPO_ROOT/scripts/post-deploy-record.sh"; then
+    echo "[deploy:fast] FATAL: post-deploy-record failed — trail incomplete" >&2
+    exit 1
+  fi
+  echo "[deploy:fast] deploy-trail-gate…"
+  if ! bash "$REPO_ROOT/scripts/deploy-trail-gate.sh" "$(git -C "$REPO_ROOT" rev-parse HEAD)"; then
+    echo "[deploy:fast] FATAL: deploy trail gate failed — NOT shipped" >&2
+    exit 1
+  fi
 fi
 
 echo "[deploy:fast] housekeeping skipped (email / D1 memory / GCP VM) — not required for PWA"

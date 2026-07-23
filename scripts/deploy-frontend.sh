@@ -494,6 +494,29 @@ DEPLOYED_BY="${DEPLOYED_BY:-deploy:full}" \
 bash "$REPO_ROOT/scripts/post-deploy-memory-sync.sh" \
   || echo "[deploy-frontend] warning: post-deploy-memory-sync non-zero (non-fatal)" >&2
 
+# Production trail: full-column deployments + dashboard_versions + health + hard gate.
+echo "→ post-deploy-record + deploy-trail-gate (blocking)…"
+export CLOUDFLARE_VERSION_ID="${WORKER_VERSION_ID:-${CLOUDFLARE_VERSION_ID:-}}"
+export DEPLOY_SECONDS="${DEPLOY_SECONDS:-$(( ${DEPLOY_DURATION_MS:-0} / 1000 ))}"
+export TRIGGERED_BY="${TRIGGERED_BY:-deploy_full}"
+export DEPLOYED_BY="${DEPLOYED_BY:-deploy_full}"
+export BUILD_PIPELINE="${BUILD_PIPELINE:-deploy_full}"
+export DEPLOYMENT_NOTES="${DEPLOYMENT_NOTES:-${GIT_MSG_LINE:-deploy:full}}"
+if [[ "${SKIP_DEPLOY_RECORD:-0}" == "1" && "${ALLOW_SKIP_DEPLOY_TRAIL:-0}" != "1" ]]; then
+  echo "[deploy-frontend] FATAL: SKIP_DEPLOY_RECORD=1 without ALLOW_SKIP_DEPLOY_TRAIL=1" >&2
+  exit 1
+fi
+if [[ "${SKIP_DEPLOY_RECORD:-0}" != "1" ]]; then
+  bash "$REPO_ROOT/scripts/post-deploy-record.sh" || {
+    echo "[deploy-frontend] FATAL: post-deploy-record failed" >&2
+    exit 1
+  }
+  bash "$REPO_ROOT/scripts/deploy-trail-gate.sh" "$(git -C "$REPO_ROOT" rev-parse HEAD)" || {
+    echo "[deploy-frontend] FATAL: deploy trail gate failed — NOT shipped" >&2
+    exit 1
+  }
+fi
+
 if [[ "${DEPLOY_EMBEDDINGS_RAN:-0}" == "1" ]]; then
   echo "✓ Done (worker + R2 + notification; Supabase embeddings backfill ran)"
 else

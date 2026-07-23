@@ -57,11 +57,16 @@ curl -sS https://inneranimalmedia.com/api/health
 
 | Sink | Script |
 |------|--------|
-| `deployments` | `post-deploy-record.sh` |
-| `dashboard_versions` | `post-deploy-record.sh` (deploy:fast critical path; also `deploy-with-record.sh`) |
-| `agentsam_memory` | `post-deploy-memory-sync.sh` |
+| `deployments` (all columns; full `git_hash`; non-empty `changed_files`) | `post-deploy-record.sh` |
+| `dashboard_versions` (all columns; exclusive `is_active` for agent/css/html) | `post-deploy-record.sh` |
+| `agentsam_deployment_health` | `post-deploy-record.sh` |
+| **Hard gate** (fail deploy if trail incomplete) | `deploy-trail-gate.sh` → `deploy-trail-gate.mjs` |
+| Loud alert on gate fail | `notify-ops.mjs` → `agentsam_error_log` |
+| `agentsam_memory` | `post-deploy-memory-sync.sh` (full lane) |
 | Worker hooks | `POST /api/internal/post-deploy` |
-| CF Builds webhook | `POST /api/webhooks/cloudflare` (`X-Cf-Webhook-Secret` / Bearer `INTERNAL_WEBHOOK_SECRET`) |
+| CF Builds webhook | `POST /api/webhooks/cloudflare` |
+
+**Law:** primary lanes (`deploy:fast`, `deploy:fast:cf`, `deploy:full`) run post-deploy-record **blocking**, then trail gate. Exit non-zero = **not shipped**. `SKIP_DEPLOY_RECORD` / `SKIP_DASHBOARD_VERSIONS` hard-fail unless `ALLOW_SKIP_DEPLOY_TRAIL=1` (audited).
 
 ## Static HTML (R2 only — no Worker)
 
