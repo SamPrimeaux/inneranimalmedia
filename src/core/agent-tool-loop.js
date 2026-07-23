@@ -725,9 +725,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         try {
           const toolBudgetMs = clampToolBudgetToRunDeadline(
             resolveToolExecutionBudgetMs(preName, {}),
-            { runStartedAt, maxRunMs },
+            { runStartedAt, maxRunMs, toolName: preName },
           );
-          if (toolBudgetMs <= 0) throw agentRunDeadlineError();
+          if (toolBudgetMs <= 0) throw agentRunDeadlineError(preName);
           console.info(
             '[agent] tool_execution_start',
             JSON.stringify({ tool_name: preName, budget_ms: toolBudgetMs, turn: 0 }),
@@ -2264,10 +2264,10 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       let execResult = null;
       const toolBudgetMs = clampToolBudgetToRunDeadline(
         resolveToolExecutionBudgetMs(call.name, call.input),
-        { runStartedAt, maxRunMs },
+        { runStartedAt, maxRunMs, toolName: call.name },
       );
       try {
-        if (toolBudgetMs <= 0) throw agentRunDeadlineError();
+        if (toolBudgetMs <= 0) throw agentRunDeadlineError(call.name);
         console.info(
           '[agent] tool_execution_start',
           JSON.stringify({ tool_name: call.name, budget_ms: toolBudgetMs, turn: turnCount }),
@@ -2380,7 +2380,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
               operation,
             };
           } else {
-            if (toolBudgetMs < 5000) throw agentRunDeadlineError();
+            if (toolBudgetMs < 5000) throw agentRunDeadlineError(call.name);
             execResult = await abortScope.race(
               doWaitForFsaFulfill(stub, call.id, {
                 timeoutMs: Math.min(toolBudgetMs || 90000, 90000),
@@ -2775,18 +2775,26 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           typeof e === 'object' &&
           'code' in e &&
           /** @type {{ code?: string }} */ (e).code === 'tool_timeout';
+        const isDeadline =
+          e &&
+          typeof e === 'object' &&
+          'code' in e &&
+          /** @type {{ code?: string }} */ (e).code === 'agent_run_deadline';
         const detailRaw = isTimeout
           ? `Tool timed out after ${toolBudgetMs}ms`
           : e && typeof e === 'object' && 'message' in e && typeof e.message === 'string'
             ? e.message
             : String(e ?? 'unknown_error');
         const detail = isTimeout ? detailRaw : sanitizeToolCredentialError(detailRaw);
-        toolOutput = `Tool execution failed: ${detail}`;
+        // Deadline errors are already operator-safe explanations — do not wrap as
+        // "Tool execution failed:" (that prefix was getting synthesized into generic copy).
+        toolOutput = isDeadline ? detail : `Tool execution failed: ${detail}`;
         console.warn('[agent] tool_error', call.name, detailRaw);
         emit('tool_error', {
           tool: call.name,
           error: detail,
           ...(isTimeout ? { code: 'tool_timeout' } : {}),
+          ...(isDeadline ? { code: 'agent_run_deadline' } : {}),
         });
       }
       const toolDurMs = Date.now() - toolT0;

@@ -19,7 +19,11 @@ export function isInternalAgentErrorText(text) {
   if (!t) return false;
   if (/^Tool timed out after \d+ms$/i.test(t)) return true;
   if (/^Tool execution failed:\s*/i.test(t) && /timed out after \d+ms/i.test(t)) return true;
-  if (/^Tool execution failed:\s*/i.test(t) && t.length < 400) return true;
+  if (/^Tool execution failed:\s*/i.test(t) && t.length < 400) {
+    // Intentional deadline explanations are user-visible (not internal noise).
+    if (/Not enough time left|Agent run deadline reached/i.test(t)) return false;
+    return true;
+  }
   if (/^Agent run timed out$/i.test(t)) return true;
   if (/^apply_patch failed:/i.test(t)) return true;
   if (/openai_ptc_/i.test(t)) return true;
@@ -54,6 +58,8 @@ export function synthesizeUserVisibleAgentFailure(raw, opts = {}) {
   ) {
     return USER_VISIBLE_TOOL_FAILURE;
   }
+  // agent_run_deadline messages are already human-readable — keep them.
+  if (code === 'agent_run_deadline' && t) return t;
   if (!t) return USER_VISIBLE_TOOL_FAILURE;
   return t;
 }

@@ -91,13 +91,23 @@ test('tool budgets cannot consume the agent-run completion reserve', () => {
     }),
     30_000,
   );
+  // remaining = 5500 after reserve — still above default min-viable floor (2000)
+  assert.equal(
+    clampToolBudgetToRunDeadline(30_000, {
+      runStartedAt: 1_000,
+      maxRunMs: 45_000,
+      now: 38_000,
+    }),
+    5_500,
+  );
+  // remaining = 1500 after reserve — below default min-viable floor → refuse (0)
   assert.equal(
     clampToolBudgetToRunDeadline(30_000, {
       runStartedAt: 1_000,
       maxRunMs: 45_000,
       now: 42_000,
     }),
-    1_500,
+    0,
   );
   assert.equal(
     clampToolBudgetToRunDeadline(30_000, {
@@ -107,6 +117,46 @@ test('tool budgets cannot consume the agent-run completion reserve', () => {
     }),
     0,
   );
+});
+
+test('github tools refuse sub-floor remaining budget instead of racing a doomed call', async () => {
+  const { resolveMinViableBudgetMs, agentRunDeadlineError } = await import(
+    '../../src/core/agent-run-deadline.js'
+  );
+  assert.equal(resolveMinViableBudgetMs('agentsam_github_tree'), 5_000);
+  // remaining = 1000+45000-42000-2500 = 1500 < github floor 5000 → 0
+  assert.equal(
+    clampToolBudgetToRunDeadline(30_000, {
+      runStartedAt: 1_000,
+      maxRunMs: 45_000,
+      now: 42_000,
+      toolName: 'agentsam_github_tree',
+    }),
+    0,
+  );
+  // same remaining is ok for default floor tools (1500 < 2000 default → also 0)
+  assert.equal(
+    clampToolBudgetToRunDeadline(30_000, {
+      runStartedAt: 1_000,
+      maxRunMs: 45_000,
+      now: 42_000,
+      toolName: 'fs_read_file',
+    }),
+    0,
+  );
+  // remaining = 1000+45000-38000-2500 = 5500 ≥ github 5000 → clamp to 5500
+  assert.equal(
+    clampToolBudgetToRunDeadline(30_000, {
+      runStartedAt: 1_000,
+      maxRunMs: 45_000,
+      now: 38_000,
+      toolName: 'agentsam_github_tree',
+    }),
+    5_500,
+  );
+  const err = agentRunDeadlineError('agentsam_github_tree');
+  assert.equal(err.code, 'agent_run_deadline');
+  assert.match(err.message, /Not enough time left.*agentsam_github_tree/);
 });
 
 test('generic tool execution is interrupted at its assigned budget', async () => {
