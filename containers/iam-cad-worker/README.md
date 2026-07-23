@@ -2,7 +2,8 @@
 
 Headless **OpenSCAD → Blender → FreeCAD** worker for Design Studio CAD jobs.
 
-Production traffic stays on **ExecOS GCP** until smoke is green and `CAD_DISPATCH_TARGET=container` (or `auto`) is set on the Worker.
+**Production (LOCKED):** all CAD jobs dispatch to this container (`CAD_DISPATCH_TARGET=container`).  
+The GCP `iam-tunnel` VM is **not** CAD-capable (tiny RAM). See `docs/platform/iam-tunnel-vm-role-2026-07.md`.
 
 ## Image
 
@@ -23,17 +24,21 @@ Production traffic stays on **ExecOS GCP** until smoke is green and `CAD_DISPATC
 ./scripts/build-iam-cad-worker-container.sh
 
 # Deploy Worker binding (after image push)
-npm run deploy:full
+npm run deploy:full   # Mac
+# or npm run ship:remote on GCP (never Vite on iam-tunnel)
 ```
 
-## Smoke (no production traffic switch)
+## Smoke
 
 ```bash
-# Internal health via Worker (after deploy)
 curl -sS -H "X-Internal-Secret: $INTERNAL_API_SECRET" \
   https://inneranimalmedia.com/api/internal/cad-container/health | jq .
+# expect: ok=true, toolchain_ok=true, dispatch_target=container
+```
 
-# Local Docker smoke (optional)
+Local Docker (optional):
+
+```bash
 docker build -f containers/iam-cad-worker/Dockerfile -t iam-cad-worker:local .
 docker run --rm -p 8080:8080 iam-cad-worker:local
 curl -sS localhost:8080/health | jq .
@@ -43,11 +48,11 @@ curl -sS localhost:8080/health | jq .
 
 | `CAD_DISPATCH_TARGET` | Behavior |
 |-----------------------|----------|
-| `gcp` (default) | ExecOS → iam-tunnel VM only |
-| `auto` | CF container if healthy, else GCP fallback |
-| `container` | CF container only (fail if unavailable) |
+| **`container` (production LOCKED)** | CF container only |
+| `auto` | Break-glass: container if healthy, else GCP ExecOS |
+| `gcp` | Break-glass: ExecOS iam-tunnel only — **not CAD-capable** |
 
-Set in Cloudflare dashboard (Worker vars). **Do not enable `container` until smoke passes.**
+Set in `wrangler.production.toml` `[vars]` (and Cloudflare dashboard if overriding).
 
 ## API (inside container)
 
@@ -67,14 +72,6 @@ Worker dispatch: `src/core/cad-dispatch.js` → `src/core/iam-cad-worker-contain
 | Purpose | Untrusted one-liners | CAD batch jobs |
 | Tools | shell only | OpenSCAD, Blender, FreeCAD |
 
-## GCP parity
+## Legacy note
 
-The same Dockerfile can run on `iam-tunnel` via Docker for a single image across CF + GCP:
-
-```bash
-docker build -f containers/iam-cad-worker/Dockerfile -t iam-cad-worker:cad-v1 .
-docker run -d --name cad-worker -p 8080:8080 \
-  -e INTERNAL_API_SECRET=... \
-  -e IAM_WORKER_ORIGIN=https://inneranimalmedia.com \
-  iam-cad-worker:cad-v1
-```
+`scripts/designstudio/cad-job-runner.mjs` remains for local/dev and break-glass ExecOS one-shots. Production Design Studio traffic must not depend on the GCP VM runner.

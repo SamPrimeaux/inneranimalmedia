@@ -184,7 +184,7 @@ public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHf4Xb75xQ80w255NBZ+Bn82qrMtd/
 name = "MY_CONTAINER"
 class_name = "MyContainer"
 
-# IAM_CAD_WORKER — cad-v1 pushed to CF registry 2026-07-18. CAD_DISPATCH_TARGET=auto routes here when healthy.
+# IAM_CAD_WORKER — production CAD lane (LOCKED). CAD_DISPATCH_TARGET=container.
 [[containers]]
 class_name = "IamCadWorkerContainer"
 image = "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-cad-worker:cad-v1"
@@ -286,8 +286,8 @@ CAD_R2_PUBLIC_ORIGIN = "https://cad.inneranimalmedia.com"
 # Meet engine: legacy (Cloudflare Calls SFU) | realtimekit (RealtimeKit SDK path)
 MEET_ENGINE = "realtimekit"
 AI_SEARCH_ENDPOINT = "https://2da31515-2005-42e4-9efe-a4e6a425a627.search.ai.cloudflare.com"
-# CAD jobs: gcp (default) | auto (container if healthy, else GCP) | container
-CAD_DISPATCH_TARGET = "auto"
+# CAD jobs (LOCKED): container only. Break-glass: auto (container→GCP) | gcp (ExecOS iam-tunnel — not CAD-capable)
+CAD_DISPATCH_TARGET = "container"
 CONTAINER_POOL_ID = "inneranimalmedia"
 SANDBOX_R2_BUCKET_NAME = "inneranimalmedia"
 IAM_SANDBOX_R2_FUSE = "1"

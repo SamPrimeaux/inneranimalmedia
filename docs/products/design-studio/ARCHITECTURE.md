@@ -29,13 +29,18 @@
 
 ## Execution
 
+**Production (LOCKED):** Cloudflare Container `iam-cad-worker` only  
+(`CAD_DISPATCH_TARGET=container`). GCP `iam-tunnel` is not CAD-capable — see
+[`docs/platform/iam-tunnel-vm-role-2026-07.md`](../../platform/iam-tunnel-vm-role-2026-07.md).
+
 ```
 Job POST → agentsam_cad_jobs (D1)
-  → cad-job-runner.mjs (GCP) or iam-cad-worker (CF container)
-  → R2 cad/exports/{tenant}/{workspace}/{job_id}.glb
+  → iam-cad-worker (CF container: OpenSCAD / Blender / FreeCAD)
+  → R2 cad bucket → cad.inneranimalmedia.com/{key}.glb
   → SSE cad_glb_ready → viewport spawn
 ```
 
+Legacy break-glass only: `CAD_DISPATCH_TARGET=auto|gcp` → ExecOS one-shot `cad-job-runner.mjs` on the VM.
 ---
 
 ## Data

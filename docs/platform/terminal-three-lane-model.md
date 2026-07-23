@@ -15,8 +15,8 @@ Canonical split for `agentsam_terminal_*` tools. Each lane has one job; tools mu
 | Tool | Exec surface | Who | When |
 |------|--------------|-----|------|
 | **`agentsam_terminal_local`** | Caller's **own device** via `user_hosted_tunnel` | Any user who completed device setup | **Sam:** `localpty.inneranimalmedia.com` → **samsmac** tunnel (Mac awake). Connor: his provisioned tunnel when set up |
-| **`agentsam_terminal_remote`** | **GCP iam-tunnel VM** (`terminal.inneranimalmedia.com`) | Platform operators (Sam) | Mac asleep, phone, OAuth — sparse git/shell/wrangler on Linux clone |
-| **`agentsam_terminal_sandbox`** | **Cloudflare Container** — single shared `inneranimalmedia` pool (path/R2-isolated, not per-`zone_slug` DO instance) | Any workspace user with tool access | Isolated dev zones, experiments, CAD/movie batch — **default R2 FUSE persistence** |
+| **`agentsam_terminal_remote`** | **GCP iam-tunnel VM** (`terminal.inneranimalmedia.com`) | Platform operators (Sam) | Mac asleep, phone, OAuth — sparse git/shell/wrangler on Linux clone. **Not for CAD** — see [`iam-tunnel-vm-role-2026-07.md`](./iam-tunnel-vm-role-2026-07.md) |
+| **`agentsam_terminal_sandbox`** | **Cloudflare Container** — single shared `inneranimalmedia` pool (path/R2-isolated, not per-`zone_slug` DO instance) | Any workspace user with tool access | Isolated dev zones, experiments — **default R2 FUSE persistence**. Design Studio CAD jobs use the separate **`iam-cad-worker`** container (`CAD_DISPATCH_TARGET=container`) |
 
 ## Routing (code)
 

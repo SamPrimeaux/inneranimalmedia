@@ -8,7 +8,7 @@
 
 ### 1. Real engines, calm frontend
 
-CAD tools run off-edge (GCP runner, CF container). Browser is preview and orchestration — not fake in-browser FreeCAD.
+CAD tools run off-edge in the **CF `iam-cad-worker` container** (production LOCKED). The GCP `iam-tunnel` VM is always-on terminal/ops only — not CAD-capable. Browser is preview and orchestration — not fake in-browser FreeCAD.
 
 ### 2. Draw is the 2D lane; Design Studio is the 3D lane
 

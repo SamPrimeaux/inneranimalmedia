@@ -1,6 +1,8 @@
 /**
- * Dispatch Design Studio CAD jobs to ExecOS GCP (iam-tunnel VM).
- * OpenSCAD + Blender run on terminal.inneranimalmedia.com — not in Worker isolate.
+ * Legacy break-glass: dispatch Design Studio CAD jobs to ExecOS GCP (iam-tunnel VM).
+ * Production CAD is CF container-only (`CAD_DISPATCH_TARGET=container`).
+ * The VM is not CAD-capable (tiny RAM) — see docs/platform/iam-tunnel-vm-role-2026-07.md.
+ * OpenSCAD + Blender on terminal.inneranimalmedia.com — emergency `gcp` / `auto` only.
  */
 import { finalizeCadJobComplete } from './cad-job-complete.js';
 import {

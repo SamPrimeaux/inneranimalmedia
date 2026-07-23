@@ -40,7 +40,7 @@ CAD output storage moved off the codebase `ASSETS` bucket and the fragile GCP VM
 - [x] **CF/local CAD container spine validated E2E.** `meauxcontainer-cad-worker:cad-v1` run locally: OpenSCAD → GLB → `glb-upload` → `cad` bucket → `job-complete`. Job row `status=done`, `r2_bucket=cad`, `result_url=https://cad.inneranimalmedia.com/...`; GLB served `200 model/gltf-binary` with ACAO; `cms_assets` row written. — commit `4af1cf91`
 - [x] **Container callback bucket fix.** `containers/iam-cad-worker/run-pipeline.mjs` no longer hardcodes the legacy bucket/`/assets/` URL — uses the `glb-upload` response (single source of truth).
 
-**Open follow-up (infra):** push `cad-v1` image to CF registry (blocked earlier by Docker Desktop proxy `:3128` broken pipe), enable `[[containers]]` + `IAM_CAD_WORKER` binding in `wrangler.production.toml`, set `CAD_DISPATCH_TARGET=container` (or `auto`), deploy, smoke `/api/internal/cad-container/health`.
+**Open follow-up (infra):** ~~push cad-v1 / enable binding / auto~~ → **done.** Production is now **`CAD_DISPATCH_TARGET=container`** (no GCP CAD fallback). VM role doc: `docs/platform/iam-tunnel-vm-role-2026-07.md`.
 
 ---
 

@@ -1,9 +1,12 @@
 /**
- * CAD job dispatch router — GCP (default) vs CF iam-cad-worker container.
+ * CAD job dispatch router — CF iam-cad-worker container (production LOCKED).
  *
  * Env:
- *   CAD_DISPATCH_TARGET=gcp|container|auto  (default: gcp)
- *   CAD_CONTAINER_DISPATCH_ENABLED=1          → auto when target unset
+ *   CAD_DISPATCH_TARGET=container|auto|gcp  (default: container)
+ *     container — CF container only (production)
+ *     auto      — container if healthy, else GCP ExecOS (break-glass)
+ *     gcp       — ExecOS iam-tunnel only (legacy; VM is not CAD-capable)
+ *   CAD_CONTAINER_DISPATCH_ENABLED=1 → treated as container when target unset
  */
 import { dispatchCadJobToPty } from './cad-pty-executor.js';
 import { probeExecOsCadHealth } from './execos-fabric.js';
@@ -19,9 +22,9 @@ export function resolveCadDispatchTarget(env) {
   }
   const enabled = env?.CAD_CONTAINER_DISPATCH_ENABLED;
   if (enabled === '1' || enabled === true || String(enabled).toLowerCase() === 'true') {
-    return 'auto';
+    return 'container';
   }
-  return 'gcp';
+  return 'container';
 }
 
 /**
@@ -82,7 +85,7 @@ export function cadDispatchLabel(result) {
     return 'CAD job dispatched to IAM CAD worker container';
   }
   if (result?.fallback_from === 'container') {
-    return 'CAD job dispatched to ExecOS GCP (container unavailable, fallback)';
+    return 'CAD job dispatched to ExecOS GCP (break-glass fallback — VM is not CAD-capable)';
   }
-  return 'CAD job dispatched to ExecOS GCP (iam-tunnel)';
+  return 'CAD job dispatched to ExecOS GCP (legacy break-glass — prefer container)';
 }

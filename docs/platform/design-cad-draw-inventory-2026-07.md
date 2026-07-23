@@ -51,23 +51,25 @@ Draw is the **most honest surface** in the design lane: real editor, real files,
 | CAD API | `src/api/cad.js` | OpenSCAD / FreeCAD / Blender script jobs, job queue |
 | Meshy API | `src/api/cad-meshy.js` | Text/image → 3D, rigging, retexture, print formats |
 | Design Studio API | `src/api/designstudio/index.js` | Blueprints, runs, assets, scenes |
-| Job runner | `scripts/designstudio/cad-job-runner.mjs` | Poll D1 → OpenSCAD/FreeCAD → STL → Blender → GLB → R2 |
-| Dispatch | `src/core/cad-dispatch.js` | GCP ExecOS (default) or CF container (`iam-cad-worker`) |
-| Container | `containers/iam-cad-worker/` | Ubuntu image: openscad, blender, freecad |
+| Job runner | `containers/iam-cad-worker/` (+ legacy `scripts/designstudio/cad-job-runner.mjs`) | **Production:** CF container. Legacy script = local/dev / break-glass ExecOS only |
+| Dispatch | `src/core/cad-dispatch.js` | **LOCKED:** `CAD_DISPATCH_TARGET=container` (break-glass: `auto` / `gcp`) |
+| Container | `containers/iam-cad-worker/` | Ubuntu image: openscad, blender, freecad (`standard-2`) |
 | Job complete | `src/core/cad-job-complete.js` | R2 ingest, SSE `cad_glb_ready`, D1 status |
 | OpenSCAD libs | `migrations/775_*` + `openscad-library-resolver.js` | 26 D1-registered libs; intent → import lines |
 | Illustration SSOT | `illustration_create` (755) | Agent entry for all illustration/CAD lanes |
 
-**Pipeline that actually works (when runner is up):**
+**Pipeline that actually works (production = container):**
 
 ```txt
 prompt / .scad / FreeCAD script
   → agentsam_cad_jobs (D1)
-  → cad-job-runner (GCP or CF container)
+  → iam-cad-worker CF container (CAD_DISPATCH_TARGET=container)
   → OpenSCAD → STL → Blender → GLB
-  → R2 cad/exports/{tenant}/{workspace}/{job_id}.glb
+  → R2 cad bucket (cad.inneranimalmedia.com)
   → Design Studio viewport loads GLB
 ```
+
+GCP `iam-tunnel` is **not** CAD-capable (tiny RAM). See `docs/platform/iam-tunnel-vm-role-2026-07.md`.
 
 #### UI layer (bones good, polish sloppy)
 
@@ -157,7 +159,7 @@ NPM: `designstudio:check`, `designstudio:smoke`, `designstudio:runner`.
 
 1. **Honest UI over real jobs** — Strip or hide chrome that implies editing features we do not have (full Blender modeling in-browser). Primary UX: describe → job → preview → export. Creation lane pattern is correct; shell should match it.
 2. **Template families, not one-off SCAD** — Add 5–8 parametric templates (Gridfinity bin, YAPP-style enclosure, bracket, phone stand, tray) under `scripts/designstudio/templates/` with exposed params JSON → `.scad` rewrite → runner. Only `chess-board.scad` exists today.
-3. **Runner reliability as product requirement** — Document + monitor: jobs stay `pending` without `designstudio:runner` or ExecOS. iPhone-safe E2E must be provable on every ship touching CAD.
+3. **Runner reliability as product requirement** — Production CAD is CF container-only. Health: `/api/internal/cad-container/health`. Do not treat GCP ExecOS as a CAD SLA.
 4. **Stale product docs** — Update `designstudio/README.md` to match `AgentSamEngine`, live APIs, and `illustration_create` SSOT.
 
 ### P1 — OpenSCAD as generator engine (study → ship)
@@ -243,8 +245,8 @@ migrations/783_draw_libraries_p0_seed.sql
 
 ## Bottom line
 
-**Have:** Real multi-engine job pipeline, OpenSCAD library intelligence, Draw as a polished 2D lane, AgentSam unified router, off-edge execution (GCP + container path).
+**Have:** Real multi-engine job pipeline, OpenSCAD library intelligence, Draw as a polished 2D lane, AgentSam unified router, **production CAD on CF `iam-cad-worker` container** (GCP VM is terminal/ops only — not CAD-capable).
 
 **Need:** Template product layer, honest UI, Python CAD engines, FreeCAD document/assembly model, BIM lane, and learn content so the team (and AgentSam) stop improvising raw SCAD.
 
-**Avoid:** Pretending the Three.js shell is FreeCAD/Blender. Ship generators and exports; let heavy CAD stay in headless runners.
+**Avoid:** Pretending the Three.js shell is FreeCAD/Blender. Ship generators and exports; keep heavy CAD in the CF container (not the tiny `iam-tunnel` VM).
