@@ -33,16 +33,24 @@ Work **in this order**. Do not parallelize product remasters across these.
 | [GEMINI-INTERACTIONS-TRANSPORT-ADAPTER-2026-07.md](./GEMINI-INTERACTIONS-TRANSPORT-ADAPTER-2026-07.md) | `tkt_gemini_interactions_transport` | **Later sprint / backlog** — `gemini_transport=interactions\|generate_content`, default generateContent until green |
 | [MAC-LOCALPTY-EXEC-IDENTITY-2026-07.md](./MAC-LOCALPTY-EXEC-IDENTITY-2026-07.md) | `tkt_mac_localpty_exec_identity_20260722` | Mac `agentsam_terminal_local` Exec-Identity + no sandbox launder — dual-pass E2E |
 
-## Verification law (LOCKED — dual-pass E2E)
+## Verification law (LOCKED — named E2E tiers)
 
-- **Deploy success ≠ pass.** A ticket may **not** move to `shipped` until it has **two independent end-to-end validations**.
-- Default: `consecutive_pass_count >= required_pass_count` (**2**) **and** either:
-  - ≥2 green rows in `agentsam_gate_runs`, **or**
-  - ≥2 `agentsam_ticket_events` with `event_type = 'e2e_pass'` (each with durable proof IDs in `detail`).
-- One visual success mid-session without a second later retest = keep `in_review` / `active`.
+- **Deploy success ≠ pass.** A ticket may **not** move to `shipped` on implementer word alone.
+- **Three tiers** (same `record` / `assert` scripts — not new infrastructure):
+
+| Tier | Actor | Proof |
+|------|--------|-------|
+| **1 Implementation** | Fix author | Live exercise + durable IDs. Claim = hypothesis until Tier 2. |
+| **2 Independent** | Different actor | Raw D1/log pull — not the implementer’s summary. May say **not verified yet**. |
+| **3 Durable** | Gate / later real run | Path fails itself after humans leave (`deploy-trail-gate`, routing gate, assert). |
+
+- Counts: default `required_pass_count = 2` (Tier 1+2). Control-plane / deploy-trail / identity / ledger tickets use **`required_pass_count = 3`**.
+- Ship gate: `consecutive_pass_count >= required_pass_count` **and** either ≥N green `agentsam_gate_runs` **or** ≥N `agentsam_ticket_events` (`event_type = 'e2e_pass'`) with proof IDs in `detail`.
+- Cross-session: re-check from raw data every time — never “fine last chat.”
 - Commands:
-  - `npm run record:ticket-e2e-pass -- --ticket=tkt_… --detail='PASS1: …'`
-  - `npm run record:ticket-e2e-pass -- --ticket=tkt_… --detail='PASS2: …'`
+  - `npm run record:ticket-e2e-pass -- --ticket=tkt_… --tier=1 --detail='…'`
+  - `npm run record:ticket-e2e-pass -- --ticket=tkt_… --tier=2 --detail='…'`
+  - `npm run record:ticket-e2e-pass -- --ticket=tkt_… --tier=3 --detail='…'` (control-plane)
   - `npm run assert:ticket-shippable -- --ticket=tkt_…` — refuse ship without proof
   - `npm run assert:ticket-shippable -- --ticket=tkt_… --set-shipped` — only when green
   - `npm run gate:agent-routing` / `gate:agent-routing:twice` — mint session goldens when applicable

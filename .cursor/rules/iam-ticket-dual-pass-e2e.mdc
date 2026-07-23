@@ -1,35 +1,47 @@
 ---
-description: Tickets require two end-to-end validated passes before status=shipped
+description: Tickets require named-tier E2E passes before status=shipped (default 2; control-plane 3)
 alwaysApply: true
 ---
 
-# Ticket dual-pass E2E (LOCKED)
+# Ticket E2E tiers (LOCKED)
 
 **Never** move an `agentsam_tickets` row to `shipped` after a single happy path, visual glance, or “deploy succeeded.”
 
-## Law
+## Three tiers (same record/assert scripts — not new infra)
 
-1. **`required_pass_count` default = 2** (unless ticket explicitly documents otherwise).
-2. A ticket needs **two separate end-to-end validations** before `shipped`:
-   - Different moments (not the same minute twice).
-   - Each pass records proof IDs in D1 (intent rows, tool_call_log ids, drafts, deploy events, SQL receipts, etc.).
-3. **Deploy ≠ pass.** Code live without operator E2E proof does not ship the ticket.
-4. Closing after one proof = **violation** — leave `in_review` / `active`, record pass #1, schedule pass #2.
+| Tier | Who | What counts as proof |
+|------|-----|----------------------|
+| **1 — Implementation** | Whoever wrote the fix | Live exercise + durable IDs (intent, tool_call_log, deploy id, SQL receipt). Claim is **hypothesis** until Tier 2. |
+| **2 — Independent verification** | A **different** actor than Tier 1 | Primary data pull (raw D1/logs), not the implementer’s summary. Must be willing to say **not verified yet**. |
+| **3 — Durable enforcement** | Automated gate / subsequent real run | Something that fails the path after humans stop watching (e.g. `deploy-trail-gate.mjs`, `assert:ticket-shippable`, routing gate). |
 
-## How to record a pass
+Cross-session verifiers (Claude, Cursor, ops) re-check from **raw data** each time — never “it was fine last chat.”
+
+## Counts
+
+1. **Default** `required_pass_count = 2` → Tier 1 + Tier 2 (product tickets).
+2. **Control-plane / deploy-trail / identity / ledger** tickets → `required_pass_count = 3` (Tier 1 + 2 + 3). Document that in the ticket/plan.
+3. Passes must be **separate moments** (not the same minute twice), each with proof IDs in `detail`.
+4. **Deploy ≠ pass.** Code live without recorded tiers does not ship the ticket.
+5. Closing after one proof = **violation** — leave `in_review` / `active`.
+
+## How to record
 
 ```bash
-npm run record:ticket-e2e-pass -- --ticket=tkt_… --detail='PASS1: … proof ids …'
-npm run record:ticket-e2e-pass -- --ticket=tkt_… --detail='PASS2: … proof ids …'
+npm run record:ticket-e2e-pass -- --ticket=tkt_… --tier=1 --detail='… proof ids …'
+npm run record:ticket-e2e-pass -- --ticket=tkt_… --tier=2 --detail='… raw D1 query + row ids …'
+# control-plane only:
+npm run record:ticket-e2e-pass -- --ticket=tkt_… --tier=3 --detail='… gate/deploy id on subsequent run …'
 npm run assert:ticket-shippable -- --ticket=tkt_… --set-shipped
 ```
 
-Assert refuses `--set-shipped` unless `consecutive_pass_count >= required_pass_count` **and** (≥2 `agentsam_gate_runs` ok **or** ≥2 `agentsam_ticket_events` with `event_type=e2e_pass`).
+Assert refuses `--set-shipped` unless `consecutive_pass_count >= required_pass_count` **and** (≥N `agentsam_gate_runs` ok **or** ≥N `agentsam_ticket_events` with `event_type=e2e_pass`).
 
 ## Agent behavior
 
-- After implementing + first manual/prod proof → write `e2e_pass` event, keep status `in_review` (or `active`).
-- After second independent E2E proof → second `e2e_pass`, then `assert:ticket-shippable --set-shipped`.
-- Do **not** UPDATE `status='shipped'` ad hoc in SQL unless assert is green (or operator overrides with `SKIP_TICKET_DUAL_PASS=1` + explicit note — rare).
+- After implement + first proof → Tier 1 `e2e_pass`, keep `in_review` / `active`.
+- After independent raw pull → Tier 2; for product tickets then `assert:ticket-shippable --set-shipped`.
+- Control-plane: wait for Tier 3 (gate on a later real ship) before `--set-shipped`.
+- Do **not** `UPDATE status='shipped'` ad hoc unless assert is green (or `SKIP_TICKET_DUAL_PASS=1` + explicit note — rare).
 
 SSOT: `plans/active/README.md` · D1 `rule_ticket_dual_pass_e2e` · `scripts/assert-ticket-shippable.mjs`

@@ -3,8 +3,13 @@
  * Record one end-to-end validation pass on an agentsam_tickets row.
  * Increments consecutive_pass_count (resets to 1 if you pass --reset-streak).
  *
- *   npm run record:ticket-e2e-pass -- --ticket=tkt_… --detail='PASS1: intent=… tool=…'
- *   npm run record:ticket-e2e-pass -- --ticket=tkt_… --detail='PASS2: …' --status=in_review
+ * Tiers (plans/active/README.md · rule_ticket_dual_pass_e2e):
+ *   1 = implementer proof (hypothesis until 2)
+ *   2 = independent raw D1/log pull by a different actor
+ *   3 = durable gate / subsequent real run (control-plane tickets)
+ *
+ *   npm run record:ticket-e2e-pass -- --ticket=tkt_… --tier=1 --detail='intent=… tool=…'
+ *   npm run record:ticket-e2e-pass -- --ticket=tkt_… --tier=2 --detail='d1 row=…' --status=in_review
  */
 import { loadEnvCloudflare } from './lib/load-env-cloudflare.mjs';
 import { d1Query, sqlQuote } from './lib/d1-remote.mjs';
@@ -19,16 +24,28 @@ function arg(name, fallback = null) {
 }
 
 const ticketId = arg('ticket');
-const detail = arg('detail', '');
+const detailRaw = arg('detail', '');
+const tierRaw = arg('tier', null);
 const setStatus = arg('status', null);
 const resetStreak = process.argv.includes('--reset-streak');
 
-if (!ticketId || !detail.trim()) {
+if (!ticketId || !detailRaw.trim()) {
   console.error(
-    "Usage: npm run record:ticket-e2e-pass -- --ticket=tkt_… --detail='PASS N: proof ids…' [--status=in_review] [--reset-streak]",
+    "Usage: npm run record:ticket-e2e-pass -- --ticket=tkt_… --tier=1|2|3 --detail='proof ids…' [--status=in_review] [--reset-streak]",
   );
   process.exit(2);
 }
+
+const tierNum = tierRaw != null && tierRaw !== '' ? Number(tierRaw) : null;
+if (tierRaw != null && ![1, 2, 3].includes(tierNum)) {
+  console.error('--tier must be 1, 2, or 3');
+  process.exit(2);
+}
+const detail =
+  tierNum != null && !/^\s*TIER\s*[123]\b/i.test(detailRaw)
+    ? `TIER${tierNum}: ${detailRaw.trim()}`
+    : detailRaw.trim();
+
 
 const row = d1Query(
   `SELECT id, status, consecutive_pass_count, required_pass_count
@@ -47,7 +64,8 @@ const next = resetStreak ? 1 : prev + 1;
 
 let gitSha = null;
 try {
-  gitSha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
+  gitSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  if (!/^[0-9a-f]{40}$/i.test(gitSha)) gitSha = null;
 } catch {
   /* ignore */
 }
@@ -75,7 +93,7 @@ d1Query(
      'e2e_pass',
      ${sqlQuote(row.status)},
      ${sqlQuote(newStatus)},
-     ${sqlQuote(JSON.stringify({ pass: next, required: need, detail }))},
+     ${sqlQuote(JSON.stringify({ pass: next, required: need, tier: tierNum, detail }))},
      ${sqlQuote(gitSha)},
      unixepoch()
    )`,
@@ -87,12 +105,14 @@ console.log(
       ticket: ticketId,
       pass: next,
       required: need,
+      tier: tierNum,
       status: newStatus,
       event_id: eventId,
+      commit_sha: gitSha,
       shippable_hint:
         next >= need
           ? `Ready to assert: npm run assert:ticket-shippable -- --ticket=${ticketId} --set-shipped`
-          : `Need ${need - next} more independent E2E pass(es)`,
+          : `Need ${need - next} more independent E2E pass(es) (named tiers T1/T2[/T3])`,
     },
     null,
     2,

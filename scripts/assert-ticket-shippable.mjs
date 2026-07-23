@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * Refuse to mark a ticket shipped unless dual-pass E2E proof exists.
+ * Refuse to mark a ticket shipped unless named-tier E2E proof exists.
  *
- * Requires consecutive_pass_count >= required_pass_count (default 2)
+ * Requires consecutive_pass_count >= required_pass_count (default 2; control-plane 3)
  * AND either:
  *   - ≥ required green agentsam_gate_runs rows, OR
  *   - ≥ required agentsam_ticket_events with event_type = 'e2e_pass'
  *
+ * Tiers: 1 implementer · 2 independent raw pull · 3 durable gate (see rule_ticket_dual_pass_e2e).
  * Deploy alone is never enough.
  *
  *   npm run assert:ticket-shippable -- --ticket=tkt_…
@@ -73,7 +74,7 @@ console.log(
       required_pass_count: need,
       shippable,
       skip_override: skipLaw,
-      law: 'Two independent E2E validations required. Deploy ≠ pass. See rule_ticket_dual_pass_e2e.',
+      law: 'Named E2E tiers required (default T1+T2; control-plane +T3). Deploy ≠ pass. See rule_ticket_dual_pass_e2e.',
     },
     null,
     2,
