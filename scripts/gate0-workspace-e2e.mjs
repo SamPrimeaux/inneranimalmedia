@@ -21,12 +21,12 @@ const PROOF_PATH = `.scratch/gate0-workspace-e2e-${STAMP}.txt`;
 const PROOF_BODY = `GATE0_PASS1\nstamp=${STAMP}\nexpect_same_connection_id=1\n`;
 
 const PROMPT = [
-  'Gate 0 workspace E2E — do exactly these tools in order, nothing else:',
+  'Use fs_write_file and fs_read_file only — no hosted shell, no search_tools.',
   `1) Call fs_write_file with path="${PROOF_PATH}" and content exactly:`,
   PROOF_BODY.trimEnd(),
   `2) Call fs_read_file with path="${PROOF_PATH}" and confirm the content.`,
-  '3) Call agentsam_terminal_local with command: pwd && whoami',
-  'Do NOT use openai_hosted_shell, search_tools, or any other tool.',
+  '3) Then call agentsam_terminal_local with command: pwd && whoami',
+  'Do NOT use openai_hosted_shell, agentsam_search_tools, or any other tool before the fs_* calls.',
   'After tools, reply with one line: GATE0_DONE',
 ].join('\n');
 
@@ -212,8 +212,11 @@ async function main() {
         rConn &&
         wConn === rConn &&
         t &&
-        (termOut?.exit_code === 0 || termOut?.ok === true),
+        (termOut?.exit_code === 0 || termOut?.ok === true) &&
+        !chat.toolNames.some((n) => /hosted_shell|search_tools/i.test(n)),
     ),
+    tools_used: chat.toolNames,
+    no_hosted_shell_or_search: !chat.toolNames.some((n) => /hosted_shell|search_tools/i.test(n)),
   };
 
   console.log(JSON.stringify(report, null, 2));
