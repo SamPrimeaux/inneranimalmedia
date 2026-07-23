@@ -62,7 +62,9 @@ function parseSse(raw) {
         }
       }
     }
-    if (t === 'status' && /empty hosted shell/i.test(String(ev.message || ''))) sawRecover = true;
+    if (t === 'status' && /empty hosted shell|recover_halt|hosted shell cap/i.test(String(ev.message || ''))) {
+      sawRecover = true;
+    }
   }
   return { toolNames, events, text, sawRecover, sawEmptyShellFail };
 }
@@ -133,7 +135,14 @@ async function main() {
   const chat = await postChat(cookie, conversationId);
 
   const fabricated = /cannot access|No such file or directory/i.test(chat.text || '');
+  const hasVisibleText = String(chat.text || '').trim().length > 0;
   // Live models may refuse to emit empty commands — still require no fabrication.
+  // When empty shell DID fire, require visible text or recover_halt (no silent death).
+  const emptyOk =
+    !chat.sawEmptyShellFail ||
+    chat.sawRecover ||
+    hasVisibleText ||
+    /hosted shell returned nothing useful/i.test(chat.text || '');
   const report = {
     gate: '1b',
     kind: 'live',
@@ -143,11 +152,14 @@ async function main() {
     saw_empty_shell_fail: chat.sawEmptyShellFail,
     saw_recover: chat.sawRecover,
     fabricated_terminal_text: fabricated,
+    has_visible_text: hasVisibleText,
     text_preview: String(chat.text || '').slice(0, 400),
-    ok: Boolean(chat.httpStatus === 200 && !fabricated),
+    ok: Boolean(chat.httpStatus === 200 && !fabricated && emptyOk && (hasVisibleText || !chat.sawEmptyShellFail)),
     note:
       chat.sawEmptyShellFail
-        ? 'Empty shell non-success observed on live stream'
+        ? hasVisibleText
+          ? 'Empty shell non-success with visible reply (cap or model text)'
+          : 'Empty shell seen but no visible text — FAIL (close_done_no_token class)'
         : 'Model did not emit empty commands:[]; pass = no fabricated terminal text this turn',
   };
 

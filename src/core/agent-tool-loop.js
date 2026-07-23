@@ -860,6 +860,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   let lastToolNameOnly = null;
   let repeatedSameToolNameCount = 0;
   let forceTextOnlyAfterRepeatHalt = false;
+  /** Consecutive empty hosted-shell recovers without forward progress (e6c6dbfe silence). */
+  let consecutiveEmptyHostedShellRecovers = 0;
+  const EMPTY_HOSTED_SHELL_RECOVER_CAP = 2;
 
   while (turnCount < maxTurns) {
     turnCount++;
@@ -1669,63 +1672,111 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         .map((b) => String(b.text || ''))
         .join('')
         .trim();
-      // Gate 1b: empty commands → durable non-success before inventable text ends the turn.
-      // Recover even when the model already streamed inventable prose after empty shell.
-      if (emptyShellCalls.length && turnCount < maxTurns) {
+
+      const synthesizeHostedShellHalt = (reason) => {
+        const msg =
+          'Hosted shell returned nothing useful (empty commands[] or out-of-scope paths) after repeated tries — ' +
+          'that is a non-success, not a finished task. I am stopping further hosted-shell retries this turn. ' +
+          'For repo / .scratch work use workspace fs_* or agentsam_terminal_*; hosted shell is only for /mnt/data with real commands.';
         console.warn(
-          '[agent] openai_hosted_shell_empty_recover',
+          '[agent] openai_hosted_shell_recover_halt',
           JSON.stringify({
-            empty_count: emptyShellCalls.length,
+            reason,
+            consecutive_empty: consecutiveEmptyHostedShellRecovers,
             had_assistant_text: Boolean(assistantPlain),
             turn: turnCount,
             agent_run_id: chatAgentRunId != null ? String(chatAgentRunId) : null,
           }),
         );
         emit('status', {
-          phase: 'recover',
-          message: 'Empty hosted shell — continuing the agent turn',
+          phase: 'recover_halt',
+          message: 'Empty hosted shell cap — synthesizing a visible reply',
         });
-        conversationMessages.push({
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text:
-                'SYSTEM: The previous OpenAI hosted shell call had empty commands[] and is a durable non-success. ' +
-                'Do not invent shell output or claim the command succeeded. ' +
-                'Continue the user request using only tools already present on your active menu ' +
-                '(workspace fs_* / terminal for repo work; hosted shell only under /mnt/data with real commands).',
-            },
-          ],
-        });
-        continue;
-      }
-      // Gate 1a: hosted shell aimed at workspace/repo paths → fail loud + recover to workspace tools.
-      if (workspaceShellCalls.length && turnCount < maxTurns) {
-        console.warn(
-          '[agent] openai_hosted_shell_workspace_scope_recover',
-          JSON.stringify({
-            count: workspaceShellCalls.length,
-            turn: turnCount,
-            agent_run_id: chatAgentRunId != null ? String(chatAgentRunId) : null,
-          }),
-        );
-        emit('status', {
-          phase: 'recover',
-          message: 'Hosted shell workspace scope violation — use workspace tools',
-        });
-        conversationMessages.push({
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text:
-                'SYSTEM: OpenAI hosted shell targeted workspace/repo paths and is out of scope. ' +
-                'Hosted shell is /mnt/data scratch only. Continue with workspace fs_* / agentsam_terminal_* tools already on your menu.',
-            },
-          ],
-        });
-        continue;
+        if (!assistantPlain) {
+          emit('text', { text: msg });
+          assistantContent.push({ type: 'text', text: msg });
+        }
+        consecutiveEmptyHostedShellRecovers = 0;
+      };
+
+      // Gate 1b: empty commands → durable non-success; recover with a hard cap so we never
+      // burn remaining turns into close_done_no_token silence (in-app e6c6dbfe).
+      if (emptyShellCalls.length) {
+        consecutiveEmptyHostedShellRecovers += 1;
+        const atCap =
+          consecutiveEmptyHostedShellRecovers >= EMPTY_HOSTED_SHELL_RECOVER_CAP ||
+          turnCount >= maxTurns;
+        if (atCap) {
+          synthesizeHostedShellHalt(
+            consecutiveEmptyHostedShellRecovers >= EMPTY_HOSTED_SHELL_RECOVER_CAP
+              ? 'empty_recover_cap'
+              : 'empty_recover_last_turn',
+          );
+          // fall through to break — visible text already emitted when needed
+        } else {
+          console.warn(
+            '[agent] openai_hosted_shell_empty_recover',
+            JSON.stringify({
+              empty_count: emptyShellCalls.length,
+              consecutive: consecutiveEmptyHostedShellRecovers,
+              cap: EMPTY_HOSTED_SHELL_RECOVER_CAP,
+              had_assistant_text: Boolean(assistantPlain),
+              turn: turnCount,
+              agent_run_id: chatAgentRunId != null ? String(chatAgentRunId) : null,
+            }),
+          );
+          emit('status', {
+            phase: 'recover',
+            message: 'Empty hosted shell — continuing the agent turn',
+          });
+          conversationMessages.push({
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text:
+                  'SYSTEM: The previous OpenAI hosted shell call had empty commands[] and is a durable non-success. ' +
+                  'Do NOT call hosted shell again with empty commands. Do not invent shell output. ' +
+                  'Continue with a different tool already on your menu (fs_write_file / fs_read_file / agentsam_terminal_local for workspace work), ' +
+                  'or reply briefly explaining you need a real /mnt/data command. You must produce either a tool call or visible text.',
+              },
+            ],
+          });
+          continue;
+        }
+      } else if (workspaceShellCalls.length && turnCount < maxTurns) {
+        // Gate 1a: workspace-targeted hosted shell — one recover, then halt if still stuck.
+        consecutiveEmptyHostedShellRecovers += 1;
+        if (consecutiveEmptyHostedShellRecovers >= EMPTY_HOSTED_SHELL_RECOVER_CAP) {
+          synthesizeHostedShellHalt('workspace_scope_cap');
+        } else {
+          console.warn(
+            '[agent] openai_hosted_shell_workspace_scope_recover',
+            JSON.stringify({
+              count: workspaceShellCalls.length,
+              turn: turnCount,
+              agent_run_id: chatAgentRunId != null ? String(chatAgentRunId) : null,
+            }),
+          );
+          emit('status', {
+            phase: 'recover',
+            message: 'Hosted shell workspace scope violation — use workspace tools',
+          });
+          conversationMessages.push({
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text:
+                  'SYSTEM: OpenAI hosted shell targeted workspace/repo paths and is out of scope. ' +
+                  'Do NOT retry hosted shell for those paths. Continue with workspace fs_* / agentsam_terminal_* tools, or reply with a short status.',
+              },
+            ],
+          });
+          continue;
+        }
+      } else {
+        consecutiveEmptyHostedShellRecovers = 0;
       }
       if (routingWs) {
         const qs = Number(qualityScore);
@@ -1741,6 +1792,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       }
       break;
     }
+
+    // Real function / apply_patch work → hosted-shell dead-end streak resets.
+    consecutiveEmptyHostedShellRecovers = 0;
 
     const toolResults = [];
     let previousToolChainId = null;

@@ -19,7 +19,7 @@
 | `agentsam_terminal_local` | **GREEN** | cwd Mac repo; Gate 0 | main + ExecOS localpty | `0f2ff5aa` |
 | `agentsam_terminal_remote` | **GREEN** | connectivity + disposable checkout hygiene | main + ExecOS remote | ops |
 | PWA/SW | **GREEN** | `pwa-build-meta.json` = `0f2ff5aa` | R2 + main | `0f2ff5aa` |
-| Hosted shell (OpenAI `/mnt/data`) | **GREEN** | 1a+1b dual-pass shipped (`tkt_hosted_shell_*`) | OpenAI | `0f2ff5aa` |
+| Hosted shell (OpenAI `/mnt/data`) | **AMBER** | Fabrication fixed; **reopened** `tkt_hosted_shell_executor_contract` after in-app `e6c6dbfe` 3× empty → `close_done_no_token`. Cap+synthesize reply shipping. | OpenAI | — |
 | MCP OAuth tools | **GREEN** | auth: bearer tools/list 200 + tools/call; Cursor discovery = client token | `inneranimalmedia-mcp-server` | auth |
 | Job 2 isolated compute | **GREEN** | authed `/api/sandbox/health` + `agentsam_terminal_sandbox` whoami | `MY_CONTAINER` | live |
 | Gate 4 bridge decision | **A — MY_CONTAINER SSOT** | `tkt_sandbox_bridge_decision` — no official bridge Worker | decision | 2026-07-23 |
