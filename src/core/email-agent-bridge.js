@@ -192,6 +192,9 @@ export async function recordPhoneLoopDeploymentNotification(env, row) {
  * Dual outbound: email + push in the same waitUntil batch (no sequencing dependency).
  * Also writes deployment_notifications so the email trail is queryable next to deploy rows.
  *
+ * Deep-link target is ALWAYS /dashboard/mail (not empty agent chat): open the sent
+ * message with next-step chips so iPhone tap lands on actionable Mail.
+ *
  * @param {any} env
  * @param {any} ctx
  * @param {{
@@ -205,6 +208,7 @@ export async function recordPhoneLoopDeploymentNotification(env, row) {
  *   pushActions?: boolean,
  *   continueInstruction?: string,
  *   statusInstruction?: string,
+ *   nextSteps?: { action: string, label: string, instruction: string }[],
  * }} opts
  */
 export async function sendPhoneLoopCompletion(env, ctx, opts) {
@@ -214,13 +218,33 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
   }
 
   const subject = String(opts.subject || '[Agent Sam] update').trim();
-  const body = String(opts.body || '').trim();
+  let body = String(opts.body || '').trim();
   const pushTitle = String(opts.pushTitle || subject).trim().slice(0, 80);
   const pushBody = String(opts.pushBody || body.slice(0, 140)).trim().slice(0, 180);
   const inReplyTo = opts.inReplyTo != null ? String(opts.inReplyTo).trim() : '';
   const wantActions = opts.pushActions !== false;
 
-  const deepLink = `/dashboard/agent/${encodeURIComponent(conversationId)}`;
+  const continueInstruction =
+    (opts.continueInstruction && String(opts.continueInstruction).trim()) ||
+    'Continue the work on this Agent Sam thread. Pick up from the last result and proceed with the next logical steps.';
+  const statusInstruction =
+    (opts.statusInstruction && String(opts.statusInstruction).trim()) ||
+    'Give me a short status update on this conversation — what finished, what is blocked, and what you recommend next.';
+
+  const nextSteps =
+    Array.isArray(opts.nextSteps) && opts.nextSteps.length
+      ? opts.nextSteps.slice(0, 5)
+      : [
+          { action: 'continue', label: 'Continue', instruction: continueInstruction },
+          { action: 'status', label: 'Status', instruction: statusInstruction },
+        ];
+
+  const { buildNextStepsEmbeds } = await import('./email-reply-thread.js');
+  const stepEmbeds = buildNextStepsEmbeds(nextSteps, conversationId);
+  if (stepEmbeds.footerText && !body.includes('## Next steps')) {
+    body = `${body}${stepEmbeds.footerText}`;
+  }
+  const htmlExtra = stepEmbeds.htmlComment || '';
 
   const run = async () => {
     const deploymentId = await resolvePhoneLoopDeploymentId(env, opts.deploymentId);
@@ -229,10 +253,15 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
       to: PHONE_LOOP_INBOX,
       subject,
       text: body,
+      html: htmlExtra
+        ? `<pre style="white-space:pre-wrap;font-family:system-ui,sans-serif">${escapeHtmlPhone(body)}</pre>\n${htmlExtra}`
+        : undefined,
       category: 'phone_loop',
       conversationId,
       inReplyTo: inReplyTo || undefined,
       noAgentSamPrefix: subject.startsWith('[Agent Sam]'),
+      userId: PHONE_LOOP_USER_ID,
+      tenantId: PHONE_LOOP_TENANT_ID,
     });
 
     const resendId =
@@ -240,7 +269,15 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
       emailResult?.data?.id ||
       emailResult?.id ||
       null;
+    const emailLogId =
+      emailResult?.emailLogId != null ? String(emailResult.emailLogId).trim() : '';
     const emailOk = !!(emailResult && emailResult.success === true && resendId);
+
+    // Mail is the phone IDE surface — never deep-link into a blank agent chat.
+    const deepLink = emailLogId
+      ? `/dashboard/mail?email=${encodeURIComponent(emailLogId)}&folder=sent&c=${encodeURIComponent(conversationId)}`
+      : `/dashboard/mail?folder=sent&c=${encodeURIComponent(conversationId)}`;
+
     const notifyRow = await recordPhoneLoopDeploymentNotification(env, {
       deploymentId,
       recipient: PHONE_LOOP_INBOX,
@@ -250,6 +287,7 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
         '',
         `conversation_id=${conversationId}`,
         `deep_link=${deepLink}`,
+        emailLogId ? `email_log_id=${emailLogId}` : '',
         emailOk ? 'resend_ok=1' : 'resend_ok=0',
         resendId ? `resend_id=${resendId}` : '',
         emailResult?.error ? `error=${emailResult.error}` : '',
@@ -273,8 +311,8 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
       const { buildPhoneLoopPushActions } = await import('./push-action-token.js');
       const actionPack = wantActions
         ? await buildPhoneLoopPushActions(env, conversationId, {
-            continueInstruction: opts.continueInstruction,
-            statusInstruction: opts.statusInstruction,
+            continueInstruction,
+            statusInstruction,
           })
         : { actions: [], actionTokens: {} };
 
@@ -283,13 +321,15 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
         channel: 'push',
         subject: pushTitle,
         message: pushBody,
-        entityType: 'conversation',
-        entityId: conversationId,
+        entityType: 'email',
+        entityId: emailLogId || conversationId,
         status: 'sent',
         data: {
           url: deepLink,
           tag: conversationId,
           type: 'phone_loop',
+          conversationId,
+          emailLogId: emailLogId || null,
           actions: actionPack.actions,
         },
       }).catch(() => null);
@@ -304,8 +344,8 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
         url: pushUrl,
         tag: conversationId,
         notificationId: notifId || undefined,
-        entityType: 'conversation',
-        entityId: conversationId,
+        entityType: 'email',
+        entityId: emailLogId || conversationId,
         actions: actionPack.actions,
         actionTokens: actionPack.actionTokens,
       });
@@ -320,16 +360,31 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
       push: pushResult,
       conversationId,
       deepLink,
+      emailLogId: emailLogId || null,
       deploymentId,
       notification: notifyRow,
+      nextSteps: stepEmbeds.steps,
     };
   };
 
   if (ctx && typeof ctx.waitUntil === 'function') {
     ctx.waitUntil(run());
-    return { ok: true, async: true, conversationId, deepLink };
+    return {
+      ok: true,
+      async: true,
+      conversationId,
+      deepLink: `/dashboard/mail?folder=sent&c=${encodeURIComponent(conversationId)}`,
+    };
   }
   return run();
+}
+
+function escapeHtmlPhone(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 /**

@@ -1,7 +1,7 @@
 /* Web Push display — imported by Workbox-generated /sw.js */
 
 function resolvePushTargetUrl(raw) {
-  const fallback = '/dashboard/agent';
+  const fallback = '/dashboard/mail';
   try {
     return new URL(String(raw || fallback), self.location.origin).href;
   } catch (_) {
@@ -13,7 +13,7 @@ self.addEventListener('push', (event) => {
   let payload = {
     title: 'Inner Animal Media',
     body: '',
-    url: '/dashboard/agent',
+    url: '/dashboard/mail',
     tag: 'iam',
     notificationId: null,
     entityType: null,

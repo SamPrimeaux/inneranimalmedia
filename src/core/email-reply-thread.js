@@ -73,3 +73,68 @@ export function buildThreadEmbeds(conversationId) {
   const htmlComment = id ? `<!-- agentsam:thread:${id} -->` : '';
   return { token, htmlComment, footerText: token ? `\n\n---\nReply with your next instruction.\n${token}\n` : '' };
 }
+
+const NEXT_STEPS_HTML_RE = /<!--\s*agentsam:next_steps:([\s\S]*?)\s*-->/i;
+const NEXT_STEPS_TEXT_RE = /\[agentsam:next_steps\]([\s\S]*?)\[\/agentsam:next_steps\]/i;
+
+/**
+ * @param {{ action: string, label: string, instruction: string }[]} steps
+ * @param {string} conversationId
+ */
+export function buildNextStepsEmbeds(steps, conversationId) {
+  const list = Array.isArray(steps)
+    ? steps
+        .filter((s) => s && s.action && s.label && s.instruction)
+        .slice(0, 5)
+        .map((s) => ({
+          action: String(s.action).slice(0, 32),
+          label: String(s.label).slice(0, 80),
+          instruction: String(s.instruction).slice(0, 4000),
+        }))
+    : [];
+  if (!list.length) {
+    return { footerText: '', htmlComment: '', steps: [] };
+  }
+  const lines = list.map((s, i) => `${i + 1}. ${s.label}\n   → ${s.instruction.slice(0, 180)}`);
+  const payload = {
+    conversationId: String(conversationId || '').trim() || null,
+    steps: list,
+  };
+  const json = JSON.stringify(payload);
+  const footerText = `\n\n## Next steps (open in Mail to tap, or reply by email)\n${lines.join('\n')}\n\n[agentsam:next_steps]${json}[/agentsam:next_steps]\n`;
+  const htmlComment = `<!-- agentsam:next_steps:${json} -->`;
+  return { footerText, htmlComment, steps: list };
+}
+
+/**
+ * Parse next-step chips from an email body (phone-loop outbound).
+ * @param {string} body
+ * @returns {{ conversationId: string|null, steps: { action: string, label: string, instruction: string }[] }}
+ */
+export function parseNextStepsFromBody(body) {
+  const raw = String(body || '');
+  const hit = raw.match(NEXT_STEPS_HTML_RE) || raw.match(NEXT_STEPS_TEXT_RE);
+  if (!hit?.[1]) {
+    const ref = raw.match(REF_RE);
+    let conversationId = ref?.[1] ? String(ref[1]).trim() : null;
+    if (conversationId?.startsWith('as_')) conversationId = conversationId.slice(3);
+    return { conversationId, steps: [] };
+  }
+  try {
+    const parsed = JSON.parse(hit[1].trim());
+    const conversationId =
+      parsed?.conversationId != null ? String(parsed.conversationId).trim() : null;
+    const steps = Array.isArray(parsed?.steps)
+      ? parsed.steps
+          .filter((s) => s && s.action && s.label && s.instruction)
+          .map((s) => ({
+            action: String(s.action).slice(0, 32),
+            label: String(s.label).slice(0, 80),
+            instruction: String(s.instruction).slice(0, 4000),
+          }))
+      : [];
+    return { conversationId, steps };
+  } catch {
+    return { conversationId: null, steps: [] };
+  }
+}

@@ -317,23 +317,32 @@ export async function sendPlatformEmail(env, opts, executionCtx) {
 
       if (env.DB) {
         const provider = useResend ? 'resend' : 'gmail';
-        let logUserId = null;
-        try {
-          const { resolveUserIdByEmail } = await import('../core/email-sent-archive.js');
-          logUserId = await resolveUserIdByEmail(env, toAddr);
-        } catch { /* non-fatal */ }
-        await insertEmailLog(env, {
+        let logUserId = opts.userId != null ? String(opts.userId).trim() : '';
+        if (!logUserId) {
+          try {
+            const { resolveUserIdByEmail } = await import('../core/email-sent-archive.js');
+            logUserId = (await resolveUserIdByEmail(env, toAddr)) || '';
+          } catch { /* non-fatal */ }
+        }
+        const logResult = await insertEmailLog(env, {
           to: toAddr,
           from: fromDefault || 'platform',
           subject,
           status: 'sent',
           externalMessageId: json?.id ?? null,
           provider,
-          userId: logUserId,
+          userId: logUserId || null,
+          tenantId: opts.tenantId != null ? String(opts.tenantId).trim() : null,
           textContent: bodyRaw || null,
         });
+        return {
+          success: true,
+          data: json,
+          externalMessageId: json?.id ?? null,
+          emailLogId: logResult?.ok ? logResult.id : null,
+        };
       }
-      return { success: true, data: json, externalMessageId: json?.id ?? null };
+      return { success: true, data: json, externalMessageId: json?.id ?? null, emailLogId: null };
     } catch (e) {
       console.warn('[sendPlatformEmail]', e?.message ?? e);
       return { success: false, error: e?.message ?? String(e) };

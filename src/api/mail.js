@@ -521,6 +521,60 @@ export async function handleMailApi(request, url, env, ctx) {
   const receivedScope = receivedEmailsScopeClause(mailTenantId, mailUserId);
 
   try {
+    // POST /api/mail/agent-continue — pick a next-step chip in Mail → Agent Sam turn
+    if (method === 'POST' && p === '/api/mail/agent-continue') {
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: 'Invalid JSON' }, 400);
+      }
+      const conversationId = String(body.conversationId || body.conversation_id || '').trim();
+      const instruction = String(body.instruction || body.message || '').trim();
+      if (!conversationId || !instruction) {
+        return jsonResponse({ error: 'conversationId and instruction required' }, 400);
+      }
+      const { runAgentTurnFromPushAction } = await import('../core/email-agent-bridge.js');
+      const result = await runAgentTurnFromPushAction(env, ctx || { waitUntil() {} }, {
+        conversationId,
+        instruction,
+        action: String(body.action || 'mail_chip').slice(0, 32),
+      });
+      return jsonResponse({
+        ok: !!result?.ok || !!result?.accepted,
+        accepted: !!result?.accepted,
+        conversationId,
+        error: result?.error,
+      });
+    }
+
+    // GET /api/mail/by-ref?c=<conversationId> — resolve phone-loop sent mail for deep link
+    if (method === 'GET' && p === '/api/mail/by-ref') {
+      const c = String(url.searchParams.get('c') || url.searchParams.get('conversation') || '')
+        .trim()
+        .replace(/^as_/i, '');
+      if (!c) return jsonResponse({ error: 'c required' }, 400);
+      const needle = `%[ref:as_${c}]%`;
+      const row = await env.DB.prepare(
+        `SELECT id, from_email, to_email, from_address, to_address, subject, status,
+                external_message_id, provider, resend_id, created_at, text_content
+         FROM email_logs
+         WHERE user_id = ?
+           AND (text_content LIKE ? OR subject LIKE ?)
+         ORDER BY created_at DESC
+         LIMIT 1`,
+      )
+        .bind(mailUserId, needle, `%${c}%`)
+        .first()
+        .catch(() => null);
+      if (!row?.id) return jsonResponse({ error: 'not_found', conversationId: c }, 404);
+      return jsonResponse({
+        email: mapEmailLogRow(row),
+        conversationId: c,
+        source: 'sent',
+      });
+    }
+
     // Gmail OAuth connect (real)
     // GET /api/mail/gmail/status
     if (method === 'GET' && p === '/api/mail/gmail/status') {
@@ -865,19 +919,26 @@ export async function handleMailApi(request, url, env, ctx) {
 
       const logRow = await env.DB.prepare(
         `SELECT id, from_email, to_email, from_address, to_address, subject, status,
-                external_message_id, provider, resend_id, created_at
+                external_message_id, provider, resend_id, created_at, text_content
          FROM email_logs
          WHERE id = ? AND user_id = ?
          LIMIT 1`,
       ).bind(id, mailUserId).first();
       if (logRow) {
         const body = await loadSentLogBody(env, authUser, id, logRow);
+        const { parseNextStepsFromBody } = await import('../core/email-reply-thread.js');
+        const next = parseNextStepsFromBody(body || '');
         return jsonResponse({
           email: mapEmailLogRow(logRow),
           body,
           attachments: [],
           thread: [],
-          metadata: { source: 'email_logs', status: logRow.status },
+          metadata: {
+            source: 'email_logs',
+            status: logRow.status,
+            conversationId: next.conversationId,
+            nextSteps: next.steps,
+          },
           source: 'sent',
         });
       }

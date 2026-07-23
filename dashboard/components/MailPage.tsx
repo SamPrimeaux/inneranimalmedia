@@ -11,6 +11,7 @@ import { CollaborateWorkShell } from '../src/components/collaborate/CollaborateW
 import { CollaboratePageRail } from '../src/components/collaborate/CollaboratePageRail';
 import { MailTimeInsightsPanel } from '../src/components/collaborate/MailTimeInsightsPanel';
 import { openMailAgent } from '../lib/askMailAgent';
+import { parseMailNextSteps, stripMailNextStepsPayload } from '../lib/mailNextSteps';
 import { publishMailSurfaceContext } from '../lib/mailSurfaceEvents';
 import '../pages/launch-desk/collaborate-calendar.css';
 import '../src/components/collaborate/mail-work-surface.css';
@@ -286,6 +287,9 @@ export function MailPage() {
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const deepLinkEmailHandled = useRef<string | null>(null);
+  const deepLinkConvHandled = useRef<string | null>(null);
+  const [nextStepBusy, setNextStepBusy] = useState<string | null>(null);
+  const [nextStepMsg, setNextStepMsg] = useState<string | null>(null);
 
   // Panels
   const [sidebarW, setSidebarW] = useState(() => {
@@ -624,6 +628,88 @@ export function MailPage() {
       cancelled = true;
     };
   }, [searchParams, emails, loadingList, openEmail]);
+
+  // Deep link: /dashboard/mail?c=<conversationId> (phone-loop) → resolve sent mail by ref.
+  useEffect(() => {
+    const emailId = String(searchParams.get('email') || '').trim();
+    const convId = String(searchParams.get('c') || searchParams.get('conversation') || '')
+      .trim()
+      .replace(/^as_/i, '');
+    if (!convId || emailId || loadingList) return;
+    if (deepLinkConvHandled.current === convId) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/mail/by-ref?c=${encodeURIComponent(convId)}`, {
+          credentials: 'same-origin',
+        });
+        if (!res.ok || cancelled) return;
+        const d = await res.json();
+        const email = d?.email as Email | null;
+        if (!email?.id || cancelled) return;
+        deepLinkConvHandled.current = convId;
+        setFolder('sent');
+        await openEmail({
+          ...email,
+          id: String(email.id),
+          subject: email.subject || '',
+          from_address: email.from_address || '',
+          to_address: email.to_address || '',
+          is_read: email.is_read ?? 0,
+          is_starred: email.is_starred ?? 0,
+          is_archived: email.is_archived ?? 0,
+          date_received: email.date_received || '',
+        });
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, loadingList, openEmail]);
+
+  const mailNextSteps = useMemo(() => {
+    const parsed = parseMailNextSteps(detail?.body || '');
+    const fromQuery = String(searchParams.get('c') || '').trim().replace(/^as_/i, '');
+    return {
+      conversationId: parsed.conversationId || fromQuery || null,
+      steps: parsed.steps,
+    };
+  }, [detail?.body, searchParams]);
+
+  const runMailNextStep = useCallback(
+    async (step: { action: string; label: string; instruction: string }) => {
+      const conversationId = mailNextSteps.conversationId;
+      if (!conversationId || !step.instruction) return;
+      setNextStepBusy(step.action);
+      setNextStepMsg(null);
+      try {
+        const res = await fetch('/api/mail/agent-continue', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversationId,
+            instruction: step.instruction,
+            action: step.action,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !(data?.ok || data?.accepted)) {
+          setNextStepMsg(String(data?.error || 'Could not start Agent Sam turn'));
+          return;
+        }
+        setNextStepMsg(`Agent Sam is working on “${step.label}” — watch email / push for the result.`);
+      } catch (e) {
+        setNextStepMsg(e instanceof Error ? e.message : 'Request failed');
+      } finally {
+        setNextStepBusy(null);
+      }
+    },
+    [mailNextSteps.conversationId],
+  );
 
   // ── CRUD ops ───────────────────────────────────────────────────────────────
   const patchEmail = useCallback(async (id: string, patch: Partial<Email>, account?: string) => {
@@ -996,11 +1082,61 @@ export function MailPage() {
               )}
               {detail && (
                 <div style={{ padding: '0 18px 18px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                  {mailNextSteps.steps.length > 0 && mailNextSteps.conversationId ? (
+                    <div
+                      style={{
+                        marginBottom: 14,
+                        padding: 12,
+                        borderRadius: 10,
+                        border: '1px solid var(--border-subtle)',
+                        background: 'rgba(0, 255, 200, 0.06)',
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.04, marginBottom: 8, color: 'var(--text-muted)' }}>
+                        Agent Sam — next steps
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {mailNextSteps.steps.map((step) => (
+                          <button
+                            key={step.action}
+                            type="button"
+                            disabled={!!nextStepBusy}
+                            onClick={() => void runMailNextStep(step)}
+                            style={{
+                              height: 32,
+                              padding: '0 12px',
+                              borderRadius: 8,
+                              border: '1px solid var(--border-subtle)',
+                              background: 'var(--bg-elevated)',
+                              color: 'var(--text-main)',
+                              fontSize: 12,
+                              fontWeight: 700,
+                              cursor: nextStepBusy ? 'wait' : 'pointer',
+                              opacity: nextStepBusy && nextStepBusy !== step.action ? 0.55 : 1,
+                            }}
+                          >
+                            {nextStepBusy === step.action ? 'Starting…' : step.label}
+                          </button>
+                        ))}
+                      </div>
+                      {nextStepMsg ? (
+                        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                          {nextStepMsg}
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+                          Or reply to this email — keep the [ref:as_…] token so the thread stays bound.
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
                   {detail.body ? (
                     isHtml(detail.body) ? (
-                      <EmailHtmlPreview html={detail.body} />
+                      <EmailHtmlPreview html={stripMailNextStepsPayload(detail.body)} />
                     ) : (
-                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13, lineHeight: 1.7, color: 'var(--text-main)', margin: 0, flex: 1 }}>{detail.body}</pre>
+                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13, lineHeight: 1.7, color: 'var(--text-main)', margin: 0, flex: 1 }}>
+                        {stripMailNextStepsPayload(detail.body)}
+                      </pre>
                     )
                   ) : (
                     <div style={{ color: 'var(--text-muted)', fontSize: 12, padding: '12px 0' }}>No body content</div>

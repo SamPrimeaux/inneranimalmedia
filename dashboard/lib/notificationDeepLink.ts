@@ -42,6 +42,9 @@ export function resolveNotificationDeepLink(input: NotificationDeepLinkInput): s
   const entityId = String(input.entityId || data?.entityId || data?.entity_id || '').trim();
 
   if (entityType === 'conversation' && entityId) {
+    if (String(data?.type || '').toLowerCase() === 'phone_loop') {
+      return `/dashboard/mail?folder=sent&c=${encodeURIComponent(entityId)}`;
+    }
     return `/dashboard/agent/${encodeURIComponent(entityId)}`;
   }
   if (
@@ -51,6 +54,19 @@ export function resolveNotificationDeepLink(input: NotificationDeepLinkInput): s
       entityType === 'inbox') &&
     entityId
   ) {
+    const conv =
+      data?.conversationId != null
+        ? String(data.conversationId).trim()
+        : data?.conversation_id != null
+          ? String(data.conversation_id).trim()
+          : '';
+    if (String(data?.type || '').toLowerCase() === 'phone_loop' || conv) {
+      const q = new URLSearchParams();
+      q.set('email', entityId);
+      q.set('folder', 'sent');
+      if (conv) q.set('c', conv);
+      return `/dashboard/mail?${q.toString()}`;
+    }
     return `/dashboard/mail?email=${encodeURIComponent(entityId)}&folder=inbox`;
   }
   if (entityType === 'deploy' || entityType === 'deployment') {
