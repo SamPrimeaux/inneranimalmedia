@@ -90,6 +90,9 @@ export const PUBLIC_OAUTH_PATHS = [
   '/api/hooks/supabase',
   '/api/webhooks/stripe',
   '/api/webhooks/resend',
+  // Resend Receiving → Svix on this path (signature verified in integrations handler)
+  '/api/email/inbound',
+  '/api/integrations/resend/webhook',
 
   // Cloudflare Stream VOD + Live Input webhooks (unsigned gate bypass)
   '/api/webhooks/stream/vod',

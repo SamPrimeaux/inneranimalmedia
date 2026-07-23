@@ -124,12 +124,15 @@ function toRawBase64Url(rfc2822) {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-async function sendViaResend(vault, env, { from, to, subject, html, text, headers }) {
+async function sendViaResend(vault, env, { from, to, subject, html, text, headers, replyTo }) {
   const key = secretFromVault(vault, env, 'RESEND_API_KEY');
   if (!key) throw new Error('RESEND_API_KEY not configured');
   const body = { from, to: [to], subject };
   if (html) body.html = html;
   if (text) body.text = text;
+  const reply =
+    replyTo != null && String(replyTo).trim() ? String(replyTo).trim() : '';
+  if (reply) body.reply_to = [reply];
   if (headers && typeof headers === 'object' && Object.keys(headers).length) {
     body.headers = headers;
   }
@@ -207,6 +210,18 @@ export async function sendPlatformEmail(env, opts, executionCtx) {
     opts.inReplyTo != null && String(opts.inReplyTo).trim()
       ? String(opts.inReplyTo).trim()
       : '';
+  // Phone-loop / agent outbound often From=notifications@ — force Reply-To to the
+  // receiving inbox so Gmail replies hit Resend Receiving → /api/email/inbound.
+  const replyToExplicit =
+    opts.replyTo != null && String(opts.replyTo).trim()
+      ? String(opts.replyTo).trim()
+      : '';
+  const replyToPhoneLoop =
+    !replyToExplicit &&
+    (category === 'phone_loop' || String(opts.to || '').toLowerCase().includes('sam@inneranimalmedia.com'))
+      ? 'sam@inneranimalmedia.com'
+      : '';
+  const replyTo = replyToExplicit || replyToPhoneLoop;
 
   if (conversationId) {
     const { buildThreadEmbeds } = await import('../core/email-reply-thread.js');
@@ -282,6 +297,7 @@ export async function sendPlatformEmail(env, opts, executionCtx) {
           html: htmlRaw || undefined,
           text: bodyRaw,
           headers: Object.keys(threadHeaders).length ? threadHeaders : undefined,
+          replyTo: replyTo || undefined,
         });
       } else {
         const from = fromDefault;
