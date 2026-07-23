@@ -10,7 +10,7 @@
  * no rate calculation since we don't have total request volume in the same dataset.
  */
 import { sendPhoneLoopCompletion } from '../../core/email-agent-bridge.js';
-import { startCronRun, completeCronRun, failCronRun } from '../cron-run-ledger.js';
+import { startCronRun, completeCronRun, failCronRun } from '../../core/cron-run-ledger.js';
 
 const CRON_EXPR = '*/20 * * * *';
 
