@@ -892,7 +892,9 @@ function parseOAuthRegistrationBody(raw) {
     : mcpOAuthParseScopeList(String(body.scope || ''));
 
   return {
-    clientName: String(body.client_name || body.software_name || '').trim(),
+    clientName: String(
+      body.client_name || body.software_name || body.software_id || body.client_id || '',
+    ).trim(),
     logoUri: String(body.logo_uri || '').trim(),
     clientUri: String(body.client_uri || '').trim(),
     policyUri: String(body.policy_uri || '').trim(),
@@ -914,26 +916,48 @@ async function handleMcpOAuthRegister(request, env, _ctx) {
 
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== 'object') {
+    console.warn('[mcp-oauth-register] invalid_client_metadata (non-object body)');
     return mcpOAuthJsonError('invalid_client_metadata', 400);
   }
 
   const parsed = parseOAuthRegistrationBody(body);
-  if (!parsed.clientName) return mcpOAuthJsonError('invalid_client_name', 400);
-  if (!parsed.redirectUris.length) return mcpOAuthJsonError('invalid_redirect_uris', 400);
+  // Cursor / some MCP hosts omit client_name — don't fail the whole OAuth chain on a label.
+  if (!parsed.clientName) {
+    parsed.clientName = 'MCP Client';
+  }
+  if (!parsed.redirectUris.length) {
+    console.warn('[mcp-oauth-register] invalid_redirect_uris', {
+      keys: Object.keys(body),
+    });
+    return mcpOAuthJsonError('invalid_redirect_uris', 400);
+  }
   if (!parsed.grantTypes.includes('authorization_code')) {
+    console.warn('[mcp-oauth-register] unsupported_grant_type', { grantTypes: parsed.grantTypes });
     return mcpOAuthJsonError('unsupported_grant_type', 400);
   }
   if (!parsed.responseTypes.includes('code')) {
+    console.warn('[mcp-oauth-register] unsupported_response_type', {
+      responseTypes: parsed.responseTypes,
+    });
     return mcpOAuthJsonError('unsupported_response_type', 400);
   }
   if (!['none', 'client_secret_post', 'client_secret_basic'].includes(parsed.tokenEndpointAuthMethod)) {
+    console.warn('[mcp-oauth-register] invalid_token_endpoint_auth_method', {
+      method: parsed.tokenEndpointAuthMethod,
+    });
     return mcpOAuthJsonError('invalid_token_endpoint_auth_method', 400);
   }
 
   const validatedRedirects = [];
   for (const redirect of parsed.redirectUris) {
     const check = mcpOAuthValidateRedirectUri(redirect, null, env);
-    if (!check.ok || !check.url?.href) return mcpOAuthJsonError(check.error || 'invalid_redirect_uri', 400);
+    if (!check.ok || !check.url?.href) {
+      console.warn('[mcp-oauth-register] redirect rejected', {
+        redirect,
+        error: check.error || 'invalid_redirect_uri',
+      });
+      return mcpOAuthJsonError(check.error || 'invalid_redirect_uri', 400);
+    }
     validatedRedirects.push(check.url.href);
   }
 
@@ -942,7 +966,12 @@ async function handleMcpOAuthRegister(request, env, _ctx) {
   // Unauthenticated DCR: loopback (mcp-remote), cursor://, or hosted connector callbacks only.
   if (!authUser) {
     const allOk = normalizedRedirectUris.every((href) => mcpOAuthIsPublicDcrRedirect(href));
-    if (!allOk) return mcpOAuthJsonError('redirect_uri_not_allowed', 400);
+    if (!allOk) {
+      console.warn('[mcp-oauth-register] redirect_uri_not_allowed (public DCR)', {
+        redirects: normalizedRedirectUris,
+      });
+      return mcpOAuthJsonError('redirect_uri_not_allowed', 400);
+    }
 
     // Native / hosted connectors: public + PKCE only (no client secret).
     parsed.tokenEndpointAuthMethod = 'none';
