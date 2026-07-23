@@ -40,8 +40,9 @@ Agents still see older rules that say “always `deploy:full`”. On `iam-tunnel
 2. **Deploy command (main):** `DEPLOY_FAST_SKIP_BUILD=1 npm run deploy:fast` (opt-in skip after smart-build; R2 delta via **CF API token** or S3 keys + wrangler — no zsh). Do **not** hardcode skip in `package.json`.
 3. **Auth:** Builds injects `CLOUDFLARE_API_TOKEN`. Account id from `wrangler.production.toml` if unset. Optional: `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` Build secrets (S3 backend).
 4. **PWA control plane:** set **`PUSH_SERVICE_TOKEN`** as a Build secret so `post-services-sw-manifest-ingest` runs (otherwise SW/`cache_bust` can drift).
-5. **Watch paths:** must **not** exclude `dashboard/**`
-6. Sync triggers: `./scripts/cf-builds-sync.sh`
+5. **Deploy notify + Supabase ledger:** run `./scripts/cf-builds-sync-secrets.sh` once (from Mac with `.env.cloudflare`) so the main trigger has `INTERNAL_API_SECRET` / `AGENTSAM_BRIDGE_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `IAM_SUPABASE_WORKSPACE_ID`, `IAM_SUPABASE_USER_ID`. Without these, CF `deploy:fast` cannot fire push or write `agentsam_deploy_events`.
+6. **Watch paths:** must **not** exclude `dashboard/**`
+7. Sync triggers: `./scripts/cf-builds-sync.sh`
 
 ## npm scripts (package.json)
 

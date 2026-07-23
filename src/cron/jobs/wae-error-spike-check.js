@@ -11,6 +11,8 @@
  */
 import { sendPhoneLoopCompletion } from '../../core/email-agent-bridge.js';
 import { startCronRun, completeCronRun, failCronRun } from '../../core/cron-run-ledger.js';
+import { resolvePlatformD1AuthUserId } from '../../core/platform-identity-constants.js';
+import { resolveCronTenantId, resolveCronWorkspaceId } from '../cron-tenant.js';
 
 const CRON_EXPR = '*/20 * * * *';
 
@@ -43,11 +45,15 @@ export async function runWaeErrorSpikeCheck(env, ctx) {
 
 async function _runCheck(env, ctx) {
   const token = env.CLOUDFLARE_API_TOKEN;
-  const accountId = env.CLOUDFLARE_ACCOUNT_ID || 'ede6590ac0d2fb7daf155b35653457b2';
+  const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
 
   if (!token) {
     console.warn('[wae-spike] CLOUDFLARE_API_TOKEN not set — skipping');
     return { skipped: true, reason: 'no_token' };
+  }
+  if (!accountId) {
+    console.warn('[wae-spike] CLOUDFLARE_ACCOUNT_ID not set — skipping');
+    return { skipped: true, reason: 'no_account_id' };
   }
 
   // Dedupe: at most one alert per 15-minute window
@@ -149,20 +155,28 @@ LIMIT 20
     pushBody: `${totalErrors5xx} errors in last 20min — tap to investigate`,
   }).catch((e) => console.warn('[wae-spike] notify failed', e?.message ?? e));
 
-  // Audit trail
-  const tenantId = 'tenant_sam_primeaux';
-  const workspaceId = 'ws_inneranimalmedia';
-  await env.DB?.prepare(`
-    INSERT INTO agentsam_error_log
-      (id, workspace_id, tenant_id, error_code, error_type, error_message, source, context_json, resolved, created_at)
-    VALUES (?, ?, ?, 'wae_error_spike', 'critical', ?, 'wae_cron', ?, 0, unixepoch())
-  `).bind(
-    `aerr_wae_${Date.now()}`,
-    workspaceId,
-    tenantId,
-    `${totalErrors5xx} 5xx errors in 20min window`,
-    JSON.stringify({ totalErrors5xx, totalErrors4xx, rowsScanned, topPaths }),
-  ).run().catch((e) => console.warn('[wae-spike] error_log insert failed', e?.message ?? e));
+  // Audit trail — tenant/workspace from env + D1 auth_users (no hardcoded tenant_*/ws_*)
+  const operatorUserId = resolvePlatformD1AuthUserId(env);
+  const workspaceId = await resolveCronWorkspaceId(env, { userId: operatorUserId });
+  const tenantId = await resolveCronTenantId(env, { userId: operatorUserId });
+  if (!workspaceId || !tenantId || tenantId === 'system') {
+    console.warn('[wae-spike] workspace/tenant unresolved — skipping error_log insert', {
+      workspaceId,
+      tenantId,
+    });
+  } else {
+    await env.DB?.prepare(`
+      INSERT INTO agentsam_error_log
+        (id, workspace_id, tenant_id, error_code, error_type, error_message, source, context_json, resolved, created_at)
+      VALUES (?, ?, ?, 'wae_error_spike', 'critical', ?, 'wae_cron', ?, 0, unixepoch())
+    `).bind(
+      `aerr_wae_${Date.now()}`,
+      workspaceId,
+      tenantId,
+      `${totalErrors5xx} 5xx errors in 20min window`,
+      JSON.stringify({ totalErrors5xx, totalErrors4xx, rowsScanned, topPaths }),
+    ).run().catch((e) => console.warn('[wae-spike] error_log insert failed', e?.message ?? e));
+  }
 
   return { ok: true, spiking: true, alerted: true, totalErrors5xx, totalErrors4xx, rowsScanned };
 }

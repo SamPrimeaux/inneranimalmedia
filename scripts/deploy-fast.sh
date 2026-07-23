@@ -16,12 +16,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-if [[ -f "$REPO_ROOT/.env.cloudflare" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "$REPO_ROOT/.env.cloudflare"
-  set +a
-fi
+# shellcheck source=scripts/lib/load-deploy-env.sh
+source "$REPO_ROOT/scripts/lib/load-deploy-env.sh"
 
 DIST="dashboard/dist"
 TOML="${CF_BUILDS_WRANGLER_CONFIG:-wrangler.production.toml}"
@@ -202,7 +198,15 @@ fi
 # Without this, deploy:fast never fires push (post-deploy-record alone does not).
 GIT_FULL_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
 GIT_SHORT_HASH="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-: "${D1_AUTH_USER_ID:=${IAM_D1_AUTH_USER_ID:-au_871d920d1233cbd1}}"
+: "${D1_AUTH_USER_ID:=${IAM_D1_AUTH_USER_ID:-}}"
+if [[ -z "${D1_AUTH_USER_ID}" ]]; then
+  echo "[deploy:fast] FATAL: D1_AUTH_USER_ID / IAM_D1_AUTH_USER_ID unset after env load" >&2
+  exit 1
+fi
+if [[ -z "${WORKSPACE_ID:-}" ]]; then
+  echo "[deploy:fast] FATAL: WORKSPACE_ID unset after env load (wrangler [vars] or .env.cloudflare)" >&2
+  exit 1
+fi
 if command -v jq >/dev/null 2>&1; then
   POST_DEPLOY_BODY=$(
     jq -n \
@@ -212,8 +216,8 @@ if command -v jq >/dev/null 2>&1; then
       --arg wv "${WORKER_VERSION_ID:-unknown}" \
       --argjson dur "$((DEPLOY_SECONDS * 1000))" \
       --arg uid "${D1_AUTH_USER_ID}" \
-      --arg tid "${TENANT_ID:-tenant_sam_primeaux}" \
-      --arg ws "${WORKSPACE_ID:-ws_inneranimalmedia}" \
+      --arg tid "${TENANT_ID:-}" \
+      --arg ws "${WORKSPACE_ID}" \
       --arg by "${DEPLOYED_BY:-deploy:fast}" \
       '{environment:$env, git_hash:$gh, version:$v, worker_version_id:$wv, deploy_duration_ms:$dur, user_id:$uid, tenant_id:$tid, workspace_id:$ws, deployed_by:$by}'
   )
@@ -231,10 +235,16 @@ if command -v jq >/dev/null 2>&1; then
       -d "$POST_DEPLOY_BODY" --max-time 90 \
       || echo "[deploy:fast] warning: /api/internal/post-deploy non-zero (non-fatal)" >&2
   else
-    echo "[deploy:fast] warning: no AGENTSAM_BRIDGE_KEY/INTERNAL_API_SECRET — push notify skipped" >&2
+    echo "[deploy:fast] FATAL: no AGENTSAM_BRIDGE_KEY/INTERNAL_API_SECRET — push notify skipped" >&2
+    echo "[deploy:fast] Set as CF Builds secrets (main trigger) or in .env.cloudflare / .mcp_exports.sh" >&2
+    if [[ -d /opt/buildhome || "${WORKERS_CI:-}" == "1" || "${CI:-}" == "true" ]]; then
+      exit 1
+    fi
+    echo "[deploy:fast] warning: continuing on non-CI host without push auth" >&2
   fi
 else
-  echo "[deploy:fast] warning: jq missing — skipping Worker post-deploy push" >&2
+  echo "[deploy:fast] FATAL: jq missing — cannot build post-deploy payload" >&2
+  exit 1
 fi
 
 echo "[deploy:fast] housekeeping skipped (email / D1 memory / GCP VM) — not required for PWA"

@@ -26,13 +26,8 @@ set -e
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 CONFIG="$REPO_ROOT/wrangler.production.toml"
-ENV_FILE="$REPO_ROOT/.env.cloudflare"
-if [[ -f "$ENV_FILE" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "$ENV_FILE"
-  set +a
-fi
+# shellcheck source=scripts/lib/load-deploy-env.sh
+source "$REPO_ROOT/scripts/lib/load-deploy-env.sh"
 
 # Gap 1 — trail failure → immediate push+email via POST /api/internal/post-deploy
 # (status=trail_failed → sendPhoneLoopCompletion). Review before relying on this path.
@@ -409,14 +404,10 @@ fi
 if [[ "${SKIP_SUPABASE_DEPLOY_EVENT:-0}" == "1" ]]; then
   echo "[post-deploy-record] SKIP_SUPABASE_DEPLOY_EVENT=1 — skipping agentsam_deploy_events"
 else
-  SUPABASE_URL="${SUPABASE_URL:-https://dpmuvynqixblxsilnlut.supabase.co}"
+  SUPABASE_URL="${SUPABASE_URL:-}"
   SUPABASE_SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
+  # Prefer IAM_SUPABASE_WORKSPACE_ID from env / wrangler [vars] (loaded by load-deploy-env.sh).
   SUPABASE_WORKSPACE_UUID="${IAM_SUPABASE_WORKSPACE_ID:-${SUPABASE_WORKSPACE_UUID:-}}"
-  if [[ -z "$SUPABASE_WORKSPACE_UUID" ]]; then
-    case "$WORKSPACE_ID" in
-      ws_inneranimalmedia) SUPABASE_WORKSPACE_UUID="fa1f12a8-c841-4b79-a26c-d53a78b17dac" ;;
-    esac
-  fi
   case "$SUPABASE_WORKSPACE_UUID" in
     ws_*|'') SUPABASE_WORKSPACE_UUID="" ;;
   esac
@@ -424,11 +415,16 @@ else
   DEPLOY_FULL_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "$GIT_HASH")"
   DEPLOY_TIME_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   # Supabase auth.users UUID (FK on agentsam_deploy_events.user_id) — not D1 au_*.
-  SUPABASE_USER_UUID="${IAM_SUPABASE_USER_ID:-${SUPABASE_USER_ID:-6cbd71f8-1d57-4530-9736-9bf03be1adad}}"
-  D1_AUTH_USER_ID="${IAM_D1_AUTH_USER_ID:-${D1_AUTH_USER_ID:-au_871d920d1233cbd1}}"
+  SUPABASE_USER_UUID="${IAM_SUPABASE_USER_ID:-${SUPABASE_USER_ID:-}}"
+  D1_AUTH_USER_ID="${IAM_D1_AUTH_USER_ID:-${D1_AUTH_USER_ID:-}}"
 
-  if [[ -z "$SUPABASE_SERVICE_KEY" || -z "$SUPABASE_WORKSPACE_UUID" ]]; then
-    echo "[post-deploy-record] SUPABASE_SERVICE_ROLE_KEY or workspace UUID unset — skipping agentsam_deploy_events" >&2
+  if [[ -z "$SUPABASE_URL" || -z "$SUPABASE_SERVICE_KEY" || -z "$SUPABASE_WORKSPACE_UUID" || -z "$SUPABASE_USER_UUID" ]]; then
+    echo "[post-deploy-record] FATAL: agentsam_deploy_events requires SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY + IAM_SUPABASE_WORKSPACE_ID + IAM_SUPABASE_USER_ID" >&2
+    echo "[post-deploy-record] On CF Builds: upsert those as Build secrets/vars (see scripts/cf-builds-sync-secrets.sh)" >&2
+    if [[ -d /opt/buildhome || "${WORKERS_CI:-}" == "1" || "${CI:-}" == "true" ]]; then
+      exit 1
+    fi
+    echo "[post-deploy-record] warning: skipping agentsam_deploy_events on non-CI host" >&2
   elif command -v jq >/dev/null 2>&1; then
     PAYLOAD=$(
       jq -n \
