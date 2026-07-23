@@ -69,6 +69,60 @@ export async function handlePostDeploy(request, env, ctx) {
 
   const statusRaw = body.status != null ? String(body.status).trim().toLowerCase() : '';
 
+  // Explicit phone-loop kick (email + push) — used to close E2E without a trail failure.
+  if (statusRaw === 'phone_loop' || statusRaw === 'phone_loop_kick') {
+    const conversationId =
+      (typeof body.conversation_id === 'string' && body.conversation_id.trim()) ||
+      crypto.randomUUID();
+    const subject =
+      (typeof body.subject === 'string' && body.subject.trim()) ||
+      '[Agent Sam] Phone loop kickoff — reply with your next instruction';
+    const msgBody =
+      (typeof body.body === 'string' && body.body.trim()) ||
+      [
+        'Phone-email IDE loop is live.',
+        '',
+        'Reply to this email from an allowlisted superadmin address with your next instruction.',
+        'Keep the [ref:as_…] token so the thread stays bound.',
+        '',
+        'Reply with your next instruction.',
+      ].join('\n');
+    const pushTitle =
+      (typeof body.push_title === 'string' && body.push_title.trim()) || 'Agent Sam — phone loop';
+    const pushBody =
+      (typeof body.push_body === 'string' && body.push_body.trim()) ||
+      'Reply to the email (or open Agent) to close this out.';
+
+    if (ctx?.waitUntil) {
+      ctx.waitUntil(
+        (async () => {
+          const { sendPhoneLoopCompletion, mintPhoneLoopConversationId, ensurePhoneLoopChatSession } =
+            await import('../core/email-agent-bridge.js');
+          const cid = conversationId.includes('-')
+            ? conversationId
+            : mintPhoneLoopConversationId();
+          await ensurePhoneLoopChatSession(env, null, cid, msgBody.slice(0, 400));
+          await sendPhoneLoopCompletion(env, null, {
+            conversationId: cid,
+            deploymentId: body.worker_version_id || body.deployment_id || null,
+            subject,
+            body: msgBody,
+            pushTitle,
+            pushBody,
+          });
+        })().catch((e) => console.warn('[post-deploy] phone_loop kick', e?.message || e)),
+      );
+    }
+
+    return jsonResponse({
+      ok: true,
+      status: 'phone_loop',
+      notified: true,
+      conversation_id: conversationId,
+      deployments_ledger: 'post_deploy_record_ssot',
+    });
+  }
+
   // Trail / post-deploy-record failure path — push + email via phone loop (no success KV markers).
   if (statusRaw === 'trail_failed' || statusRaw === 'failed') {
     const gitHash = body.git_hash || body.gitHash || 'unknown';

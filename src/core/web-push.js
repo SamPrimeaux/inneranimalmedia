@@ -144,6 +144,7 @@ export async function broadcastWebPushToActiveSubscriptions(env, message = {}) {
 
   let sent = 0;
   let failed = 0;
+  const staleHookKeys = [];
   for (const row of rows) {
     let cfg = {};
     try {
@@ -152,12 +153,41 @@ export async function broadcastWebPushToActiveSubscriptions(env, message = {}) {
       failed += 1;
       continue;
     }
+    const endpoint = String(cfg?.endpoint || '');
+    // Skip known smoke/fixture endpoints so broadcast stats stay honest.
+    if (endpoint.includes('smoke-test-endpoint')) {
+      failed += 1;
+      if (row.hook_key) staleHookKeys.push(String(row.hook_key));
+      continue;
+    }
     const result = await sendWebPushFromSubscription(env, cfg, message);
     if (result.ok) sent += 1;
-    else failed += 1;
+    else {
+      failed += 1;
+      // Gone / unauthorized → subscription is dead; deactivate so deploys stop thrashing.
+      if (
+        row.hook_key &&
+        (result.status === 404 || result.status === 410 || result.status === 403)
+      ) {
+        staleHookKeys.push(String(row.hook_key));
+      }
+    }
   }
 
-  return { ok: true, sent, failed, total: rows.length };
+  if (staleHookKeys.length && env.DB) {
+    const uniq = [...new Set(staleHookKeys)].slice(0, 50);
+    for (const hk of uniq) {
+      await env.DB.prepare(
+        `UPDATE agentsam_hook SET is_active = 0, updated_at = datetime('now')
+          WHERE hook_key = ? AND handler_type = 'web_push'`,
+      )
+        .bind(hk)
+        .run()
+        .catch(() => {});
+    }
+  }
+
+  return { ok: true, sent, failed, total: rows.length, deactivated: staleHookKeys.length };
 }
 
 /**

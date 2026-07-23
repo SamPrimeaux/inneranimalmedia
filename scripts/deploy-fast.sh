@@ -187,6 +187,45 @@ else
   fi
 fi
 
+# Same Worker post-deploy notify as deploy:full — KV markers + broadcastWebPush.
+# Without this, deploy:fast never fires push (post-deploy-record alone does not).
+GIT_FULL_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+GIT_SHORT_HASH="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+: "${D1_AUTH_USER_ID:=${IAM_D1_AUTH_USER_ID:-au_871d920d1233cbd1}}"
+if command -v jq >/dev/null 2>&1; then
+  POST_DEPLOY_BODY=$(
+    jq -n \
+      --arg env "production" \
+      --arg gh "${GIT_FULL_SHA}" \
+      --arg v "${GIT_SHORT_HASH}" \
+      --arg wv "${WORKER_VERSION_ID:-unknown}" \
+      --argjson dur "$((DEPLOY_SECONDS * 1000))" \
+      --arg uid "${D1_AUTH_USER_ID}" \
+      --arg tid "${TENANT_ID:-tenant_sam_primeaux}" \
+      --arg ws "${WORKSPACE_ID:-ws_inneranimalmedia}" \
+      --arg by "${DEPLOYED_BY:-deploy:fast}" \
+      '{environment:$env, git_hash:$gh, version:$v, worker_version_id:$wv, deploy_duration_ms:$dur, user_id:$uid, tenant_id:$tid, workspace_id:$ws, deployed_by:$by}'
+  )
+  echo "[deploy:fast] Worker post-deploy (push + hooks)…"
+  if [[ -n "${AGENTSAM_BRIDGE_KEY:-}" ]]; then
+    curl -sS -X POST "https://inneranimalmedia.com/api/internal/post-deploy" \
+      -H "Authorization: Bearer ${AGENTSAM_BRIDGE_KEY}" \
+      -H "Content-Type: application/json" \
+      -d "$POST_DEPLOY_BODY" --max-time 90 \
+      || echo "[deploy:fast] warning: /api/internal/post-deploy non-zero (non-fatal)" >&2
+  elif [[ -n "${INTERNAL_API_SECRET:-}" ]]; then
+    curl -sS -X POST "https://inneranimalmedia.com/api/internal/post-deploy" \
+      -H "X-Internal-Secret: ${INTERNAL_API_SECRET}" \
+      -H "Content-Type: application/json" \
+      -d "$POST_DEPLOY_BODY" --max-time 90 \
+      || echo "[deploy:fast] warning: /api/internal/post-deploy non-zero (non-fatal)" >&2
+  else
+    echo "[deploy:fast] warning: no AGENTSAM_BRIDGE_KEY/INTERNAL_API_SECRET — push notify skipped" >&2
+  fi
+else
+  echo "[deploy:fast] warning: jq missing — skipping Worker post-deploy push" >&2
+fi
+
 echo "[deploy:fast] housekeeping skipped (email / D1 memory / GCP VM) — not required for PWA"
 if [[ -z "${PUSH_SERVICE_TOKEN:-}" ]]; then
   echo "[deploy:fast] note: PUSH_SERVICE_TOKEN unset here — SW ingest skipped; set in .env.cloudflare and CF Builds secrets"
