@@ -1,5 +1,7 @@
 # Inner Animal Media
 
+**Read [`AGENTS.md`](AGENTS.md) first.** D1 `agentsam_rules_document` injection covers in-app Agent Sam only; Cursor, ChatGPT, and new Claude accounts still need to read `AGENTS.md` — that file is the cross-tool memory, not chat history.
+
 Inner Animal Media is a **multi-product development platform** — not a generic dashboard application.
 
 This repository contains four distinct layers:
