@@ -23,6 +23,8 @@ import { compactAgentsamToolCallLogToStats, rollupOtlpTracesDaily } from '../cor
 import { rollupWorkerAnalytics } from '../core/worker-analytics-rollup.js';
 import { runOneAmCompactionPipelineLedgered } from './jobs/one-am-compaction-pipeline.js';
 import { completeCronRun, failCronRun, startCronRun } from '../core/cron-run-ledger.js';
+import { runWaeErrorSpikeCheck } from './jobs/wae-error-spike-check.js';
+
 
 const CRON_ONE_AM = '0 1 * * *';
 
@@ -124,6 +126,14 @@ export async function handleScheduled(event, env, ctx) {
       ctx.waitUntil(
         runMeshyCadReconcileJobs(env, ctx).catch((e) =>
           console.warn('[cron] meshy_cad_reconcile', e?.message ?? e),
+        ),
+      );
+      break;
+
+    case '*/20 * * * *':
+      ctx.waitUntil(
+        runWaeErrorSpikeCheck(env, ctx).catch((e) =>
+          console.warn('[cron] wae_error_spike_check', e?.message ?? e),
         ),
       );
       break;
