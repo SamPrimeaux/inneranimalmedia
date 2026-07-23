@@ -15,6 +15,7 @@ export type IamWorkspaceSettingsRow = {
   category?: string;
   brand?: string;
   github_repo?: string | null;
+  root_path?: string | null;
   status?: string;
 };
 

@@ -79,6 +79,7 @@ import {
 import { writeSessionProject } from './src/lib/freshChatSession';
 import { resolveWorkspaceContextLabel } from './src/workspaceContextLabel';
 import { coalesceLabel } from './src/lib/coalesceLabel';
+import { matchLocalFolderToWorkspace } from './src/lib/matchLocalFolderToWorkspace';
 import {
   IAM_OPEN_COMMAND_PALETTE,
   IAM_GIT_SYNC_PUBLISH,
@@ -2928,9 +2929,28 @@ const App: React.FC = () => {
     [openFile, openTab, revealMainWorkspaceIfNarrow],
   );
 
-  const onExplorerWorkspaceRootChange = useCallback(({ folderName }: { folderName: string }) => {
-    setIdeWorkspace({ source: 'local', folderName });
-  }, []);
+  const onExplorerWorkspaceRootChange = useCallback(
+    ({ folderName }: { folderName: string }) => {
+      const name = String(folderName || '').trim();
+      setIdeWorkspace({ source: 'local', folderName: name });
+      if (!name) return; // disconnect — keep active product workspace for phone continuity
+
+      const hit = matchLocalFolderToWorkspace(name, workspaceRows);
+      if (!hit) return; // scratch folder — browser-local only, not a product workspace
+      if (hit.id === authWorkspaceId) return;
+
+      const row = workspaceRows.find((w) => w.id === hit.id);
+      void switchWorkspace(hit.id, {
+        displayName: row?.name,
+        slug: row?.slug,
+        github_repo: row?.github_repo ?? null,
+        sync: true,
+      }).then(() => {
+        setToastMsg(`Workspace → ${row?.name || hit.id} (synced for all devices)`);
+      });
+    },
+    [workspaceRows, authWorkspaceId, switchWorkspace, setToastMsg],
+  );
 
   /** Agent Sam SSE `surface_open` / orchestration — open the right workspace tab without new buttons. */
   useEffect(() => {

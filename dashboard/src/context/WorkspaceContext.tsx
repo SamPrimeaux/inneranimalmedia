@@ -28,6 +28,7 @@ export type WorkspaceRow = {
   slug: string;
   status: string;
   github_repo: string | null;
+  root_path?: string | null;
   database_studio_name?: string | null;
 };
 
@@ -82,6 +83,10 @@ function mapSettingsRow(row: IamWorkspaceSettingsRow): WorkspaceRow {
     slug,
     status: typeof row.status === "string" && row.status.trim() ? row.status.trim() : "active",
     github_repo: row.github_repo ?? null,
+    root_path:
+      typeof (row as { root_path?: string | null }).root_path === "string"
+        ? (row as { root_path?: string | null }).root_path!.trim() || null
+        : (row as { root_path?: string | null }).root_path ?? null,
     database_studio_name:
       typeof (row as { database_studio_name?: string }).database_studio_name === "string"
         ? (row as { database_studio_name?: string }).database_studio_name!.trim() || null
