@@ -27,3 +27,10 @@ export async function agentChatStep(env, { handler_key, input, runContext, node,
 import('./cms-theme-handlers.js').catch(e =>
   console.warn('[agent-step] cms-theme-handlers load failed:', e?.message)
 );
+
+import {
+  DUAL_VERIFIER_GATE_HANDLER_KEY,
+  dualVerifierGateStep,
+} from './dual-verifier-gate.js';
+
+registerAgentStepHandler(DUAL_VERIFIER_GATE_HANDLER_KEY, dualVerifierGateStep);

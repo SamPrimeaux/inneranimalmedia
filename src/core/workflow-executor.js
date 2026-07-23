@@ -1468,6 +1468,8 @@ export async function executeWorkflowGraph(env, opts) {
       ...runContext,
       node,
       executionStepId: stepId,
+      // Prior steps for N-of-M gates (dual-verifier reads verifier_* node outputs).
+      stepResults,
     }).catch((e) => ({
       ok: false,
       error: e?.message || String(e),
