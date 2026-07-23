@@ -14,7 +14,10 @@ import {
     enrichResendInboundPayload,
     persistResendInboundEmail,
 } from '../core/resend-inbound.js';
-import { verifyResendWebhookRequest } from '../core/resend-webhook-verify.js';
+import {
+    resendWebhookLaneForPath,
+    verifyResendWebhookRequest,
+} from '../core/resend-webhook-verify.js';
 import { handleIntegrationsConnectRoutes } from './integrations/connect.js';
 import {
     addSharedDrivePermissionV3,
@@ -116,19 +119,28 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
         return handleBlueBubblesWebhook(request, env, ctx);
     }
 
-    // 2. Resend webhook (Svix) — canonical inbound: POST /api/webhooks/resend
-    // Resend signs with whsec_ (svix-*) using RESEND_INBOUND_WEBHOOK_SECRET (preferred) or RESEND_WEBHOOK_SECRET.
+    // 2. Resend webhooks (Svix) — path-bound secrets (do not cross-wire):
+    //    /api/email/inbound              → RESEND_INBOUND_WEBHOOK_SECRET  (email.received)
+    //    /api/webhooks/resend (+ alias)  → RESEND_WEBHOOK_SECRET          (delivery/bounce/…)
     if (
         (pathLower === '/api/integrations/resend/webhook' ||
             pathLower === '/api/webhooks/resend' ||
             pathLower === '/api/email/inbound') &&
         method === 'POST'
     ) {
+        const lane = resendWebhookLaneForPath(pathLower);
         const rawBody = await request.text();
-        const verified = await verifyResendWebhookRequest(rawBody, request.headers, url, env);
+        const verified = await verifyResendWebhookRequest(rawBody, request.headers, url, env, {
+            pathLower,
+            lane,
+        });
         if (!verified.ok) {
             return jsonResponse(
-                { error: 'Invalid webhook signature', reason: verified.reason || 'denied' },
+                {
+                    error: 'Invalid webhook signature',
+                    reason: verified.reason || 'denied',
+                    lane,
+                },
                 403,
             );
         }
@@ -1337,8 +1349,16 @@ async function handleResendWebhook(
             preParsedBody && typeof preParsedBody === 'object'
                 ? preParsedBody
                 : await request.json();
+        const pathNorm = String(endpointPath || '/api/webhooks/resend').toLowerCase();
+        const lane = resendWebhookLaneForPath(pathNorm);
+        const eventTypeRaw = rawBody?.type != null ? String(rawBody.type) : '';
+        const isEmailReceived =
+            eventTypeRaw === 'email.received' || lane === 'inbound';
+
         // email.received webhooks omit body — pull text/html/headers from Receiving API.
-        const body = await enrichResendInboundPayload(env, rawBody);
+        const body = isEmailReceived
+            ? await enrichResendInboundPayload(env, rawBody)
+            : rawBody;
         const data = body?.data && typeof body.data === 'object' ? body.data : body;
         const fromRaw = data?.from;
         const senderEmail =
@@ -1359,74 +1379,78 @@ async function handleResendWebhook(
             null;
 
         console.log(
-            `[Resend] New inbound email from ${senderEmail}: ${subject}` +
+            `[Resend] ${lane} event=${eventTypeRaw || 'unknown'} from ${senderEmail}: ${subject}` +
                 (verifyMode ? ` verify=${verifyMode}` : '') +
                 (data?._enriched_from_receiving_api ? ' enriched=1' : ''),
         );
 
-        const inbound = await persistResendInboundEmail(env, body);
-        if (!inbound.ok && inbound.reason !== 'unresolved_tenant') {
-            console.warn('[Resend] inbound persist skipped', inbound.reason || 'unknown');
-        } else if (inbound.ok && !inbound.duplicate) {
-            console.log(
-                `[Resend] stored inbound ${inbound.id} tenant=${inbound.tenantId || 'unknown'}`,
-            );
+        let inbound = { ok: false, reason: 'not_inbound_event' };
+        if (isEmailReceived) {
+            inbound = await persistResendInboundEmail(env, body);
+            if (!inbound.ok && inbound.reason !== 'unresolved_tenant') {
+                console.warn('[Resend] inbound persist skipped', inbound.reason || 'unknown');
+            } else if (inbound.ok && !inbound.duplicate) {
+                console.log(
+                    `[Resend] stored inbound ${inbound.id} tenant=${inbound.tenantId || 'unknown'}`,
+                );
+            }
         }
 
         let phoneLoop = { attempted: false, ok: false };
-        try {
-            const {
-                isPhoneLoopAllowlistedSender,
-                handleParsedEmailReply,
-            } = await import('../core/email-agent-bridge.js');
+        if (isEmailReceived) {
+            try {
+                const {
+                    isPhoneLoopAllowlistedSender,
+                    handleParsedEmailReply,
+                } = await import('../core/email-agent-bridge.js');
 
-            if (isPhoneLoopAllowlistedSender(senderEmail)) {
-                phoneLoop.attempted = true;
-                const result = await handleParsedEmailReply(env, ctx, {
-                    text,
-                    html,
-                    subject,
-                    fromAddress: senderEmail,
-                    inReplyTo: inReplyToRaw,
-                });
-                phoneLoop = { attempted: true, ...result };
-                console.log('[Resend] phone loop', JSON.stringify({
-                    ok: result.ok,
-                    conversationId: result.conversationId,
-                    minted: result.minted,
-                    accepted: result.accepted,
-                    error: result.error || null,
-                }));
-            } else {
-                console.log(`[Resend] sender not phone-loop allowlisted: ${senderEmail}`);
+                if (isPhoneLoopAllowlistedSender(senderEmail)) {
+                    phoneLoop.attempted = true;
+                    const result = await handleParsedEmailReply(env, ctx, {
+                        text,
+                        html,
+                        subject,
+                        fromAddress: senderEmail,
+                        inReplyTo: inReplyToRaw,
+                    });
+                    phoneLoop = { attempted: true, ...result };
+                    console.log('[Resend] phone loop', JSON.stringify({
+                        ok: result.ok,
+                        conversationId: result.conversationId,
+                        minted: result.minted,
+                        accepted: result.accepted,
+                        error: result.error || null,
+                    }));
+                } else {
+                    console.log(`[Resend] sender not phone-loop allowlisted: ${senderEmail}`);
+                }
+            } catch (loopErr) {
+                console.warn('[Resend] phone loop failed', loopErr?.message || loopErr);
+                phoneLoop = { attempted: true, ok: false, error: loopErr?.message || String(loopErr) };
             }
-        } catch (loopErr) {
-            console.warn('[Resend] phone loop failed', loopErr?.message || loopErr);
-            phoneLoop = { attempted: true, ok: false, error: loopErr?.message || String(loopErr) };
         }
 
         await recordIntegrationEvent(
             env,
             'system',
             'resend',
-            'webhook_received',
+            isEmailReceived ? 'webhook_received' : eventTypeRaw || 'webhook_received',
             senderEmail,
-            `Inbound email webhook received from ${senderEmail}`,
+            isEmailReceived
+                ? `Inbound email webhook received from ${senderEmail}`
+                : `Resend ${eventTypeRaw || 'webhook'} on ${pathNorm}`,
             {
                 subject,
+                lane,
                 inbound_id: inbound.ok ? inbound.id : null,
                 phone_loop: phoneLoop,
             },
         );
 
         const { ingestWebhookEventAndDispatch } = await import('../core/webhook-ingest-dispatch.js');
-        const pathNorm = String(endpointPath || '/api/webhooks/resend').toLowerCase();
         const eventType =
-            body?.type != null
-                ? String(body.type)
-                : pathNorm.includes('inbound')
-                  ? 'email_inbound'
-                  : 'webhook_received';
+            eventTypeRaw ||
+            (lane === 'inbound' ? 'email_inbound' : 'webhook_received');
         await ingestWebhookEventAndDispatch(env, ctx, {
             tenantId: inbound.ok ? inbound.tenantId : null,
             workspaceId: 'ws_inneranimalmedia',
@@ -1438,6 +1462,7 @@ async function handleResendWebhook(
             metadata: {
                 subject: subject ?? null,
                 from: senderEmail,
+                lane,
                 inbound_id: inbound.ok ? inbound.id : null,
                 phone_loop: phoneLoop,
             },
@@ -1446,6 +1471,7 @@ async function handleResendWebhook(
         return jsonResponse({
             status: 'received',
             source: 'resend',
+            lane,
             inbound_id: inbound.ok ? inbound.id : null,
             tenant_id: inbound.ok ? inbound.tenantId : null,
             phone_loop: phoneLoop,

@@ -1,7 +1,13 @@
 /**
  * Resend webhook verification (Svix / Standard Webhooks).
- * Dashboard signing secrets are whsec_…; headers are svix-id / svix-timestamp / svix-signature.
- * Prefer RESEND_INBOUND_WEBHOOK_SECRET for POST /api/webhooks/resend (email.received).
+ *
+ * Path → secret (LOCKED):
+ *   POST /api/email/inbound          → RESEND_INBOUND_WEBHOOK_SECRET  (email.received)
+ *   POST /api/webhooks/resend        → RESEND_WEBHOOK_SECRET          (delivery, bounce, …)
+ *   POST /api/integrations/resend/webhook → RESEND_WEBHOOK_SECRET
+ *
+ * Resend signs with whsec_…; headers are svix-id / svix-timestamp / svix-signature.
+ * Custom X-Resend-*-Secret headers are not sent by Resend — kept only as optional ops escape.
  */
 
 const TOLERANCE_SEC = 300;
@@ -29,6 +35,32 @@ function decodeWebhookSecret(secret) {
     return base64ToBytes(s.slice('whsec_'.length));
   }
   return new TextEncoder().encode(s);
+}
+
+/**
+ * @param {string} pathLower
+ * @returns {'inbound' | 'general'}
+ */
+export function resendWebhookLaneForPath(pathLower) {
+  const p = String(pathLower || '').toLowerCase();
+  if (p === '/api/email/inbound') return 'inbound';
+  return 'general';
+}
+
+/**
+ * @param {'inbound' | 'general'} lane
+ * @param {Record<string, unknown>} env
+ * @returns {{ secret: string, envName: string }}
+ */
+export function resendSecretForLane(lane, env) {
+  if (lane === 'inbound') {
+    const secret = env?.RESEND_INBOUND_WEBHOOK_SECRET
+      ? String(env.RESEND_INBOUND_WEBHOOK_SECRET).trim()
+      : '';
+    return { secret, envName: 'RESEND_INBOUND_WEBHOOK_SECRET' };
+  }
+  const secret = env?.RESEND_WEBHOOK_SECRET ? String(env.RESEND_WEBHOOK_SECRET).trim() : '';
+  return { secret, envName: 'RESEND_WEBHOOK_SECRET' };
 }
 
 /**
@@ -78,14 +110,15 @@ export async function verifyResendSvixSignature(rawBody, headers, secret) {
  * @param {Headers} headers
  * @param {URL} url
  * @param {Record<string, unknown>} env
- * @returns {Promise<{ ok: boolean, mode?: string, reason?: string }>}
+ * @param {{ pathLower?: string, lane?: 'inbound' | 'general' }} [opts]
+ * @returns {Promise<{ ok: boolean, mode?: string, reason?: string, lane?: string }>}
  */
-export async function verifyResendWebhookRequest(rawBody, headers, url, env) {
-  const inbound = env?.RESEND_INBOUND_WEBHOOK_SECRET
-    ? String(env.RESEND_INBOUND_WEBHOOK_SECRET).trim()
-    : '';
-  const general = env?.RESEND_WEBHOOK_SECRET ? String(env.RESEND_WEBHOOK_SECRET).trim() : '';
-  const secrets = [...new Set([inbound, general].filter(Boolean))];
+export async function verifyResendWebhookRequest(rawBody, headers, url, env, opts = {}) {
+  const lane =
+    opts.lane === 'inbound' || opts.lane === 'general'
+      ? opts.lane
+      : resendWebhookLaneForPath(opts.pathLower || url?.pathname || '');
+  const { secret, envName } = resendSecretForLane(lane, env);
 
   const hasSvix =
     !!(headers.get('svix-id') || '').trim() &&
@@ -93,21 +126,16 @@ export async function verifyResendWebhookRequest(rawBody, headers, url, env) {
     !!(headers.get('svix-signature') || '').trim();
 
   if (hasSvix) {
-    if (!secrets.length) {
-      return { ok: false, reason: 'resend_webhook_secret_missing' };
+    if (!secret) {
+      return { ok: false, reason: `${envName}_missing`, lane };
     }
-    // Inbound signing secret first — this endpoint is the phone-loop inbox path.
-    for (const secret of secrets) {
-      if (await verifyResendSvixSignature(rawBody, headers, secret)) {
-        return {
-          ok: true,
-          mode: secret === inbound ? 'svix_inbound' : 'svix_general',
-        };
-      }
+    if (await verifyResendSvixSignature(rawBody, headers, secret)) {
+      return { ok: true, mode: `svix_${lane}`, lane };
     }
-    return { ok: false, reason: 'svix_signature_mismatch' };
+    return { ok: false, reason: 'svix_signature_mismatch', lane };
   }
 
+  // Ops-only escape (curl / manual). Resend never sends these headers.
   const shared =
     (headers.get('X-Resend-Inbound-Secret') ||
       headers.get('X-Resend-Webhook-Secret') ||
@@ -115,17 +143,17 @@ export async function verifyResendWebhookRequest(rawBody, headers, url, env) {
       '')
       .trim();
 
-  if (!secrets.length) {
-    // Match prior behavior when neither secret is configured.
-    return { ok: true, mode: 'open' };
+  if (!secret) {
+    return { ok: false, reason: `${envName}_missing`, lane };
   }
 
-  if (shared && secrets.includes(shared)) {
-    return {
-      ok: true,
-      mode: shared === inbound ? 'shared_inbound' : 'shared_general',
-    };
+  if (shared && shared === secret) {
+    return { ok: true, mode: `shared_${lane}`, lane };
   }
 
-  return { ok: false, reason: 'missing_or_invalid_shared_secret' };
+  return {
+    ok: false,
+    reason: hasSvix ? 'svix_signature_mismatch' : 'missing_svix_headers',
+    lane,
+  };
 }
