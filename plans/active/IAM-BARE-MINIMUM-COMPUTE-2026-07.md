@@ -70,7 +70,10 @@ Do **not** reorder. Matches operator ranking.
 
 ### R — Remote (optional ops — **not** a 530 ticket)
 - Connectivity **already GREEN** (~00:09Z). **Do not open** `tkt_terminal_remote_530`.  
-- Optional: `tkt_gcp_iam_tunnel_git_pull_parity` — pull clone `5a060f7c` → `origin/main` when builds need current tree. Can run anytime; not on critical path for hosted-shell.
+- **Architecture (locked):** GCP clone is a **disposable Agent workspace** for `agentsam_terminal_remote` only — never deploy SSOT (GitHub → CF Builds / Mac `deploy:*`).  
+- **2026-07-22 tree mess (operator finding):** `FETCH_HEAD` permission denied + hundreds of uncommitted `D` under `dashboard/components/*` + local mods. **Not** an intentional prune — Mac/GitHub still have the tree (`ChatAssistant` intact on `main`). Treat as dirty disposable workspace, not salvageable product work.  
+- **Remediation (approved pattern):** as `agentsam` (never mutate `.git` as root/`samprimeaux` without `chown` back): fix `.git` ownership → `git fetch origin` → `git reset --hard origin/main` → `git clean -fd` (keep secrets; do **not** `clean -x` blindly). **Do not stash** the mass deletions. Then harden `gcp-vm-self-heal.sh` to hard-reset when dirty instead of ff-only pull that no-ops on a wrecked tree. Optional later: `--depth 1` sparse clone.  
+- Ticket: `tkt_gcp_iam_tunnel_git_pull_parity` → rename intent to **disposable checkout hygiene**.
 
 ### 1a — `tkt_hosted_shell_scope`
 - `/mnt/data` only; fail loud on repo paths. Policy/UX.  
