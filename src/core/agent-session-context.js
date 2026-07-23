@@ -30,7 +30,7 @@ export { isDesignModeActiveFromBody, isDesignModeBrowserContext } from './design
 /** Soft cap — above this, DO cache is treated as stale mega-catalog and rebuilt. */
 export const SESSION_TOOL_CACHE_SOFT_MAX = 40;
 /** Bump when session tool menu contract changes (e.g. progressive core vs full profile). */
-export const SESSION_CONTEXT_VERSION = 14;
+export const SESSION_CONTEXT_VERSION = 15;
 
 /**
  * Degraded-mode fallback ONLY — used when agentsam_tool_profile_bindings /
@@ -470,10 +470,20 @@ export async function loadOrBootstrapSessionContext(env, opts) {
       !isDatabaseProfile &&
       (composerMode === 'agent' || composerMode === 'multitask' || composerMode === 'debug');
     // Progressive discovery (v10+): core menu must include search_tools — not the old CF dump.
+    // Design Studio / CAD keep the curated profile menu (must include cad_generate on turn 0).
     let progressiveSession = false;
     try {
-      const { modeUsesProgressiveToolDiscovery } = await import('./progressive-tool-discovery.js');
-      progressiveSession = modeUsesProgressiveToolDiscovery(composerMode);
+      const {
+        modeUsesProgressiveToolDiscovery,
+        surfaceSkipsProgressiveToolDiscovery,
+      } = await import('./progressive-tool-discovery.js');
+      progressiveSession =
+        modeUsesProgressiveToolDiscovery(composerMode) &&
+        !surfaceSkipsProgressiveToolDiscovery({
+          routeKey: requestedRouteKey,
+          taskType: profileTaskType,
+          profileKey: currentProfileKey,
+        });
     } catch {
       progressiveSession = false;
     }
@@ -516,6 +526,9 @@ export async function loadOrBootstrapSessionContext(env, opts) {
             toolAllowlist: cachedTools
               .map((t) => String(t?.name || t?.tool_name || '').trim())
               .filter(Boolean),
+            routeKey: requestedRouteKey,
+            taskType: profileTaskType,
+            profileKey: currentProfileKey,
           });
           if (prog.progressive) {
             cachedTools = prog.compiledToolRows;
@@ -616,6 +629,9 @@ export async function loadOrBootstrapSessionContext(env, opts) {
         mode: composerMode,
         compiledToolRows: tools,
         toolAllowlist: tools.map((t) => String(t?.name || t?.tool_name || '').trim()).filter(Boolean),
+        routeKey: requestedRouteKey,
+        taskType: profileTaskType,
+        profileKey: loaded?.profile_key || null,
       });
       if (prog.progressive) {
         progressiveBootstrap = true;

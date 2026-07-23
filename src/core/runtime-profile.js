@@ -1032,6 +1032,9 @@ export async function compileModeProfile(env, input) {
         mode,
         compiledToolRows,
         toolAllowlist,
+        routeKey,
+        taskType,
+        profileKey: activeProfileKey,
       });
       if (prog.progressive) {
         progressiveToolDiscovery = true;

@@ -24,6 +24,29 @@ export const PROGRESSIVE_CORE_TOOL_KEYS = Object.freeze([
 
 export const PROGRESSIVE_DISCOVERY_MODES = Object.freeze(['agent', 'debug', 'multitask']);
 
+/**
+ * Product surfaces with a tight curated profile (e.g. Design Studio CAD) must NOT
+ * thin-pipe to generic core — that drops cad_generate and the model pastes .scad instead.
+ * @param {{ routeKey?: string|null, taskType?: string|null, profileKey?: string|null }} [opts]
+ */
+export function surfaceSkipsProgressiveToolDiscovery(opts = {}) {
+  const vals = [opts.routeKey, opts.taskType, opts.profileKey]
+    .map((v) => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+  for (const v of vals) {
+    if (
+      v === 'design_studio' ||
+      v === 'design_studio_base' ||
+      v === 'cad_generation' ||
+      v.startsWith('design_studio') ||
+      v.startsWith('cad_')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Soft cap on hydrated schemas (Cursor MCP-shaped ceiling). */
 export const PROGRESSIVE_HYDRATE_SOFT_MAX = 40;
 
@@ -184,11 +207,38 @@ export async function ensureProgressiveCoreCompiledRows(env, existingRows = []) 
  *   mode: string,
  *   compiledToolRows: Array<Record<string, unknown>>,
  *   toolAllowlist: string[],
+ *   routeKey?: string|null,
+ *   taskType?: string|null,
+ *   profileKey?: string|null,
  * }} input
  */
 export async function applyProgressiveCoreCompile(env, input) {
   const mode = String(input.mode || '').trim().toLowerCase();
   if (!modeUsesProgressiveToolDiscovery(mode)) {
+    return {
+      progressive: false,
+      compiledToolRows: input.compiledToolRows || [],
+      toolAllowlist: input.toolAllowlist || [],
+      discoveryCeilingKeys: null,
+    };
+  }
+  if (
+    surfaceSkipsProgressiveToolDiscovery({
+      routeKey: input.routeKey,
+      taskType: input.taskType,
+      profileKey: input.profileKey,
+    })
+  ) {
+    console.info(
+      '[progressive-tools] skip_surface',
+      JSON.stringify({
+        mode,
+        route_key: input.routeKey || null,
+        task_type: input.taskType || null,
+        profile_key: input.profileKey || null,
+        allowlist_count: (input.toolAllowlist || []).length,
+      }),
+    );
     return {
       progressive: false,
       compiledToolRows: input.compiledToolRows || [],
