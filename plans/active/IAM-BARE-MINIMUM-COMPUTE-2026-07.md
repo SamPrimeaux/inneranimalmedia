@@ -1,8 +1,9 @@
 # IAM bare-minimum compute — definitive plan (2026-07-22)
 
 **Status:** PLAN LOCKED from live scorecard — execute tickets in order; do not parallelize.  
-**Probed:** ~2026-07-23 00:05Z · PWA/worker SHA `23e6bf68`  
-**Law:** No Proof + SHA → RED. Deploy ≠ pass. Dual-pass E2E before `shipped`.
+**Probed:** ~2026-07-23 00:05Z (scorecard) · remote re-proof ~00:09Z · PWA/worker SHA `23e6bf68`  
+**Law:** No Proof + SHA → RED. Deploy ≠ pass. Dual-pass E2E before `shipped`.  
+**Update:** `agentsam_terminal_remote` flipped **GREEN** (connectivity). Remaining remote gap = **stale git checkout** (`5a060f7c` vs `23e6bf68`), tracked as Gate 5 freshness — not 530.
 
 ---
 
@@ -13,14 +14,15 @@
 | Main Agent `/api/agent/chat` | **GREEN** | write→read same `conn_mac_local` on `.scratch/lane-pin-test.txt` (`87727d39-…`) | `inneranimalmedia` | `23e6bf68` |
 | `fs_*` + localpty | **GREEN** | Mac disk proof + D1 `workspace_pty_write` | main + ExecOS localpty | `23e6bf68` |
 | `agentsam_terminal_local` | **GREEN** | cwd Mac repo; write+cat `/tmp/…` (`1a33cea6-…`) | main + ExecOS localpty | `23e6bf68` |
+| `agentsam_terminal_remote` | **GREEN** | Live ~00:09Z: `whoami&&pwd&&date` → `agentsam`, `/home/samprimeaux/inneranimalmedia`, exit 0, `conn_gcp_iam_tunnel`, `cwd_source=gcp_remote` | main + ExecOS remote | **connectivity** green; **checkout stale** at `5a060f7c` (not `23e6bf68`) |
 | PWA/SW | **GREEN** | `pwa-build-meta.json` = `23e6bf68`, sw.js 200 | R2 + main | `23e6bf68` |
-| `agentsam_terminal_remote` | **RED** | ExecOS `/health` 200 only; last call `all_terminal_lanes_failed` / `terminal_exec_530` | main + ExecOS remote | — |
 | Hosted shell (OpenAI `/mnt/data`) | **RED** | empty `commands:[]` → `close_done_no_token` (`3880f2b4-…`); no successful proof | OpenAI | — |
 | MY_CONTAINER / `terminal_sandbox` | **RED** | `/api/sandbox/health` 401 unauthed; no fresh whoami | `MY_CONTAINER` | — |
 | MCP OAuth tools | **RED** | MCP `/health` 200; `tools/list` 401; Cursor discovery error | `inneranimalmedia-mcp-server` | unverified |
 | Sandbox bridge (OpenAI Agents) | **RED** | No separate bridge Worker; `/api/sandbox/*` ≠ OpenAI bridge contract | none | — |
 
-**Bottom line:** 4 green (workspace path). Everything else claiming run/exec is red.
+**Bottom line:** 5 green (workspace + remote **connectivity**). Reds left: hosted shell, MY_CONTAINER, MCP, bridge.  
+**GCP clone caveat:** `git rev-parse HEAD` on remote returned `5a060f7c` (~19:55 local time) — missing lane-pin / progressive-terminal / later fixes. Connectivity proof stands; do not trust remote for builds/deploys until `git pull` → SHA matches `origin/main`.
 
 ---
 
@@ -81,10 +83,12 @@ Must all be green + dual-pass before any SandboxAgent / bridge / Runloop work:
   - **B)** Deploy official CF sandbox-bridge Worker; Agents SDK `CloudflareSandboxClient` for Job 2 only  
 - **Do not start B** until Gates 0–3 green  
 
-### Gate 5 — Remote ExecOS (after workspace solid)
-- **ID (proposed):** `tkt_terminal_remote_exec_530`  
-- **Outcome:** fresh whoami/pwd on GCP desk; no launder to sandbox on non-zero exit  
-- **Blocked by:** Gate 0–1 (stop stealing turns first)
+### Gate 5 — Remote ExecOS clone freshness (connectivity already GREEN)
+- **ID (proposed):** `tkt_gcp_iam_tunnel_git_pull_parity`  
+- **Proven ~00:09Z:** whoami/pwd/date on `conn_gcp_iam_tunnel` — **do not reopen 530 ticket** unless it regresses  
+- **Outcome:** `/home/samprimeaux/inneranimalmedia` on iam-tunnel matches `origin/main` (or documented intentional pin); `git rev-parse HEAD` == deployed/PWA SHA when used for builds  
+- **Do:** `git fetch && git checkout main && git pull` on VM (via `ship:remote` / agentsam SSH — **never** Vite/`deploy:full` on the VM)  
+- **Blocked by:** Gate 0–1 preferred so operator isn’t mid–hosted-shell fire drill; can run anytime as ops if needed for a remote build
 
 ### Explicit DO NOT START
 - OpenAI `SandboxAgent` / Runloop / Unix-local-as-product  
