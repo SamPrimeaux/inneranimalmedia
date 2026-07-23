@@ -312,6 +312,9 @@ export const LocalExplorer: React.FC<LocalExplorerProps> = ({
                 loading: true,
             };
             setRootDir(root);
+            // Continuity handoff: App.tsx onExplorerWorkspaceRootChange →
+            // POST /api/workspace/local-bind → switchWorkspace({sync:true}) →
+            // auth_users.active_workspace_id (NOT activateProjectWorkContext / sessionStorage).
             onWorkspaceRootChange?.({ folderName: root.name });
             void hydrateLocalRootChildren(setRootDir, dirHandle);
         },
