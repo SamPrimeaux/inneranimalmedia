@@ -65,8 +65,11 @@ export const MCP_OAUTH_ACCESS_WITH_REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60;
 export const MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS = 90 * 86400;
 /** Cursor native OAuth — 30d; Cursor re-auths via mcp.json on startup. */
 export const MCP_OAUTH_CURSOR_TOKEN_TTL_SECONDS = 30 * 86400;
-/** Cursor IDE OAuth callback (registered on iam_mcp_inneranimalmedia). */
+/** Cursor IDE OAuth callbacks — desktop switched between deeplink and localhost; keep all registered. */
 export const MCP_OAUTH_CURSOR_REDIRECT_URI = 'cursor://anysphere.cursor-deeplink/mcp/auth_callback';
+export const MCP_OAUTH_CURSOR_REDIRECT_URI_MCP_PATH = 'cursor://anysphere.cursor-mcp/oauth/callback';
+/** Cursor desktop IDE callback listener (2026+). */
+export const MCP_OAUTH_CURSOR_REDIRECT_URI_LOCALHOST = 'http://localhost:8787/callback';
 
 export function resolveMcpOAuthTokenTtlSeconds(env, externalClientKey = null) {
   const key = String(externalClientKey || '').trim().toLowerCase();
@@ -211,10 +214,12 @@ export function mcpOAuthNormalizeScope(raw, client) {
   return Array.from(new Set(picked.filter((s) => allowed.includes(s)))).join(' ');
 }
 
-/** Canonical redirect URIs for iam_mcp_inneranimalmedia (migration 401). */
+/** Canonical redirect URIs for iam_mcp_inneranimalmedia (migration 401 + 1006). */
 export const MCP_OAUTH_REGISTERED_REDIRECT_URIS = [
   'https://mcp.inneranimalmedia.com/auth/callback',
   MCP_OAUTH_CURSOR_REDIRECT_URI,
+  MCP_OAUTH_CURSOR_REDIRECT_URI_MCP_PATH,
+  MCP_OAUTH_CURSOR_REDIRECT_URI_LOCALHOST,
   'https://claude.ai/api/mcp/auth_callback',
   'https://claude.com/api/mcp/auth_callback',
   'https://chatgpt.com/connector_platform_oauth_redirect',
@@ -278,7 +283,8 @@ export function resolveMcpConnectingApp(redirectUri) {
 
   if (
     raw.toLowerCase().startsWith('cursor://') ||
-    (host === 'mcp.inneranimalmedia.com' && path.includes('/auth/callback'))
+    (host === 'mcp.inneranimalmedia.com' && path.includes('/auth/callback')) ||
+    ((host === 'localhost' || host === '127.0.0.1' || host === '[::1]') && path === '/callback')
   ) {
     return {
       key: 'cursor',
