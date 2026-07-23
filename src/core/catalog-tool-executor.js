@@ -25,6 +25,7 @@ import { mergeR2S3EnvFromUserStorage } from './user-storage-r2-credentials.js';
 import { invokeR2DeleteHttp } from '../tools/builtin/r2-http-catalog.js';
 import { parseD1DatabaseHint } from './d1-database-hint.js';
 export { parseD1DatabaseHint } from './d1-database-hint.js';
+import { dualCreatedAtFields } from './d1-time.js';
 import {
   extractToolExecUsage as extractUsageMetrics,
   shouldSkipCatalogToolCallLog,
@@ -483,6 +484,7 @@ async function writeTelemetryError(env, runContext, source, error) {
 }
 
 async function insertToolCallLog(env, payload, runContext) {
+  const ts = dualCreatedAtFields();
   const stmt = await env.DB.prepare(
     `INSERT INTO agentsam_tool_call_log
       (tenant_id, workspace_id, user_id, agent_run_id,
@@ -493,8 +495,8 @@ async function insertToolCallLog(env, payload, runContext) {
        input_tokens, output_tokens,
        input_cost_usd, output_cost_usd, cost_usd,
        duration_ms, timed_out, tool_category,
-       agent_id, source_tool)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       agent_id, source_tool, created_at, created_at_unix)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   )
     .bind(
       payload.tenantId,
@@ -523,6 +525,8 @@ async function insertToolCallLog(env, payload, runContext) {
       payload.toolCategory,
       payload.agentId,
       payload.sourceTool,
+      ts.created_at,
+      ts.created_at_unix,
     )
     .run();
   return String(stmt?.meta?.last_row_id ?? stmt?.lastRowId ?? '') || null;

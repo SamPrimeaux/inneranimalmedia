@@ -179,7 +179,7 @@ export async function syncGoogleCalendarForTokenRow(env, tokenMeta) {
 
   try {
     await env.DB.prepare(
-      `UPDATE user_oauth_tokens SET metadata_json = ?, updated_at = datetime('now')
+      `UPDATE user_oauth_tokens SET metadata_json = ?, updated_at = unixepoch()
        WHERE user_id = ? AND lower(provider) = 'google_calendar'
          AND lower(account_identifier) = ?`,
     )

@@ -86,6 +86,14 @@ echo "Recording deploy in D1 (deployments.id=$VERSION_ID, timestamp=$DEPLOY_TIME
 npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --command "INSERT INTO deployments (id, timestamp, version, git_hash, description, status, deployed_by, environment, deploy_time_seconds, worker_name, triggered_by, notes, tenant_id, workspace_id, project_id) VALUES ('$VID_ESC', '$TS_ESC', '$VS_ESC', '$GH_ESC', '$DESC_ESC', 'success', '$DBY_ESC', 'production', $DEPLOY_SECONDS, 'inneranimalmedia', '$TB_ESC', '$DN_ESC', '$TID_ESC', '$WID_ESC', $PID_SQL)"
 echo "Done. Overview / deployment tracking will show this deploy."
 
+# Keep agentsam_deployment_health live on every fast/full path (not only eval cron).
+# Dual-write checked_at (ISO) + checked_at_unix / last_checked_at (epoch).
+HEALTH_ID="dhc_$(echo "$VERSION_ID" | tr -cd 'a-zA-Z0-9' | cut -c1-16)"
+HEALTH_ID_ESC="${HEALTH_ID//\'/\'\'}"
+npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --command "INSERT INTO agentsam_deployment_health (id, tenant_id, deployment_id, worker_name, environment, check_type, check_url, status, http_status_code, response_time_ms, metadata_json, checked_by, checked_at, workspace_id, checked_at_unix, last_checked_at) VALUES ('$HEALTH_ID_ESC', '$TID_ESC', '$VID_ESC', 'inneranimalmedia', 'production', 'deploy_record', 'https://inneranimalmedia.com/api/health', 'ok', NULL, NULL, json_object('git_hash', '$GH_ESC', 'triggered_by', '$TB_ESC', 'deploy_time_seconds', $DEPLOY_SECONDS), 'post_deploy_record', strftime('%Y-%m-%dT%H:%M:%SZ','now'), '$WID_ESC', unixepoch(), unixepoch())" \
+  && echo "[post-deploy-record] agentsam_deployment_health ok (id=$HEALTH_ID)" \
+  || echo "[post-deploy-record] warning: agentsam_deployment_health insert failed (non-fatal)" >&2
+
 # Mirror to Supabase agentsam.agentsam_deploy_events (OS ledger). Non-fatal.
 # Same sink as post-deploy Worker handler / midnight deployments rollup.
 if [[ "${SKIP_SUPABASE_DEPLOY_EVENT:-0}" == "1" ]]; then

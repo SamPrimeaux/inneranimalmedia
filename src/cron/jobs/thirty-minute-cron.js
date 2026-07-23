@@ -240,6 +240,17 @@ export async function runThirtyMinuteJobs(env, ctx) {
       .catch((e) => console.warn('[cron] google_calendar_sync', e?.message ?? e)),
   );
   ctx.waitUntil(
+    import('../../core/oauth-token-liveness.js')
+      .then(({ sweepOAuthTokenLiveness }) =>
+        sweepOAuthTokenLiveness(env).then((r) => {
+          if (r.deactivated || r.normalized || r.refreshed || r.refreshFailed) {
+            console.log('[cron] oauth_token_liveness', JSON.stringify(r));
+          }
+        }),
+      )
+      .catch((e) => console.warn('[cron] oauth_token_liveness', e?.message ?? e)),
+  );
+  ctx.waitUntil(
     import('../../core/moviemode-veo-poll.js')
       .then(({ pollPendingVeoJobs }) => pollPendingVeoJobs(env))
       .catch((e) => console.warn('[cron] moviemode_veo_poll', e?.message ?? e)),

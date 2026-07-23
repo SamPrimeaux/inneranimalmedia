@@ -14,6 +14,7 @@ import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';
 import { assertBrowserOriginTrusted } from './auth.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { pickRunSpineIds } from './run-spine-ids.js';
+import { dualCheckedAtFields } from './d1-time.js';
 
 export { scheduleAgentsamErrorLog };
 
@@ -330,6 +331,7 @@ export function scheduleDeploymentHealth(env, ctx, fields) {
     const meta = await pragmaTableColumnMeta(env.DB, 'agentsam_deployment_health');
     if (!meta.length) return;
 
+    const dual = dualCheckedAtFields();
     const v = {
       id: `dhc_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`,
       tenant_id: tid,
@@ -350,7 +352,16 @@ export function scheduleDeploymentHealth(env, ctx, fields) {
       error_message: fields.errorMessage != null ? String(fields.errorMessage).slice(0, 8000) : null,
       metadata_json: safeJson(fields.metadata ?? fields.metadata_json ?? {}),
       checked_by: String(fields.checkedBy ?? fields.checked_by ?? 'worker').slice(0, 120),
-      checked_at: fields.checkedAt ?? fields.checked_at ?? new Date().toISOString(),
+      checked_at: fields.checkedAt ?? fields.checked_at ?? dual.checked_at,
+      checked_at_unix:
+        fields.checkedAtUnix != null || fields.checked_at_unix != null
+          ? Math.floor(Number(fields.checkedAtUnix ?? fields.checked_at_unix))
+          : dual.checked_at_unix,
+      last_checked_at:
+        fields.lastCheckedAt != null || fields.last_checked_at != null
+          ? Math.floor(Number(fields.lastCheckedAt ?? fields.last_checked_at))
+          : dual.last_checked_at,
+      workspace_id: fields.workspaceId ?? fields.workspace_id ?? null,
     };
 
     const { parts, binds } = buildInsertParts(meta, v);

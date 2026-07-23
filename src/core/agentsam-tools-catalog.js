@@ -398,7 +398,15 @@ async function loadConnectedProviders(db, userId) {
         `SELECT DISTINCT provider
          FROM user_oauth_tokens
          WHERE user_id = ?
-           AND (expires_at IS NULL OR expires_at > unixepoch())
+           AND COALESCE(is_active, 1) = 1
+           AND revoked_at IS NULL
+           AND (
+             expires_at IS NULL
+             OR expires_at > unixepoch()
+             OR (refresh_token IS NOT NULL AND length(trim(refresh_token)) > 0)
+             OR (refresh_token_encrypted IS NOT NULL AND length(trim(refresh_token_encrypted)) > 0)
+             OR (vault_refresh_token_id IS NOT NULL AND length(trim(vault_refresh_token_id)) > 0)
+           )
          LIMIT 20`,
       )
       .bind(userId)

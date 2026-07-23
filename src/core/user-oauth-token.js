@@ -9,6 +9,57 @@ function nowSeconds() {
   return Math.floor(Date.now() / 1000);
 }
 
+/**
+ * Flip is_active → 0 with an error code (honest liveness).
+ * @param {any} env
+ * @param {string} userId
+ * @param {string} provider
+ * @param {string} accountIdentifier
+ * @param {string} code
+ */
+export async function markOAuthTokenInactive(env, userId, provider, accountIdentifier, code) {
+  if (!env?.DB || !userId || !provider) return;
+  const cols = await pragmaColumns(env.DB, 'user_oauth_tokens');
+  if (!cols.has('is_active')) return;
+  const sets = ['is_active = 0'];
+  const binds = [];
+  if (cols.has('updated_at')) sets.push('updated_at = unixepoch()');
+  if (cols.has('last_refresh_at')) sets.push('last_refresh_at = unixepoch()');
+  if (cols.has('last_refresh_error_code')) {
+    sets.push('last_refresh_error_code = ?');
+    binds.push(String(code || 'INACTIVE').slice(0, 120));
+  }
+  if (cols.has('refresh_failure_count')) {
+    sets.push('refresh_failure_count = COALESCE(refresh_failure_count, 0) + 1');
+  }
+  binds.push(String(userId), mapIncomingProvider(provider), accountIdentifier != null ? String(accountIdentifier) : '');
+  await env.DB.prepare(
+    `UPDATE user_oauth_tokens SET ${sets.join(', ')}
+     WHERE user_id = ? AND provider = ? AND account_identifier = ?
+       AND COALESCE(is_active, 1) = 1`,
+  )
+    .bind(...binds)
+    .run()
+    .catch(() => {});
+}
+
+/**
+ * Repair TEXT ISO values written into INTEGER updated_at (calendar sync footgun).
+ * @param {any} env
+ * @returns {Promise<number>} rows changed
+ */
+export async function normalizeOAuthUpdatedAtText(env) {
+  if (!env?.DB) return 0;
+  const r = await env.DB.prepare(
+    `UPDATE user_oauth_tokens
+     SET updated_at = CAST(strftime('%s', updated_at) AS INTEGER)
+     WHERE typeof(updated_at) = 'text'
+       AND length(trim(updated_at)) >= 10
+       AND CAST(strftime('%s', updated_at) AS INTEGER) > 1000000000`,
+  ).run();
+  return Number(r?.meta?.changes ?? r?.changes ?? 0) || 0;
+}
+
 async function pragmaColumns(DB, tableName) {
   const out = await DB.prepare(`PRAGMA table_info(${tableName})`).all();
   const cols = new Set();
@@ -112,7 +163,10 @@ async function fetchOAuthRow(env, userId, provider, accountIdentifier, opts = {}
     : `${cols.has('is_active') ? ' AND COALESCE(is_active, 1) = 1' : ''}${
         cols.has('revoked_at') ? ' AND revoked_at IS NULL' : ''
       }`;
-  const updatedOrder = cols.has('updated_at') ? 'COALESCE(updated_at, 0)' : '0';
+  // updated_at must be integer unix; tolerate legacy TEXT ISO from calendar sync.
+  const updatedOrder = cols.has('updated_at')
+    ? `COALESCE(CASE WHEN typeof(updated_at)='integer' THEN updated_at ELSE CAST(strftime('%s', updated_at) AS INTEGER) END, 0)`
+    : '0';
 
   let row;
   if (prov === 'cloudflare' && aid === '') {
@@ -207,6 +261,8 @@ export async function refreshCloudflareAccessToken(env, refreshToken) {
 async function recordCloudflareRefreshFailure(env, userId, accountIdentifier, cols, code) {
   const sets = [];
   const binds = [];
+  // Refresh failure = not live. Do not leave decorative is_active=1.
+  if (cols.has('is_active')) sets.push('is_active = 0');
   if (cols.has('last_refresh_at')) sets.push('last_refresh_at = unixepoch()');
   if (cols.has('last_refresh_error_code')) {
     sets.push('last_refresh_error_code = ?');
@@ -302,13 +358,13 @@ export async function refreshAndPersistCloudflareToken(env, userId, row, cols) {
   if (cols.has('last_refresh_at')) sets.push('last_refresh_at = unixepoch()');
   if (cols.has('last_refresh_error_code')) sets.push('last_refresh_error_code = NULL');
   if (cols.has('refresh_failure_count')) sets.push('refresh_failure_count = 0');
+  if (cols.has('is_active')) sets.push('is_active = 1');
   if (cols.has('updated_at')) sets.push('updated_at = unixepoch()');
 
   binds.push(String(userId), accountIdentifier);
   const persisted = await env.DB.prepare(
     `UPDATE user_oauth_tokens SET ${sets.join(', ')}
      WHERE user_id = ? AND provider = 'cloudflare' AND account_identifier = ?
-       ${cols.has('is_active') ? 'AND COALESCE(is_active, 1) = 1' : ''}
        ${cols.has('revoked_at') ? 'AND revoked_at IS NULL' : ''}`,
   )
     .bind(...binds)
@@ -371,6 +427,10 @@ export async function refreshGoogleToken(env, userId, provider, refreshToken, ro
   }
   sets.push('expires_at = ?');
   binds.push(newExpiry);
+  if (cols.has('is_active')) sets.push('is_active = 1');
+  if (cols.has('last_refresh_error_code')) sets.push('last_refresh_error_code = NULL');
+  if (cols.has('refresh_failure_count')) sets.push('refresh_failure_count = 0');
+  if (cols.has('last_refresh_at')) sets.push('last_refresh_at = unixepoch()');
   if (cols.has('updated_at')) sets.push('updated_at = unixepoch()');
 
   binds.push(String(userId), mapIncomingProvider(provider), accountId);
@@ -400,6 +460,8 @@ export async function getIntegrationOAuthRow(env, userId, provider, accountIdent
   if (!row) return null;
 
   const prov = mapIncomingProvider(provider);
+  const accountKey =
+    row.account_identifier != null ? String(row.account_identifier) : String(accountIdentifier || '');
   let accessToken = await resolveAccessToken(env, canonicalUserId, row, cols);
   let refreshToken = await resolveRefreshToken(env, canonicalUserId, row, cols);
 
@@ -411,6 +473,30 @@ export async function getIntegrationOAuthRow(env, userId, provider, accountIdent
   if (isExpired && isGoogleOAuthRefreshProvider(prov) && refreshToken) {
     const newAccess = await refreshGoogleToken(env, canonicalUserId, prov, refreshToken, row);
     if (newAccess) accessToken = newAccess;
+    else {
+      await markOAuthTokenInactive(env, canonicalUserId, prov, accountKey, 'PROVIDER_REFRESH_FAILED');
+      return null;
+    }
+  } else if (isExpired && isGoogleOAuthRefreshProvider(prov) && !refreshToken) {
+    await markOAuthTokenInactive(env, canonicalUserId, prov, accountKey, 'REFRESH_TOKEN_MISSING');
+    return null;
+  } else if (
+    isExpired &&
+    !isGoogleOAuthRefreshProvider(prov) &&
+    prov !== 'cloudflare' &&
+    prov !== 'github'
+  ) {
+    // supabase / others with hard expiry and no refresh path in this resolver
+    if (!refreshToken) {
+      await markOAuthTokenInactive(
+        env,
+        canonicalUserId,
+        prov,
+        accountKey,
+        'ACCESS_EXPIRED_NO_REFRESH',
+      );
+      return null;
+    }
   }
 
   // Cloudflare OAuth (~24h access) — refresh when offline_access issued a refresh_token.
@@ -428,7 +514,18 @@ export async function getIntegrationOAuthRow(env, userId, provider, accountIdent
     if (refreshed.ok) {
       accessToken = refreshed.accessToken;
       refreshToken = refreshed.refreshToken;
+    } else {
+      return null;
     }
+  } else if (prov === 'cloudflare' && isExpired && !refreshToken) {
+    await markOAuthTokenInactive(
+      env,
+      canonicalUserId,
+      prov,
+      accountKey,
+      'ACCESS_EXPIRED_NO_REFRESH',
+    );
+    return null;
   }
 
   return {
