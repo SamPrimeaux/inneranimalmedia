@@ -84,6 +84,13 @@ TRIGGERS_JSON="$(curl -sS \
   "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/builds/workers/${SCRIPT_TAG}/triggers" \
   "${auth_header[@]}")"
 
+if ! echo "$TRIGGERS_JSON" | jq -e '.success == true and (.result | type == "array")' >/dev/null 2>&1; then
+  echo "[cf-builds-sync] FATAL: triggers API did not return JSON success+result[]" >&2
+  echo "$TRIGGERS_JSON" | head -c 2000 >&2
+  echo >&2
+  exit 1
+fi
+
 if command -v jq >/dev/null 2>&1; then
   TRIGGER_UUIDS="$(echo "$TRIGGERS_JSON" | jq -r '.result[].trigger_uuid // empty')"
 else
