@@ -67,16 +67,62 @@ ROLLBACK_FROM="${ROLLBACK_FROM:-}"
 ENVIRONMENT="${DEPLOY_ENVIRONMENT:-production}"
 WORKER_NAME="${WORKER_NAME:-inneranimalmedia}"
 
-# changed_files: JSON array of paths touched since previous commit (empty array if unavailable).
-CHANGED_FILES='[]'
-if command -v jq >/dev/null 2>&1 && [[ -d "$REPO_ROOT/.git" ]]; then
-  CHANGED_FILES="$(
-    git -C "$REPO_ROOT" diff --name-only HEAD~1 HEAD 2>/dev/null \
-      | jq -R -s -c 'split("\n") | map(select(length>0))' 2>/dev/null \
-      || echo '[]'
-  )"
-fi
-[[ -z "$CHANGED_FILES" ]] && CHANGED_FILES='[]'
+# changed_files: REQUIRED non-empty JSON array. Empty [] is a ledger failure.
+# Prefer tip-commit paths (works on shallow CF Builds); fall back to parent diff.
+resolve_changed_files_json() {
+  if [[ -n "${CHANGED_FILES_JSON:-}" ]]; then
+    printf '%s' "$CHANGED_FILES_JSON"
+    return 0
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "[post-deploy-record] FATAL: jq required to build changed_files" >&2
+    return 1
+  fi
+  if [[ ! -d "$REPO_ROOT/.git" ]]; then
+    echo "[post-deploy-record] FATAL: .git missing — cannot resolve changed_files" >&2
+    return 1
+  fi
+
+  local paths=""
+  # 1) Files in tip commit (shallow-clone safe)
+  paths="$(git -C "$REPO_ROOT" show --name-only --pretty=format: HEAD 2>/dev/null || true)"
+  # 2) Parent diff
+  if [[ -z "$(echo "$paths" | tr -d '[:space:]')" ]]; then
+    paths="$(git -C "$REPO_ROOT" diff --name-only HEAD~1 HEAD 2>/dev/null || true)"
+  fi
+  if [[ -z "$(echo "$paths" | tr -d '[:space:]')" ]]; then
+    paths="$(git -C "$REPO_ROOT" diff --name-only 'HEAD^' HEAD 2>/dev/null || true)"
+  fi
+  # 3) Diff vs previous deployment git_hash (when provided by caller / CF)
+  if [[ -z "$(echo "$paths" | tr -d '[:space:]')" && -n "${PREV_DEPLOY_GIT_HASH:-}" ]]; then
+    paths="$(git -C "$REPO_ROOT" diff --name-only "${PREV_DEPLOY_GIT_HASH}" HEAD 2>/dev/null || true)"
+  fi
+  # 4) Uncommitted / staged (local operator edge case)
+  if [[ -z "$(echo "$paths" | tr -d '[:space:]')" ]]; then
+    paths="$(
+      {
+        git -C "$REPO_ROOT" diff --name-only HEAD 2>/dev/null || true
+        git -C "$REPO_ROOT" diff --name-only --cached 2>/dev/null || true
+      } | sort -u
+    )"
+  fi
+
+  local json
+  json="$(printf '%s\n' "$paths" | jq -R -s -c 'split("\n") | map(select(length>0))')"
+  if [[ -z "$json" || "$json" == '[]' ]]; then
+    echo "[post-deploy-record] FATAL: changed_files resolved to [] — refuse empty ledger" >&2
+    echo "[post-deploy-record] hint: set CHANGED_FILES_JSON='[\"path\"]' or deepen git history" >&2
+    return 1
+  fi
+  printf '%s' "$json"
+  return 0
+}
+
+CHANGED_FILES="$(resolve_changed_files_json)" || {
+  echo "[post-deploy-record] FATAL: refusing deployments INSERT without changed_files" >&2
+  exit 1
+}
+echo "[post-deploy-record] changed_files=$(echo "$CHANGED_FILES" | head -c 200)…"
 
 DEPLOY_TIMESTAMP="${DEPLOY_TIMESTAMP:-$(date '+%Y-%m-%d %H:%M:%S')}"
 DEPLOY_CREATED_AT="${DEPLOY_CREATED_AT:-$DEPLOY_TIMESTAMP}"
