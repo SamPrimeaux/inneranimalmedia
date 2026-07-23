@@ -10,6 +10,11 @@
  *  4. New/edited migrations that INSERT agentsam_rules_document with apply_mode always
  *     must set trigger_type to system or keyword (scan migrations/9*.sql + 10*.sql)
  *  5. Optional remote: --remote fails if any active always-rule still has bad trigger_type
+ *  6. Optional remote: rule body backticks that look like tool_keys must exist in
+ *     agentsam_tools (is_active=1). Tables + Vectorize lane names are excluded.
+ *
+ * Meta (1–5) vs content (6): infrastructure wiring vs live catalog drift.
+ * Prefer: npm run guard:engineering-laws:remote
  */
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -142,6 +147,42 @@ if (remote) {
     } else {
       ok(`remote D1: engineering law live (sort_order=${law.sort_order}, source=${law.source_stored})`);
     }
+
+    // 6) Rule content drift — backtick identifiers that look like tools must be active tool_keys
+    const activeTools = new Set(
+      d1Query(`SELECT tool_key FROM agentsam_tools WHERE COALESCE(is_active, 1) = 1`).map(
+        (r) => r.tool_key,
+      ),
+    );
+    const tables = new Set(
+      d1Query(`SELECT name FROM sqlite_master WHERE type = 'table'`).map((r) => r.name),
+    );
+    const rules = d1Query(
+      `SELECT id, body_markdown FROM agentsam_rules_document WHERE COALESCE(is_active, 0) = 1`,
+    );
+    const IDENT_RE = /`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`/g;
+    const looksLikeTool = (ident) => /^(agentsam_|fs_|browser_|gmail_|pty_|cdt_)/.test(ident);
+    // Vectorize index / binding lane names share agentsam_ prefix but are not tools.
+    const isVectorizeLane = (ident) =>
+      /_(?:oai3large|gemini\d*|1536|3072)\b|_1536$|_3072$/.test(ident);
+    let toolDrift = 0;
+    for (const rule of rules) {
+      const body = String(rule.body_markdown || '');
+      const seen = new Set();
+      let m;
+      IDENT_RE.lastIndex = 0;
+      while ((m = IDENT_RE.exec(body))) {
+        const ident = m[1];
+        if (!looksLikeTool(ident) || seen.has(ident)) continue;
+        seen.add(ident);
+        if (activeTools.has(ident)) continue;
+        if (tables.has(ident)) continue;
+        if (isVectorizeLane(ident)) continue;
+        fail(`${rule.id}: references \`${ident}\` — not an active tool_key`);
+        toolDrift += 1;
+      }
+    }
+    if (!toolDrift) ok('remote D1: no rule references a nonexistent/inactive tool');
   } catch (e) {
     fail(`remote D1 check failed: ${e?.message || e}`);
   }

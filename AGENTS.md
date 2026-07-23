@@ -51,7 +51,8 @@ Sprawl is the default failure mode (600+ tables). Before creating anything new, 
 - Global LOCKED rules: set `trigger_type='system'` explicitly on every INSERT/REPLACE.
 - Keyword-gated rules: `trigger_type='keyword'` + `trigger_condition_json`.
 - Never rely on the column default for always-on law.
-- Mechanical guard: `npm run guard:engineering-laws`.
+- Mechanical guard: `npm run guard:engineering-laws` (local meta checks 1–4).
+- With live D1: `npm run guard:engineering-laws:remote` also verifies (5) always-rules have visible `trigger_type` and (6) rule bodies do not backtick-reference inactive/missing `agentsam_tools` keys (tables + Vectorize lane names excluded).
 
 ---
 
