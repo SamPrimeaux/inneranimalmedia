@@ -40,6 +40,10 @@ import {
   synthesizeUserVisibleAgentFailure,
 } from './user-visible-agent-error.js';
 import {
+  safeJsonParse,
+  toolArgumentsParseErrorMessage,
+} from './tool-arguments-json.js';
+import {
   CODEMODE_TOOL_NAME,
   enqueueCodemodePendingActions,
 } from './codemode-agent-bridge.js';
@@ -1493,7 +1497,6 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           if (call) {
             call._done = true;
             try {
-              const { safeJsonParse } = await import('./tool-arguments-json.js');
               call.input = safeJsonParse(call._args || '{}');
             } catch {
               call.input = {};
@@ -1967,7 +1970,6 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         break;
       }
       if (call.input && typeof call.input === 'object' && call.input.__parse_error === true) {
-        const { toolArgumentsParseErrorMessage } = await import('./tool-arguments-json.js');
         const rawFull = String(call.raw_input != null ? call.raw_input : call.input.__raw || '');
         const raw = rawFull.slice(0, 50_000);
         const userMsg = toolArgumentsParseErrorMessage(call.name, rawFull.slice(0, 160));
