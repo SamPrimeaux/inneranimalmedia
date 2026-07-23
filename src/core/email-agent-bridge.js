@@ -62,6 +62,7 @@ export async function resolvePhoneLoopDeploymentId(env, preferredId) {
 
 /**
  * Append-only email receipt on deployment_notifications (deploy trail + phone IDE loop).
+ * status='sent' requires a real Resend message id — never optimistic.
  * @param {any} env
  * @param {{
  *   deploymentId: string,
@@ -71,6 +72,7 @@ export async function resolvePhoneLoopDeploymentId(env, preferredId) {
  *   status: 'pending'|'sent'|'failed'|'skipped',
  *   errorMessage?: string|null,
  *   notificationType?: string,
+ *   resendMessageId?: string|null,
  * }} row
  */
 export async function recordPhoneLoopDeploymentNotification(env, row) {
@@ -80,12 +82,23 @@ export async function recordPhoneLoopDeploymentNotification(env, row) {
   const recipient = String(row.recipient || '').trim();
   const subject = String(row.subject || '').trim().slice(0, 400);
   const message = row.message != null ? String(row.message).slice(0, 8000) : null;
-  const status = ['pending', 'sent', 'failed', 'skipped'].includes(String(row.status))
+  const resendMessageId =
+    row.resendMessageId != null && String(row.resendMessageId).trim()
+      ? String(row.resendMessageId).trim()
+      : null;
+  let status = ['pending', 'sent', 'failed', 'skipped'].includes(String(row.status))
     ? String(row.status)
     : 'pending';
+  // Honesty gate: never claim sent without a provider message id.
+  if (status === 'sent' && !resendMessageId) {
+    status = 'failed';
+  }
   const notificationType = String(row.notificationType || 'phone_loop_email').slice(0, 64);
-  const errorMessage =
+  let errorMessage =
     row.errorMessage != null ? String(row.errorMessage).slice(0, 2000) : null;
+  if (status === 'failed' && !errorMessage && !resendMessageId) {
+    errorMessage = 'missing_resend_message_id';
+  }
   if (!deploymentId || !recipient || !subject) {
     return { ok: false, reason: 'missing_fields' };
   }
@@ -93,8 +106,8 @@ export async function recordPhoneLoopDeploymentNotification(env, row) {
     await env.DB.prepare(
       `INSERT INTO deployment_notifications (
          id, deployment_id, notification_type, recipient, subject, message,
-         status, sent_at, error_message, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'sent' THEN datetime('now') ELSE NULL END, ?, datetime('now'), datetime('now'))`,
+         status, sent_at, error_message, resend_message_id, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'sent' THEN datetime('now') ELSE NULL END, ?, ?, datetime('now'), datetime('now'))`,
     )
       .bind(
         id,
@@ -106,12 +119,41 @@ export async function recordPhoneLoopDeploymentNotification(env, row) {
         status,
         status,
         errorMessage,
+        resendMessageId,
       )
       .run();
-    return { ok: true, id, deploymentId };
+    return { ok: true, id, deploymentId, status, resendMessageId };
   } catch (e) {
-    console.warn('[recordPhoneLoopDeploymentNotification]', e?.message ?? e);
-    return { ok: false, reason: e?.message || String(e) };
+    // Column may not exist until migration 1018 — fall back without resend_message_id.
+    const msg = String(e?.message || e);
+    if (/resend_message_id/i.test(msg)) {
+      try {
+        await env.DB.prepare(
+          `INSERT INTO deployment_notifications (
+             id, deployment_id, notification_type, recipient, subject, message,
+             status, sent_at, error_message, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'sent' THEN datetime('now') ELSE NULL END, ?, datetime('now'), datetime('now'))`,
+        )
+          .bind(
+            id,
+            deploymentId,
+            notificationType,
+            recipient,
+            subject,
+            message,
+            status,
+            status,
+            errorMessage,
+          )
+          .run();
+        return { ok: true, id, deploymentId, status, resendMessageId, legacy: true };
+      } catch (e2) {
+        console.warn('[recordPhoneLoopDeploymentNotification]', e2?.message ?? e2);
+        return { ok: false, reason: e2?.message || String(e2) };
+      }
+    }
+    console.warn('[recordPhoneLoopDeploymentNotification]', msg);
+    return { ok: false, reason: msg };
   }
 }
 
@@ -163,7 +205,7 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
       emailResult?.data?.id ||
       emailResult?.id ||
       null;
-    const emailOk = !!(emailResult && emailResult.success === true);
+    const emailOk = !!(emailResult && emailResult.success === true && resendId);
     const notifyRow = await recordPhoneLoopDeploymentNotification(env, {
       deploymentId,
       recipient: PHONE_LOOP_INBOX,
@@ -180,7 +222,10 @@ export async function sendPhoneLoopCompletion(env, ctx, opts) {
         .filter(Boolean)
         .join('\n'),
       status: emailOk ? 'sent' : 'failed',
-      errorMessage: emailOk ? null : String(emailResult?.error || 'email_send_failed'),
+      errorMessage: emailOk
+        ? null
+        : String(emailResult?.error || (!resendId ? 'missing_resend_message_id' : 'email_send_failed')),
+      resendMessageId: resendId,
       notificationType: 'phone_loop_email',
     });
 

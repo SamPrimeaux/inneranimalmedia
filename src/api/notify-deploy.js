@@ -2,8 +2,14 @@
  * POST /api/notify/deploy-complete
  * Internal: sends Resend emails with Meet link after production deploy.
  * Auth: INTERNAL_API_SECRET (X-Internal-Secret or Bearer).
+ * Must go through sendPlatformEmail so email_logs + Resend ids stay honest.
  */
 import { verifyInternalApiSecret, jsonResponse } from '../core/auth.js';
+import { sendPlatformEmail } from '../lib/email.js';
+import {
+  recordPhoneLoopDeploymentNotification,
+  resolvePhoneLoopDeploymentId,
+} from '../core/email-agent-bridge.js';
 
 const DEFAULT_MEET_URL = 'https://inneranimalmedia.com/dashboard/meet';
 
@@ -21,25 +27,6 @@ function deployEmailHtml(meetUrl) {
   </div>
   <p style="font-size:12px;color:#64748b;margin:20px 0 0;">Inner Animal Media · inneranimalmedia.com · Auto-generated deploy notification</p>
 </div>`;
-}
-
-async function sendResendEmail(env, { to, subject, html }) {
-  const key = env.RESEND_API_KEY;
-  if (!key) throw new Error('RESEND_API_KEY not configured');
-  const from = typeof env.EMAIL_FROM === 'string' && env.EMAIL_FROM.trim() ? env.EMAIL_FROM.trim() : '';
-  if (!from) throw new Error('EMAIL_FROM not configured');
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ from, to: [to], subject, html }),
-  });
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    throw new Error(`Resend ${res.status}: ${t.slice(0, 200)}`);
-  }
 }
 
 function parseNotifyRecipients(env) {
@@ -61,24 +48,66 @@ export async function handleNotifyDeployComplete(request, env, ctx) {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    body = {};
+  }
+
   const meetUrl =
     (typeof env?.MEET_URL === 'string' && env.MEET_URL.trim()) ? env.MEET_URL.trim() : DEFAULT_MEET_URL;
   const html = deployEmailHtml(meetUrl);
+  const text = `Production is live. Join: ${meetUrl}`;
+  const subject = 'Agent Sam Deployed — join live session';
   const recipients = parseNotifyRecipients(env);
+  const deploymentIdHint =
+    body.deployment_id != null
+      ? String(body.deployment_id).trim()
+      : body.worker_version_id != null
+        ? String(body.worker_version_id).trim()
+        : '';
 
   const work = (async () => {
-    if (recipients.length === 0) return;
-    await Promise.all(recipients.map((to) =>
-      sendResendEmail(env, {
+    if (recipients.length === 0) return { sent: 0, failed: 0 };
+    const deploymentId = await resolvePhoneLoopDeploymentId(env, deploymentIdHint);
+    let sent = 0;
+    let failed = 0;
+    for (const to of recipients) {
+      const result = await sendPlatformEmail(env, {
         to,
-        subject: '🚀 Production deployed — join live session',
+        subject,
         html,
-      })
-    ));
+        text,
+        category: 'deploy_notify',
+        noAgentSamPrefix: true,
+      });
+      const resendId =
+        result?.externalMessageId || result?.data?.id || result?.id || null;
+      const ok = !!(result?.success && resendId);
+      await recordPhoneLoopDeploymentNotification(env, {
+        deploymentId,
+        recipient: to,
+        subject,
+        message: text,
+        status: ok ? 'sent' : 'failed',
+        errorMessage: ok ? null : String(result?.error || 'missing_resend_message_id'),
+        resendMessageId: resendId,
+        notificationType: 'deploy_email',
+      });
+      if (ok) sent += 1;
+      else failed += 1;
+    }
+    return { sent, failed, deploymentId };
   })();
 
-  if (ctx?.waitUntil) ctx.waitUntil(work.catch((e) => console.warn('[notify-deploy-complete]', e?.message ?? e)));
-  else await work.catch((e) => console.warn('[notify-deploy-complete]', e?.message ?? e));
-
-  return jsonResponse({ ok: true, queued: true, meet_url: meetUrl });
+  if (ctx?.waitUntil) {
+    ctx.waitUntil(work.catch((e) => console.warn('[notify-deploy-complete]', e?.message ?? e)));
+    return jsonResponse({ ok: true, queued: true, meet_url: meetUrl });
+  }
+  const out = await work.catch((e) => {
+    console.warn('[notify-deploy-complete]', e?.message ?? e);
+    return { sent: 0, failed: 1, error: e?.message || String(e) };
+  });
+  return jsonResponse({ ok: true, meet_url: meetUrl, ...out });
 }

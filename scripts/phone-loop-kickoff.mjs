@@ -124,7 +124,17 @@ async function main() {
     console.error('[phone-loop-kickoff] Resend failed', res.status, resJson);
     process.exit(1);
   }
-  const resendId = resJson?.id ? String(resJson.id) : null;
+  const resendId = resJson?.id ? String(resJson.id).trim() : '';
+  if (!resendId) {
+    console.error('[phone-loop-kickoff] Resend ok but no id — refusing to mark sent');
+    process.exit(1);
+  }
+
+  // Honest email_logs row (same fields sendPlatformEmail would write).
+  const logId = randomUUID();
+  d1Json(
+    `INSERT INTO email_logs (id, to_email, from_email, subject, status, external_message_id, provider, resend_id, text_content, user_id, tenant_id, created_at, updated_at) VALUES (${sqlString(logId)}, ${sqlString(INBOX)}, ${sqlString(from)}, ${sqlString(subject)}, 'sent', ${sqlString(resendId)}, 'resend', ${sqlString(resendId)}, ${sqlString(text.slice(0, 8000))}, 'au_871d920d1233cbd1', 'tenant_sam_primeaux', datetime('now'), datetime('now'))`,
+  );
 
   const dnId = `dn_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const message = [
@@ -133,14 +143,12 @@ async function main() {
     `conversation_id=${conversationId}`,
     `deep_link=/dashboard/agent/${conversationId}`,
     'resend_ok=1',
-    resendId ? `resend_id=${resendId}` : '',
+    `resend_id=${resendId}`,
     'kickoff=1',
-  ]
-    .filter(Boolean)
-    .join('\n');
+  ].join('\n');
 
   d1Json(
-    `INSERT INTO deployment_notifications (id, deployment_id, notification_type, recipient, subject, message, status, sent_at, error_message, created_at, updated_at) VALUES (${sqlString(dnId)}, ${sqlString(deploymentId)}, 'phone_loop_email', ${sqlString(INBOX)}, ${sqlString(subject)}, ${sqlString(message)}, 'sent', datetime('now'), NULL, datetime('now'), datetime('now'))`,
+    `INSERT INTO deployment_notifications (id, deployment_id, notification_type, recipient, subject, message, status, sent_at, error_message, resend_message_id, created_at, updated_at) VALUES (${sqlString(dnId)}, ${sqlString(deploymentId)}, 'phone_loop_email', ${sqlString(INBOX)}, ${sqlString(subject)}, ${sqlString(message)}, 'sent', datetime('now'), NULL, ${sqlString(resendId)}, datetime('now'), datetime('now'))`,
   );
 
   // Seed chat session so inbound reply has a home.

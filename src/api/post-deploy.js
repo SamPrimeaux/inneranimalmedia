@@ -67,6 +67,55 @@ export async function handlePostDeploy(request, env, ctx) {
     body = await request.json();
   } catch (_) {}
 
+  const statusRaw = body.status != null ? String(body.status).trim().toLowerCase() : '';
+
+  // Trail / post-deploy-record failure path — push + email via phone loop (no success KV markers).
+  if (statusRaw === 'trail_failed' || statusRaw === 'failed') {
+    const gitHash = body.git_hash || body.gitHash || 'unknown';
+    const errMsg = String(body.error || body.message || 'deploy trail failed').slice(0, 2000);
+    const gitShort = gitHash !== 'unknown' ? String(gitHash).slice(0, 12) : 'unknown';
+    const conversationId =
+      (typeof body.conversation_id === 'string' && body.conversation_id.trim()) ||
+      crypto.randomUUID();
+
+    if (ctx?.waitUntil) {
+      ctx.waitUntil(
+        (async () => {
+          const { sendPhoneLoopCompletion, mintPhoneLoopConversationId, ensurePhoneLoopChatSession } =
+            await import('../core/email-agent-bridge.js');
+          const cid = conversationId.includes('-')
+            ? conversationId
+            : mintPhoneLoopConversationId();
+          await ensurePhoneLoopChatSession(env, null, cid, `Trail failed: ${errMsg}`);
+          await sendPhoneLoopCompletion(env, null, {
+            conversationId: cid,
+            deploymentId: body.worker_version_id || body.deployment_id || null,
+            subject: `[Agent Sam] Deploy trail FAILED — ${gitShort}`,
+            body: [
+              'Deploy trail failure — worker may be live but D1 ledger/post-deploy-record did not complete.',
+              '',
+              `git_hash: ${gitHash}`,
+              `worker_version_id: ${body.worker_version_id || body.deployment_id || '—'}`,
+              `error: ${errMsg}`,
+              '',
+              'Reply with next instruction to investigate / heal.',
+            ].join('\n'),
+            pushTitle: 'Deploy trail FAILED',
+            pushBody: `${gitShort}: ${errMsg}`.slice(0, 140),
+          });
+        })().catch((e) => console.warn('[post-deploy] trail_failed notify', e?.message || e)),
+      );
+    }
+
+    return jsonResponse({
+      ok: true,
+      status: 'trail_failed',
+      notified: true,
+      git_hash: gitHash,
+      deployments_ledger: 'post_deploy_record_ssot',
+    });
+  }
+
   const environment = body.environment || 'production';
   const gitHash = body.git_hash || body.gitHash || 'unknown';
   const version = body.version || body.dashboard_version || 'unknown';

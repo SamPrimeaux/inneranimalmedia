@@ -158,7 +158,12 @@ async function sendViaResend(env, { from, to, subject, html, text }) {
     const t = await res.text().catch(() => '');
     throw new Error(`Resend ${res.status}: ${t.slice(0, 400)}`);
   }
-  return { provider: 'resend' };
+  const json = await res.json().catch(() => ({}));
+  const id = json?.id != null ? String(json.id).trim() : '';
+  if (!id) {
+    throw new Error('Resend returned ok but no message id');
+  }
+  return { provider: 'resend', id };
 }
 
 async function sendViaGmail(env, { from, to, subject, html, text }) {
@@ -244,9 +249,37 @@ export async function handleEmailApi(request, env) {
       text,
       status: 'sent',
       provider: 'resend',
+      externalMessageId: out.id,
       userId,
     }).catch((e) => console.warn('[email/send] archive', e?.message ?? e));
-    return jsonResponse({ ok: true, provider: 'resend' });
+
+    // Optional deploy trail receipt when caller passes deployment_id.
+    const deploymentId =
+      body?.deployment_id != null
+        ? String(body.deployment_id).trim()
+        : body?.deploymentId != null
+          ? String(body.deploymentId).trim()
+          : '';
+    if (deploymentId && env.DB) {
+      try {
+        const { recordPhoneLoopDeploymentNotification } = await import(
+          '../core/email-agent-bridge.js'
+        );
+        await recordPhoneLoopDeploymentNotification(env, {
+          deploymentId,
+          recipient: to,
+          subject,
+          message: text || html?.slice(0, 4000) || null,
+          status: 'sent',
+          resendMessageId: out.id,
+          notificationType: 'deploy_email',
+        });
+      } catch (e) {
+        console.warn('[email/send] deployment_notifications', e?.message ?? e);
+      }
+    }
+
+    return jsonResponse({ ok: true, provider: 'resend', id: out.id, resend_id: out.id });
   } catch (resendErr) {
     console.warn('[email/send] Resend failed, trying Gmail:', resendErr?.message ?? resendErr);
     try {
@@ -264,7 +297,11 @@ export async function handleEmailApi(request, env) {
         externalMessageId: out.id ?? null,
         userId,
       }).catch((e) => console.warn('[email/send] archive', e?.message ?? e));
-      return jsonResponse({ ok: true, ...out, resend_error: String(resendErr?.message || resendErr) });
+      return jsonResponse({
+        ok: true,
+        ...out,
+        resend_error: String(resendErr?.message || resendErr),
+      });
     } catch (gmailErr) {
       console.warn('[email/send] Gmail failed:', gmailErr?.message ?? gmailErr);
       return jsonResponse(

@@ -34,6 +34,62 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
+# Gap 1 — trail failure → immediate push+email via POST /api/internal/post-deploy
+# (status=trail_failed → sendPhoneLoopCompletion). Review before relying on this path.
+notify_trail_failed() {
+  local err_msg="${1:-post-deploy-record failed}"
+  local secret="${INTERNAL_API_SECRET:-${AGENTSAM_BRIDGE_KEY:-}}"
+  if [[ -z "$secret" ]]; then
+    echo "[post-deploy-record] trail_failed notify skipped — no INTERNAL_API_SECRET/AGENTSAM_BRIDGE_KEY" >&2
+    return 0
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "[post-deploy-record] trail_failed notify skipped — jq missing" >&2
+    return 0
+  fi
+  local payload
+  payload="$(
+    jq -nc \
+      --arg status "trail_failed" \
+      --arg error "$err_msg" \
+      --arg git "${GIT_FULL:-unknown}" \
+      --arg vid "${VERSION_ID:-}" \
+      --arg env "${ENVIRONMENT:-production}" \
+      '{
+        status: $status,
+        error: $error,
+        git_hash: $git,
+        worker_version_id: $vid,
+        environment: $env
+      }'
+  )"
+  local code
+  code="$(
+    curl -sS -o /tmp/iam-trail-failed-notify.out -w "%{http_code}" \
+      -X POST "https://inneranimalmedia.com/api/internal/post-deploy" \
+      -H "Authorization: Bearer ${secret}" \
+      -H "X-Internal-Secret: ${secret}" \
+      -H "Content-Type: application/json" \
+      -d "$payload" || echo "000"
+  )"
+  if [[ "$code" == "200" || "$code" == "201" ]]; then
+    echo "[post-deploy-record] trail_failed notify ok (HTTP $code)"
+  else
+    echo "[post-deploy-record] trail_failed notify HTTP ${code}: $(head -c 240 /tmp/iam-trail-failed-notify.out 2>/dev/null || true)" >&2
+  fi
+}
+
+_TRAIL_NOTIFY_DONE=0
+on_post_deploy_record_exit() {
+  local ec=$?
+  if [[ "$ec" -eq 0 || "$_TRAIL_NOTIFY_DONE" -eq 1 ]]; then
+    return 0
+  fi
+  _TRAIL_NOTIFY_DONE=1
+  notify_trail_failed "post-deploy-record exited ${ec}"
+}
+trap on_post_deploy_record_exit EXIT
+
 VERSION_ID="${CLOUDFLARE_VERSION_ID:-${WRANGLER_VERSION_ID:-}}"
 if [[ -z "$VERSION_ID" ]]; then
   VERSION_ID="$(uuidgen 2>/dev/null || echo "post-$(date +%s)")"
@@ -241,6 +297,8 @@ if ! d1_exec_sql "deployments_insert" "INSERT INTO deployments (
   '$TID_ESC', '$WID_ESC', '$PID_ESC', '$RG_ESC', '$DEP_META_ESC'
 )"; then
   echo "[post-deploy-record] FATAL: deployments INSERT failed" >&2
+  _TRAIL_NOTIFY_DONE=1
+  notify_trail_failed "deployments INSERT failed (version_id=${VERSION_ID})"
   exit 1
 fi
 echo "Done. Overview / deployment tracking will show this deploy (all columns populated)."

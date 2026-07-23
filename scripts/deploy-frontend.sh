@@ -426,20 +426,24 @@ NOTIFY_RESP="$(curl -sS -X POST "https://inneranimalmedia.com/api/email/send" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${_EMAIL_AUTH_BEARER}" \
   -d "$NOTIFY_JSON" || true)"
+NOTIFY_STATUS=sent
+_NOTIFY_RESEND_ID=""
 if command -v jq >/dev/null 2>&1; then
   _notify_err="$(echo "$NOTIFY_RESP" | jq -r '.error // empty' 2>/dev/null || true)"
+  _NOTIFY_RESEND_ID="$(echo "$NOTIFY_RESP" | jq -r '.id // .resend_id // empty' 2>/dev/null || true)"
 else
   _notify_err=""
 fi
-NOTIFY_STATUS=sent
 if [ -n "${_notify_err:-}" ]; then
   NOTIFY_STATUS=failed
   echo "⚠️  Deploy notification failed: ${_notify_err}" >&2
   echo "    Fix: Worker secrets RESEND_FROM + RESEND_API_KEY; deploy shell needs INTERNAL_API_SECRET in .env.cloudflare." >&2
-  echo "    Example: printf '%s' 'notifications@inneranimalmedia.com' | npx wrangler secret put RESEND_FROM -c wrangler.production.toml" >&2
-  echo "    Example: ensure .env.cloudflare has INTERNAL_API_SECRET matching the Worker secret." >&2
 elif [ -z "${NOTIFY_RESP}" ]; then
   NOTIFY_STATUS=failed
+elif [ -z "${_NOTIFY_RESEND_ID:-}" ]; then
+  # Honesty: HTTP ok without a Resend id is not a successful send receipt.
+  NOTIFY_STATUS=failed
+  echo "⚠️  Deploy notification response missing Resend id — not marking sent" >&2
 fi
 
 # Final .deploy-worker-stats.json (R2 + wrangler + notification outcome)
