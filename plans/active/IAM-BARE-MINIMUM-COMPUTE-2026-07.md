@@ -16,7 +16,7 @@
 | `agentsam_terminal_local` | **GREEN** | cwd Mac repo; write+cat `/tmp/…` (`1a33cea6-…`) | main + ExecOS localpty | `23e6bf68` |
 | `agentsam_terminal_remote` | **GREEN** | Live ~00:09Z: `whoami&&pwd&&date` → `agentsam`, `/home/samprimeaux/inneranimalmedia`, exit 0, `conn_gcp_iam_tunnel`, `cwd_source=gcp_remote` | main + ExecOS remote | **connectivity** green; **checkout stale** at `5a060f7c` (not `23e6bf68`) |
 | PWA/SW | **GREEN** | `pwa-build-meta.json` = `23e6bf68`, sw.js 200 | R2 + main | `23e6bf68` |
-| Hosted shell (OpenAI `/mnt/data`) | **RED** | empty `commands:[]` → `close_done_no_token` (`3880f2b4-…`); no successful proof | OpenAI | — |
+| Hosted shell (OpenAI `/mnt/data`) | **RED** | empty `commands:[]` → `close_done_no_token` (`3880f2b4-…`); no `/mnt/data` success; **needs Gate 1a + 1b** (scope ≠ empty-commands/container reuse) | OpenAI | — |
 | MY_CONTAINER / `terminal_sandbox` | **RED** | `/api/sandbox/health` 401 unauthed; no fresh whoami | `MY_CONTAINER` | — |
 | MCP OAuth tools | **RED** | MCP `/health` 200; `tools/list` 401; Cursor discovery error | `inneranimalmedia-mcp-server` | unverified |
 | Sandbox bridge (OpenAI Agents) | **RED** | No separate bridge Worker; `/api/sandbox/*` ≠ OpenAI bridge contract | none | — |
@@ -45,7 +45,7 @@ Must all be green + dual-pass before any SandboxAgent / bridge / Runloop work:
 1. Workspace: `fs_write` → `fs_read` same `connection_id` + file on disk  
 2. Named `agentsam_terminal_local` whoami/pwd without hosted shell  
 3. Progressive core includes terminal (shipped `23e6bf68` / session v13) — dual-pass only  
-4. Hosted shell either (a) unused on workspace prompts or (b) real non-empty `/mnt/data` proof — never silent empty  
+4. Hosted shell: **1a** scope + **1b** empty-commands contract + container_reference persistence — both green (not policy-only)  
 5. MCP: authenticated `tools/list` non-empty + one exec  
 6. Deploy: worker + `pwa-build-meta` SHA match (already true at probe)
 
@@ -58,13 +58,26 @@ Must all be green + dual-pass before any SandboxAgent / bridge / Runloop work:
 - **Do:** two separate operator turns; `record:ticket-e2e-pass` on relevant tickets (`tkt_mac_localpty_exec_identity_20260722`, workspace)  
 - **Block:** do not start Gate 1+ until Gate 0 pass #1 logged  
 
-### Gate 1 — Hosted shell containment (highest user-visible red)
-- **ID (proposed):** `tkt_hosted_shell_workspace_containment`  
-- **Outcome:** workspace prompts never die on empty `commands:[]`; model prefers Job 1 tools; hosted shell only for `/mnt/data`  
-- **Allowed work:** recovery path already partly in `f49fd74e`; UI labels; hybrid instruction; optional flag off for Sam until proven  
-- **Banned:** inventing tool-name suppress lists; rewriting progressive core again without measurement  
-- **Proof:** (A) HTML/file ask → `fs_write_file` success, no empty hosted shell kill; (B) explicit “run in hosted shell: ls /mnt/data” → real `shell_call_output`  
+### Gate 1 — Hosted shell (two tickets — do not merge)
 
+Policy-only “/mnt/data UI” **undersells** the bug. Scope ≠ executor contract. Keep **1a** and **1b** separate; both required before hosted shell leaves RED.
+
+#### Gate 1a — Scope / UX (`tkt_hosted_shell_scope`)
+- **Outcome:** Job 3 only — `/mnt/data` scratch; fail loud (tool_result + UI) if model aims hosted shell at repo / `.scratch` / Mac/GCP paths  
+- **Allowed:** hybrid instruction, UI copy (“OpenAI container, not workspace”), optional Sam flag off until 1b green  
+- **Banned:** tool-name hardcode suppress lists; progressive-core churn without measurement  
+- **Does not fix:** empty `commands:[]`, invented transcripts, or multi-turn container reuse  
+- **Proof:** (A) file/HTML ask → Job 1 tools win, no hosted-shell death; (B) explicit “hosted shell: ls /mnt/data” → real non-empty `shell_call_output`
+
+#### Gate 1b — Executor / API contract (`tkt_hosted_shell_executor_contract`)
+- **Mode fact (locked):** we inject `environment: { type: "container_auto" }` — **hosted**. OpenAI runs the shell. We are **not** implementing OpenAI “local” `environment.type=local` LocalShell unless Gate 4 says so. Docs that tell *your* executor to return `shell_call_output` apply to **local** mode; for hosted, OpenAI returns `shell_call_output` in the Responses stream.  
+- **Bug class to fix anyway:** empty `shell_call.action.commands: []` leaves a gap (empty/failed tool UI + model text-completing a fake terminal). Scoping to `/mnt/data` alone still allows invented scratch output.  
+- **Required outcomes:**  
+  1. **Empty-commands contract:** before the model gets another free-form token that can invent a transcript, the turn must surface a **durable, non-success tool outcome** (SSE `tool_result` / ledger with explicit `ok: false`, exit≠0 semantics, no blank “Done”). Prefer continuing the agent loop with that outcome in history (extend `f49fd74e` recovery — no silent `close_done_no_token`). Do **not** pretend we locally executed OpenAI’s container.  
+  2. **Container reuse:** persist OpenAI `container_id` (from hosted shell / code-exec pause items) keyed by `agent_run_id` (same durability idea as `agentsam_pty_lane_pin`); subsequent Responses calls in that run use `environment: { type: "container_reference", container_id }` when available, with `previous_response_id` (or PTC exact-order replay) so `/mnt/data` state survives turns.  
+- **Proof:** (A) force/observe empty `commands:[]` → UI shows hard failure + loop continues with Job 1 tools, **no** fabricated `ls`/stderr prose; (B) two hosted-shell turns in one run share the same container (D1/log `container_id` match) and second turn sees first turn’s `/mnt/data` file  
+
+**Scorecard:** Hosted shell stays **RED** until **both** 1a and 1b proofs land.
 ### Gate 2 — MCP OAuth bare minimum
 - **ID (proposed):** `tkt_mcp_oauth_tools_list_green`  
 - **Outcome:** Cursor + Claude connector: discovery OK, `tools/list` with bearer, one tool exec  
@@ -111,8 +124,8 @@ Must all be green + dual-pass before any SandboxAgent / bridge / Runloop work:
 ## Next action (immediate)
 
 1. **Operator:** Gate 0 pass #1 — one Agent turn: force `fs_write_file` + `fs_read_file` + `agentsam_terminal_local` `pwd`; paste tool `connection_id`s.  
-2. **Agent:** open Gate 1 ticket body + implement only containment (no remote, no MCP, no bridge).  
-3. Re-probe scorecard after Gate 1; update this file’s Status column.
+2. **Agent:** Gate **1a** then **1b** (scope ≠ executor contract — do not collapse into one ticket).  
+3. Re-probe scorecard after 1a+1b; update Status column.
 
 ---
 
