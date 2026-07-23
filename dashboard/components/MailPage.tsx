@@ -15,7 +15,7 @@ import { publishMailSurfaceContext } from '../lib/mailSurfaceEvents';
 import '../pages/launch-desk/collaborate-calendar.css';
 import '../src/components/collaborate/mail-work-surface.css';
 import {
-  Archive, Bot, ChevronLeft, ChevronRight, Circle, Clock,
+  AlertTriangle, Archive, Bot, CheckCircle, ChevronLeft, ChevronRight, Circle, Clock,
   Forward, Inbox, Mail, Paperclip, Plus, RefreshCw, Reply,
   Search, Send, Settings, Star, Tag, Trash2, X,
   Bell,
@@ -566,7 +566,7 @@ export function MailPage() {
     [activeAccount, folder],
   );
 
-  // Deep link: /dashboard/mail?email=<id>&folder=inbox → open that message in-app.
+  // Deep link folder — only apply when query present and value actually changes.
   useEffect(() => {
     const folderParam = String(searchParams.get('folder') || '').trim().toLowerCase();
     if (
@@ -576,10 +576,11 @@ export function MailPage() {
       folderParam === 'starred' ||
       folderParam === 'archived'
     ) {
-      setFolder(folderParam as Folder);
+      setFolder((prev) => (prev === folderParam ? prev : (folderParam as Folder)));
     }
   }, [searchParams]);
 
+  // Deep link: /dashboard/mail?email=<id> → open that message in-app.
   useEffect(() => {
     const emailId = String(searchParams.get('email') || '').trim();
     if (!emailId || loadingList) return;
@@ -660,32 +661,62 @@ export function MailPage() {
 
   // ── Send ───────────────────────────────────────────────────────────────────
   const sendEmail = useCallback(async () => {
-    if (!compose.to || !compose.subject) { setSendResult({ ok: false, msg: 'To and Subject required' }); return; }
-    setSending(true); setSendResult(null);
+    const to = String(compose.to || '').trim();
+    const subject = String(compose.subject || '').trim();
+    const body = String(compose.body ?? '');
+    const from = String(compose.from || '').trim();
+    if (!to || !subject) {
+      setSendResult({ ok: false, msg: 'To and Subject required' });
+      return;
+    }
+    setSending(true);
+    setSendResult(null);
     try {
-      const provider = compose.from.includes('@gmail') || compose.from.includes('gmail') ? 'gmail' : 'resend';
+      const fromLower = from.toLowerCase();
+      const provider =
+        fromLower.includes('@gmail') || fromLower.includes('gmail:') ? 'gmail' : 'resend';
       const res = await fetch('/api/mail/send', {
-        method: 'POST', credentials: 'same-origin',
+        method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider,
-          from: compose.from || undefined,
-          to: compose.to,
-          subject: compose.subject,
-          html: compose.body.includes('<') ? compose.body : `<p>${compose.body.replace(/\n/g, '<br>')}</p>`,
-          text: compose.body,
+          from: from || undefined,
+          to,
+          subject,
+          html: body.includes('<')
+            ? body
+            : `<p>${body.replace(/\n/g, '<br>')}</p>`,
+          text: body,
           in_reply_to: compose.in_reply_to || undefined,
           thread_id: compose.thread_id || undefined,
         }),
       });
-      const d = await res.json();
-      if (!res.ok || !d.ok) throw new Error(d.error || 'Send failed');
+      let d: { ok?: boolean; error?: string; provider?: string } = {};
+      try {
+        d = await res.json();
+      } catch {
+        throw new Error(`Send failed (HTTP ${res.status})`);
+      }
+      if (!res.ok || !d.ok) throw new Error(String(d.error || `Send failed (HTTP ${res.status})`));
       setSendResult({ ok: true, msg: `Sent via ${d.provider || provider}` });
-      setTimeout(() => { setComposing(false); setSendResult(null); setCompose(c => ({ ...c, to: '', subject: '', body: '', in_reply_to: '', thread_id: '' })); }, 1800);
+      window.setTimeout(() => {
+        setComposing(false);
+        setSendResult(null);
+        setCompose((c) => ({
+          ...c,
+          to: '',
+          subject: '',
+          body: '',
+          in_reply_to: '',
+          thread_id: '',
+        }));
+      }, 1800);
     } catch (e: unknown) {
-      setSendResult({ ok: false, msg: String((e as Error).message || e) });
+      setSendResult({ ok: false, msg: String((e as Error)?.message || e || 'Send failed') });
+    } finally {
+      setSending(false);
     }
-    setSending(false);
   }, [compose]);
 
   // ── Draft reply shortcut ───────────────────────────────────────────────────
