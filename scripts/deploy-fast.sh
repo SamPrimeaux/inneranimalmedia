@@ -222,21 +222,22 @@ if command -v jq >/dev/null 2>&1; then
       '{environment:$env, git_hash:$gh, version:$v, worker_version_id:$wv, deploy_duration_ms:$dur, user_id:$uid, tenant_id:$tid, workspace_id:$ws, deployed_by:$by}'
   )
   echo "[deploy:fast] Worker post-deploy (push + hooks)…"
-  if [[ -n "${AGENTSAM_BRIDGE_KEY:-}" ]]; then
-    curl -sS -X POST "https://inneranimalmedia.com/api/internal/post-deploy" \
-      -H "Authorization: Bearer ${AGENTSAM_BRIDGE_KEY}" \
-      -H "Content-Type: application/json" \
-      -d "$POST_DEPLOY_BODY" --max-time 90 \
-      || echo "[deploy:fast] warning: /api/internal/post-deploy non-zero (non-fatal)" >&2
-  elif [[ -n "${INTERNAL_API_SECRET:-}" ]]; then
+  # Prefer INTERNAL_API_SECRET — AGENTSAM_BRIDGE_KEY in local exports is often stale vs Worker.
+  if [[ -n "${INTERNAL_API_SECRET:-}" ]]; then
     curl -sS -X POST "https://inneranimalmedia.com/api/internal/post-deploy" \
       -H "X-Internal-Secret: ${INTERNAL_API_SECRET}" \
       -H "Content-Type: application/json" \
       -d "$POST_DEPLOY_BODY" --max-time 90 \
       || echo "[deploy:fast] warning: /api/internal/post-deploy non-zero (non-fatal)" >&2
+  elif [[ -n "${AGENTSAM_BRIDGE_KEY:-}" ]]; then
+    curl -sS -X POST "https://inneranimalmedia.com/api/internal/post-deploy" \
+      -H "Authorization: Bearer ${AGENTSAM_BRIDGE_KEY}" \
+      -H "Content-Type: application/json" \
+      -d "$POST_DEPLOY_BODY" --max-time 90 \
+      || echo "[deploy:fast] warning: /api/internal/post-deploy non-zero (non-fatal)" >&2
   else
-    echo "[deploy:fast] FATAL: no AGENTSAM_BRIDGE_KEY/INTERNAL_API_SECRET — push notify skipped" >&2
-    echo "[deploy:fast] Set as CF Builds secrets (main trigger) or in .env.cloudflare / .mcp_exports.sh" >&2
+    echo "[deploy:fast] FATAL: no INTERNAL_API_SECRET/AGENTSAM_BRIDGE_KEY — push notify skipped" >&2
+    echo "[deploy:fast] Set as CF Builds secrets (main trigger) or in .env.cloudflare" >&2
     if [[ -d /opt/buildhome || "${WORKERS_CI:-}" == "1" || "${CI:-}" == "true" ]]; then
       exit 1
     fi

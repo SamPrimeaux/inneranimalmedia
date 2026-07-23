@@ -4,12 +4,8 @@
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-if [ -f "$REPO_ROOT/.env.cloudflare" ]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "$REPO_ROOT/.env.cloudflare"
-  set +a
-fi
+# shellcheck source=scripts/lib/load-deploy-env.sh
+source "$REPO_ROOT/scripts/lib/load-deploy-env.sh"
 # Drop stale Supabase project URLs from shell env (wrong REST host breaks deploy log + backfill).
 for stale in tcczxkatmodtxfuulvsr sexdnwlyuhkyvseunqlx; do
   case "${SUPABASE_URL:-}" in
@@ -330,18 +326,18 @@ if command -v jq >/dev/null 2>&1; then
       --arg by "${DEPLOYED_BY:-deploy:full}" \
       '{environment:$env, git_hash:$gh, version:$v, worker_version_id:$wv, deploy_duration_ms:$dur, user_id:$uid, tenant_id:$tid, workspace_id:$ws, supabase_workspace_id:$ws_uuid, branch_name:$branch, git_message:$desc, deployed_by:$by}'
   )
-  if [ -n "${AGENTSAM_BRIDGE_KEY:-}" ]; then
-    curl -sS -X POST "https://inneranimalmedia.com/api/internal/post-deploy" \
-      -H "Authorization: Bearer ${AGENTSAM_BRIDGE_KEY}" \
-      -H "Content-Type: application/json" \
-      -d "$POST_DEPLOY_BODY" --max-time 90 || echo "[deploy-frontend] warning: /api/internal/post-deploy non-zero (non-fatal)"
-  elif [ -n "${INTERNAL_API_SECRET:-}" ]; then
+  if [ -n "${INTERNAL_API_SECRET:-}" ]; then
     curl -sS -X POST "https://inneranimalmedia.com/api/internal/post-deploy" \
       -H "X-Internal-Secret: ${INTERNAL_API_SECRET}" \
       -H "Content-Type: application/json" \
       -d "$POST_DEPLOY_BODY" --max-time 90 || echo "[deploy-frontend] warning: /api/internal/post-deploy non-zero (non-fatal)"
+  elif [ -n "${AGENTSAM_BRIDGE_KEY:-}" ]; then
+    curl -sS -X POST "https://inneranimalmedia.com/api/internal/post-deploy" \
+      -H "Authorization: Bearer ${AGENTSAM_BRIDGE_KEY}" \
+      -H "Content-Type: application/json" \
+      -d "$POST_DEPLOY_BODY" --max-time 90 || echo "[deploy-frontend] warning: /api/internal/post-deploy non-zero (non-fatal)"
   else
-    echo "[deploy-frontend] warning: AGENTSAM_BRIDGE_KEY or INTERNAL_API_SECRET unset — skipping Worker post-deploy (KV + hooks)"
+    echo "[deploy-frontend] warning: INTERNAL_API_SECRET or AGENTSAM_BRIDGE_KEY unset — skipping Worker post-deploy (KV + hooks)"
   fi
 else
   echo "[deploy-frontend] warning: jq missing — skipping Worker post-deploy JSON body"
