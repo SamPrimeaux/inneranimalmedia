@@ -1404,7 +1404,7 @@ async function handleResendWebhook(
                     handleParsedEmailReply,
                 } = await import('../core/email-agent-bridge.js');
 
-                if (isPhoneLoopAllowlistedSender(senderEmail)) {
+                if (await isPhoneLoopAllowlistedSender(env, senderEmail)) {
                     phoneLoop.attempted = true;
                     const result = await handleParsedEmailReply(env, ctx, {
                         text,

@@ -1,15 +1,16 @@
 /**
  * Phone-email IDE bridge: inbound reply → Agent Sam turn → dual outbound (email + push).
  *
- * Auth user for turns: au_871d920d1233cbd1 (info@inneranimals.com login).
+ * Auth user for turns: resolved from D1 (PHONE_LOOP_USER_ID / hook user_id).
  * Mailbox: sam@inneranimalmedia.com (rse_sam_iam can_receive=1).
+ * Sender allowlist: D1 only — auth_user_emails → agentsam_user_policy.platform_operator=1
+ * (plus inbox address from resend_emails / hook config). No hardcoded email lists.
  */
 
 import {
   PLATFORM_D1_AUTH_USER_ID,
   PLATFORM_D1_WORKSPACE_ID,
   PLATFORM_OPERATOR_EMAIL_PRIMARY,
-  PLATFORM_OPERATOR_EMAIL_SECONDARY,
 } from './platform-identity-constants.js';
 import { parseEmailReplyThread } from './email-reply-thread.js';
 import { sendPlatformEmail } from '../lib/email.js';
@@ -20,23 +21,89 @@ export const PHONE_LOOP_USER_ID = PLATFORM_D1_AUTH_USER_ID;
 export const PHONE_LOOP_WORKSPACE_ID = PLATFORM_D1_WORKSPACE_ID;
 export const PHONE_LOOP_TENANT_ID = 'tenant_sam_primeaux';
 
-const ALLOWLIST = new Set(
-  [
-    PLATFORM_OPERATOR_EMAIL_PRIMARY,
-    PLATFORM_OPERATOR_EMAIL_SECONDARY,
-    PHONE_LOOP_INBOX,
-  ].map((e) => String(e).trim().toLowerCase()),
-);
-
 /**
  * @param {string} email
  */
-export function isPhoneLoopAllowlistedSender(email) {
-  const n = String(email || '')
+export function normalizePhoneLoopSenderEmail(email) {
+  return String(email || '')
     .trim()
     .toLowerCase()
-    .replace(/^.*<([^>]+)>.*$/, '$1');
-  return ALLOWLIST.has(n);
+    .replace(/^.*<([^>]+)>.*$/, '$1')
+    .trim();
+}
+
+/**
+ * D1-driven allowlist: sender must map to auth_user_emails with
+ * agentsam_user_policy.platform_operator=1 (or match the inbound inbox address).
+ *
+ * @param {any} env
+ * @param {string} email
+ * @returns {Promise<boolean>}
+ */
+export async function isPhoneLoopAllowlistedSender(env, email) {
+  const n = normalizePhoneLoopSenderEmail(email);
+  if (!n || !n.includes('@')) return false;
+  if (!env?.DB) return false;
+
+  try {
+    // Inbox itself (sam@) — allow when resend_emails says can_receive.
+    const inbox = await env.DB.prepare(
+      `SELECT 1 AS ok FROM resend_emails
+       WHERE lower(trim(address)) = ?
+         AND COALESCE(can_receive, 0) = 1
+       LIMIT 1`,
+    )
+      .bind(n)
+      .first();
+    if (inbox?.ok) return true;
+
+    // Operator personal/login aliases — auth_user_emails → platform_operator policy.
+    const row = await env.DB.prepare(
+      `SELECT aue.auth_user_id AS user_id
+         FROM auth_user_emails aue
+        WHERE lower(trim(aue.email)) = ?
+          AND COALESCE(aue.is_login_enabled, 1) = 1
+        LIMIT 1`,
+    )
+      .bind(n)
+      .first();
+    if (!row?.user_id) return false;
+
+    const uid = String(row.user_id).trim();
+    const pol = await env.DB.prepare(
+      `SELECT 1 AS ok FROM agentsam_user_policy
+        WHERE user_id = ?
+          AND COALESCE(platform_operator, 0) = 1
+        LIMIT 1`,
+    )
+      .bind(uid)
+      .first();
+    if (pol?.ok) return true;
+
+    // Optional explicit allowlist emails on the inbound hook (D1 JSON, not code).
+    const hook = await env.DB.prepare(
+      `SELECT handler_config FROM agentsam_hook
+        WHERE id = 'hook_email_reply_log'
+        LIMIT 1`,
+    )
+      .first()
+      .catch(() => null);
+    if (hook?.handler_config) {
+      try {
+        const cfg =
+          typeof hook.handler_config === 'string'
+            ? JSON.parse(hook.handler_config)
+            : hook.handler_config;
+        const list = Array.isArray(cfg?.allowlist_emails) ? cfg.allowlist_emails : [];
+        if (list.some((e) => normalizePhoneLoopSenderEmail(e) === n)) return true;
+      } catch {
+        /* ignore bad json */
+      }
+    }
+  } catch (e) {
+    console.warn('[isPhoneLoopAllowlistedSender]', e?.message ?? e);
+  }
+  return false;
 }
 
 /**
@@ -363,7 +430,7 @@ export async function runAgentTurnFromEmail(env, ctx, payload) {
   if (!instruction) {
     return { ok: false, error: 'empty_instruction' };
   }
-  if (!isPhoneLoopAllowlistedSender(payload.fromAddress)) {
+  if (!(await isPhoneLoopAllowlistedSender(env, payload.fromAddress))) {
     return { ok: false, error: 'sender_not_allowlisted' };
   }
 
