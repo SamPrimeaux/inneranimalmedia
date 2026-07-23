@@ -3,7 +3,10 @@
 **Status:** PLAN LOCKED from live scorecard — execute tickets in order; do not parallelize.  
 **Probed:** ~2026-07-23 00:05Z (scorecard) · remote re-proof ~00:09Z · PWA/worker SHA `23e6bf68`  
 **Law:** No Proof + SHA → RED. Deploy ≠ pass. Dual-pass E2E before `shipped`.  
-**Update:** `agentsam_terminal_remote` flipped **GREEN** (connectivity). Remaining remote gap = **stale git checkout** (`5a060f7c` vs `23e6bf68`), tracked as Gate 5 freshness — not 530.
+**Updates:**  
+- `agentsam_terminal_remote` **GREEN** (connectivity). **No** open 530 ticket — Gate R is clone freshness only.  
+- Hosted shell = Gate **1a + 1b** (scope ≠ executor).  
+- MY_CONTAINER vs “Sandbox bridge” = **likely one red counted twice** (see Gap 3).
 
 ---
 
@@ -14,15 +17,24 @@
 | Main Agent `/api/agent/chat` | **GREEN** | write→read same `conn_mac_local` on `.scratch/lane-pin-test.txt` (`87727d39-…`) | `inneranimalmedia` | `23e6bf68` |
 | `fs_*` + localpty | **GREEN** | Mac disk proof + D1 `workspace_pty_write` | main + ExecOS localpty | `23e6bf68` |
 | `agentsam_terminal_local` | **GREEN** | cwd Mac repo; write+cat `/tmp/…` (`1a33cea6-…`) | main + ExecOS localpty | `23e6bf68` |
-| `agentsam_terminal_remote` | **GREEN** | Live ~00:09Z: `whoami&&pwd&&date` → `agentsam`, `/home/samprimeaux/inneranimalmedia`, exit 0, `conn_gcp_iam_tunnel`, `cwd_source=gcp_remote` | main + ExecOS remote | **connectivity** green; **checkout stale** at `5a060f7c` (not `23e6bf68`) |
-| PWA/SW | **GREEN** | `pwa-build-meta.json` = `23e6bf68`, sw.js 200 | R2 + main | `23e6bf68` |
-| Hosted shell (OpenAI `/mnt/data`) | **RED** | empty `commands:[]` → `close_done_no_token` (`3880f2b4-…`); no `/mnt/data` success; **needs Gate 1a + 1b** (scope ≠ empty-commands/container reuse) | OpenAI | — |
-| MY_CONTAINER / `terminal_sandbox` | **RED** | `/api/sandbox/health` 401 unauthed; no fresh whoami | `MY_CONTAINER` | — |
-| MCP OAuth tools | **RED** | MCP `/health` 200; `tools/list` 401; Cursor discovery error | `inneranimalmedia-mcp-server` | unverified |
-| Sandbox bridge (OpenAI Agents) | **RED** | No separate bridge Worker; `/api/sandbox/*` ≠ OpenAI bridge contract | none | — |
+| `agentsam_terminal_remote` | **GREEN** | ~00:09Z whoami/pwd/date, `conn_gcp_iam_tunnel`, exit 0 | main + ExecOS remote | connectivity OK; checkout stale `5a060f7c` |
+| PWA/SW | **GREEN** | `pwa-build-meta.json` = `23e6bf68` | R2 + main | `23e6bf68` |
+| Hosted shell (OpenAI `/mnt/data`) | **RED** | empty `commands:[]` → `close_done_no_token`; needs **1a + 1b** | OpenAI | — |
+| MCP OAuth tools | **RED** | `/health` 200; `tools/list` **401** — treat as **auth/token first**, not oauth_visible policy | `inneranimalmedia-mcp-server` | unverified |
+| Job 2 isolated compute (merged row) | **RED** | See Gap 3 — **one** root until proven otherwise | `inneranimalmedia` `MY_CONTAINER` | — |
 
-**Bottom line:** 5 green (workspace + remote **connectivity**). Reds left: hosted shell, MY_CONTAINER, MCP, bridge.  
-**GCP clone caveat:** `git rev-parse HEAD` on remote returned `5a060f7c` (~19:55 local time) — missing lane-pin / progressive-terminal / later fixes. Connectivity proof stands; do not trust remote for builds/deploys until `git pull` → SHA matches `origin/main`.
+### Gap 3 — do not double-count sandbox reds
+
+| Was listed as | What it actually is |
+|---------------|---------------------|
+| MY_CONTAINER / `terminal_sandbox` | IAM Job 2: `agentsam_terminal_sandbox` + `/api/sandbox/*` → `handleSandboxApi` → `MY_CONTAINER` |
+| “Sandbox bridge” | **No** separate Worker (`sandbox` / `agentsam-sandbox` do not exist). Same host routes under `/api/sandbox/*`. **Not** OpenAI Agents `CloudflareSandboxClient` bridge API. |
+
+Probe symptom for both rows was the same: **`/api/sandbox/health` → 401 without session**. Until an authenticated session proves health+whoami **or** we prove a second distinct failure mode, scorecard treats this as **one RED** (Job 2).  
+
+`tkt_isolated_compute_ssot_decision` (adopt official CF sandbox-bridge vs keep MY_CONTAINER) is a **later decision ticket**, not a second current outage. Do not schedule bridge impl until Job 2 whoami is green **or** decision = abandon MY_CONTAINER for bridge.
+
+**Bottom line:** 5 green. Independent reds: **hosted shell**, **MCP 401**, **Job 2 `/api/sandbox` auth/exec** (once). Optional ops: GCP git pull.
 
 ---
 
@@ -30,109 +42,95 @@
 
 | Job | Allowed surfaces | Forbidden |
 |-----|------------------|-----------|
-| **1. Workspace** | `fs_*`, `agentsam_terminal_local`, (later) remote when green | Hosted shell, MY_CONTAINER, OpenAI SandboxAgent |
-| **2. Isolated compute** | `agentsam_terminal_sandbox` / MY_CONTAINER **or** official CF sandbox bridge — **pick one later** | Pretending either is the IAM repo |
+| **1. Workspace** | `fs_*`, `agentsam_terminal_local`, `agentsam_terminal_remote` (connectivity green) | Hosted shell, MY_CONTAINER as “repo” |
+| **2. Isolated compute** | `agentsam_terminal_sandbox` / MY_CONTAINER **or** (later) official CF sandbox-bridge — **one SSOT** | Calling `/api/sandbox` “OpenAI bridge” |
 | **3. Scratch** | OpenAI hosted shell (`container_auto`) under `/mnt/data` only | Repo paths, `.scratch/`, git, deploy |
 
-HTML-create / “file dead” symptoms today = Job 3 + tool-choice stealing Job 1 turns. **fs is green.**
+---
+
+## Bare-minimum bar
+
+1. Workspace dual-pass: `fs_write` → `fs_read` same `connection_id` + disk  
+2. `agentsam_terminal_local` without hosted shell stealing  
+3. Hosted shell **1a + 1b** both green  
+4. MCP: **auth works** then tools/list non-empty + one exec (policy second)  
+5. Job 2: authenticated sandbox health + whoami (single ticket)  
+6. Deploy SHA match (already true at probe)
 
 ---
 
-## Bare-minimum bar (definition of “platform not on fire”)
+## Sequencing (blast-radius order — locked)
 
-Must all be green + dual-pass before any SandboxAgent / bridge / Runloop work:
+Do **not** reorder. Matches operator ranking.
 
-1. Workspace: `fs_write` → `fs_read` same `connection_id` + file on disk  
-2. Named `agentsam_terminal_local` whoami/pwd without hosted shell  
-3. Progressive core includes terminal (shipped `23e6bf68` / session v13) — dual-pass only  
-4. Hosted shell: **1a** scope + **1b** empty-commands contract + container_reference persistence — both green (not policy-only)  
-5. MCP: authenticated `tools/list` non-empty + one exec  
-6. Deploy: worker + `pwa-build-meta` SHA match (already true at probe)
+### 0 — `tkt_workspace_e2e` (dual-pass)
+- Confirm greens: Main Agent + `fs_*` + `terminal_local` (+ pin row).  
+- Record two `e2e_pass` events. Most of the way there already.  
+- **Block** Gate 1 until pass #1 logged.
 
----
+### R — Remote (optional ops — **not** a 530 ticket)
+- Connectivity **already GREEN** (~00:09Z). **Do not open** `tkt_terminal_remote_530`.  
+- Optional: `tkt_gcp_iam_tunnel_git_pull_parity` — pull clone `5a060f7c` → `origin/main` when builds need current tree. Can run anytime; not on critical path for hosted-shell.
 
-## Ticket order (do not reorder)
+### 1a — `tkt_hosted_shell_scope`
+- `/mnt/data` only; fail loud on repo paths. Policy/UX.  
+- Does **not** fix empty `commands:[]` or container reuse.
 
-### Gate 0 — Dual-pass the greens (ops, not code)
-- **Ticket:** record E2E for workspace + terminal_local + pin (`agentsam_pty_lane_pin`)  
-- **Do:** two separate operator turns; `record:ticket-e2e-pass` on relevant tickets (`tkt_mac_localpty_exec_identity_20260722`, workspace)  
-- **Block:** do not start Gate 1+ until Gate 0 pass #1 logged  
+### 1b — `tkt_hosted_shell_executor_contract`
+- Empty `commands:[]` → durable non-success tool outcome before inventable text; persist `container_id` by `agent_run_id` → `container_reference` + response chaining.  
+- Mode = `container_auto` (hosted), not local LocalShell.  
+- Hosted shell stays **RED** until **1a and 1b** proofs land.
 
-### Gate 1 — Hosted shell (two tickets — do not merge)
+### 2 — `tkt_mcp_oauth_menu` (auth first)
+- **Step 2.0:** classify the 401 — broken bearer / Cursor discovery / expired OAuth vs intentional empty allowlist.  
+- **Do not** let “decide `oauth_visible` for fs_*” absorb a **broken token**. Fix auth proof first (`tools/list` 200 with valid token).  
+- **Step 2.1:** only then decide oauth_visible / menu policy for external Claude.  
+- **Proof:** authenticated tools/list count > 0; one MCP-path tool_call_log success.
 
-Policy-only “/mnt/data UI” **undersells** the bug. Scope ≠ executor contract. Keep **1a** and **1b** separate; both required before hosted shell leaves RED.
+### 3 — `tkt_my_container_whoami_proof` (Job 2 — single red)
+- Authenticated `/api/sandbox/health` + `agentsam_terminal_sandbox` whoami/pwd.  
+- Fixes the **one** 401/exec gap for MY_CONTAINER.  
+- **Does not** deploy OpenAI bridge.
 
-#### Gate 1a — Scope / UX (`tkt_hosted_shell_scope`)
-- **Outcome:** Job 3 only — `/mnt/data` scratch; fail loud (tool_result + UI) if model aims hosted shell at repo / `.scratch` / Mac/GCP paths  
-- **Allowed:** hybrid instruction, UI copy (“OpenAI container, not workspace”), optional Sam flag off until 1b green  
-- **Banned:** tool-name hardcode suppress lists; progressive-core churn without measurement  
-- **Does not fix:** empty `commands:[]`, invented transcripts, or multi-turn container reuse  
-- **Proof:** (A) file/HTML ask → Job 1 tools win, no hosted-shell death; (B) explicit “hosted shell: ls /mnt/data” → real non-empty `shell_call_output`
-
-#### Gate 1b — Executor / API contract (`tkt_hosted_shell_executor_contract`)
-- **Mode fact (locked):** we inject `environment: { type: "container_auto" }` — **hosted**. OpenAI runs the shell. We are **not** implementing OpenAI “local” `environment.type=local` LocalShell unless Gate 4 says so. Docs that tell *your* executor to return `shell_call_output` apply to **local** mode; for hosted, OpenAI returns `shell_call_output` in the Responses stream.  
-- **Bug class to fix anyway:** empty `shell_call.action.commands: []` leaves a gap (empty/failed tool UI + model text-completing a fake terminal). Scoping to `/mnt/data` alone still allows invented scratch output.  
-- **Required outcomes:**  
-  1. **Empty-commands contract:** before the model gets another free-form token that can invent a transcript, the turn must surface a **durable, non-success tool outcome** (SSE `tool_result` / ledger with explicit `ok: false`, exit≠0 semantics, no blank “Done”). Prefer continuing the agent loop with that outcome in history (extend `f49fd74e` recovery — no silent `close_done_no_token`). Do **not** pretend we locally executed OpenAI’s container.  
-  2. **Container reuse:** persist OpenAI `container_id` (from hosted shell / code-exec pause items) keyed by `agent_run_id` (same durability idea as `agentsam_pty_lane_pin`); subsequent Responses calls in that run use `environment: { type: "container_reference", container_id }` when available, with `previous_response_id` (or PTC exact-order replay) so `/mnt/data` state survives turns.  
-- **Proof:** (A) force/observe empty `commands:[]` → UI shows hard failure + loop continues with Job 1 tools, **no** fabricated `ls`/stderr prose; (B) two hosted-shell turns in one run share the same container (D1/log `container_id` match) and second turn sees first turn’s `/mnt/data` file  
-
-**Scorecard:** Hosted shell stays **RED** until **both** 1a and 1b proofs land.
-### Gate 2 — MCP OAuth bare minimum
-- **ID (proposed):** `tkt_mcp_oauth_tools_list_green`  
-- **Outcome:** Cursor + Claude connector: discovery OK, `tools/list` with bearer, one tool exec  
-- **Decide in ticket:** oauth_visible for `fs_write`/`fs_read` vs terminal-only for external  
-- **Proof:** authenticated tools/list count > 0; one successful tool_call_log row from MCP path  
-
-### Gate 3 — MY_CONTAINER whoami (isolated compute)
-- **ID (proposed):** `tkt_my_container_whoami_proof`  
-- **Outcome:** authenticated sandbox health + `whoami`/`pwd` via `agentsam_terminal_sandbox`  
-- **Do not** build OpenAI bridge until this is green **or** explicitly abandoned in Gate 4  
-
-### Gate 4 — Decision only (no impl): isolated compute SSOT
-- **ID (proposed):** `tkt_isolated_compute_ssot_decision`  
-- **Choose one:**  
-  - **A)** MY_CONTAINER remains sole Job 2 (document; kill bridge talk)  
-  - **B)** Deploy official CF sandbox-bridge Worker; Agents SDK `CloudflareSandboxClient` for Job 2 only  
-- **Do not start B** until Gates 0–3 green  
-
-### Gate 5 — Remote ExecOS clone freshness (connectivity already GREEN)
-- **ID (proposed):** `tkt_gcp_iam_tunnel_git_pull_parity`  
-- **Proven ~00:09Z:** whoami/pwd/date on `conn_gcp_iam_tunnel` — **do not reopen 530 ticket** unless it regresses  
-- **Outcome:** `/home/samprimeaux/inneranimalmedia` on iam-tunnel matches `origin/main` (or documented intentional pin); `git rev-parse HEAD` == deployed/PWA SHA when used for builds  
-- **Do:** `git fetch && git checkout main && git pull` on VM (via `ship:remote` / agentsam SSH — **never** Vite/`deploy:full` on the VM)  
-- **Blocked by:** Gate 0–1 preferred so operator isn’t mid–hosted-shell fire drill; can run anytime as ops if needed for a remote build
+### 4 — `tkt_sandbox_bridge_decision` (decision only — after Gap 3 settled)
+- **Prerequisite:** Gate 3 green **or** written abandon of MY_CONTAINER.  
+- Confirm scorecard is not still double-counting the same 401.  
+- Choose **A)** MY_CONTAINER sole Job 2 (document; stop saying “bridge”) **or** **B)** deploy official `cloudflare/sandbox-sdk/bridge` Worker for `CloudflareSandboxClient`.  
+- **No impl of B** until 0 → 1a/1b → 2 → 3 green.
 
 ### Explicit DO NOT START
-- OpenAI `SandboxAgent` / Runloop / Unix-local-as-product  
-- New D1 “routing” tables beyond existing pin  
-- Three static tool-profile remasters (see `CURSOR-PARITY-TOOL-DISCOVERY`)  
-- Treating `/api/sandbox/*` as OpenAI bridge-compatible without Gate 4 = B  
+- OpenAI `SandboxAgent` / Runloop / Unix-local-as-product before Gate 4 = B  
+- Second ticket that only re-probes unauthenticated `/api/sandbox/health`  
+- Reopening remote 530  
+- Tool-name hardcode lists for hosted shell  
+- oauth_visible debates before MCP auth works  
 
 ---
 
 ## Anti-patterns (frozen)
 
-1. Ship-racing failover + pin + UI + hosted shell without scorecard  
-2. Calling MY_CONTAINER “sandbox bridge”  
-3. Hosted shell for `.scratch` / repo proofs  
-4. Progressive core edits without checking `agentsam_tool_profiles` still owns the ceiling  
-5. Marking tickets shipped on deploy alone  
+1. Ship-racing without scorecard  
+2. Counting MY_CONTAINER 401 and “missing bridge Worker” as two outages  
+3. Calling `/api/sandbox/*` the OpenAI Agents bridge  
+4. Hosted shell for `.scratch` / repo  
+5. Progressive core edits without profile ceiling check  
+6. Marking shipped on deploy alone  
+7. Treating MCP 401 as a catalog policy ticket  
 
 ---
 
 ## Next action (immediate)
 
-1. **Operator:** Gate 0 pass #1 — one Agent turn: force `fs_write_file` + `fs_read_file` + `agentsam_terminal_local` `pwd`; paste tool `connection_id`s.  
-2. **Agent:** Gate **1a** then **1b** (scope ≠ executor contract — do not collapse into one ticket).  
-3. Re-probe scorecard after 1a+1b; update Status column.
+1. **Operator:** Gate 0 pass #1 — `fs_write` → `fs_read` + `terminal_local` `pwd`; paste `connection_id`s.  
+2. **Agent:** **1a** then **1b** only.  
+3. Re-probe; collapse Job 2 to one Status after authed sandbox proof.
 
 ---
 
 ## Related
 
-- Scorecard source: operator probe 2026-07-23 00:05Z  
-- Diagnosis: [AGENTSAM-FILE-CREATE-HTML-FAILURES-2026-07-22.md](./AGENTSAM-FILE-CREATE-HTML-FAILURES-2026-07-22.md)  
-- Pin: `agentsam_pty_lane_pin` + `23e6bf68` progressive core terminal  
-- Fleet (Responses, not SandboxAgent): [OPENAI-AGENTSAM-FLEET-2026-07.md](./OPENAI-AGENTSAM-FLEET-2026-07.md)  
-- Localpty: [MAC-LOCALPTY-EXEC-IDENTITY-2026-07.md](./MAC-LOCALPTY-EXEC-IDENTITY-2026-07.md)  
+- Scorecard: operator probe 2026-07-23 00:05Z · remote 00:09Z  
+- [AGENTSAM-FILE-CREATE-HTML-FAILURES-2026-07-22.md](./AGENTSAM-FILE-CREATE-HTML-FAILURES-2026-07-22.md)  
+- Pin + progressive terminal: `23e6bf68`  
+- [OPENAI-AGENTSAM-FLEET-2026-07.md](./OPENAI-AGENTSAM-FLEET-2026-07.md)  
+- [MAC-LOCALPTY-EXEC-IDENTITY-2026-07.md](./MAC-LOCALPTY-EXEC-IDENTITY-2026-07.md)  
