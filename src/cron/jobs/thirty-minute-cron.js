@@ -229,6 +229,11 @@ export async function runThirtyMinuteJobs(env, ctx) {
   ctx.waitUntil(sweepStaleTerminalSessions(env));
   ctx.waitUntil(sweepStaleAgentRuns(env));
   ctx.waitUntil(
+    import('../../core/error-log-reconcile.js')
+      .then(({ reconcileErrorLogResolutions }) => reconcileErrorLogResolutions(env))
+      .catch((e) => console.warn('[cron] reconcileErrorLogResolutions', e?.message ?? e)),
+  );
+  ctx.waitUntil(
     import('../../core/keys-security.js')
       .then(({ runSecurityShieldPulseCron }) => runSecurityShieldPulseCron(env))
       .catch((e) => console.warn('[cron] security_shield_pulse', e?.message ?? e)),

@@ -77,27 +77,163 @@ export async function handleWorkspaceApi(request, url, env, ctx, authUser) {
     const agentsamRes = await handleAgentsamWorkspacesApi(request, url, env, ctx, authUser);
     if (agentsamRes) return agentsamRes;
 
-    // Local Explorer folder browsing is browser-only (IndexedDB handle + localStorage name).
-    // It must never mint agentsam_workspace / agentsam_workspace_state rows — those tables are
-    // for curated product workspaces and live agent sessions against bound infra.
+    // Local Explorer folder browsing is browser-only for scratch folders.
+    // Curated product workspaces bind via POST /api/workspace/local-bind (real ws_* only).
     if (pathLower === '/api/workspace/create' && method === 'POST') {
         return jsonResponse(
             {
                 error: 'local_explorer_client_only',
                 detail:
-                    'Folder open/recent state is browser-local only. Product workspaces are deliberate repo+Worker+bindings identities — not Local Explorer glances.',
+                    'Scratch folder open is browser-local only. Curated repos use POST /api/workspace/local-bind → real ws_*.',
             },
             410,
         );
     }
 
+    // ── POST /api/workspace/local-bind ─────────────────────────────────────
+    // Match Local Explorer folder (and optional git remote) to a curated workspace.
+    // Match → activate + upsert agentsam_workspace_state under that real workspace_id.
+    // No match → { bound:false }, zero D1 writes.
+    if (pathLower === '/api/workspace/local-bind' && method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const folderName = typeof body.folderName === 'string' ? body.folderName.trim() : '';
+        const githubRemote =
+            typeof body.github_repo === 'string'
+                ? body.github_repo.trim()
+                : typeof body.githubRemote === 'string'
+                  ? body.githubRemote.trim()
+                  : '';
+        if (!folderName && !githubRemote) {
+            return jsonResponse({ error: 'folderName_or_github_repo_required' }, 400);
+        }
+
+        const { listAccessibleWorkspaces } = await import('../core/workspace-access.js');
+        const { matchLocalFolderToWorkspace, githubRepoName } = await import(
+            '../core/match-local-folder-to-workspace.js'
+        );
+
+        const rows = await listAccessibleWorkspaces(env.DB, env, authUser, { limit: 200 });
+        const candidates = (rows || []).map((w) => ({
+            id: w.id,
+            name: w.name ?? w.display_name ?? null,
+            slug: w.slug ?? w.handle ?? null,
+            github_repo: w.github_repo ?? null,
+            root_path: w.root_path ?? null,
+            pty_path: w.pty_path ?? null,
+        }));
+
+        let hit = folderName ? matchLocalFolderToWorkspace(folderName, candidates) : null;
+        if (!hit && githubRemote) {
+            const want = githubRepoName(githubRemote).toLowerCase();
+            const full = githubRemote.replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').toLowerCase();
+            const ghHits = candidates.filter((c) => {
+                const g = String(c.github_repo || '')
+                    .replace(/^https?:\/\/github\.com\//i, '')
+                    .replace(/\.git$/i, '')
+                    .toLowerCase();
+                if (!g) return false;
+                return g === full || githubRepoName(g).toLowerCase() === want;
+            });
+            if (ghHits.length === 1) {
+                hit = { id: ghHits[0].id, reason: 'github_remote' };
+            }
+        }
+
+        if (!hit) {
+            return jsonResponse({
+                ok: true,
+                bound: false,
+                detail: 'No curated workspace match — scratch stays browser-local; no D1 write.',
+            });
+        }
+
+        const workspaceId = hit.id;
+        const nowMs = Date.now();
+        const existing = await env.DB.prepare(
+            `SELECT id, state_json FROM agentsam_workspace_state WHERE workspace_id = ? LIMIT 1`,
+        )
+            .bind(workspaceId)
+            .first()
+            .catch(() => null);
+
+        let stateObj = {};
+        try {
+            stateObj = existing?.state_json ? JSON.parse(existing.state_json) : {};
+        } catch {
+            stateObj = {};
+        }
+        if (!stateObj || typeof stateObj !== 'object') stateObj = {};
+        stateObj.local_explorer = {
+            schema: 'local_explorer_bind_v1',
+            folderName: folderName || null,
+            github_repo: githubRemote || null,
+            bind_reason: hit.reason,
+            lastOpenedAt: nowMs,
+            last_device_hint: typeof body.device_hint === 'string' ? body.device_hint.slice(0, 64) : null,
+        };
+        const stateJson = JSON.stringify(stateObj);
+
+        if (existing?.id) {
+            await env.DB.prepare(
+                `UPDATE agentsam_workspace_state
+                 SET state_json = ?, workspace_type = COALESCE(workspace_type, 'ide'), updated_at = unixepoch()
+                 WHERE id = ?`,
+            )
+                .bind(stateJson, existing.id)
+                .run();
+        } else {
+            await env.DB.prepare(
+                `INSERT INTO agentsam_workspace_state (
+                   id, workspace_id, workspace_type, files_open, state_json, created_at, updated_at
+                 ) VALUES ('wss_' || lower(hex(randomblob(8))), ?, 'ide', '[]', ?, unixepoch(), unixepoch())`,
+            )
+                .bind(workspaceId, stateJson)
+                .run();
+        }
+
+        const userId = String(authUser.id || '').trim();
+        if (userId) {
+            try {
+                await env.DB.prepare(
+                    `UPDATE auth_users SET active_workspace_id = ?, updated_at = datetime('now') WHERE id = ?`,
+                )
+                    .bind(workspaceId, userId)
+                    .run();
+            } catch {
+                /* non-fatal */
+            }
+        }
+
+        const proof = await env.DB.prepare(
+            `SELECT id, workspace_id, workspace_type, state_json, updated_at
+             FROM agentsam_workspace_state WHERE workspace_id = ? LIMIT 1`,
+        )
+            .bind(workspaceId)
+            .first();
+
+        return jsonResponse({
+            ok: true,
+            bound: true,
+            workspace_id: workspaceId,
+            reason: hit.reason,
+            state_row: proof
+                ? {
+                      id: proof.id,
+                      workspace_id: proof.workspace_id,
+                      workspace_type: proof.workspace_type,
+                      updated_at: proof.updated_at,
+                      local_explorer: stateObj.local_explorer,
+                  }
+                : null,
+        });
+    }
+
     const userWsMatch = pathLower.match(/^\/api\/workspace\/([^/]+)$/);
-    if (userWsMatch && userWsMatch[1] !== 'create' && (method === 'GET' || method === 'PATCH')) {
-        // Former ephemeral UUID session API — retired with Local Explorer D1 persistence.
+    if (userWsMatch && userWsMatch[1] !== 'create' && userWsMatch[1] !== 'local-bind' && (method === 'GET' || method === 'PATCH')) {
         return jsonResponse(
             {
                 error: 'local_explorer_client_only',
-                detail: 'Ephemeral Local Explorer D1 state was removed. Use a real ws_* workspace for agent sessions.',
+                detail: 'Ephemeral Local Explorer D1 UUID state was removed. Use /api/workspace/local-bind for curated ws_*.',
             },
             410,
         );

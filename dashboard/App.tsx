@@ -79,7 +79,6 @@ import {
 import { writeSessionProject } from './src/lib/freshChatSession';
 import { resolveWorkspaceContextLabel } from './src/workspaceContextLabel';
 import { coalesceLabel } from './src/lib/coalesceLabel';
-import { matchLocalFolderToWorkspace } from './src/lib/matchLocalFolderToWorkspace';
 import {
   IAM_OPEN_COMMAND_PALETTE,
   IAM_GIT_SYNC_PUBLISH,
@@ -2935,21 +2934,38 @@ const App: React.FC = () => {
       setIdeWorkspace({ source: 'local', folderName: name });
       if (!name) return; // disconnect — keep active product workspace for phone continuity
 
-      const hit = matchLocalFolderToWorkspace(name, workspaceRows);
-      if (!hit) return; // scratch folder — browser-local only, not a product workspace
-      if (hit.id === authWorkspaceId) return;
-
-      const row = workspaceRows.find((w) => w.id === hit.id);
-      void switchWorkspace(hit.id, {
-        displayName: row?.name,
-        slug: row?.slug,
-        github_repo: row?.github_repo ?? null,
-        sync: true,
-      }).then(() => {
-        setToastMsg(`Workspace → ${row?.name || hit.id} (synced for all devices)`);
-      });
+      // Explicit: curated match → server bind + active workspace; scratch → no D1 write.
+      void (async () => {
+        try {
+          const res = await fetch('/api/workspace/local-bind', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folderName: name, device_hint: 'local_explorer' }),
+          });
+          const data = (await res.json().catch(() => ({}))) as {
+            bound?: boolean;
+            workspace_id?: string;
+            reason?: string;
+            detail?: string;
+          };
+          if (!res.ok || !data.bound || !data.workspace_id) {
+            return; // scratch / no match — browser-local only
+          }
+          const row = workspaceRows.find((w) => w.id === data.workspace_id);
+          await switchWorkspace(data.workspace_id, {
+            displayName: row?.name,
+            slug: row?.slug,
+            github_repo: row?.github_repo ?? null,
+            sync: true,
+          });
+          setToastMsg(`Workspace → ${row?.name || data.workspace_id} (synced for all devices)`);
+        } catch {
+          /* offline — keep local IDE folder only */
+        }
+      })();
     },
-    [workspaceRows, authWorkspaceId, switchWorkspace, setToastMsg],
+    [workspaceRows, switchWorkspace, setToastMsg],
   );
 
   /** Agent Sam SSE `surface_open` / orchestration — open the right workspace tab without new buttons. */

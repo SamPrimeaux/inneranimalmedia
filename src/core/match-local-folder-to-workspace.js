@@ -1,52 +1,45 @@
 /**
- * Match a Local Explorer folder display name to a curated product workspace.
- * Continuity (Mac↔phone) only applies when this resolves — scratch folders stay local.
+ * Match Local Explorer folder / path to a curated product workspace (Worker + dashboard).
+ * Scratch folders must not match — return null.
  */
 
-export type WorkspaceMatchCandidate = {
-  id: string;
-  name?: string | null;
-  slug?: string | null;
-  github_repo?: string | null;
-  root_path?: string | null;
-  pty_path?: string | null;
-};
-
-function norm(s: string | null | undefined): string {
+function norm(s) {
   return String(s ?? '')
     .trim()
     .toLowerCase()
     .replace(/\/+$/, '');
 }
 
-/** Last path segment of a unix/mac path or ~/… path. */
-export function basenamePath(path: string | null | undefined): string {
-  const p = String(path ?? '').trim().replace(/\\/g, '/');
+export function basenamePath(path) {
+  const p = String(path ?? '')
+    .trim()
+    .replace(/\\/g, '/');
   if (!p) return '';
   const parts = p.split('/').filter(Boolean);
-  return parts.length ? parts[parts.length - 1]! : '';
+  return parts.length ? parts[parts.length - 1] : '';
 }
 
-/** owner/repo → repo */
-export function githubRepoName(repo: string | null | undefined): string {
-  const r = String(repo ?? '').trim().replace(/\.git$/i, '');
+export function githubRepoName(repo) {
+  const r = String(repo ?? '')
+    .trim()
+    .replace(/^https?:\/\/github\.com\//i, '')
+    .replace(/\.git$/i, '');
   if (!r) return '';
   const parts = r.split('/').filter(Boolean);
-  return parts.length ? parts[parts.length - 1]! : r;
+  return parts.length ? parts[parts.length - 1] : r;
 }
 
 /**
- * @returns matched workspace id, or null if no unique curated match
+ * @param {string} folderName
+ * @param {Array<{id:string,name?:string|null,slug?:string|null,github_repo?:string|null,root_path?:string|null,pty_path?:string|null}>} candidates
+ * @returns {{id:string,reason:string}|null}
  */
-export function matchLocalFolderToWorkspace(
-  folderName: string,
-  candidates: WorkspaceMatchCandidate[],
-): { id: string; reason: string } | null {
+export function matchLocalFolderToWorkspace(folderName, candidates) {
   const folder = norm(folderName);
   if (!folder || !Array.isArray(candidates) || candidates.length === 0) return null;
 
-  type Scored = { id: string; score: number; reason: string };
-  const scored: Scored[] = [];
+  /** @type {Array<{id:string,score:number,reason:string}>} */
+  const scored = [];
 
   for (const c of candidates) {
     const id = String(c?.id ?? '').trim();
@@ -85,10 +78,9 @@ export function matchLocalFolderToWorkspace(
   }
 
   if (scored.length === 0) return null;
-
   scored.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
-  const best = scored[0]!.score;
+  const best = scored[0].score;
   const top = scored.filter((s) => s.score === best);
-  if (top.length !== 1) return null; // ambiguous (e.g. twin staging) — operator must pick
-  return { id: top[0]!.id, reason: top[0]!.reason };
+  if (top.length !== 1) return null;
+  return { id: top[0].id, reason: top[0].reason };
 }

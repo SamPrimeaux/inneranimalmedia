@@ -216,6 +216,30 @@ while (Date.now() - started < MAX_WAIT_MS) {
     dashColMiss.length === 0 &&
     healthOk
   ) {
+    // Read-side hygiene: a green trail means prior deploy_trail_gate alerts for this SHA are closed.
+    try {
+      d1Query(
+        `UPDATE agentsam_error_log
+         SET resolved = 1
+         WHERE COALESCE(resolved, 0) = 0
+           AND error_code = 'deploy_trail_gate'
+           AND (
+             error_message LIKE ${sqlQuote('%' + hashes.full + '%')}
+             OR error_message LIKE ${sqlQuote('%' + hashes.full.slice(0, 12) + '%')}
+             OR context_json LIKE ${sqlQuote('%' + hashes.full + '%')}
+           )`,
+      );
+      // Also close stale trail alerts older than 7d when a newer trail is green
+      d1Query(
+        `UPDATE agentsam_error_log
+         SET resolved = 1
+         WHERE COALESCE(resolved, 0) = 0
+           AND error_code = 'deploy_trail_gate'
+           AND created_at < unixepoch() - 7 * 86400`,
+      );
+    } catch (e) {
+      console.error(`[deploy-trail-gate] error_log resolve best-effort: ${e?.message || e}`);
+    }
     console.error(
       `✅ Deploy trail complete for ${hashes.full}: deployments=${last.dep.id} changed_files_ok dashboard=${last.dashRows.length} health=${last.health.id}`,
     );
