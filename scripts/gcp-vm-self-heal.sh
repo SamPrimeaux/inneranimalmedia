@@ -43,9 +43,42 @@ else
   }
 fi
 
+# Operator repo on iam-tunnel is a disposable Agent workspace (not deploy SSOT).
+# Dirty trees / wrong-user FETCH_HEAD ownership must not block sync forever.
+agentsam_ensure_git_owner() {
+  local dir="$1"
+  [[ -d "${dir}/.git" ]] || return 0
+  # Cron runs as root — reclaim .git if root/samprimeaux left FETCH_HEAD unwritable for agentsam.
+  chown -R "${AGENTSAM_USER}:${AGENTSAM_USER}" "${dir}/.git" 2>/dev/null || true
+}
+
+agentsam_git_reset_hard_main() {
+  local dir="$1"
+  local label="$2"
+  iam_clear_stale_git_locks "$dir"
+  agentsam_ensure_git_owner "$dir"
+  if iam_with_repo_git_lock "$dir" sudo -u "$AGENTSAM_USER" bash -c "
+    set -euo pipefail
+    cd '${dir}'
+    git fetch origin -q
+    git checkout -B main origin/main -q 2>/dev/null || git checkout main -q
+    git reset --hard origin/main -q
+    git clean -fd -q
+  "; then
+    local head
+    head="$(sudo -u "$AGENTSAM_USER" git -C "${dir}" rev-parse --short HEAD 2>/dev/null || echo '?')"
+    echo "${LOG_PREFIX} ${label}: reset --hard origin/main @ ${head}"
+    return 0
+  fi
+  echo "${LOG_PREFIX} ${label}: reset --hard FAILED — check ${AGENTSAM_USER} GitHub SSH / ownership"
+  return 1
+}
+
 agentsam_git_pull() {
   local dir="$1"
   local label="$2"
+  # disposable=1 → operator-repo policy: dirty or non-ff → hard reset (never stash junk)
+  local disposable="${3:-0}"
   if [[ ! -d "${dir}/.git" ]]; then
     echo "${LOG_PREFIX} ${label}: not cloned — skipping pull"
     return 0
@@ -55,19 +88,36 @@ agentsam_git_pull() {
     return 0
   fi
   iam_clear_stale_git_locks "$dir"
+  agentsam_ensure_git_owner "$dir"
+
+  local dirty=0
+  if [[ -n "$(sudo -u "$AGENTSAM_USER" git -C "${dir}" status --porcelain 2>/dev/null || true)" ]]; then
+    dirty=1
+  fi
+
+  if [[ "$disposable" == "1" && "$dirty" -eq 1 ]]; then
+    echo "${LOG_PREFIX} ${label}: dirty disposable workspace — hard reset (not ff-only)"
+    agentsam_git_reset_hard_main "$dir" "$label" || true
+    return 0
+  fi
+
   if iam_with_repo_git_lock "$dir" \
     sudo -u "$AGENTSAM_USER" git -C "${dir}" pull --ff-only -q 2>/dev/null; then
     echo "${LOG_PREFIX} ${label}: up to date"
-  else
-    # One retry after clearing locks (post-deploy sync race).
-    iam_clear_stale_git_locks "$dir"
-    if iam_with_repo_git_lock "$dir" \
-      sudo -u "$AGENTSAM_USER" git -C "${dir}" pull --ff-only -q 2>/dev/null; then
-      echo "${LOG_PREFIX} ${label}: up to date (retry)"
-    else
-      echo "${LOG_PREFIX} ${label}: pull warning (kept last good — check ${AGENTSAM_USER} GitHub SSH / locks)"
-    fi
+    return 0
   fi
+
+  # Retry ff-only after locks; then hard reset (ExecOS + disposable operator).
+  iam_clear_stale_git_locks "$dir"
+  agentsam_ensure_git_owner "$dir"
+  if iam_with_repo_git_lock "$dir" \
+    sudo -u "$AGENTSAM_USER" git -C "${dir}" pull --ff-only -q 2>/dev/null; then
+    echo "${LOG_PREFIX} ${label}: up to date (retry)"
+    return 0
+  fi
+
+  echo "${LOG_PREFIX} ${label}: ff-only failed — hard reset to origin/main"
+  agentsam_git_reset_hard_main "$dir" "$label" || true
 }
 
 agentsam_pm2() {
@@ -94,9 +144,10 @@ fi
 # Health restarts live in gcp-execos-health-watchdog.sh (separate cron) so fail
 # hysteresis is not double-counted when both jobs share the same */5 schedule.
 
-# 1–2. Pull ExecOS + operator repo (agentsam owns .git and has GitHub SSH)
-agentsam_git_pull "${EXECOS_HOME}" "ExecOS"
-agentsam_git_pull "${OPERATOR_REPO}" "operator repo"
+# 1–2. Pull ExecOS + operator repo (agentsam owns .git and has GitHub SSH).
+# Operator repo is disposable (3rd arg=1): dirty tree → reset --hard, never keep mass deletions.
+agentsam_git_pull "${EXECOS_HOME}" "ExecOS" 0
+agentsam_git_pull "${OPERATOR_REPO}" "operator repo" 1
 
 # 3. Ensure pm2 execos process is running under agentsam (start only — no restart race)
 if ! agentsam_pm2 "pm2 list 2>/dev/null" | grep -qE 'execos|agentsam'; then
