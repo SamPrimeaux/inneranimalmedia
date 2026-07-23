@@ -30,7 +30,7 @@ So for “Agent Sam, run a command while I'm on my phone / Mac is asleep,” the
 | **Git / wrangler / light shell** when Mac is asleep | Sparse checkout under `/home/samprimeaux/inneranimalmedia` |
 | **`npm run ship:remote`** | Push → Cloudflare Builds (never Vite/`deploy:full` on the VM) |
 | **Tunnel / DNS edge** | `cloudflared` for `terminal.inneranimalmedia.com` and related routes |
-| **Operator break-glass** | SSH via `gcloud compute ssh iam-tunnel` for self-heal, cron, env sync |
+| **Operator SSH** | `gcloud compute ssh iam-tunnel` for self-heal, cron, env sync |
 
 Ship lane law (LOCKED): on this host, **never** run `deploy:full`, `deploy:fast`, Vite, or rclone dashboard sync — they OOM the box. Use `ship:remote` instead.
 
@@ -44,20 +44,13 @@ Ship lane law (LOCKED): on this host, **never** run `deploy:full`, `deploy:fast`
 | **Dashboard / Vite builds** | OOM | Mac `deploy:full` / `deploy:fast`, or CF Builds via `ship:remote` |
 | **Heavy media / Meshy post-process at scale** | Same memory ceiling | Dedicated container / Workers paths as wired |
 
-Production CAD dispatch is **container-only** (Worker var `CAD_DISPATCH_TARGET=container`). `auto` / `gcp` remain break-glass only — the VM is not CAD-capable for real Design Studio work.
+Production CAD dispatch is **container-only** — there is no GCP/ExecOS CAD code path. The VM stays for always-on terminal/ops when Mac sleeps.
 
 ---
 
-## How CAD used to touch the VM (legacy)
+## How CAD used to touch the VM (removed)
 
-```txt
-Worker → ExecOS (pm2: execos on iam-tunnel)
-      → one-shot: cad-job-runner.mjs --once
-      → OpenSCAD/Blender on the tiny VM
-```
-
-That path still exists in code (`src/core/cad-pty-executor.js`) for emergency `CAD_DISPATCH_TARGET=gcp|auto`, but it is **not** the product lane. Prefer fixing / scaling the container image over “making CAD work on the VM.”
-
+Older builds routed Worker → ExecOS on `iam-tunnel` → `cad-job-runner.mjs --once`. That path is **deleted** from production dispatch (`cad-pty-executor.js` removed). CAD is CF container only.
 ---
 
 ## Mental model

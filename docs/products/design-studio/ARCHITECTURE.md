@@ -40,7 +40,7 @@ Job POST → agentsam_cad_jobs (D1)
   → SSE cad_glb_ready → viewport spawn
 ```
 
-Legacy break-glass only: `CAD_DISPATCH_TARGET=auto|gcp` → ExecOS one-shot `cad-job-runner.mjs` on the VM.
+Legacy `cad-job-runner.mjs` / ExecOS one-shots are **not** used for production Design Studio CAD.
 ---
 
 ## Data

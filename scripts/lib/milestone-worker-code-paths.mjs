@@ -4,7 +4,8 @@
  */
 export const MILESTONE_WORKER_CODE_PATHS = Object.freeze([
   'src/core/execos-fabric.js',
-  'src/core/cad-pty-executor.js',
+  'src/core/cad-dispatch.js',
+  'src/core/iam-cad-worker-container.js',
   'src/core/platform-operator-policy.js',
   'src/core/operator-identity.js',
   'src/core/pty-workspace-paths.js',
@@ -13,6 +14,7 @@ export const MILESTONE_WORKER_CODE_PATHS = Object.freeze([
   'scripts/sync-execos-key.sh',
   'scripts/install-terminal-tunnel-env.sh',
   'scripts/designstudio/cad-job-runner.mjs',
+  'containers/iam-cad-worker/run-pipeline.mjs',
   'dashboard/components/DesignStudioPage.tsx',
   'dashboard/components/designstudio/DesignStudioContext.tsx',
   'dashboard/components/designstudio/CadGeneratePanel.tsx',

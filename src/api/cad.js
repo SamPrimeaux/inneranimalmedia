@@ -411,8 +411,8 @@ export async function handleCadApi(request, url, env, ctx) {
         .run();
 
       const engine = String(job.engine || '').toLowerCase();
-      const ptyEngines = new Set(['openscad', 'blender', 'freecad']);
-      if (ptyEngines.has(engine)) {
+      const containerEngines = new Set(['openscad', 'blender', 'freecad']);
+      if (containerEngines.has(engine)) {
         const dispatch = async () => {
           try {
             await dispatchCadJob(env, ctx, jobId, {
@@ -427,7 +427,7 @@ export async function handleCadApi(request, url, env, ctx) {
               status: 'failed',
               error: String(e?.message || e).slice(0, 2000),
               error_code: 'cad_dispatch_failed',
-              runner_host: 'execos-gcp',
+              runner_host: 'cad-container',
             }).catch(() => null);
           }
         };
@@ -442,12 +442,9 @@ export async function handleCadApi(request, url, env, ctx) {
           job_id: jobId,
           status: 'running',
           workspace_id: scope.workspaceId,
-          dispatch: dispatchTarget === 'container' ? 'container' : 'execos',
+          dispatch: 'container',
           dispatch_target: dispatchTarget,
-          message:
-            dispatchTarget === 'container'
-              ? 'CAD job dispatched to IAM CAD worker container'
-              : 'CAD job dispatched to ExecOS GCP (iam-tunnel)',
+          message: 'CAD job dispatched to IAM CAD worker container',
         });
       }
 
@@ -611,7 +608,7 @@ export async function handleCadApi(request, url, env, ctx) {
             status: 'failed',
             error: String(e?.message || e).slice(0, 2000),
             error_code: 'freecad_dispatch_failed',
-            runner_host: 'execos-gcp',
+            runner_host: 'cad-container',
           }).catch(() => null);
         }
       };
@@ -627,9 +624,9 @@ export async function handleCadApi(request, url, env, ctx) {
         job_id: jobId,
         status: 'running',
         engine: 'freecad',
-        dispatch: dispatchTarget === 'container' ? 'container' : 'execos',
+        dispatch: 'container',
         dispatch_target: dispatchTarget,
-        message: cadDispatchLabel({ dispatch: dispatchTarget === 'container' ? 'container' : 'execos' }),
+        message: cadDispatchLabel({ dispatch: 'container' }),
       });
     }
 

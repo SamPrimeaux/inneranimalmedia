@@ -51,8 +51,8 @@ Draw is the **most honest surface** in the design lane: real editor, real files,
 | CAD API | `src/api/cad.js` | OpenSCAD / FreeCAD / Blender script jobs, job queue |
 | Meshy API | `src/api/cad-meshy.js` | Text/image → 3D, rigging, retexture, print formats |
 | Design Studio API | `src/api/designstudio/index.js` | Blueprints, runs, assets, scenes |
-| Job runner | `containers/iam-cad-worker/` (+ legacy `scripts/designstudio/cad-job-runner.mjs`) | **Production:** CF container. Legacy script = local/dev / break-glass ExecOS only |
-| Dispatch | `src/core/cad-dispatch.js` | **LOCKED:** `CAD_DISPATCH_TARGET=container` (break-glass: `auto` / `gcp`) |
+| Job runner | `containers/iam-cad-worker/` (+ `scripts/designstudio/cad-job-runner.mjs` for local/dev only) | **Production:** CF container only |
+| Dispatch | `src/core/cad-dispatch.js` | **LOCKED:** CF `iam-cad-worker` container only (no GCP/ExecOS CAD path) |
 | Container | `containers/iam-cad-worker/` | Ubuntu image: openscad, blender, freecad (`standard-2`) |
 | Job complete | `src/core/cad-job-complete.js` | R2 ingest, SSE `cad_glb_ready`, D1 status |
 | OpenSCAD libs | `migrations/775_*` + `openscad-library-resolver.js` | 26 D1-registered libs; intent → import lines |
