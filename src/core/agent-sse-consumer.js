@@ -9,6 +9,7 @@ import {
   isEmptyHostedShellAction,
   hostedShellCommandsTargetWorkspace,
 } from './openai-hosted-shell.js';
+import { safeJsonParse } from './tool-arguments-json.js';
 
 function readSseChunk(reader, signal) {
   if (!signal) return reader.read();
@@ -36,14 +37,8 @@ function readSseChunk(reader, signal) {
   });
 }
 
-export function safeJsonParse(value) {
-  if (!value || typeof value !== 'string') return {};
-  try {
-    return JSON.parse(value);
-  } catch {
-    return { __raw: value, __parse_error: true };
-  }
-}
+// safeJsonParse lives in tool-arguments-json.js (truncation repair for fs_write HTML bodies).
+export { safeJsonParse } from './tool-arguments-json.js';
 
 /**
  * OpenAI Chat Completions SSE stream (`delta.tool_calls`). Merges tool call fragments by `index`
@@ -373,7 +368,13 @@ export async function consumeOpenAIResponsesSse(readable, emit, opts = {}) {
   const captureFunctionCallItem = (item, outputIndex) => {
     if (!item || item.type !== 'function_call') return;
     const s = mergeSlot(item.call_id, item.id, item.name, outputIndex);
-    if (typeof item.arguments === 'string' && item.arguments) s.args = item.arguments;
+    // Prefer the longer arguments payload — never clobber accumulated deltas with a
+    // shorter/truncated snapshot from output_item.added/done.
+    if (typeof item.arguments === 'string' && item.arguments) {
+      if (!s.args || item.arguments.length >= s.args.length) {
+        s.args = item.arguments;
+      }
+    }
     if (item.caller != null) s.caller = item.caller;
   };
 

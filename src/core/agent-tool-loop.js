@@ -1492,7 +1492,12 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           const call = pendingToolCalls.findLast(c => !c._done);
           if (call) {
             call._done = true;
-            try { call.input = JSON.parse(call._args || '{}'); } catch { call.input = {}; }
+            try {
+              const { safeJsonParse } = await import('./tool-arguments-json.js');
+              call.input = safeJsonParse(call._args || '{}');
+            } catch {
+              call.input = {};
+            }
             const blk = assistantContent.find(
               (b) => (b.type === 'tool_use' || b.type === 'server_tool_use') && b.id === call.id,
             );
@@ -1962,7 +1967,10 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         break;
       }
       if (call.input && typeof call.input === 'object' && call.input.__parse_error === true) {
-        const raw = String(call.raw_input != null ? call.raw_input : call.input.__raw || '').slice(0, 2000);
+        const { toolArgumentsParseErrorMessage } = await import('./tool-arguments-json.js');
+        const rawFull = String(call.raw_input != null ? call.raw_input : call.input.__raw || '');
+        const raw = rawFull.slice(0, 50_000);
+        const userMsg = toolArgumentsParseErrorMessage(call.name, rawFull.slice(0, 160));
         // TELEMETRY-LEDGER-OWNERSHIP Phase A3: primary owns ledger (was orphan mirror only —
         // scheduleAgentsamToolCallLog never ran on parse failure; mcp-exec still mirrored).
         scheduleAgentsamToolCallLog(env, ctx, {
@@ -1977,9 +1985,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           userId,
           workspaceId,
           errorMessage: 'tool_arguments_json_parse_error',
-          inputSummary: JSON.stringify({ __parse_error: true, __raw: raw }).slice(0, 200),
-          inputJson: { __parse_error: true, __raw: raw },
-          outputJson: { error: 'tool_arguments_json_parse_error' },
+          inputSummary: JSON.stringify({ __parse_error: true, raw_len: rawFull.length }).slice(0, 200),
+          inputJson: { __parse_error: true, __raw: raw, raw_len: rawFull.length },
+          outputJson: { error: 'tool_arguments_json_parse_error', user_message: userMsg },
           routingArmId: attributedRoutingArmId(),
           ...runSpineIds,
           ...ledgerIdentityFields,
@@ -1991,7 +1999,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           session_id: sessionId,
           tool_name: call.name,
           tool_id: null,
-          input_json: JSON.stringify({ __parse_error: true, __raw: raw }),
+          input_json: JSON.stringify({ __parse_error: true, __raw: raw.slice(0, 8000), raw_len: rawFull.length }),
           success: false,
           error_message: 'tool_arguments_json_parse_error',
           duration_ms: 0,
@@ -1999,14 +2007,42 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           skip_tool_call_log: true,
           ...runSpineIds,
         });
-        emit('tool_error', { tool: call.name, error: 'tool_arguments_json_parse_error' });
+        emit('tool_error', {
+          tool: call.name,
+          error: userMsg,
+          code: 'tool_arguments_json_parse_error',
+        });
+        emit('text', { text: userMsg });
         toolResults.push({
           type: 'tool_result',
           tool_use_id: call.id,
-          content: `Tool arguments are not valid JSON (repairable). Raw: ${raw}`,
+          content: userMsg,
           is_error: true,
         });
         continue;
+      }
+      // Strip repair metadata so tools like fs_write_file only see path/content.
+      if (call.input && typeof call.input === 'object' && call.input.__tool_args_repaired) {
+        console.warn(
+          '[agent] tool_args_repaired',
+          JSON.stringify({
+            tool: call.name,
+            truncated: !!call.input.__tool_args_truncated,
+            keys: Object.keys(call.input).filter((k) => !k.startsWith('__')),
+          }),
+        );
+        emit('status', {
+          phase: 'tool_args_repaired',
+          tool: call.name,
+          message:
+            'Tool arguments were truncated mid-stream and repaired — content may be incomplete; continue with another write/edit if needed.',
+        });
+        const cleaned = { ...call.input };
+        delete cleaned.__tool_args_repaired;
+        delete cleaned.__tool_args_truncated;
+        delete cleaned.__parse_error;
+        delete cleaned.__raw;
+        call.input = cleaned;
       }
       const validation = await validateToolCall(
         env,

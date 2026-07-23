@@ -14,9 +14,10 @@
 | 4 | "Styled HTML" doesn't trigger image gen unless asked | **OPEN** → `tkt_search_tools_rank_media_last` (media-only ranking) |
 | 5 | No new keyword hardcode matrix | Held |
 | 6 | Vague fast-lane questions don't hydrate GitHub write/PR/tree | **OPEN** → `tkt_search_tools_hydrate_scope_by_intent` (**split** from media ticket) |
-| 7 | Raw `tool_error` / timeout never shown as assistant text | **OPEN (P0)** → `tkt_tool_error_visible_text` |
+| 7 | Raw `tool_error` / timeout never shown as assistant text | **SHIPPED** → `tkt_tool_error_visible_text` |
+| 8 | `fs_write_file` HTML bodies don't die on truncated tool JSON | **OPEN (P0)** → `tkt_fs_write_html_args_parse` |
 
-Do **not** fold #3/#4/#6 into hosted-shell 1a/1b. Keep **#4 media** separate from **#6 hydrate scope**. Treat **#7** as P0 ahead of hydrate work.
+Do **not** fold #3/#4/#6 into hosted-shell 1a/1b. Keep **#4 media** separate from **#6 hydrate scope**. Treat **#7/#8** as P0 write-path reliability.
 
 ---
 
