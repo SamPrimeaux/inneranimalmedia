@@ -1,10 +1,8 @@
 /**
  * Phone-email IDE bridge: inbound reply → Agent Sam turn → dual outbound (email + push).
  *
- * Auth user for turns: resolved from D1 (PHONE_LOOP_USER_ID / hook user_id).
- * Mailbox: sam@inneranimalmedia.com (rse_sam_iam can_receive=1).
- * Sender allowlist: D1 only — auth_user_emails → agentsam_user_policy.platform_operator=1
- * (plus inbox address from resend_emails / hook config). No hardcoded email lists.
+ * Sender allowlist is D1-only: active superadmins in tenant_sam_primeaux, matching
+ * auth_users.email OR auth_user_emails aliases (iam_alias etc.). No hardcoded email lists.
  */
 
 import {
@@ -33,77 +31,43 @@ export function normalizePhoneLoopSenderEmail(email) {
 }
 
 /**
- * D1-driven allowlist: sender must map to auth_user_emails with
- * agentsam_user_policy.platform_operator=1 (or match the inbound inbox address).
+ * D1 allowlist: primary auth_users.email OR auth_user_emails alias → active superadmin.
+ * Must join aliases via EXISTS — auth_users.email alone misses iam_alias rows.
  *
  * @param {any} env
  * @param {string} email
  * @returns {Promise<boolean>}
  */
 export async function isPhoneLoopAllowlistedSender(env, email) {
-  const n = normalizePhoneLoopSenderEmail(email);
-  if (!n || !n.includes('@')) return false;
-  if (!env?.DB) return false;
+  const normalized = normalizePhoneLoopSenderEmail(email);
+  if (!normalized || !normalized.includes('@') || !env?.DB) return false;
 
   try {
-    // Inbox itself (sam@) — allow when resend_emails says can_receive.
-    const inbox = await env.DB.prepare(
-      `SELECT 1 AS ok FROM resend_emails
-       WHERE lower(trim(address)) = ?
-         AND COALESCE(can_receive, 0) = 1
-       LIMIT 1`,
-    )
-      .bind(n)
-      .first();
-    if (inbox?.ok) return true;
-
-    // Operator personal/login aliases — auth_user_emails → platform_operator policy.
     const row = await env.DB.prepare(
-      `SELECT aue.auth_user_id AS user_id
-         FROM auth_user_emails aue
-        WHERE lower(trim(aue.email)) = ?
-          AND COALESCE(aue.is_login_enabled, 1) = 1
+      `SELECT 1 AS ok
+         FROM auth_users au
+        WHERE au.tenant_id = ?
+          AND COALESCE(au.is_superadmin, 0) = 1
+          AND lower(trim(COALESCE(au.status, ''))) = 'active'
+          AND (
+            lower(trim(au.email)) = ?
+            OR EXISTS (
+              SELECT 1
+                FROM auth_user_emails aue
+               WHERE aue.auth_user_id = au.id
+                 AND lower(trim(aue.email)) = ?
+                 AND COALESCE(aue.is_login_enabled, 1) = 1
+            )
+          )
         LIMIT 1`,
     )
-      .bind(n)
+      .bind(PHONE_LOOP_TENANT_ID, normalized, normalized)
       .first();
-    if (!row?.user_id) return false;
-
-    const uid = String(row.user_id).trim();
-    const pol = await env.DB.prepare(
-      `SELECT 1 AS ok FROM agentsam_user_policy
-        WHERE user_id = ?
-          AND COALESCE(platform_operator, 0) = 1
-        LIMIT 1`,
-    )
-      .bind(uid)
-      .first();
-    if (pol?.ok) return true;
-
-    // Optional explicit allowlist emails on the inbound hook (D1 JSON, not code).
-    const hook = await env.DB.prepare(
-      `SELECT handler_config FROM agentsam_hook
-        WHERE id = 'hook_email_reply_log'
-        LIMIT 1`,
-    )
-      .first()
-      .catch(() => null);
-    if (hook?.handler_config) {
-      try {
-        const cfg =
-          typeof hook.handler_config === 'string'
-            ? JSON.parse(hook.handler_config)
-            : hook.handler_config;
-        const list = Array.isArray(cfg?.allowlist_emails) ? cfg.allowlist_emails : [];
-        if (list.some((e) => normalizePhoneLoopSenderEmail(e) === n)) return true;
-      } catch {
-        /* ignore bad json */
-      }
-    }
+    return !!row?.ok;
   } catch (e) {
     console.warn('[isPhoneLoopAllowlistedSender]', e?.message ?? e);
+    return false;
   }
-  return false;
 }
 
 /**
