@@ -58,7 +58,7 @@ curl -sS https://inneranimalmedia.com/api/health
 | Sink | Script |
 |------|--------|
 | `deployments` | `post-deploy-record.sh` |
-| `dashboard_versions` | dashboard R2 path / `deploy-with-record.sh` |
+| `dashboard_versions` | `post-deploy-record.sh` (deploy:fast critical path; also `deploy-with-record.sh`) |
 | `agentsam_memory` | `post-deploy-memory-sync.sh` |
 | Worker hooks | `POST /api/internal/post-deploy` |
 | CF Builds webhook | `POST /api/webhooks/cloudflare` (`X-Cf-Webhook-Secret` / Bearer `INTERNAL_WEBHOOK_SECRET`) |

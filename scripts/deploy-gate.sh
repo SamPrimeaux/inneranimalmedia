@@ -301,7 +301,7 @@ write_dashboard_versions() {
     row_id=$(sql_escape "$row_id")
     local pn_esc; pn_esc=$(sql_escape "$pn")
     local r2_esc; r2_esc=$(sql_escape "$r2p")
-    local row="('${row_id}', '${pn_esc}', '${ver_esc}', '$fh', $fs, '${r2_esc}', '$env', $is_prod, $is_prod, '$gc_esc', '$st_esc', $now)"
+    local row="('${row_id}', '${pn_esc}', '${ver_esc}', '$fh', $fs, '${r2_esc}', '$env', $is_prod, $is_prod, 1, '$gc_esc', '$st_esc', $now)"
     if [[ "$first" -eq 1 ]]; then
       values_sql="$row"
       first=0
@@ -314,17 +314,19 @@ write_dashboard_versions() {
 
   local html_hash; html_hash=$(file_md5 "$html_file")
   local html_size; html_size=$(file_bytes "$html_file")
-  local html_row="('${env}-agent-html-${ver}-${now}', 'agent-html', '${ver_esc}', '$html_hash', $html_size, 'static/dashboard/app.html', '$env', $is_prod, $is_prod, '$gc_esc', '$st_esc', $now)"
+  local html_row="('${env}-agent-html-${ver}-${now}', 'agent-html', '${ver_esc}', '$html_hash', $html_size, 'static/dashboard/app.html', '$env', $is_prod, $is_prod, 1, '$gc_esc', '$st_esc', $now)"
 
   if [[ -n "$values_sql" ]]; then
+    d1 "UPDATE dashboard_versions SET is_active = 0 WHERE page_name IN ('agent','agent-css','agent-html') OR page_name LIKE 'agent-dist-%';"
     d1 "INSERT OR REPLACE INTO dashboard_versions
-          (id, page_name, version, file_hash, file_size, r2_path, environment, is_production, is_locked, git_commit, session_tag, created_at)
+          (id, page_name, version, file_hash, file_size, r2_path, environment, is_production, is_locked, is_active, git_commit, session_tag, created_at)
         VALUES
           ${values_sql},
           ${html_row};"
   else
+    d1 "UPDATE dashboard_versions SET is_active = 0 WHERE page_name IN ('agent','agent-css','agent-html');"
     d1 "INSERT OR REPLACE INTO dashboard_versions
-          (id, page_name, version, file_hash, file_size, r2_path, environment, is_production, is_locked, git_commit, session_tag, created_at)
+          (id, page_name, version, file_hash, file_size, r2_path, environment, is_production, is_locked, is_active, git_commit, session_tag, created_at)
         VALUES
           ${html_row};"
   fi

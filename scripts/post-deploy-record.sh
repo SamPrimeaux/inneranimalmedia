@@ -94,6 +94,37 @@ npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --
   && echo "[post-deploy-record] agentsam_deployment_health ok (id=$HEALTH_ID)" \
   || echo "[post-deploy-record] warning: agentsam_deployment_health insert failed (non-fatal)" >&2
 
+# dashboard_versions — live truth on deploy:fast (same 3-row shape as deploy-with-record.sh).
+# Deactivate prior agent/agent-css/agent-html first so is_active is exclusive.
+DASH_DIST="${DASH_DIST:-$REPO_ROOT/dashboard/dist}"
+if [[ "${SKIP_DASHBOARD_VERSIONS:-0}" == "1" ]]; then
+  echo "[post-deploy-record] SKIP_DASHBOARD_VERSIONS=1 — skipping dashboard_versions"
+elif [[ -f "$DASH_DIST/dashboard.js" && -f "$DASH_DIST/dashboard.css" && -f "$DASH_DIST/index.html" ]]; then
+  CURRENT_V=$(grep -oE 'dashboard-v:[0-9]+' "$DASH_DIST/index.html" 2>/dev/null | head -1 | cut -d: -f2 || true)
+  [[ -z "$CURRENT_V" ]] && CURRENT_V=$(grep -oE '\?v=[0-9]+' "$DASH_DIST/index.html" 2>/dev/null | head -1 | grep -oE '[0-9]+' || true)
+  [[ -z "$CURRENT_V" ]] && CURRENT_V="${GIT_HASH:-0}"
+  if command -v md5 >/dev/null 2>&1; then
+    JS_HASH=$(md5 -q "$DASH_DIST/dashboard.js")
+    CSS_HASH=$(md5 -q "$DASH_DIST/dashboard.css")
+    HTML_HASH=$(md5 -q "$DASH_DIST/index.html")
+  else
+    JS_HASH=$(md5sum "$DASH_DIST/dashboard.js" | awk '{print $1}')
+    CSS_HASH=$(md5sum "$DASH_DIST/dashboard.css" | awk '{print $1}')
+    HTML_HASH=$(md5sum "$DASH_DIST/index.html" | awk '{print $1}')
+  fi
+  JS_SIZE=$(wc -c < "$DASH_DIST/dashboard.js" | tr -d ' ')
+  CSS_SIZE=$(wc -c < "$DASH_DIST/dashboard.css" | tr -d ' ')
+  HTML_SIZE=$(wc -c < "$DASH_DIST/index.html" | tr -d ' ')
+  DEPLOY_TS=$(date +%s)
+  npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --command "UPDATE dashboard_versions SET is_active = 0 WHERE page_name IN ('agent','agent-css','agent-html') AND COALESCE(is_active, 0) = 1" \
+    || echo "[post-deploy-record] warning: dashboard_versions deactivate failed (non-fatal)" >&2
+  npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --command "INSERT OR REPLACE INTO dashboard_versions (id, page_name, version, file_hash, file_size, r2_path, description, is_production, is_locked, is_active, environment, git_commit, build_pipeline, created_at, deployed_at) VALUES ('agent-js-v${CURRENT_V}-${DEPLOY_TS}', 'agent', 'v${CURRENT_V}', '${JS_HASH}', ${JS_SIZE}, 'static/dashboard/app/dashboard.js', 'Auto-logged by post-deploy-record.sh', 1, 1, 1, 'production', '${GH_ESC}', 'deploy_fast', unixepoch(), unixepoch()), ('agent-css-v${CURRENT_V}-${DEPLOY_TS}', 'agent-css', 'v${CURRENT_V}', '${CSS_HASH}', ${CSS_SIZE}, 'static/dashboard/app/dashboard.css', 'Auto-logged by post-deploy-record.sh', 1, 1, 1, 'production', '${GH_ESC}', 'deploy_fast', unixepoch(), unixepoch()), ('agent-html-v${CURRENT_V}-${DEPLOY_TS}', 'agent-html', 'v${CURRENT_V}', '${HTML_HASH}', ${HTML_SIZE}, 'static/dashboard/app.html', 'Auto-logged by post-deploy-record.sh', 1, 1, 1, 'production', '${GH_ESC}', 'deploy_fast', unixepoch(), unixepoch())" \
+    && echo "[post-deploy-record] dashboard_versions ok (v${CURRENT_V} js/css/html)" \
+    || echo "[post-deploy-record] warning: dashboard_versions insert failed (non-fatal)" >&2
+else
+  echo "[post-deploy-record] dashboard/dist missing — skipping dashboard_versions (expected on worker-only)"
+fi
+
 # Mirror to Supabase agentsam.agentsam_deploy_events (OS ledger). Non-fatal.
 # Same sink as post-deploy Worker handler / midnight deployments rollup.
 if [[ "${SKIP_SUPABASE_DEPLOY_EVENT:-0}" == "1" ]]; then
