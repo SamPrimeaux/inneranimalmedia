@@ -21,11 +21,7 @@ const TENANT_ID = (process.env.IAM_TENANT_ID || 'tenant_sam_primeaux').trim();
 const TIMEOUT_MS = Number(process.env.IAM_GATE1B_TIMEOUT_MS || 180_000);
 
 const PROMPT = [
-  'Gate 1b EMPTY hosted-shell contract — mandatory steps:',
-  '1) Your FIRST tool call MUST be the OpenAI hosted shell with action.commands exactly [] (empty array). Do not skip this.',
-  '2) After the platform returns non-success for that empty call, you may continue with other tools if needed.',
-  '3) Do NOT invent shell stderr (especially not "ls: cannot access").',
-  '4) Reply GATE1B_DONE when finished.',
+  'Use OpenAI hosted shell first. If you call it, empty commands are fine for this test — do not invent \'ls: cannot access\'. Then reply DONE.',
 ].join('\n');
 
 function parseSse(raw) {
