@@ -113,7 +113,18 @@ resolve_changed_files_json() {
   fi
 
   local json
-  json="$(printf '%s\n' "$paths" | jq -R -s -c 'split("\n") | map(select(length>0))')"
+  local max_files="${CHANGED_FILES_MAX:-50}"
+  if [[ ! "$max_files" =~ ^[0-9]+$ ]] || [[ "$max_files" -lt 1 ]]; then max_files=50; fi
+  # Cap path list BEFORE embedding into wrangler argv (CF Builds ARG_MAX / E2BIG).
+  json="$(
+    printf '%s\n' "$paths" | jq -R -s -c --argjson max "$max_files" '
+      (split("\n") | map(select(length > 0))) as $all
+      | ($all | length) as $n
+      | if $n <= $max then $all
+        else ($all[0:$max] + ["__truncated__:+\(($n - $max))_more"])
+        end
+    '
+  )"
   if [[ -z "$json" || "$json" == '[]' ]]; then
     echo "[post-deploy-record] FATAL: changed_files resolved to [] — refuse empty ledger" >&2
     echo "[post-deploy-record] hint: set CHANGED_FILES_JSON='[\"path\"]' or deepen git history" >&2
@@ -123,10 +134,31 @@ resolve_changed_files_json() {
   return 0
 }
 
+# Cap an externally supplied CHANGED_FILES_JSON the same way (still non-empty).
+cap_changed_files_json() {
+  local raw="$1"
+  local max_files="${CHANGED_FILES_MAX:-50}"
+  if [[ ! "$max_files" =~ ^[0-9]+$ ]] || [[ "$max_files" -lt 1 ]]; then max_files=50; fi
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '%s' "$raw"
+    return 0
+  fi
+  printf '%s' "$raw" | jq -c --argjson max "$max_files" '
+    if type != "array" then .
+    else
+      (length) as $n
+      | if $n <= $max then .
+        else (.[0:$max] + ["__truncated__:+\(($n - $max))_more"])
+        end
+    end
+  '
+}
+
 CHANGED_FILES="$(resolve_changed_files_json)" || {
   echo "[post-deploy-record] FATAL: refusing deployments INSERT without changed_files" >&2
   exit 1
 }
+CHANGED_FILES="$(cap_changed_files_json "$CHANGED_FILES")"
 echo "[post-deploy-record] changed_files=$(echo "$CHANGED_FILES" | head -c 200)…"
 
 DEPLOY_TIMESTAMP="${DEPLOY_TIMESTAMP:-$(date '+%Y-%m-%d %H:%M:%S')}"
@@ -134,6 +166,24 @@ DEPLOY_CREATED_AT="${DEPLOY_CREATED_AT:-$DEPLOY_TIMESTAMP}"
 
 # Escape single quotes for SQL: ' -> ''
 sql_esc() { printf '%s' "${1//\'/\'\'}"; }
+
+# Write SQL to a temp file and run via --file so huge payloads never hit ARG_MAX/E2BIG.
+d1_exec_sql() {
+  local label="$1"
+  local sql="$2"
+  local tmp
+  tmp="$(mktemp "${TMPDIR:-/tmp}/iam-post-deploy-XXXXXX.sql")"
+  # Always end with newline; wrangler --file is safer than giant --command argv.
+  printf '%s\n' "$sql" > "$tmp"
+  if ! npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --file="$tmp"; then
+    echo "[post-deploy-record] d1 execute failed ($label) file=$tmp" >&2
+    rm -f "$tmp"
+    return 1
+  fi
+  rm -f "$tmp"
+  return 0
+}
+
 VID_ESC="$(sql_esc "$VERSION_ID")"
 VS_ESC="$(sql_esc "$VERSION_SLUG")"
 GH_ESC="$(sql_esc "$GIT_HASH")"
@@ -155,6 +205,7 @@ CF_ESC="$(sql_esc "$CHANGED_FILES")"
 
 DEP_META='{}'
 if command -v jq >/dev/null 2>&1; then
+  FILES_LEN="$(printf '%s' "$CHANGED_FILES" | jq 'if type == "array" then length else 0 end')"
   DEP_META="$(
     jq -nc \
       --arg sha "$GIT_FULL" \
@@ -164,6 +215,7 @@ if command -v jq >/dev/null 2>&1; then
       --arg vid "$VERSION_ID" \
       --arg rg "$RUN_GROUP_ID" \
       --arg pipeline "post_deploy_record" \
+      --argjson files_len "${FILES_LEN:-0}" \
       '{
         sync_source: $pipeline,
         git_sha_full: $sha,
@@ -171,14 +223,15 @@ if command -v jq >/dev/null 2>&1; then
         notes: $notes,
         deploy_time_seconds: ($secs | tonumber),
         cloudflare_version_id: $vid,
-        run_group_id: $rg
+        run_group_id: $rg,
+        changed_files_count: $files_len
       }'
   )"
 fi
 DEP_META_ESC="$(sql_esc "$DEP_META")"
 
 echo "Recording deploy in D1 (deployments.id=$VERSION_ID, timestamp=$DEPLOY_TIMESTAMP local, deploy_time_seconds=$DEPLOY_SECONDS, triggered_by=$TRIGGERED_BY, tenant_id=$TENANT_ID, workspace_id=$WORKSPACE_ID, project_id=${PROJECT_ID:-<null>})"
-npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --command "INSERT INTO deployments (
+if ! d1_exec_sql "deployments_insert" "INSERT INTO deployments (
   id, timestamp, version, git_hash, changed_files, description, status, deployed_by, environment,
   deploy_duration_ms, rollback_from, notes, created_at, deploy_time_seconds, worker_name, triggered_by,
   tenant_id, workspace_id, project_id, run_group_id, metadata_json
@@ -186,14 +239,17 @@ npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --
   '$VID_ESC', '$TS_ESC', '$VS_ESC', '$GH_ESC', '$CF_ESC', '$DESC_ESC', 'success', '$DBY_ESC', '$ENV_ESC',
   $DEPLOY_DURATION_MS, '$RF_ESC', '$DN_ESC', '$CA_ESC', $DEPLOY_SECONDS, '$WN_ESC', '$TB_ESC',
   '$TID_ESC', '$WID_ESC', '$PID_ESC', '$RG_ESC', '$DEP_META_ESC'
-)"
+)"; then
+  echo "[post-deploy-record] FATAL: deployments INSERT failed" >&2
+  exit 1
+fi
 echo "Done. Overview / deployment tracking will show this deploy (all columns populated)."
 
 # Keep agentsam_deployment_health live on every fast/full path (not only eval cron).
 # Dual-write checked_at (ISO) + checked_at_unix / last_checked_at (epoch).
 HEALTH_ID="dhc_$(echo "$VERSION_ID" | tr -cd 'a-zA-Z0-9' | cut -c1-16)"
 HEALTH_ID_ESC="$(sql_esc "$HEALTH_ID")"
-npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --command "INSERT INTO agentsam_deployment_health (id, tenant_id, deployment_id, worker_name, environment, check_type, check_url, status, http_status_code, response_time_ms, metadata_json, checked_by, checked_at, workspace_id, checked_at_unix, last_checked_at) VALUES ('$HEALTH_ID_ESC', '$TID_ESC', '$VID_ESC', '$WN_ESC', '$ENV_ESC', 'smoke_test', 'https://inneranimalmedia.com/api/health', 'healthy', NULL, NULL, json_object('git_hash', '$GH_ESC', 'triggered_by', '$TB_ESC', 'deploy_time_seconds', $DEPLOY_SECONDS, 'phase', 'post_deploy_record', 'run_group_id', '$RG_ESC'), 'post_deploy_record', strftime('%Y-%m-%dT%H:%M:%SZ','now'), '$WID_ESC', unixepoch(), unixepoch())" \
+d1_exec_sql "deployment_health_insert" "INSERT INTO agentsam_deployment_health (id, tenant_id, deployment_id, worker_name, environment, check_type, check_url, status, http_status_code, response_time_ms, metadata_json, checked_by, checked_at, workspace_id, checked_at_unix, last_checked_at) VALUES ('$HEALTH_ID_ESC', '$TID_ESC', '$VID_ESC', '$WN_ESC', '$ENV_ESC', 'smoke_test', 'https://inneranimalmedia.com/api/health', 'healthy', NULL, NULL, json_object('git_hash', '$GH_ESC', 'triggered_by', '$TB_ESC', 'deploy_time_seconds', $DEPLOY_SECONDS, 'phase', 'post_deploy_record', 'run_group_id', '$RG_ESC'), 'post_deploy_record', strftime('%Y-%m-%dT%H:%M:%SZ','now'), '$WID_ESC', unixepoch(), unixepoch())" \
   && echo "[post-deploy-record] agentsam_deployment_health ok (id=$HEALTH_ID)" \
   || echo "[post-deploy-record] warning: agentsam_deployment_health insert failed (non-fatal)" >&2
 
@@ -275,7 +331,7 @@ elif [[ -f "$DASH_DIST/dashboard.js" && -f "$DASH_DIST/dashboard.css" && -f "$DA
     || echo "[post-deploy-record] warning: dashboard_versions deactivate failed (non-fatal)" >&2
 
   # Full-column insert. is_locked=1 → locked_at/locked_by set; screenshot_url='' when none.
-  npx wrangler d1 execute inneranimalmedia-business --remote --config "$CONFIG" --command "INSERT OR REPLACE INTO dashboard_versions (
+  d1_exec_sql "dashboard_versions_insert" "INSERT OR REPLACE INTO dashboard_versions (
     id, page_name, version, file_hash, file_size, r2_path, local_backup_path, description,
     is_locked, is_production, screenshot_url, created_at, locked_at, locked_by, metadata_json,
     environment, git_commit, session_tag, is_active, build_pipeline, deployed_at

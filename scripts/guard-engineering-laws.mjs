@@ -69,6 +69,11 @@ if (existsSync(pdr)) {
   if (/git_sha_short/.test(t)) fail('post-deploy-record.sh still writes git_sha_short');
   if (!/\[0-9a-f\]\{40\}/.test(t)) fail('post-deploy-record.sh missing 40-char SHA hard-fail');
   else ok('post-deploy-record.sh: no GIT_SHORT / requires 40-char SHA');
+  if (!/d1_exec_sql|--file=/.test(t) || !/CHANGED_FILES_MAX|__truncated__/.test(t)) {
+    fail('post-deploy-record.sh must use --file SQL writes and cap changed_files (ARG_MAX/E2BIG guard)');
+  } else {
+    ok('post-deploy-record.sh: --file + changed_files cap (E2BIG guard)');
+  }
 } else {
   fail('scripts/post-deploy-record.sh missing');
 }
