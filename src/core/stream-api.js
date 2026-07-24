@@ -166,6 +166,161 @@ export async function deleteLiveInput(env, uid) {
   return data.result;
 }
 
+export async function getStreamVideoDetail(env, uid) {
+  const id = String(uid || '').trim();
+  if (!id) throw new Error('uid required');
+  return streamApiFetch(env, `/stream/${id}`);
+}
+
+export async function updateStreamVideoDetail(env, uid, patch = {}) {
+  const id = String(uid || '').trim();
+  if (!id) throw new Error('uid required');
+  const body = {};
+  if (patch.meta && typeof patch.meta === 'object') body.meta = patch.meta;
+  if (patch.requireSignedURLs !== undefined) body.requireSignedURLs = !!patch.requireSignedURLs;
+  if (Array.isArray(patch.allowedOrigins)) body.allowedOrigins = patch.allowedOrigins;
+  if (patch.thumbnailTimestampPct !== undefined) {
+    body.thumbnailTimestampPct = Number(patch.thumbnailTimestampPct) || 0;
+  }
+  return streamApiFetch(env, `/stream/${id}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteStreamVideo(env, uid) {
+  const id = String(uid || '').trim();
+  if (!id) throw new Error('uid required');
+  const { token, accountId } = getStreamCredentials(env);
+  const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!data.success) {
+    const msg = data.errors?.[0]?.message || `Stream delete HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return data.result ?? { deleted: true };
+}
+
+export async function getStreamDownloads(env, uid) {
+  const id = String(uid || '').trim();
+  if (!id) throw new Error('uid required');
+  return streamApiFetch(env, `/stream/${id}/downloads`);
+}
+
+export async function enableStreamDownloads(env, uid) {
+  const id = String(uid || '').trim();
+  if (!id) throw new Error('uid required');
+  return streamApiFetch(env, `/stream/${id}/downloads`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+}
+
+export async function deleteStreamDownloads(env, uid) {
+  const id = String(uid || '').trim();
+  if (!id) throw new Error('uid required');
+  const { token, accountId } = getStreamCredentials(env);
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${id}/downloads`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!data.success) {
+    const msg = data.errors?.[0]?.message || `Stream downloads delete HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return data.result ?? { deleted: true };
+}
+
+export async function listStreamCaptions(env, uid) {
+  const id = String(uid || '').trim();
+  if (!id) throw new Error('uid required');
+  const result = await streamApiFetch(env, `/stream/${id}/captions`);
+  return Array.isArray(result) ? result : result?.captions || [];
+}
+
+export async function putStreamCaption(env, uid, language, vttText) {
+  const id = String(uid || '').trim();
+  const lang = String(language || '').trim();
+  if (!id || !lang) throw new Error('uid and language required');
+  const { token, accountId } = getStreamCredentials(env);
+  const form = new FormData();
+  form.append('file', new Blob([String(vttText || '')], { type: 'text/vtt' }), `${lang}.vtt`);
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${id}/captions/${lang}`,
+    { method: 'PUT', headers: { Authorization: `Bearer ${token}` }, body: form },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!data.success) {
+    const msg = data.errors?.[0]?.message || `Stream caption upload HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return data.result;
+}
+
+export async function deleteStreamCaption(env, uid, language) {
+  const id = String(uid || '').trim();
+  const lang = String(language || '').trim();
+  if (!id || !lang) throw new Error('uid and language required');
+  const { token, accountId } = getStreamCredentials(env);
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${id}/captions/${lang}`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!data.success) {
+    const msg = data.errors?.[0]?.message || `Stream caption delete HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return data.result ?? { deleted: true };
+}
+
+export async function copyStreamVideoFromUrl(env, { url, meta, requireSignedURLs } = {}) {
+  const src = String(url || '').trim();
+  if (!src) throw new Error('url required');
+  const body = { url: src };
+  if (meta && typeof meta === 'object') body.meta = meta;
+  if (requireSignedURLs !== undefined) body.requireSignedURLs = !!requireSignedURLs;
+  return streamApiFetch(env, `/stream/copy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function createStreamDirectUpload(
+  env,
+  { maxDurationSeconds = 3600, meta, requireSignedURLs } = {},
+) {
+  const body = { maxDurationSeconds: Number(maxDurationSeconds) || 3600 };
+  if (meta && typeof meta === 'object') body.meta = meta;
+  if (requireSignedURLs !== undefined) body.requireSignedURLs = !!requireSignedURLs;
+  return streamApiFetch(env, `/stream/direct_upload`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+/** CF Stream watch/embed/manifest URLs — same subdomain convention as mapStreamVideoRow. */
+export function buildStreamWatchUrls(uid, accountId) {
+  const id = String(uid || '').trim();
+  const subdomain = `customer-${accountId}.cloudflarestream.com`;
+  return {
+    customer_subdomain: subdomain,
+    watch_url: `https://${subdomain}/${id}/watch`,
+    iframe_url: `https://${subdomain}/${id}/iframe`,
+    hls: `https://${subdomain}/${id}/manifest/video.m3u8`,
+    dash: `https://${subdomain}/${id}/manifest/video.mpd`,
+    thumbnail: `https://${subdomain}/${id}/thumbnails/thumbnail.jpg?time=0s&height=360`,
+  };
+}
+
 export function mapStreamVideoRow(v, accountId) {
   const uid = String(v.uid || '');
   const hls = v.playback?.hls || v.preview || '';
