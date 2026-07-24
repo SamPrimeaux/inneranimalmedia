@@ -211,6 +211,34 @@ function mergeImageGenerationState(
   };
 }
 
+/** URLs already shown by AgentImageGenerationCard — strip duplicate markdown/links from model text. */
+function imageGenerationDisplayUrls(ig: ImageGenerationState | null | undefined): string[] {
+  if (!ig) return [];
+  const out: string[] = [];
+  for (const u of [
+    ig.committedUrl,
+    ig.imageUrl,
+    ig.previewUrl,
+    ...ig.previewFrames.map((f) => f.previewUrl),
+  ]) {
+    const s = typeof u === 'string' ? u.trim() : '';
+    if (s && !out.includes(s)) out.push(s);
+  }
+  return out;
+}
+
+function stripRedundantImageRefs(content: string, urls: string[]): string {
+  if (!content || !urls.length) return content;
+  let out = content;
+  for (const url of urls) {
+    const escaped = url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(`!\\[[^\\]]*\\]\\(\\s*${escaped}\\s*\\)`, 'gi'), '');
+    out = out.replace(new RegExp(`\\[[^\\]]*\\]\\(\\s*${escaped}\\s*\\)`, 'gi'), '');
+    out = out.replace(new RegExp(escaped, 'gi'), '');
+  }
+  return out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function patchAssistantImageGeneration(
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
   assistantContent: string,
@@ -221,7 +249,8 @@ function patchAssistantImageGeneration(
     const next = [...prev];
     const idx = next.length - 1;
     if (idx < 0 || next[idx].role !== 'assistant') return prev;
-    const merged = mergeImageGenerationState(next[idx].imageGenerationState, patch, eventType);
+    const prevMsg = next[idx];
+    const merged = mergeImageGenerationState(prevMsg.imageGenerationState, patch, eventType);
     // Prefer prompt from prior user turn when SSE didn't include one.
     if (!merged.prompt) {
       for (let i = idx - 1; i >= 0; i -= 1) {
@@ -231,15 +260,22 @@ function patchAssistantImageGeneration(
         }
       }
     }
-    let content = assistantContent;
-    if (eventType === 'image_generation_complete') {
+    // Card owns the image. Keep any prose already streamed; do not replace the bubble
+    // with markdown that later text deltas will overwrite / fight.
+    let content = stripRedundantImageRefs(
+      String(prevMsg.content || assistantContent || ''),
+      imageGenerationDisplayUrls(merged),
+    );
+    if (eventType === 'image_generation_complete' && !content.trim()) {
+      // Persist a markdown image only when there is no other assistant text yet
+      // (reload/fallback). Live UI still prefers AgentImageGenerationCard.
       const url = merged.previewUrl || merged.imageUrl || '';
       if (url) {
         const alt = (merged.prompt || 'Generated image').replace(/\s+/g, ' ').trim().slice(0, 120);
         content = `![${alt}](${url})`;
       }
     }
-    next[idx] = { ...next[idx], content, imageGenerationState: merged };
+    next[idx] = { ...prevMsg, content, imageGenerationState: merged };
     return next;
   });
 }
@@ -2693,7 +2729,26 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           assistantContent = truncateCodeFencesForChat(nextVisible, 200);
           setMessages((prev) => {
             const last = [...prev];
-            last[last.length - 1] = { role: 'assistant', content: assistantContent };
+            const idx = last.length - 1;
+            if (idx < 0) return prev;
+            const prevMsg = last[idx];
+            // Never replace the whole bubble — text deltas used to wipe imageGenerationState
+            // (and the live card) after image_generation_* SSE had already succeeded.
+            if (prevMsg?.role === 'assistant') {
+              const ig = prevMsg.imageGenerationState;
+              const content =
+                ig &&
+                (ig.phase === 'completed' ||
+                  ig.phase === 'generating' ||
+                  ig.phase === 'refining' ||
+                  ig.phase === 'initializing' ||
+                  Boolean(ig.imageUrl || ig.previewUrl || ig.previewFrames?.length))
+                  ? stripRedundantImageRefs(assistantContent, imageGenerationDisplayUrls(ig))
+                  : assistantContent;
+              last[idx] = { ...prevMsg, role: 'assistant', content };
+              return last;
+            }
+            last[idx] = { role: 'assistant', content: assistantContent };
             return last;
           });
         }
