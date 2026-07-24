@@ -10,6 +10,7 @@ import {
   useParams,
 } from 'react-router-dom';
 import type { VideosOutletContext } from './VideosShell';
+import { StreamPlayerEmbed } from './StreamPlayerEmbed';
 import {
   deleteStreamVideo,
   formatBytes,
@@ -200,8 +201,18 @@ export function VideosDetailShell() {
   }
 
   const watchUrl = video.watch_url || '';
-  const iframeUrl = video.iframe_url || '';
   const ready = !!video.ready || video.status === 'ready';
+  const embedPrefs = (video.embed || {}) as Record<string, unknown>;
+  const playerControls = embedPrefs.controls !== false;
+  const playerMuted = !!embedPrefs.muted;
+  const playerAutoplay = !!embedPrefs.autoplay;
+  const playerLoop = !!embedPrefs.loop;
+  const playerPrimary =
+    typeof embedPrefs.primary_color === 'string' ? embedPrefs.primary_color : undefined;
+  const playerStart =
+    embedPrefs.start_time != null && embedPrefs.start_time !== ''
+      ? (embedPrefs.start_time as string | number)
+      : undefined;
 
   return (
     <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
@@ -370,34 +381,19 @@ export function VideosDetailShell() {
               marginBottom: 12,
             }}
           >
-            {iframeUrl ? (
-              <iframe
-                title="Stream preview"
-                src={iframeUrl}
-                style={{ display: 'block', width: '100%', aspectRatio: '16 / 9', border: 'none' }}
-                allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
-                allowFullScreen
-              />
-            ) : (
-              <div
-                style={{
-                  aspectRatio: '16 / 9',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: 16,
-                  color: '#f87171',
-                  fontSize: 12,
-                  textAlign: 'center',
-                  lineHeight: 1.45,
-                }}
-              >
-                {video.url_error ||
-                  (video.require_signed_urls
-                    ? 'Signed URLs enabled — unsigned iframe cannot play. Use a signed token embed.'
-                    : 'Preview unavailable — Stream playback host not ready yet.')}
-              </div>
-            )}
+            <StreamPlayerEmbed
+              src={video.uid}
+              customerSubdomain={video.customer_subdomain}
+              requireSignedUrls={!!video.require_signed_urls}
+              controls={playerControls}
+              muted={playerMuted}
+              autoplay={playerAutoplay}
+              loop={playerLoop}
+              primaryColor={playerPrimary}
+              startTime={playerStart}
+              poster={video.thumbnail || undefined}
+              title={video.name || video.uid}
+            />
           </div>
 
           <div

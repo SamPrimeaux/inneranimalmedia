@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import { ImageTagPicker, type ResourceTagGroup } from '../images/ImageTagPicker';
 import { imagesResourceTagsCatalogUrl } from '../images/imagesApi';
 import type { VideosDetailOutletContext } from './VideosDetailShell';
+import { StreamPlayerEmbed } from './StreamPlayerEmbed';
 import { patchStreamVideo, streamJsonGet, streamJsonMutate } from './videosApi';
 
 const labelStyle: React.CSSProperties = {
@@ -363,6 +364,27 @@ export function VideosEmbedTab() {
 
   return (
     <div style={panelStyle}>
+      <div
+        style={{
+          borderRadius: 12,
+          overflow: 'hidden',
+          border: '1px solid var(--border-subtle)',
+          background: '#000',
+          maxWidth: 560,
+        }}
+      >
+        <StreamPlayerEmbed
+          src={uid}
+          customerSubdomain={video.customer_subdomain}
+          requireSignedUrls={!!video.require_signed_urls}
+          controls={controls}
+          autoplay={autoplay}
+          loop={loop}
+          muted={muted}
+          poster={video.thumbnail || undefined}
+          title={video.name || uid}
+        />
+      </div>
       <Field label="Iframe URL">
         <input value={iframeUrl} readOnly style={inputStyle} />
       </Field>
@@ -406,6 +428,10 @@ export function VideosEmbedTab() {
       >
         Copy snippet
       </button>
+      <p style={{ margin: 0, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+        Preview uses <code>@cloudflare/stream-react</code> with your customer code. Snippet below
+        remains the classic iframe embed for sites that are not React.
+      </p>
     </div>
   );
 }
