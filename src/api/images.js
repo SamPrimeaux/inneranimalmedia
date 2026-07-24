@@ -2414,7 +2414,7 @@ async function handleImagesCapabilities(url, env, authUser, identity) {
   }).catch(() => null);
   const drive = await driveAccountSummary(env, scope.userId);
 
-  // Full catalog: Worker bindings + OAuth/S3 account buckets (Connor BYOK path).
+  // Full catalog: Worker bindings + OAuth/S3 account buckets (BYOK customer path).
   // Do not stop at listBoundR2BucketNames — that is bindings-only.
   let r2Buckets = [];
   let r2Bound = [];

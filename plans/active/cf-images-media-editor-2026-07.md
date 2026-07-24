@@ -18,7 +18,7 @@
 | Sharp in Worker | **Forbidden** for this product path |
 | Sharp on Mac scripts | **Keep** (`scripts/designstudio/*`, `scripts/lib/glb-optimize.mjs`, PWA icon scripts) |
 | “Optional” language | **None** — every section below is in-scope for this sprint |
-| Tenancy | Platform Sam gets platform CF Images; customers (e.g. Connor) use **their** CF Images only after Cloudflare OAuth connects Images; R2/Drive/local remain visible via their own connections |
+| Tenancy | Platform owner gets platform CF Images; customer workspaces use **their** CF Images only after Cloudflare OAuth connects Images; R2/Drive/local remain visible via their own connections |
 | Dual-pass tickets | Product tickets: Tier 1 + Tier 2 before `shipped` (`rule_ticket_dual_pass_e2e`) |
 
 **Ship lane:** Mac → `npm run deploy:full` after commit/push (SPA + worker + PWA). Do not ship from GCP `iam-tunnel` with Vite.
@@ -64,12 +64,12 @@ Share is a **controlled modal** (acceptable exception — Claude-style privacy c
 
 | Source | Who sees it | Transform/edit with CF Images |
 |--------|-------------|-------------------------------|
-| **R2** | User’s connected Cloudflare OAuth / workspace R2 bindings | Browse + download always when R2 connected. **Transform commit** requires CF Images credentials for that workspace (platform for Sam; Connor’s own Images token/hash). R2 objects stay in R2 until user explicitly migrates/uploads to CF Images. |
+| **R2** | User’s connected Cloudflare OAuth / workspace R2 bindings | Browse + download always when R2 connected. **Transform commit** requires CF Images credentials for that workspace (platform for the platform owner; customer’s own Images token/hash). R2 objects stay in R2 until user explicitly migrates/uploads to CF Images. |
 | **CF Images** | Only if workspace has Images credentials | Full transform, variants, tags sync to CF meta |
 | **Drive** | User’s Google Drive OAuth | Browse/import; import-to-library may write R2 and/or CF Images per policy below |
 | **All** | Union of above, workspace-scoped | Same rules per item `source` |
 
-**Connor:** Cloudflare OAuth already grants R2 — he can view his R2 images. He does **not** get free use of **Sam’s** CF Images account. Connecting his CF Images enables transform/edit/delivery on **his** hosted images.
+**Customer BYOK:** Cloudflare OAuth with R2 scopes lets a customer browse **their** R2 buckets. They do **not** get free use of the **platform** CF Images account. Connecting their own CF Images enables transform/edit/delivery on **their** hosted images.
 
 ### 1.5 D1 vs Cloudflare-native: tags / variants / edits
 
@@ -171,7 +171,7 @@ export const IMAGES_TABS = [
 |---------|------|
 | **Drop zone** | Top of Storage; drag file/folder or click → upload into **active source** (see source chips). CF Images source → hosted upload / Direct Creator Upload. R2 source → R2 put. Drive source → not a direct Drive write from drop (import path in Sourcing Kit); drop disabled or routes to import helper with clear copy. |
 | **Usage (right)** | **Live numbers only — never hardcoded.** `Images stored` = count for active source/workspace. `Images transformed` = unique CF transformations this period when CF Images connected; else `—` + connect hint. Period label (e.g. Jul 1 – Aug 1) from API. |
-| **Account (right)** | Dynamic from **that user’s/workspace’s** Cloudflare Images connection: Account ID, Account hash, Image Delivery URL (`https://imagedelivery.net/{hash}`) + copy. **Not connected:** replace values with clean **Connect Cloudflare Images** pathway (Keys tab / OAuth start). Connor sees **his** IDs after connect — never Sam’s. |
+| **Account (right)** | Dynamic from **that user’s/workspace’s** Cloudflare Images connection: Account ID, Account hash, Image Delivery URL (`https://imagedelivery.net/{hash}`) + copy. **Not connected:** replace values with clean **Connect Cloudflare Images** pathway (Keys tab / OAuth start). After connect, customers see **their** IDs — never the platform owner’s. |
 | **Gallery** | Preview tiles, multi-select checkboxes, select-all on page, pagination 20. |
 | **Batch** | Export selected · Delete selected (enabled when selection ≥1). |
 | **Per-item `…` menu** | **Edit** → `/dashboard/images/:id/edit` · **Copy image url** → delivery/public URL for that item · **Export** · **Delete** (confirm). |
@@ -395,7 +395,7 @@ All writes: auth required; SELECT/UPDATE/DELETE bind `workspace_id` (and user wh
 | **B — Shell/UI** | Routes, shell, storage, detail, tags, share, batch bar | `App.tsx`, `dashboard/components/images/*` | All routes render; no modal-primary detail |
 | **C — Transform** | Binding, allowlist module, edit page, derivatives migration | `cf-images-transform.js`, wrangler, edit API | Preview + derivative commit works on platform account |
 | **D — Drive + Sourcing** | Drive persist bug, sourcing kit, import | oauth callbacks, sourcing page | Connect once → `drive_connected` true after reload (proof query) |
-| **E — Keys + tenancy** | Capabilities endpoint, Keys page, Connor BYOK messaging | `cf-oauth-images.js`, Keys UI | Capabilities reflect per-workspace Images vs R2 |
+| **E — Keys + tenancy** | Capabilities endpoint, Keys page, BYOK messaging | `cf-oauth-images.js`, Keys UI | Capabilities reflect per-workspace Images vs R2 |
 | **F — Docs/QA (gatekeeper)** | This plan ↔ product README, CF doc compliance, E2E passes, **block ship if any §13 QC row is red** | `docs/products/images/README.md`, ticket e2e, §13 checklist | Every feature in §9 + every **Must verify** in §13 proven live; Tier 1+2 recorded |
 
 **Merge order:** A → B shell/routes → E capabilities → D Drive → C transform/edit → **F QC gate (must pass)** → single `deploy:full`.
@@ -489,7 +489,7 @@ The [Images binding](https://developers.cloudflare.com/images/optimization/bindi
 
 | # | Doc | Primary owner | Write-up / implement | Agent F must verify (no half-bake) |
 |---|-----|---------------|----------------------|-----------------------------------|
-| 1 | [Introduction](https://developers.cloudflare.com/images/get-started/introduction/) | **E** (+ F skim) | Decide per-asset: **R2 origin + transform** vs **hosted Images**; Keys/Sourcing copy must match CF’s “when to use which” | Capabilities UI states R2-vs-hosted correctly; Connor cannot consume platform hosted quota |
+| 1 | [Introduction](https://developers.cloudflare.com/images/get-started/introduction/) | **E** (+ F skim) | Decide per-asset: **R2 origin + transform** vs **hosted Images**; Keys/Sourcing copy must match CF’s “when to use which” | Capabilities UI states R2-vs-hosted correctly; customer tenants cannot consume platform hosted quota |
 | 2 | [Key concepts](https://developers.cloudflare.com/images/get-started/key-concepts/) | **C** + **B** | Vocabulary in UI/API: remote vs hosted, transformation vs variant, parameter vs option | Detail page labels match CF terms; no “variant” used for ephemeral edit ops |
 | 3 | [Make responsive images](https://developers.cloudflare.com/images/optimization/make-responsive-images/) | **A** + **B** | Gallery + CMS helpers: `srcset` with explicit widths **and/or** `dpr`; prefer named variants (`thumbnail`/`small`) for Storage grid; Delivery tab documents breakpoints | Grid never loads 20× full `public` originals; `srcset` or variant sizes present on detail/hero paths |
 | 4 | [Limits and formats](https://developers.cloudflare.com/images/get-started/limits/) | **C** | Enforce in `cf-images-transform.js` + upload: hosted **10 MB**, binding `.input()` **20 MB**, area/dimension limits; reject SVG “resize”; HEIC in → WebP/AVIF/JPEG out | Oversized upload returns clear error; transform rejects over-limit with message citing CF limit |
@@ -589,7 +589,7 @@ B) STORAGE PAGE (/dashboard/images/storage) — CF Hosted Images chrome
 4. Preview gallery, multi-select, Export/Delete selected
 5. Per-card … menu: Edit | Copy image url | Export | Delete
 6. Source chips All|R2|CF Images|Drive with mirrored sidebar/connect behavior
-7. Pagination default 20
+7. Pagination default 50 (API max 100)
 8. Routes: /dashboard/images → storage; delivery/keys/sourcing-kit stubs; /:id detail; /:id/edit shell
 
 C) DETAIL PAGE (/dashboard/images/:id) — match CF screenshots
