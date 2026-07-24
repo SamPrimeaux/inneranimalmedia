@@ -14,7 +14,7 @@ Ship a **Videos** product beside Hosted Images (never mixed) with storage locati
 - **Videos** are a **sibling gallery** under `/dashboard/images/videos/*` (or `/dashboard/videos/*` alias) — never mixed into Images Storage tiles.
 - **Video locations:** Cloudflare Stream · R2 · Google Drive (`All | Stream | R2 | Drive` filters).
 - Stream rows get full CF detail tabs; R2/Drive get simpler asset panels + Import to Stream.
-- Gen: `veo_generate_video` → Veo 3.1 Thompson arms → default destination **Stream**.
+- Gen: `veo_generate_video` → Veo 3.1 Thompson arms → **default destination local** (playable URL / scratchpad / download — works without Stream). **Optional** ingest to Stream (“Save to Hosted Videos”) when the workspace has Stream credentials. Never block generation on missing `CLOUDFLARE_STREAM_TOKEN`.
 - Docs CTA: https://developers.cloudflare.com/stream/  
 - Video Link: `https://{customerSubdomain}/{uid}/watch`
 
@@ -102,7 +102,9 @@ Owner files: `src/core/stream-api.js`, prefer new `src/api/stream-videos-api.js`
 
 ## Lane D (Claude, after from-url)
 
-- Poll Veo LRO → Stream copy-from-URL → persist `stream_uid` on `media_assets` (or thin `video_generation_drafts`).
+- Poll Veo LRO → return **local/playable** result by default (R2/temp URL + durable job row).
+- **Optional** Stream copy-from-URL when `destination=stream` (or user Save) **and** Stream creds exist; persist `stream_uid` on `media_assets` (or thin `video_generation_drafts`).
+- Missing Stream must **not** fail the generate path — fail loud only when Stream was explicitly requested.
 - Owner: `src/tools/builtin/moviemode.js` + stream upload helper in `stream-api.js`.
 
 ## Lane A / C / E / F (Cursor)
@@ -140,4 +142,4 @@ Also: `watch_url` / `iframe_url` must use the **playback HLS customer subdomain*
 - [ ] Docs CTA + Video Link work  
 - [ ] All six Stream tabs real or fail loud  
 - [ ] Settings/Downloads/Captions/Embed/JSON/Public Details/Tags  
-- [ ] Veo chat → same `stream_uid` in Overview + Scratchpad (after D+E)  
+- [ ] Veo chat → playable local result without Stream; optional Save → same `stream_uid` in Overview + Scratchpad (after D+E)  

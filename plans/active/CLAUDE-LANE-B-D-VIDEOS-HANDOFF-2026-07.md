@@ -15,11 +15,12 @@ Expand Cloudflare Stream backend so Cursor can build Overview + detail tabs.
 3. Add Overview merge list: `source=all|stream|r2|drive` (reuse Images Drive connect + R2 video mime listing patterns; do not put rows into `/api/images`).
 4. Optional client URL helper only: `dashboard/components/videos/videosApi.ts` (paths/types — no React pages).
 
-### Lane D (after `POST /api/stream/videos/from-url` works)
+### Lane D (after `POST /api/stream/from-url` works)
 
 1. Complete Veo LRO in [`src/tools/builtin/moviemode.js`](../../src/tools/builtin/moviemode.js).
-2. Upload result to Stream via from-url helper.
-3. Persist `stream_uid` on `media_assets` (preferred) or thin `video_generation_drafts` — **not** CF Images `committed_image_id`.
+2. **Default:** local/playable delivery (no Stream required — Connor-safe).
+3. **Optional:** upload to Stream via from-url when `destination=stream` / Save **and** Stream is configured; persist `stream_uid` on `media_assets` (preferred) or thin `video_generation_drafts` — **not** CF Images `committed_image_id`.
+4. Explicit Stream destination + missing creds → fail loud; default path never depends on Stream.
 
 ## Do not touch
 
