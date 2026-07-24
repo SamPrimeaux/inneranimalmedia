@@ -484,6 +484,59 @@ export async function batchDeleteFromCfImages(batchToken, imageId) {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Variants catalog (§13.2 doc #4 — Key concepts / Create variants)
+// https://developers.cloudflare.com/images/optimization/hosted-images/create-variants/
+// Named variants are ACCOUNT-SPECIFIC — there is no fixed default set. A variant
+// literally named "public" can be configured to any width/height (confirmed on
+// this account: "public" = 1366x768, "large" = 1200x1200, not any generic
+// default). Any UI showing variant dimensions must read this real catalog, not
+// hardcode assumed values — the dashboard/components/images/imagesRegistry.ts
+// NAMED_VARIANTS constant is a client-side fallback only, for when this call
+// fails or no CF Images credentials are configured; it must never be trusted as
+// ground truth over what this function returns.
+// ---------------------------------------------------------------------------
+
+/**
+ * Lists the account's actual configured named Variants from Cloudflare Images.
+ * @param {string} accountId
+ * @param {string} apiToken
+ * @returns {Promise<{ id: string, width: number|null, height: number|null, fit: string|null, neverRequireSignedURLs: boolean }[]>}
+ */
+export async function listCfImageVariants(accountId, apiToken) {
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/images/v1/variants`,
+    { headers: { Authorization: `Bearer ${apiToken}` } },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.success) {
+    throw new Error(data?.errors?.[0]?.message || 'Failed to list Cloudflare Images variants');
+  }
+
+  // CF's response shape has varied across API versions — handle both an
+  // object keyed by variant id and a plain array defensively.
+  const raw = data.result?.variants;
+  if (Array.isArray(raw)) {
+    return raw.map((v) => ({
+      id: String(v?.id || '').trim(),
+      width: v?.options?.width ?? null,
+      height: v?.options?.height ?? null,
+      fit: v?.options?.fit ?? null,
+      neverRequireSignedURLs: !!v?.neverRequireSignedURLs,
+    })).filter((v) => v.id);
+  }
+  if (raw && typeof raw === 'object') {
+    return Object.entries(raw).map(([id, v]) => ({
+      id: String(id).trim(),
+      width: v?.options?.width ?? null,
+      height: v?.options?.height ?? null,
+      fit: v?.options?.fit ?? null,
+      neverRequireSignedURLs: !!v?.neverRequireSignedURLs,
+    })).filter((v) => v.id);
+  }
+  return [];
+}
+
 /**
  * Runs `worker(item, batchToken)` for each item using a shared batch token, with a small
  * concurrency cap so we stay well under the 200rps batch lane limit. Errors are collected
