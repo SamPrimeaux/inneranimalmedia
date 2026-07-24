@@ -143,26 +143,42 @@ export function ImagesDetailPage() {
     return img.url || '';
   }, [img, accountHash, cfId]);
 
+  // Prefer the real, account-fetched variant list; fall back to the static
+  // guesses only if the catalog couldn't be loaded (e.g. CF creds unset).
+  const variantIds = useMemo(() => {
+    if (realVariants && realVariants.length) return realVariants.map((v) => v.id);
+    return NAMED_VARIANTS.map((v) => v.id);
+  }, [realVariants]);
+
+  const realHints = useMemo(() => {
+    if (!realVariants) return null;
+    const map: Record<string, string> = {};
+    for (const v of realVariants) {
+      map[v.id] = v.width && v.height ? `${v.width}\u00d7${v.height}` : 'original';
+    }
+    return map;
+  }, [realVariants]);
+
   const variantMap = useMemo(() => {
     const map: Record<string, string> = {};
-    for (const v of NAMED_VARIANTS) {
-      if (accountHash && cfId) map[v.id] = buildCfImageUrl(accountHash, cfId, v.id);
+    for (const id of variantIds) {
+      if (accountHash && cfId) map[id] = buildCfImageUrl(accountHash, cfId, id);
       else if (baseUrl && baseUrl.includes('imagedelivery.net')) {
-        map[v.id] = baseUrl.replace(/\/(public|small|thumbnail|avatar|hero|large|medium)(?:\?.*)?$/i, `/${v.id}`);
-      } else if (baseUrl) map[v.id] = baseUrl;
+        map[id] = baseUrl.replace(/\/([a-z0-9_-]+)(?:\?.*)?$/i, `/${id}`);
+      } else if (baseUrl) map[id] = baseUrl;
     }
     if (img?.variants && typeof img.variants === 'object' && !Array.isArray(img.variants)) {
       Object.assign(map, img.variants);
     }
     return map;
-  }, [accountHash, cfId, baseUrl, img]);
+  }, [accountHash, cfId, baseUrl, img, variantIds]);
 
   const previewUrl = variantMap[selectedVariant] || baseUrl;
   const galleryPreview = cloudflareImageUrl(baseUrl);
-  const selectedVariantHint = useMemo(
-    () => NAMED_VARIANTS.find((v) => v.id === selectedVariant)?.hint || '',
-    [selectedVariant],
-  );
+  const selectedVariantHint = useMemo(() => {
+    if (realHints && realHints[selectedVariant]) return realHints[selectedVariant];
+    return NAMED_VARIANTS.find((v) => v.id === selectedVariant)?.hint || '';
+  }, [realHints, selectedVariant]);
 
   const saveResourceTags = async (next: Record<string, string>) => {
     if (!img) return;
