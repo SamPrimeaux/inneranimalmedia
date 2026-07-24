@@ -1780,6 +1780,7 @@ async function streamImageGenerationVariationsSse(emit, env, toolName, params, c
   emit('image_generation_started', {
     type: 'image_generation_started',
     batch_id: batchId,
+    generation_id: batchId,
     variation_count: count,
     prompt: basePrompt.slice(0, 500),
   });
@@ -1823,6 +1824,7 @@ async function streamImageGenerationVariationsSse(emit, env, toolName, params, c
         type: 'image_generation_complete',
         batch_id: batchId,
         variation_index: index,
+        frame_index: index,
         generation_id: result.generation_id || genId,
         status: result.status || (result.persist ? 'saved' : 'draft'),
         preview_url: previewUrl,
@@ -1841,6 +1843,7 @@ async function streamImageGenerationVariationsSse(emit, env, toolName, params, c
         type: 'image_generation_complete',
         batch_id: batchId,
         variation_index: index,
+        frame_index: index,
         generation_id: genId,
         status: 'failed',
         failed: true,

@@ -349,6 +349,7 @@ function patchAssistantImageGeneration(
   assistantContent: string,
   patch: Partial<ImageGenerationState>,
   eventType: string,
+  scratchpadFiles: AgentGeneratedFile[] = [],
 ) {
   setMessages((prev) => {
     const next = [...prev];
@@ -374,13 +375,58 @@ function patchAssistantImageGeneration(
     if (eventType === 'image_generation_complete' && !content.trim()) {
       // Persist a markdown image only when there is no other assistant text yet
       // (reload/fallback). Live UI still prefers AgentImageGenerationCard.
-      const url = merged.previewUrl || merged.imageUrl || '';
-      if (url) {
-        const alt = (merged.prompt || 'Generated image').replace(/\s+/g, ' ').trim().slice(0, 120);
-        content = `![${alt}](${url})`;
+      const urls = imageGenerationDisplayUrls(merged);
+      if (urls.length) {
+        content = urls
+          .map((url, i) => {
+            const alt = ((merged.prompt || 'Generated image').replace(/\s+/g, ' ').trim().slice(0, 80) ||
+              'Generated image') + (urls.length > 1 ? ` (${i + 1})` : '');
+            return `![${alt}](${url})`;
+          })
+          .join('\n');
       }
     }
-    next[idx] = { ...prevMsg, content, imageGenerationState: merged };
+
+    let agentFiles = prevMsg.agentFiles ?? [];
+    if (scratchpadFiles.length) {
+      const seen = new Set(
+        agentFiles.map((x) => x.r2Url || x.workspacePath || x.filename).filter(Boolean) as string[],
+      );
+      const fresh = scratchpadFiles.filter((f) => {
+        const key = f.r2Url || f.workspacePath || f.filename;
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      if (fresh.length) agentFiles = [...agentFiles, ...fresh];
+    }
+    // Also derive scratchpad entries from accumulated frames (belt-and-suspenders).
+    if (merged.previewFrames?.length) {
+      const fromFrames = agentFilesFromImageSse({
+        preview_urls: merged.previewFrames
+          .slice()
+          .sort((a, b) => a.frameIndex - b.frameIndex)
+          .map((f) => f.previewUrl),
+        generation_id: merged.generationId,
+      });
+      const seen = new Set(
+        agentFiles.map((x) => x.r2Url || x.workspacePath || x.filename).filter(Boolean) as string[],
+      );
+      const fresh = fromFrames.filter((f) => {
+        const key = f.r2Url || f.workspacePath || f.filename;
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      if (fresh.length) agentFiles = [...agentFiles, ...fresh];
+    }
+
+    next[idx] = {
+      ...prevMsg,
+      content,
+      imageGenerationState: merged,
+      ...(agentFiles.length ? { agentFiles } : {}),
+    };
     return next;
   });
 }
@@ -1096,14 +1142,18 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         ) {
           const normalized = normalizeImageGenerationEvent(data);
           if (normalized) {
+            const scratchpadFiles =
+              evType === 'image_generation_preview' || evType === 'image_generation_complete'
+                ? agentFilesFromImageSse(data)
+                : [];
             patchAssistantImageGeneration(
               setMessages,
               assistantContent,
               normalized.patch,
               normalized.eventType,
+              scratchpadFiles,
             );
-          }
-          if (evType === 'image_generation_preview' || evType === 'image_generation_complete') {
+          } else if (evType === 'image_generation_preview' || evType === 'image_generation_complete') {
             appendAgentFilesToAssistantTail(setMessages, agentFilesFromImageSse(data));
           }
           continue;

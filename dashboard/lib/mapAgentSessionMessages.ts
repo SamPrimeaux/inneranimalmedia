@@ -4,9 +4,10 @@ export type AgentShellMessage = {
   role: 'user' | 'assistant';
   content: string;
   imageGenerationState?: ImageGenerationState | null;
+  agentFiles?: Message['agentFiles'];
 };
 
-const MD_IMAGE_RE = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/i;
+const MD_IMAGE_RE = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+|\/[^)\s]+)\)/gi;
 
 /** Hide legacy client-prepended Project memory/instructions from the chat bubble. */
 export function stripInjectedProjectBriefForDisplay(content: string): string {
@@ -81,27 +82,50 @@ export function normalizeAgentSessionMessageContent(raw: unknown): string {
   return readTextFromUnknown(raw).trim();
 }
 
-/** Rebuild clean image-gen state from persisted markdown so refresh keeps the image. */
+/** Rebuild clean image-gen state from persisted markdown so refresh keeps the image(s). */
 export function imageGenerationStateFromMarkdown(content: string): ImageGenerationState | null {
-  const m = String(content || '').match(MD_IMAGE_RE);
-  if (!m) return null;
-  const alt = (m[1] || 'Generated image').trim() || 'Generated image';
-  const url = (m[2] || '').trim();
-  if (!url) return null;
+  const src = String(content || '');
+  const frames: { frameIndex: number; previewUrl: string }[] = [];
+  let alt = 'Generated image';
+  const re = new RegExp(MD_IMAGE_RE.source, 'gi');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) {
+    const url = (m[2] || '').trim();
+    if (!url || frames.some((f) => f.previewUrl === url)) continue;
+    if (!frames.length) alt = (m[1] || 'Generated image').trim() || 'Generated image';
+    frames.push({ frameIndex: frames.length, previewUrl: url });
+  }
+  if (!frames.length) return null;
+  const primary = frames[0].previewUrl;
   return {
-    generationId: `restored_${url.slice(-12).replace(/[^a-zA-Z0-9]/g, '')}`,
+    generationId: `restored_${primary.slice(-12).replace(/[^a-zA-Z0-9]/g, '')}`,
     phase: 'completed',
     progress: 100,
     message: '',
     prompt: alt,
-    previewUrl: url,
-    imageUrl: url,
-    previewFrames: [{ frameIndex: 0, previewUrl: url }],
-    activeFrameIndex: 0,
+    previewUrl: primary,
+    imageUrl: frames[frames.length - 1].previewUrl,
+    previewFrames: frames,
+    activeFrameIndex: frames.length - 1,
     status: 'draft',
     persist: false,
     failed: false,
   };
+}
+
+function agentFilesFromImageState(
+  state: ImageGenerationState | null | undefined,
+): NonNullable<Message['agentFiles']> {
+  if (!state?.previewFrames?.length) return [];
+  return state.previewFrames.map((f, i) => {
+    const filename = `variation-${i + 1}.jpg`;
+    return {
+      filename,
+      r2Url: f.previewUrl,
+      workspacePath: `images/${filename}`,
+      kind: 'image' as const,
+    };
+  });
 }
 
 export function mapAgentSessionMessages(rows: unknown): AgentShellMessage[] {
@@ -116,19 +140,25 @@ export function mapAgentSessionMessages(rows: unknown): AgentShellMessage[] {
     const content = normalizeAgentSessionMessageContent(o.content);
     const imageGenerationState =
       role === 'assistant' ? imageGenerationStateFromMarkdown(content) : null;
+    const agentFiles = role === 'assistant' ? agentFilesFromImageState(imageGenerationState) : [];
     // beginChatTurn reserves a pending assistant row with content ''. Never show that as "(empty)".
     if (!content && !imageGenerationState) {
       if (status === 'pending' || role === 'assistant') continue;
     }
     const displayContent = stripInjectedProjectBriefForDisplay(
       content ||
-        (imageGenerationState ? `![Generated image](${imageGenerationState.imageUrl})` : ''),
+        (imageGenerationState
+          ? imageGenerationState.previewFrames
+              .map((f, i) => `![Generated image (${i + 1})](${f.previewUrl})`)
+              .join('\n')
+          : ''),
     );
     if (!displayContent && !imageGenerationState) continue;
     mapped.push({
       role,
       content: displayContent,
       ...(imageGenerationState ? { imageGenerationState } : {}),
+      ...(agentFiles.length ? { agentFiles } : {}),
     });
   }
   return mapped;

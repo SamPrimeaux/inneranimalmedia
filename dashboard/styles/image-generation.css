@@ -395,11 +395,19 @@
   display: block;
   margin: 0;
   padding: 0;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 0.5rem;
   overflow: hidden;
   background: #0b0d10;
   cursor: zoom-in;
+}
+
+.iam-image-gen-variants__item.is-active {
+  border-color: var(--solar-cyan, #5eead4);
+}
+
+.iam-image-gen-variants__item.is-pending {
+  opacity: 0.92;
 }
 
 .iam-image-gen-variants__item img {

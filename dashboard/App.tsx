@@ -36,6 +36,7 @@ import {
   parseAgentConversationIdFromPath,
   type AgentHomeTab,
 } from './lib/agentRoutes';
+import type { Message } from './components/ChatAssistant/types';
 import {
   IAM_OPEN_STATUS_NOTIF,
   IAM_PUSH_NAVIGATE,
@@ -801,13 +802,11 @@ const App: React.FC = () => {
   });
   const [activeAgentChatTabId, setActiveAgentChatTabId] = useState(() => stableAgentChatTabId);
   const MESSAGES_SS_KEY = 'iam-agent-chat-messages-v1';
-  const [messagesByTabId, setMessagesByTabId] = useState<
-    Record<string, { role: 'user' | 'assistant'; content: string }[]>
-  >(() => {
+  const [messagesByTabId, setMessagesByTabId] = useState<Record<string, Message[]>>(() => {
     try {
       const raw = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('iam-agent-chat-messages-v1') : null;
       if (raw) {
-        const parsed = JSON.parse(raw) as Record<string, { role: 'user' | 'assistant'; content: string }[]>;
+        const parsed = JSON.parse(raw) as Record<string, Message[]>;
         if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) return parsed;
       }
     } catch { /* ignore */ }
@@ -2216,13 +2215,13 @@ const App: React.FC = () => {
   );
 
   const setChatMessages = useCallback(
-    (updater: React.SetStateAction<{ role: 'user' | 'assistant'; content: string }[]>) => {
+    (updater: React.SetStateAction<Message[]>) => {
       setMessagesByTabId((prev) => {
         const cur =
           prev[activeAgentChatTabId] ?? [
             { role: 'assistant' as const, content: buildAgentSamGreeting(workspaceDisplayLine) },
           ];
-        const next = typeof updater === 'function' ? (updater as (c: typeof cur) => typeof cur)(cur) : updater;
+        const next = typeof updater === 'function' ? updater(cur as Message[]) : updater;
         return { ...prev, [activeAgentChatTabId]: next };
       });
     },

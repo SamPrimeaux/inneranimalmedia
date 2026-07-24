@@ -236,13 +236,15 @@ export function AgentImageGenerationCard({
             {state.message?.trim() || 'Generating image…'}
           </p>
         ) : null}
-        {isComplete && state.previewFrames.length > 1 ? (
+        {state.previewFrames.length > 1 ? (
           <div className="iam-image-gen-variants" role="list">
             {state.previewFrames.map((frame) => (
               <button
                 key={`${frame.frameIndex}-${frame.previewUrl}`}
                 type="button"
-                className="iam-image-gen-variants__item"
+                className={`iam-image-gen-variants__item${
+                  frame.frameIndex === state.activeFrameIndex ? ' is-active' : ''
+                }${!isComplete ? ' is-pending' : ''}`}
                 role="listitem"
                 onClick={() => openLightbox(frame.previewUrl)}
                 aria-label={`Open variation ${frame.frameIndex + 1}`}

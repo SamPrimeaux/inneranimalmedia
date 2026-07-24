@@ -284,7 +284,10 @@ export function normalizeImageGenerationEvent(
   const eventType = typeof o.type === 'string' ? o.type : '';
   if (!IMAGE_GENERATION_SSE_TYPES.has(eventType)) return null;
 
-  const generationId = typeof o.generation_id === 'string' ? o.generation_id.trim() : '';
+  const generationId =
+    (typeof o.generation_id === 'string' && o.generation_id.trim()) ||
+    (typeof o.batch_id === 'string' && o.batch_id.trim()) ||
+    '';
   if (!generationId) return null;
 
   if (eventType === 'image_generation_started') {
@@ -342,6 +345,12 @@ export function normalizeImageGenerationEvent(
     const imageUrl = typeof o.image_url === 'string' ? o.image_url.trim() : '';
     const previewUrl = typeof o.preview_url === 'string' ? o.preview_url.trim() : imageUrl;
     const status = typeof o.status === 'string' ? o.status : imageUrl ? 'draft' : 'completed';
+    const explicitFrame =
+      typeof o.frame_index === 'number' && Number.isFinite(o.frame_index)
+        ? Math.max(0, Math.floor(o.frame_index))
+        : typeof o.variation_index === 'number' && Number.isFinite(o.variation_index)
+          ? Math.max(0, Math.floor(o.variation_index))
+          : null;
     const previewFrames: ImageGenerationPreviewFrame[] = [];
     const pushFrame = (url: string, frameIndex: number) => {
       const u = url.trim();
@@ -356,16 +365,27 @@ export function normalizeImageGenerationEvent(
     if (Array.isArray(o.variations)) {
       o.variations.forEach((v, i) => {
         if (!v || typeof v !== 'object') return;
-        const row = v as { image_url?: unknown; preview_url?: unknown };
+        const row = v as { image_url?: unknown; preview_url?: unknown; variation_index?: unknown };
         const u =
           (typeof row.image_url === 'string' && row.image_url) ||
           (typeof row.preview_url === 'string' && row.preview_url) ||
           '';
-        if (u) pushFrame(u, previewFrames.length || i);
+        const fi =
+          typeof row.variation_index === 'number' && Number.isFinite(row.variation_index)
+            ? Math.max(0, Math.floor(row.variation_index))
+            : i;
+        if (u) pushFrame(u, fi);
       });
     }
-    if (previewUrl) pushFrame(previewUrl, previewFrames.length);
-    if (imageUrl) pushFrame(imageUrl, previewFrames.length);
+    // Per-variation completes must keep their slot — never collapse to frame 0.
+    if (previewFrames.length === 0 && (previewUrl || imageUrl)) {
+      pushFrame(previewUrl || imageUrl, explicitFrame ?? 0);
+    } else {
+      if (previewUrl) pushFrame(previewUrl, explicitFrame ?? previewFrames.length);
+      if (imageUrl && imageUrl !== previewUrl) {
+        pushFrame(imageUrl, explicitFrame ?? previewFrames.length);
+      }
+    }
     return {
       eventType,
       patch: {
@@ -376,7 +396,11 @@ export function normalizeImageGenerationEvent(
         imageUrl: previewUrl || imageUrl || undefined,
         previewUrl: previewUrl || imageUrl || undefined,
         ...(previewFrames.length
-          ? { previewFrames, activeFrameIndex: previewFrames.length - 1 }
+          ? {
+              previewFrames,
+              activeFrameIndex:
+                explicitFrame != null ? explicitFrame : previewFrames[previewFrames.length - 1].frameIndex,
+            }
           : {}),
         status,
         expiresAt: typeof o.expires_at === 'string' ? o.expires_at : undefined,
