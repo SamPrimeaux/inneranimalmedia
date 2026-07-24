@@ -209,10 +209,16 @@ const TIER_COST_CAP_MIN_N = 3;
 /** Blend weight for cost-efficiency vs Beta quality sample (0.3–0.5). */
 const IMAGE_COST_WEIGHT = 0.4;
 
+/**
+ * BUGFIX 2026-07-24 (tkt_image_tier_quality_size_defaults_bug_2026_07_24):
+ * 'standard' was byte-identical to 'draft' (quality:'medium', size:'1024x1024' for both),
+ * despite 'standard' routing to a costlier arm (TIER_COST_CAP_USD.standard=0.08 vs draft=0.02).
+ * Now 'standard' gets a real quality bump (still capped below the top 'quality' tier's size).
+ */
 const TIER_QUALITY_DEFAULTS = Object.freeze({
   draft: { quality: 'medium', size: '1024x1024' },
+  standard: { quality: 'high', size: '1024x1024' },
   quality: { quality: 'high', size: '1536x1024' },
-  standard: { quality: 'medium', size: '1024x1024' },
 });
 
 /**
