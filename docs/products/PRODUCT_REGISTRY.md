@@ -111,7 +111,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Implementation** | `ImagesPage.tsx`, `src/api/images.js`, `cms_assets` |
+| **Implementation** | `dashboard/components/images/*`, `src/api/images.js`, `src/core/cf-resource-tags.js` |
 | **Agent** | Image generate/commit tools |
 | **Docs** | [images/README.md](./images/README.md) |
 | **Blockers** | Cross-product picker unification |

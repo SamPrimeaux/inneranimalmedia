@@ -29,7 +29,7 @@ Capabilities serve multiple products. They are not standalone customer SKUs unle
 
 | Layer | Path |
 |-------|------|
-| UI | `dashboard/components/ImagesPage.tsx` |
+| UI | `dashboard/components/images/*` |
 | API | `src/api/images.js` |
 | Table | `cms_assets` |
 | CF Images | `cloudflare_image_id`, `imagedelivery.net` |

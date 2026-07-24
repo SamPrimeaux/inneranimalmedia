@@ -4,7 +4,7 @@ export type ImagesSourceTab = 'all' | 'r2' | 'cf_images' | 'drive';
 
 export type ImagesToast = { id: number; msg: string; type: 'ok' | 'err' };
 
-/** Same toast pattern as ImagesPage (local hook — not a shared package import). */
+/** Local toast hook for Images surfaces (not a shared package import). */
 export function useImagesToast() {
   const [toasts, setToasts] = useState<ImagesToast[]>([]);
   const add = useCallback((msg: string, type: 'ok' | 'err' = 'ok') => {

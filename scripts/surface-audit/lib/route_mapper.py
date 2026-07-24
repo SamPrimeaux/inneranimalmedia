@@ -33,7 +33,7 @@ PAGE_OVERRIDES: dict[str, list[str]] = {
     "/dashboard/agent/systems": ["dashboard/components/WorkspaceDashboardV2.tsx"],
     "/dashboard/designstudio": ["dashboard/components/DesignStudioPage.tsx"],
     "/dashboard/draw": ["dashboard/pages/draw/DrawPage.tsx"],
-    "/dashboard/images": ["dashboard/components/ImagesPage.tsx"],
+    "/dashboard/images": ["dashboard/components/images/ImagesShell.tsx", "dashboard/components/images/ImagesStoragePage.tsx"],
     "/dashboard/database": ["dashboard/components/DatabasePage.tsx"],
     "/dashboard/workflows": ["dashboard/pages/workflows/WorkflowsPage.tsx"],
     "/dashboard/collaborate": ["dashboard/pages/LaunchDeskPage.tsx"],

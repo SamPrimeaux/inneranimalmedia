@@ -90,7 +90,7 @@ Share is a **controlled modal** (acceptable exception — Claude-style privacy c
 | Fact | Location / value |
 |------|------------------|
 | Route today | `dashboard/App.tsx` → `path="/dashboard/images"` → lazy `ImagesPage` |
-| UI monolith | `dashboard/components/ImagesPage.tsx` (~1500+ lines): gallery + modal detail + upload |
+| UI monolith | **Deleted** — was `dashboard/components/ImagesPage.tsx`; live UI is `dashboard/components/images/*` |
 | Default page size | `useState(100)` — **must become 20** |
 | API | `src/api/images.js` — list/upload/tags/PATCH; CF REST; Drive via `getOAuthToken(..., 'google_drive')` |
 | Delivery helper | `cfDeliveryUrl(hash, id, variant)` → `imagedelivery.net/...` |

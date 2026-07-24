@@ -12,8 +12,17 @@
   },
   "standalone_intent": false,
   "implementation": {
-    "frontend": ["dashboard/components/ImagesPage.tsx"],
-    "backend": ["src/api/images.js", "src/core/image-draft-store.js"],
+    "frontend": [
+      "dashboard/components/images/ImagesShell.tsx",
+      "dashboard/components/images/ImagesStoragePage.tsx",
+      "dashboard/components/images/ImagesDetailPage.tsx"
+    ],
+    "backend": [
+      "src/api/images.js",
+      "src/core/cf-resource-tags.js",
+      "src/core/cf-images-transform.js",
+      "src/core/image-draft-store.js"
+    ],
     "migrations": [],
     "docs": ["docs/products/images/README.md", "docs/shared/SHARED_CAPABILITIES.md"]
   },
