@@ -11,6 +11,15 @@ const HINTS: Record<string, string> = Object.fromEntries(
   NAMED_VARIANTS.map((v) => [v.id, v.hint]),
 );
 
+/**
+ * Variant selector — matches the real Cloudflare dashboard's Preview section
+ * exactly: bordered tiles carrying only the variant name + dimensions, no
+ * per-tile thumbnail. CF does not eager-load a distinct <img> for every
+ * variant tile — only the single selected variant is fetched/rendered, in
+ * the Preview panel below this grid (see ImagesDetailPage.tsx). Loading 7
+ * full images per page view here was both visually wrong (didn't match CF)
+ * and wasteful (7x the transform/bandwidth cost of what CF's own UI does).
+ */
 export function ImageVariantGrid({ variants, selected, onSelect }: ImageVariantGridProps) {
   const ids = Object.keys(variants).length
     ? Object.keys(variants)
@@ -20,12 +29,11 @@ export function ImageVariantGrid({ variants, selected, onSelect }: ImageVariantG
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-        gap: 10,
+        gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
+        gap: 8,
       }}
     >
       {ids.map((id) => {
-        const url = variants[id] || '';
         const active = selected === id;
         const hint = HINTS[id] || '';
         return (
@@ -33,51 +41,38 @@ export function ImageVariantGrid({ variants, selected, onSelect }: ImageVariantG
             key={id}
             type="button"
             onClick={() => onSelect(id)}
+            aria-pressed={active}
             style={{
               display: 'flex',
               flexDirection: 'column',
-              alignItems: 'stretch',
-              gap: 6,
-              padding: 8,
-              borderRadius: 10,
+              alignItems: 'flex-start',
+              gap: 2,
+              padding: '10px 12px',
+              borderRadius: 8,
               border: active
                 ? '1px solid var(--solar-cyan)'
                 : '1px solid var(--border-subtle)',
               background: active
-                ? 'color-mix(in srgb, var(--solar-cyan) 10%, var(--bg-elevated))'
+                ? 'color-mix(in srgb, var(--solar-cyan) 8%, var(--bg-elevated))'
                 : 'var(--bg-elevated)',
               cursor: 'pointer',
               textAlign: 'left',
               fontFamily: 'inherit',
+              transition: 'border-color 120ms ease, background 120ms ease',
             }}
           >
             <div
               style={{
-                aspectRatio: '1',
-                borderRadius: 6,
-                overflow: 'hidden',
-                background: 'var(--bg-panel)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                fontSize: 12,
+                fontWeight: 600,
+                color: active ? 'var(--solar-cyan)' : 'var(--text-main)',
               }}
             >
-              {url ? (
-                <img
-                  src={url}
-                  alt={id}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                />
-              ) : (
-                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>—</span>
-              )}
+              {id}
             </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-main)' }}>{id}</div>
-              {hint ? (
-                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>{hint}</div>
-              ) : null}
-            </div>
+            {hint ? (
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{hint}</div>
+            ) : null}
           </button>
         );
       })}

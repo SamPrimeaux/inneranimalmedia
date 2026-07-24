@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { ImageIcon } from 'lucide-react';
+import { BookOpen, ImageIcon } from 'lucide-react';
 import { IMAGES_TABS } from './imagesRegistry';
 
 export type ImagesOutletContext = {
@@ -10,6 +10,8 @@ export type ImagesOutletContext = {
 export type ImagesShellProps = {
   workspaceId?: string | null;
 };
+
+const CF_IMAGES_DOCS_URL = 'https://developers.cloudflare.com/images/';
 
 export function ImagesShell({ workspaceId }: ImagesShellProps) {
   const ctx: ImagesOutletContext = { workspaceId };
@@ -34,19 +36,51 @@ export function ImagesShell({ workspaceId }: ImagesShellProps) {
           flexShrink: 0,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-          <ImageIcon size={18} style={{ color: 'var(--solar-cyan)', flexShrink: 0 }} />
-          <h1
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            marginBottom: 14,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ImageIcon size={18} style={{ color: 'var(--solar-cyan)', flexShrink: 0 }} />
+            <h1
+              style={{
+                margin: 0,
+                fontWeight: 600,
+                fontSize: 15,
+                letterSpacing: '0.02em',
+                color: 'var(--text-main)',
+              }}
+            >
+              Hosted images
+            </h1>
+          </div>
+          <a
+            href={CF_IMAGES_DOCS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
             style={{
-              margin: 0,
-              fontWeight: 600,
-              fontSize: 15,
-              letterSpacing: '0.02em',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '6px 12px',
+              borderRadius: 8,
+              border: '1px solid var(--border-subtle)',
+              background: 'var(--bg-elevated)',
               color: 'var(--text-main)',
+              fontSize: 12,
+              fontWeight: 500,
+              textDecoration: 'none',
+              flexShrink: 0,
             }}
           >
-            Hosted images
-          </h1>
+            <BookOpen size={13} />
+            Documentation
+          </a>
         </div>
         <nav style={{ display: 'flex', gap: 0, overflowX: 'auto' }} aria-label="Images sections">
           {IMAGES_TABS.map((tab) => (
