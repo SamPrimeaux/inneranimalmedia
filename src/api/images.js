@@ -5,7 +5,7 @@
  * Full log: artifacts/p0-data-isolation-audit-20260523.txt
  * images list: WHERE user_id = ? AND workspace_id = ? (see listD1Images).
  *
- * GET    /api/images?source=all|r2|cf_images|drive&page=1&per_page=50
+ * GET    /api/images?source=all|r2|cf_images|drive&page=1&per_page=50 (max 100)
  * POST   /api/images/upload  (multipart) — also POST /api/images (multipart or JSON url)
  * POST   /api/images/import/drive  { drive_file_id } — R2 + D1 only (never auto-hosts on CF Images)
  * GET    /api/images/drive/:fileId/preview|thumbnail — OAuth-proxied preview (browse only; no R2)
@@ -796,7 +796,7 @@ async function handleGetImages(request, url, env, authUser, identity) {
 
   const source = (url.searchParams.get('source') || 'all').toLowerCase();
   const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
-  const perPage = Math.min(200, Math.max(1, parseInt(url.searchParams.get('per_page') || '50', 10) || 50));
+  const perPage = Math.min(100, Math.max(1, parseInt(url.searchParams.get('per_page') || '50', 10) || 50));
   const tagFilter = (url.searchParams.get('tag') || '').trim().toLowerCase();
   const searchQ = (url.searchParams.get('q') || url.searchParams.get('search') || '').trim();
   const projectIdFilter = (url.searchParams.get('project_id') || '').trim();
@@ -2413,23 +2413,30 @@ async function handleImagesCapabilities(url, env, authUser, identity) {
     workspaceId: scope.workspaceId,
   }).catch(() => null);
   const drive = await driveAccountSummary(env, scope.userId);
+
+  // Full catalog: Worker bindings + OAuth/S3 account buckets (Connor BYOK path).
+  // Do not stop at listBoundR2BucketNames — that is bindings-only.
   let r2Buckets = [];
+  let r2Bound = [];
+  let r2Via = null;
   try {
-    r2Buckets = listBoundR2BucketNames(env) || [];
+    r2Bound = listBoundR2BucketNames(env) || [];
+  } catch {
+    r2Bound = [];
+  }
+  try {
+    const cat = await listR2BucketsForCatalog(env, {
+      authUser,
+      workspaceId: scope.workspaceId,
+    });
+    r2Buckets = (cat?.buckets || [])
+      .map((b) => (typeof b === 'string' ? b : b?.name || b?.bucket_name || ''))
+      .filter(Boolean);
+    r2Via = cat?.via || cat?.source || null;
   } catch {
     r2Buckets = [];
   }
-  if (!r2Buckets.length) {
-    try {
-      const cat = await listR2BucketsForCatalog(env, {
-        authUser,
-        workspaceId: scope.workspaceId,
-      });
-      r2Buckets = (cat?.buckets || []).map((b) => (typeof b === 'string' ? b : b.name)).filter(Boolean);
-    } catch {
-      r2Buckets = [];
-    }
-  }
+  if (!r2Buckets.length && r2Bound.length) r2Buckets = [...r2Bound];
 
   return jsonResponse({
     ok: true,
@@ -2443,6 +2450,8 @@ async function handleImagesCapabilities(url, env, authUser, identity) {
     source: cfCtx?.source || null,
     r2: r2Buckets.length > 0,
     r2_buckets: r2Buckets,
+    r2_bound_buckets: r2Bound,
+    r2_catalog_via: r2Via,
     drive: !!drive.connected,
     drive_connected: !!drive.connected,
     drive_account_email: drive.account_email || null,

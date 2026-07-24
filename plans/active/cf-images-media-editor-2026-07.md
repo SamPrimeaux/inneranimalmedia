@@ -519,7 +519,7 @@ Mark each **Pass** only with proof (URL, D1 id, or curl). Any **Fail** or **N/A-
 | ID | Check | Owner lane | Pass? | Proof |
 |----|-------|------------|-------|-------|
 | QC-01 | Routes: storage/delivery/keys/sourcing-kit/:id/:id/edit | B | | |
-| QC-02 | Pagination default 20; API clamp | A | | |
+| QC-02 | Pagination default **50**; API clamp max **100** (product override of CF-style 20) | A | | |
 | QC-03 | Gallery uses thumbnail/small not full public | A/B | | |
 | QC-04 | Detail: breadcrumb, metadata, variant grid, Export/Edit/Share/Delete | B | | |
 | QC-05 | Tag autocomplete + Create tag | B | | |
