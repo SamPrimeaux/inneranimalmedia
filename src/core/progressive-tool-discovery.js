@@ -5,10 +5,6 @@
  * SSOT plan: plans/active/CURSOR-PARITY-TOOL-DISCOVERY-2026-07.md
  */
 
-import {
-  hasImageGenerationIntentSync,
-  isVisualLayoutGenerationAsk,
-} from './image-intent-gate.js';
 import { hasImageGenerationIntent, hasVideoGenerationIntent } from '../tools/image_generation.js';
 
 /** Pinned onto the active wire menu when the turn is a visual generation ask. */
@@ -428,9 +424,10 @@ export function userMessageAllowsMediaToolHydrate(userMessage, opts = {}) {
   const m = String(userMessage || '');
   if (!m.trim()) return false;
   if (/\b(imgx_|veo_|dall[- ]?e|imagen|gpt-image)\b/i.test(m)) return true;
+  // hasImageGenerationIntent already applies isExplicitImagePlanningIntent + layout cues.
+  // Do NOT call isVisualLayoutGenerationAsk bare — that bypasses the planning guard.
   if (hasImageGenerationIntent(m)) return true;
   if (hasVideoGenerationIntent(m)) return true;
-  if (hasImageGenerationIntentSync(m) || isVisualLayoutGenerationAsk(m)) return true;
   return false;
 }
 
