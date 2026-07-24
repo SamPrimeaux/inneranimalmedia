@@ -426,38 +426,36 @@ export function ImagesEditPage() {
               <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Updating…</span>
             )}
           </div>
-          {previewSrc ? (
-            <img
-              key={previewSrc}
-              src={previewSrc}
-              alt="Transform preview"
-              style={{
-                display: 'block',
-                width: '100%',
-                maxHeight: 620,
-                objectFit: 'cover',
-                borderRadius: 12,
-                border: '1px solid var(--border-subtle)',
-                background: 'var(--bg-elevated)',
-              }}
-            />
-          ) : (
-            <div
-              style={{
-                borderRadius: 12,
-                border: '1px solid var(--border-subtle)',
-                background: 'var(--bg-elevated)',
-                minHeight: 320,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--text-muted)',
-                fontSize: 12,
-              }}
-            >
-              No preview
-            </div>
-          )}
+          {/*
+            Fixed-footprint box, image at true native size — no crop, no
+            stretch-to-fill. See ImagesDetailPage.tsx for the full rationale;
+            same fix applies here since this page had the identical bug.
+          */}
+          <div
+            style={{
+              borderRadius: 12,
+              border: '1px solid var(--border-subtle)',
+              background: 'var(--bg-elevated)',
+              padding: previewSrc ? 16 : 0,
+              minHeight: 700,
+              display: previewSrc ? 'block' : 'flex',
+              alignItems: previewSrc ? undefined : 'center',
+              justifyContent: previewSrc ? undefined : 'center',
+              color: previewSrc ? undefined : 'var(--text-muted)',
+              fontSize: previewSrc ? undefined : 12,
+            }}
+          >
+            {previewSrc ? (
+              <img
+                key={previewSrc}
+                src={previewSrc}
+                alt="Transform preview"
+                style={{ display: 'block', maxWidth: '100%', height: 'auto' }}
+              />
+            ) : (
+              'No preview'
+            )}
+          </div>
         </div>
       </div>
 
