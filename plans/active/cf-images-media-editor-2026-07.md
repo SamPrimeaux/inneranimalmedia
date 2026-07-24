@@ -280,16 +280,24 @@ UI mirrors CF “Create variant” layout: **Configuration** left · **Preview**
 
 **Symptom:** User completes Google permission click-through 3×; returns to dashboard; Drive still not connected.
 
-**Investigation order (Agent D owns):**
+**Root cause (fixed):** `/api/integrations/google_drive/connect` redirected to `/api/oauth/google/start?return_to=/dashboard/…` **without** `connectDrive=1`. For any `/dashboard/*` return_to, `isGoogleLoginOAuthStart` treated the flow as Google **login**, so the callback never upserted `user_oauth_tokens` provider `google_drive`. Connect looked successful (popup closed) but Drive list stayed empty.
 
-1. Confirm OAuth start sets `connectDrive: true` (or equivalent) in KV/state — not login-only Google.
-2. Confirm callback `upsertOauthToken` `user_id` matches `getOAuthToken` / `integrationUserId` key used by `GET /api/images` (`auth_users.id`).
+**Fix:**
+1. `connect.js` always appends `connectDrive=1` for `google_drive`.
+2. `isGoogleLoginOAuthStart` returns false when Drive scopes are in `oauth_scopes` / `scope`.
+3. `libraryApi.driveConnectUrl` uses `google_drive` slug + `connectDrive=1`.
+4. Images **Drive** tab: Connect/Reconnect CTA; browse-only banner; Upload hidden on Drive tab (no accidental IAM storage).
+5. List/preview remain proxy-only; copy only via explicit `POST /api/images/import/drive`.
+
+**Verify:**
+1. Confirm OAuth start sets `connectDrive: true` (or equivalent) / integration KV has `user_id` — not login-only Google.
+2. Confirm callback upserts `provider='google_drive'` keyed by `auth_users.id`.
 3. Confirm provider normalized to `google_drive` (legacy `google` rows readable — already partially handled in `user-oauth-token.js`).
-4. Confirm Images / Integrations UI listens for `iam_oauth_done` postMessage **and** re-fetches `drive_connected`; if flow is full-page redirect to `/dashboard/images`, parse query `drive=connected` and reload.
-5. Confirm refresh_token stored (Google only returns refresh on first consent / `access_type=offline` + `prompt=consent`).
-6. Proof: after connect, raw D1 row in `user_oauth_tokens` for that `user_id` + `drive_connected: true` on next list.
+4. Confirm Images UI uses `connectGoogleDrive` popup + reloads after `iam_oauth_done`.
+5. Confirm refresh_token stored (`access_type=offline` + `prompt=consent` on Drive connect).
+6. After Connect → Drive tab → `drive_connected: true` + files listed without new R2/D1 rows.
 
-**Files:** `src/api/oauth-login-callbacks.js`, `src/core/user-oauth-token.js`, `src/core/oauth-popup-complete.js`, `dashboard/components/images/ImagesSourcingKitPage.tsx`, integrations connect entry points.
+**Files:** `src/api/integrations/connect.js`, `src/api/oauth.js`, `src/api/oauth-login-callbacks.js`, `dashboard/src/lib/library/libraryApi.ts`, `dashboard/components/ImagesPage.tsx`.
 
 ### F9 — Agent Sam batch (same sprint, after gallery)
 

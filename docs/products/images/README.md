@@ -24,6 +24,8 @@ Shared **digital asset management** — Cloudflare Hosted Images UX on IAM, not 
 
 Sources: `all` | `r2` | `cf_images` | `drive` — CF Images transform requires **that workspace’s** Images connection (platform for Sam; BYOK for Connor). R2/Drive work without platform Images.
 
+**Drive tab = browse-only.** Connect Google Drive to list/preview files via OAuth proxy. Files stay in Drive until you explicitly **Import to R2** (optional copy into R2 + CF Images + registry). Connecting Drive never auto-duplicates into IAM storage.
+
 ---
 
 ## Locked product rules

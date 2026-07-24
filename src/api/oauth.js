@@ -320,6 +320,9 @@ function isGoogleDriveConnectRequest(url) {
 /** Sign-in / sign-up Google OAuth — must not bind to an existing session's user_id (integration path). */
 function isGoogleLoginOAuthStart(url) {
   if (isGoogleDriveConnectRequest(url)) return false;
+  // Catalog / integrations may pass Drive scopes without connectDrive — still not login.
+  const scopesBlob = `${url.searchParams.get('oauth_scopes') || ''} ${url.searchParams.get('scope') || ''}`;
+  if (/googleapis\.com\/auth\/drive/i.test(scopesBlob)) return false;
   if (url.searchParams.get('login') === '1' || url.searchParams.get('intent') === 'login') {
     return true;
   }

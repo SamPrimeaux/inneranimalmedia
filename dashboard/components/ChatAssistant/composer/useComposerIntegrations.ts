@@ -21,7 +21,7 @@ function connectUrlForProvider(providerKey: string): string {
   const returnTo = encodeURIComponent(oauthConnectReturnTo());
   switch (providerKey) {
     case 'google_drive':
-      return `/api/integrations/google-drive/connect?return_to=${returnTo}`;
+      return `/api/integrations/google_drive/connect?connectDrive=1&return_to=${returnTo}`;
     case 'google_gmail':
       return `/api/integrations/gmail/connect?return_to=${returnTo}`;
     case 'github':

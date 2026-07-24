@@ -239,11 +239,15 @@ const GOOGLE_DRIVE_READONLY_SCOPE = 'https://www.googleapis.com/auth/drive.reado
 const GOOGLE_DRIVE_MANAGE_SCOPE = 'https://www.googleapis.com/auth/drive';
 
 function driveConnectUrl(returnTo: string, extraParams?: URLSearchParams) {
-  const params = new URLSearchParams({ return_to: returnTo });
+  const params = new URLSearchParams({
+    return_to: returnTo,
+    // Forces google_drive token upsert (not Google sign-in).
+    connectDrive: '1',
+  });
   if (extraParams) {
     for (const [k, v] of extraParams.entries()) params.set(k, v);
   }
-  return `/api/integrations/google-drive/connect?${params.toString()}`;
+  return `/api/integrations/google_drive/connect?${params.toString()}`;
 }
 
 /** Unified Drive OAuth — same spine as Integrations catalog + popup postMessage. */

@@ -583,6 +583,12 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
       if (url.searchParams.get('popup') === '1') {
         extra += '&popup=1';
       }
+      // Google Drive must take the Drive-token path (google_drive in user_oauth_tokens).
+      // Without connectDrive=1, return_to=/dashboard/* routes to Google *login* and never
+      // persists a Drive token — Connect appears to succeed but Drive tab stays empty.
+      if (slugNorm === 'google_drive' && !String(extra).includes('connectDrive=')) {
+        extra += '&connectDrive=1';
+      }
       return Response.redirect(`${origin}/api/oauth/${start}/start?return_to=${returnTo}${extra}`, 302);
     }
 

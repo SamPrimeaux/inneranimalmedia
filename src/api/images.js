@@ -827,6 +827,9 @@ async function handleGetImages(request, url, env, authUser, identity) {
       page,
       per_page: perPage,
       drive_connected: drive.connected,
+      drive_error: drive.error || null,
+      /** Browse-only: list/preview never writes R2/CF/D1. Copy only via POST /import/drive. */
+      drive_browse_only: true,
       accountHash,
     });
   }

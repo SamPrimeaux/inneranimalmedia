@@ -5,7 +5,7 @@ import {
   RefreshCw, Eye, AlertCircle, CheckCircle, Filter,
   SlidersHorizontal, FileArchive, Maximize2, Tag, Plus, Folder
 } from 'lucide-react';
-import { fetchR2BucketNames, fetchR2Listing } from '../src/lib/library/libraryApi';
+import { connectGoogleDrive, fetchR2BucketNames, fetchR2Listing } from '../src/lib/library/libraryApi';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -155,6 +155,8 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
   const [total, setTotal] = useState(0);
   const [accountHash, setAccountHash] = useState('');
   const [driveConnected, setDriveConnected] = useState<boolean | null>(null);
+  const [driveError, setDriveError] = useState<string | null>(null);
+  const [connectingDrive, setConnectingDrive] = useState(false);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -269,6 +271,7 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
       setTotal(typeof d.total === 'number' ? d.total : rows.length);
       if (d.accountHash) setAccountHash(d.accountHash);
       if (typeof d.drive_connected === 'boolean') setDriveConnected(d.drive_connected);
+      setDriveError(typeof d.drive_error === 'string' && d.drive_error ? d.drive_error : null);
       if (Array.isArray(d.r2_buckets) && d.r2_buckets.length) setR2Buckets(d.r2_buckets);
       void loadTags();
     } catch (e: any) {
@@ -279,6 +282,24 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
   }, [workspaceId, sourceTab, page, perPage, tagFilter, debouncedSearch, loadTags, r2Bucket, r2Prefix]);
 
   useEffect(() => { load(); }, [load]);
+
+  const onConnectDrive = useCallback(async () => {
+    setConnectingDrive(true);
+    try {
+      const result = await connectGoogleDrive('/dashboard/images');
+      if (result.ok) {
+        toast('Google Drive connected — browsing files in Drive (not copied to IAM)');
+        setSourceTab('drive');
+        await load();
+      } else if (result.error && result.error !== 'popup_blocked') {
+        toast(result.error === 'oauth_timeout' ? 'Drive connect timed out — try again' : `Drive connect failed: ${result.error}`, 'err');
+      }
+    } catch (e: any) {
+      toast('Drive connect error: ' + (e?.message || 'unknown'), 'err');
+    } finally {
+      setConnectingDrive(false);
+    }
+  }, [load, toast]);
 
   useEffect(() => {
     fetch('/api/cms/websites', { credentials: 'same-origin' })
@@ -452,6 +473,13 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
                   padding: '1px 8px'
                 }}>Drive not connected</span>
               )}
+              {sourceTab === 'drive' && driveConnected === true && (
+                <span style={{
+                  fontSize: 10, color: 'var(--solar-cyan)', background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border-subtle)', borderRadius: 999,
+                  padding: '1px 8px'
+                }}>Browse only · stays in Drive</span>
+              )}
             </>
           )}
         </div>
@@ -524,19 +552,55 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
           <RefreshCw size={13} />
         </button>
 
-        <button
-          onClick={() => setUploadOpen(true)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '6px 14px', borderRadius: 8, border: 'none',
-            background: 'var(--solar-cyan)', color: '#000',
-            fontSize: 12, fontWeight: 600, cursor: 'pointer'
-          }}
-        >
-          <Upload size={13} />
-          Upload
-        </button>
+        {sourceTab === 'drive' ? (
+          <button
+            type="button"
+            onClick={() => void onConnectDrive()}
+            disabled={connectingDrive}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 8, border: 'none',
+              background: driveConnected ? 'var(--bg-elevated)' : 'var(--solar-cyan)',
+              color: driveConnected ? 'var(--text-main)' : '#000',
+              borderWidth: driveConnected ? 1 : 0,
+              borderStyle: 'solid',
+              borderColor: 'var(--border-subtle)',
+              fontSize: 12, fontWeight: 600, cursor: connectingDrive ? 'wait' : 'pointer',
+              opacity: connectingDrive ? 0.7 : 1,
+            }}
+          >
+            {connectingDrive ? 'Connecting…' : driveConnected ? 'Reconnect Drive' : 'Connect Google Drive'}
+          </button>
+        ) : (
+          <button
+            onClick={() => setUploadOpen(true)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 8, border: 'none',
+              background: 'var(--solar-cyan)', color: '#000',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer'
+            }}
+          >
+            <Upload size={13} />
+            Upload
+          </button>
+        )}
       </div>
+
+      {sourceTab === 'drive' && (
+        <div style={{
+          padding: '10px 24px', borderBottom: '1px solid var(--border-subtle)',
+          background: 'var(--bg-panel)', flexShrink: 0,
+          fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45,
+        }}>
+          Drive lists and previews your Google Drive images in place — nothing is copied into R2, Cloudflare Images, or the IAM registry until you explicitly use <strong style={{ color: 'var(--text-main)' }}>Import to R2</strong> on a file.
+          {driveError ? (
+            <span style={{ display: 'block', marginTop: 6, color: '#f87171' }}>
+              Drive API: {driveError}. Try Reconnect Drive.
+            </span>
+          ) : null}
+        </div>
+      )}
 
       {sourceTab === 'r2' && (
         <div style={{
@@ -772,10 +836,26 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
                   ? `No images under ${r2Bucket}${r2Prefix ? `/${r2Prefix.replace(/\/$/, '')}` : ''}. Try another folder or upload.`
                   : images.length === 0
                     ? (sourceTab === 'drive'
-                      ? 'No Drive images found. Connect Google Drive in Settings → Integrations, or upload locally.'
+                      ? (driveConnected === false
+                        ? 'Connect Google Drive to browse images where they already live. IAM does not store copies until you Import.'
+                        : 'No image files found in this Google Drive account (mimeType image/*, not trashed).')
                       : 'No media yet. Upload a file — stored in Cloudflare Images, R2 backup, and the images registry.')
                     : 'No items match your filters.'}
             </span>
+            {sourceTab === 'drive' && driveConnected === false && (
+              <button
+                type="button"
+                onClick={() => void onConnectDrive()}
+                disabled={connectingDrive}
+                style={{
+                  marginTop: 8, padding: '8px 16px', borderRadius: 8, border: 'none',
+                  background: 'var(--solar-cyan)', color: '#000',
+                  fontSize: 13, fontWeight: 600, cursor: connectingDrive ? 'wait' : 'pointer',
+                }}
+              >
+                {connectingDrive ? 'Connecting…' : 'Connect Google Drive'}
+              </button>
+            )}
           </div>
         )}
 
