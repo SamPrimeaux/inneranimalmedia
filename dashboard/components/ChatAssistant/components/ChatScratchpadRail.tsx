@@ -37,6 +37,7 @@ function extToKind(filename: string): AgentGeneratedFile['kind'] {
   if (ext === 'js' || ext === 'jsx') return 'js';
   if (ext === 'json') return 'json';
   if (ext === 'txt') return 'txt';
+  if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'webp' || ext === 'gif') return 'image';
   return 'other';
 }
 
@@ -48,6 +49,7 @@ function KindIcon({ kind, size = 14 }: { kind: AgentGeneratedFile['kind']; size?
     case 'ts':
     case 'js':   return <FileCode size={size} className={cls} />;
     case 'json': return <FileJson size={size} className={cls} />;
+    case 'image': return <Image size={size} className={cls} />;
     default:     return <File size={size} className={cls} />;
   }
 }
@@ -116,17 +118,47 @@ function GeneratedRow({
   onOpen?: (file: AgentGeneratedFile) => void;
 }) {
   const kind = g.file.kind ?? extToKind(g.file.filename);
+  const isImage = kind === 'image' && Boolean(g.file.r2Url);
+  const open = () => onOpen?.(g.file);
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 rounded-md mx-2 hover:bg-[var(--bg-hover)] group transition-colors">
-      <KindIcon kind={kind} />
+    <div
+      className={`flex items-center gap-2 px-3 py-1.5 rounded-md mx-2 hover:bg-[var(--bg-hover)] group transition-colors ${
+        onOpen ? 'cursor-pointer' : ''
+      }`}
+      onClick={onOpen ? open : undefined}
+      onKeyDown={
+        onOpen
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                open();
+              }
+            }
+          : undefined
+      }
+      role={onOpen ? 'button' : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+    >
+      {isImage ? (
+        <img
+          src={g.file.r2Url}
+          alt=""
+          className="w-8 h-8 rounded object-cover shrink-0 border border-[var(--dashboard-border)]"
+        />
+      ) : (
+        <KindIcon kind={kind} />
+      )}
       <span className="truncate text-[12px] text-[var(--dashboard-text)] flex-1 min-w-0">
         {g.file.filename}
       </span>
       {onOpen ? (
         <button
           type="button"
-          onClick={() => onOpen(g.file)}
-          title="Open in editor"
+          onClick={(e) => {
+            e.stopPropagation();
+            open();
+          }}
+          title={isImage ? 'Open image' : 'Open in editor'}
           className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] p-0.5 rounded"
         >
           <ExternalLink size={12} />

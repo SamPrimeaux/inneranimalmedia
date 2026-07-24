@@ -35,6 +35,12 @@ function ChatWithScratchpadRail({
 }) {
   const openScratchpadFile = useCallback(
     (file: AgentGeneratedFile) => {
+      if (file.kind === 'image' || /\.(png|jpe?g|webp|gif)$/i.test(file.filename)) {
+        if (file.r2Url && typeof window !== 'undefined') {
+          window.open(file.r2Url, '_blank', 'noopener,noreferrer');
+        }
+        return;
+      }
       if (file.content) {
         onFileSelect?.({
           name: file.filename,

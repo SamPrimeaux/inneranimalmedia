@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Plus,
   X,
+  Image,
 } from 'lucide-react';
 import type { Message, AgentGeneratedFile } from '../types';
 
@@ -28,6 +29,7 @@ function KindIcon({ kind, className }: { kind: AgentGeneratedFile['kind']; class
     case 'ts':
     case 'js':  return <FileCode className={cls} />;
     case 'json': return <FileJson className={cls} />;
+    case 'image': return <Image className={cls} />;
     default:    return <File className={cls} />;
   }
 }
@@ -40,6 +42,7 @@ function extToKind(filename: string): AgentGeneratedFile['kind'] {
   if (ext === 'js' || ext === 'jsx') return 'js';
   if (ext === 'json') return 'json';
   if (ext === 'txt') return 'txt';
+  if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'webp' || ext === 'gif') return 'image';
   return 'other';
 }
 
@@ -116,24 +119,35 @@ export const AgentChatFilesPanel: FC<Props> = ({ messages, stagedCount, onAttach
           {/* Agent-generated files */}
           {generated.map(({ key, file }) => {
             const kind = file.kind ?? extToKind(file.filename);
+            const isImage = kind === 'image' && Boolean(file.r2Url);
             return (
               <li key={key}
                 className="flex items-center gap-2 rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/60 px-2 py-1.5 group">
-                <div className="w-7 h-7 rounded bg-[var(--bg-hover)] flex items-center justify-center shrink-0">
-                  <KindIcon kind={kind} />
-                </div>
+                {isImage ? (
+                  <img
+                    src={file.r2Url}
+                    alt=""
+                    className="w-7 h-7 rounded object-cover shrink-0 border border-[var(--dashboard-border)]"
+                  />
+                ) : (
+                  <div className="w-7 h-7 rounded bg-[var(--bg-hover)] flex items-center justify-center shrink-0">
+                    <KindIcon kind={kind} />
+                  </div>
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[12px] text-[var(--dashboard-text)] font-medium">
                     {file.filename}
                   </p>
-                  <p className="text-[10px] text-[var(--dashboard-muted)]">Agent output</p>
+                  <p className="text-[10px] text-[var(--dashboard-muted)]">
+                    {isImage ? 'Generated image' : 'Agent output'}
+                  </p>
                 </div>
                 {onOpenFile && (
                   <button
                     type="button"
                     onClick={() => onOpenFile(file)}
                     className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] p-0.5 rounded"
-                    title="Open in editor"
+                    title={isImage ? 'Open image' : 'Open in editor'}
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
                   </button>

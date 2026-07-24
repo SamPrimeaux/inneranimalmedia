@@ -224,7 +224,7 @@ export type AgentGeneratedFile = {
   /** Virtual Monaco workspace path */
   workspacePath?: string;
   /** File kind for icon selection */
-  kind: 'md' | 'sql' | 'ts' | 'js' | 'txt' | 'json' | 'other';
+  kind: 'md' | 'sql' | 'ts' | 'js' | 'txt' | 'json' | 'image' | 'other';
 };
 
 /** Host-managed chat tab strip (e.g. App.tsx multi-session). */

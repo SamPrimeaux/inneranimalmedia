@@ -3022,20 +3022,51 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           const parsed = JSON.parse(String(toolOutput || 'null'));
           if (parsed && typeof parsed === 'object') {
             const url =
-              isImageGenerationTool(call.name)
-                ? null
-                : typeof parsed.screenshot_url === 'string' && parsed.screenshot_url.trim()
-                  ? parsed.screenshot_url.trim()
-                  : typeof parsed.result_url === 'string' && parsed.result_url.trim()
-                    ? parsed.result_url.trim()
-                    : typeof parsed.image_url === 'string'
-                      ? parsed.image_url
-                      : typeof parsed.public_url === 'string'
-                        ? parsed.public_url
-                        : typeof parsed.url === 'string' && /^(https?:|data:)/i.test(parsed.url)
-                          ? parsed.url
-                          : null;
-            if (url && url.length < 8000) {
+              typeof parsed.screenshot_url === 'string' && parsed.screenshot_url.trim()
+                ? parsed.screenshot_url.trim()
+                : typeof parsed.result_url === 'string' && parsed.result_url.trim()
+                  ? parsed.result_url.trim()
+                  : typeof parsed.image_url === 'string'
+                    ? parsed.image_url
+                    : typeof parsed.public_url === 'string'
+                      ? parsed.public_url
+                      : typeof parsed.url === 'string' && /^(https?:|data:)/i.test(parsed.url)
+                        ? parsed.url
+                        : null;
+            if (isImageGenerationTool(call.name)) {
+              const urls = [];
+              if (Array.isArray(parsed.preview_urls)) {
+                for (const u of parsed.preview_urls) {
+                  if (typeof u === 'string' && u.trim() && u.length < 8000) urls.push(u.trim());
+                }
+              }
+              if (Array.isArray(parsed.variations)) {
+                for (const v of parsed.variations) {
+                  if (!v || typeof v !== 'object') continue;
+                  const vu =
+                    typeof v.image_url === 'string'
+                      ? v.image_url
+                      : typeof v.preview_url === 'string'
+                        ? v.preview_url
+                        : '';
+                  if (vu.trim() && vu.length < 8000) urls.push(vu.trim());
+                }
+              }
+              if (url && url.length < 8000) urls.push(url);
+              const seen = new Set();
+              for (const u of urls) {
+                if (seen.has(u)) continue;
+                seen.add(u);
+                emit('preview_artifact', {
+                  artifact: {
+                    id: `sse_${call.id || crypto.randomUUID().replace(/-/g, '').slice(0, 12)}_${seen.size}`,
+                    kind: 'image',
+                    title: call.name,
+                    imageUrl: u,
+                  },
+                });
+              }
+            } else if (url && url.length < 8000) {
               emit('preview_artifact', {
                 artifact: {
                   id: `sse_${call.id || crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`,

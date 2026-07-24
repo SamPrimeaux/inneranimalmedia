@@ -182,7 +182,77 @@ function resolveAgentFileKind(filename: string): AgentGeneratedFile['kind'] {
   if (ext === 'js' || ext === 'jsx') return 'js';
   if (ext === 'json') return 'json';
   if (ext === 'txt') return 'txt';
+  if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'webp' || ext === 'gif') return 'image';
   return 'other';
+}
+
+/** Stamp generated image URLs onto the assistant bubble for Scratchpad. */
+function agentFilesFromImageSse(data: unknown): AgentGeneratedFile[] {
+  if (!data || typeof data !== 'object') return [];
+  const o = data as Record<string, unknown>;
+  const out: AgentGeneratedFile[] = [];
+  const push = (url: unknown, idHint: string, label?: string) => {
+    const u = typeof url === 'string' ? url.trim() : '';
+    if (!u || !(/^(https?:|data:|\/)/i.test(u))) return;
+    if (out.some((f) => f.r2Url === u)) return;
+    const id = String(idHint || `img_${out.length + 1}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 28);
+    const filename = label || `generated-${id || out.length + 1}.jpg`;
+    out.push({
+      filename,
+      r2Url: u,
+      workspacePath: `images/${filename}`,
+      kind: 'image',
+    });
+  };
+
+  const genId = typeof o.generation_id === 'string' ? o.generation_id.trim() : '';
+  const varIndex =
+    typeof o.variation_index === 'number' && Number.isFinite(o.variation_index)
+      ? Math.floor(o.variation_index) + 1
+      : null;
+
+  if (Array.isArray(o.variations)) {
+    o.variations.forEach((v, i) => {
+      if (!v || typeof v !== 'object') return;
+      const row = v as Record<string, unknown>;
+      const id = typeof row.generation_id === 'string' ? row.generation_id : `${genId || 'var'}_${i + 1}`;
+      push(row.image_url || row.preview_url, id, `variation-${i + 1}.jpg`);
+    });
+  }
+  if (Array.isArray(o.preview_urls)) {
+    o.preview_urls.forEach((u, i) => push(u, `${genId || 'preview'}_${i + 1}`, `variation-${i + 1}.jpg`));
+  }
+  push(
+    o.image_url || o.preview_url,
+    genId || `frame_${varIndex || out.length + 1}`,
+    varIndex != null ? `variation-${varIndex}.jpg` : undefined,
+  );
+  return out;
+}
+
+function appendAgentFilesToAssistantTail(
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
+  files: AgentGeneratedFile[],
+) {
+  if (!files.length) return;
+  setMessages((prev) => {
+    const next = [...prev];
+    const idx = next.length - 1;
+    if (idx < 0 || next[idx].role !== 'assistant') return prev;
+    const existing = next[idx].agentFiles ?? [];
+    const seen = new Set(
+      existing.map((x) => x.r2Url || x.workspacePath || x.filename).filter(Boolean) as string[],
+    );
+    const fresh = files.filter((f) => {
+      const key = f.r2Url || f.workspacePath || f.filename;
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    if (!fresh.length) return prev;
+    next[idx] = { ...next[idx], agentFiles: [...existing, ...fresh] };
+    return next;
+  });
 }
 
 function mapTaskCompleteStatus(status: string | undefined): ExecutionPlanTask['status'] {
@@ -1033,6 +1103,9 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               normalized.eventType,
             );
           }
+          if (evType === 'image_generation_preview' || evType === 'image_generation_complete') {
+            appendAgentFilesToAssistantTail(setMessages, agentFilesFromImageSse(data));
+          }
           continue;
         }
         if (evType === 'email_draft') {
@@ -1356,6 +1429,15 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               next[idx] = { ...next[idx], previewArtifacts: [...prevArts, art] };
               return next;
             });
+            if (kind === 'image' && art.imageUrl) {
+              appendAgentFilesToAssistantTail(
+                setMessages,
+                agentFilesFromImageSse({
+                  image_url: art.imageUrl,
+                  generation_id: art.id,
+                }),
+              );
+            }
           }
           continue;
         }
@@ -2649,9 +2731,9 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           // Belt-and-suspenders: if SSE image_generation_* was missed (cancel/race),
           // still stand up the card from the tool result URL.
           if (doneOk && isImageGenerationToolName(doneToolName)) {
-            const imgx = parseImgxToolPayload(
-              typeof d.output_preview === 'string' ? d.output_preview : outputPreview,
-            );
+            const rawOut =
+              typeof d.output_preview === 'string' ? d.output_preview : outputPreview;
+            const imgx = parseImgxToolPayload(rawOut);
             const publicUrl =
               typeof d.public_url === 'string' && d.public_url.trim() ? d.public_url.trim() : null;
             const imageUrl = imgx.imageUrl || publicUrl;
@@ -2671,6 +2753,30 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 },
                 'image_generation_complete',
               );
+            }
+            try {
+              const parsed = rawOut?.trim() ? (JSON.parse(rawOut) as unknown) : null;
+              if (parsed && typeof parsed === 'object') {
+                appendAgentFilesToAssistantTail(setMessages, agentFilesFromImageSse(parsed));
+              } else if (imageUrl) {
+                appendAgentFilesToAssistantTail(
+                  setMessages,
+                  agentFilesFromImageSse({
+                    image_url: imageUrl,
+                    generation_id: imgx.generationId,
+                  }),
+                );
+              }
+            } catch {
+              if (imageUrl) {
+                appendAgentFilesToAssistantTail(
+                  setMessages,
+                  agentFilesFromImageSse({
+                    image_url: imageUrl,
+                    generation_id: imgx.generationId,
+                  }),
+                );
+              }
             }
           }
           let closedRowId: string | null = null;
