@@ -19,6 +19,11 @@ const MIN_VIABLE_BUDGET_MS = [
       n.includes('d1_') && (n.includes('query') || n.includes('write') || n.includes('migrate')),
     floor: 2_000,
   },
+  // BUGFIX 2026-07-24: imgx_* had no entry here and fell through to the 2s DEFAULT.
+  // Real image-gen calls observed taking 8.4s-22.9s; sequential multi-image turns
+  // were racing later calls against 5-10s of remaining budget -- guaranteed timeout,
+  // not a fair attempt. 15s floor: below this, fail fast instead of racing a doomed call.
+  { test: (n) => n.startsWith('imgx_'), floor: 15_000 },
 ];
 
 const DEFAULT_MIN_VIABLE_BUDGET_MS = 2_000;
