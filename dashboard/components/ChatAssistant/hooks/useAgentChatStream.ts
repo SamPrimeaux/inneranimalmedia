@@ -218,10 +218,13 @@ function mergeImageGenerationState(
   };
 
   let previewFrames = base.previewFrames;
-  if (eventType === 'image_generation_preview' && patch.previewFrames?.length) {
+  if (
+    (eventType === 'image_generation_preview' || eventType === 'image_generation_complete') &&
+    patch.previewFrames?.length
+  ) {
     const next = [...base.previewFrames];
     for (const frame of patch.previewFrames) {
-      const idx = next.findIndex((f) => f.frameIndex === frame.frameIndex);
+      const idx = next.findIndex((f) => f.frameIndex === frame.frameIndex || f.previewUrl === frame.previewUrl);
       if (idx >= 0) next[idx] = frame;
       else next.push(frame);
     }

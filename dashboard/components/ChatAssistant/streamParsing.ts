@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { ImageGenerationPhase, ImageGenerationState } from './types';
+import type { ImageGenerationPhase, ImageGenerationPreviewFrame, ImageGenerationState } from './types';
 
 export const IMAGE_GENERATION_SSE_TYPES = new Set([
   'image_generation_started',
@@ -342,6 +342,30 @@ export function normalizeImageGenerationEvent(
     const imageUrl = typeof o.image_url === 'string' ? o.image_url.trim() : '';
     const previewUrl = typeof o.preview_url === 'string' ? o.preview_url.trim() : imageUrl;
     const status = typeof o.status === 'string' ? o.status : imageUrl ? 'draft' : 'completed';
+    const previewFrames: ImageGenerationPreviewFrame[] = [];
+    const pushFrame = (url: string, frameIndex: number) => {
+      const u = url.trim();
+      if (!u || previewFrames.some((f) => f.previewUrl === u)) return;
+      previewFrames.push({ frameIndex, previewUrl: u });
+    };
+    if (Array.isArray(o.preview_urls)) {
+      o.preview_urls.forEach((u, i) => {
+        if (typeof u === 'string') pushFrame(u, i);
+      });
+    }
+    if (Array.isArray(o.variations)) {
+      o.variations.forEach((v, i) => {
+        if (!v || typeof v !== 'object') return;
+        const row = v as { image_url?: unknown; preview_url?: unknown };
+        const u =
+          (typeof row.image_url === 'string' && row.image_url) ||
+          (typeof row.preview_url === 'string' && row.preview_url) ||
+          '';
+        if (u) pushFrame(u, previewFrames.length || i);
+      });
+    }
+    if (previewUrl) pushFrame(previewUrl, previewFrames.length);
+    if (imageUrl) pushFrame(imageUrl, previewFrames.length);
     return {
       eventType,
       patch: {
@@ -351,6 +375,9 @@ export function normalizeImageGenerationEvent(
         message: '',
         imageUrl: previewUrl || imageUrl || undefined,
         previewUrl: previewUrl || imageUrl || undefined,
+        ...(previewFrames.length
+          ? { previewFrames, activeFrameIndex: previewFrames.length - 1 }
+          : {}),
         status,
         expiresAt: typeof o.expires_at === 'string' ? o.expires_at : undefined,
         persist: o.persist === true,

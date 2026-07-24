@@ -43,6 +43,43 @@ const PROGRESS_INTERVAL_MS = 5000;
 
 export const IMAGE_GEN_TOOL_NAMES = new Set(['imgx_generate_image', 'imgx_edit_image']);
 
+/** Model-supplied variation count only (1–4). Prefer explicit `variations`; else `prompts.length`. */
+export function normalizeImageVariationCount(params) {
+  const explicit = Number(params?.variations ?? params?.count ?? params?.n);
+  if (Number.isFinite(explicit) && explicit >= 1) {
+    return Math.max(1, Math.min(4, Math.floor(explicit)));
+  }
+  if (Array.isArray(params?.prompts) && params.prompts.length > 1) {
+    return Math.max(1, Math.min(4, params.prompts.length));
+  }
+  return 1;
+}
+
+const VARIATION_ANGLE_HINTS = Object.freeze([
+  'front three-quarter exterior elevation',
+  'rear elevation',
+  'aerial property overview',
+  'interior living-space view',
+]);
+
+/**
+ * Force one dedicated frame per call — providers otherwise return A/B/C collages.
+ * @param {string} basePrompt
+ * @param {number} index zero-based
+ * @param {number} total
+ */
+export function buildImageVariationPrompt(basePrompt, index, total) {
+  const base = String(basePrompt || '').trim();
+  const angle = VARIATION_ANGLE_HINTS[index % VARIATION_ANGLE_HINTS.length];
+  const n = index + 1;
+  return (
+    `${base}\n\n` +
+    `Variation ${n} of ${total}: ${angle}. ` +
+    `Output ONE single full-bleed photograph only — not a collage, not a multi-panel sheet, ` +
+    `no A/B/C labels, no side-by-side grids, no contact sheet.`
+  );
+}
+
 /** @type {ReadonlyArray<{ stage: string; message: string; progress: number }>} */
 export const IMAGE_PROGRESS_TICKS = [
   { stage: 'initializing', message: 'Understanding the visual direction...', progress: 8 },
@@ -1358,10 +1395,98 @@ export async function editImage(env, params) {
  * @param {unknown} env
  * @param {string} toolName
  * @param {Record<string, unknown>} params
- * @param {{ authUser?: { id?: string }; workspaceId?: string | null; tenantId?: string | null; userId?: string | null; origin?: string }} ctx
+ * @param {{ authUser?: { id?: string }; workspaceId?: string | null; tenantId?: string | null; userId?: string | null; origin?: string; conversationId?: string | null; sessionId?: string | null; userMessage?: string | null; message?: string | null }} ctx
  */
 export async function runImageGenerationForTool(env, toolName, params, ctx = {}) {
+  let prompt = String(params.prompt || params.description || '').trim();
+  if (!prompt) {
+    prompt = String(ctx.userMessage || ctx.message || '').trim().slice(0, 2000);
+  }
+  if (!prompt) throw new Error('prompt required');
+
+  const isEdit = toolName === 'imgx_edit_image';
+  const variationCount = isEdit ? 1 : normalizeImageVariationCount(params);
+
+  if (variationCount > 1) {
+    const settled = await Promise.allSettled(
+      Array.from({ length: variationCount }, (_, i) =>
+        runSingleImageGenerationForTool(
+          env,
+          toolName,
+          {
+            ...params,
+            prompt: buildImageVariationPrompt(prompt, i, variationCount),
+            description: undefined,
+            variations: 1,
+            count: 1,
+            n: 1,
+            generation_id:
+              String(params.generation_id || '').trim() ||
+              `igen_${crypto.randomUUID().replace(/-/g, '').slice(0, 14)}_${i + 1}`,
+            persist: true,
+          },
+          ctx,
+        ),
+      ),
+    );
+    const ok = [];
+    const errors = [];
+    for (let i = 0; i < settled.length; i += 1) {
+      const row = settled[i];
+      if (row.status === 'fulfilled' && row.value?.image_url) ok.push(row.value);
+      else {
+        const reason =
+          row.status === 'rejected'
+            ? String(row.reason?.message || row.reason || 'failed')
+            : 'missing_image_url';
+        errors.push({ index: i + 1, error: reason.slice(0, 240) });
+      }
+    }
+    if (!ok.length) {
+      throw new Error(
+        `All ${variationCount} image variations failed` +
+          (errors[0]?.error ? `: ${errors[0].error}` : ''),
+      );
+    }
+    const previewUrls = ok.map((r) => r.image_url || r.preview_url).filter(Boolean);
+    const primary = ok[0];
+    return {
+      ...primary,
+      ok: true,
+      status: primary.status || 'saved',
+      generation_id: primary.generation_id,
+      image_url: primary.image_url,
+      preview_url: primary.preview_url || primary.image_url,
+      public_url: primary.public_url || primary.image_url,
+      url: primary.image_url,
+      preview_urls: previewUrls,
+      variations: ok.map((r) => ({
+        generation_id: r.generation_id,
+        image_url: r.image_url,
+        preview_url: r.preview_url || r.image_url,
+        status: r.status,
+        artifact_id: r.artifact_id ?? null,
+        r2_key: r.r2_key ?? null,
+      })),
+      variation_count: ok.length,
+      variation_errors: errors.length ? errors : undefined,
+      persist: true,
+    };
+  }
+
+  return runSingleImageGenerationForTool(env, toolName, { ...params, prompt }, ctx);
+}
+
+/**
+ * Single-image generate/edit + draft/persist (internal).
+ * @param {unknown} env
+ * @param {string} toolName
+ * @param {Record<string, unknown>} params
+ * @param {Record<string, unknown>} ctx
+ */
+async function runSingleImageGenerationForTool(env, toolName, params, ctx = {}) {
   const prompt = String(params.prompt || params.description || '').trim();
+  if (!prompt) throw new Error('prompt required');
   let resolvedParams = await applyImageTierDefaults(env, { ...params, prompt }, {
     workspaceId: ctx.workspaceId,
     tenantId: ctx.tenantId,
@@ -1387,7 +1512,9 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
   }
 
   const isEdit = toolName === 'imgx_edit_image';
-  const persist = imageGenerationShouldPersist(resolvedParams);
+  const persist = imageGenerationShouldPersist(resolvedParams, {
+    userMessage: ctx.userMessage ?? ctx.message ?? null,
+  });
   const generationId =
     String(resolvedParams.generation_id || '').trim() ||
     `igen_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
@@ -1631,12 +1758,23 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
  * @param {number} count
  */
 async function streamImageGenerationVariationsSse(emit, env, toolName, params, ctx, count) {
-  const basePrompt = String(params.prompt || params.description || '').trim();
+  let basePrompt = String(params.prompt || params.description || '').trim();
+  if (!basePrompt && Array.isArray(params.prompts) && params.prompts[0]) {
+    basePrompt = String(params.prompts[0]).trim();
+  }
+  if (!basePrompt) {
+    basePrompt = String(ctx.userMessage || ctx.message || '').trim().slice(0, 2000);
+  }
+  if (!basePrompt) throw new Error('prompt required');
   const promptsRaw = Array.isArray(params.prompts) ? params.prompts : null;
   const prompts =
     promptsRaw && promptsRaw.length === count
-      ? promptsRaw.map((p) => (p != null && String(p).trim() ? String(p).trim() : basePrompt))
-      : Array.from({ length: count }, () => basePrompt);
+      ? promptsRaw.map((p, i) => {
+          const raw = p != null && String(p).trim() ? String(p).trim() : basePrompt;
+          // Still stamp anti-collage even when the model supplied distinct prompts.
+          return buildImageVariationPrompt(raw, i, count);
+        })
+      : Array.from({ length: count }, (_, i) => buildImageVariationPrompt(basePrompt, i, count));
 
   const batchId = `imgxb_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   emit('image_generation_started', {
@@ -1650,6 +1788,8 @@ async function streamImageGenerationVariationsSse(emit, env, toolName, params, c
     const variationParams = { ...params, prompt: prompts[index] };
     delete variationParams.variations;
     delete variationParams.prompts;
+    delete variationParams.count;
+    delete variationParams.n;
     const genId = `igen_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
     emit('image_generation_progress', {
       type: 'image_generation_progress',
@@ -1665,7 +1805,7 @@ async function streamImageGenerationVariationsSse(emit, env, toolName, params, c
       const result = await runImageGenerationForTool(
         env,
         toolName,
-        { ...variationParams, generation_id: genId },
+        { ...variationParams, generation_id: genId, variations: 1 },
         ctx,
       );
       const previewUrl = result.preview_url || result.image_url || null;
@@ -1734,23 +1874,22 @@ async function streamImageGenerationVariationsSse(emit, env, toolName, params, c
 }
 
 export async function streamImageGenerationSse(emit, env, toolName, params, ctx = {}) {
-  // BUGFIX 2026-07-24: model reliably sends a `prompts` array for multi-image asks but
-  // does not reliably also set `variations` (observed live: prompts:[3 distinct strings],
-  // no variations key -> silently took the single-image path). Infer the count from
-  // prompts.length when variations is absent, so the model doesn't need to remember two
-  // separate parameters for the same intent.
-  const explicitVariations = Number(params.variations);
-  const inferredFromPrompts =
-    Array.isArray(params.prompts) && params.prompts.length > 1 ? params.prompts.length : null;
-  const requestedVariations = Math.max(
-    1,
-    Math.min(4, Math.floor(explicitVariations || inferredFromPrompts || 1)),
-  );
-  if (requestedVariations > 1 && toolName !== 'imgx_edit_image') {
+  const requestedVariations =
+    toolName === 'imgx_edit_image' ? 1 : normalizeImageVariationCount(params);
+  if (requestedVariations > 1) {
     return await streamImageGenerationVariationsSse(emit, env, toolName, params, ctx, requestedVariations);
   }
   const generationId = `igen_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-  const prompt = String(params.prompt || params.description || (Array.isArray(params.prompts) ? params.prompts[0] : '') || '').trim();
+  let prompt = String(
+    params.prompt ||
+      params.description ||
+      (Array.isArray(params.prompts) ? params.prompts[0] : '') ||
+      '',
+  ).trim();
+  if (!prompt) {
+    prompt = String(ctx.userMessage || ctx.message || '').trim().slice(0, 2000);
+  }
+  if (!prompt) throw new Error('prompt required');
   let resolvedParams = await applyImageTierDefaults(env, { ...params, prompt }, {
     workspaceId: ctx.workspaceId,
     tenantId: ctx.tenantId,
@@ -1868,25 +2007,23 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
       });
     }
 
-    for (const previewUrl of result.preview_urls || []) {
-      if (!previewUrl) continue;
+    // Prefer distinct variation URLs (avoid duplicating primary when already in preview_urls).
+    const seen = new Set();
+    const emitPreview = (url) => {
+      const u = String(url || '').trim();
+      if (!u || seen.has(u)) return;
+      seen.add(u);
       frameIndex += 1;
       emit('image_generation_preview', {
         type: 'image_generation_preview',
         generation_id: generationId,
-        preview_url: previewUrl,
+        preview_url: u,
         frame_index: frameIndex,
       });
-    }
-    if (result.image_url) {
-      frameIndex += 1;
-      emit('image_generation_preview', {
-        type: 'image_generation_preview',
-        generation_id: generationId,
-        preview_url: result.image_url,
-        frame_index: frameIndex,
-      });
-    }
+    };
+    for (const previewUrl of result.preview_urls || []) emitPreview(previewUrl);
+    emitPreview(result.image_url);
+    for (const v of result.variations || []) emitPreview(v?.image_url || v?.preview_url);
 
     emit('image_generation_complete', {
       type: 'image_generation_complete',
@@ -1894,6 +2031,9 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
       status: result.status || (result.persist ? 'saved' : 'draft'),
       preview_url: result.preview_url || result.image_url,
       image_url: result.image_url,
+      preview_urls: result.preview_urls || [],
+      variations: result.variations || undefined,
+      variation_count: result.variation_count || undefined,
       expires_at: result.expires_at,
       r2_key: result.r2_key,
       artifact_id: result.artifact_id,

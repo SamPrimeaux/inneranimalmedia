@@ -826,6 +826,16 @@ export function resolveToolExecutionBudgetMs(toolName, input) {
   if (n === 'web_fetch') return 15_000;
   if (n === 'excalidraw_plan_map_create') return 15000;
   if (n === 'illustration_create') return 45000;
+  // Image gen is 20–35s each; variations fan-out needs parallel headroom under the 2m turn.
+  if (n.startsWith('imgx_')) {
+    const vRaw = Number(inp.variations ?? inp.count ?? inp.n ?? 1);
+    const variations = Number.isFinite(vRaw) ? Math.max(1, Math.min(4, Math.floor(vRaw))) : 1;
+    const budget = 90_000 + (variations - 1) * 20_000;
+    if (Number.isFinite(rawTimeout) && rawTimeout > 0) {
+      return Math.min(120_000, Math.max(budget, Math.floor(rawTimeout)));
+    }
+    return Math.min(120_000, budget);
+  }
   if (n.startsWith('github_')) {
     if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout < 30000) return Math.floor(rawTimeout);
     return 30000;

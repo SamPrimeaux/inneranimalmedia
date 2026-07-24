@@ -50,6 +50,7 @@ export function AgentImageGenerationCard({
   const titleId = useId();
   const pathId = useId();
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxFocusUrl, setLightboxFocusUrl] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [editBusy, setEditBusy] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -66,22 +67,25 @@ export function AgentImageGenerationCard({
   const isComplete = state.phase === 'completed' && Boolean(previewUrl);
   const isFailed = state.phase === 'failed';
   const isDraft = isComplete && (state.status === 'draft' || !state.persist);
-  const displayUrl = committedUrl || previewUrl;
+  const displayUrl = lightboxFocusUrl || committedUrl || previewUrl;
   const imageTitle = useMemo(() => titleFromPrompt(state.prompt), [state.prompt]);
   const pathLabel = useMemo(
     () => `Agent / Images / ${isDraft ? 'Draft' : 'Library'} / ${shortId(state.generationId)}`,
     [isDraft, state.generationId],
   );
 
-  const openLightbox = useCallback(() => {
-    if (!displayUrl) return;
+  const openLightbox = useCallback((url?: string) => {
+    const target = (url || committedUrl || previewUrl || '').trim();
+    if (!target) return;
+    setLightboxFocusUrl(target);
     setActionMsg(null);
     setEditText('');
     setLightboxOpen(true);
-  }, [displayUrl]);
+  }, [committedUrl, previewUrl]);
 
   const closeLightbox = useCallback(() => {
     setLightboxOpen(false);
+    setLightboxFocusUrl(null);
     setEditBusy(false);
   }, []);
 
@@ -232,13 +236,30 @@ export function AgentImageGenerationCard({
             {state.message?.trim() || 'Generating image…'}
           </p>
         ) : null}
-        <ProgressiveImagePreview
-          phase={state.phase}
-          progress={state.progress}
-          previewUrl={previewUrl}
-          finalUrl={displayUrl}
-          onImageClick={isComplete ? openLightbox : undefined}
-        />
+        {isComplete && state.previewFrames.length > 1 ? (
+          <div className="iam-image-gen-variants" role="list">
+            {state.previewFrames.map((frame) => (
+              <button
+                key={`${frame.frameIndex}-${frame.previewUrl}`}
+                type="button"
+                className="iam-image-gen-variants__item"
+                role="listitem"
+                onClick={() => openLightbox(frame.previewUrl)}
+                aria-label={`Open variation ${frame.frameIndex + 1}`}
+              >
+                <img src={frame.previewUrl} alt="" draggable={false} />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <ProgressiveImagePreview
+            phase={state.phase}
+            progress={state.progress}
+            previewUrl={previewUrl}
+            finalUrl={displayUrl}
+            onImageClick={isComplete ? openLightbox : undefined}
+          />
+        )}
         {isComplete ? (
           <div className="iam-image-gen-footer">
             {renderRatingControls()}

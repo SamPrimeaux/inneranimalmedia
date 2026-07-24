@@ -2375,6 +2375,10 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
             call.input && typeof call.input === 'object' ? { ...call.input } : {};
           const turnUserMessage =
             lastUserMessageText(conversationMessages) || userTextForForce || '';
+          // Models sometimes omit prompt on follow-ups ("make 3 separate…") — use the turn text.
+          if (!String(toolInput.prompt || toolInput.description || '').trim() && turnUserMessage) {
+            toolInput.prompt = turnUserMessage.slice(0, 2000);
+          }
           // N layouts / variations in-session → permanent persist (not TTL draft).
           toolInput.persist = imageGenerationShouldPersist(toolInput, {
             userMessage: turnUserMessage,
@@ -2389,6 +2393,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
                 conversationId: sessionId,
                 sessionId,
                 userMessage: turnUserMessage,
+                message: turnUserMessage,
                 origin: (env.IAM_ORIGIN || request?.url ? new URL(request.url).origin : '').replace(/\/$/, ''),
               }),
               toolBudgetMs,
