@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import { Copy, Plus } from 'lucide-react';
 import type { ImagesOutletContext } from './ImagesShell';
@@ -8,13 +8,37 @@ import {
   useImagesAccountState,
 } from './ImagesUsageAccountSidebar';
 import { NAMED_VARIANTS } from './imagesRegistry';
-import { imagesListUrl, useImagesToast } from './imagesApi';
+import { fetchRealVariantsCatalog, imagesListUrl, useImagesToast, type CfVariantDef } from './imagesApi';
 
 export function ImagesDeliveryPage() {
   const { workspaceId } = useOutletContext<ImagesOutletContext>();
   const { toasts, add: toast } = useImagesToast();
   const { accountHash, setAccountHash, transformed } = useImagesAccountState(workspaceId);
   const [stored, setStored] = useState(0);
+  // Real, account-configured variant list — null while loading/unavailable,
+  // in which case the static NAMED_VARIANTS guesses are used as a fallback.
+  const [realVariants, setRealVariants] = useState<CfVariantDef[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchRealVariantsCatalog().then((v) => {
+      if (!cancelled) setRealVariants(v);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const rows = useMemo(() => {
+    if (realVariants && realVariants.length) {
+      return realVariants.map((v) => ({
+        id: v.id,
+        label: v.id,
+        hint: v.width && v.height ? `${v.width}\u00d7${v.height}` : 'original',
+      }));
+    }
+    return NAMED_VARIANTS.map((v) => ({ id: v.id, label: v.label, hint: v.hint }));
+  }, [realVariants]);
 
   useEffect(() => {
     let cancelled = false;
