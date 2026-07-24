@@ -79,8 +79,8 @@ export function ImagesDeliveryVariantCreatePage() {
   }, [setDocsUrl]);
 
   const [variantId, setVariantId] = useState('');
-  const [width, setWidth] = useState('400');
-  const [height, setHeight] = useState('400');
+  const [width, setWidth] = useState('1366');
+  const [height, setHeight] = useState('768');
   const [fit, setFit] = useState<string>('scale-down');
   const [metadata, setMetadata] = useState<string>('none');
   const [watermark, setWatermark] = useState(false);
