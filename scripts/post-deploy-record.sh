@@ -325,12 +325,23 @@ d1_exec_sql "deployment_health_insert" "INSERT INTO agentsam_deployment_health (
   || echo "[post-deploy-record] warning: agentsam_deployment_health insert failed (non-fatal)" >&2
 
 # dashboard_versions — every column populated; exclusive is_active for agent trio.
+# Worker-only deploys (MCP, cms-editor, etc.) skip SPA dashboard_versions without the
+# emergency ALLOW_SKIP_DEPLOY_TRAIL alarm — that flag stays rare/audited for main app only.
 DASH_DIST="${DASH_DIST:-$REPO_ROOT/dashboard/dist}"
-if [[ "${SKIP_DASHBOARD_VERSIONS:-0}" == "1" ]]; then
+_worker_only=0
+if [[ "${WORKER_ONLY_TRAIL:-0}" == "1" ]]; then
+  _worker_only=1
+elif [[ -n "${WORKER_NAME:-}" && "$WORKER_NAME" != "inneranimalmedia" ]]; then
+  _worker_only=1
+fi
+if [[ "$_worker_only" == "1" ]]; then
+  echo "[post-deploy-record] worker-only trail (worker_name=${WORKER_NAME:-unset}) — skipping dashboard_versions" >&2
+elif [[ "${SKIP_DASHBOARD_VERSIONS:-0}" == "1" ]]; then
   if [[ "${ALLOW_SKIP_DEPLOY_TRAIL:-0}" == "1" ]]; then
-    echo "[post-deploy-record] SKIP_DASHBOARD_VERSIONS=1 with ALLOW_SKIP_DEPLOY_TRAIL=1 — skipping dashboard_versions (audited)" >&2
+    echo "[post-deploy-record] SKIP_DASHBOARD_VERSIONS=1 with ALLOW_SKIP_DEPLOY_TRAIL=1 — skipping dashboard_versions (audited emergency)" >&2
   else
     echo "[post-deploy-record] FATAL: SKIP_DASHBOARD_VERSIONS=1 without ALLOW_SKIP_DEPLOY_TRAIL=1" >&2
+    echo "[post-deploy-record] hint: worker-only ships use WORKER_ONLY_TRAIL=1 or WORKER_NAME≠inneranimalmedia" >&2
     exit 1
   fi
 elif [[ -f "$DASH_DIST/dashboard.js" && -f "$DASH_DIST/dashboard.css" && -f "$DASH_DIST/index.html" ]]; then
@@ -417,8 +428,12 @@ else
   echo "[post-deploy-record] dashboard/dist missing — skipping dashboard_versions (expected on worker-only)"
 fi
 
-# Mirror to Supabase agentsam.agentsam_deploy_events (OS ledger). Non-fatal.
-# Same sink as post-deploy Worker handler / midnight deployments rollup.
+# Mirror to Supabase agentsam.agentsam_deploy_events (OS ledger). Non-fatal on desk;
+# fatal on CF Builds when required secrets missing (main SPA path).
+# Worker-only (MCP) defaults to skip — different product surface, not the SPA ledger.
+if [[ "$_worker_only" == "1" && "${SKIP_SUPABASE_DEPLOY_EVENT:-}" == "" ]]; then
+  SKIP_SUPABASE_DEPLOY_EVENT=1
+fi
 if [[ "${SKIP_SUPABASE_DEPLOY_EVENT:-0}" == "1" ]]; then
   echo "[post-deploy-record] SKIP_SUPABASE_DEPLOY_EVENT=1 — skipping agentsam_deploy_events"
 else

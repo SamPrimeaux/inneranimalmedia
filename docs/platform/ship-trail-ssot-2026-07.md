@@ -29,8 +29,18 @@ Not SSOT candidates:
 | App / script | How |
 |--------------|-----|
 | Main Mac `deploy:fast` / `deploy:full` | Already calls `post-deploy-record.sh` |
-| MCP `deploy-mcp-worker.sh` | Calls IAM `post-deploy-record.sh` with `DEPLOY_GIT_ROOT=<mcp-repo>`, `WORKER_NAME=inneranimalmedia-mcp-server`, `SKIP_DASHBOARD_VERSIONS=1` |
+| MCP `deploy-mcp-worker.sh` | Calls IAM `post-deploy-record.sh` with `DEPLOY_GIT_ROOT=<mcp-repo>`, `WORKER_NAME=inneranimalmedia-mcp-server`. Missing IAM sibling or trail failure → **hard exit 1**. |
 | Future client workers | Same recorder + overrides for tenant/workspace/project/worker |
+
+### Worker-only vs emergency skip
+
+| Flag | Meaning |
+|------|---------|
+| `WORKER_NAME≠inneranimalmedia` or `WORKER_ONLY_TRAIL=1` | First-class: skip SPA `dashboard_versions` + default-skip Supabase deploy events. **Not** an alarm. |
+| `SKIP_DASHBOARD_VERSIONS=1` + `ALLOW_SKIP_DEPLOY_TRAIL=1` | Emergency bypass for **main** app only — audited, rare. Do not hardcode on MCP. |
+| `SKIP_SUPABASE_DEPLOY_EVENT=1` | Skip Supabase `agentsam_deploy_events` mirror (auto for worker-only). |
+
+`/api/internal/post-deploy` is **not** the deployments writer (KV + hooks + phone loop only). SSOT INSERT stays in `post-deploy-record.sh`.
 
 ## Overflow (WAE)
 
