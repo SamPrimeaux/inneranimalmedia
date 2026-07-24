@@ -1,8 +1,9 @@
 # Images (DAM)
 
 **Classification:** `shared_capability`  
-**Stage:** `rebuild_in_progress`  
+**Stage:** `ui_wired_pending_qc`  
 **Route:** `/dashboard/images` → `/dashboard/images/storage` (+ Delivery / Keys / Sourcing Kit / `:id` / `:id/edit`)  
+**UI:** `dashboard/components/images/*` (wired in `App.tsx`) · legacy `ImagesPage.tsx` retained unused  
 **Manifest:** [`product-manifests/images.json`](../../product-manifests/images.json)  
 **Sprint SSOT:** [`plans/active/cf-images-media-editor-2026-07.md`](../../plans/active/cf-images-media-editor-2026-07.md)
 

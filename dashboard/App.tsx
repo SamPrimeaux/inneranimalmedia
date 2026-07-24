@@ -204,7 +204,32 @@ const RedirectHealthToAnalytics = lazy(() =>
 const LearnPage = lazy(() => import('./components/LearnPage'));
 const DatabasePage = lazy(() => import('./components/DatabasePage').then((m) => ({ default: m.DatabasePage })));
 const DesignStudioPage = lazy(() => import('./components/DesignStudioPage').then((m) => ({ default: m.DesignStudioPage })));
-const ImagesPage = lazy(() => import('./components/ImagesPage'));
+const ImagesShell = lazy(() =>
+  import('./components/images/ImagesShell').then((m) => ({ default: m.ImagesShell })),
+);
+const ImagesStoragePage = lazy(() =>
+  import('./components/images/ImagesStoragePage').then((m) => ({ default: m.ImagesStoragePage })),
+);
+const ImagesDeliveryPage = lazy(() =>
+  import('./components/images/ImagesDeliveryPage').then((m) => ({ default: m.ImagesDeliveryPage })),
+);
+const ImagesDeliveryVariantCreatePage = lazy(() =>
+  import('./components/images/ImagesDeliveryVariantCreatePage').then((m) => ({
+    default: m.ImagesDeliveryVariantCreatePage,
+  })),
+);
+const ImagesKeysPage = lazy(() =>
+  import('./components/images/ImagesKeysPage').then((m) => ({ default: m.ImagesKeysPage })),
+);
+const ImagesSourcingKitPage = lazy(() =>
+  import('./components/images/ImagesSourcingKitPage').then((m) => ({ default: m.ImagesSourcingKitPage })),
+);
+const ImagesDetailPage = lazy(() =>
+  import('./components/images/ImagesDetailPage').then((m) => ({ default: m.ImagesDetailPage })),
+);
+const ImagesEditPage = lazy(() =>
+  import('./components/images/ImagesEditPage').then((m) => ({ default: m.ImagesEditPage })),
+);
 const MailPage = lazy(() => import('./components/MailPage').then((m) => ({ default: m.MailPage })));
 const MeetPage = lazy(() => import('./components/MeetPage'));
 const SettingsPanel = lazy(() => import('./components/settings'));
@@ -5365,8 +5390,21 @@ const App: React.FC = () => {
                       />
                       <Route
                         path="/dashboard/images"
-                        element={<ImagesPage workspaceId={authWorkspaceId || undefined} />}
-                      />
+                        element={
+                          <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+                            <ImagesShell workspaceId={authWorkspaceId || undefined} />
+                          </div>
+                        }
+                      >
+                        <Route index element={<Navigate to="storage" replace />} />
+                        <Route path="storage" element={<ImagesStoragePage />} />
+                        <Route path="delivery" element={<ImagesDeliveryPage />} />
+                        <Route path="delivery/variant/create" element={<ImagesDeliveryVariantCreatePage />} />
+                        <Route path="keys" element={<ImagesKeysPage />} />
+                        <Route path="sourcing-kit" element={<ImagesSourcingKitPage />} />
+                        <Route path=":id/edit" element={<ImagesEditPage />} />
+                        <Route path=":id" element={<ImagesDetailPage />} />
+                      </Route>
                       <Route path="/dashboard/mail" element={
                         <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
                           <MailPage />

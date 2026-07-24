@@ -1,0 +1,412 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ChevronRight,
+  Download,
+  Pencil,
+  Share2,
+  Trash2,
+} from 'lucide-react';
+import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom';
+import { cloudflareImageUrl } from '../../src/lib/cloudflareImageUrl';
+import { ImageShareModal } from './ImageShareModal';
+import { ImageTagPicker } from './ImageTagPicker';
+import { ImageVariantGrid } from './ImageVariantGrid';
+import type { ImagesOutletContext } from './ImagesShell';
+import { ImagesToastStack } from './ImagesUsageAccountSidebar';
+import { NAMED_VARIANTS } from './imagesRegistry';
+import {
+  buildCfImageUrl,
+  imagesDetailUrl,
+  imagesPatchUrl,
+  imagesTagsUrl,
+  useImagesToast,
+} from './imagesApi';
+
+type DetailImage = {
+  id: string;
+  filename?: string;
+  original_filename?: string;
+  url?: string;
+  thumbnail_url?: string;
+  cloudflare_image_id?: string | null;
+  created_at?: string;
+  uploaded?: string;
+  mime_type?: string;
+  size?: number;
+  width?: number | null;
+  height?: number | null;
+  tags?: string[];
+  alt_text?: string | null;
+  description?: string | null;
+  meta?: Record<string, unknown>;
+  source?: string;
+  user_id?: string;
+  workspace_id?: string;
+  visibility?: string;
+  accountHash?: string;
+  variants?: string[] | Record<string, string>;
+};
+
+export function ImagesDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const { workspaceId } = useOutletContext<ImagesOutletContext>();
+  const navigate = useNavigate();
+  const { toasts, add: toast } = useImagesToast();
+
+  const [img, setImg] = useState<DetailImage | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const [selectedVariant, setSelectedVariant] = useState('public');
+  const [shareOpen, setShareOpen] = useState(false);
+  const [accountHash, setAccountHash] = useState('');
+
+  const load = useCallback(async () => {
+    if (!id) return;
+    setLoading(true);
+    setError('');
+    try {
+      const r = await fetch(imagesDetailUrl(id, workspaceId), { credentials: 'same-origin' });
+      const d = await r.json();
+      if (!r.ok || d.error) {
+        setError(d.error || `Failed to load (${r.status})`);
+        setImg(null);
+        return;
+      }
+      const row: DetailImage = d.item || d.image || d;
+      setImg(row);
+      if (d.accountHash) setAccountHash(String(d.accountHash));
+      else if (row.accountHash) setAccountHash(String(row.accountHash));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setLoading(false);
+    }
+  }, [id, workspaceId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(imagesTagsUrl(workspaceId), { credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        const tags = Array.isArray(d.tags)
+          ? d.tags.map((t: { tag?: string } | string) =>
+              typeof t === 'string' ? t : String(t.tag || ''),
+            )
+          : [];
+        setTagSuggestions(tags.filter(Boolean));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
+  const cfId = img?.cloudflare_image_id || (img?.id?.startsWith('cf_live_') ? img.id.slice(9) : '');
+  const baseUrl = useMemo(() => {
+    if (!img) return '';
+    if (accountHash && cfId) return buildCfImageUrl(accountHash, cfId, 'public');
+    return img.url || '';
+  }, [img, accountHash, cfId]);
+
+  const variantMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const v of NAMED_VARIANTS) {
+      if (accountHash && cfId) map[v.id] = buildCfImageUrl(accountHash, cfId, v.id);
+      else if (baseUrl && baseUrl.includes('imagedelivery.net')) {
+        map[v.id] = baseUrl.replace(/\/(public|small|thumbnail|avatar|hero|large|medium)(?:\?.*)?$/i, `/${v.id}`);
+      } else if (baseUrl) map[v.id] = baseUrl;
+    }
+    if (img?.variants && typeof img.variants === 'object' && !Array.isArray(img.variants)) {
+      Object.assign(map, img.variants);
+    }
+    return map;
+  }, [accountHash, cfId, baseUrl, img]);
+
+  const previewUrl = variantMap[selectedVariant] || baseUrl;
+  const galleryPreview = cloudflareImageUrl(baseUrl);
+
+  const saveTags = async (tags: string[]) => {
+    if (!img) return;
+    try {
+      const r = await fetch(imagesPatchUrl(img.id, workspaceId), {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags }),
+      });
+      const d = await r.json();
+      if (d.ok && (d.item || d.image)) {
+        setImg(d.item || d.image);
+        toast('Tags saved');
+      } else toast(d.error || 'Failed to save tags', 'err');
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Save failed', 'err');
+    }
+  };
+
+  const onDelete = async () => {
+    if (!img) return;
+    if (!confirm(`Delete "${img.filename || img.id}"? This cannot be undone.`)) return;
+    try {
+      const r = await fetch(`/api/images/${encodeURIComponent(img.id)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      const d = await r.json();
+      if (d.ok) {
+        toast('Image deleted');
+        navigate('/dashboard/images/storage');
+      } else toast(d.error || 'Delete failed', 'err');
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Delete failed', 'err');
+    }
+  };
+
+  const onExport = () => {
+    const url = previewUrl || baseUrl;
+    if (!url) {
+      toast('No URL to export', 'err');
+      return;
+    }
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = img?.filename || `${img?.id || 'image'}.jpg`;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  const metaJson = useMemo(() => {
+    if (!img) return '{}';
+    const payload = {
+      id: img.id,
+      filename: img.filename,
+      cloudflare_image_id: img.cloudflare_image_id,
+      workspace_id: img.workspace_id || workspaceId,
+      user_id: img.user_id,
+      source: img.source,
+      mime_type: img.mime_type,
+      size: img.size,
+      width: img.width,
+      height: img.height,
+      meta: img.meta || {},
+    };
+    return JSON.stringify(payload, null, 2);
+  }, [img, workspaceId]);
+
+  const btn = (label: string, icon: React.ReactNode, onClick: () => void, primary?: boolean) => (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '7px 12px',
+        borderRadius: 8,
+        border: primary ? 'none' : '1px solid var(--border-subtle)',
+        background: primary ? 'var(--solar-cyan)' : 'var(--bg-elevated)',
+        color: primary ? '#000' : 'var(--text-main)',
+        fontSize: 12,
+        fontWeight: primary ? 600 : 400,
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+      }}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+
+  if (loading) {
+    return (
+      <div style={{ padding: 24, color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>
+    );
+  }
+
+  if (error || !img) {
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ color: '#f87171', fontSize: 13, marginBottom: 12 }}>{error || 'Not found'}</div>
+        <Link to="/dashboard/images/storage" style={{ color: 'var(--solar-cyan)', fontSize: 13 }}>
+          Back to Storage
+        </Link>
+      </div>
+    );
+  }
+
+  const created = img.created_at || img.uploaded || '—';
+
+  return (
+    <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '16px 24px 32px' }}>
+      <nav
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 12,
+          color: 'var(--text-muted)',
+          marginBottom: 14,
+          flexWrap: 'wrap',
+        }}
+      >
+        <Link to="/dashboard/images/storage" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>
+          Images
+        </Link>
+        <ChevronRight size={12} />
+        <Link to="/dashboard/images/storage" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>
+          Storage
+        </Link>
+        <ChevronRight size={12} />
+        <span style={{ color: 'var(--text-main)' }}>{img.filename || img.id}</span>
+      </nav>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          marginBottom: 20,
+        }}
+      >
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>{img.filename || img.id}</h2>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {btn('Export', <Download size={13} />, onExport)}
+          {btn('Edit', <Pencil size={13} />, () =>
+            navigate(`/dashboard/images/${encodeURIComponent(img.id)}/edit`),
+          )}
+          {btn('Share', <Share2 size={13} />, () => setShareOpen(true), true)}
+          {btn('Delete', <Trash2 size={13} />, () => void onDelete())}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(240px, 320px) 1fr',
+          gap: 20,
+          marginBottom: 24,
+        }}
+      >
+        <div
+          style={{
+            padding: 16,
+            borderRadius: 12,
+            border: '1px solid var(--border-subtle)',
+            background: 'var(--bg-panel)',
+          }}
+        >
+          <Field label="Image ID" value={img.id} />
+          <Field label="Created" value={String(created)} />
+          <Field label="Filename" value={img.filename || img.original_filename || '—'} />
+          <Field label="Creator" value={img.user_id || '—'} />
+          <Field label="Visibility" value={img.visibility || 'private'} />
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>Tags</div>
+            <ImageTagPicker
+              tags={img.tags || []}
+              suggestions={tagSuggestions}
+              onChange={(tags) => void saveTags(tags)}
+            />
+          </div>
+        </div>
+
+        <div
+          style={{
+            padding: 16,
+            borderRadius: 12,
+            border: '1px solid var(--border-subtle)',
+            background: 'var(--bg-panel)',
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>Metadata</div>
+          <pre
+            style={{
+              margin: 0,
+              padding: 12,
+              borderRadius: 8,
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border-subtle)',
+              fontSize: 11,
+              color: 'var(--text-muted)',
+              overflow: 'auto',
+              maxHeight: 280,
+            }}
+          >
+            {metaJson}
+          </pre>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Variants</div>
+        <ImageVariantGrid
+          variants={variantMap}
+          selected={selectedVariant}
+          onSelect={setSelectedVariant}
+        />
+      </div>
+
+      <div
+        style={{
+          borderRadius: 12,
+          border: '1px solid var(--border-subtle)',
+          background: 'var(--bg-elevated)',
+          padding: 16,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: 320,
+        }}
+      >
+        {(previewUrl || galleryPreview.src) && (
+          <img
+            src={previewUrl || galleryPreview.src}
+            srcSet={!previewUrl ? galleryPreview.srcSet : undefined}
+            sizes={!previewUrl ? galleryPreview.sizes : undefined}
+            alt={img.filename || img.id}
+            style={{ maxWidth: '100%', maxHeight: 480, objectFit: 'contain', borderRadius: 4 }}
+          />
+        )}
+      </div>
+
+      <ImageShareModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        imageId={img.id}
+        deliveryUrl={variantMap.public || baseUrl}
+        workspaceId={workspaceId}
+      />
+      <ImagesToastStack toasts={toasts} />
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 3 }}>{label}</div>
+      <div
+        style={{
+          fontSize: 12,
+          color: 'var(--text-main)',
+          wordBreak: 'break-all',
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+export default ImagesDetailPage;

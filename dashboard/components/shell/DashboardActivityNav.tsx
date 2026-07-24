@@ -170,8 +170,8 @@ export function DashboardActivityNav({
         icon={Image}
         label="Images"
         expanded={expanded}
-        active={location.pathname === '/dashboard/images'}
-        onClick={() => go('/dashboard/images')}
+        active={location.pathname === '/dashboard/images' || location.pathname.startsWith('/dashboard/images/')}
+        onClick={() => go('/dashboard/images/storage')}
       />
       <ActivityRailItem
         icon={Mail}

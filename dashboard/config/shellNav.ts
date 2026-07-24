@@ -70,7 +70,7 @@ export const SHELL_PRODUCTS: ShellProduct[] = [
         match: 'prefix',
         children: CMS_SUITE_NAV,
       },
-      { id: 'images', label: 'Images', path: '/dashboard/images', match: 'exact' },
+      { id: 'images', label: 'Images', path: '/dashboard/images', match: 'prefix' },
       { id: 'moviemode', label: 'Movie Mode', path: '/dashboard/moviemode', match: 'prefix' },
     ],
   },
