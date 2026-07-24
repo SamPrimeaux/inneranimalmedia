@@ -1571,6 +1571,616 @@ async function handleLegacyD1Meta(env, authUser, identity, request, url, imageId
   return handlePatchImage(request, url, env, authUser, identity, imageId, payload ?? {});
 }
 
+function safeJsonParse(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function parseOpsFromQuery(searchParams) {
+  const opsRaw = searchParams.get('ops');
+  if (opsRaw) {
+    try {
+      const parsed = JSON.parse(opsRaw);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch {
+      // fall through to flat params
+    }
+  }
+  const flat = {};
+  for (const key of Object.keys(ALLOWED_TRANSFORM_OPS)) {
+    if (searchParams.has(key)) flat[key] = searchParams.get(key);
+  }
+  return flat;
+}
+
+/**
+ * Resolves binding-ready source bytes for an images row — R2 bytes directly (no fetch, no URL,
+ * see QC-18 note in cf-images-transform.js), or the hosted CF delivery URL as a fallback.
+ */
+async function resolveImageSourceForBinding(env, row, accountHash) {
+  if (row.r2_key) {
+    const binding = getR2Binding(env, BUCKET);
+    const obj = await binding?.get?.(row.r2_key).catch(() => null);
+    if (!obj?.body) return { error: 'Source object not found in R2', status: 404 };
+    return {
+      stream: obj.body,
+      byteLength: obj.size || 0,
+      mime: obj.httpMetadata?.contentType || row.mime_type || 'image/jpeg',
+    };
+  }
+  if (row.cloudflare_image_id) {
+    const hash = accountHash || String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
+    const srcUrl = cfDeliveryUrl(hash, row.cloudflare_image_id, 'public');
+    if (!srcUrl) return { error: 'No delivery URL available for source image', status: 502 };
+    const res = await fetch(srcUrl);
+    if (!res.ok || !res.body) return { error: 'Failed to fetch hosted source image', status: 502 };
+    const len = Number(res.headers.get('content-length')) || 0;
+    return {
+      stream: res.body,
+      byteLength: len,
+      mime: res.headers.get('content-type') || row.mime_type || 'image/jpeg',
+    };
+  }
+  return { error: 'Image has no R2 or Cloudflare Images source', status: 400 };
+}
+
+async function handleGetImageDetail(url, env, authUser, identity, imageId) {
+  const scope = await resolveScope(
+    env,
+    authUser,
+    identity,
+    url.searchParams.get('workspace_id')?.trim(),
+  );
+  if (scope.error) return jsonResponse({ error: scope.error }, scope.status);
+  if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+
+  const rowOrErr = await getImageRowForPatch(env, imageId, scope, authUser, url.origin);
+  if (!rowOrErr) return jsonResponse({ error: 'Not found' }, 404);
+  if (rowOrErr.forbidden) return jsonResponse({ error: 'Forbidden' }, 403);
+  const row = rowOrErr;
+
+  const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
+  const item = mapD1RowToItem(row, { origin: url.origin, accountHash });
+
+  const variants = {};
+  if (row.cloudflare_image_id) {
+    for (const v of ['public', 'thumbnail', 'small', 'medium', 'large', 'hero', 'avatar']) {
+      variants[v] = cfDeliveryUrl(accountHash, row.cloudflare_image_id, v);
+    }
+  }
+
+  let derivatives = [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT id, filename, thumbnail_url, url, created_at FROM images
+       WHERE parent_image_id = ? AND COALESCE(status, 'active') = 'active'
+       ORDER BY created_at DESC LIMIT 50`,
+    )
+      .bind(row.id)
+      .all();
+    derivatives = results || [];
+  } catch {
+    derivatives = [];
+  }
+
+  const { resolveCfImagesUploadContext } = await import('../core/cf-oauth-images.js');
+  const cfCtx = await resolveCfImagesUploadContext(env, {
+    userId: scope.userId,
+    workspaceId: scope.workspaceId,
+  }).catch(() => null);
+
+  return jsonResponse({
+    ok: true,
+    item,
+    image: item,
+    variants,
+    parent_image_id: row.parent_image_id || null,
+    transform_json: row.transform_json ? safeJsonParse(row.transform_json) : null,
+    derivatives,
+    capabilities: { cf_images: !!(cfCtx && cfCtx.ok), source: cfCtx?.source || null },
+  });
+}
+
+/**
+ * GET /api/images/:id/preview-url — allowlisted, clamped transform ops, streamed via the Images
+ * binding (bytes in, bytes out — see QC-18 note). `mode=delivery` returns a cheap flexible-variant
+ * delivery URL (JSON) instead of streaming bytes, for hosted images only.
+ */
+async function handlePreviewUrl(url, env, authUser, identity, imageId) {
+  const scope = await resolveScope(
+    env,
+    authUser,
+    identity,
+    url.searchParams.get('workspace_id')?.trim(),
+  );
+  if (scope.error) return jsonResponse({ error: scope.error }, scope.status);
+  if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+
+  const rowOrErr = await getImageRowForPatch(env, imageId, scope, authUser, url.origin);
+  if (!rowOrErr) return jsonResponse({ error: 'Not found' }, 404);
+  if (rowOrErr.forbidden) return jsonResponse({ error: 'Forbidden' }, 403);
+  const row = rowOrErr;
+
+  try {
+    assertTransformableMime(row.mime_type);
+  } catch (e) {
+    return jsonResponse({ error: e.message }, 400);
+  }
+
+  const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
+  const rawOps = parseOpsFromQuery(url.searchParams);
+
+  if (url.searchParams.get('mode') === 'delivery' && row.cloudflare_image_id) {
+    const deliveryUrl = buildFlexibleDeliveryUrl(accountHash, row.cloudflare_image_id, rawOps);
+    return jsonResponse({ ok: true, preview_url: deliveryUrl, mode: 'delivery' });
+  }
+
+  const source = await resolveImageSourceForBinding(env, row, accountHash);
+  if (source.error) return jsonResponse({ error: source.error }, source.status || 502);
+
+  try {
+    assertWithinBindingInputLimit(source.byteLength || 0);
+  } catch (e) {
+    return jsonResponse({ error: e.message }, 413);
+  }
+
+  const watermark = ['1', 'true'].includes(url.searchParams.get('watermark') || '');
+
+  let pipelineResult;
+  try {
+    pipelineResult = await applyBindingPipeline(env, source.stream, rawOps, {
+      watermark,
+      defaultFormat: 'webp',
+      baseWidth: row.width || undefined,
+    });
+  } catch (e) {
+    if (e instanceof LimitExceededError) return jsonResponse({ error: e.message }, 413);
+    if (e instanceof TransformValidationError) {
+      return jsonResponse({ error: e.message, details: e.details }, 400);
+    }
+    return jsonResponse({ error: e?.message || 'transform failed' }, 502);
+  }
+
+  const resp = pipelineResult.output.response();
+  const headers = new Headers(resp.headers);
+  headers.set('Cache-Control', 'private, max-age=60, stale-while-revalidate=300');
+  headers.set('X-IAM-Transform-Ops', JSON.stringify(pipelineResult.ops));
+  if (pipelineResult.dropped.length) headers.set('X-IAM-Transform-Dropped', pipelineResult.dropped.join(','));
+  return new Response(resp.body, { status: resp.status, headers });
+}
+
+/**
+ * POST /api/images/:id/transform — commit an allowlisted transform via the Images binding.
+ * Default `mode: "derivative"` inserts a new library row (parent_image_id, transform_json).
+ * `mode: "replace"` must be explicit and overwrites the existing row's hosted image in place.
+ */
+async function handleTransformCommit(request, url, env, authUser, identity, imageId) {
+  const scope = await resolveScope(
+    env,
+    authUser,
+    identity,
+    url.searchParams.get('workspace_id')?.trim(),
+  );
+  if (scope.error) return jsonResponse({ error: scope.error }, scope.status);
+  if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+
+  const body = await request.json().catch(() => ({}));
+  const rawOps = body.ops && typeof body.ops === 'object' ? body.ops : {};
+  const mode = body.mode === 'replace' ? 'replace' : 'derivative';
+  const watermark = body.watermark === true;
+
+  const rowOrErr = await getImageRowForPatch(env, imageId, scope, authUser, url.origin);
+  if (!rowOrErr) return jsonResponse({ error: 'Not found' }, 404);
+  if (rowOrErr.forbidden) return jsonResponse({ error: 'Forbidden' }, 403);
+  const row = rowOrErr;
+
+  try {
+    assertTransformableMime(row.mime_type);
+  } catch (e) {
+    return jsonResponse({ error: e.message }, 400);
+  }
+
+  const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
+  const source = await resolveImageSourceForBinding(env, row, accountHash);
+  if (source.error) return jsonResponse({ error: source.error }, source.status || 502);
+
+  try {
+    assertWithinBindingInputLimit(source.byteLength || 0);
+  } catch (e) {
+    return jsonResponse({ error: e.message }, 413);
+  }
+
+  let pipelineResult;
+  try {
+    pipelineResult = await applyBindingPipeline(env, source.stream, rawOps, {
+      watermark,
+      defaultFormat: 'webp',
+      baseWidth: row.width || undefined,
+    });
+  } catch (e) {
+    if (e instanceof LimitExceededError) return jsonResponse({ error: e.message }, 413);
+    if (e instanceof TransformValidationError) {
+      return jsonResponse({ error: e.message, details: e.details }, 400);
+    }
+    return jsonResponse({ error: e?.message || 'transform failed' }, 502);
+  }
+
+  const outBuf = await pipelineResult.output.response().arrayBuffer();
+  try {
+    assertWithinHostedUploadLimit(outBuf.byteLength);
+  } catch (e) {
+    return jsonResponse({ error: e.message }, 413);
+  }
+
+  const { resolveCfImagesUploadContext } = await import('../core/cf-oauth-images.js');
+  const cfCtx = await resolveCfImagesUploadContext(env, {
+    userId: scope.userId,
+    workspaceId: scope.workspaceId,
+  });
+  if (!cfCtx.ok) {
+    return jsonResponse({ error: cfCtx.error, detail: cfCtx.detail, accounts: cfCtx.accounts }, 403);
+  }
+
+  const ext = pipelineResult.format === 'jpeg' ? 'jpg' : pipelineResult.format;
+  const baseName = String(row.filename || row.original_filename || 'image').replace(/\.[^.]+$/, '');
+  const outFilename = safeFilename(`${baseName}-edit-${Date.now()}.${ext}`);
+  const outMime = `image/${pipelineResult.format}`;
+  const outFile = new File([outBuf], outFilename, { type: outMime });
+
+  const transformMeta = {
+    label: outFilename,
+    category: '',
+    project_slug: '',
+    notes: mode === 'replace' ? 'replace edit' : 'derivative edit',
+    tenant_slug: '',
+    is_live: false,
+    preferred_bg: '',
+  };
+  const cfMetaPayload = buildCfImagesMetaPayload({
+    tags: parseTags(row.tags),
+    meta: transformMeta,
+    scope,
+    alt_text: row.alt_text,
+    filename: outFilename,
+  });
+  cfMetaPayload.iam_parent_image_id = String(mode === 'derivative' ? row.id : row.parent_image_id || row.id).slice(0, 64);
+
+  const cf = await uploadToCfImages(env, outFile, cfMetaPayload, {
+    accountId: cfCtx.accountId,
+    token: cfCtx.token,
+    iam_hosted: cfCtx.iam_hosted,
+  });
+  if (cf.error) return jsonResponse({ error: cf.error }, cf.status || 502);
+
+  const newAccountHash = String(cfCtx.accountHash || accountHash || '').trim();
+  const publicUrl = newAccountHash ? cfDeliveryUrl(newAccountHash, cf.imageId, 'public') : '';
+  const thumbUrl = newAccountHash ? cfDeliveryUrl(newAccountHash, cf.imageId, 'thumbnail') : publicUrl;
+  const transformJson = JSON.stringify({
+    ops: pipelineResult.ops,
+    dropped: pipelineResult.dropped,
+    format: pipelineResult.format,
+    watermark,
+    mode,
+    committed_at: new Date().toISOString(),
+  });
+
+  if (mode === 'replace') {
+    if (row.cloudflare_image_id && row.cloudflare_image_id !== cf.imageId) {
+      await deleteCfImage(env, row.cloudflare_image_id);
+    }
+    await env.DB.prepare(
+      `UPDATE images SET cloudflare_image_id = ?, url = ?, thumbnail_url = ?, size = ?,
+        mime_type = ?, transform_json = ?, updated_at = unixepoch() WHERE id = ?`,
+    )
+      .bind(cf.imageId, publicUrl, thumbUrl, outBuf.byteLength, outMime, transformJson, row.id)
+      .run();
+
+    const updated = await env.DB.prepare(`SELECT * FROM images WHERE id = ? LIMIT 1`).bind(row.id).first();
+    const item = mapD1RowToItem(updated, { origin: url.origin, accountHash: newAccountHash });
+    return jsonResponse({
+      ok: true,
+      mode,
+      item,
+      image: item,
+      parent_image_id: updated.parent_image_id || null,
+      transform_json: transformJson,
+    });
+  }
+
+  const imageUuid = crypto.randomUUID();
+  const rowId = `img_${imageUuid.replace(/-/g, '').slice(0, 24)}`;
+  const newRow = await insertImageRow(env, {
+    id: rowId,
+    tenant_id: scope.tenantId,
+    project_id: row.project_id || null,
+    user_id: scope.userId,
+    filename: outFilename,
+    original_filename: row.original_filename || row.filename,
+    mime_type: outMime,
+    size: outBuf.byteLength,
+    width: null,
+    height: null,
+    r2_key: null,
+    cloudflare_image_id: cf.imageId,
+    url: publicUrl,
+    thumbnail_url: thumbUrl,
+    alt_text: row.alt_text || null,
+    description: row.description || null,
+    tags: row.tags || '[]',
+    metadata: JSON.stringify({
+      ...transformMeta,
+      registered_from: 'transform_derivative',
+      iam_hosted: cfCtx.iam_hosted === true,
+    }),
+    workspace_id: scope.workspaceId,
+    parent_image_id: row.id,
+    transform_json: transformJson,
+  });
+
+  const item = mapD1RowToItem(newRow, { origin: url.origin, accountHash: newAccountHash });
+  return jsonResponse({
+    ok: true,
+    mode,
+    item,
+    image: item,
+    parent_image_id: newRow.parent_image_id,
+    transform_json: newRow.transform_json,
+  });
+}
+
+async function handleBatchTags(request, url, env, authUser, identity) {
+  const scope = await resolveScope(
+    env,
+    authUser,
+    identity,
+    url.searchParams.get('workspace_id')?.trim(),
+  );
+  if (scope.error) return jsonResponse({ error: scope.error }, scope.status);
+  if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+
+  const body = await request.json().catch(() => ({}));
+  const ids = Array.isArray(body.ids) ? body.ids.map(String).filter(Boolean) : [];
+  const add = normalizeTags(body.add);
+  const remove = new Set(normalizeTags(body.remove));
+  if (!ids.length) return jsonResponse({ error: 'ids required' }, 400);
+  if (!add.length && !remove.size) return jsonResponse({ error: 'add or remove required' }, 400);
+
+  const results = [];
+  const cfPatchQueue = [];
+
+  for (const id of ids) {
+    const rowOrErr = await getImageRowForPatch(env, id, scope, authUser, url.origin);
+    if (!rowOrErr || rowOrErr.forbidden) {
+      results.push({ id, ok: false, error: !rowOrErr ? 'not_found' : 'forbidden' });
+      continue;
+    }
+    const row = rowOrErr;
+    const current = normalizeTags(parseTags(row.tags));
+    const merged = normalizeTags([...current.filter((t) => !remove.has(t)), ...add]);
+    await env.DB.prepare(`UPDATE images SET tags = ?, updated_at = unixepoch() WHERE id = ?`)
+      .bind(JSON.stringify(merged), row.id)
+      .run();
+    if (row.cloudflare_image_id) {
+      cfPatchQueue.push({ row, merged });
+    } else if (row.r2_key) {
+      const sidecar = buildR2SidecarPayload({
+        tags: merged,
+        meta: buildMetaFromRow(row),
+        alt_text: row.alt_text,
+        scope,
+      });
+      await syncR2ImageMeta(env, row.r2_key, sidecar, merged, scope, row.size);
+    }
+    results.push({ id, ok: true, tags: merged });
+  }
+
+  // CF-side meta patches route through the batch API once there's more than a couple of
+  // hosted images involved (QC-13) — keeps multi-select tagging off the global CF API rate limit.
+  if (cfPatchQueue.length) {
+    const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+    const apiToken = String(env.CLOUDFLARE_IMAGES_TOKEN || env.CLOUDFLARE_IMAGES_API_TOKEN || '').trim();
+    if (accountId && apiToken) {
+      try {
+        await runCfImagesBatch(accountId, apiToken, cfPatchQueue, async ({ row, merged }, batchToken) => {
+          const payload = buildCfImagesMetaPayload({
+            tags: merged,
+            meta: buildMetaFromRow(row),
+            scope,
+            alt_text: row.alt_text,
+            filename: row.filename,
+          });
+          return batchPatchCfImageMeta(batchToken, row.cloudflare_image_id, payload);
+        });
+      } catch {
+        // best-effort — D1 tags are already the SSOT; CF meta mirror can lag and self-heal on next PATCH.
+      }
+    }
+  }
+
+  return jsonResponse({ ok: true, results });
+}
+
+async function handleBatchDelete(request, url, env, authUser, identity) {
+  const scope = await resolveScope(
+    env,
+    authUser,
+    identity,
+    url.searchParams.get('workspace_id')?.trim(),
+  );
+  if (scope.error) return jsonResponse({ error: scope.error }, scope.status);
+  if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+
+  const body = await request.json().catch(() => ({}));
+  const ids = Array.isArray(body.ids) ? body.ids.map(String).filter(Boolean) : [];
+  if (!ids.length) return jsonResponse({ error: 'ids required' }, 400);
+
+  const results = [];
+  const cfDeleteQueue = [];
+
+  for (const id of ids) {
+    if (String(id).startsWith('drive_')) {
+      results.push({ id, ok: false, error: 'drive items are browse-only' });
+      continue;
+    }
+    if (String(id).startsWith('cf_live_')) {
+      cfDeleteQueue.push({ id, cfId: String(id).slice('cf_live_'.length), r2Key: null });
+      continue;
+    }
+    const row = await env.DB.prepare(`SELECT * FROM images WHERE id = ? LIMIT 1`).bind(id).first();
+    if (!row) {
+      results.push({ id, ok: false, error: 'not_found' });
+      continue;
+    }
+    if (String(row.user_id) !== String(authUser.id) || String(row.workspace_id) !== String(scope.workspaceId)) {
+      results.push({ id, ok: false, error: 'forbidden' });
+      continue;
+    }
+    if (row.cloudflare_image_id) {
+      cfDeleteQueue.push({ id, cfId: row.cloudflare_image_id, r2Key: row.r2_key });
+      continue;
+    }
+    if (row.r2_key) {
+      const binding = getR2Binding(env, BUCKET);
+      await binding?.delete?.(row.r2_key).catch(() => {});
+      await binding?.delete?.(metaSidecarKey(row.r2_key)).catch(() => {});
+    }
+    await env.DB.prepare(`UPDATE images SET status = 'deleted', updated_at = unixepoch() WHERE id = ?`)
+      .bind(id)
+      .run();
+    results.push({ id, ok: true });
+  }
+
+  if (cfDeleteQueue.length) {
+    const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+    const apiToken = String(env.CLOUDFLARE_IMAGES_TOKEN || env.CLOUDFLARE_IMAGES_API_TOKEN || '').trim();
+    const useBatch = accountId && apiToken && cfDeleteQueue.length > 2;
+
+    const finalizeOne = async (entry) => {
+      if (entry.r2Key) {
+        const binding = getR2Binding(env, BUCKET);
+        await binding?.delete?.(entry.r2Key).catch(() => {});
+        await binding?.delete?.(metaSidecarKey(entry.r2Key)).catch(() => {});
+      }
+      if (!String(entry.id).startsWith('cf_live_')) {
+        await env.DB.prepare(`UPDATE images SET status = 'deleted', updated_at = unixepoch() WHERE id = ?`)
+          .bind(entry.id)
+          .run();
+      }
+    };
+
+    if (useBatch) {
+      try {
+        await runCfImagesBatch(accountId, apiToken, cfDeleteQueue, async (entry, batchToken) => {
+          await batchDeleteFromCfImages(batchToken, entry.cfId);
+          await finalizeOne(entry);
+          return true;
+        });
+        for (const entry of cfDeleteQueue) results.push({ id: entry.id, ok: true });
+      } catch {
+        for (const entry of cfDeleteQueue) {
+          await deleteCfImage(env, entry.cfId);
+          await finalizeOne(entry);
+          results.push({ id: entry.id, ok: true });
+        }
+      }
+    } else {
+      for (const entry of cfDeleteQueue) {
+        await deleteCfImage(env, entry.cfId);
+        await finalizeOne(entry);
+        results.push({ id: entry.id, ok: true });
+      }
+    }
+  }
+
+  return jsonResponse({ ok: true, results });
+}
+
+async function handleBatchMigrate(request, url, env, authUser, identity) {
+  const scope = await resolveScope(
+    env,
+    authUser,
+    identity,
+    url.searchParams.get('workspace_id')?.trim(),
+  );
+  if (scope.error) return jsonResponse({ error: scope.error }, scope.status);
+  if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+
+  const body = await request.json().catch(() => ({}));
+  const ids = Array.isArray(body.ids) ? body.ids.map(String).filter(Boolean) : [];
+  const target = body.target === 'r2' ? 'r2' : 'cf_images';
+  if (!ids.length) return jsonResponse({ error: 'ids required' }, 400);
+  if (target !== 'cf_images') {
+    return jsonResponse(
+      { error: 'migrate target=r2 not supported: iam-uploaded assets already keep an R2 original; use Export instead.' },
+      400,
+    );
+  }
+
+  const { resolveCfImagesUploadContext } = await import('../core/cf-oauth-images.js');
+  const cfCtx = await resolveCfImagesUploadContext(env, {
+    userId: scope.userId,
+    workspaceId: scope.workspaceId,
+  });
+  if (!cfCtx.ok) {
+    return jsonResponse({ error: cfCtx.error, detail: cfCtx.detail, accounts: cfCtx.accounts }, 403);
+  }
+
+  const rows = [];
+  for (const id of ids) {
+    const row = await env.DB.prepare(
+      `SELECT * FROM images WHERE id = ? AND COALESCE(status,'active')='active' LIMIT 1`,
+    )
+      .bind(id)
+      .first();
+    if (!row) continue;
+    if (String(row.user_id) !== String(authUser.id) || String(row.workspace_id) !== String(scope.workspaceId)) continue;
+    if (row.cloudflare_image_id) continue; // already hosted
+    if (!row.r2_key) continue;
+    rows.push(row);
+  }
+  if (!rows.length) return jsonResponse({ ok: true, results: [], note: 'no eligible R2-only images found' });
+
+  const binding = getR2Binding(env, BUCKET);
+  const accountHash = cfCtx.accountHash || String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
+
+  const batchOutcomes = await runCfImagesBatch(cfCtx.accountId, cfCtx.token, rows, async (row, batchToken) => {
+    const obj = await binding?.get?.(row.r2_key);
+    if (!obj?.body) throw new Error('R2 object missing');
+    const buf = await new Response(obj.body).arrayBuffer();
+    assertWithinHostedUploadLimit(buf.byteLength);
+    const meta = buildMetaFromRow(row);
+    const cfMetaPayload = buildCfImagesMetaPayload({
+      tags: parseTags(row.tags),
+      meta,
+      scope,
+      alt_text: row.alt_text,
+      filename: row.filename,
+    });
+    const file = new File([buf], row.filename || 'image.jpg', { type: row.mime_type || 'image/jpeg' });
+    const result = await batchUploadToCfImages(batchToken, file, cfMetaPayload);
+    const publicUrl = accountHash ? cfDeliveryUrl(accountHash, result.id, 'public') : row.url;
+    const thumbUrl = accountHash ? cfDeliveryUrl(accountHash, result.id, 'thumbnail') : publicUrl;
+    await env.DB.prepare(
+      `UPDATE images SET cloudflare_image_id = ?, url = ?, thumbnail_url = ?, updated_at = unixepoch() WHERE id = ?`,
+    )
+      .bind(result.id, publicUrl, thumbUrl, row.id)
+      .run();
+    return { cloudflare_image_id: result.id };
+  });
+
+  const results = batchOutcomes.map((o) => ({
+    id: o.item.id,
+    ok: o.ok,
+    cloudflare_image_id: o.ok ? o.result?.cloudflare_image_id : null,
+    error: o.ok ? undefined : o.error,
+  }));
+
+  return jsonResponse({ ok: true, target, results });
+}
+
 /**
  * @param {Request} request
  * @param {URL} url
