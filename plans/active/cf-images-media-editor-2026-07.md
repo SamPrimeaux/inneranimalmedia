@@ -189,7 +189,9 @@ export const IMAGES_TABS = [
 
 #### Cloudflare OAuth scope note (Lane 1)
 
-`CLOUDFLARE_OAUTH_SCOPES` in `src/api/oauth.js` includes R2 **and** Images (`images.read`, `images.write`, `images.metadata_read`). Those scopes must also be **enabled on the OAuth client** (Manage Account → OAuth clients, or API with a token that has OAuth Clients Write — `CLOUDFLARE_BREAK_GLASS_ADMIN_TOKEN` when valid). After client update, users **re-consent**. Until client scopes are live, Keys page must say “reconnect Cloudflare with Images permission.”
+**Client offers (dash SSOT):** [`docs/auth/CLOUDFLARE_OAUTH_CLIENT_SCOPES.md`](../../docs/auth/CLOUDFLARE_OAUTH_CLIENT_SCOPES.md) — 60 scopes including **Images Read/Write**, full R2, KV, AI, etc.
+
+**Worker requests:** subset in `src/api/oauth.js` (`CLOUDFLARE_OAUTH_SCOPES`) including `images.read` + `images.write` (no `images.metadata_read` — not on this client). After deploy, users **reconnect** Cloudflare so tokens pick up Media scopes.
 
 
 ### F3 — Detail page (`/dashboard/images/:id`)
@@ -565,8 +567,8 @@ MY DUTIES (must fully implement):
 
 A) FOUNDATIONS
 1. wrangler.jsonc + wrangler.production.toml: images.binding = "IMAGES"
-2. CF OAuth: add images.read, images.write, images.metadata_read to CLOUDFLARE_OAUTH_SCOPES in src/api/oauth.js
-3. Enable those scopes on the live OAuth client (CLOUDFLARE_BREAK_GLASS_ADMIN_TOKEN / dash Manage Account → OAuth clients). Users must re-consent after.
+2. CF OAuth: request `images.read` + `images.write` in `CLOUDFLARE_OAUTH_SCOPES` (client already offers them — see `docs/auth/CLOUDFLARE_OAUTH_CLIENT_SCOPES.md`). Users reconnect after deploy.
+3. Do not request `images.metadata_read` (not on client catalog).
 4. Helper dashboard/src/lib/cloudflareImageUrl.ts — gallery/detail previews:
    - mobile / narrow: variant avatar (200×200)
    - desktop: variant small (400×400)

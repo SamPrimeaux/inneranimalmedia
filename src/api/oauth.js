@@ -406,10 +406,10 @@ function googleAuthUrl(env, state, oauthScopeString) {
 const CLOUDFLARE_OAUTH_REDIRECT_URI = 'https://inneranimalmedia.com/api/oauth/cloudflare/callback';
 /**
  * Must be a subset of scopes enabled on the IAM Cloudflare OAuth client
- * (Manage Account → OAuth clients). Requesting a scope not on the client
- * returns invalid_scope and no code — previously mislabeled as missing_params.
+ * "Inner Animal Media Platform" (Manage Account → OAuth clients).
+ * Full client catalog (60): docs/auth/CLOUDFLARE_OAUTH_CLIENT_SCOPES.md
+ * Requesting a scope not on the client → invalid_scope / no code.
  *
- * Do NOT include workers-kv-storage.* until that scope is enabled on the client.
  * Override at runtime with wrangler secret/var CLOUDFLARE_OAUTH_SCOPES (space-separated).
  */
 const CLOUDFLARE_OAUTH_SCOPES = [
@@ -434,10 +434,9 @@ const CLOUDFLARE_OAUTH_SCOPES = [
   'workers-routes.write',
   'workers-scripts.read',
   'workers-scripts.write',
-  // Hosted Images (must also be enabled on the OAuth client in CF dash / API)
+  // Media — offered on OAuth client (see CLOUDFLARE_OAUTH_CLIENT_SCOPES.md)
   'images.read',
   'images.write',
-  'images.metadata_read',
   'offline_access',
 ].join(' ');
 
