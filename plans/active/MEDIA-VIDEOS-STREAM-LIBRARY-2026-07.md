@@ -11,20 +11,46 @@ Ship a **Videos** product beside Hosted Images (never mixed) with storage locati
 ## Product lock
 
 - **Images** stay under `/dashboard/images/*` with **CF Images · R2 · Google Drive**.
-- **Videos** are a **sibling gallery** — never mixed into Images Storage.
+- **Videos** are a **sibling gallery** under `/dashboard/images/videos/*` (or `/dashboard/videos/*` alias) — never mixed into Images Storage tiles.
 - **Video locations:** Cloudflare Stream · R2 · Google Drive (`All | Stream | R2 | Drive` filters).
 - Stream rows get full CF detail tabs; R2/Drive get simpler asset panels + Import to Stream.
 - Gen: `veo_generate_video` → Veo 3.1 Thompson arms → default destination **Stream**.
 - Docs CTA: https://developers.cloudflare.com/stream/  
 - Video Link: `https://{customerSubdomain}/{uid}/watch`
 
+## Shell nav lock (dashboard IA)
+
+**Today (wrong depth):** Images lives under **Create** in [`dashboard/config/shellNav.ts`](../../dashboard/config/shellNav.ts) (`SHELL_PRODUCTS` → create → images), which buries media and makes UX hard.
+
+**Target IA:**
+
+```
+Home / New chat / Chats / Projects
+Work
+Media ▾          ← NEW top-level product (chevron / expandable submenu)
+  Images         → /dashboard/images/storage (existing)
+  Videos         → /dashboard/images/videos (new)
+Code / Create / Collaborate …
+```
+
+Rules:
+
+1. Promote **Media** out of **Create** — remove the lone `Images` row from Create.
+2. Place **Media** in core/product nav **immediately below Work** (same visual weight as Code/Create/Collaborate, or as a dedicated expandable core row — match existing chevron pattern used by CMS Suite `children`).
+3. Media submenu = **Images** · **Videos** only (clean, two children). Movie Mode stays under Create for now.
+4. Active state: any `/dashboard/images` or `/dashboard/images/videos` path expands Media and highlights the correct child.
+5. Owner: **Cursor Lane A** (touches `shellNav.ts`, `DashboardSidebar.tsx` / resolve helpers). Claude does **not** edit shell nav.
+
+---
+
 ## Agent assignment (no overlap)
+
 
 | Lane | Owner | Scope |
 |------|--------|--------|
 | **B** | **Claude** | Backend Stream CRUD + list merge APIs (`stream-api.js`, `/api/stream/*`, optional `stream-videos-api.js`) |
 | **D** | **Claude** | Veo LRO complete → Stream upload + durable `stream_uid` (after B from-url exists) |
-| **A** | **Cursor** | Media shell Images\|Videos + Overview UI (All\|Stream\|R2\|Drive) |
+| **A** | **Cursor** | Shell: promote **Media ▾** below Work (Images · Videos submenu); Media shell + Overview UI |
 | **C** | **Cursor** | Stream detail tab UIs + R2/Drive panels (consumes B APIs only) |
 | **E** | **Cursor** | Chat SSE card / scratchpad / rate / veo pin (after D) |
 | **F** | **Cursor** | Integrate, validate, `deploy:fast` |
@@ -83,12 +109,17 @@ Owner files: `src/core/stream-api.js`, prefer new `src/api/stream-videos-api.js`
 
 See parallel contracts in Cursor plan; UI under `dashboard/components/videos/*`, shell in `ImagesShell.tsx`.
 
-## Kickoff order
+## Claude progress check (2026-07-24)
 
-1. Claude **B** + Cursor **A** in parallel  
-2. Cursor **C** when GET `:uid` is live  
-3. Claude **D** when from-url works  
-4. Cursor **E** then **F** ship  
+Lane B landed on `origin/main` (`ce8c6225` + follow-ups `965deb40` / `afc59ce8`):
+
+- **Owns correctly:** `src/api/stream-videos-api.js` (new), `src/core/stream-api.js` helpers, thin mount in `src/api/moviemode-api.js`.
+- **Did not touch:** `shellNav.ts`, `dashboard/components/videos/*`, chat cards, Images UI — **no overlap with Cursor A/C**.
+- Local checkout may be **behind** `origin/main` — `git pull` before starting Lane A.
+- Still outstanding for Claude: Overview merge `source=all|stream|r2|drive` (if not in those commits); Lane D Veo→Stream after from-url proven.
+
+Cursor Lane A starts with **Media ▾ nav promotion** + Videos overview (does not reimplement Stream REST).
+
 
 ## Non-goals
 

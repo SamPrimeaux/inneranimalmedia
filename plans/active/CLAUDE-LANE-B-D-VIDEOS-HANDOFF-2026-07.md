@@ -23,8 +23,9 @@ Expand Cloudflare Stream backend so Cursor can build Overview + detail tabs.
 
 ## Do not touch
 
+- `dashboard/config/shellNav.ts`, `DashboardSidebar.tsx`, Media ▾ nav promotion (Cursor A)
 - `dashboard/components/videos/Videos*.tsx` pages (Cursor A/C)
-- `ImagesShell.tsx` / Overview UI (Cursor A)
+- `ImagesShell.tsx` / Overview UI / App.tsx routes (Cursor A)
 - `AgentVideoGenerationCard`, chat SSE merge, scratchpad UI (Cursor E)
 - `AgentImageGenerationCard`, `image_generation.js` format work
 - `deploy:fast` / PWA publish (Cursor F)
