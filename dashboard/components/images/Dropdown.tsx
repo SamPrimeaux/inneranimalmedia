@@ -70,7 +70,7 @@ export function Dropdown({ value, options, onChange, placeholder }: DropdownProp
         }}
       >
         <span>{selected ? selected.label : placeholder || 'Select…'}</span>
-        <ChevronDown size={14} style={{ flexShrink: 0, opacity: 0.7 }} />
+        <ChevronsUpDown size={14} style={{ flexShrink: 0, opacity: 0.7 }} />
       </button>
       {open && (
         <div
