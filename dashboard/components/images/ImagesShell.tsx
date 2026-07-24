@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { BookOpen, ImageIcon } from 'lucide-react';
 import { IMAGES_TABS } from './imagesRegistry';
 
 export type ImagesOutletContext = {
   workspaceId?: string | null;
+  setDocsUrl: (url: string | null) => void;
 };
 
 export type ImagesShellProps = {
@@ -13,8 +14,21 @@ export type ImagesShellProps = {
 
 const CF_IMAGES_DOCS_URL = 'https://developers.cloudflare.com/images/';
 
+/**
+ * Lets a nested page override the shell's "Documentation" link to a more specific
+ * CF doc page for the duration it's mounted (e.g. Create Variant -> the
+ * create-variants doc, Edit -> the transform/binding doc), falling back to the
+ * general Images docs link everywhere else. Usage in a page:
+ *   const { setDocsUrl } = useOutletContext<ImagesOutletContext>();
+ *   useEffect(() => { setDocsUrl(URL); return () => setDocsUrl(null); }, [setDocsUrl]);
+ */
 export function ImagesShell({ workspaceId }: ImagesShellProps) {
-  const ctx: ImagesOutletContext = { workspaceId };
+  const [docsUrlOverride, setDocsUrlOverride] = useState<string | null>(null);
+  const ctx: ImagesOutletContext = useMemo(
+    () => ({ workspaceId, setDocsUrl: setDocsUrlOverride }),
+    [workspaceId],
+  );
+  const docsUrl = docsUrlOverride || CF_IMAGES_DOCS_URL;
 
   return (
     <div
@@ -60,7 +74,7 @@ export function ImagesShell({ workspaceId }: ImagesShellProps) {
             </h1>
           </div>
           <a
-            href={CF_IMAGES_DOCS_URL}
+            href={docsUrl}
             target="_blank"
             rel="noopener noreferrer"
             style={{
