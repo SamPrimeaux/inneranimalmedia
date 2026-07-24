@@ -36,6 +36,11 @@ export async function isOAuthUserToolAllowed(env, policy, scope, toolKey) {
   const name = trim(toolKey);
   if (!name) return { allowed: false, reason: 'missing_tool' };
 
+  const role = String(scope.membershipRole || scope.membership_role || '').trim().toLowerCase();
+  if (role === 'owner') {
+    return { allowed: true, reason: 'workspace_owner' };
+  }
+
   if (!policy || Number(policy.require_allowlist_for_mcp || 0) !== 1) {
     return { allowed: true, reason: 'allowlist_not_required' };
   }
