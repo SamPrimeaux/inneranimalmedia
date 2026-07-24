@@ -8,10 +8,16 @@ import type { AgentMode } from '../types';
 import type { AgentToolTraceRow } from './types';
 import { ToolTraceRow } from './ToolTraceRow';
 import { OfflineRunnerEmbed } from '../../agent/OfflineRunnerEmbed';
+import { isImageGenerationToolName } from '../../../lib/toolTracePreview';
 import './toolTraceTimeline.css';
 
 const RUNNER_DELAY_MS_DESKTOP = 2800;
 const RUNNER_DELAY_MS_COMPACT = 400;
+
+function onlyImageGenToolsRunning(rows: AgentToolTraceRow[]): boolean {
+  const running = rows.filter((r) => r.status === 'running' && !r.cadJobLive);
+  return running.length > 0 && running.every((r) => isImageGenerationToolName(r.toolName));
+}
 
 export type ExecutionTimelineProps = {
   rows: AgentToolTraceRow[];
@@ -48,7 +54,8 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
     const anyTerminalRunning = rows.some(
       (r) => r.status === 'running' && r.toolName?.startsWith('agentsam_terminal'),
     );
-    if (!anyRunning || anyFailed || anyTerminalRunning) {
+    // Image gen has its own progressive card — never swap in the dodge mini-game.
+    if (!anyRunning || anyFailed || anyTerminalRunning || onlyImageGenToolsRunning(rows)) {
       setShowRunner(false);
       return undefined;
     }
@@ -57,12 +64,17 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
   }, [rows, runnerDelayMs]);
 
   if (!rows.length) return null;
-  const anyRunning = rows.some((r) => r.status === 'running' && !r.cadJobLive);
-  const anyFailed = rows.some((r) => r.status === 'error' || r.status === 'failed');
-  const anyCadLive = rows.some((r) => r.cadJobLive);
-  const anyTerminalRunning = rows.some(
+  // Image tools render via AgentImageGenerationCard — never the tool SQL/result chrome.
+  const visibleRows = rows.filter((r) => !isImageGenerationToolName(r.toolName));
+  if (!visibleRows.length) return null;
+  const anyRunning = visibleRows.some((r) => r.status === 'running' && !r.cadJobLive);
+  const anyFailed = visibleRows.some((r) => r.status === 'error' || r.status === 'failed');
+  const anyCadLive = visibleRows.some((r) => r.cadJobLive);
+  const anyTerminalRunning = visibleRows.some(
     (r) => r.status === 'running' && r.toolName?.startsWith('agentsam_terminal'),
   );
+  const hideWaitRunner =
+    onlyImageGenToolsRunning(rows) || rows.every((r) => isImageGenerationToolName(r.toolName));
 
   return (
     <div className="mt-2 min-w-0" aria-label="Execution timeline">
@@ -78,7 +90,7 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
         </div>
       ) : null}
       <div className="tool-trace-stack">
-        {rows.map((row) => (
+        {visibleRows.map((row) => (
           <ToolTraceRow
             key={row.id}
             row={row}
@@ -91,7 +103,12 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
             onCadJobTerminal={onCadJobTerminal}
           />
         ))}
-        {showRunner && anyRunning && !anyFailed && !anyCadLive && !anyTerminalRunning ? (
+        {showRunner &&
+        anyRunning &&
+        !anyFailed &&
+        !anyCadLive &&
+        !anyTerminalRunning &&
+        !hideWaitRunner ? (
           <div className="tool-trace-wait-runner mt-2 mb-1">
             <OfflineRunnerEmbed height={220} />
           </div>
@@ -107,16 +124,16 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
                 · {runModelKey.trim()}
               </span>
             ) : null}
-            {rows.length > 0 ? (
+            {visibleRows.length > 0 ? (
               <span
                 className="tool-trace-done-meta"
-                title={rows.map((r) => r.toolName).filter(Boolean).join(', ')}
+                title={visibleRows.map((r) => r.toolName).filter(Boolean).join(', ')}
               >
                 ·{' '}
-                {Array.from(new Set(rows.map((r) => r.toolName).filter(Boolean)))
+                {Array.from(new Set(visibleRows.map((r) => r.toolName).filter(Boolean)))
                   .slice(0, 4)
                   .join(', ')}
-                {rows.length > 4 ? ` +${rows.length - 4}` : ''}
+                {visibleRows.length > 4 ? ` +${visibleRows.length - 4}` : ''}
               </span>
             ) : null}
           </div>

@@ -138,10 +138,24 @@ function isD1ToolRow(row: AgentToolTraceRow): boolean {
   return t.includes('d1') || t.includes('sql') || t.endsWith('_query');
 }
 
+/** Image tools own the AgentImageGenerationCard — never a SQL/result table or wait-game. */
+export function isImageGenerationToolName(toolName?: string | null): boolean {
+  const t = String(toolName || '').toLowerCase();
+  return (
+    t.includes('imgx_') ||
+    t.includes('generate_image') ||
+    t.includes('image_generation') ||
+    t === 'imgx_generate_image'
+  );
+}
+
 /** Extract D1 tabular rows from sqlRows or tool output JSON. */
 export function resolveSqlResultTable(
   row: AgentToolTraceRow,
 ): { rows: Record<string, unknown>[]; rowCount: number } | null {
+  // imgx returns { status, generation_id, image_url } — not a query result.
+  if (isImageGenerationToolName(row.toolName)) return null;
+
   if (row.sqlRows?.length) {
     return { rows: row.sqlRows, rowCount: row.sqlRows.length };
   }

@@ -35,6 +35,7 @@ import {
   formatToolTraceOutput,
   parseToolTraceReceiptMeta,
 } from '../../../lib/formatToolTraceSummary';
+import { isImageGenerationToolName } from '../../../lib/toolTracePreview';
 import { sanitizeBrowserNavigateUrl } from '../../../lib/sanitizeBrowserUrl';
 import {
   extractMonacoInvokesFromBuffer,
@@ -85,6 +86,37 @@ function extForStreamOutput(lang: string): string {
 function isBrowserScreenshotToolName(name: string): boolean {
   const n = String(name || '').trim().toLowerCase();
   return n === 'cdt_take_screenshot' || n === 'playwright_screenshot' || n === 'browser_screenshot';
+}
+
+/** Pull image URL + generation id from imgx tool_done / tool_output JSON. */
+function parseImgxToolPayload(raw: string | null | undefined): {
+  imageUrl: string | null;
+  generationId: string | null;
+  status: string | null;
+} {
+  const empty = { imageUrl: null as string | null, generationId: null as string | null, status: null as string | null };
+  if (!raw?.trim()) return empty;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const candidates = [parsed.image_url, parsed.imageUrl, parsed.public_url, parsed.url, parsed.preview_url];
+    let imageUrl: string | null = null;
+    for (const c of candidates) {
+      if (typeof c === 'string' && c.trim() && (/^https?:/i.test(c.trim()) || c.trim().startsWith('/'))) {
+        imageUrl = c.trim();
+        break;
+      }
+    }
+    const generationId =
+      typeof parsed.generation_id === 'string' && parsed.generation_id.trim()
+        ? parsed.generation_id.trim()
+        : typeof parsed.generationId === 'string' && parsed.generationId.trim()
+          ? parsed.generationId.trim()
+          : null;
+    const status = typeof parsed.status === 'string' ? parsed.status.trim() : null;
+    return { imageUrl, generationId, status };
+  } catch {
+    return empty;
+  }
 }
 
 function isCdtBrowserToolName(name: string): boolean {
@@ -2383,6 +2415,15 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             if (idx < 0 || next[idx].role !== 'assistant') return prev;
             const ig = next[idx].imageGenerationState;
             if (!ig || ig.phase === 'completed') return prev;
+            // Sibling imgx timeout / shared-budget drain must not wipe a live preview or URL.
+            const hasVisual =
+              Boolean(ig.imageUrl || ig.previewUrl || ig.committedUrl) ||
+              Boolean(ig.previewFrames?.length);
+            const errText = String(d.error || '').toLowerCase();
+            const isTimeout = /timed?\s*out|timeout|deadline/i.test(errText);
+            if (hasVisual || (isTimeout && isImageGenerationToolName(toolLabel))) {
+              return prev;
+            }
             next[idx] = {
               ...next[idx],
               imageGenerationState: {
@@ -2601,6 +2642,33 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           } else if (isBrowserScreenshotToolName(doneToolName)) {
             lastBrowserScreenshotOutputChunk = null;
             activeBrowserScreenshotTool = false;
+          }
+          // Belt-and-suspenders: if SSE image_generation_* was missed (cancel/race),
+          // still stand up the card from the tool result URL.
+          if (doneOk && isImageGenerationToolName(doneToolName)) {
+            const imgx = parseImgxToolPayload(
+              typeof d.output_preview === 'string' ? d.output_preview : outputPreview,
+            );
+            const publicUrl =
+              typeof d.public_url === 'string' && d.public_url.trim() ? d.public_url.trim() : null;
+            const imageUrl = imgx.imageUrl || publicUrl;
+            if (imageUrl) {
+              patchAssistantImageGeneration(
+                setMessages,
+                assistantContent,
+                {
+                  generationId: imgx.generationId || `igen_tool_${Date.now()}`,
+                  phase: 'completed',
+                  progress: 100,
+                  message: 'Image ready',
+                  imageUrl,
+                  previewUrl: imageUrl,
+                  status: imgx.status === 'saved' || imgx.status === 'draft' ? (imgx.status as 'saved' | 'draft') : 'saved',
+                  failed: false,
+                },
+                'image_generation_complete',
+              );
+            }
           }
           let closedRowId: string | null = null;
           setToolTraceRows?.((prev) => {
