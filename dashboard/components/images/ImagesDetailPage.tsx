@@ -385,20 +385,31 @@ export function ImagesDetailPage() {
           background: 'var(--bg-elevated)',
           padding: 16,
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
+          gap: 12,
           minHeight: 320,
         }}
       >
         {(previewUrl || galleryPreview.src) && (
+          // key forces a clean remount on variant switch so the browser never
+          // paints a stale frame while the new (differently-sized) source loads.
           <img
+            key={previewUrl ? selectedVariant : 'gallery-fallback'}
             src={previewUrl || galleryPreview.src}
             srcSet={!previewUrl ? galleryPreview.srcSet : undefined}
             sizes={!previewUrl ? galleryPreview.sizes : undefined}
             alt={img.filename || img.id}
-            style={{ maxWidth: '100%', maxHeight: 480, objectFit: 'contain', borderRadius: 4 }}
+            style={{ maxWidth: '100%', maxHeight: 440, objectFit: 'contain', borderRadius: 4 }}
           />
         )}
+        {previewUrl ? (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            {selectedVariant}
+            {selectedVariantHint ? ` \u00b7 ${selectedVariantHint}` : ''}
+          </div>
+        ) : null}
       </div>
 
       <ImageShareModal
