@@ -286,25 +286,44 @@ export function ImagesDeliveryVariantCreatePage() {
             style={{
               flex: 1,
               borderRadius: 8,
-              border: '1px dashed var(--border-subtle)',
+              border: '1px solid var(--border-subtle)',
               background: 'var(--bg-panel)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              overflow: 'hidden',
+              padding: 12,
+            }}
+          >
+            <img
+              key={previewUrl}
+              src={previewUrl}
+              alt="Live variant preview"
+              style={{ maxWidth: '100%', maxHeight: 360, objectFit: 'contain', borderRadius: 4 }}
+            />
+          </div>
+          <div
+            style={{
+              marginTop: 10,
+              fontSize: 11,
               color: 'var(--text-muted)',
-              fontSize: 12,
-              padding: 24,
               textAlign: 'center',
             }}
           >
-            <div>
-              <div style={{ marginBottom: 8 }}>
-                {width || '—'} × {height || '—'} · fit={fit}
-              </div>
-              <div style={{ fontSize: 11 }}>
-                Named variant preview requires an account-level definition in Cloudflare Images.
-              </div>
-            </div>
+            {width || '—'} × {height || '—'} · fit={fit}
+            {metadata !== 'none' ? ` · metadata=${metadata}` : ''}
+          </div>
+          <div
+            style={{
+              marginTop: 4,
+              fontSize: 10,
+              color: 'var(--text-muted)',
+              textAlign: 'center',
+              opacity: 0.7,
+            }}
+          >
+            Live preview via flexible variants on a demo image — saving still requires
+            creating this as a named variant in the CF dashboard or Images API.
           </div>
         </div>
       </div>
