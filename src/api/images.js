@@ -18,7 +18,10 @@
  * POST   /api/images/:id/project { project_id | null } — attach/detach project
  * POST   /api/images/edit | /api/images/:id/meta  (legacy compat)
  * GET    /api/images/tags?workspace_id=
- * PATCH  /api/images/:id  { tags, label, notes, alt_text, category, project_slug, is_live, preferred_bg }
+ * GET    /api/images/resource-tags/keys — CF Resource Tagging account keys
+ * GET    /api/images/resource-tags/values/:key — values for a key (type=image)
+ * GET    /api/images/:id/resource-tags — tags on one CF Image id
+ * PATCH  /api/images/:id  { tags, resource_tags, label, notes, alt_text, category, project_slug, is_live, preferred_bg }
  *
  * Storage lanes (do not dilute):
  * - `images.r2_key` = R2 object path only (NULL when CF-hosted-only)
@@ -46,6 +49,14 @@ import {
   putR2ImageWithCustomMetadata,
   syncR2ObjectCustomMetadata,
 } from '../core/r2-image-metadata.js';
+import {
+  getResourceTags,
+  listAccountTagKeys,
+  listValuesForKey,
+  mergeResourceTag,
+  removeResourceTag,
+  syncImageResourceTags,
+} from '../core/cf-resource-tags.js';
 import {
   ALLOWED_TRANSFORM_OPS,
   LimitExceededError,
@@ -700,11 +711,11 @@ async function syncR2ImageMeta(env, r2Key, sidecarPayload, tags, scope, sizeByte
   };
 }
 
-async function syncImageStorageMeta(env, row, scope, { tags, meta, alt_text }) {
+async function syncImageStorageMeta(env, row, scope, { tags, meta, alt_text, resource_tags }) {
   const tagList = normalizeTags(tags ?? parseTags(row.tags));
   const metaFields = meta || buildMetaFromRow(row);
   const alt = alt_text ?? row.alt_text ?? null;
-  const sync = { cf: null, r2: null };
+  const sync = { cf: null, r2: null, cf_tags: null };
 
   if (row.cloudflare_image_id) {
     const cfPayload = buildCfImagesMetaPayload({
@@ -725,6 +736,16 @@ async function syncImageStorageMeta(env, row, scope, { tags, meta, alt_text }) {
       scope,
     });
     sync.r2 = await syncR2ImageMeta(env, row.r2_key, sidecar, tagList, scope, row.size);
+  }
+
+  // Cloudflare Resource Tagging (account-level, resource_type=image) — best-effort beta sync.
+  const cfImageId = String(row.cloudflare_image_id || '').trim();
+  if (cfImageId && resource_tags !== undefined) {
+    try {
+      sync.cf_tags = await syncImageResourceTags(env, cfImageId, resource_tags || {});
+    } catch (e) {
+      sync.cf_tags = { ok: false, error: e?.message || 'cf_tags sync failed' };
+    }
   }
 
   return sync;
@@ -1561,6 +1582,12 @@ async function handlePatchImage(request, url, env, authUser, identity, imageId, 
   if (payload.tenant_slug !== undefined) {
     meta.tenant_slug = String(payload.tenant_slug || '').trim();
   }
+  if (payload.resource_tags !== undefined) {
+    meta.cf_resource_tags =
+      payload.resource_tags && typeof payload.resource_tags === 'object' && !Array.isArray(payload.resource_tags)
+        ? payload.resource_tags
+        : {};
+  }
 
   sets.push('metadata = ?');
   binds.push(JSON.stringify(meta));
@@ -1595,14 +1622,54 @@ async function handlePatchImage(request, url, env, authUser, identity, imageId, 
     ? String(payload.alt_text || '').trim() || null
     : updated.alt_text;
 
+  const resourceTagsForSync =
+    payload.resource_tags !== undefined
+      ? meta.cf_resource_tags
+      : mergedMeta.cf_resource_tags !== undefined
+        ? undefined
+        : undefined;
+
   const storageSync = await syncImageStorageMeta(env, updated, scope, {
     tags: mergedTags,
     meta: mergedMeta,
     alt_text: mergedAlt,
+    resource_tags: payload.resource_tags !== undefined ? meta.cf_resource_tags : undefined,
   });
+
+  // Incremental add/remove (GET→merge→PUT) when UI sends a single op instead of full replace.
+  if (payload.resource_tag_op && updated.cloudflare_image_id) {
+    const op = payload.resource_tag_op;
+    const opName = String(op.op || op.action || '').toLowerCase();
+    try {
+      if (opName === 'add' || opName === 'merge') {
+        storageSync.cf_tags = await mergeResourceTag(
+          env,
+          updated.cloudflare_image_id,
+          op.key,
+          op.value,
+        );
+      } else if (opName === 'remove' || opName === 'delete') {
+        storageSync.cf_tags = await removeResourceTag(env, updated.cloudflare_image_id, op.key);
+      }
+      if (storageSync.cf_tags?.ok && storageSync.cf_tags.tags) {
+        const nextMeta = { ...mergedMeta, cf_resource_tags: storageSync.cf_tags.tags };
+        await env.DB.prepare(`UPDATE images SET metadata = ?, updated_at = unixepoch() WHERE id = ?`)
+          .bind(JSON.stringify(nextMeta), updated.id)
+          .run()
+          .catch(() => null);
+      }
+    } catch (e) {
+      storageSync.cf_tags = { ok: false, error: e?.message || 'resource_tag_op failed' };
+    }
+  }
 
   const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
   const item = mapD1RowToItem(updated, { origin: url.origin, accountHash });
+  if (storageSync.cf_tags?.tags) {
+    item.resource_tags = storageSync.cf_tags.tags;
+  } else if (meta.cf_resource_tags) {
+    item.resource_tags = meta.cf_resource_tags;
+  }
   return jsonResponse({
     ok: true,
     item,
@@ -1610,6 +1677,7 @@ async function handlePatchImage(request, url, env, authUser, identity, imageId, 
     meta: item.meta,
     id: item.id,
     storage_sync: storageSync,
+    resource_tags: item.resource_tags || null,
   });
 }
 
@@ -1878,6 +1946,22 @@ async function handleGetImageDetail(url, env, authUser, identity, imageId) {
     workspaceId: scope.workspaceId,
   }).catch(() => null);
 
+  let resourceTags = null;
+  const cfIdForTags = String(row.cloudflare_image_id || '').trim();
+  if (cfIdForTags) {
+    const tagRes = await getResourceTags(env, cfIdForTags).catch(() => null);
+    if (tagRes?.ok) {
+      resourceTags = tagRes.tags || {};
+      item.resource_tags = resourceTags;
+    } else {
+      const cached = parseMetadata(row.metadata)?.cf_resource_tags;
+      if (cached && typeof cached === 'object') {
+        resourceTags = cached;
+        item.resource_tags = cached;
+      }
+    }
+  }
+
   return jsonResponse({
     ok: true,
     item,
@@ -1887,6 +1971,7 @@ async function handleGetImageDetail(url, env, authUser, identity, imageId) {
     parent_image_id: row.parent_image_id || null,
     transform_json: row.transform_json ? safeJsonParse(row.transform_json) : null,
     derivatives,
+    resource_tags: resourceTags,
     capabilities: { cf_images: !!(cfCtx && cfCtx.ok), source: cfCtx?.source || null },
   });
 }
@@ -2477,6 +2562,37 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
     return handleListTags(url, env, authUser, identity);
   }
 
+  if (pathLower === '/api/images/resource-tags/keys' && method === 'GET') {
+    const listed = await listAccountTagKeys(env);
+    if (!listed.ok) return jsonResponse({ ok: false, error: listed.error, keys: [] }, listed.status || 502);
+    return jsonResponse({ ok: true, keys: listed.keys });
+  }
+
+  const resourceTagValuesMatch = path.match(/^\/api\/images\/resource-tags\/values\/([^/]+)$/i);
+  if (resourceTagValuesMatch && method === 'GET') {
+    const listed = await listValuesForKey(env, decodeURIComponent(resourceTagValuesMatch[1]));
+    if (!listed.ok) {
+      return jsonResponse(
+        { ok: false, error: listed.error, values: [], key: listed.key || null },
+        listed.status || 502,
+      );
+    }
+    return jsonResponse({ ok: true, key: listed.key, values: listed.values });
+  }
+
+  if (pathLower === '/api/images/resource-tags/catalog' && method === 'GET') {
+    const keysRes = await listAccountTagKeys(env);
+    if (!keysRes.ok) {
+      return jsonResponse({ ok: false, error: keysRes.error, keys: [], groups: {} }, keysRes.status || 502);
+    }
+    const groups = {};
+    for (const key of keysRes.keys.slice(0, 40)) {
+      const vals = await listValuesForKey(env, key);
+      groups[key] = vals.ok ? vals.values : [];
+    }
+    return jsonResponse({ ok: true, keys: keysRes.keys, groups });
+  }
+
   if (pathLower === '/api/images' && method === 'GET') {
     return handleGetImages(request, url, env, authUser, identity);
   }
@@ -2675,6 +2791,46 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
   const previewMatch = path.match(/^\/api\/images\/([^/]+)\/preview-url$/i);
   if (previewMatch && method === 'GET') {
     return handlePreviewUrl(url, env, authUser, identity, previewMatch[1]);
+  }
+
+  const resourceTagsMatch = path.match(/^\/api\/images\/([^/]+)\/resource-tags$/i);
+  if (resourceTagsMatch && method === 'GET') {
+    const imageId = resourceTagsMatch[1];
+    const scope = await resolveScope(
+      env,
+      authUser,
+      identity,
+      url.searchParams.get('workspace_id')?.trim(),
+    );
+    if (scope.error) return jsonResponse({ error: scope.error }, scope.status);
+    const rowOrErr = await getImageRowForPatch(env, imageId, scope, authUser, url.origin);
+    if (!rowOrErr) return jsonResponse({ error: 'Not found' }, 404);
+    if (rowOrErr.forbidden) return jsonResponse({ error: 'Forbidden' }, 403);
+    const cfId = String(rowOrErr.cloudflare_image_id || '').trim();
+    if (!cfId) {
+      return jsonResponse({
+        ok: true,
+        tags: {},
+        skipped: true,
+        error: 'Image is not hosted on Cloudflare Images — Resource Tagging applies to image resources only',
+      });
+    }
+    const tagRes = await getResourceTags(env, cfId);
+    return jsonResponse({
+      ok: tagRes.ok,
+      tags: tagRes.tags || {},
+      beta_untagged: !!tagRes.beta_untagged,
+      error: tagRes.ok ? undefined : tagRes.error,
+      cloudflare_image_id: cfId,
+    }, tagRes.ok ? 200 : tagRes.status || 502);
+  }
+
+  if (resourceTagsMatch && method === 'PUT') {
+    const imageId = resourceTagsMatch[1];
+    const body = await request.json().catch(() => ({}));
+    return handlePatchImage(request, url, env, authUser, identity, imageId, {
+      resource_tags: body.tags || body.resource_tags || {},
+    });
   }
 
   const patchMatch = path.match(/^\/api\/images\/([^/]+)$/i);

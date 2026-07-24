@@ -48,6 +48,17 @@ export function imagesTagsUrl(workspaceId?: string | null) {
   return qs ? `/api/images/tags?${qs}` : '/api/images/tags';
 }
 
+/** CF Resource Tagging account catalog (keys + values grouped). */
+export function imagesResourceTagsCatalogUrl() {
+  return '/api/images/resource-tags/catalog';
+}
+
+export function imagesResourceTagsUrl(imageId: string, workspaceId?: string | null) {
+  const ws = workspaceId?.trim();
+  const base = `/api/images/${encodeURIComponent(imageId)}/resource-tags`;
+  return ws ? `${base}?workspace_id=${encodeURIComponent(ws)}` : base;
+}
+
 export function imagesDetailUrl(imageId: string, workspaceId?: string | null) {
   const ws = workspaceId?.trim();
   return ws

@@ -20,7 +20,8 @@ Shared **digital asset management** — Cloudflare Hosted Images UX on IAM, not 
 | Detail / edit / share | `ImagesDetailPage.tsx`, `ImagesEditPage.tsx`, `ImageShareModal.tsx` |
 | API | `src/api/images.js` |
 | Transform | `src/core/cf-images-transform.js` + Worker `IMAGES` binding |
-| Creds | `src/core/cf-oauth-images.js` |
+| Resource Tagging | `src/core/cf-resource-tags.js` (account `/tags`, not Images metadata) |
+| Creds | `src/core/cf-oauth-images.js` + optional `CLOUDFLARE_TAGGING_TOKEN` |
 | D1 | `images` (+ `parent_image_id`, `transform_json`, `image_shares`) |
 
 Sources: `all` | `r2` | `cf_images` | `drive` — CF Images transform requires **that workspace’s** Images connection (platform for the platform owner; BYOK for customer workspaces). R2/Drive work without platform Images.
@@ -33,10 +34,11 @@ Sources: `all` | `r2` | `cf_images` | `drive` — CF Images transform requires *
 
 1. **CF Images** = crop/transform/watermark engine (no sharp in Worker).
 2. **Detail = route** `/dashboard/images/:id`, not a primary modal.
-3. **Tags** = D1 SSOT for query + dual-write to CF `iam_tags` when hosted.
+3. **Tags** = Cloudflare Resource Tagging (account key→value, `resource_type=image`) + D1 `metadata.cf_resource_tags`; Images `iam_tags` metadata remains a separate mirror. See plan §16.
 4. **Variants** = CF account variants; committed edits = new D1 derivative rows.
 5. **Pagination** = 50 per page (API clamp max 100).
 6. **Share** = private / team (Resend) / public delivery URL.
-7. **Ship gate** = Agent F §13 CF-docs QC scorecard (22 checks) — no half-baked features.
+7. **Gallery click** = card body opens detail; checkbox multiselects; `…` menu for quick actions.
+8. **Ship gate** = Agent F §13 CF-docs QC scorecard (+ QC-23…26 for Resource Tagging) — no half-baked features.
 
 See sprint spec §13 for Cloudflare doc ownership, `fetch()` response notes, and the QC scorecard.

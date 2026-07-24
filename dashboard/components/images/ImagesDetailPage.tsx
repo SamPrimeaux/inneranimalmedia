@@ -18,7 +18,7 @@ import {
   buildCfImageUrl,
   imagesDetailUrl,
   imagesPatchUrl,
-  imagesTagsUrl,
+  imagesResourceTagsCatalogUrl,
   useImagesToast,
 } from './imagesApi';
 
@@ -36,6 +36,7 @@ type DetailImage = {
   width?: number | null;
   height?: number | null;
   tags?: string[];
+  resource_tags?: Record<string, string>;
   alt_text?: string | null;
   description?: string | null;
   meta?: Record<string, unknown>;
@@ -56,7 +57,8 @@ export function ImagesDetailPage() {
   const [img, setImg] = useState<DetailImage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const [tagGroups, setTagGroups] = useState<Array<{ key: string; values: string[] }>>([]);
+  const [resourceTags, setResourceTags] = useState<Record<string, string>>({});
   const [selectedVariant, setSelectedVariant] = useState('public');
   const [shareOpen, setShareOpen] = useState(false);
   const [accountHash, setAccountHash] = useState('');
@@ -75,6 +77,15 @@ export function ImagesDetailPage() {
       }
       const row: DetailImage = d.item || d.image || d;
       setImg(row);
+      const rt =
+        (d.resource_tags && typeof d.resource_tags === 'object' && d.resource_tags) ||
+        (row.resource_tags && typeof row.resource_tags === 'object' && row.resource_tags) ||
+        (row.meta?.cf_resource_tags &&
+        typeof row.meta.cf_resource_tags === 'object' &&
+        !Array.isArray(row.meta.cf_resource_tags)
+          ? (row.meta.cf_resource_tags as Record<string, string>)
+          : {});
+      setResourceTags(rt || {});
       if (d.accountHash) setAccountHash(String(d.accountHash));
       else if (row.accountHash) setAccountHash(String(row.accountHash));
     } catch (e: unknown) {
@@ -90,22 +101,24 @@ export function ImagesDetailPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(imagesTagsUrl(workspaceId), { credentials: 'same-origin' })
+    fetch(imagesResourceTagsCatalogUrl(), { credentials: 'same-origin' })
       .then((r) => r.json())
       .then((d) => {
         if (cancelled) return;
-        const tags = Array.isArray(d.tags)
-          ? d.tags.map((t: { tag?: string } | string) =>
-              typeof t === 'string' ? t : String(t.tag || ''),
-            )
-          : [];
-        setTagSuggestions(tags.filter(Boolean));
+        const groupsObj = d.groups && typeof d.groups === 'object' ? d.groups : {};
+        const keys: string[] = Array.isArray(d.keys) ? d.keys : Object.keys(groupsObj);
+        setTagGroups(
+          keys.map((key) => ({
+            key,
+            values: Array.isArray(groupsObj[key]) ? groupsObj[key].map(String) : [],
+          })),
+        );
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [workspaceId]);
+  }, []);
 
   const cfId = img?.cloudflare_image_id || (img?.id?.startsWith('cf_live_') ? img.id.slice(9) : '');
   const baseUrl = useMemo(() => {
@@ -131,21 +144,29 @@ export function ImagesDetailPage() {
   const previewUrl = variantMap[selectedVariant] || baseUrl;
   const galleryPreview = cloudflareImageUrl(baseUrl);
 
-  const saveTags = async (tags: string[]) => {
+  const saveResourceTags = async (next: Record<string, string>) => {
     if (!img) return;
+    const prev = resourceTags;
+    setResourceTags(next);
     try {
       const r = await fetch(imagesPatchUrl(img.id, workspaceId), {
         method: 'PATCH',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tags }),
+        body: JSON.stringify({ resource_tags: next }),
       });
       const d = await r.json();
-      if (d.ok && (d.item || d.image)) {
-        setImg(d.item || d.image);
-        toast('Tags saved');
-      } else toast(d.error || 'Failed to save tags', 'err');
+      if (d.ok && (d.item || d.image || d.resource_tags)) {
+        if (d.item || d.image) setImg(d.item || d.image);
+        if (d.resource_tags && typeof d.resource_tags === 'object') setResourceTags(d.resource_tags);
+        const syncOk = d.storage_sync?.cf_tags?.ok !== false;
+        toast(syncOk ? 'Tags saved' : 'Tags saved locally — Cloudflare sync pending');
+      } else {
+        setResourceTags(prev);
+        toast(d.error || 'Failed to save tags', 'err');
+      }
     } catch (e: unknown) {
+      setResourceTags(prev);
       toast(e instanceof Error ? e.message : 'Save failed', 'err');
     }
   };
@@ -311,12 +332,12 @@ export function ImagesDetailPage() {
           <Field label="Filename" value={img.filename || img.original_filename || '—'} />
           <Field label="Creator" value={img.user_id || '—'} />
           <Field label="Visibility" value={img.visibility || 'private'} />
-          <div style={{ marginTop: 12 }}>
+            <div style={{ marginTop: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>Tags</div>
             <ImageTagPicker
-              tags={img.tags || []}
-              suggestions={tagSuggestions}
-              onChange={(tags) => void saveTags(tags)}
+              resourceTags={resourceTags}
+              groups={tagGroups}
+              onChange={(next) => void saveResourceTags(next)}
             />
           </div>
         </div>

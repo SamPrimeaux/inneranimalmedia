@@ -480,13 +480,11 @@ export function ImagesStoragePage() {
               return (
                 <div
                   key={img.id}
-                  role="button"
+                  role="link"
                   tabIndex={0}
-                  onClick={() => toggleSelect(img.id)}
-                  onDoubleClick={() => navigate(`/dashboard/images/${encodeURIComponent(img.id)}`)}
+                  onClick={() => navigate(`/dashboard/images/${encodeURIComponent(img.id)}`)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') toggleSelect(img.id);
-                    if (e.key === ' ') {
+                    if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
                       navigate(`/dashboard/images/${encodeURIComponent(img.id)}`);
                     }
@@ -649,7 +647,7 @@ export function ImagesStoragePage() {
                           : img.source === 'r2'
                             ? 'R2'
                             : '—'}
-                      <span style={{ opacity: 0.7 }}> · click select · double-click open</span>
+                      <span style={{ opacity: 0.7 }}> · click open · checkbox select</span>
                     </div>
                   </div>
                 </div>

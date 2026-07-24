@@ -1,15 +1,32 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Search, X } from 'lucide-react';
 
-export type ImageTagPickerProps = {
-  tags: string[];
-  suggestions: string[];
-  onChange: (tags: string[]) => void;
+/** Cloudflare Resource Tagging key→value map (account-level, resource_type=image). */
+export type ResourceTagsMap = Record<string, string>;
+
+export type ResourceTagGroup = {
+  key: string;
+  values: string[];
 };
 
-export function ImageTagPicker({ tags, suggestions, onChange }: ImageTagPickerProps) {
+export type ImageTagPickerProps = {
+  /** Current tags on this image (CF Resource Tagging). */
+  resourceTags: ResourceTagsMap;
+  /** Account catalog: key → known values (from listAccountTagKeys + listValuesForKey). */
+  groups?: ResourceTagGroup[];
+  onChange: (next: ResourceTagsMap) => void;
+};
+
+function entriesOf(tags: ResourceTagsMap): Array<{ key: string; value: string }> {
+  return Object.entries(tags || {})
+    .filter(([k]) => k)
+    .map(([key, value]) => ({ key, value: value == null ? '' : String(value) }));
+}
+
+export function ImageTagPicker({ resourceTags, groups = [], onChange }: ImageTagPickerProps) {
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState('');
+  const [draftKey, setDraftKey] = useState('');
+  const [draftValue, setDraftValue] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -24,43 +41,59 @@ export function ImageTagPicker({ tags, suggestions, onChange }: ImageTagPickerPr
 
   useEffect(() => {
     if (open) {
-      setDraft('');
+      setDraftKey('');
+      setDraftValue('');
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open]);
 
-  const filtered = useMemo(() => {
-    const q = draft.trim().toLowerCase();
-    const pool = suggestions.filter((s) => !tags.includes(s));
-    if (!q) return pool.slice(0, 12);
-    return pool.filter((s) => s.toLowerCase().includes(q)).slice(0, 12);
-  }, [draft, suggestions, tags]);
+  const q = draftKey.trim().toLowerCase();
+  const filteredGroups = useMemo(() => {
+    if (!q) return groups;
+    return groups
+      .map((g) => {
+        const keyHit = g.key.toLowerCase().includes(q);
+        const values = g.values.filter((v) => String(v).toLowerCase().includes(q));
+        if (keyHit) return { key: g.key, values: g.values };
+        if (values.length) return { key: g.key, values };
+        return null;
+      })
+      .filter(Boolean) as ResourceTagGroup[];
+  }, [groups, q]);
 
-  const draftNorm = draft.trim().toLowerCase();
-  const exactMatch =
-    !!draftNorm &&
-    (tags.includes(draftNorm) ||
-      suggestions.some((s) => s.toLowerCase() === draftNorm) ||
-      filtered.some((s) => s.toLowerCase() === draftNorm));
-  const showCreate =
-    !!draftNorm && !tags.includes(draftNorm) && !suggestions.some((s) => s.toLowerCase() === draftNorm);
+  const keyNorm = draftKey.trim();
+  const valueNorm = draftValue.trim();
+  const canCreate =
+    !!keyNorm &&
+    /^[\p{L}\p{N}_.-]+$/u.test(keyNorm) &&
+    !/\s/.test(keyNorm) &&
+    keyNorm.length <= 256 &&
+    valueNorm.length <= 1024;
 
-  const addTag = (raw: string) => {
-    const tag = raw.trim().toLowerCase();
-    if (!tag || tags.includes(tag)) return;
-    onChange([...tags, tag]);
-    setDraft('');
+  const applyPair = (key: string, value: string) => {
+    const k = key.trim();
+    const v = value.trim();
+    if (!k) return;
+    onChange({ ...resourceTags, [k]: v });
+    setDraftKey('');
+    setDraftValue('');
     setOpen(false);
   };
 
-  const removeTag = (tag: string) => onChange(tags.filter((t) => t !== tag));
+  const removeKey = (key: string) => {
+    const next = { ...resourceTags };
+    delete next[key];
+    onChange(next);
+  };
+
+  const chips = entriesOf(resourceTags);
 
   return (
     <div ref={rootRef} style={{ position: 'relative' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-        {tags.map((tag) => (
+        {chips.map(({ key, value }) => (
           <span
-            key={tag}
+            key={key}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -72,12 +105,15 @@ export function ImageTagPicker({ tags, suggestions, onChange }: ImageTagPickerPr
               border: '1px solid color-mix(in srgb, var(--solar-cyan) 35%, transparent)',
               color: 'var(--solar-cyan)',
             }}
+            title={`${key}=${value}`}
           >
-            {tag}
+            <strong style={{ fontWeight: 600 }}>{key}</strong>
+            <span style={{ opacity: 0.85 }}>=</span>
+            <span>{value || '—'}</span>
             <button
               type="button"
-              onClick={() => removeTag(tag)}
-              aria-label={`Remove ${tag}`}
+              onClick={() => removeKey(key)}
+              aria-label={`Remove ${key}`}
               style={{
                 background: 'none',
                 border: 'none',
@@ -121,8 +157,8 @@ export function ImageTagPicker({ tags, suggestions, onChange }: ImageTagPickerPr
             zIndex: 40,
             top: '100%',
             left: 0,
-            minWidth: 260,
-            maxWidth: 320,
+            minWidth: 280,
+            maxWidth: 340,
             marginTop: 4,
             background: 'var(--bg-elevated)',
             border: '1px solid var(--border-subtle)',
@@ -145,17 +181,12 @@ export function ImageTagPicker({ tags, suggestions, onChange }: ImageTagPickerPr
             />
             <input
               ref={inputRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              value={draftKey}
+              onChange={(e) => setDraftKey(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  if (showCreate) addTag(draft);
-                  else if (filtered[0]) addTag(filtered[0]);
-                }
                 if (e.key === 'Escape') setOpen(false);
               }}
-              placeholder="Search or create…"
+              placeholder="Search keys…"
               style={{
                 width: '100%',
                 boxSizing: 'border-box',
@@ -170,40 +201,98 @@ export function ImageTagPicker({ tags, suggestions, onChange }: ImageTagPickerPr
               }}
             />
           </div>
-          <ul style={{ listStyle: 'none', margin: 0, padding: 4, maxHeight: 220, overflowY: 'auto' }}>
-            {filtered.map((s) => (
-              <li key={s}>
-                <button
-                  type="button"
-                  onClick={() => addTag(s)}
+
+          <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', gap: 6 }}>
+            <input
+              value={draftKey}
+              onChange={(e) => setDraftKey(e.target.value)}
+              placeholder="key"
+              style={{
+                flex: 1,
+                boxSizing: 'border-box',
+                padding: '6px 8px',
+                borderRadius: 6,
+                border: '1px solid var(--border-subtle)',
+                background: 'var(--bg-panel)',
+                color: 'var(--text-main)',
+                fontSize: 12,
+                fontFamily: 'inherit',
+              }}
+            />
+            <input
+              value={draftValue}
+              onChange={(e) => setDraftValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && canCreate) {
+                  e.preventDefault();
+                  applyPair(keyNorm, valueNorm);
+                }
+              }}
+              placeholder="value"
+              style={{
+                flex: 1,
+                boxSizing: 'border-box',
+                padding: '6px 8px',
+                borderRadius: 6,
+                border: '1px solid var(--border-subtle)',
+                background: 'var(--bg-panel)',
+                color: 'var(--text-main)',
+                fontSize: 12,
+                fontFamily: 'inherit',
+              }}
+            />
+          </div>
+
+          <ul style={{ listStyle: 'none', margin: 0, padding: 4, maxHeight: 260, overflowY: 'auto' }}>
+            {filteredGroups.map((g) => (
+              <li key={g.key} style={{ marginBottom: 4 }}>
+                <div
                   style={{
-                    width: '100%',
-                    textAlign: 'left',
-                    padding: '8px 10px',
-                    border: 'none',
-                    borderRadius: 6,
-                    background: 'transparent',
+                    padding: '6px 10px 2px',
+                    fontSize: 11,
+                    fontWeight: 700,
                     color: 'var(--text-main)',
-                    fontSize: 12,
-                    cursor: 'pointer',
-                    fontFamily: 'inherit',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'var(--bg-panel)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'transparent';
+                    letterSpacing: 0.2,
                   }}
                 >
-                  {s}
-                </button>
+                  {g.key}
+                </div>
+                {(g.values.length ? g.values : ['']).map((v) => (
+                  <button
+                    key={`${g.key}=${v}`}
+                    type="button"
+                    onClick={() => applyPair(g.key, v || draftValue || '')}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '6px 10px 6px 18px',
+                      border: 'none',
+                      borderRadius: 6,
+                      background: 'transparent',
+                      color: 'var(--text-muted)',
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'var(--bg-panel)';
+                      e.currentTarget.style.color = 'var(--text-main)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = 'var(--text-muted)';
+                    }}
+                  >
+                    {v || 'Set value…'}
+                  </button>
+                ))}
               </li>
             ))}
-            {showCreate && !exactMatch && (
+            {canCreate && (
               <li>
                 <button
                   type="button"
-                  onClick={() => addTag(draft)}
+                  onClick={() => applyPair(keyNorm, valueNorm)}
                   style={{
                     width: '100%',
                     textAlign: 'left',
@@ -218,13 +307,13 @@ export function ImageTagPicker({ tags, suggestions, onChange }: ImageTagPickerPr
                     fontWeight: 500,
                   }}
                 >
-                  Create key &apos;{draftNorm}&apos;
+                  Create {keyNorm}={valueNorm || '…'}
                 </button>
               </li>
             )}
-            {!filtered.length && !showCreate && (
+            {!filteredGroups.length && !canCreate && (
               <li style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
-                No matching tags
+                No matching account tags — enter a key and value above
               </li>
             )}
           </ul>

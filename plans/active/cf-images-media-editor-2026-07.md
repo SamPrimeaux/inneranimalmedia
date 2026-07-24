@@ -540,8 +540,12 @@ Mark each **Pass** only with proof (URL, D1 id, or curl). Any **Fail** or **N/A-
 | QC-20 | §13.3 ref-arch notes completed | F | | |
 | QC-21 | Dual-pass Tier 1 + Tier 2 recorded | F | | |
 | QC-22 | `deploy:full` + `pwa-build-meta.json` | Ship | | |
+| QC-23 | Gallery: click card → detail; checkbox selects; menu stops propagation | A | | |
+| QC-24 | Resource Tagging token can GET/PUT `resource_type=image` | A | | |
+| QC-25 | Detail +Add tag shows CF account key/value groups | A/B | | |
+| QC-26 | Tags: D1 + best-effort CF Resource Tagging (beta fail ≠ D1 rollback) | A | | |
 
-**Ship phrase for F:** “QC scorecard 22/22 Pass with proofs attached” — anything less is not a release.
+**Ship phrase for F:** “QC scorecard Pass with proofs attached” — anything less is not a release.
 
 ---
 
@@ -647,3 +651,57 @@ MY DUTIES: Drive OAuth persist; Sourcing Kit + Keys pages; capabilities tenancy;
 Direct Creator Upload; fill §13.3–13.4 QC (22/22). Do not implement transform pipeline or gallery chrome.
 VERIFY: QC-12, QC-14, QC-15, QC-20, QC-21 + re-check all rows before ship.
 ```
+
+---
+
+## 16. Cloudflare Resource Tagging (Lane 1 add-on — 2026-07)
+
+**Why:** Cloudflare shipped account-wide [Resource Tagging](https://developers.cloudflare.com/resource-tagging/) (public beta 2026-04-27). `image` is a supported `resource_type`. This is the **same** system behind Hosted Images → detail → **+ Add tag** in the CF dashboard. It is **not** Images `metadata` / `iam_tags` / R2 sidecar — those stay. Resource Tagging is a **4th, additive** sync target so IAM tags show up as real Cloudflare tags.
+
+### 16.1 Token / permissions
+
+| Secret | Role |
+|--------|------|
+| **`CLOUDFLARE_TAGGING_TOKEN`** (preferred) | Account Owned Token + **Tag Admin** (or Super Admin / Workers Admin). Persists independent of user credential rotation — CF’s recommendation for automation. |
+| Fallback | `CLOUDFLARE_IMAGES_TOKEN` / `CLOUDFLARE_API_TOKEN` **only if** that token already has Tag Admin. |
+| Account | `CLOUDFLARE_ACCOUNT_ID` (Images is account-scoped, not zone-scoped). |
+
+Documented in `.env.cloudflare.example`. Do **not** invent a second OAuth refresh path for tagging.
+
+### 16.2 Module
+
+`src/core/cf-resource-tags.js` — mirrors citation style of `cf-images-transform.js`:
+
+- `getResourceTags` — GET; **500 on never-tagged → empty `{}`** (beta quirk)
+- `setResourceTags` — PUT replaces **all** tags
+- `mergeResourceTag` / `removeResourceTag` — GET → merge/omit → PUT
+- `listAccountTagKeys` / `listValuesForKey` / `queryResourcesByTag`
+- Local validation before API (key 1014 / value 1012)
+
+### 16.3 Product model (locked)
+
+**CF dashboard key→value namespaces** (e.g. `customer=fuelnfreetime`, `signature=production`) — not a single `iam_tag` key dumping free text. UI `ImageTagPicker` shows grouped keys (bold) with values indented, matching CF screenshots.
+
+### 16.4 Wire-up
+
+- `syncImageStorageMeta` → `{ cf, r2, cf_tags }` — `cf_tags` best-effort (never blocks D1)
+- PATCH `/api/images/:id` accepts `resource_tags` and optional `resource_tag_op`
+- GET catalog: `/api/images/resource-tags/catalog`
+- Detail GET returns live `resource_tags` from CF when hosted
+
+### 16.5 Out of scope
+
+- Retroactive backfill of existing `iam_tags` → Resource Tagging (separate ticket)
+- Zone-level resource types
+- Tag-based access control policies (CF roadmap)
+
+### 16.6 QC addenda
+
+| ID | Check | Owner |
+|----|-------|-------|
+| QC-23 | Card click opens detail; checkbox-only selects; `…` menu stops propagation | A |
+| QC-24 | `CLOUDFLARE_TAGGING_TOKEN` (or documented fallback) can GET/PUT image tags | A |
+| QC-25 | Detail `+ Add tag` lists account keys/values from Resource Tagging API | A/B |
+| QC-26 | Tag add/remove dual-writes D1 metadata + best-effort CF Resource Tagging (failure does not roll back D1) | A |
+
+**Also update §13.4 scorecard** — append QC-23…QC-26 rows.
