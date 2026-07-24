@@ -3,6 +3,7 @@ import { ChevronLeft, Link as LinkIcon } from 'lucide-react';
 import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import type { ImagesOutletContext } from './ImagesShell';
 import { ImagesToastStack } from './ImagesUsageAccountSidebar';
+import { Dropdown, type DropdownOption } from './Dropdown';
 import {
   imagesDetailUrl,
   imagesPreviewUrl,
@@ -10,17 +11,39 @@ import {
   useImagesToast,
 } from './imagesApi';
 
-const FIT_OPTIONS = ['scale-down', 'contain', 'cover', 'crop', 'pad'] as const;
-const FORMAT_OPTIONS = ['auto', 'webp', 'jpeg', 'png', 'avif'] as const;
+const DOCS_URL = 'https://developers.cloudflare.com/images/optimization/binding/';
+
+/**
+ * See the fit-options note in ImagesDeliveryVariantCreatePage.tsx — scale-down,
+ * contain, cover, crop, pad, scale-up are documented; stretch matches the CF
+ * dashboard's own dropdown but is unconfirmed against the documented API schema.
+ */
+const FIT_OPTIONS: DropdownOption[] = [
+  { value: 'scale-down', label: 'Scale down' },
+  { value: 'contain', label: 'Contain' },
+  { value: 'cover', label: 'Cover' },
+  { value: 'crop', label: 'Crop' },
+  { value: 'pad', label: 'Pad' },
+  { value: 'stretch', label: 'Stretch' },
+  { value: 'scale-up', label: 'Scale up' },
+];
+
+const FORMAT_OPTIONS: DropdownOption[] = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'webp', label: 'WebP' },
+  { value: 'jpeg', label: 'JPEG' },
+  { value: 'png', label: 'PNG' },
+  { value: 'avif', label: 'AVIF' },
+];
 
 type OpsState = {
   width: string;
   height: string;
-  fit: (typeof FIT_OPTIONS)[number];
+  fit: string;
   brightness: string;
   contrast: string;
   rotate: string;
-  format: (typeof FORMAT_OPTIONS)[number];
+  format: string;
   quality: string;
   watermark: boolean;
 };
@@ -52,9 +75,14 @@ function opsToRecord(ops: OpsState): Record<string, string | number | boolean> {
 
 export function ImagesEditPage() {
   const { id } = useParams<{ id: string }>();
-  const { workspaceId } = useOutletContext<ImagesOutletContext>();
+  const { workspaceId, setDocsUrl } = useOutletContext<ImagesOutletContext>();
   const navigate = useNavigate();
   const { toasts, add: toast } = useImagesToast();
+
+  useEffect(() => {
+    setDocsUrl(DOCS_URL);
+    return () => setDocsUrl(null);
+  }, [setDocsUrl]);
 
   const [filename, setFilename] = useState('');
   const [ops, setOps] = useState<OpsState>(DEFAULT_OPS);
@@ -117,11 +145,8 @@ export function ImagesEditPage() {
 
   const set =
     (key: keyof OpsState) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-      const val =
-        e.target.type === 'checkbox'
-          ? (e.target as HTMLInputElement).checked
-          : e.target.value;
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
       setOps((p) => ({ ...p, [key]: val }));
     };
 
@@ -304,13 +329,13 @@ export function ImagesEditPage() {
           </div>
 
           <label style={fieldLabel}>Fit</label>
-          <select value={ops.fit} onChange={set('fit')} style={{ ...input, marginBottom: 14, cursor: 'pointer' }}>
-            {FIT_OPTIONS.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </select>
+          <div style={{ marginBottom: 14 }}>
+            <Dropdown
+              value={ops.fit}
+              options={FIT_OPTIONS}
+              onChange={(v) => setOps((p) => ({ ...p, fit: v }))}
+            />
+          </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
             <div>
@@ -352,13 +377,11 @@ export function ImagesEditPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
             <div>
               <label style={fieldLabel}>Format</label>
-              <select value={ops.format} onChange={set('format')} style={{ ...input, cursor: 'pointer' }}>
-                {FORMAT_OPTIONS.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
+              <Dropdown
+                value={ops.format}
+                options={FORMAT_OPTIONS}
+                onChange={(v) => setOps((p) => ({ ...p, format: v }))}
+              />
             </div>
             <div>
               <label style={fieldLabel}>Quality</label>
@@ -388,17 +411,8 @@ export function ImagesEditPage() {
           </label>
         </div>
 
-        <div
-          style={{
-            padding: 20,
-            borderRadius: 12,
-            border: '1px solid var(--border-subtle)',
-            background: 'var(--bg-elevated)',
-            minHeight: 400,
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
+        {/* Preview panel — image renders directly, edge-to-edge, no nested "card" box */}
+        <div>
           <div
             style={{
               display: 'flex',
@@ -412,28 +426,38 @@ export function ImagesEditPage() {
               <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Updating…</span>
             )}
           </div>
-          <div
-            style={{
-              flex: 1,
-              borderRadius: 8,
-              background: 'var(--bg-panel)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              overflow: 'hidden',
-              minHeight: 320,
-            }}
-          >
-            {previewSrc ? (
-              <img
-                src={previewSrc}
-                alt="Transform preview"
-                style={{ maxWidth: '100%', maxHeight: 480, objectFit: 'contain' }}
-              />
-            ) : (
-              <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>No preview</span>
-            )}
-          </div>
+          {previewSrc ? (
+            <img
+              key={previewSrc}
+              src={previewSrc}
+              alt="Transform preview"
+              style={{
+                display: 'block',
+                width: '100%',
+                maxHeight: 620,
+                objectFit: 'cover',
+                borderRadius: 12,
+                border: '1px solid var(--border-subtle)',
+                background: 'var(--bg-elevated)',
+              }}
+            />
+          ) : (
+            <div
+              style={{
+                borderRadius: 12,
+                border: '1px solid var(--border-subtle)',
+                background: 'var(--bg-elevated)',
+                minHeight: 320,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--text-muted)',
+                fontSize: 12,
+              }}
+            >
+              No preview
+            </div>
+          )}
         </div>
       </div>
 
