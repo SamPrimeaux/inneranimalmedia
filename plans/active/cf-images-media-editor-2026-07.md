@@ -145,18 +145,54 @@ export const IMAGES_TABS = [
 | Thumbnails | Prefer `thumbnail` / `small` delivery URLs for grid cards — never force full `public` decode for 20 tiles |
 | Agent | **Agent A (perf)** — can land first as hotfix if needed, then merge into rebuild |
 
-### F2 — Storage gallery (Hosted Images equivalent)
+### F2 — Storage page layout (Cloudflare Hosted Images mirror)
 
-| Item | Spec |
-|------|------|
-| Layout | Responsive **preview grid** (keep visual scan from current library; reject CF’s filename-only Storage table as primary) |
-| Multi-select | Checkbox per card + select-all on page |
-| Batch actions | **Export selected** · **Delete selected** (confirm) · **Tag selected** |
-| Source chips | All / R2 / CF Images / Drive (existing semantics) |
-| Empty states | Per source: connect Keys / Sourcing Kit CTAs |
-| File | `dashboard/components/images/ImagesStoragePage.tsx` (extract from `ImagesPage.tsx`) |
+**Route:** `/dashboard/images/storage` (also what `/dashboard/images` redirects to).  
+**Visual reference:** CF dashboard Hosted images → Storage (drop zone + Usage/Account sidebar + list actions).  
+**IAM difference:** primary library is a **preview gallery**, not filename-only rows.
+
+```
+┌─────────────────────────────────────────────┬──────────────────────────┐
+│ Tabs: Storage | Delivery | Keys | Sourcing  │                          │
+│                                             │  Usage (this period)     │
+│  ┌─ drag / click upload zone ─────────────┐ │  • Images stored         │
+│  └─────────────────────────────────────────┘ │  • Images transformed    │
+│                                             │                          │
+│  [Export selected]  [Delete selected]       │  Account                 │
+│                                             │  • Account ID   [copy]   │
+│  Gallery grid (previews, 20/page)           │  • Account hash [copy]   │
+│  □ thumb  □ thumb  …                        │  • Image Delivery URL    │
+│  each card: … → Edit | Copy URL | Export |  │    [copy]                │
+│              Delete                         │  (or Connect CTA)        │
+└─────────────────────────────────────────────┴──────────────────────────┘
+```
+
+| Element | Spec |
+|---------|------|
+| **Drop zone** | Top of Storage; drag file/folder or click → upload into **active source** (see source chips). CF Images source → hosted upload / Direct Creator Upload. R2 source → R2 put. Drive source → not a direct Drive write from drop (import path in Sourcing Kit); drop disabled or routes to import helper with clear copy. |
+| **Usage (right)** | **Live numbers only — never hardcoded.** `Images stored` = count for active source/workspace. `Images transformed` = unique CF transformations this period when CF Images connected; else `—` + connect hint. Period label (e.g. Jul 1 – Aug 1) from API. |
+| **Account (right)** | Dynamic from **that user’s/workspace’s** Cloudflare Images connection: Account ID, Account hash, Image Delivery URL (`https://imagedelivery.net/{hash}`) + copy. **Not connected:** replace values with clean **Connect Cloudflare Images** pathway (Keys tab / OAuth start). Connor sees **his** IDs after connect — never Sam’s. |
+| **Gallery** | Preview tiles, multi-select checkboxes, select-all on page, pagination 20. |
+| **Batch** | Export selected · Delete selected (enabled when selection ≥1). |
+| **Per-item `…` menu** | **Edit** → `/dashboard/images/:id/edit` · **Copy image url** → delivery/public URL for that item · **Export** · **Delete** (confirm). |
+| **Source chips** | All \| R2 \| CF Images \| Drive — **same chrome, source-specific sidebar + drop behavior** (below). |
+| **File** | `ImagesStoragePage.tsx` + `ImageRowMenu.tsx` (or card `…` menu) |
+
+#### Source chips — conceptual mirror
+
+| Source filter | Drop zone | Usage sidebar | Account / connect sidebar |
+|---------------|-----------|---------------|---------------------------|
+| **CF Images** | Upload to hosted Images | Stored + transformed (CF) | Account ID / hash / delivery URL **or** Connect CF Images |
+| **R2** | Upload to selected bucket/prefix | Object count / bytes in scope | Cloudflare OAuth status for **R2** (already in scopes: `workers-r2.*`) · Connect Cloudflare if missing · bucket picker |
+| **Drive** | Point to Sourcing Kit / import (or disable with CTA) | File count when connected | **Connect Google Drive** OAuth · reconnect if token dead |
+| **All** | Prefer CF Images if connected, else R2 if connected, else Connect CTAs | Combined stored count; transformed only if CF Images | Show primary connected account + “manage connections” |
+
+#### Cloudflare OAuth scope note (Lane 3 / Keys)
+
+Today `CLOUDFLARE_OAUTH_SCOPES` in `src/api/oauth.js` includes **R2** (`workers-r2.*`) but **does not** include Cloudflare Images scopes. R2 browse/upload via CF OAuth is the easy path. **CF Images for customers requires adding Images scopes on the IAM OAuth client** (dash → OAuth clients) **and** to `CLOUDFLARE_OAUTH_SCOPES` (or `CLOUDFLARE_OAUTH_SCOPES` env), then users **re-consent**. Until then: Keys page must say “R2 connected; Images not authorized — reconnect with Images permission.” Platform Sam continues via platform token / hash vars.
 
 ### F3 — Detail page (`/dashboard/images/:id`)
+
 
 Mirror CF dashboard structure:
 
