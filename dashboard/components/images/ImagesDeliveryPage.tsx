@@ -92,7 +92,7 @@ export function ImagesDeliveryPage() {
             flexWrap: 'wrap',
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Named variants</h2>
+          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Variants</h2>
           <Link
             to="/dashboard/images/delivery/variant/create"
             style={{
