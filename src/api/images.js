@@ -46,6 +46,20 @@ import {
   putR2ImageWithCustomMetadata,
   syncR2ObjectCustomMetadata,
 } from '../core/r2-image-metadata.js';
+import {
+  ALLOWED_TRANSFORM_OPS,
+  LimitExceededError,
+  TransformValidationError,
+  applyBindingPipeline,
+  assertTransformableMime,
+  assertWithinBindingInputLimit,
+  assertWithinHostedUploadLimit,
+  batchDeleteFromCfImages,
+  batchPatchCfImageMeta,
+  batchUploadToCfImages,
+  buildFlexibleDeliveryUrl,
+  runCfImagesBatch,
+} from '../core/cf-images-transform.js';
 
 const BUCKET = 'inneranimalmedia';
 const MAX_BYTES = 15 * 1024 * 1024;
