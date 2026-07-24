@@ -55,6 +55,11 @@ export function ImagesDeliveryVariantCreatePage() {
   const [watermark, setWatermark] = useState(false);
   const [publicAccess, setPublicAccess] = useState(true);
 
+  const previewUrl = useMemo(
+    () => buildFlexiblePreviewUrl({ width, height, fit, metadata }),
+    [width, height, fit, metadata],
+  );
+
   const onCreate = () => {
     const id = variantId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
     if (!id) {
