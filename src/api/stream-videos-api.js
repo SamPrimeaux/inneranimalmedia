@@ -1,12 +1,6 @@
 /**
- * Cloudflare Stream video detail API — Settings / Downloads / Captions / Embed / JSON / Public
- * Details / Tags. Mounted under /api/stream/videos/:uid/* (and /api/stream/from-url,
- * /api/stream/direct-upload) from src/api/moviemode-api.js.
- *
- * Tags: Cloudflare Resource Tagging with resource_type=`stream_video` (same product as Images
- * `resource_type=image` — see https://developers.cloudflare.com/resource-tagging/reference/resource-types/).
- * Public Details: Stream watch-page fields have no dedicated REST surface; stored in
- * meta.iam_public_details (not Resource Tagging). Embed prefs: meta.iam_embed.
+ * Cloudflare Stream video API — account-scoped BYOK via resolveCfStreamContext.
+ * Ownership boundary: cloudflare_account_id + stream_uid (not IAM workspace).
  */
 
 import { jsonResponse } from '../core/auth.js';
@@ -16,7 +10,11 @@ import {
   RESOURCE_TYPE_STREAM_VIDEO,
 } from '../core/cf-resource-tags.js';
 import {
-  getStreamCredentials,
+  resolveCfStreamContext,
+  streamContextErrorResponse,
+} from '../core/cf-oauth-stream.js';
+import { isPlatformOperator, resolveOperatorAuthUserRow } from '../core/operator-identity.js';
+import {
   getStreamVideoDetail,
   updateStreamVideoDetail,
   deleteStreamVideo,
@@ -28,7 +26,12 @@ import {
   deleteStreamCaption,
   copyStreamVideoFromUrl,
   createStreamDirectUpload,
+  createStreamPlaybackToken,
   buildStreamWatchUrls,
+  assertStreamUidInAccount,
+  upsertStreamMediaAsset,
+  listStreamVideos,
+  mapStreamVideoRow,
 } from '../core/stream-api.js';
 
 const STREAM_TAG_OPTS = { resourceType: RESOURCE_TYPE_STREAM_VIDEO };
@@ -44,7 +47,6 @@ function parseLegacyTagList(raw) {
   return [];
 }
 
-/** Prefer Resource Tagging map; fall back to legacy meta.iam_tags list. */
 function resourceTagsFromBody(body) {
   if (body?.resource_tags && typeof body.resource_tags === 'object' && !Array.isArray(body.resource_tags)) {
     return body.resource_tags;
@@ -59,14 +61,18 @@ function resourceTagsFromBody(body) {
   return out;
 }
 
-async function mapDetail(video, accountId, env) {
+async function mapDetail(video, accountId, env, streamCtx) {
   const uid = String(video?.uid || '');
   const meta = video?.meta || {};
   const urls = buildStreamWatchUrls(uid, { video, accountId });
   let resource_tags = {};
   let resource_tags_error = null;
-  if (env && uid) {
-    const tagRes = await getResourceTags(env, uid, STREAM_TAG_OPTS).catch((e) => ({
+  if (env && uid && streamCtx) {
+    const tagRes = await getResourceTags(env, uid, {
+      ...STREAM_TAG_OPTS,
+      accountId: streamCtx.accountId,
+      token: streamCtx.token,
+    }).catch((e) => ({
       ok: false,
       error: String(e?.message || e),
       tags: {},
@@ -87,7 +93,6 @@ async function mapDetail(video, accountId, env) {
     require_signed_urls: !!video?.requireSignedURLs,
     allowed_origins: Array.isArray(video?.allowedOrigins) ? video.allowedOrigins : [],
     thumbnail_timestamp_pct: video?.thumbnailTimestampPct ?? null,
-    /** @deprecated prefer resource_tags — legacy meta.iam_tags list */
     tags: Object.keys(resource_tags).length ? Object.keys(resource_tags) : legacy,
     resource_tags,
     resource_tags_error,
@@ -96,6 +101,8 @@ async function mapDetail(video, accountId, env) {
     meta,
     playback: video?.playback || {},
     account_id: accountId,
+    cloudflare_account_id: accountId,
+    credential_source: streamCtx?.source || null,
     ...urls,
   };
 }
@@ -108,47 +115,188 @@ async function readJsonBody(request) {
   }
 }
 
+async function resolveStreamForRequest(env, scope, { requireWrite = false } = {}) {
+  const userId = String(scope?.userId || '').trim();
+  const workspaceId = String(scope?.workspaceId || '').trim();
+  let allowPlatformFallback = false;
+  if (userId && env?.DB) {
+    try {
+      const opRow = await resolveOperatorAuthUserRow(env, { id: userId });
+      allowPlatformFallback = await isPlatformOperator(env, opRow);
+    } catch {
+      allowPlatformFallback = false;
+    }
+  }
+  return resolveCfStreamContext(env, {
+    userId,
+    workspaceId,
+    requireWrite,
+    allowPlatformFallback,
+  });
+}
+
 /**
- * Dispatcher for /api/stream/videos/:uid/* and /api/stream/from-url, /api/stream/direct-upload.
- * Returns null when nothing matches so the caller can fall through to its own 404.
+ * GET /api/stream/capabilities — connection + account + scope state for Videos UI.
  */
-export async function handleStreamVideosDetailApi(request, url, env, _ctx, _scope = {}) {
+export async function handleStreamCapabilities(env, scope = {}) {
+  const streamCtx = await resolveStreamForRequest(env, scope, { requireWrite: false });
+  let workspace_video_count = 0;
+  if (streamCtx.ok && env?.DB) {
+    const row = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM media_assets
+       WHERE cloudflare_account_id = ? AND stream_uid IS NOT NULL`,
+    )
+      .bind(streamCtx.accountId)
+      .first()
+      .catch(() => null);
+    workspace_video_count = Number(row?.c) || 0;
+  }
+
+  if (!streamCtx.ok) {
+    return jsonResponse({
+      ok: true,
+      connected: false,
+      account_id: null,
+      account_name: null,
+      credential_source: null,
+      can_read: false,
+      can_write: false,
+      reconnect_required: !!streamCtx.reconnectRequired || streamCtx.error === 'stream_scope_missing',
+      account_selection_required: streamCtx.error === 'cloudflare_account_selection_required',
+      accounts: streamCtx.accounts || [],
+      error: streamCtx.error || null,
+      message: streamCtx.message || null,
+      workspace_video_count,
+      platform_owned: false,
+    });
+  }
+
+  return jsonResponse({
+    ok: true,
+    connected: true,
+    account_id: streamCtx.accountId,
+    account_name: null,
+    credential_source: streamCtx.source,
+    can_read: !!streamCtx.capabilities?.read,
+    can_write: !!streamCtx.capabilities?.write,
+    reconnect_required: false,
+    account_selection_required: false,
+    accounts: [],
+    workspace_video_count,
+    platform_owned: !!streamCtx.platformOwned,
+    refreshed: !!streamCtx.refreshed,
+    expires_at: streamCtx.expiresAt ?? null,
+  });
+}
+
+/**
+ * GET /api/stream/videos — live catalog for the selected Cloudflare account.
+ */
+export async function handleStreamVideosList(env, scope = {}, { limit = 100 } = {}) {
+  const streamCtx = await resolveStreamForRequest(env, scope, { requireWrite: false });
+  if (!streamCtx.ok) return streamContextErrorResponse(streamCtx, jsonResponse);
+  try {
+    const { videos, total, customerSubdomain, accountId } = await listStreamVideos(streamCtx, {
+      limit,
+    });
+    const mapped = videos.map((v) => mapStreamVideoRow(v, accountId || streamCtx.accountId));
+    // Best-effort metadata sync for account-scoped identity
+    for (const v of videos.slice(0, 40)) {
+      await upsertStreamMediaAsset(env, {
+        streamCtx,
+        video: v,
+        userId: scope.userId,
+        workspaceId: scope.workspaceId,
+        tenantId: scope.tenantId,
+      });
+    }
+    return jsonResponse({
+      ok: true,
+      total,
+      account_id: streamCtx.accountId,
+      customer_subdomain:
+        customerSubdomain || mapped.find((v) => v.customer_subdomain)?.customer_subdomain || null,
+      credential_source: streamCtx.source,
+      platform_owned: !!streamCtx.platformOwned,
+      videos: mapped,
+    });
+  } catch (e) {
+    return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
+  }
+}
+
+/**
+ * Dispatcher for /api/stream/videos/:uid/* and /api/stream/from-url, /api/stream/direct-upload,
+ * /api/stream/capabilities.
+ */
+export async function handleStreamVideosDetailApi(request, url, env, _ctx, scope = {}) {
   const path = url.pathname.replace(/\/$/, '') || '/';
   const method = (request.method || 'GET').toUpperCase();
 
+  if (path === '/api/stream/capabilities' && method === 'GET') {
+    return handleStreamCapabilities(env, scope);
+  }
+
   if (path === '/api/stream/from-url' && method === 'POST') {
+    const streamCtx = await resolveStreamForRequest(env, scope, { requireWrite: true });
+    if (!streamCtx.ok) return streamContextErrorResponse(streamCtx, jsonResponse);
     const body = await readJsonBody(request);
     const srcUrl = String(body.url || '').trim();
     if (!srcUrl) return jsonResponse({ error: 'url required' }, 400);
     try {
       const meta = { ...(body.meta || {}) };
       if (body.name) meta.name = String(body.name).trim();
-      const result = await copyStreamVideoFromUrl(env, {
+      const result = await copyStreamVideoFromUrl(streamCtx, {
         url: srcUrl,
         meta,
         requireSignedURLs: body.require_signed_urls,
       });
-      const { accountId } = getStreamCredentials(env);
-      return jsonResponse({ ok: true, video: await mapDetail(result, accountId, env) });
+      await upsertStreamMediaAsset(env, {
+        streamCtx,
+        video: result,
+        userId: scope.userId,
+        workspaceId: scope.workspaceId,
+        tenantId: scope.tenantId,
+        providerStatus: result?.status?.state || 'queued',
+      });
+      return jsonResponse({
+        ok: true,
+        video: await mapDetail(result, streamCtx.accountId, env, streamCtx),
+      });
     } catch (e) {
       return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
     }
   }
 
   if (path === '/api/stream/direct-upload' && method === 'POST') {
+    const streamCtx = await resolveStreamForRequest(env, scope, { requireWrite: true });
+    if (!streamCtx.ok) return streamContextErrorResponse(streamCtx, jsonResponse);
     const body = await readJsonBody(request);
     try {
       const meta = { ...(body.meta || {}) };
       if (body.name) meta.name = String(body.name).trim();
-      const result = await createStreamDirectUpload(env, {
+      const result = await createStreamDirectUpload(streamCtx, {
         maxDurationSeconds: body.max_duration_seconds,
         meta: Object.keys(meta).length ? meta : undefined,
         requireSignedURLs: body.require_signed_urls,
       });
+      const uid = result?.uid || null;
+      if (uid) {
+        await upsertStreamMediaAsset(env, {
+          streamCtx,
+          video: { uid, meta, status: { state: 'uploading' }, readyToStream: false },
+          userId: scope.userId,
+          workspaceId: scope.workspaceId,
+          tenantId: scope.tenantId,
+          providerStatus: 'uploading',
+        });
+      }
       return jsonResponse({
         ok: true,
         upload_url: result?.uploadURL || result?.uploadUrl || null,
-        uid: result?.uid || null,
+        uid,
+        account_id: streamCtx.accountId,
+        credential_source: streamCtx.source,
       });
     } catch (e) {
       return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
@@ -161,52 +309,113 @@ export async function handleStreamVideosDetailApi(request, url, env, _ctx, _scop
   const sub = uidMatch[2] || '';
   if (!uid) return jsonResponse({ error: 'uid required' }, 400);
 
-  try {
-    const { accountId } = getStreamCredentials(env);
+  const isMutation =
+    method === 'PATCH' ||
+    method === 'POST' ||
+    method === 'DELETE' ||
+    (sub === 'playback-token' && method === 'POST');
 
+  const streamCtx = await resolveStreamForRequest(env, scope, {
+    requireWrite: isMutation && sub !== 'playback-token',
+  });
+  // playback-token needs read; mint may need write on some accounts — require write for safety
+  if (sub === 'playback-token' && method === 'POST') {
+    const writeCtx = await resolveStreamForRequest(env, scope, { requireWrite: true });
+    if (!writeCtx.ok) return streamContextErrorResponse(writeCtx, jsonResponse);
+    Object.assign(streamCtx, writeCtx);
+  }
+  if (!streamCtx.ok) return streamContextErrorResponse(streamCtx, jsonResponse);
+
+  const accountId = streamCtx.accountId;
+
+  try {
     if (!sub) {
       if (method === 'GET') {
-        const video = await getStreamVideoDetail(env, uid);
-        return jsonResponse({ ok: true, video: await mapDetail(video, accountId, env) });
+        const video = await assertStreamUidInAccount(env, streamCtx, uid);
+        await upsertStreamMediaAsset(env, {
+          streamCtx,
+          video,
+          userId: scope.userId,
+          workspaceId: scope.workspaceId,
+          tenantId: scope.tenantId,
+        });
+        return jsonResponse({ ok: true, video: await mapDetail(video, accountId, env, streamCtx) });
       }
       if (method === 'PATCH') {
+        await assertStreamUidInAccount(env, streamCtx, uid);
         const body = await readJsonBody(request);
-        const current = await getStreamVideoDetail(env, uid);
+        const current = await getStreamVideoDetail(streamCtx, uid);
         const meta = { ...(current?.meta || {}) };
         if (body.name !== undefined) meta.name = String(body.name || '').trim();
-        // Tags no longer written via meta — use /tags → Resource Tagging.
-        const updated = await updateStreamVideoDetail(env, uid, {
+        const updated = await updateStreamVideoDetail(streamCtx, uid, {
           meta,
           requireSignedURLs: body.require_signed_urls,
           allowedOrigins: body.allowed_origins,
           thumbnailTimestampPct: body.thumbnail_timestamp_pct,
         });
-        return jsonResponse({ ok: true, video: await mapDetail(updated, accountId, env) });
+        await upsertStreamMediaAsset(env, {
+          streamCtx,
+          video: updated,
+          userId: scope.userId,
+          workspaceId: scope.workspaceId,
+          tenantId: scope.tenantId,
+        });
+        return jsonResponse({
+          ok: true,
+          video: await mapDetail(updated, accountId, env, streamCtx),
+        });
       }
       if (method === 'DELETE') {
-        await deleteStreamVideo(env, uid);
+        await assertStreamUidInAccount(env, streamCtx, uid);
+        await deleteStreamVideo(streamCtx, uid);
+        if (env.DB) {
+          await env.DB.prepare(
+            `UPDATE media_assets SET provider_status = 'deleted', status = 'archived', updated_at = datetime('now')
+             WHERE stream_uid = ? AND cloudflare_account_id = ?`,
+          )
+            .bind(uid, accountId)
+            .run()
+            .catch(() => {});
+        }
         return jsonResponse({ ok: true, uid });
       }
     }
 
+    if (sub === 'playback-token' && method === 'POST') {
+      await assertStreamUidInAccount(env, streamCtx, uid);
+      const body = await readJsonBody(request);
+      const minted = await createStreamPlaybackToken(streamCtx, uid, {
+        expiresInSeconds: body.expires_in_seconds || body.exp_seconds || 3600,
+      });
+      return jsonResponse({
+        ok: true,
+        uid,
+        token: minted.token,
+        expires_at: minted.expires_at,
+        account_id: accountId,
+      });
+    }
+
     if (sub === 'downloads') {
+      await assertStreamUidInAccount(env, streamCtx, uid);
       if (method === 'GET') {
-        const downloads = await getStreamDownloads(env, uid);
+        const downloads = await getStreamDownloads(streamCtx, uid);
         return jsonResponse({ ok: true, downloads });
       }
       if (method === 'POST') {
-        const downloads = await enableStreamDownloads(env, uid);
+        const downloads = await enableStreamDownloads(streamCtx, uid);
         return jsonResponse({ ok: true, downloads });
       }
       if (method === 'DELETE') {
-        await deleteStreamDownloads(env, uid);
+        await deleteStreamDownloads(streamCtx, uid);
         return jsonResponse({ ok: true, uid });
       }
     }
 
     if (sub === 'captions') {
+      await assertStreamUidInAccount(env, streamCtx, uid);
       if (method === 'GET') {
-        const captions = await listStreamCaptions(env, uid);
+        const captions = await listStreamCaptions(streamCtx, uid);
         return jsonResponse({ ok: true, captions });
       }
       if (method === 'POST') {
@@ -214,20 +423,21 @@ export async function handleStreamVideosDetailApi(request, url, env, _ctx, _scop
         const language = String(body.language || '').trim();
         const vtt = String(body.vtt || body.vtt_content || '');
         if (!language || !vtt) return jsonResponse({ error: 'language and vtt required' }, 400);
-        const result = await putStreamCaption(env, uid, language, vtt);
+        const result = await putStreamCaption(streamCtx, uid, language, vtt);
         return jsonResponse({ ok: true, caption: result });
       }
     }
     const captionDeleteMatch = sub.match(/^captions\/([^/]+)$/);
     if (captionDeleteMatch && method === 'DELETE') {
+      await assertStreamUidInAccount(env, streamCtx, uid);
       const language = decodeURIComponent(captionDeleteMatch[1]);
-      await deleteStreamCaption(env, uid, language);
+      await deleteStreamCaption(streamCtx, uid, language);
       return jsonResponse({ ok: true, uid, language });
     }
 
     if (sub === 'public-details') {
-      // Watch-page branding — NOT Resource Tagging. No Stream REST for these fields.
-      const current = await getStreamVideoDetail(env, uid);
+      await assertStreamUidInAccount(env, streamCtx, uid);
+      const current = await getStreamVideoDetail(streamCtx, uid);
       if (method === 'GET') {
         return jsonResponse({ ok: true, public_details: current?.meta?.iam_public_details || {} });
       }
@@ -241,13 +451,14 @@ export async function handleStreamVideosDetailApi(request, url, env, _ctx, _scop
           share: body.share ?? prev.share ?? true,
           channel_link: body.channel_link ?? prev.channel_link ?? '',
         };
-        const updated = await updateStreamVideoDetail(env, uid, { meta });
+        const updated = await updateStreamVideoDetail(streamCtx, uid, { meta });
         return jsonResponse({ ok: true, public_details: updated?.meta?.iam_public_details || {} });
       }
     }
 
     if (sub === 'embed') {
-      const current = await getStreamVideoDetail(env, uid);
+      await assertStreamUidInAccount(env, streamCtx, uid);
+      const current = await getStreamVideoDetail(streamCtx, uid);
       const urls = buildStreamWatchUrls(uid, { video: current, accountId });
       if (method === 'GET') {
         const embed = current?.meta?.iam_embed || {};
@@ -276,23 +487,30 @@ export async function handleStreamVideosDetailApi(request, url, env, _ctx, _scop
           lazy: body.lazy ?? prev.lazy ?? true,
           primary_color: body.primary_color ?? prev.primary_color ?? '#f6821f',
         };
-        const updated = await updateStreamVideoDetail(env, uid, { meta });
+        const updated = await updateStreamVideoDetail(streamCtx, uid, { meta });
         return jsonResponse({ ok: true, embed: updated?.meta?.iam_embed || {} });
       }
     }
 
     if (sub === 'json' && method === 'GET') {
-      const video = await getStreamVideoDetail(env, uid);
+      const video = await assertStreamUidInAccount(env, streamCtx, uid);
       return jsonResponse({
         ok: true,
-        curl: `curl -H "Authorization: Bearer <CLOUDFLARE_STREAM_TOKEN>" https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${uid}`,
+        curl: `curl -H "Authorization: Bearer <token>" https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${uid}`,
         response: video,
+        credential_source: streamCtx.source,
       });
     }
 
     if (sub === 'tags') {
+      await assertStreamUidInAccount(env, streamCtx, uid);
+      const tagOpts = {
+        ...STREAM_TAG_OPTS,
+        accountId: streamCtx.accountId,
+        token: streamCtx.token,
+      };
       if (method === 'GET') {
-        const tagRes = await getResourceTags(env, uid, STREAM_TAG_OPTS);
+        const tagRes = await getResourceTags(env, uid, tagOpts);
         if (!tagRes.ok && !tagRes.beta_untagged && !tagRes.empty) {
           return jsonResponse(
             { ok: false, error: tagRes.error || 'Resource Tagging GET failed', resource_tags: {} },
@@ -309,7 +527,7 @@ export async function handleStreamVideosDetailApi(request, url, env, _ctx, _scop
       if (method === 'PATCH') {
         const body = await readJsonBody(request);
         const next = resourceTagsFromBody(body);
-        const put = await setResourceTags(env, uid, next, STREAM_TAG_OPTS);
+        const put = await setResourceTags(env, uid, next, tagOpts);
         if (!put.ok) {
           return jsonResponse(
             { ok: false, error: put.error || 'Resource Tagging PUT failed', resource_tags: {} },
@@ -327,6 +545,7 @@ export async function handleStreamVideosDetailApi(request, url, env, _ctx, _scop
 
     return jsonResponse({ error: 'Stream video route not matched' }, 404);
   } catch (e) {
-    return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
+    const status = Number(e?.status) || 502;
+    return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, status);
   }
 }

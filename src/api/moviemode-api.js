@@ -93,7 +93,8 @@ export async function handleMoviemodeApi(request, url, env, ctx) {
   if (
     path.startsWith('/api/stream/videos/') ||
     path === '/api/stream/from-url' ||
-    path === '/api/stream/direct-upload'
+    path === '/api/stream/direct-upload' ||
+    path === '/api/stream/capabilities'
   ) {
     const { handleStreamVideosDetailApi } = await import('./stream-videos-api.js');
     const res = await handleStreamVideosDetailApi(request, url, env, ctx, {
@@ -257,28 +258,13 @@ export async function handleMoviemodeApi(request, url, env, ctx) {
   }
 
   if (path === '/api/stream/videos' && method === 'GET') {
-    try {
-      const { listStreamVideos, mapStreamVideoRow, getStreamCredentials } = await import(
-        '../core/stream-api.js'
-      );
-      const limit = Math.min(Number(url.searchParams.get('limit') || 100), 100);
-      const { videos, total, customerSubdomain } = await listStreamVideos(env, { limit });
-      const { accountId } = getStreamCredentials(env);
-      const mapped = videos.map((v) => mapStreamVideoRow(v, accountId));
-      const subdomain =
-        customerSubdomain ||
-        mapped.find((v) => v.customer_subdomain)?.customer_subdomain ||
-        null;
-      return jsonResponse({
-        ok: true,
-        total,
-        account_id: accountId,
-        customer_subdomain: subdomain,
-        videos: mapped,
-      });
-    } catch (e) {
-      return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
-    }
+    const { handleStreamVideosList } = await import('./stream-videos-api.js');
+    const limit = Math.min(Number(url.searchParams.get('limit') || 100), 100);
+    return handleStreamVideosList(
+      env,
+      { workspaceId, tenantId, userId },
+      { limit },
+    );
   }
 
   if (path === '/api/stream/import' && method === 'POST') {
@@ -298,22 +284,42 @@ export async function handleMoviemodeApi(request, url, env, ctx) {
       `moviemode/${workspaceId}/${projectSlug}/source/stream/${streamUid}/${filename}`;
 
     try {
-      const { importStreamVideoToR2, listStreamVideos, mapStreamVideoRow, getStreamCredentials } =
-        await import('../core/stream-api.js');
-      const copied = await importStreamVideoToR2(env, { uid: streamUid, objectKey });
+      const { resolveCfStreamContext, streamContextErrorResponse } = await import(
+        '../core/cf-oauth-stream.js'
+      );
+      const { isPlatformOperator, resolveOperatorAuthUserRow } = await import(
+        '../core/operator-identity.js'
+      );
+      let allowPlatformFallback = false;
+      try {
+        const opRow = await resolveOperatorAuthUserRow(env, authUser);
+        allowPlatformFallback = await isPlatformOperator(env, opRow);
+      } catch {
+        allowPlatformFallback = false;
+      }
+      const streamCtx = await resolveCfStreamContext(env, {
+        userId,
+        workspaceId,
+        requireWrite: false,
+        allowPlatformFallback,
+      });
+      if (!streamCtx.ok) return streamContextErrorResponse(streamCtx, jsonResponse);
+
+      const {
+        importStreamVideoToR2,
+        assertStreamUidInAccount,
+        mapStreamVideoRow,
+        upsertStreamMediaAsset,
+      } = await import('../core/stream-api.js');
+      const video = await assertStreamUidInAccount(env, streamCtx, streamUid);
+      const copied = await importStreamVideoToR2(env, streamCtx, { uid: streamUid, objectKey });
 
       const id = `asset_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-      let streamMeta = { stream_uid: streamUid, imported_from: 'cloudflare_stream' };
-      try {
-        const { videos } = await listStreamVideos(env, { limit: 100 });
-        const hit = videos.find((v) => v.uid === streamUid);
-        if (hit) {
-          const { accountId } = getStreamCredentials(env);
-          streamMeta = { ...streamMeta, ...mapStreamVideoRow(hit, accountId) };
-        }
-      } catch {
-        /* optional enrichment */
-      }
+      const streamMeta = {
+        stream_uid: streamUid,
+        imported_from: 'cloudflare_stream',
+        ...mapStreamVideoRow(video, streamCtx.accountId),
+      };
 
       const durationMs =
         streamMeta.duration_sec != null
@@ -324,14 +330,14 @@ export async function handleMoviemodeApi(request, url, env, ctx) {
         `INSERT INTO media_assets (
            id, tenant_id, workspace_id, project_id, source_kind, source_uri,
            bucket, object_key, filename, content_type, media_kind, size_bytes,
-           duration_ms, status, metadata_json
-         ) VALUES (?, ?, ?, ?, 'stream', ?, ?, ?, ?, ?, 'video', ?, ?, 'uploaded', ?)
+           duration_ms, status, stream_uid, cloudflare_account_id,
+           provider_credential_source, created_by_user_id, created_from_workspace_id,
+           provider_status, metadata_json
+         ) VALUES (?, ?, ?, ?, 'stream', ?, ?, ?, ?, ?, 'video', ?, ?, 'uploaded', ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(workspace_id, bucket, object_key) DO UPDATE SET
-           filename = excluded.filename,
-           content_type = excluded.content_type,
            size_bytes = excluded.size_bytes,
-           duration_ms = excluded.duration_ms,
-           status = 'uploaded',
+           stream_uid = excluded.stream_uid,
+           cloudflare_account_id = excluded.cloudflare_account_id,
            metadata_json = excluded.metadata_json,
            updated_at = datetime('now')`,
       )
@@ -339,37 +345,38 @@ export async function handleMoviemodeApi(request, url, env, ctx) {
           id,
           tenantId,
           workspaceId,
-          body.project_id || null,
-          streamUid,
+          null,
+          `stream://${streamUid}`,
           copied.bucket,
           copied.object_key,
           filename,
-          copied.content_type,
-          copied.size_bytes,
+          copied.content_type || 'video/mp4',
+          copied.size_bytes ?? null,
           durationMs,
+          streamUid,
+          streamCtx.accountId,
+          streamCtx.source,
+          userId || null,
+          workspaceId,
+          'ready',
           JSON.stringify(streamMeta),
         )
         .run();
 
-      const row = await env.DB.prepare(
-        `SELECT * FROM media_assets WHERE workspace_id = ? AND bucket = ? AND object_key = ? LIMIT 1`,
-      )
-        .bind(workspaceId, copied.bucket, copied.object_key)
-        .first();
-
-      const shouldTranscribe = body.transcribe !== false;
-      if (shouldTranscribe && row && env._ctx?.waitUntil) {
-        env._ctx.waitUntil(
-          import('../core/moviemode-whisper.js').then(({ transcribeAndReindexMediaAsset }) =>
-            transcribeAndReindexMediaAsset(env, row),
-          ),
-        );
-      }
+      await upsertStreamMediaAsset(env, {
+        streamCtx,
+        video,
+        userId,
+        workspaceId,
+        tenantId,
+      });
 
       return jsonResponse({
         ok: true,
-        asset: row,
-        transcribe_queued: shouldTranscribe,
+        asset_id: id,
+        stream_uid: streamUid,
+        account_id: streamCtx.accountId,
+        r2: copied,
       });
     } catch (e) {
       return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);

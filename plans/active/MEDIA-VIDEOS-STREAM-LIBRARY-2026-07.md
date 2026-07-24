@@ -13,8 +13,10 @@ Ship a **Videos** product beside Hosted Images (never mixed) with storage locati
 - **Images** stay under `/dashboard/images/*` with **CF Images · R2 · Google Drive**.
 - **Videos** are a **sibling gallery** under `/dashboard/images/videos/*` (or `/dashboard/videos/*` alias) — never mixed into Images Storage tiles.
 - **Video locations:** Cloudflare Stream · R2 · Google Drive (`All | Stream | R2 | Drive` filters).
+- **Stream ownership:** `cloudflare_account_id + stream_uid` (account-scoped BYOK). Workspace is provenance only. Same CF account → same Videos library across IAM workspaces.
 - Stream rows get full CF detail tabs; R2/Drive get simpler asset panels + Import to Stream.
-- Gen: `veo_generate_video` → Veo 3.1 Thompson arms → **default destination local** (playable URL / scratchpad / download — works without Stream). **Optional** ingest to Stream (“Save to Hosted Videos”) when the workspace has Stream credentials. Never block generation on missing `CLOUDFLARE_STREAM_TOKEN`.
+- Gen: `veo_generate_video` → **default destination local**. Optional Stream Save uses the **selected customer Cloudflare account** (`stream.write`). Never fall back to IAM platform Stream for customers. Never block local generate on missing Stream.
+- OAuth scopes: `stream.read` + `stream.write` (customers reconnect once after this ships).
 - Docs CTA: https://developers.cloudflare.com/stream/  
 - Video Link: `https://{customerSubdomain}/{uid}/watch`
 

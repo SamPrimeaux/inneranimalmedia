@@ -1,6 +1,7 @@
 import React from 'react';
 import { Copy, ExternalLink } from 'lucide-react';
 import { CF_STREAM_DOCS_URL } from './videosRegistry';
+import type { StreamCapabilities } from './videosApi';
 
 const card: React.CSSProperties = {
   padding: 14,
@@ -53,10 +54,13 @@ function Row({ label, value, onCopy }: { label: string; value: string; onCopy?: 
   );
 }
 
+const CF_CONNECT_HREF = '/dashboard/settings/integrations';
+
 export type VideosUsageSidebarProps = {
   videosStored: number;
   accountId?: string | null;
   customerSubdomain?: string | null;
+  capabilities?: StreamCapabilities | null;
   onCopy?: (msg: string, type?: 'ok' | 'err') => void;
 };
 
@@ -64,6 +68,7 @@ export function VideosUsageSidebar({
   videosStored,
   accountId,
   customerSubdomain,
+  capabilities,
   onCopy,
 }: VideosUsageSidebarProps) {
   const copy = async (text: string, label: string) => {
@@ -74,6 +79,22 @@ export function VideosUsageSidebar({
       onCopy?.('Copy failed', 'err');
     }
   };
+
+  const connected = !!capabilities?.connected;
+  const reconnect = !!capabilities?.reconnect_required;
+  const selectAccount = !!capabilities?.account_selection_required;
+  const readOnly = connected && capabilities?.can_read && !capabilities?.can_write;
+  const platformOwned = !!capabilities?.platform_owned;
+  const source = capabilities?.credential_source || null;
+
+  let statusLabel = 'R2 / Drive only — Stream optional';
+  if (selectAccount) statusLabel = 'Choose a Cloudflare account';
+  else if (reconnect) statusLabel = 'Reconnect Cloudflare (Stream scopes)';
+  else if (readOnly) statusLabel = 'Reconnect with Stream Write';
+  else if (platformOwned) statusLabel = 'Platform Stream';
+  else if (connected && capabilities?.can_write) statusLabel = 'Connected · read/write';
+  else if (connected) statusLabel = 'Connected · read';
+  else if (capabilities && !connected) statusLabel = 'Connect Cloudflare for Stream';
 
   return (
     <aside style={{ width: 280, flexShrink: 0, fontFamily: 'inherit' }}>
@@ -86,13 +107,54 @@ export function VideosUsageSidebar({
       </div>
 
       <div style={card}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: 'var(--text-main)' }}>
+          Cloudflare Stream
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.4 }}>
+          {statusLabel}
+        </div>
+        {source ? (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+            Credential: {source}
+            {platformOwned ? ' · platform' : ''}
+          </div>
+        ) : null}
+        {(reconnect || !connected || selectAccount || readOnly) && (
+          <a
+            href={CF_CONNECT_HREF}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 12,
+              color: 'var(--accent, #f6821f)',
+              textDecoration: 'none',
+              marginBottom: 8,
+            }}
+          >
+            {reconnect || readOnly ? 'Reconnect Cloudflare' : 'Connect Cloudflare'}
+            <ExternalLink size={12} />
+          </a>
+        )}
+        {selectAccount && capabilities?.accounts?.length ? (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+            {capabilities.accounts.length} accounts available — pick one in Integrations.
+          </div>
+        ) : null}
+      </div>
+
+      <div style={card}>
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: 'var(--text-main)' }}>
           Account details
         </div>
         <Row
           label="Account ID"
-          value={accountId || ''}
-          onCopy={accountId ? () => void copy(accountId, 'Account ID') : undefined}
+          value={accountId || capabilities?.account_id || ''}
+          onCopy={
+            accountId || capabilities?.account_id
+              ? () => void copy(String(accountId || capabilities?.account_id), 'Account ID')
+              : undefined
+          }
         />
         <Row
           label="Customer subdomain"
@@ -118,28 +180,25 @@ export function VideosUsageSidebar({
           ] as const
         ).map(([label, href]) => (
           <a
-            key={href}
+            key={label}
             href={href}
             target="_blank"
-            rel="noopener noreferrer"
+            rel="noreferrer"
             style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '8px 0',
-              borderBottom: '1px solid var(--border-subtle)',
+              gap: 6,
+              fontSize: 12,
               color: 'var(--text-main)',
               textDecoration: 'none',
-              fontSize: 12,
+              marginBottom: 8,
             }}
           >
-            <span>{label}</span>
-            <ExternalLink size={12} style={{ opacity: 0.6 }} />
+            {label}
+            <ExternalLink size={12} style={{ color: 'var(--text-muted)' }} />
           </a>
         ))}
       </div>
     </aside>
   );
 }
-
-export default VideosUsageSidebar;

@@ -440,6 +440,9 @@ const CLOUDFLARE_OAUTH_SCOPES = [
   // Media — offered on OAuth client (see CLOUDFLARE_OAUTH_CLIENT_SCOPES.md)
   'images.read',
   'images.write',
+  // Stream BYOK — customers must reconnect once after this ships
+  'stream.read',
+  'stream.write',
   'offline_access',
 ].join(' ');
 

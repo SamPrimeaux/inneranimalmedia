@@ -33,6 +33,7 @@ Work **in this order**. Do not parallelize product remasters across these.
 | [GEMINI-INTERACTIONS-TRANSPORT-ADAPTER-2026-07.md](./GEMINI-INTERACTIONS-TRANSPORT-ADAPTER-2026-07.md) | `tkt_gemini_interactions_transport` | **Later sprint / backlog** — `gemini_transport=interactions\|generate_content`, default generateContent until green |
 | [MAC-LOCALPTY-EXEC-IDENTITY-2026-07.md](./MAC-LOCALPTY-EXEC-IDENTITY-2026-07.md) | `tkt_mac_localpty_exec_identity_20260722` | Mac `agentsam_terminal_local` Exec-Identity + no sandbox launder — dual-pass E2E |
 | [MEDIA-VIDEOS-STREAM-LIBRARY-2026-07.md](./MEDIA-VIDEOS-STREAM-LIBRARY-2026-07.md) | *(create D1 ticket when started)* | Videos sibling library (Stream·R2·Drive) + CF Stream detail parity + Veo→Stream; Claude=B/D, Cursor=A/C/E/F — see [CLAUDE-LANE-B-D-VIDEOS-HANDOFF-2026-07.md](./CLAUDE-LANE-B-D-VIDEOS-HANDOFF-2026-07.md) |
+| [STREAM-BYOK-ACCOUNT-SCOPED-2026-07.md](./STREAM-BYOK-ACCOUNT-SCOPED-2026-07.md) | *(in media RC)* | Account-scoped Stream BYOK — `cloudflare_account_id` ownership, OAuth stream scopes, no customer→platform fallback |
 
 ## Verification law (LOCKED — named E2E tiers)
 

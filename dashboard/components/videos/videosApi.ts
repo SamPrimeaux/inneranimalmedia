@@ -86,13 +86,24 @@ export async function fetchStreamVideos(limit = 100): Promise<{
   account_id?: string | null;
   customer_subdomain?: string | null;
   error?: string;
+  reconnect_required?: boolean;
+  account_selection_required?: boolean;
+  accounts?: Array<{ id: string; name: string }>;
 }> {
   const r = await fetch(`/api/stream/videos?limit=${Math.min(limit, 100)}`, {
     credentials: 'same-origin',
   });
   const d = await parseJson(r);
   if (!r.ok || d.ok === false) {
-    return { ok: false, videos: [], total: 0, error: d.error || `HTTP ${r.status}` };
+    return {
+      ok: false,
+      videos: [],
+      total: 0,
+      error: d.error || d.message || `HTTP ${r.status}`,
+      reconnect_required: !!d.reconnect_required,
+      account_selection_required: !!d.account_selection_required,
+      accounts: Array.isArray(d.accounts) ? d.accounts : undefined,
+    };
   }
   const videos: StreamVideoListItem[] = (d.videos || []).map((v: StreamVideoListItem) => ({
     ...v,
@@ -104,6 +115,47 @@ export async function fetchStreamVideos(limit = 100): Promise<{
     total: typeof d.total === 'number' ? d.total : videos.length,
     account_id: d.account_id || null,
     customer_subdomain: d.customer_subdomain || null,
+  };
+}
+
+export type StreamCapabilities = {
+  connected: boolean;
+  account_id?: string | null;
+  credential_source?: string | null;
+  can_read?: boolean;
+  can_write?: boolean;
+  reconnect_required?: boolean;
+  account_selection_required?: boolean;
+  accounts?: Array<{ id: string; name: string }>;
+  platform_owned?: boolean;
+  error?: string | null;
+  message?: string | null;
+  workspace_video_count?: number;
+};
+
+export async function fetchStreamCapabilities(): Promise<StreamCapabilities> {
+  const r = await fetch('/api/stream/capabilities', { credentials: 'same-origin' });
+  const d = await parseJson(r);
+  if (!r.ok) {
+    return {
+      connected: false,
+      reconnect_required: true,
+      error: d.error || `HTTP ${r.status}`,
+    };
+  }
+  return {
+    connected: !!d.connected,
+    account_id: d.account_id || null,
+    credential_source: d.credential_source || null,
+    can_read: !!d.can_read,
+    can_write: !!d.can_write,
+    reconnect_required: !!d.reconnect_required,
+    account_selection_required: !!d.account_selection_required,
+    accounts: Array.isArray(d.accounts) ? d.accounts : [],
+    platform_owned: !!d.platform_owned,
+    error: d.error || null,
+    message: d.message || null,
+    workspace_video_count: typeof d.workspace_video_count === 'number' ? d.workspace_video_count : 0,
   };
 }
 
@@ -209,6 +261,21 @@ export async function fetchVideosOverview(
 export function streamVideoUrl(uid: string, sub?: string) {
   const base = `/api/stream/videos/${encodeURIComponent(uid)}`;
   return sub ? `${base}/${sub}` : base;
+}
+
+export async function mintStreamPlaybackToken(
+  uid: string,
+  expiresInSeconds = 3600,
+): Promise<{ ok: boolean; token?: string; expires_at?: number; error?: string }> {
+  const r = await fetch(streamVideoUrl(uid, 'playback-token'), {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expires_in_seconds: expiresInSeconds }),
+  });
+  const d = await parseJson(r);
+  if (!r.ok || d.ok === false) return { ok: false, error: d.error || `HTTP ${r.status}` };
+  return { ok: true, token: d.token, expires_at: d.expires_at };
 }
 
 export async function getStreamVideo(uid: string): Promise<{

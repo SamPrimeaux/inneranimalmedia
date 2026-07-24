@@ -1,37 +1,38 @@
 /**
- * Cloudflare Stream — list + import to R2 (platform CLOUDFLARE_STREAM_TOKEN).
+ * Cloudflare Stream helpers — all calls take a resolved stream context
+ * ({ token, accountId }) from resolveCfStreamContext. No helper re-reads platform secrets.
  */
+import { platformStreamCreds } from './cf-oauth-stream.js';
 
+/**
+ * @deprecated Prefer resolveCfStreamContext. Kept for cron/legacy callers that only have env.
+ * Throws if platform Stream secrets are missing.
+ */
 export function getStreamCredentials(env) {
-  const token = String(env?.CLOUDFLARE_STREAM_TOKEN || env?.CLOUDFLARE_API_TOKEN || '').trim();
-  const accountId = String(env?.CLOUDFLARE_ACCOUNT_ID || '').trim();
-  if (!token) throw new Error('CLOUDFLARE_STREAM_TOKEN not configured');
-  if (!accountId) throw new Error('CLOUDFLARE_ACCOUNT_ID not configured');
+  const platform = platformStreamCreds(env);
+  if (!platform?.ok) {
+    throw new Error('CLOUDFLARE_STREAM_TOKEN / CLOUDFLARE_ACCOUNT_ID not configured');
+  }
+  return { token: platform.token, accountId: platform.accountId };
+}
+
+function assertStreamCtx(streamCtx) {
+  const token = String(streamCtx?.token || '').trim();
+  const accountId = String(streamCtx?.accountId || streamCtx?.account_id || '').trim();
+  if (!token || !accountId) {
+    throw new Error('stream context required (token + accountId)');
+  }
   return { token, accountId };
 }
 
-export async function listStreamVideos(env, { limit = 100 } = {}) {
-  const { token, accountId } = getStreamCredentials(env);
-  const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream?limit=${Math.min(limit, 100)}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  const data = await res.json().catch(() => ({}));
-  if (!data.success) {
-    const msg = data.errors?.[0]?.message || `Stream list HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  return {
-    videos: data.result || [],
-    total: data.result_info?.total_count ?? (data.result || []).length,
-    customerSubdomain: data.result?.[0]?.playback?.hls
-      ? new URL(data.result[0].playback.hls).host
-      : null,
-  };
-}
-
-async function streamApiFetch(env, path, init = {}) {
-  const { token, accountId } = getStreamCredentials(env);
+/**
+ * Low-level Stream REST call using an already-resolved account context.
+ * @param {{ token: string, accountId: string }} streamCtx
+ * @param {string} path — path under /accounts/{accountId}, e.g. `/stream`
+ * @param {RequestInit} [init]
+ */
+export async function streamApiFetch(streamCtx, path, init = {}) {
+  const { token, accountId } = assertStreamCtx(streamCtx);
   const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}${path}`, {
     ...init,
     headers: {
@@ -42,29 +43,55 @@ async function streamApiFetch(env, path, init = {}) {
   const data = await res.json().catch(() => ({}));
   if (!data.success) {
     const msg = data.errors?.[0]?.message || `Stream API HTTP ${res.status}`;
-    throw new Error(msg);
+    const err = new Error(msg);
+    err.status = res.status;
+    err.cfErrors = data.errors || [];
+    throw err;
   }
   return data.result;
 }
 
-export async function resolveStreamDownloadUrl(env, uid, { maxWaitMs = 45_000 } = {}) {
+export async function listStreamVideos(streamCtx, { limit = 100 } = {}) {
+  const { accountId } = assertStreamCtx(streamCtx);
+  const result = await streamApiFetch(
+    streamCtx,
+    `/stream?limit=${Math.min(limit, 100)}`,
+  );
+  const videos = Array.isArray(result) ? result : result?.videos || [];
+  return {
+    videos,
+    total: result?.total || videos.length,
+    accountId,
+    customerSubdomain: videos[0]?.playback?.hls
+      ? (() => {
+          try {
+            return new URL(videos[0].playback.hls).host;
+          } catch {
+            return null;
+          }
+        })()
+      : null,
+  };
+}
+
+export async function resolveStreamDownloadUrl(streamCtx, uid, { maxWaitMs = 45_000 } = {}) {
   const id = String(uid || '').trim();
   if (!id) throw new Error('stream uid required');
 
   const started = Date.now();
   while (Date.now() - started < maxWaitMs) {
-    let downloads = await streamApiFetch(env, `/stream/${id}/downloads`);
+    let downloads = await streamApiFetch(streamCtx, `/stream/${id}/downloads`);
     const def = downloads?.default;
     if (def?.status === 'ready' && def.url) return def.url;
     if (!def || def.status === 'error') {
-      await streamApiFetch(env, `/stream/${id}/downloads`, {
+      await streamApiFetch(streamCtx, `/stream/${id}/downloads`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
     }
     await new Promise((r) => setTimeout(r, 2000));
-    downloads = await streamApiFetch(env, `/stream/${id}/downloads`);
+    downloads = await streamApiFetch(streamCtx, `/stream/${id}/downloads`);
     if (downloads?.default?.status === 'ready' && downloads.default.url) {
       return downloads.default.url;
     }
@@ -73,10 +100,10 @@ export async function resolveStreamDownloadUrl(env, uid, { maxWaitMs = 45_000 } 
 }
 
 /**
- * Copy Stream VOD bytes into ASSETS (inneranimalmedia) and return { bucket, object_key, size_bytes }.
+ * Copy Stream VOD bytes into ASSETS and return { bucket, object_key, size_bytes }.
  */
-export async function importStreamVideoToR2(env, { uid, objectKey, bucketBinding = 'ASSETS' }) {
-  const downloadUrl = await resolveStreamDownloadUrl(env, uid);
+export async function importStreamVideoToR2(env, streamCtx, { uid, objectKey, bucketBinding = 'ASSETS' }) {
+  const downloadUrl = await resolveStreamDownloadUrl(streamCtx, uid);
   const videoRes = await fetch(downloadUrl);
   if (!videoRes.ok) {
     throw new Error(`Stream download fetch failed HTTP ${videoRes.status}`);
@@ -101,25 +128,25 @@ export async function importStreamVideoToR2(env, { uid, objectKey, bucketBinding
   };
 }
 
-export async function getStreamWebhook(env) {
-  return streamApiFetch(env, '/stream/webhook', { method: 'GET' });
+export async function getStreamWebhook(streamCtx) {
+  return streamApiFetch(streamCtx, '/stream/webhook', { method: 'GET' });
 }
 
-export async function putStreamWebhook(env, notificationUrl) {
+export async function putStreamWebhook(streamCtx, notificationUrl) {
   const url = String(notificationUrl || '').trim();
   if (!url) throw new Error('notificationUrl required');
-  return streamApiFetch(env, '/stream/webhook', {
+  return streamApiFetch(streamCtx, '/stream/webhook', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ notificationUrl: url }),
   });
 }
 
-export async function createLiveInput(env, opts = {}) {
+export async function createLiveInput(streamCtx, opts = {}) {
   const name = String(opts.name || 'MovieMode Live').trim();
   const recordingMode = String(opts.recording_mode || 'automatic').trim();
   const meta = opts.meta && typeof opts.meta === 'object' ? opts.meta : { name };
-  return streamApiFetch(env, '/stream/live_inputs', {
+  return streamApiFetch(streamCtx, '/stream/live_inputs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -135,44 +162,34 @@ export async function createLiveInput(env, opts = {}) {
   });
 }
 
-export async function listLiveInputs(env, { limit = 50 } = {}) {
+export async function listLiveInputs(streamCtx, { limit = 50 } = {}) {
   const result = await streamApiFetch(
-    env,
+    streamCtx,
     `/stream/live_inputs?limit=${Math.min(Number(limit) || 50, 100)}`,
   );
   if (Array.isArray(result)) return result;
   return result?.liveInputs || [];
 }
 
-export async function getLiveInput(env, uid) {
+export async function getLiveInput(streamCtx, uid) {
   const id = String(uid || '').trim();
   if (!id) throw new Error('live input uid required');
-  return streamApiFetch(env, `/stream/live_inputs/${id}`);
+  return streamApiFetch(streamCtx, `/stream/live_inputs/${id}`);
 }
 
-export async function deleteLiveInput(env, uid) {
+export async function deleteLiveInput(streamCtx, uid) {
   const id = String(uid || '').trim();
   if (!id) throw new Error('live input uid required');
-  const { token, accountId } = getStreamCredentials(env);
-  const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/live_inputs/${id}`,
-    { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
-  );
-  const data = await res.json().catch(() => ({}));
-  if (!data.success) {
-    const msg = data.errors?.[0]?.message || `Stream delete HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  return data.result;
+  return streamApiFetch(streamCtx, `/stream/live_inputs/${id}`, { method: 'DELETE' });
 }
 
-export async function getStreamVideoDetail(env, uid) {
+export async function getStreamVideoDetail(streamCtx, uid) {
   const id = String(uid || '').trim();
   if (!id) throw new Error('uid required');
-  return streamApiFetch(env, `/stream/${id}`);
+  return streamApiFetch(streamCtx, `/stream/${id}`);
 }
 
-export async function updateStreamVideoDetail(env, uid, patch = {}) {
+export async function updateStreamVideoDetail(streamCtx, uid, patch = {}) {
   const id = String(uid || '').trim();
   if (!id) throw new Error('uid required');
   const body = {};
@@ -182,73 +199,55 @@ export async function updateStreamVideoDetail(env, uid, patch = {}) {
   if (patch.thumbnailTimestampPct !== undefined) {
     body.thumbnailTimestampPct = Number(patch.thumbnailTimestampPct) || 0;
   }
-  return streamApiFetch(env, `/stream/${id}`, {
+  return streamApiFetch(streamCtx, `/stream/${id}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 }
 
-export async function deleteStreamVideo(env, uid) {
+export async function deleteStreamVideo(streamCtx, uid) {
   const id = String(uid || '').trim();
   if (!id) throw new Error('uid required');
-  const { token, accountId } = getStreamCredentials(env);
-  const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${id}`, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!data.success) {
-    const msg = data.errors?.[0]?.message || `Stream delete HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  return data.result ?? { deleted: true };
+  await streamApiFetch(streamCtx, `/stream/${id}`, { method: 'DELETE' });
+  return { deleted: true };
 }
 
-export async function getStreamDownloads(env, uid) {
+export async function getStreamDownloads(streamCtx, uid) {
   const id = String(uid || '').trim();
   if (!id) throw new Error('uid required');
-  return streamApiFetch(env, `/stream/${id}/downloads`);
+  return streamApiFetch(streamCtx, `/stream/${id}/downloads`);
 }
 
-export async function enableStreamDownloads(env, uid) {
+export async function enableStreamDownloads(streamCtx, uid) {
   const id = String(uid || '').trim();
   if (!id) throw new Error('uid required');
-  return streamApiFetch(env, `/stream/${id}/downloads`, {
+  return streamApiFetch(streamCtx, `/stream/${id}/downloads`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
   });
 }
 
-export async function deleteStreamDownloads(env, uid) {
+export async function deleteStreamDownloads(streamCtx, uid) {
   const id = String(uid || '').trim();
   if (!id) throw new Error('uid required');
-  const { token, accountId } = getStreamCredentials(env);
-  const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${id}/downloads`,
-    { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
-  );
-  const data = await res.json().catch(() => ({}));
-  if (!data.success) {
-    const msg = data.errors?.[0]?.message || `Stream downloads delete HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  return data.result ?? { deleted: true };
+  await streamApiFetch(streamCtx, `/stream/${id}/downloads`, { method: 'DELETE' });
+  return { deleted: true };
 }
 
-export async function listStreamCaptions(env, uid) {
+export async function listStreamCaptions(streamCtx, uid) {
   const id = String(uid || '').trim();
   if (!id) throw new Error('uid required');
-  const result = await streamApiFetch(env, `/stream/${id}/captions`);
+  const result = await streamApiFetch(streamCtx, `/stream/${id}/captions`);
   return Array.isArray(result) ? result : result?.captions || [];
 }
 
-export async function putStreamCaption(env, uid, language, vttText) {
+export async function putStreamCaption(streamCtx, uid, language, vttText) {
   const id = String(uid || '').trim();
   const lang = String(language || '').trim();
   if (!id || !lang) throw new Error('uid and language required');
-  const { token, accountId } = getStreamCredentials(env);
+  const { token, accountId } = assertStreamCtx(streamCtx);
   const form = new FormData();
   form.append('file', new Blob([String(vttText || '')], { type: 'text/vtt' }), `${lang}.vtt`);
   const res = await fetch(
@@ -263,30 +262,21 @@ export async function putStreamCaption(env, uid, language, vttText) {
   return data.result;
 }
 
-export async function deleteStreamCaption(env, uid, language) {
+export async function deleteStreamCaption(streamCtx, uid, language) {
   const id = String(uid || '').trim();
   const lang = String(language || '').trim();
   if (!id || !lang) throw new Error('uid and language required');
-  const { token, accountId } = getStreamCredentials(env);
-  const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${id}/captions/${lang}`,
-    { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
-  );
-  const data = await res.json().catch(() => ({}));
-  if (!data.success) {
-    const msg = data.errors?.[0]?.message || `Stream caption delete HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  return data.result ?? { deleted: true };
+  await streamApiFetch(streamCtx, `/stream/${id}/captions/${lang}`, { method: 'DELETE' });
+  return { deleted: true };
 }
 
-export async function copyStreamVideoFromUrl(env, { url, meta, requireSignedURLs } = {}) {
+export async function copyStreamVideoFromUrl(streamCtx, { url, meta, requireSignedURLs } = {}) {
   const src = String(url || '').trim();
   if (!src) throw new Error('url required');
   const body = { url: src };
   if (meta && typeof meta === 'object') body.meta = meta;
   if (requireSignedURLs !== undefined) body.requireSignedURLs = !!requireSignedURLs;
-  return streamApiFetch(env, `/stream/copy`, {
+  return streamApiFetch(streamCtx, `/stream/copy`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -294,17 +284,36 @@ export async function copyStreamVideoFromUrl(env, { url, meta, requireSignedURLs
 }
 
 export async function createStreamDirectUpload(
-  env,
+  streamCtx,
   { maxDurationSeconds = 3600, meta, requireSignedURLs } = {},
 ) {
   const body = { maxDurationSeconds: Number(maxDurationSeconds) || 3600 };
   if (meta && typeof meta === 'object') body.meta = meta;
   if (requireSignedURLs !== undefined) body.requireSignedURLs = !!requireSignedURLs;
-  return streamApiFetch(env, `/stream/direct_upload`, {
+  return streamApiFetch(streamCtx, `/stream/direct_upload`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * Mint a short-lived signed playback token for requireSignedURLs videos.
+ * Never returns the OAuth/API token — only the Stream playback JWT.
+ * @see https://developers.cloudflare.com/stream/viewing-videos/securing-your-stream/
+ */
+export async function createStreamPlaybackToken(streamCtx, uid, { expiresInSeconds = 3600 } = {}) {
+  const id = String(uid || '').trim();
+  if (!id) throw new Error('uid required');
+  const exp = Math.floor(Date.now() / 1000) + Math.max(60, Math.min(86400, Number(expiresInSeconds) || 3600));
+  const result = await streamApiFetch(streamCtx, `/stream/${id}/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ exp }),
+  });
+  const token = String(result?.token || result || '').trim();
+  if (!token) throw new Error('Stream token mint returned empty token');
+  return { token, expires_at: exp };
 }
 
 /** CF Stream watch/embed/manifest URLs — host MUST come from playback HLS, never accountId. */
@@ -329,7 +338,6 @@ export function resolveStreamCustomerHost(videoOrPlayback, accountId) {
       /* fall through */
     }
   }
-  // Optional operator override — accountId is NOT a valid customer subdomain code.
   void accountId;
   return null;
 }
@@ -389,5 +397,166 @@ export function mapStreamVideoRow(v, accountId) {
     created: v.created || null,
     status: v.status?.state || null,
     url_error: urls.url_error,
+    cloudflare_account_id: accountId || null,
   };
+}
+
+/**
+ * Upsert IAM metadata for a Stream asset keyed by cloudflare_account_id + stream_uid.
+ * workspace_id is provenance only (created_from_workspace_id).
+ */
+export async function upsertStreamMediaAsset(env, {
+  streamCtx,
+  video,
+  userId,
+  workspaceId,
+  tenantId,
+  providerStatus,
+} = {}) {
+  if (!env?.DB) return null;
+  const accountId = String(streamCtx?.accountId || '').trim();
+  const uid = String(video?.uid || '').trim();
+  if (!accountId || !uid) return null;
+
+  const status =
+    providerStatus ||
+    (video?.readyToStream ? 'ready' : video?.status?.state) ||
+    'registered';
+  const objectKey = `stream/${accountId}/${uid}`;
+  const bucket = 'cloudflare_stream';
+  const filename = video?.meta?.name || video?.meta?.filename || uid;
+  const contentType = 'video/mp4';
+  const sizeBytes = typeof video?.size === 'number' ? video.size : null;
+  const durationMs =
+    typeof video?.duration === 'number' ? Math.round(video.duration * 1000) : null;
+  const urls = buildStreamWatchUrls(uid, { video, accountId });
+  const assetId = `asset_stream_${uid.slice(0, 16)}`;
+  const ws = String(workspaceId || '').trim() || `cfacct_${accountId.slice(0, 12)}`;
+  const tenant = String(tenantId || '').trim() || 'tenant_unknown';
+  const meta = {
+    provider: 'cloudflare_stream',
+    stream_uid: uid,
+    cloudflare_account_id: accountId,
+    stream_hls_url: urls.hls,
+    stream_watch_url: urls.watch_url,
+    stream_iframe_url: urls.iframe_url,
+  };
+
+  await env.DB.prepare(
+    `INSERT INTO media_assets (
+       id, tenant_id, workspace_id, source_kind, source_uri, bucket, object_key,
+       filename, content_type, media_kind, size_bytes, duration_ms, status,
+       stream_uid, cloudflare_account_id, provider_credential_source,
+       created_by_user_id, created_from_workspace_id, provider_status, metadata_json
+     ) VALUES (?, ?, ?, 'stream', ?, ?, ?, ?, ?, 'video', ?, ?, 'ready', ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(cloudflare_account_id, stream_uid) DO UPDATE SET
+       filename = excluded.filename,
+       size_bytes = COALESCE(excluded.size_bytes, media_assets.size_bytes),
+       duration_ms = COALESCE(excluded.duration_ms, media_assets.duration_ms),
+       provider_status = excluded.provider_status,
+       provider_credential_source = excluded.provider_credential_source,
+       created_from_workspace_id = COALESCE(excluded.created_from_workspace_id, media_assets.created_from_workspace_id),
+       metadata_json = excluded.metadata_json,
+       updated_at = datetime('now')`,
+  )
+    .bind(
+      assetId,
+      tenant,
+      ws,
+      `stream://${uid}`,
+      bucket,
+      objectKey,
+      String(filename).slice(0, 500),
+      contentType,
+      sizeBytes,
+      durationMs,
+      uid,
+      accountId,
+      streamCtx?.source || 'oauth',
+      userId || null,
+      workspaceId || null,
+      String(status).slice(0, 64),
+      JSON.stringify(meta),
+    )
+    .run()
+    .catch(async (e) => {
+      // UNIQUE index may not exist yet — fall back to workspace/bucket/object_key conflict.
+      console.warn('[stream] upsertStreamMediaAsset primary', e?.message ?? e);
+      await env.DB.prepare(
+        `INSERT INTO media_assets (
+           id, tenant_id, workspace_id, source_kind, source_uri, bucket, object_key,
+           filename, content_type, media_kind, size_bytes, duration_ms, status,
+           stream_uid, cloudflare_account_id, provider_credential_source,
+           created_by_user_id, created_from_workspace_id, provider_status, metadata_json
+         ) VALUES (?, ?, ?, 'stream', ?, ?, ?, ?, ?, 'video', ?, ?, 'ready', ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(workspace_id, bucket, object_key) DO UPDATE SET
+           stream_uid = excluded.stream_uid,
+           cloudflare_account_id = excluded.cloudflare_account_id,
+           provider_status = excluded.provider_status,
+           metadata_json = excluded.metadata_json,
+           updated_at = datetime('now')`,
+      )
+        .bind(
+          assetId,
+          tenant,
+          ws,
+          `stream://${uid}`,
+          bucket,
+          objectKey,
+          String(filename).slice(0, 500),
+          contentType,
+          sizeBytes,
+          durationMs,
+          uid,
+          accountId,
+          streamCtx?.source || 'oauth',
+          userId || null,
+          workspaceId || null,
+          String(status).slice(0, 64),
+          JSON.stringify(meta),
+        )
+        .run()
+        .catch((e2) => console.warn('[stream] upsertStreamMediaAsset fallback', e2?.message ?? e2));
+    });
+
+  return { id: assetId, stream_uid: uid, cloudflare_account_id: accountId };
+}
+
+/**
+ * Confirm UID belongs to the resolved Cloudflare account (live CF GET + optional D1 meta).
+ */
+export async function assertStreamUidInAccount(env, streamCtx, uid) {
+  const id = String(uid || '').trim();
+  const accountId = String(streamCtx?.accountId || '').trim();
+  if (!id || !accountId) {
+    const err = new Error('uid and account required');
+    err.status = 400;
+    throw err;
+  }
+
+  if (env?.DB) {
+    const foreign = await env.DB.prepare(
+      `SELECT cloudflare_account_id FROM media_assets
+       WHERE stream_uid = ? AND cloudflare_account_id IS NOT NULL
+         AND cloudflare_account_id != ?
+       LIMIT 1`,
+    )
+      .bind(id, accountId)
+      .first()
+      .catch(() => null);
+    if (foreign?.cloudflare_account_id) {
+      const err = new Error('stream_uid_account_mismatch');
+      err.status = 403;
+      throw err;
+    }
+  }
+
+  try {
+    return await getStreamVideoDetail(streamCtx, id);
+  } catch (e) {
+    const status = Number(e?.status) || 404;
+    const err = new Error(status === 404 ? 'stream_video_not_in_account' : String(e?.message || e));
+    err.status = status === 401 || status === 403 ? status : 404;
+    throw err;
+  }
 }

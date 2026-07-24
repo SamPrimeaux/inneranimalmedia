@@ -4,7 +4,7 @@
  */
 import { resolveMoviemodeKv } from './moviemode-kv.js';
 import { resolveVeoArtifactUserId } from './moviemode-persistence.js';
-import { buildStreamWatchUrls, copyStreamVideoFromUrl, getStreamCredentials } from './stream-api.js';
+import { buildStreamWatchUrls, copyStreamVideoFromUrl } from './stream-api.js';
 
 export { resolveVeoArtifactUserId };
 
@@ -85,24 +85,48 @@ function normalizeDestination(raw) {
 
 /**
  * Optional Stream ingest after local finalize. Never required for local destination.
- * @returns {Promise<{ stream_uid?: string, watch_url?: string|null, hls?: string|null, error?: string }>}
+ * Uses customer BYOK Stream context when userId/workspaceId are available.
  */
-async function maybeIngestToStream(env, { destination, publicUrl, name, requireStream }) {
+async function maybeIngestToStream(env, {
+  destination,
+  publicUrl,
+  name,
+  requireStream,
+  userId,
+  workspaceId,
+}) {
   const dest = normalizeDestination(destination);
   if (dest !== 'stream') return {};
-  try {
-    getStreamCredentials(env);
-  } catch (e) {
-    const msg = String(e?.message || e);
-    if (requireStream) throw new Error(`Stream destination requested but not configured: ${msg}`);
-    return { error: msg };
+
+  const { resolveCfStreamContext } = await import('./cf-oauth-stream.js');
+  const { isPlatformOperator, resolveOperatorAuthUserRow } = await import('./operator-identity.js');
+  let allowPlatformFallback = false;
+  if (userId) {
+    try {
+      const opRow = await resolveOperatorAuthUserRow(env, { id: userId });
+      allowPlatformFallback = await isPlatformOperator(env, opRow);
+    } catch {
+      allowPlatformFallback = false;
+    }
   }
+  const streamCtx = await resolveCfStreamContext(env, {
+    userId,
+    workspaceId,
+    requireWrite: true,
+    allowPlatformFallback,
+  });
+  if (!streamCtx.ok) {
+    const msg = streamCtx.message || streamCtx.error || 'Stream not connected';
+    if (requireStream) throw new Error(`Stream destination requested but unavailable: ${msg}`);
+    return { error: msg, reconnect_required: !!streamCtx.reconnectRequired };
+  }
+
   if (!publicUrl) {
     const msg = 'playable URL required for Stream copy';
     if (requireStream) throw new Error(msg);
     return { error: msg };
   }
-  const result = await copyStreamVideoFromUrl(env, {
+  const result = await copyStreamVideoFromUrl(streamCtx, {
     url: publicUrl,
     meta: { name: String(name || 'Veo video').slice(0, 120) },
   });
@@ -112,72 +136,67 @@ async function maybeIngestToStream(env, { destination, publicUrl, name, requireS
     if (requireStream) throw new Error(msg);
     return { error: msg };
   }
-  const urls = buildStreamWatchUrls(uid, { video: result });
+  const urls = buildStreamWatchUrls(uid, { video: result, accountId: streamCtx.accountId });
+  try {
+    const { upsertStreamMediaAsset } = await import('./stream-api.js');
+    await upsertStreamMediaAsset(env, {
+      streamCtx,
+      video: result,
+      userId,
+      workspaceId,
+      providerStatus: result?.status?.state || 'queued',
+    });
+  } catch {
+    /* best-effort registry */
+  }
   return {
     stream_uid: uid,
     watch_url: urls.watch_url || null,
     hls: urls.hls || result?.playback?.hls || null,
     iframe_url: urls.iframe_url || null,
     thumbnail: urls.thumbnail || null,
+    cloudflare_account_id: streamCtx.accountId,
+    credential_source: streamCtx.source,
   };
 }
 
-async function persistStreamUidOnAsset(env, { assetId, workspaceId, stream }) {
+async function persistStreamUidOnAsset(env, { assetId, workspaceId, stream, userId }) {
   if (!env?.DB || !assetId || !stream?.stream_uid) return;
   const metaPatch = {
     stream_uid: stream.stream_uid,
     stream_hls_url: stream.hls || null,
     stream_watch_url: stream.watch_url || null,
     stream_iframe_url: stream.iframe_url || null,
+    cloudflare_account_id: stream.cloudflare_account_id || null,
+    credential_source: stream.credential_source || null,
   };
   await env.DB.prepare(
     `UPDATE media_assets
      SET source_kind = 'stream',
          source_uri = ?,
-         metadata_json = json_patch(COALESCE(NULLIF(metadata_json, ''), '{}'), ?),
+         stream_uid = ?,
+         cloudflare_account_id = COALESCE(?, cloudflare_account_id),
+         provider_credential_source = COALESCE(?, provider_credential_source),
+         created_by_user_id = COALESCE(created_by_user_id, ?),
+         created_from_workspace_id = COALESCE(created_from_workspace_id, ?),
+         provider_status = 'ready',
+         metadata_json = ?,
          status = 'ready',
          updated_at = datetime('now')
-     WHERE id = ? AND workspace_id = ?`,
+     WHERE id = ?`,
   )
     .bind(
       `stream://${stream.stream_uid}`,
+      stream.stream_uid,
+      stream.cloudflare_account_id || null,
+      stream.credential_source || null,
+      userId || null,
+      workspaceId || null,
       JSON.stringify(metaPatch),
       assetId,
-      workspaceId,
     )
     .run()
-    .catch(async () => {
-      // json_patch may be unavailable — fall back to overwrite merge via read.
-      const row = await env.DB.prepare(
-        `SELECT metadata_json FROM media_assets WHERE id = ? AND workspace_id = ? LIMIT 1`,
-      )
-        .bind(assetId, workspaceId)
-        .first()
-        .catch(() => null);
-      let prev = {};
-      try {
-        prev = JSON.parse(row?.metadata_json || '{}');
-      } catch {
-        prev = {};
-      }
-      await env.DB.prepare(
-        `UPDATE media_assets
-         SET source_kind = 'stream',
-             source_uri = ?,
-             metadata_json = ?,
-             status = 'ready',
-             updated_at = datetime('now')
-         WHERE id = ? AND workspace_id = ?`,
-      )
-        .bind(
-          `stream://${stream.stream_uid}`,
-          JSON.stringify({ ...prev, ...metaPatch }),
-          assetId,
-          workspaceId,
-        )
-        .run()
-        .catch((e) => console.warn('[veo-poll] stream_uid persist', e?.message ?? e));
-    });
+    .catch((e) => console.warn('[veo-poll] stream_uid persist', e?.message ?? e));
 }
 
 /**
@@ -247,6 +266,8 @@ async function finalizeVeoRow(env, row, op, input) {
       publicUrl: finalized.public_url,
       name: filename,
       requireStream,
+      userId,
+      workspaceId: String(row.workspace_id),
     });
   } catch (e) {
     // Local artifact already persisted — mark job failed only when Stream was required.
@@ -276,6 +297,7 @@ async function finalizeVeoRow(env, row, op, input) {
       assetId: finalized.asset_id,
       workspaceId: String(row.workspace_id),
       stream,
+      userId,
     });
   }
 

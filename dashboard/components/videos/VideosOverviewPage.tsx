@@ -6,9 +6,11 @@ import { VideosUsageSidebar } from './VideosUsageSidebar';
 import {
   copyStreamFromUrl,
   createStreamDirectUpload,
+  fetchStreamCapabilities,
   fetchVideosOverview,
   formatDuration,
   useVideosToast,
+  type StreamCapabilities,
   type VideosListRow,
 } from './videosApi';
 import {
@@ -80,6 +82,7 @@ export function VideosOverviewPage() {
   const [rows, setRows] = useState<VideosListRow[]>([]);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [customerSubdomain, setCustomerSubdomain] = useState<string | null>(null);
+  const [capabilities, setCapabilities] = useState<StreamCapabilities | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -93,12 +96,20 @@ export function VideosOverviewPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetchVideosOverview(source, workspaceId);
+      const [res, caps] = await Promise.all([
+        fetchVideosOverview(source, workspaceId),
+        fetchStreamCapabilities(),
+      ]);
+      setCapabilities(caps);
       setRows(res.rows);
       if (res.account_id) setAccountId(res.account_id);
+      else if (caps.account_id) setAccountId(caps.account_id);
       if (res.customer_subdomain) setCustomerSubdomain(res.customer_subdomain);
       if (res.error && !res.rows.length) setError(res.error);
       else if (res.error) toast(res.error, 'err');
+      if (caps.reconnect_required) {
+        toast(caps.message || 'Reconnect Cloudflare to enable Stream', 'err');
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Network error');
       setRows([]);
@@ -494,6 +505,7 @@ export function VideosOverviewPage() {
           videosStored={rows.filter((r) => r.source === 'stream').length || rows.length}
           accountId={accountId}
           customerSubdomain={customerSubdomain}
+          capabilities={capabilities}
           onCopy={(msg, type) => toast(msg, type)}
         />
       </div>

@@ -288,8 +288,35 @@ export async function handleVeoGenerate(env, params) {
 
   if (destination === 'stream') {
     try {
-      const { getStreamCredentials } = await import('../../core/stream-api.js');
-      getStreamCredentials(env);
+      const { resolveCfStreamContext } = await import('../../core/cf-oauth-stream.js');
+      const { isPlatformOperator, resolveOperatorAuthUserRow } = await import(
+        '../../core/operator-identity.js'
+      );
+      let allowPlatformFallback = false;
+      if (userId) {
+        try {
+          const opRow = await resolveOperatorAuthUserRow(env, { id: userId });
+          allowPlatformFallback = await isPlatformOperator(env, opRow);
+        } catch {
+          allowPlatformFallback = false;
+        }
+      }
+      const streamCtx = await resolveCfStreamContext(env, {
+        userId,
+        workspaceId,
+        requireWrite: true,
+        allowPlatformFallback,
+      });
+      if (!streamCtx.ok) {
+        return {
+          ok: false,
+          error: `destination=stream requires Stream: ${streamCtx.message || streamCtx.error}`,
+          destination,
+          reconnect_required: !!streamCtx.reconnectRequired,
+          account_selection_required: streamCtx.error === 'cloudflare_account_selection_required',
+          accounts: streamCtx.accounts || undefined,
+        };
+      }
     } catch (e) {
       return {
         ok: false,
